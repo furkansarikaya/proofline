@@ -144,9 +144,8 @@ How the lead works with sub-agents. Later releases cite this section.
 
 - Agents run only `sh tests/affected.sh` locally. The full self-test is CI's job, and a pull request is merged
   when CI is green.
-- The Core invariants suite, the equivalence rig, the Node tests and the static checks are never skipped, not even by the CI fast mode below.
-- A moved command has a process-count budget (`tests/bench/process-budgets.tsv`) and an output budget (`tests/bench/output-budgets.tsv`); raise one only with a decision that says why.
-- The equivalence job runs sharded: a pull request replays a representative set of commands on four light states plus the acceptance tests, and the nightly and manual runs replay everything (A209).
+- The Core invariants suite, the Node tests and the static checks are never skipped, not even by the CI fast mode below.
+- The Node hook has a process-count budget per event (`tests/bench/hook-budgets.tsv`); raise one only with a decision that says why. The commands of the Node core are tested by absolute golden recordings (`tests/fixtures/port-t3`, `tests/core/golden`), not by comparison with a shell engine (A210).
 - Tests run quiet: they print failures and one summary line.
 - A new validator gets one valid example and one or two invalid examples.
 - No test calls a model and there is no end-to-end test in CI.

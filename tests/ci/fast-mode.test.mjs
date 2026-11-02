@@ -28,7 +28,7 @@ describe('decide', () => {
     assert.deepEqual([d.ok, d.fast], [true, true]);
     assert.match(d.notice, /^FAST MODE \(temporary, no date: ends when the last legacy shell test is deleted, owner someone\)/);
     assert.match(d.notice, /SKIPPED/);
-    assert.match(d.notice, /Invariants, equivalence, the Node tests and the static checks still ran/);
+    assert.match(d.notice, /Invariants, the Node tests and the static checks still ran/);
     assert.ok(!d.notice.includes('\n'));
   });
   test('push to main, schedule and workflow_dispatch always run everything', () => {
@@ -170,11 +170,9 @@ describe('ci.yml wiring', () => {
     assert.match(co, /^\/\.github\/ @furkansarikaya$/m);
     assert.match(co, /^\/tests\/ci\/ @furkansarikaya$/m);
   });
-  test('node --test gets globs, never a bare directory, in the jobs of this stage; the equivalence job has full history', () => {
-    assert.match(job('equivalence'), /run: node --test "tests\/equivalence\/\*\.test\.mjs"/);
-    assert.match(job('equivalence'), /actions\/checkout@v4\n\s+with:\n\s+fetch-depth: 0/);
+  test('node --test gets globs, never a bare directory, in the jobs of this stage', () => {
     assert.match(job('node-tests'), /node --test "tests\/ci\/\*\.test\.mjs" "tests\/enforcement\/\*\.test\.mjs" "tests\/core\/\*\.test\.mjs"/);
-    for (const n of ['equivalence', 'node-tests', 'types']) assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(job(n)), n);
+    for (const n of ['node-tests', 'types']) assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(job(n)), n);
   });
   test('the heavy legacy jobs and the skill tests step are skipped by fast mode', () => {
     assert.match(job('selftest'), /needs\.changes\.outputs\.fast != 'true'/);
@@ -183,8 +181,8 @@ describe('ci.yml wiring', () => {
     assert.ok(skill);
     assert.match(skill[1], /needs\.changes\.outputs\.fast != 'true'/);
   });
-  test('invariants, equivalence, the Node tests, the type check and the static checks never read the fast output', () => {
-    for (const n of ['invariants', 'equivalence', 'node-tests', 'types']) assert.ok(!/outputs\.fast/.test(job(n)), n);
+  test('invariants, the Node tests, the type check and the static checks never read the fast output', () => {
+    for (const n of ['invariants', 'node-tests', 'types']) assert.ok(!/outputs\.fast/.test(job(n)), n);
     const staticJob = job('static');
     const refs = staticJob.match(/^.*outputs\.fast.*$/gm) ?? [];
     assert.equal(refs.length, 1, 'only the skill tests step of the static job reads it');
@@ -192,7 +190,7 @@ describe('ci.yml wiring', () => {
   });
   test('the checks job needs the new jobs and prints the notice in its summary', () => {
     const j = job('checks');
-    for (const n of ['equivalence', 'node-tests', 'types']) assert.match(j, new RegExp(`needs: \\[[^\\]]*\\b${n}\\b`), n);
+    for (const n of ['node-tests', 'types']) assert.match(j, new RegExp(`needs: \\[[^\\]]*\\b${n}\\b`), n);
     assert.match(j, /GITHUB_STEP_SUMMARY/);
     assert.match(j, /needs\.changes\.outputs\.notice/);
   });

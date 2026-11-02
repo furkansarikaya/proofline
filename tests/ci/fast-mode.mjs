@@ -52,7 +52,7 @@ export function decide({ event, text, changed = [] }) {
   for (const k of REQUIRED) if (!kv[k]) errors.push(`fast-mode file: "${k}" is missing or empty`);
   if (errors.length) return { ok: false, fast: false, notice: '', errors };
   if (event !== 'pull_request') return { ok: true, fast: false, notice: '', errors: [] };
-  const notice = `FAST MODE (temporary, no date: ends when the last legacy shell test is deleted, owner ${kv.owner}): the legacy self-test shards, the fixtures job and the skill tests step are SKIPPED on this pull request. Invariants, equivalence, the Node tests and the static checks still ran. Reason: ${kv.reason}. Removal: ${kv.removal}.`;
+  const notice = `FAST MODE (temporary, no date: ends when the last legacy shell test is deleted, owner ${kv.owner}): the legacy self-test shards, the fixtures job and the skill tests step are SKIPPED on this pull request. Invariants, the Node tests and the static checks still ran. Reason: ${kv.reason}. Removal: ${kv.removal}.`;
   return { ok: true, fast: true, notice, errors: [] };
 }
 

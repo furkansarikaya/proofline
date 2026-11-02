@@ -96,8 +96,6 @@ test('node present: the three PreToolUse strings run the hook; an unparsable inp
 
 // The strings of 0.0.40 to 0.0.42 (identical in the three releases), which a rollback `upgrade` adds beside the new ones.
 
-/** @param {string} dir @param {string} file @param {string[]} commands */
-
 
 // ---- the git hook launchers ---------------------------------------------------------------------------------------------------------------
 function repoWithHooks(/** @type {string} */ config = '') {

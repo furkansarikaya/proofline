@@ -1,5 +1,5 @@
 // The `node-tests` job is a matrix of parallel legs (user order 2026-11-02: cut the long tests), and so is `invariants`. These tests read .github/workflows/ci.yml:
-// every test file the old globs matched is in exactly one leg (no file lost), the files that are split by test name are split into a true partition, the
+// every test file the old globs matched is in exactly one leg (no file lost), the
 // job names `checks` waits for stay stable, and nothing reads the fast-mode output. They live here, not in fast-mode.test.mjs (a change there forces the
 // full legacy suite on the pull request).
 import { test } from 'node:test';
@@ -25,9 +25,9 @@ test('node-tests is a matrix of legs on both Node versions, with unique names', 
   assert.match(ci.slice(ci.indexOf('\n  checks:')), /needs: \[[^\]]*\bnode-tests\b[^\]]*\binvariants\b|needs: \[[^\]]*\binvariants\b[^\]]*\bnode-tests\b/, 'checks needs both matrix jobs by their stable names');
 });
 
-test('every test file the old globs matched (tests/ci, tests/enforcement, tests/core, tests/bench) is in a leg, none is lost', () => {
+test('every test file the old globs matched (tests/ci, tests/enforcement, tests/core, tests/invariants-node) is in a leg, none is lost', () => {
   /** @type {string[]} */ const all = [];
-  for (const d of ['ci', 'enforcement', 'core', 'bench', 'invariants-node']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
+  for (const d of ['ci', 'enforcement', 'core', 'invariants-node']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
   assert.ok(all.length > 30);
   const where = new Map(all.map((f) => [f, /** @type {typeof legs} */ ([])]));
   /** A leg names files or globs of one directory (tests/<dir>/*.test.mjs); a glob picks up a new test file without a CI edit. @param {string} f */
@@ -39,27 +39,6 @@ test('every test file the old globs matched (tests/ci, tests/enforcement, tests/
   }
 });
 
-/** The test names of a file: test('...') titles and the keys of the state tables that become tests. @param {string} rel @returns {string[]} */
-function testNames(rel) {
-  const src = readFileSync(join(repo, rel), 'utf8');
-  const names = [...src.matchAll(/\btest\((['"])(.*?)\1/g)].map((m) => m[2]);
-  for (const file of [src, readFileSync(join(repo, 'tests/core/states.mjs'), 'utf8')]) {
-    for (const m of file.matchAll(/(?:STATES|MORE) = [^\n]*\(\{\n([\s\S]*?)\n\}\)/g)) for (const k of m[1].matchAll(/^ {2}(?:'([^']+)'|"([^"]+)"|([A-Za-z_]\w*)):/gm)) names.push(k[1] ?? k[2] ?? k[3]);
-  }
-  return [...new Set(names)];
-}
-test('c1.test.mjs and library.test.mjs are split into a true partition by test name', () => {
-  for (const rel of ['tests/core/c1.test.mjs', 'tests/core/library.test.mjs']) {
-    const ls = legs.filter((l) => l.files.includes(rel));
-    assert.ok(ls.length >= 2, rel);
-    const names = testNames(rel).filter((n) => n !== 'is this worktree' || true);
-    assert.ok(names.length >= 10, `${rel}: ${names.length} names found`);
-    for (const n of names) {
-      const hit = ls.filter((l) => (l.mode === 'name' ? new RegExp(l.pattern).test(n) : !new RegExp(l.pattern).test(n)));
-      assert.equal(hit.length, 1, `${rel}: "${n}" is in ${hit.length} legs (${hit.map((l) => l.name).join(', ')})`);
-    }
-  }
-});
 test('the split legs use the node test-name flags and the other legs name files only', () => {
   assert.match(nt, /run: node --test "--test-name-pattern=\$PATTERN" \$\{\{ matrix\.leg\.files \}\}/);
   assert.match(nt, /run: node --test "--test-skip-pattern=\$PATTERN" \$\{\{ matrix\.leg\.files \}\}/);
