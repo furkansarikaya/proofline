@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.45 — 2026-11-02
+
 - Node migration, direction change (A210, issues #165, #182, #186, #187): a migration of the same behaviour to one language, not a redesign. Removed: the engine switch (`.agents/local/engine`, `PROOFLINE_ENGINE`, `PROOFLINE_ENGINE_SH`), the equivalence rig (`tests/equivalence`, the CI jobs `equivalence` and `equivalence-macos`), the shell hook `proofline-hook.sh` with the released copies in `tests/legacy-hook` and `tests/legacy-githooks`, `next-user.sh`, the shell forms of `insights` and `queue`, the 0.0.40 to 0.0.42 wiring support and every fallback to the shell for a moved command. There is no backward compatibility: nobody uses the old versions.
 - The Node core answers an unknown command and the bare call with the usage text (exit 2); an input the shell answered with its own error text now fails in Node (`proofline: input not supported (...)`); `plan-section` reads its section name as a basic regular expression; `tm-scaled` clamps a negative number; `proofline insights`, `queue` and the `Next step:` line (`cli next-line`) run in Node only; `doctor` probes the Node hook.
 - Tests: the behaviour of every moved area is proved by absolute Node tests (recorded goldens `tests/fixtures/port-t3`, `tests/core/golden`, `tests/enforcement/recorded`, ports of the shell scenarios); the tests that compared Node with the shell and the shell-engine benchmark tooling are deleted; the shell `kill-guard-test.sh` and `next-user-test.sh` are gone. The CI fast mode has no date (ends when the last legacy shell test is gone). The stage plan is re-planned (stages 4 to 9, `docs/adr/0001-stages.md`).
