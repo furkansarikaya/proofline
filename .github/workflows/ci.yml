@@ -4,10 +4,10 @@ name: ci
 # run only on the nightly schedule and manual runs. A pull request that changes only plain documentation skips the heavy test
 # jobs (tests/ci/classify.sh) but still runs shellcheck and the sync checks. The `checks` job always reports.
 # Node migration (docs/adr/0001-node-control-plane.md): `node-tests` (the Node tests of tests/core, tests/ci, tests/enforcement and tests/invariants-node on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates. TEMPORARY FAST MODE: while
-# tests/enforcement on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates. TEMPORARY FAST MODE: while
-# tests/ci/fast-mode.txt exists and has not expired, a pull request skips the legacy self-test shards, the fixtures job and the skill tests
-# step (tests/ci/fast-mode.mjs, read by `changes`); it never skips invariants, node-tests, types or static. After the expiry
-# date `changes` fails while the file exists.
+# tests/ci/fast-mode.txt exists, a pull request skips the legacy self-test shards, the fixtures job and the skill tests
+# step (tests/ci/fast-mode.mjs, read by `changes`); it never skips invariants, node-tests, types or static. It has no expiry
+# date: it ends in the stage in which the legacy shell tests are completely gone (A210). The nightly run keeps the full suite.
+on:
   push:
     branches: [main]
   pull_request:
