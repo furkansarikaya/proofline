@@ -4,7 +4,7 @@
 //   the order of `agent.sh next` along the lifecycle (proofline-lead.test.mjs: classify, branch, baseline)  tests/core/golden/next-order.txt
 // Both engines must produce the recorded text. Until the Node engine has a risk_words_match the golden runs against the shell only; as soon as a
 // core module exports `riskWordsMatch(re, words, stdinText)` (true when the shell function would exit 0) that function is held to the same file.
-// `next` goes through agent.sh: the default engine is the Node core once `next` is a moved command and the shell before that, PROOFLINE_ENGINE=sh is the shell.
+// `next` goes through agent.sh, which runs the Node core (A210: there is no engine switch).
 // Re-record with `node tests/core/golden/record.mjs` only for a reviewed change of the shell specification (stage 10 removes the shell leg).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -12,8 +12,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { baseEnv } from '../equivalence/fixture.mjs';
-import { stateFixture } from '../equivalence/cases/stage2-fixtures.mjs';
+import { baseEnv } from './lib/fixture.mjs';
+import { stateFixture } from './lib/stage2-fixtures.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { makeProject, memoryIo, repo, scriptsDir } from './helpers.mjs';
 import { NEXT_STATES, shellRiskWordsMatch } from './golden/record.mjs';
@@ -88,7 +88,7 @@ describe('next output order golden', () => {
     test(`agent.sh next prints the recorded text in every state (${engine} engine)`, () => {
       for (const [state, g] of sections) {
         const dir = (state === 'no run' ? stateFixture('empty') : stateFixture(state)).dir;
-        const r = spawnSync('sh', ['./.agents/scripts/agent.sh', ...g.cmd], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, engine === 'sh' ? { PROOFLINE_ENGINE: 'sh' } : {}) });
+        const r = spawnSync('sh', ['./.agents/scripts/agent.sh', ...g.cmd], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, {}) });
         assert.equal(r.status, g.exit, `${state}: exit code`);
         assert.equal(r.stdout, g.out, `${state}: stdout`);
       }

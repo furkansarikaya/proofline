@@ -2,7 +2,7 @@
 // Readers of a task file, a plan and a run folder for the leaf commands (task-type, task-scope-entries, scope-covers, human-checks,
 // questions). Each function is the awk or shell program of agent.sh, line for line; text is a byte string.
 import { readFileSync } from 'node:fs';
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 import { asciiLower, caseMatch, trimSpace } from './shellglob.mjs';
 
 /** The lines of a file as awk reads records (a last line without a newline is a record). @param {string} text */
@@ -46,8 +46,8 @@ export function taskType(text) {
  * @param {string} text @param {string} heading
  */
 export function sectionLines(text, heading) {
-  if (heading === '') throw new BridgeToShell('empty heading: index() of an empty string differs between awks');
-  if (heading.includes('\\')) throw new BridgeToShell('awk -v reads backslash escapes');
+  if (heading === '') throw unsupported('empty heading: index() of an empty string differs between awks');
+  if (heading.includes('\\')) throw unsupported('awk -v reads backslash escapes');
   const want = asciiLower(heading);
   let inc = false; let on = false;
   /** @type {string[]} */ const out = [];
@@ -114,7 +114,7 @@ export function scopeEntries(text, heading) {
 
 /** `norm_rel_path` for one line: no `.` segments or doubled slashes, `..` resolved lexically. @param {string} p */
 export function normRelPath(p) {
-  if (p.includes('\n')) throw new BridgeToShell('newline in a path');
+  if (p.includes('\n')) throw unsupported('newline in a path');
   /** @type {string[]} */ const s = [];
   for (const a of p.split('/')) {
     if (a === '' || a === '.') continue;

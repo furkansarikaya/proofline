@@ -14,7 +14,7 @@ enforced by proofline hooks and gates. Dispatched workers retain `workspace-writ
 | Layer | Where | Works with |
 |---|---|---|
 | Control plane | `.agents/scripts/agent.sh`, `dispatch.sh`, git hooks in `.agents/githooks/` (`core.hooksPath`) | every runtime, humans |
-| Runtime hook | `adapters/claude/hooks/proofline-hook.sh` (installed as `.agents/hooks/proofline-hook.sh`), wired by `adapters/claude/hooks/hooks.json` (plugin), `adapters/claude/settings.fragment.json` (project `.claude/settings.json`), `adapters/codex/hooks.json` (project `.codex/hooks.json`) | Claude Code, Codex |
+| Runtime hook | `adapters/claude/hooks/proofline-hook.mjs` (installed as `.agents/hooks/proofline-hook.mjs`), wired by `adapters/claude/hooks/hooks.json` (plugin), `adapters/claude/settings.fragment.json` (project `.claude/settings.json`), `adapters/codex/hooks.json` (project `.codex/hooks.json`) | Claude Code, Codex |
 | Policy | role instructions, `AGENTS.md`, the proofline-lead skill | — |
 
 The HTTP-client check (curl, wget, http, xh) is method-blind by design: it matches the merge and completion path shapes (`/pulls/<n>/merge`, `/merge_requests/<n>/merge`, `/pullrequests/<n>`, `state_event`) on any host, so even a GET on them is denied.
@@ -39,7 +39,7 @@ The HTTP-client check (curl, wget, http, xh) is method-blind by design: it match
 Hook behaviour: JSON is read with `jq`, else `node`. Unparsable input while a run is active denies the tool
 call (fail closed); with no active run every check except the git-bypass rules passes (fail open). Without
 `.agents/config.yaml` the hook does nothing. The wiring (`settings.fragment.json`, `.codex/hooks.json`)
-denies PreToolUse with exit 2 when `.agents/config.yaml` exists but `.agents/hooks/proofline-hook.sh` is
+denies PreToolUse with exit 2 when `.agents/config.yaml` exists but `.agents/hooks/proofline-hook.mjs` is
 missing. The Bash scan is a tokenizer heuristic (quotes removed, heredoc bodies skipped; writes:
 redirections, `tee`, `sed -i`, `perl -i`, `cp`/`mv`/`install`/`rsync`/`ln` targets and `-t`, `mv` sources,
 `touch`/`rm`/`truncate`/`unlink`/`rmdir`/`shred`, `chmod`/`chown`/`chgrp`, `dd of=`); the authoritative check
@@ -49,19 +49,19 @@ Two hook layers (plugin + project install) record a subagent result once (`recor
 Codex: project hooks load only when the project is trusted (`[projects."<abs>"] trust_level = "trusted"`)
 and the hooks were reviewed with `/hooks`; headless runs need `--dangerously-bypass-hook-trust`. Hook
 commands run in the session cwd, so `.codex/hooks.json` resolves the project root (`git rev-parse
---show-toplevel`, else `$PWD`) before calling `.agents/hooks/proofline-hook.sh`; a session started in a
+--show-toplevel`, else `$PWD`) before calling `.agents/hooks/proofline-hook.mjs`; a session started in a
 subdirectory is enforced the same way. Claude-only input: `agent_id`/`agent_type` on PreToolUse
 (how a subagent is told apart from the lead). Under a Codex lead, specialists run as `codex exec`
 processes started by `dispatch.sh`, which sets `AGENT_ROLE` in their environment; that, not `agent_id`, is
 what the hook uses there.
 
-## Engine switch and doctor (A205)
+## Node commands and doctor
 
-Ten commands (`role`, `config-get`, `config-check`, `timeouts`, `hook-timeouts`, `verify-timeout`, `tm-scaled`, `db-config`, `hook-config`, `help`) run in Node; the rest still run the shell code. To run the shell code instead, write `sh` (every moved command) or `sh:cmd,cmd` (the named ones) into `.agents/local/engine`, or set `PROOFLINE_ENGINE=sh` / `PROOFLINE_ENGINE_SH=cmd,cmd`; any one of them forcing `sh` wins. `proofline doctor` prints one `engine:` line (PASS with no switch, WARN with the switch and its source) and FAILs when the core file is missing and WARNs for Node older than 22.13. A hook that needs Node denies when it is missing. The 41 commands that stage 2 moved (A206) follow the same switch (`sh:<command>`).
+The moved commands always run in Node; there is no engine switch (A210). `proofline doctor` prints one `engine:` line (PASS when the core is installed, FAIL when the core file is missing) and WARNs for Node older than 22.13. A hook that needs Node denies when it is missing.
 
 ## The Node hook (A207)
 
-The runtime hook is one Node process per event: `.agents/hooks/proofline-hook.mjs` with its `events/` and `guards/` (the Bash command scanner is `command-scan.mjs`). The three wiring files (`adapters/claude/hooks/hooks.json`, `adapters/claude/settings.fragment.json` and `adapters/codex/hooks.json`) start it with `node`; a failed node start in PreToolUse exits 2, so the call is denied. An install replaces the old `sh -c` wiring strings, and the Node hook yields while one is still present (only for the exact old string of the same event, with its hook file present). `proofline doctor` checks all 7 hook events. Rollback: `sh` in `.agents/local/engine` (or `PROOFLINE_ENGINE=sh`) makes the installed hook run the old shell hook; the git hooks are one-line launchers and cannot branch on it. The hook runs the project's own core with only the worktree's data (it falls back to `sh agent.sh` only for a byte-identical script tree), yields to an old wiring only on an exact old string, ignores an approval capture dated in the future or of another session, and denies a command over 256 KB or past its time budget while a run exists. A worktree's own shell scripts run only when its `.agents/scripts` equals the project's (otherwise status 126). The lead's `next` retry only reports a missed approval, `answer --captured` is refused outside the hook, and a typed answer is recorded as `answered_by: lead`; an answer only the user may give cannot be recorded under the Node engine, so the gate stays blocking. The CI job `hook-node` gates it on every pull request.
+The runtime hook is one Node process per event: `.agents/hooks/proofline-hook.mjs` with its `events/` and `guards/` (the Bash command scanner is `command-scan.mjs`). The three wiring files (`adapters/claude/hooks/hooks.json`, `adapters/claude/settings.fragment.json` and `adapters/codex/hooks.json`) start it with `node`; a failed node start in PreToolUse exits 2, so the call is denied. The plugin's hook yields when the project's own settings wire the same event with the project's Node hook (A210: the old `sh -c` wiring is no longer recognised). `proofline doctor` checks all 7 hook events. The git hooks are one-line launchers. The hook runs the project's own core with only the worktree's data (it falls back to `sh agent.sh` only for a byte-identical script tree), ignores an approval capture dated in the future or of another session, and denies a command over 256 KB or past its time budget while a run exists. A worktree's own shell scripts run only when its `.agents/scripts` equals the project's (otherwise status 126). The lead's `next` retry only reports a missed approval, `answer --captured` is refused outside the hook, and a typed answer is recorded as `answered_by: lead`; an answer only the user may give cannot be recorded in Node, so the gate stays blocking. The CI job `hook-node` gates it on every pull request.
 
 ## Process rules
 

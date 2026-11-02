@@ -60,7 +60,7 @@ expect_break 'a big text in an agent file' role.implementer.agent adapters/claud
 expect_break 'a big text in the first skill of a role' role.explorer.skill skills/evidence-map/SKILL.md
 # the SessionStart text: grow the quoted template in the hook
 C=$T/copy-hook; copy "$C"
-sed 's/^\(  ctx SessionStart "proofline installed; \)/\1'"$(big 4000)"' /' "$C/adapters/claude/hooks/proofline-hook.sh" > "$C/h" && cat "$C/h" > "$C/adapters/claude/hooks/proofline-hook.sh"
+sed 's/^\(  const head = `proofline installed; \)/\1'"$(big 4000)"' /' "$C/adapters/claude/hooks/events/session.mjs" > "$C/h" && cat "$C/h" > "$C/adapters/claude/hooks/events/session.mjs"
 out=$(sh "$SZ" repo "$C" check "$BUDGET" 2>&1); rc=$?
 if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q 'FAIL session_start:'; then ok 'a big SessionStart text: the budget test breaks'; else bad "session text: rc=$rc out=$out"; fi
 

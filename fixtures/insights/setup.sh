@@ -5,6 +5,7 @@
 set -eu
 [ $# -eq 1 ] || { echo "usage: sh setup.sh <target-dir>" >&2; exit 2; }
 if [ -e "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ]; then echo "error: target directory is not empty: $1" >&2; exit 1; fi
+fx_scripts=$(CDPATH='' cd "$(dirname "$0")/../../control-plane/agents/scripts" && pwd)
 mkdir -p "$1"; cd "$1"
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=Fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 GIT_COMMITTER_NAME=Fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
@@ -12,8 +13,10 @@ export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GI
 git init -q; git symbolic-ref HEAD refs/heads/main; git config commit.gpgsign false
 printf '# app\n' > README.md; git add README.md; git commit -q -m init
 mkdir -p .agents/scripts .agents/local/metrics
-printf 'proofline_version: 0.0.44\nmetrics: on\n' > .agents/config.yaml
+printf 'proofline_version: 0.0.45\nmetrics: on\n' > .agents/config.yaml
 printf '#!/bin/sh\nexit 0\n' > .agents/scripts/agent.sh
+# the Node core beside it: `proofline insights` and `queue` run in it
+cp "$fx_scripts/proofline-core.mjs" .agents/scripts/; cp -R "$fx_scripts/core" .agents/scripts/core
 
 H=0000000000000000000000000000000000000000000000000000000000000000
 # row RUN SEQ EVENT DETAIL -> one ledger row (the chain fields are placeholders: insights does not verify the chain)

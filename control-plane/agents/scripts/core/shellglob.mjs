@@ -5,7 +5,7 @@
 // differs between the shells in use (a backslash, `[^`, a character class name, a reversed range) throws BridgeToShell: nothing has been
 // written yet and the entry then runs the shell code for the same arguments.
 import { readdirSync } from 'node:fs';
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 
 /** POSIX [[:space:]] in the C locale. */
 export const SPACE_CLASS = '[ \\t\\n\\v\\f\\r]';
@@ -28,7 +28,7 @@ const compiled = new Map();
 function compile(pat) {
   const hit = compiled.get(pat);
   if (hit) return hit;
-  if (pat.includes('\\')) throw new BridgeToShell('backslash in a case pattern');
+  if (pat.includes('\\')) throw unsupported('backslash in a case pattern');
   /** @type {Tok[]} */ const toks = [];
   let i = 0;
   while (i < pat.length) {
@@ -38,7 +38,7 @@ function compile(pat) {
     if (c === '[') {
       let j = i + 1;
       let neg = false;
-      if (pat[j] === '^') throw new BridgeToShell('[^ in a case pattern');
+      if (pat[j] === '^') throw unsupported('[^ in a case pattern');
       if (pat[j] === '!') { neg = true; j++; }
       const first = j;
       /** @type {Array<[number, number]>} */ const items = [];
@@ -46,15 +46,15 @@ function compile(pat) {
       while (j < pat.length) {
         const ch = pat[j];
         if (ch === ']' && j > first) { closed = true; break; }
-        if (ch === '[' && (pat[j + 1] === ':' || pat[j + 1] === '.' || pat[j + 1] === '=')) throw new BridgeToShell('class name in a case pattern');
+        if (ch === '[' && (pat[j + 1] === ':' || pat[j + 1] === '.' || pat[j + 1] === '=')) throw unsupported('class name in a case pattern');
         if (pat[j + 1] === '-' && j + 2 < pat.length && pat[j + 2] !== ']') {
           const lo = pat.charCodeAt(j); const hi = pat.charCodeAt(j + 2);
-          if (hi < lo) throw new BridgeToShell('reversed range in a case pattern');
+          if (hi < lo) throw unsupported('reversed range in a case pattern');
           items.push([lo, hi]); j += 3; continue;
         }
         items.push([pat.charCodeAt(j), pat.charCodeAt(j)]); j++;
       }
-      if (!closed) throw new BridgeToShell('unclosed [ in a case pattern: the shells differ');
+      if (!closed) throw unsupported('unclosed [ in a case pattern: the shells differ');
       toks.push({ t: 'set', neg, items });
       i = j + 1;
       continue;
@@ -107,7 +107,7 @@ export function expandWords(text, cwd) {
   for (const w of text.split(/[ \t\n]+/)) {
     if (w === '') continue;
     if (!hasGlobChars(w)) { out.push(w); continue; }
-    if (w.includes('/') || w.includes('\\') || w.startsWith('.')) throw new BridgeToShell('pathname expansion of a word with a slash');
+    if (w.includes('/') || w.includes('\\') || w.startsWith('.')) throw unsupported('pathname expansion of a word with a slash');
     if (names === null) {
       try { names = readdirSync(cwd, { encoding: 'latin1' }).sort(); } catch { names = []; }
     }
@@ -150,7 +150,7 @@ export function awkGlobRegExp(glob) {
  * @param {string} p @param {string} globs
  */
 export function pathMatches(p, globs) {
-  if (p.includes('\n')) throw new BridgeToShell('newline in a path');
+  if (p.includes('\n')) throw unsupported('newline in a path');
   for (const g of globs.split(/[ \t\n]+/)) if (g !== '' && awkGlobRegExp(g).test(p)) return true;
   return false;
 }

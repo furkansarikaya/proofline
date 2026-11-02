@@ -30,11 +30,11 @@ first_skill() { sed -n 's/^skills:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$1" | h
 
 rows() {
   if [ "$mode" = repo ]; then
-    f_a=$root/control-plane/AGENTS.md; f_c=$root/control-plane/CLAUDE.md; f_h=$root/adapters/claude/hooks/proofline-hook.sh
+    f_a=$root/control-plane/AGENTS.md; f_c=$root/control-plane/CLAUDE.md; f_h=$root/adapters/claude/hooks/events/session.mjs
     f_e=$root/skills/proofline/SKILL.md; d_roles=$root/roles; d_ag=$root/adapters/claude/agents; d_sk=$root/skills
   else
     f_a=$root/AGENTS.md; f_c=$root/CLAUDE.md
-    f_h=$(pick .agents/hooks/proofline-hook.sh adapters/claude/hooks/proofline-hook.sh)
+    f_h=$(pick .agents/hooks/events/session.mjs adapters/claude/hooks/events/session.mjs)
     f_e=$(pick .claude/skills/proofline/SKILL.md skills/proofline/SKILL.md)
     d_roles=$root/.agents/roles; d_ag=$root/.claude/agents; d_sk=$root/.agents/skills
     [ -d "$d_roles" ] || d_roles=$home/roles
@@ -44,8 +44,9 @@ rows() {
   [ ! -f "$f_a" ] || row agents_md "$(block_bytes "$f_a")" "$f_a"
   [ ! -f "$f_c" ] || row claude_md "$(block_bytes "$f_c")" "$f_c"
   if [ -n "$f_h" ] && [ -f "$f_h" ]; then
-    # the template of the text, placeholders (${skill}, ${act}, ${nxt}) unexpanded
-    ss=$(sed -n 's/^  ctx SessionStart "\(.*\)" ;;$/\1/p' "$f_h" | head -n 1)
+    # the template of the text, placeholders (${skill}, ${act}, ${next}) unexpanded
+    # shellcheck disable=SC2016 # the pattern is a template literal of the JavaScript file, not shell
+    ss=$(sed -n 's/^  const head = `\(.*\)`;$/\1/p' "$f_h" | head -n 1)
     row session_start "$(printf '%s' "$ss" | wc -c | tr -d ' ')" "$f_h"
   fi
   [ -z "$f_e" ] || [ ! -f "$f_e" ] || row entry_skill "$(bytes "$f_e")" "$f_e"

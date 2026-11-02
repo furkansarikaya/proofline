@@ -6,7 +6,7 @@
 // that could accept a finding, and a persistent waiver key; reaching one throws BridgeToShell before any output.
 import { asciiLower } from './shellglob.mjs';
 import { readdirSync, statSync } from 'node:fs';
-import { BridgeToShell, fail } from './errors.mjs';
+import { BridgeToShell, fail, unsupported } from './errors.mjs';
 import { baselineFingerprint, gateFingerprint, legacyFingerprintMatch, pathFingerprint } from './fingerprint.mjs';
 import { catFile, git, objectExists, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { sha256 } from './hash.mjs';
@@ -172,7 +172,7 @@ export function failFullyWaived(ctx, dir, rec) {
  */
 export function taskOwnedPaths(ctx, dir) {
   return ctx.once(`patch:owned:${dir}`, () => {
-    if (!isFile(`${dir}/PLAN.md`)) throw new BridgeToShell('PLAN.md is not readable');
+    if (!isFile(`${dir}/PLAN.md`)) throw unsupported('PLAN.md is not readable');
     const sc = planScope(ctx, dir);
     if (!sc.ok) return [];
     const id = dir.slice(dir.lastIndexOf('/') + 1);

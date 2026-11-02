@@ -26,29 +26,22 @@ fi
 shared_dir() { printf '%s/.agents/local/%s\n' "$sr_main" "$1"; }
 PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 
-# Node migration, stage 1 (ADR 0001 5.3): a moved command runs in proofline-core.mjs, before anything below is parsed, unless the engine is
-# forced to this shell code: by the file <main tree>/.agents/local/engine (one line, `sh` for every command or `sh:<command>,<command>`), or by
-# PROOFLINE_ENGINE=sh or PROOFLINE_ENGINE_SH=<command>,<command> in the environment; any one of them forcing sh wins. Without a usable node the
-# exec fails with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its
-# error texts; the core uses it only when it names this very file. An argument shape whose shell error text the core does not copy (a missing key, a non-number, a backslash) stays here.
-# stage 3, package CMDS: the last line of the list below (worktree-root ... window-close)
-# stage 2, package C1: the last line of the list below (next summary plan-section digest report-facts report-execution report-tokens)
+# Node migration (ADR 0001): a moved command runs in proofline-core.mjs, before anything below is parsed. Without a usable node the exec fails
+# with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its error
+# texts; the core uses it only when it names this very file.
+# The commands that still run as shell code (listed here, one list); every other command, a name that is no command and no command at all run in
+# proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
 case "${1:-}" in
-  role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
-  debt|task-type|task-scope-entries|scope-covers|human-checks|questions|repro-normalize|design-surface|test-path|path-kind|scope-kinds|\
-  status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier|\
-  next|summary|plan-section|digest|report-facts|report-execution|report-tokens|\
-  verify-freeze|verify-scope|verify-knowledge-scope|freshness|verify-handoff|verify-qa-plan|verify-worker-evidence|ci-check|ci-task-command|validate|\
-  design-rationales|commands-check|scale-check|batch-check|\
-  next-user|worktree-root|in-knowledge-scope|request-approval|approve|approve-pending|approval-consume|answer|hook-time|language-check|friction-note|window-open|window-close)
+  baseline|discard-stray|branch|start|classify|tier|friction|calibrate|build-record|lessons|rules|decide|freeze|refreeze|handoff|delivery-check|\
+  worker-evidence|verify-assumptions|submit|record|gate|secret-scan|run-language|raise-budget|waive|metrics-dispatch|wait-line|ledger-note|ask|\
+  terminate|cleanup|deliver-merged|status-block|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
+  batch-answers|task-rename-plan|task-rename-apply|known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|pr-state|batch-next|\
+  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|amend|reopen|tree-inspect|tree-accept|platform|platform-warn|task-source-done|\
+  task-source-status|task-source-relocate|knowledge-done|publish-completion-report|verify-completion-report|db-check|test) ;;
+  *)
     pl_sh=no
-    [ "${PROOFLINE_ENGINE:-}" != sh ] || pl_sh=yes
-    case ",${PROOFLINE_ENGINE_SH:-}," in *",$1,"*) pl_sh=yes ;; esac
-    if [ "$pl_sh" = no ] && [ -r "$sr_main/.agents/local/engine" ]; then
-      pl_e=''; IFS= read -r pl_e < "$sr_main/.agents/local/engine" || :
-      pl_e=${pl_e%"${pl_e##*[![:space:]]}"}
-      case "$pl_e" in sh) pl_sh=yes ;; sh:*) case ",${pl_e#sh:}," in *",$1,"*) pl_sh=yes ;; esac ;; esac
-    fi
+    # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
+    [ -z "${PROOFLINE_BRIDGED:-}" ] || pl_sh=yes
     # A run worktree's scripts are tracked content a task could have rewritten (security round 3): from a worktree the PROJECT's (main tree's) core runs,
     # and --pl-argv0 below names the worktree's agent.sh, which tells the core which folder is the root. In the main tree pl_core_dir is self_dir.
     pl_core_dir=$self_dir
@@ -60,21 +53,6 @@ case "${1:-}" in
         echo "proofline: $pl_core_dir/proofline-core.mjs or $pl_core_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
       fi
       pl_sh=yes
-    fi
-    # The mandatory arguments of the moved commands (the `${N:?usage: ...}` of the dispatch below): when one is absent or empty the shell prints its
-    # own usage text, with its own $0 and status, so the core is not started. ONE table; tests/core/mandatory.test.mjs checks it against the dispatch.
-    pl_need2='config-get tm-scaled pipeline plan-section digest design-surface report-facts report-execution report-tokens verify-freeze verify-scope verify-knowledge-scope freshness verify-handoff entry-tier verify-qa-plan verify-worker-evidence questions design-rationales human-checks scope-kinds patch-fingerprint verify-gates verify-seal validate worktree-root in-knowledge-scope request-approval answer friction-note window-open window-close'
-    pl_need3='plan-section request-approval answer'
-    case " $pl_need2 " in *" $1 "*) [ -n "${2:-}" ] || pl_sh=yes ;; esac
-    case " $pl_need3 " in *" $1 "*) [ -n "${3:-}" ] || pl_sh=yes ;; esac
-    if [ "$pl_sh" = no ]; then
-      case "$1" in
-        config-get) case "${2:-}" in ''|*\\*) pl_sh=yes ;; esac; [ -f "$config" ] || pl_sh=yes ;;
-        tm-scaled)
-          case "${2:-}" in ''|*[!0-9]*|?????????????*) pl_sh=yes ;; esac
-          case "${3:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac
-          case "${4:-}" in *[!0-9]*|?????????????*) pl_sh=yes ;; esac ;;
-      esac
     fi
     [ "$pl_sh" = yes ] || exec node "$pl_core_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
 esac
@@ -2042,6 +2020,17 @@ require_task_defects() { # ID
 }
 # Answers recorded as the user's must be the user's words (A60): in INTENT.md `## Rounds`, a round answering a
 # `scope` decision with answered_by user must appear in a captured user prompt (.agents/local/prompts/history/).
+# intent_scope_answers ID D-n: the bodies of the answers the prompt hook recorded as the user's to the run's `USER_ONLY: scope D-n` questions
+intent_scope_answers() {
+  isa_d=$(run_dir "$1")
+  for isa_q in "$isa_d"/questions/[0-9][0-9][0-9].md; do
+    [ -f "$isa_q" ] || continue
+    grep -Eq "^[[:space:]]*USER_ONLY: scope $2[[:space:]]*\$" "$isa_q" || continue
+    isa_a=${isa_q%.md}.answer.md; [ -f "$isa_a" ] || continue
+    [ "$(gate_field "$isa_a" answered_by)" = user ] || continue
+    sed '1,/^---$/d' "$isa_a" | sed 's/^> //; s/^>$//'
+  done
+}
 verify_intent_provenance() { # ID
   vi_id=$1
   vi_f=$(run_dir "$vi_id")/design/INTENT.md
@@ -2061,6 +2050,9 @@ verify_intent_provenance() { # ID
     if printf '%s' "$vi_t" | grep -iq 'recommend' && ! printf '%s' "$vi_dc" | grep -Eiq 'report|out of scope|unchanged'; then echo "$vi_a"; continue; fi
     [ -d "$vi_h" ] || continue
     vi_n=$(printf '%s' "$vi_t" | tr -s ' \t\n' ' ')
+    # A210, #187: the user's answer to this decision's `USER_ONLY: scope` question, recorded by the prompt hook, is the provenance
+    vi_u=$(intent_scope_answers "$vi_id" "$vi_a" | tr -s ' \t\n' ' ' | tr 'A-Z' 'a-z'); vi_l=$(printf '%s' "$vi_n" | tr 'A-Z' 'a-z')
+    case "$vi_u" in *"$vi_l"*) continue ;; esac
     case "$vi_all" in *"$vi_n"*) ;; *) echo "$vi_a"; ;; esac
   done
 }
@@ -5603,6 +5595,7 @@ approval_wait_o() {
 # was cut off or could not take the lock): record it now, so the user never has to run `approve` in a terminal. 0 when recorded.
 approval_retry() {
   [ "$execution_role" = lead ] || return 1
+  [ -z "${PROOFLINE_BRIDGED:-}" ] || return 1   # A210: the Node core records nothing from a file; this shell path is not reachable through the bridge guard
   ar_c=$(latest_capture 2>/dev/null) || return 1
   ar_t=$(capture_field "$ar_c" time 2>/dev/null) || return 1
   [ "$ar_t" -gt "$(gate_field "$1" requested_at)" ] 2>/dev/null || return 1
@@ -6434,7 +6427,10 @@ ask_question() {
   else sed '/^QUESTIONS:[[:space:]]*$/d' > "$aq_t"; fi
   grep -Eq '^[0-9]+\. [^[:space:]]' "$aq_t" || { rm -f "$aq_t"; fail "ask needs numbered questions ('1. <question>', then options, recommended, why)"; }
   mkdir -p "$aq_d/questions"; aq_n=$(next_num "$aq_d/questions")
-  { printf 'from: %s\nasked_at: %s\n---\n' "$execution_role" "$(now_epoch)"; cat "$aq_t"; } > "$aq_d/questions/$aq_n.md"; rm -f "$aq_t"
+  # the asking session (the runtime's session id in the lead's environment): only a prompt of that session can answer a user-only question
+  aq_s=''; for aq_v in "${CLAUDE_CODE_SESSION_ID:-}" "${CODEX_SESSION_ID:-}" "${CODEX_THREAD_ID:-}"; do [ -z "$aq_v" ] || { aq_s=$aq_v; break; }; done
+  case "$aq_s" in *[!A-Za-z0-9_.-]*) aq_s='' ;; esac
+  { printf 'from: %s\nasked_at: %s\n' "$execution_role" "$(now_epoch)"; [ -z "$aq_s" ] || printf 'asked_session: %s\n' "$aq_s"; printf -- '---\n'; cat "$aq_t"; } > "$aq_d/questions/$aq_n.md"; rm -f "$aq_t"
   if section_key_present "$aq_d" execution awaiting_input; then set_run_value "$aq_id" execution awaiting_input true; fi
   if gates_enforced "$aq_id"; then ledger_append "$aq_id" ask - - "$(ledger_token "questions/$aq_n.md" "$aq_id")"; fi
   status_block_update "$aq_id" ask
@@ -6465,6 +6461,7 @@ unquote_block() { sed 's/^> //; s/^>$//'; }
 # renamed NNN.answer.amended-K.md and marked `amended: true`; only a captured user message amends, never the lead's text.
 answer() {
   an_id=$1 an_n=$2; require_run "$an_id"; require_lead; an_d=$(run_dir "$an_id")
+  [ -z "${PROOFLINE_BRIDGED:-}" ] || fail "answer is a Node command: the shell code does not record answers through the bridge guard (A210)"
   case "$an_n" in ''|*[!0-9]*) fail "question number must be numeric" ;; esac
   an_q=$an_d/questions/$(printf '%03d' "$(printf '%s' "$an_n" | sed 's/^0*//; s/^$/0/')").md
   [ -f "$an_q" ] || fail "no question $an_n for $an_id"
@@ -6906,7 +6903,7 @@ next_step() {
   o() { printf 'next=%s\n' "$*"; }
   r() { printf 'reason=%s\n' "$*"; }
   case "$ns_st" in FAILED|BLOCKED) o "report the evidence, then: agent.sh cleanup $ns_id"; r "run is terminal ($ns_st)"; return 0 ;; esac
-  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> --captured"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
+  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim and ask the user to answer in their next message (the prompt hook records it when it matches an accepted form; a typed agent.sh answer $ns_id <N> is recorded as yours)"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_stale=$(inflight_sweep "$ns_id")
   if ns_if=$(inflight_dispatch "$ns_id"); then
     o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; budget_note "$ns_id"; return 0
@@ -7638,7 +7635,7 @@ status_block_body() {
       sbb_qn=${sbb_f##*/}; sbb_qn=${sbb_qn%.md}; sbb_q=$(grep -m1 -E '^[0-9]+\. [^[:space:]]' "$sbb_f" | sb_scrub)
     done
     sbb_kv question "${sbb_qn:+#$sbb_qn }${sbb_q:-pending}"
-    sbb_kv answer "reply to the lead in the session; it records your message with: agent.sh answer $sbb_id ${sbb_qn:-N} --captured"
+    sbb_kv answer "answer in your next message in the session; the prompt hook records it when it matches an accepted form"
   fi
   if [ "$sbb_has" = yes ] && [ -s "$(shared_dir known-issues)/LIST.tsv" ]; then   # A202 item 27: record ids and task ids only, from the script's own match
     sbb_ki=$(for sbb_g in $(required_gates "$sbb_id" 2>/dev/null); do ki_gate_facts "$sbb_id" "$sbb_g"; done | awk -F: '{ print $1 " (" $2 ", follow-up " $3 ")" }' | tr '\n' ',' | sed 's/,$//; s/,/, /g' | tr -cd 'A-Za-z0-9 ._(),-')
@@ -8925,7 +8922,7 @@ report_tokens() {
 summary_run() {
   sm_id=${1:-}; [ -n "$sm_id" ] || sm_id=$(active_run); [ -n "$sm_id" ] || fail "no active task: pass a TASK-ID"; require_run "$sm_id"; sm_d=$(run_dir "$sm_id")
   printf 'STATUS: %s (handoff %s, knowledge %s)\n' "$(ua "$(run_state "$sm_d")")" "$(ua "$(section_value "$sm_d" handoff state)")" "$(ua "$(section_value "$sm_d" execution knowledge_state)")"
-  [ "${2:-}" != --status ] || return 0   # next-user.sh needs the first line only; the gate labels below are the slow part
+  [ "${2:-}" != --status ] || return 0   # the next-user table needs the first line only; the gate labels below are the slow part
   printf 'TASK: %s %s\n' "$sm_id" "$(sed -n '1s/^#[[:space:]]*//p' "$sm_d/TASK.md" 2>/dev/null | tr -d '\000-\037\177')"
   printf 'CLASS/TOPOLOGY: %s / %s\n' "$(ua "$(pipeline_class "$sm_id" | grep -v PENDING || true)")" "$(ua "$(resolve_topology "$sm_d" 2>/dev/null || true)")"
   if pipeline_declared "$sm_id" && pipeline_class_valid "$(pipeline_class "$sm_id")"; then
@@ -9072,7 +9069,7 @@ usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)
   calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)
   debt [list|page]   (A153: the project's `shortcut: <limit>, <when to improve>` code comments with file:line; read-only, needs no run; `page` is lead-only and rewrites the one wiki page)
   build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)
-  next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in next-user.sh, A159)
+  next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in core/nextuser.mjs, A159)
   design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)
   worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)
   in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)
@@ -9108,7 +9105,6 @@ case "$command" in
   build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   rules) case "${2:-}" in tally) require_lead ;; esac; shift; sh "$scripts/rules.sh" "$@" ;;   # A202: project rules budget; proposes, never edits
-  next-user) shift; PROOFLINE_ROOT=$root sh "$scripts/next-user.sh" "$@" ;;
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
   worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;

@@ -58,7 +58,7 @@ export function mcFlag(ctx, command, status) {
 
 /** `mc_text`: the sentence about the failed moved command. @param {{ command: string, status: number }} f */
 export function mcText(f) {
-  return `agent.sh ${f.command} exited ${f.status}, so a guard cannot read the run state and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it), or write sh into .agents/local/engine to run the old shell code`;
+  return `agent.sh ${f.command} exited ${f.status}, so a guard cannot read the run state and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it)`;
 }
 
 /**
@@ -68,7 +68,7 @@ export function mcText(f) {
 export function mcFail(ctx, command, when, status, guard) {
   if (ctx.ev !== 'pretool') return;
   if (when === 'run' && ctx.act === '') return;
-  deny(`agent.sh ${command} exited ${status}, so the ${guard} cannot read its settings and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it), or write sh into .agents/local/engine to run the old shell code`);
+  deny(`agent.sh ${command} exited ${status}, so the ${guard} cannot read its settings and fails closed: this command runs in Node and the user must check that Node 22.13 or newer is on PATH (tell the user; a model command cannot fix or diagnose it)`);
 }
 
 /**

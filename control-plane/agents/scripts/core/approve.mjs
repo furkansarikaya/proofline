@@ -8,7 +8,7 @@ import { appendFileSync, mkdirSync, readSync, readdirSync, renameSync, writeFile
 import { isatty } from 'node:tty';
 import { now, sleepSync } from './clock.mjs';
 import { captureField } from './capture.mjs';
-import { BridgeToShell, ProoflineError, fail } from './errors.mjs';
+import { BridgeToShell, ProoflineError, fail, unsupported } from './errors.mjs';
 import { contentFingerprint } from './fingerprint.mjs';
 import {
   approvalExample, approvalFiles, approvalNorm, approvalPendingPairs, approvalPhrases, approvalSay, approvalSentences, approvalWords, approvalsDirOf, captureFieldOf,
@@ -138,7 +138,7 @@ export function waiveGroupIds(ctx, rec, fid) {
 /** `hash_file FILE` of a file that must exist: a missing file is a shell redirect error. @param {string} file */
 function hashFileOrBridge(file) {
   const t = readBytes(file);
-  if (t === null) throw new BridgeToShell(`cannot open ${file}`);
+  if (t === null) throw unsupported(`cannot open ${file}`);
   return sha256(t);
 }
 
@@ -740,7 +740,7 @@ export function approveInChild(parent, target, kinds) {
     if (e instanceof BridgeToShell) {
       child.discard();
       locks.releaseAll();
-      const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_ENGINE: 'sh' }, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
+      const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_BRIDGED: '1' }, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
       return { rc: r.status, output: Buffer.concat([r.stdout, r.stderr]).toString('latin1') };
     }
     if (e instanceof ProoflineError) { child.flush(); sink.push(Buffer.from(`${e.message}\n`, 'latin1')); rc = e.exitCode; } else throw e;
@@ -753,7 +753,7 @@ export function approveInChild(parent, target, kinds) {
 
 /**
  * `approval_wait_o REQFILE KIND ID`: the `next` line of a pending approval request. A newer user prompt that is no approval leaves the request
- * pending and the lead asks again (A108); a newer prompt that approves but was not recorded (the hook was cut off) is recorded now (A171).
+ * pending and the lead asks again (A108); a newer prompt that approves but was not recorded (the hook was cut off) is only reported: the lead asks the user again (A210, #187).
  * @param {Context} ctx @param {string} req @param {string} kind @param {string} id @param {(m: string) => void} o
  */
 export function approvalWaitO(ctx, req, kind, id, o) {
@@ -773,10 +773,9 @@ export function approvalWaitO(ctx, req, kind, id, o) {
     return;
   }
   if (n !== null) {
-    // Stage 3 hardening (deliberately unlike the shell): this reads the newest capture FILE, which a file written by anything that can write
-    // .agents/local looks exactly like, so `next` never records an approval from it. The prompt hook records an approval from the prompt event it
-    // is handling; a reply it missed is asked for again.
-    o(`the user's last reply approves ${kind}, but the prompt hook did not record it (it was cut off, or the reply did not come through the runtime). The lead never records an approval from a file: ask the user to send the approval again (the runtime records it from the reply), then: agent.sh next ${id}`);
+    // the newest capture approves this request but no approval exists: the prompt hook was cut off or could not take the lock. `next` records nothing
+    // from a file (A210, #187: only the prompt hook records an approval, from the message it is handling): the lead asks the user again.
+    o(`the user's last reply looks like an approval of ${kind} but none is recorded (the prompt hook did not finish it): ask the user to send the approval again (the runtime records it from their reply; the lead never runs approve), then: agent.sh next ${id}`);
     return;
   }
   o(`wait for the user's answer (the runtime records it from their reply; the lead never runs approve), then: agent.sh next ${id}`);

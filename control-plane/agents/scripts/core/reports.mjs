@@ -2,7 +2,7 @@
 // Read-only views of a run built from its records: `summary` (and the `--status` form), `digest`, `plan-section`, `report-tokens`,
 // `report-execution` and `report-facts` (agent.sh 7363-7420, 8880-8940). Counts and statuses come from the records, never from text.
 import { statSync } from 'node:fs';
-import { BridgeToShell, fail, ProoflineError } from './errors.mjs';
+import { BridgeToShell, fail, ProoflineError, unsupported } from './errors.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
 import { listNames } from './ledger.mjs';
@@ -124,9 +124,8 @@ export function planSection(ctx, id, name) {
     }
     return;
   }
-  // the section name is a pattern in grep and awk: any character with a meaning of its own is the shell's to read
-  if (/[\\.*[\]^$+?(){}|]/.test(name)) throw new BridgeToShell('section name with pattern characters');
-  const head = new RegExp(`^## ${name}${WS}*$`);
+  // the section name is a basic regular expression (A210: a name with a meaning of its own is read as grep read it: . * and closed [...] only)
+  const head = new RegExp(`^## ${breToJs(name)}${WS}*$`);
   if (!lines.some((l) => head.test(l))) {
     const names = lines.map((l) => /^## (.*[^ \t\n\v\f\r])[ \t\n\v\f\r]*$/.exec(l)).filter((m) => m !== null).map((m) => `${m?.[1]} `).join('');
     fail(`no PLAN.md section '${name}' in ${id} (sections: scope ${names})`);
@@ -137,6 +136,28 @@ export function planSection(ctx, id, name) {
     if (i && l.startsWith('## ')) break;
     if (i) ctx.out(`${l}\n`);
   }
+}
+
+/** A basic regular expression of grep, limited to what a section name can sensibly use: `.`, `*` and a closed bracket expression; every other character is literal. @param {string} name */
+function breToJs(name) {
+  const lit = (/** @type {string} */ c) => c.replace(/[\\^$+?(){}|[\]]/g, '\\$&');
+  let out = '';
+  for (let i = 0; i < name.length; i++) {
+    const ch = name[i];
+    if (ch === '.' || ch === '*') { out += ch; continue; }
+    if (ch === '[') {
+      const neg = name[i + 1] === '^';
+      const start = i + 1 + (neg ? 1 : 0);
+      const close = name.indexOf(']', start + 1);
+      const body = close < 0 ? '' : name.slice(start, close);
+      if (close < 0 || /\[[:.=]/.test(body)) { out += '\\['; continue; }
+      out += `[${neg ? '^' : ''}${body.replace(/[\\\]^]/g, '\\$&')}]`;
+      i = close;
+      continue;
+    }
+    out += lit(ch);
+  }
+  return out;
 }
 
 /** `report_tokens ID` @param {Context} ctx @param {string} id */

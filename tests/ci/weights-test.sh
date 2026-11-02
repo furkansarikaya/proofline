@@ -14,18 +14,18 @@ ok() { n=$((n + 1)); printf 'ok %s - %s\n' "$n" "$*"; }
 die() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 # ---- the median rule: units come from a real split suite, some are listed, the others must weigh the median
-units=$(SELFTEST_LIST=1 SELFTEST_WEIGHTS=/dev/null SELFTEST_ONLY=next-user-test sh "$tests/selftest.sh") || die "cannot list units"
-[ "$(printf '%s\n' "$units" | wc -l | tr -d ' ')" -ge 6 ] || die "next-user-test lists too few units: $units"
+units=$(SELFTEST_LIST=1 SELFTEST_WEIGHTS=/dev/null SELFTEST_ONLY=risk-test sh "$tests/selftest.sh") || die "cannot list units"
+[ "$(printf '%s\n' "$units" | wc -l | tr -d ' ')" -ge 6 ] || die "risk-test lists too few units: $units"
 keys=$(printf '%s\n' "$units" | sed 's|^.*/||; s|\.sh||; s/|/ /; s/ *$//')
 total=$(printf '%s\n' "$keys" | wc -l | tr -d ' ')
 { i=0; for w in 10 30 100; do i=$((i + 1)); printf '%s %s\n' "$w" "$(printf '%s\n' "$keys" | sed -n "${i}p")"; done; } > "$T/w3.txt"
-got=$(SELFTEST_LIST=weights SELFTEST_WEIGHTS="$T/w3.txt" SELFTEST_ONLY=next-user-test sh "$tests/selftest.sh")
+got=$(SELFTEST_LIST=weights SELFTEST_WEIGHTS="$T/w3.txt" SELFTEST_ONLY=risk-test sh "$tests/selftest.sh")
 [ "$(printf '%s\n' "$got" | awk '$1 == 30' | wc -l | tr -d ' ')" = $((total - 2)) ] && [ "$(printf '%s\n' "$got" | awk '$1 == 15' | wc -l | tr -d ' ')" = 0 ] \
   && ok "an unlisted unit weighs the median of the listed ones (10 30 100 gives 30), not 15" || die "median rule: $got"
 { i=0; for w in 10 20 30 100; do i=$((i + 1)); printf '%s %s\n' "$w" "$(printf '%s\n' "$keys" | sed -n "${i}p")"; done; } > "$T/w4.txt"
-got=$(SELFTEST_LIST=weights SELFTEST_WEIGHTS="$T/w4.txt" SELFTEST_ONLY=next-user-test sh "$tests/selftest.sh")
+got=$(SELFTEST_LIST=weights SELFTEST_WEIGHTS="$T/w4.txt" SELFTEST_ONLY=risk-test sh "$tests/selftest.sh")
 [ "$(printf '%s\n' "$got" | awk '$1 == 25' | wc -l | tr -d ' ')" = $((total - 4)) ] && ok "an even count takes the middle pair (10 20 30 100 gives 25)" || die "median rule (even): $got"
-got=$(SELFTEST_LIST=weights SELFTEST_WEIGHTS=/dev/null SELFTEST_ONLY=next-user-test sh "$tests/selftest.sh")
+got=$(SELFTEST_LIST=weights SELFTEST_WEIGHTS=/dev/null SELFTEST_ONLY=risk-test sh "$tests/selftest.sh")
 [ "$(printf '%s\n' "$got" | awk '$1 != 15' | wc -l | tr -d ' ')" = 0 ] && ok "with no weights at all every unit weighs 15" || die "no weights: $got"
 
 # ---- SELFTEST_TIMES_FILE: one "<seconds> <suite> [scenario]" line per unit that ran (a fake tree keeps this fast)

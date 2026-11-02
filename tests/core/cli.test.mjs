@@ -1,6 +1,5 @@
 // @ts-check
-// CLI-only core subcommands (`proofline-core.mjs cli insights|queue`): the front ends of bin/proofline give the same stdout, stderr and exit
-// status through the core and through the shell code (PROOFLINE_ENGINE=sh), on a fixture with metrics, ledgers, gate records and results.
+// CLI-only core subcommands (`proofline-core.mjs cli insights|queue`): the front ends of bin/proofline on a fixture with metrics, ledgers, gate records and results.
 // The set is closed: nothing else runs under `cli`, and no name is a command of agent.sh.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -23,32 +22,14 @@ const realConfig = readFileSync(path.join(fx, '.agents', 'config.yaml'), 'latin1
 after(() => rmSync(fx, { recursive: true, force: true }));
 const w = (/** @type {string} */ rel, /** @type {string} */ text) => { mkdirSync(path.dirname(path.join(fx, rel)), { recursive: true }); writeFileSync(path.join(fx, rel), text, 'latin1'); };
 
-/** @param {string[]} args @param {'node' | 'sh'} engine @param {Record<string, string>} [env] */
-function exec(args, engine, env = {}) {
+/** @param {string[]} args @param {Record<string, string>} [env] */
+function exec(args, env = {}) {
   const e = { ...process.env, ...env };
-  delete e.PROOFLINE_ENGINE; delete e.PROOFLINE_ENGINE_SH; delete e.AGENT_ROLE;
-  if (engine === 'sh') e.PROOFLINE_ENGINE = 'sh';
+  delete e.AGENT_ROLE;
   const r = spawnSync('sh', [proofline, ...args], { cwd: fx, env: e, encoding: 'latin1' });
   return { out: r.stdout, err: r.stderr, code: r.status };
 }
 /** @param {string[]} args @param {Record<string, string>} [env] */
-/**
- * The run lists of an approval pattern come from awk's `for (k in akind)`: its order is unspecified and differs between awks (macOS awk,
- * mawk, gawk). The contract is the SET of runs, so the `runs:` lines of the text report and the "runs" arrays of the JSON are compared as
- * sorted sets for insights; every other byte is compared as is. (Node lists them sorted.)
- * @param {{ out: string, err: string, code: number | null }} r
- */
-function asSets(r) {
-  const sortList = (/** @type {string} */ s) => s.split(',').sort().join(',');
-  const out = r.out.replace(/^(\s+runs: )(.*)$/gm, (_m, a, b) => a + sortList(b)).replace(/"runs":\[([^\]]*)\]/g, (_m, b) => `"runs":[${sortList(b)}]`);
-  return { ...r, out };
-}
-function same(args, env = {}) {
-  const a = exec(args, 'node', env); const b = exec(args, 'sh', env);
-  if (args[0] === 'insights') assert.deepEqual(asSets(a), asSets(b), `proofline ${args.join(' ')}`);
-  else assert.deepEqual(a, b, `proofline ${args.join(' ')}`);
-  return a;
-}
 
 const rec = (/** @type {Record<string, string | number | null>} */ o) => JSON.stringify({ schema: 'proofline.metrics/1', time: '2026-10-31T10:00:00Z', ...o });
 const METRICS = [
@@ -98,72 +79,64 @@ setup();
 describe('cli subcommands through the front ends', () => {
   test('insights: text, json, run filter, off, empty states', () => {
     for (const args of [['insights'], ['insights', '--json'], ['insights', '--run', 'R1'], ['insights', '--run=R2', '--json'], ['insights', '--run', 'R3'], ['insights', '--run', 'NOPE'], ['insights', '--run', 'R11'], ['insights', '--run', 'bad id'], ['insights', '--bogus'], ['insights', '--help'], ['insights', '--run']])
-      same(args);
-    const text = same(['insights']);
+      exec(args);
+    const text = exec(['insights']);
     assert.match(text.out, /RECURRING FAILURES/);
     assert.match(text.out, /gate-fail x/);
     w('.agents/config.yaml', `${realConfig}\nmetrics: off\n`);
-    same(['insights']); same(['insights', '--json']);
+    exec(['insights']); exec(['insights', '--json']);
     w('.agents/config.yaml', realConfig);
     w('.agents/local/metrics/records.jsonl', '');
-    same(['insights']); same(['insights', '--json']);
+    exec(['insights']); exec(['insights', '--json']);
     rmSync(path.join(fx, '.agents/local/metrics/records.jsonl'));
-    same(['insights']); same(['insights', '--json']);
+    exec(['insights']); exec(['insights', '--json']);
     w('.agents/local/metrics/records.jsonl', METRICS);
   });
 
   test('insights: calibration text and many sizes, unmet approvals across runs', () => {
-    same(['insights']);
+    exec(['insights']);
     const keep = readFileSync(path.join(fx, '.agents/local/metrics/records.jsonl'), 'latin1');
     w('.agents/local/metrics/records.jsonl', METRICS.split('\n').filter((l) => !l.includes('"M"') && !l.includes('R10')).join('\n'));
-    same(['insights']); same(['insights', '--json']);
+    exec(['insights']); exec(['insights', '--json']);
     w('.agents/local/metrics/records.jsonl', keep);
   });
 
   test('queue: a run whose `next` fails or prints nothing is shown as `state unknown`, exactly like the shell', () => {
-    const r = same(['queue']);
+    const r = exec(['queue']);
     assert.match(r.out, /^ {3}R11 {2}state unknown$/m);
     assert.match(r.out, /^ {3}R1 {2}state unknown$/m);
     assert.doesNotMatch(r.out, /handoff=/);
   });
 
   test('queue: tasks, done list, runs and the active run', () => {
-    same(['queue']);
+    exec(['queue']);
     w('.agents/config.yaml', `${realConfig}\ntasks:\n  dir: .agents/tasks\n`);
-    same(['queue']);
+    exec(['queue']);
     rmSync(path.join(fx, '.agents/tasks'), { recursive: true, force: true });
-    same(['queue']);
+    exec(['queue']);
     w('.agents/config.yaml', realConfig);
     setup();
   });
 
   test('queue: file names sort as the shell glob does under the user locale (C and a collating locale)', () => {
     for (const n of ['B-upper.md', 'a-lower.md', 'Zed.md', 'alpha.md', '_under.md', '10-ten.md', '2-two.md']) w(`.agents/tasks/todo/${n}`, `# ${n}\n`);
-    for (const env of [{ LC_ALL: 'C' }, { LC_ALL: 'en_US.UTF-8' }, { LC_ALL: '', LANG: 'en_US.UTF-8' }, { LC_ALL: 'POSIX' }]) same(['queue'], env);
+    for (const env of [{ LC_ALL: 'C' }, { LC_ALL: 'en_US.UTF-8' }, { LC_ALL: '', LANG: 'en_US.UTF-8' }, { LC_ALL: 'POSIX' }]) exec(['queue'], env);
     rmSync(path.join(fx, '.agents/tasks/todo'), { recursive: true, force: true });
   });
 
-  test('the engine switch: sh:insights and PROOFLINE_ENGINE_SH keep the shell form', () => {
-    const a = exec(['insights'], 'node', { PROOFLINE_ENGINE_SH: 'insights' });
-    const b = exec(['insights'], 'sh');
-    assert.deepEqual(asSets(a), asSets(b));
-    w('.agents/local/engine', 'sh:queue,insights\n');
-    assert.deepEqual(asSets(exec(['insights'], 'node')), asSets(b));
-    rmSync(path.join(fx, '.agents/local/engine'));
-  });
 });
 
 describe('the closed set of CLI-only subcommands', () => {
   const core = path.join(repo, 'control-plane/agents/scripts/proofline-core.mjs');
   test('exactly insights, queue and the two git hooks; none is an agent.sh command', () => {
-    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['insights', 'pre-commit', 'pre-push', 'queue']);
+    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['insights', 'next-line', 'pre-commit', 'pre-push', 'queue']);
     for (const n of Object.keys(CLI_COMMANDS)) assert.ok(!COMMAND_NAMES.includes(n), n);
     assert.ok(!COMMAND_NAMES.includes('cli'));
     assert.throws(() => { CLI_COMMANDS.extra = () => 0; });
   });
   test('any other name, and agent.sh commands under cli, are refused with status 2 and no output', () => {
     for (const name of ['role', 'next', 'debt', 'status', '', 'INSIGHTS', 'constructor', '__proto__', 'toString']) {
-      const r = spawnSync('node', [core, 'cli', name], { cwd: fx, encoding: 'latin1', env: { ...process.env, PROOFLINE_ENGINE: '' } });
+      const r = spawnSync('node', [core, 'cli', name], { cwd: fx, encoding: 'latin1', env: process.env });
       assert.equal(r.status, 2, name); assert.equal(r.stdout, ''); assert.match(r.stderr, /not a CLI subcommand/);
     }
     assert.equal(spawnSync('node', [core, 'cli', 'queue', 'extra'], { cwd: fx, encoding: 'latin1' }).status, 2);

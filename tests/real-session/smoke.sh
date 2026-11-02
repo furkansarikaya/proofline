@@ -143,6 +143,13 @@ fixture_commands() {
   fc_c="$P/.agents/config.yaml"
   sed -e 's|^  build:.*$|  build: npm run build|' -e 's|^  test:.*$|  test: npm test|' -e 's|^  lint:.*$|  lint: npm run lint|' "$fc_c" > "$fc_c.new" && mv "$fc_c.new" "$fc_c" && chmod 644 "$fc_c"
 }
+# fixture_rules: the project rules of the fixture (the user's own section of AGENTS.md, outside the proofline block). The batch runs two tasks at the same time and
+# merges both, so what the tasks write must not collide: every knowledge note carries the task id, and the shared documents (the design document, the wiki index,
+# log and lint report) are not touched by a task. Nobody is there to approve an amend, so the commits are exactly the ones proofline writes. The rules are not in the
+# task files: a path named there becomes part of the plan scope and the knowledge step refuses it, and a file named by two tasks looks like an overlap to the batch.
+fixture_rules() {
+  printf '\n## Project rules\n\n- Knowledge notes: write one short note per task at docs/design/<TASK-ID>-note.md (for example docs/design/T-2-note.md). Never create or edit docs/design/DESIGN.md, docs/wiki/index.md, docs/wiki/log.md or docs/wiki/lint-report.md: tasks of one batch are merged together and a shared file conflicts.\n- Commits: use the commit message proofline writes. Add no Co-Authored-By or other trailer; an amend of a delivered commit is refused by the git hook.\n' >> "$P/AGENTS.md"
+}
 mk_fixture() { # NAME_PREFIX: the fixture repository, a local bare origin and proofline installed; sets P and ORIGIN; returns 1 when setup failed
   pr_pre=$1
   P="$work/$pr_pre/project"; ORIGIN="$work/$pr_pre/origin.git"
@@ -155,13 +162,15 @@ EOF
   printf 'export function greet(name) {\n  return `Hello, ${name}`;\n}\n' > "$P/src/greet.js"
   printf 'import test from "node:test";\nimport assert from "node:assert/strict";\nimport { greet } from "../src/greet.js";\ntest("greet", () => assert.equal(greet("a"), "Hello, a"));\n' > "$P/tests/greet.test.js"
   printf '# smoke-app\n\nA tiny fixture for the proofline real-session smoke test.\n' > "$P/README.md"
+  # generated, shared by every task that touches the wiki, and listed in every delivery summary: not part of any task's change (a shared generated file is a merge conflict)
+  printf 'docs/wiki/lint-report.md\n' > "$P/.gitignore"
   git -C "$P" init -q -b main
   git -C "$P" config user.name Smoke; git -C "$P" config user.email smoke@example.invalid; git -C "$P" config commit.gpgsign false
   git -C "$P" add -A; git -C "$P" commit -q -m 'chore: fixture'
   git -C "$P" remote add origin "$ORIGIN"; git -C "$P" push -q origin main
   rts=claude; command -v codex >/dev/null 2>&1 && rts=claude,codex
   if (cd "$P" && "$repo/bin/proofline" init --yes --runtimes "$rts" --lead claude --worker claude --reviewers claude --profile economy --task-adapter markdown) > "$work/$pr_pre-init.txt" 2>&1 \
-     && fixture_commands \
+     && fixture_commands && fixture_rules \
      && git -C "$P" add -A && git -C "$P" commit -q -m 'chore: install proofline' && git -C "$P" push -q origin main; then
     row "$pr_pre setup: init, local bare origin" PASS "$(secs "$t0")" "installed proofline $(cd "$P" && "$repo/bin/proofline" version)"
   else row "$pr_pre setup: init, local bare origin" FAIL "$(secs "$t0")" "see $work/$pr_pre-init.txt"; return 1; fi
@@ -380,7 +389,7 @@ a200_batch() {
   ab_n='a200 batch'; ab_out="$work/a200-batch.jsonl"; : > "$ab_out"; ab_msgs=0; ab_max=${SMOKE_A200_REPLIES:-14}
   mk_fixture a200b || return 0
   printf '{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test", "build": "node --check src/greet.js", "lint": "node --check tests/greet.test.js" } }\n' > "$P/package.json"
-  sed 's/^  test:[[:space:]]*[^[:space:]#].*$/  test:/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"
+  sed -E 's/^  (build|test|lint):[[:space:]]*[^[:space:]#].*$/  \1:/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"
   a200_task "$P/.agents/tasks/B-1.md" B-1 'TRIVIAL — one function in three small modules.' 'join two words' \
     'Add `src/join.js`, `src/join-parts.js` and `src/join-sep.js` and a test `tests/join.test.js`: joinWords(a, b) (exported from src/join.js) uses the helpers.' \
     'joinWords(a, b) returns a and b separated by one space.' 'tests/join.test.js tests it with node:test and `npm test` passes.'

@@ -8,8 +8,8 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { baseEnv } from '../../equivalence/fixture.mjs';
-import { stateFixture } from '../../equivalence/cases/stage2-fixtures.mjs';
+import { baseEnv } from '../lib/fixture.mjs';
+import { stateFixture } from '../lib/stage2-fixtures.mjs';
 import { extractFunctions, repo } from '../helpers.mjs';
 
 export const GOLDEN = path.join(import.meta.dirname);
@@ -62,7 +62,7 @@ export function recordWords() {
 
 /** `next` for each state, the old engine. @returns {string} */
 export function recordNext() {
-  const run = (/** @type {string} */ dir, /** @type {string[]} */ args) => spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, { PROOFLINE_ENGINE: 'sh' }) });
+  const run = (/** @type {string} */ dir, /** @type {string[]} */ args) => spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, {}) });
   let out = '';
   const empty = stateFixture('empty'); const r0 = run(empty.dir, ['next']);
   out += `== no run (agent.sh next)\n# exit ${r0.status}\n${r0.stdout}`;

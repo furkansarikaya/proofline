@@ -1,4 +1,3 @@
-adapters/claude/hooks/proofline-hook.sh
 adapters/codex/install.sh
 adapters/generate.sh
 bin/lib/commands.sh
@@ -38,8 +37,6 @@ control-plane/agents/scripts/known-issues.sh
 control-plane/agents/scripts/lessons-test.sh
 control-plane/agents/scripts/lessons.sh
 control-plane/agents/scripts/lifecycle-test.sh
-control-plane/agents/scripts/next-user-test.sh
-control-plane/agents/scripts/next-user.sh
 control-plane/agents/scripts/perf-test.sh
 control-plane/agents/scripts/platform.sh
 control-plane/agents/scripts/risk-test.sh
@@ -122,7 +119,6 @@ skills/performance-proof/scripts/run-bench.sh
 skills/verify-proof/scripts/ecosystems.sh
 skills/verify-proof/scripts/runtime-versions.sh
 tests/affected.sh
-tests/bench/big-run.sh
 tests/bench/hook-procs.sh
 tests/bench/run-doc-size.sh
 tests/ci/affected-test.sh
@@ -151,7 +147,6 @@ tests/e2e/reply-loop-test.sh
 tests/e2e/run.sh
 tests/enforcement/approval-load-test.sh
 tests/enforcement/enforcement-test.sh
-tests/enforcement/kill-guard-test.sh
 tests/enforcement/merge-guard-test.sh
 tests/enforcement/platform-test.sh
 tests/enforcement/timeouts-test.sh

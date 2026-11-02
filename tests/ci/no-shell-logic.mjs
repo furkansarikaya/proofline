@@ -36,7 +36,6 @@ export const LAUNCHERS = new Set([
   'control-plane/agents/githooks/pre-commit',
   'control-plane/agents/githooks/pre-push',
   'bin/proofline',
-  'adapters/claude/hooks/proofline-hook.sh',
 ]);
 
 /** @typedef {{ kind: string, file: string, job: string, index: number, text: string, location: string, group: string, sha?: string, line?: number }} Item */

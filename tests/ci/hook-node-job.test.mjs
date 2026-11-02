@@ -18,13 +18,13 @@ describe('the Node hook is a pull request gate (hook-node)', () => {
     assert.ok(!/outputs\.fast|needs\.changes/.test(j), 'fast mode and the classifier are not read');
     assert.match(/^  checks:\n([\s\S]*)/m.exec(ci)?.[1] ?? '', /needs: \[[^\]]*\bhook-node\b/);
   });
-  test('it runs the hook tests, the guard tests with GUARDS_HOOK, the wiring tests and the six shell suites with HOOK_UNDER_TEST on the .mjs hook', () => {
+  test('it runs the hook tests, the guard tests with GUARDS_HOOK, the wiring tests and the five shell suites with HOOK_UNDER_TEST on the .mjs hook', () => {
     assert.match(j, /HOOK_UNDER_TEST: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
     assert.match(j, /GUARDS_HOOK: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
     assert.match(j, /run: node --test "tests\/hook\/\*\.test\.mjs"/);
     assert.match(j, /run: node --test tests\/enforcement\/guards\.test\.mjs/);
     assert.match(j, /run: node --test tests\/enforcement\/wiring\.test\.mjs/);
-    for (const s of ['enforcement-test', 'timeouts-test', 'kill-guard-test', 'merge-guard-test', 'platform-test', 'approval-load-test']) assert.match(j, new RegExp(`- suite: ${s}\\n\\s+node: '22\\.13\\.0'`), s);
+    for (const s of ['enforcement-test', 'timeouts-test', 'merge-guard-test', 'platform-test', 'approval-load-test']) assert.match(j, new RegExp(`- suite: ${s}\\n\\s+node: '22\\.13\\.0'`), s);
     assert.match(j, /SELFTEST_ONLY: \$\{\{ matrix\.suite \}\}\n\s+run: sh tests\/selftest\.sh/);
   });
   test('the Node tests run on Node 22.13.0 and the active LTS', () => {
@@ -33,7 +33,7 @@ describe('the Node hook is a pull request gate (hook-node)', () => {
     assert.ok(!/\{suite:/.test(j), 'block style only: the repository YAML check rejects inline flow mappings with ": "');
   });
   test('every suite named in the matrix exists and honours HOOK_UNDER_TEST', () => {
-    for (const s of ['enforcement-test', 'timeouts-test', 'kill-guard-test', 'merge-guard-test', 'platform-test', 'approval-load-test'])
+    for (const s of ['enforcement-test', 'timeouts-test', 'merge-guard-test', 'platform-test', 'approval-load-test'])
       assert.match(readFileSync(join(repo, 'tests/enforcement', `${s}.sh`), 'utf8'), /HOOK_UNDER_TEST:-/, s);
   });
 });

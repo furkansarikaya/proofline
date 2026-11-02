@@ -3,7 +3,7 @@
 // entry-tier. Each keeps its arguments, stdout, stderr, exit code and files exactly as in agent.sh 0.0.41. An argument shape whose shell
 // error text the core does not copy (`${2:?usage}`) throws BridgeToShell before any output; the entry then runs the shell code.
 import { bytes } from '../config.mjs';
-import { BridgeToShell, fail } from '../errors.mjs';
+import { fail, unsupported } from '../errors.mjs';
 import { inflightDispatch, inflightParts } from '../dispatch.mjs';
 import { contentFingerprint, gateFingerprint } from '../fingerprint.mjs';
 import { fixRoundsUsed, gateDeps, gateStatus, gateUnsupportedFocuses, gateFocusStatus, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported, taskPatchFingerprint, unsupportedLabel, verifyLifecycleGates } from '../gates.mjs';
@@ -20,7 +20,7 @@ import {
 /** The id argument of a command that needs one (`${2:?usage}`): a missing or empty one is the shell's error text. @param {string[]} args */
 function needId(args) {
   const id = args[0];
-  if (id === undefined || id === '') throw new BridgeToShell('usage');
+  if (id === undefined || id === '') throw unsupported('usage');
   return bytes(id);
 }
 
@@ -87,7 +87,7 @@ function verifyGates(ctx, args) {
 /** @param {Context} ctx @param {string[]} args */
 function entryTierCommand(ctx, args) {
   ctx.fpMode = 'refresh';
-  if (args[0] === undefined || args[0] === '') throw new BridgeToShell('usage');
+  if (args[0] === undefined || args[0] === '') throw unsupported('usage');
   ctx.out(`${entryTier(ctx, bytes(args[0])) || 'none'}\n`);
   return 0;
 }

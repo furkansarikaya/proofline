@@ -47,7 +47,7 @@ and then refreshes the hook limits in the settings files.
 | `claude plugin list` in doctor | 20 s | | `proofline doctor` |
 
 The hook limits in the settings files come from the config: edit `hook.<event>_timeout_seconds` or `timeouts.scale`, then run
-`proofline upgrade`. Only the `timeout` of the hooks whose command names `proofline-hook.sh` is written; every other setting and hook
+`proofline upgrade`. Only the `timeout` of the hooks whose command names `proofline-hook.mjs` is written; every other setting and hook
 is kept, and a second run changes nothing. The hooks of the plugin install (`adapters/claude/hooks/hooks.json`) carry the shipped
 values.
 

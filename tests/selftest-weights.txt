@@ -38,13 +38,11 @@
 192 enforcement-test read_roles_tree
 179 lifecycle-test scenario_terminal
 176 deliver-test scenario_normal_chain
-175 next-user-test sc_every_state_finished
 170 gates-test sc_debug_result
 168 gates-test sc_submit
 167 lifecycle-test scenario_task_contract_adapter
 166 deliver-test scenario_task_move_skipped
 165 tasks-test
-162 next-user-test sc_ci_rows
 155 lifecycle-test scenario_amendment_fresh_budget
 152 cli-test sc_init_role
 152 gates-test sc_next
@@ -80,8 +78,6 @@
 100 gates-test sc_supervised_destructive
 99 cli-test sc_doctor_faults
 97 lifecycle-test scenario_upgrade_named_pattern_path
-93 next-user-test sc_errors
-93 next-user-test sc_every_state_codedone
 88 batch-test sc_cover_delivery
 87 gates-test sc_destructive_refreeze
 87 lifecycle-test scenario_base_moved_agents_named
@@ -93,7 +89,6 @@
 83 lifecycle-test scenario_fix_scope_format
 80 enforcement-test verdicts
 80 lifecycle-test scenario_second_reopen
-78 next-user-test sc_batch_parked
 77 cli-test sc_state
 76 gates-test sc_legacy_fingerprint_new_rule
 76 lifecycle-test scenario_base_moved_agents_files
@@ -117,12 +112,10 @@
 63 lifecycle-test scenario_reopen_approval_kinds
 63 lifecycle-test scenario_task_contract_laundering
 60 gates-test sc_provenance
-59 next-user-test sc_deliver_records
 54 lifecycle-test scenario_fix_scope_symbol
 53 cli-test sc_upgrade_logging
 53 gates-test sc_report_names
 53 lifecycle-test scenario_task_contract_relocate
-52 next-user-test sc_expected_steps
 47 gates-test sc_evidence_gap_r2
 46 gates-test sc_evidence_gap_gates
 46 lifecycle-test scenario_failed_run_cleanup
@@ -182,10 +175,8 @@
 17 gates-test sc_report_stdin
 16 gates-test sc_validation_refreeze
 16 lifecycle-test scenario_evidence_order
-16 next-user-test sc_every_state_failed
 15 risk-test sc_unsupported_toolfree
 15 batch-test sc_sequential
-14 next-user-test sc_every_state_none
 13 cli-test sc_init_dry_errors
 13 controls-test sc_policy
 13 enforcement-test database_guard
@@ -194,7 +185,6 @@
 13 gates-test sc_report_focus_lines
 13 gates-test sc_validation_node
 12 batch-test sc_merge_commit_ci
-12 next-user-test sc_every_state_active
 12 risk-test sc_contract_content
 11 controls-test sc_base
 11 enforcement-test owned_paths
@@ -203,7 +193,6 @@
 11 lifecycle-test scenario_reopen_blocked_and_state
 10 lifecycle-test scenario_classification_diff
 10 lifecycle-test scenario_task_contract_projection
-10 next-user-test sc_every_state_question
 9 enforcement-test runtime_approvals
 9 gates-test sc_defect_scope
 9 lifecycle-test scenario_trivial_freeze_code
@@ -228,7 +217,6 @@
 5 cli-test sc_static
 5 enforcement-test git_bypass
 5 gates-test sc_question_language
-5 kill-guard-test script_files_allowed
 4 build-record-test
 4 controls-test sc_standalone
 4 exec-policy-test
@@ -238,17 +226,13 @@
 3 batch-test sc_order_and_cycle
 3 fixture-test
 3 gates-test sc_capture_integrity
-3 next-user-test sc_delivery_finished
 2 batch-test sc_ci_required
 2 batch-test sc_late_critical
 2 cli-test sc_insights
 2 controls-test sc_branch
 2 controls-test sc_roles
 2 friction-test
-2 kill-guard-test hook_stderr
-2 kill-guard-test interpreters
 2 lifecycle-test scenario_freeze_scope_mapping
-2 next-user-test sc_batch_rows
 1 affected-test
 1 batch-test sc_adapter_refused
 1 batch-test sc_critical_excluded
@@ -265,29 +249,7 @@
 1 gates-test sc_class_floor
 1 gates-test sc_validation_config
 1 githooks-test
-1 kill-guard-test allowed
-1 kill-guard-test allowed_misc
-1 kill-guard-test budget
-1 kill-guard-test budget_whole_hook
-1 kill-guard-test denied
-1 kill-guard-test deny_message
-1 kill-guard-test eval_variable
-1 kill-guard-test find_xargs
-1 kill-guard-test heredoc_indirect
-1 kill-guard-test indirect_allowed
-1 kill-guard-test installed
-1 kill-guard-test pid_derivation
-1 kill-guard-test quoted_substitution
-1 kill-guard-test quoted_text
-1 kill-guard-test script_files
-1 kill-guard-test script_runners
-1 kill-guard-test script_runners_allowed
-1 kill-guard-test signal_zero
-1 kill-guard-test taint_deny
-1 kill-guard-test zero_spellings
 1 lifecycle-test scenario_window_open_no_plan
-1 next-user-test sc_batch_every_state
-1 next-user-test sc_unknown_command
 1 pending-kind-test
 1 risk-test sc_log_config_check
 1 risk-test sc_log_pattern_wide

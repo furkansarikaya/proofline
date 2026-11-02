@@ -19,7 +19,7 @@ any agent. The normative guide is [adapters/README.md](../../adapters/README.md)
 2. Add a `render_<name>` function and a target name to `adapters/generate.sh`, mirroring `render_codex`.
 3. Add tests to `tests/generator/generator-test.sh`: structure, skill substitution, profile switch, escaping, `--check`.
 4. Run `sh adapters/generate.sh --check` and `sh tests/generator/generator-test.sh`.
-5. Map the runtime's hooks (user-prompt capture for approvals, pre-tool-use for ownership, subagent-stop for results) using `adapters/claude/hooks/hooks.json` and `proofline-hook.sh` as a model.
+5. Map the runtime's hooks (user-prompt capture for approvals, pre-tool-use for ownership, subagent-stop for results) using `adapters/claude/hooks/hooks.json` and `proofline-hook.mjs` as a model.
 6. Label the adapter "not tested" in your PR unless you ran it end to end. Only tested rows are claimed in `tests/e2e/README.md`.
 
 Generated files are never edited by hand. Related: [roles](../concepts/roles.md), [enforcement layers](../concepts/enforcement-layers.md).

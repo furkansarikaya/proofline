@@ -22,7 +22,6 @@
     "tests/hook/**/*.mjs",
     "tests/ci/**/*.mjs",
     "tests/enforcement/**/*.mjs",
-    "tests/equivalence/**/*.mjs",
-    "tests/bench/**/*.mjs"
+    "tests/core/lib/**/*.mjs"
   ]
 }

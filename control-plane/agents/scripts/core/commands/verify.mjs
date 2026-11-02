@@ -6,7 +6,7 @@
 import { statSync } from 'node:fs';
 import * as proc from '../proc.mjs';
 import { bytes } from '../config.mjs';
-import { BridgeToShell, fail } from '../errors.mjs';
+import { fail, unsupported } from '../errors.mjs';
 import { baselineFingerprint, hashFile, pathFingerprint } from '../fingerprint.mjs';
 import { git, isAncestor, sortUnique, trackedPaths, untrackedPaths } from '../git.mjs';
 import { verifyLifecycleGates, taskPatchFingerprint } from '../gates.mjs';
@@ -28,13 +28,13 @@ import { taskType } from '../taskfile.mjs';
 /** The id argument of a command that needs one (`${2:?usage}`): a missing or empty one is the shell's error text. @param {string[]} args */
 function needId(args) {
   const id = args[0];
-  if (id === undefined || id === '') throw new BridgeToShell('usage');
+  if (id === undefined || id === '') throw unsupported('usage');
   return bytes(id);
 }
 
 /** A file that must hash (`hash_file` of a missing file is a shell redirect error). @param {string} file */
 function hashRequired(file) {
-  if (!isFile(file)) throw new BridgeToShell('file to hash is not readable');
+  if (!isFile(file)) throw unsupported('file to hash is not readable');
   return hashFile(file);
 }
 
@@ -106,7 +106,7 @@ function verifyScope(ctx, id, allowArg) {
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   enforceTaskBranch(ctx, id);
-  if (fileText(ctx, `${dir}/PLAN.md`) === null) throw new BridgeToShell('PLAN.md is not readable');
+  if (fileText(ctx, `${dir}/PLAN.md`) === null) throw unsupported('PLAN.md is not readable');
   const sc = planScope(ctx, dir);
   if (!sc.ok || sc.rows.length === 0) fail('invalid scope mapping: fix PLAN.md ## Scope entries: each entry needs `path` and `criteria:` (a non-empty flow list such as [AC-1]); run the plan-contract validator (skills/plan-contract/scripts/validate-plan.mjs)');
   const maps = sc.rows;
@@ -196,10 +196,10 @@ function freshness(ctx, id) {
   const base = sectionValue(ctx, dir, 'repository', 'base_sha');
   const head = headOrBridge(ctx);
   // every condition that leaves the command to the shell is decided here, before RUN.yaml or the ledger is written: the shell then runs it whole
-  if (fileText(ctx, `${dir}/RUN.yaml`) === null) throw new BridgeToShell('RUN.yaml is not readable');
+  if (fileText(ctx, `${dir}/RUN.yaml`) === null) throw unsupported('RUN.yaml is not readable');
   if (sectionValue(ctx, dir, 'task_source', 'type') === 'local_markdown') {
     const tp = `${ctx.root}/${sectionValue(ctx, dir, 'task_source', 'path')}`;
-    if (isFile(tp) && fileText(ctx, tp) === null) throw new BridgeToShell('task source is not readable');
+    if (isFile(tp) && fileText(ctx, tp) === null) throw unsupported('task source is not readable');
   }
   if (base !== head && !(ctx.ctpBase === base && isAncestor(ctx, base, 'HEAD'))) {
     if (baseMovedControlOnly(ctx, dir, base, false)) {
@@ -319,7 +319,7 @@ function verifyQaPlanBound(ctx, id) {
   if (pacs.length) {
     // `for a in $qacs` splits on blanks (and expands a glob): a word with a glob character is the shell's
     for (const a of qacs.flatMap((x) => x.split(/[ \t\n]+/)).filter((x) => x !== '')) {
-      if (/[*?[]/.test(a)) throw new BridgeToShell('glob character in a QA criterion');
+      if (/[*?[]/.test(a)) throw unsupported('glob character in a QA criterion');
       if (!pacs.includes(a)) fail(`QA_PLAN.md has a scenario for ${a}, which PLAN.md does not contain: the QA plan contradicts the plan`);
     }
   }
@@ -402,7 +402,7 @@ function validateTddExemptions(ctx, dir) {
   const plan = fileLines(ctx, `${dir}/PLAN.md`);
   const paths = shellWords(ctx, scopePaths(rows));
   const taskText = fileText(ctx, `${dir}/TASK.md`);
-  if (taskText === null) throw new BridgeToShell('TASK.md is not readable');
+  if (taskText === null) throw unsupported('TASK.md is not readable');
   const ty = taskType(taskText);
   if (ty === 'content' || ty === 'docs') {
     const globs = ctx.config().get('review.executable_code', EXECUTABLE_DEFAULT);
@@ -436,7 +436,7 @@ function validEvidenceFile(ctx, id, dir, file, role) {
     const given = ctx.env.CODEX_SESSION_DIR;
     const base = given !== undefined && given !== '' ? given : `${ctx.env.HOME ?? ''}/.codex/sessions`;
     if (isDirectory(base)) {
-      if (session.includes('\\') || session.includes('\n')) throw new BridgeToShell('session id with a backslash');
+      if (session.includes('\\') || session.includes('\n')) throw unsupported('session id with a backslash');
       const r2 = procRun('grep', ['-RFl', `"${session}"`, base], ctx);
       if (r2 !== 0) return false;
     }

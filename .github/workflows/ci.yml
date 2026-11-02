@@ -3,11 +3,10 @@ name: ci
 # pushes to main are Linux only too; macOS (static, fixtures, selftest), visual-browser and the benchmark report
 # run only on the nightly schedule and manual runs. A pull request that changes only plain documentation skips the heavy test
 # jobs (tests/ci/classify.sh) but still runs shellcheck and the sync checks. The `checks` job always reports.
-# Node migration (docs/adr/0001-node-control-plane.md): `equivalence` (the rig, tests/equivalence), `node-tests` (the Node tests of tests/ci and
-# tests/enforcement on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates. TEMPORARY FAST MODE: while
-# tests/ci/fast-mode.txt exists and has not expired, a pull request skips the legacy self-test shards, the fixtures job and the skill tests
-# step (tests/ci/fast-mode.mjs, read by `changes`); it never skips invariants, equivalence, node-tests, types or static. After the expiry
-# date `changes` fails while the file exists.
+# Node migration (docs/adr/0001-node-control-plane.md): `node-tests` (the Node tests of tests/core, tests/ci, tests/enforcement and tests/invariants-node on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates. TEMPORARY FAST MODE: while
+# tests/ci/fast-mode.txt exists, a pull request skips the legacy self-test shards, the fixtures job and the skill tests
+# step (tests/ci/fast-mode.mjs, read by `changes`); it never skips invariants, node-tests, types or static. It has no expiry
+# date: it ends in the stage in which the legacy shell tests are completely gone (A210). The nightly run keeps the full suite.
 on:
   push:
     branches: [main]
@@ -260,189 +259,9 @@ jobs:
           path: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
           if-no-files-found: error
 
-  # ADR 0001 section 6: the equivalence rig (tests/equivalence) replays recorded command traces against the shell code and the Node core and compares
-  # every byte. A pull request replays the touched commands on Linux; the nightly and manual runs replay everything on Linux and macOS.
-  # Never skipped by fast mode.
-  equivalence:
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true'
-    name: equivalence (${{ matrix.leg.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        # One leg per group of test FILES, each on a runner of its own. A pull request replays only what it touched (tests/equivalence/scope.mjs): a
-        # command file selects that command on every state, a shared file selects one command per family on the four light states, so the `states-N`
-        # legs, `scoped-misc` and `acceptance` finish in minutes; the always-on legs are `acceptance`, `lifecycle` (the alternating-engine run),
-        # `downgrade` and `upgrade-rest`. The nightly and manual runs set EQUIVALENCE_FULL=1: every command on every state, the trace replays and the
-        # slow cases, in the same legs (each `states-N` leg holds one eighth of the states). `invariants-sh-N` is the Core invariants on the shell
-        # engine, one scenario per leg. `full-serial` is an opt-in debugging path (repository variable EQUIVALENCE_SERIAL=1): the whole set in one
-        # process, hours long; otherwise it does nothing. The macOS legs are in `equivalence-macos` (nightly and manual runs only).
-        leg:
-          - name: states-1
-            files: tests/equivalence/stage2-cases-1.test.mjs tests/equivalence/stage2-trace-1.test.mjs
-          - name: states-2
-            files: tests/equivalence/stage2-cases-2.test.mjs tests/equivalence/stage2-trace-2.test.mjs
-          - name: states-3
-            files: tests/equivalence/stage2-cases-3.test.mjs tests/equivalence/stage2-trace-3.test.mjs
-          - name: states-4
-            files: tests/equivalence/stage2-cases-4.test.mjs tests/equivalence/stage2-trace-4.test.mjs
-          - name: states-5
-            files: tests/equivalence/stage2-cases-5.test.mjs tests/equivalence/stage2-trace-5.test.mjs
-          - name: states-6
-            files: tests/equivalence/stage2-cases-6.test.mjs tests/equivalence/stage2-trace-6.test.mjs
-          - name: states-7
-            files: tests/equivalence/stage2-cases-7.test.mjs tests/equivalence/stage2-trace-7.test.mjs
-          - name: states-8
-            files: tests/equivalence/stage2-cases-8.test.mjs tests/equivalence/stage2-trace-8.test.mjs
-          - name: lifecycle
-            files: tests/equivalence/lifecycle.test.mjs
-          - name: downgrade
-            files: tests/equivalence/downgrade.test.mjs
-          - name: upgrade-rest
-            files: tests/equivalence/stage3-crossversion.test.mjs tests/equivalence/wiring-upgrade.test.mjs tests/equivalence/stage3-hardening.test.mjs
-          - name: scoped-misc
-            files: tests/equivalence/cases.test.mjs tests/equivalence/cases-slow.test.mjs tests/equivalence/stage2-cases.test.mjs tests/equivalence/stage3-cases.test.mjs tests/equivalence/trace-replay.test.mjs
-          - name: acceptance
-            files: tests/equivalence/node-absent.test.mjs tests/equivalence/role-table.test.mjs tests/equivalence/lock-interop.test.mjs tests/equivalence/seam-safety.test.mjs tests/equivalence/glob-differential.test.mjs tests/equivalence/rig.test.mjs tests/equivalence/trace.test.mjs tests/equivalence/scope.test.mjs
-          - name: invariants-sh-1
-            files: none
-            scenario: sc_inv1_code_done_needs_gates
-          - name: invariants-sh-2
-            files: none
-            scenario: sc_inv2_never_waivable
-          - name: invariants-sh-3
-            files: none
-            scenario: sc_inv2_run_on_change
-          - name: invariants-sh-4
-            files: none
-            scenario: sc_inv3_user_message_only
-          - name: invariants-sh-5
-            files: none
-            scenario: sc_inv4_evidence_reproduced
-          - name: invariants-sh-6
-            files: none
-            scenario: sc_inv4_green_needs_change
-          - name: invariants-sh-7
-            files: none
-            scenario: sc_inv5_no_self_review
-          - name: invariants-sh-8
-            files: none
-            scenario: sc_inv6_safe_side
-          - name: full-serial
-            files: all
-    runs-on: ubuntu-latest
-    env:
-      EQUIVALENCE_FULL: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
-    steps:
-      # full history: the downgrade test unpacks the previous release (git archive <commit>) from this clone, and the scope selection diffs against the merge base
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.13.0
-      # a list of files or a glob, not a directory: this Node does not expand a directory argument of --test to the test files
-      - name: equivalence rig (this leg's files)
-        if: matrix.leg.files != 'none' && matrix.leg.files != 'all'
-        run: node --test ${{ matrix.leg.files }}
-      - name: equivalence rig (the whole set in one process, opt-in)
-        if: vars.EQUIVALENCE_SERIAL == '1' && matrix.leg.files == 'all'
-        run: node --test "tests/equivalence/*.test.mjs"
-      # C2/C6: the Core invariants also pass with the engine forced to the shell code; the `invariants` job runs the default engine. Not in a
-      # fast-mode-skippable job.
-      - name: Core invariants with the engine switched to sh (this scenario)
-        if: matrix.leg.files == 'none'
-        env:
-          LC_EXACT: ${{ matrix.leg.scenario }}
-          PROOFLINE_ENGINE: sh
-        run: sh tests/invariants/invariants-test.sh
-
-  # The full replay on macOS (the shell is BSD there: sed, date, stat, awk differ). Nightly and manual runs ONLY: macOS minutes are expensive, so a pull
-  # request never starts a macOS runner. The same files as the Linux legs, one file per leg where a file is long (the case and trace files of the eight
-  # state buckets), EQUIVALENCE_FULL=1; each leg is meant to finish in about 15 minutes (before this a serial leg took 2 h 7 min). Two invariants legs run the
-  # Core invariants on the shell engine (the others run on Linux).
-  equivalence-macos:
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    name: equivalence-macos (${{ matrix.leg.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        leg:
-          - name: cases-1
-            files: tests/equivalence/stage2-cases-1.test.mjs
-          - name: cases-2
-            files: tests/equivalence/stage2-cases-2.test.mjs
-          - name: cases-3
-            files: tests/equivalence/stage2-cases-3.test.mjs
-          - name: cases-4
-            files: tests/equivalence/stage2-cases-4.test.mjs
-          - name: cases-5
-            files: tests/equivalence/stage2-cases-5.test.mjs
-          - name: cases-6
-            files: tests/equivalence/stage2-cases-6.test.mjs
-          - name: cases-7
-            files: tests/equivalence/stage2-cases-7.test.mjs
-          - name: cases-8
-            files: tests/equivalence/stage2-cases-8.test.mjs
-          - name: trace-1
-            files: tests/equivalence/stage2-trace-1.test.mjs
-          - name: trace-2
-            files: tests/equivalence/stage2-trace-2.test.mjs
-          - name: trace-3
-            files: tests/equivalence/stage2-trace-3.test.mjs
-          - name: trace-4
-            files: tests/equivalence/stage2-trace-4.test.mjs
-          - name: trace-5
-            files: tests/equivalence/stage2-trace-5.test.mjs
-          - name: trace-6
-            files: tests/equivalence/stage2-trace-6.test.mjs
-          - name: trace-7
-            files: tests/equivalence/stage2-trace-7.test.mjs
-          - name: trace-8
-            files: tests/equivalence/stage2-trace-8.test.mjs
-          - name: lifecycle
-            files: tests/equivalence/lifecycle.test.mjs
-          - name: downgrade
-            files: tests/equivalence/downgrade.test.mjs
-          - name: upgrade-rest
-            files: tests/equivalence/stage3-crossversion.test.mjs tests/equivalence/wiring-upgrade.test.mjs tests/equivalence/stage3-hardening.test.mjs
-          - name: misc-cases
-            files: tests/equivalence/cases.test.mjs tests/equivalence/cases-slow.test.mjs tests/equivalence/stage2-cases.test.mjs
-          - name: misc-trace-replay
-            files: tests/equivalence/trace-replay.test.mjs
-          - name: misc-stage3
-            files: tests/equivalence/stage3-cases.test.mjs
-          - name: acceptance
-            files: tests/equivalence/node-absent.test.mjs tests/equivalence/role-table.test.mjs tests/equivalence/lock-interop.test.mjs tests/equivalence/seam-safety.test.mjs tests/equivalence/glob-differential.test.mjs tests/equivalence/rig.test.mjs tests/equivalence/trace.test.mjs tests/equivalence/scope.test.mjs
-          - name: invariants-sh-1
-            files: none
-            scenario: sc_inv1_code_done_needs_gates
-          - name: invariants-sh-8
-            files: none
-            scenario: sc_inv6_safe_side
-    runs-on: macos-latest
-    env:
-      EQUIVALENCE_FULL: '1'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.13.0
-      - name: equivalence rig (this leg's files)
-        if: matrix.leg.files != 'none'
-        run: node --test ${{ matrix.leg.files }}
-      - name: Core invariants with the engine switched to sh (this scenario)
-        if: matrix.leg.files == 'none'
-        env:
-          LC_EXACT: ${{ matrix.leg.scenario }}
-          PROOFLINE_ENGINE: sh
-        run: sh tests/invariants/invariants-test.sh
-
   # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped by fast mode.
   node-tests:
+    timeout-minutes: 40
     name: node-tests (${{ matrix.node }}, ${{ matrix.leg.name }})
     strategy:
       fail-fast: false
@@ -450,56 +269,92 @@ jobs:
         node: ['22.13.0', 'lts/*']
         # One leg per group of test FILES (the slow ones split further by test name: `name` runs the tests whose name matches the pattern, `skip` runs
         # all the others, so a name list and its complement partition a file). Before this one job ran every file serially (68 and 34 minutes). Every leg
-        # runs on both Node versions; the `ci-bench-enforcement` leg names globs, so a new test file under tests/ci, tests/bench or tests/enforcement joins it by itself; tests/ci/node-tests-legs.test.mjs checks that every test file and every test of a split file is in exactly one leg.
+        # runs on both Node versions; the `ci-bench-enforcement` leg names globs, so a new test file under tests/ci or tests/enforcement joins it by itself; tests/ci/node-tests-legs.test.mjs checks that every test file and every test of a split file is in exactly one leg.
         leg:
-          - name: c1-a
-            mode: name
-            pattern: '^(code done|done)$'
-            files: tests/core/c1.test.mjs
-          - name: c1-b
-            mode: name
-            pattern: '^(code done, (report not published|knowledge not recorded))$'
-            files: tests/core/c1.test.mjs
-          - name: c1-c
-            mode: name
-            pattern: '^(standalone code done|a failing gate.*|all gates pass|pass then edited \(stale\))$'
-            files: tests/core/c1.test.mjs
-          - name: c1-d
-            mode: name
-            pattern: '^(gates partly passed|risky path in the diff \(tier full, signals\)|implemented|standalone standard)$'
-            files: tests/core/c1.test.mjs
-          - name: c1-e
-            mode: skip
-            pattern: '^(code done|done|code done, (report not published|knowledge not recorded)|standalone code done|a failing gate.*|all gates pass|pass then edited \(stale\)|gates partly passed|risky path in the diff \(tier full, signals\)|implemented|standalone standard)$'
-            files: tests/core/c1.test.mjs
-          - name: library-a
-            mode: name
-            pattern: '^(code done|ledger faults.*|tampered gate record.*)$'
-            files: tests/core/library.test.mjs
-          - name: library-b
-            mode: skip
-            pattern: '^(code done|ledger faults.*|tampered gate record.*)$'
-            files: tests/core/library.test.mjs
-          - name: c1-slow
-            mode: files
-            pattern: 'none'
-            files: tests/core/c1-slow.test.mjs
           - name: verify
             mode: files
             pattern: 'none'
-            files: tests/core/verify.test.mjs tests/core/verify-slow.test.mjs tests/core/verify-fixes.test.mjs
+            files: tests/core/verify-fixes.test.mjs
           - name: core-rest
             mode: files
             pattern: 'none'
-            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/mandatory.test.mjs tests/core/parity.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
+            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/unsupported.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
+          - name: legacy-approvals
+            mode: files
+            pattern: 'none'
+            files: tests/core/answer-user.test.mjs tests/core/legacy-approval-grammar.test.mjs tests/core/legacy-approval-multi.test.mjs tests/core/legacy-approvals.test.mjs tests/core/legacy-questions.test.mjs tests/core/legacy-waivers.test.mjs
+          - name: port-rig-a
+            mode: files
+            pattern: 'none'
+            files: tests/core/port-t3-rig-stage1.test.mjs tests/core/port-t3-rig-stage2-1.test.mjs tests/core/port-t3-rig-stage2-2.test.mjs tests/core/port-t3-rig-stage2-3.test.mjs
+          - name: port-rig-b
+            mode: files
+            pattern: 'none'
+            files: tests/core/port-t3-rig-stage2-4.test.mjs tests/core/port-t3-rig-stage2-5.test.mjs tests/core/port-t3-rig-stage2-6.test.mjs
+          - name: port-rig-c
+            mode: files
+            pattern: 'none'
+            files: tests/core/port-t3-rig-stage2-7.test.mjs tests/core/port-t3-rig-stage2-8.test.mjs tests/core/port-t3-glob.test.mjs tests/core/port-t3-roles.test.mjs
+          - name: port-replays
+            mode: files
+            pattern: 'none'
+            files: tests/core/port-t2-drift.test.mjs tests/core/port-t2-eco.test.mjs tests/core/port-t2-fingerprint.test.mjs tests/core/port-t2-own-commits.test.mjs tests/core/port-t2-replay.test.mjs tests/core/port-t2-tier.test.mjs tests/core/port-t3-replay.test.mjs
+          - name: legacy-flows-a
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-database.test.mjs tests/core/legacy-destructive.test.mjs tests/core/legacy-scope.test.mjs
+          - name: legacy-flows-b
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-fail-closed.test.mjs tests/core/legacy-fingerprint.test.mjs tests/core/legacy-recovery.test.mjs
+          - name: legacy-slow-a
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-next-user.test.mjs
+          - name: legacy-slow-b
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-reopen.test.mjs
+          - name: legacy-language
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-identity.test.mjs tests/core/legacy-language.test.mjs
+          - name: enforcement-recorded-lead
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-recorded-lead.test.mjs
+          - name: enforcement-recorded-paths
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-recorded-paths.test.mjs
+          - name: enforcement-recorded-roles
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-recorded-roles.test.mjs
+          - name: invariants-node-1
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rules-1-2.test.mjs
+          - name: invariants-node-2b
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rule-2b.test.mjs
+          - name: invariants-node-2
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rule-3.test.mjs
+          - name: invariants-node-3
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rule-4.test.mjs
+          - name: invariants-node-4
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rules-5-6.test.mjs
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'
-            files: tests/bench/*.test.mjs tests/ci/*.test.mjs tests/enforcement/*.test.mjs
-          - name: full-serial
-            mode: full
-            pattern: 'none'
-            files: all
+            files: tests/ci/*.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -512,7 +367,7 @@ jobs:
       # nightly and manual runs only: the whole set in one process as before, the safety net behind the legs (on a pull request this leg does nothing)
       - name: every test file in one process (nightly and manual runs)
         if: matrix.leg.mode == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/bench/*.test.mjs"
+        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/invariants-node/*.test.mjs"
       - name: tests of this leg (by test name)
         if: matrix.leg.mode == 'name'
         env:
@@ -524,7 +379,7 @@ jobs:
           PATTERN: ${{ matrix.leg.pattern }}
         run: node --test "--test-skip-pattern=$PATTERN" ${{ matrix.leg.files }}
 
-  # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the six shell enforcement suites run AGAINST
+  # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the five shell enforcement suites run AGAINST
   # adapters/claude/hooks/proofline-hook.mjs (the legacy self-test shards keep testing the shell hook, which stays until stage 15). One leg per suite so the
   # wall time is the slowest leg: enforcement-test about 8 minutes on a 4-core runner (the local run takes 380 s on 8 cores), timeouts-test about 3, the
   # rest under a minute each; the node-tests legs (hook tests, guards, wiring, process budgets) about 6 minutes. The Node tests run on Node 22.13.0
@@ -541,8 +396,6 @@ jobs:
           - suite: enforcement-test
             node: '22.13.0'
           - suite: timeouts-test
-            node: '22.13.0'
-          - suite: kill-guard-test
             node: '22.13.0'
           - suite: merge-guard-test
             node: '22.13.0'
@@ -647,7 +500,7 @@ jobs:
   # passed, a failed or cancelled job fails it.
   checks:
     if: always()
-    needs: [changes, static, fixtures, visual-browser, selftest, invariants, equivalence, equivalence-macos, node-tests, hook-node, types]
+    needs: [changes, static, fixtures, visual-browser, selftest, invariants, node-tests, hook-node, types]
     runs-on: ubuntu-latest
     steps:
       - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests were skipped

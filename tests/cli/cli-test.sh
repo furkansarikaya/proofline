@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.44" "$out" "proofline 0.0.44"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.44 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.45" "$out" "proofline 0.0.45"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.45 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,12 +122,12 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.44 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.45 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
 done; ok "scripts and git hooks are executable"
-for f in .agents/WORKFLOW.md .agents/GATES.md .agents/templates/RUN.yaml .agents/modes/deterministic.yaml .agents/hooks/proofline-hook.sh .agents/hooks/proofline-hook.mjs .agents/hooks/events/pretool.mjs .agents/hooks/lib/yield.mjs .agents/roles.conf .agents/roles/lead.md \
+for f in .agents/WORKFLOW.md .agents/GATES.md .agents/templates/RUN.yaml .agents/modes/deterministic.yaml .agents/hooks/proofline-hook.mjs .agents/hooks/events/pretool.mjs .agents/hooks/lib/yield.mjs .agents/roles.conf .agents/roles/lead.md \
   .claude/agents/proofline-reviewer.md .codex/agents/proofline-reviewer.toml AGENTS.md CLAUDE.md .claude/settings.json .codex/hooks.json .agents/.proofline-manifest; do
   [ -f "$base/$f" ] || die "missing after init: $f"
 done; ok "control plane, roles, agents, hooks and instruction files are installed"
@@ -174,7 +174,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.44' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.45' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -320,7 +320,7 @@ done
 grep -qx 'my edit above the block' "$up6/AGENTS.md" && grep -qx '## Logging' "$up6/AGENTS.md" && grep -qx -- '- Log through internal/logx only.' "$up6/AGENTS.md" && grep -q 'upstream block change' "$up6/AGENTS.md" && [ -z "$(find "$up6" -name '*.proofline-new' -not -path '*/.git/*')" ] && ok "...the user's Logging section and the edit above survive, the block is updated, no .proofline-new" || { LAST=$(cat "$up6/AGENTS.md"); die "user AGENTS.md content lost or a .proofline-new appeared"; }
 
 # A162: README keeps the sentence that the entry skill lists the next-step table
-grep -qF 'One table in the control plane (`next-user.sh`) holds it; the entry skill lists it;' "$repo/README.md" && ok "README says the entry skill lists the next-step table" || die "README lost the entry-skill sentence"
+grep -qF 'One table in the control plane (`core/nextuser.mjs`) holds it; the entry skill lists it;' "$repo/README.md" && ok "README says the entry skill lists the next-step table" || die "README lost the entry-skill sentence"
 
 }
 
@@ -344,9 +344,6 @@ for dsf in claude codex; do
   expect "doctor names Stop as the missing event ($dsf)" "$out" "lacks proofline hooks for: Stop"
   [ "$rc" != 0 ] && ok "doctor exits non-zero when $dsf Stop is not wired" || die "doctor passed without the $dsf Stop hook"
 done
-dold=$T/dold; cp -R "$base" "$dold"
-jq '.hooks |= with_entries(.value |= map(.hooks |= map(.command |= "sh -c \u0027exec sh \"$h\" x proofline-hook.sh\u0027")))' "$dold/.claude/settings.json" > "$dold/s.t" && mv "$dold/s.t" "$dold/.claude/settings.json"
-expect "doctor accepts the shell wiring of 0.0.40 for all 7 events (a rollback state)" "$(pl "$dold" doctor 2>&1)" "claude hooks: .claude/settings.json wires all 7 proofline events"
 dmj=$T/dmj; cp -R "$base" "$dmj"; rm "$dmj/.agents/hooks/proofline-hook.mjs"
 expect "doctor FAILs when the Node hook file is missing" "$(pl "$dmj" doctor 2>&1)" "FAIL hooks: .agents/hooks/proofline-hook.mjs missing"
 expect "doctor shows the runtime versions" "$out" "runtime claude: 9.9.9"
@@ -469,7 +466,7 @@ sc_doctor_missing() {
 d6=$T/d6; cp -R "$base" "$d6"; rm "$d6/.agents/PROTOCOL.md"
 out=$(pl "$d6" doctor 2>&1); rc=$?
 [ "$rc" = 0 ] && expect "doctor only WARNs when a non-critical installed file is missing" "$out" "WARN manifest: 1 installed file" || { LAST=$out; die "non-critical missing file: rc=$rc"; }
-for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .agents/roles.conf .agents/githooks/pre-push .agents/hooks/proofline-hook.sh .agents/skills/proofline-lead; do
+for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .agents/roles.conf .agents/githooks/pre-push .agents/skills/proofline-lead; do
   d7=$T/d7; rm -rf "$d7"; cp -R "$base" "$d7"; rm -rf "${d7:?}/$crit"
   out=$(pl "$d7" doctor 2>&1); rc=$?
   [ "$rc" != 0 ] && expect "doctor FAILs when $crit is missing" "$out" "FAIL manifest: required control-plane file missing: $crit" || { LAST=$out; die "doctor passed without $crit"; }
@@ -582,7 +579,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.44" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.45" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -659,7 +656,7 @@ if [ "$(id -u)" != 0 ]; then
 else ok "read-only checkout case skipped (running as root): not tested"; fi
 chmod -R u+w "$ins/.agents"
 [ "$before" = "$(sig "$ins")" ] && ok "insights leaves every file byte-identical (rules, skills, config, ledger, metrics)" || die "insights changed a file"
-noruns=$(mkrepo noruns); mkdir -p "$noruns/.agents/scripts"; printf 'metrics: off\n' > "$noruns/.agents/config.yaml"; : > "$noruns/.agents/scripts/agent.sh"
+noruns=$(mkrepo noruns); mkdir -p "$noruns/.agents/scripts"; printf 'metrics: off\n' > "$noruns/.agents/config.yaml"; : > "$noruns/.agents/scripts/agent.sh"; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$noruns/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$noruns/.agents/scripts/core"
 out=$(pl "$noruns" insights 2>&1) || { LAST=$out; die "insights with no runs and metrics off exits 0"; }
 expect "insights with metrics off says no metrics recorded" "$out" "no metrics recorded (metrics: off)"
 expect "insights with no runs says so" "$out" "no runs and no metrics to report"
@@ -699,9 +696,9 @@ rd_cmds=$(rd_list "$repo/README.md")
 if [ "$hp_cmds" = "$rd_cmds" ]; then ok "the README command list names exactly the commands of proofline help"
 else LAST=$(printf 'help:\n%s\nREADME:\n%s\n' "$hp_cmds" "$rd_cmds"); die "README.md Commands list and proofline help name different commands"; fi
 # A159: the next-step table has an entry for every command of `proofline help`, and no other
-nu_cmds=$(sh "$repo/control-plane/agents/scripts/next-user.sh" --commands | sort -u)
+nu_cmds=$(node "$repo/control-plane/agents/scripts/proofline-core.mjs" cli next-line --commands | sort -u)
 if [ "$hp_cmds" = "$nu_cmds" ]; then ok "the next-step table names exactly the commands of proofline help"
-else LAST=$(printf 'help:\n%s\nnext-user:\n%s\n' "$hp_cmds" "$nu_cmds"); die "next-user.sh table and proofline help name different commands"; fi
+else LAST=$(printf 'help:\n%s\nnext-user:\n%s\n' "$hp_cmds" "$nu_cmds"); die "next-step table and proofline help name different commands"; fi
 # negative: a command missing from the README block (or an invented one) makes the same comparison fail
 mkdir -p "$T/rdneg"
 grep -v '^debt  ' "$repo/README.md" > "$T/rdneg/missing.md"

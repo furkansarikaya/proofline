@@ -57,7 +57,6 @@ stage_build() {
     [ -f "$sb_d/SKILL.md" ] || continue
     cp -R "${sb_d%/}" "$sf/.agents/skills/"
   done
-  cp "$PL_HOME/adapters/claude/hooks/proofline-hook.sh" "$sf/.agents/hooks/proofline-hook.sh"
   # the Node hook tree (stage 3) is staged apart: see node_hook_install
   nh=$STAGE/nodehook; mkdir -p "$nh"
   cp "$PL_HOME/adapters/claude/hooks/proofline-hook.mjs" "$PL_HOME/adapters/claude/hooks/command-scan.mjs" "$nh/"
@@ -146,12 +145,10 @@ hooks_merge() {
   if command -v jq >/dev/null 2>&1; then
     jq -s '
       def cmds: [(.hooks // [])[] | .command];
-      def isold: ((.command // "") | tostring | test("^sh -c \u0027.*proofline-hook(\\.|\\[\\.\\])sh"));
-      def strip: . as $g | if (.hooks | type) == "array" then (.hooks |= map(select(isold | not))) | select(($g.hooks | length) == 0 or (.hooks | length) > 0) else . end;
       .[0] as $cur | .[1] as $frag
       | if ($cur | type) != "object" then error("not an object") else . end
       | $cur | .hooks = (reduce ($frag.hooks | to_entries[]) as $e (.hooks // {};
-          ((((.[$e.key] // []) | map(strip))) as $h | ([$h[] | cmds[]]) as $present
+          (((.[$e.key] // [])) as $h | ([$h[] | cmds[]]) as $present
           | .[$e.key] = ($h + [$e.value[] | select(([cmds[] | select(. as $c | $present | index($c) != null)] | length) == 0)]))))' \
       "$1" "$2" > "$3" 2>/dev/null || return 1
     [ "$(jq -S -c . "$1")" != "$(jq -S -c . "$3")" ] || return 0
@@ -165,13 +162,7 @@ hooks_merge() {
       const before = JSON.stringify(c);
       const hooks = c.hooks && typeof c.hooks === "object" ? c.hooks : {};
       for (const [ev, groups] of Object.entries(f.hooks || {})) {
-        // the old `sh -c` strings of 0.0.40-0.0.42 are replaced by the new ones, not kept beside them
-        const old = /^sh -c \x27.*proofline-hook(\.|\[\.\])sh/;
-        const have = (Array.isArray(hooks[ev]) ? hooks[ev] : []).flatMap((g) => {
-          if (!g || !Array.isArray(g.hooks)) return [g];
-          const kept = g.hooks.filter((h) => !old.test(String((h && h.command) || "")));
-          return kept.length === 0 && g.hooks.length > 0 ? [] : [{ ...g, hooks: kept }];
-        });
+        const have = Array.isArray(hooks[ev]) ? hooks[ev] : [];
         const present = new Set(have.flatMap((g) => (g.hooks || []).map((h) => h.command)));
         for (const g of groups) {
           const cmds = (g.hooks || []).map((h) => h.command);
@@ -203,7 +194,7 @@ json_merge() { # REL SRC
 
 # hook_timeouts_apply REL (A202 item 29): sets the `timeout` of every proofline hook in REL (.claude/settings.json, .codex/hooks.json) to the value the
 # project's config gives (`agent.sh hook-timeouts`: hook.<event>_timeout_seconds times timeouts.scale, bounded). Only the `timeout` of a hook whose command
-# names proofline-hook.sh is touched; every other key, hook and setting stays byte for byte as it was. Idempotent: a file that already holds the values
+# names proofline-hook.mjs is touched; every other key, hook and setting stays byte for byte as it was. Idempotent: a file that already holds the values
 # is not rewritten. The config is the one place to change a hook limit; a limit edited by hand in the settings file is put back to it on the next upgrade.
 hook_timeouts_apply() {
   [ -f "$ROOT/$1" ] || return 0
@@ -219,7 +210,7 @@ hook_timeouts_apply() {
   if command -v jq >/dev/null 2>&1; then
     jq --argjson t "{$ht_map}" '
       if (.hooks | type) == "object" then
-        .hooks |= with_entries(.key as $ev | .value |= (if type == "array" then map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | test("proofline-hook[.](sh|mjs)")) and ($t[$ev] != null) then .timeout = $t[$ev] else . end) else . end) else . end))
+        .hooks |= with_entries(.key as $ev | .value |= (if type == "array" then map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | test("proofline-hook[.]mjs")) and ($t[$ev] != null) then .timeout = $t[$ev] else . end) else . end) else . end))
       else . end' "$ROOT/$1" > "$ht_out" 2>/dev/null && ht_rc=0
   elif command -v node >/dev/null 2>&1; then
     node -e '
@@ -228,7 +219,7 @@ hook_timeouts_apply() {
       const t = JSON.parse("{" + map + "}");
       if (j && typeof j.hooks === "object" && j.hooks) for (const [ev, groups] of Object.entries(j.hooks)) {
         if (!Array.isArray(groups) || t[ev] == null) continue;
-        for (const g of groups) if (g && Array.isArray(g.hooks)) for (const h of g.hooks) if (h && String(h.command || "").match(/proofline-hook[.](sh|mjs)/)) h.timeout = t[ev];
+        for (const g of groups) if (g && Array.isArray(g.hooks)) for (const h of g.hooks) if (h && String(h.command || "").match(/proofline-hook[.]mjs/)) h.timeout = t[ev];
       }
       fs.writeFileSync(out, JSON.stringify(j, null, 2) + "\n");' "$ROOT/$1" "$ht_out" "$ht_map" && ht_rc=0
   fi

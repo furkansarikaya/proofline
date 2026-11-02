@@ -151,7 +151,7 @@ export async function handle(ctx) {
     msgs = approvalMessages(all, msgs);
   }
   rmf(marker);
-  if (ctx.act !== '' && ctx.act !== 'INVALID' && /accept/i.test(pt)) await recordAcceptances(ctx, promptCapture);
+  if (ctx.act !== '' && ctx.act !== 'INVALID') await recordAcceptances(ctx, promptCapture);
   await ctx.flush();
   if (warn !== '') msgs = `${warn}${msgs !== '' ? ` ${msgs}` : ''}`;
   if (msgs === '') return undefined;
@@ -173,9 +173,10 @@ function trimSpool(file) {
 }
 
 /**
- * An assumption the user accepts (a prompt that starts with `accept <id>`) is recorded as the user's answer by THIS hook, from the message it is
- * handling: the core records nothing as the user's from a file (answer.mjs). Only questions that carry an assumption token are tried; the core
- * refuses (and records nothing) when the message is not an acceptance of that token.
+ * The user's answer to a question of a user-only kind (an assumption token `ASSUMPTION:`, the split override `SPLIT:`, `USER_ONLY:` for an intent scope
+ * or batch pre-flight question) is recorded as the user's by THIS hook, from the message it is handling: the core records nothing as the user's from a
+ * file (answer.mjs, A210, #187). Only questions that carry such a marker are tried; the core refuses (and records nothing) when the message is not an
+ * acceptance of that token or one of the answer forms the question lists.
  * @param {import('../lib/context.mjs').HookContext} ctx @param {{ session: string, time: number, sha256: string, text: string }} promptCapture
  */
 async function recordAcceptances(ctx, promptCapture) {
@@ -183,7 +184,7 @@ async function recordAcceptances(ctx, promptCapture) {
   const list = names(dir);
   for (const n of list) {
     const m = /^([0-9]{3})\.md$/.exec(n);
-    if (!m || list.includes(`${m[1]}.answer.md`) || !/^[ \t]*ASSUMPTION: [^ \t]+[ \t]*$/m.test(readText(`${dir}/${n}`))) continue;
+    if (!m || list.includes(`${m[1]}.answer.md`) || !/^[ \t]*(ASSUMPTION: [^ \t]+|SPLIT: .*|USER_ONLY: .*)[ \t]*$/m.test(readText(`${dir}/${n}`))) continue;
     await ctx.agent(['answer', ctx.act, String(Number(m[1])), '--captured'], { promptCapture });
   }
 }

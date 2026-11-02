@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
-import { BridgeToShell } from '../../control-plane/agents/scripts/core/errors.mjs';
+import { ProoflineError } from '../../control-plane/agents/scripts/core/errors.mjs';
 import { hookKnob, hookTimeouts, timeoutsInfo, tmScale, tmScaleMilli, tmScaled, tmWarnPercent, verifyCommandTimeout } from '../../control-plane/agents/scripts/core/timeouts.mjs';
 import { extractFunctions } from './helpers.mjs';
 
@@ -17,7 +17,7 @@ describe('timeouts.scale', () => {
     assert.equal(m('08'), 8000); assert.equal(m('08.5'), 8500); assert.equal(m('2.3456'), 2345); assert.equal(m('.5'), 500); assert.equal(m('5.'), 5000);
     assert.equal(m('abc'), 1000); assert.equal(m('1.5.2'), 1000); assert.equal(m('-1'), 1000);
     assert.equal(tmScaleMilli(cfgOf('')), 1000);
-    assert.throws(() => m('99999999999999999999'), BridgeToShell);
+    assert.throws(() => m('99999999999999999999'), ProoflineError);
   });
   test('tmScale prints like awk (%.6g)', () => {
     assert.equal(tmScale(cfgOf('timeouts:\n  scale: 1\n')), '1');
@@ -27,8 +27,8 @@ describe('timeouts.scale', () => {
   test('tmScaled rounds up and clamps; the order lo then hi', () => {
     const c = cfgOf('timeouts:\n  scale: 1.5\n');
     assert.equal(tmScaled(c, 7), 11); assert.equal(tmScaled(c, 0), 1); assert.equal(tmScaled(c, '0008', 1, 100), 12); assert.equal(tmScaled(c, 100, 1, 50), 50); assert.equal(tmScaled(c, 5, 10, 3), 3);
-    assert.throws(() => tmScaled(c, 'x'), BridgeToShell);
-    assert.throws(() => tmScaled(c, '1234567890123'), BridgeToShell);
+    assert.throws(() => tmScaled(c, 'x'), ProoflineError);
+    assert.throws(() => tmScaled(c, '1234567890123'), ProoflineError);
     assert.equal(tmScaled(c, '999999999999', 1, 28800), 28800);
   });
 });
@@ -49,7 +49,7 @@ describe('knobs', () => {
     assert.deepEqual(lines.map((l) => l.split('=')[0]), ['session', 'prompt', 'pretool', 'posttool', 'subagent-start', 'subagent-stop', 'stop']);
   });
   test('timeoutsInfo hands a non-number status block limit to the shell', () => {
-    assert.throws(() => timeoutsInfo(cfgOf('tasks:\n  status_block_seconds: abc\n')), BridgeToShell);
+    assert.throws(() => timeoutsInfo(cfgOf('tasks:\n  status_block_seconds: abc\n')), ProoflineError);
     assert.ok(timeoutsInfo(cfgOf('')).includes('hook.approve_budget=20 (never scaled)'));
   });
 });

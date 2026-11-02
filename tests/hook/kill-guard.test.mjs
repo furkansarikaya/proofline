@@ -1,9 +1,7 @@
 // @ts-check
-// The Node kill guard (adapters/claude/hooks/guards/kill.mjs) against the table of tests/enforcement/kill-guard-test.sh, and against the real kill
-// guard of the shell hook (a project without proofline: only the merge and kill guards run) on the same commands: same verdict, same text.
+// The Node kill guard (adapters/claude/hooks/guards/kill.mjs) against the table of tests/enforcement/kill-guard-test.sh,.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -13,7 +11,6 @@ import { Deny } from '../../adapters/claude/hooks/guards/kit.mjs';
 import { jesc } from '../../adapters/claude/hooks/lib/text.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
-const shellHook = join(repo, 'adapters/claude/hooks/proofline-hook.sh');
 let base = ''; let proj = ''; let td = '';
 
 before(() => {
@@ -77,22 +74,6 @@ async function nodeVerdict(cmd, env = {}) {
   try { await killGuard(ctx, cmd, scanCommand(cmd)); return null; } catch (e) { if (e instanceof Deny) return e.reason; throw e; }
 }
 
-/** The shell hook's verdict for a Bash command in a project without proofline (merge and kill guards only). @param {string} cmd @param {Record<string, string>} [env] @returns {Promise<string | null>} */
-function shellVerdict(cmd, env = {}) {
-  return new Promise((res, rej) => {
-    const ch = spawn('sh', [shellHook, 'pretool', 'claude'], { cwd: proj, env: { PATH: process.env.PATH, HOME: base, TMPDIR: base, LC_ALL: 'C', CLAUDE_PROJECT_DIR: proj, PROOFLINE_NO_TTY: '1', ...env } });
-    let out = '';
-    ch.stdout.on('data', (d) => { out += d; });
-    ch.on('error', rej);
-    ch.on('close', () => {
-      const m = /"permissionDecisionReason":"((?:[^"\\]|\\.)*)"/.exec(out);
-      res(m ? /** @type {string} */ (m[1]) : null);
-    });
-    ch.stdin.on('error', () => {});
-    ch.stdin.end(JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', cwd: proj, tool_name: 'Bash', tool_input: { command: cmd } }));
-  });
-}
-
 test('the table: every command has the verdict the shell suite expects', async () => {
   for (const [cmd, denied] of T) {
     const r = await nodeVerdict(cmd);
@@ -100,29 +81,6 @@ test('the table: every command has the verdict the shell suite expects', async (
   }
 });
 
-test('differential: the shell hook gives the same verdict and the same text', async () => {
-  const queue = [...T];
-  /** @type {string[]} */ const bad = [];
-  await Promise.all(Array.from({ length: 8 }, async () => {
-    for (let t = queue.shift(); t; t = queue.shift()) {
-      const [cmd] = t;
-      const [n, s] = await Promise.all([nodeVerdict(cmd), shellVerdict(cmd)]);
-      const want = n === null ? null : `proofline: ${jesc(n)}`;
-      if (want !== s) bad.push(`${JSON.stringify(cmd)}\n  node : ${want}\n  shell: ${s}`);
-    }
-  }));
-  assert.deepEqual(bad, []);
-});
-
 test('the temp-dir script of the shell suite is read', async () => {
   assert.notEqual(await nodeVerdict(`sh ${join(td, 't.sh')}`), null);
-});
-
-test('the time budget: with 0 seconds a script naming a kill word is denied, one without passes (same text as the shell)', async () => {
-  const env = { PROOFLINE_KG_BUDGET: '0' };
-  const k = await nodeVerdict('sh bk.sh', env);
-  assert.ok(k?.includes('ran out of time'), String(k));
-  assert.equal(await nodeVerdict('sh bn.sh', env), null);
-  assert.equal(`proofline: ${jesc(/** @type {string} */ (k))}`, await shellVerdict('sh bk.sh', env));
-  assert.equal(await shellVerdict('sh bn.sh', env), null);
 });

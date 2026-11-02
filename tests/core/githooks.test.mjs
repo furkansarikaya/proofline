@@ -7,7 +7,7 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { baseEnv, installedFixture } from '../equivalence/fixture.mjs';
+import { baseEnv, installedFixture } from './lib/fixture.mjs';
 import { human } from '../../control-plane/agents/scripts/core/githooks.mjs';
 
 /** @param {string} dir @param {string[]} args @param {Record<string,string>} env @param {string} [input] */

@@ -1,15 +1,14 @@
 // @ts-check
-// The file-tool PreToolUse guards (adapters/claude/hooks/guards/{read,write,other}.mjs) against the shell hook (the specification) on a corpus
-// of recorded and adversarial inputs: the same verdict and the same deny text (the shell adds only the alternative hint and the "proofline: "
-// prefix, which the router owns). Cases where the Node guard is stricter on purpose (a closed hole of the shell) are listed apart.
+// The file-tool PreToolUse guards (adapters/claude/hooks/guards/{read,write,other}.mjs) on a corpus of recorded and adversarial inputs: the
+// verdict each case expects (A210: the shell hook it was once compared with is deleted). Cases listed as stricter must deny.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildContext, finish } from '../../adapters/claude/hooks/lib/context.mjs';
 import { handle } from '../../adapters/claude/hooks/events/pretool.mjs';
-import { buildTemplate, haveJq, runHook, cleanEnv, copyProject, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync } from './harness.mjs';
+import { buildTemplate, haveJq, cleanEnv, copyProject, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync } from './harness.mjs';
 import { symlinkSync, linkSync } from 'node:fs';
 
-const skip = haveJq ? false : 'jq is required for the shell hook';
+const skip = false;
 /** @type {string} */ let base = '';
 /** @type {string} */ let runDir = '';
 /** @type {string} */ let noRunDir = '';
@@ -83,14 +82,12 @@ async function compare(c) {
   const agent = c.who ? { agent_type: c.who.split(' ')[0], agent_id: c.who.split(' ')[1] ?? 'a1' } : {};
   const payload = { hook_event_name: 'PreToolUse', tool_name: c.tool, tool_input: c.input(dir), ...agent };
   const env = c.env ? Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, v.replaceAll('<P>', dir).replaceAll('<B>', base)])) : {};
-  const [sh, node] = await Promise.all([runHook('sh', dir, 'pretool', payload, { env }), nodeOut(dir, payload, env)]);
-  const sr = reasonOf(sh.stdout); const nr = reasonOf(node);
+  const node = await nodeOut(dir, payload, env);
+  const nr = reasonOf(node);
   if (c.stricter) {
-    assert.equal(sr, null, `${c.n}: the shell allows this one (that is the hole)`);
     assert.notEqual(nr, null, `${c.n}: the Node hook must deny`);
     return;
   }
-  assert.equal(node, sh.stdout, `${c.n}: the printed answer differs`);
   if (c.expect) assert.equal(nr === null ? 'allow' : 'deny', c.expect, `${c.n}: expectation`);
 }
 
@@ -208,7 +205,7 @@ const corpus = [
 ];
 
 // the pairs run in small batches: each pair is a shell hook (about 15 processes) and an in-process guard
-test('file-tool guards: same verdict and text as the shell hook (run open)', { skip, timeout: 280000 }, async () => {
+test('file-tool guards: the verdict of every case with an expectation (run open)', { skip, timeout: 280000 }, async () => {
   const cases = corpus.filter((c) => c.run !== false);
   for (let i = 0; i < cases.length; i += 8) await Promise.all(cases.slice(i, i + 8).map(compare));
 });
@@ -244,7 +241,7 @@ const noRun = [
   { n: 'Skill via name key', tool: 'Skill', run: false, input: () => ({ name: 'proofline:x' }), expect: 'allow' },
 ];
 
-test('file-tool guards: same verdict and text as the shell hook (no run)', { skip, timeout: 280000 }, async () => {
+test('file-tool guards: the verdict of every case with an expectation (no run)', { skip, timeout: 280000 }, async () => {
   const dir = join(base, 'plug/skills/proofline-lead');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'SKILL.md'), 'x\n');

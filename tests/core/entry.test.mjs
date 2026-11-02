@@ -35,13 +35,26 @@ describe('the core entry accepts only the commands it owns', () => {
     }
   });
   test('the lead, and a read-only command of any role, are refused too: not a command of the Node core', () => {
-    for (const [role, cmd] of [['lead', UNMOVED[0]], ['lead', UNMOVED[1]], ['lead', UNMOVED_READ_ONLY], ['explorer', UNMOVED_READ_ONLY], ['implementer', 'handoff'], ['lead', 'nonsense'], ['lead', '']]) {
+    for (const [role, cmd] of [['lead', UNMOVED[0]], ['lead', UNMOVED[1]], ['lead', UNMOVED_READ_ONLY], ['explorer', UNMOVED_READ_ONLY], ['implementer', 'handoff']]) {
       proc.resetSpawnCounts();
       const m = memoryIo('/nonexistent-root', { AGENT_ROLE: role });
       assert.equal(run([cmd, 'T-1'], m.io), 2, `${role} ${cmd}`);
       assert.match(m.stderr(), /not a command of the Node core; run it with agent\.sh/);
       assert.equal(m.stdout(), '');
       assert.equal(proc.spawnCounts().total, 0);
+    }
+  });
+  test('a name that is no command, and no command at all, are answered with the usage text (exit 2) and the lock folder, nothing started', () => {
+    for (const cmd of ['nonsense', '']) {
+      const dir = mkdtempSync(path.join(tmpdir(), 'pl-usage-'));
+      try {
+        proc.resetSpawnCounts();
+        const m = memoryIo(dir, {});
+        assert.equal(run([cmd], m.io), 2, cmd);
+        assert.match(m.stderr(), /^usage: agent\.sh <command> \[args\]/);
+        assert.equal(m.stdout(), '');
+        assert.equal(proc.spawnCounts().total, 0);
+      } finally { rmSync(dir, { recursive: true, force: true }); }
     }
   });
   test('as a process: node proofline-core.mjs <unmoved command> exits non-zero and changes nothing', () => {
@@ -87,13 +100,13 @@ describe('agent.sh without the core', () => {
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
   });
-  test('an installed project with both the core and core/ runs in Node; the engine switch to sh still works without them', () => {
+  test('an installed project with both the core and core/ runs in Node; one without them fails closed with 127', () => {
     const full = project({ manifest: true, core: true, coreDir: true });
     const bare = project({ manifest: true });
     try {
       assert.equal(agent(full, ['role']).stdout, 'role=lead\n');
-      const r = agent(bare, ['role'], { PROOFLINE_ENGINE: 'sh' });
-      assert.equal(r.status, 0); assert.equal(r.stdout, 'role=lead\n');
+      const r = agent(bare, ['role']);
+      assert.equal(r.status, 127);
     } finally { rmSync(full, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
   });
 });
@@ -107,7 +120,7 @@ describe('doctor and a missing core', () => {
       const pl = (/** @type {string[]} */ a) => spawnSync('sh', [path.join(repo, 'bin', 'proofline'), ...a], { cwd: root, encoding: 'utf8' });
       assert.equal(pl(['init', '--yes', '--runtimes', 'claude']).status, 0);
       const ok = pl(['doctor']).stdout;
-      assert.match(ok, /^PASS engine: the moved commands run in Node/m);
+      assert.match(ok, /^PASS engine: the commands run in Node/m);
       rmSync(path.join(root, '.agents', 'scripts', 'core'), { recursive: true });
       const noDir = pl(['doctor']);
       assert.match(noDir.stdout, /^FAIL engine: .*core\/ is missing/m); assert.doesNotMatch(noDir.stdout, /moved commands run in Node \(/);

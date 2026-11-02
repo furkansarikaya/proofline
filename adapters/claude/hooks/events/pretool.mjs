@@ -1,5 +1,5 @@
 // @ts-check
-// PreToolUse: the router. The decisions live in guards/; this file only routes by tool name and renders the answer exactly as proofline-hook.sh did.
+// PreToolUse: the router. The decisions live in guards/; this file only routes by tool name and renders the answer.
 //
 //   Bash (shell, local_shell, exec_command, unified_exec)  -> guards/bash.mjs   export async function bashGuard(input, ctx)
 //   Read, Glob, Grep                                        -> guards/read.mjs   export async function readGuard(input, ctx)
@@ -12,8 +12,6 @@
 //
 // Shared by the guards (owned by the Bash package, imported by the file-tool guards): guards/kit.mjs (Deny, mcFlag, hook-config, git, stashPath),
 // guards/paths.mjs (relpath, path_ok, target_ok, erasable, nr_path_ok, baseline), guards/db.mjs (the database guard's path and token checks).
-// Until guards/read.mjs and guards/write.mjs exist, the file-tool events are handed to proofline-hook.sh (a bridge that disappears with them).
-import { existsSync } from 'node:fs';
 import { isDir, isFile } from '../lib/fsx.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { jesc } from '../lib/text.mjs';
@@ -62,14 +60,6 @@ export function render(ctx, v, noMc = false) {
 
 /** @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */
 function denyOut(ctx, text) { return render(ctx, { decision: 'deny', reason: text }); }
-
-/** The shell hook for an event this router cannot judge yet (a bridge). @param {import('../lib/context.mjs').HookContext} ctx */
-async function viaShell(ctx) {
-  const proc = await ctx.agents?.proc();
-  if (!proc) return denyOut(ctx, 'the shell hook cannot be started (core/proc.mjs is missing); failing closed');
-  const r = proc.run('sh', [`${here}proofline-hook.sh`, 'pretool', ctx.rt], { input: ctx.raw, stdio: ['pipe', 'pipe', 'inherit'], env: process.env });
-  return r.stdout.toString('utf8');
-}
 
 /** A193: every proofline skill is disable-model-invocation, so the Skill tool cannot start one; a call that targets a proofline skill is redirected to reading the file. @param {import('../lib/context.mjs').HookContext} ctx @returns {Verdict | null} */
 function skillGuard(ctx) {
@@ -126,7 +116,6 @@ export async function handle(ctx) {
   const secs = guardBudget(ctx);
   try {
     if (cmd !== '') {
-      if (!existsSync(`${here}guards/bash.mjs`)) return await viaShell(ctx);
       if (ctx.installed && cmd.length > COMMAND_CAP) return ranOut(ctx, secs);   // fail closed, before any scan (S3-6)
       const bash = (await import(pathToFileURL(`${here}guards/bash.mjs`).href)).bashGuard;
       const budget = ctx.agents ? await import(pathToFileURL(`${ctx.agents.coreDir}/core/budget.mjs`).href).catch(() => null) : null;
@@ -137,10 +126,8 @@ export async function handle(ctx) {
       } else verdict = await bash(input, ctx);
     } else if (!ctx.installed) return undefined;
     else if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
-      if (!existsSync(`${here}guards/read.mjs`)) return await viaShell(ctx);
       verdict = await (await import(pathToFileURL(`${here}guards/read.mjs`).href)).readGuard(input, ctx);
     } else if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool) || /[Pp]atch/.test(tool)) {
-      if (!existsSync(`${here}guards/write.mjs`)) return await viaShell(ctx);
       verdict = await (await import(pathToFileURL(`${here}guards/write.mjs`).href)).writeGuard(input, ctx);
     }
   } catch (e) {

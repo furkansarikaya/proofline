@@ -12,11 +12,11 @@ d_fail() { printf 'FAIL %s\n' "$*"; D_FAILS=$((D_FAILS + 1)); }
 hook_has() {
   [ -f "$1" ] || return 1
   if command -v jq >/dev/null 2>&1; then
-    jq -e --arg e "$2" '[(.hooks[$e] // [])[] | (.hooks // [])[] | .command // ""] | any(test("proofline-hook[.](mjs|sh)"))' "$1" >/dev/null 2>&1
+    jq -e --arg e "$2" '[(.hooks[$e] // [])[] | (.hooks // [])[] | .command // ""] | any(test("proofline-hook[.]mjs"))' "$1" >/dev/null 2>&1
   elif command -v node >/dev/null 2>&1; then
     node -e 'try { const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const g = (j.hooks || {})[process.argv[2]] || [];
-      process.exit(g.some((x) => (x.hooks || []).some((h) => /proofline-hook[.](mjs|sh)/.test(String(h.command)))) ? 0 : 1) } catch (e) { process.exit(1) }' "$1" "$2"
-  else grep -Eq 'proofline-hook[.](mjs|sh)' "$1" && grep -q "\"$2\"" "$1"; fi
+      process.exit(g.some((x) => (x.hooks || []).some((h) => /proofline-hook[.]mjs/.test(String(h.command)))) ? 0 : 1) } catch (e) { process.exit(1) }' "$1" "$2"
+  else grep -Eq 'proofline-hook[.]mjs' "$1" && grep -q "\"$2\"" "$1"; fi
 }
 
 # identity_forbidden CONFIG EMAIL: the same test the pre-commit hook applies (glob or ERE, case-insensitive).
@@ -125,14 +125,14 @@ doctor_probes() {
   then d_pass "probe: a push without a terminal or agent markers passes as a human; one with agent markers is blocked"
   else d_fail "probe: human detection is wrong (a push without agent markers must pass, one with CLAUDECODE set must be blocked)"; fi
 
-  if ! command -v jq >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
-    d_warn "probe: runtime hooks not probed (the hook script needs jq or node to read JSON)"; return 0
+  if ! command -v node >/dev/null 2>&1; then
+    d_warn "probe: runtime hooks not probed (the hook needs node)"; return 0
   fi
-  hook=$PD/repo/.agents/hooks/proofline-hook.sh
+  hook=$PD/repo/.agents/hooks/proofline-hook.mjs
   mkdir -p "$PD/repo/.agents/local" "$PD/repo/src"
   hook_run() { # RUNTIME JSON
     ( unset AGENT_ROLE; CLAUDE_PROJECT_DIR=$PD/repo PROOFLINE_NO_TTY=1; export CLAUDE_PROJECT_DIR PROOFLINE_NO_TTY
-      printf '%s' "$2" | sh "$hook" pretool "$1" 2>/dev/null ); }
+      printf '%s' "$2" | node "$hook" pretool "$1" 2>/dev/null ); }
   edit_json="{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PD/repo\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$PD/repo/src/probe.js\"}}"
   echo DOCTOR-1 > "$PD/repo/.agents/local/ACTIVE_RUN"
   if rt_has claude; then
@@ -161,7 +161,7 @@ doctor_foreign() {
       [ -f "$df_f" ] || continue
       case "$df_f" in */plugins/cache/proofline/*) continue ;; esac
       df_l=$(jq -r --arg f "${df_f#"$HOME"/}" '(.hooks // {}) | to_entries[] | select(.key == "SessionStart" or .key == "UserPromptSubmit") | .key as $e
-        | (.value[]? | (.hooks // [])[]? | .command // "") | select(test("proofline-hook[.](mjs|sh)") | not)
+        | (.value[]? | (.hooks // [])[]? | .command // "") | select(test("proofline-hook[.]mjs") | not)
         | "WARN foreign hook: \($e) in \($f) may add context to the prompt: \(.[0:80])"' "$df_f" 2>/dev/null) || df_l=''
       [ -z "$df_l" ] || { printf '%s\n' "$df_l"; D_WARNS=$((D_WARNS + $(printf '%s\n' "$df_l" | wc -l))); }
     done
@@ -265,37 +265,18 @@ doctor_node() {
   dn_s=$(node_status)
   case "$dn_s" in
     ok:*) d_pass "node: ${dn_s#ok:} (Node 22.13 or newer is a runtime requirement)" ;;
-    old:*) d_warn "node: ${dn_s#old:} is older than 22.13; the commands that run in Node exit non-zero and the guards that need them deny (install Node 22.13 or newer, or write sh into .agents/local/engine to run the shell code)" ;;
-    *) d_fail "node: not found on PATH; proofline needs Node 22.13 or newer (the commands that run in Node exit 127 and the guards that need them deny; install it, or write sh into .agents/local/engine to run the shell code)" ;;
+    old:*) d_warn "node: ${dn_s#old:} is older than 22.13; the commands that run in Node exit non-zero and the guards that need them deny (install Node 22.13 or newer)" ;;
+    *) d_fail "node: not found on PATH; proofline needs Node 22.13 or newer (the commands that run in Node exit 127 and the guards that need them deny; install it)" ;;
   esac
 }
 
-# The engine switch (ADR 0001 section 5.3): the file .agents/local/engine of the main working tree and the PROOFLINE_ENGINE and PROOFLINE_ENGINE_SH
-# environment values; any one of them forcing sh wins. The same reading as the preamble of agent.sh.
+# The commands run in Node (ADR 0001): the core must be installed beside agent.sh.
 doctor_engine() {
   if [ ! -f "$ROOT/.agents/scripts/proofline-core.mjs" ] || [ ! -d "$ROOT/.agents/scripts/core" ]; then
     d_fail "engine: .agents/scripts/proofline-core.mjs or .agents/scripts/core/ is missing, so the moved commands cannot run in Node 22.13 or newer and exit 127 (run: proofline upgrade)"
     return 0
   fi
-  de_main=$ROOT
-  if [ -f "$ROOT/.git" ]; then
-    de_m=$(git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); de_p=$(cd "$ROOT" && pwd -P)
-    case "$de_p" in "$de_m"/.agents/local/worktrees/*) de_main=$de_m ;; esac
-  fi
-  de_all='' de_list='' de_src=''
-  if [ "${PROOFLINE_ENGINE:-}" = sh ]; then de_all=yes; de_src="PROOFLINE_ENGINE=sh"; fi
-  if [ -n "${PROOFLINE_ENGINE_SH:-}" ]; then de_list="$PROOFLINE_ENGINE_SH"; de_src="${de_src:+$de_src, }PROOFLINE_ENGINE_SH=$PROOFLINE_ENGINE_SH"; fi
-  if [ -r "$de_main/.agents/local/engine" ]; then
-    de_e=''; IFS= read -r de_e < "$de_main/.agents/local/engine" || :
-    de_e=${de_e%"${de_e##*[![:space:]]}"}
-    case "$de_e" in
-      sh) de_all=yes; de_src="${de_src:+$de_src, }.agents/local/engine: sh" ;;
-      sh:*) de_list="${de_list:+$de_list,}${de_e#sh:}"; de_src="${de_src:+$de_src, }.agents/local/engine: $de_e" ;;
-    esac
-  fi
-  if [ "$de_all" = yes ]; then d_warn "engine: the shell code runs every command ($de_src); delete the switch to run the moved commands in Node"
-  elif [ -n "$de_list" ]; then d_warn "engine: the shell code runs $de_list ($de_src); every other moved command runs in Node"
-  else d_pass "engine: the moved commands run in Node (no switch set: .agents/local/engine absent, PROOFLINE_ENGINE and PROOFLINE_ENGINE_SH unset)"; fi
+  d_pass "engine: the commands run in Node"
 }
 
 # A202 item 29: the time limits in force (the scale and the largest dispatch limit), one line; the user is pointed at the measured proposal.
@@ -400,13 +381,10 @@ EOF
     else d_pass "runtime $rt: not installed (not used by config.yaml)"; fi
   done
 
-  hs=$ROOT/.agents/hooks/proofline-hook.sh; hm=$ROOT/.agents/hooks/proofline-hook.mjs
+  hm=$ROOT/.agents/hooks/proofline-hook.mjs
   if [ ! -f "$hm" ]; then d_fail "hooks: .agents/hooks/proofline-hook.mjs missing (run: proofline upgrade)"
   elif [ ! -d "$ROOT/.agents/hooks/events" ] || [ ! -d "$ROOT/.agents/hooks/guards" ] || [ ! -d "$ROOT/.agents/hooks/lib" ] || [ ! -f "$ROOT/.agents/hooks/command-scan.mjs" ]; then d_fail "hooks: .agents/hooks/ lacks events/, guards/, lib/ or command-scan.mjs of the Node hook (run: proofline upgrade)"
   else d_pass "hooks: .agents/hooks/proofline-hook.mjs present"; fi
-  if [ ! -f "$hs" ]; then d_fail "hooks: .agents/hooks/proofline-hook.sh missing (the rollback target of the engine switch)"
-  elif ! sh -n "$hs" 2>/dev/null; then d_fail "hooks: .agents/hooks/proofline-hook.sh does not parse"
-  else d_pass "hooks: .agents/hooks/proofline-hook.sh present"; fi
   if rt_has claude; then
     miss=''
     for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop Stop; do hook_has "$ROOT/.claude/settings.json" "$ev" || miss="$miss $ev"; done

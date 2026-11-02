@@ -252,15 +252,14 @@ sc_own_commits_foreign() {
   ok "freshness: a docs commit that is not the run's own knowledge file stays a stale plan"
 }
 
-# a role that is not the lead still runs the read-only commands (next-user, in-knowledge-scope)
+# a role that is not the lead still runs the read-only commands (in-knowledge-scope)
 sc_read_only_roles() {
   SC_BRANCH=1 scaffold orchestrated
   for r in reviewer implementer qa verifier; do
     AS "$r" in-knowledge-scope docs/wiki/page.md > "$base/ro.out" 2>&1 || die "$r cannot run in-knowledge-scope: $(cat "$base/ro.out")"
-    AS "$r" next-user run LC > "$base/ro.out" 2>&1 || die "$r cannot run next-user: $(cat "$base/ro.out")"
   done
   expect_fail "in-knowledge-scope on a product path" AS reviewer in-knowledge-scope impl.txt
-  ok "roles: next-user and in-knowledge-scope are read-only commands every role may run"
+  ok "roles: in-knowledge-scope is a read-only command every role may run"
 }
 
 run_sc sc_ci_fix_normal

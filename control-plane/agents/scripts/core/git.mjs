@@ -1,7 +1,7 @@
 // @ts-check
 // The git queries of the control plane. Every call goes through proc.mjs (counted); output is kept as byte strings (latin1) so that
 // quoted paths and byte order are what the shell saw. `git -C <root>` with LC_ALL=C, like agent.sh.
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -39,7 +39,7 @@ function statusLists(ctx) {
     for (const e of r.out.split('\0')) {
       if (e.length < 4) continue;
       // the shell reads git's c-quoted names (`diff --name-only`, quotepath): a name that git would quote is the shell's to judge
-      if (/[\x00-\x1f\x7f-\xff"\\]/.test(e.slice(3))) throw new BridgeToShell('a changed path git would c-quote');
+      if (/[\x00-\x1f\x7f-\xff"\\]/.test(e.slice(3))) throw unsupported('a changed path git would c-quote');
       (e.startsWith('??') ? untracked : tracked).push(e.slice(3));
     }
     return { tracked: sortUnique(tracked), untracked: sortUnique(untracked) };

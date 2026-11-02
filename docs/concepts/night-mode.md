@@ -88,7 +88,7 @@ belongs to from the path the tool touches (when it is inside the project) or els
 `agent.sh worktree-root`, and asks that worktree's `agent.sh`, so the hook, the session and `agent.sh` always read and write
 the same run folder. The state that belongs to no single run (`batch`, `approvals`, `metrics`, `friction`, `prompts`) lives
 only in the main working tree, and every reader reaches it by path (`shared_dir` in `agent.sh`; the hook uses the main tree
-too), never through a link, so a reply you give in the main session reaches `answer --captured` and the session finds the
+too), never through a link, so a reply you give in the main session reaches the prompt hook and the session finds the
 batch approval and the merge record. Untracked runtime settings (`.claude/settings.json`, `.codex/hooks.json`) are copied in.
 **Dependencies.** A worktree never shares a dependency folder with the main tree: `worktree-add` gives it its own copy (a
 copy-on-write clone where the file system has one) of every git-ignored folder that `worktree_deps.folders` names in

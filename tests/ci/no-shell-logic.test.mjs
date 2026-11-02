@@ -337,6 +337,6 @@ describe('the repository itself', () => {
   });
   test('the committed allowlist names only tracked shell files and the 0.0.40 launchers are in it', () => {
     const t = readFileSync(join(repo, 'tests/ci/shell-allowlist.txt'), 'utf8').split('\n').filter(Boolean);
-    for (const f of ['control-plane/agents/scripts/agent.sh', 'control-plane/agents/scripts/dispatch.sh', 'control-plane/agents/githooks/pre-commit', 'control-plane/agents/githooks/pre-push', 'bin/proofline', 'adapters/claude/hooks/proofline-hook.sh']) assert.ok(t.includes(f), f);
+    for (const f of ['control-plane/agents/scripts/agent.sh', 'control-plane/agents/scripts/dispatch.sh', 'control-plane/agents/githooks/pre-commit', 'control-plane/agents/githooks/pre-push', 'bin/proofline']) assert.ok(t.includes(f), f);
   });
 });

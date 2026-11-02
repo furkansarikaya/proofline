@@ -309,7 +309,6 @@ sc_park_skip_continue() {
   [ -d .agents/local/worktrees/T-1/.agents/runs/T-1 ] && [ -d .agents/local/worktrees/T-4/.agents/runs/T-4 ] || die "a parked or waiting task lost its worktree: $(git worktree list)"
   [ ! -d .agents/local/worktrees/T-3 ] && [ ! -e .agents/local/worktrees/T-2 ] || die "worktree of the merged T-3 left, or one made for the never-started T-2: $(git worktree list)"
   [ "$(cd .agents/local/worktrees/T-1 && sh .agents/scripts/agent.sh open-runs)" = 'T-1 -' ] || die "open runs of T-1's worktree"
-  A next-user batch status | grep -q 'reply in this session to the open question.*then run /proofline batch$' || die "next step for a parked task whose run is in a worktree: $(A next-user batch status)"
   A questions T-1 | grep -q 'Which cache' || die "questions for a run in a worktree are not forwarded from the main tree: $(A questions T-1 2>&1)"
   # the dependent waits for the merge: T-1 gets its answer and merges in the SAME worktree, then T-2 runs, not before
   printf 'a\n' > .agents/local/worktrees/T-1/.agents/runs/T-1/questions/001.answer.md
@@ -647,9 +646,10 @@ sc_worktree_links() {
 # --- A185 (round 2): the prompt hook of the main tree approves the pending request of a run that lives in a worktree ---------------------------------
 sc_worktree_prompt_approval() {
   bnew; mktask W-1 COMPLEX; binstall no
-  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; [ -f "$hook" ] || die "no hook at $hook"
+  cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core   # the Node hook imports the project's core
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.mjs; [ -f "$hook" ] || die "no hook at $hook"
   main=$(pwd -P)
-  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 node "$hook" prompt claude; }
   wt=$(A worktree-add W-1) || die "worktree-add: $wt"
   ( cd "$wt" && sh .agents/scripts/agent.sh start W-1 --task-file .agents/tasks/W-1.md >/dev/null 2>"$base/st.err" </dev/null ) || die "start W-1 in its worktree: $(tail -1 "$base/st.err")"
   printf -- '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n' > "$wt/.agents/runs/W-1/PLAN.md"
@@ -727,8 +727,9 @@ sc_hand_pushed_batch() {
 # --- round 6: the main tree's prompt hook runs only an unchanged worktree agent.sh, and a reply binds to the run it names when several wait --------------------
 sc_prompt_guards() {
   bnew; mktask W-1 COMPLEX; mktask W-2 COMPLEX; binstall no
-  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; main=$(pwd -P)
-  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core   # the Node hook imports the project's core
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.mjs; main=$(pwd -P)
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 node "$hook" prompt claude; }
   for r in W-1 W-2; do
     w=$(A worktree-add $r) || die "worktree-add $r"
     ( cd "$w" && sh .agents/scripts/agent.sh start $r --task-file .agents/tasks/$r.md >/dev/null 2>&1 </dev/null ) || die "start $r"
@@ -743,11 +744,10 @@ sc_prompt_guards() {
   sleep 1; out=$(hp 'i approve the scope for W-2')
   ls "$w2"/.agents/runs/W-2/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "the reply naming W-2 did not approve W-2: $out $(tail -3 .agents/local/approve.log 2>/dev/null)"
   ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "the reply naming W-2 also approved W-1"
-  # (1) a worktree agent.sh that differs from the main one is not run: a forged approve-pending leaves its mark nowhere
+  # (1) a worktree agent.sh that differs from the main one is never run (the Node hook runs the project's own core and only reads the worktree's data)
   printf '\necho forged > "%s/forged"\n' "$base" >> "$w1/.agents/scripts/agent.sh"
   sleep 1; hp 'i approve the scope for W-1' >/dev/null
   [ ! -e "$base/forged" ] || die "the hook ran a modified worktree agent.sh"
-  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "W-1 was approved through a modified agent.sh"
   ok "prompt hook: a reply with two runs waiting binds to the named run or asks; a modified worktree agent.sh is never run (round 6)"
 }
 

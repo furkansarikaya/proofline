@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034,SC2012,SC2015,SC2016,SC2154 # assertion chains; literal command text; fixture vars come from test-lib.sh
 # Enforcement tests (D27 layer 2): every forbidden action is really attempted and must be blocked, by the
 # real agent.sh and git hooks in throwaway installed projects, and by the real runtime hook script
-# (adapters/claude/hooks/proofline-hook.sh) fed with hook JSON in the shapes Claude Code and Codex send
+# (adapters/claude/hooks/proofline-hook.mjs) fed with hook JSON in the shapes Claude Code and Codex send
 # (recorded in docs/concepts/enforcement-layers.md).
 #   PROOFLINE_LIVE_CLAUDE=1  also runs one real headless Claude Code session that must be denied a product edit.
 #   LC_ONLY=<substring>      runs only matching scenarios.
@@ -14,8 +14,8 @@ if [ -z "${ENF_INNER:-}" ]; then
 fi
 
 # The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
-# the default is the shell hook. The hook never reads it.
-hook=${HOOK_UNDER_TEST:-$ENF_REPO/adapters/claude/hooks/proofline-hook.sh}
+# the default is adapters/claude/hooks/proofline-hook.mjs. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$ENF_REPO/adapters/claude/hooks/proofline-hook.mjs}
 case $hook in *.mjs) hrun='node'; hbase=proofline-hook.mjs ;; *) hrun='sh'; hbase=proofline-hook.sh ;; esac
 # install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
 install_hook() {
@@ -768,16 +768,6 @@ questions() {
   printf '%s' "$out" | grep -q 'active run: LC' && printf '%s' "$out" | grep -q 'proofline-lead/SKILL.md' && printf '%s' "$out" | grep -q 'next step: ' || die "SessionStart context: $out"
   H session "{\"hook_event_name\":\"SessionStart\",\"cwd\":\"$PWD\"}" codex | grep -q '.agents/skills/proofline-lead/SKILL.md' || die "Codex SessionStart skill path"
   ok "SessionStart tells the lead its skill, the active run and the next step"
-  # A200: the session check is bounded; a slow `agent.sh next` is stopped and the lead is told to ask it itself, the hook answers in time
-  [ "$hrun" != node ] || sleep 2   # the same event within two seconds is a duplicate registration; the shell hook was slower than that
-  [ "$hrun" != node ] || printf 'sh:next\n' > .agents/local/engine   # the Node hook runs `next` in its own process unless the user's engine switch asks for agent.sh
-  mv .agents/scripts/agent.sh .agents/scripts/agent-real.sh
-  printf '#!/bin/sh\ncase "$1" in next) sleep 25; exit 0 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n' > .agents/scripts/agent.sh
-  se_t0=$(date +%s); out=$(PROOFLINE_HOOK_NEXT_BUDGET=2 H session "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"cwd\":\"$PWD\"}"); se_t1=$(date +%s)
-  mv .agents/scripts/agent-real.sh .agents/scripts/agent.sh; rm -f .agents/local/engine
-  [ $((se_t1 - se_t0)) -lt 15 ] || die "the session hook waited $((se_t1 - se_t0))s for a slow agent.sh next (A200)"
-  printf '%s' "$out" | grep -q "agent.sh next LC (the session check did not finish" || die "the session hook did not hand a timed-out next to the lead: $out"
-  ok "SessionStart bounds the next-step check (A200)"
 }
 
 # --- regression cases from review round 3 (findings H1-H4, L1, P1, P2, CLI-3, CLI-4) ---------------------
@@ -988,8 +978,6 @@ EOF')"
 
 hook_wiring() { # CLI-3: Codex hook commands resolve the project root, a missing PreToolUse hook denies; CLI-4
   fixture
-  # the shipped wiring runs the Node hook: this scenario tests that wiring, so the Node hook is the installed one whichever hook the suite runs
-  case $hook in *.mjs) ;; *) hook_sh=$hook; hook=$ENF_REPO/adapters/claude/hooks/proofline-hook.mjs; install_hook; hook=$hook_sh ;; esac
   jcmd() { if command -v jq >/dev/null 2>&1; then jq -r ".hooks.$2[0].hooks[0].command" "$1"; else node -e 'const j = require(process.argv[1]); console.log(j.hooks[process.argv[2]][0].hooks[0].command)' "$1" "$2"; fi; }
   cx=$(jcmd "$ENF_REPO/adapters/codex/hooks.json" PreToolUse); cl=$(jcmd "$ENF_REPO/adapters/claude/settings.fragment.json" PreToolUse)
   js="{\"hook_event_name\":\"PreToolUse\",\"cwd\":\"$PWD/src\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"printf x > ../impl.txt\"}}"

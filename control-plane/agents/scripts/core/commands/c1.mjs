@@ -3,7 +3,7 @@
 // stdout, stderr, exit code and files exactly as in agent.sh 0.0.41. An argument shape whose shell error text the core does not copy
 // (`${2:?usage}`) throws BridgeToShell before any output; the entry then runs the shell code.
 import { bytes } from '../config.mjs';
-import { BridgeToShell } from '../errors.mjs';
+import { unsupported } from '../errors.mjs';
 import { isDir, isFile } from '../paths.mjs';
 import { digestRun, nextCommand, planSection, reportExecution, reportFacts, reportTokens, summaryRun } from '../reports.mjs';
 
@@ -12,7 +12,7 @@ import { digestRun, nextCommand, planSection, reportExecution, reportFacts, repo
 /** The id argument of a command that needs one (`${2:?usage}`). @param {string[]} args */
 function needId(args) {
   const id = args[0];
-  if (id === undefined || id === '') throw new BridgeToShell('usage');
+  if (id === undefined || id === '') throw unsupported('usage');
   return bytes(id);
 }
 
@@ -41,7 +41,7 @@ function planSectionCommand(ctx, args) {
   ctx.fpMode = 'refresh';
   const id = needId(args);
   const name = args[1];
-  if (name === undefined || name === '') throw new BridgeToShell('usage');
+  if (name === undefined || name === '') throw unsupported('usage');
   planSection(ctx, id, bytes(name));
   return 0;
 }

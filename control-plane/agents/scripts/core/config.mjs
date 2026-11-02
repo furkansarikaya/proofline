@@ -3,7 +3,7 @@
 // `config_lines`. Text is kept as byte strings (one char per byte, latin1) because agent.sh runs with LC_ALL=C: lengths, comparisons and
 // output are in bytes. `bytes()` converts an argument or an environment value; `Buffer.from(text, 'latin1')` converts back.
 import { readFileSync } from 'node:fs';
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 import { isFile } from './paths.mjs';
 
 /** A JavaScript string as the byte string the shell would hold (UTF-8 bytes, one char each). @param {string} s */
@@ -110,7 +110,7 @@ export function dec0(s) { return s.replace(/^0+(?=[^])/, ''); }
  * @param {string} digits only [0-9] @returns {number}
  */
 export function smallInt(digits) {
-  if (digits.length > 15) throw new BridgeToShell(`number too long: ${digits}`);
+  if (digits.length > 15) throw unsupported(`number too long: ${digits}`);
   return Number(digits);
 }
 
@@ -145,7 +145,7 @@ export class Config {
   static load(file) {
     if (!isFile(file)) return new Config(file, null);
     let text;
-    try { text = readFileSync(file, 'latin1'); } catch { throw new BridgeToShell(`config unreadable: ${file}`); }
+    try { text = readFileSync(file, 'latin1'); } catch { throw unsupported(`config unreadable: ${file}`); }
     return new Config(file, configLines(text));
   }
 

@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { ProoflineError } from '../errors.mjs';
 import { insightsReport, insightsStream } from '../insights.mjs';
+import { nextUser } from '../nextuser.mjs';
 import { queue } from '../queue.mjs';
 import { preCommit, prePush } from '../githooks.mjs';
 
@@ -48,8 +49,13 @@ function prePushCommand(ctx, args) {
   return prePush(ctx, text);
 }
 
+/** `cli next-line [<command> [<ID>]] [--error[=<kind>]]`: the user's next step that ends a `proofline` command (the table of next-user); the project is PROOFLINE_ROOT. @param {Context} ctx @param {string[]} args */
+function nextLine(ctx, args) {
+  return nextUser(ctx, args);
+}
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand });
+export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

@@ -2,7 +2,7 @@
 // Dispatch markers of a run (agent.sh 6832-6870): `dispatch/*.running` files left by dispatch.sh while a specialist step is in flight.
 // Shared by `pipeline` (the in_flight line) and `next` (the wait line, the stale-marker sweep and the time note).
 import { readdirSync, statSync, unlinkSync } from 'node:fs';
-import { BridgeToShell } from './errors.mjs';
+import { unsupported } from './errors.mjs';
 import { isFile } from './paths.mjs';
 import { fileText, textLines } from './records.mjs';
 import { tmDispatchSeconds, tmWarnPercent } from './timeouts.mjs';
@@ -90,7 +90,7 @@ export function budgetNote(ctx, dir) {
     if (!(e * 100 >= Number(t) * pct)) continue;
     const role = lineValue(lines, 'role=');
     // the shell reads "ROLE ELAPSED TIMEOUT" back with `read`: an empty or blank-bearing role shifts the fields (its own error text)
-    if (role === '' || /[ \t]/.test(role)) throw new BridgeToShell('dispatch marker role');
+    if (role === '' || /[ \t]/.test(role)) throw unsupported('dispatch marker role');
     out += `note=TIME: dispatch ${role} has used ${Math.floor(e / 60)}m of its ${Math.floor(Number(t) / 60)}m limit (${Math.floor((e * 100) / Number(t))}%); at the limit it fails (never a pass) and the next dispatch of the step resumes from dispatch/RESUME-*.md. Do not stop it; tell the user in one line that this step is slow (proofline doctor --scale proposes a longer limit)\n`;
   }
   return out;

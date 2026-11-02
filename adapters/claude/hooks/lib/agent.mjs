@@ -54,15 +54,6 @@ export class Agents {
     return this._core;
   }
 
-  /** The engine switch of agent.sh's preamble, for one command: `sh` / `sh:<command>,...` in <main tree>/.agents/local/engine, or the environment. @param {string} command */
-  forcedSh(command) {
-    const env = this.s.env;
-    if (env.PROOFLINE_ENGINE === 'sh') return true;
-    if (`,${env.PROOFLINE_ENGINE_SH ?? ''},`.includes(`,${command},`)) return true;
-    const e = engineFileValue(this.s.mainRoot);
-    return e === 'sh' || (e.startsWith('sh:') && `,${e.slice(3)},`.includes(`,${command},`));
-  }
-
   /**
    * Run one agent.sh command. A command the core owns runs from the PROJECT's core in this process (or, with a time budget, on a worker thread the
    * hook stops waiting for); the run worktree only decides which tree's data it works on (the script path names the root), never whose code runs.
@@ -76,7 +67,7 @@ export class Agents {
     const agentPath = opt.agentPath ?? this.s.agentPath;
     const cwd = opt.cwd ?? this.s.cwd;
     const command = argv[0] ?? '';
-    if (!this.forcedSh(command)) {
+    {
       const core = await this.core();
       if (core && core.commandTable().some((/** @type {{ name: string, moved: boolean }} */ e) => e.name === command && e.moved)) {
         const io = { env, cwd, scriptPath: agentPath, stdinText: opt.input === undefined ? undefined : opt.input.toString(), promptCapture: opt.promptCapture };
@@ -115,14 +106,6 @@ export class Agents {
       worker.on('error', (e) => { clearTimeout(timer); resolve({ status: 70, stdout: '', stderr: `proofline: internal error in ${argv[0]}: ${e}\n`, timedOut: false }); });
     });
   }
-}
-
-/** @param {string} mainRoot the first line of .agents/local/engine without trailing white space ('' when absent) */
-export function engineFileValue(mainRoot) {
-  try {
-    const t = readFileSync(`${mainRoot}/.agents/local/engine`, 'utf8');
-    return (t.split('\n')[0] ?? '').replace(/\s+$/, '');
-  } catch { return ''; }
 }
 
 /**
