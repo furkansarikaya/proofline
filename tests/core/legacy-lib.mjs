@@ -101,3 +101,14 @@ export { existsSync, readdirSync, readFileSync, writeFileSync, appendFileSync };
 
 /** Recipes (shell text for the self-test library) shared by several files. */
 export const IMPLEMENTED = "worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'; A handoff LC IMPLEMENTED >/dev/null";
+
+/** The user's reply to a request, as the runtime records it: request, the message, approve. @param {string} dir @param {string} kind @param {string} text */
+export function approveAsUser(dir, kind, text) {
+  accepted(A(dir, ['request-approval', 'LC', kind]), `request ${kind}`);
+  say(dir, text);
+  accepted(A(dir, ['approve', 'LC', kind]), `approve ${kind}`);
+}
+/** `rec GATE RESULT CONFIDENCE ROW...` of the self-test library (a gate result through the protocol). @param {string} dir @param {string} gate @param {string} result @param {string[]} rows */
+export function rec(dir, gate, result, ...rows) {
+  return verbs(dir, `rec ${gate} ${result} high ${rows.map((r) => `'${r}'`).join(' ')}`);
+}
