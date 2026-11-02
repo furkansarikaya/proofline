@@ -2,7 +2,7 @@
 // ONE-TIME recording tools of the T2 port (temporary): a project snapshot with content-addressed blobs, shared by record.mjs and rec-call.mjs.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +22,7 @@ function walk(root, dir, out) {
     const rel = dir ? `${dir}/${n}` : n;
     if (rel === '.git') continue;
     const st = lstatSync(path.join(root, rel));
-    if (st.isDirectory()) walk(root, rel, out); else if (st.isFile()) out.push(rel);
+    if (st.isDirectory()) walk(root, rel, out); else if (st.isFile() || st.isSymbolicLink()) out.push(rel);
   }
 }
 
@@ -39,8 +39,13 @@ export function snapshot(root, blobs) {
     if (!(k in blobs)) blobs[k] = !buf.includes(0) && Buffer.from(buf.toString('latin1'), 'latin1').equals(buf) ? { mode, text: buf.toString('latin1') } : { mode, b64: buf.toString('base64') };
     return k;
   };
-  const y = path.join(root, '.agents/runs/LC/RUN.yaml');
-  const baseSha = existsSync(y) ? ((/^ {2}base_sha: "?([0-9a-f]{40})"?/m.exec(readFileSync(y, 'latin1')) ?? [])[1] ?? '') : '';
+  /** @param {string} target */
+  const putLink = (target) => { const k = blobKey(Buffer.from(target, 'latin1'), 0o120000); if (!(k in blobs)) blobs[k] = { mode: 0o120000, link: target }; return k; };
+  // the run whose base commit the snapshot keeps: LC, else the first run of the project
+  const runsDir = path.join(root, '.agents/runs');
+  const runId = existsSync(path.join(runsDir, 'LC/RUN.yaml')) ? 'LC' : (existsSync(runsDir) ? readdirSync(runsDir).find((n) => existsSync(path.join(runsDir, n, 'RUN.yaml'))) : undefined);
+  const y = runId ? path.join(runsDir, runId, 'RUN.yaml') : '';
+  const baseSha = y ? ((/^ {2}base_sha: "?([0-9a-f]{40})"?/m.exec(readFileSync(y, 'latin1')) ?? [])[1] ?? '') : '';
   const baseRef = baseSha || 'HEAD';
   /** @type {Record<string, string>} */ const base = {};
   const ls = git(root, ['ls-tree', '-r', '-z', baseRef]).stdout.toString('latin1').split('\0').filter(Boolean);
@@ -53,6 +58,7 @@ export function snapshot(root, blobs) {
       const cur = git(root, ['show', `${baseRef}:${rel}`]).stdout;
       if (existsSync(path.join(agentsSrc, rest)) && readFileSync(path.join(agentsSrc, rest)).equals(cur)) continue;
     }
+    if (ent.startsWith('120000')) { base[rel] = putLink(git(root, ['show', `${baseRef}:${rel}`]).stdout.toString('latin1')); continue; }
     const mode = ent.startsWith('100755') ? 0o755 : 0o644;
     base[rel] = put(git(root, ['show', `${baseRef}:${rel}`]).stdout, mode);
   }
@@ -66,8 +72,25 @@ export function snapshot(root, blobs) {
         || (!rel.startsWith('.agents/scripts/') && (!existsSync(path.join(agentsSrc, rest)) || !readFileSync(path.join(root, rel)).equals(readFileSync(path.join(agentsSrc, rest)))));
       if (!keep) continue;
     }
-    files[rel] = put(readFileSync(path.join(root, rel)), lstatSync(path.join(root, rel)).mode & 0o777);
+    const st = lstatSync(path.join(root, rel));
+    files[rel] = st.isSymbolicLink() ? putLink(readlinkSync(path.join(root, rel))) : put(readFileSync(path.join(root, rel)), st.mode & 0o777);
   }
-  const state = { base, files, baseSha };
+  // the trees of the earlier gate fingerprints: selective repetition diffs them against the current tree, so their objects travel with the state
+  /** @type {Set<string>} */ const trees = new Set();
+  const gdir = path.join(root, '.agents/runs/LC/gates');
+  if (existsSync(gdir)) for (const n of readdirSync(gdir)) if (n.endsWith('.yaml')) { const m = /^fingerprint: "?([0-9a-f]{40})"?$/m.exec(readFileSync(path.join(gdir, n), 'latin1')); if (m && git(root, ['cat-file', '-e', m[1]]).status === 0) trees.add(m[1]); }
+  /** @type {string | undefined} */ let pack;
+  if (trees.size) {
+    const lst = spawnSync('git', ['-C', root, 'rev-list', '--objects', ...trees], { env: GIT_ENV, maxBuffer: 1 << 28 }).stdout;
+    const names = lst.toString('latin1').split('\n').map((l) => l.split(' ')[0]).filter(Boolean).join('\n') + '\n';
+    const pk = spawnSync('git', ['-C', root, 'pack-objects', '--stdout', '-q'], { env: GIT_ENV, input: names, maxBuffer: 1 << 28 }).stdout;
+    pack = blobKey(pk, 0o100644); if (!(pack in blobs)) blobs[pack] = { mode: 0o644, b64: pk.toString('base64') };
+  }
+  // files of the shipped control plane that this project does not have (a scenario removed them)
+  /** @type {string[]} */ const deleted = [];
+  /** @param {string} dir */
+  const missing = (dir) => { for (const n of readdirSync(path.join(agentsSrc, dir))) { const rel = dir ? `${dir}/${n}` : n; if (rel === 'scripts') continue; const st = lstatSync(path.join(agentsSrc, rel)); if (st.isDirectory()) { if (existsSync(path.join(root, '.agents', rel))) missing(rel); else deleted.push(`.agents/${rel}`); } else if (!existsSync(path.join(root, '.agents', rel))) deleted.push(`.agents/${rel}`); } };
+  missing('');
+  const state = { base, files, baseSha, ...(pack ? { pack } : {}), ...(deleted.length ? { deleted } : {}) };
   return { key: createHash('sha1').update(JSON.stringify(state)).digest('hex'), state };
 }

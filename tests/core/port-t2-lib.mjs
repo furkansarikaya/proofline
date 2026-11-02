@@ -4,7 +4,7 @@
 // shell (tests/fixtures/port-t2/golden.json); nothing compares with the shell at test time.
 import { spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
@@ -21,7 +21,7 @@ export const GIT_ENV = {
   TMPDIR: process.env.TMPDIR ?? tmpdir(),
 };
 
-/** @typedef {{ mode: number, text?: string, b64?: string }} SnapFile */
+/** @typedef {{ mode: number, text?: string, b64?: string, link?: string }} SnapFile */
 /** @typedef {{ base: Record<string, SnapFile>, files: Record<string, SnapFile>, baseSha: string }} Snapshot */
 
 /** @type {string[]} */ const made = [];
@@ -36,6 +36,7 @@ export function git(root, args) {
 /** @param {string} p @param {SnapFile} f */
 function put(p, f) {
   mkdirSync(path.dirname(p), { recursive: true });
+  if (f.link !== undefined) { rmSync(p, { force: true }); symlinkSync(f.link, p); return; }
   writeFileSync(p, f.b64 !== undefined ? Buffer.from(f.b64, 'base64') : Buffer.from(f.text ?? '', 'latin1'));
   chmodSync(p, f.mode);
 }
@@ -53,7 +54,7 @@ export function restoreNew(name) {
   git(root, ['commit', '-q', '-m', 'baseline']);
   const sha = git(root, ['rev-parse', 'HEAD']).trim();
   // the working tree: write every file of the snapshot, remove the base files it no longer has
-  for (const rel of Object.keys(snap.base)) if (!(rel in snap.files) && existsSync(path.join(root, rel))) rmSync(path.join(root, rel), { force: true });
+  for (const rel of Object.keys(snap.base)) if (!(rel in snap.files)) rmSync(path.join(root, rel), { force: true });
   for (const [rel, f] of Object.entries(snap.files)) put(path.join(root, rel), f);
   // the run's recorded base commit is the one made here (the snapshot's own hash cannot be recreated)
   for (const r of ['LC']) {
@@ -118,7 +119,7 @@ export function golden() { return JSON.parse(readFileSync(path.join(dataDir, 'go
 // ---- traces: the calls of a legacy scenario recorded once from the shell (tests/fixtures/port-t2/trace/*.json.gz) --------------------------------------
 
 export const traceDir = path.join(dataDir, 'trace');
-/** @typedef {{ blobs: Record<string, SnapFile>, states: Record<string, { base: Record<string, string>, files: Record<string, string>, baseSha: string }>, calls: Array<{ state: string, args: string[], role: string, out: string, err: string, code: number | null }> }} Trace */
+/** @typedef {{ blobs: Record<string, SnapFile>, states: Record<string, { base: Record<string, string>, files: Record<string, string>, baseSha: string, pack?: string, deleted?: string[] }>, calls: Array<{ state: string, args: string[], role: string, out: string, err: string, code: number | null }> }} Trace */
 
 /** @param {string} name @returns {Trace} */
 export function loadTrace(name) { return JSON.parse(gunzipSync(readFileSync(path.join(traceDir, `${name}.json.gz`))).toString('utf8')); }
@@ -128,29 +129,58 @@ export function loadTrace(name) { return JSON.parse(gunzipSync(readFileSync(path
  * @param {Trace} tr
  */
 export function replayer(tr) {
-  const first = Object.values(tr.states)[0];
-  const master = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2t-')));
-  made.push(master);
-  cpSync(agentsSrc, path.join(master, '.agents'), { recursive: true });
-  spawnSync('git', ['init', '-q', '-b', 'main', master], { env: GIT_ENV });
-  git(master, ['config', 'gc.auto', '0']);
-  writeFileSync(path.join(master, '.gitignore'), '.agents/runs/\n.agents/local/\n');
-  for (const [rel, k] of Object.entries(first.base)) put(path.join(master, rel), tr.blobs[k]);
-  git(master, ['add', '-A']); git(master, ['commit', '-q', '-m', 'baseline']);
-  const sha = git(master, ['rev-parse', 'HEAD']).trim();
+  /** @type {Map<string, { root: string, sha: string }>} */ const masters = new Map();
+  /** The base commit of one recorded base (a scenario may commit and so move its base): made once. @param {string} key a state key */
+  const masterFor = (key) => {
+    const st = tr.states[key];
+    const id = JSON.stringify(Object.entries(st.base).sort());
+    let m = masters.get(id);
+    if (!m) {
+      const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2t-')));
+      made.push(root);
+      cpSync(agentsSrc, path.join(root, '.agents'), { recursive: true });
+      spawnSync('git', ['init', '-q', '-b', 'main', root], { env: GIT_ENV });
+      git(root, ['config', 'gc.auto', '0']);
+      writeFileSync(path.join(root, '.gitignore'), '.agents/runs/\n.agents/local/\n');
+      for (const [rel, k] of Object.entries(st.base)) put(path.join(root, rel), tr.blobs[k]);
+      git(root, ['add', '-A']); git(root, ['commit', '-q', '-m', 'baseline']);
+      m = { root, sha: git(root, ['rev-parse', 'HEAD']).trim() };
+      masters.set(id, m);
+    }
+    return m;
+  };
   return {
-    sha,
+    /** @param {string} key a recorded state: the sha its base commit has in the restored project */
+    shaOf(key) { return masterFor(key).sha; },
     /** @param {string} key the project of a recorded state, in a fresh folder */
     state(key) {
       const st = tr.states[key];
+      const { root: master, sha } = masterFor(key);
       const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2s-')));
       made.push(root);
       cpSync(master, root, { recursive: true, verbatimSymlinks: true });
-      for (const rel of Object.keys(st.base)) if (!(rel in st.files) && existsSync(path.join(root, rel))) rmSync(path.join(root, rel), { force: true });
+      for (const rel of Object.keys(st.base)) if (!(rel in st.files)) rmSync(path.join(root, rel), { force: true });
+      for (const rel of /** @type {string[]} */ (st.deleted ?? [])) rmSync(path.join(root, rel), { recursive: true, force: true });
       for (const [rel, k] of Object.entries(st.files)) put(path.join(root, rel), tr.blobs[k]);
-      const y = path.join(root, '.agents/runs/LC/RUN.yaml');
-      if (existsSync(y) && st.baseSha) writeFileSync(y, readFileSync(y, 'latin1').split(st.baseSha).join(sha), 'latin1');
+      if (st.baseSha && existsSync(path.join(root, '.agents/runs'))) {
+        for (const r of readdirSync(path.join(root, '.agents/runs'))) {
+          const y = path.join(root, '.agents/runs', r, 'RUN.yaml');
+          if (existsSync(y)) writeFileSync(y, readFileSync(y, 'latin1').split(st.baseSha).join(sha), 'latin1');
+        }
+      }
+      // a build record is filed under the commit it was made for
+      const bdir = path.join(root, '.agents/local/builds');
+      if (st.baseSha && existsSync(bdir)) for (const n of readdirSync(bdir)) if (n.startsWith(st.baseSha)) renameSync(path.join(bdir, n), path.join(bdir, sha + n.slice(st.baseSha.length)));
+      if (st.pack) spawnSync('git', ['-C', root, 'index-pack', '--stdin', '-v'], { env: GIT_ENV, input: Buffer.from(/** @type {string} */ (tr.blobs[st.pack].b64), 'base64') });
       return root;
     },
   };
+}
+
+/** A build-only state (tests/fixtures/port-t2/trace/state__NAME.json.gz, recorded by record-state.mjs) restored in a fresh folder. @param {string} name */
+export function stateOf(name) {
+  const tr = loadTrace(`state__${name}`);
+  const rp = replayer(tr);
+  const key = Object.keys(tr.states)[0];
+  return rp.state(key);
 }

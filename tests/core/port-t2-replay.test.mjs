@@ -12,7 +12,7 @@ const only = process.env.PORT_T2_ONLY;
 const names = readdirSync(traceDir).filter((f) => f.endsWith('.json.gz')).map((f) => f.slice(0, -8)).filter((n) => !only || n.includes(only)).sort();
 
 /** The text with the volatile parts of the project spelled the same on both sides. @param {string} s @param {string} base */
-const mask = (s, base) => s.split(base).join('<BASE>');
+const mask = (s, base) => (base === '' ? s : s.split(base).join('<BASE>'));
 
 describe('legacy scenarios, moved commands', () => {
   for (const name of names) {
@@ -25,11 +25,13 @@ describe('legacy scenarios, moved commands', () => {
         i++;
         const baseSha = tr.states[c.state].baseSha;
         let root = roots.get(c.state);
+        // a dispatch marker whose process was alive when the shell answered cannot be reproduced later (the pid is gone): the answer then names it
+        if (/in[ _]flight[= ].*\(pid /.test(c.out)) continue;
         const label = `${name} call ${i}: ${c.role ? `AGENT_ROLE=${c.role} ` : ''}${c.args.join(' ')}`;
         // each call sees the project as it was before it; a call that changed the project (freshness, next) must not leak into the next one
         root = rp.state(c.state); roots.set(c.state, root);
         const got = node(root, c.args, { env: c.role ? { AGENT_ROLE: c.role } : {} });
-        assert.deepEqual({ out: mask(got.out, rp.sha), err: mask(got.err, rp.sha), code: got.code },
+        assert.deepEqual({ out: mask(got.out, rp.shaOf(c.state)), err: mask(got.err, rp.shaOf(c.state)), code: got.code },
           { out: mask(c.out, baseSha), err: mask(c.err, baseSha), code: c.code }, label);
       }
     });
