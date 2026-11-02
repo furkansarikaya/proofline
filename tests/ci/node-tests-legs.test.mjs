@@ -27,7 +27,7 @@ test('node-tests is a matrix of legs on both Node versions, with unique names', 
 
 test('every test file the old globs matched (tests/ci, tests/enforcement, tests/core, tests/bench) is in a leg, none is lost', () => {
   /** @type {string[]} */ const all = [];
-  for (const d of ['ci', 'enforcement', 'core', 'bench']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
+  for (const d of ['ci', 'enforcement', 'core', 'bench', 'invariants-node']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
   assert.ok(all.length > 30);
   const where = new Map(all.map((f) => [f, /** @type {typeof legs} */ ([])]));
   /** A leg names files or globs of one directory (tests/<dir>/*.test.mjs); a glob picks up a new test file without a CI edit. @param {string} f */

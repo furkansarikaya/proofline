@@ -1,7 +1,6 @@
 // @ts-check
-// Stage 3: `answer ID N [--captured|--amend]` (agent.sh 0.0.42). An answer is the user's when it is the user's captured message (or, typed
-// by the lead, contained in the newest capture that is not older than the question and whose hash matches its text); an `accept <id>` the
-// user's prompt does not carry is the lead's, never the user's. The status block update is a command that takes the locks itself, so the locks
+// `answer ID N [--captured|--amend]`. An answer is the user's when it is the user's captured message (`--captured`, `--amend`); text the lead types
+// is the lead's answer; an `accept <id>` the user's prompt does not carry is the lead's, never the user's. The status block update is a command that takes the locks itself, so the locks
 // are released before it runs (the shell ran it in the same process under the same locks; it is best effort either way).
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
@@ -54,19 +53,45 @@ export function answer(ctx, args) {
   const prompts = sharedDirOf(ctx, 'prompts');
   const consumed = () => (readBytes(`${prompts}/consumed`) ?? '').split('\n');
   let text = ''; let cm = false; let used = ''; let src = ''; let pick = '';
-  // Stage 3 hardening (deliberately unlike the shell, which read the newest capture or history FILE and called it the user's): the user's words
-  // are known to the prompt hook alone, which hands the message it is handling to this command in its own process (`ctx.io.promptCapture`, the same
-  // handoff as for an approval). From the hook only an acceptance of an assumption is recorded this way. Anything typed by the lead is the lead's.
+  // The user's own words (A171): `--captured` and `--amend` record the answer from a message the prompt hook captured, never from text the lead
+  // types (typed text is always the lead's answer). The message is the one the hook is handling when it hands it over in process
+  // (`ctx.io.promptCapture`: primary path), else the NEWEST real prompt since the question in prompts/history. A message dated more than 5 s
+  // ahead of the clock, one whose name does not carry its own hash, a blank one, a <task-notification> and one that already answered another
+  // question are not the user's answer. Only a capture of the SAME session and not in the future counts as the hook's (latestCapture).
   const handed = /** @type {{ promptCapture?: { session: string, time: number, sha256: string, text: string } }} */ (ctx.io).promptCapture;
-  if (mode === '--captured' && !handed) fail('answer --captured is recorded by the prompt hook from the user\'s own message and by nothing else: pass the answer on stdin (it is then recorded as the lead\'s answer, answered_by=lead) and keep asking the user for the acceptance of an assumption');
-  if ((mode === '--captured' || amend) && handed) {
+  if (mode === '--captured' || amend) {
     cm = true;
-    if (latestCapture(ctx, true) === null) fail('the capture of this message is not on disk as the hook wrote it');
     let a0 = gateField(ctx, q, 'asked_at'); if (!/^[0-9]+$/.test(a0)) a0 = '0';
-    if (BigInt(handed.time) < BigInt(a0)) fail(`this message is older than question ${n}`);
-    pick = `${handed.time}-${handed.sha256.slice(0, 8)}.txt`;
-    if (consumed().includes(pick)) fail(`this message (${pick}) already answered another question`);
-    text = Buffer.from(handed.text, 'utf8').toString('latin1'); used = pick; src = pick;
+    let prevSrc = '';
+    if (amend) { let pe = gateField(ctx, prev, 'answered_epoch'); if (!/^[0-9]+$/.test(pe)) pe = a0; a0 = pe; prevSrc = gateField(ctx, prev, 'source_message'); }
+    const limit = BigInt(now().epoch) + 5n;
+    if (handed) {
+      if (latestCapture(ctx, true) === null) fail('the capture of this message is not on disk as the hook wrote it');
+      if (BigInt(handed.time) < BigInt(a0)) fail(`this message is older than question ${n}`);
+      pick = `${handed.time}-${handed.sha256.slice(0, 8)}.txt`;
+      if (pick === prevSrc) fail(`this message (${pick}) is the one the recorded answer already came from`);
+      if (consumed().includes(pick)) fail(`this message (${pick}) already answered another question`);
+      text = Buffer.from(handed.text, 'utf8').toString('latin1');
+    } else {
+      for (const name of sortedNames(`${prompts}/history`, /\.txt$/)) {
+        const m = /^([0-9]+)-([0-9a-f]{8})\.txt$/.exec(name);
+        if (!m || !(BigInt(m[1]) >= BigInt(a0)) || BigInt(m[1]) > limit) continue;
+        const t = readBytes(`${prompts}/history/${name}`) ?? '';
+        if (sha256(t).slice(0, 8) !== m[2]) continue; // a copy the hook wrote carries its own hash in its name
+        if (!/[^ \t\n\v\f\r]/.test(t) || t.slice(0, 19) === '<task-notification>') continue;
+        if (name === prevSrc) continue;
+        if (amend && consumed().includes(name)) continue;
+        pick = name;
+      }
+      if (pick === '') {
+        if (amend) fail(`no captured user message newer than the recorded answer to question ${n}: only a new message of the user corrects an answer (ask the user, wait for the reply, then run this again)`);
+        fail(`no captured user prompt since question ${n} was asked: the user has not answered it (or the prompt hook is not wired)`);
+      }
+      // one message answers one question: the newest message was already used by an earlier --captured answer
+      if (consumed().includes(pick)) fail(`the user's newest message since question ${n} (${pick}) already answered another question: the user has not answered this one yet`);
+      text = readBytes(`${prompts}/history/${pick}`) ?? '';
+    }
+    used = pick; src = pick;
   } else {
     text = readStdin(ctx);
   }
@@ -80,7 +105,8 @@ export function answer(ctx, args) {
   if (cm) {
     by = 'user';
     if (tok !== '' && assumptionPromptAccepts(norm, tokId)) acc = true;
-    if (!acc) fail(`this message is not an acceptance of the assumption of question ${n} (only an acceptance is recorded as the user's answer from the hook)`);
+    // the prompt hook tries every open assumption question with each message it handles: it records an acceptance and nothing else
+    if (handed && !acc) fail(`this message is not an acceptance of the assumption of question ${n} (only an acceptance is recorded as the user's answer from the hook)`);
   }
   let body = text;
   if (tok !== '' && /^accept/i.test(norm)) {

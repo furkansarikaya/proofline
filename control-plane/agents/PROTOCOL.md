@@ -138,9 +138,8 @@ QUESTIONS:
    (every line starts with `> `). `agent.sh answer <ID> <N> --amend` replaces a recorded answer with a newer captured user
    message: the old file is kept as `NNN.answer.amended-K.md` marked `amended: true`, the new one names it in `amends:`;
    without a newer captured user message it fails, so the lead cannot amend on its own (A171). `agent.sh answer <ID> <N>` reads the answer on stdin and writes `questions/NNN.answer.md` with
-   `answered_by: user` only when the latest captured user prompt is not older than the question
-   (`asked_at`, epoch seconds), its sha256 matches its text, and the answer text (whitespace-normalized,
-   at least 3 characters) is contained in it; else `answered_by: lead`. When no question is pending, `awaiting_input` becomes false.
+   `answered_by: lead` always: text the lead types is the lead's. Only `--captured` and `--amend` record `answered_by: user`, from a message the prompt hook captured
+   (not older than `asked_at`, not dated more than 5 seconds ahead, its history copy named by its own hash, used by one answer only). When no question is pending, `awaiting_input` becomes false.
 3. The lead restarts the specialist on the same run with an `ANSWERS` block; it resumes from its artifacts.
 
 One round (C-14): a role gathers every open question first and returns them together, numbered, in one

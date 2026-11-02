@@ -5,18 +5,9 @@
 // is ever hardened the same way, or the Node engine stops refusing, this test says so. Every other approval case compares the engines as equal
 // (stage3-cases.test.mjs), with captures that are neither in the future nor before their request.
 //
-// SECURITY ROUND 2 (issue #186): a capture or history file with the CURRENT time looks exactly like the hook's own, so nothing outside the prompt
-// hook records anything from it as the user's: `next` (approvalWaitO) reports a missed approval and asks for it again instead of recording it;
-// `answer --captured` is refused outside the hook, and a typed answer is the lead's (answered_by=lead) even when its words are in a capture; the
-// hook itself records only an acceptance of an assumption, from the message it is handling (tests/hook/hardening.test.mjs).
-// Every reader of prompts/ and prompts/history in the core, and its decision:
-//   approvals.latestCapture  (approve, approve-pending, approvalScanLatest): kept; ignores another session / future time; the hook passes the capture of its event
-//   approve.approvalWaitO    (next): reads only to report; never records (diverges: next:approval-wait)
-//   approve.approveOne       manual `approve`: a terminal reply (tty, source=tty, the human types the phrase) or the hook's handed capture; a non-tty run outside the hook still reads
-//                            the newest valid capture file (kept for the shell engine, the rig and the CLI; the open root cause of #186: nothing but OS-level write
-//                            protection of .agents/local stops a process that can write there)
-//   answer.mjs --captured / --amend / typed  (diverges: answer:captured, answer:typed)
-//   nextuser.mjs, hook events: read the capture of the session for the Next step line only (no record).
+// A typed `answer` is the lead's (answered_by=lead) even when its words are in a capture; the shell called it the user's. The user's answers are
+// recorded by `answer --captured` (tests/core/answer-user.test.mjs), `next` records a missed approval from the newest valid capture again
+// (same session, not dated ahead of the clock), and a history copy must carry its own hash in its name.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { captureBytes } from '../../control-plane/agents/scripts/core/capture.mjs';
@@ -43,22 +34,12 @@ for (const [what, content] of /** @type {Array<[string, () => string]>} */ ([
   });
 }
 
-test('deliberate hardening: next and answer record nothing as the user\'s from a capture or history file', () => {
+test('deliberate hardening: a typed answer is the lead\'s even when its words are in a capture', () => {
   for (const c of hardenedCases()) {
     const sh = runSide(c, SH_SIDE); const node = runSide(c, DEFAULT_SIDE);
     const all = (/** @type {typeof sh} */ side) => side.outputs.map((o) => o.stdout + o.stderr).join('\n');
-    if (c.name === 'next:approval-wait') {
-      assert.match(all(sh), /was recorded just now/, 'the shell engine records from the file');
-      assert.match(all(node), /prompt hook did not record it/);
-      assert.doesNotMatch(all(node), /recorded just now/);
-    } else if (c.name === 'answer:captured') {
-      assert.match(all(sh), /answer recorded: LC 001 answered_by=user/, 'the shell engine records the user\'s answer from the history file');
-      assert.match(all(node), /recorded by the prompt hook/);
-      assert.doesNotMatch(all(node), /answered_by=user/);
-    } else {
-      assert.match(all(sh), /answered_by=user/, 'the shell engine calls a typed answer that matches a capture the user\'s');
-      assert.doesNotMatch(all(node), /answered_by=user/);
-      assert.match(all(node), /answered_by=lead/);
-    }
+    assert.match(all(sh), /answered_by=user/, 'the shell engine calls a typed answer that matches a capture the user\'s');
+    assert.doesNotMatch(all(node), /answered_by=user/);
+    assert.match(all(node), /answered_by=lead/);
   }
 });
