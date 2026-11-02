@@ -5,7 +5,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { approvalNormSpace, latestCapture, quoteLines, sortedNames } from './approvals.mjs';
-import { captureField } from './capture.mjs';
+import { captureField, safeSession } from './capture.mjs';
 import { requireLead } from './approve.mjs';
 import { fail } from './errors.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -62,6 +62,8 @@ function matchesAcceptedForm(norm, lines) {
   const msg = asciiLower(norm).replace(/^[ \t\n]+/, '').replace(/[.!]+$/, '');
   const hits = forms.filter((f) => msg === f || (msg.startsWith(f) && !/[a-zçğıöşü0-9]/i.test(msg.charAt(f.length))));
   if (hits.length !== 1) return false;
+  // no OTHER listed form may be named anywhere in the message ("report it and fix it" gives neither decision)
+  if (forms.some((f) => f !== hits[0] && !hits[0].includes(f) && msg.includes(f))) return false;
   return !NEGATION_BYTES.test(` ${msg.slice(hits[0].length)} `);
 }
 
@@ -96,6 +98,13 @@ export function answer(ctx, args) {
     let prevSrc = '';
     if (amend) { let pe = gateField(ctx, prev, 'answered_epoch'); if (!/^[0-9]+$/.test(pe)) pe = a0; a0 = pe; prevSrc = gateField(ctx, prev, 'source_message'); }
     if (latestCapture(ctx, true) === null) fail('the capture of this message is not on disk as the hook wrote it');
+    // bound to the ASKING session: the question names the session that asked it (the lead's run); a prompt of another session is not its answer, and a
+    // question without a known asking session records nothing
+    const askedSession = gateField(ctx, q, 'asked_session');
+    if (askedSession === '') fail(`question ${n} has no asking session on record: the user's answer is not recorded from a message (ask again with ask)`);
+    if (safeSession(askedSession) !== handed.session) fail(`this message is from another session than the one that asked question ${n}`);
+    // a question mark anywhere: the user is asking, not answering (as for approvals)
+    if (handed.text.includes('?')) fail(`this message holds a question mark, so it is not an answer to question ${n}`);
     // strictly newer than the question (a message of the same second as the question is not its answer)
     if (BigInt(handed.time) <= BigInt(a0)) fail(`this message is not newer than question ${n}`);
     pick = `${handed.time}-${handed.sha256.slice(0, 8)}.txt`;

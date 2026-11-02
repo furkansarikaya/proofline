@@ -6427,7 +6427,10 @@ ask_question() {
   else sed '/^QUESTIONS:[[:space:]]*$/d' > "$aq_t"; fi
   grep -Eq '^[0-9]+\. [^[:space:]]' "$aq_t" || { rm -f "$aq_t"; fail "ask needs numbered questions ('1. <question>', then options, recommended, why)"; }
   mkdir -p "$aq_d/questions"; aq_n=$(next_num "$aq_d/questions")
-  { printf 'from: %s\nasked_at: %s\n---\n' "$execution_role" "$(now_epoch)"; cat "$aq_t"; } > "$aq_d/questions/$aq_n.md"; rm -f "$aq_t"
+  # the asking session (the runtime's session id in the lead's environment): only a prompt of that session can answer a user-only question
+  aq_s=''; for aq_v in "${CLAUDE_CODE_SESSION_ID:-}" "${CODEX_SESSION_ID:-}" "${CODEX_THREAD_ID:-}"; do [ -z "$aq_v" ] || { aq_s=$aq_v; break; }; done
+  case "$aq_s" in *[!A-Za-z0-9_.-]*) aq_s='' ;; esac
+  { printf 'from: %s\nasked_at: %s\n' "$execution_role" "$(now_epoch)"; [ -z "$aq_s" ] || printf 'asked_session: %s\n' "$aq_s"; printf -- '---\n'; cat "$aq_t"; } > "$aq_d/questions/$aq_n.md"; rm -f "$aq_t"
   if section_key_present "$aq_d" execution awaiting_input; then set_run_value "$aq_id" execution awaiting_input true; fi
   if gates_enforced "$aq_id"; then ledger_append "$aq_id" ask - - "$(ledger_token "questions/$aq_n.md" "$aq_id")"; fi
   status_block_update "$aq_id" ask

@@ -31,12 +31,14 @@ function plant(/** @type {string} */ d, /** @type {string} */ text) {
 const approvals = (/** @type {string} */ d) => readdirSync(join(d, '.agents/runs/LC/approvals')).filter((n) => !n.includes('request'));
 
 test('the prompt hook records the user\'s acceptance of an assumption from the message it handles, and nothing else', async () => {
-  const q = (/** @type {string} */ d) => { mkdirSync(join(d, '.agents/runs/LC/questions'), { recursive: true }); writeFileSync(join(d, '.agents/runs/LC/questions/001.md'), 'asked_at: 1\n\nASSUMPTION: AS-1\n\nIs the default 3?\n'); };
+  const q = (/** @type {string} */ d) => { mkdirSync(join(d, '.agents/runs/LC/questions'), { recursive: true }); writeFileSync(join(d, '.agents/runs/LC/questions/001.md'), 'asked_at: 1\nasked_session: s2\n\nASSUMPTION: AS-1\n\nIs the default 3?\n'); };
   const d = copyProject(template, base); q(d);
   await runHook('node', d, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'accept as-1 but only if it is safe' });
   assert.ok(!existsSync(join(d, '.agents/runs/LC/questions/001.answer.md')), 'a conditional acceptance records nothing');
   await runHook('node', d, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'what is the status?' });
   assert.ok(!existsSync(join(d, '.agents/runs/LC/questions/001.answer.md')), 'an ordinary message records nothing');
+  await runHook('node', d, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'accept as-1', session_id: 's9' });
+  assert.ok(!existsSync(join(d, '.agents/runs/LC/questions/001.answer.md')), 'a prompt of another session than the asking one records nothing');
   await runHook('node', d, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'accept as-1', session_id: 's2' });
   const file = join(d, '.agents/runs/LC/questions/001.answer.md');
   assert.ok(existsSync(file), 'the acceptance is recorded');

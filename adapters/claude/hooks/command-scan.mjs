@@ -323,6 +323,12 @@ function scan(input) {
     else if (c === 'agent.sh') { if (k + 1 <= nw) out('A', `${L[k + 1]}\t${W(k + 1)}`); }
     else if (c === 'claude') { for (j = k + 1; j <= nw; j++) if (W(j) === '-p' || W(j) === '--print') { out('N', `claude ${W(j)}`); break; } }
     else if (c === 'codex') { for (j = k + 1; j <= nw; j++) if (!/^-/.test(W(j))) { if (W(j) === 'exec' || W(j) === 'e') out('N', `codex ${W(j)}`); break; } }
+    else if (/^(npx|pnpx|bunx|node|nodejs|bun|deno|npm|pnpm|yarn)$/.test(c)) {
+      // a headless runtime started through a package runner or a node script (npx @anthropic-ai/claude-code -p, node .../claude/cli.js -p, pnpm dlx @openai/codex exec)
+      let pkg = 0;
+      for (j = k + 1; j <= nw; j++) { const x = W(j); if (/(^|[/@])(claude-code|claude|codex)(@[^/ ]*)?(\/[^ ]*)?$/.test(x)) { pkg = j; break; } }
+      if (pkg) for (j = pkg + 1; j <= nw; j++) if (W(j) === '-p' || W(j) === '--print' || W(j) === 'exec' || W(j) === 'e') { out('N', `${c} ${W(pkg)} ${W(j)}`); break; }
+    }
     else if (c === 'git') gitchk(k);
     else if (c === 'tee') {
       for (j = k + 1; j <= nw; j++) if (!/^-/.test(W(j))) { out('W', W(j)); if (lastw === '') lastw = (substr(W(j), 1, 1) !== '/' && cwdp !== '') ? `${cwdp}/${W(j)}` : W(j); }

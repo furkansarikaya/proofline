@@ -42,9 +42,9 @@ after(() => { for (const t of Object.values(templates)) rmSync(t, { recursive: t
 
 /** @param {string} kind */
 function project(kind) { const d = path.join(base, `p${++counter}`); cpSync(templates[kind], d, { recursive: true }); return d; }
-/** The default (Node) engine. @param {string} dir @param {string[]} args @param {string} [input] */
-function agent(dir, args, input = '') {
-  const r = spawnSync('sh', ['.agents/scripts/agent.sh', ...args], { cwd: dir, env: cleanEnv({}), input, encoding: 'utf8', timeout: 60000 });
+/** The default (Node) engine. @param {string} dir @param {string[]} args @param {string} [input] @param {Record<string, string>} [env] */
+function agent(dir, args, input = '', env = {}) {
+  const r = spawnSync('sh', ['.agents/scripts/agent.sh', ...args], { cwd: dir, env: cleanEnv({ CLAUDE_CODE_SESSION_ID: 's1', ...env }), input, encoding: 'utf8', timeout: 60000 });
   return { status: r.status, out: r.stdout, err: r.stderr, text: r.stdout + r.stderr };
 }
 /** `freeze` as the self-tests run it: the QA plan cites the sha256 of the current PLAN.md first (test-lib qa_bind). @param {string} dir */
@@ -139,7 +139,7 @@ test('answer: a message handed over by the hook counts only with its own capture
   const asked = Number(/^asked_at: (\d+)/m.exec(read(d, 'questions/001.md'))?.[1] ?? '0');
   const same = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: asked });
   assert.notEqual(same.status, 0); assert.match(same.text, /not newer than question 1/);
-  const chatter = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'what is the status?', time: t });
+  const chatter = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'what is the status', time: t });
   assert.notEqual(chatter.status, 0); assert.match(chatter.text, /not an acceptance of the assumption/);
   const good = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: t });
   assert.equal(good.status, 0, good.text);
@@ -211,6 +211,33 @@ test('an INTENT scope decision: the user\'s answer to its USER_ONLY question is 
   assert.equal(yes.status, 0, yes.text);
   assert.match(read(d, 'questions/001.answer.md'), /^answered_by: user$/m);
   assert.doesNotMatch(freeze(d).err, /INTENT\.md records the user's answer/);
+});
+
+test('the hook records an answer only from the ASKING session; a question without an asking session, a prompt of another session and a message with a question mark record nothing', () => {
+  const d = project('plain'); ask(d, `${Q}   ASSUMPTION: AS-1@abc123def456\n`);
+  assert.match(read(d, 'questions/001.md'), /^asked_session: s1$/m);
+  const t = now() + 1;
+  const other = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: t, session: 's7' });
+  assert.notEqual(other.status, 0); assert.match(other.text, /from another session than the one that asked/);
+  const qm = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1, ok?', time: t });
+  assert.notEqual(qm.status, 0); assert.match(qm.text, /question mark/);
+  assert.ok(!existsSync(`${d}/.agents/runs/LC/questions/001.answer.md`));
+  // asked where the session is unknown (no runtime session id in the environment): nothing is recorded
+  const e = project('plain');
+  assert.equal(agent(e, ['ask', 'LC'], `${Q}   ASSUMPTION: AS-1@abc123def456\n`, { CLAUDE_CODE_SESSION_ID: '' }).status, 0);
+  assert.doesNotMatch(read(e, 'questions/001.md'), /asked_session/);
+  const none = hookAnswer(e, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: now() + 1 });
+  assert.notEqual(none.status, 0); assert.match(none.text, /no asking session on record/);
+  // the asking session's own message is recorded
+  assert.equal(hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'accept AS-1', time: t }).status, 0);
+});
+
+test('an answer that names both options gives neither (exactly one accepted form)', () => {
+  const d = project('plain');
+  ask(d, '1. Fix the old defect in this change?\n   USER_ONLY: scope D-1\n   options: "report it, out of scope" | "fix it in this change"\n');
+  const both = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'report it, out of scope and also fix it in this change', time: now() + 1 });
+  assert.notEqual(both.status, 0); assert.match(both.text, /not one of the accepted answers/);
+  assert.equal(hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'report it, out of scope', time: now() + 1 }).status, 0);
 });
 
 /** Wait until the clock has reached second T. @param {number} t */

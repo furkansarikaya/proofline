@@ -285,6 +285,14 @@ describe('tripwires (open run, installed project)', { skip }, () => {
     allowed(bash(q, 'tar -xf x.tar -C .agents/tasks'), 'tar');
     allowed(bash(q, 'curl -o .agents/tasks/x.html http://x/y'), 'curl');
   });
+  // a headless runtime started by hand, in any spelling (dispatch.sh is the only way to run a specialist)
+  for (const c of ['claude -p hi', '/usr/local/bin/claude -p hi', 'npx @anthropic-ai/claude-code -p hi', 'npx -y @anthropic-ai/claude-code@latest --print hi', 'node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js -p hi', 'pnpm dlx @openai/codex exec x', 'npx -y @openai/codex@latest exec x', '/opt/bin/codex exec x', 'node /opt/codex/bin/codex.js exec x'])
+    test(`a nested headless runtime is denied: ${JSON.stringify(c)}`, () => denied(bash(p, c), 'nested runtime', c));
+  test('a node script or package runner that is no runtime stays free', () => {
+    const q = project({ run: false });
+    allowed(bash(q, 'node scripts/build.js -p 3'), 'node -p');
+    allowed(bash(q, 'npx prettier --check .agents/tasks'), 'npx');
+  });
   test('agent.sh approve keeps its deny', () => {
     denied(bash(p, 'sh .agents/scripts/agent.sh approve LC plan'), "an approval is the user's", 'approve');
     denied(bash(p, 'sh .agents/scripts/agent.sh approve-pending LC'), "an approval is the user's", 'approve-pending');
