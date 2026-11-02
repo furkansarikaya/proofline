@@ -61,6 +61,9 @@ export function diffNames(ctx, base) {
   return sortUnique(nonEmpty(git(ctx, ['diff', '--no-renames', '--name-only', base, '--']).out));
 }
 
+/** `git branch --show-current`, asked once per invocation (the `branch` command forgets it after its checkout). @param {Context} ctx */
+export function currentBranch(ctx) { return ctx.once('git:branch', () => git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '')); }
+
 /** `git rev-parse HEAD` ('' when it fails). @param {Context} ctx */
 export function headSha(ctx) { const r = git(ctx, ['rev-parse', 'HEAD']); return r.status === 0 ? r.out.replace(/\n+$/, '') : ''; }
 

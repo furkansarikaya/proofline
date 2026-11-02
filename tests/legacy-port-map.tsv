@@ -1099,3 +1099,12 @@ rig	rig:lock-interop	an old-engine and a new-engine process exclude each other o
 rig	rig:node-absent	with node removed from PATH a moved command fails and a commit is blocked	obsolete once the shell is gone: nothing can run without node
 rig	rig:stage3-crossversion	a capture written by the new hook is judged by the old approve and the reverse	obsolete: cross-version
 rig	rig:rig / scope	the rig's own tests and the pull-request scope selection	obsolete: the rig is deleted
+gates-test	sc_tier	tier command: docs, code-like markdown, risky path, a non-lead never records, never decreasing, the ledger row of a raise	tests/core/run4a-classify.test.mjs::tier: docs, code-like markdown, risky path (compute: tests/core/port-t2-tier.test.mjs::sc_tier; the CRITICAL gate set with REVIEW_DATA stays in port-t2-tier)
+gates-test	sc_tier_paths	tier of documentation extensions, dependency manifests and the small limits on code files	tests/core/run4a-classify.test.mjs::tier: size limits of code files
+gates-test	sc_ask	ask: pending, verbatim, ledgered, answered like a specialist's	tests/core/legacy-questions.test.mjs::ask (stdin, --file, session and terminal-run parts: tests/core/run4a-records.test.mjs::ask)
+gates-test	sc_class_floor	classify refuses a class below the task's Suggested class	tests/core/run4a-classify.test.mjs::classify: unknown class, the review option, the floor
+lifecycle-test	scenario_tree_recovery	the user's approval of the inspected tree keeps the run, every gate runs again, no agent accepts it	tests/core/legacy-recovery.test.mjs::tree recovery
+lifecycle-test	scenario_task_source_status	task source status synchronization	tests/core/run4a-records.test.mjs::task-source-status
+lifecycle-test	scenario_task_contract_relocate	task-source relocation checks (copy, absolute and parent paths, symlink, role, absorbed contract, ledger)	tests/core/run4a-records.test.mjs::task-source-relocate
+lifecycle-test	scenario_hardening (discard-stray half)	discard-stray: single top-level regular file, protected names, ASCII-only names, symlinks, directories, hard-link alias, ledger row and chain; the registry and refreeze halves stay in the shell until freeze moves	tests/core/run4a-records.test.mjs::discard-stray
+lifecycle-test	scenario_hardening (ls -di stub)	obsolete: the shell read the inode with `ls -di`; the Node command reads it with stat, there is no ls to fail	-

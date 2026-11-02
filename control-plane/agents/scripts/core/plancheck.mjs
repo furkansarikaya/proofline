@@ -118,7 +118,7 @@ export function assumptionShapeErrors(ctx, dir) {
 }
 
 /** `assumption_register ID` rows: [id, risk, status, text, source, method, decisions]. @param {Context} ctx @param {string} dir @returns {string[][]} */
-function assumptionRegister(ctx, dir) {
+export function assumptionRegister(ctx, dir) {
   const rows = [];
   for (const f of ['PLAN.md', 'EVIDENCE.md']) {
     const text = fileText(ctx, `${dir}/${f}`);
@@ -137,7 +137,7 @@ function assumptionRegister(ctx, dir) {
 }
 
 /** `assumption_state ID TOKEN` -> "accepted REF" | "pending REF" | "declined REF" | "none". @param {Context} ctx @param {string} dir @param {string} token */
-function assumptionState(ctx, dir, token) {
+export function assumptionState(ctx, dir, token) {
   const id = token.slice(0, token.lastIndexOf('@'));
   const line = new RegExp(`^${WS}*ASSUMPTION: ${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${WS}*$`);
   let pend = ''; let decl = '';

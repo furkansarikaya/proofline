@@ -5,7 +5,7 @@
 // message text and the order of its shell original.
 import { lstatSync, opendirSync, renameSync, writeFileSync } from 'node:fs';
 import { fail, unsupported } from './errors.mjs';
-import { git, headSha, isAncestor, objectExists, show } from './git.mjs';
+import { currentBranch, git, headSha, isAncestor, objectExists, show } from './git.mjs';
 import { sha256 } from './hash.mjs';
 import { ledgerAppend } from './ledger.mjs';
 import { WS, authorizedPath, fileText, gatesEnforced, ledgerLines, planScope, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
@@ -21,7 +21,7 @@ export function enforceTaskBranch(ctx, id) {
   if (!sectionKeyPresent(ctx, dir, 'repository', 'task_branch')) return;
   const expected = sectionValue(ctx, dir, 'repository', 'task_branch');
   if (expected === '' || expected === 'PENDING') fail(`task branch not established for ${id}; run 'agent.sh branch ${id}' first`);
-  const current = git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '');
+  const current = currentBranch(ctx);
   if (current === '') fail(`detached HEAD: expected task branch ${expected} for ${id}`);
   if (current !== expected) fail(`wrong git branch for ${id}: expected ${expected}, currently on ${current}`);
 }
@@ -36,6 +36,8 @@ export function setRunValue(ctx, id, section, key, value) {
   const text = fileText(ctx, file);
   if (text === null) throw unsupported('RUN.yaml is not readable');
   if (value.includes('\\')) throw unsupported('awk -v reads backslash escapes');
+  // a value is one quoted scalar on one line: a quote or a control character would end it and let the rest become lines of RUN.yaml
+  if (/[\x00-\x1f\x7f"]/.test(value)) fail(`refusing to write ${section}.${key}: the value has a control character or a quote`);
   let inside = false;
   let found = false;
   const re = new RegExp(`^  ${key}:`);

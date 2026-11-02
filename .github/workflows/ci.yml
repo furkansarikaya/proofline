@@ -307,6 +307,14 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/legacy-fail-closed.test.mjs tests/core/legacy-fingerprint.test.mjs tests/core/legacy-recovery.test.mjs
+          - name: run4a-classify
+            mode: files
+            pattern: 'none'
+            files: tests/core/run4a-classify.test.mjs
+          - name: run4a-records
+            mode: files
+            pattern: 'none'
+            files: tests/core/run4a-records.test.mjs
           - name: legacy-slow-a
             mode: files
             pattern: 'none'
