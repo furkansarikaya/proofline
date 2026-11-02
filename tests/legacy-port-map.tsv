@@ -119,3 +119,6 @@ risk-test	sc_probe_benchmark_dotnet	no moved-command assertion: the benchmark pr
 risk-test	sc_unsupported_toolfree	no moved-command assertion: the refusal is submit's (unmoved)	-
 gates-test	sc_validation_refreeze	no moved-command assertion: refreeze enforces the validation line (unmoved)	-
 risk-test	sc_unsupported_evidence	NOT PORTED: recording failed in the recording environment (the contract-proof validator wrote nothing); needs a second look	-
+perf-test	sc_digest_same_output	digest agrees with next, and a recorded gate is seen by the next process	tests/core/port-t2-replay.test.mjs::perf-test__sc_digest_same_output
+perf-test	sc_hook_events_not_in_ledger	hook events go to HOOKS.log, never to the hash-chained ledger (verify-seal part)	tests/core/port-t2-replay.test.mjs::perf-test__sc_hook_events_not_in_ledger
+perf-test	sc_next_digest_budget	next and digest stay under the process budget on a realistic run	tests/bench/process-budgets.test.mjs (process budgets of next/digest, absolute)
