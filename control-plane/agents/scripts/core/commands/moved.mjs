@@ -102,7 +102,8 @@ function verifyTimeout(ctx) { ctx.out(`${verifyCommandTimeout(ctx.config())}\n`)
 
 /** @param {Context} ctx @param {string[]} args */
 function tmScaledCommand(ctx, args) {
-  const [n = '', lo = '', hi = ''] = args;
+  const [n0 = '', lo = '', hi = ''] = args;
+  const n = /^-[0-9]{1,12}$/.test(n0) ? '0' : n0; // a negative number is clamped like zero
   const num = (/** @type {string} */ s) => DIGITS.test(s) && s.length <= 12;
   if (!num(n) || (lo !== '' && !num(lo)) || (hi !== '' && !num(hi))) throw unsupported('tm-scaled shape');
   ctx.out(`${tmScaled(ctx.config(), n, lo === '' ? 1 : Number(dec0(lo)), hi === '' ? 28800 : Number(dec0(hi)))}\n`);
