@@ -96,10 +96,10 @@ export function helpers(root) {
   };
 }
 
-/** Run a command on the Node core, in process. @param {string} root @param {string[]} args @param {{ env?: Record<string, string>, stdin?: string }} [o] */
-export function node(root, args, o = {}) {
+/** Run a command on the Node core, in process. @param {string} root @param {string[]} args @param {{ env?: Record<string, string>, stdin?: string, scriptPath?: string }} [o] */
+export function node(root, args, o = {}) {  // o.scriptPath: the script the command is started from (default: the project's agent.sh)
   /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
-  const io = { env: { ...GIT_ENV, ...(o.env ?? {}) }, cwd: root, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) }, scriptPath: path.join(root, '.agents/scripts/agent.sh') };
+  const io = { env: { ...GIT_ENV, ...(o.env ?? {}) }, cwd: root, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) }, scriptPath: o.scriptPath ?? path.join(root, '.agents/scripts/agent.sh') };
   const code = run(args, io);
   return { out: norm(Buffer.concat(out).toString('latin1'), root), err: norm(Buffer.concat(err).toString('latin1'), root), code };
 }
