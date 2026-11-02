@@ -38,13 +38,29 @@ test('node absent, run open: every moved command exits non-zero, unmoved command
   const movedAll = pre.replace(/\\\n/g, '').split('|').map((x) => x.trim()).filter(Boolean);
   assert.ok(movedAll.length >= 10 && movedAll.includes('role') && movedAll.includes('next'), `the preamble list was not found (${movedAll.length})`);
   const readOnly = (/^read_only_commands='([^']*)'/m.exec(agentText)?.[1] ?? '').split(' ').filter(Boolean);
+  // The preamble leaves a moved command whose mandatory argument is missing to the shell, which prints its own usage text (pl_need2 / pl_need3, the
+  // dispatch's `${N:?usage}`); the status of that text depends on the platform's sh (macOS bash in POSIX mode: 0, dash: 2), so the shape says nothing about
+  // node. Two checks: (1) a call WITH its mandatory arguments reaches the Node path, so without node it must not succeed; (2) the argument-less shape is
+  // handled by the shell alone, identically with and without node.
+  const need = (/** @type {string} */ name) => new Set((new RegExp(`${name}='([^']*)'`).exec(agentText)?.[1] ?? '').split(' ').filter(Boolean));
+  const need2 = need('pl_need2'); const need3 = need('pl_need3');
+  assert.ok(need2.size > 10 && need3.has('request-approval'), 'the mandatory-argument tables were not found');
+  const FILLERS = /** @type {Record<string,string[]>} */ ({ 'config-get': ['profile'], 'tm-scaled': ['10'], 'design-surface': ['src/a.txt'], 'in-knowledge-scope': ['docs/a.md'], 'worktree-root': ['/nonexistent'], 'entry-tier': ['a contract bullet'],
+    'plan-section': ['LC', 'Architecture'], 'request-approval': ['LC', 'push'], answer: ['LC', '1'] });
+  const valid = (/** @type {string} */ c) => [c, ...(FILLERS[c] ?? (need2.has(c) || need3.has(c) ? ['LC'] : []))];
   let movedChecked = 0;
   for (const c of movedAll) {
-    if (A(withNode, [c]).code !== 0) continue;
-    movedChecked++; const r = A(env, [c]);
-    assert.notEqual(r.code, 0, `moved command ${c} succeeded without node (${r.stdout}${r.stderr})`);
+    const args = valid(c); const withN = A(withNode, args);
+    const r = A(env, args);
+    assert.notEqual(r.code, 0, `moved command ${args.join(' ')} succeeded without node (${r.stdout}${r.stderr})`);
+    if (withN.code === 0) movedChecked++;
+    if (need2.has(c) || need3.has(c)) {
+      const bare = A(withNode, [c]); const bareNoNode = A(env, [c]);
+      assert.equal(bareNoNode.code, bare.code, `${c} without its argument is the shell's usage text, with or without node`);
+      assert.equal(bareNoNode.stderr, bare.stderr, `${c} without its argument: the same usage text`);
+    }
   }
-  assert.ok(movedChecked >= 5, `only ${movedChecked} moved commands succeeded with no arguments`);
+  assert.ok(movedChecked >= 5, `only ${movedChecked} moved commands succeeded with their arguments`);
   const unmoved = readOnly.filter((c) => !movedAll.includes(c));
   const works = unmoved.filter((c) => A(withNode, [c]).code === 0);
   assert.ok(works.length > 0, `no unmoved read-only command succeeds with node (unmoved: ${unmoved.join(' ')})`);

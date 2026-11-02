@@ -177,3 +177,15 @@ test('fields the closed list does not name are masked only on request, and a req
   const bad = compareSides(mk(T0), mk(T0 + 7, T0 + 12), ['A', 'B'], { pendingApproval: true });
   assert.match(formatDiffs(bad), /timestamp and epoch=\d+ name different seconds/);
 });
+
+test('the shell\'s second-boundary flake is recognised in a gate record on a shell side, never on the Node side', async () => {
+  const { isShellFlake } = await import('./rig.mjs');
+  const side = /** @type {any} */ ({ outputs: [], files: new Map(), window: [0, 1] });
+  const chk = (/** @type {string} */ label) => ({ kind: 'check', where: '', detail: `${label}: .agents/runs/LC/gates/001-SECRETS.yaml: timestamp and epoch=1793593420 name different seconds` });
+  const content = { kind: 'content', where: '.agents/runs/LC/gates/001-SECRETS.yaml', detail: 'x' };
+  assert.equal(isShellFlake([chk('old only')], [side, side]), true);
+  assert.equal(isShellFlake([chk('sh'), content], [side, side]), true);
+  assert.equal(isShellFlake([chk('default')], [side, side]), false, 'the Node engine reads the clock once: its mismatch is a finding');
+  assert.equal(isShellFlake([chk('sh'), { ...content, where: '.agents/runs/LC/other.yaml' }], [side, side]), false, 'another file differing is not the flake');
+  assert.equal(isShellFlake([chk('sh'), { kind: 'exit-code', where: 'step 1', detail: '0 against 1' }], [side, side]), false);
+});
