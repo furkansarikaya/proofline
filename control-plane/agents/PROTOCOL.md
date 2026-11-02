@@ -133,13 +133,7 @@ QUESTIONS:
 
 1. `agent.sh questions <ID>` prints every pending question verbatim. The lead relays it unchanged; it never
    answers, summarizes or applies the recommended option by default.
-2. `agent.sh answer <ID> <N> --captured` records the user's captured prompt itself (the newest real prompt since the
-   question, by capture time; the command prints which message it took) as `answered_by: user`, stored as a quote block
-   (every line starts with `> `). `agent.sh answer <ID> <N> --amend` replaces a recorded answer with a newer captured user
-   message: the old file is kept as `NNN.answer.amended-K.md` marked `amended: true`, the new one names it in `amends:`;
-   without a newer captured user message it fails, so the lead cannot amend on its own (A171). `agent.sh answer <ID> <N>` reads the answer on stdin and writes `questions/NNN.answer.md` with
-   `answered_by: lead` always: text the lead types is the lead's. Only `--captured` and `--amend` record `answered_by: user`, from a message the prompt hook captured
-   (not older than `asked_at`, not dated more than 5 seconds ahead, its history copy named by its own hash, used by one answer only). When no question is pending, `awaiting_input` becomes false.
+2. The user answers in their next message. The prompt hook records an answer of a user-only kind (`ASSUMPTION:`, `SPLIT:`, `USER_ONLY:` questions) as `answered_by: user`, stored as a quote block, only when the message matches an accepted answer form the question lists, is strictly newer than the question and the question is the single open one of its kind. `agent.sh answer <ID> <N>` reads the answer on stdin and writes `questions/NNN.answer.md` with `answered_by: lead` always: text the lead types is the lead's; `--captured` and `--amend` without the hook's hand-over are refused (A210). When no question is pending, `awaiting_input` becomes false.
 3. The lead restarts the specialist on the same run with an `ANSWERS` block; it resumes from its artifacts.
 
 One round (C-14): a role gathers every open question first and returns them together, numbered, in one

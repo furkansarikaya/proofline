@@ -281,7 +281,7 @@ export function nextStep(ctx, id, emit) {
   const r = (/** @type {string} */ m) => emit(`reason=${m}\n`);
   if (st === 'FAILED' || st === 'BLOCKED') { o(`report the evidence, then: agent.sh cleanup ${id}`); r(`run is terminal (${st})`); return; }
   if (sectionValue(ctx, d, 'execution', 'awaiting_input') === 'true') {
-    o(`agent.sh questions ${id}`); o(`relay verbatim; then: agent.sh answer ${id} <N> --captured`); r("a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"); return;
+    o(`agent.sh questions ${id}`); o(`relay verbatim and ask the user to answer in their next message (the prompt hook records it when it matches an accepted form; a typed agent.sh answer ${id} <N> is recorded as yours)`); r("a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"); return;
   }
   const stale = staleMarkers(ctx, d);
   const fly = inflightDispatch(ctx, d);

@@ -2020,6 +2020,17 @@ require_task_defects() { # ID
 }
 # Answers recorded as the user's must be the user's words (A60): in INTENT.md `## Rounds`, a round answering a
 # `scope` decision with answered_by user must appear in a captured user prompt (.agents/local/prompts/history/).
+# intent_scope_answers ID D-n: the bodies of the answers the prompt hook recorded as the user's to the run's `USER_ONLY: scope D-n` questions
+intent_scope_answers() {
+  isa_d=$(run_dir "$1")
+  for isa_q in "$isa_d"/questions/[0-9][0-9][0-9].md; do
+    [ -f "$isa_q" ] || continue
+    grep -Eq "^[[:space:]]*USER_ONLY: scope $2[[:space:]]*\$" "$isa_q" || continue
+    isa_a=${isa_q%.md}.answer.md; [ -f "$isa_a" ] || continue
+    [ "$(gate_field "$isa_a" answered_by)" = user ] || continue
+    sed '1,/^---$/d' "$isa_a" | sed 's/^> //; s/^>$//'
+  done
+}
 verify_intent_provenance() { # ID
   vi_id=$1
   vi_f=$(run_dir "$vi_id")/design/INTENT.md
@@ -2039,6 +2050,9 @@ verify_intent_provenance() { # ID
     if printf '%s' "$vi_t" | grep -iq 'recommend' && ! printf '%s' "$vi_dc" | grep -Eiq 'report|out of scope|unchanged'; then echo "$vi_a"; continue; fi
     [ -d "$vi_h" ] || continue
     vi_n=$(printf '%s' "$vi_t" | tr -s ' \t\n' ' ')
+    # A210, #187: the user's answer to this decision's `USER_ONLY: scope` question, recorded by the prompt hook, is the provenance
+    vi_u=$(intent_scope_answers "$vi_id" "$vi_a" | tr -s ' \t\n' ' ' | tr 'A-Z' 'a-z'); vi_l=$(printf '%s' "$vi_n" | tr 'A-Z' 'a-z')
+    case "$vi_u" in *"$vi_l"*) continue ;; esac
     case "$vi_all" in *"$vi_n"*) ;; *) echo "$vi_a"; ;; esac
   done
 }
@@ -6886,7 +6900,7 @@ next_step() {
   o() { printf 'next=%s\n' "$*"; }
   r() { printf 'reason=%s\n' "$*"; }
   case "$ns_st" in FAILED|BLOCKED) o "report the evidence, then: agent.sh cleanup $ns_id"; r "run is terminal ($ns_st)"; return 0 ;; esac
-  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim; then: agent.sh answer $ns_id <N> --captured"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
+  if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim and ask the user to answer in their next message (the prompt hook records it when it matches an accepted form; a typed agent.sh answer $ns_id <N> is recorded as yours)"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_stale=$(inflight_sweep "$ns_id")
   if ns_if=$(inflight_dispatch "$ns_id"); then
     o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns"; r "a dispatch is running (A124)"; budget_note "$ns_id"; return 0
@@ -7618,7 +7632,7 @@ status_block_body() {
       sbb_qn=${sbb_f##*/}; sbb_qn=${sbb_qn%.md}; sbb_q=$(grep -m1 -E '^[0-9]+\. [^[:space:]]' "$sbb_f" | sb_scrub)
     done
     sbb_kv question "${sbb_qn:+#$sbb_qn }${sbb_q:-pending}"
-    sbb_kv answer "reply to the lead in the session; it records your message with: agent.sh answer $sbb_id ${sbb_qn:-N} --captured"
+    sbb_kv answer "answer in your next message in the session; the prompt hook records it when it matches an accepted form"
   fi
   if [ "$sbb_has" = yes ] && [ -s "$(shared_dir known-issues)/LIST.tsv" ]; then   # A202 item 27: record ids and task ids only, from the script's own match
     sbb_ki=$(for sbb_g in $(required_gates "$sbb_id" 2>/dev/null); do ki_gate_facts "$sbb_id" "$sbb_g"; done | awk -F: '{ print $1 " (" $2 ", follow-up " $3 ")" }' | tr '\n' ',' | sed 's/,$//; s/,/, /g' | tr -cd 'A-Za-z0-9 ._(),-')

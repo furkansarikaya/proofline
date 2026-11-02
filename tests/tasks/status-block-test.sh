@@ -73,7 +73,7 @@ A freshness LC >/dev/null || die "fresh before any status"
 frozen=$(rv task_source revision)
 # the ask event: a question carrying planted values; the block names the question and how to answer, scrubbed
 printf '1. Use %s with %s for %s and password: hunter2? key=AKIAPLANTEDKEYVALUE12\n   a) yes b) no\n' "$PLANT_PATH" "$PLANT_KEY" "$PLANT_MAIL" | A ask LC >/dev/null
-has $TF '<!-- PROOFLINE-STATUS:BEGIN:LC -->'; has $TF '- run: LC'; has $TF 'PARKED (waiting for your answer)'; has $TF '- question: #001'; has $TF 'agent.sh answer LC 001 --captured'
+has $TF '<!-- PROOFLINE-STATUS:BEGIN:LC -->'; has $TF '- run: LC'; has $TF 'PARKED (waiting for your answer)'; has $TF '- question: #001'; has $TF 'answer in your next message in the session'
 plant_check $TF
 hasnt $TF 'RUNNING'
 A freshness LC >/dev/null || die "a status update made the task stale"

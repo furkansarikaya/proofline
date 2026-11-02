@@ -25,13 +25,7 @@ message; continue other steps of the run.
 
 ## 2. The user answers
 
-1. For each answered question `N`, run `A answer <ID> <N> --captured`: the script records the user's own message
-   exactly as the prompt hook captured it (the NEWEST real prompt since the question, by its capture time, multi-line included; a message dated ahead of the clock or without its own hash is ignored) as
-   `answered_by: user`, in a quote block (every line starts with `> `), and prints which message it took: tell the user which
-   message that was. Never retype or relay the text. If the recorded answer is wrong, ask the user; their new message is
-   applied with `A answer <ID> <N> --amend` (the old record is kept, marked amended; only a newer captured user message amends,
-   never your own text). Without `--captured`, text piped on stdin is always
-   `answered_by: lead` (even when the user said the same words) and shows in the report.
+1. The user answers in their next message in this session. The prompt hook records an answer of a user-only kind (an assumption acceptance, the split override, an intent scope decision) as `answered_by: user`, in a quote block, when the message matches one of the accepted answer forms the question lists; nothing else is recorded and `A next <ID>` says to ask again. Never retype or relay the text. Text you pipe with `A answer <ID> <N>` is always `answered_by: lead` (even when the user said the same words) and shows in the report; `--captured` and `--amend` without the hook are refused.
 2. A partial answer: answer the answered ones, re-print the rest (`A questions <ID>`), STOP.
 3. "Use the recommended one" / "you decide" from the user: that sentence is the answer text; the
    specialist applies the recommended option.

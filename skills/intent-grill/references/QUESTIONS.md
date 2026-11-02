@@ -51,6 +51,7 @@ When a stop/defer-all reply settles several rows at once, each row's `source` is
   answered_by: user | lead
   ```
 
+- A `scope` decision's question carries the lines `USER_ONLY: scope D-<n>` and `options: a | b | ...` (the accepted answer forms). The prompt hook records the user's next message as `answered_by: user` only when it is one of those forms; anything else stays unanswered and the lead asks again (A210, #187).
 - Record `answered_by` exactly as given. A missing `answered_by` is recorded as `lead`.
 - Resume from `INTENT.md` (flow step 1); never from memory of an earlier round.
 - When the lead restarts the skill without an `ANSWERS` block while a round is unanswered, return the same questions again.

@@ -177,6 +177,42 @@ test('a user-only question is recorded by the hook only when it is the single op
   assert.notEqual(plain.status, 0); assert.match(plain.text, /not a question the user answers through the prompt hook/);
 });
 
+/** The supervised freeze needs the plan approved first: request, the user's reply through the hook-side `approve-pending`. @param {string} d */
+function planApproved(d) {
+  assert.equal(agent(d, ['request-approval', 'LC', 'plan']).status, 0);
+  const t0 = Number(/^requested_at: (\d+)/m.exec(read(d, 'approvals/001-request-plan.yaml'))?.[1]);
+  waitUntil(t0 + 1);
+  say(d, 'approve the plan', t0 + 1);
+  assert.equal(agent(d, ['approve-pending', 'LC']).status, 0);
+}
+
+test('an INTENT scope decision: the user\'s answer to its USER_ONLY question is recorded by the hook and is the provenance at freeze; typed or non-matching words are not', () => {
+  const d = project('plain');
+  mkdirSync(`${d}/.agents/runs/LC/design`, { recursive: true });
+  writeFileSync(`${d}/.agents/runs/LC/design/INTENT.md`, '# Intent\n\n## Decision tree\n\n| id | branch | question | depends | status | decision | source |\n|---|---|---|---|---|---|---|\n| D-1 | scope | fix the old defect? | - | resolved | report it, out of scope | round 1 |\n\n## Rounds\n\n| round | decision | answer | by |\n|---|---|---|---|\n| 1 | D-1 | report it, out of scope | user |\n');
+  say(d, 'some unrelated earlier message');
+  ask(d, '1. Fix the old defect in this change?\n   USER_ONLY: scope D-1\n   options: "report it, out of scope" | "fix it in this change"\n   recommended: report it, out of scope\n');
+  planApproved(d);
+  const stuck = freeze(d);
+  assert.match(stuck.err, /INTENT\.md records the user's answer to scope decision\(s\) D-1/);
+  // typed by the lead: the lead's answer is no provenance
+  const lead = project('plain');
+  planApproved(lead);
+  cpSync(`${d}/.agents/runs/LC/design`, `${lead}/.agents/runs/LC/design`, { recursive: true });
+  mkdirSync(`${lead}/.agents/local/prompts/history`, { recursive: true }); say(lead, 'some unrelated earlier message', now() + 1);
+  ask(lead, '1. Fix the old defect in this change?\n   USER_ONLY: scope D-1\n   options: "report it, out of scope" | "fix it in this change"\n');
+  assert.equal(agent(lead, ['answer', 'LC', '1'], 'report it, out of scope\n').status, 0);
+  assert.match(freeze(lead).err, /INTENT\.md records the user's answer to scope decision\(s\) D-1/);
+  // a message that is no accepted form records nothing
+  const t = now() + 1;
+  const no = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'hmm, maybe report it out of scope or not', time: t });
+  assert.notEqual(no.status, 0); assert.match(no.text, /not one of the accepted answers/);
+  const yes = hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'Report it, out of scope', time: t });
+  assert.equal(yes.status, 0, yes.text);
+  assert.match(read(d, 'questions/001.answer.md'), /^answered_by: user$/m);
+  assert.doesNotMatch(freeze(d).err, /INTENT\.md records the user's answer/);
+});
+
 /** Wait until the clock has reached second T. @param {number} t */
 function waitUntil(t) { const c = new Int32Array(new SharedArrayBuffer(4)); while (now() < t) Atomics.wait(c, 0, 0, 25); }
 
