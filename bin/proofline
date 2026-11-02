@@ -127,7 +127,7 @@ require_installed() { installed || die "proofline is not installed in $ROOT (.ag
 agent() { (cd "$ROOT" && sh "$A" "$@"); }
 # core_cli NAME [ARGS]: insights and queue are computed by the Node core (`proofline-core.mjs cli NAME`, ADR 0001) of the installed project.
 core_cli() {
-  [ -f "$ROOT/.agents/scripts/proofline-core.mjs" ] && [ -d "$ROOT/.agents/scripts/core" ] || die "$ROOT/.agents/scripts/proofline-core.mjs or core/ is missing (run: proofline upgrade)"
+  if [ ! -f "$ROOT/.agents/scripts/proofline-core.mjs" ] || [ ! -d "$ROOT/.agents/scripts/core" ]; then die "$ROOT/.agents/scripts/proofline-core.mjs or core/ is missing (run: proofline upgrade)"; fi
   command -v node >/dev/null 2>&1 || die "node is not on PATH; proofline needs Node 22.13 or newer"
   (cd "$ROOT" && node "$ROOT/.agents/scripts/proofline-core.mjs" cli "$@")
 }
