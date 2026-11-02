@@ -659,7 +659,7 @@ if [ "$(id -u)" != 0 ]; then
 else ok "read-only checkout case skipped (running as root): not tested"; fi
 chmod -R u+w "$ins/.agents"
 [ "$before" = "$(sig "$ins")" ] && ok "insights leaves every file byte-identical (rules, skills, config, ledger, metrics)" || die "insights changed a file"
-noruns=$(mkrepo noruns); mkdir -p "$noruns/.agents/scripts"; printf 'metrics: off\n' > "$noruns/.agents/config.yaml"; : > "$noruns/.agents/scripts/agent.sh"
+noruns=$(mkrepo noruns); mkdir -p "$noruns/.agents/scripts"; printf 'metrics: off\n' > "$noruns/.agents/config.yaml"; : > "$noruns/.agents/scripts/agent.sh"; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$noruns/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$noruns/.agents/scripts/core"
 out=$(pl "$noruns" insights 2>&1) || { LAST=$out; die "insights with no runs and metrics off exits 0"; }
 expect "insights with metrics off says no metrics recorded" "$out" "no metrics recorded (metrics: off)"
 expect "insights with no runs says so" "$out" "no runs and no metrics to report"
