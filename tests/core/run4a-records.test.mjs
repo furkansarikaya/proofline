@@ -5,12 +5,13 @@
 // delivery-check parts of sc_knowledge_secrets and sc_knowledge_drift (tests/legacy-port-map.tsv).
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, realpathSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, IMPLEMENTED, accepted, project, read, refused } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
 import { setRunValue } from '../../control-plane/agents/scripts/core/lifecycle.mjs';
+import { runSecretScan } from '../../control-plane/agents/scripts/core/commands/runcmds.mjs';
 import { slug } from '../../control-plane/agents/scripts/core/slug.mjs';
 import { scrub } from '../../control-plane/agents/scripts/core/statusblock.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
@@ -452,4 +453,21 @@ test('answer: the status-block adapter runs after the locks are released, so a s
   }
   assert.ok(freeWhileRunning && !exited, 'the locks were still held while the adapter ran');
   child.kill();
+});
+
+test('delivery-check secret scan: in a run worktree the files of the worktree are scanned (the trusted scanner is the main tree\'s and must not look in the main tree)', () => {
+  const d = realpathSync(project('scaffold standalone'));
+  cpSync(path.join(repo, 'control-plane/agents/scripts/secret-scan.sh'), `${d}/.agents/scripts/secret-scan.sh`);
+  const wt = `${d}/.agents/local/worktrees/W-1`;
+  spawnSync('git', ['-C', d, 'worktree', 'add', '-q', '--detach', wt]);
+  mkdirSync(`${wt}/docs/wiki`, { recursive: true });
+  writeFileSync(`${wt}/docs/wiki/clean.md`, 'notes\n');
+  writeFileSync(`${wt}/docs/wiki/dirty.md`, 'token: PLANTED\nAKIAABCDEFGHIJKLMNOP\n');
+  const ctx = new Context({ env: cleanEnv({}), cwd: wt, stdout: { write: () => true }, stderr: { write: () => true } }, `${wt}/.agents/scripts/agent.sh`);
+  assert.equal(ctx.trustedScripts, `${d}/.agents/scripts`, 'the trusted scripts are the main tree\'s');
+  const clean = runSecretScan(ctx, ['docs/wiki/clean.md']);
+  assert.equal(clean.status, 0, clean.stderr.toString());
+  const dirty = runSecretScan(ctx, ['docs/wiki/dirty.md']);
+  assert.equal(dirty.status, 1, dirty.stderr.toString());
+  assert.match(dirty.stdout.toString(), /^docs\/wiki\/dirty\.md:2:aws_access_key_id$/m);
 });

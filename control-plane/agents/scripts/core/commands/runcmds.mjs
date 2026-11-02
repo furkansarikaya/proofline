@@ -499,13 +499,18 @@ function knowledgeDrift(ctx, id) {
   return out.slice(0, 5);
 }
 
+/** The project's scanner (in a run worktree the main tree's copy, which is the trusted one) over paths of THIS tree: `--root` names the tree, else the script would look in the main tree. @param {Context} ctx @param {string[]} paths */
+export function runSecretScan(ctx, paths) {
+  const script = `${ctx.trustedScripts}/secret-scan.sh`;
+  if (!isFile(script)) fail('secret scanner missing: .agents/scripts/secret-scan.sh');
+  return proc.run('sh', [script, '--root', ctx.root, ...paths], { cwd: ctx.root, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
 /** `scan_knowledge_secrets ID` @param {Context} ctx @param {string} id */
 function scanKnowledgeSecrets(ctx, id) {
   const paths = knowledgeOwnedPaths(ctx, id).filter((p) => isFile(`${ctx.root}/${p}`));
   if (paths.length === 0) return;
-  const script = `${ctx.trustedScripts}/secret-scan.sh`;
-  if (!isFile(script)) fail('secret scanner missing: .agents/scripts/secret-scan.sh');
-  const r = proc.run('sh', [script, ...paths], { cwd: ctx.root, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = runSecretScan(ctx, paths);
   if (r.status === 0) return;
   const out = (r.stdout.toString('latin1') + r.stderr.toString('latin1')).replace(/\n+$/, '');
   if (r.status === 1) { ctx.err(out.split('\n').map((l) => `  ${l}\n`).join('')); fail('secret scan of the knowledge-scope files written after CODE_DONE found secrets: remove them'); }
