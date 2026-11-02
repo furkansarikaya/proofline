@@ -1,6 +1,6 @@
 // @ts-check
-// Stage 3 security round 2: nothing a file says is recorded as the user's. An approval or an answer is recorded from the prompt event the hook is
-// handling; `next` and `answer --captured` outside the hook record nothing from the capture and history files; a late worker writes no record.
+// The prompt hook records the user's acceptance of an assumption from the message it is handling, in process (the primary path); the other readers of
+// the captures are tested in tests/core/answer-user.test.mjs. A late worker writes no record.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -29,33 +29,6 @@ function plant(/** @type {string} */ d, /** @type {string} */ text) {
   writeFileSync(join(d, `.agents/local/prompts/history/${t}-${sha.slice(0, 8)}.txt`), text);
 }
 const approvals = (/** @type {string} */ d) => readdirSync(join(d, '.agents/runs/LC/approvals')).filter((n) => !n.includes('request'));
-
-test('next does not record an approval from a capture file; it asks for the approval again', async () => {
-  const d = copyProject(requested, base);
-  plant(d, 'plan approved, go ahead');
-  const { Context } = await import('../../control-plane/agents/scripts/core/context.mjs');
-  const { approvalWaitO } = await import('../../control-plane/agents/scripts/core/approve.mjs');
-  const script = join(d, '.agents/scripts/agent.sh');
-  const ctx = new Context({ env: cleanEnv(), cwd: d, scriptPath: script, stdout: { write() {} }, stderr: { write() {} } }, script);
-  /** @type {string[]} */ const said = [];
-  approvalWaitO(ctx, join(d, '.agents/runs/LC/approvals/001-request-plan.yaml'), 'plan', 'LC', (m) => said.push(m));
-  assert.match(said.join('\n'), /prompt hook did not record it/);
-  assert.deepEqual(approvals(d), [], 'nothing recorded from the file');
-});
-
-test('answer --captured outside the hook records nothing; a typed answer is the lead\'s even when it matches a capture', () => {
-  const d = copyProject(template, base);
-  mkdirSync(join(d, '.agents/runs/LC/questions'), { recursive: true });
-  writeFileSync(join(d, '.agents/runs/LC/questions/001.md'), 'asked_at: 1\n\nASSUMPTION: AS-1\n\nIs the default 3?\n');
-  plant(d, 'accept as-1');
-  const r = agent(d, ['answer', 'LC', '1', '--captured']);
-  assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /recorded by the prompt hook/);
-  assert.ok(!existsSync(join(d, '.agents/runs/LC/questions/001.answer.md')));
-  const typed = agent(d, ['answer', 'LC', '1'], 'accept as-1');
-  assert.equal(typed.status, 0, typed.stderr);
-  assert.match(readFileSync(join(d, '.agents/runs/LC/questions/001.answer.md'), 'utf8'), /^answered_by: lead/m);
-});
 
 test('the prompt hook records the user\'s acceptance of an assumption from the message it handles, and nothing else', async () => {
   const q = (/** @type {string} */ d) => { mkdirSync(join(d, '.agents/runs/LC/questions'), { recursive: true }); writeFileSync(join(d, '.agents/runs/LC/questions/001.md'), 'asked_at: 1\n\nASSUMPTION: AS-1\n\nIs the default 3?\n'); };

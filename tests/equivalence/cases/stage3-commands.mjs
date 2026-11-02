@@ -106,8 +106,8 @@ export const REPLIES = [
 ];
 
 /** @returns {Case[]} */
-/** The cases whose engines differ ON PURPOSE (stage 3 security round 2): nothing a capture or history FILE says is recorded as the user's by `next` or `answer`. See stage3-hardening.test.mjs. */
-export const HARDENED = Object.freeze(['answer:typed', 'answer:captured', 'next:approval-wait']);
+/** The cases whose engines differ ON PURPOSE: a typed answer is the lead's even when its words are in a capture (the shell called it the user's). See stage3-hardening.test.mjs. */
+export const HARDENED = Object.freeze(['answer:typed']);
 
 /** The cases both engines must answer alike. */
 export function stage3Cases() { return allCases().filter((c) => !HARDENED.includes(c.name)); }
@@ -162,7 +162,7 @@ function allCases() {
   cases.push({ name: 'friction-note', fixture: pending, steps: [A(['friction-note', ID, 'user-command']), A(['friction-note', ID, 'proofline_bug']), A(['friction-note', ID, 'bogus']), A(['friction-note', ID]), A(['friction-note', 'NOPE', 'user-shell']), A(['friction-note', ID, 'user-shell'], { role: 'reviewer' })] });
   cases.push({ name: 'hook-time', fixture: pending, steps: [{ write: { path: '.agents/local/hook-times', content: '1|prompt|10|ok|\n2|prompt|30|ok|\n3|stop|5|timeout|why\n4|bad name|3|ok|\n5|session|007|ok|\n6|prompt|abc|ok|\n' } }, A(['hook-time', ID]), A(['hook-time', ID]), A(['hook-time', '-']), A(['hook-time'])] });
   cases.push({ name: 'language-check', fixture: pending, steps: [A(['language-check', '-'], { stdin: 'plain English text\n' }), A(['language-check', '-'], { stdin: 'café çalışma öğretmen\n' }), A(['language-check', '-'], { stdin: '> café çalışma öğretmen\n' }), A(['language-check', 'README.md']), A(['language-check', 'missing.md']), A(['language-check'], { stdin: '中文中文中文' }), A(['language-check', '-', '.agents/runs/LC/COMPLETION_REPORT.md'], { stdin: '<!-- proofline:summary:begin -->\nçağışüö\n<!-- proofline:summary:end -->\nok\n' })] });
-  const hist = (/** @type {string} */ name, /** @type {string} */ text) => /** @type {Step} */ ({ write: { get path() { return `.agents/local/prompts/history/${TQ()}-${name}`; }, content: text } });
+  const hist = (/** @type {string} */ name, /** @type {string} */ text) => /** @type {Step} */ ({ write: { get path() { return `.agents/local/prompts/history/${TQ()}-${createHash('sha256').update(text).digest('hex').slice(0, 8)}.txt`; }, content: text } });
   cases.push({ name: 'answer:typed', fixture: asked, steps: [capQ('use a please'), A(['answer', ID, '1'], { stdin: 'use a\n' }), A(['answer', ID, '1'], { stdin: 'again\n' }), A(['answer', ID, 'x']), A(['answer', ID, '7'], { stdin: 'z' }), A(['answer', ID, '1', '--amend'])] });
   cases.push({ name: 'answer:lead-text-not-user', fixture: asked, steps: [capQ('something else'), A(['answer', ID, '1'], { stdin: 'use a' }), A(['answer', ID, '1'], { stdin: '  \n' })] });
   cases.push({ name: 'answer:captured', fixture: asked, steps: [A(['answer', ID, '1', '--captured']), hist(`aaaaaaaa.txt`, 'first remark'), hist(`bbbbbbbb.txt`, 'option b, please\nand more'), hist(`cccccccc.txt`, '<task-notification>x'), A(['answer', ID, '1', '--captured']), A(['answer', ID, '2', '--captured']), hist(`dddddddd.txt`, 'no, option a'), A(['answer', ID, '2', '--captured']), A(['answer', ID, '2', '--captured'])] });
