@@ -261,6 +261,7 @@ jobs:
 
   # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped by fast mode.
   node-tests:
+    timeout-minutes: 40
     name: node-tests (${{ matrix.node }}, ${{ matrix.leg.name }})
     strategy:
       fail-fast: false
@@ -298,14 +299,22 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/port-t2-drift.test.mjs tests/core/port-t2-eco.test.mjs tests/core/port-t2-fingerprint.test.mjs tests/core/port-t2-own-commits.test.mjs tests/core/port-t2-replay.test.mjs tests/core/port-t2-tier.test.mjs tests/core/port-t3-replay.test.mjs
-          - name: legacy-flows
+          - name: legacy-flows-a
             mode: files
             pattern: 'none'
-            files: tests/core/legacy-database.test.mjs tests/core/legacy-destructive.test.mjs tests/core/legacy-fail-closed.test.mjs tests/core/legacy-fingerprint.test.mjs tests/core/legacy-recovery.test.mjs tests/core/legacy-scope.test.mjs
-          - name: legacy-slow
+            files: tests/core/legacy-database.test.mjs tests/core/legacy-destructive.test.mjs tests/core/legacy-scope.test.mjs
+          - name: legacy-flows-b
             mode: files
             pattern: 'none'
-            files: tests/core/legacy-next-user.test.mjs tests/core/legacy-reopen.test.mjs
+            files: tests/core/legacy-fail-closed.test.mjs tests/core/legacy-fingerprint.test.mjs tests/core/legacy-recovery.test.mjs
+          - name: legacy-slow-a
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-next-user.test.mjs
+          - name: legacy-slow-b
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-reopen.test.mjs
           - name: legacy-language
             mode: files
             pattern: 'none'
@@ -322,10 +331,26 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/enforcement/enforcement-recorded-roles.test.mjs
-          - name: invariants-node
+          - name: invariants-node-1
             mode: files
             pattern: 'none'
-            files: tests/invariants-node/*.test.mjs
+            files: tests/invariants-node/rules-1-2.test.mjs
+          - name: invariants-node-2b
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rule-2b.test.mjs
+          - name: invariants-node-2
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rule-3.test.mjs
+          - name: invariants-node-3
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rule-4.test.mjs
+          - name: invariants-node-4
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/rules-5-6.test.mjs
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'

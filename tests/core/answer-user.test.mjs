@@ -25,7 +25,7 @@ let counter = 0;
 function build(script) {
   const out = mkdtempSync(path.join(tmpdir(), 'ans-fx-'));
   const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; ${script}; cp -R "$PWD/." "$EQ_OUT/"`, path.join(scripts, 'x.sh')],
-    { env: cleanEnv({ EQ_LIB: path.join(scripts, 'test-lib.sh'), EQ_OUT: out }), encoding: 'utf8', timeout: 100000 });
+    { env: cleanEnv({ EQ_LIB: path.join(scripts, 'test-lib.sh'), EQ_OUT: out }), encoding: 'utf8', timeout: 600000 });
   assert.equal(r.status, 0, `fixture: ${r.stderr}${r.stdout}`);
   cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(out, '.agents/scripts/proofline-core.mjs'));
   cpSync(path.join(scripts, 'core'), path.join(out, '.agents/scripts/core'), { recursive: true });

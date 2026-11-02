@@ -389,7 +389,7 @@ a200_batch() {
   ab_n='a200 batch'; ab_out="$work/a200-batch.jsonl"; : > "$ab_out"; ab_msgs=0; ab_max=${SMOKE_A200_REPLIES:-14}
   mk_fixture a200b || return 0
   printf '{ "name": "smoke-app", "version": "1.0.0", "private": true, "type": "module", "scripts": { "test": "node --test", "build": "node --check src/greet.js", "lint": "node --check tests/greet.test.js" } }\n' > "$P/package.json"
-  sed 's/^  test:[[:space:]]*[^[:space:]#].*$/  test:/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"
+  sed -E 's/^  (build|test|lint):[[:space:]]*[^[:space:]#].*$/  \1:/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"
   a200_task "$P/.agents/tasks/B-1.md" B-1 'TRIVIAL — one function in three small modules.' 'join two words' \
     'Add `src/join.js`, `src/join-parts.js` and `src/join-sep.js` and a test `tests/join.test.js`: joinWords(a, b) (exported from src/join.js) uses the helpers.' \
     'joinWords(a, b) returns a and b separated by one space.' 'tests/join.test.js tests it with node:test and `npm test` passes.'
