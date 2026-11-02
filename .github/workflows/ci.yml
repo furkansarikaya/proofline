@@ -492,6 +492,26 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/mandatory.test.mjs tests/core/parity.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
+          - name: legacy-approvals
+            mode: files
+            pattern: 'none'
+            files: tests/core/answer-user.test.mjs tests/core/legacy-approval-grammar.test.mjs tests/core/legacy-approval-multi.test.mjs tests/core/legacy-approvals.test.mjs tests/core/legacy-questions.test.mjs tests/core/legacy-waivers.test.mjs
+          - name: legacy-flows
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-destructive.test.mjs tests/core/legacy-fail-closed.test.mjs tests/core/legacy-recovery.test.mjs
+          - name: legacy-slow
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-next-user.test.mjs tests/core/legacy-reopen.test.mjs
+          - name: legacy-language
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-identity.test.mjs tests/core/legacy-language.test.mjs
+          - name: invariants-node
+            mode: files
+            pattern: 'none'
+            files: tests/invariants-node/*.test.mjs
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'
@@ -512,7 +532,7 @@ jobs:
       # nightly and manual runs only: the whole set in one process as before, the safety net behind the legs (on a pull request this leg does nothing)
       - name: every test file in one process (nightly and manual runs)
         if: matrix.leg.mode == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/bench/*.test.mjs"
+        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/bench/*.test.mjs" "tests/invariants-node/*.test.mjs"
       - name: tests of this leg (by test name)
         if: matrix.leg.mode == 'name'
         env:
