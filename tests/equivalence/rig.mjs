@@ -101,8 +101,13 @@ export const formatDiffs = (/** @type {Diff[]} */ d) => d.map((x) => `${x.kind}$
  */
 export function isShellFlake(diffs, sides) {
   const pipe = sides.some((s) => s.outputs.some((o) => /write error|Broken pipe/.test(o.stderr)));
+  // the family of messages (normalise.mjs): a ledger line "<label>: <path> line N: ts=<iso> and epoch=<n> name different seconds" and a record
+  // "<label>: <path>: timestamp and epoch=<n> name different seconds" (gate records). The Node engine reads the clock once, so a side labelled
+  // `default` (the Node engine alone) is never excused: only the sides that ran the shell are.
+  const second = /^(.+?): (\S+?)(?: line \d+)?: (?:ts=\S+|timestamp) and epoch=\d+ name different seconds/;
+  const files = new Set(diffs.flatMap((d) => { const m = d.kind === 'check' ? second.exec(d.detail) : null; return m && m[1] !== 'default' ? [m[2]] : []; }));
   return diffs.length > 0 && diffs.every((d) =>
-    (d.kind === 'check' && /ts=.* and epoch=\d+ name different seconds/.test(d.detail))
-    || (d.kind === 'content' && /LEDGER\.log$/.test(d.where))
+    (d.kind === 'check' && files.size > 0 && second.test(d.detail) && !/^default: /.test(d.detail))
+    || (d.kind === 'content' && (/LEDGER\.log$/.test(d.where) || files.has(d.where)))
     || (d.kind === 'stderr' && pipe));
 }
