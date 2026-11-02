@@ -1,8 +1,9 @@
 # TEMPORARY FAST MODE of the CI workflow (read by tests/ci/fast-mode.mjs in the `changes` job of .github/workflows/ci.yml).
-# While this file exists, a pull_request run skips the legacy self-test shards, the fixtures job and the skill tests step. It never skips the
-# invariants (context budget included), the Node tests or the static checks. Pushes to main, the nightly schedule (full suite) and manual runs
-# always run everything. There is no expiry date (A210): the mode ends in the stage in which the last legacy shell test is deleted.
-name: Node migration fast pull request checks
-reason: user decision (2026-10-31, kept without a date on 2026-11-02): pull requests are not held by the hour-long legacy shell self-test while that test is being replaced by Node tests area by area
+# While this file exists and is not expired, a pull_request run skips the legacy self-test shards, the fixtures job and the skill tests
+# step. It never skips the invariants (context budget included), equivalence, the Node tests or the static checks. Pushes to main, the
+# nightly schedule and manual runs always run everything. After the expiry date the `changes` job fails while this file exists.
+name: Node migration stage 1 fast pull request checks
+reason: user decision for the week of the Node migration stage 1 work, so that pull requests are not held by the hour-long legacy self-test
 owner: furkansarikaya
-removal: in the stage in which the legacy shell tests are completely gone (the last stage of epic #165); remove by deleting this file
+expires: 2026-11-07
+removal: expires 2026-11-07, or when Stage 12 (#177) lands, whichever is first; remove by deleting this file
