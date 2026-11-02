@@ -499,7 +499,7 @@ jobs:
           - name: legacy-flows
             mode: files
             pattern: 'none'
-            files: tests/core/legacy-destructive.test.mjs tests/core/legacy-fail-closed.test.mjs tests/core/legacy-recovery.test.mjs
+            files: tests/core/legacy-database.test.mjs tests/core/legacy-destructive.test.mjs tests/core/legacy-fail-closed.test.mjs tests/core/legacy-fingerprint.test.mjs tests/core/legacy-recovery.test.mjs tests/core/legacy-scope.test.mjs
           - name: legacy-slow
             mode: files
             pattern: 'none'
@@ -508,6 +508,18 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/legacy-identity.test.mjs tests/core/legacy-language.test.mjs
+          - name: enforcement-recorded-lead
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-recorded-lead.test.mjs
+          - name: enforcement-recorded-paths
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-recorded-paths.test.mjs
+          - name: enforcement-recorded-roles
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-recorded-roles.test.mjs
           - name: invariants-node
             mode: files
             pattern: 'none'
@@ -515,7 +527,7 @@ jobs:
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'
-            files: tests/bench/*.test.mjs tests/ci/*.test.mjs tests/enforcement/*.test.mjs
+            files: tests/bench/*.test.mjs tests/ci/*.test.mjs tests/enforcement/command-scan.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs
           - name: full-serial
             mode: full
             pattern: 'none'
