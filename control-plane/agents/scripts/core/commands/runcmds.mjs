@@ -73,6 +73,7 @@ function baseline(ctx, args) {
     if (!inside) kept.push(l);
   }
   const sha = headSha(ctx);
+  if (sha === '') fail('baseline needs a commit: git rev-parse HEAD failed (the repository has no commit yet)');
   let rep = false; let found = false;
   const withBase = kept.map((l) => {
     if (l === 'repository:') { rep = true; return l; }
@@ -290,7 +291,7 @@ function tier(ctx, args) {
 function verifyAssumptionsCommand(ctx, args) {
   ctx.fpMode = 'refresh';
   const id = need(args, 0);
-  verifyAssumptions(ctx, id, args[1] === 'ask');
+  verifyAssumptions(ctx, id, false);
   return 0;
 }
 
@@ -458,7 +459,7 @@ function taskSourceRelocate(ctx, args) {
   verifyFreeze(ctx, id, true);
   enforceTaskBranch(ctx, id);
   verifySeal(ctx, id, dir);
-  if (nw.startsWith('/') || nw.includes('..') || nw.includes('//')) fail(`invalid task source path: ${nw}`);
+  if (nw.startsWith('/') || nw.includes('..') || nw.includes('//') || /[\x00-\x1f\x7f"\\]/.test(nw)) fail(`invalid task source path: ${JSON.stringify(nw)}`);
   const old = sectionValue(ctx, dir, 'task_source', 'path');
   if (nw === old) fail(`the task source is already recorded at ${old}`);
   if (lexists(`${ctx.root}/${old}`)) fail(`the task source still exists at ${old}: a relocation is a move, not a copy`);

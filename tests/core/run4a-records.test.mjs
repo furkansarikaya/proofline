@@ -4,14 +4,18 @@
 // scenario_task_contract_relocate and scenario_task_source_status, of gates-test.sh sc_ask (already ported to legacy-questions.test.mjs) and of the
 // delivery-check parts of sc_knowledge_secrets and sc_knowledge_drift (tests/legacy-port-map.tsv).
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, IMPLEMENTED, accepted, project, read, refused } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
+import { setRunValue } from '../../control-plane/agents/scripts/core/lifecycle.mjs';
 import { slug } from '../../control-plane/agents/scripts/core/slug.mjs';
 import { scrub } from '../../control-plane/agents/scripts/core/statusblock.mjs';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { verifyAssumptions } from '../../control-plane/agents/scripts/core/questions.mjs';
+import { cleanEnv } from '../hook/harness.mjs';
 import { dbSnapshot } from '../../control-plane/agents/scripts/core/dbguard.mjs';
 
 const rv = (/** @type {string} */ d, /** @type {string} */ section, /** @type {string} */ key) => {
@@ -25,6 +29,14 @@ const rv = (/** @type {string} */ d, /** @type {string} */ section, /** @type {s
   return '';
 };
 /** `refused` that hands the result back. @param {import('./legacy-lib.mjs').Result} r @param {string} what @param {string | RegExp} [msg] */
+/** `verify-assumptions ID ask` in process: the freeze's mode is not on the command line (the command is read-only and takes no lock); package 4B calls it under freeze's locks. @param {string} d @param {string} [role] */
+function askMode(d, role = 'lead') {
+  const ctx = new Context({ env: cleanEnv({ AGENT_ROLE: role }), cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, `${d}/.agents/scripts/agent.sh`);
+  let err = '';
+  try { verifyAssumptions(ctx, 'LC', true); } catch (e) { err = `${/** @type {Error} */ (e).message}\n`; }
+  const out = ctx.chunks.map((c) => c[1].toString('latin1')).join('');
+  return { status: err ? 1 : 0, out, err, text: out + err };
+}
 const refusedR = (r, what, msg) => { refused(r, what, msg); return r; };
 const ledger = (/** @type {string} */ d) => read(d, '.agents/runs/LC/LEDGER.log');
 
@@ -112,21 +124,21 @@ test('verify-assumptions: a high-risk unverified assumption blocks; `ask` (the f
   const plain = refusedR(A(d, ['verify-assumptions', 'LC']), 'an unverified high-risk assumption passed', 'never accepted silently');
   assert.ok(plain.text.includes("no question bound to it yet ('agent.sh freeze LC' records one)"));
   assert.ok(!existsSync(`${d}/.agents/runs/LC/questions`), 'the read-only form recorded a question');
-  refused(A(d, ['verify-assumptions', 'LC', 'ask'], { role: 'reviewer' }), 'a non-lead asked', 'lead only');
-  const asked = refusedR(A(d, ['verify-assumptions', 'LC', 'ask']), 'ask mode passed', 'never accepted silently');
+  refused(askMode(d, 'reviewer'), 'a non-lead asked', 'lead only');
+  const asked = refusedR(askMode(d), 'ask mode passed', 'never accepted silently');
   assert.ok(asked.text.includes("AS-1: question recorded (relay it: 'agent.sh questions LC')"));
   assert.equal(questionFiles(d).length, 2, 'not one question per high-risk assumption');
   assert.match(read(d, '.agents/runs/LC/questions/001.md'), /^ *ASSUMPTION: AS-1@[0-9a-f]{12}$/m);
   assert.match(read(d, '.agents/runs/LC/questions/002.md'), /^ *ASSUMPTION: AS-2@[0-9a-f]{12}$/m);
   assert.equal(rv(d, 'execution', 'awaiting_input'), 'true');
   assert.match(ledger(d), /event=ask .*questions\/001\.md@/);
-  const again = refusedR(A(d, ['verify-assumptions', 'LC', 'ask']), 'a pending question was not pointed at', 'is unanswered');
+  const again = refusedR(askMode(d), 'a pending question was not pointed at', 'is unanswered');
   assert.ok(again.text.includes('AS-1: its question questions/001.md is unanswered'));
   assert.equal(questionFiles(d).length, 2, 'a second ask duplicated a pending question');
   // the lead's own answer, or a user answer that is not an accept, does not accept
   answerFile(d, '001', 'accept AS-1', 'lead');
   answerFile(d, '002', 'no, the table still has rows');
-  const declined = refusedR(A(d, ['verify-assumptions', 'LC', 'ask']), 'declined answers accepted', 'did not accept it');
+  const declined = refusedR(askMode(d), 'declined answers accepted', 'did not accept it');
   assert.ok(A(d, ['verify-assumptions', 'LC']).text.includes('AS-1 risk=high status=blocked ref=pending questions/003.md'));
   assert.ok(declined.text.includes('AS-2: the answer questions/002.answer.md did not accept it'));
   assert.equal(questionFiles(d).length, 4, 'a non-accepting answer was not asked again');
@@ -135,7 +147,7 @@ test('verify-assumptions: a high-risk unverified assumption blocks; `ask` (the f
   answerFile(d, '004', 'accept');
   assert.ok(A(d, ['verify-assumptions', 'LC']).text.includes('AS-1 risk=high status=blocked'));
   assert.ok(A(d, ['verify-assumptions', 'LC']).text.includes('AS-2 risk=high status=blocked'));
-  refused(A(d, ['verify-assumptions', 'LC', 'ask']), 'negated or bare accepts', 'did not accept it');
+  refused(askMode(d), 'negated or bare accepts', 'did not accept it');
   const n = questionFiles(d);
   const asOf = (/** @type {string} */ id) => n.filter((f) => new RegExp(`ASSUMPTION: ${id}@`).test(read(d, `.agents/runs/LC/questions/${f}`))).map((f) => f.slice(0, 3));
   for (const f of asOf('AS-1')) if (!existsSync(`${d}/.agents/runs/LC/questions/${f}.answer.md`)) answerFile(d, f, 'accept AS-1, thanks');
@@ -385,4 +397,59 @@ test('slug: the Node table equals task-integrations/slug.sh on a corpus (the ada
     const sh = spawnSync('sh', [path.join(repo, 'control-plane/agents/task-integrations/slug.sh'), t], { encoding: 'utf8' }).stdout.replace(/\n$/, '');
     assert.equal(slug(Buffer.from(t, 'utf8').toString('latin1')), sh, `slug of ${JSON.stringify(t)}`);
   }
+});
+
+// ---- review round 1 ---------------------------------------------------------------------------------------------------------------------
+
+test('task-source-relocate: a path with a line break, a quote or a backslash is refused and RUN.yaml is not touched (injected lines would override sealed sections)', () => {
+  const d = project('scaffold standalone yes; to_code_done standalone');
+  const before = read(d, '.agents/runs/LC/RUN.yaml');
+  const ledgerBefore = ledger(d);
+  const evil = ['tasks/m.md"\n  revision: "x"\nexecution:\n  topology: "standalone', 'tasks/m"x.md', 'tasks/m\\x.md', 'tasks/m\tx.md', 'tasks/m\rx.md'];
+  for (const p of evil) {
+    writeFileSync(`${d}/tasks/${p.includes('/') ? p.slice(6).replace(/[\n\r]/g, '_') : 'x'}`, 'x');
+    refused(A(d, ['task-source-relocate', 'LC', p]), `relocate to ${JSON.stringify(p)}`, 'invalid task source path');
+  }
+  assert.equal(read(d, '.agents/runs/LC/RUN.yaml'), before, 'RUN.yaml changed');
+  assert.equal(ledger(d), ledgerBefore, 'the ledger changed');
+});
+
+test('setRunValue: a value with a quote or a control character is refused and nothing is written; ordinary values still pass', () => {
+  const d = project('scaffold standalone');
+  const ctx = new Context({ env: cleanEnv({}), cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, `${d}/.agents/scripts/agent.sh`);
+  const before = read(d, '.agents/runs/LC/RUN.yaml');
+  for (const v of ['a"b', 'a\nb', 'a\rb', 'a\tb', 'a\u0000b', 'a\u007fb']) {
+    assert.throws(() => setRunValue(ctx, 'LC', 'task_source', 'path', v), /control character or a quote/, JSON.stringify(v));
+  }
+  assert.equal(read(d, '.agents/runs/LC/RUN.yaml'), before);
+  setRunValue(ctx, 'LC', 'task_source', 'path', 'tasks/ok-1.md');
+  assert.match(read(d, '.agents/runs/LC/RUN.yaml'), /^ {2}path: "tasks\/ok-1\.md"$/m);
+});
+
+test('verify-assumptions: the word `ask` on the command line asks nothing (the command is read-only and takes no lock)', () => {
+  const d = project('scaffold standalone no STANDARD manual');
+  putAssumptions(d, 'PLAN.md', `${HEAD}\n${P1}`);
+  putAssumptions(d, 'EVIDENCE.md', 'none');
+  refused(A(d, ['verify-assumptions', 'LC', 'ask']), 'ask word', 'no question bound to it yet');
+  assert.ok(!existsSync(`${d}/.agents/runs/LC/questions`), 'a question was recorded without the locks');
+});
+
+test('answer: the status-block adapter runs after the locks are released, so a slow tracker does not hold them', async () => {
+  const d = project('scaffold orchestrated');
+  accepted(A(d, ['ask', 'LC'], { input: '1. Which one?\n   options: a | b\n' }), 'ask');
+  adapter(d, 'sleep 8');
+  const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({}), stdio: ['pipe', 'ignore', 'ignore'] });
+  child.stdin.end('a\n');
+  let exited = false;
+  child.on('exit', () => { exited = true; });
+  const locks = [`${d}/.agents/local/locks/shared.lock`, `${d}/.agents/runs/LC/.lock`];
+  const answered = `${d}/.agents/runs/LC/questions/001.answer.md`;
+  const t0 = Date.now();
+  let freeWhileRunning = false;
+  while (Date.now() - t0 < 7000 && !exited) {
+    if (existsSync(answered) && locks.every((l) => !existsSync(l))) { freeWhileRunning = true; break; }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.ok(freeWhileRunning && !exited, 'the locks were still held while the adapter ran');
+  child.kill();
 });

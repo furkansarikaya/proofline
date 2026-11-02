@@ -1,7 +1,6 @@
 // @ts-check
 // `answer ID N [--captured|--amend]`. An answer is the user's only when the prompt hook hands over the message it is handling (`--captured`, `--amend`):
-// the core never reads the user's words from a file. Text the lead types is the lead's answer; an `accept <id>` the user's prompt does not carry is the lead's, never the user's. The status block update is a command that takes the locks itself, so the locks
-// are released before it runs (the shell ran it in the same process under the same locks; it is best effort either way).
+// the core never reads the user's words from a file. Text the lead types is the lead's answer; an `accept <id>` the user's prompt does not carry is the lead's, never the user's. The status block is built in process and its adapter is a child; the locks are released before that child runs (a slow tracker must not hold them).
 import { statusBlockUpdate } from './statusblock.mjs';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
@@ -181,7 +180,7 @@ function readStdin(ctx) {
   try { return readFileSync(0, 'latin1'); } catch { return ''; }
 }
 
-/** `status_block_update ID answer`: best effort, in process (the locks of this command stay held). @param {Context} ctx @param {string} id */
-function statusBlock(ctx, id) { statusBlockUpdate(ctx, id, 'answer'); }
+/** `status_block_update ID answer`: best effort. The block is built in process; the locks are released before the adapter child runs, so a slow tracker never holds them. @param {Context} ctx @param {string} id */
+function statusBlock(ctx, id) { ctx.locks?.releaseAll(); statusBlockUpdate(ctx, id, 'answer'); }
 
 

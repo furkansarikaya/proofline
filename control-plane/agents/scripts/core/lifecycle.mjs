@@ -36,6 +36,8 @@ export function setRunValue(ctx, id, section, key, value) {
   const text = fileText(ctx, file);
   if (text === null) throw unsupported('RUN.yaml is not readable');
   if (value.includes('\\')) throw unsupported('awk -v reads backslash escapes');
+  // a value is one quoted scalar on one line: a quote or a control character would end it and let the rest become lines of RUN.yaml
+  if (/[\x00-\x1f\x7f"]/.test(value)) fail(`refusing to write ${section}.${key}: the value has a control character or a quote`);
   let inside = false;
   let found = false;
   const re = new RegExp(`^  ${key}:`);

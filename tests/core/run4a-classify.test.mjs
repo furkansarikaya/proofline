@@ -201,3 +201,10 @@ test('baseline: refused on a CODE_DONE run and on the wrong branch', () => {
   git(d, 'checkout', '-q', 'main');
   refused(A(d, ['baseline', 'BR']), 'baseline on the wrong branch', 'wrong git branch for BR');
 });
+
+test('baseline: a repository without a commit stops like the shell did (rev-parse HEAD fails) and writes nothing', () => {
+  const d = project(`new_repo; mkdir -p .agents/runs/NC; printf '# Task: NC\\n' > .agents/runs/NC/TASK.md; printf 'repository:\\n  base_sha: PENDING\\nbaseline:\\n  status: pending\\n' > .agents/runs/NC/RUN.yaml`);
+  const before = read(d, '.agents/runs/NC/RUN.yaml');
+  refused(A(d, ['baseline', 'NC']), 'baseline without a commit', 'baseline needs a commit');
+  assert.equal(read(d, '.agents/runs/NC/RUN.yaml'), before);
+});
