@@ -4,7 +4,7 @@
 // shell (tests/fixtures/port-t2/golden.json); nothing compares with the shell at test time.
 import { spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
@@ -119,7 +119,7 @@ export function golden() { return JSON.parse(readFileSync(path.join(dataDir, 'go
 // ---- traces: the calls of a legacy scenario recorded once from the shell (tests/fixtures/port-t2/trace/*.json.gz) --------------------------------------
 
 export const traceDir = path.join(dataDir, 'trace');
-/** @typedef {{ blobs: Record<string, SnapFile>, states: Record<string, { base: Record<string, string>, files: Record<string, string>, baseSha: string, pack?: string, deleted?: string[], dirs?: string[], remotes?: Record<string, string> }>, calls: Array<{ state: string, args: string[], role: string, out: string, err: string, code: number | null }> }} Trace */
+/** @typedef {{ blobs: Record<string, SnapFile>, states: Record<string, { base: Record<string, string>, files: Record<string, string>, baseSha: string, pack?: string, deleted?: string[], dirs?: string[], remotes?: Record<string, string>, late?: string[], exclude?: string[], branch?: string }>, calls: Array<{ state: string, args: string[], role: string, out: string, err: string, code: number | null }> }} Trace */
 
 /** @param {string} name @returns {Trace} */
 export function loadTrace(name) { return JSON.parse(gunzipSync(readFileSync(path.join(traceDir, `${name}.json.gz`))).toString('utf8')); }
@@ -133,7 +133,11 @@ export function replayer(tr) {
   /** The base commit of one recorded base (a scenario may commit and so move its base): made once. @param {string} key a state key */
   const masterFor = (key) => {
     const st = tr.states[key];
-    const id = JSON.stringify(Object.entries(st.base).sort());
+    const id0 = (/** @type {typeof st} */ x) => JSON.stringify([Object.entries(x.base).sort(), x.late ?? [], x.exclude ?? []]);
+    // what the legacy fixture never had of the shipped control plane is absent from the base commit too when it is absent in every state that shares this base
+    const lists = Object.values(tr.states).filter((x) => id0(x) === id0(st)).map((x) => x.deleted ?? []);
+    const common = lists.length ? lists[0].filter((d) => lists.every((l) => l.includes(d))) : [];
+    const id = JSON.stringify([id0(st), common]);
     let m = masters.get(id);
     if (!m) {
       const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2t-')));
@@ -143,8 +147,10 @@ export function replayer(tr) {
       git(root, ['config', 'gc.auto', '0']);
       writeFileSync(path.join(root, '.gitignore'), '.agents/runs/\n.agents/local/\n');
       // what the legacy fixture never had of the shipped control plane is absent from the base commit too (deleted in every state of the trace)
-      const all = Object.values(tr.states).map((x) => x.deleted ?? []);
-      for (const rel of all.length ? all[0].filter((d) => all.every((l) => l.includes(d))) : []) rmSync(path.join(root, rel), { recursive: true, force: true });
+      for (const rel of common) rmSync(path.join(root, rel), { recursive: true, force: true });
+      // shipped files the fixture added after its commit are not in the base commit; the project's exclude lines are its own
+      for (const rel of st.late ?? []) rmSync(path.join(root, rel), { force: true });
+      if (st.exclude?.length) { mkdirSync(path.join(root, '.git/info'), { recursive: true }); appendFileSync(path.join(root, '.git/info/exclude'), st.exclude.join('\n') + '\n'); }
       for (const [rel, k] of Object.entries(st.base)) put(path.join(root, rel), tr.blobs[k]);
       git(root, ['add', '-A']); git(root, ['commit', '-q', '-m', 'baseline']);
       m = { root, sha: git(root, ['rev-parse', 'HEAD']).trim() };
@@ -162,9 +168,15 @@ export function replayer(tr) {
       const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2s-')));
       made.push(root);
       cpSync(master, root, { recursive: true, verbatimSymlinks: true });
-      for (const rel of Object.keys(st.base)) if (!(rel in st.files)) rmSync(path.join(root, rel), { force: true });
+      // a tracked .agents file that the working tree does not keep is the shipped one there (it differs from the base commit); any other is removed
+      for (const rel of Object.keys(st.base)) if (!(rel in st.files)) {
+        const shipped = rel.startsWith('.agents/') ? path.join(agentsSrc, rel.slice(8)) : '';
+        if (shipped && existsSync(shipped)) cpSync(shipped, path.join(root, rel)); else rmSync(path.join(root, rel), { force: true });
+      }
       for (const rel of /** @type {string[]} */ (st.deleted ?? [])) rmSync(path.join(root, rel), { recursive: true, force: true });
       for (const [rel, k] of Object.entries(st.files)) put(path.join(root, rel), tr.blobs[k]);
+      for (const rel of st.late ?? []) if (!existsSync(path.join(root, rel))) cpSync(path.join(agentsSrc, rel.slice(8)), path.join(root, rel));
+      if (st.branch) git(root, ['checkout', '-q', '-b', st.branch]);
       for (const [rn, url] of Object.entries(/** @type {Record<string, string>} */ (st.remotes ?? {}))) spawnSync('git', ['-C', root, 'remote', 'add', rn, url], { env: GIT_ENV });
       for (const rel of /** @type {string[]} */ (st.dirs ?? [])) mkdirSync(path.join(root, rel), { recursive: true });
       if (st.baseSha && existsSync(path.join(root, '.agents/runs'))) {

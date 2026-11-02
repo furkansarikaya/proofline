@@ -97,6 +97,15 @@ export function snapshot(root, blobs) {
   // the remotes (their urls decide the platform): .git/config is not part of the snapshot
   /** @type {Record<string, string>} */ const remotes = {};
   for (const l of git(root, ['config', '--get-regexp', '^remote\\..*\\.url$']).stdout.toString('latin1').split('\n')) { const m = /^remote\.(.+)\.url (.*)$/.exec(l); if (m) remotes[m[1]] = m[2]; }
-  const state = { base, files, baseSha, ...(Object.keys(remotes).length ? { remotes } : {}), ...(pack ? { pack } : {}), ...(deleted.length ? { deleted } : {}), ...(dirs.length ? { dirs } : {}) };
+  // shipped control-plane files that the working tree has but the base commit does not (a fixture adds them after its commit), and the project's own exclude lines
+  /** @type {string[]} */ const late = [];
+  /** @param {string} dir */
+  const lateWalk = (dir) => { for (const n of readdirSync(path.join(agentsSrc, dir))) { const rel = dir ? `${dir}/${n}` : n; if (rel === 'scripts') continue; const st = lstatSync(path.join(agentsSrc, rel)); if (st.isDirectory()) lateWalk(rel); else if (existsSync(path.join(root, '.agents', rel)) && readFileSync(path.join(root, '.agents', rel)).equals(readFileSync(path.join(agentsSrc, rel))) && git(root, ['cat-file', '-e', `${baseRef}:.agents/${rel}`]).status !== 0) late.push(`.agents/${rel}`); } };
+  lateWalk('');
+  const exFile = path.join(root, '.git/info/exclude');
+  const exclude = existsSync(exFile) ? readFileSync(exFile, 'latin1').split('\n').filter((l) => l && !l.startsWith('#')) : [];
+  const headRef = git(root, ['symbolic-ref', '--short', 'HEAD']);
+  const branch = headRef.status === 0 ? headRef.stdout.toString('latin1').trim() : '';
+  const state = { base, files, baseSha, ...(branch && branch !== 'main' ? { branch } : {}), ...(late.length ? { late } : {}), ...(exclude.length ? { exclude } : {}), ...(Object.keys(remotes).length ? { remotes } : {}), ...(pack ? { pack } : {}), ...(deleted.length ? { deleted } : {}), ...(dirs.length ? { dirs } : {}) };
   return { key: createHash('sha1').update(JSON.stringify(state)).digest('hex'), state };
 }
