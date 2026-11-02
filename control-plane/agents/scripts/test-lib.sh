@@ -52,7 +52,25 @@ pipe_val() { A pipeline "$RID" | sed -n "s/^$1=//p"; }
 install_control_plane() {
   mkdir -p "$1/.agents/scripts" "$1/.agents/task-integrations" "$1/.agents/local"
   cp "$tl_agents/config.yaml" "$1/.agents/"; cp -R "$tl_agents/modes" "$tl_agents/templates" "$1/.agents/"
-  cp "$tl_agents/scripts/agent.sh" "$1/.agents/scripts/"
+  # A212: the commands of stage 4 package 4A have no shell arm any more and run in the Node core. A fixture's agent.sh is the real one with a prologue that sends
+  # those commands to the Node core, installed in .agents/core4a (beside agent.sh's folder the core would take every moved command of stages 1 to 3 as well,
+  # and the scenarios that still test those run the shell code). The prologue goes with the last shell suite.
+  mkdir -p "$1/.agents/core4a"; cp "$tl_agents/scripts/proofline-core.mjs" "$1/.agents/core4a/"; cp -R "$tl_agents/scripts/core" "$1/.agents/core4a/core"
+  : > "$1/.agents/core4a/agent.sh"   # the core looks for the agent.sh beside it when a run worktree names itself with --pl-argv0
+  {
+    cat <<'PROLOGUE'
+#!/bin/sh
+case "$0" in */*) tl_here=${0%/*} ;; *) tl_here=. ;; esac
+case "${1:-}" in
+  baseline|discard-stray|branch|tier|classify|verify-assumptions|delivery-check|db-check|ask|status-block|tree-inspect|tree-accept|task-source-status|task-source-relocate)
+    # a run worktree is served by the main tree's core, with the worktree as the root
+    tl_core=$tl_here/../core4a; tl_root=$(cd "$tl_here/../.." && pwd -P)
+    case "$tl_root" in */.agents/local/worktrees/*) tl_core=${tl_root%%/.agents/local/worktrees/*}/.agents/core4a ;; esac
+    exec node "$tl_core/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
+esac
+PROLOGUE
+    cat "$tl_agents/scripts/agent.sh"
+  } > "$1/.agents/scripts/agent.sh"
   [ ! -f "$tl_agents/ecosystems.tsv" ] || { cp "$tl_agents/ecosystems.tsv" "$1/.agents/"; cp "$tl_agents/scripts/ecosystems.sh" "$1/.agents/scripts/"; }   # A173: the risk sets read the ecosystem definition
   [ ! -f "$tl_agents/scripts/next-user.sh" ] || cp "$tl_agents/scripts/next-user.sh" "$1/.agents/scripts/"   # A159: agent.sh next-user runs it
   [ ! -f "$tl_agents/scripts/known-issues.sh" ] || cp "$tl_agents/scripts/known-issues.sh" "$1/.agents/scripts/"   # A202: the known-issues list data rules
@@ -120,6 +138,7 @@ STUB
 tl_build_template() { # DIR: an empty directory
   install_control_plane "$1"
   git -C "$1" init -q -b main
+  printf '.agents/core4a/\n' >> "$1/.git/info/exclude"   # the Node core is installed, not part of the fixture's history
   printf '.agents/runs/\n.agents/local/\n' > "$1/.gitignore"
 }
 tl_fixture_lib=$tl_agents/../../tests/shared/fixture-lib.sh
@@ -129,7 +148,7 @@ tl_template=''
 tl_ensure_template() {
   [ -z "$tl_template" ] || return 0
   if command -v fx_template >/dev/null 2>&1; then
-    tl_key=$(fx_key "$tl_agents" config.yaml modes templates scripts/agent.sh scripts/next-user.sh scripts/platform.sh scripts/test-lib.sh ecosystems.tsv scripts/ecosystems.sh scripts/known-issues.sh)
+    tl_key=$(fx_key "$tl_agents" config.yaml modes templates scripts/agent.sh scripts/proofline-core.mjs scripts/core scripts/next-user.sh scripts/platform.sh scripts/test-lib.sh ecosystems.tsv scripts/ecosystems.sh scripts/known-issues.sh)
     tl_template=$(fx_template "ctl-$tl_key" tl_build_template) || { echo "test-lib: cannot build the fixture template" >&2; exit 2; }
   else
     mkdir "$base/template"; tl_build_template "$base/template"; tl_template=$base/template

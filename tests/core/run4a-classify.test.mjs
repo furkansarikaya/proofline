@@ -3,9 +3,10 @@
 // sc_tier, sc_tier_paths, sc_class_floor and of the task-branch and baseline parts of controls-test.sh sc_branch (tests/legacy-port-map.tsv).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, accepted, project, read, refused } from './legacy-lib.mjs';
+import { cleanEnv } from '../hook/harness.mjs';
 
 const MANUAL = 'scaffold standalone no STANDARD manual; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null';
 const tierOf = (/** @type {string} */ d, /** @type {string} */ role = 'lead') => A(d, ['tier', 'LC'], { role }).out.trim();
@@ -146,6 +147,22 @@ test('branch: an existing same-named branch at another tip is never reused; a de
   refused(A(d, ['branch', 'BR']), 'a detached HEAD', 'not detached HEAD');
   git(d, 'checkout', '-q', 'main'); git(d, 'checkout', '-q', '-b', 'other');
   refused(A(d, ['branch', 'BR']), 'branch from another branch', 'must start from canonical branch (main); currently on: other');
+});
+
+test('branch: a task worktree is made detached at the canonical tip and counts as standing on the canonical branch (A169); the main tree stays where it is', () => {
+  const d = project(BRANCH_RUN);
+  const wt = `${d}/.agents/local/worktrees/BR`;
+  git(d, 'worktree', 'add', '-q', '--detach', wt);
+  cpSync(`${d}/.agents/runs/BR`, `${wt}/.agents/runs/BR`, { recursive: true });
+  mkdirSync(`${wt}/.agents/local/locks`, { recursive: true }); mkdirSync(`${d}/.agents/local/locks`, { recursive: true });
+  const r = spawnSync('sh', ['.agents/scripts/agent.sh', 'branch', 'BR'], { cwd: wt, env: cleanEnv(), encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.equal(r.stdout, 'task branch established: BR proofline/BR-sample-feature\n');
+  assert.equal(git(wt, 'branch', '--show-current'), 'proofline/BR-sample-feature');
+  assert.equal(git(d, 'branch', '--show-current'), 'main', 'the main working tree moved');
+  assert.equal(git(wt, 'rev-parse', 'HEAD'), git(d, 'rev-parse', 'main'));
+  const again = spawnSync('sh', ['.agents/scripts/agent.sh', 'branch', 'BR'], { cwd: wt, env: cleanEnv(), encoding: 'utf8' });
+  assert.equal(again.stdout, 'task branch resumed: BR proofline/BR-sample-feature\n');
 });
 
 test('branch: the slug falls back to the task title when the file is named only by its id, and is ASCII', () => {

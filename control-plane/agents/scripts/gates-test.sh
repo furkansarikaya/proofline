@@ -19,52 +19,7 @@ implemented() {
 # scaffold without freeze: class, then the PLAN can be edited before `freeze`.
 unfrozen() { scaffold standalone no "${1:-STANDARD}" manual; }
 
-sc_tier() {
-  unfrozen STANDARD; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
-  [ "$(A tier LC)" = docs ] || die "no change is not tier docs"
-  printf 'notes\n' > notes.md; mkdir -p docs; printf 'guide\n' > docs/guide.txt
-  [ "$(A tier LC)" = docs ] || die "plain documentation is not tier docs"
-  rm -f notes.md; rm -rf docs
-  mkdir -p skills/x; printf 'a skill\n' > skills/x/SKILL.md
-  [ "$(AS reviewer tier LC)" = small ] || die "code-like markdown is not tier small"
-  expect_state pipeline tier docs                                               # a non-lead role never records
-  [ "$(A tier LC)" = small ]; expect_state pipeline tier small
-  rm -rf skills
-  [ "$(A tier LC)" = small ] || die "the tier decreased"
-  printf '{}\n' > package.json
-  [ "$(A tier LC)" = full ] || die "a risky path is not tier full"
-  rm package.json; [ "$(A tier LC)" = full ] || die "the tier decreased from full"
-  # size limits on a fresh run: > small_max_lines is full
-  unfrozen STANDARD; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
-  printf 'one\n' >> impl.txt; [ "$(A tier LC)" = docs ] || die "a .txt change is not tier docs"
-  printf 'package x\n' > app.go; [ "$(A tier LC)" = small ] || die "one small code file is not tier small"
-  i=0; while [ $i -lt 31 ]; do printf 'line %s\n' $i >> app.go; i=$((i + 1)); done
-  [ "$(A tier LC)" = full ] || die "more than small_max_lines is not tier full"
-  # CRITICAL is always full; a plan with ## Data adds REVIEW_DATA
-  unfrozen CRITICAL; printf '\n## Data\n\ndestructive: no\n\nno schema change in practice\n' >> .agents/runs/LC/PLAN.md
-  approve_as_user plan 'approve the plan'
-  A freeze LC >/dev/null
-  [ "$(gates_of)" = 'SECRETS REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA SECURITY QA VERIFY' ] || die "CRITICAL gate set: $(gates_of)"
-  ok "tier: docs, code-like markdown, risky path, size, never decreasing, CRITICAL full, REVIEW_DATA"
-}
 
-# B5/I7: risky paths and code-like markdown before docs; docs only by plain-documentation extension; the small
-# limits measured on real code files. A non-lead `tier` computes without recording, so one run serves all.
-sc_tier_paths() {
-  unfrozen STANDARD; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
-  t() { mkdir -p "$(dirname "$1")"; printf 'x = 1\n' > "$1"; got=$(AS reviewer tier LC); rm -f "$1"; [ "$got" = "$2" ] || die "tier of $1 is $got, want $2"; }
-  t docs/guide.adoc docs; t notes.mdx docs; t docs/api.rst docs; t guide.txt docs
-  t docs/conf.py small; t docs/build.sh small; t docs/index.html small
-  t requirements.txt full; t requirements-dev.txt full; t CMakeLists.txt full; t docs/requirements.txt full
-  t skills/x/SKILL.md small; t AGENTS.md small
-  i=0; while [ $i -lt 10 ]; do printf 'line %s\n' $i >> app.go; printf 'line %s\n' $i >> util.go; i=$((i + 1)); done
-  [ "$(AS reviewer tier LC)" = small ] || die "two code files, 20 lines are not tier small"
-  printf 'package x\n' > extra.go
-  [ "$(AS reviewer tier LC)" = full ] || die "three code files are not tier full (small_max_files)"
-  rm extra.go; i=0; while [ $i -lt 11 ]; do printf 'more %s\n' $i >> util.go; i=$((i + 1)); done
-  [ "$(AS reviewer tier LC)" = full ] || die "31 changed lines of code are not tier full (small_max_lines)"
-  ok "tier paths: docs only by extension, docs/ code is not docs, dependency manifests full, small limits on code files"
-}
 
 sc_record() {
   scaffold orchestrated; implemented orchestrated
@@ -656,25 +611,6 @@ sc_capture_integrity() {
   ok "captures and approvals: regular, single-link, symlink-free path"
 }
 
-# The lead's own question (D13) and dispatch's failover question: `ask` stores a pending question.
-sc_ask() {
-  scaffold orchestrated
-  printf 'QUESTIONS:\n1. Split the cache into its own module?\n   options: yes | no\n   recommended: no\n   why: AC-1 is met either way\n' > "$base/ask.md"
-  expect_fail "a specialist asked as the lead" AS reviewer ask LC --file "$base/ask.md"
-  expect_fail "ask without a numbered question" sh -c "printf 'no question here\n' | sh ./.agents/scripts/agent.sh ask LC"
-  A ask LC --file "$base/ask.md" >/dev/null
-  expect_state execution awaiting_input true
-  grep -q '^asked_at: [0-9]' .agents/runs/LC/questions/001.md || die "ask stored no asked_at"
-  A questions LC | grep -Fq '1. Split the cache into its own module?' || die "questions does not show the asked question"
-  A questions LC | grep -q '^QUESTIONS:' && die "the QUESTIONS: line was stored"
-  A next LC | grep -q '^next=agent.sh questions LC' || die "next does not stop for the asked question"
-  grep -q 'event=ask .*questions/001.md@' .agents/runs/LC/LEDGER.log || die "ask was not ledgered"
-  capture 'no, keep it in one module'; printf 'no, keep it in one module\n' | A answer LC 1 >/dev/null
-  grep -q '^answered_by: user' .agents/runs/LC/questions/001.answer.md || die "the user's answer is not answered_by user"
-  expect_state execution awaiting_input false
-  A verify-seal LC >/dev/null
-  ok "ask: the lead's question is pending, verbatim, ledgered, answered like a specialist's"
-}
 
 # A171: a plan over the class's max_scope_paths stops at freeze and proposes a split; only the user's own
 # `proceed without splitting` lets it continue, and that answer is recorded in the ledger.
@@ -2278,16 +2214,6 @@ sc_folded_defect() {
   A freeze LC >/dev/null || die "a STANDARD defect task was refused: $(A freeze LC 2>&1)"
   ok "A105: a reported defect or a STANDARD defect task needs no scope approval"
 }
-sc_class_floor() {
-  new_repo; RID=LC; mkdir -p .agents/runs/LC tasks
-  printf '# Task: LC — lookup\n\n## Acceptance criteria\n\n- AC-1: x\n\n## Suggested class\n\nSTANDARD — one module\n' > .agents/runs/LC/TASK.md
-  sed 's/<TASK-ID>/LC/; s#<REPOSITORY-RELATIVE-TASK-FILE.md>#tasks/LC.md#' .agents/templates/RUN.yaml > .agents/runs/LC/RUN.yaml
-  printf '# LC task\n' > tasks/LC.md; printf 'LC\n' > .agents/local/ACTIVE_RUN; git add -A; git commit -qm base
-  expect_msg "a class below the task's suggested class" 'suggests STANDARD and TRIVIAL is lower' A classify LC TRIVIAL
-  A classify LC STANDARD >/dev/null || die "the suggested class was refused: $(A classify LC STANDARD 2>&1)"
-  A classify LC COMPLEX >/dev/null || die "a higher class was refused"
-  ok "classify refuses a class below the task's Suggested class and accepts the class or a higher one"
-}
 sc_design_sync() {
   SC_PLAN_EXTRA='
 ## Contracts
@@ -2853,11 +2779,9 @@ sc_report_execution() {
 }
 
 run_sc sc_report_execution
-run_sc sc_tier
 run_sc sc_control_plane_edit
 run_sc sc_report_focus_lines
 run_sc sc_mutation_budget
-run_sc sc_tier_paths
 run_sc sc_record
 run_sc sc_submit
 run_sc sc_language
@@ -2875,7 +2799,6 @@ run_sc sc_supervised_destructive
 run_sc sc_destructive_refreeze
 run_sc sc_capture_integrity
 run_sc sc_approval_retry
-run_sc sc_ask
 run_sc sc_knowledge_gates_fresh
 run_sc sc_knowledge_done_needs_page_and_lint
 run_sc sc_knowledge_drift
@@ -2977,7 +2900,6 @@ run_sc sc_tests_findings
 run_sc sc_defect_scope
 run_sc sc_intent_provenance
 run_sc sc_folded_defect
-run_sc sc_class_floor
 run_sc sc_design_sync
 run_sc sc_validation_plan
 run_sc sc_validation_qa

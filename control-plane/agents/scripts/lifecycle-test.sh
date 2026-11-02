@@ -228,36 +228,6 @@ scenario_attribution() {
   ok "orchestrated attribution"
 }
 
-# Recovery: a change in the tree that no worker window recorded does not cost the run. The user inspects it and accepts exactly that tree
-# (kind tree); the gates then run again on the new content. An agent cannot accept it, and a hand-written window does not count.
-scenario_tree_recovery() {
-  scaffold orchestrated
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null
-  pass_all
-  printf 'a change from outside every window\n' >> impl.txt
-  expect_fail "CODE_DONE over a change outside every window" A handoff LC CODE_DONE
-  A tree-inspect LC > "$base/inspect.out" || die "tree-inspect failed"
-  grep -q 'attested tree' "$base/inspect.out" && grep -q 'impl.txt' "$base/inspect.out" || die "tree-inspect does not show the tree: $(cat "$base/inspect.out")"
-  expect_msg "tree-accept without the user's approval" "needs your approval" A tree-accept LC
-  expect_fail "a reviewer accepted the tree" AS reviewer tree-accept LC
-  expect_fail "tree-accept ran on an approval of nothing" A tree-accept LC
-  approve_as_user tree 'approve the tree'
-  printf 'one more late change\n' >> impl.txt
-  expect_msg "an approval of an older tree covered a newer one" "needs your approval" A tree-accept LC
-  A request-approval LC tree >/dev/null; capture 'I approve the tree.'; A approve LC tree >/dev/null || die "the tree approval sentence was refused"
-  A tree-accept LC > "$base/accept.out" 2>&1 || die "tree-accept failed with the user's approval: $(cat "$base/accept.out")"
-  grep -q '^  state: "IMPLEMENTING"' .agents/runs/LC/RUN.yaml || die "the handoff did not go back to IMPLEMENTING: $(cat "$base/accept.out") $(grep -n 'state' .agents/runs/LC/RUN.yaml | tr '\n' ' ')"
-  for g in $(required); do
-    case "$(A pipeline LC | sed -n "s/^gate.$g=//p")" in pass*) die "gate $g stayed green on the stale content after the tree was accepted" ;; esac
-  done
-  A verify-handoff LC >/dev/null 2>&1 || :
-  expect_fail "a second accept of the same tree" A tree-accept LC
-  A handoff LC IMPLEMENTED >/dev/null || die "IMPLEMENTED refused after the accepted tree: $(A handoff LC IMPLEMENTED 2>&1)"
-  pass_all
-  A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused after the gates ran again on the accepted tree"
-  ok "tree recovery: the user's approval of the inspected tree keeps the run, every gate runs again, no agent accepts it"
-}
 scenario_tree_forged() {
   scaffold orchestrated
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
@@ -681,36 +651,7 @@ scenario_hardening() {
   # A119: a BSD `sed -i -E` leaves QA_PLAN.md-E; handoff refuses, the lead discards exactly that stray, handoff proceeds
   printf 'x\n' > .agents/runs/LC/QA_PLAN.md-E
   expect_msg "a stray QA_PLAN.md-E did not block handoff" 'discard-stray LC' A handoff LC CODE_DONE
-  expect_fail "a non-lead discarded a stray" sh -c "AGENT_ROLE=qa sh ./.agents/scripts/agent.sh discard-stray LC QA_PLAN.md-E"
-  [ -f .agents/runs/LC/QA_PLAN.md-E ] || die "a non-lead removed the stray"
-  ld=.agents/runs/LC; before=$(tail -n 1 "$ld/LEDGER.log")
-  for f in PLAN.md plan.md Plan.MD ledger.log LEDGER.log qa_plan.md Qa_Report.md run.yaml; do
-    expect_msg "discard-stray removed a protected name ($f)" 'known run artifact' A discard-stray LC "$f"
-  done
-  [ -f "$ld/PLAN.md" ] && [ -f "$ld/LEDGER.log" ] || die "a protected file was removed"
-  expect_msg "discard-stray accepted the long-s spelling of task.md" 'may contain only' A discard-stray LC "ta$(printf '\305\277')k.md"
-  expect_msg "discard-stray accepted the Kelvin spelling of TASK.md" 'may contain only' A discard-stray LC "tas$(printf '\342\204\252').md"
-  expect_msg "discard-stray removed RUN.yaml.tmp" 'known run artifact' A discard-stray LC run.yaml.tmp
-  expect_msg "discard-stray with an empty name" 'usage: agent.sh discard-stray' A discard-stray LC ''
-  [ -f "$ld/TASK.md" ] || die "TASK.md was removed"
-  expect_msg "discard-stray accepted a sub-path (gates/)" 'single top-level' A discard-stray LC gates/zz.yaml
-  expect_msg "discard-stray accepted Results/x" 'single top-level' A discard-stray LC Results/x
-  expect_msg "discard-stray accepted .." 'single top-level' A discard-stray LC ../LC/QA_PLAN.md-E
-  expect_msg "discard-stray accepted a dot-name" 'single top-level' A discard-stray LC .lock
-  mkdir -p "$ld/sub"; printf x > "$ld/sub/file"; expect_msg "discard-stray removed sub/file" 'single top-level' A discard-stray LC sub/file; rm -r "$ld/sub"
-  mkdir -p "$ld/gates"; ln -s gates "$ld/lnk"; printf x > "$ld/gates/zz.yaml"
-  expect_msg "discard-stray went through a symlinked parent" 'single top-level' A discard-stray LC lnk/zz.yaml
-  [ -f "$ld/gates/zz.yaml" ] || die "a file in gates/ was removed"; rm -f "$ld/gates/zz.yaml" "$ld/lnk"
-  mkdir -p "$ld/stray-dir"; expect_msg "discard-stray removed a directory" 'not a regular file' A discard-stray LC stray-dir; rmdir "$ld/stray-dir"
-  ln -s PLAN.md "$ld/link-E"; expect_msg "discard-stray followed a symlink" 'symlink' A discard-stray LC link-E; rm "$ld/link-E"
-  A discard-stray LC QA_PLAN.md-E >/dev/null
-  [ ! -e .agents/runs/LC/QA_PLAN.md-E ] || die "discard-stray left the stray"
-  grep -q 'event=discard-stray .*path=QA_PLAN.md-E sha256=' .agents/runs/LC/LEDGER.log || die "discard-stray left no ledger row"
-  [ "$(tail -n 2 "$ld/LEDGER.log" | head -n 1)" = "$before" ] || die "discard-stray broke the ledger chain"
-  mkdir -p "$base/lsstub"; printf '#!/bin/sh\n[ "$1" = -di ] && exit 1\nexec /bin/ls "$@"\n' > "$base/lsstub/ls"; chmod +x "$base/lsstub/ls"; printf x > "$ld/ls-E"
-  expect_msg "discard-stray proceeded although ls -di failed" 'cannot read the inode' sh -c "PATH=$base/lsstub:\$PATH sh ./.agents/scripts/agent.sh discard-stray LC ls-E"
-  [ -f "$ld/ls-E" ] || die "discard-stray removed a file although ls -di failed"; rm -f "$ld/ls-E"
-  printf x > "$ld/other-E"; ln "$ld/other-E" "$ld/alias-E"; A discard-stray LC alias-E >/dev/null; [ -f "$ld/other-E" ] || die "removing a hard-link alias removed the original"; rm -f "$ld/other-E"
+  rm .agents/runs/LC/QA_PLAN.md-E   # discard-stray itself is tested in tests/core/run4a-records.test.mjs
   A verify-scope LC >/dev/null   # the stray check handoff runs now passes (CODE_DONE itself still needs its gates)
   for f in design/INTENT.md design/API.json design/adr/0001-x.md results/001-explorer.md dispatch/001-reviewer-claude.md dispatch/001-reviewer-claude.log reviews/proof-review/plan/REPORT.md reviews/proof-review/rules/ledger.md reviews/proof-review/small/findings.json reviews/test-trust/tests/REPORT.md reviews/test-trust/qa/REPORT.md reviews/data-design/REVIEW.md security/evidence/poc.txt; do
     mkdir -p ".agents/runs/LC/$(dirname "$f")"; printf 'x\n' > ".agents/runs/LC/$f"
@@ -781,20 +722,6 @@ scenario_task_contract_laundering() {
   cp "$base/RUN.saved" .agents/runs/LC/RUN.yaml; A verify-seal LC >/dev/null
   ok "task-source contract laundering rejected"
 }
-scenario_task_contract_relocate() {
-  scaffold standalone yes; to_code_done standalone
-  cp tasks/in-progress/LC.md tasks/copy.md
-  expect_msg "a copy was accepted as a move" 'not a copy' A task-source-relocate LC tasks/copy.md
-  rm -f tasks/copy.md
-  expect_msg "an absolute path was accepted" 'invalid task source path' A task-source-relocate LC /etc/hosts
-  expect_msg "a parent-directory path was accepted" 'invalid task source path' A task-source-relocate LC tasks/../LC.md
-  git mv tasks/in-progress/LC.md tasks/moved.md
-  ln -s moved.md tasks/link.md
-  expect_msg "a symlink target was accepted" 'symlink' A task-source-relocate LC tasks/link.md
-  expect_msg "a reviewer relocated the task source" 'denied' AS reviewer task-source-relocate LC tasks/moved.md
-  A task-source-relocate LC tasks/moved.md >/dev/null; expect_state task_source path tasks/moved.md
-  ok "task-source relocation checks"
-}
 # A74: a defect task (a debug-proof result exists) must carry a ## Root cause section in its completion report.
 scenario_report_root_cause() {
   scaffold standalone yes; to_code_done standalone
@@ -842,18 +769,6 @@ scenario_task_contract_projection() {
   bad "an edited requirement" sh -c "sed 's/documented default/other default/' '$f' > '$f.new' && mv '$f.new' '$f'"
   cp "$base/orig.md" "$f"; A freshness LC >/dev/null
   ok "task-source contract projection"
-}
-scenario_task_source_status() {
-  scaffold orchestrated yes; frozen=$(rv task_source revision)
-  tc_status tasks/in-progress/LC.md todo
-  expect_msg "a stale Status passed freshness" 'task-source-status' A freshness LC
-  expect_fail "the worker changed the task status" AS implementer task-source-status LC
-  A task-source-status LC >/dev/null
-  grep -Fxq '**Status:** in-progress' tasks/in-progress/LC.md
-  expect_state task_source revision "$frozen"; A verify-scope LC >/dev/null
-  printf '%s\n' '- a requirement added after freeze' >> tasks/in-progress/LC.md; tc_status tasks/in-progress/LC.md todo
-  expect_msg "task-source-status absorbed a contract edit" 'frozen task contract would change' A task-source-status LC
-  ok "task source status synchronization"
 }
 
 # A108: approval detection is fail-closed. Only an allowlisted phrase plus the kind word approves; an ambiguous,
@@ -1485,7 +1400,6 @@ run_sc scenario_evidence_order
 run_sc scenario_independence
 run_sc scenario_orchestrated_loop
 run_sc scenario_attribution
-run_sc scenario_tree_recovery
 run_sc scenario_tree_forged
 run_sc scenario_bounded_fix
 run_sc scenario_fix_scope_format
@@ -1508,11 +1422,9 @@ run_sc scenario_task_contract_bookkeeping orchestrated
 run_sc scenario_task_contract_edit standalone
 run_sc scenario_task_contract_edit orchestrated
 run_sc scenario_task_contract_laundering
-run_sc scenario_task_contract_relocate
 run_sc scenario_task_contract_adapter
 run_sc scenario_report_root_cause
 run_sc scenario_task_contract_projection
-run_sc scenario_task_source_status
 run_sc scenario_cleanup_after_delivery
 run_sc scenario_freeze_scope_mapping
 run_sc scenario_task_boundaries

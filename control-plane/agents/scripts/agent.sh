@@ -32,12 +32,12 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # The commands that still run as shell code (listed here, one list); every other command, a name that is no command and no command at all run in
 # proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
 case "${1:-}" in
-  baseline|discard-stray|branch|start|classify|tier|friction|calibrate|build-record|lessons|rules|decide|freeze|refreeze|handoff|delivery-check|\
-  worker-evidence|verify-assumptions|submit|record|gate|secret-scan|run-language|raise-budget|waive|metrics-dispatch|wait-line|ledger-note|ask|\
-  terminate|cleanup|deliver-merged|status-block|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
+  start|friction|calibrate|build-record|lessons|rules|decide|freeze|refreeze|handoff|\
+  worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|metrics-dispatch|wait-line|ledger-note|\
+  terminate|cleanup|deliver-merged|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
   batch-answers|task-rename-plan|task-rename-apply|known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|pr-state|batch-next|\
-  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|amend|reopen|tree-inspect|tree-accept|platform|platform-warn|task-source-done|\
-  task-source-status|task-source-relocate|knowledge-done|publish-completion-report|verify-completion-report|db-check|test) ;;
+  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|amend|reopen|platform|platform-warn|task-source-done|\
+  knowledge-done|publish-completion-report|verify-completion-report|test) ;;
   *)
     pl_sh=no
     # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
@@ -779,24 +779,6 @@ baseline_entries() {
 baseline_fingerprint() {
   type=$1 path=$2 dir=$3
   (baseline_entries "$dir" | while IFS='|' read -r entry_type entry_path entry_hash; do [ "$entry_type" = "$type" ] && [ "$entry_path" = "$path" ] && { printf '%s\n' "$entry_hash"; break; }; done) || true
-}
-remove_pending_baseline() { awk '/^baseline:$/ { inside=1; next } inside && /^[^[:space:]]/ { inside=0 } !inside { print }' "$1" > "$2"; }
-baseline() {
-  id=$1; require_run "$id"; dir=$(run_dir "$id")
-  [ "$(run_state "$dir")" != CODE_DONE ] || fail "cannot record a baseline for CODE_DONE run: $id"
-  status=$(baseline_status "$dir"); case "$status" in ''|pending) ;; *) fail "baseline already exists for $id; refusing to overwrite";; esac
-  enforce_task_branch "$id"
-  tmp=$dir/RUN.yaml.tmp; remove_pending_baseline "$dir/RUN.yaml" "$tmp"
-  base_sha=$(git -C "$root" rev-parse HEAD)
-  awk -v sha="$base_sha" '/^repository:$/ { i=1; print; next } i && /^[^[:space:]]/ { i=0 } i && /^  base_sha:/ { print "  base_sha: \"" sha "\""; f=1; next } { print } END { exit !f }' "$tmp" > "$tmp.base" || { rm -f "$tmp" "$tmp.base"; fail "RUN.yaml requires repository.base_sha"; }
-  mv "$tmp.base" "$tmp"
-  {
-    printf '\nbaseline:\n  status: captured\n  tracked:\n'
-    current_tracked_paths | while IFS= read -r path; do [ -n "$path" ] || continue; printf '    - path: %s\n      sha256: "%s"\n' "$path" "$(fingerprint_path "$path")"; done
-    printf '  untracked:\n'
-    current_untracked_paths | while IFS= read -r path; do [ -n "$path" ] || continue; printf '    - path: %s\n      sha256: "%s"\n' "$path" "$(fingerprint_path "$path")"; done
-  } >> "$tmp"
-  mv "$tmp" "$dir/RUN.yaml"; sv_reset; echo "baseline recorded: $id"
 }
 validate_captured_baseline() {
   dir=$1 sha=$(repository_base_sha "$1")
@@ -1741,39 +1723,6 @@ risk_not_rerun() {
     done
   done
 }
-class_rank() { case "$1" in TRIVIAL) echo 0 ;; STANDARD) echo 1 ;; COMPLEX) echo 2 ;; CRITICAL) echo 3 ;; *) echo 0 ;; esac; }
-classify() {
-  id=$1 class=$2 opt=${3:-}; require_run "$id"; dir=$(run_dir "$id"); require_lead
-  gates_enforced "$id" || fail "classify requires the lifecycle_gates policy"
-  pipeline_declared "$id" || fail "RUN.yaml has no pipeline block (create the run from .agents/templates/RUN.yaml)"
-  require_open_run "$id"
-  [ "$(run_state "$dir")" != CODE_DONE ] || fail "cannot reclassify a completed run: $id"
-  pipeline_class_valid "$class" || fail "invalid classification: $class (want TRIVIAL|STANDARD|COMPLEX|CRITICAL)"
-  # A61: a class below the task's own Suggested class is refused: the task author reads the request, a lower class
-  # skips the evidence and QA plan and was only caught after IMPLEMENT (STANDARD.tr, C-4). Change the task's
-  # Suggested class (a task change) or classify at least that.
-  cl_sug=$(awk '/^## Suggested class[[:space:]]*$/ { g = 1; next } /^## / { g = 0 } g && match($0, /(TRIVIAL|STANDARD|COMPLEX|CRITICAL)/) { print substr($0, RSTART, RLENGTH); exit }' "$dir/TASK.md" 2>/dev/null)
-  if [ -n "$cl_sug" ] && [ "$(class_rank "$class")" -lt "$(class_rank "$cl_sug")" ]; then
-    fail "classification refused: TASK.md suggests $cl_sug and $class is lower. Classify at least $cl_sug, or change the task's '## Suggested class' with the reason (a task change before freeze)"
-  fi
-  # A202: a bug or a refactor changes behaviour or code: TRIVIAL (text and configuration only) is refused for both
-  [ "$(task_type "$dir/TASK.md")" != invalid ] || fail "classification refused: $(task_type_refusal "$dir/TASK.md")"
-  case "$(task_type "$dir/TASK.md")" in bug|refactor) [ "$class" != TRIVIAL ] || fail "classification refused: the task is typed $(task_type "$dir/TASK.md") and TRIVIAL covers text and configuration only; classify STANDARD or higher, or ask the user to change the task type" ;; esac
-  # CLASSIFY precedes BRANCH (WORKFLOW.md): the branch is enforced once it is established.
-  case "$(section_value "$dir" repository task_branch)" in ''|PENDING) ;; *) enforce_task_branch "$id" ;; esac
-  verify_seal "$id"
-  if [ -f "$dir/PLAN.md" ] && [ "$(plan_destructive "$dir/PLAN.md")" = yes ] && [ "$class" != CRITICAL ]; then fail "PLAN.md declares a destructive data change: the class is CRITICAL"; fi
-  configured=$(pipeline_value "$class" review)
-  case "$configured" in
-    yes|no) [ -z "$opt" ] || fail "the $class pipeline fixes review=$configured; the 'review' option exists only where a pipeline says optional"; review=$configured ;;
-    optional) case "$opt" in '') review=no ;; review) review=yes ;; *) fail "unknown option: $opt (want: review)" ;; esac ;;
-    *) fail "no pipelines.$class entry in .agents/config.yaml" ;;
-  esac
-  set_run_value "$id" pipeline classification "$class"; set_run_value "$id" pipeline review "$review"
-  ledger_append "$id" classify "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$class review=$review"
-  echo "classified: $id $class (autonomy: $(run_autonomy "$id"))"
-  eco_warning >&2
-}
 
 # --- Freeze ------------------------------------------------------------------------
 replace_hashes() {
@@ -2337,43 +2286,6 @@ verify_freshness() {
   esac
   echo "planning freshness verified: $id"
 }
-task_source_relocate() {
-  id=$1 new=$2; require_run "$id"; dir=$(run_dir "$id"); require_lead
-  local_task_source_run "$id" || fail "task-source-relocate requires a local Markdown task source"
-  freeze_hash_present "$dir" || fail "the task source can be relocated only after the run is frozen"
-  [ "$(section_value "$dir" completion_report published)" != true ] || fail "cannot relocate the task source after the completion report is published: its receipt binds the location"
-  verify_freeze "$id" >/dev/null; enforce_task_branch "$id"; verify_seal "$id"
-  case "$new" in ''|/*|*'..'*|*'//'*) fail "invalid task source path: $new" ;; esac
-  old=$(section_value "$dir" task_source path)
-  [ "$new" != "$old" ] || fail "the task source is already recorded at $old"
-  { [ ! -e "$root/$old" ] && [ ! -L "$root/$old" ]; } || fail "the task source still exists at $old: a relocation is a move, not a copy"
-  [ ! -L "$root/$new" ] || fail "task source must not be a symlink: $new"
-  [ -f "$root/$new" ] || fail "task source missing or non-regular: $new"
-  [ "$(section_value "$dir" task_source revision)" = "$(task_source_contract_hash "$id" "$root/$new")" ] || fail "the task contract at $new differs from the frozen contract (only the Status value and the published completion-report block may differ); amendment and refreeze required"
-  set_run_value "$id" task_source path "$new"
-  if gates_enforced "$id"; then ledger_append "$id" task-source-relocate "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$old -> $new"; fi
-  echo "task source relocated: $id $old -> $new"
-}
-task_source_status() {
-  id=$1; require_run "$id"; dir=$(run_dir "$id"); require_lead; require_open_run "$id"
-  local_task_source_run "$id" || fail "task-source-status requires a local Markdown task source"
-  [ "$(section_value "$dir" completion_report published)" != true ] || fail "cannot change the task source status after the completion report is published: its receipt binds the task source"
-  enforce_task_branch "$id"; verify_seal "$id"
-  path=$(section_value "$dir" task_source path); source=$(local_task_source "$dir")
-  want=$(lifecycle_folder_status "$path")
-  [ -n "$want" ] || fail "task source $path is not under a lifecycle folder (backlog/, todo/, in-progress/ or done/): nothing to synchronize"
-  have=$(declared_task_status "$source"); [ -n "$have" ] || fail "task source $path has no **Status:** line"
-  [ "$have" != "$want" ] || { echo "task source status already $want: $id"; return 0; }
-  revision=$(section_value "$dir" task_source revision)
-  tmp=$(mktemp "${TMPDIR:-/tmp}/agent-task-status.XXXXXX")
-  awk -v s="$want" '/^\*\*Status:\*\*/ { print "**Status:** " s; next } { print }' "$source" > "$tmp"
-  case "$revision" in ''|PENDING|not_applicable) : ;; *)
-    [ "$revision" = "$(task_source_contract_hash "$id" "$tmp")" ] || { rm -f "$tmp"; fail "refusing to change the task source: the frozen task contract would change; amendment and refreeze required"; } ;;
-  esac
-  cat "$tmp" > "$source"; rm -f "$tmp"
-  if gates_enforced "$id"; then ledger_append "$id" task-source-status "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$path: $have -> $want"; fi
-  echo "task source status synchronized: $id $path $have -> $want"
-}
 
 # --- Design surfaces ------------------------------------------------------------------
 # design_docs.design is a path (one document) or a mapping (surfaces); both forms are read here and nowhere else:
@@ -2612,33 +2524,6 @@ VCA_EOF
 $(find "$dir" -type l -print)
 VCA_EOF
   [ -z "$bad" ] || { echo "unexpected run artifact:" >&2; printf '%s' "$bad" >&2; echo "the lead removes a stray regular file (never a known artifact) with: agent.sh discard-stray $id <top-level-file-name> (A119)" >&2; return 1; }
-}
-# A119: the lead's only way to remove ONE stray from a run directory (the hook denies raw rm there). Top-level regular
-# files only: a subpath would need the registry to be case- and symlink-proof (APFS is case-insensitive). The protected
-# names below mirror the top-level entries of known_control_artifact and are protected whether or not the pipeline needs them.
-ds_protected='task.md plan.md run.yaml run.yaml.tmp completion_report.md ledger.log verify.md evidence.md qa_plan.md qa_report.md pid amendments dispatch worker-evidence decisions gates results reports questions approvals waivers security scratch reviews design ci-fix'
-discard_stray() {
-  ds_id=$1 ds_rel=${2:-}; require_run "$ds_id"; require_lead; require_open_run "$ds_id"; ds_dir=$(run_dir "$ds_id")
-  [ "$(section_value "$ds_dir" completion_report published)" != true ] || fail "discard-stray refused: the run is sealed (completion report published)"
-  [ -n "$ds_rel" ] || fail "usage: agent.sh discard-stray <ID> <file-name-in-the-run-directory>"
-  case "$ds_rel" in */*|.*|-*) fail "discard-stray refused: '$ds_rel' must be a single top-level file name of the run directory (strays in subdirectories are not handled)" ;; esac
-  # APFS folds case and some Unicode (U+017F, U+212A): only plain ASCII names are accepted, and the same-file test below
-  # catches whatever else the filesystem folds.
-  [ -z "$(printf '%s' "$ds_rel" | LC_ALL=C tr -d 'A-Za-z0-9._-')" ] || fail "discard-stray refused: '$ds_rel' may contain only A-Z a-z 0-9 . _ -"
-  ds_lc=$(printf '%s' "$ds_rel" | tr '[:upper:]' '[:lower:]')
-  ds_dir=$(cd -P "$ds_dir" && pwd -P) || fail "discard-stray refused: run directory does not resolve"
-  ds_file=$ds_dir/$ds_rel
-  [ ! -L "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is a symlink"
-  ds_ino=$(ls -di "$ds_file" 2>/dev/null | awk '{print $1}')   # same inode = same file (test -ef is not POSIX)
-  for ds_p in $ds_protected; do
-    ds_pino=$(ls -di "$ds_dir/$ds_p" 2>/dev/null | awk '{print $1}')
-    if [ "$ds_lc" = "$ds_p" ] || { [ -n "$ds_ino" ] && [ "$ds_ino" = "$ds_pino" ]; }; then fail "discard-stray refused: '$ds_rel' is a known run artifact"; fi
-  done
-  [ -f "$ds_file" ] || fail "discard-stray refused: '$ds_rel' is not a regular file in the run directory"
-  [ -n "$ds_ino" ] || fail "discard-stray refused: cannot read the inode of '$ds_rel' (ls -di failed); nothing was removed"
-  ds_sha=$(sha256 < "$ds_file"); rm -f -- "$ds_file"
-  if gates_enforced "$ds_id"; then ledger_append "$ds_id" discard-stray "$(section_value "$ds_dir" handoff state)" "$(section_value "$ds_dir" handoff state)" "path=$ds_rel sha256=$ds_sha"; fi
-  echo "discarded stray run file: $ds_rel (sha256 $ds_sha)"
 }
 
 # --- Classification check (A31): the class is the lead's claim, the diff is the fact. -----------
@@ -3969,57 +3854,6 @@ window_close() { # ID BEFORE [EXIT-STATUS] [ROLE]
     printf 'timestamp: "%s"\n' "$(now_iso)"
   } > "$g_ev/WINDOW-$g_n.yaml" || fail "could not write worker window record"
   echo "worker window recorded: $g_id WINDOW-$g_n"
-}
-# Recovery (tree-inspect, tree-accept). Under orchestrated topology a change that entered the working tree outside every worker window
-# (a failover worker that was never stopped, an editor, another process) makes verify_mutation_ownership refuse the run, and the only way
-# out used to be to undo it by hand or to start again (a run of 2.5 hours was lost that way). The user can now look at the tree and
-# keep the run: tree-inspect shows what differs, tree-accept (lead, with the user's approval of exactly this tree, kind `tree`) records a
-# window of role `user` that attests the current tree, bound in the ledger by this command, and sends the handoff back to IMPLEMENTING.
-# Nothing stays green: the tree fingerprint changed, so every gate record is stale and every gate, SECRETS and SECURITY included, runs again.
-tree_inspect() { # ID
-  ti_id=$1; require_run "$ti_id"; ti_d=$(run_dir "$ti_id")
-  ti_att=$(last_attested_tree "$ti_id"); ti_cur=$(task_patch_fingerprint "$ti_id")
-  printf 'attested tree (last worker window): %s\ncurrent task-owned tree:             %s\n' "$ti_att" "$ti_cur"
-  if [ "$ti_att" = "$ti_cur" ]; then echo "the tree is the attested one: nothing to accept"; return 0; fi
-  ti_b=$(repository_base_sha "$ti_d" 2>/dev/null) || ti_b=''
-  echo "task-owned paths that differ from the run's base (${ti_b:-no base recorded}); a path the worker windows already attested is among them, the full diff is 'git diff ${ti_b:-<base>}':"
-  task_owned_paths "$ti_id" | while IFS= read -r ti_p; do
-    [ -n "$ti_p" ] || continue
-    if [ -n "$ti_b" ]; then git -C "$root" diff --no-color --stat "$ti_b" -- "$ti_p" 2>/dev/null; fi
-    git -C "$root" status --short -- "$ti_p" 2>/dev/null | grep '^??' || :
-  done
-  echo "to keep the run: agent.sh tree-accept $ti_id (asks for your approval of this tree; every gate then runs again)"
-}
-tree_accept() { # ID
-  require_lead; ta_id=${1:?usage: agent.sh tree-accept <ID>}; require_run "$ta_id"; require_open_run "$ta_id"; gates_enforced "$ta_id" || fail "run $ta_id has no lifecycle_gates policy: nothing to accept"
-  ta_d=$(run_dir "$ta_id"); [ "$(resolve_topology "$ta_d")" = orchestrated ] || fail "tree-accept is for the orchestrated topology (worker windows); $ta_id is not"
-  ta_hs=$(section_value "$ta_d" handoff state)
-  case "$ta_hs" in IMPLEMENTING|IMPLEMENTED|CODE_DONE) ;; *) fail "tree-accept applies to a run at IMPLEMENTING, IMPLEMENTED or CODE_DONE; $ta_id is at $ta_hs" ;; esac
-  ta_att=$(last_attested_tree "$ta_id"); ta_cur=$(task_patch_fingerprint "$ta_id")
-  [ "$ta_att" != "$ta_cur" ] || fail "the tree is the last attested one: there is nothing to accept"
-  if ! ta_app=$(find_approval "$ta_id" tree "$ta_cur"); then
-    tree_inspect "$ta_id"
-    request_approval "$ta_id" tree
-    fail "accepting the tree needs your approval: relay the question above verbatim; your reply (for example \"approve the tree\") records it, then run agent.sh tree-accept $ta_id again"
-  fi
-  [ "$(gate_field "$ta_app" answered_by)" = user ] || fail "the approval is not the user's"
-  ta_ev=$(worker_evidence_dir "$ta_id"); mkdir -p "$ta_ev" || fail "cannot create $ta_ev"
-  ta_n=$(next_evidence_seq "$ta_ev" WINDOW)
-  {
-    printf 'task_id: "%s"\nseq: %s\nrole: "user"\ntopology: "orchestrated"\n' "$ta_id" "$ta_n"
-    printf 'before_sha256: "%s"\nafter_sha256: "%s"\nexit_status: "0"\napproval: "%s"\n' "$ta_att" "$ta_cur" "$(basename "$ta_app")"
-    printf 'timestamp: "%s"\n' "$(now_iso)"
-  } > "$ta_ev/WINDOW-$ta_n.yaml" || fail "could not write the window record"
-  ledger_append "$ta_id" tree-accept - - "$(ledger_token "worker-evidence/WINDOW-$ta_n.yaml" "$ta_id") approval=$(basename "$ta_app") tree=$ta_cur"
-  consume_approval "$ta_id" "$ta_app"
-  # back to IMPLEMENTING: the implemented/code-done patch hashes no longer match the tree, so no gate may be recorded and no record is current
-  case "$ta_hs" in IMPLEMENTED|CODE_DONE)
-    set_run_value "$ta_id" handoff state IMPLEMENTING
-    set_run_value "$ta_id" handoff implemented_patch_sha256 PENDING
-    set_run_value "$ta_id" handoff code_done_patch_sha256 PENDING
-    ledger_append "$ta_id" "handoff:IMPLEMENTING" "$ta_hs" IMPLEMENTING "tree accepted by the user: every gate runs again" ;;
-  esac
-  echo "tree accepted: $ta_id WINDOW-$ta_n attests $ta_cur; handoff $ta_hs -> IMPLEMENTING; next: agent.sh handoff $ta_id IMPLEMENTED, then every gate again (agent.sh next $ta_id)"
 }
 verify_lifecycle_gates() {
   g_id=$1; gates_enforced "$g_id" || return 0
@@ -8850,57 +8684,7 @@ worktree_remove() {
   echo "worktree removed: $1"
 }
 
-# --- Branch: <git.branch_prefix><TASK-ID>-<slug> from the canonical branch's exact tip --------
-# A202: the slug comes from the file name after `<ID>-`; a file named only by its ID (or whose slug repeats the ID) takes it from the
-# task's title instead, so the branch is never <ID>-<id lowercase>. Turkish and other Latin letters become ASCII first (slug.sh).
 task_title_of() { sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$1" 2>/dev/null | head -1; } # TASK.md -> the H1 title
-derive_task_slug() {
-  dir=$1; id=$(basename "$1"); type=$(section_value "$1" task_source type); slug=''
-  case "$type" in
-    local_markdown) base=$(basename "$(section_value "$dir" task_source path)" .md); case "$base" in "$id"-*) slug=${base#"$id"-} ;; "$id") slug='' ;; *) slug=$base ;; esac ;;
-    none) slug=run ;;
-  esac
-  slug=$(sh "$agents/task-integrations/slug.sh" "$slug")
-  id_low=$(sh "$agents/task-integrations/slug.sh" "$id")
-  if [ -z "$slug" ] || [ "$slug" = "$id_low" ]; then slug=$(sh "$agents/task-integrations/slug.sh" "$(task_title_of "$dir/TASK.md")"); fi
-  if [ "$slug" = "$id_low" ]; then slug=''; fi
-  [ -n "$slug" ] || slug=task
-  printf '%s\n' "$slug"
-}
-branch_setup() {
-  id=$1; require_run "$id"; dir=$(run_dir "$id")
-  [ "$(run_state "$dir")" != CODE_DONE ] || fail "cannot modify task branch on CODE_DONE run: $id"
-  canonical=$(cfg canonical_branch); [ -n "$canonical" ] || fail "canonical_branch not configured"
-  current=$(git -C "$root" branch --show-current) || true
-  # A169: a task worktree is created detached at the canonical tip (the canonical branch is checked out in the main working tree and
-  # cannot be checked out twice), so there a detached HEAD that IS the canonical tip counts as standing on the canonical branch
-  if [ -z "$current" ] && wt_linked && [ "$(git -C "$root" rev-parse HEAD 2>/dev/null)" = "$(git -C "$root" rev-parse -q --verify "refs/heads/$canonical" 2>/dev/null)" ]; then current=$canonical; fi
-  [ -n "$current" ] || fail "task branch setup requires a checked-out branch, not detached HEAD"
-  existing=$(section_value "$dir" repository task_branch)
-  case "$existing" in
-    ''|PENDING)
-      [ "$current" = "$canonical" ] || fail "task branch setup must start from canonical branch ($canonical); currently on: $current"
-      bstatus=$(baseline_status "$dir"); case "$bstatus" in ''|pending) ;; *) fail "task branch setup must occur before baseline: $id";; esac
-      canonical_sha=$(git -C "$root" rev-parse "refs/heads/$canonical") || fail "canonical branch not found locally: $canonical"
-      task_branch="$(cfg git.branch_prefix proofline/)$id-$(derive_task_slug "$dir")"
-      if git -C "$root" show-ref --verify --quiet "refs/heads/$task_branch"; then
-        [ "$(git -C "$root" rev-parse "refs/heads/$task_branch")" = "$canonical_sha" ] || fail "existing branch $task_branch is not compatible with canonical base $canonical_sha; will not reuse or overwrite"
-      else
-        git -C "$root" branch "$task_branch" "$canonical_sha" || fail "failed to create task branch: $task_branch"
-      fi
-      git -C "$root" checkout -q "$task_branch" || fail "failed to switch to task branch: $task_branch"
-      set_run_value "$id" repository canonical_branch "$canonical"
-      set_run_value "$id" repository task_branch "$task_branch"
-      echo "task branch established: $id $task_branch" ;;
-    *)
-      git -C "$root" show-ref --verify --quiet "refs/heads/$existing" || fail "recorded task branch missing: $existing; will not regenerate, recover manually"
-      if [ "$current" != "$existing" ]; then
-        [ "$current" = "$canonical" ] || fail "cannot resume $id: on unexpected branch $current (expected $canonical or $existing)"
-        git -C "$root" checkout -q "$existing" || fail "failed to switch to recorded task branch: $existing"
-      fi
-      echo "task branch resumed: $id $existing" ;;
-  esac
-}
 
 # --- Read-only summary --------------------------------------------------------------------
 ua() { if [ -n "$1" ]; then printf '%s' "$1"; else printf unavailable; fi; }
@@ -9088,13 +8872,8 @@ case "$command" in
   fingerprint) [ -z "${2:-}" ] || require_run "$2"; if [ "${3:-}" = full ]; then content_fingerprint; else gate_fingerprint; fi ;;
   config-get) config_get "${2:?usage: agent.sh config-get <dotted.key>}" || fail "config key not found: $2" ;;
   config-check) config_check "${2:-}" ;;
-  baseline) require_lead; baseline "${2:?usage: agent.sh baseline <ID>}" ;;
-  discard-stray) require_lead; discard_stray "${2:?usage: agent.sh discard-stray <ID> <file-name>}" "${3:-}" ;;
-  branch) require_lead; branch_setup "${2:?usage: agent.sh branch <ID>}" ;;
   start) shift; start_run "$@" ;;
-  classify) require_lead; classify "${2:?usage: agent.sh classify <ID> <CLASS> [review]}" "${3:?usage: agent.sh classify <ID> <CLASS> [review]}" "${4:-}" ;;
   pipeline) pipeline_show "${2:?usage: agent.sh pipeline <ID>}" ;;
-  tier) require_run "${2:?usage: agent.sh tier <ID>}"; pipeline_class_valid "$(pipeline_class "$2")" || fail "run $2 is not classified yet"; tier_record "$2" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
   summary) summary_run "${2:-}" "${3:-}" ;;
   plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
@@ -9122,10 +8901,8 @@ case "$command" in
   freshness) verify_freshness "${2:?usage: agent.sh freshness <ID>}" ;;
   handoff) [ "$execution_role" = lead ] || [ "${3:-}" = IMPLEMENTING ] || fail "handoff phase denied for $execution_role"; record_handoff "${2:?usage: agent.sh handoff <ID> <PHASE>}" "${3:?usage: agent.sh handoff <ID> <PHASE>}" ;;
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
-  delivery-check) require_lead; delivery_check "${2:?usage: agent.sh delivery-check <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
   entry-tier) et_o=$(entry_tier "${2:?usage: agent.sh entry-tier <bullet text>}"); echo "${et_o:-none}" ;;
-  verify-assumptions) verify_assumptions "${2:?usage: agent.sh verify-assumptions <ID>}" ;;
   verify-qa-plan) require_run "${2:?usage: agent.sh verify-qa-plan <ID>}"; verify_qa_plan_bound "$2"; echo "QA plan bound to PLAN.md: $2" ;;
   verify-worker-evidence) verify_worker_evidence "${2:?usage: agent.sh verify-worker-evidence <ID>}" ;;
   submit) sid=${2:?usage: agent.sh submit <ID> --confidence C [options]}; shift 2; submit_result "$sid" "$@" ;;
@@ -9146,7 +8923,6 @@ case "$command" in
   friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell|proofline_bug>}" "${3:-}" ;;
   wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
-  ask) require_lead; aid=${2:?usage: agent.sh ask <ID> [--file F]}; afile=''; if [ "${3:-}" = --file ]; then afile=${4:?usage: agent.sh ask <ID> --file F}; fi; ask_question "$aid" "$afile" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
   terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
   cleanup) require_lead
@@ -9155,7 +8931,6 @@ case "$command" in
     if [ -n "${2:-}" ] && rw_valid_id "$2" && [ ! -d "$(run_dir "$2")" ] && ! wt_linked && grep -q "^$2	" "$(shared_dir batch)/merged.tsv" 2>/dev/null && rw_registered "$(rw_dir "$2")"; then worktree_remove "$2"
     else cleanup_run "${2:?usage: agent.sh cleanup <ID>}"; fi ;;
   deliver-merged) deliver_merged "${2:?usage: agent.sh deliver-merged <ID> [--check]}" "${3:-}" ;;
-  status-block) require_lead; valid_task_id "${2:-}" || fail "usage: agent.sh status-block <ID> [EVENT]"; status_block_update "$2" "${3:-update}" "${4:-}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;
   worktree-path) require_lead; worktree_path "${2:-}" ;;
   worktree-remove) require_lead; worktree_remove "${2:-}" "${3:-}" ;;
@@ -9197,8 +8972,6 @@ case "$command" in
   reopen) require_lead; reopen_run "${2:?usage: agent.sh reopen <ID>   (reason: on stdin; needs the approval reopen:<ID>)}" ;;
   patch-fingerprint) require_run "${2:?usage: agent.sh patch-fingerprint <ID>}"; task_patch_fingerprint "$2" ;;
   window-open) require_lead; window_open "${2:?usage: agent.sh window-open <ID> [implementer|designer]}" "${3:-}" ;;
-  tree-inspect) tree_inspect "${2:?usage: agent.sh tree-inspect <ID>}" ;;
-  tree-accept) tree_accept "${2:-}" ;;
   window-close) require_lead; window_close "${2:?usage: agent.sh window-close <ID> <BEFORE> [EXIT-STATUS] [implementer|designer]}" "${3:-}" "${4:-0}" "${5:-}" ;;
   verify-gates) verify_lifecycle_gates "${2:?usage: agent.sh verify-gates <ID>}"; echo "lifecycle gates verified: $2" ;;
   verify-seal) verify_seal "${2:?usage: agent.sh verify-seal <ID>}"; echo "lifecycle seal verified: $2" ;;
@@ -9207,15 +8980,12 @@ case "$command" in
   ci-check) ci_check; exit $? ;;
   ci-task-command) ci_task_command ;;
   task-source-done) task_source_done "${2:?usage: agent.sh task-source-done <ID>}" ;;
-  task-source-status) task_source_status "${2:?usage: agent.sh task-source-status <ID>}" ;;
-  task-source-relocate) task_source_relocate "${2:?usage: agent.sh task-source-relocate <ID> <NEW-PATH>}" "${3:?usage: agent.sh task-source-relocate <ID> <NEW-PATH>}" ;;
   knowledge-done) knowledge_done "${2:?usage: agent.sh knowledge-done <ID> [not_applicable \"<reason>\"]}" "${3:-KNOWLEDGE_DONE}" "${4:-}" ;;
   publish-completion-report) publish_completion_report "${2:?usage: agent.sh publish-completion-report <ID> [ADAPTER]}" "${3:-}" ;;
   verify-completion-report) verify_completion_report "${2:?usage: agent.sh verify-completion-report <ID>}" ;;
   validate) validate_run "${2:?usage: agent.sh validate <ID>}" ;;
   db-config) db_config "${2:-all}" ;;
   hook-config) hook_config ;;
-  db-check) require_run "${2:?usage: agent.sh db-check <ID>}"; db_guard_check "$2"; echo "database guard: unchanged ($2)" ;;
   test) require_lead; run_suites ;;
   help) usage; exit 0 ;;
   *) usage; exit 2 ;;
