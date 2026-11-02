@@ -68,16 +68,25 @@ function firstDiff(/** @type {string} */ x, /** @type {string} */ y) {
   return `first difference at byte ${i}: ${cut(x)} against ${cut(y)}`;
 }
 
-/** Run a case on both sides and compare. */
-export function runCase(/** @type {Case} */ c, /** @type {[SideSpec, SideSpec]} */ sides = [SH_SIDE, DEFAULT_SIDE]) {
+/**
+ * Run a case on both sides and compare; the raw sides come back for further assertions. A scenario whose ONLY differences are the 0.0.40 shell's known
+ * flakes (isShellFlake) is run once more; the checks are not loosened and a second occurrence fails.
+ */
+export function runPair(/** @type {Case} */ c, /** @type {[SideSpec, SideSpec]} */ sides = [SH_SIDE, DEFAULT_SIDE], /** @type {{ pendingApproval?: boolean }} */ opts = {}) {
   // both sides run at the same absolute path, so no path needs masking
   const work = mkdtempSync(join(tmpdir(), 'eq-work.'));
   try {
+    const names = [sides[0].name, sides[1].name];
     let a = runSide(c, sides[0], { work }); let b = runSide(c, sides[1], { work });
-    let d = compareSides(a, b, [sides[0].name, sides[1].name]);
-    if (isShellFlake(d, [a, b])) { a = runSide(c, sides[0], { work }); b = runSide(c, sides[1], { work }); d = compareSides(a, b, [sides[0].name, sides[1].name]); } // see isShellFlake
-    return d;
+    let d = compareSides(a, b, names, opts);
+    if (isShellFlake(d, [a, b])) { a = runSide(c, sides[0], { work }); b = runSide(c, sides[1], { work }); d = compareSides(a, b, names, opts); } // see isShellFlake
+    return { a, b, d };
   } finally { rmSync(work, { recursive: true, force: true }); }
+}
+
+/** Run a case on both sides and compare. */
+export function runCase(/** @type {Case} */ c, /** @type {[SideSpec, SideSpec]} */ sides = [SH_SIDE, DEFAULT_SIDE], /** @type {{ pendingApproval?: boolean }} */ opts = {}) {
+  return runPair(c, sides, opts).d;
 }
 
 export const formatDiffs = (/** @type {Diff[]} */ d) => d.map((x) => `${x.kind}${x.where ? ` ${x.where}` : ''}: ${x.detail}`).join('\n');
