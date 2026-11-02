@@ -20,6 +20,8 @@ describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {
     const cli = agentSh.slice(agentSh.indexOf('\ncase "$command" in\n  role)'));
     const labels = [...cli.matchAll(/^  ([a-z][a-z0-9|-]*)\)/gm)].flatMap((m) => m[1].split('|'));
+    // next-user has no shell code any more (A210): it is only in the Node table, at its place of the old dispatch
+    labels.splice(COMMAND_NAMES.indexOf('next-user'), 0, 'next-user');
     assert.equal(commandTable().length, 132);
     assert.deepEqual(commandTable().map((e) => e.name), labels);
     assert.deepEqual(COMMAND_NAMES, labels);

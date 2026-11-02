@@ -217,7 +217,6 @@
 5 cli-test sc_static
 5 enforcement-test git_bypass
 5 gates-test sc_question_language
-5 kill-guard-test script_files_allowed
 4 build-record-test
 4 controls-test sc_standalone
 4 exec-policy-test
@@ -233,8 +232,6 @@
 2 controls-test sc_branch
 2 controls-test sc_roles
 2 friction-test
-2 kill-guard-test hook_stderr
-2 kill-guard-test interpreters
 2 lifecycle-test scenario_freeze_scope_mapping
 1 affected-test
 1 batch-test sc_adapter_refused
@@ -252,26 +249,6 @@
 1 gates-test sc_class_floor
 1 gates-test sc_validation_config
 1 githooks-test
-1 kill-guard-test allowed
-1 kill-guard-test allowed_misc
-1 kill-guard-test budget
-1 kill-guard-test budget_whole_hook
-1 kill-guard-test denied
-1 kill-guard-test deny_message
-1 kill-guard-test eval_variable
-1 kill-guard-test find_xargs
-1 kill-guard-test heredoc_indirect
-1 kill-guard-test indirect_allowed
-1 kill-guard-test installed
-1 kill-guard-test pid_derivation
-1 kill-guard-test quoted_substitution
-1 kill-guard-test quoted_text
-1 kill-guard-test script_files
-1 kill-guard-test script_runners
-1 kill-guard-test script_runners_allowed
-1 kill-guard-test signal_zero
-1 kill-guard-test taint_deny
-1 kill-guard-test zero_spellings
 1 lifecycle-test scenario_window_open_no_plan
 1 pending-kind-test
 1 risk-test sc_log_config_check

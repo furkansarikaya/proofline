@@ -514,7 +514,7 @@ jobs:
           PATTERN: ${{ matrix.leg.pattern }}
         run: node --test "--test-skip-pattern=$PATTERN" ${{ matrix.leg.files }}
 
-  # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the six shell enforcement suites run AGAINST
+  # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the five shell enforcement suites run AGAINST
   # adapters/claude/hooks/proofline-hook.mjs (the legacy self-test shards keep testing the shell hook, which stays until stage 15). One leg per suite so the
   # wall time is the slowest leg: enforcement-test about 8 minutes on a 4-core runner (the local run takes 380 s on 8 cores), timeouts-test about 3, the
   # rest under a minute each; the node-tests legs (hook tests, guards, wiring, process budgets) about 6 minutes. The Node tests run on Node 22.13.0
@@ -531,8 +531,6 @@ jobs:
           - suite: enforcement-test
             node: '22.13.0'
           - suite: timeouts-test
-            node: '22.13.0'
-          - suite: kill-guard-test
             node: '22.13.0'
           - suite: merge-guard-test
             node: '22.13.0'

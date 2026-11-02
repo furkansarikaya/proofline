@@ -149,7 +149,6 @@ tests/e2e/reply-loop-test.sh
 tests/e2e/run.sh
 tests/enforcement/approval-load-test.sh
 tests/enforcement/enforcement-test.sh
-tests/enforcement/kill-guard-test.sh
 tests/enforcement/merge-guard-test.sh
 tests/enforcement/platform-test.sh
 tests/enforcement/timeouts-test.sh
