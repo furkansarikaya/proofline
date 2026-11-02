@@ -107,9 +107,9 @@ export function node(root, args, o = {}) {  // o.scriptPath: the script the comm
 /** @param {string} s @param {string} root */
 export function norm(s, root) { return s.split(root).join('<ROOT>'); }
 
-/** The shell, for the recorder only (PROOFLINE_ENGINE=sh). @param {string} root @param {string[]} args @param {{ env?: Record<string, string> }} [o] */
+/** The shell, for the recorder only. @param {string} root @param {string[]} args @param {{ env?: Record<string, string> }} [o] */
 export function shell(root, args, o = {}) {
-  const r = spawnSync('sh', [path.join(root, '.agents/scripts/agent.sh'), ...args], { cwd: root, env: { ...GIT_ENV, PROOFLINE_ENGINE: 'sh', ...(o.env ?? {}) }, encoding: 'latin1', input: '' });
+  const r = spawnSync('sh', [path.join(root, '.agents/scripts/agent.sh'), ...args], { cwd: root, env: { ...GIT_ENV, ...(o.env ?? {}) }, encoding: 'latin1', input: '' });
   return { out: norm(r.stdout, root), err: norm(r.stderr, root), code: r.status };
 }
 

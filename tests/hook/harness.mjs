@@ -8,7 +8,6 @@ import { join, resolve } from 'node:path';
 
 export const repo = resolve(import.meta.dirname, '../..');
 export const nodeHook = join(repo, 'adapters/claude/hooks/proofline-hook.mjs');
-export const shellHook = join(repo, 'adapters/claude/hooks/proofline-hook.sh');
 const scripts = join(repo, 'control-plane/agents/scripts');
 export const haveJq = spawnSync('jq', ['--version']).status === 0;
 
@@ -29,7 +28,7 @@ export function cleanEnv(extra = {}) {
  */
 export function buildTemplate(opt = {}) {
   const out = mkdtempSync(join(tmpdir(), 'hook-fx-'));
-  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; PROOFLINE_ENGINE=sh; export PROOFLINE_ENGINE; scaffold orchestrated no COMPLEX; cp -R "$PWD/." "$EQ_OUT/"`, join(scripts, 'x.sh')],
+  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; scaffold orchestrated no COMPLEX; cp -R "$PWD/." "$EQ_OUT/"`, join(scripts, 'x.sh')],
     { env: cleanEnv({ EQ_LIB: join(scripts, 'test-lib.sh'), EQ_OUT: out }), encoding: 'utf8', timeout: 120000 });
   if (r.status !== 0) throw new Error(`fixture failed: ${r.stderr}${r.stdout}`);
   cpSync(join(scripts, 'proofline-core.mjs'), join(out, '.agents/scripts/proofline-core.mjs'));
@@ -48,14 +47,14 @@ export function copyProject(template, base) {
 }
 
 /**
- * Run a hook on an event. @param {'node' | 'sh'} kind @param {string} dir @param {string} ev @param {object | string} payload
+ * Run a hook on an event. @param {'node'} kind @param {string} dir @param {string} ev @param {object | string} payload
  * @param {{ env?: Record<string, string>, runtime?: string }} [opt] @returns {Promise<{ status: number | null, stdout: string, stderr: string }>}
  */
 export function runHook(kind, dir, ev, payload, opt = {}) {
   const text = typeof payload === 'string' ? payload : JSON.stringify({ cwd: dir, session_id: 's1', ...payload });
-  const args = kind === 'node' ? [nodeHook, ev, opt.runtime ?? 'claude'] : [shellHook, ev, opt.runtime ?? 'claude'];
+  const args = [nodeHook, ev, opt.runtime ?? 'claude'];
   return new Promise((resolveRun) => {
-    const child = spawn(kind === 'node' ? process.execPath : 'sh', args, { cwd: dir, env: cleanEnv({ CLAUDE_PROJECT_DIR: dir, ...opt.env }) });
+    const child = spawn(process.execPath, args, { cwd: dir, env: cleanEnv({ CLAUDE_PROJECT_DIR: dir, ...opt.env }) });
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
@@ -89,16 +88,6 @@ export function snapshot(dir) {
 export function norm(text, dir) {
   return text.split(dir).join('<P>').replace(/"time":[0-9]{10}/g, '"time":<T>').replace(/:[0-9]{10}:/g, ':<T>:').replace(/\b1[0-9]{9,12}\b/g, '<T>')
     .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/g, '<D>').replace(/\b(total_|max_)?ms=[0-9]*/g, 'ms=<N>').replace(/prev=[0-9a-f]{64}/g, 'prev=<H>').replace(/@[0-9a-f]{64}/g, '@<H>');
-}
-
-/** Run both hooks on copies of the template and return the two results and the two snapshots. @param {string} template @param {string} base @param {string} ev
- * @param {(dir: string) => object | string} payload @param {{ setup?: (dir: string) => void, env?: Record<string, string>, runtime?: string }} [opt] */
-export async function pair(template, base, ev, payload, opt = {}) {
-  const a = copyProject(template, base);
-  const b = copyProject(template, base);
-  if (opt.setup) { opt.setup(a); opt.setup(b); }
-  const [ra, rb] = await Promise.all([runHook('sh', a, ev, payload(a), opt), runHook('node', b, ev, payload(b), opt)]);
-  return { sh: { ...ra, stdout: norm(ra.stdout, a), files: snapshot(a) }, node: { ...rb, stdout: norm(rb.stdout, b), files: snapshot(b) } };
 }
 
 export { mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync, readFileSync, spawnSync };

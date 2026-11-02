@@ -17,8 +17,8 @@ fi
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT PROOFLINE_JSON PROOFLINE_HOOK_APPROVE_BUDGET PROOFLINE_HOOK_LOCK_WAIT PROOFLINE_HOOK_NEXT_BUDGET PROOFLINE_LOCK_TIMEOUT BUILD_RECORD_WAIT 2>/dev/null || true
 PROOFLINE_NO_TTY=1; export PROOFLINE_NO_TTY
 # The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> runs this suite against the Node hook (a harness choice, read by this file only);
-# the default is the shell hook. The hook never reads it.
-hook=${HOOK_UNDER_TEST:-$TO_REPO/adapters/claude/hooks/proofline-hook.sh}
+# the default is adapters/claude/hooks/proofline-hook.mjs. The hook never reads it.
+hook=${HOOK_UNDER_TEST:-$TO_REPO/adapters/claude/hooks/proofline-hook.mjs}
 case $hook in *.mjs) hrun='node'; hbase=proofline-hook.mjs ;; *) hrun='sh'; hbase=proofline-hook.sh ;; esac
 # install_hook: the hook (a Node hook also needs its folder and the project's core) into .agents/hooks of the fixture
 install_hook() {

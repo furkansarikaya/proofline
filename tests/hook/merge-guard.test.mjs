@@ -108,24 +108,4 @@ test('the merge guard denies every direct merge path and allows the wrapper and 
   assert.ok(n > 200);
 });
 
-test('the same table gives the shell hook\'s verdict and reason (differential)', { timeout: 280000 }, async () => {
-  /** @type {Array<[string, string, boolean]>} */
-  const all = [];
-  for (const [dir, denied, allowed] of groups) { for (const c of denied) all.push([dir, c, true]); for (const c of allowed) all.push([dir, c, false]); }
-  const bad = [];
-  for (let i = 0; i < all.length; i += 12) {
-    await Promise.all(all.slice(i, i + 12).map(async ([dir, cmd, want]) => {
-      const r = await runHook('sh', dir, 'pretool', { tool_name: 'Bash', tool_input: { command: cmd } });
-      const m = /"permissionDecisionReason":"((?:[^"\\]|\\.)*)"/.exec(r.stdout);
-      const mineReason = await mine(dir, cmd);
-      if ((m !== null) !== (mineReason !== null) || (m !== null) !== want) { bad.push(`${cmd}: shell=${m ? 'deny' : 'allow'} node=${mineReason ? 'deny' : 'allow'} expected=${want ? 'deny' : 'allow'}`); return; }
-      if (m && mineReason !== null) {
-        const sh = JSON.parse(`"${m[1]}"`);
-        if (!sh.startsWith(`proofline: ${mineReason}`)) bad.push(`${cmd}: reason differs\n  shell: ${sh}\n  node:  ${mineReason}`);
-      }
-    }));
-  }
-  assert.deepEqual(bad, []);
-});
-
 void resolve;

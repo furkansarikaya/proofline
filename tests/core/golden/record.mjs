@@ -8,8 +8,8 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { baseEnv } from '../../equivalence/fixture.mjs';
-import { stateFixture } from '../../equivalence/cases/stage2-fixtures.mjs';
+import { baseEnv } from '../lib/fixture.mjs';
+import { stateFixture } from '../lib/stage2-fixtures.mjs';
 import { extractFunctions, repo } from '../helpers.mjs';
 
 export const GOLDEN = path.join(import.meta.dirname);

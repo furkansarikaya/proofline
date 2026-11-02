@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { after, test } from 'node:test';
-import { installMinimal } from '../equivalence/fixture.mjs';
+import { installMinimal } from '../core/lib/fixture.mjs';
 
 const hooks = resolve(import.meta.dirname, '../../adapters/claude/hooks');
 const base = mkdtempSync(join(tmpdir(), 'hook-imports.'));

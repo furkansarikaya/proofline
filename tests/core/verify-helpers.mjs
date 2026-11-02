@@ -19,7 +19,7 @@ after(() => { for (const d of made) rmSync(d, { recursive: true, force: true });
 export function build(snippet) {
   const out = mkdtempSync(path.join(tmpdir(), 'pl-vfeq-'));
   made.push(out);
-  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; PROOFLINE_ENGINE=sh; export PROOFLINE_ENGINE; ${snippet}\ncp -R "$PWD/." "$EQ_OUT/"`, path.join(scriptsDir, 'x.sh')],
+  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; ${snippet}\ncp -R "$PWD/." "$EQ_OUT/"`, path.join(scriptsDir, 'x.sh')],
     { env: { ...ENV, EQ_LIB: path.join(scriptsDir, 'test-lib.sh'), EQ_OUT: out }, encoding: 'utf8', timeout: 600000 });
   if (r.status !== 0) throw new Error(`fixture failed: ${snippet}\n${r.stderr}${r.stdout}`);
   cpSync(path.join(scriptsDir, 'proofline-core.mjs'), path.join(out, '.agents/scripts/proofline-core.mjs'));
@@ -31,7 +31,7 @@ export function build(snippet) {
 
 /** @param {string} fx @param {string[]} args @param {'node' | 'sh'} engine @param {Record<string, string>} [env] */
 export function exec(fx, args, engine, env = {}) {
-  const r = spawnSync('sh', [path.join(fx, '.agents/scripts/agent.sh'), ...args], { cwd: fx, env: { ...ENV, ...(engine === 'sh' ? { PROOFLINE_ENGINE: 'sh' } : {}), ...env }, encoding: 'latin1', input: '' });
+  const r = spawnSync('sh', [path.join(fx, '.agents/scripts/agent.sh'), ...args], { cwd: fx, env: { ...ENV, ...env }, encoding: 'latin1', input: '' });
   return { out: r.stdout, err: r.stderr, code: r.status };
 }
 

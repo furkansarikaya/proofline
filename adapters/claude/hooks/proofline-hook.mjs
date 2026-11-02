@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 // @ts-check
-// proofline runtime hook, Node form (ADR 0001 stage 3): one Node process per event for Claude Code and Codex. It replaces proofline-hook.sh,
-// which stays beside it as the specification until the shell hook is deleted.
+// proofline runtime hook, Node form (ADR 0001 stage 3): one Node process per event for Claude Code and Codex. It replaced the shell hook (A210: deleted).
 //
 //   node proofline-hook.mjs <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]
 //
-// stdin: the runtime's hook JSON. Output and exit codes are those of proofline-hook.sh. The project's core is imported in process
+// stdin: the runtime's hook JSON.  The project's core is imported in process
 // (<root>/.agents/scripts/proofline-core.mjs, A194), so a plugin and a project of different versions behave as they did with agent.sh.
 //
 // Layout: this file reads the input, builds the context (lib/context.mjs), hands the event to events/<name>.mjs and prints what it returns.
 //   events/<name>.mjs  export async function handle(ctx): Promise<string | undefined>   the stdout line (with its newline) or nothing
 //   lib/               text (jesc, jget, safe, sha), fsx (writes that refuse links), agent (the project's commands), context
 // An unexpected exception fails closed: PreToolUse denies while a run exists; the other events print the error on stderr and exit 1.
-import { existsSync, readFileSync, realpathSync, writeSync } from 'node:fs';
+import { readFileSync, realpathSync, writeSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { EVENTS, buildContext, finish } from './lib/context.mjs';
 import { rmf } from './lib/fsx.mjs';
@@ -35,17 +34,6 @@ function writeOut(fd, text) {
       return;
     }
   }
-}
-
-/** The shell hook, for the events this file does not own yet and for the rollback switch. @param {import('./lib/context.mjs').HookContext} c @param {Buffer} raw */
-async function handToShell(c, raw) {
-  const proc = await c.agents?.proc();
-  if (!proc) {
-    writeOut(2, 'proofline: the project has no core/proc.mjs, so the shell hook cannot be started\n');
-    return c.ev === 'pretool' ? 2 : 0;
-  }
-  const r = proc.run('sh', [`${here}proofline-hook.sh`, c.ev, c.rt], { input: raw, stdio: ['pipe', 'inherit', 'inherit'], env: process.env });
-  return r.status;
 }
 
 /** @param {import('./lib/context.mjs').HookContext} c @param {unknown} e */
@@ -71,10 +59,6 @@ export async function main(argv) {
   try {
     if (c.ev !== 'pretool' && !c.installed) return 0;
     if (!EVENTS.includes(ev)) { writeOut(2, 'usage: proofline-hook.mjs <pretool|posttool|subagent-start|subagent-stop|prompt|stop|session> [claude|codex]\n'); return 0; }
-    if (!existsSync(`${here}events/${ev}.mjs`)) {
-      rmf(c.mark); c.mark = '';
-      return await handToShell(c, raw);
-    }
     const mod = await import(pathToFileURL(`${here}events/${ev}.mjs`).href);
     const out = await mod.handle(c);
     if (typeof out === 'string' && out !== '') writeOut(1, out);

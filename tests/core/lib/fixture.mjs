@@ -5,7 +5,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-export const repoRoot = resolve(import.meta.dirname, '../..');
+export const repoRoot = resolve(import.meta.dirname, '../../..');
 export const agentsSrc = join(repoRoot, 'control-plane/agents');
 export const scriptsSrc = join(agentsSrc, 'scripts');
 export const corePath = join(scriptsSrc, 'proofline-core.mjs');
@@ -80,28 +80,6 @@ export function addCore(/** @type {string} */ dir) {
 export function copyTree(/** @type {string} */ src, /** @type {string} */ dst) {
   rmSync(dst, { recursive: true, force: true }); mkdirSync(dst, { recursive: true });
   cpSync(src, dst, { recursive: true, verbatimSymlinks: true });
-}
-
-/** Every file under root except .git/, in byte order: path -> mode and bytes (a symlink holds its target). @returns {Map<string, import('./normalise.mjs').FileEntry>} */
-export function snapshot(/** @type {string} */ root) {
-  /** @type {Map<string, import('./normalise.mjs').FileEntry>} */ const m = new Map();
-  const walk = (/** @type {string} */ rel) => {
-    for (const n of readdirSync(join(root, rel)).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
-      const r = rel ? `${rel}/${n}` : n; if (r === '.git') continue;
-      const st = lstatSync(join(root, r));
-      if (st.isDirectory()) { walk(r); if (readdirSync(join(root, r)).length === 0) m.set(`${r}/`, { mode: st.mode & 0o7777, data: Buffer.alloc(0) }); }
-      else if (st.isSymbolicLink()) m.set(r, { mode: 0o120000, data: Buffer.from(readlinkSync(join(root, r))) });
-      else m.set(r, { mode: st.mode & 0o7777, data: readFileSync(join(root, r)) });
-    }
-  };
-  walk(''); return m;
-}
-
-/** Tree id of HEAD, ref names and porcelain status (commit ids hold times and are not compared). */
-export function gitState(/** @type {string} */ root) {
-  if (!existsSync(join(root, '.git'))) return '';
-  const g = (/** @type {string[]} */ ...a) => run('git', a, { cwd: root, env: baseEnv(root) }).stdout;
-  return `tree=${g('rev-parse', 'HEAD^{tree}').trim()}\nrefs=${g('for-each-ref', '--format=%(refname)').split('\n').join(',')}\nstatus=${g('status', '--porcelain')}`;
 }
 
 /** A PATH in which `node` (and the names that start it) cannot be found: every PATH directory that holds node is replaced by a directory of symlinks to the rest. */

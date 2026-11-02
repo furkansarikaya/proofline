@@ -8,7 +8,7 @@ import { HANDLERS } from '../../control-plane/agents/scripts/core/commands/moved
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from '../../control-plane/agents/scripts/core/commands/data.mjs';
 import { takesLocks } from '../../control-plane/agents/scripts/core/lock.mjs';
 import { commandAllowed, commandTable } from '../../control-plane/agents/scripts/proofline-core.mjs';
-import { agentSh, extractRange } from './helpers.mjs';
+import { agentSh, extractRange, shellListed } from './helpers.mjs';
 
 const ROLES = ['lead', 'task_author', 'explorer', 'architect', 'data_architect', 'designer', 'qa', 'implementer', 'reviewer', 'security_reviewer', 'verifier'];
 const STAGE1 = ['role', 'config-get', 'config-check', 'timeouts', 'hook-timeouts', 'verify-timeout', 'tm-scaled', 'db-config', 'hook-config', 'help'];
@@ -32,12 +32,11 @@ describe('command table', () => {
     for (const c of READ_ONLY_COMMANDS) assert.ok(COMMAND_NAMES.includes(c), c);
   });
   test('the moved commands are the handlers AND the delegation list of the agent.sh preamble (the two lists are identical)', () => {
-    const m = /\ncase "\$\{1:-\}" in\n((?:[^\n]*\\\n)*[^\n]*\))\n    pl_sh=no/.exec(agentSh);
-    assert.ok(m, 'the preamble list');
-    const preamble = m[1].replace(/\\\n/g, '').trim().replace(/\)$/, '').split('|').map((x) => x.trim());
-    assert.deepEqual([...preamble].sort(), Object.keys(HANDLERS).sort());
-    assert.deepEqual(commandTable().filter((e) => e.moved).map((e) => e.name).sort(), [...preamble].sort());
-    for (const c of MOVED) assert.ok(preamble.includes(c), `stage 1 command ${c} stays moved`);
+    const shell = shellListed(agentSh);
+    const moved = COMMAND_NAMES.filter((c) => !shell.includes(c)).sort();
+    assert.deepEqual(moved, Object.keys(HANDLERS).sort());
+    assert.deepEqual(commandTable().filter((e) => e.moved).map((e) => e.name).sort(), moved);
+    for (const c of MOVED) assert.ok(moved.includes(c), `stage 1 command ${c} stays moved`);
   });
   test('the data copied from agent.sh is the data of agent.sh', () => {
     const grab = (/** @type {string} */ n) => (agentSh.split('\n').find((l) => l.startsWith(`${n}='`)) ?? '').slice(n.length + 2, -1);

@@ -9,8 +9,6 @@
 tests/golden/** -text
 tests/enforcement/a132-commands/** -text
 tests/e2e/replies/** -text
-tests/legacy-hook/** -text
-tests/legacy-githooks/** -text
 tests/skills/fixtures/** -text
 fixtures/** -text
 

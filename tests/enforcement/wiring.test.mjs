@@ -1,14 +1,12 @@
 // @ts-check
 // Stage 3 wiring (ADR 0001 sections 5.3, 5.4, 9; issue #168): the REAL command strings of the three wiring files run through `sh -c`, as the runtimes
-// run them. Node absent (C2): PreToolUse blocks with exit 2 in all three forms. The Node hook yields to an old shell wiring of the same event in the
-// same settings file, so each event is handled once. The engine switch in .agents/local/engine is read through the installed wiring. The shipped git
-// hook launchers: a commit is blocked when node is absent, the allowed path is unchanged, the push guard holds.
+// run them. Node absent (C2): PreToolUse blocks with exit 2 in all three forms. The shipped git hook launchers: a commit is blocked when node is absent, the allowed path is unchanged, the push guard holds.
 import assert from 'node:assert/strict';
 import { appendFileSync, symlinkSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { baseEnv, copyTree, installedFixture, pathWithoutNode, repoRoot, run } from '../equivalence/fixture.mjs';
+import { baseEnv, copyTree, installedFixture, pathWithoutNode, repoRoot, run } from '../core/lib/fixture.mjs';
 import { hookStrictProblem, hookTemplates } from '../ci/no-shell-logic.mjs';
 
 const EVENTS = ['session', 'prompt', 'pretool', 'posttool', 'subagent-start', 'subagent-stop', 'stop'];
@@ -40,7 +38,7 @@ function project(o = {}) {
   const dir = join(base, `p${++projects}`);
   copyTree(installedFixture().dir, dir);
   mkdirSync(join(dir, '.agents/hooks'), { recursive: true });
-  for (const f of ['proofline-hook.mjs', 'proofline-hook.sh', 'command-scan.mjs']) cpSync(join(HOOKS, f), join(dir, '.agents/hooks', f));
+  for (const f of ['proofline-hook.mjs', 'command-scan.mjs']) cpSync(join(HOOKS, f), join(dir, '.agents/hooks', f));
   for (const d of ['events', 'guards', 'lib']) cpSync(join(HOOKS, d), join(dir, '.agents/hooks', d), { recursive: true });
   if (o.config === false) rmSync(join(dir, '.agents/config.yaml'));
   if (o.run) writeFileSync(join(dir, '.agents/local/ACTIVE_RUN'), 'LC\n');
@@ -97,135 +95,9 @@ test('node present: the three PreToolUse strings run the hook; an unparsable inp
 });
 
 // The strings of 0.0.40 to 0.0.42 (identical in the three releases), which a rollback `upgrade` adds beside the new ones.
-const OLD_PROJECT = `sh -c 'r=$CLAUDE_PROJECT_DIR; h=$r/.agents/hooks/proofline-hook.sh; [ -f "$h" ] || { [ -f "$r/.agents/config.yaml" ] || exit 0; echo "proofline: $h is missing; failing closed" >&2; exit 2; }; exec sh "$h" pretool claude'`;
-const OLD_PLUGIN = `sh -c 'grep -Eqs "proofline-hook[.]sh.* pretool claude" "$CLAUDE_PROJECT_DIR/.claude/settings.json" && exit 0; exec sh "\${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.sh" pretool claude'`;
-const OLD_CODEX = `sh -c 'r=$(git rev-parse --show-toplevel 2>/dev/null) || r=$PWD; h=$r/.agents/hooks/proofline-hook.sh; [ -f "$h" ] || { [ -f "$r/.agents/config.yaml" ] || exit 0; echo "proofline: $h is missing; failing closed" >&2; exit 2; }; exec sh "$h" pretool codex'`;
 
 /** @param {string} dir @param {string} file @param {string[]} commands */
-function settings(dir, file, commands, matcher = file.startsWith('.codex') ? '.*' : 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill') {
-  mkdirSync(join(dir, file, '..'), { recursive: true });
-  const entry = matcher === '' ? {} : { matcher };
-  writeFileSync(join(dir, file), JSON.stringify({ hooks: { PreToolUse: [{ ...entry, hooks: commands.map((command) => ({ type: 'command', command, timeout: 45 })) }] } }, null, 2));
-}
 
-test('the Node hook yields when the same settings file also wires the old shell string for the event (each event is handled once)', () => {
-  const bad = 'this is not json';   // an installed project with a run denies this; a hook that yielded prints nothing and exits 0
-  for (const [name, rel, file, oldCmd, ext] of /** @type {const} */ ([
-    ['project', 'adapters/claude/settings.fragment.json', '.claude/settings.json', OLD_PROJECT, ''],
-    ['codex', 'adapters/codex/hooks.json', '.codex/hooks.json', OLD_CODEX, ''],
-    ['plugin', 'adapters/claude/hooks/hooks.json', '.claude/settings.json', OLD_PROJECT, ''],
-    ['plugin vs the project Node string', 'adapters/claude/hooks/hooks.json', '.claude/settings.json', pretoolOf('adapters/claude/settings.fragment.json'), ''],
-  ])) {
-    const command = pretoolOf(rel);
-    const alone = project({ run: true });
-    settings(alone, file, name === 'plugin' || name.startsWith('plugin ') ? [] : [command]);
-    assert.ok(denied(wired(command, alone, { input: bad })), `${name}: handles the event when it is the only wiring`);
-    const both = project({ run: true }); oldShellHook(both);
-    settings(both, file, [oldCmd, command]);
-    const r = wired(command, both, { input: bad });
-    assert.equal(r.code, 0, `${name}: yields (${r.stdout}${r.stderr})`);
-    assert.equal(r.stdout + r.stderr, '', `${name}: nothing printed`);
-    void ext;
-  }
-  // the old plugin string in a settings file yields the same way, and another event's old string does not make the hook yield
-  const other = project({ run: true });
-  settings(other, '.claude/settings.json', [OLD_PROJECT.replace('pretool claude', 'posttool claude')]);
-  assert.ok(denied(wired(pretoolOf('adapters/claude/settings.fragment.json'), other, { input: bad })), 'an old string of another event is no reason to yield');
-  const oldPlugin = project({ run: true });
-  settings(oldPlugin, '.claude/settings.json', [OLD_PLUGIN]);
-  assert.ok(denied(wired(pretoolOf('adapters/claude/settings.fragment.json'), oldPlugin, { input: bad })), 'the old plugin string in a settings file greps itself and handles nothing: no yield');
-});
-
-test('a decoy in the settings file never makes the hook yield (S3-4); unparsable settings keep it active', () => {
-  const bad = 'this is not json';
-  const projCmd = pretoolOf('adapters/claude/settings.fragment.json');
-  const plugCmd = pretoolOf('adapters/claude/hooks/hooks.json');
-  const decoyText = 'echo proofline-hook.sh pretool claude';
-  const nodeDecoy = 'true # .agents/hooks/proofline-hook.mjs pretool claude';
-  /** @type {[string, (dir: string) => void][]} */
-  const cases = [
-    ['a command key under env', (d) => put(d, '.claude/settings.json', { env: { command: decoyText }, hooks: {} })],
-    ['a Notification hook', (d) => put(d, '.claude/settings.json', { hooks: { Notification: [{ hooks: [{ type: 'command', command: `${decoyText}` }] }] } })],
-    ['a PreToolUse entry that only contains the name (shell)', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: decoyText }] }] } })],
-    ['a PreToolUse entry that only contains the name (node)', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: nodeDecoy }] }] } })],
-    ['the exact old string under another event', (d) => put(d, '.claude/settings.json', { hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: OLD_PROJECT }] }] } })],
-    ['the old string plus a suffix', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: `${OLD_PROJECT} # x` }] }] } })],
-    ['a non-array hooks value', (d) => put(d, '.claude/settings.json', { hooks: { PreToolUse: { hooks: [{ command: OLD_PROJECT }] } } })],
-    ['hooks as an array', (d) => put(d, '.claude/settings.json', { hooks: [{ command: OLD_PROJECT }] })],
-    ['a malformed settings file', (d) => { mkdirSync(join(d, '.claude'), { recursive: true }); writeFileSync(join(d, '.claude/settings.json'), `{ "hooks": ${OLD_PROJECT} `); }],
-    ['the old string only in settings.local.json', (d) => put(d, '.claude/settings.local.json', { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: OLD_PROJECT }] }] } })],
-  ];
-  for (const [name, make] of cases) {
-    for (const [form, command] of [['project', projCmd], ['plugin', plugCmd]]) {
-      const dir = project({ run: true });
-      make(dir);
-      assert.ok(denied(wired(command, dir, { input: bad })), `${form}: ${name}: the hook stays active`);
-    }
-  }
-  // the positive case for contrast: the exact old string, in the right event, with its hook file present
-  const real = project({ run: true }); oldShellHook(real);
-  settings(real, '.claude/settings.json', [OLD_PROJECT]);
-  assert.equal(wired(projCmd, real, { input: bad }).stdout, '', 'the exact old string makes the project hook yield');
-  // the exact old string but without the shell hook it would start: nothing handles the event, so no yield
-  const gone = project({ run: true }); oldShellHook(gone);
-  settings(gone, '.claude/settings.json', [OLD_PROJECT]);
-  rmSync(join(gone, '.agents/hooks/proofline-hook.sh'));
-  assert.ok(denied(wired(projCmd, gone, { input: bad })), 'no shell hook file: no yield');
-});
-
-/** A released shell hook byte for byte (the fixtures have no shebang: they are not shell files of this tree). @param {string} dir @param {string} [version] */
-function oldShellHook(dir, version = '0.0.40') {
-  const f = join(dir, '.agents/hooks/proofline-hook.sh');
-  rmSync(f, { force: true });
-  writeFileSync(f, `#!/bin/sh\n${readFileSync(join(repoRoot, `tests/legacy-hook/proofline-hook-${version}.legacy`), 'utf8')}`);
-  chmodSync(f, 0o755);
-}
-
-/** @param {string} dir @param {string} rel @param {unknown} json */
-function put(dir, rel, json) {
-  mkdirSync(join(dir, rel, '..'), { recursive: true });
-  writeFileSync(join(dir, rel), JSON.stringify(json));
-}
-
-test('the engine switch .agents/local/engine, read through the installed wiring, hands the event to the shell hook', () => {
-  const dir = project({ run: true });
-  const command = pretoolOf('adapters/claude/settings.fragment.json');
-  assert.ok(denied(wired(command, dir, { input: 'this is not json' })), 'Node hook');
-  writeFileSync(join(dir, '.agents/hooks/proofline-hook.sh'), '#!/bin/sh\necho "SHELL HOOK $*"\nexit 0\n');
-  chmodSync(join(dir, '.agents/hooks/proofline-hook.sh'), 0o755);
-  writeFileSync(join(dir, '.agents/local/engine'), 'sh\n');
-  const r = wired(command, dir, { input: '{}' });
-  assert.match(r.stdout, /SHELL HOOK pretool claude/);
-  assert.equal(r.code, 0);
-});
-
-test('C6 rollback: with `sh` in .agents/local/engine, or PROOFLINE_ENGINE=sh, every wiring form runs the OLD shell hook (its own bytes, not a stub)', () => {
-  for (const [form, rel, rt] of FORMS) {
-    const command = pretoolOf(rel);
-    const dir = project({ run: true });
-    // the project's shell hook leaves a marker file when it starts (its first lines are the real file's): the Node hook never does
-    const shPath = join(dir, '.agents/hooks/proofline-hook.sh');
-    const shText = readFileSync(shPath, 'utf8');
-    writeFileSync(shPath, shText.replace('\n', `\n: > "${dir}/.shell-ran"\n`));
-    // the plugin form runs the plugin's own hook tree (not the project's copy), so only the other two forms can show the marker
-    const ran = () => existsSync(join(dir, '.shell-ran'));
-    const direct = run('sh', [join(dir, '.agents/hooks/proofline-hook.sh'), 'pretool', rt], { cwd: dir, env: baseEnv(base, { CLAUDE_PROJECT_DIR: dir }), input: 'this is not json' });
-    assert.ok(denied(direct), `${form}: the shell hook denies unparsable input during a run`);
-    rmSync(join(dir, '.shell-ran'), { force: true });
-    assert.ok(denied(wired(command, dir, { input: 'this is not json' })), `${form}: Node hook denies`);
-    assert.ok(!ran(), `${form}: the Node hook does not start the shell hook by default`);
-    writeFileSync(join(dir, '.agents/local/engine'), 'sh\n');
-    const byFile = wired(command, dir, { input: 'this is not json' });
-    assert.ok(form === 'plugin' || ran(), `${form}: engine file: the shell hook ran`); rmSync(join(dir, '.shell-ran'), { force: true });
-    rmSync(join(dir, '.agents/local/engine'));
-    const byEnv = wired(command, dir, { input: 'this is not json', env: { PROOFLINE_ENGINE: 'sh' } });
-    assert.ok(form === 'plugin' || ran(), `${form}: PROOFLINE_ENGINE=sh: the shell hook ran`);
-    for (const [how, r] of /** @type {[string, ReturnType<typeof wired>][]} */ ([['engine file', byFile], ['PROOFLINE_ENGINE=sh', byEnv]])) {
-      assert.equal(r.stdout, direct.stdout, `${form}, ${how}: the shell hook's bytes`);
-      assert.equal(r.code, direct.code, `${form}, ${how}: exit status`);
-    }
-  }
-});
 
 // ---- the git hook launchers ---------------------------------------------------------------------------------------------------------------
 function repoWithHooks(/** @type {string} */ config = '') {
@@ -283,17 +155,6 @@ test('pre-push launcher: the push guard holds (protected branch, approval switch
   assert.equal(human.code, 0, human.stderr);
 });
 
-test('yield.mjs knows exactly the strings the installers wrote (no drift from the wiring files or the 0.0.40 strings)', async () => {
-  const { knownStrings } = await import('../../adapters/claude/hooks/lib/yield.mjs');
-  const keys = { session: 'SessionStart', prompt: 'UserPromptSubmit', pretool: 'PreToolUse', posttool: 'PostToolUse', 'subagent-start': 'SubagentStart', 'subagent-stop': 'SubagentStop', stop: 'Stop' };
-  const frag = wiring('adapters/claude/settings.fragment.json');
-  for (const [ev, key] of Object.entries(keys)) {
-    assert.deepEqual(knownStrings(ev, 'claude').newProject, [frag.find((w) => w.event === key)?.command], ev);
-  }
-  assert.deepEqual(knownStrings('pretool', 'claude').old, [OLD_PROJECT]);
-  assert.deepEqual(knownStrings('pretool', 'codex').old, [OLD_CODEX]);
-});
-
 test('S3-6: a huge command is answered within the budget, and denied while a run exists', () => {
   const command = pretoolOf('adapters/claude/settings.fragment.json');
   const dir = project({ run: true });
@@ -307,74 +168,3 @@ test('S3-6: a huge command is answered within the budget, and denied while a run
   }
 });
 
-test('S3-4 round 2: a hook is yielded to only when it is the genuine one (stub, modified, linked or missing files keep the hook active)', () => {
-  const bad = 'this is not json';
-  const projNode = pretoolOf('adapters/claude/settings.fragment.json');
-  const plug = pretoolOf('adapters/claude/hooks/hooks.json');
-  const proj = pretoolOf('adapters/claude/settings.fragment.json');
-  /** @type {[string, (d: string) => void][]} */
-  const tamper = [
-    ['a stub proofline-hook.mjs', (d) => writeFileSync(join(d, '.agents/hooks/proofline-hook.mjs'), '// does nothing\n')],
-    ['a modified guard file', (d) => appendFileSync(join(d, '.agents/hooks/guards/bash.mjs'), '\n// x\n')],
-    ['a modified lib file', (d) => appendFileSync(join(d, '.agents/hooks/lib/context.mjs'), '\n// x\n')],
-    ['a missing import', (d) => rmSync(join(d, '.agents/hooks/guards/merge.mjs'))],
-    ['a missing command-scan.mjs', (d) => rmSync(join(d, '.agents/hooks/command-scan.mjs'))],
-    ['a symlinked hook file', (d) => { const f = join(d, '.agents/hooks/proofline-hook.mjs'); const real = join(d, 'real-hook.mjs'); cpSync(f, real); rmSync(f); symlinkSync(real, f); }],
-    ['a symlinked guards folder', (d) => { const g = join(d, '.agents/hooks/guards'); const real = join(d, 'real-guards'); cpSync(g, real, { recursive: true }); rmSync(g, { recursive: true }); symlinkSync(real, g); }],
-    ['a modified core budget.mjs', (d) => appendFileSync(join(d, '.agents/scripts/core/budget.mjs'), '\n// x\n')],
-    ['a missing core', (d) => rmSync(join(d, '.agents/scripts/core'), { recursive: true })],
-  ];
-  for (const [name, make] of tamper) {
-    const d = project({ run: true });
-    settings(d, '.claude/settings.json', [projNode]);
-    make(d);
-    assert.ok(denied(wired(plug, d, { input: bad })), `plugin: ${name}: the plugin stays active`);
-  }
-  // the genuine tree: the plugin yields (the project's own hook handles the event)
-  const ok = project({ run: true });
-  settings(ok, '.claude/settings.json', [projNode]);
-  assert.equal(wired(plug, ok, { input: bad }).stdout, '', 'plugin: genuine project hook: yields');
-  // the old shell hook: a stub, a modified copy, a link or a missing file is not the released hook
-  /** @type {[string, (d: string) => void][]} */
-  const oldBad = [
-    ['a stub', (d) => writeFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '#!/bin/sh\nexit 0\n')],
-    ['a modified copy', (d) => appendFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '\n# x\n')],
-    ['a symlink to the released bytes', (d) => { const f = join(d, '.agents/hooks/proofline-hook.sh'); const real = join(d, 'old.sh'); cpSync(f, real); rmSync(f); symlinkSync(real, f); }],
-    ['a missing file', (d) => rmSync(join(d, '.agents/hooks/proofline-hook.sh'))],
-  ];
-  for (const [name, make] of oldBad) {
-    const d = project({ run: true });
-    oldShellHook(d); make(d);
-    settings(d, '.claude/settings.json', [OLD_PROJECT]);
-    assert.ok(denied(wired(proj, d, { input: bad })), `project: old string with ${name}: the Node hook stays active`);
-  }
-});
-
-test('S3-4 round 3: each released shell hook (0.0.40, 0.0.41, 0.0.42) makes the project hook yield; a modified copy does not; the entry matcher must be the template\'s', () => {
-  const bad = 'this is not json';
-  const proj = pretoolOf('adapters/claude/settings.fragment.json');
-  for (const v of ['0.0.40', '0.0.41', '0.0.42']) {
-    const d = project({ run: true });
-    oldShellHook(d, v);
-    settings(d, '.claude/settings.json', [OLD_PROJECT]);
-    assert.equal(wired(proj, d, { input: bad }).stdout, '', `${v}: yields`);
-    appendFileSync(join(d, '.agents/hooks/proofline-hook.sh'), '\n# x\n');
-    assert.ok(denied(wired(proj, d, { input: bad })), `${v} modified: stays active`);
-  }
-  // an entry that fires for another tool set (or for all tools) is not the wiring of the event, for the old string and the Node string alike
-  for (const matcher of ['Bash', '*', '', 'Edit|Write']) {
-    const d = project({ run: true });
-    oldShellHook(d);
-    settings(d, '.claude/settings.json', [OLD_PROJECT], matcher);
-    assert.ok(denied(wired(proj, d, { input: bad })), `old string, matcher "${matcher}": no yield`);
-    const p = project({ run: true });
-    settings(p, '.claude/settings.json', [proj], matcher);
-    assert.ok(denied(wired(pretoolOf('adapters/claude/hooks/hooks.json'), p, { input: bad })), `plugin, project Node string with matcher "${matcher}": no yield`);
-  }
-  // an entry with an extra key is not the template's entry
-  const x = project({ run: true });
-  oldShellHook(x);
-  mkdirSync(join(x, '.claude'), { recursive: true });
-  writeFileSync(join(x, '.claude/settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill', if: 'never', hooks: [{ type: 'command', command: OLD_PROJECT }] }] } }));
-  assert.ok(denied(wired(proj, x, { input: bad })), 'an entry with an extra key: no yield');
-});

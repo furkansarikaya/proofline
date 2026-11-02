@@ -57,3 +57,10 @@ export function memoryIo(root, env = {}) {
   };
   return { io, stdout: () => Buffer.concat(out).toString('latin1'), stderr: () => Buffer.concat(err).toString('latin1') };
 }
+
+/** The commands the agent.sh preamble leaves to the shell code (every other command runs in the Node core). @param {string} text the text of agent.sh @returns {string[]} */
+export function shellListed(text) {
+  const m = /\ncase "\$\{1:-\}" in\n((?:  [^\n]*\\\n)*  [^\n]*\) ;;)\n  \*\)\n/.exec(text);
+  if (!m) throw new Error('the preamble list of the shell commands was not found');
+  return m[1].replace(/\\\n/g, '').trim().replace(/\) ;;$/, '').split('|').map((x) => x.trim());
+}

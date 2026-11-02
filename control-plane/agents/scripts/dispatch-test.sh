@@ -121,8 +121,8 @@ EOF
 chmod +x "$tmp/bin/"*
 echo original > "$p/product.txt"
 # the project's Claude hooks, wired (a bypassPermissions worker is only started with them; A114)
-mkdir -p "$a/hooks" "$p/.claude"; echo 'exit 0' > "$a/hooks/proofline-hook.sh"
-printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"sh .agents/hooks/proofline-hook.sh claude"}]}]}}\n' > "$p/.claude/settings.json"
+mkdir -p "$a/hooks" "$p/.claude"; echo '0;' > "$a/hooks/proofline-hook.mjs"
+printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"node .agents/hooks/proofline-hook.mjs pretool claude"}]}]}}\n' > "$p/.claude/settings.json"
 export FAKE_LOC="$loc" FAKE_ROOT="$p" PROOFLINE_CODEX_BIN="$tmp/bin/fake-codex" PROOFLINE_CLAUDE_BIN="$tmp/bin/fake-claude"
 
 mkcfg() { # FAILOVER [CODEX-LADDER]
@@ -184,16 +184,16 @@ hk_case() { # NAME SETTINGS-JSON : a bypass worker is refused with this wiring
   reset; d T-1 reviewer --focus rules
   ck "$1: BLOCKED, no worker launched" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ] && printf "%s" "$out" | grep -q "proofline doctor"'
 }
-hk_case "hook wired only for SessionStart plus an unrelated PreToolUse" '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sh .agents/hooks/proofline-hook.sh claude"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo other"}]}]}}'
-hk_case "hook wired only for SessionStart" '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sh .agents/hooks/proofline-hook.sh claude"}]}]}}'
+hk_case "hook wired only for SessionStart plus an unrelated PreToolUse" '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"node .agents/hooks/proofline-hook.mjs pretool claude"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo other"}]}]}}'
+hk_case "hook wired only for SessionStart" '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"node .agents/hooks/proofline-hook.mjs pretool claude"}]}]}}'
 mv "$tmp/settings.keep" "$p/.claude/settings.json"
-cp "$a/hooks/proofline-hook.sh" "$tmp/hook.keep"; printf 'if then\n' > "$a/hooks/proofline-hook.sh"
+cp "$a/hooks/proofline-hook.mjs" "$tmp/hook.keep"; printf 'if then\n' > "$a/hooks/proofline-hook.mjs"
 reset; d T-1 reviewer --focus rules
 ck "a hook script that does not parse: BLOCKED, no worker launched" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ]'
-: > "$a/hooks/proofline-hook.sh"
+: > "$a/hooks/proofline-hook.mjs"
 reset; d T-1 reviewer --focus rules
 ck "an empty hook script: BLOCKED, no worker launched" '[ "$rc" -eq 6 ] && [ ! -f "$loc/claude.argv" ]'
-cp "$tmp/hook.keep" "$a/hooks/proofline-hook.sh"
+cp "$tmp/hook.keep" "$a/hooks/proofline-hook.mjs"
 reset; d T-1 reviewer --focus rules
 ck "correct wiring and script: the worker is launched" '[ "$rc" -eq 0 ] && grep -qx bypassPermissions "$loc/claude.argv"'
 printf 'reviewer Read,Grep,Agent,Task(x),Bash\n' > "$a/tools.conf"

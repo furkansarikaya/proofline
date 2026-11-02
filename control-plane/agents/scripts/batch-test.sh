@@ -646,9 +646,10 @@ sc_worktree_links() {
 # --- A185 (round 2): the prompt hook of the main tree approves the pending request of a run that lives in a worktree ---------------------------------
 sc_worktree_prompt_approval() {
   bnew; mktask W-1 COMPLEX; binstall no
-  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; [ -f "$hook" ] || die "no hook at $hook"
+  cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core   # the Node hook imports the project's core
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.mjs; [ -f "$hook" ] || die "no hook at $hook"
   main=$(pwd -P)
-  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 node "$hook" prompt claude; }
   wt=$(A worktree-add W-1) || die "worktree-add: $wt"
   ( cd "$wt" && sh .agents/scripts/agent.sh start W-1 --task-file .agents/tasks/W-1.md >/dev/null 2>"$base/st.err" </dev/null ) || die "start W-1 in its worktree: $(tail -1 "$base/st.err")"
   printf -- '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n' > "$wt/.agents/runs/W-1/PLAN.md"
@@ -726,8 +727,9 @@ sc_hand_pushed_batch() {
 # --- round 6: the main tree's prompt hook runs only an unchanged worktree agent.sh, and a reply binds to the run it names when several wait --------------------
 sc_prompt_guards() {
   bnew; mktask W-1 COMPLEX; mktask W-2 COMPLEX; binstall no
-  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.sh; main=$(pwd -P)
-  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 sh "$hook" prompt claude; }
+  cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core   # the Node hook imports the project's core
+  hook=$(CDPATH='' cd "$tl_agents/../.." && pwd)/adapters/claude/hooks/proofline-hook.mjs; main=$(pwd -P)
+  hp() { printf '{"hook_event_name":"UserPromptSubmit","session_id":"s1","cwd":"%s","prompt":"%s"}' "$main" "$1" | CLAUDE_PROJECT_DIR=$main PROOFLINE_NO_TTY=1 PROOFLINE_HOOK_APPROVE_BUDGET=120 PROOFLINE_HOOK_LOCK_WAIT=60 node "$hook" prompt claude; }
   for r in W-1 W-2; do
     w=$(A worktree-add $r) || die "worktree-add $r"
     ( cd "$w" && sh .agents/scripts/agent.sh start $r --task-file .agents/tasks/$r.md >/dev/null 2>&1 </dev/null ) || die "start $r"

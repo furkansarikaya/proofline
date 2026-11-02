@@ -31,7 +31,7 @@ export function makeFixture() {
   git(root, ['add', '-A']);
   git(root, ['commit', '-q', '-m', 'init']);
   const agent = path.join(root, '.agents', 'scripts', 'agent.sh');
-  const env = () => ({ ...GIT_ENV, PROOFLINE_ENGINE: 'sh' });
+  const env = () => ({ ...GIT_ENV });
   return {
     root, agent,
     ctx: () => {

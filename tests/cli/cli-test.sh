@@ -127,7 +127,7 @@ check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && 
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
 done; ok "scripts and git hooks are executable"
-for f in .agents/WORKFLOW.md .agents/GATES.md .agents/templates/RUN.yaml .agents/modes/deterministic.yaml .agents/hooks/proofline-hook.sh .agents/hooks/proofline-hook.mjs .agents/hooks/events/pretool.mjs .agents/hooks/lib/yield.mjs .agents/roles.conf .agents/roles/lead.md \
+for f in .agents/WORKFLOW.md .agents/GATES.md .agents/templates/RUN.yaml .agents/modes/deterministic.yaml .agents/hooks/proofline-hook.mjs .agents/hooks/events/pretool.mjs .agents/hooks/lib/yield.mjs .agents/roles.conf .agents/roles/lead.md \
   .claude/agents/proofline-reviewer.md .codex/agents/proofline-reviewer.toml AGENTS.md CLAUDE.md .claude/settings.json .codex/hooks.json .agents/.proofline-manifest; do
   [ -f "$base/$f" ] || die "missing after init: $f"
 done; ok "control plane, roles, agents, hooks and instruction files are installed"
@@ -344,9 +344,6 @@ for dsf in claude codex; do
   expect "doctor names Stop as the missing event ($dsf)" "$out" "lacks proofline hooks for: Stop"
   [ "$rc" != 0 ] && ok "doctor exits non-zero when $dsf Stop is not wired" || die "doctor passed without the $dsf Stop hook"
 done
-dold=$T/dold; cp -R "$base" "$dold"
-jq '.hooks |= with_entries(.value |= map(.hooks |= map(.command |= "sh -c \u0027exec sh \"$h\" x proofline-hook.sh\u0027")))' "$dold/.claude/settings.json" > "$dold/s.t" && mv "$dold/s.t" "$dold/.claude/settings.json"
-expect "doctor accepts the shell wiring of 0.0.40 for all 7 events (a rollback state)" "$(pl "$dold" doctor 2>&1)" "claude hooks: .claude/settings.json wires all 7 proofline events"
 dmj=$T/dmj; cp -R "$base" "$dmj"; rm "$dmj/.agents/hooks/proofline-hook.mjs"
 expect "doctor FAILs when the Node hook file is missing" "$(pl "$dmj" doctor 2>&1)" "FAIL hooks: .agents/hooks/proofline-hook.mjs missing"
 expect "doctor shows the runtime versions" "$out" "runtime claude: 9.9.9"
@@ -469,7 +466,7 @@ sc_doctor_missing() {
 d6=$T/d6; cp -R "$base" "$d6"; rm "$d6/.agents/PROTOCOL.md"
 out=$(pl "$d6" doctor 2>&1); rc=$?
 [ "$rc" = 0 ] && expect "doctor only WARNs when a non-critical installed file is missing" "$out" "WARN manifest: 1 installed file" || { LAST=$out; die "non-critical missing file: rc=$rc"; }
-for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .agents/roles.conf .agents/githooks/pre-push .agents/hooks/proofline-hook.sh .agents/skills/proofline-lead; do
+for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .agents/roles.conf .agents/githooks/pre-push .agents/hooks/proofline-hook.mjs .agents/skills/proofline-lead; do
   d7=$T/d7; rm -rf "$d7"; cp -R "$base" "$d7"; rm -rf "${d7:?}/$crit"
   out=$(pl "$d7" doctor 2>&1); rc=$?
   [ "$rc" != 0 ] && expect "doctor FAILs when $crit is missing" "$out" "FAIL manifest: required control-plane file missing: $crit" || { LAST=$out; die "doctor passed without $crit"; }

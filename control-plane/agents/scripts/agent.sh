@@ -29,16 +29,16 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # Node migration (ADR 0001): a moved command runs in proofline-core.mjs, before anything below is parsed. Without a usable node the exec fails
 # with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its error
 # texts; the core uses it only when it names this very file.
-# stage 3, package CMDS: the last line of the list below (worktree-root ... window-close)
-# stage 2, package C1: the last line of the list below (next summary plan-section digest report-facts report-execution report-tokens)
+# The commands that still run as shell code (listed here, one list); every other command, a name that is no command and no command at all run in
+# proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
 case "${1:-}" in
-  role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help|\
-  debt|task-type|task-scope-entries|scope-covers|human-checks|questions|repro-normalize|design-surface|test-path|path-kind|scope-kinds|\
-  status|open-runs|effective|fingerprint|patch-fingerprint|verify-seal|verify-gates|pipeline|entry-tier|\
-  next|summary|plan-section|digest|report-facts|report-execution|report-tokens|\
-  verify-freeze|verify-scope|verify-knowledge-scope|freshness|verify-handoff|verify-qa-plan|verify-worker-evidence|ci-check|ci-task-command|validate|\
-  design-rationales|commands-check|scale-check|batch-check|\
-  next-user|worktree-root|in-knowledge-scope|request-approval|approve|approve-pending|approval-consume|answer|hook-time|language-check|friction-note|window-open|window-close)
+  baseline|discard-stray|branch|start|classify|tier|friction|calibrate|build-record|lessons|rules|decide|freeze|refreeze|handoff|delivery-check|\
+  worker-evidence|verify-assumptions|submit|record|gate|secret-scan|run-language|raise-budget|waive|metrics-dispatch|wait-line|ledger-note|ask|\
+  terminate|cleanup|deliver-merged|status-block|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
+  batch-answers|task-rename-plan|task-rename-apply|known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|pr-state|batch-next|\
+  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|amend|reopen|tree-inspect|tree-accept|platform|platform-warn|task-source-done|\
+  task-source-status|task-source-relocate|knowledge-done|publish-completion-report|verify-completion-report|db-check|test) ;;
+  *)
     pl_sh=no
     # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
     [ -z "${PROOFLINE_BRIDGED:-}" ] || pl_sh=yes

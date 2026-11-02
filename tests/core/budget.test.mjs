@@ -104,26 +104,3 @@ describe('hkCfgNum (the shell hook\'s hk_cfgnum)', () => {
     assert.equal(hkCfgNum('hook:\n  lock_wait_seconds: 30\n', 'lock_wait_seconds', 8, 1, 20), 20);
   });
 });
-
-describe('hkCfgNum against the shell function it replaces', () => {
-  const hook = readFileSync(new URL('../../adapters/claude/hooks/proofline-hook.sh', import.meta.url), 'utf8').split('\n');
-  const start = hook.findIndex((l) => l.startsWith('hk_cfgnum() {'));
-  const end = hook.findIndex((l, i) => i > start && l === '}');
-  const fn = hook.slice(start, end + 1).join('\n');
-  /** @param {string} text @param {number} def @param {number} min @param {number} max */
-  function shell(text, def, min, max) {
-    const { mkdtempSync, writeFileSync, rmSync, mkdirSync } = fsSync;
-    const dir = mkdtempSync(`${process.env.TMPDIR || '/tmp'}/pl-cfgnum-`);
-    try {
-      mkdirSync(`${dir}/.agents`); writeFileSync(`${dir}/.agents/config.yaml`, text);
-      const r = spawnSync('sh', ['-c', `root=$1\n${fn}\nhk_cfgnum k "$2" "$3" "$4"; printf %s "$hk_cv"`, 'sh', dir, String(def), String(min), String(max)], { encoding: 'utf8' });
-      return r.stdout;
-    } finally { rmSync(dir, { recursive: true, force: true }); }
-  }
-  test('the same number for a table of config texts', () => {
-    const texts = ['', 'hook:\n  k: 12\n', 'hook:\n  k: 2\n', 'hook:\n  k: 99\n', 'hook:\n  k: 08\n', 'hook:\n  k: 000\n', 'hook:\n  k: "15" # c\n', 'hook:\n  k:\t 11 \n',
-      'hook:\n  k: abc\n', 'hook:\n  k: -3\n', 'hook:\n  k: 1.5\n', 'hook:\n  k: 123456\n', 'hook:\n  k: 12\r\n', 'hook:\n  k:\n', 'x:\n  k: 9\n', 'hook:\n  k: 9\n  k: 11\n',
-      'hook:\n  k: 9\n  k: x\n', 'hook:\n    k: 9\n', 'hook:\n  k: 9\n# c\n  k: 13\nnext:\n  k: 7\n', 'hook:\n  k: 17', 'hook: {}\n  k: 6\n', 'hook:\n\n  k: 7\n', 'hook:\n  k: 007\n', 'hook:\n  k: 00000012\n'];
-    for (const t of texts) assert.equal(String(hkCfgNum(t, 'k', 20, 5, 25)), shell(t, 20, 5, 25), JSON.stringify(t));
-  });
-});

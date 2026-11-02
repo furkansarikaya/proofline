@@ -5,9 +5,9 @@
 import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addCore, agentsSrc, baseEnv, installedFixture, run, scriptsSrc } from '../fixture.mjs';
+import { addCore, agentsSrc, baseEnv, installedFixture, run, scriptsSrc } from './fixture.mjs';
 
-/** @typedef {import('../fixture.mjs').Fixture} Fixture */
+/** @typedef {import('./fixture.mjs').Fixture} Fixture */
 
 // the helpers of risk-test.sh that the risk states need (copied: that file is a suite, not a library)
 const RISK = `

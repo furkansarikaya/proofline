@@ -13,7 +13,7 @@ before(() => {
   template = buildTemplate();
   base = mkdtempSync(join(tmpdir(), 'hook-hd-'));
   requested = copyProject(template, base);
-  const r = spawnSync('sh', ['.agents/scripts/agent.sh', 'request-approval', 'LC', 'plan'], { cwd: requested, env: cleanEnv({ PROOFLINE_ENGINE: 'sh' }), encoding: 'utf8' });
+  const r = spawnSync('sh', ['.agents/scripts/agent.sh', 'request-approval', 'LC', 'plan'], { cwd: requested, env: cleanEnv(), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   spawnSync('sleep', ['1.1']);
 });

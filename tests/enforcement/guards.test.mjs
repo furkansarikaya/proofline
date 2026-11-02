@@ -1,4 +1,4 @@
-// Guards of the Node migration, stage 1 (ADR 0001 sections 5.3 and 7), against the real runtime hook (adapters/claude/hooks/proofline-hook.sh).
+// Guards of the Node migration, stage 1 (ADR 0001 sections 5.3 and 7), against the real runtime hook (adapters/claude/hooks/proofline-hook.mjs).
 //
 //   tripwires    a model Bash command that starts Node on the control plane, or assigns PROOFLINE_ENGINE* / PROOFLINE_TEST*, is denied
 //                (one case per spelling, for the lead and for subagent roles); the same text is allowed with no open run and in a project
@@ -19,11 +19,11 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync, existsSync, renameSync, symlinkSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, delimiter } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const repo = resolve(import.meta.dirname, '../..');
-const hook = process.env.GUARDS_HOOK || join(repo, 'adapters/claude/hooks/proofline-hook.sh');
-// GUARDS_HOOK may name proofline-hook.mjs: the Node hook is then started with this very node (an absolute path, so a PATH without node still starts it)
+const hook = process.env.GUARDS_HOOK || join(repo, 'adapters/claude/hooks/proofline-hook.mjs');
+// the Node hook is started with this very node (an absolute path, so a PATH without node still starts it)
 /** @param {string} event @returns {[string, string[]]} */
 const hookRun = (event) => (hook.endsWith('.mjs') ? [process.execPath, [hook, event, 'claude']] : ['sh', [hook, event, 'claude']]);
 const haveJq = spawnSync('jq', ['--version']).status === 0;
@@ -57,27 +57,6 @@ function plainProject() {
   mkdirSync(dir);
   spawnSync('git', ['init', '-q'], { cwd: dir });
   return dir;
-}
-
-// PATH without node: a directory that holds node is replaced by a symlink farm of its other entries.
-function nonodePath() {
-  const farm = join(root, 'nonode');
-  rmSync(farm, { recursive: true, force: true });
-  mkdirSync(farm);
-  const out = [];
-  let used = false;
-  for (const d of (process.env.PATH || '').split(delimiter)) {
-    if (!d || !existsSync(d)) continue;
-    if (existsSync(join(d, 'node')) || existsSync(join(d, 'nodejs'))) {
-      for (const f of readdirSync(d)) {
-        if (f === 'node' || f === 'nodejs') continue;
-        try { symlinkSync(join(d, f), join(farm, f)); } catch { /* first entry wins */ }
-      }
-      if (!used) out.push(farm);
-      used = true;
-    } else out.push(d);
-  }
-  return out.join(delimiter);
 }
 
 /** @param {{ agent?: string, path?: string }} [opts] */
@@ -320,180 +299,4 @@ describe('tripwire scope', { skip }, () => {
   });
 });
 
-// The launcher preamble of the real agent.sh (ADR 5.3) as a wrapper in front of the shell code: a moved command needs node on PATH.
-const MOVED = 'role|config-get|config-check|timeouts|hook-timeouts|verify-timeout|tm-scaled|db-config|hook-config|help';
-/** The Node hook runs a moved command in its own process; the simulated failures below need agent.sh to run it, which the user's engine switch (`sh:<commands>` in .agents/local/engine) asks for. */
-function viaAgentSh(dir, cmds) {
-  if (!hook.endsWith('.mjs')) return;
-  mkdirSync(join(dir, '.agents/local'), { recursive: true });
-  writeFileSync(join(dir, '.agents/local/engine'), `sh:${cmds.join(',')}\n`);
-}
-function wrapMoved(dir, code) {
-  viaAgentSh(dir, MOVED.split('|'));
-  const s = join(dir, '.agents/scripts');
-  renameSync(join(s, 'agent.sh'), join(s, 'agent-real.sh'));
-  const body = code === undefined
-    ? `case "\${1:-}" in\n  ${MOVED})\n    command -v node >/dev/null 2>&1 || { echo "agent.sh: node: not found" >&2; exit 127; } ;;\nesac\n`
-    : `case "\${1:-}" in hook-config|db-config|config-get) echo boom >&2; exit ${code} ;; esac\n`;
-  writeFileSync(join(s, 'agent.sh'), `#!/bin/sh\n${body}exec sh "$(dirname "$0")/agent-real.sh" "$@"\n`);
-}
 
-describe('node absent (C2)', { skip }, () => {
-  let np = '';
-  before(() => { np = nonodePath(); });
-  test('the harness really takes node off PATH', () => {
-    assert.notEqual(spawnSync('sh', ['-c', 'command -v node'], { env: { ...baseEnv(), PATH: np } }).status, 0);
-  });
-
-  test('control: with node on PATH the wrapped project behaves as before', () => {
-    const p = project(); wrapMoved(p);
-    allowed(bash(p, 'ls'), 'a plain Bash call');
-    allowed(runHook(p, 'Read', { file_path: 'src/a.txt' }), 'a file read');
-  });
-
-  test('run open: a Bash call is denied by the database guard path, naming the command and Node 22.13', () => {
-    const p = project(); wrapMoved(p);
-    const r = bash(p, 'ls', { path: np });
-    denied(r, 'Node 22.13', 'Bash call');
-    assert.match(r.reason, /db-config|config-get/);
-    assert.ok(!r.reason.includes('node --version'), 'the message must not tell the model to run a command the hook then denies');
-    assert.match(r.reason, /the user must check/);
-  });
-  test('run open: a file write is denied (database guard)', () => {
-    const p = project(); wrapMoved(p);
-    const r = runHook(p, 'Write', { file_path: 'src/a.txt' }, { path: np });
-    denied(r, 'Node 22.13', 'file write');
-    assert.match(r.reason, /db-config/);
-  });
-  test('run open: a file read is denied (database guard)', () => {
-    const p = project(); wrapMoved(p);
-    denied(runHook(p, 'Read', { file_path: 'src/a.txt' }, { path: np }), 'Node 22.13', 'file read');
-  });
-  test('run open: git push origin main is denied (merge guard)', () => {
-    const p = project(); wrapMoved(p);
-    const r = bash(p, 'git push origin main', { path: np });
-    denied(r, 'Node 22.13', 'git push origin main');
-    assert.match(r.reason, /config-get|db-config/);
-  });
-  test('run open: a subagent Bash call is denied too', () => {
-    const p = project(); wrapMoved(p);
-    denied(bash(p, 'ls', { path: np, agent: 'proofline-explorer' }), 'Node 22.13', 'subagent Bash call');
-  });
-  test('a moved command that exits with another non-zero code denies the same way (run open)', () => {
-    const p = project(); wrapMoved(p, 3);
-    denied(bash(p, 'ls'), 'exited 3', 'exit 3');
-  });
-  test('no run: the database guard keeps its fallback, the merge guard of an installed project denies', () => {
-    const p = project({ run: false }); wrapMoved(p);
-    allowed(runHook(p, 'Read', { file_path: 'src/a.txt' }, { path: np }), 'a file read without a run');
-    denied(bash(p, 'git push origin main', { path: np }), 'Node 22.13', 'git push origin main without a run');
-    denied(bash(p, 'git status', { path: np }), 'Node 22.13', 'a git command without a run (merge guard)');
-    denied(bash(p, 'gh pr ' + 'merge 7 --squash', { path: np }), 'Node 22.13', 'a PR merge command without a run');
-    // the branch list is loaded lazily: a command that cannot merge or push is not denied merely because node is absent
-    allowed(bash(p, 'ls', { path: np }), 'ls without a run');
-    allowed(bash(p, 'node --version', { path: np }), 'node --version without a run');
-  });
-  test('only PreToolUse denies: a PostToolUse event never does', () => {
-    const p = project(); wrapMoved(p);
-    /** @type {Record<string, any>} */
-  const payload = { hook_event_name: 'PostToolUse', session_id: 's1', cwd: p, tool_name: 'Agent', tool_input: {}, tool_response: {} };
-    const r = spawnSync(...hookRun('posttool'), { cwd: p, input: JSON.stringify(payload), env: { ...baseEnv(), PATH: np }, encoding: 'utf8' });
-    assert.ok(!(r.stdout || '').includes('"permissionDecision":"deny"'), r.stdout);
-  });
-  test('a dispatched specialist (AGENT_ROLE in the hook environment) is not mistaken for a missing node', () => {
-    const p = project();
-    const payload = { hook_event_name: 'PreToolUse', session_id: 's1', cwd: p, tool_name: 'Bash', tool_input: { command: 'ls' } };
-    const r = spawnSync(...hookRun('pretool'), { cwd: p, input: JSON.stringify(payload), env: { ...baseEnv(), AGENT_ROLE: 'implementer' }, encoding: 'utf8' });
-    assert.ok(!(r.stdout || '').includes('Node 22.13'), r.stdout);
-  });
-  for (const c of SPLIT_PUSHES) {
-    test(`split spelling ${JSON.stringify(c)}: denied with node present (as on 0.0.40) and with node absent (list unavailable)`, () => {
-      const p = project({ run: false });
-      // node present: the 0.0.40 deny of the merge guard, no Node message
-      const r1 = bash(p, c);
-      denied(r1, 'proofline merge', c);
-      // node absent (wrapped project): fail closed
-      const q = project({ run: false }); wrapMoved(q);
-      denied(bash(q, c, { path: np }), '', c);
-    });
-  }
-  test('a project without proofline asks no moved command: nothing changes', () => {
-    allowed(bash(plainProject(), 'ls', { path: np }), 'a Bash call in a plain project');
-  });
-});
-
-// Every other moved command the hook calls (the audit of ADR 5.3): Stop (report-tokens, summary), SessionStart (next) and the path checks (summary,
-// config-get fallbacks) fail closed too, each in the way its event can: PreToolUse denies, Stop blocks once, SessionStart says so.
-/** Wrap agent.sh so that only the named commands fail (exit CODE, no output); everything else is the real shell code. */
-function wrapFailing(dir, cmds, code = 127) {
-  viaAgentSh(dir, cmds);
-  const sc = join(dir, '.agents/scripts');
-  renameSync(join(sc, 'agent.sh'), join(sc, 'agent-real.sh'));
-  writeFileSync(join(sc, 'agent.sh'), `#!/bin/sh\ncase "\${1:-}" in ${cmds.join('|')}) echo "agent.sh: simulated failure" >&2; exit ${code} ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n`);
-}
-function runEvent(dir, event, payload, env = {}) {
-  const r = spawnSync(...hookRun(event), { cwd: dir, input: JSON.stringify({ session_id: 's1', cwd: dir, ...payload }), env: { ...baseEnv(), ...env }, encoding: 'utf8', timeout: 120000 });
-  return r.stdout || '';
-}
-const stopPayload = (active = false) => ({ hook_event_name: 'Stop', last_assistant_message: 'The final report.', stop_hook_active: active });
-function reportTurn(dir) { mkdirSync(join(dir, '.agents/local/report-turn'), { recursive: true }); writeFileSync(join(dir, '.agents/local/report-turn/s1'), ''); }
-
-describe('every moved command the hook calls fails closed (audit)', { skip }, () => {
-  test('Stop: report-tokens failing (node absent) blocks the final report once, naming the command and Node 22.13', () => {
-    const p = project(); wrapFailing(p, ['report-tokens']); reportTurn(p);
-    const out = runEvent(p, 'stop', stopPayload());
-    assert.match(out, /"decision":"block"/);
-    assert.match(out, /report-tokens exited 127/);
-    assert.match(out, /Node 22\.13/);
-  });
-  test('Stop: the retry (stop_hook_active) ends the turn with the message instead of looping', () => {
-    const p = project(); wrapFailing(p, ['report-tokens']); reportTurn(p);
-    const out = runEvent(p, 'stop', stopPayload(true));
-    assert.doesNotMatch(out, /"decision":"block"/);
-    assert.match(out, /"systemMessage":"[^"]*report-tokens exited 127[^"]*Node 22\.13/);
-  });
-  test('Stop: a non-127 failure of report-tokens blocks the same way', () => {
-    const p = project(); wrapFailing(p, ['report-tokens'], 3); reportTurn(p);
-    assert.match(runEvent(p, 'stop', stopPayload()), /report-tokens exited 3/);
-  });
-  test('Stop: summary failing while identifiers are missing blocks too', () => {
-    const p = project(); reportTurn(p); viaAgentSh(p, ['report-tokens', 'summary']);
-    const sc = join(p, '.agents/scripts');
-    renameSync(join(sc, 'agent.sh'), join(sc, 'agent-real.sh'));
-    writeFileSync(join(sc, 'agent.sh'), '#!/bin/sh\ncase "${1:-}" in report-tokens) echo T-9; exit 0 ;; summary) exit 127 ;; esac\nexec sh "$(dirname "$0")/agent-real.sh" "$@"\n');
-    const out = runEvent(p, 'stop', stopPayload());
-    assert.match(out, /"decision":"block"/);
-    assert.match(out, /summary exited 127/);
-  });
-  test('Stop: with the moved commands working, the final report is not blocked for a Node reason', () => {
-    const p = project(); wrapFailing(p, ['nothing-fails-here']); reportTurn(p);
-    assert.doesNotMatch(runEvent(p, 'stop', stopPayload()), /Node 22\.13/);
-  });
-  test('Stop: no run, no report-turn marker: nothing is asked of the moved commands', () => {
-    const p = project({ run: false }); wrapFailing(p, ['report-tokens', 'summary']);
-    assert.doesNotMatch(runEvent(p, 'stop', stopPayload()), /Node 22\.13/);
-  });
-  test('SessionStart: next failing is said in the session context, with Node 22.13', () => {
-    const p = project(); wrapFailing(p, ['next']);
-    const out = runEvent(p, 'session', { hook_event_name: 'SessionStart' });
-    assert.match(out, /agent\.sh next exited 127/);
-    assert.match(out, /Node 22\.13/);
-  });
-  test('PreToolUse: summary failing inside a path check (knowledge step) denies at the end of the event', () => {
-    const p = project(); wrapFailing(p, ['summary']);
-    const r = runHook(p, 'Write', { file_path: join(p, 'docs/design/x.md') });
-    denied(r, 'summary exited 127', 'knowledge path check');
-    assert.match(r.reason, /Node 22\.13/);
-  });
-  test('PreToolUse: config-get failing inside a path check denies (hook-config unavailable, run open)', () => {
-    const p = project(); wrapFailing(p, ['hook-config', 'config-get']);
-    const r = runHook(p, 'Write', { file_path: join(p, 'src/a.txt') });
-    denied(r, 'Node 22.13', 'config-get fallback');
-  });
-  test('the other wiring files start only the hook: no moved command in a hook command string', () => {
-    for (const f of ['adapters/claude/hooks/hooks.json', 'adapters/claude/settings.fragment.json', 'adapters/codex/hooks.json']) {
-      const t = readFileSync(join(repo, f), 'utf8');
-      assert.ok(!/agent\.sh/.test(t), `${f} runs agent.sh`);
-    }
-  });
-});

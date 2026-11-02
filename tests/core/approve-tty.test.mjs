@@ -16,8 +16,7 @@ const skip = havePython ? false : 'python3 (the pty module) is not installed';
 const PTY = `
 import os, pty, sys, time, select, signal
 dirp, engine, mode = sys.argv[1], sys.argv[2], sys.argv[3]
-env = dict(os.environ); env.pop('PROOFLINE_ENGINE', None)
-if engine == 'sh': env['PROOFLINE_ENGINE'] = 'sh'
+env = dict(os.environ)
 pid, fd = pty.fork()
 if pid == 0:
     os.chdir(dirp)
@@ -64,7 +63,7 @@ after(() => { if (template) rmSync(template, { recursive: true, force: true }); 
 /** @param {'sh' | 'node'} engine @param {string} mode */
 function run(engine, mode) {
   const dir = copyProject(template, base);
-  const rq = spawnSync('sh', ['.agents/scripts/agent.sh', 'request-approval', 'LC', 'plan'], { cwd: dir, env: cleanEnv({ PROOFLINE_ENGINE: 'sh' }), encoding: 'utf8' });
+  const rq = spawnSync('sh', ['.agents/scripts/agent.sh', 'request-approval', 'LC', 'plan'], { cwd: dir, env: cleanEnv(), encoding: 'utf8' });
   assert.equal(rq.status, 0, rq.stderr);
   const r = spawnSync('python3', [script, dir, engine === 'sh' ? 'sh' : 'node', mode], { encoding: 'utf8', env: cleanEnv({}), timeout: 30000 });
   assert.equal(r.status, 0, r.stderr);
@@ -74,15 +73,13 @@ function run(engine, mode) {
 }
 
 for (const mode of ['accept', 'wrong', 'eof']) {
-  test(`approve at a terminal: ${mode}, Node engine equals shell engine`, { skip }, () => {
-    const sh = run('sh', mode); const node = run('node', mode);
-    assert.deepEqual(node, sh);
+  test(`approve at a terminal: ${mode}`, { skip }, () => {
+    const node = run('node', mode);
     if (mode === 'accept') { assert.match(node.out, /approval recorded: LC plan \(tty\)/); assert.match(node.approvals, /source: "tty"/); } else assert.equal(node.approvals, '');
     if (mode !== 'accept') assert.match(node.out, /approval refused: the user's words contain no approval phrase/);
   });
 }
 
-test('approve at a terminal: a user who has not typed yet is waited for by both engines', { skip }, () => {
-  assert.equal(run('sh', 'wait').out.trim(), 'STILL_RUNNING');
+test('approve at a terminal: a user who has not typed yet is waited for', { skip }, () => {
   assert.equal(run('node', 'wait').out.trim(), 'STILL_RUNNING');
 });

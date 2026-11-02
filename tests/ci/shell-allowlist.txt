@@ -1,4 +1,3 @@
-adapters/claude/hooks/proofline-hook.sh
 adapters/codex/install.sh
 adapters/generate.sh
 bin/lib/commands.sh
@@ -120,7 +119,6 @@ skills/performance-proof/scripts/run-bench.sh
 skills/verify-proof/scripts/ecosystems.sh
 skills/verify-proof/scripts/runtime-versions.sh
 tests/affected.sh
-tests/bench/big-run.sh
 tests/bench/hook-procs.sh
 tests/bench/run-doc-size.sh
 tests/ci/affected-test.sh

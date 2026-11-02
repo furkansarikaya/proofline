@@ -216,13 +216,13 @@ runtime_failure_reason() { # LOG
 # The proofline PreToolUse hook is the confinement of a bypassPermissions worker (A114): the script must be
 # present, non-empty and parse, and .claude/settings.json must wire it under PreToolUse (same logic as doctor).
 pre_tool_hook_wired() {
-  ph=$root/.agents/hooks/proofline-hook.sh; pj=$root/.claude/settings.json
-  [ -s "$ph" ] && sh -n "$ph" 2>/dev/null && [ -f "$pj" ] || return 1
+  ph=$root/.agents/hooks/proofline-hook.mjs; pj=$root/.claude/settings.json
+  [ -s "$ph" ] && [ -f "$pj" ] && command -v node >/dev/null 2>&1 && node --check "$ph" 2>/dev/null || return 1
   if command -v jq >/dev/null 2>&1; then
-    jq -e '[(.hooks.PreToolUse // [])[] | (.hooks // [])[] | .command // ""] | any(contains("proofline-hook.sh"))' "$pj" >/dev/null 2>&1
+    jq -e '[(.hooks.PreToolUse // [])[] | (.hooks // [])[] | .command // ""] | any(contains("proofline-hook.mjs"))' "$pj" >/dev/null 2>&1
   elif command -v node >/dev/null 2>&1; then
     node -e 'try { const g = (JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hooks || {}).PreToolUse || [];
-      process.exit(g.some((x) => (x.hooks || []).some((h) => String(h.command).includes("proofline-hook.sh"))) ? 0 : 1) } catch (e) { process.exit(1) }' "$pj"
+      process.exit(g.some((x) => (x.hooks || []).some((h) => String(h.command).includes("proofline-hook.mjs"))) ? 0 : 1) } catch (e) { process.exit(1) }' "$pj"
   else return 1; fi # shortcut: no JSON tool means refuse (fail closed), install jq or node
 }
 
