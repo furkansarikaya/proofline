@@ -1,0 +1,23 @@
+# legacy suite	scenario	behaviour	node test file::test name (temporary; append only)
+lifecycle-test	scenario_fingerprint_excludes_agents	.agents/ changes are not content, product changes are, no gate goes stale	tests/core/port-t2-fingerprint.test.mjs::scenario_fingerprint_excludes_agents
+lifecycle-test	scenario_fingerprint_scoped_agents_path	a plan-scoped .agents/ path is content and stales the gates; an unscoped one is not	tests/core/port-t2-fingerprint.test.mjs::scenario_fingerprint_scoped_agents_path
+lifecycle-test	scenario_fingerprint_knowledge_extensions	knowledge-scope documents leave the gate fingerprint by extension, executables count, 500 documents cost few git rm calls	tests/core/port-t2-fingerprint.test.mjs::scenario_fingerprint_knowledge_extensions
+lifecycle-test	scenario_upgrade_named_path	a plan-scope-named installed file stays tracked, an unnamed manifest file does not	tests/core/port-t2-fingerprint.test.mjs::scenario_upgrade_named_path
+lifecycle-test	scenario_upgrade_named_pattern_path	a plan-scope-named proofline-*.md stays tracked, an unnamed one does not	tests/core/port-t2-fingerprint.test.mjs::scenario_upgrade_named_pattern_path
+lifecycle-test	scenario_upgrade_keeps_tier	an upgrade keeps tier and required gates, a product change raises the tier (CODE_DONE reachability is unmoved)	tests/core/port-t2-fingerprint.test.mjs::scenario_upgrade_keeps_tier
+lifecycle-test	scenario_second_marker_pair	only the first marker pair is the block (fingerprint part; the reopen refusal is unmoved)	tests/core/port-t2-fingerprint.test.mjs::scenario_second_marker_pair
+lifecycle-test	scenario_upgrade_product_edits	an AGENTS.md edit outside the block is a product change (fingerprint part)	tests/core/port-t2-fingerprint.test.mjs::scenario_upgrade_product_edits
+lifecycle-test	scenario_reopen_after_upgrade	installed files and the block are control plane, no gate goes stale (fingerprint part; reopen is unmoved)	tests/core/port-t2-fingerprint.test.mjs::scenario_reopen_after_upgrade (fingerprint part)
+lifecycle-test	scenario_fingerprint_new_block_file AGENTS.md	a new block-only file is control plane, extra text is content	tests/core/port-t2-fingerprint.test.mjs::scenario_fingerprint_new_block_file AGENTS.md
+lifecycle-test	scenario_fingerprint_new_block_file CLAUDE.md	a new block-only file is control plane, extra text is content	tests/core/port-t2-fingerprint.test.mjs::scenario_fingerprint_new_block_file CLAUDE.md
+lifecycle-test	scenario_base_moved_control_only	a control-plane-only commit keeps the plan fresh, one base-moved line (reopen is unmoved)	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_control_only
+lifecycle-test	scenario_base_moved_stale	product file, AGENTS.md edit outside the block, foreign base stale the plan	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_stale
+lifecycle-test	scenario_base_moved_agents_files	.agents manifest/scripts keep the plan fresh, .agents/runs stales it	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_agents_files
+lifecycle-test	scenario_base_moved_agents_named	a plan-scope-named .agents file in a commit stales the plan	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_agents_named
+lifecycle-test	scenario_base_moved_named_path	a plan-scope-named installed path in a commit stales the plan	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_named_path
+lifecycle-test	scenario_base_moved_updates_base	an accepted move writes the new HEAD to base_sha, ledger keeps the old (reopen is unmoved)	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_updates_base
+lifecycle-test	scenario_base_moved_new_block_file AGENTS.md	new block-only file keeps the plan fresh; text, second pair, lone marker, no markers, symlink stale it	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_new_block_file
+lifecycle-test	scenario_base_moved_new_block_file CLAUDE.md	same for CLAUDE.md	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_new_block_file
+gates-test	sc_report_stdin	fingerprint parts: tasks dir outside the fingerprint, read-only object database (submit --report part is unmoved)	tests/core/port-t2-fingerprint.test.mjs::sc_report_stdin (fingerprint parts)
+gates-test	sc_legacy_fingerprint_new_rule	gates on the current rule are stale after a product edit with a block-only AGENTS.md	tests/core/port-t2-fingerprint.test.mjs::sc_legacy_fingerprint_new_rule
+gates-test	sc_legacy_fingerprint	obsolete: backward compatibility (gate fingerprint of releases 0.0.12/0.0.13)	-
