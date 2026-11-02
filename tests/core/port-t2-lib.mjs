@@ -114,3 +114,43 @@ export function shell(root, args, o = {}) {
 
 /** @returns {Record<string, Record<string, { out: string, err: string, code: number | null }>>} */
 export function golden() { return JSON.parse(readFileSync(path.join(dataDir, 'golden.json'), 'utf8')); }
+
+// ---- traces: the calls of a legacy scenario recorded once from the shell (tests/fixtures/port-t2/trace/*.json.gz) --------------------------------------
+
+export const traceDir = path.join(dataDir, 'trace');
+/** @typedef {{ blobs: Record<string, SnapFile>, states: Record<string, { base: Record<string, string>, files: Record<string, string>, baseSha: string }>, calls: Array<{ state: string, args: string[], role: string, out: string, err: string, code: number | null }> }} Trace */
+
+/** @param {string} name @returns {Trace} */
+export function loadTrace(name) { return JSON.parse(gunzipSync(readFileSync(path.join(traceDir, `${name}.json.gz`))).toString('utf8')); }
+
+/**
+ * A replayer for one trace: the base commit is made once, every state is a copy of it with its working tree written over.
+ * @param {Trace} tr
+ */
+export function replayer(tr) {
+  const first = Object.values(tr.states)[0];
+  const master = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2t-')));
+  made.push(master);
+  cpSync(agentsSrc, path.join(master, '.agents'), { recursive: true });
+  spawnSync('git', ['init', '-q', '-b', 'main', master], { env: GIT_ENV });
+  git(master, ['config', 'gc.auto', '0']);
+  writeFileSync(path.join(master, '.gitignore'), '.agents/runs/\n.agents/local/\n');
+  for (const [rel, k] of Object.entries(first.base)) put(path.join(master, rel), tr.blobs[k]);
+  git(master, ['add', '-A']); git(master, ['commit', '-q', '-m', 'baseline']);
+  const sha = git(master, ['rev-parse', 'HEAD']).trim();
+  return {
+    sha,
+    /** @param {string} key the project of a recorded state, in a fresh folder */
+    state(key) {
+      const st = tr.states[key];
+      const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2s-')));
+      made.push(root);
+      cpSync(master, root, { recursive: true, verbatimSymlinks: true });
+      for (const rel of Object.keys(st.base)) if (!(rel in st.files) && existsSync(path.join(root, rel))) rmSync(path.join(root, rel), { force: true });
+      for (const [rel, k] of Object.entries(st.files)) put(path.join(root, rel), tr.blobs[k]);
+      const y = path.join(root, '.agents/runs/LC/RUN.yaml');
+      if (existsSync(y) && st.baseSha) writeFileSync(y, readFileSync(y, 'latin1').split(st.baseSha).join(sha), 'latin1');
+      return root;
+    },
+  };
+}
