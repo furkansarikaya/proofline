@@ -21,3 +21,6 @@ lifecycle-test	scenario_base_moved_new_block_file CLAUDE.md	same for CLAUDE.md	t
 gates-test	sc_report_stdin	fingerprint parts: tasks dir outside the fingerprint, read-only object database (submit --report part is unmoved)	tests/core/port-t2-fingerprint.test.mjs::sc_report_stdin (fingerprint parts)
 gates-test	sc_legacy_fingerprint_new_rule	gates on the current rule are stale after a product edit with a block-only AGENTS.md	tests/core/port-t2-fingerprint.test.mjs::sc_legacy_fingerprint_new_rule
 gates-test	sc_legacy_fingerprint	obsolete: backward compatibility (gate fingerprint of releases 0.0.12/0.0.13)	-
+gates-test	sc_tier	docs, code-like markdown, risky path, size limits, never decreasing, CRITICAL gate set with REVIEW_DATA (the `tier` command that records is unmoved; the recorded value is set directly)	tests/core/port-t2-tier.test.mjs::sc_tier
+gates-test	sc_tier_paths	docs only by extension, docs/ code is not docs, dependency manifests full, small limits on code files	tests/core/port-t2-tier.test.mjs::sc_tier_paths
+lifecycle-test	scenario_uncommitted_block_file	an uncommitted block-only AGENTS.md/CLAUDE.md is control plane for verify-scope; extra text, second pair, lone marker, no markers, symlink are product changes with the hint (reopen step unmoved)	tests/core/port-t2-tier.test.mjs::scenario_uncommitted_block_file
