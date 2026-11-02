@@ -118,7 +118,27 @@ gates-test	sc_rollback_note	no moved-command assertion: the rollback warning is 
 risk-test	sc_probe_benchmark_dotnet	no moved-command assertion: the benchmark probe belongs to record/submit (unmoved)	-
 risk-test	sc_unsupported_toolfree	no moved-command assertion: the refusal is submit's (unmoved)	-
 gates-test	sc_validation_refreeze	no moved-command assertion: refreeze enforces the validation line (unmoved)	-
-risk-test	sc_unsupported_evidence	NOT PORTED: recording failed in the recording environment (the contract-proof validator wrote nothing); needs a second look	-
+risk-test	sc_unsupported_evidence	unsupported evidence: the validator's own output, snapshotted and sha-bound [moved calls replayed]	tests/core/port-t2-replay.test.mjs::risk-test__sc_unsupported_evidence
 perf-test	sc_digest_same_output	digest agrees with next, and a recorded gate is seen by the next process	tests/core/port-t2-replay.test.mjs::perf-test__sc_digest_same_output
 perf-test	sc_hook_events_not_in_ledger	hook events go to HOOKS.log, never to the hash-chained ledger (verify-seal part)	tests/core/port-t2-replay.test.mjs::perf-test__sc_hook_events_not_in_ledger
 perf-test	sc_next_digest_budget	next and digest stay under the process budget on a realistic run	tests/bench/process-budgets.test.mjs (process budgets of next/digest, absolute)
+next-user-test	sc_every_state_finished	every next-user command in a finished run ends in one user command, never agent.sh	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_finished
+next-user-test	sc_every_state_codedone	same in a CODE_DONE run	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_codedone
+next-user-test	sc_every_state_failed	same in a failed (BLOCKED) run	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_failed
+next-user-test	sc_every_state_none	same with no run (placeholders allowed)	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_none
+next-user-test	sc_every_state_active	same in an active run	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_active
+next-user-test	sc_every_state_question	same with an open question	tests/core/port-t3-replay.test.mjs::next-user-test__sc_every_state_question
+next-user-test	sc_ci_rows	CI-related next-step rows	tests/core/port-t3-replay.test.mjs::next-user-test__sc_ci_rows
+next-user-test	sc_batch_parked	next steps with a parked batch task	tests/core/port-t3-replay.test.mjs::next-user-test__sc_batch_parked
+next-user-test	sc_expected_steps	the exact Next step line per run state and command	tests/core/port-t3-replay.test.mjs::next-user-test__sc_expected_steps
+next-user-test	sc_delivery_finished	next steps after delivery finished	tests/core/port-t3-replay.test.mjs::next-user-test__sc_delivery_finished
+next-user-test	sc_unknown_command	an unknown next-user command is refused with the shape of the error	tests/core/port-t3-replay.test.mjs::next-user-test__sc_unknown_command
+next-user-test	sc_batch_every_state	every command in every batch task state ends in a user command	tests/core/port-t3-replay.test.mjs::next-user-test__sc_batch_every_state
+batch-test	sc_park_skip_continue	park, skip and continue of batch tasks (read commands: open-runs, next, status)	tests/core/port-t3-replay.test.mjs::batch-test__sc_park_skip_continue
+batch-test	sc_worktree_cmds	worktree commands of batch tasks (open-runs per worktree)	tests/core/port-t3-replay.test.mjs::batch-test__sc_worktree_cmds
+lifecycle-test	scenario_window_open_no_plan	window-open without a plan	tests/core/port-t3-replay.test.mjs::lifecycle-test__scenario_window_open_no_plan
+lifecycle-test	scenario_digest_resume	digest of a resumed run	tests/core/port-t3-replay.test.mjs::lifecycle-test__scenario_digest_resume
+cifix-test	sc_ci_fix_limit	the CI-fix attempt limit and its texts (status/next)	tests/core/port-t3-replay.test.mjs::cifix-test__sc_ci_fix_limit
+timeouts-test	warn_line	the timeout warning line of next/status	tests/core/port-t3-replay.test.mjs::timeouts-test__warn_line
+deliver-test	scenario_ci_check	ci-check per platform and workflow trigger spelling (github, gitlab, bitbucket, azure)	tests/core/port-t3-replay.test.mjs::deliver-test__scenario_ci_check
+debt-test	whole	shortcut-debt list/page, wiki page written or absent, role permissions	tests/core/port-t3-replay.test.mjs::debt-test__whole

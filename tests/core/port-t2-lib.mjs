@@ -119,7 +119,7 @@ export function golden() { return JSON.parse(readFileSync(path.join(dataDir, 'go
 // ---- traces: the calls of a legacy scenario recorded once from the shell (tests/fixtures/port-t2/trace/*.json.gz) --------------------------------------
 
 export const traceDir = path.join(dataDir, 'trace');
-/** @typedef {{ blobs: Record<string, SnapFile>, states: Record<string, { base: Record<string, string>, files: Record<string, string>, baseSha: string, pack?: string, deleted?: string[] }>, calls: Array<{ state: string, args: string[], role: string, out: string, err: string, code: number | null }> }} Trace */
+/** @typedef {{ blobs: Record<string, SnapFile>, states: Record<string, { base: Record<string, string>, files: Record<string, string>, baseSha: string, pack?: string, deleted?: string[], dirs?: string[], remotes?: Record<string, string> }>, calls: Array<{ state: string, args: string[], role: string, out: string, err: string, code: number | null }> }} Trace */
 
 /** @param {string} name @returns {Trace} */
 export function loadTrace(name) { return JSON.parse(gunzipSync(readFileSync(path.join(traceDir, `${name}.json.gz`))).toString('utf8')); }
@@ -165,6 +165,8 @@ export function replayer(tr) {
       for (const rel of Object.keys(st.base)) if (!(rel in st.files)) rmSync(path.join(root, rel), { force: true });
       for (const rel of /** @type {string[]} */ (st.deleted ?? [])) rmSync(path.join(root, rel), { recursive: true, force: true });
       for (const [rel, k] of Object.entries(st.files)) put(path.join(root, rel), tr.blobs[k]);
+      for (const [rn, url] of Object.entries(/** @type {Record<string, string>} */ (st.remotes ?? {}))) spawnSync('git', ['-C', root, 'remote', 'add', rn, url], { env: GIT_ENV });
+      for (const rel of /** @type {string[]} */ (st.dirs ?? [])) mkdirSync(path.join(root, rel), { recursive: true });
       if (st.baseSha && existsSync(path.join(root, '.agents/runs'))) {
         for (const r of readdirSync(path.join(root, '.agents/runs'))) {
           const y = path.join(root, '.agents/runs', r, 'RUN.yaml');
@@ -187,3 +189,12 @@ export function stateOf(name) {
   const key = Object.keys(tr.states)[0];
   return rp.state(key);
 }
+
+/** The traces of the T3 port (texts and navigation: next-user, batch, debt, window, digest, ci-fix limit, timeouts warn line, deliver ci-check): replayed by port-t3-replay.test.mjs. */
+export const T3_TRACES = [
+  'next-user-test__sc_every_state_finished', 'next-user-test__sc_every_state_codedone', 'next-user-test__sc_every_state_failed', 'next-user-test__sc_every_state_none',
+  'next-user-test__sc_every_state_active', 'next-user-test__sc_every_state_question', 'next-user-test__sc_ci_rows', 'next-user-test__sc_batch_parked',
+  'next-user-test__sc_expected_steps', 'next-user-test__sc_delivery_finished', 'next-user-test__sc_unknown_command', 'next-user-test__sc_batch_every_state',
+  'batch-test__sc_park_skip_continue', 'batch-test__sc_worktree_cmds', 'lifecycle-test__scenario_window_open_no_plan', 'lifecycle-test__scenario_digest_resume',
+  'cifix-test__sc_ci_fix_limit', 'timeouts-test__warn_line', 'deliver-test__scenario_ci_check', 'debt-test__whole',
+];

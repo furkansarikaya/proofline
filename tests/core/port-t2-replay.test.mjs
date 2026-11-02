@@ -6,10 +6,10 @@
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { describe, test } from 'node:test';
-import { loadTrace, node, replayer, traceDir } from './port-t2-lib.mjs';
+import { T3_TRACES, loadTrace, node, replayer, traceDir } from './port-t2-lib.mjs';
 
 const only = process.env.PORT_T2_ONLY;
-const names = readdirSync(traceDir).filter((f) => f.endsWith('.json.gz')).map((f) => f.slice(0, -8)).filter((n) => !only || n.includes(only)).sort();
+const names = readdirSync(traceDir).filter((f) => f.endsWith('.json.gz')).map((f) => f.slice(0, -8)).filter((n) => !T3_TRACES.includes(n) && (!only || n.includes(only))).sort();
 
 /** The text with the volatile parts of the project spelled the same on both sides. @param {string} s @param {string} base */
 const mask = (s, base) => (base === '' ? s : s.split(base).join('<BASE>'));

@@ -16,13 +16,15 @@ const blobKey = (buf, mode) => createHash('sha1').update(String(mode)).update('\
 /** @param {string} root @param {string[]} args */
 const git = (root, args) => spawnSync('git', ['-C', root, ...args], { env: GIT_ENV, maxBuffer: 1 << 28 });
 
-/** @param {string} root @param {string} dir @param {string[]} out */
-function walk(root, dir, out) {
-  for (const n of readdirSync(path.join(root, dir))) {
+/** @param {string} root @param {string} dir @param {string[]} out @param {string[]} [empty] */
+function walk(root, dir, out, empty) {
+  const names = readdirSync(path.join(root, dir));
+  if (empty && dir && names.length === 0) empty.push(dir);
+  for (const n of names) {
     const rel = dir ? `${dir}/${n}` : n;
     if (rel === '.git') continue;
     const st = lstatSync(path.join(root, rel));
-    if (st.isDirectory()) walk(root, rel, out); else if (st.isFile() || st.isSymbolicLink()) out.push(rel);
+    if (st.isDirectory()) walk(root, rel, out, empty); else if (st.isFile() || st.isSymbolicLink()) out.push(rel);
   }
 }
 
@@ -63,7 +65,8 @@ export function snapshot(root, blobs) {
     base[rel] = put(git(root, ['show', `${baseRef}:${rel}`]).stdout, mode);
   }
   /** @type {string[]} */ const all = [];
-  walk(root, '', all);
+  /** @type {string[]} */ const dirs = [];
+  walk(root, '', all, dirs);
   /** @type {Record<string, string>} */ const files = {};
   for (const rel of all) {
     if (rel.startsWith('.agents/')) {
@@ -91,6 +94,9 @@ export function snapshot(root, blobs) {
   /** @param {string} dir */
   const missing = (dir) => { for (const n of readdirSync(path.join(agentsSrc, dir))) { const rel = dir ? `${dir}/${n}` : n; if (rel === 'scripts') continue; const st = lstatSync(path.join(agentsSrc, rel)); if (st.isDirectory()) { if (existsSync(path.join(root, '.agents', rel))) missing(rel); else deleted.push(`.agents/${rel}`); } else if (!existsSync(path.join(root, '.agents', rel))) deleted.push(`.agents/${rel}`); } };
   missing('');
-  const state = { base, files, baseSha, ...(pack ? { pack } : {}), ...(deleted.length ? { deleted } : {}) };
+  // the remotes (their urls decide the platform): .git/config is not part of the snapshot
+  /** @type {Record<string, string>} */ const remotes = {};
+  for (const l of git(root, ['config', '--get-regexp', '^remote\\..*\\.url$']).stdout.toString('latin1').split('\n')) { const m = /^remote\.(.+)\.url (.*)$/.exec(l); if (m) remotes[m[1]] = m[2]; }
+  const state = { base, files, baseSha, ...(Object.keys(remotes).length ? { remotes } : {}), ...(pack ? { pack } : {}), ...(deleted.length ? { deleted } : {}), ...(dirs.length ? { dirs } : {}) };
   return { key: createHash('sha1').update(JSON.stringify(state)).digest('hex'), state };
 }
