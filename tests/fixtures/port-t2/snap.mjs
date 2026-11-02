@@ -46,7 +46,13 @@ export function snapshot(root, blobs) {
   const ls = git(root, ['ls-tree', '-r', '-z', baseRef]).stdout.toString('latin1').split('\0').filter(Boolean);
   for (const ent of ls) {
     const tab = ent.indexOf('\t'); const rel = ent.slice(tab + 1);
-    if (rel.startsWith('.agents/')) continue;
+    if (rel.startsWith('.agents/')) {
+      // a tracked .agents file that differs from the shipped control plane (a test stub, a scoped file) belongs to the base commit
+      const rest = rel.slice(8);
+      if (rel.startsWith('.agents/runs/') || rel.startsWith('.agents/local/') || rel.startsWith('.agents/scripts/')) continue;
+      const cur = git(root, ['show', `${baseRef}:${rel}`]).stdout;
+      if (existsSync(path.join(agentsSrc, rest)) && readFileSync(path.join(agentsSrc, rest)).equals(cur)) continue;
+    }
     const mode = ent.startsWith('100755') ? 0o755 : 0o644;
     base[rel] = put(git(root, ['show', `${baseRef}:${rel}`]).stdout, mode);
   }

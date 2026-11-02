@@ -24,3 +24,8 @@ gates-test	sc_legacy_fingerprint	obsolete: backward compatibility (gate fingerpr
 gates-test	sc_tier	docs, code-like markdown, risky path, size limits, never decreasing, CRITICAL gate set with REVIEW_DATA (the `tier` command that records is unmoved; the recorded value is set directly)	tests/core/port-t2-tier.test.mjs::sc_tier
 gates-test	sc_tier_paths	docs only by extension, docs/ code is not docs, dependency manifests full, small limits on code files	tests/core/port-t2-tier.test.mjs::sc_tier_paths
 lifecycle-test	scenario_uncommitted_block_file	an uncommitted block-only AGENTS.md/CLAUDE.md is control plane for verify-scope; extra text, second pair, lone marker, no markers, symlink are product changes with the hint (reopen step unmoved)	tests/core/port-t2-tier.test.mjs::scenario_uncommitted_block_file
+risk-test	sc_log_words_match	log words: whole identifier parts, case-insensitive, plural; discard and classname are false friends	tests/core/port-t2-drift.test.mjs::sc_log_words_match
+risk-test	sc_log_pattern_wide	the widened log pattern opens for Console/Debug/Trace/Fprint*/print/puts/dump with a sensitive word; false friends stay closed	tests/core/port-t2-drift.test.mjs::sc_log_pattern_wide
+risk-test	sc_not_contract_drift	the not-a-contract list equals the one of contract-proof	tests/core/port-t2-drift.test.mjs::sc_not_contract_drift
+risk-test	sc_probe_drift	unmoved: checks the probe_visual function of agent.sh (record) against measure.mjs; stays with record (stage 5)	-
+gates-test	sc_validation_node	obsolete: agent.sh equals the node validators (shell-vs-Node equality); the shared default word list is checked by sc_validation_tiers replay	-
