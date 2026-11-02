@@ -15,13 +15,16 @@ const STAGE1 = ['role', 'config-get', 'config-check', 'timeouts', 'hook-timeouts
 // stage 2, package TOOLS (appended block)
 const STAGE2_TOOLS = ['debt', 'task-type', 'task-scope-entries', 'scope-covers', 'human-checks', 'questions', 'repro-normalize', 'design-surface', 'test-path', 'path-kind', 'scope-kinds'];
 const MOVED = [...STAGE1, ...STAGE2_TOOLS];
+// stage 4, package 4A: their agent.sh arms are deleted (A212)
+const STAGE4A = ['baseline', 'discard-stray', 'branch', 'tier', 'classify', 'verify-assumptions', 'delivery-check', 'db-check', 'ask', 'status-block', 'tree-inspect', 'tree-accept', 'task-source-status', 'task-source-relocate'];
+const NO_SHELL_ARM = ['next-user', ...STAGE4A];
 
 describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {
     const cli = agentSh.slice(agentSh.indexOf('\ncase "$command" in\n  role)'));
     const labels = [...cli.matchAll(/^  ([a-z][a-z0-9|-]*)\)/gm)].flatMap((m) => m[1].split('|'));
-    // next-user has no shell code any more (A210): it is only in the Node table, at its place of the old dispatch
-    labels.splice(COMMAND_NAMES.indexOf('next-user'), 0, 'next-user');
+    // a command without shell code any more (next-user, A210; the stage 4 commands as they move) is only in the Node table, at its place of the old dispatch
+    for (const c of COMMAND_NAMES.filter((n) => NO_SHELL_ARM.includes(n))) labels.splice(COMMAND_NAMES.indexOf(c), 0, c);
     assert.equal(commandTable().length, 132);
     assert.deepEqual(commandTable().map((e) => e.name), labels);
     assert.deepEqual(COMMAND_NAMES, labels);

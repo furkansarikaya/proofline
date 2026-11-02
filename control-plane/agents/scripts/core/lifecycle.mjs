@@ -5,7 +5,7 @@
 // message text and the order of its shell original.
 import { lstatSync, opendirSync, renameSync, writeFileSync } from 'node:fs';
 import { fail, unsupported } from './errors.mjs';
-import { git, headSha, isAncestor, objectExists, show } from './git.mjs';
+import { currentBranch, git, headSha, isAncestor, objectExists, show } from './git.mjs';
 import { sha256 } from './hash.mjs';
 import { ledgerAppend } from './ledger.mjs';
 import { WS, authorizedPath, fileText, gatesEnforced, ledgerLines, planScope, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
@@ -21,7 +21,7 @@ export function enforceTaskBranch(ctx, id) {
   if (!sectionKeyPresent(ctx, dir, 'repository', 'task_branch')) return;
   const expected = sectionValue(ctx, dir, 'repository', 'task_branch');
   if (expected === '' || expected === 'PENDING') fail(`task branch not established for ${id}; run 'agent.sh branch ${id}' first`);
-  const current = git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '');
+  const current = currentBranch(ctx);
   if (current === '') fail(`detached HEAD: expected task branch ${expected} for ${id}`);
   if (current !== expected) fail(`wrong git branch for ${id}: expected ${expected}, currently on ${current}`);
 }

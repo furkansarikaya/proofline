@@ -125,7 +125,7 @@ function windowRole(r) {
 }
 
 /** `resolve_topology` @param {Context} ctx @param {string} dir */
-function topology(ctx, dir) {
+export function topology(ctx, dir) {
   const t = sectionValue(ctx, dir, 'execution', 'topology');
   if (t === 'standalone' || t === 'orchestrated') return t;
   const d = ctx.config().get('default_topology', '');
@@ -134,7 +134,7 @@ function topology(ctx, dir) {
 }
 
 /** The window records of a run, in the order of their numbers. @param {string} ev */
-function windowFiles(ev) {
+export function windowFiles(ev) {
   let names = [];
   try { names = readdirSync(ev).filter((n) => /^WINDOW-[0-9]+\.yaml$/.test(n)); } catch { /* none */ }
   return names.sort((a, b) => Number(a.slice(7, -5)) - Number(b.slice(7, -5)) || (a < b ? -1 : 1));

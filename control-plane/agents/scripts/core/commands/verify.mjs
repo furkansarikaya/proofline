@@ -81,7 +81,7 @@ function checkFreeze(ctx, id) {
 function existsAny(p) { try { statSync(p); return true; } catch { return false; } }
 
 /** @param {Context} ctx @param {string} id @param {boolean} [quiet] */
-function verifyFreeze(ctx, id, quiet = false) {
+export function verifyFreeze(ctx, id, quiet = false) {
   ctx.fpMode = 'refresh';
   checkFreeze(ctx, id);
   if (!quiet) ctx.out(`freeze verified: ${id}\n`);
@@ -101,7 +101,7 @@ function mappingsOrFail(ctx, dir) {
  * `verify_scope ID [ALLOW-KNOWLEDGE]`. Returns the exit status.
  * @param {Context} ctx @param {string} id @param {boolean} allowArg
  */
-function verifyScope(ctx, id, allowArg) {
+export function verifyScope(ctx, id, allowArg) {
   ctx.fpMode = 'refresh';
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
@@ -145,7 +145,7 @@ function verifyScope(ctx, id, allowArg) {
 }
 
 /** `knowledge_owned_paths ID`. @param {Context} ctx @param {string} id @returns {string[]} */
-function knowledgeOwnedPaths(ctx, id) {
+export function knowledgeOwnedPaths(ctx, id) {
   const dir = runDir(ctx, id);
   const maps = mappingsOrFail(ctx, dir);
   /** @type {string[]} */ const out = [];
@@ -166,7 +166,7 @@ function knowledgeOwnedPaths(ctx, id) {
 }
 
 /** @param {Context} ctx @param {string} id */
-function verifyKnowledgeScope(ctx, id) {
+export function verifyKnowledgeScope(ctx, id) {
   ctx.fpMode = 'refresh';
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
@@ -188,7 +188,7 @@ function verifyKnowledgeScope(ctx, id) {
 // ---- freshness -------------------------------------------------------------------------------------------------------------------
 
 /** @param {Context} ctx @param {string} id */
-function freshness(ctx, id) {
+export function freshness(ctx, id) {
   ctx.fpMode = 'refresh';
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
@@ -231,7 +231,7 @@ function freshness(ctx, id) {
 // ---- verify-handoff --------------------------------------------------------------------------------------------------------------
 
 /** @param {Context} ctx @param {string} id @param {boolean} allow */
-function verifyHandoff(ctx, id, allow) {
+export function verifyHandoff(ctx, id, allow) {
   ctx.fpMode = 'refresh';
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
