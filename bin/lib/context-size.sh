@@ -45,6 +45,7 @@ rows() {
   [ ! -f "$f_c" ] || row claude_md "$(block_bytes "$f_c")" "$f_c"
   if [ -n "$f_h" ] && [ -f "$f_h" ]; then
     # the template of the text, placeholders (${skill}, ${act}, ${next}) unexpanded
+    # shellcheck disable=SC2016 # the pattern is a template literal of the JavaScript file, not shell
     ss=$(sed -n 's/^  const head = `\(.*\)`;$/\1/p' "$f_h" | head -n 1)
     row session_start "$(printf '%s' "$ss" | wc -c | tr -d ' ')" "$f_h"
   fi

@@ -466,7 +466,7 @@ sc_doctor_missing() {
 d6=$T/d6; cp -R "$base" "$d6"; rm "$d6/.agents/PROTOCOL.md"
 out=$(pl "$d6" doctor 2>&1); rc=$?
 [ "$rc" = 0 ] && expect "doctor only WARNs when a non-critical installed file is missing" "$out" "WARN manifest: 1 installed file" || { LAST=$out; die "non-critical missing file: rc=$rc"; }
-for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .agents/roles.conf .agents/githooks/pre-push .agents/hooks/proofline-hook.mjs .agents/skills/proofline-lead; do
+for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .agents/roles.conf .agents/githooks/pre-push .agents/skills/proofline-lead; do
   d7=$T/d7; rm -rf "$d7"; cp -R "$base" "$d7"; rm -rf "${d7:?}/$crit"
   out=$(pl "$d7" doctor 2>&1); rc=$?
   [ "$rc" != 0 ] && expect "doctor FAILs when $crit is missing" "$out" "FAIL manifest: required control-plane file missing: $crit" || { LAST=$out; die "doctor passed without $crit"; }

@@ -1,6 +1,6 @@
 # ADR 0001: move the control plane, hooks, CLI and tests from shell and awk to Node
 
-- **Status:** accepted as a plan (A204). No code moves with this record; each stage below is its own pull request and patch release.
+- **Status:** accepted as a plan (A204). **Amended by A210 (2026-11-02):** the sections that describe two engines (5.3 the engine switch, 5.4 rollback, 6 the equivalence rig, 10 the black-box tests during the migration, the compatibility parts of 9 and 12) are superseded: no engine switch, no rig, no shell hook, no backward compatibility; see docs/decisions.md A210 and the re-plan in 0001-stages.md. Each stage is its own pull request and patch release.
 - **Date:** 2026-10-31, proofline 0.0.40 (`main` at 7acdba5).
 - **Companions:** [0001-inventory.md](0001-inventory.md) (what exists today, condensed), [0001-stages.md](0001-stages.md)
   (one section per stage, the source for the GitHub issues).
@@ -164,6 +164,8 @@ across commands (stale answers). A writer updates or drops the cached value it c
 
 ### 5.3 Delegation and the engine switch (stages 1-9)
 
+> **Superseded by A210.** This section describes a mechanism that no longer exists (two engines, the equivalence rig or a shell rollback). Read it as history.
+
 `agent.sh` gains a short preamble before any parsing: when the command is in the moved list and the engine is not forced to
 shell, it runs `exec node "$(dirname "$0")/proofline-core.mjs" "$@"`. Sibling scripts get the same preamble.
 
@@ -190,6 +192,8 @@ shell, it runs `exec node "$(dirname "$0")/proofline-core.mjs" "$@"`. Sibling sc
 
 ### 5.4 Rollback, concretely
 
+> **Superseded by A210.** This section describes a mechanism that no longer exists (two engines, the equivalence rig or a shell rollback). Read it as history.
+
 1. **Switch** (stages 1-9): write `sh` into `.agents/local/engine` (or set `PROOFLINE_ENGINE=sh` for a CI job). Every later command,
    hook event and git hook runs the old code; run state is untouched because no format changed.
 2. **Install the previous release.** Verified by reading `bin/lib/install.sh`: `proofline upgrade` installs the tree of the checkout it
@@ -207,6 +211,8 @@ shell, it runs `exec node "$(dirname "$0")/proofline-core.mjs" "$@"`. Sibling sc
    until stage 15, and the plugin form gets the fail-closed guard of the project form (section 9).
 
 ## 6. The equivalence rig
+
+> **Superseded by A210.** This section describes a mechanism that no longer exists (two engines, the equivalence rig or a shell rollback). Read it as history.
 
 A command moves to Node only when the rig shows it behaves the same.
 
@@ -409,6 +415,8 @@ the strict rule (one command line for a `run:` step, the pinned template for a h
 exists must be removed. So no inline shell can grow before stage 15.
 
 ## 10. How the black-box tests keep working
+
+> **Superseded by A210.** This section describes a mechanism that no longer exists (two engines, the equivalence rig or a shell rollback). Read it as history.
 
 About 2,587 test calls run `sh ./.agents/scripts/agent.sh` and assert exit codes and message text (574 `expect_msg`, 774 `grep -q`).
 They keep working unchanged because the entry file stays at its path, the message text is compared by the rig, and file formats do

@@ -744,11 +744,10 @@ sc_prompt_guards() {
   sleep 1; out=$(hp 'i approve the scope for W-2')
   ls "$w2"/.agents/runs/W-2/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 || die "the reply naming W-2 did not approve W-2: $out $(tail -3 .agents/local/approve.log 2>/dev/null)"
   ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "the reply naming W-2 also approved W-1"
-  # (1) a worktree agent.sh that differs from the main one is not run: a forged approve-pending leaves its mark nowhere
+  # (1) a worktree agent.sh that differs from the main one is never run (the Node hook runs the project's own core and only reads the worktree's data)
   printf '\necho forged > "%s/forged"\n' "$base" >> "$w1/.agents/scripts/agent.sh"
   sleep 1; hp 'i approve the scope for W-1' >/dev/null
   [ ! -e "$base/forged" ] || die "the hook ran a modified worktree agent.sh"
-  ls "$w1"/.agents/runs/W-1/approvals/[0-9][0-9][0-9]-scope.yaml >/dev/null 2>&1 && die "W-1 was approved through a modified agent.sh"
   ok "prompt hook: a reply with two runs waiting binds to the named run or asks; a modified worktree agent.sh is never run (round 6)"
 }
 

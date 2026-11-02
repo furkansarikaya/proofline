@@ -35,13 +35,26 @@ describe('the core entry accepts only the commands it owns', () => {
     }
   });
   test('the lead, and a read-only command of any role, are refused too: not a command of the Node core', () => {
-    for (const [role, cmd] of [['lead', UNMOVED[0]], ['lead', UNMOVED[1]], ['lead', UNMOVED_READ_ONLY], ['explorer', UNMOVED_READ_ONLY], ['implementer', 'handoff'], ['lead', 'nonsense'], ['lead', '']]) {
+    for (const [role, cmd] of [['lead', UNMOVED[0]], ['lead', UNMOVED[1]], ['lead', UNMOVED_READ_ONLY], ['explorer', UNMOVED_READ_ONLY], ['implementer', 'handoff']]) {
       proc.resetSpawnCounts();
       const m = memoryIo('/nonexistent-root', { AGENT_ROLE: role });
       assert.equal(run([cmd, 'T-1'], m.io), 2, `${role} ${cmd}`);
       assert.match(m.stderr(), /not a command of the Node core; run it with agent\.sh/);
       assert.equal(m.stdout(), '');
       assert.equal(proc.spawnCounts().total, 0);
+    }
+  });
+  test('a name that is no command, and no command at all, are answered with the usage text (exit 2) and the lock folder, nothing started', () => {
+    for (const cmd of ['nonsense', '']) {
+      const dir = mkdtempSync(path.join(tmpdir(), 'pl-usage-'));
+      try {
+        proc.resetSpawnCounts();
+        const m = memoryIo(dir, {});
+        assert.equal(run([cmd], m.io), 2, cmd);
+        assert.match(m.stderr(), /^usage: agent\.sh <command> \[args\]/);
+        assert.equal(m.stdout(), '');
+        assert.equal(proc.spawnCounts().total, 0);
+      } finally { rmSync(dir, { recursive: true, force: true }); }
     }
   });
   test('as a process: node proofline-core.mjs <unmoved command> exits non-zero and changes nothing', () => {

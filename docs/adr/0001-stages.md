@@ -17,28 +17,28 @@ are the launchers listed in the ADR, which only start Node. The 132 `agent.sh` c
 and the hash chain stay byte for byte as they are, so a run continues across any upgrade or rollback. Runtime dependencies: Node 22.13
 or newer and Node's own libraries; no npm package. Faster: one process per command or hook event instead of 15 to 1,930.
 
-**Stages.** Each stage is its own branch, pull request and patch version, and ends with the real-session smoke.
+**Stages (re-plan of A210, 2026-11-02; replaces the 15-stage table of A204).** Each stage is its own branch, pull request and patch version, and
+ends with the real-session smoke. Stages 1 to 3 are done (0.0.41 to 0.0.43, 0.0.44 and 0.0.45 for the cleanup). A210 removed the second
+engine: no engine switch, no equivalence rig, no shell hook, no backward compatibility; a moved area's shell code and shell tests are deleted
+in the same pull request, and its behaviour is proved by absolute Node tests (recorded goldens and ports of the shell scenarios).
 
-| order | stage | depends on | estimate (agent-days) |
+| order | stage | issue | estimate (agent-days) |
 |---|---|---|---|
-| 1 | Equivalence rig, core skeleton, spawn wrapper, ratchet, config commands | - | 6-9 |
-| 2 | Read-only commands | 1 | 7-10 |
-| 3 | Hooks, approval and answer fast path, git hooks | 2 | 8-12 |
-| 4 | Run lifecycle | 2, 3 | 5-8 |
-| 5 | Gates, results and reports | 4 | 6-9 |
-| 6 | Delivery: deliver, merge, platform and task adapters, CI watching | 5 | 5-7 |
-| 7 | Dispatch, batch, worktrees, execution policy | 5, 6 | 6-9 |
-| 8 | Discovery, build records and the remaining helpers | 7 | 3-5 |
-| 9 | CLI, generators and the shell scripts in skill folders | 8 | 5-7 |
-| 10 | Removal of the shell paths | 9 | 3-4 |
-| 11 | Test harness, runner, CI scripts and workflow logic | 10 | 4-6 |
-| 12 | Control-plane test suites | 11 | 8-12 |
-| 13 | Enforcement, invariant, CLI, task, e2e and real-session tests | 11 | 4-6 |
-| 14 | Fixtures | 11 | 3-5 |
-| 15 | Strict no-shell-logic check and the last shell files | 12, 13, 14 | 1-2 |
-| follow-up | Tool-call economy (outside the 15 stages, its own issue; see [Follow-up: tool-call economy](#follow-up-tool-call-economy)): measuring after stage 2, shipping commands and role texts after stage 10 | 2 (measure), 10 (ship) | 3-5 |
+| 1 | Core skeleton, spawn wrapper, ratchet, config commands (done) | #166 | - |
+| 2 | Read-only commands (done) | #167 | - |
+| 3 | Hooks, approval and answer fast path, git hooks (done) | #168 | - |
+| 4 | Run lifecycle and gates: `start`, `classify`, `freeze`, `handoff`, `submit`, `record`, `gate`, `waive`, results and reports | #169 | 8-12 |
+| 5 | Delivery: `deliver-plan`, `deliver-step`, `deliver-merged`, `pr-state`, merge, platform and task adapters, CI watching | #171 | 4-6 |
+| 6 | Dispatch and batch: `decide`, `run-language`, `metrics-dispatch`, worktrees, `batch-*`, execution policy | #172 | 5-7 |
+| 7 | Discovery, build records, the remaining helpers, the CLI front ends, generators and the scripts of skill folders | #173 | 6-9 |
+| 8 | Harness, fixtures and CI: the test runner and fixtures in Node, the workflow logic in Node, the end of the CI fast mode | #176 | 6-9 |
+| 9 | The no-shell check: strict `no-shell-logic`, the last launchers | #180 | 1-2 |
 
-Total: 74-111 agent-days (estimate), about 15-23 weeks (estimate) at one patch per working day. Basis: lines to port per stage
+The old stages 4 to 15 below are kept as source material for the scope lists of the new stages; where they speak of two engines, the
+equivalence rig, the engine switch, the shell hook as a rollback target or the removal of the shell paths as a separate stage, they are
+superseded by A210.
+
+Total of the re-plan: 30-45 agent-days for stages 4 to 9 (estimate; A210). The figure below is the superseded 15-stage plan: 74-111 agent-days (estimate), about 15-23 weeks (estimate) at one patch per working day. Basis: lines to port per stage
 (inventory), test volume, recent patch sizes, and a 2-3 agent-day allowance in stage 1 for building the rig and recording traces.
 Stages 12, 13 and 14 may run in parallel (they touch different folders).
 
@@ -46,7 +46,7 @@ Stages 12, 13 and 14 may run in parallel (they touch different folders).
 effort, CI time and trace volume are compared with the estimates here, and stages 3-15 are re-estimated (and re-ordered if needed) in a
 decision entry.
 
-**Common acceptance criteria.** Every stage's own criteria include these; the stage sections refer to them as C1-C8.
+**Common acceptance criteria (C1 and C2 are superseded by A210: there is no rig and no engine switch; the proof is absolute Node tests and the Node invariants).** Every stage's own criteria include these; the stage sections refer to them as C1-C8.
 
 - **C1 Equivalence.** Every command the stage moves has scenario cases and trace cases in `tests/equivalence/`; the `equivalence` CI
   job is green on Linux and the nightly full replay is green on Linux and macOS; the alternating-engine lifecycle case is green; no
