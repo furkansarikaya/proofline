@@ -10,18 +10,14 @@ import { test } from 'node:test';
 import { touches } from './cases-lib.mjs';
 import { stage3Cases } from './cases/stage3-commands.mjs';
 import { coreAbsent } from './fixture.mjs';
-import { DEFAULT_SIDE, SH_SIDE, compareSides, formatDiffs, runSide } from './rig.mjs';
+import { formatDiffs, runCase } from './rig.mjs';
 import { touchedCommands } from './scope.mjs';
 
 const cmds = touchedCommands();
 for (const c of stage3Cases()) {
   test(`equivalent on both engines: ${c.name}`, { skip: touches(c, cmds) ? false : 'not touched by this change' }, () => {
-    const work = mkdtempSync(join(tmpdir(), 'eq-work.'));
-    try {
-      assert.ok(!coreAbsent());
-      const a = runSide(c, SH_SIDE, { work }); const b = runSide(c, DEFAULT_SIDE, { work });
-      const d = compareSides(a, b, ['sh', 'default'], { pendingApproval: true });
-      assert.equal(d.length, 0, formatDiffs(d));
-    } finally { rmSync(work, { recursive: true, force: true }); }
+    assert.ok(!coreAbsent());
+    const d = runCase(c, undefined, { pendingApproval: true });
+    assert.equal(d.length, 0, formatDiffs(d));
   });
 }

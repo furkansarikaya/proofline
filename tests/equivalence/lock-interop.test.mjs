@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { baseEnv, copyTree, coreAbsent, scaffoldFixture, SKIP_NO_CORE } from './fixture.mjs';
-import { compareSides, DEFAULT_SIDE, SH_SIDE, runSide } from './rig.mjs';
+import { SH_SIDE, runPair, runSide } from './rig.mjs';
 
 /** @typedef {'sh'|'default'} Engine */
 const PAIRS = /** @type {[Engine, Engine][]} */ ([['sh', 'sh'], ['sh', 'default'], ['default', 'sh']]);
@@ -57,14 +57,14 @@ test('a stale run lock is broken with the same lock-break ledger event on both e
   /** @type {import('./rig.mjs').Step[]} */
   const steps = [{ exec: ['mkdir', '-p', '.agents/runs/LC/.lock'] }, { write: { path: '.agents/runs/LC/.lock/pid', content: `${deadPid}\n` } }, { args: ['ledger-note', 'LC', 'after a stale lock'] }];
   const c = { name: 'stale lock', fixture, steps };
-  const a = runSide(c, SH_SIDE); const b = runSide(c, DEFAULT_SIDE);
+  const { a, b, d } = runPair(c); // one retry when the only differences are the shell's ts=/epoch= flake (isShellFlake)
   for (const [name, s] of /** @type {[string, import('./normalise.mjs').Side][]} */ ([['sh', a], ['default', b]])) {
     assert.equal(s.outputs[1].code, 0, `${name}: ${s.outputs[1].stderr}`);
     const ledger = String(s.files.get('.agents/runs/LC/LEDGER.log')?.data);
     assert.match(ledger, new RegExp(`event=lock-break .* detail=stale lock holder pid=${deadPid}\\n`), `${name}: no lock-break event`);
     assert.ok(!s.files.has('.agents/runs/LC/.lock/pid'), `${name}: the lock is released`);
   }
-  assert.deepEqual(compareSides(a, b), []);
+  assert.deepEqual(d, []);
 });
 
 test('the 0.0.40 shell breaks a stale run lock with a lock-break event (harness check for the sh engine)', () => {
