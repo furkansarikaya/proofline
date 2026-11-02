@@ -11,6 +11,7 @@ import { ProoflineError } from './errors.mjs';
 import { git } from './git.mjs';
 import { humanChecks } from './taskfile.mjs';
 import { isFile } from './paths.mjs';
+import { asciiLower } from './shellglob.mjs';
 import * as proc from './proc.mjs';
 import { fileLines, fileText, sectionValue, textLines, validTaskId } from './records.mjs';
 import { runDir } from './runs.mjs';
@@ -43,7 +44,7 @@ export function scrub(text) {
     else if (t.includes('@') || t.includes('=')) t = '[redacted]';
     else if (/^(ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|sk-|sk_|pk_|rk_|AKIA|xox|AIza|eyJ)/.test(t) || t.includes('BEGIN') || /_(live|test)_/.test(t)) t = '[redacted]';
     else if (t.length >= 24 && /[0-9]/.test(t) && /[A-Za-z]/.test(t)) t = '[redacted]';
-    else if (CRED.test(t.toLowerCase())) { t = t.replace(/:$/, ''); nx = true; }
+    else if (CRED.test(asciiLower(t))) { t = t.replace(/:$/, ''); nx = true; }
     if (t !== '[redacted]' && t !== '[path]') t = t.replace(/[^A-Za-z0-9._%+!?&#-]/g, '');
     if (t === '') continue;
     out += (out === '' ? '' : ' ') + t;
@@ -77,8 +78,8 @@ function blockType(text) {
     const l = lines[i];
     if (i === 0 && l !== '---' && /^# /.test(l)) continue;
     if (/^---[ \t\n\v\f\r]*$/.test(l)) { fm = !fm; if (!fm && seen) return ''; seen = true; continue; }
-    if (fm && l.startsWith('type:')) return l.replace(/^type:[ \t]*/, '').replace(/["']/g, '').toLowerCase().replace(/[ \r]/g, '');
-    if (l.startsWith('**Type:**')) return l.replace(/^\*\*Type:\*\*[ \t]*/, '').toLowerCase().replace(/[ \r]/g, '');
+    if (fm && l.startsWith('type:')) return asciiLower(l.replace(/^type:[ \t]*/, '').replace(/["']/g, '')).replace(/[ \r]/g, '');
+    if (l.startsWith('**Type:**')) return asciiLower(l.replace(/^\*\*Type:\*\*[ \t]*/, '')).replace(/[ \r]/g, '');
   }
   return '';
 }

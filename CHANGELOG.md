@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Node migration, stage 4, package 4A (A212, issue #169): 14 more commands run in Node and their shell arms are deleted (a shell function stays until the last shell command that calls it in process moves, package 4B/4C): `baseline`, `discard-stray`, `branch`, `tier`, `classify`, `verify-assumptions`, `delivery-check`, `db-check`, `ask`, `status-block`, `tree-inspect`, `tree-accept`, `task-source-status`, `task-source-relocate`. `db-check` is one process, `classify`, `tier`, `baseline`, `delivery-check` and `status-block` start two to seven. File formats, output texts and exit codes are unchanged (the deliberate differences are in A212: a symlink in the working tree now stops `baseline` before anything is written, and `answer` updates the status block in process). The commands are proved by Node tests (`tests/core/run4a-*.test.mjs`); the shell scenarios of `sc_tier`, `sc_tier_paths`, `sc_ask`, `sc_class_floor`, `scenario_tree_recovery`, `scenario_task_source_status`, `scenario_task_contract_relocate` and the discard-stray part of `scenario_hardening` are deleted.
+
 ## 0.0.46 — 2026-11-02
 
 - Session-bound user answers verified live (A211, refs #196): Codex command environments carry `CODEX_SESSION_ID` and `CODEX_THREAD_ID` equal to the `session_id` of the Codex hook payload (no change to the binding); new real-session smoke row `SMOKE_ONLY=a196` for Claude Code only (the Codex row is left out: the ids were verified live, the end-to-end Codex row was not run) (an INTENT `USER_ONLY` question answered in the same Claude Code session is recorded as the user's; a question asked under another session id is not answered by this session).
