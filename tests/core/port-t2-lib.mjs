@@ -142,6 +142,9 @@ export function replayer(tr) {
       spawnSync('git', ['init', '-q', '-b', 'main', root], { env: GIT_ENV });
       git(root, ['config', 'gc.auto', '0']);
       writeFileSync(path.join(root, '.gitignore'), '.agents/runs/\n.agents/local/\n');
+      // what the legacy fixture never had of the shipped control plane is absent from the base commit too (deleted in every state of the trace)
+      const all = Object.values(tr.states).map((x) => x.deleted ?? []);
+      for (const rel of all.length ? all[0].filter((d) => all.every((l) => l.includes(d))) : []) rmSync(path.join(root, rel), { recursive: true, force: true });
       for (const [rel, k] of Object.entries(st.base)) put(path.join(root, rel), tr.blobs[k]);
       git(root, ['add', '-A']); git(root, ['commit', '-q', '-m', 'baseline']);
       m = { root, sha: git(root, ['rev-parse', 'HEAD']).trim() };

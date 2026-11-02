@@ -14,7 +14,7 @@ const names = readdirSync(traceDir).filter((f) => f.endsWith('.json.gz')).map((f
 /** The text with the volatile parts of the project spelled the same on both sides. @param {string} s @param {string} base */
 const mask = (s, base) => (base === '' ? s : s.split(base).join('<BASE>'));
 
-describe('legacy scenarios, moved commands', () => {
+describe('legacy scenarios, moved commands', { concurrency: 4 }, () => {
   for (const name of names) {
     test(name, () => {
       const tr = loadTrace(name);
