@@ -109,7 +109,7 @@ if [ ! -f "$dir/done" ]; then
     done
     src=0; sout=''
     # shellcheck disable=SC2086 # the paths are plain generated names
-    [ -z "$paths" ] || sout=$(node "$here/proofline-core.mjs" cli secret-scan --root "$root" $paths 2>"$sd/err") || src=$?
+    [ -z "$paths" ] || sout=$(node "$here/proofline-core.mjs" cli scan-secrets --root "$root" $paths 2>"$sd/err") || src=$?
     if [ "$src" != 0 ]; then
       if [ "$src" = 1 ]; then
         printf '%s\n' "$sout" | while IFS=: read -r fp ln rl; do
