@@ -24,7 +24,7 @@ import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf, localTaskSource, localTaskSourceRun, setRunValue, taskSourceContractHash } from './lifecycle.mjs';
 import { must, quietly } from './lifeutil.mjs';
 import { nextStep } from './next.mjs';
-import { cleanToolEnv, detectPlatform, linkText, parseJson, resolveTool, runTool, ciFailed } from './platform.mjs';
+import { cleanToolEnv, detectPlatform, linkText, resolveGit, parseJson, resolveTool, runTool, ciFailed } from './platform.mjs';
 import * as proc from './proc.mjs';
 import { runTaskAdapter } from './adapters/index.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
@@ -74,6 +74,15 @@ export function originUrl(ctx) {
     if (statSync(abs).isDirectory()) return abs;
   } catch { /* not a folder next to the main working tree */ }
   return `${main}/${u}`;
+}
+
+/**
+ * The URL git really contacts for origin: `git ls-remote --get-url origin` applies `url.<x>.insteadOf`. Pinned in the summary next to `origin_url`
+ * (A215 round 3). '' when it cannot be read. @param {Context} ctx @param {string} [gitPath]
+ */
+export function originEffective(ctx, gitPath = 'git') {
+  const r = proc.run(gitPath, ['-C', ctx.root, 'ls-remote', '--get-url', 'origin'], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+  return r.status === 0 ? sub(r.stdout.toString('latin1')) : '';
 }
 
 /** `origin_push_cmd BRANCH [FLAGS]` @param {Context} ctx @param {string} branch @param {string} [flags] */
@@ -316,6 +325,7 @@ export function deliverPlan(ctx, id, rest) {
   const head = sub(git(ctx, ['rev-parse', 'HEAD']).out);
   let s = `delivery: ${id} (${kind} pull request)\nrun: ${state}\nbranch: ${br}\nbase: ${base}\nremote: origin\nowner: ${own}\nhead: ${head}\ncontent: ${fp}\n`;
   s += `origin_url: ${originUrl(ctx) ?? ''}\n`;
+  s += `origin_effective: ${originEffective(ctx)}\n`;
   s += `platform: ${info.platform}\ntool: ${info.cli}\nmerge_by: ${byCli ? 'proofline' : 'user'}\n`;
   if (noCi) s += 'ci: verified locally, no CI\n';
   // a fresh nonce per plan: an approval or consumed step of an earlier, otherwise identical summary never counts
@@ -446,7 +456,12 @@ export function deliverMerged(ctx, id, flag) {
   requireLead(ctx);
   const dir = runDir(ctx, id);
   const ddir = deliverDir(ctx, id);
-  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => proc.run('git', ['-C', cwdTree, ...a], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  // A215 round 3: ONE git, found under the location rule of the platform tools (never one inside the project, the working directory or a temporary
+  // folder), run by its absolute path with the allowlisted environment: a fake git on the caller's PATH proves nothing
+  const gt = resolveGit(ctx);
+  if ('unreadable' in gt) fail(`deliver-merged: no trusted git to prove the merge with (${gt.unreadable}); nothing is recorded`);
+  const gitBin = gt.path;
+  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => proc.run(gitBin, ['-C', cwdTree, ...a], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
   const gs = (/** @type {string[]} */ a, tree = ctx.root) => sub(g(a, tree).stdout.toString('latin1'));
   const mergeHead = `${ddir}/MERGE_HEAD`;
   const mh = fileText(ctx, mergeHead);
@@ -465,8 +480,16 @@ export function deliverMerged(ctx, id, flag) {
   const [dmHead = '', dmBase = '', dmBr = ''] = (fileText(ctx, mergeHead) ?? '').replace(/\n+$/, '').split('\t');
   if (g(['cat-file', '-e', `${dmHead}^{commit}`]).status !== 0) fail(`deliver-merged: the delivered commit ${dmHead !== '' ? dmHead : '?'} is unknown here`);
   const ou = originUrl(ctx) ?? 'origin';
+  // the origin read here is the one the summary pinned (A215 round 3): the url and the url git really contacts (url.<x>.insteadOf). A remote re-pointed
+  // at a repository the model controls would make any delivery look merged
+  {
+    const sl = fileLines(ctx, `${ddir}/SUMMARY.md`);
+    const pinned = sumVal(sl, 'origin_url'); const pinnedEff = sumVal(sl, 'origin_effective');
+    const eff = originEffective(ctx, gitBin);
+    if (pinned === '' || ou !== pinned || eff === '' || eff !== pinnedEff) fail(`deliver-merged: origin changed since the summary was approved (was '${pinned}', now '${ou}'${eff !== pinnedEff ? `; git contacts '${eff}', was '${pinnedEff}'` : ''}), so no merge is proven from it: plan the delivery again`);
+  }
   // the fetch is the proof of the merge: it reads the remote with an allowlisted environment (no GIT_CONFIG_*, GIT_SSH_COMMAND, proxy or config redirect, A215)
-  const fetched = proc.run('git', ['-C', ctx.root, 'fetch', '-q', '--', ou, `+refs/heads/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+  const fetched = proc.run(gitBin, ['-C', ctx.root, 'fetch', '-q', '--', ou, `+refs/heads/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
   if (fetched.status !== 0) fail(`deliver-merged: cannot read origin/${dmBase} (git fetch origin ${dmBase} failed)`);
   const tipR = g(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}`]);
   if (tipR.status !== 0) fail(`deliver-merged: origin/${dmBase} not found`);
@@ -881,7 +904,9 @@ export function deliverStep(ctx, id, step, prArg) {
         if (sub(git(ctx, ['rev-parse', 'HEAD']).out) !== head) stop('HEAD moved');
         if (v('origin_url') !== ou) stop(`origin changed since the summary was approved (was '${v('origin_url')}', now '${ou}'): plan the delivery again`);
         if (ctx.config().get('git.push_requires_approval', 'true') !== 'false') consumeApproval(ctx, id, /** @type {string} */ (app));
-        const pushed = proc.run('git', ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'pipe'] });
+        const gtp = resolveGit(ctx);
+        if ('unreadable' in gtp) stop(`no trusted git to push with (${gtp.unreadable})`);
+        const pushed = proc.run(gtp.path, ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'pipe'] });
         if (pushed.status !== 0) stop(`git push to ${ou} failed: ${(pushed.stderr.toString('latin1') + pushed.stdout.toString('latin1')).trim().split('\n').slice(0, 3).join(' ')}`);
         git(ctx, ['update-ref', `refs/remotes/${v('remote')}/${br}`, head]);
         ctx.out(`pushed: ${br} -> ${ou}\nthen: agent.sh deliver-step ${id} pr\n`);

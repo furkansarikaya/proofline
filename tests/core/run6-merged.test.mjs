@@ -2,7 +2,7 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
@@ -96,6 +96,52 @@ test('deliver-merged: a fast-forward merge is proven (ancestor of origin/main), 
   assert.match(out, /not on a clean main/);
   assert.match(read(d, '.agents/local/batch/merged.tsv'), /^LC\t-\t/m);
   assert.ok(!existsSync(`${d}/.agents/runs/LC`));
+});
+
+test('SECURITY (A215 round 3): a remote re-pointed after the summary was approved, or url.<x>.insteadOf, never proves a merge; deliver-merged names the change and records nothing', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  loChain(d, lo);
+  mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
+  assert.notEqual(A(d, ['deliver-merged', 'LC']).status, 0, 'precondition: not merged on the real origin');
+  const realMain = g(d, `--git-dir=${lo}`, 'rev-parse', 'refs/heads/main');
+  const fake = `${d}/.agents/local/scratch/fake.git`;
+  gOk(d, 'clone', '-q', '--bare', lo, fake);
+  gOk(d, `--git-dir=${fake}`, 'update-ref', 'refs/heads/main', g(d, 'rev-parse', 'proofline/LC-lookup'));
+  // 1. origin re-pointed at a fake that says "merged"
+  gOk(d, 'remote', 'set-url', 'origin', fake);
+  let out = A(d, ['deliver-merged', 'LC']);
+  assert.notEqual(out.status, 0, out.text);
+  assert.match(out.text, /origin changed since the summary was approved/);
+  assert.ok(existsSync(`${d}/.agents/runs/LC`), 'the run is kept');
+  assert.ok(!/^LC\t/m.test(existsSync(`${d}/.agents/local/batch/merged.tsv`) ? read(d, '.agents/local/batch/merged.tsv') : ''), 'nothing recorded');
+  // 2. the url kept, an insteadOf rewrite sends it to the fake
+  gOk(d, 'remote', 'set-url', 'origin', lo);
+  gOk(d, 'config', `url.${fake}.insteadOf`, lo);
+  out = A(d, ['deliver-merged', 'LC']);
+  assert.notEqual(out.status, 0, out.text);
+  assert.match(out.text, /origin changed since the summary was approved/);
+  assert.equal(g(d, `--git-dir=${lo}`, 'rev-parse', 'refs/heads/main'), realMain);
+});
+
+test('SECURITY (A215 round 3): a fake git first on PATH (in the project) neither fakes the merge-proof fetch nor is run by the delivery', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  loChain(d, lo);
+  mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
+  const realGit = run(d, 'sh', ['-c', 'command -v git']).out.trim();
+  const bin = `${d}/.agents/local/scratch/bin`;
+  mkdirSync(bin, { recursive: true });
+  const mark = `${d}/.agents/local/scratch/fake-git-ran`;
+  wf(`${bin}/git`, `#!/bin/sh\necho "$*" >> "${mark}"\nfor a in "$@"; do if [ "$a" = fetch ]; then "${realGit}" -C "$2" update-ref refs/remotes/origin/main "$("${realGit}" -C "$2" rev-parse proofline/LC-lookup)"; exit 0; fi; done\nexec "${realGit}" "$@"\n`);
+  chmodSync(`${bin}/git`, 0o755);
+  const out = A(d, ['deliver-merged', 'LC'], { env: { PATH: `${bin}:${process.env.PATH}` } });
+  assert.notEqual(out.status, 0, out.text);
+  assert.ok(!/fetch/.test(existsSync(mark) ? read(d, '.agents/local/scratch/fake-git-ran') : ''), 'the fake git never answered the fetch');
+  assert.ok(existsSync(`${d}/.agents/runs/LC`), 'the run is kept');
+  assert.ok(!/^LC\t/m.test(existsSync(`${d}/.agents/local/batch/merged.tsv`) ? read(d, '.agents/local/batch/merged.tsv') : ''), 'nothing recorded');
 });
 
 /** The finished run LC moves with its uncommitted work into its own worktree (night mode). @param {string} d @returns {string} the worktree */

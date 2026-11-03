@@ -111,7 +111,7 @@ function insideFolder(file, dir) {
  * @param {Context} ctx @param {string} name @returns {{ path: string } | { unreadable: string }}
  */
 export function resolveTool(ctx, name) {
-  const r = resolveToolIn(ctx.env, name, [ctx.root, ctx.cwd, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/var/folders', '/dev/shm']);
+  const r = resolveToolIn(ctx.env, name, refusedDirs(ctx));
   if ('path' in r) return r;
   return 'shadowed' in r ? { unreadable: `unreadable (${name} at ${r.shadowed} may be shadowed)` } : r;
 }
@@ -134,6 +134,21 @@ export function resolveToolIn(env, name, dirs) {
   for (const d of dirs) if (insideFolder(g, d)) return { shadowed: g };
   return { path: g };
 }
+
+/**
+ * Is FILE in a folder a model can write: the project, the working directory or a temporary folder? By folder identity (A215 round 2).
+ * @param {Context} ctx @param {string} file
+ */
+export function refusedLocation(ctx, file) { return refusedDirs(ctx).some((d) => insideFolder(file, d)); }
+
+/** The folders a model can write. @param {Context} ctx @returns {string[]} */
+function refusedDirs(ctx) { return [ctx.root, ctx.cwd, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/private/tmp', '/var/folders', '/dev/shm']; }
+
+/**
+ * The git every delivery step runs (A215 round 3): found once on the PATH under the same location rule as the platform tools, never a git inside the
+ * project, the working directory or a temporary folder. @param {Context} ctx @returns {{ path: string } | { unreadable: string }}
+ */
+export function resolveGit(ctx) { return resolveTool(ctx, 'git'); }
 
 /**
  * The platform of the origin remote (or of URL). Reads the config of the repository that holds DIR (default the project root).
@@ -281,6 +296,8 @@ export function cleanToolEnv(ctx, opt = {}) {
   /** @type {Record<string, string>} */
   const out = {};
   for (const [k, v] of Object.entries(src)) if (v !== undefined && (keep.has(k) || k.startsWith('LC_'))) out[k] = v;
+  // the PATH the tool and its own children (gh runs git) search: an entry that is relative or inside the project, the working directory or a temporary folder is dropped
+  if (out['PATH'] !== undefined) out['PATH'] = out['PATH'].split(path.delimiter).filter((e) => e.startsWith('/') && !refusedLocation(ctx, `${e}/x`)).join(path.delimiter);
   try { const h = userInfo().homedir; if (h !== '') out['HOME'] = h; } catch { /* no account entry: no HOME */ }
   return out;
 }
