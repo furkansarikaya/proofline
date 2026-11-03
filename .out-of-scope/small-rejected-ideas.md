@@ -7,7 +7,9 @@
 - **Hook guards as a security boundary against a hostile agent.** Hooks
   read command text and cannot see everything; they are tripwires against
   honest mistakes. The boundary against a hostile agent is the runtime's
-  permission mode and sandbox.
+  permission mode and sandbox. Decisions that rest on this: A217 (a nested
+  headless runtime can forge a user-only answer) and A218 (the merge proof
+  trusts the same user's file system), both in `docs/decisions.md`.
 - **Killing processes by pattern.** Agents never use pkill, killall or
   pattern kills; only the PID of a process they started.
 - **Asking the user to run internal commands.** Agents never ask the user
