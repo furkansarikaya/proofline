@@ -5,7 +5,7 @@
 // files. The front end (bin/proofline merge, the launcher of it) and the hook's denial of every other merge path stay covered by the shell suites
 // tests/enforcement/merge-guard-test.sh and platform-test.sh until the front end moves.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -13,6 +13,19 @@ import { run, toolRoot } from './run6-lib.mjs';
 import { scripts } from './legacy-lib.mjs';
 
 const core = `${scripts}/proofline-core.mjs`;
+/**
+ * A PATH that holds only what the merge needs (the real tools it runs, linked into one folder inside the checkout): no system folder, so a gh, glab or az that the
+ * host happens to have (the CI runner has /usr/bin/gh) is never found, and the tests that expect "no tool" or "a refused entry" do not depend on the machine.
+ */
+const minimal = (() => {
+  const d = path.join(toolRoot, `minpath-${process.pid}`);
+  mkdirSync(d, { recursive: true });
+  for (const t of ['git', 'sh', 'cat', 'sed', 'tr', 'head', 'tail', 'env', 'dirname', 'basename', 'mkdir', 'rm', 'grep', 'awk', 'wc', 'sort']) {
+    const real = run(d, 'sh', ['-c', `command -v ${t}`]).out.trim();
+    if (real !== '') symlinkSync(real, `${d}/${t}`);
+  }
+  return d;
+})();
 const sha = '1'.repeat(40);
 
 /** A project (a git repository with a GitHub origin) and a fake gh that answers from the files of its state folder. */
@@ -30,7 +43,7 @@ function setup() {
     wf(`${st}/view.json`, JSON.stringify({ number: 7, state, isDraft: draft, headRefOid: head, statusCheckRollup: rollup }));
     wf(`${st}/head.json`, JSON.stringify({ headRefOid: now }));
   };
-  const merge = (/** @type {string[]} */ args, /** @type {string} */ pathEnv = `${bin}:/usr/bin:/bin:${path.dirname(process.execPath)}`) => {
+  const merge = (/** @type {string[]} */ args, /** @type {string} */ pathEnv = `${bin}:${minimal}`) => {
     const r = run(proj, process.execPath, [core, 'cli', 'merge', ...args], { PATH: pathEnv });
     return { ...r, code: r.status };
   };
@@ -48,7 +61,7 @@ test('merge (GitLab): a draft is refused whether `draft` or the older `work_in_p
   wf(`${bin}/glab`, `#!/bin/sh\ncase "$*" in\n  *"mr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"mr view"*) cat "${st}/view.json" ;;\nesac\n`);
   chmodSync(`${bin}/glab`, 0o755);
   const mr = (/** @type {Record<string, unknown>} */ extra) => wf(`${st}/view.json`, JSON.stringify({ iid: 7, state: 'opened', sha, head_pipeline: { status: 'success', sha }, ...extra }));
-  const merge = () => run(proj, process.execPath, [core, 'cli', 'merge', '7'], { PATH: `${bin}:/usr/bin:/bin:${path.dirname(process.execPath)}` });
+  const merge = () => run(proj, process.execPath, [core, 'cli', 'merge', '7'], { PATH: `${bin}:${minimal}` });
   for (const extra of [{ draft: false, work_in_progress: true }, { work_in_progress: true }, { draft: true }, { draft: true, work_in_progress: false }]) {
     mr(extra);
     const r = merge();
@@ -143,7 +156,7 @@ test('merge: a gh in a temporary folder, in the working directory or behind an e
   const shadow = mkdtempSync(path.join(tmpdir(), 'mg-shadow-'));
   wf(`${shadow}/gh`, `#!/bin/sh\necho "$*" >> "${t.st}/merge.log"\n`);
   chmodSync(`${shadow}/gh`, 0o755);
-  const sys = `/usr/bin:/bin:${path.dirname(process.execPath)}`;
+  const sys = minimal;
   let r = t.merge(['7'], `${shadow}:${sys}`);
   assert.notEqual(r.code, 0);
   assert.ok(r.text.includes('possibly shadowed gh'), r.text);

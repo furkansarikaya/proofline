@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { test } from 'node:test';
-import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, pushed, readFileSync, refused, run, say, verbs } from './run6-lib.mjs';
+import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, pathWithoutPlatformTools, pushed, readFileSync, refused, run, say, verbs } from './run6-lib.mjs';
 import { approveAsUser, project } from './legacy-lib.mjs';
 
 const S = (/** @type {string} */ d, /** @type {Record<string, string>} */ env, /** @type {string[]} */ ...a) => A(d, ['deliver-step', 'LC', ...a], { env });
@@ -154,7 +154,7 @@ test('the platform picks the steps: bitbucket and an unrecognized host have no m
   assert.match(plan, /YOU open it and YOU merge it/);
   assert.match(plan, /bitbucket\.org\/acme\/app\/pull-requests\/new/);
   gOk(d, 'remote', 'set-url', 'origin', 'https://gitlab.com/acme/app.git');
-  accepted(A(d, ['deliver-plan', 'LC']), 'gitlab');
+  accepted(A(d, ['deliver-plan', 'LC'], { env: { PATH: pathWithoutPlatformTools() } }), 'gitlab');
   assert.match(sumOf(), /^merge_by: user$/m, 'gitlab without glab on PATH must be manual');
   const glab = fakeTool('glab');
   accepted(A(d, ['deliver-plan', 'LC'], { env: { PATH: `${glab}:${process.env.PATH}` } }), 'gitlab with glab');

@@ -2,7 +2,7 @@
 // Helpers of the stage 6 tests (delivery in Node, A215): a fake platform tool outside every temporary folder (the A180 rule refuses a tool that resolves into
 // the project, the working directory or a temporary folder; no environment value lifts it), the delivery chain driven step by step, and a git helper.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
@@ -95,6 +95,32 @@ export function commitDelivery(d, cwd = d) {
   gOk(cwd, 'add', '-A');
   const r = run(cwd, 'git', ['commit', '-qF', '.agents/local/deliver/LC/COMMIT_MSG']);
   if (r.status !== 0) throw new Error(`the approved commit was blocked: ${r.text}`);
+}
+
+/** @type {string | undefined} */
+let sansTools;
+/**
+ * A PATH with the folders of this process's PATH, minus the platform tools (gh, glab, az) that the host happens to have: one folder of links (inside the checkout)
+ * to every other program of those folders. A test that needs "no platform tool" runs with this, so it does not depend on the machine (a CI runner has /usr/bin/gh
+ * and /usr/bin/az). A tool the test puts in front of it is found first.
+ * @returns {string}
+ */
+export function pathWithoutPlatformTools() {
+  if (sansTools !== undefined) return sansTools;
+  const d = path.join(toolRoot, `sans-${process.pid}`);
+  mkdirSync(d, { recursive: true });
+  const seen = new Set(['gh', 'glab', 'az']);
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    let names = [];
+    try { names = readdirSync(dir); } catch { continue; }
+    for (const n of names) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      try { symlinkSync(path.join(dir, n), path.join(d, n)); } catch { /* not linkable */ }
+    }
+  }
+  sansTools = d;
+  return d;
 }
 
 export { A, accepted, refused, say, verbs, existsSync, readdirSync, readFileSync, writeFileSync, path };
