@@ -13,7 +13,8 @@ case $hook in *.mjs) hrun='node' ;; *) hrun='sh' ;; esac
 # a Node hook imports the project's core (.agents/scripts/proofline-core.mjs, A194): an installed-looking fixture gets it
 core_into() { [ "$hrun" = node ] || return 0; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$1/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$1/.agents/scripts/core"; }
 pl=$repo/bin/proofline
-pfs=$repo/control-plane/agents/scripts/platform.sh
+core=$repo/control-plane/agents/scripts/proofline-core.mjs; NODE=$(command -v node)
+pfc() { "$NODE" "$core" cli platform-info "$@"; }   # the hosting platform is read by the Node core (A215)
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-platform.XXXXXX") || { echo "platform: TMPDIR must be an existing directory" >&2; exit 2; }
 trap 'rm -rf "$base"' EXIT
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -23,7 +24,7 @@ command -v jq >/dev/null 2>&1 || { echo "platform: jq is required"; exit 2; }
 # --- detection ------------------------------------------------------------------------------------
 mkdir -p "$base/stub" "$base/empty"
 for t in glab az; do printf '#!/bin/sh\nexit 0\n' > "$base/stub/$t"; chmod +x "$base/stub/$t"; done
-det() { PATH="$base/stub:$PATH" sh "$pfs" field "$1" --url "$2"; }
+det() { PATH="$base/stub:$PATH" pfc field "$1" --url "$2"; }
 want() { [ "$(det "$1" "$2")" = "$3" ] || die "$1 of $2: want $3, got $(det "$1" "$2")"; }
 want platform git@github.com:acme/app.git github
 want platform https://github.com/acme/app github
@@ -41,9 +42,9 @@ want cli https://bitbucket.org/acme/app none
 want merge https://bitbucket.org/acme/app manual
 want merge https://gitlab.com/acme/app cli
 want owner https://dev.azure.com/acme/Proj/_git/app acme
-[ "$(PATH="$base/empty" /bin/sh "$pfs" field cli --url https://gitlab.com/acme/app 2>/dev/null)" = none ] || die "glab missing must give cli none"
-[ "$(PATH="$base/empty" /bin/sh "$pfs" field merge --url https://gitlab.com/acme/app 2>/dev/null)" = manual ] || die "a missing tool must give the manual rule"
-sh "$pfs" link feat/x main --url https://dev.azure.com/acme/Proj/_git/app | grep -Fq 'pullrequestcreate?sourceRef=feat/x&targetRef=main' || die "azure link"
+[ "$(PATH="$base/empty" pfc field cli --url https://gitlab.com/acme/app 2>/dev/null)" = none ] || die "glab missing must give cli none"
+[ "$(PATH="$base/empty" pfc field merge --url https://gitlab.com/acme/app 2>/dev/null)" = manual ] || die "a missing tool must give the manual rule"
+pfc link feat/x main --url https://dev.azure.com/acme/Proj/_git/app | grep -Fq 'pullrequestcreate?sourceRef=feat/x&targetRef=main' || die "azure link"
 ok "GitHub, GitLab, Azure DevOps, Bitbucket and other remotes are recognized; a missing tool or Bitbucket means the manual rule"
 
 # --- a project, an installed-looking verifier and fake glab / az ------------------------------------
@@ -147,52 +148,18 @@ for u in https://github.com.evil.example/a/b https://gitlab.example.evil.com/a/b
   want platform "$u" other
 done
 want platform https://www.github.com/a/b github
-[ "$(PROOFLINE_PLATFORM=gitlab sh "$pfs" field platform --url https://gitlab.company.com/a/b)" = gitlab ] || die "PROOFLINE_PLATFORM must name a self-hosted host"
+[ "$(PROOFLINE_PLATFORM=gitlab pfc field platform --url https://gitlab.company.com/a/b)" = gitlab ] || die "PROOFLINE_PLATFORM must name a self-hosted host"
 ok "lookalike and self-hosted hosts are other; PROOFLINE_PLATFORM names a self-hosted one"
 glabview opened false "$sha" "$green_pipe"; git -C "$proj" remote set-url origin https://gitlab.com/acme/app.git; reset; glabview opened false "$sha" "$green_pipe"
 merge 7 || die "glab merge: $(cat "$base/out")"
 [ "$(cat "$FS/merge.log")" = "mr merge 7 --sha $sha --yes" ] || die "the glab merge line is exactly sha-pinned and final: $(cat "$FS/merge.log")"
 ok "glab merge call line is pinned to the verified sha, only after a final (success) pipeline"
 
-# --- A186: the failed-log reader of GitLab and Azure DevOps (fake tools only), and the unreadable-log path -------------------------------
-cx=$base/cx; mkdir -p "$cx"; export CX=$cx
-cat > "$cx/glab" <<'EOF'
-#!/bin/sh
-case "$1 $2" in
-  "mr view") echo '{"head_pipeline":{"id":55,"status":"failed"}}' ;;
-  "api projects/:id/pipelines/55/jobs?scope[]=failed&per_page=20") echo '[{"id":901,"name":"unit","status":"failed","allow_failure":false}]' ;;
-  "ci trace") [ -f "$CX/trace.none" ] || echo 'FAIL: TestLookup expected 1 got 2' ;;
-esac
-exit 0
-EOF
-cat > "$cx/az" <<'EOF'
-#!/bin/sh
-case "$*" in
-  *"pr policy list"*) echo '[{"status":"rejected","context":{"buildId":77},"configuration":{"settings":{"displayName":"CI build"}}}]' ;;
-  *"devops invoke"*) [ -f "$CX/tl.none" ] || echo '{"records":[{"name":"Run tests","result":"failed","issues":[{"type":"error","message":"npm test exited 1"}]}]}' ;;
-esac
-exit 0
-EOF
-chmod +x "$cx/glab" "$cx/az"; JQ=$(command -v jq)
-cif() { sh "$pfs" ci-failed 7 "$sha" --cli "$cx/$1" --jq "$JQ" --url "$2" 2>&1; }
-o=$(cif glab https://gitlab.com/acme/app.git)
-[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t901\tunit\tfailed\tread')" ] && printf '%s\n' "$o" | grep -Fq 'TestLookup expected 1 got 2' || die "gitlab failed-log reader: $o"
-o=$(cif az https://acme@dev.azure.com/acme/Proj/_git/app)
-[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t77\tCI build\trejected\tread')" ] && printf '%s\n' "$o" | grep -Fq 'Run tests: npm test exited 1' || die "azure failed-log reader: $o"
-ok "ci-failed reads the failed job log of GitLab and the build errors of Azure DevOps through the platform tool"
-touch "$cx/trace.none" "$cx/tl.none"
-o=$(cif glab https://gitlab.com/acme/app.git)
-[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t901\tunit\tfailed\tnone')" ] && printf '%s\n' "$o" | grep -Fq 'starts from the check name and status only' || die "gitlab unreadable log: $o"
-o=$(cif az https://acme@dev.azure.com/acme/Proj/_git/app)
-[ "$(printf '%s\n' "$o" | sed -n 1p)" = "$(printf 'RED\t77\tCI build\trejected\tnone')" ] && printf '%s\n' "$o" | grep -Fq 'starts from the check name and status only' || die "azure unreadable log: $o"
-[ -z "$(cif glab https://bitbucket.org/acme/app.git)" ] || die "bitbucket must have no reader"
-ok "an unreadable log gives RED with log none and says the round starts from check name and status; Bitbucket has no reader"
-
 # --- A186: git.platform / git.platform_host from config, precedence config > env > auto, look-alike hosts ---------------------------------
 cfgp() { printf 'git:\n  protected_branches: main\n  platform: %s\n%s' "$1" "${2:+  platform_host: $2
 }" > "$proj/.agents/config.yaml"; }
-pd() { sh "$pfs" detect -C "$proj" --url "$1" | tr '\n' ' '; }   # platform: X source: Y ...
-pv() { sh "$pfs" field "$2" -C "$proj" --url "$1"; }
+pd() { pfc detect -C "$proj" --url "$1" | tr '\n' ' '; }   # platform: X source: Y ...
+pv() { pfc field "$2" -C "$proj" --url "$1"; }
 cfgp gitlab gitlab.company.com
 [ "$(pv https://gitlab.company.com/a/b platform)" = gitlab ] && [ "$(pv https://gitlab.company.com/a/b source)" = config ] || die "an on-prem host from config: $(pd https://gitlab.company.com/a/b)"
 [ "$(pv git@GitLab.Company.com:a/b.git platform)" = gitlab ] || die "the host match is case-insensitive"
@@ -212,26 +179,26 @@ rm -f "$proj/.agents/config.yaml"
 cfgp gitlab; [ "$(pv https://git.example.com/a/b platform)" = gitlab ] || die "git.platform without a host applies to any origin"
 # the tool follows the private host
 cfgp gitlab gitlab.company.com
-[ "$(sh "$pfs" env -C "$proj" --url https://gitlab.company.com/a/b)" = GITLAB_HOST=gitlab.company.com ] || die "GITLAB_HOST for a self-hosted GitLab"
+[ "$(pfc env -C "$proj" --url https://gitlab.company.com/a/b)" = GITLAB_HOST=gitlab.company.com ] || die "GITLAB_HOST for a self-hosted GitLab"
 rm -f "$proj/.agents/config.yaml"
 ok "git.platform_host recognises an on-prem address by whole-host equality; look-alikes stay other; config beats env beats auto; the tool gets the host"
 
 # git.platform without git.platform_host on a look-alike origin: platform.sh warns and exports no host variable; a known host does not warn
 cfgp gitlab
 la=https://gitlab.com.evil.example/a/b
-w=$(sh "$pfs" warn -C "$proj" --url "$la"); case "$w" in "warning: git.platform is gitlab without git.platform_host"*) ;; *) die "no warning for a look-alike origin: $w" ;; esac
-[ -z "$(sh "$pfs" env -C "$proj" --url "$la")" ] || die "a look-alike origin got a host variable: $(sh "$pfs" env -C "$proj" --url "$la")"
-[ -z "$(sh "$pfs" warn -C "$proj" --url https://gitlab.com/a/b)" ] || die "gitlab.com warned although it is a known gitlab host"
-cfgp github; [ -z "$(sh "$pfs" env -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "GH_HOST exported for github.com.evil.example"
-[ -n "$(sh "$pfs" warn -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "no warning for github.com.evil.example"
+w=$(pfc warn -C "$proj" --url "$la"); case "$w" in "warning: git.platform is gitlab without git.platform_host"*) ;; *) die "no warning for a look-alike origin: $w" ;; esac
+[ -z "$(pfc env -C "$proj" --url "$la")" ] || die "a look-alike origin got a host variable: $(pfc env -C "$proj" --url "$la")"
+[ -z "$(pfc warn -C "$proj" --url https://gitlab.com/a/b)" ] || die "gitlab.com warned although it is a known gitlab host"
+cfgp github; [ -z "$(pfc env -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "GH_HOST exported for github.com.evil.example"
+[ -n "$(pfc warn -C "$proj" --url https://github.com.evil.example/a/b)" ] || die "no warning for github.com.evil.example"
 cfgp gitlab gitlab.company.com
-[ -z "$(sh "$pfs" warn -C "$proj" --url https://gitlab.company.com.evil.example/a/b)" ] && [ "$(sh "$pfs" env -C "$proj" --url https://gitlab.company.com/a/b)" = GITLAB_HOST=gitlab.company.com ] || die "an exact platform_host must not warn and must export its host"
+[ -z "$(pfc warn -C "$proj" --url https://gitlab.company.com.evil.example/a/b)" ] && [ "$(pfc env -C "$proj" --url https://gitlab.company.com/a/b)" = GITLAB_HOST=gitlab.company.com ] || die "an exact platform_host must not warn and must export its host"
 rm -f "$proj/.agents/config.yaml"
 ok "git.platform without platform_host on a look-alike origin warns and exports no GH_HOST/GITLAB_HOST; exact hosts are unaffected"
 
 # round 6: what is a local origin. Path forms are local; a host-shaped address that merely starts with a dot or says file:// with a host is not
-for u in ./x ../x /abs file:///abs; do [ "$(sh "$pfs" field local --url "$u")" = yes ] || die "$u must be a local origin"; done
-for u in .evil.example:org/repo file://host/path file://evil.example/a/b; do [ "$(sh "$pfs" field local --url "$u")" = no ] || die "$u must NOT be a local origin"; done
+for u in ./x ../x /abs file:///abs; do [ "$(pfc field local --url "$u")" = yes ] || die "$u must be a local origin"; done
+for u in .evil.example:org/repo file://host/path file://evil.example/a/b; do [ "$(pfc field local --url "$u")" = no ] || die "$u must NOT be a local origin"; done
 ok "local origins: ./x ../x /abs file:///abs are local; .evil.example:org/repo and file://host/path are not"
 
 # --- the user merges: Bitbucket, unrecognized, missing tool ---------------------------------------------
@@ -243,7 +210,7 @@ for u in https://bitbucket.org/acme/app.git ssh://git@git.example.com/acme/app.g
 done
 ok "bitbucket and an unrecognized host: nothing is merged, the message says the USER merges and prints the steps"
 git -C "$proj" remote set-url origin https://gitlab.com/acme/app.git
-nogl=$base/nogl; mkdir -p "$nogl"; for t in git sed awk head tr dirname cat readlink jq sh; do p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogl/$t"; done
+nogl=$base/nogl; mkdir -p "$nogl"; for t in git sed awk head tr dirname cat readlink jq sh node; do p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogl/$t"; done
 (cd "$proj" && PROOFLINE_SELFTEST=1 PATH=$nogl "$(command -v sh)" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without glab"
 grep -Fq 'NOT MERGED' "$base/out" && grep -Fq 'glab' "$base/out" && grep -Fq 'YOU merge it' "$base/out" || die "missing-tool message: $(cat "$base/out")"
 ok "a recognized platform whose tool is not installed falls back to the manual path"

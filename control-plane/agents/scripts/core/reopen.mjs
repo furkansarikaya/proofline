@@ -50,7 +50,7 @@ function manifestFor(ctx, id, dir) {
 }
 
 /** `amend_run ID` @param {Context} ctx @param {string} id */
-export function amendRun(ctx, id) {
+export function amendRun(ctx, id, input) {
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   requireLead(ctx);
@@ -60,7 +60,7 @@ export function amendRun(ctx, id) {
   if (state !== 'CODE_DONE') fail(`amend reopens a CODE_DONE/DONE run only (execution.state is '${state}'); before CODE_DONE, findings go through the gates and the fix loop`);
   enforceTaskBranch(ctx, id); verifySeal(ctx, id, dir);
   quietly(ctx, () => { must(freshness(ctx, id)); must(verifyHandoff(ctx, id, true)); });
-  const text = readStdin();
+  const text = input ?? readStdin();
   const reason = fieldFromText(text, 'reason'); const fscope0 = fieldFromText(text, 'fix_scope'); const finstr = fieldFromText(text, 'fix_instruction');
   const auth = fieldFromText(text, 'authorized_by'); const pchange = fieldFromText(text, 'plan_change');
   if (!justificationOk(reason)) fail(`amend requires a specific reason (>=20 chars). ${amendHint(id)}`);

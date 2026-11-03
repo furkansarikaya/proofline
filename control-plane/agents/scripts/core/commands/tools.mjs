@@ -8,6 +8,7 @@
 import { readSync, readdirSync, statSync } from 'node:fs';
 import { bytes } from '../config.mjs';
 import { debt } from '../debt.mjs';
+import { requireRun } from '../runs.mjs';
 import { BridgeToShell, ProoflineError, fail, unsupported } from '../errors.mjs';
 import { designGlobMatch, PathKinds, scopeKindRows } from '../pathkind.mjs';
 import { isDir, isFile } from '../paths.mjs';
@@ -92,8 +93,8 @@ function questions(ctx, args) {
   if (!/^[A-Za-z0-9_-]+$/.test(id)) fail('invalid task id');
   const dir = ctx.runDir(id);
   if (!isDir(dir)) fail(`run not found: ${id}`);
-  // a run under its own delivery commit is judged from base_sha by require_run (git work): the shell code decides
-  if (isFile(`${ctx.root}/.agents/local/deliver/${id}/SUMMARY.md`)) throw new BridgeToShell('delivered run');
+  // a run under its own delivery commit is judged from base_sha by require_run
+  requireRun(ctx, id);
   const qd = `${dir}/questions`;
   let names = [];
   try { names = readdirSync(qd, { encoding: 'latin1' }).filter((n) => /^[0-9][0-9][0-9]\.md$/.test(n)).sort(); } catch { names = []; }

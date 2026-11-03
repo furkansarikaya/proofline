@@ -8,21 +8,16 @@ import { ProoflineError, fail, unsupported } from '../errors.mjs';
 import { DESIGN_MD_CANDIDATES, batchApproval, findApproval, hashOf, rationaleIds, rationaleLineIn, sharedDirOf } from '../approvals.mjs';
 import { sha256 } from '../hash.mjs';
 import { isFile } from '../paths.mjs';
-import * as proc from '../proc.mjs';
+import { detectPlatform } from '../platform.mjs';
 import { fileLines, fileText } from '../records.mjs';
 import { requireRun } from '../runs.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
-const CI_WARN = 'no CI check runs on pull requests here. proofline merge verifies the commit locally instead (commands.build and commands.test in a clean copy) and the pull request says "verified locally, no CI".';
+export const CI_WARN = 'no CI check runs on pull requests here. proofline merge verifies the commit locally instead (commands.build and commands.test in a clean copy) and the pull request says "verified locally, no CI".';
 
-/** `sh platform.sh field platform -C ROOT 2>/dev/null || echo other`, as a `$(...)` value. @param {Context} ctx */
-function platformField(ctx) {
-  const r = proc.run('sh', [`${ctx.trustedScripts}/platform.sh`, 'field', 'platform', '-C', ctx.root], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
-  let out = r.stdout.toString('latin1');
-  if (r.status !== 0) out += 'other\n';
-  return out.replace(/\n+$/, '');
-}
+/** The platform word of the origin remote. @param {Context} ctx */
+function platformField(ctx) { return detectPlatform(ctx).platform; }
 
 /** `ci_workflow_has_pr FILE`: the workflow's `on:` has a pull_request or pull_request_target trigger. @param {string[]} lines */
 export function workflowHasPr(lines) {
@@ -57,29 +52,39 @@ function workflowFiles(root) {
   return [...names.filter((n) => n.endsWith('.yml') && !n.startsWith('.')), ...names.filter((n) => n.endsWith('.yaml') && !n.startsWith('.'))];
 }
 
-/** @param {Context} ctx */
-function ciCheck(ctx) {
+/** `ci_check`: the text and the status of the CI visibility check (read-only, repository files only). @param {Context} ctx @returns {{ text: string, rc: number }} */
+export function ciCheckResult(ctx) {
   const pf = platformField(ctx);
   if (pf === 'gitlab') {
-    if (isFile(`${ctx.root}/.gitlab-ci.yml`)) { ctx.out('ci: present (.gitlab-ci.yml)\n'); return 0; }
-    ctx.out(`ci: absent\n${CI_WARN}\n`);
-    return 1;
+    if (isFile(`${ctx.root}/.gitlab-ci.yml`)) return { text: 'ci: present (.gitlab-ci.yml)\n', rc: 0 };
+    return { text: `ci: absent\n${CI_WARN}\n`, rc: 1 };
   }
   if (pf === 'azure') {
     for (const f of ['azure-pipelines.yml', 'azure-pipelines.yaml', '.azure-pipelines']) {
-      if (existsSync(`${ctx.root}/${f}`)) { ctx.out(`ci: present (${f})\n`); return 0; }
+      if (existsSync(`${ctx.root}/${f}`)) return { text: `ci: present (${f})\n`, rc: 0 };
     }
-    ctx.out('ci: unknown (Azure DevOps build policies are not visible from the repository files)\n');
-    return 0;
+    return { text: 'ci: unknown (Azure DevOps build policies are not visible from the repository files)\n', rc: 0 };
   }
-  if (pf !== 'github') { ctx.out(`ci: unknown (platform ${pf}: checks are read through its tool or by the person who merges)\n`); return 0; }
+  if (pf !== 'github') return { text: `ci: unknown (platform ${pf}: checks are read through its tool or by the person who merges)\n`, rc: 0 };
   for (const n of workflowFiles(ctx.root)) {
     const f = `${ctx.root}/.github/workflows/${n}`;
     if (!isFile(f)) continue;
-    if (workflowHasPr(fileLines(ctx, f))) { ctx.out(`ci: present (.github/workflows/${n})\n`); return 0; }
+    if (workflowHasPr(fileLines(ctx, f))) return { text: `ci: present (.github/workflows/${n})\n`, rc: 0 };
   }
-  ctx.out(`ci: absent\n${CI_WARN}\n`);
-  return 1;
+  return { text: `ci: absent\n${CI_WARN}\n`, rc: 1 };
+}
+
+/** @param {Context} ctx */
+function ciCheck(ctx) {
+  const r = ciCheckResult(ctx);
+  ctx.out(r.text);
+  return r.rc;
+}
+
+/** `ci_absent`: true only when ci-check says absent (unknown and present are not a block). @param {Context} ctx */
+export function ciAbsent(ctx) {
+  const r = ciCheckResult(ctx);
+  return r.rc !== 0 && r.text.split('\n')[0] === 'ci: absent';
 }
 
 /** `ci_join`: the lines with a field joined by "; ". @param {string[]} lines */
@@ -88,8 +93,8 @@ function ciJoin(lines) { return lines.filter((l) => /[^ \t\n]/.test(l)).join('; 
 /** @param {string} text */
 function envLines(text) { return `${text}\n`.split('\n').slice(0, -1); }
 
-/** @param {Context} ctx */
-function ciTaskCommand(ctx) {
+/** `ci_task_command`: one pasteable line that asks for the missing workflow, with the project's own build and test commands. @param {Context} ctx */
+export function ciTaskCommandText(ctx) {
   const cfg = ctx.config();
   let b = ciJoin(cfg.cmds('commands.build'));
   let t = ciJoin(cfg.cmds('commands.test'));
@@ -97,11 +102,13 @@ function ciTaskCommand(ctx) {
   if (t === '') t = ciJoin(envLines(ctx.env.PROOFLINE_CI_TEST ?? ''));
   if (b === '') b = '(none found; add yours)';
   if (t === '') t = '(none found; add yours)';
-  if (platformField(ctx) === 'gitlab') {
-    ctx.out(`/proofline task Add a GitLab CI pipeline (.gitlab-ci.yml) that runs on merge requests and runs: build: ${b}; test: ${t} (the pipeline must run for merge requests)\n`);
-    return 0;
-  }
-  ctx.out(`/proofline task Add a GitHub Actions workflow that runs on pull_request and runs: build: ${b}; test: ${t} (the workflow must trigger on pull_request)\n`);
+  if (platformField(ctx) === 'gitlab') return `/proofline task Add a GitLab CI pipeline (.gitlab-ci.yml) that runs on merge requests and runs: build: ${b}; test: ${t} (the pipeline must run for merge requests)`;
+  return `/proofline task Add a GitHub Actions workflow that runs on pull_request and runs: build: ${b}; test: ${t} (the workflow must trigger on pull_request)`;
+}
+
+/** @param {Context} ctx */
+function ciTaskCommand(ctx) {
+  ctx.out(`${ciTaskCommandText(ctx)}\n`);
   return 0;
 }
 

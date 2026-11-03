@@ -23,6 +23,8 @@ import { LIFECMD_HANDLERS } from './lifecmds.mjs';
 import { RESULTCMD_HANDLERS } from './resultcmds.mjs';
 import { GATECMD_HANDLERS } from './gatecmds.mjs';
 import { COMPLETION_HANDLERS } from './reportcmds.mjs';
+import { DELIVERCMD_HANDLERS } from './delivercmds.mjs';
+import { detectPlatform, warnText } from '../platform.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -84,12 +86,7 @@ function configCheck(ctx, args) {
   }
   if (messages.length === 0) {
     ctx.out(`config valid: ${rel}\n`);
-    const platform = `${ctx.trustedScripts}/platform.sh`;
-    if (file === config && isFile(platform)) {
-      // the warning is the platform script's stdout, shown on stderr; its own stderr is dropped
-      const r = proc.run('sh', [platform, 'warn', '-C', ctx.root], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
-      ctx.err(r.stdout.toString('latin1'));
-    }
+    if (file === config) ctx.err(warnText(detectPlatform(ctx)));
     return 0;
   }
   ctx.err(`${messages.join('\n')}\n`);
@@ -187,4 +184,6 @@ export const HANDLERS = {
   ...RESULTCMD_HANDLERS,
   ...GATECMD_HANDLERS,
   ...COMPLETION_HANDLERS,
+  // --- stage 6 ---
+  ...DELIVERCMD_HANDLERS,
 };

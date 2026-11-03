@@ -8,6 +8,7 @@
 import { asciiLower } from './shellglob.mjs';
 import { lstatSync, statSync } from 'node:fs';
 import { BridgeToShell } from './errors.mjs';
+import { ciProgress } from './deliver.mjs';
 import { knowledgeDrift } from './commands/runcmds.mjs';
 import { approvalWaitO } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
@@ -541,8 +542,12 @@ function codeDone(ctx, id, d, emit, o, r) {
 /** @param {Context} ctx @param {string} id @param {string} d @param {(t: string) => void} emit @param {(m: string) => void} o @param {(m: string) => void} r */
 function done(ctx, id, d, emit, o, r) {
   emit(batchContinueNote(ctx, id));
-  // A169: once the merge step ran (a pull request is open) CI decides: the shell prints those lines
-  if (isFile(`${ctx.root}/.agents/local/deliver/${id}/PR`)) throw new BridgeToShell('pull request open');
+  // A169: once the merge step ran (a pull request is open) CI decides: merge and clean up, or a CI-fix round; resume continues from here
+  if (isFile(`${ctx.root}/.agents/local/deliver/${id}/PR`)) {
+    for (const l of ciProgress(ctx, id)) o(l);
+    r('the pull request is open (the merge step ran); its CI decides the next step (A169)');
+    return;
+  }
   o(`agent.sh request-approval ${id} commit (delivery needs the user's approval)`);
   o(`agent.sh cleanup ${id} (after delivery)`);
   o('optional: agent.sh friction show; send it as a GitHub issue only if the user wants it: agent.sh request-approval - report, then agent.sh friction send');

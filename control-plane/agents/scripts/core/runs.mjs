@@ -61,7 +61,7 @@ function lineValue(lines, prefix) {
 }
 
 /** `ci_fix_recs ID`: the attempt records bound in the ledger, oldest first. @param {Context} ctx @param {string} dir @returns {string[]} */
-function ciFixRecs(ctx, dir) {
+export function ciFixRecs(ctx, dir) {
   const names = listNames(`${dir}/ci-fix`, /^[0-9]{3}\.yaml$/);
   return boundNames(ctx, dir, 'ci-fix', 'ci-fix-', names).sort().map((n) => `${dir}/ci-fix/${n}`);
 }

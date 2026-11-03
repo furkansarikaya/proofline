@@ -39,10 +39,13 @@
 set -eu
 PROOFLINE_TEST=1; export PROOFLINE_TEST
 FAKE=$base/fake; mkdir -p "$FAKE/bin" "$FAKE/behave"; export FAKE
-PATH=$FAKE/bin:$PATH; export PATH
+# The platform tool must not resolve into a temporary folder (A180, no environment value lifts that): the fake gh lives in the checkout, ignored by the repository.
+GHBIN=$(CDPATH='' cd "$tl_agents/../.." && pwd)/tests/core/.fake-tools/batch-$$/bin; mkdir -p "$GHBIN"
+trap 'chmod -R u+w "$base" 2>/dev/null || :; rm -rf "$base" "$GHBIN/.." 2>/dev/null || :' EXIT
+PATH=$GHBIN:$FAKE/bin:$PATH; export PATH
 
 # fake gh: authenticated, main CI green
-cat > "$FAKE/bin/gh" <<'EOF'
+cat > "$GHBIN/gh" <<'EOF'
 #!/bin/sh
 # A160: `run list --commit <sha>` answers from $FAKE/ci/<sha> (the JSON) or $FAKE/ci/<sha>.none (no run); any other query is green
 sha=''; prev=''; for a in "$@"; do [ "$prev" != --commit ] || sha=$a; prev=$a; done
@@ -50,8 +53,9 @@ if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha" ]; then cat "$FAKE/ci/$sha"; exit 0; fi
 if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha.none" ]; then echo '[]'; exit 0; fi
 case "$*" in
   *"run list"*) echo '[{"status":"completed","conclusion":"success"}]' ;;
-  *"pr view"*"state,isDraft"*) cat "$FAKE/prview" 2>/dev/null || echo "OPEN false aaa b main o" ;;   # the pull request state read by deliver_pr_view
-  *"pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;   # the merge commit of a PR (A160: the CI of that SHA gates the next task)
+  *"pr view"*"state,isDraft"*) set -- $(cat "$FAKE/prview" 2>/dev/null || echo "OPEN false aaa b main o")   # the pull request state the core reads (JSON)
+    printf '{"state":"%s","isDraft":%s,"headRefOid":"%s","headRefName":"%s","baseRefName":"%s","headRepositoryOwner":{"login":"%s"}}\n' "$1" "$2" "$3" "$4" "$5" "$6" ;;
+  *"pr view"*) echo '{"mergeCommit":{"oid":"0123456789abcdef0123456789abcdef01234567"}}' ;;   # the merge commit of a PR (A160: the CI of that SHA gates the next task)
   *) : ;;
 esac
 exit 0
@@ -70,7 +74,7 @@ printf '%s\n' "$*" >> "$FAKE/inhibit.argv"
 while :; do case "${1:-}" in --*) shift ;; *) break ;; esac; done
 exec "$@"
 EOF
-chmod +x "$FAKE/bin/gh" "$FAKE/bin/caffeinate" "$FAKE/bin/systemd-inhibit"
+chmod +x "$GHBIN/gh" "$FAKE/bin/caffeinate" "$FAKE/bin/systemd-inhibit"
 mkdir -p "$FAKE/ci"; MSHA=0123456789abcdef0123456789abcdef01234567   # the merge commit the fake gh reports for every PR
 
 # --- fixture helpers ------------------------------------------------------------------------------------------

@@ -24,13 +24,15 @@
 # A186: git.platform / git.platform_host (config) and PROOFLINE_PLATFORM name a private host's platform; GH_HOST, GITLAB_HOST and az --org follow it.
 
 mg_refuse() { printf 'proofline merge: REFUSED: %s\n' "$*" >&2; exit 1; }
+# the hosting platform of the origin remote is read by the Node core (A215): `mg_platform detect|field KEY|link BRANCH BASE|env`
+mg_platform() { node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli platform-info "$@"; }
 
 # mg_manual PLATFORM WHY DETECT-OUTPUT: the user merges; nothing is merged here.
 mg_manual() {
   mm_br=$(git branch --show-current 2>/dev/null || true); mm_base=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^[^/]*/||'); [ -n "$mm_base" ] || mm_base=main
   printf 'proofline merge: NOT MERGED: platform %s: %s. proofline does not merge a pull request here; YOU merge it.\n' "$1" "$2" >&2
   printf 'manual steps: 1. push the branch (git push -u origin %s)  2. open the pull request / merge request: %s  3. wait for its checks, or run the project'"'"'s build and test yourself when there are none  4. merge it in the web page of your hosting service.\n' \
-    "${mm_br:-<branch>}" "$(sh "$PL_HOME/control-plane/agents/scripts/platform.sh" link "${mm_br:-BRANCH}" "$mm_base" 2>/dev/null || echo '(open it in your hosting service)')" >&2
+    "${mm_br:-<branch>}" "$(mg_platform link "${mm_br:-BRANCH}" "$mm_base" 2>/dev/null || echo '(open it in your hosting service)')" >&2
   exit 1
 }
 # mg_local_verify SHA PR: no checks exist for this pull request. The verification commands of the project (build record: commands.build
@@ -65,10 +67,9 @@ cmd_merge() {
   done
   case "$mg_pr" in ''|*[!0-9]*) die "usage: proofline merge <PR-NUMBER> ... (a plain number: a URL or branch name cannot be verified)" ;; esac
   case "$mg_repo" in *[!A-Za-z0-9_./-]*) die "invalid repository: $mg_repo" ;; esac
-  mg_pf="$PL_HOME/control-plane/agents/scripts/platform.sh"
   mg_plat=github mg_cli=gh
-  if [ -f "$mg_pf" ]; then
-    mg_pd=$(sh "$mg_pf" detect 2>/dev/null) || mg_pd=''
+  if [ -f "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" ]; then
+    mg_pd=$(mg_platform detect 2>/dev/null) || mg_pd=''
     mg_url=$(git remote get-url origin 2>/dev/null || true)
     mg_src=$(printf '%s\n' "$mg_pd" | sed -n 's/^source: //p')
     if [ -n "$mg_url" ] || [ "${mg_src:-auto}" != auto ]; then   # no origin at all keeps the old gh behaviour (gh resolves the repository, or -R names it)
@@ -76,9 +77,9 @@ cmd_merge() {
     fi
   fi
   # a private host (A186): the tool talks to the origin's host; Azure DevOps Server takes its organization URL
-  mg_pe=$(sh "$mg_pf" env 2>/dev/null || true)
+  mg_pe=$(mg_platform env 2>/dev/null || true)
   case "$mg_pe" in GH_HOST=*) GH_HOST=${mg_pe#GH_HOST=}; export GH_HOST ;; GITLAB_HOST=*) GITLAB_HOST=${mg_pe#GITLAB_HOST=}; export GITLAB_HOST ;; esac
-  mg_org=''; [ "$mg_plat" != azure ] || mg_org=$(sh "$mg_pf" field org_url 2>/dev/null || true)
+  mg_org=''; [ "$mg_plat" != azure ] || mg_org=$(mg_platform field org_url 2>/dev/null || true)
   case "$mg_plat:$mg_cli" in
     github:gh|gitlab:glab|azure:az) ;;
     github:*|gitlab:*|azure:*) mg_manual "$mg_plat" "the command line tool for it ($(case $mg_plat in gitlab) echo glab ;; azure) echo az ;; *) echo gh ;; esac) is not installed or not on PATH" ;;

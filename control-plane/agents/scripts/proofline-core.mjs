@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCli } from './core/commands/cli.mjs';
 import { HANDLERS } from './core/commands/moved.mjs';
+import { PRELOCK } from './core/commands/delivercmds.mjs';
 import { USAGE_LINES } from './core/commands/data.mjs';
 import { COMMAND_NAMES, READ_ONLY_COMMANDS } from './core/commands/names.mjs';
 import { bytes } from './core/config.mjs';
@@ -144,6 +145,8 @@ function dispatch(ctx, locks, argv) {
     }
     throw new ProoflineError(`proofline-core: ${command} is not a command of the Node core; run it with agent.sh`, 2, 'NOT_MOVED');
   }
+  // what deliver-step reads from the platform tool comes before the locks: a slow tool never holds them
+  if (Object.hasOwn(PRELOCK, command) && ctx.role === 'lead') PRELOCK[command](ctx, args);
   if (takesLocks(command, args, ctx.role, READ_ONLY.has(command))) takeCommandLocks(locks, ctx, command, args);
   const code = handler(ctx, args);
   ctx.flush();

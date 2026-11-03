@@ -41,10 +41,9 @@ function amend(ctx, args) { ctx.fpMode = 'refresh'; requireLead(ctx); return ame
 
 /** @param {Context} ctx @param {string[]} args */
 function reopen(ctx, args) { ctx.fpMode = 'refresh'; requireLead(ctx); return reopenRun(ctx, need(args, 0)); }
-
 /**
- * `cleanup ID`. There is no flag that says "merged": the worktree of a delivered run is removed only when the merge is on record (a merged.tsv row, or the
- * MERGED file the delivery code writes in the run's deliver folder after its own proof), so a typed claim gains nothing.
+ * `cleanup ID`. There is no flag that says "merged": the worktree of a delivered run is removed only when the merge is on record (a merged.tsv row of this run), or when
+ * the delivery code (deliver-step cleanup, deliver-merged) proved the merge in this very process and called the cleanup itself (A215); a typed claim gains nothing.
  * @param {Context} ctx @param {string[]} args
  */
 function cleanup(ctx, args) {
