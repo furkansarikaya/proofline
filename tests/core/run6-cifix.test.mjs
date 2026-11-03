@@ -199,6 +199,40 @@ test('ci-fix: resume finds the CI step of an open pull request and every step of
   accepted(A(d, ['digest', 'LC']), 'digest of a run over its delivery commit');
 });
 
+test('ci-fix (batch): the batch delivery cover carries two CI-fix rounds to the same PR branch with no user reply; the third red CI leaves the question a batch parks on', () => {
+  const gh = fakeGh();
+  const d = project("SC_BRANCH=1 scaffold orchestrated; for s in \"$tl_agents\"/scripts/*.sh; do case \"$(basename \"$s\")\" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac; cp \"$s\" .agents/scripts/; done; mkdir -p .agents/tasks; printf '# Task: LC \u2014 title of LC\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nCOMPLEX\n' > .agents/tasks/LC.md; "
+    + "A batch-plan all >/dev/null; capture 'approve batch'; A approve-pending >/dev/null; to_code_done orchestrated; finish_done");
+  hooks(d);
+  gOk(d, 'init', '-q', '--bare', `${d}-bare.git`);
+  gOk(d, 'remote', 'add', 'bare', `${d}-bare.git`);
+  accepted(A(d, ['deliver-plan', 'LC']), 'deliver-plan');
+  accepted(A(d, ['batch-cover', 'LC', 'delivery']), 'batch-cover delivery');
+  const pushApproval = readdirSync(`${d}/.agents/runs/LC/approvals`).filter((n) => n.endsWith('-push.yaml') && !n.includes('request')).sort().pop() ?? '';
+  assert.match(read(d, `.agents/runs/LC/approvals/${pushApproval}`), /^source: "batch"/m);
+  assert.match(read(d, `.agents/runs/LC/approvals/${pushApproval}`), /^ref: "refs\/heads\/proofline\/LC-lookup"/m);
+  run(d, 'rm', ['-f', ...readdirSync(`${d}/.agents/local/prompts`).map((n) => `${d}/.agents/local/prompts/${n}`)]); // no user reply exists from here on
+  accepted(S(d, gh, 'commit'), 'commit');
+  commitDelivery(d);
+  accepted(S(d, gh, 'push'), 'push');
+  pushReal(d);
+  accepted(S(d, gh, 'pr'), 'pr');
+  gh.says('OPEN', g(d, 'rev-parse', 'HEAD'));
+  accepted(S(d, gh, 'merge', '7'), 'merge');
+  ciRound(d, gh, 1);
+  assert.ok(readdirSync(`${d}/.agents/runs/LC/approvals`).some((n) => n.endsWith('-push.yaml') && /source: "delivery_ci_fix"/.test(read(d, `.agents/runs/LC/approvals/${n}`))), 'no CI-fix push approval under the batch delivery cover');
+  const other = run(d, 'git', ['push', 'bare', 'proofline/LC-lookup:refs/heads/other']);
+  assert.notEqual(other.status, 0, 'a push to another branch under the batch cover');
+  ciRound(d, gh, 2);
+  ciRed(gh, '130', 'Error: still failing');
+  gh.says('OPEN', g(d, 'rev-parse', 'HEAD'));
+  refused(S(d, gh, 'ci-fix', '7'), 'a third attempt in a batch', 'STOP: the CI is red after 2 CI-fix attempts');
+  assert.deepEqual(readdirSync(`${d}/.agents/local/prompts`), [], 'a prompt capture appeared: the round asked the user');
+  const q = A(d, ['questions', 'LC']).out;
+  assert.match(q, /still red after 2 CI-fix attempts/);
+  assert.notEqual(q.split('\n').find((l, i, a) => a[i - 1]?.startsWith('=== QUESTION')) ?? '', '', 'the batch reads no first question line');
+});
+
 test('freshness: the run\'s own delivery commit does not stale the plan; another commit on top does', () => {
   const gh = fakeGh();
   const d = toPrOpen(gh);

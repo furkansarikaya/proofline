@@ -110,6 +110,18 @@ test('deliver-plan: the knowledge secret scan runs in the core when the project 
   assert.ok(!plan.includes('scanner missing'), 'the scan asked for a script');
 });
 
+test('deliver-plan is ready after four wiki pages written at CODE_DONE (the knowledge step leaves the tier small and every gate satisfied)', () => {
+  const d = project(`SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; ${TASKS_IN_TASKS}; solo RED fail impl_test.txt 'test: lookup returns the stored value'; `
+    + "solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go; A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null; "
+    + 'mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/; '
+    + "for i in 1 2 3 4; do printf -- '---\\ntitle: page %s\\nstatus: current\\nsource: .agents/config.yaml\\n---\\n\\n# Page %s\\n\\nThe lookup returns the stored value.\\n' \"$i\" \"$i\" > \"docs/wiki/page$i.md\"; done; "
+    + 'A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null');
+  hooks(d);
+  assert.equal(A(d, ['tier', 'LC'], { role: 'reviewer' }).out.trim(), 'small', 'four knowledge files at CODE_DONE moved the tier');
+  const plan = accepted(A(d, ['deliver-plan', 'LC']), 'deliver-plan after the knowledge files').out;
+  assert.match(plan, /approve delivery/);
+});
+
 test('task-source-done leaves other adapters alone', () => {
   const d = project(`${DONE}; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/cfg.tmp && cp .agents/cfg.tmp .agents/config.yaml && rm .agents/cfg.tmp`);
   assert.equal(accepted(A(d, ['task-source-done', 'LC']), 'task-source-done').out, '');

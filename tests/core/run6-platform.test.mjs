@@ -2,12 +2,12 @@
 // Stage 6 (A215): the hosting platform (detection, config, local origins, the failed-log readers), pr-state and batch-ci, in Node. They replace
 // scripts/platform.sh and its part of platform-test.sh (detection, A186 config, round 6 local origins, the ci-failed readers) and the `ci` part of batch.sh.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { ciFailed, detectPlatform, linkText, platformEnv, resolveTool, warnText } from '../../control-plane/agents/scripts/core/platform.mjs';
-import { A, DONE, accepted, existsSync, fakeGh, fakeTool, g, gOk, readFileSync, refused, run, toolRoot } from './run6-lib.mjs';
+import { A, DONE, accepted, fakeGh, fakeTool, g, gOk, readFileSync, refused, run, toolRoot } from './run6-lib.mjs';
 import { project } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
 
@@ -140,8 +140,47 @@ test('a platform tool that resolves into the project, the working directory or a
   symlinkSync(`${shadow}/gh`, `${link}/gh`);
   const viaLink = resolveTool(ctxOf(empty, { PATH: `${link}:/usr/bin:/bin` }), 'gh');
   assert.ok('unreadable' in viaLink, 'a symlink into a temporary folder is refused');
+  // a relative PATH entry is looked up from the process's own working directory; where it holds no gh the next entry decides
   const rel = resolveTool(ctxOf(empty, { PATH: `.:${safe.bin}` }), 'gh');
-  assert.ok('unreadable' in rel || 'path' in rel);
+  assert.ok('path' in rel && rel.path.endsWith('/bin/gh'), JSON.stringify(rel));
+});
+
+/** A fresh folder inside the checkout (never under a temporary folder), and whether the checkout itself is under one. */
+const inCheckout = (/** @type {string} */ name) => { const d = path.join(toolRoot, `${name}-${process.pid}`); mkdirSync(d, { recursive: true }); return realpathSync(d); };
+const checkoutInTemp = [tmpdir(), '/tmp', '/var/folders', '/private/tmp', '/private/var/folders'].some((t) => repo.startsWith(`${t}/`));
+
+/** A directory with a gh in it. @param {string} dir */
+function gh(dir) { mkdirSync(dir, { recursive: true }); wf(`${dir}/gh`, '#!/bin/sh\nexit 0\n'); chmodSync(`${dir}/gh`, 0o755); return dir; }
+
+test('A180: a tool in the project, the working directory or a temporary folder is refused, also when the path is spelled in another case (case-insensitive file systems)', { skip: checkoutInTemp ? 'the checkout is under a temporary folder: the project and cwd cases cannot be told apart from the temp rule' : false }, () => {
+  const proj = inCheckout('proj');
+  const cwd = inCheckout('cwd');
+  const other = inCheckout('other');
+  const cases = /** @type {Array<[string, string, string, string]>} */ ([
+    ['the project', gh(`${proj}/.agents/runs/T-1/scratch/bin`), proj, other],
+    ['the working directory', gh(`${cwd}/bin`), other, cwd],
+    ['a temporary folder', gh(mkdtempSync(path.join(tmpdir(), 'a180-tmp-'))), other, other],
+  ]);
+  for (const [what, bin, root, cwdDir] of cases) {
+    const c = (/** @type {string} */ dirOnPath) => ctxOf(cwdDir, { PATH: `${dirOnPath}:/usr/bin:/bin`, TMPDIR: tmpdir() });
+    const mk = (/** @type {string} */ p) => { const x = c(p); x.root = root; return x; };
+    const canonical = resolveTool(mk(bin), 'gh');
+    assert.ok('unreadable' in canonical && /may be shadowed/.test(canonical.unreadable), `${what}: ${JSON.stringify(canonical)}`);
+    // the same folder spelled in upper case: refused where the file system treats both as one folder
+    const upper = bin.toUpperCase();
+    if (upper !== bin && existsSync(`${upper}/gh`)) {
+      const r = resolveTool(mk(upper), 'gh');
+      assert.ok('unreadable' in r && /may be shadowed/.test(r.unreadable), `${what}, upper case: ${JSON.stringify(r)}`);
+      // and a mixed spelling of only the last folder
+      const mixed = path.join(path.dirname(bin), path.basename(bin).toUpperCase());
+      const m = resolveTool(mk(mixed), 'gh');
+      assert.ok('unreadable' in m, `${what}, mixed case: ${JSON.stringify(m)}`);
+    }
+  }
+  // a gh in a folder of its own is accepted
+  const fine = gh(inCheckout('fine'));
+  const ok = resolveTool({ ...ctxOf(other, { PATH: `${fine}:/usr/bin:/bin`, TMPDIR: tmpdir() }), root: proj }, 'gh');
+  assert.ok('path' in ok, JSON.stringify(ok));
 });
 
 test('pr-state reads the state of a pull request through the platform tool; an unreadable one says so', () => {

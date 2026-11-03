@@ -23,6 +23,16 @@ const STAGE4B = ['start', 'freeze', 'refreeze', 'handoff', 'terminate', 'cleanup
 const STAGE4C = ['worker-evidence', 'submit', 'record', 'gate', 'secret-scan', 'run-language', 'raise-budget', 'waive', 'knowledge-done', 'publish-completion-report', 'verify-completion-report'];
 // stage 6: their agent.sh arms and functions are deleted (A215); ci-check and ci-task-command (stage 2) lose their dead arms with them
 const STAGE6 = ['deliver-plan', 'deliver-step', 'deliver-merged', 'pr-state', 'task-source-done', 'platform', 'platform-warn', 'batch-ci', 'ci-check', 'ci-task-command'];
+/** The locking rule of the stage 6 commands, written out (their shell text is gone): `platform`, `platform-warn`, `ci-check` and `ci-task-command` are read-only, `pr-state`, `batch-ci` and `deliver-merged ID --check` take no lock, the other four lock. @param {string} command @param {string} a3 @param {boolean} readOnly */
+function STAGE6_LOCKS(command, a3, readOnly) {
+  const explicit = /** @type {Record<string, boolean>} */ ({
+    'deliver-plan': true, 'deliver-step': true, 'task-source-done': true, 'deliver-merged': a3 !== '--check',
+    'pr-state': false, 'batch-ci': false, platform: false, 'platform-warn': false, 'ci-check': false, 'ci-task-command': false,
+  });
+  assert.ok(command in explicit, command);
+  assert.equal(readOnly, ['platform', 'platform-warn', 'ci-check', 'ci-task-command'].includes(command), `${command} read-only`);
+  return explicit[command];
+}
 const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6];
 
 describe('command table', () => {
@@ -91,7 +101,7 @@ describe('role gate and locking rule equal the shell text', () => {
       const [role, command, a2, a3, verdict] = row.split('|');
       const readOnly = READ_ONLY_COMMANDS.includes(command);
       // a stage 6 command has no shell text any more: the rule it had was read-only commands and pr-state, batch-ci and deliver-merged --check unlocked, the rest locked
-      const expected = STAGE6.includes(command) ? !readOnly && !(command === 'pr-state' || command === 'batch-ci' || (command === 'deliver-merged' && a3 === '--check')) : verdict === 'yes';
+      const expected = STAGE6.includes(command) ? STAGE6_LOCKS(command, a3, readOnly) : verdict === 'yes';
       assert.equal(takesLocks(command, [a2, a3], role, readOnly), expected, row);
     }
   });
