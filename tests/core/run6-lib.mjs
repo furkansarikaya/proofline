@@ -67,9 +67,10 @@ export const DONE = `${CODE_DONE}; finish_done`;
 export const TASKS_IN_TASKS = "sed 's#^  dir: .agents/tasks#  dir: tasks#' .agents/config.yaml > .agents/cfg.tmp && cp .agents/cfg.tmp .agents/config.yaml && rm .agents/cfg.tmp";
 
 /** The user's delivery reply, recorded as the runtime hook does. @param {string} d @param {string} [text] */
-export function approveDelivery(d, text = 'approve delivery') {
-  say(d, text);
-  return accepted(A(d, ['approve-pending', 'LC']), 'approve-pending');
+export function approveDelivery(d, text = 'approve delivery', at = d) {
+  // the requests live in the worktree, the capture in the main tree: the capture must be newer than the requests
+  say(d, text, at === d ? {} : { time: Math.floor(Date.now() / 1000) + 1 });
+  return accepted(A(at, ['approve-pending', 'LC']), 'approve-pending');
 }
 
 /** origin (never fetched or pushed) and the legacy git hooks for the commit and push gates. @param {string} d */

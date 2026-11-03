@@ -12,7 +12,7 @@ import { bytes } from './config.mjs';
 import { now } from './clock.mjs';
 import { ProoflineError, fail } from './errors.mjs';
 import { approvalExample, approvalsDirOf, findApproval, kindSlug, safeStateFile } from './approvals.mjs';
-import { approvalTarget, consumeApproval, nextNum, requireLead } from './approve.mjs';
+import { approvalTarget, consumeApproval, forgetFiles, nextNum, requireLead } from './approve.mjs';
 import { CI_WARN, ciAbsent, ciCheckResult, ciTaskCommandText } from './commands/checks.mjs';
 import { tmScaled } from './timeouts.mjs';
 import { deliveryCheck } from './commands/runcmds.mjs';
@@ -456,6 +456,7 @@ export function deliverMerged(ctx, id, flag) {
     if (n === '' || h === '') fail(`deliver-merged: the delivered branch '${n}' cannot be found, so nothing is recorded`);
     if (!(h !== s && g(['merge-base', '--is-ancestor', s, h]).status === 0)) fail(`deliver-merged: branch ${n} has no delivery commit beyond the base of the summary, so nothing is recorded`);
     writeFileSync(mergeHead, `${h}\t${b}\t${n}\n`);
+    forgetFiles(ctx);
   }
   const [dmHead = '', dmBase = '', dmBr = ''] = (fileText(ctx, mergeHead) ?? '').replace(/\n+$/, '').split('\t');
   if (g(['cat-file', '-e', `${dmHead}^{commit}`]).status !== 0) fail(`deliver-merged: the delivered commit ${dmHead !== '' ? dmHead : '?'} is unknown here`);
@@ -527,8 +528,8 @@ const CI_FIX_MAX = 2;
 /** `ci_fix_count` from the sealed ledger. @param {Context} ctx @param {string} id */
 function ciFixCount(ctx, id) { return fileLines(ctx, `${runDir(ctx, id)}/LEDGER.log`).filter((l) => l.includes(' event=ci-fix-open ')).length; }
 
-/** `ci_rec_set FILE KEY VALUE` @param {string} file @param {string} k @param {string} v */
-function recSet(file, k, v) {
+/** `ci_rec_set FILE KEY VALUE` @param {Context} ctx @param {string} file @param {string} k @param {string} v */
+function recSet(ctx, file, k, v) {
   const text = readFileSync(file, 'latin1');
   const lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
@@ -537,11 +538,12 @@ function recSet(file, k, v) {
   if (!f) out.push(`${k}: "${v}"`);
   writeFileSync(`${file}.tmp`, `${out.join('\n')}\n`, 'latin1');
   renameSync(`${file}.tmp`, file);
+  forgetFiles(ctx);
 }
 
 /** `ci_rec_ledger ID EVENT RECORD DETAIL` @param {Context} ctx @param {string} id @param {string} ev @param {string} rec @param {string} detail */
 function recLedger(ctx, id, ev, rec, detail) {
-  ctx.forget('file:');
+  forgetFiles(ctx);
   ledgerIf(ctx, id, ev, '-', '-', `${ledgerToken(runDir(ctx, id), `ci-fix/${path.basename(rec)}`)} ${detail}`);
 }
 
@@ -745,7 +747,7 @@ function ciFixCommit(ctx, s) {
   let ca = gateField(ctx, last, 'commit_approval');
   if (gateField(ctx, last, 'grant_content') !== fp || gateField(ctx, `${d}/approvals/${ca}`, 'consumed') !== 'false') {
     ca = ciFixGrant(ctx, id, 'commit', fp, n, h);
-    recSet(last, 'commit_approval', ca); recSet(last, 'grant_content', fp); recSet(last, 'state', 'granted');
+    recSet(ctx, last, 'commit_approval', ca); recSet(ctx, last, 'grant_content', fp); recSet(ctx, last, 'state', 'granted');
     recLedger(ctx, id, 'ci-fix-grant', last, `attempt=${n} pr=${pr} commit_approval=${ca} content=${fp} via_delivery=${h}`);
   }
   ctx.out(`run: git add -A\nrun: git commit -F .agents/local/deliver/${id}/ci-fix-${num}.msg\nthen: agent.sh deliver-step ${id} ci-push ${pr}\n`);
@@ -765,14 +767,14 @@ function ciFixPush(ctx, s) {
   if (fullFingerprint(ctx) !== gateField(ctx, last, 'grant_content')) stop('the content changed after the CI-fix approval was recorded');
   if (gateField(ctx, `${d}/approvals/${gateField(ctx, last, 'commit_approval')}`, 'consumed') !== 'true') stop('the commit approval of this CI fix is not consumed: the commit did not go through the hook');
   if (ast === 'granted') {
-    recSet(last, 'committed_head', head); recSet(last, 'state', 'committed');
+    recSet(ctx, last, 'committed_head', head); recSet(ctx, last, 'state', 'committed');
     recLedger(ctx, id, 'ci-fix-commit', last, `attempt=${n} pr=${pr} commit=${head} parent=${fh}`);
   }
   // the push approval exists only now that the commit is verified: the delivery approval's push, for this ref, this content, once
   let pa = gateField(ctx, last, 'push_approval');
   if (ctx.config().get('git.push_requires_approval', 'true') !== 'false' && (pa === 'PENDING' || gateField(ctx, `${d}/approvals/${pa}`, 'consumed') === '')) {
     pa = ciFixGrant(ctx, id, 'push', gateField(ctx, last, 'grant_content'), n, h, `refs/heads/${br}`);
-    recSet(last, 'push_approval', pa);
+    recSet(ctx, last, 'push_approval', pa);
     recLedger(ctx, id, 'ci-fix-grant', last, `attempt=${n} pr=${pr} push_approval=${pa} commit=${head} ref=refs/heads/${br} via_delivery=${h}`);
   }
   ctx.out(`run: git push origin ${br}\nthen: agent.sh deliver-step ${id} ci-merge ${pr}\n`);
@@ -791,7 +793,7 @@ function ciFixMerge(ctx, s) {
   if (pa !== '' && pa !== 'PENDING' && gateField(ctx, `${d}/approvals/${pa}`, 'consumed') !== 'true') stop('the push approval of this CI fix is not consumed: the push did not go through the hook');
   if (!pvok) stop(`pull request ${pr} is not at the pushed head (${want}; gh: ${pv})`);
   if (ast === 'committed') {
-    recSet(last, 'pushed_head', head); recSet(last, 'state', 'pushed');
+    recSet(ctx, last, 'pushed_head', head); recSet(ctx, last, 'state', 'pushed');
     recLedger(ctx, id, 'ci-fix-push', last, `attempt=${n} pr=${pr} ci_run=${gateField(ctx, last, 'ci_run')} from=${gateField(ctx, last, 'failing_head')} to=${head} branch=${br} push_approval=${pa}`);
   }
   ctx.out(`run: ${watchCmd(ctx, pr)}\nrun: proofline merge ${pr}\nif a check is red again: agent.sh deliver-step ${id} ci-fix ${pr} (attempt ${n + 1} of ${CI_FIX_MAX} is the last); if proofline merge refuses: STOP, no cleanup\nthen: agent.sh deliver-step ${id} cleanup ${pr}\n`);
