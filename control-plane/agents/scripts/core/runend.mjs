@@ -9,7 +9,8 @@ import { fixRoundsUsed, maxFixRounds, taskOwnedPaths } from './gates.mjs';
 import { git, isAncestor, headSha } from './git.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, setRunValue } from './lifecycle.mjs';
-import { fieldFromText, justificationOk, led, must, quietly, readStdin, shellChild } from './lifeutil.mjs';
+import { fieldFromText, justificationOk, led, must, quietly, readStdin } from './lifeutil.mjs';
+import { verifyCompletionReport } from './complreport.mjs';
 import { requireLead, requireOpenRun } from './approve.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -25,7 +26,7 @@ import { statusBlockUpdate } from './statusblock.mjs';
 // ---- metrics (A80): the run record ---------------------------------------------------------------------------------------------------
 
 /** `metrics_line TASK ROLE RUNTIME MODEL DURATION OUTCOME`. @param {Context} ctx @param {string[]} f */
-function metricsLine(ctx, f) {
+export function metricsLine(ctx, f) {
   if (ctx.config().get('metrics', 'on') === 'off') return;
   const file = `${ctx.sharedMain()}/.agents/local/metrics/history.tsv`;
   try {
@@ -38,7 +39,7 @@ function metricsLine(ctx, f) {
 }
 
 /** `metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TIN TOUT TTOT TURNS RETRIES DELEG FIXR RESULT SIZE SCOPE`. @param {Context} ctx @param {string[]} a */
-function metricsJson(ctx, a) {
+export function metricsJson(ctx, a) {
   if (ctx.config().get('metrics', 'on') === 'off') return;
   const file = `${ctx.sharedMain()}/.agents/local/metrics/records.jsonl`;
   const s = (/** @type {string | undefined} */ v) => { const t = (v ?? '').replace(/[^A-Za-z0-9._+:-]/g, ''); return t === '' || t === '-' ? 'null' : `"${t}"`; };
@@ -266,8 +267,7 @@ export function cleanupRun(ctx, id) {
       quietly(ctx, () => { must(freshness(ctx, id)); must(verifyHandoff(ctx, id, true)); });
     }
     if (sectionKeyPresent(ctx, dir, 'completion_report', 'required')) {
-      const r = shellChild(ctx, ['verify-completion-report', id]);
-      if (r.status !== 0) fail(r.err.replace(/\n+$/, '') || `completion report verification failed: ${id}`);
+      quietly(ctx, () => verifyCompletionReport(ctx, id));
     }
   }
   // A116: the run's per-run assignments directory goes with it; guard before any removal so a refusal leaves both.

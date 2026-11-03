@@ -11,7 +11,7 @@
 #   destructive-approval  CRITICAL plan with `destructive: yes`; plan approved and frozen, destructive approval missing
 #   security-pass-low     COMPLEX, tier full, every gate passes, SECURITY passed with CONFIDENCE: low
 #   fix-rounds-exhausted  COMPLEX, tier full, both fix rounds used, REVIEW_RULES fails again
-# Everything goes through the real control plane (agent.sh, exec-policy.sh, secret-scan.sh); verdicts enter
+# Everything goes through the real control plane (agent.sh, the Node core, exec-policy.sh); verdicts enter
 # only through `agent.sh record` with the gate role's AGENT_ROLE. Deterministic, offline, installs nothing.
 set -eu
 [ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: sh setup.sh <target-dir> [state]" >&2; exit 2; }
@@ -53,7 +53,8 @@ mkdir -p .agents/scripts .agents/local .agents/tasks .agents/task-integrations s
 cp "$CP/agents/task-integrations/slug.sh" .agents/task-integrations/   # branch slug (A202), as `proofline init` installs it
 cp "$CP/agents/config.yaml" "$CP/agents/roles.conf" "$CP/agents/"*.md .agents/
 cp -R "$CP/agents/modes" "$CP/agents/templates" "$CP/agents/roles" "$CP/agents/githooks" .agents/
-for f in agent.sh dispatch.sh exec-policy.sh secret-scan.sh runtime-detect.sh; do cp "$CP/agents/scripts/$f" .agents/scripts/; done
+for f in agent.sh dispatch.sh exec-policy.sh runtime-detect.sh proofline-core.mjs; do cp "$CP/agents/scripts/$f" .agents/scripts/; done
+cp -R "$CP/agents/scripts/core" .agents/scripts/core   # the Node core runs the moved commands, the secret scan included
 chmod +x .agents/scripts/*.sh .agents/githooks/*
 cp "$CP/AGENTS.md" "$CP/CLAUDE.md" .
 printf '.agents/runs/\n.agents/local/\n' > .gitignore

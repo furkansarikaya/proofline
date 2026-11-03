@@ -7,7 +7,7 @@ import { asciiLower } from './shellglob.mjs';
 import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { fail, unsupported } from './errors.mjs';
-import { baselineFingerprint, gateFingerprint, legacyFingerprintMatch, pathFingerprint } from './fingerprint.mjs';
+import { baselineFingerprint, gateFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { catFile, git, objectExists, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { sha256 } from './hash.mjs';
 import { boundNames, listNames, verifySeal } from './ledger.mjs';
@@ -396,7 +396,7 @@ export function gateFocusStatus(ctx, dir, id, gate, focus, mode, now) {
   if (last === '' && focus === '-' && mode !== 'strict') last = gateAmendCarry(ctx, dir, id, gate, mode, now);
   if (last === '') return 'missing';
   if (!validGateFile(ctx, dir, id, last)) return 'stale';
-  if (gateField(ctx, last, key) !== now && !(key === 'fingerprint' && legacyFingerprintMatch(ctx, gateField(ctx, last, 'fingerprint')))) {
+  if (gateField(ctx, last, key) !== now) {
     const carried = mode !== 'strict' && gateField(ctx, last, 'result') === 'pass'
       && (focusUntouched(ctx, dir, last, focus, mode, now) || (focus === '-' && gateInputsUnchanged(ctx, dir, last, gate, mode, now)));
     if (!carried) return 'stale';
@@ -661,13 +661,19 @@ export function verifyRequiredGates(ctx, dir, id, mode, message) {
 const CANON = /** @type {Record<string, string>} */ ({ full_lifecycle: 'lead', implementation_worker: 'implementer', independent_reviewer: 'reviewer', independent_qa: 'qa', independent_verifier: 'verifier' });
 
 /** `verify_mutation_ownership ID [force]` @param {Context} ctx @param {string} dir @param {string} id @param {boolean} [force] */
-export function verifyMutationOwnership(ctx, dir, id, force = false) {
-  if (!gatesEnforced(ctx, dir)) return;
+/** `resolve_topology RUNDIR`: the run's topology, else the configured default; anything else stops the command. @param {Context} ctx @param {string} dir */
+export function resolveTopology(ctx, dir) {
   let topo = sectionValue(ctx, dir, 'execution', 'topology');
   if (topo !== 'standalone' && topo !== 'orchestrated') {
     topo = ctx.config().get('default_topology', '');
     if (topo !== 'standalone' && topo !== 'orchestrated') fail('no valid execution topology resolved: set execution.topology in RUN.yaml or default_topology in .agents/config.yaml');
   }
+  return topo;
+}
+
+export function verifyMutationOwnership(ctx, dir, id, force = false) {
+  if (!gatesEnforced(ctx, dir)) return;
+  const topo = resolveTopology(ctx, dir);
   if (topo !== 'orchestrated') return;
   const hs = sectionValue(ctx, dir, 'handoff', 'state');
   if (!['IMPLEMENTED', 'CODE_DONE', 'DONE'].includes(hs) && !force) return;

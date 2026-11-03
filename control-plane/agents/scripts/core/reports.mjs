@@ -2,10 +2,11 @@
 // Read-only views of a run built from its records: `summary` (and the `--status` form), `digest`, `plan-section`, `report-tokens`,
 // `report-execution` and `report-facts` (agent.sh 7363-7420, 8880-8940). Counts and statuses come from the records, never from text.
 import { statSync } from 'node:fs';
-import { BridgeToShell, fail, ProoflineError, unsupported } from './errors.mjs';
+import { fail, ProoflineError, unsupported } from './errors.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
 import { listNames } from './ledger.mjs';
+import { gateFacts, knownIssuesListed } from './knownissues.mjs';
 import { frictionCount, gateReportIds, nextStep, nextWithoutRun } from './next.mjs';
 import { isFile } from './paths.mjs';
 import { PathKinds, scopeKindRows } from './pathkind.mjs';
@@ -28,21 +29,17 @@ function topology(ctx, d) {
   return c === 'standalone' || c === 'orchestrated' ? c : '';
 }
 
-/** `ki_gate_facts`: a non-empty known-issues list is the shell's until its writers move. @param {Context} ctx */
-function knownIssuesFacts(ctx) {
-  try { if (statSync(`${ctx.sharedMain()}/.agents/local/known-issues/LIST.tsv`).size > 0) throw new BridgeToShell('known issues list present'); } catch (e) { if (e instanceof BridgeToShell) throw e; }
-}
-
 /** `gate_label ID GATE MODE NOW` @param {Context} ctx @param {string} d @param {string} id @param {string} g @param {string} now */
 function gateLabel(ctx, d, id, g, now) {
-  knownIssuesFacts(ctx);
-  const s = gateStatus(ctx, d, id, g, 'reuse', now);
+  let s = gateStatus(ctx, d, id, g, 'reuse', now);
   const u = gateUnsupportedFocuses(ctx, d, id, g, 'reuse', now);
+  const k = knownIssuesListed(ctx) ? gateFacts(ctx, id, g).join(' ') : '';
+  if (k !== '') s = `${s} (known issue: ${k})`;
   return u !== '' ? `${s} (unsupported: ${u})` : s;
 }
 
 /** `fix_rounds_done ID` @param {Context} ctx @param {string} d */
-function fixRoundsDone(ctx, d) { const u = fixRoundsUsed(ctx, d); const m = maxFixRounds(ctx); return u > m ? m : u; }
+export function fixRoundsDone(ctx, d) { const u = fixRoundsUsed(ctx, d); const m = maxFixRounds(ctx); return u > m ? m : u; }
 
 /** `summary_run [ID] [--status]` @param {Context} ctx @param {string} given @param {string} flag */
 export function summaryRun(ctx, given, flag) {
@@ -216,7 +213,7 @@ export function reportExecution(ctx, id) {
 }
 
 /** `evidence_run_counts ID`: the worker-evidence records and those that ended pass. @param {Context} ctx @param {string} d */
-function evidenceRunCounts(ctx, d) {
+export function evidenceRunCounts(ctx, d) {
   let n = 0; let p = 0;
   for (const kind of ['RED', 'GREEN', 'REFACTOR', 'FIX']) {
     for (const f of listNames(`${d}/worker-evidence`, new RegExp(`^${kind}-.*\\.yaml$`))) {
@@ -246,7 +243,15 @@ export function reportFacts(ctx, id) {
     // each risk sub-focus on a line of its own: its status and findings are never folded into the gate's
     for (const fc of riskGateFocuses(ctx, d, g)) ctx.out(`  - Focus ${g}:${fc}: ${gateFocusStatus(ctx, d, id, g, fc, 'reuse', fp)}; findings: ${ids(fc)}\n`);
   }
-  if (gl.length) knownIssuesFacts(ctx);
+  // A202 item 27: a listed finding is shown, never hidden (its gate record keeps it)
+  if (knownIssuesListed(ctx)) {
+    for (const g of gl) {
+      for (const k of gateFacts(ctx, id, g)) {
+        const [rec = '', fid = '', fu = ''] = k.split(':');
+        ctx.out(`- Known issue (not blocking, the gate record keeps the finding): ${fid} in gate ${g}, record ${rec}, follow-up task ${fu}\n`);
+      }
+    }
+  }
   const ks = sectionValue(ctx, d, 'execution', 'knowledge_state'); const kr = sectionValue(ctx, d, 'execution', 'knowledge_reason');
   ctx.out(`- Friction notes recorded (A200): proofline_bug ${frictionCount(ctx, d, 'proofline_bug')}, user-command ${frictionCount(ctx, d, 'user-command')}, user-shell ${frictionCount(ctx, d, 'user-shell')}\n`);
   ctx.out(`- Knowledge step: ${ks === '' ? 'not_started' : ks}${kr !== '' ? `; not_applicable reason: ${kr}` : ''}\n`);

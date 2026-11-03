@@ -11,7 +11,7 @@ import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SKILL_VERSION = "0.0.48";
+export const SKILL_VERSION = "0.0.49";
 export const ALLOW_MARKER = "proofline:allow-secret";
 const MAX_BYTES = 1024 * 1024, MAX_FILES = 5000;
 const AMBIENT = new Set(["PATH", "HOME", "USER", "USERNAME", "LOGNAME", "SHELL", "PWD", "OLDPWD", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM", "HOSTNAME", "TZ", "EDITOR", "CI", "NODE_ENV", "DEBUG", "COLUMNS", "LINES", "NO_COLOR", "FORCE_COLOR"]);
@@ -79,7 +79,7 @@ export function envDefaultOn(line, name) {
     new RegExp(`environ\\.get\\(\\s*['"]${n}['"]\\s*,\\s*['"]?(true|1|on|yes|enabled)['"]?\\s*\\)`, "i").test(line);
 }
 
-// --- secrets (same rule names as control-plane/agents/scripts/secret-scan.sh) --------------------------
+// --- secrets (same rule names as control-plane/agents/scripts/core/secretscan.mjs) --------------------------
 const SECRET_RULES = [
   ["aws_access_key_id", /(A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}/],
   ["aws_secret_access_key", /aws_?secret_?access_?key[^=:]{0,20}[=:]\s*["']?[A-Za-z0-9/+=]{40}/i],

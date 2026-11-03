@@ -42,10 +42,10 @@ export function taskType(text) {
 }
 
 /**
- * `task_section_lines FILE HEADING prefix`: the lines of a `##` or `###` section, HTML comments dropped.
- * @param {string} text @param {string} heading
+ * `task_section_lines FILE HEADING [prefix]`: the lines of a `##` or `###` section, HTML comments dropped (`prefix` false: the heading must equal).
+ * @param {string} text @param {string} heading @param {boolean} [prefix]
  */
-export function sectionLines(text, heading) {
+export function sectionLines(text, heading, prefix = true) {
   if (heading === '') throw unsupported('empty heading: index() of an empty string differs between awks');
   if (heading.includes('\\')) throw unsupported('awk -v reads backslash escapes');
   const want = asciiLower(heading);
@@ -66,7 +66,7 @@ export function sectionLines(text, heading) {
     if (/^#+[ \t]/.test(s)) {
       const t = s.replace(/^#+[ \t]+/, '').replace(/[ \t\r]+$/, '');
       const lt = asciiLower(t);
-      on = /^###?[ \t]/.test(s) && (lt === want || (lt.indexOf(want) === 0 && !/[a-z0-9]/.test(lt.charAt(want.length))));
+      on = /^###?[ \t]/.test(s) && (lt === want || (prefix && lt.indexOf(want) === 0 && !/[a-z0-9]/.test(lt.charAt(want.length))));
       continue;
     }
     if (on) out.push(s);

@@ -457,7 +457,7 @@ test('answer: the status-block adapter runs after the locks are released, so a s
 
 test('delivery-check secret scan: in a run worktree the files of the worktree are scanned (the trusted scanner is the main tree\'s and must not look in the main tree)', () => {
   const d = realpathSync(project('scaffold standalone'));
-  cpSync(path.join(repo, 'control-plane/agents/scripts/secret-scan.sh'), `${d}/.agents/scripts/secret-scan.sh`);
+  rmSync(`${d}/.agents/scripts/secret-scan.sh`, { force: true }); // the fixture's stub: without a project script the core's own scanner runs
   const wt = `${d}/.agents/local/worktrees/W-1`;
   spawnSync('git', ['-C', d, 'worktree', 'add', '-q', '--detach', wt]);
   mkdirSync(`${wt}/docs/wiki`, { recursive: true });

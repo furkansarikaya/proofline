@@ -5,9 +5,23 @@
 set -eu
 # shellcheck source-path=SCRIPTDIR source=test-lib.sh
 . "$(dirname "$0")/test-lib.sh"
-# A102 capability probes look only here (no browser of the test machine leaks in); a scenario plants one.
-# It counts only with PROOFLINE_SELFTEST=1 and outside a runtime session, so the session variables are cleared.
-PROOFLINE_PROBE_ROOT=$base/probe PROOFLINE_SELFTEST=1; export PROOFLINE_PROBE_ROOT PROOFLINE_SELFTEST; mkdir -p "$PROOFLINE_PROBE_ROOT/bin"
+# A102 capability probes look at the PATH of the process (A214: no test switch, D14). This suite runs with a PATH that holds every tool of the host except
+# the browsers, so no browser of the test machine leaks in; a scenario plants one in $probe_bin. The standard macOS application folders cannot be hidden:
+# a scenario that needs "no browser" is skipped on a host that has one there (host_browser).
+probe_bin=$base/probe/bin; mkdir -p "$probe_bin"
+pb_ifs=$IFS; IFS=:
+for pb_d in $PATH; do
+  [ -d "$pb_d" ] || continue
+  for pb_f in "$pb_d"/*; do
+    [ -x "$pb_f" ] && [ ! -d "$pb_f" ] || continue
+    pb_n=${pb_f##*/}
+    case "$pb_n" in chromium|chromium-browser|google-chrome|google-chrome-stable|chrome|microsoft-edge|microsoft-edge-stable|msedge|brave-browser) continue ;; esac
+    [ -e "$probe_bin/$pb_n" ] || ln -s "$pb_f" "$probe_bin/$pb_n" 2>/dev/null || :
+  done
+done
+IFS=$pb_ifs
+PATH=$probe_bin; export PATH
+host_browser() { for hb_a in 'Google Chrome.app/Contents/MacOS/Google Chrome' 'Chromium.app/Contents/MacOS/Chromium' 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge' 'Brave Browser.app/Contents/MacOS/Brave Browser'; do [ ! -x "/Applications/$hb_a" ] || return 0; done; return 1; }
 unset CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_ENTRYPOINT CODEX_SESSION_ID CODEX_SANDBOX CODEX_THREAD_ID 2>/dev/null || true
 
 # snap: one `pipeline` per state; has/hasnt/pv read the snapshot.
@@ -181,6 +195,7 @@ uns_run() { # [CONFIG-SED]: a COMPLEX UI run with every other focus passing, fro
   pass_all >/dev/null 2>&1 || true
 }
 sc_unsupported() {
+  host_browser && { ok "skipped: a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)"; return 0; }
   uns_run
   # A98: a vague reason is a dodge, refused; a concrete one (tool, capability, path) is accepted
   expect_msg "a reason 'n/a'" 'UNSUPPORTED_REASON is too vague' uns_visual 'n/a'
@@ -262,6 +277,7 @@ sc_unsupported_rows() {
   ok "another focus's INCONCLUSIVE prefix is refused; a defect row plus UNSUPPORTED fails and goes to a fix round"
 }
 sc_unsupported_block() {
+  host_browser && { ok "skipped: a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)"; return 0; }
   # risk.unsupported: block restores A78: the UNSUPPORTED row is blocking, the gate fails, only the user waives
   uns_run 's/^  unsupported: report$/  unsupported: block/'
   grep -q '^  unsupported: block$' .agents/config.yaml || die "the block edit did not apply"
@@ -389,6 +405,7 @@ sc_unsupported_toolfree() {
 
 # A188: the project browser-test probe is data (browser_test of ecosystems.json), not a package.json branch: a custom ecosystem entry is honoured
 sc_unsupported_browser_data() {
+  host_browser && { ok "skipped: a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)"; return 0; }
   uns_run
   r='no headless browser installed in the project'
   # the shipped npm entry still works through the same reader
@@ -411,13 +428,14 @@ sc_unsupported_browser_data() {
 # benchmark script); an INCONCLUSIVE must keep its prefix and an UNSUPPORTED must not borrow one; only the
 # submitting role's own files are evidence.
 sc_unsupported_probes() {
+  host_browser && { ok "skipped: a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)"; return 0; }
   uns_run
-  printf '#!/bin/sh\n' > "$PROOFLINE_PROBE_ROOT/bin/google-chrome"; chmod +x "$PROOFLINE_PROBE_ROOT/bin/google-chrome"
+  printf '#!/bin/sh\n' > "$probe_bin/google-chrome"; chmod +x "$probe_bin/google-chrome"
   expect_msg "visual UNSUPPORTED with a browser on PATH" 'capability present: browser' uns_visual 'no headless browser installed in the project'
   # a measured INCONCLUSIVE had the browser: the probe does not refuse it
   out=$(uns_visual 'visual INCONCLUSIVE: two identical captures differ by 4% of pixels')
   printf '%s' "$out" | grep -Fq 'submitted: LC qa FAIL gate=QA' || die "INCONCLUSIVE refused by the probe: $out"
-  rm "$PROOFLINE_PROBE_ROOT/bin/google-chrome"
+  rm "$probe_bin/google-chrome"
   uns_report INCONCLUSIVE
   expect_msg "an INCONCLUSIVE downgraded to UNSUPPORTED" "must start 'visual INCONCLUSIVE:'" AS qa submit LC --focus visual --result UNSUPPORTED --reason 'no headless browser installed' --confidence high --artifact reviews/visual-proof/REPORT.md --evidence reviews/visual-proof/validator.txt
   uns_report
@@ -485,12 +503,12 @@ sc_probe_benchmark_dotnet() {
 sc_probe_drift() {
   pd_m=$(dirname "$0")/../../../skills/visual-proof/scripts/measure.mjs
   [ -f "$pd_m" ] || { ok "probe drift guard skipped (skill source not present)"; return 0; }
-  pd_a=$(dirname "$0")/agent.sh
+  pd_a=$(dirname "$0")/core/probes.mjs
   for pd_n in $(sed -n 's/^const BROWSER_NAMES = \[\(.*\)\];$/\1/p; s/^const PROJECT_TOOLS = \[\(.*\)\];$/\1/p' "$pd_m" | tr -d '",'); do
     # a browser name is listed in the probe itself; a project test tool is DATA the probe reads (ecosystems.json browser_test.names, A185)
-    sed -n '/^probe_visual()/,/^}/p' "$pd_a" | grep -Eq "(^|[ ])$pd_n( |;|$)" \
+    grep -Fq "$pd_n" "$pd_a" \
       || awk -F'\t' -v n="$pd_n" '$2 == "browser_test.names" && $3 == n { f = 1 } END { exit !f }' "$(dirname "$0")/../ecosystems.tsv" \
-      || die "probe_visual and ecosystems.json browser_test.names lack $pd_n from measure.mjs"
+      || die "core/probes.mjs and ecosystems.json browser_test.names lack $pd_n from measure.mjs"
   done
   ok "visual probe lists equal measure.mjs's"
 }

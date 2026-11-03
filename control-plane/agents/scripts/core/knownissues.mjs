@@ -138,7 +138,7 @@ export function findingBatchAccepted(ctx, id, rec, fid) {
 }
 
 /** `ki_gate_facts ID GATE`: "KI-n:FINDING:follow-up" for the gate's current blocking findings that are listed known issues. @param {Context} ctx @param {string} id @param {string} gate @returns {string[]} */
-function gateFacts(ctx, id, gate) {
+export function gateFacts(ctx, id, gate) {
   const dir = `${ctx.root}/.agents/runs/${id}`;
   /** @type {string[]} */ const out = [];
   for (const fc of ['-', ...riskGateFocuses(ctx, dir, gate)]) {

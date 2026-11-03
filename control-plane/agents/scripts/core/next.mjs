@@ -4,10 +4,11 @@
 // `note=`, `missing_step=`, `finding=` and `fix_path=` lines the lead and the hooks parse. It removes stale dispatch markers like the shell.
 // Three branches stay with the shell until the stages that move their writers (BridgeToShell before any output):
 // a delivery whose pull request is open (ci_progress), a task of an approved batch
-// (batch_member), a listed known issue (ki_gate_facts) and the design-sync drift of the knowledge step (knowledge_drift).
+// (batch_member) and a listed known issue (ki_gate_facts).
 import { asciiLower } from './shellglob.mjs';
 import { lstatSync, statSync } from 'node:fs';
 import { BridgeToShell } from './errors.mjs';
+import { knowledgeDrift } from './commands/runcmds.mjs';
 import { approvalWaitO } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import {
@@ -259,10 +260,10 @@ export function buildRecordMissing(ctx) {
 
 export const BUILD_STEP = (/** @type {string} */ id) => `proofline doctor --commands   (finds the commands, proves each by one run and asks the user ONE question; the user's yes writes only the proven ones; then agent.sh build-record ${id} run). If the user declines, say in the completion report that no build or test was recorded`;
 
-/** `knowledge_drift ID` and its one use: the shell runs the design-sync script; only the case without it is answered here. @param {Context} ctx @param {string} dir */
-function knowledgeDriftNote(ctx, dir) {
-  if (isFile(`${dir}/design/SYNC.md`) && isFile(`${ctx.root}/.agents/skills/design-sync/scripts/design-sync.mjs`)) throw new BridgeToShell('design-sync drift');
-  return '';
+/** The `note=` line of `next` for design-sync drift in knowledge-scope documents (information for the knowledge step); nothing without drift. @param {Context} ctx @param {string} id */
+function knowledgeDriftNote(ctx, id) {
+  const drift = knowledgeDrift(ctx, id).slice(0, 5).join(';');
+  return drift === '' ? '' : `note=design-sync drift in knowledge-scope documents (information for the knowledge step, which must fix it before knowledge-done): ${drift}\n`;
 }
 
 // ---- the state machine ------------------------------------------------------------------------------------------------------------
@@ -532,7 +533,7 @@ function codeDone(ctx, id, d, emit, o, r) {
       r('completion report not published');
     } else { o(`agent.sh handoff ${id} DONE`); r('report published'); }
   } else {
-    knowledgeDriftNote(ctx, d);
+    emit(knowledgeDriftNote(ctx, id));
     o(`agent.sh knowledge-done ${id} [not_applicable "<reason>"]`); r('knowledge transaction not recorded');
   }
 }

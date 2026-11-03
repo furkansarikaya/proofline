@@ -33,11 +33,10 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
 case "${1:-}" in
   friction|calibrate|build-record|lessons|rules|decide|\
-  worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|metrics-dispatch|wait-line|ledger-note|\
+  metrics-dispatch|wait-line|ledger-note|\
   deliver-merged|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
   batch-answers|task-rename-plan|task-rename-apply|known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|pr-state|batch-next|\
-  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|platform|platform-warn|task-source-done|\
-  knowledge-done|publish-completion-report|verify-completion-report|test) ;;
+  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|platform|platform-warn|task-source-done|test) ;;
   *)
     pl_sh=no
     # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
@@ -77,10 +76,8 @@ canon_role() {
   esac
 }
 valid_role() { case "$1" in lead|task_author|explorer|architect|data_architect|designer|qa|implementer|reviewer|security_reviewer|verifier) return 0 ;; *) return 1 ;; esac; }
-is_gate_role() { case "$1" in reviewer|security_reviewer|qa|verifier) return 0 ;; *) return 1 ;; esac; }
 execution_role=$(canon_role "${AGENT_ROLE:-lead}")
 require_lead() { [ "$execution_role" = lead ] || fail "command denied for $execution_role (lead only)"; }
-require_full_lifecycle() { require_lead; }
 
 valid_task_id() { case "$1" in *[!A-Za-z0-9_-]*|'') return 1;; esac; }
 run_dir() { printf '%s/.agents/runs/%s\n' "$root" "$1"; }
@@ -210,7 +207,6 @@ cfg_cmds() {
   cfg_cv=$(cfg "$1" '')
   if [ -n "$cfg_cv" ]; then printf '%s\n' "$cfg_cv"; else printf '%s\n' "$cfg_cache" | config_items "$1"; fi
 }
-config_value() { cfg "$1"; }
 
 # --- Timeouts (A202 item 29): one multiplier for every duration ------------------------------------------------------------
 # tm_scale: timeouts.scale (0.5 to 10, default 1); a missing, non-numeric or out-of-range value is 1, so no value can switch a timeout off or
@@ -1110,15 +1106,11 @@ tier_effective() {
 # not `yes` in PLAN.md is a blocking finding of its focus, added by `record` (the focus still runs).
 risk_plan_flags='contract_change concurrency performance_critical'   # PLAN.md `## Risk`: `<flag>: yes|no`
 risk_flags="$risk_plan_flags data_change destructive ui"            # data_change/destructive: `## Data`; ui: `## UI`
-# The focus set is fixed here; config only chooses which focus a signal triggers. Its gate follows from it.
-risk_focus_role() { case "$1" in contract|concurrency|performance|config|migration) echo reviewer ;; visual) echo qa ;; dependencies|logging) echo security_reviewer ;; *) return 1 ;; esac; }
 risk_focus_on_gate() { # FOCUS GATE
   case "$1:$2" in contract:REVIEW_RULES|concurrency:REVIEW_RULES|performance:REVIEW_RULES|config:REVIEW_RULES) return 0 ;;
     contract:REVIEW_SMALL|concurrency:REVIEW_SMALL|performance:REVIEW_SMALL|config:REVIEW_SMALL) return 0 ;;
     migration:REVIEW_DATA|visual:QA|dependencies:SECURITY|logging:SECURITY) return 0 ;; *) return 1 ;; esac
 }
-risk_focus_report() { case "$1" in contract) echo reviews/contract-proof/ ;; concurrency) echo reviews/concurrency-proof/ ;; performance) echo reviews/performance-proof/ ;;
-  config) echo reviews/proof-review/config/ ;; migration) echo reviews/data-migration/ ;; visual) echo reviews/visual-proof/ ;; dependencies) echo security/dependencies/ ;; logging) echo security/logging/ ;; esac; }
 plan_flag() { # PLAN FLAG -> yes|no
   [ -f "$1" ] || { echo no; return 0; }
   case "$2" in
@@ -1311,19 +1303,6 @@ risk_unsupported() {
     done
   done
 }
-# A98: an UNSUPPORTED result blocks only under `risk.unsupported: block` (the A78 rule) or when its reason is an
-# INCONCLUSIVE measurement (`<focus> INCONCLUSIVE: ...`: it ran and was unreliable, the user decides).
-unsupported_blocks() { # REASON
-  [ "$(cfg risk.unsupported report)" != block ] || return 0
-  printf '%s\n' "$1" | grep -Eq '^[[:alnum:]_ -]*INCONCLUSIVE:'
-}
-# A98: a reason is the concrete missing thing, not a dodge ("n/a"): at least 12 characters and an anchor: a
-# path-like token, an INCONCLUSIVE measurement, or a tool/capability word. shortcut: a word list, not a proof
-# that the tool is absent; the reviewer and verifier re-check it, and `risk.unsupported: block` stays available.
-unsupported_reason_ok() { # REASON
-  [ "${#1}" -ge 12 ] || return 1
-  printf '%s\n' "$1" | grep -Eiq 'INCONCLUSIVE:|[A-Za-z0-9_.-]{2,}/[A-Za-z0-9_.-]{2,}|[A-Za-z0-9_-]\.(json|ya?ml|proto|graphqls?|gql|avsc|sql|js|mjs|ts|py|go|rb|java|sh|toml|lock|html?)([^A-Za-z]|$)|tool|parser|parse|benchmark|browser|chromium|chrome|database|schema|snapshot|contract|command|install|binary|runtime|driver|harness|format|capabilit|openapi|asyncapi|graphql|protobuf|machine-readable|migration|seed row|fixture|server|interception|threshold|library|package|test suite|temp-db|temporary|throwaway|node'
-}
 unsupported_label() { # SEVERITY
   if [ "$1" = info ]; then echo 'UNSUPPORTED (unproven, reported)'; else echo 'UNSUPPORTED (blocking: a waiver or a measurement is needed)'; fi
 }
@@ -1386,12 +1365,6 @@ gate_of() { # ROLE [FOCUS] [ID]: a rules-gate risk focus (A78) lands on REVIEW_S
     security_reviewer:*) echo SECURITY ;; qa:*) echo QA ;; verifier:*) echo VERIFY ;; *) return 1 ;;
   esac
 }
-# Default report artifact per gate for the compatibility `gate` command.
-gate_default_artifact() {
-  case "$1" in REVIEW_PLAN) echo reviews/proof-review/plan/REPORT.md ;; REVIEW_RULES) echo reviews/proof-review/rules/REPORT.md ;; REVIEW_SMALL) echo reviews/proof-review/small/REPORT.md ;;
-    REVIEW_TESTS) echo reviews/test-trust/tests/REPORT.md ;; REVIEW_DATA) echo reviews/data-design/REVIEW.md ;; SECURITY) echo security/REPORT.md ;; QA) echo QA_REPORT.md ;; VERIFY) echo VERIFY.md ;; esac
-}
-valid_gate_name() { case "$1" in SECRETS|REVIEW_SMALL|REVIEW_PLAN|REVIEW_RULES|REVIEW_TESTS|REVIEW_DATA|SECURITY|QA|VERIFY) return 0 ;; *) return 1 ;; esac; }
 
 # A172: identity of the ids the control plane writes and reads (QA-n, AC-n, AS-n, finding ids <GATE>-<n> / <role id>-<n>).
 # The form the producer wrote is canonical and is never rewritten; every check compares by KEY: case-insensitive, leading
@@ -1401,18 +1374,6 @@ id_key() { printf '%s\n' "$1" | tr '[:lower:]' '[:upper:]' | sed -E 's/-0+([0-9]
 id_eq() { [ "$(id_key "$1")" = "$(id_key "$2")" ]; }
 # id_keys: stdin ids -> keys (for sort/comm/uniq over a list)
 id_keys() { tr '[:lower:]' '[:upper:]' | sed -E 's/-0+([0-9])/-\1/g'; }
-# result_kind ROLE RESULT -> gate | task | (empty: the result is not valid for the role). The one rule `submit` and `record` share.
-result_kind() {
-  case "$2" in
-    UNSUPPORTED|PASS|FAIL) is_gate_role "$1" && echo gate ;;
-    BLOCKED) if is_gate_role "$1" && [ "$1" != qa ]; then echo gate; else echo task; fi ;;
-    DONE|NEEDS_INPUT) case "$1" in reviewer|security_reviewer|verifier) ;; *) echo task ;; esac ;;
-  esac
-  return 0
-}
-# finding_prefix ROLE KIND GATE -> the prefix of the finding ids of one result: a gate result is <GATE>-<n>, a task result
-# <role id>-<n> (roles/README.md). `submit` writes it and `record` demands it, both from this function.
-finding_prefix() { if [ "$2" = gate ] && [ -n "$3" ]; then printf '%s\n' "$3"; else printf '%s\n' "$1"; fi; }
 
 # A200: the answer to a batch pre-flight question (batch.sh answer: the user's own captured message, parsed by the script),
 # valid only while the batch approval of the summary that asked it stands. Prints `letter<TAB>param<TAB>question` of the
@@ -1940,10 +1901,16 @@ verify_knowledge_scope() {
 scan_knowledge_secrets() {
   sk_paths=$(knowledge_owned_paths "$1" | while IFS= read -r p; do [ -f "$root/$p" ] && printf '%s\n' "$p"; done)
   [ -n "$sk_paths" ] || return 0
-  [ -f "$scripts/secret-scan.sh" ] || fail "secret scanner missing: .agents/scripts/secret-scan.sh"
   sk_rc=0
-  # shellcheck disable=SC2086 # one argument per path (paths contain no whitespace by contract)
-  sk_out=$(cd "$root" && sh "$scripts/secret-scan.sh" $sk_paths 2>&1) || sk_rc=$?
+  # the project's own scanner script when it has one (only a fixture stub; the installer ships none), else the scanner of the Node core (A214)
+  if [ -f "$scripts/secret-scan.sh" ]; then
+    # shellcheck disable=SC2086 # one argument per path (paths contain no whitespace by contract)
+    sk_out=$(cd "$root" && sh "$scripts/secret-scan.sh" $sk_paths 2>&1) || sk_rc=$?
+  else
+    [ -f "$sr_main/.agents/scripts/proofline-core.mjs" ] || fail "secret scanner missing: $sr_main/.agents/scripts/proofline-core.mjs"
+    # shellcheck disable=SC2086
+    sk_out=$(node "$sr_main/.agents/scripts/proofline-core.mjs" cli scan-secrets --root "$root" $sk_paths 2>&1) || sk_rc=$?
+  fi
   case "$sk_rc" in
     0) return 0 ;;
     1) printf '%s\n' "$sk_out" | sed 's/^/  /' >&2; fail "secret scan of the knowledge-scope files written after CODE_DONE found secrets: remove them" ;;
@@ -2163,43 +2130,7 @@ verify_qa_plan_bound() { # ID
   [ -z "$vq_inv" ] || fail "QA_PLAN.md has no invalid-input scenario for the entry point(s) of PLAN.md ## Contracts: $vq_inv. Add an adversarial scenario '- QA-<n> (AC-<k>) [invalid-input]: ...' that names each entry point in its title, input or expected line, with an input the server must reject (A162)"
 }
 
-# --- The tests review proves the plan's tests observe their criteria (A59) -------------------------
-# A REVIEW_TESTS submission (reviewer, focus tests) needs reviews/test-trust/tests/findings.json that passes the
-# test-trust validator against the frozen PLAN.md: every criterion of PLAN `## Tests` has a claim mutant its named
-# test killed by an assertion. Checked only where the skill and node are installed (a real install has both).
-verify_tests_findings() { # ID
-  vt_s=$root/.agents/skills/test-trust/scripts/validate-findings.mjs
-  [ -f "$vt_s" ] && command -v node >/dev/null 2>&1 || return 0
-  vt_d=$(run_dir "$1")
-  vt_f=$vt_d/reviews/test-trust/tests/findings.json
-  [ -f "$vt_f" ] || { echo "the tests review needs reviews/test-trust/tests/findings.json (test-trust diff mode, scope.diff.claims for every criterion of PLAN ## Tests); the report alone is not enough"; return 1; }
-  vt_p=''; [ ! -f "$vt_d/PLAN.md" ] || vt_p="--plan $vt_d/PLAN.md"
-  # shellcheck disable=SC2086
-  vt_out=$(node "$vt_s" "$vt_f" $vt_p 2>&1) || { printf '%s\n' "$vt_out" | tr '\n' ' '; return 1; }
-  # A171: a mutation-budget overrun is a warning the submission passes with, never a block
-  printf '%s\n' "$vt_out" | grep '^WARNING:' >&2 || :
-}
 
-# --- design-sync is not skipped silently (A65) --------------------------------------------------------
-# A VERIFY submission of a run whose plan changes what a configured design document describes (a UI section, a
-# Data section with content, Contracts other than none, where that document exists) needs design/SYNC.md, or a
-# VERIFY.md line `design-sync: SKIPPED (<reason>)`.
-verify_design_sync() { # ID
-  vs_d=$(run_dir "$1")
-  [ "$(pipeline_class "$1")" != TRIVIAL ] || return 0
-  [ -f "$vs_d/PLAN.md" ] || return 0
-  [ -f "$vs_d/design/SYNC.md" ] && return 0
-  [ ! -f "$vs_d/VERIFY.md" ] || ! grep -q 'design-sync: SKIPPED (' "$vs_d/VERIFY.md" || return 0
-  vs_need=no
-  for vs_k in data_model api architecture; do
-    vs_p=$(cfg "design_docs.$vs_k" ""); [ -n "$vs_p" ] && [ -f "$root/$vs_p" ] || continue
-    case "$vs_k" in
-      data_model) [ "$(awk '/^## Data[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF { n++ } END { print n + 0 }' "$vs_d/PLAN.md")" -gt 1 ] && vs_need=yes ;;
-      api) [ -n "$(awk '/^## Contracts[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF && tolower($0) !~ /^none/ { print; exit }' "$vs_d/PLAN.md")" ] && vs_need=yes ;;
-    esac
-  done
-  [ "$vs_need" = no ] || { echo "the plan changes what a design document describes: write design/SYNC.md (design-sync) or record 'design-sync: SKIPPED (<reason>)' in VERIFY.md"; return 1; }
-}
 
 
 # --- Defect tasks carry a debug-proof result (A35, A200). -----------------------------------------
@@ -2314,112 +2245,6 @@ evidence_field() {
 }
 evidence_targets() { sed -n 's/^target: *//p' "$1" | head -1 | tr ',' '\n'; }
 evidence_covers_path() { evidence_targets "$1" | grep -Fxq -- "$2"; }
-# scope_snapshot MAPPINGS: "path=sha256;..." of every frozen scope path now ("missing" for a path not there yet).
-scope_snapshot() {
-  for ss_p in $(printf '%s\n' "$1" | cut -d '|' -f1); do
-    if [ -f "$root/$ss_p" ] && [ ! -L "$root/$ss_p" ]; then ss_h=$(hash_file "$root/$ss_p"); else ss_h=missing; fi
-    printf '%s=%s;' "$ss_p" "$ss_h"
-  done
-  printf '\n'
-}
-# test_like_path P: a test file by name or folder (language-neutral); the implementation is every other scope path.
-test_like_path() {
-  case "$1" in
-    *_test.*|*.test.*|*.spec.*|*Test.*|*Tests.*|test_*|*/test_*|test/*|tests/*|*/test/*|*/tests/*|__tests__/*|*/__tests__/*|spec/*|*/spec/*) return 0 ;;
-  esac
-  return 1
-}
-# latest_evidence EVDIR PHASE PATH: the highest-numbered PHASE record covering PATH (prints its file).
-latest_evidence() {
-  le_best='' le_n=0
-  for le_f in "$1"/"$2"-*.yaml; do
-    [ -e "$le_f" ] || continue
-    evidence_covers_path "$le_f" "$3" || continue
-    le_s=$(basename "$le_f" .yaml); le_s=${le_s#"$2"-}
-    case "$le_s" in *[!0-9]*|'') continue ;; esac
-    if [ "$le_s" -gt "$le_n" ]; then le_n=$le_s le_best=$le_f; fi
-  done
-  [ -n "$le_best" ] || return 1
-  printf '%s\n' "$le_best"
-}
-# green_after_change OLD NEW: succeeds when an implementation path (a scope path that is not a test file; any
-# path when the scope holds only tests) differs between the two snapshots.
-green_after_change() {
-  gc_impl=0 gc_changed_impl=0 gc_changed=0
-  gc_ifs=$IFS; IFS=';'; set -f
-  # shellcheck disable=SC2086 # split on ';' on purpose
-  set -- "$1" $2
-  IFS=$gc_ifs; set +f
-  gc_old=$1; shift
-  for gc_e in "$@"; do
-    [ -n "$gc_e" ] || continue
-    gc_path=${gc_e%=*}
-    if test_like_path "$gc_path"; then gc_t=1; else gc_t=0; gc_impl=1; fi
-    if ! printf '%s' "$gc_old" | tr ';' '\n' | grep -Fxq -- "$gc_e"; then
-      gc_changed=1; [ "$gc_t" = 1 ] || gc_changed_impl=1
-    fi
-  done
-  if [ "$gc_impl" = 1 ]; then [ "$gc_changed_impl" = 1 ]; else [ "$gc_changed" = 1 ]; fi
-}
-record_worker_evidence() {
-  id=$1 phase=$2 result=$3; require_run "$id"; dir=$(run_dir "$id"); require_open_run "$id"
-  topology=$(resolve_topology "$dir")
-  expected_role=$(expected_implementation_owner "$topology")
-  [ "$execution_role" = "$expected_role" ] || fail "command requires AGENT_ROLE=$expected_role for this run's execution topology ($topology)"
-  case "$phase" in RED|GREEN|REFACTOR|FIX) ;; *) fail "invalid worker-evidence phase: $phase" ;; esac
-  case "$result" in pass|fail) ;; *) fail "invalid worker-evidence result: $result (want pass|fail)" ;; esac
-  [ "$(section_value "$dir" handoff state)" = IMPLEMENTING ] || fail "worker evidence may only be recorded while handoff state is IMPLEMENTING"
-  verify_freeze "$id"; enforce_task_branch "$id"; verify_seal "$id"
-  scratch=$(mktemp "${TMPDIR:-/tmp}/agent-worker-evidence.XXXXXX"); cat > "$scratch"
-  command_text=$(sed -n 's/^command: *//p' "$scratch" | head -1)
-  target_text=$(sed -n 's/^target: *//p' "$scratch" | head -1)
-  expected_failure=$(sed -n 's/^expected_failure: *//p' "$scratch" | head -1)
-  rm -f "$scratch"
-  [ -n "$command_text" ] || fail "worker evidence requires a non-empty command"
-  [ -n "$target_text" ] || fail "worker evidence requires a non-empty target (comma-separated scope paths)"
-  mappings=$(scope_mappings "$dir/PLAN.md") || fail "invalid scope mapping"
-  for we_p in $(printf '%s' "$target_text" | tr ',' ' '); do authorized_path "$mappings" "$we_p" || fail "worker evidence rejected: target outside frozen scope: $we_p"; done
-  if [ "$phase" = RED ]; then
-    [ "$result" = fail ] || fail "RED evidence must record result: fail"
-    reject_generic_justification "$expected_failure" || fail "RED evidence requires a specific, non-generic expected_failure (>=20 chars, not a stock phrase)"
-  else
-    [ "$result" = pass ] || fail "$phase evidence must record result: pass"
-  fi
-  evdir=$(worker_evidence_dir "$id")
-  snapshot=$(scope_snapshot "$mappings")
-  # Order (A97): GREEN and REFACTOR follow a RED record of the same path; GREEN also follows a change of the
-  # implementation since that RED (a green recorded before the fix exists proves nothing). A path with a
-  # TDD exemption is not held to RED.
-  case "$phase" in GREEN|REFACTOR)
-    for we_p in $(printf '%s' "$target_text" | tr ',' ' '); do
-      [ -z "$(exempted_path "$dir/PLAN.md" "$we_p")" ] || continue
-      we_red=$(latest_evidence "$evdir" RED "$we_p") || fail "$phase evidence rejected: no RED evidence for $we_p yet; record RED (the failing test, before the fix) first"
-      if [ "$phase" = GREEN ]; then
-        we_old=$(evidence_field "$we_red" scope_snapshot)
-        if [ -n "$we_old" ] && ! green_after_change "$we_old" "$snapshot"; then
-          fail "GREEN evidence rejected: no implementation file changed since the RED record for $we_p; make the fix, then record GREEN. Your own work: record RED before the fix next time. A change that someone else left in the tree before you started: save the file to scratch, put it back to the base content (git show <base>:<path>, or a failing stub for a new file; never delete a file), record RED, restore it, record GREEN, all in one turn (A198)"
-        fi
-      else
-        latest_evidence "$evdir" GREEN "$we_p" >/dev/null || latest_evidence "$evdir" FIX "$we_p" >/dev/null || fail "REFACTOR evidence rejected: no GREEN evidence for $we_p yet"
-      fi
-    done ;;
-  esac
-  mkdir -p "$evdir" 2>/dev/null || fail "worker evidence directory could not be created (sandbox denied write?): $evdir"
-  seq=$(next_evidence_seq "$evdir" "$phase"); out="$evdir/$phase-$seq.yaml"
-  {
-    printf 'task_id: "%s"\nphase: "%s"\nresult: "%s"\nrole: "%s"\ntopology: "%s"\n' "$id" "$phase" "$result" "$execution_role" "$topology"
-    printf 'command: %s\ntarget: %s\n' "$command_text" "$target_text"
-    if [ "$phase" = RED ]; then printf 'expected_failure: %s\n' "$expected_failure"; fi
-    printf 'scope_snapshot: %s\n' "$snapshot"
-    printf 'base_sha: "%s"\n' "$(git -C "$root" rev-parse HEAD)"
-    printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\n' "$(section_value "$dir" freeze task_sha256)" "$(section_value "$dir" freeze evidence_sha256)" "$(section_value "$dir" freeze plan_sha256)"
-    if [ -n "${CODEX_SESSION_ID:-}" ]; then printf 'codex_session_id: "%s"\n' "$CODEX_SESSION_ID"; fi
-    printf 'timestamp: "%s"\n' "$(now_iso)"
-  } > "$out" 2>/dev/null || { rm -f "$out" 2>/dev/null || true; fail "failed to write worker evidence file (sandbox denied write?): $out"; }
-  [ -s "$out" ] || { rm -f "$out"; fail "worker evidence file was not actually written (empty or missing after redirect): $out"; }
-  grep -q '^task_id: ' "$out" || { rm -f "$out"; fail "worker evidence file is malformed (missing task_id): $out"; }
-  echo "worker evidence recorded: $id $phase-$seq ($result)"
-}
 valid_evidence_file() {
   id=$1 dir=$2 file=$3 expected_role=$4
   [ "$(evidence_field "$file" task_id)" = "$id" ] || return 1
@@ -2485,7 +2310,6 @@ verify_worker_evidence() {
 gates_enforced() { section_key_present "$(run_dir "$1")" lifecycle_gates required; }
 max_fix_rounds() { mfr=$(cfg review.max_fix_rounds 2); case "$mfr" in ''|*[!0-9]*) mfr=2 ;; esac; printf '%s\n' "$mfr"; }
 one_line() { printf '%s' "$1" | tr '\n\t' '  '; }
-field_from() { sed -n "s/^$2: *//p" "$1" | head -1; }
 
 ledger_file() { printf '%s/LEDGER.log\n' "$(run_dir "$1")"; }
 _lv() { printf '%s.%s=%s\n' "$2" "$3" "$(section_value "$1" "$2" "$3")"; }
@@ -2572,11 +2396,6 @@ verify_bindings() { # ID: every gate record and waiver is bound in the ledger
   done
   [ -z "$vb_bad" ] || fail "records not bound in the ledger by the command that writes them (hand-written or edited; every gate evaluation ignores them):$vb_bad"
 }
-next_gate_seq() {
-  n=0
-  for f in $(gate_names_all "$1"); do s=$(printf '%s' "$f" | cut -c1-3 | sed 's/^0*//'); if [ "${s:-0}" -gt "$n" ]; then n=$s; fi; done
-  printf '%d\n' $((n + 1))
-}
 # last_reopen_seq ID [any|terminal]: the seq of the last REOPEN record. Default: an `amend` reopen, which discards every
 # earlier gate record. `terminal`: the last `reopen` of a FAILED/BLOCKED run (A152, marked `reopened_from`); its passing
 # records stay, its non-passing ones do not. `any`: both (the fix-round allowance restarts at either).
@@ -2619,7 +2438,6 @@ valid_gate_file() {
   if [ -n "$g_ue" ]; then [ -f "$g_d/$g_ue" ] && [ "$(gate_field "$g_f" unsupported_evidence_sha256)" = "$(hash_file "$g_d/$g_ue")" ] || return 1; fi
   return 0
 }
-finding_ids() { sed -n 's/^finding: \([^|]*\)|.*/\1/p' "$1"; }
 # A waiver counts only when `waive` wrote it (ledger-bound) for exactly this gate record (name and sha256)
 # and finding; SECRETS and SECURITY findings are never waived, whatever the waiver files say.
 finding_waived() { # ID GATE-RECORD-FILE FINDING-ID
@@ -2830,9 +2648,6 @@ verify_required_gates() { # ID strict|patch MESSAGE
 # record cited (so a line the implementer was asked to fix and did not still counts). Deterministic: it compares
 # the tree of each record's fingerprint, nothing else. A row without a numeric path:line, a tree that is not in the
 # object database, or no earlier record: not free.
-# A171: the blocking-vs-info rule is written in GATES.md ("Blocking or info"); this is its version. A change of the rule
-# text raises the number, and a classification is compared only with records of the same version.
-blocking_rule_version=1
 # finding_key FINGERPRINT LOCATION TEXT: the identity of an observation across revisions. The cited line's text in that
 # revision when the location resolves (so a moved line is the same finding), else the normalised finding text.
 finding_key() {
@@ -2840,31 +2655,6 @@ finding_key() {
   fk_t=$(tree_line "$1" "$fk_loc")
   if [ -n "$(printf '%s' "$fk_t" | tr -d '[:space:]')" ]; then printf '%s@%s\n' "${fk_loc%:*}" "$(printf '%s' "$fk_t" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | git hash-object --stdin | cut -c1-12)"
   else printf '%s~%s\n' "${fk_loc%:*}" "$(printf '%s' "$3" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' ' ' | sed 's/^ //;s/ $//' | git hash-object --stdin | cut -c1-12)"; fi
-}
-# classification_flip ID GATE FOCUS FINGERPRINT ROWS-FILE: the first row (rows: id|severity|loc|text|evidence) whose key an
-# earlier record of the same gate and focus under the same rule version classified the other way. Prints "id key was X in NAME".
-classification_flip() {
-  cl_ro=$(last_reopen_seq "$1" any)
-  for cl_n in $(gate_names "$1"); do
-    cl_f=$(gates_dir "$1")/$cl_n
-    [ "$(gate_field "$cl_f" gate)" = "$2" ] && [ "$(gate_field "$cl_f" focus)" = "$3" ] || continue
-    [ "$(gate_field "$cl_f" seq)" -gt "$cl_ro" ] || continue
-    [ "$(gate_field "$cl_f" blocking_rule)" = "$blocking_rule_version" ] || continue
-    cl_pfp=$(gate_field "$cl_f" fingerprint)
-    # earlier keys, one per line: key<TAB>class
-    cl_old=$(sed -n 's/^finding: //p' "$cl_f" | while IFS='|' read -r cl_i cl_s cl_l cl_x _; do
-      [ "$cl_s" = info ] || [ "$cl_s" = blocking ] || continue
-      case "$cl_x$cl_l" in (UNSUPPORTED*|*"risk signal "*) continue ;; esac
-      printf '%s\t%s\n' "$(finding_key "$cl_pfp" "$cl_l" "$cl_x")" "$cl_s"; done)
-    [ -n "$cl_old" ] || continue
-    cl_hit=$(awk -F'|' '{ print $1 "|" $2 "|" $3 "|" $4 }' "$5" | while IFS='|' read -r cl_i cl_s cl_l cl_x; do
-      [ "$cl_s" = info ] || [ "$cl_s" = blocking ] || continue
-      cl_k=$(finding_key "$4" "$cl_l" "$cl_x")
-      cl_was=$(printf '%s\n' "$cl_old" | awk -F'\t' -v k="$cl_k" '$1 == k { print $2; exit }')
-      if [ -n "$cl_was" ] && [ "$cl_was" != "$cl_s" ]; then printf '%s (%s) is %s, and was %s in %s\n' "$cl_i" "$cl_l" "$cl_s" "$cl_was" "$cl_n"; break; fi; done)
-    [ -z "$cl_hit" ] || { printf '%s\n' "$cl_hit"; return 0; }
-  done
-  return 1
 }
 tree_line() { # FINGERPRINT PATH:LINE -> the text of that line in that tree (empty when unknown)
   tl_loc=$2; tl_p=${tl_loc%:*}; tl_n=${tl_loc##*:}; tl_n=${tl_n%%-*}
@@ -3112,84 +2902,8 @@ verify_lifecycle_gates() {
   case "$g_hs" in CODE_DONE|DONE) verify_required_gates "$g_id" patch "gate evidence missing or stale" ;; esac
 }
 
-# --- Gate recording (shared by record, gate and secret-scan) ------------------------------
-gate_preconditions() { # ID GATE
-  gp_id=$1 gp_gate=$2; gp_d=$(run_dir "$1")
-  gates_enforced "$gp_id" || fail "run $gp_id has no lifecycle_gates policy: gates are not recorded for it"
-  require_open_run "$gp_id"
-  gp_req=$(required_gates "$gp_id")
-  printf '%s\n' "$gp_req" | grep -Fxq "$gp_gate" || fail "$gp_gate is not a required gate of $gp_id (required: $(printf '%s' "$gp_req" | tr '\n' ' '))"
-  enforce_task_branch "$gp_id"; verify_freshness "$gp_id" >/dev/null; verify_seal "$gp_id"
-  [ "$(section_value "$gp_d" handoff state)" = IMPLEMENTED ] || fail "$gp_gate gate may only be recorded while handoff state is IMPLEMENTED"
-  verify_scope "$gp_id" 0 >/dev/null
-  [ "$(section_value "$gp_d" handoff implemented_patch_sha256)" = "$(task_patch_fingerprint "$gp_id")" ] || fail "$gp_gate gate blocked: the application tree changed since IMPLEMENTED"
-  verify_mutation_ownership "$gp_id"
-}
-# write_gate ID GATE RESULT ROLE CONFIDENCE FOCUS ARTIFACT FINDINGS-FILE RESULT-FILE FINGERPRINT [UNSUPPORTED-EVIDENCE] [NOT_RERUN]
-# FINDINGS-FILE holds rows "id|severity|path:line|finding|evidence".
-write_gate() {
-  wg_id=$1 wg_gate=$2 wg_res=$3 wg_role=$4 wg_conf=$5 wg_focus=$6 wg_art=$7 wg_findings=$8 wg_rfile=$9; shift 9; wg_fp=$1 wg_ue=${2:-} wg_nr=${3:-}
-  wg_d=$(run_dir "$wg_id"); wg_gd=$(gates_dir "$wg_id"); mkdir -p "$wg_gd" || fail "cannot create $wg_gd"
-  wg_seq=$(next_gate_seq "$wg_id"); [ "$wg_seq" -le 999 ] || fail "gate record limit reached"
-  wg_name=$(printf '%03d-%s' "$wg_seq" "$wg_gate")
-  wg_scope=''
-  if [ "$wg_res" = fail ]; then
-    wg_scope=$(awk -F'|' '$2 != "info" { p = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); if (p == "" || p == "-") p = "*"; else { sub(/:.*$/, "", p); gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); if (p == "") next }; print p }' "$wg_findings" | sort -u | tr '\n' ',' | sed 's/,$//')
-  fi
-  patch_manifest "$wg_id" > "$wg_gd/$wg_name.manifest" || fail "could not write gate manifest"
-  {
-    printf 'task_id: "%s"\nseq: %s\ngate: "%s"\nresult: "%s"\nrole: "%s"\nconfidence: "%s"\nfocus: "%s"\n' "$wg_id" "$wg_seq" "$wg_gate" "$wg_res" "$wg_role" "$wg_conf" "$wg_focus"
-    printf 'topology: "%s"\ntier: "%s"\n' "$(resolve_topology "$wg_d")" "$(tier_effective "$wg_id")"
-    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$wg_fp" "$(task_patch_fingerprint "$wg_id")" "$(hash_file "$wg_gd/$wg_name.manifest")"
-    if [ -n "$wg_art" ]; then printf 'artifact: "%s"\nartifact_sha256: "%s"\n' "$wg_art" "$(hash_file "$wg_d/$wg_art")"; fi
-    printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$wg_d" freeze task_sha256)" "$(section_value "$wg_d" freeze evidence_sha256)" "$(section_value "$wg_d" freeze plan_sha256)" "$(section_value "$wg_d" freeze qa_plan_sha256)"
-    printf 'policy_sha256: "%s"\npipeline: "%s"\n' "$(section_value "$wg_d" freeze policy_sha256)" "$(section_value "$wg_d" freeze pipeline)"
-    printf 'blocking_rule: "%s"\n' "$blocking_rule_version"
-    [ -z "$wg_rfile" ] || printf 'result_file: "%s"\nresult_sha256: "%s"\n' "$wg_rfile" "$(hash_file "$wg_d/$wg_rfile")"
-    [ "$wg_res" != fail ] || printf 'fix_scope: %s\n' "$wg_scope"
-    [ "$wg_res" != unsupported ] || printf 'unsupported: "%s"\n' "$wg_focus"
-    # A102: the evidence of an UNSUPPORTED result, bound by its sha256 (valid_gate_file re-checks it)
-    [ -z "$wg_ue" ] || printf 'unsupported_evidence: "%s@%.12s"\nunsupported_evidence_sha256: "%s"\n' "${wg_ue% *}" "${wg_ue##* }" "${wg_ue##* }"
-    [ -z "$wg_nr" ] || printf 'not_rerun: "%s"\n' "$wg_nr"   # A130
-    [ ! -s "$wg_findings" ] || sed 's/^/finding: /' "$wg_findings"
-    printf 'timestamp: "%s"\nepoch: %s\n' "$(now_iso)" "$(now_epoch)"
-  } > "$wg_gd/$wg_name.yaml" || fail "could not write gate record"
-  [ -s "$wg_gd/$wg_name.yaml" ] || { rm -f "$wg_gd/$wg_name.yaml" "$wg_gd/$wg_name.manifest"; fail "gate record was not written"; }
-  ledger_append "$wg_id" "gate:$wg_gate:$wg_res" IMPLEMENTED IMPLEMENTED "$(ledger_token "gates/$wg_name.yaml" "$wg_id") by $wg_role"
-  echo "gate recorded: $wg_id $wg_name ($wg_res)"
-}
 
-# --- Result protocol (D12): `record` is the only way a verdict enters a run. -----------
-# Parses "KEY=value" lines of the leading header block; exit 1 on a malformed header.
-parse_header() {
-  awk '
-    BEGIN { started = 0; done = 0 }
-    !started && /^[[:space:]]*$/ { next }
-    { started = 1 }
-    done { next }
-    /^[A-Z_]+:/ {
-      k = $0; sub(/:.*/, "", k); v = $0; sub(/^[A-Z_]+:[[:space:]]*/, "", v); sub(/[[:space:]]+$/, "", v)
-      if (k !~ /^(ROLE|TASK|FOCUS|RESULT|CONFIDENCE|FINGERPRINT|ARTIFACT)$/) { bad = 1; exit }
-      if (k in seen) { bad = 1; exit }
-      seen[k] = 1; print k "=" v; next
-    }
-    { done = 1 }
-    END { exit bad }' "$1"
-}
 hdr() { sed -n "s/^$1=//p" "$2" | head -1; }
-# Findings table rows (header and separator rows skipped) as "id|severity|path:line|finding|evidence".
-parse_findings() {
-  awk -F'|' '
-    function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
-    /^\|/ {
-      if ($0 ~ /^\|[-:| ]+\|?[[:space:]]*$/) next
-      id = t($2); if (id == "id" || id == "") next
-      low = tolower(id); if (low == "(none)" || low == "none" || low == "-" || low == "n/a") { print "NO_FINDINGS_PLACEHOLDER"; next }
-      if (NF < 7) { print "MALFORMED"; next }
-      print id "|" t($3) "|" t($4) "|" t($5) "|" t($6)
-    }' "$1"
-}
-results_dir() { printf '%s/results\n' "$(run_dir "$1")"; }
 next_num() { # DIR -> next NNN over files whose name starts with three digits
   nn_max=0
   for nn_f in "$1"/[0-9][0-9][0-9]*; do
@@ -3198,423 +2912,6 @@ next_num() { # DIR -> next NNN over files whose name starts with three digits
     [ "$nn_v" -le "$nn_max" ] || nn_max=$nn_v
   done
   printf '%03d\n' $((nn_max + 1))
-}
-# A113: an explorer's numbered report name is allocated by submit, never chosen by the explorer. alloc_explorer_report
-# picks the next free reports/NNN-explorer.md with an atomic noclobber create (parallel submits get distinct names)
-# and remembers it per dispatch token in reports/.owners/, so the same token updates its own report and a
-# re-dispatch under a new token gets a new name. A tokenless submit allocates a new name every time. It sets
-# ae_p (the path), ae_new (set when this call created the file: submit_fail removes it again) and ae_om.
-alloc_explorer_report() {
-  ae_p='' ae_new='' ae_om=''; ae_n=0; mkdir -p "$sb_d/reports/.owners" 2>/dev/null || submit_fail "cannot create reports/.owners in the run"
-  if [ -n "$sb_agent" ]; then
-    ae_om=$sb_d/reports/.owners/$(printf '%s' "$sb_agent" | tr -c 'A-Za-z0-9._-' '_')
-    if [ -s "$ae_om" ] && [ -f "$sb_d/$(cat "$ae_om")" ]; then ae_p=$(cat "$ae_om"); return 0; fi
-  fi
-  while :; do
-    ae_n=$((ae_n + 1)); [ "$ae_n" -le 1000 ] || submit_fail "could not allocate a report name under reports/ (is it writable?)"
-    ae_p=reports/$(next_num "$sb_d/reports")-explorer.md
-    ( set -C; : > "$sb_d/$ae_p" ) 2>/dev/null && break
-  done
-  ae_new=$ae_p
-  [ -z "$ae_om" ] || printf '%s\n' "$ae_p" > "$ae_om"
-}
-# canon_rel PATH -> the path with "/./" and "//" collapsed and a leading "./" dropped (".." is rejected by callers)
-canon_rel() {
-  cr_p=$1
-  while :; do
-    cr_q=$(printf '%s' "$cr_p" | sed -e 's#//*#/#g' -e 's#/\./#/#g' -e 's#^\./##' -e 's#/\.$##')
-    [ "$cr_q" != "$cr_p" ] || break
-    cr_p=$cr_q
-  done
-  printf '%s\n' "$cr_p"
-}
-record_result() {
-  rr_id=$1 rr_src=${2:-}; require_run "$rr_id"
-  rr_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-record.XXXXXX")
-  if [ -n "$rr_src" ]; then [ -f "$rr_src" ] || { rm -rf "$rr_tmp"; fail "result file not found: $rr_src"; }; cat "$rr_src" > "$rr_tmp/raw"; else cat > "$rr_tmp/raw"; fi
-  # Plain statements on purpose: inside an `if` or `||`, `set -e` would not stop the nested checks.
-  record_tmp=$rr_tmp
-  record_validate "$rr_id" "$rr_tmp"
-  record_apply "$rr_id" "$rr_tmp"
-}
-record_reject() { echo "record rejected: $*" >&2; return 1; }
-# Where each role (and reviewer focus) reports, so one focus can never stand in for another. A token ending
-# in / is a run-relative directory prefix, any other token an exact run-relative file.
-artifact_paths() { # ROLE KIND FOCUS
-  case "$1:$2:$3" in
-    reviewer:*:plan) echo reviews/proof-review/plan/ ;; reviewer:*:rules) echo reviews/proof-review/rules/ ;;
-    reviewer:*:rules+tests) echo reviews/proof-review/small/ ;; reviewer:*:tests) echo reviews/test-trust/tests/ ;;
-    reviewer:*:data) echo reviews/data-design/ ;;
-    reviewer:*:contract|reviewer:*:concurrency|reviewer:*:performance|reviewer:*:config|reviewer:*:migration) risk_focus_report "$3" ;;
-    reviewer:*) echo reviews/proof-review/ ;;
-    security_reviewer:*) echo security/ ;;
-    qa:gate:visual) echo reviews/visual-proof/ ;; qa:gate:*) echo QA_REPORT.md ;; qa:*) echo 'QA_PLAN.md reports/ reviews/test-trust/qa/' ;;
-    verifier:*) echo 'VERIFY.md design/SYNC.md' ;;
-    implementer:*) echo 'reports/ worker-evidence/' ;;
-    task_author:*) echo 'TASK.md design/INTENT.md reports/' ;;
-    explorer:*) echo reports/ ;;
-    architect:*|data_architect:*|designer:*) echo 'design/ reports/' ;;
-    *) echo 'reports/ TASK.md PLAN.md EVIDENCE.md' ;;
-  esac
-}
-artifact_allowed() { # ROLE KIND FOCUS PATH
-  case "$4" in reports/snapshots/*) return 0 ;; esac   # immutable copies made by `submit` (A43)
-  for aa_t in $(artifact_paths "$1" "$2" "$3"); do
-    case "$aa_t" in */) case "$4" in "$aa_t"*) return 0 ;; esac ;; *) [ "$4" != "$aa_t" ] || return 0 ;; esac
-  done
-  return 1
-}
-# A200 (item 6): the QA visual focus never records PASS against its own evidence. (a) The report.json `result` must be PASS when the
-# gate is PASS (a RESULT: FAIL or INCONCLUSIVE report is never a pass); (b) a pattern finding of lint.json that the report calls
-# justified counts only when the user approved that DESIGN.md line (rationale:<pattern-id>, bound to the line's sha256) and the
-# line in DESIGN.md is still the approved text; an agent-written rationale is refused. Nothing here lowers a finding.
-# Safe side: a report.json that exists but cannot be read, or node missing while one exists, refuses the PASS.
-record_visual_check() { # ID RESULT
-  rvc_d=$(run_dir "$1")/reviews/visual-proof
-  [ "$2" = PASS ] || return 0
-  [ -f "$rvc_d/report.json" ] || { record_reject "visual PASS needs reviews/visual-proof/report.json: an agent's statement is not evidence, and the verifier reads that report. Produce it with the visual-proof skill (its RESULT must be PASS), or submit UNSUPPORTED/BLOCKED with the reason"; return 1; }
-  command -v node >/dev/null 2>&1 || { record_reject "visual PASS cannot be checked: node is not installed, so report.json cannot be read (submit UNSUPPORTED with the reason, or BLOCKED)"; return 1; }
-  rvc_r=$(node -e 'try{const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(r.result||""))}catch(e){}' "$rvc_d/report.json" 2>/dev/null)
-  [ "$rvc_r" = PASS ] || { record_reject "visual PASS contradicts reviews/visual-proof/report.json (RESULT: ${rvc_r:-unreadable}): a report that is FAIL or INCONCLUSIVE is never a gate PASS (submit FAIL with its blocking rows, or UNSUPPORTED for INCONCLUSIVE)"; return 1; }
-  # A200 review: lint.json is written by the QA agent, so the record reruns the lint itself (the same call the QA step makes, with the
-  # approved rationales) and refuses the PASS on a blocking finding. A missing lint script or node refuses; the fresh lint replaces the file.
-  rvc_s=$root/.agents/skills/visual-proof/scripts/lint-source.mjs
-  [ -f "$rvc_s" ] || { record_reject "visual PASS cannot be checked: .agents/skills/visual-proof/scripts/lint-source.mjs is missing, so the source lint cannot be rerun (install the visual-proof skill, or submit UNSUPPORTED with the reason)"; return 1; }
-  rvc_o=$(mktemp -d "${TMPDIR:-/tmp}/proofline-lint.XXXXXX"); rvc_ap=$rvc_o/approved.json
-  design_rationales "$1" --json > "$rvc_ap" 2>/dev/null || printf '{"approved": {}}\n' > "$rvc_ap"
-  if ! (cd "$root" && node "$rvc_s" --root "$root" --approved-rationales "$rvc_ap" --out "$rvc_o") >"$rvc_o/run.log" 2>&1 || [ ! -f "$rvc_o/lint.json" ]; then
-    rvc_e=$(head -c 300 "$rvc_o/run.log" | tr '\n' ' '); rm -rf "$rvc_o"; record_reject "visual PASS: lint-source.mjs could not run on the project, so the PASS cannot be checked ($rvc_e); fix the cause, or submit UNSUPPORTED/BLOCKED with the reason"; return 1
-  fi
-  rvc_nb=$(node -e 'try{const l=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String((l.findings||[]).filter(f=>f.severity==="blocking").length))}catch(e){process.stdout.write("UNREADABLE")}' "$rvc_o/lint.json" 2>/dev/null)
-  case "$rvc_nb" in ''|*[!0-9]*) rm -rf "$rvc_o"; record_reject "visual PASS: the source lint result is unreadable"; return 1 ;; esac
-  if [ "$rvc_nb" -gt 0 ]; then rm -rf "$rvc_o"; record_reject "visual PASS refused: the source lint (lint-source.mjs, rerun by this record) has $rvc_nb blocking finding(s); fix them or leave the gate FAIL (a justified pattern needs the user's rationale approval)"; return 1; fi
-  cp "$rvc_o/lint.json" "$rvc_d/lint.json" 2>/dev/null || :
-  rm -rf "$rvc_o"
-  rvc_j=$(node -e 'try{const l=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const seen=new Set();for(const f of l.findings||[]){if(f.justified===true&&!seen.has(f.id)){seen.add(f.id);process.stdout.write(f.id+"\t"+String(f.reason||"")+"\t"+String(l.design_md||"")+"\n")}}}catch(e){process.stdout.write("UNREADABLE\n")}' "$rvc_d/lint.json" 2>/dev/null)
-  [ "$rvc_j" != UNREADABLE ] || { record_reject "visual PASS: reviews/visual-proof/lint.json is unreadable"; return 1; }
-  rvc_tab=$(printf '\t')
-  while IFS="$rvc_tab" read -r rvc_i rvc_x rvc_m; do
-    [ -n "$rvc_i" ] || continue
-    rvc_b=$(printf '%s' "$rvc_i: $rvc_x" | sha256)
-    find_approval "$1" "rationale:$rvc_i" "$rvc_b" >/dev/null || { record_reject "visual PASS relies on the DESIGN.md rationale for pattern $rvc_i, which the user has not approved: a rationale an agent wrote does not pass a finding. Ask: agent.sh request-approval $1 rationale:$rvc_i (relay it; the user's reply records the approval), or leave the finding blocking (FAIL)"; return 1; }
-    rvc_cur=''
-    [ -z "$rvc_m" ] || { case "$rvc_m" in /*) rvc_cur=$(rationale_line "$rvc_i" "$rvc_m") ;; *) rvc_cur=$(rationale_line "$rvc_i" "$root/$rvc_m") ;; esac; }
-    [ "$(printf '%s' "$rvc_cur" | sha256)" = "$rvc_b" ] || { record_reject "visual PASS: the DESIGN.md line for pattern $rvc_i is not the text the user approved (changed or removed since): ask for the approval again"; return 1; }
-  done <<RVC_EOF
-$rvc_j
-RVC_EOF
-  return 0
-}
-record_validate() {
-  rv_id=$1 rv_t=$2; rv_d=$(run_dir "$1")
-  risk_prime "$rv_id"
-  parse_header "$rv_t/raw" > "$rv_t/hdr" || { record_reject "malformed header (expected ROLE/TASK/[FOCUS]/RESULT/CONFIDENCE/FINGERPRINT/ARTIFACT lines first)"; return 1; }
-  for rv_k in ROLE TASK RESULT CONFIDENCE FINGERPRINT ARTIFACT; do [ -n "$(hdr "$rv_k" "$rv_t/hdr")" ] || { record_reject "malformed header: missing $rv_k"; return 1; }; done
-  rv_role=$(canon_role "$(hdr ROLE "$rv_t/hdr")"); rv_res=$(hdr RESULT "$rv_t/hdr"); rv_focus=$(hdr FOCUS "$rv_t/hdr"); rv_conf=$(hdr CONFIDENCE "$rv_t/hdr")
-  valid_role "$rv_role" || { record_reject "unknown ROLE: $rv_role"; return 1; }
-  [ "$rv_role" = "$execution_role" ] || { record_reject "ROLE $rv_role does not match AGENT_ROLE $execution_role"; return 1; }
-  [ "$(hdr TASK "$rv_t/hdr")" = "$rv_id" ] || { record_reject "TASK $(hdr TASK "$rv_t/hdr") does not match $rv_id"; return 1; }
-  case "$rv_conf" in high|medium|low) ;; *) record_reject "invalid CONFIDENCE: $rv_conf"; return 1 ;; esac
-  # The RESULT value set decides gate result versus task result, validated against the role.
-  rv_kind=''
-  # A78: FOCUS names the gate's own focus or a risk focus of this role; UNSUPPORTED is a risk-focus gate result.
-  if [ -n "$rv_focus" ] && [ "$rv_role" != reviewer ]; then
-    [ "$(risk_focus_role "$rv_focus" 2>/dev/null)" = "$rv_role" ] || { record_reject "FOCUS $rv_focus is not a focus of role $rv_role"; return 1; }
-  fi
-  case "$rv_res" in
-    UNSUPPORTED) if is_gate_role "$rv_role" && risk_focus_role "$rv_focus" >/dev/null 2>&1; then rv_kind=gate; else record_reject "UNSUPPORTED is a result of a risk focus only (contract, concurrency, performance, config, migration, visual)"; return 1; fi
-      [ "$rv_focus" != dependencies ] || { record_reject "the dependencies focus always has a tool-free check (the manifest diff against PLAN ## Dependencies); UNSUPPORTED is not available"; return 1; }
-      [ "$rv_focus" != logging ] || { record_reject "the logging focus always has a tool-free check (read the changed log calls and trace what reaches them); UNSUPPORTED is not available (A162)"; return 1; }
-      # A102: concurrency (traced interleavings) and config (the static consistency scan) need no tool either.
-      case "$rv_focus" in concurrency|config) record_reject "the $rv_focus focus always has a tool-free check (concurrency: a traced interleaving; config: the static consistency scan); UNSUPPORTED is not available: submit PASS or FAIL, or BLOCKED with the reason (A102)"; return 1 ;; esac
-      grep -q '^UNSUPPORTED_EVIDENCE:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs --evidence (an UNSUPPORTED_EVIDENCE line): the saved output of the skill's validator that prints 'RESULT: UNSUPPORTED' (submit --evidence <run-relative path>, A102); a reason alone is not evidence"; return 1; }
-      grep -q '^UNSUPPORTED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw" || { record_reject "UNSUPPORTED needs an UNSUPPORTED_REASON line (the tool or skill that is missing)"; return 1; }
-      unsupported_reason_ok "$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1)" || { record_reject "UNSUPPORTED_REASON is too vague: name the concrete missing tool, parser, capability or file (at least 12 characters, e.g. 'no machine-readable contract file; API.md is prose, no parser' or 'no headless browser installed'); a check you could run is PASS or FAIL (A98)"; return 1; } ;;
-    PASS|FAIL|BLOCKED|DONE|NEEDS_INPUT) rv_kind=$(result_kind "$rv_role" "$rv_res") ;;   # A172: the rule `submit` shares
-  esac
-  # A92: a task result (DONE, NEEDS_INPUT, BLOCKED) has no focus: a risk FOCUS must not open a second C-14 round.
-  if [ "$rv_kind" = task ]; then rv_focus=''; fi
-  if [ "$rv_role" = lead ] && [ "$rv_kind" != task ]; then record_reject "the lead can never record a $rv_res verdict"; return 1; fi
-  [ -n "$rv_kind" ] || { record_reject "RESULT $rv_res is not valid for role $rv_role"; return 1; }
-  rv_gate=''
-  if [ "$rv_kind" = gate ]; then
-    if [ "$rv_role" = reviewer ]; then case "$rv_focus" in plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration) ;; *) record_reject "reviewer results need FOCUS plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration"; return 1 ;; esac; fi
-    rv_gate=$(gate_of "$rv_role" "$rv_focus" "$rv_id")
-    if risk_focus_role "$rv_focus" >/dev/null 2>&1; then
-      risk_gate_focuses "$rv_id" "$rv_gate" | grep -Fxq -- "$rv_focus" || { record_reject "focus $rv_focus is not required on $rv_gate of $rv_id: no risk signal triggers it (see 'agent.sh pipeline $rv_id')"; return 1; }
-    fi
-  fi
-  if [ "$rv_kind" = gate ] && [ -n "$rv_gate" ] && [ -n "$(gate_deps "$rv_id" "$rv_gate")" ]; then
-    rv_unmet=$(gate_deps_unmet "$rv_id" "$rv_gate" | tr '\n' ' ')
-    [ -z "$rv_unmet" ] || { record_reject "$rv_gate needs ${rv_unmet% } first (GATES.md, Gate dependencies): it reads that gate's output; run it before $rv_gate"; return 1; }
-  fi
-  rv_fp=$(hdr FINGERPRINT "$rv_t/hdr"); rv_now=$(gate_fingerprint)
-  [ "$rv_fp" = "$rv_now" ] || { record_reject "stale: FINGERPRINT $rv_fp is not the current content fingerprint $rv_now"; return 1; }
-  rv_art=$(hdr ARTIFACT "$rv_t/hdr"); rv_ap=${rv_art% *}; rv_as=${rv_art##* }
-  [ "$rv_ap" != "$rv_art" ] || { record_reject "ARTIFACT needs '<run-relative path> <sha256>'"; return 1; }
-  case "$rv_ap" in
-    /*) rv_candidate=$rv_ap ;;
-    .agents/runs/"$rv_id"/*) rv_candidate=$root/$rv_ap ;;
-    ''|*..*) record_reject "ARTIFACT path must be run-relative: $rv_ap"; return 1 ;;
-    *) rv_candidate=$rv_d/$rv_ap ;;
-  esac
-  rv_real=$(realpath "$rv_candidate" 2>/dev/null) || { record_reject "ARTIFACT not found in the run: $rv_ap"; return 1; }
-  rv_run=$(realpath "$rv_d")
-  case "$rv_real" in "$rv_run"/*) rv_ap=${rv_real#"$rv_run"/} ;; *) record_reject "ARTIFACT path must be inside the run: $rv_ap"; return 1 ;; esac
-  [ -f "$rv_d/$rv_ap" ] && [ ! -L "$rv_d/$rv_ap" ] || { record_reject "ARTIFACT not found in the run: $rv_ap"; return 1; }
-  # A113: an explorer's report reaches record only as the snapshot submit made of the report it allocated
-  if [ "$rv_role" = explorer ]; then case "$rv_ap" in reports/snapshots/*) ;; reports/*) record_reject "an explorer result cites a snapshot made by submit, not a live report path ($rv_ap): hand the report over with submit --report <file>"; return 1 ;; esac; fi
-  known_control_artifact "$rv_id" ".agents/runs/$rv_id/$rv_ap" || { record_reject "ARTIFACT is not a registered run artifact: $rv_ap"; return 1; }
-  artifact_allowed "$rv_role" "$rv_kind" "$rv_focus" "$rv_ap" || { record_reject "ARTIFACT $rv_ap is outside the paths $rv_role${rv_focus:+ (FOCUS $rv_focus)} reports in: $(artifact_paths "$rv_role" "$rv_kind" "$rv_focus")"; return 1; }
-  [ "$(hash_file "$rv_d/$rv_ap")" = "$rv_as" ] || { record_reject "ARTIFACT sha256 mismatch for $rv_ap"; return 1; }
-  # A107: every cited evidence file (EVIDENCE: <path> <sha256>) still exists in the run with the cited hash.
-  for rv_el in $(sed -n 's/^EVIDENCE:[[:space:]]*//p' "$rv_t/raw" | tr ' ' '@'); do
-    rv_em=$(evidence_cite_check "$rv_id" "$rv_role" "$rv_focus" "${rv_el%@*}" "${rv_el#*@}") || { record_reject "$rv_em"; return 1; }
-  done
-  rv_ue=''
-  if [ "$rv_res" = UNSUPPORTED ]; then
-    rv_ue=$(unsupported_evidence_check "$rv_id" "$rv_role" "$rv_focus" "$rv_t/raw") || { record_reject "$rv_ue"; return 1; }
-  fi
-  # One round (C-14), keyed by role (+focus) per run, deliberately not per instance: a later instance of the role (a second explorer, a redispatched architect) decides or returns BLOCKED.
-  # Exemption (A75): intent-grill's interview is multi-round; its rounds neither count nor are limited (and are not capped:
-  # shortcut: unlimited rounds, the user's replies are the bound). Only the task author, and its artifact is design/INTENT.md
-  # or the immutable snapshot `submit` made of it (reports/snapshots/<sha12>-task_author-design_INTENT.md), whose `## Status` is in-progress; other design/ roles never.
-  # Residual: the task author writes that file and its status itself, so this is a trust convention checked by shape, not proof of an interview.
-  rv_grill=no
-  if [ "$rv_role" = task_author ]; then
-    case "$rv_ap" in design/INTENT.md|reports/snapshots/*-task_author-design_INTENT.md)
-      # the file itself must be an interview in progress (the snapshot is a copy of it): first line under `## Status` is in-progress
-      [ "$(awk '/^## Status[[:space:]]*$/ { s=1; next } s && NF { gsub(/[[:space:]]/, ""); print; exit }' "$rv_d/$rv_ap")" = in-progress ] && rv_grill=yes ;;
-    esac
-  fi
-  if [ "$rv_res" = NEEDS_INPUT ] && [ "$rv_grill" != yes ]; then
-    for rv_qf in "$rv_d"/questions/[0-9][0-9][0-9].md; do
-      [ -f "$rv_qf" ] || continue
-      [ "$(gate_field "$rv_qf" from)" = "$rv_role" ] && [ "$(gate_field "$rv_qf" focus)" = "$rv_focus" ] || continue
-      [ "$(gate_field "$rv_qf" grill)" != yes ] || continue
-      record_reject "the $rv_role role already asked its questions in this run (questions/${rv_qf##*/}); a later instance of the role decides with its recommended option and says so, or returns BLOCKED with the reason"; return 1
-    done
-  fi
-  parse_findings "$rv_t/raw" > "$rv_t/findings"
-  ! grep -qx MALFORMED "$rv_t/findings" || { record_reject "malformed findings row (want | id | severity | path:line | finding | evidence |)"; return 1; }
-  ! grep -qx NO_FINDINGS_PLACEHOLDER "$rv_t/findings" || { record_reject "no findings: omit rows, keep only the table header"; return 1; }
-  # A172: the prefix is the one `submit` wrote (finding_prefix); the id is checked by key (case-insensitive) and recorded as written.
-  rv_prefix=$(finding_prefix "$rv_role" "$rv_kind" "$rv_gate")
-  rv_badrow=$(awk -F'|' -v p="$rv_prefix" '{ if (toupper($1) !~ ("^" toupper(p) "-[0-9]+$")) { print "id " $1 " (want " p "-<n>)"; exit } if ($2 !~ /^(blocking|info)$/) { print "severity " $2; exit } }' "$rv_t/findings")
-  [ -z "$rv_badrow" ] || { record_reject "invalid finding $rv_badrow"; return 1; }
-  [ "$(cut -d'|' -f1 "$rv_t/findings" | id_keys | sort | uniq -d)" = '' ] || { record_reject "duplicate finding ids"; return 1; }
-  # A171: a rules review states how it scanned and lists every instance in one pass, so the fix round is not spent on
-  # the examples one by one (the evidence column carries `scan: <command or method>` and `instances: single` or the
-  # `path:line` of every instance, the row's own location included).
-  if [ "$rv_kind" = gate ] && [ "$rv_role" = reviewer ] && [ "$rv_res" = FAIL ]; then
-    case "$rv_focus" in rules|rules+tests)
-      rv_scanbad=$(awk -F'|' '$2 != "info" && $5 !~ /^agent\.sh / {
-        ev = $5; n = split(ev, seg, ";"); scan = ""; inst = ""
-        for (i = 1; i <= n; i++) { x = seg[i]; sub(/^[[:space:]]+/, "", x); sub(/[[:space:]]+$/, "", x)
-          if (x ~ /^scan:/) { scan = x; sub(/^scan:[[:space:]]*/, "", scan) } else if (x ~ /^instances:/) { inst = x; sub(/^instances:[[:space:]]*/, "", inst) } }
-        loc = $3; gsub(/[[:space:]]/, "", loc)
-        if (length(scan) < 10 || split(scan, sw, /[[:space:]]+/) < 2) { print $1 ": evidence lacks scan: <the grep or script that found every instance>"; exit }
-        if (inst == "") { print $1 ": evidence lacks instances: single, or instances: <path:line>, <path:line>, ..."; exit }
-        if (inst != "single" && index(inst, loc) == 0 && loc != "" && loc != "-") { print $1 ": instances do not include the row location " loc; exit } }' "$rv_t/findings")
-      [ -z "$rv_scanbad" ] || { record_reject "finding $rv_scanbad (A171: a rules review scans for the whole class and lists every instance, so one fix round clears them all)"; return 1; } ;;
-    esac
-  fi
-  # A171: the same observation keeps its classification across revisions while the written rule (GATES.md, "Blocking or info")
-  # is unchanged: an info row cannot become blocking, nor a blocking row info, without a rule change or a waiver.
-  if [ "$rv_kind" = gate ] && [ -n "$rv_gate" ] && [ "$rv_res" != BLOCKED ] && [ -s "$rv_t/findings" ]; then
-    rv_flip=$(classification_flip "$rv_id" "$rv_gate" "$rv_focus" "$rv_fp" "$rv_t/findings") || rv_flip=''
-    [ -z "$rv_flip" ] || { record_reject "classification changed for the same observation: $rv_flip. Blocking or info follows the written rule (GATES.md), not the round: keep the earlier classification (a blocking finding the user accepts is waived, not downgraded)"; return 1; }
-  fi
-  rv_blocking=$(awk -F'|' '$2 != "info"' "$rv_t/findings" | wc -l | tr -d ' ')
-  if [ "$rv_res" = FAIL ] && [ "$rv_blocking" = 0 ]; then record_reject "FAIL needs at least one blocking finding"; return 1; fi
-  if [ "$rv_res" = PASS ] && [ "$rv_blocking" != 0 ]; then record_reject "PASS cannot carry blocking findings"; return 1; fi
-  if [ "$rv_res" = UNSUPPORTED ] && [ "$rv_blocking" != 0 ]; then record_reject "UNSUPPORTED cannot carry blocking findings (a check that found a defect is FAIL; its UNSUPPORTED rows still block and are listed)"; return 1; fi
-  # A78/A98: the script's own findings. UNSUPPORTED becomes one row, never a PASS: `info` (unproven, reported,
-  # the focus is recorded `unsupported`) unless `risk.unsupported: block` or an INCONCLUSIVE reason makes it
-  # blocking. A FAIL that carries UNSUPPORTED rows (contract-proof: a defect plus an unparsed file) stays FAIL.
-  # A diff signal of this focus without its PLAN.md flag becomes one blocking row per path. Any blocking script
-  # row makes it FAIL.
-  rv_added=0
-  if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ] && risk_focus_role "$rv_focus" >/dev/null 2>&1; then
-    rv_next=$(awk -F'|' '{ n = $1; sub(/.*-/, "", n); if (n + 0 > m) m = n + 0 } END { print m + 1 }' "$rv_t/findings")
-    if [ "$rv_res" = UNSUPPORTED ]; then
-      rv_ur=$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$rv_t/raw" | head -1 | tr '|' '/'); rv_us=info
-      if unsupported_blocks "$rv_ur"; then rv_us=blocking; rv_added=$((rv_added + 1)); fi
-      printf '%s-%s|%s|-|UNSUPPORTED %s: %s|%s\n' "$rv_gate" "$rv_next" "$rv_us" "$rv_focus" "$rv_ur" "$rv_ap" >> "$rv_t/findings"
-      rv_next=$((rv_next + 1))
-    fi
-    for rv_m in $(risk_missing_flags "$rv_id" "$rv_focus" | awk -F'|' '$2 == "diff" { print $1 "|" $3 "|" $4 }'); do
-      rv_mn=${rv_m%%|*} rv_mfl=${rv_m##*|}; rv_mp=${rv_m#*|}; rv_mp=${rv_mp%|*}
-      printf '%s-%s|blocking|%s|risk signal %s without PLAN.md flag %s: the change touches it but the plan does not declare it (A78)|agent.sh pipeline %s: %s matches risk.%s and PLAN.md has no %s yes\n' \
-        "$rv_gate" "$rv_next" "$rv_mp" "$rv_mn" "$rv_mfl" "$rv_id" "$rv_mp" "$rv_mn" "$rv_mfl" >> "$rv_t/findings"
-      rv_next=$((rv_next + 1)); rv_added=$((rv_added + 1))
-    done
-    if [ "$rv_added" -gt 0 ]; then rv_res=FAIL; fi
-  fi
-  if [ "$rv_res" = BLOCKED ] && ! grep -q '^BLOCKED_REASON:[[:space:]]*[^[:space:]]' "$rv_t/raw"; then record_reject "BLOCKED needs a BLOCKED_REASON line"; return 1; fi
-  if [ "$rv_res" = NEEDS_INPUT ]; then
-    awk '/^QUESTIONS:[[:space:]]*$/ { q=1; next } q && /^BLOCKED_REASON:/ { exit } q { print }' "$rv_t/raw" > "$rv_t/questions"
-    grep -q '[^[:space:]]' "$rv_t/questions" || { record_reject "NEEDS_INPUT needs a QUESTIONS: block"; return 1; }
-  fi
-  if [ "$rv_kind" = gate ] && [ "$rv_role" = qa ] && [ "$rv_focus" = visual ]; then record_visual_check "$rv_id" "$rv_res" || return 1; fi
-  if [ "$rv_kind" = gate ] && [ "$rv_res" != BLOCKED ]; then gate_preconditions "$rv_id" "$rv_gate"; fi
-  printf 'role=%s\nresult=%s\nkind=%s\ngate=%s\nfocus=%s\nconfidence=%s\nartifact=%s\nfingerprint=%s\ngrill=%s\n' "$rv_role" "$rv_res" "$rv_kind" "$rv_gate" "$rv_focus" "$rv_conf" "$rv_ap" "$rv_fp" "$rv_grill" > "$rv_t/meta"
-  printf 'added=%s\nevidence=%s\n' "$rv_added" "$rv_ue" >> "$rv_t/meta"
-}
-# A102 capability probes: print what makes a check runnable, nothing when absent. They only ever refuse an
-# UNSUPPORTED, never grant anything, so they stay conservative. PROOFLINE_PROBE_ROOT (self-tests only) replaces
-# PATH and the application folders with <root>/bin and <root>/Applications; it counts only with the second
-# marker PROOFLINE_SELFTEST=1 and outside a runtime session (Claude Code or Codex environment variables), and
-# the PreToolUse hook refuses any model command that names either variable.
-probe_root() {
-  [ -n "${PROOFLINE_PROBE_ROOT:-}" ] && [ "${PROOFLINE_SELFTEST:-}" = 1 ] || return 0
-  [ -z "${CLAUDECODE:-}${CLAUDE_CODE_SESSION_ID:-}${CLAUDE_CODE_ENTRYPOINT:-}${CODEX_SESSION_ID:-}${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}" ] || return 0
-  printf '%s' "$PROOFLINE_PROBE_ROOT"
-}
-# probe_visual: the families visual-proof's `measure.mjs --detect` recognises (keep the lists equal): a
-# Chromium-family binary on PATH or in the standard macOS application folders, or an installed project
-# browser-test dependency (declared in package.json and present in node_modules).
-probe_visual() {
-  pv_root=$(probe_root)
-  if [ -n "$pv_root" ]; then pv_path=$pv_root/bin; else pv_path=${PATH:-}; fi
-  pv_ifs=$IFS; IFS=:
-  for pv_d in $pv_path; do
-    for pv_n in chromium chromium-browser google-chrome google-chrome-stable chrome microsoft-edge microsoft-edge-stable msedge brave-browser; do
-      [ -n "$pv_d" ] && [ -x "$pv_d/$pv_n" ] && [ ! -d "$pv_d/$pv_n" ] && { IFS=$pv_ifs; printf 'browser %s\n' "$pv_d/$pv_n"; return 0; }
-    done
-  done
-  IFS=$pv_ifs
-  for pv_a in 'Google Chrome.app/Contents/MacOS/Google Chrome' 'Chromium.app/Contents/MacOS/Chromium' 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge' 'Brave Browser.app/Contents/MacOS/Brave Browser'; do
-    [ -x "$pv_root/Applications/$pv_a" ] && { printf 'browser %s\n' "$pv_root/Applications/$pv_a"; return 0; }
-  done
-  # the project's own browser-test dependency: the manifest, folder and names of every ecosystem come from ecosystems.json (browser_test)
-  [ "$eco_loaded" = 1 ] || return 0
-  for pv_e in $(eco_ids); do
-    pv_m=$(eco_first "$pv_e" browser_test.manifest); pv_dd=$(eco_first "$pv_e" browser_test.deps_dir)
-    [ -n "$pv_m" ] && [ -n "$pv_dd" ] && [ -f "$root/$pv_m" ] || continue
-    for pv_t in $(eco_get "$pv_e" browser_test.names); do
-      grep -Fq "\"$pv_t\"" "$root/$pv_m" && [ -d "$root/$pv_dd/$pv_t" ] && { printf 'project browser-test dependency %s (%s, %s)\n' "$pv_t" "$pv_m" "$pv_dd"; return 0; }
-    done
-  done
-  return 0
-}
-# probe_performance: a benchmark setup the project already has (performance-proof METHOD.md section 1, tracked files only).
-# What counts is the `benchmark` section of every ecosystem in .agents/ecosystems.json (A173): package.json script names, a
-# benchmark directory next to a project of that ecosystem, a file pattern with a content marker, a dependency marker in any
-# manifest of the ecosystem, a benchmark config file. There is no limit on the number of projects or files, and no layout:
-# BenchmarkDotNet in the 55th project of a solution is found like one in the first. A Makefile, justfile or Taskfile target
-# `bench` or `benchmark` counts too. Without the definition nothing is reported, so a missing file never grants a capability.
-probe_performance() {
-  [ "$eco_loaded" = 1 ] || return 0
-  pp_ls=$(git -C "$root" ls-files 2>/dev/null || true)
-  [ -n "$pp_ls" ] || return 0
-  pp_prune=$( { eco_get '*' prune; for pp_e in $(eco_ids); do eco_get "$pp_e" prune; done; } | tr '\n' ' ')
-  pp_ls=$(printf '%s\n' "$pp_ls" | awk -v dirs="$pp_prune" 'BEGIN { n = split(dirs, a, " "); for (i = 1; i <= n; i++) d[a[i]] = 1 } { m = split($0, s, "/"); for (i = 1; i < m; i++) if (s[i] in d) next; print }')
-  pp_pick() { printf '%s\n' "$pp_ls" | awk -v pats="$*" "$ECO_G2RE"' { n = split(pats, a, " "); for (j = 1; j <= n; j++) if (a[j] != "" && $0 ~ g2re(a[j])) { print; break } }'; }
-  pp_grep() { # RE with the picked files on stdin: the first file that holds RE
-    pp_g=$(cat); [ -n "$pp_g" ] || return 1
-    (cd "$root" && printf '%s\n' "$pp_g" | tr '\n' '\0' | xargs -0 grep -lE -e "$1" 2>/dev/null | head -1) | grep . 
-  }
-  for pp_m in Makefile makefile GNUmakefile justfile Justfile Taskfile.yml Taskfile.yaml; do
-    [ -f "$root/$pp_m" ] && grep -Eq '^(bench|benchmark)[[:space:]]*:' "$root/$pp_m" && { echo "$pp_m target bench/benchmark"; return 0; }
-  done
-  for pp_e in $(eco_ids); do
-    # a script of any tracked package.json
-    pp_sc=$(eco_get "$pp_e" benchmark.scripts | sed 's/[.]/\\./g; s/[*]/[A-Za-z0-9:_.-]*/g' | tr '\n' '|' | sed 's/|$//')
-    if [ -n "$pp_sc" ]; then
-      for pp_f in $(pp_pick "$(eco_get "$pp_e" manifests | head -1)"); do
-        sed -n '/"scripts"[[:space:]]*:/,/}/p' "$root/$pp_f" 2>/dev/null | grep -Eq "\"($pp_sc)\"[[:space:]]*:" && { echo "$pp_f script bench/benchmark/perf*"; return 0; }
-      done
-    fi
-    # a benchmark directory beside a project of the ecosystem
-    pp_proj=$(eco_get "$pp_e" project_files | tr '\n' ' ')
-    for pp_d in $(eco_get "$pp_e" benchmark.dirs); do
-      if [ -n "$(pp_pick "$pp_proj" | head -1)" ] && [ -n "$(pp_pick "$pp_d/**" "**/$pp_d/**" | head -1)" ]; then echo "$pp_e $pp_d/ directory"; return 0; fi
-    done
-    # config files
-    for pp_c in $(eco_get "$pp_e" benchmark.config_files); do
-      pp_hit=$(pp_pick "$pp_c" | head -1); [ -z "$pp_hit" ] || { echo "$pp_hit"; return 0; }
-    done
-    # file patterns with a content marker
-    eco_rows "$pp_e" benchmark.files glob contains why | while IFS="$(printf '\037')" read -r pp_gl pp_ct pp_wy; do
-      pp_hit=$(pp_pick "$pp_gl" | pp_grep "$pp_ct") && { echo "$pp_wy ($pp_hit)"; break; }
-    done | grep . && return 0
-    # dependency markers in any manifest of the ecosystem
-    eco_rows "$pp_e" benchmark.dependencies in contains why | while IFS="$(printf '\037')" read -r pp_in pp_ct pp_wy; do
-      pp_hit=$(pp_pick "$(printf '%s' "$pp_in" | tr '\036' ' ')" | pp_grep "$pp_ct") && { echo "$pp_wy in $pp_hit"; break; }
-    done | grep . && return 0
-  done
-  return 0
-}
-# A107: a cited evidence file exists inside the run, in a folder the role reports in (or reports/,
-# worker-evidence/), is a regular file, and carries the cited sha256 (none cited: the file is hashed).
-# evidence_cite_check ID ROLE FOCUS PATH [SHA] -> "<run-relative path> <sha256>", or the refusal text and exit 1.
-evidence_cite_check() {
-  ec_d=$(run_dir "$1"); ec_p=$4; ec_s=${5:-}
-  case "$ec_p" in .agents/runs/"$1"/*) ec_p=${ec_p#.agents/runs/"$1"/} ;; esac
-  case "$ec_p" in ''|/*|*..*) echo "cited evidence path must be run-relative: $4 (A107)"; return 1 ;; esac
-  [ -f "$ec_d/$ec_p" ] && [ ! -L "$ec_d/$ec_p" ] || { echo "cited evidence file not found in the run: $ec_p (A107)"; return 1; }
-  case "$(realpath "$ec_d/$ec_p")" in "$(realpath "$ec_d")"/*) ;; *) echo "cited evidence file must be inside the run: $ec_p (A107)"; return 1 ;; esac
-  case "$ec_p" in reports/*|worker-evidence/*) ;; *)
-    artifact_allowed "$2" gate "$3" "$ec_p" || artifact_allowed "$2" task "$3" "$ec_p" || { echo "cited evidence file $ec_p is outside the folders $2${3:+ (FOCUS $3)} reports in: $(artifact_paths "$2" gate "$3") reports/ worker-evidence/ (A107)"; return 1; } ;;
-  esac
-  ec_h=$(hash_file "$ec_d/$ec_p")
-  [ -z "$ec_s" ] || [ "$ec_h" = "$ec_s" ] || { echo "cited evidence file $ec_p was modified after it was hashed: cited sha256 $(printf '%.12s' "$ec_s"), the file is $(printf '%.12s' "$ec_h") (A107)"; return 1; }
-  printf '%s %s\n' "$ec_p" "$ec_h"
-}
-# A107: the validator of the skill behind a role/focus, run by the control plane itself. Prints
-# "<PASS|FAIL> <script>" when it ran; "NOSKILL <skill>" when the role/focus is mapped but the skill is not
-# installed; "UNRUN <why>" when the skill is installed but could not run (node missing, no findings file);
-# nothing when no validator is mapped for the role/focus. An invalid report prints the validator's errors and
-# exits 1. Mapped: verifier (verify-proof), reviewer tests (test-trust), reviewer plan, rules, rules+tests
-# (proof-review, over its findings.json).
-# shortcut: other focuses keep the findings-derived result; map them here when their findings file is required.
-skill_validator() { # ID ROLE FOCUS ARTIFACT
-  sv_d=$(run_dir "$1")
-  case "$2:$3" in
-    verifier:*) sv_k=verify-proof ;;
-    reviewer:tests) sv_k=test-trust ;;
-    reviewer:plan|reviewer:rules|reviewer:rules+tests) sv_k=proof-review ;;
-    *) return 0 ;;
-  esac
-  [ -d "$root/.agents/skills/$sv_k" ] || { printf 'NOSKILL %s' "$sv_k"; return 0; }
-  command -v node >/dev/null 2>&1 || { printf 'UNRUN node is not installed, so %s cannot run' "$sv_k"; return 0; }
-  case "$2:$3" in
-    verifier:*)
-      sv_s=$root/.agents/skills/verify-proof/scripts/validate-verify.mjs
-      [ -f "$sv_s" ] || { printf 'UNRUN %s is missing' "$sv_s"; return 0; }
-      sv_a=''; [ ! -f "$sv_d/TASK.md" ] || sv_a="--task $sv_d/TASK.md"; [ ! -f "$sv_d/PLAN.md" ] || sv_a="$sv_a --plan $sv_d/PLAN.md"
-      # shellcheck disable=SC2086
-      sv_o=$(node "$sv_s" "$sv_d/$4" $sv_a 2>&1) || { printf 'validate-verify.mjs rejects %s: %s' "$4" "$(printf '%s' "$sv_o" | tr '\n' ' ')"; return 1; }
-      # a file the validator accepts has a Verdict line equal to the computed verdict (BLOCKED is never a pass)
-      sv_r=$(sed -n 's/^Verdict:[[:space:]]*\([A-Z]*\)[[:space:]]*$/\1/p' "$sv_d/$4" | tail -1); [ "$sv_r" = PASS ] || sv_r=FAIL
-      printf '%s verify-proof/scripts/validate-verify.mjs' "$sv_r" ;;
-    reviewer:tests)
-      sv_s=$root/.agents/skills/test-trust/scripts/gate.mjs; sv_f=$sv_d/reviews/test-trust/tests/findings.json
-      [ -f "$sv_s" ] && [ -f "$sv_f" ] || { printf 'UNRUN reviews/test-trust/tests/findings.json or the test-trust gate script is missing'; return 0; }
-      if node "$sv_s" gate "$sv_f" >/dev/null 2>&1; then sv_r=PASS; else sv_r=FAIL; fi
-      printf '%s test-trust/scripts/gate.mjs' "$sv_r" ;;
-    *)
-      case "$3" in plan) sv_k=plan ;; rules) sv_k=rules ;; *) sv_k=small ;; esac
-      sv_f=$sv_d/reviews/proof-review/$sv_k/findings.json; sv_v=$root/.agents/skills/proof-review/scripts/validate-findings.mjs; sv_s=$root/.agents/skills/proof-review/scripts/gate.mjs
-      [ -f "$sv_f" ] && [ -f "$sv_v" ] && [ -f "$sv_s" ] || { printf 'UNRUN reviews/proof-review/%s/findings.json or the proof-review scripts are missing' "$sv_k"; return 0; }
-      sv_o=$(node "$sv_v" "$sv_f" 2>&1) || { printf 'validate-findings.mjs rejects reviews/proof-review/%s/findings.json: %s' "$sv_k" "$(printf '%s' "$sv_o" | tr '\n' ' ')"; return 1; }
-      if node "$sv_s" "$sv_f" >/dev/null 2>&1; then sv_r=PASS; else sv_r=FAIL; fi
-      printf '%s proof-review/scripts/gate.mjs' "$sv_r" ;;
-  esac
-  return 0
-}
-# A107: the commands the control plane may run again: the project's own configured build, test and lint
-# commands and the PLAN.md `## Verification commands` of the frozen plan. A PLAN.md that no longer has the
-# frozen sha256 contributes nothing (a plan edited after the freeze cannot widen the list).
-reproduce_allowed() { # ID
-  for ra_k in build test lint; do cfg_cmds "commands.$ra_k"; done | sed '/^$/d'
-  ra_p=$(run_dir "$1")/PLAN.md
-  [ -f "$ra_p" ] || return 0
-  ra_f=$(section_value "$(run_dir "$1")" freeze plan_sha256)
-  case "$ra_f" in ''|*[!0-9a-f]*) return 0 ;; esac; [ "${#ra_f}" = 64 ] || return 0   # no frozen plan hash: only configured commands
-  [ "$(hash_file "$ra_p")" = "$ra_f" ] || return 0
-  awk '/^## Verification commands[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i' "$ra_p" | sed -n 's/^[^`]*`\([^`][^`]*\)`.*/\1/p'
 }
 # A200 (item 8): the comparison of a recorded output line with a re-run normalizes a NARROW, listed set of volatile fields, in
 # both the recorded line and every re-run line, and nothing else. The list (each rule is tested, tests/enforcement and the
@@ -3634,76 +2931,6 @@ repro_normalize() {
     -e 's/\([0-9]+(\.[0-9]+)? ?(ms|s)\)/(<DURATION>)/g' \
     -e 's/^(<TIME> )?\[build\] Complete!( in <DURATION>| \(<DURATION>\))?$/[build] Complete!/'
 }
-# reproduce_recheck ID ROLE REPORT EVLINES COUNTFILE REQUIRED(yes|no): re-runs the recorded reproduced items (a
-# command, its exit status, an output line) of the verifier's VERIFY.md `## Commands` and of cited evidence files
-# that carry `command:` (`exit:`, `output:`) lines. Every command an AC row cites as proof (`command: ...`) must
-# be re-runnable (configured or planned) or it is a problem; other allowed items run up to three. An item without
-# an output line compares nothing and is a problem; the line must equal a whole output line. Prints one problem
-# per line (nothing when every item matched) and writes the number of re-runs to COUNTFILE. REQUIRED=yes with no
-# item at all is itself a problem.
-reproduce_recheck() {
-  rr_tab=$(printf '\037'); rr_t=$(mktemp -d "${TMPDIR:-/tmp}/proofline-repro.XXXXXX"); : > "$rr_t/items"
-  if [ "$2" = verifier ] && [ -f "$3" ]; then
-    awk -v T="$rr_tab" '
-      /^## / { sec = $0; next }
-      sec ~ /^## Commands[[:space:]]*$/ && /^- `[^`]+` \| exit=[0-9]+/ {
-        l = $0; sub(/^- `/, "", l); c = l; sub(/`.*/, "", c); e = l; sub(/^[^|]*\| exit=/, "", e); sub(/[^0-9].*/, "", e)
-        n++; cmd[n] = c; ex[n] = e; out[n] = ""; cur = n; next }
-      sec ~ /^## Commands[[:space:]]*$/ && /^  output: / && cur && out[cur] == "" { o = $0; sub(/^  output: /, "", o); out[cur] = o }
-      sec ~ /^## AC coverage[[:space:]]*$/ && /^\|/ { split($0, f, "|"); if (f[2] ~ /AC-[0-9]+/ && f[3] ~ /command: `/) { l = f[3]; sub(/^[^`]*`/, "", l); sub(/`.*/, "", l); if (l != "") ac[l] = 1 } }
-      END { for (i = 1; i <= n; i++) { print cmd[i] T ex[i] T out[i] T ((cmd[i] in ac) ? 1 : 0); seen[cmd[i]] = 1 }
-            for (c in ac) if (!(c in seen)) print c T "-" T "" T 1 }' "$3" > "$rr_t/items"
-  fi
-  # shellcheck disable=SC2034 # the sha column of an EVIDENCE line is read to be dropped
-  while IFS=' ' read -r rr_ep rr_es; do
-    [ -n "$rr_ep" ] && [ -f "$(run_dir "$1")/$rr_ep" ] || continue
-    awk -v T="$rr_tab" '
-      function flush() { if (c != "" && n < 3) { print c T (e == "" ? "0" : e) T o T 0; n++ } c = ""; e = ""; o = "" }
-      /^command:/ { flush(); c = $0; sub(/^command:[[:space:]]*/, "", c) }
-      /^exit:/ { e = $0; sub(/^exit:[[:space:]]*/, "", e) }
-      /^output:/ { o = $0; sub(/^output:[[:space:]]*/, "", o) }
-      END { flush() }' "$(run_dir "$1")/$rr_ep" >> "$rr_t/items"
-  done < "$4"
-  if [ ! -s "$rr_t/items" ]; then
-    echo 0 > "$5"; rm -rf "$rr_t"
-    [ "$6" != yes ] || printf 'no re-runnable reproduced evidence: the result records no command with an exit status to run again\n'
-    return 0
-  fi
-  reproduce_allowed "$1" > "$rr_t/allowed"
-  rr_n=0; rr_x=0; rr_pb=0; rr_to=''; command -v timeout >/dev/null 2>&1 && rr_to="timeout $(verify_command_timeout)"
-  sort -u "$rr_t/items" > "$rr_t/uniq"
-  while IFS="$rr_tab" read -r rr_c rr_e rr_o rr_a; do
-    rr_cd=$(printf '%s' "$rr_c" | tr '|' '/')
-    if ! grep -Fxq -- "$rr_c" "$rr_t/allowed"; then
-      if [ "$rr_a" = 1 ]; then rr_pb=$((rr_pb + 1)); printf 'AC proof cites `%s`, which is neither a configured build, test or lint command nor an entry of the frozen PLAN.md Verification commands, so it cannot be re-run\n' "$rr_cd"; fi
-      continue
-    fi
-    if [ "$rr_a" != 1 ]; then [ "$rr_x" -lt 3 ] || continue; rr_x=$((rr_x + 1)); fi
-    if [ "$rr_e" = - ]; then rr_pb=$((rr_pb + 1)); printf 'AC proof cites `%s` but VERIFY.md records no Commands entry with an exit status for it: nothing to compare\n' "$rr_cd"; continue; fi
-    case "$rr_o" in '(no output)') rr_o='' ;; esac   # a silent command records `output: (no output)`; an absent line means the same
-    rr_o=$(printf '%s\n' "$rr_o" | repro_normalize)   # A200: the listed volatile fields only (repro_normalize)
-    if [ -n "$rr_o" ] && printf '%s\n' "$rr_o" | grep -Eiq '[0-9]([[:space:]]*(ms|us|s|sec|secs|seconds|m|min|mins|minutes))([^A-Za-z]|$)|[0-9]{1,2}:[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2}|pid[ =:]*[0-9]+|0x[0-9a-f]{6,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}'; then
-      rr_pb=$((rr_pb + 1)); printf 'the recorded output line of `%s` ("%s") holds a time, duration, date, pid or random value: record one stable summary line that is identical on every run (for example the pass and fail counts), or `(no output)` for a silent command\n' "$rr_cd" "$(printf '%s' "$rr_o" | tr '|' '/')"; continue
-    fi
-    rr_n=$((rr_n + 1)); rr_rc=0
-    # shellcheck disable=SC2086
-    ( cd "$root" && $rr_to sh -c "$rr_c" ) > "$rr_t/out" 2>&1 < /dev/null || rr_rc=$?
-    if [ "$rr_rc" != "$rr_e" ]; then
-      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s, the report records exit=%s (reproduced evidence does not reproduce)%s\n' "$rr_cd" "$rr_rc" "$rr_e" "$([ "$rr_rc" != 124 ] || printf '; it hit the time limit of %s s (verification.command_timeout_seconds times timeouts.scale), which is a failure, never a pass: raise the limit or run proofline doctor --scale' "$(verify_command_timeout)")"
-    elif [ -z "$rr_o" ]; then
-      if grep -q '[^[:space:]]' "$rr_t/out"; then
-        rr_pb=$((rr_pb + 1)); printf 're-running `%s` printed output but the report records none (`(no output)` is for a silent command; record one stable summary line)\n' "$rr_cd"
-      fi
-    elif ! repro_normalize < "$rr_t/out" | RR_WANT=$rr_o awk 'BEGIN { w = ENVIRON["RR_WANT"]; sub(/^[ \t]+/, "", w); sub(/[ \t\r]+$/, "", w) } { sub(/^[ \t]+/, ""); sub(/[ \t\r]+$/, ""); if ($0 == w) f = 1 } END { exit !f }'; then
-      rr_pb=$((rr_pb + 1)); printf 're-running `%s` gave exit=%s but no output line equal to the recorded "%s" (reproduced evidence does not reproduce)\n' "$rr_cd" "$rr_rc" "$(printf '%s' "$rr_o" | tr '|' '/')"
-    fi
-  done < "$rr_t/uniq"
-  echo "$rr_n" > "$5"
-  if [ "$rr_n" = 0 ] && [ "$rr_pb" = 0 ] && [ "$6" = yes ]; then
-    printf 'no recorded reproduced command could be re-run: none is a configured build, test or lint command or an entry of the frozen PLAN.md Verification commands\n'
-  fi
-  rm -rf "$rr_t"
-}
 # A102: an UNSUPPORTED result is backed by the skill validator's own saved output, not by a reason alone.
 # unsupported_evidence_check ID ROLE FOCUS RAW -> "<path> <sha256>", or the refusal text and exit 1.
 # The file: inside the run (the focus's report folder or reports/, normally the snapshot `submit` made, A43),
@@ -3716,99 +2943,6 @@ reproduce_recheck() {
 # another event (a lead's ledger-note) can contain the same words; it is never at that position (A161).
 base_moved_lines() {
   grep -E '^seq=[0-9]+ prev=[^ ]+ event=base-moved role=[^ ]* from=[^ ]* to=[^ ]* digest=[^ ]* ts=[^ ]* epoch=[^ ]* detail=base_sha moved \(' "$(ledger_file "$1")" 2>/dev/null || :
-}
-# base_moved_predecessors ID BASE (A161): the bases the run had before accepted moves that lead to BASE, newest first. The chain
-# comes from the run's `base-moved` ledger lines ("base_sha moved (<old> -> <new>)", written only by verify_freshness after
-# base_moved_control_only, hash-chained and sealed), so every link is a control-plane-only commit range.
-base_moved_predecessors() {
-  bp_cur=$2; bp_l=$(ledger_file "$1"); [ -s "$bp_l" ] || return 0
-  bp_n=0; bp_bm=$(base_moved_lines "$1")
-  while [ "$bp_n" -lt 100 ] && [ -n "$bp_cur" ]; do
-    bp_old=$(printf '%s\n' "$bp_bm" | sed -n "s/^seq=[0-9]* prev=[^ ]* event=base-moved role=[^ ]* from=[^ ]* to=[^ ]* digest=[^ ]* ts=[^ ]* epoch=[^ ]* detail=base_sha moved (\([0-9a-f]\{7,40\}\) -> ${bp_cur}[0-9a-f]*).*/\1/p" | tail -1)
-    [ -n "$bp_old" ] || break
-    printf '%s\n' "$bp_old"; bp_cur=$bp_old; bp_n=$((bp_n + 1))
-  done
-}
-# shortcut: the file's text is checked, not re-derived (the control plane never runs a skill); a fabricated file
-# that also names every signalled path passes, and the reviewer, verifier and completion report remain the check.
-unsupported_evidence_check() {
-  ue_d=$(run_dir "$1")
-  ue_l=$(sed -n 's/^UNSUPPORTED_EVIDENCE:[[:space:]]*//p' "$4" | head -1); ue_p=${ue_l% *}; ue_s=${ue_l##* }
-  [ "$ue_p" != "$ue_l" ] || { echo "UNSUPPORTED_EVIDENCE needs '<run-relative path> <sha256>'"; return 1; }
-  case "$ue_p" in .agents/runs/"$1"/*) ue_p=${ue_p#.agents/runs/"$1"/} ;; esac
-  case "$ue_p" in ''|/*|*..*) echo "UNSUPPORTED_EVIDENCE path must be run-relative: $ue_p"; return 1 ;; esac
-  [ -f "$ue_d/$ue_p" ] && [ ! -L "$ue_d/$ue_p" ] || { echo "UNSUPPORTED_EVIDENCE not found in the run: $ue_p"; return 1; }
-  case "$(realpath "$ue_d/$ue_p")" in "$(realpath "$ue_d")"/*) ;; *) echo "UNSUPPORTED_EVIDENCE must be inside the run: $ue_p"; return 1 ;; esac
-  # only the submitting role's own files: its focus folder, its submit snapshot, its numbered reports
-  ue_dir=$(risk_focus_report "$3")
-  case "$ue_p" in "$ue_dir"*|reports/snapshots/????????????-"$2"-*|reports/[0-9][0-9][0-9]-"$2"*) ;;
-    *) echo "UNSUPPORTED_EVIDENCE must be the $2 role's own file ($ue_dir, its reports/snapshots/<sha12>-$2-... snapshot or reports/<NNN>-$2...): $ue_p"; return 1 ;; esac
-  [ "$(hash_file "$ue_d/$ue_p")" = "$ue_s" ] || { echo "UNSUPPORTED_EVIDENCE sha256 mismatch for $ue_p (edited after it was cited)"; return 1; }
-  ue_f=$ue_d/$ue_p; ue_rx='UNSUPPORTED'; [ "$3" != visual ] || ue_rx='UNSUPPORTED|INCONCLUSIVE'
-  grep -Eiq "^RESULT:[[:space:]]*($ue_rx)[[:space:]]*\$" "$ue_f" || { echo "UNSUPPORTED_EVIDENCE $ue_p does not hold the validator's 'RESULT: UNSUPPORTED' line: save the $3 validator's own output there (A102)"; return 1; }
-  # An INCONCLUSIVE measurement stays blocking: its reason keeps the `<focus> INCONCLUSIVE:` prefix, and an
-  # UNSUPPORTED (no tool) is not dressed up as one. The evidence decides which it is (visual RESULT line,
-  # performance-proof's `reason:` line).
-  ue_r=$(sed -n 's/^UNSUPPORTED_REASON:[[:space:]]*//p' "$4" | head -1)
-  ue_inc=no
-  if grep -Eiq '^RESULT:[[:space:]]*INCONCLUSIVE[[:space:]]*$' "$ue_f" || grep -Eiq "^reason:[[:space:]]*$3 INCONCLUSIVE:" "$ue_f"; then ue_inc=yes; fi
-  if [ "$ue_inc" = yes ]; then
-    case "$ue_r" in "$3 INCONCLUSIVE:"*) ;; *) echo "UNSUPPORTED_REASON must start '$3 INCONCLUSIVE:': $ue_p records an INCONCLUSIVE measurement, which stays blocking (A98, A102)"; return 1 ;; esac
-  elif printf '%s\n' "$ue_r" | grep -Eq '^[[:alnum:]_ -]*INCONCLUSIVE:'; then
-    echo "UNSUPPORTED_REASON claims an INCONCLUSIVE measurement, but $ue_p records UNSUPPORTED (A102)"; return 1
-  fi
-  # Capability probes, independent of the agent: they only ever refuse (a present capability means the check can run).
-  ue_cap=''
-  if [ "$ue_inc" = no ]; then   # an INCONCLUSIVE measurement had its capability by definition
-    case "$3" in visual) ue_cap=$(probe_visual) ;; performance) ue_cap=$(probe_performance) ;; esac
-  fi
-  [ -z "$ue_cap" ] || { echo "UNSUPPORTED refused: capability present: $ue_cap; run $3-proof and submit PASS/FAIL (or a measured INCONCLUSIVE); if it cannot exercise this change, submit BLOCKED with the reason for the user (A102)"; return 1; }
-  ue_b=$(sed -n 's/^BASE:[[:space:]]*\([0-9a-f]\{7,40\}\)[[:space:]]*$/\1/p' "$ue_f" | head -1)
-  if [ -n "$ue_b" ]; then
-    ue_rb=$(repository_base_sha "$ue_d")
-    # A161: a base before an ACCEPTED move (control-plane-only commits, recorded as base-moved ledger lines) is the same product
-    # diff, so evidence naming it counts; an unrelated base does not.
-    ue_ok=no
-    for ue_x in $ue_rb $(base_moved_predecessors "$1" "$ue_rb"); do case "$ue_x" in "$ue_b"*) ue_ok=yes; break ;; esac; done
-    [ "$ue_ok" = yes ] || { echo "UNSUPPORTED_EVIDENCE $ue_p was produced against base $ue_b, not the run's base ${ue_rb:-unknown} (nor a base before an accepted control-plane-only move)"; return 1; }
-  fi
-  case "$3" in
-    contract)
-      for ue_c in $(risk_signals "$1" | awk -F'|' '$1 == "contract_file" && $2 == "diff" { print $3 }' | sort -u); do
-        grep -Fxq -e "FILE: compared $ue_c" -e "FILE: unsupported $ue_c" "$ue_f" || { echo "UNSUPPORTED refused: $ue_c is a contract file this run changed (risk signal contract_file) and $ue_p does not list it as compared or unsupported; run the differ over it (--path $ue_c) and submit its result (A102)"; return 1; }
-      done
-      if grep -q '^FILE: ' "$ue_f" && ! grep -q '^FILE: unsupported ' "$ue_f"; then echo "UNSUPPORTED refused: $ue_p lists every contract file as compared; the result is PASS or FAIL (A102)"; return 1; fi ;;
-    migration)
-      grep -q '^WARN no --repo' "$ue_f" && { echo "UNSUPPORTED_EVIDENCE $ue_p is validate-migration output without --repo; re-run it with --repo <repo> (A102)"; return 1; }
-      for ue_c in $(risk_signals "$1" | awk -F'|' '$1 == "migration" && $2 == "diff" && $3 ~ /\.sql$/ { print $3 }' | sort -u); do
-        grep -Fxq "FILE: unsupported $ue_c" "$ue_f" || { echo "UNSUPPORTED refused: the changed migration $ue_c is not listed 'FILE: unsupported $ue_c' in $ue_p; cite it in the report's ## Migrations and re-run validate-migration.mjs --repo (A102)"; return 1; }
-      done ;;
-  esac
-  printf '%s %s\n' "$ue_p" "$ue_s"
-}
-record_apply() {
-  ra_id=$1 ra_t=$2; ra_d=$(run_dir "$1"); m() { sed -n "s/^$1=//p" "$ra_t/meta"; }
-  ra_role=$(m role) ra_res=$(m result) ra_kind=$(m kind) ra_gate=$(m gate) ra_focus=$(m focus) ra_conf=$(m confidence)
-  ra_rd=$(results_dir "$ra_id"); mkdir -p "$ra_rd"; ra_n=$(next_num "$ra_rd")
-  # The raw final message, verbatim; skills own reports/NNN-<role>.md, so record never writes that name.
-  ra_raw=results/$ra_n-$ra_role.result.md
-  cp "$ra_t/raw" "$ra_d/$ra_raw"
-  ra_sha=$(hash_file "$ra_d/$ra_raw")
-  if [ "$ra_kind" = gate ] && [ "$ra_res" != BLOCKED ]; then
-    ra_gres=fail; [ "$ra_res" != PASS ] || { if [ "$ra_conf" = low ]; then ra_gres=pass_low; else ra_gres=pass; fi; }
-    [ "$ra_res" != UNSUPPORTED ] || ra_gres=unsupported
-    write_gate "$ra_id" "$ra_gate" "$ra_gres" "$ra_role" "$ra_conf" "$ra_focus" "$(m artifact)" "$ra_t/findings" "$ra_raw" "$(m fingerprint)" "$(m evidence)" "$(sed -n 's/^NOT_RERUN:[[:space:]]*//p' "$ra_d/$ra_raw" | head -1 | tr -d '"\\' | tr -cd '[:print:]' | cut -c1-300)"
-  fi
-  if [ "$ra_res" = NEEDS_INPUT ]; then
-    mkdir -p "$ra_d/questions"; ra_q=$(next_num "$ra_d/questions")
-    { printf 'from: %s\nfocus: %s\ngrill: %s\nresult: %s\nasked_at: %s\n---\n' "$ra_role" "$ra_focus" "$(m grill)" "$ra_raw" "$(now_epoch)"; cat "$ra_t/questions"; } > "$ra_d/questions/$ra_q.md"
-    if section_key_present "$ra_d" execution awaiting_input; then set_run_value "$ra_id" execution awaiting_input true; fi
-  fi
-  if gates_enforced "$ra_id"; then ledger_append "$ra_id" "record:$ra_role:$ra_res" - - "$ra_raw sha256=$ra_sha${ra_gate:+ gate=$ra_gate}"; fi
-  metrics_step "$ra_id" "$ra_role" "$ra_focus" "$(printf '%s' "$ra_res" | tr "[:upper:]" "[:lower:]")"
-  [ "$(m added)" = 0 ] || echo "risk: $(m added) script finding(s) added to $ra_gate focus $ra_focus (a blocking UNSUPPORTED or a risk signal without its PLAN.md flag, A78/A98); the result is FAIL"
-  [ "$ra_res" != UNSUPPORTED ] || echo "risk: $ra_gate focus $ra_focus is UNSUPPORTED (unproven, reported, A98): never a PASS; the completion report lists it under '## Unsupported Checks' with a 'not proven:' line"
-  echo "result recorded: $ra_id $ra_raw ($ra_role $ra_res)"
 }
 # --- Language check (A33): run artifacts are English. -----------------------------------------
 # Heuristic: three or more letters outside ASCII and the common typographic symbols (UTF-8 lead bytes of
@@ -4005,359 +3139,6 @@ language_check() {
 # .agents/local/submissions/<AGENT>.status so a runtime hook or dispatch.sh reads the record instead of
 # parsing a final message.
 submission_dir() { printf '%s/local/submissions\n' "$agents"; }
-# default_artifact ROLE RESULT FOCUS: where the role's report lives, when there is exactly one such place.
-default_artifact() {
-  if [ -n "${3:-}" ] && risk_focus_role "$3" >/dev/null; then printf '%sREPORT.md\n' "$(risk_focus_report "$3")"; return 0; fi
-  case "$1:$2" in
-    qa:DONE) echo QA_PLAN.md ;;
-    reviewer:*|security_reviewer:*|qa:*|verifier:*) if gate_of "$1" "$3" >/dev/null 2>&1; then gate_default_artifact "$(gate_of "$1" "$3")"; fi ;;
-  esac
-}
-# normalize_artifact ID PATH -> run-relative path of an existing regular file inside the run; any of the
-# absolute, project-relative (.agents/runs/<ID>/...), ./-prefixed or run-relative spellings is accepted.
-normalize_artifact() {
-  na_id=$1 na_p=$2; na_d=$(run_dir "$na_id")
-  case "$na_p" in
-    "$na_d"/*) na_p=${na_p#"$na_d"/} ;;
-    .agents/runs/"$na_id"/*) na_p=${na_p#.agents/runs/"$na_id"/} ;;
-    ./.agents/runs/"$na_id"/*) na_p=${na_p#./.agents/runs/"$na_id"/} ;;
-    ./*) na_p=${na_p#./} ;;
-  esac
-  case "$na_p" in ''|/*|*..*) return 1 ;; esac
-  na_p=$(canon_rel "$na_p")   # A113: reports/./001-x.md and reports//001-x.md are the same file
-  case "$na_p" in ''|/*|*..*) return 1 ;; esac
-  [ -f "$na_d/$na_p" ] && [ ! -L "$na_d/$na_p" ] || return 2
-  printf '%s\n' "$na_p"
-}
-# focus_from_artifact PATH -> reviewer focus whose report directory holds PATH
-focus_from_artifact() {
-  case "$1" in
-    reviews/proof-review/plan/*) echo plan ;; reviews/proof-review/rules/*) echo rules ;; reviews/proof-review/small/*) echo rules+tests ;;
-    reviews/test-trust/tests/*) echo tests ;; reviews/data-design/*) echo data ;;
-    reviews/proof-review/config/*) echo config ;; reviews/contract-proof/*) echo contract ;; reviews/concurrency-proof/*) echo concurrency ;;
-    reviews/performance-proof/*) echo performance ;; reviews/data-migration/*) echo migration ;;
-  esac
-}
-submit_status() { # TOKEN STATUS ID ROLE RESULT GATE RAW ERROR
-  [ -n "$1" ] || return 0
-  mkdir -p "$(submission_dir)" 2>/dev/null || return 0
-  printf 'status=%s\ntask=%s\nrole=%s\nresult=%s\ngate=%s\nraw=%s\nepoch=%s\nerror=%s\n' "$2" "$3" "$4" "$5" "$6" "$7" "$(now_epoch)" "$(one_line "$8")" \
-    > "$(submission_dir)/$1.status.tmp" && mv "$(submission_dir)/$1.status.tmp" "$(submission_dir)/$1.status"
-}
-submit_fail() {
-  # A113: an explorer report name allocated by this submit is released again when the submit is refused
-  if [ -n "${ae_new:-}" ]; then rm -f "$sb_d/$ae_new"; [ -z "${ae_om:-}" ] || rm -f "$ae_om"; fi
-  echo "submit rejected: $*" >&2; submit_status "$sb_agent" rejected "$sb_id" "$execution_role" "${sb_res:-}" '' '' "$*"; exit 1; }
-submit_result() {
-  sb_id=$1; shift
-  [ "$execution_role" != lead ] || fail "the lead never submits a specialist result"
-  require_run "$sb_id"
-  sb_res='' sb_conf='' sb_focus=${PROOFLINE_FOCUS:-} sb_art='' sb_findings='' sb_reason='' sb_questions='' sb_report='' sb_evidence='' sb_evlist='' sb_vres='' sb_agent=${PROOFLINE_AGENT:-}
-  while [ $# -gt 0 ]; do
-    [ $# -ge 2 ] || fail "usage: agent.sh submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--reason T] [--evidence P[@SHA256]]... [--validator-result PASS|FAIL] [--questions FILE] [--agent TOKEN]"
-    case "$1" in
-      --result) sb_res=$2 ;; --confidence) sb_conf=$2 ;; --focus) sb_focus=$2 ;; --artifact) sb_art=$2 ;;
-      --findings) sb_findings=$2 ;; --report) sb_report=$2 ;; --reason) sb_reason=$2 ;; --evidence) sb_evidence=$2; sb_evlist="$sb_evlist
-$2" ;; --validator-result) sb_vres=$2 ;; --questions) sb_questions=$2 ;; --agent) if [ -z "${PROOFLINE_AGENT:-}" ] || [ -e "$(submission_dir)/$2.started" ]; then sb_agent=$2; fi ;;   # A127: dispatch.sh's token wins over a typed one, unless the hook registered $2 as a subagent
-      *) fail "submit: unknown option $1" ;;
-    esac
-    shift 2
-  done
-  case "$sb_agent" in *[!A-Za-z0-9_.-]*) fail "submit: invalid --agent token" ;; esac
-  case "$sb_evidence" in *@[0-9a-f]*) sb_evidence=${sb_evidence%@*} ;; esac   # A107: P@SHA256 cites a hash; the path is what UNSUPPORTED snapshots
-  sb_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-submit.XXXXXX"); record_tmp=$sb_tmp
-  sb_d=$(run_dir "$sb_id")
-  # A104: stdin is one stream. Two `-` sources cannot both read it: refuse before reading, or, for the
-  # --report/--findings pair, split one document on the exact line "=== FINDINGS ===" (report above, rows below).
-  sb_nstdin=0
-  for sb_v in "$sb_report" "$sb_findings" "$sb_questions"; do [ "$sb_v" != - ] || sb_nstdin=$((sb_nstdin + 1)); done
-  if [ "$sb_nstdin" -gt 1 ]; then
-    if [ "$sb_report" = - ] && [ "$sb_findings" = - ] && [ "$sb_questions" != - ]; then
-      cat > "$sb_tmp/stdin.all"
-      grep -qx '=== FINDINGS ===' "$sb_tmp/stdin.all" || submit_fail "only one of --report/--findings may read stdin (-); write one of them to a file under the run's scratch or reports dir, or give ONE stdin document: the report, then a line '=== FINDINGS ===', then the finding rows (severity|path:line|finding|evidence; an answer-only result has the row info|-|answer|<one line>, or use --findings none)"
-      awk -v o="$sb_tmp" 'BEGIN { f = o "/report.pre" } $0 == "=== FINDINGS ===" && f != o "/findings.pre" { f = o "/findings.pre"; next } { print > f }' "$sb_tmp/stdin.all"
-      : >> "$sb_tmp/report.pre"; : >> "$sb_tmp/findings.pre"
-      sb_report=$sb_tmp/report.pre; sb_findings=$sb_tmp/findings.pre
-    else
-      submit_fail "only one of --report/--findings/--questions may read stdin (-); write the others to a file under the run's scratch or reports dir (e.g. printf '%s\\n' 'info|-|answer|<one line>' > <scratch>/rows, then --findings <scratch>/rows --report -)"
-    fi
-  fi
-  case "$sb_findings" in none|NONE|None) sb_findings='' ;; esac   # zero rows: a clean result for every role
-  case "$sb_conf" in high|medium|low) ;; *) submit_fail "--confidence must be high, medium or low" ;; esac
-  sb_gaterole=no; is_gate_role "$execution_role" && sb_gaterole=yes
-  # Findings: "severity|path:line|finding|evidence" (an optional leading id column and a markdown table
-  # border are tolerated); ids are assigned here.
-  : > "$sb_tmp/rows"
-  if [ -n "$sb_findings" ]; then
-    if [ "$sb_findings" = - ]; then cat > "$sb_tmp/findings.in"
-    else [ -f "$sb_findings" ] || submit_fail "findings file not found: $sb_findings"; cat "$sb_findings" > "$sb_tmp/findings.in"; fi
-    awk -F'|' '
-      function t(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
-      /^[[:space:]]*(#|$)/ { next }
-      { line = $0; sub(/^[[:space:]]*\|/, "", line); sub(/\|[[:space:]]*$/, "", line); n = split(line, f, "|")
-        if (line ~ /^[-:| ]+$/) next
-        i = 1; if (tolower(t(f[1])) == "id" || tolower(t(f[1])) == "severity") next
-        if (t(f[1]) !~ /^(blocking|info)$/ && n >= 5) i = 2
-        sev = t(f[i]); loc = t(f[i + 1]); fnd = t(f[i + 2]); ev = ""
-        for (j = i + 3; j <= n; j++) ev = ev (ev == "" ? "" : " / ") t(f[j])
-        if (ev ~ /^agent\.sh([[:space:]]|$)/) { print "BAD " NR ": the evidence of a row may not start with agent.sh (reserved for rows the script adds; name the command you ran after scan:)"; bad = 1; next }
-        if (sev !~ /^(blocking|info)$/ || loc == "" || fnd == "" || ev == "") { print "BAD " NR ": want severity|path:line|finding|evidence with severity blocking or info (an answer-only result: --findings none, or the row info|-|answer|<one line>; report text on stdin goes to --report -, never --findings -)"; bad = 1; next }
-        c++; printf "%s|%s|%s|%s\n", sev, loc, fnd, ev }
-      END { exit bad }' "$sb_tmp/findings.in" > "$sb_tmp/rows" || submit_fail "$(grep '^BAD' "$sb_tmp/rows" | head -1)"
-  fi
-  # A171: design-sync drift in a knowledge-scope document (DESIGN.md, design_docs.*, the wiki and ADR roots) is information
-  # before the knowledge step, which must fix it; it is not a verifier failure and needs no waiver or scope widening.
-  # `knowledge-done` and delivery block while the drift remains.
-  if [ "$execution_role" = verifier ] && [ -s "$sb_tmp/rows" ]; then
-    : > "$sb_tmp/rows.kd"
-    while IFS= read -r sb_kr; do
-      sb_kp=$(printf '%s' "$sb_kr" | cut -d '|' -f2); sb_kp=${sb_kp%%:*}
-      case "$sb_kr" in
-        blocking\|*design-sync\ drift*) if in_knowledge_scope "$sb_kp"; then sb_kr="info|$(printf '%s' "$sb_kr" | cut -d '|' -f2)|KNOWLEDGE_DRIFT: $(printf '%s' "$sb_kr" | cut -d '|' -f3)|$(printf '%s' "$sb_kr" | cut -d '|' -f4-)"; fi ;;
-      esac
-      printf '%s\n' "$sb_kr" >> "$sb_tmp/rows.kd"
-    done < "$sb_tmp/rows"
-    cp "$sb_tmp/rows.kd" "$sb_tmp/rows"
-  fi
-  sb_blocking=$(awk -F'|' '$1 == "blocking"' "$sb_tmp/rows" | wc -l | tr -d ' ')
-  # A gate result follows from the findings (the skill's rule), never from a free choice.
-  sb_derive=$sb_gaterole
-  if [ "$execution_role" = qa ]; then case "$sb_res" in DONE|NEEDS_INPUT) sb_derive=no ;; esac; fi
-  if [ "$sb_derive" = yes ]; then
-    case "$sb_res" in
-      '') if [ "$sb_blocking" -gt 0 ]; then sb_res=FAIL; else sb_res=PASS; fi ;;
-      PASS) [ "$sb_blocking" = 0 ] || submit_fail "--result PASS contradicts $sb_blocking blocking finding(s); the result of a gate follows from the findings" ;;
-      FAIL) [ "$sb_blocking" -gt 0 ] || submit_fail "--result FAIL needs at least one blocking finding" ;;
-      BLOCKED) ;;
-      # A78/A98: a risk focus whose tool or skill is missing; never a PASS (reported, or blocking: record decides).
-      UNSUPPORTED) [ "$sb_blocking" = 0 ] || submit_fail "--result UNSUPPORTED cannot carry blocking findings (a check that found a defect is FAIL; its UNSUPPORTED rows still block and are listed)"
-        [ -n "$sb_reason" ] || submit_fail "--result UNSUPPORTED needs --reason naming the missing tool or skill"
-        ;;
-      *) submit_fail "--result $sb_res is not valid for role $execution_role (gate roles: PASS FAIL BLOCKED UNSUPPORTED, or omit it)" ;;
-    esac
-  fi
-  case "$sb_res" in PASS|FAIL|BLOCKED|UNSUPPORTED|DONE|NEEDS_INPUT) ;; *) submit_fail "--result is required (DONE, BLOCKED or NEEDS_INPUT for role $execution_role)" ;; esac
-  if [ "$execution_role" = reviewer ]; then
-    [ -n "$sb_focus" ] || { [ -z "$sb_art" ] || sb_focus=$(focus_from_artifact "$(normalize_artifact "$sb_id" "$sb_art" 2>/dev/null || true)"); }
-    case "$sb_focus" in plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration) ;; *) submit_fail "reviewer submissions need --focus plan|rules|tests|data|rules+tests|contract|concurrency|performance|config|migration" ;; esac
-  elif [ -n "$sb_focus" ] && [ "$(risk_focus_role "$sb_focus" 2>/dev/null)" = "$execution_role" ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then :
-  else sb_focus=''
-  fi
-  sb_gate=''; sb_gate=$(gate_of "$execution_role" "$sb_focus" "$sb_id" 2>/dev/null || true)
-  # Artifact: normalised and hashed here. --report FILE|-: the script writes the artifact from that text, so a
-  # specialist never needs the Write tool (a subagent runtime may refuse report files) or a scratch file.
-  [ -n "$sb_art" ] || sb_art=$(default_artifact "$execution_role" "$sb_res" "$sb_focus")
-  ae_p='' ae_new='' ae_om=''
-  if [ "$execution_role" = explorer ] && [ -z "$sb_report" ]; then
-    # A113: an explorer never names its report; BLOCKED without one gets the reason as its report
-    if [ "$sb_res" = BLOCKED ]; then printf '# BLOCKED\n\n%s\n' "${sb_reason:-no reason given}" > "$sb_tmp/blocked.in"; sb_report=$sb_tmp/blocked.in
-    else submit_fail "an explorer hands its report over with --report <file> (or --report - on stdin), written in your scratch folder; the script assigns the numbered reports/NNN-explorer.md name (no --artifact)"; fi
-  fi
-  if [ -n "$sb_report" ]; then
-    [ -n "$sb_art" ] || [ "$execution_role" = explorer ] || submit_fail "--report needs --artifact: the run-relative path to write"
-    # the content is validated first and the name allocated last (A113): a refused submit leaves no stub
-    if [ "$sb_report" = - ]; then cat > "$sb_tmp/report.in"
-    else [ -f "$sb_report" ] || submit_fail "report file not found: $sb_report"
-      # A132: a scratch file name two parallel explorers can both pick (scratch/r.md) is the collision itself
-      if [ "$execution_role" = explorer ] && [ -n "$sb_agent" ]; then
-        case "$sb_report" in */"$sb_agent"-*|"$sb_agent"-*|"$sb_tmp"/*) ;; *) submit_fail "an explorer's report file name carries its own agent token, so a parallel explorer cannot overwrite it: write it to .agents/runs/$sb_id/scratch/$sb_agent-report.md (or pass --report - with the text on stdin); refused: $sb_report" ;; esac
-      fi
-      cat "$sb_report" > "$sb_tmp/report.in"; fi
-    [ -s "$sb_tmp/report.in" ] || submit_fail "the report is empty (--report - reads stdin; give the report text on stdin, one stdin source per submit, or --report <file>)"
-    if [ "$execution_role" = explorer ]; then alloc_explorer_report; sb_rp=$ae_p
-    else
-      sb_rp=${sb_art#.agents/runs/"$sb_id"/}; sb_rp=${sb_rp#./}
-      case "$sb_rp" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
-      sb_rp=$(canon_rel "$sb_rp")
-    fi
-    case "$sb_rp" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
-    sb_rk=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_rk=gate; fi
-    artifact_allowed "$execution_role" "$sb_rk" "$sb_focus" "$sb_rp" || submit_fail "artifact $sb_rp is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_rk" "$sb_focus")"
-    mkdir -p "$(dirname "$sb_d/$sb_rp")" && cp "$sb_tmp/report.in" "$sb_d/$sb_rp" || submit_fail "could not write $sb_rp"
-    sb_art=$sb_rp
-  fi
-  if [ -z "$sb_art" ]; then submit_fail "--artifact is required: the run-relative path of your report (allowed: $(artifact_paths "$execution_role" task "$sb_focus"))"; fi
-  sb_nrc=0; sb_norm=$(normalize_artifact "$sb_id" "$sb_art") || sb_nrc=$?
-  if [ "$sb_nrc" = 2 ] && [ "$sb_res" = BLOCKED ]; then
-    # BLOCKED needs a report to point at; the reason is the honest content when none was written.
-    sb_norm=${sb_art#.agents/runs/"$sb_id"/}; sb_norm=${sb_norm#./}
-    case "$sb_norm" in ''|/*|*..*) submit_fail "--artifact must be a run-relative path: $sb_art" ;; esac
-    sb_norm=$(canon_rel "$sb_norm")
-    mkdir -p "$(dirname "$sb_d/$sb_norm")" && printf '# BLOCKED\n\n%s\n' "${sb_reason:-no reason given}" > "$sb_d/$sb_norm"
-  elif [ "$sb_nrc" = 1 ]; then submit_fail "--artifact must be a path inside the run directory: $sb_art"
-  elif [ "$sb_nrc" = 2 ]; then submit_fail "artifact not found in the run: $sb_art (write the report there first; expected location for your role: $(artifact_paths "$execution_role" "$([ "$sb_gaterole" = yes ] && echo gate || echo task)" "$sb_focus"))"
-  fi
-  if [ -n "$sb_questions" ]; then
-    if [ "$sb_questions" = - ]; then cat > "$sb_tmp/questions.in"
-    else [ -f "$sb_questions" ] || submit_fail "questions file not found: $sb_questions"; cat "$sb_questions" > "$sb_tmp/questions.in"; fi
-    sb_questions=$sb_tmp/questions.in
-  fi
-  # A184: an explorer's DONE report is a claims table (evidence-map team format); prose is recorded but flagged, and the lead redoes it, never rewrites it
-  if [ "$execution_role" = explorer ] && [ "$sb_res" = DONE ] && [ -f "$sb_d/$sb_norm" ] \
-    && ! grep -Eq '^\|[[:space:]]*id[[:space:]]*\|[[:space:]]*severity[[:space:]]*\|[[:space:]]*path:line' "$sb_d/$sb_norm"; then
-    echo "NOTE: the explorer report $sb_norm has no claims table (| id | severity | path:line | finding | evidence |, evidence-map's format). The lead must not turn it into EVIDENCE.md itself: send the SAME explorer (or the same assignment again) back to redo it as that table, one verified path:symbol per row" >&2
-  fi
-  if [ "$execution_role" = verifier ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
-    sb_ds=$(verify_design_sync "$sb_id") || submit_fail "$sb_ds"
-  fi
-  if [ "$execution_role" = reviewer ] && [ "$sb_focus" = tests ] && [ "$sb_res" != BLOCKED ] && [ "$sb_res" != NEEDS_INPUT ]; then
-    sb_vt=$(verify_tests_findings "$sb_id") || submit_fail "findings.json of the tests review is not valid: $sb_vt"
-  fi
-  # A107: the skill's own validator is run here and its result is the one used; a result the agent declares is
-  # never trusted. Cited evidence files must exist in the run with the cited sha256 (checked again by record).
-  sb_nr=''
-  if [ "$sb_gaterole" = yes ] && { [ "$sb_res" = PASS ] || [ "$sb_res" = FAIL ]; }; then
-    sb_vr=$(skill_validator "$sb_id" "$execution_role" "$sb_focus" "$sb_norm") || submit_fail "$sb_vr"
-    sb_gl=${sb_gate:-$execution_role}:${sb_focus:--}
-    case "$sb_vr" in
-      PASS\ *|FAIL\ *)
-        sb_vs=${sb_vr%% *}
-        if [ -n "$sb_vres" ] && [ "$sb_vres" != "$sb_vs" ]; then submit_fail "validator result mismatch: declared $sb_vres, recomputed $sb_vs by ${sb_vr#* } (A107; the declared value is never trusted)"; fi
-        if [ "$sb_res" = PASS ] && [ "$sb_vs" = FAIL ]; then submit_fail "validator result mismatch: declared PASS (no blocking finding), recomputed FAIL by ${sb_vr#* } (A107); report the failing check as a blocking finding"; fi ;;
-      UNRUN\ *)
-        # the skill is installed but did not run: a PASS needs it (an omitted or declared value changes nothing)
-        if [ "$sb_res" = PASS ]; then submit_fail "no validator run for $sb_gl: ${sb_vr#UNRUN } (A107; a PASS of this focus needs the skill validator's own result)"; fi ;;
-      NOSKILL\ *)
-        printf 'info|%s|NOT_VALIDATED: %s skill %s is not installed, so no validator ran; the result follows from the findings|agent.sh submit (A107)\n' "$sb_norm" "$sb_gl" "${sb_vr#NOSKILL }" >> "$sb_tmp/rows" ;;
-      *) : ;;   # no validator is mapped for this role and focus (A107 lists them)
-    esac
-  fi
-  { { [ "$sb_res" = UNSUPPORTED ] || printf '%s\n' "$sb_evlist"; } | sed '/^$/d'
-    grep -ohE '[A-Za-z0-9_./-]+@[0-9a-f]{64}' "$sb_tmp/rows" "$sb_d/$sb_norm" 2>/dev/null || true
-    grep -ohE 'evidence:[A-Za-z0-9_./-]+' "$sb_tmp/rows" "$sb_d/$sb_norm" 2>/dev/null | sed 's/^evidence://' || true; } | while IFS= read -r sb_c; do
-      sb_cs=''; case "$sb_c" in *@*) sb_cs=${sb_c#*@} ;; esac
-      printf '%s %s\n' "${sb_c%%@*}" "$sb_cs"
-    done | sort -u > "$sb_tmp/cites"
-  : > "$sb_tmp/evlines"
-  while IFS=' ' read -r sb_cp sb_cs; do
-    [ -n "$sb_cp" ] || continue
-    sb_cn=$(normalize_artifact "$sb_id" "$sb_cp") || submit_fail "cited evidence file not found or outside the run: $sb_cp (A107)"
-    sb_ce=$(evidence_cite_check "$sb_id" "$execution_role" "$sb_focus" "$sb_cn" "$sb_cs") || submit_fail "$sb_ce"
-    printf '%s\n' "$sb_ce" >> "$sb_tmp/evlines"
-  done < "$sb_tmp/cites"
-  # A107: a PASS is re-derived: recorded reproduced items (a command with its exit status and output line) are
-  # run again here, and any difference makes the result FAIL with a blocking finding.
-  if [ "$sb_gaterole" = yes ] && [ "$sb_res" = PASS ]; then
-    # the verifier's commands are reproduced-class by design (once verify-proof is installed); every other gate
-    # is judgment, trace or measurement unless it cites a command record, and says so in an info row
-    sb_rq=no; if [ "$execution_role" = verifier ] && [ -d "$root/.agents/skills/verify-proof" ]; then sb_rq=yes; fi
-    sb_rm=$(reproduce_recheck "$sb_id" "$execution_role" "$sb_d/$sb_norm" "$sb_tmp/evlines" "$sb_tmp/rerun.n" "$sb_rq")
-    if [ -n "$sb_rm" ]; then
-      printf '%s\n' "$sb_rm" | while IFS= read -r sb_rl; do printf 'blocking|%s|%s|%s\n' "$sb_norm" "$sb_rl" "agent.sh submit re-ran the recorded command (A107)"; done >> "$sb_tmp/rows"
-      sb_res=FAIL; sb_blocking=$(awk -F'|' '$1 == "blocking"' "$sb_tmp/rows" | wc -l | tr -d ' ')
-    elif [ "$(cat "$sb_tmp/rerun.n" 2>/dev/null || echo 0)" = 0 ]; then
-      sb_nr="${sb_gate:-$execution_role}:${sb_focus:--} no reproduced evidence; this gate is not reproduced proof"   # A130: a gate field, never a findings row
-    fi
-  fi
-  # Run artifacts are English (A33): the report, the findings and the questions are scanned before recording.
-  LANG_HINT=$sb_d/   # the run whose TASK.md holds the quotable product text (A172)
-  sb_lang_files="$sb_d/$sb_norm $sb_tmp/rows"; [ -z "$sb_questions" ] || sb_lang_files="$sb_lang_files $sb_questions"
-  # shellcheck disable=SC2086
-  sb_hits=$(language_scan $sb_lang_files) || submit_fail "$(language_fail_text "$(printf '%s' "$sb_hits" | tr '\n' ' ' | sed "s#$sb_tmp/rows#your findings#")")"
-  # A43: the result cites an immutable copy of the artifact (reports/snapshots/<sha12>-<role>-<path>), never the
-  # live path. A later round that writes the same report path (REPORT.md, VERIFY.md, QA_REPORT.md) then cannot
-  # make an earlier result's ARTIFACT sha256 stale. The original path is checked against the role's paths here.
-  # the artifact paths: a qa BLOCKED may still report in QA_REPORT.md (the report step); the finding ids follow result_kind (A172)
-  sb_kind=task; if [ "$sb_gaterole" = yes ] && [ "$sb_res" != DONE ] && [ "$sb_res" != NEEDS_INPUT ]; then sb_kind=gate; fi
-  artifact_allowed "$execution_role" "$sb_kind" "$sb_focus" "$sb_norm" || submit_fail "artifact $sb_norm is outside the paths $execution_role${sb_focus:+ (FOCUS $sb_focus)} reports in: $(artifact_paths "$execution_role" "$sb_kind" "$sb_focus")"
-  # A113: an explorer cites only the report this submit allocated (or an immutable snapshot of it)
-  [ "$execution_role" != explorer ] || case "$sb_norm" in reports/snapshots/*) ;; *) [ "$sb_norm" = "$ae_p" ] || submit_fail "$sb_norm was not assigned to this submission (A113): write your report to scratch/<your token>-report.md and pass it with --report <file>; the script assigns the numbered name" ;; esac
-  case "$sb_norm" in reports/snapshots/*) ;; *)
-    sb_h=$(hash_file "$sb_d/$sb_norm")
-    sb_sn=reports/snapshots/$(printf '%.12s' "$sb_h")-$execution_role-$(printf '%s' "$sb_norm" | tr '/' '_')
-    mkdir -p "$sb_d/reports/snapshots" && cp "$sb_d/$sb_norm" "$sb_d/$sb_sn" || submit_fail "could not snapshot $sb_norm"
-    sb_norm=$sb_sn ;;
-  esac
-  # A102: the evidence of an UNSUPPORTED result is snapshotted the same way; record checks what it holds.
-  sb_ev=''
-  if [ "$sb_res" = UNSUPPORTED ] && [ -n "$sb_evidence" ]; then   # none: record refuses it after the focus checks
-    sb_ev=$(normalize_artifact "$sb_id" "$sb_evidence") || submit_fail "--evidence must be an existing file inside the run directory: $sb_evidence"
-    case "$sb_ev" in reports/snapshots/*) ;; *)
-      sb_eh=$(hash_file "$sb_d/$sb_ev")
-      sb_es=reports/snapshots/$(printf '%.12s' "$sb_eh")-$execution_role-$(printf '%s' "$sb_ev" | tr '/' '_')
-      case "$sb_ev" in reports/[0-9][0-9][0-9]-"$execution_role"*|"$(risk_focus_report "$sb_focus")"*) cp "$sb_d/$sb_ev" "$sb_d/$sb_es" || submit_fail "could not snapshot $sb_ev"; sb_ev=$sb_es ;; esac ;;
-    esac
-  fi
-  {
-    printf 'ROLE: %s\nTASK: %s\n' "$execution_role" "$sb_id"
-    [ -z "$sb_focus" ] || printf 'FOCUS: %s\n' "$sb_focus"
-    printf 'RESULT: %s\nCONFIDENCE: %s\nFINGERPRINT: %s\nARTIFACT: %s %s\n\n' "$sb_res" "$sb_conf" "$(gate_fingerprint)" "$sb_norm" "$(hash_file "$sb_d/$sb_norm")"
-    printf '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n'
-    sb_idkind=$(result_kind "$execution_role" "$sb_res")
-    sb_prefix=$(finding_prefix "$execution_role" "$sb_idkind" "$sb_gate")   # A172: record demands exactly this prefix
-    awk -F'|' -v p="$sb_prefix" '{ printf "| %s-%d | %s | %s | %s | %s |\n", p, NR, $1, $2, $3, $4 }' "$sb_tmp/rows"
-    if [ -s "$sb_tmp/evlines" ]; then printf '\n'; sed 's/^/EVIDENCE: /' "$sb_tmp/evlines"; fi
-    if [ -n "${sb_nr:-}" ]; then printf '\nNOT_RERUN: %s\n' "$sb_nr"; fi
-    if [ "$sb_res" = BLOCKED ]; then printf '\nBLOCKED_REASON: %s\n' "$(one_line "${sb_reason:-see $sb_norm}")"; fi
-    if [ "$sb_res" = UNSUPPORTED ]; then printf '\nUNSUPPORTED_REASON: %s\n' "$(one_line "$sb_reason")"
-      [ -z "$sb_ev" ] || printf 'UNSUPPORTED_EVIDENCE: %s %s\n' "$sb_ev" "$(hash_file "$sb_d/$sb_ev")"; fi
-    if [ "$sb_res" = NEEDS_INPUT ]; then
-      printf '\nQUESTIONS:\n'
-      if [ -n "$sb_questions" ]; then cat "$sb_tmp/questions.in"
-      else printf '%s\n' "${sb_reason:-}"; fi
-    fi
-  } > "$sb_tmp/raw"
-  sb_rc=0; AGENT_ROLE=$execution_role PROOFLINE_STEP_AGENT=$sb_agent sh "$scripts/agent.sh" record "$sb_id" --file "$sb_tmp/raw" > "$sb_tmp/out" 2> "$sb_tmp/err" || sb_rc=$?
-  if [ "$sb_rc" -ne 0 ]; then
-    sb_msg=$(sed 's/^record rejected: //' "$sb_tmp/err" "$sb_tmp/out" | tr '\n' ' ')
-    submit_fail "$sb_msg"
-  fi
-  sb_raw=$(sed -n 's/^result recorded: [^ ]* \([^ ]*\) .*/\1/p' "$sb_tmp/out" | head -1)
-  # record may turn the result into FAIL (A78 script findings); the recorded result is the one reported.
-  sb_final=$(sed -n 's/^result recorded: .* ([^ ]* \([A-Z_]*\))$/\1/p' "$sb_tmp/out" | head -1); sb_res=${sb_final:-$sb_res}
-  sed -n 's/^risk: /risk: /p' "$sb_tmp/out"
-  submit_status "$sb_agent" ok "$sb_id" "$execution_role" "$sb_res" "$sb_gate" "$sb_raw" ''
-  printf 'submitted: %s %s %s%s (%s)\n' "$sb_id" "$execution_role" "$sb_res" "${sb_gate:+ gate=$sb_gate}" "${sb_raw:-no raw}"
-}
-# Compatibility: `gate <ID> <GATE> pass|fail [ARTIFACT]` with the same rules as record (summary/findings on stdin).
-record_gate() {
-  g_id=$1 g_gate=$2 g_result=$3 g_art=${4:-}; require_run "$g_id"; g_d=$(run_dir "$g_id")
-  valid_gate_name "$g_gate" && [ "$g_gate" != SECRETS ] || fail "invalid gate: $g_gate (SECRETS is recorded by 'agent.sh secret-scan')"
-  case "$g_result" in pass|fail) ;; *) fail "invalid gate result: $g_result (want pass|fail)" ;; esac
-  [ "$execution_role" != lead ] || fail "the lead can never record a gate verdict"
-  [ "$execution_role" = "$(gate_owner "$g_gate")" ] || fail "role $execution_role may not record a $g_gate gate"
-  gate_preconditions "$g_id" "$g_gate"
-  [ -n "$g_art" ] || g_art=$(gate_default_artifact "$g_gate")
-  case "$g_art" in /*|*..*) fail "artifact path must be run-relative: $g_art" ;; esac
-  artifact_allowed "$execution_role" gate "$(gate_focus "$g_gate")" "$g_art" || fail "artifact $g_art is outside the paths of $g_gate: $(artifact_paths "$execution_role" gate "$(gate_focus "$g_gate")")"
-  [ -s "$g_d/$g_art" ] || fail "$g_gate gate requires the role's report $g_art in the run directory"
-  [ "$(grep -c '^Verdict:' "$g_d/$g_art")" = 1 ] || fail "$g_art must contain exactly one 'Verdict:' line"
-  g_verdict=$(sed -n 's/^Verdict: *//p' "$g_d/$g_art" | tr -d ' ')
-  case "$g_result:$g_verdict" in pass:PASS|fail:FAIL) ;; *) fail "$g_art says 'Verdict: ${g_verdict:-<missing>}' but the gate result is '$g_result'" ;; esac
-  g_scratch=$(mktemp "${TMPDIR:-/tmp}/agent-gate.XXXXXX"); cat > "$g_scratch"
-  g_summary=$(field_from "$g_scratch" summary); g_findings=$(field_from "$g_scratch" findings); g_fscope=$(field_from "$g_scratch" fix_scope)
-  rm -f "$g_scratch"
-  reject_generic_justification "$g_summary" || fail "$g_gate gate requires a specific summary (>=20 chars, not a stock phrase)"
-  g_rows=$(mktemp "${TMPDIR:-/tmp}/agent-gate-rows.XXXXXX")
-  if [ "$g_result" = fail ]; then
-    reject_generic_justification "$g_findings" || { rm -f "$g_rows"; fail "a failing gate requires specific findings (>=20 chars)"; }
-    [ -n "$(scope_entry_paths "$g_fscope")" ] || { rm -f "$g_rows"; fail "a failing gate requires fix_scope with at least one path (comma-separated paths the fix may touch)"; }
-    g_i=0; for g_p in $(printf '%s' "$g_fscope" | tr ',' ' '); do g_i=$((g_i + 1)); printf '%s-%s|blocking|%s|%s|%s\n' "$g_gate" "$g_i" "$g_p" "$(one_line "$g_findings")" "$g_art" >> "$g_rows"; done
-  fi
-  write_gate "$g_id" "$g_gate" "$g_result" "$execution_role" high "$(gate_focus "$g_gate")" "$g_art" "$g_rows" '' "$(gate_fingerprint)"
-  rm -f "$g_rows"
-}
-# SECRETS (D14): a script gate, never a role and never waivable.
-secret_scan() {
-  ss_id=$1; require_run "$ss_id"; require_lead
-  gate_preconditions "$ss_id" SECRETS
-  [ -f "$scripts/secret-scan.sh" ] || fail "secret scanner missing: .agents/scripts/secret-scan.sh"
-  ss_tmp=$(mktemp -d "${TMPDIR:-/tmp}/proofline-secrets.XXXXXX"); ss_rc=0
-  ss_paths=$(task_changed_paths "$ss_id" | while IFS= read -r p; do [ -f "$root/$p" ] && printf '%s\n' "$p"; done)
-  if [ -n "$ss_paths" ]; then
-    # shellcheck disable=SC2086 # one argument per changed path (paths contain no whitespace by contract)
-    (cd "$root" && sh "$scripts/secret-scan.sh" $ss_paths) > "$ss_tmp/out" 2> "$ss_tmp/err" || ss_rc=$?
-  fi
-  case "$ss_rc" in
-    0) : > "$ss_tmp/rows"; ss_res=pass ;;
-    1) awk -F: 'NF >= 3 { n++; printf "SECRETS-%d|blocking|%s:%s|secret pattern %s|secret-scan.sh\n", n, $1, $2, $3 }' "$ss_tmp/out" > "$ss_tmp/rows"; ss_res=fail
-       [ -s "$ss_tmp/rows" ] || printf 'SECRETS-1|blocking|-|secret scanner reported findings without locations|secret-scan.sh\n' > "$ss_tmp/rows" ;;
-    *) ss_err=$(head -3 "$ss_tmp/err" | tr '\n' ' '); rm -rf "$ss_tmp"; fail "secret scan error (exit $ss_rc): $ss_err — nothing recorded (BLOCKED)" ;;
-  esac
-  write_gate "$ss_id" SECRETS "$ss_res" secret-scan high '' '' "$ss_tmp/rows" '' "$(gate_fingerprint)"
-  [ "$ss_res" = pass ] || sed 's/^/  /' "$ss_tmp/rows"
-  rm -rf "$ss_tmp"
-}
 
 # --- Mutation budget floor: one claim mutant per distinct AC of PLAN `## Tests` ----------------
 plan_test_acs() { awk '/^## /{ i = ($0 ~ /^## Tests/); next } i && match(toupper($0), /^[ \t]*[-*][ \t]+AC-[0-9]+:/) { a = toupper(substr($0, RSTART, RLENGTH)); sub(/^[^A]*/, "", a); sub(/-0+/, "-", a); seen[a] = 1 } END { n = 0; for (k in seen) n++; print n }' "$1"; }
@@ -4368,20 +3149,6 @@ mutation_budget() {
   # the override counts only with the raise-budget ledger row that wrote it (a file alone could be written by any role)
   grep -q "event=raise-budget .*test_trust.mutation_budget $mb_o for this run" "$(ledger_file "$1")" 2>/dev/null || mb_o=0
   if [ "$mb_o" -gt "$mb_b" ]; then echo "$mb_o"; else echo "$mb_b"; fi
-}
-# raise-budget ID N: a budget above config for this run only, with the user's mutation_budget approval. It also
-# resolves a REVIEW_TESTS BLOCKED on the budget: raise, then dispatch the reviewer again.
-raise_budget() {
-  rb_id=$1 rb_n=$2; require_run "$rb_id"; require_lead; require_open_run "$rb_id"; rb_d=$(run_dir "$rb_id")
-  case "$rb_n" in ''|*[!0-9]*) fail "usage: agent.sh raise-budget <ID> <N>" ;; esac; rb_n=$(printf '%s' "$rb_n" | sed 's/^0*//'); [ -n "$rb_n" ] || rb_n=0   # "040" is 40 in the file and the ledger row
-  [ "$rb_n" -gt "$(mutation_budget "$rb_id")" ] || fail "the mutation budget is already $(mutation_budget "$rb_id"); nothing to raise"
-  [ "$rb_n" -ge "$(plan_test_acs "$rb_d/PLAN.md")" ] || fail "N must cover the $(plan_test_acs "$rb_d/PLAN.md") criteria of PLAN ## Tests"
-  rb_app=$(find_approval "$rb_id" mutation_budget "$(hash_file "$rb_d/PLAN.md")") || fail "raising the mutation budget needs the user's approval: 'agent.sh request-approval $rb_id mutation_budget', relay it, then run this again"
-  # A157: an approval that came through the batch approval stops at the batch cap
-  [ -z "$(gate_field "$rb_app" via_batch)" ] || [ "$rb_n" -le "$(gate_field "$rb_app" cap)" ] || fail "the batch approval covers a mutation budget up to $(gate_field "$rb_app" cap); $rb_n is above it. Park the task with 'agent.sh ask $rb_id'"
-  printf '%s\n' "$rb_n" > "$rb_d/mutation_budget"; consume_approval "$rb_id" "$rb_app"
-  ledger_if "$rb_id" raise-budget - - "test_trust.mutation_budget $rb_n for this run, approval $(basename "$rb_app")"
-  echo "mutation budget raised to $rb_n for $rb_id (dispatch the reviewer again if REVIEW_TESTS was BLOCKED)"
 }
 
 # --- Approvals (D3/D16): single-use, from a TTY or a runtime prompt capture ----------------
@@ -5431,36 +4198,6 @@ waive_canon() { # ID FINDING-ID
 canon_kind() { # ID KIND -> the approval kind with a waive:<id> in the recorded spelling of the finding id
   case "$2" in waive:*) if [ "$1" = - ]; then printf '%s\n' "$2"; else printf 'waive:%s\n' "$(waive_canon "$1" "${2#waive:}")"; fi ;; *) printf '%s\n' "$2" ;; esac
 }
-waive() {
-  wv_id=$1 wv_fid=$2; shift 2; wv_reason=''; wv_grp=no
-  while [ $# -gt 0 ]; do case "$1" in --reason) wv_reason=${2:-}; shift 2 || shift ;; --group) wv_grp=yes; shift ;; *) fail "unknown waive argument: $1" ;; esac; done
-  require_run "$wv_id"; require_lead; require_open_run "$wv_id"; wv_d=$(run_dir "$wv_id")
-  reject_generic_justification "$wv_reason" || fail "waive requires a specific --reason (>=20 chars)"
-  wv_fid=$(waive_canon "$wv_id" "$wv_fid")
-  wv_now=$(gate_fingerprint); wv_rec=$(waive_target "$wv_id" "$wv_fid" "$wv_now") || return 1
-  wv_gate=$(gate_field "$wv_rec" gate); wv_rsha=$(hash_file "$wv_rec")
-  wv_app=$(find_approval "$wv_id" "waive:$wv_fid" "$(basename "$wv_rec")@$wv_rsha#$wv_fid") || fail "waiving $wv_fid needs the user's approval naming it: 'agent.sh request-approval $wv_id waive:$wv_fid', relay, then 'agent.sh approve $wv_id waive:$wv_fid'"
-  # --group: ONE approval (of the named finding) waives every open blocking finding of the same gate record and the same rule; the group is a
-  # function of the record the approval is bound to, so it cannot change between the request and this call
-  wv_rep=$wv_fid; wv_list=$wv_fid; [ "$wv_grp" != yes ] || wv_list=$(waive_group_ids "$wv_rec" "$wv_fid")
-  for wv_fid in $wv_list; do
-  mkdir -p "$wv_d/waivers"; wv_n=$(next_num "$wv_d/waivers"); wv_out=$wv_d/waivers/$wv_n-$wv_fid.yaml
-  wv_follow=none
-  if [ "$(cfg review.waiver_followup none)" = task ]; then
-    wv_fu=$wv_d/waivers/$wv_n-$wv_fid.followup.md
-    { printf '# Follow-up: waived finding %s of %s\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\nOrigin: %s (waived finding %s)\n\n' "$wv_fid" "$wv_id" "$wv_id" "$wv_fid"
-      grep "^finding: $wv_fid|" "$wv_rec" | sed 's/^finding: //'; printf '\nWaiver reason: %s\n' "$wv_reason"; } > "$wv_fu"
-    wv_ad=$agents/task-integrations/$(cfg tasks.adapter markdown).sh
-    if [ -f "$wv_ad" ]; then wv_follow=$(sh "$wv_ad" followup "$wv_id" "$wv_fu") || fail "follow-up task creation failed via $wv_ad"; else wv_follow=pending; fi
-  fi
-  printf 'finding: "%s"\ngate: "%s"\ngate_record: "%s"\ngate_record_sha256: "%s"\nfinding_key: "%s"\nfingerprint: "%s"\nreason: %s\napproval: "%s"\nanswered_by: "user"\nfollowup: "%s"\ntimestamp: "%s"\n' \
-    "$wv_fid" "$wv_gate" "$(basename "$wv_rec")" "$wv_rsha" "$(finding_waiver_key "$wv_rec" "$wv_fid")" "$wv_now" "$(one_line "$wv_reason")" "$(basename "$wv_app")" "$wv_follow" "$(now_iso)" > "$wv_out"
-  if gates_enforced "$wv_id"; then ledger_append "$wv_id" waive - - "$(ledger_token "waivers/$wv_n-$wv_fid.yaml" "$wv_id") $wv_fid gate=$wv_gate reason=$wv_reason"; fi
-  [ "$wv_grp" = yes ] || echo "waiver recorded: $wv_id $wv_fid ($wv_gate)"
-  done
-  consume_approval "$wv_id" "$wv_app"
-  [ "$wv_grp" != yes ] || echo "group waiver recorded: $wv_id $wv_rep and $(printf '%s\n' "$wv_list" | wc -l | tr -d ' ') finding(s) of the same rule ($wv_gate): $(printf '%s' "$wv_list" | tr '\n' ' ')"
-}
 # finding_rule_key RECORD FINDING-ID: the rule of a finding, for grouping: its text without numbers and colours, lower case.
 finding_rule_key() {
   awk -v want="$2" '/^finding: / { r = $0; sub(/^finding: /, "", r); n = split(r, p, "|"); if (p[1] == want) { print tolower(p[4]); exit } }' "$1" | sed 's/#[0-9a-f]\{3,8\}//g; s/[0-9][0-9]*//g' | tr -cs 'a-z' ' ' | sed 's/^ //;s/ $//'
@@ -5616,9 +4353,6 @@ answer() {
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
 }
 
-# --- Execution policy (D5): decide persists and ledgers one resolved decision ---------------
-# The configured runtime of a role: exec-policy.sh owns the role -> runtime-group table (one source of truth).
-role_runtime() { sh "$scripts/exec-policy.sh" runtime "$1" 2>/dev/null || echo -; }
 role_results_count() { # ID ROLE [FOCUS] -> recorded results of exactly this role (and focus: the FOCUS header of the raw message)
   rc_n=0
   for rc_f in "$(run_dir "$1")"/results/[0-9][0-9][0-9]-"$2".result.md; do
@@ -5825,52 +4559,6 @@ wait_line() {
   printf 'waiting: %s, %dm%02ds so far%s\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60)) "$([ -z "$wl_t" ] || { set -- $wl_t; printf ' (TIME: %d%% of its %dm limit)' $(($2 * 100 / $3)) $(($3 / 60)); })"
 }
 
-# --- Metrics (D5, A80): .agents/local/metrics/, best effort, `metrics: off` disables ALL of it ---
-# history.tsv: one flat line per step. records.jsonl: versioned records (schema in docs/concepts/metrics.md).
-metrics_line() { # TASK ROLE RUNTIME MODEL DURATION OUTCOME
-  [ "$(cfg metrics on)" != off ] || return 0
-  ml_f=$(shared_dir metrics)/history.tsv
-  mkdir -p "$(dirname "$ml_f")" 2>/dev/null || return 0
-  [ -s "$ml_f" ] || printf 'time\ttask\trole\truntime\tmodel\tduration_s\toutcome\n' > "$ml_f" 2>/dev/null || return 0
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(now_iso)" "$1" "$2" "$3" "$4" "$5" "$6" >> "$ml_f" 2>/dev/null || true
-}
-metrics_step() { # ID ROLE FOCUS OUTCOME
-  ms_f=$(latest_decision "$1" "$2" "$3"); ms_rt=$(role_runtime "$2") ms_model=- ms_dur=-
-  if [ -n "$ms_f" ]; then
-    ms_rt=$(sed -n 's/^runtime=//p' "$ms_f" | head -1); ms_model=$(sed -n 's/^model=//p' "$ms_f" | head -1)
-    ms_at=$(sed -n 's/^decided_at=//p' "$ms_f" | head -1); [ -z "$ms_at" ] || ms_dur=$(( $(now_epoch) - ms_at ))
-  fi
-  # A200: the time is the work of THIS attempt, not the wall clock since the decision (a step that waited, was resumed or failed over would be inflated).
-  # A dispatch.sh worker: from the start of its attempt; a Claude subagent: from its (re)start, which the SubagentStart hook stamps on line 2 of the
-  # .started file. The runtime is the one that really ran: dispatch.sh names it (after a failover it is not the decision's).
-  ms_st=''
-  case "${PROOFLINE_DISPATCH_START:-}" in ''|*[!0-9]*) ;; *) ms_st=$PROOFLINE_DISPATCH_START ;; esac
-  case "${PROOFLINE_DISPATCH_RUNTIME:-}" in ''|*[!A-Za-z0-9._+:-]*) ;; *) ms_rt=$PROOFLINE_DISPATCH_RUNTIME ;; esac
-  if [ -z "$ms_st" ]; then
-    case "${PROOFLINE_STEP_AGENT:-}" in ''|*[!A-Za-z0-9_.-]*) ;; *) ms_st=$(sed -n 2p "$(submission_dir)/$PROOFLINE_STEP_AGENT.started" 2>/dev/null || true) ;; esac
-    case "$ms_st" in ''|*[!0-9]*) ms_st='' ;; esac
-  fi
-  [ -z "$ms_st" ] || { ms_d=$(( $(now_epoch) - ms_st )); [ "$ms_d" -ge 0 ] && ms_dur=$ms_d; }
-  metrics_line "$1" "$2" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$4"
-  ms_g=$(gate_of "$2" "$3" "$1" 2>/dev/null || true)
-  # A Claude subagent (not a dispatch.sh worker, whose dispatch record has the tokens): read what it used from its session log
-  # (usage of each assistant message, one count per message id; cache reads excluded). Null when the log is not there.
-  ms_in=- ms_out=- ms_tot=-
-  ms_tp=''; case "${PROOFLINE_STEP_AGENT:-}" in ''|*[!A-Za-z0-9_.-]*) ;; *) ms_tp=$(sed -n 1p "$(submission_dir)/$PROOFLINE_STEP_AGENT.started" 2>/dev/null || true) ;; esac
-  case "$ms_tp" in /*.jsonl) [ -f "$ms_tp" ] && [ "$ms_rt" = claude ] || ms_tp='' ;; *) ms_tp='' ;; esac
-  if [ -n "$ms_tp" ]; then
-    ms_u=$(awk '/"role":"assistant"/ && match($0, /"id":"msg_[A-Za-z0-9_]+"/) {
-        id = substr($0, RSTART, RLENGTH); u = $0; sub(/.*"usage":\{/, "", u); u = substr(u, 1, 400); i = 0; c = 0; o = 0
-        if (match(u, /"input_tokens":[0-9]+/)) i = substr(u, RSTART + 15, RLENGTH - 15)
-        if (match(u, /"cache_creation_input_tokens":[0-9]+/)) c = substr(u, RSTART + 30, RLENGTH - 30)
-        if (match(u, /"output_tokens":[0-9]+/)) o = substr(u, RSTART + 16, RLENGTH - 16)
-        if (!(id in I)) n++
-        I[id] = i + c; O[id] = o }
-      END { if (n) { for (k in I) { ti += I[k]; to += O[k] }; printf "%d %d\n", ti, to } }' "$ms_tp" 2>/dev/null || true)
-    [ -z "$ms_u" ] || { ms_in=${ms_u% *} ms_out=${ms_u#* }; ms_tot=$((ms_in + ms_out)); }
-  fi
-  metrics_json step "$1" "$2" "$3" "$ms_g" "${ms_rt:--}" "${ms_model:--}" "$ms_dur" "$ms_in" "$ms_out" "$ms_tot" - - - - "$4"
-}
 # task_size_of ID: the task-author's size estimate (front matter `size:`) from the run's frozen TASK.md; empty when none
 # (the status block and the metrics run record read the same source)
 task_size_of() {
@@ -6155,19 +4843,6 @@ gate_report_ids() { # ID GATE [FOCUS] -> ids, one per line (FOCUS '-' = the gate
     sed -n 's/^finding: \([^|]*\)|[a-z]*|[^|]*|\([^|]*\)|.*/\1|\2/p' "$gri_f" | grep -v '|UNSUPPORTED ' | cut -d'|' -f1
   done | sort -u
 }
-# a report line that names the gate exactly (the gate name is not just part of an id like QA-1 or a longer word)
-# and carries the finding id: the narrowest rule that keeps 'scenarios QA-1 to QA-9' from naming a QA finding.
-# A172: by key (id_key): QA-1, qa-1 and QA-01 name the same finding.
-report_names_id() { # REPORT GATE ID
-  awk -v g="$2" -v id="$3" 'BEGIN { g = tolower(g); id = tolower(id); n = id; sub(/^.*-/, "", n); sub(/-[0-9]+$/, "", id); sub(/^0+/, "", n); if (n == "") n = "0"
-      idre = "(^|[^a-z0-9_-])" id "-0*" n "([^0-9]|$)"; gre = g "-[0-9]+"; gname = "(^|[^a-z0-9_-])" g "([^a-z0-9_-]|$)" }
-    { l = tolower($0); if (l !~ idre) next; gsub(gre, "", l); if (l ~ gname) found = 1 }
-    END { exit !found }' "$1"
-}
-# a report line that names GATE:focus exactly (the next character is not part of a longer focus) -> the lines
-report_key_lines() { # REPORT KEY (case-insensitive, A172)
-  awk -v k="$2" 'BEGIN { k = tolower(k) } { l = tolower($0); while ((i = index(l, k)) > 0) { c = substr(l, i + length(k), 1); if (c == "" || c !~ /[a-z0-9_+-]/) { print $0; break }; l = substr(l, i + length(k)) } }' "$1"
-}
 # A130: every gate that re-ran nothing is named in the report on its own line, "not reproduced (NOT_RERUN)";
 # `next` before the report lists what the report must carry, so the lead writes it right the first time.
 not_rerun_next() { # ID
@@ -6176,23 +4851,6 @@ not_rerun_next() { # ID
     nn_i=$(gate_report_ids "$1" "$nn_g" | tr '\n' ' ' | sed 's/ $//')
     [ -z "$nn_i" ] || o "gate $nn_g findings to name in COMPLETION_REPORT.md (on a line that also names $nn_g, e.g. '- $nn_g: <id> <severity> <what>'): $nn_i"
   done
-}
-required_report_headings() {
-  dir=$1 id=$(basename "$1")
-  printf '## Implementation Summary\n## Verification\n## Assumptions\n## Known Limitations / Follow-up\n'
-  rh_g=$(required_gates "$id")
-  if printf '%s\n' "$rh_g" | grep -Eq '^(REVIEW_|SECURITY)'; then printf '## Review Result\n'; fi
-  if printf '%s\n' "$rh_g" | grep -Fxq QA; then printf '## QA Result\n'; fi
-  if [ -d "$dir/worker-evidence" ]; then printf '## TDD Evidence\n'; fi
-  if ls "$dir"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1; then printf '## Root cause\n'; fi
-  if [ -n "$(ls -A "$dir/amendments" 2>/dev/null)" ]; then printf '## Amendments\n'; fi
-  if ls "$dir"/gates/*-REOPEN.yaml >/dev/null 2>&1; then printf '## Reopen History\n'; fi
-  if ls "$dir"/waivers/*.yaml >/dev/null 2>&1; then printf '## Waivers\n'; fi
-  if [ -n "$(decision_files "$id")" ]; then printf '## Execution\n'; fi
-  if [ -n "$(risk_unsupported "$id")" ]; then printf '## Unsupported Checks\n'; fi
-  # A202: the user asked for a final summary format in the task; the report carries the lead's last message in that format
-  if [ -n "$(task_section_lines "$dir/TASK.md" 'Completion response' | grep '[^[:space:]]')" ]; then printf '## Requested Response\n'; fi
-  return 0
 }
 # A202: the summary block. The first lines of COMPLETION_REPORT.md, between these markers, are a short note to the user in the user's
 # language: what changed, what to look at, one command to verify. It is not evidence: the evidence checks read the report without it,
@@ -6206,88 +4864,6 @@ report_blank_summary() { # FILE -> the file with the summary block's lines blank
 human_checks() {
   hc_f=$(run_dir "$1")/QA_REPORT.md; [ -f "$hc_f" ] || return 0
   awk '/^## Human checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i && /^[-*][ \t]+[^ \t]/ { sub(/^[-*][ \t]+/, ""); sub(/[ \t]+$/, ""); if (n < 3) print; n++ }' "$hc_f"
-}
-# report_summary_apply ID: validates the summary block and rewrites it with the script-copied `Look at:` lines (once, before `Verify:`)
-report_summary_apply() {
-  rsa_f=$(run_dir "$1")/COMPLETION_REPORT.md
-  rsa_b=$(grep -nFx -- "$REPORT_SUMMARY_BEGIN" "$rsa_f" | head -n 1 | cut -d: -f1)
-  if [ -z "$rsa_b" ]; then echo "note: COMPLETION_REPORT.md has no summary block at the top; the user reads it first (what changed, what to look at, one command to verify): see the template" >&2; return 0; fi
-  [ "$rsa_b" -le 4 ] || fail "completion report: the summary block must open within the first lines of the report, right after the title"
-  rsa_e=$(awk -v b="$rsa_b" -v e="$REPORT_SUMMARY_END" 'NR > b && $0 == e { print NR; exit }' "$rsa_f")
-  [ -n "$rsa_e" ] || fail "completion report: the summary block has no closing marker $REPORT_SUMMARY_END"
-  rsa_body=$(sed -n "$((rsa_b + 1)),$((rsa_e - 1))p" "$rsa_f" | grep -v '^Look at:' | grep '[^[:space:]]' || true)
-  rsa_items=$(human_checks "$1")
-  rsa_v=$(printf '%s\n' "$rsa_body" | grep -c '^Verify:' || true)
-  { [ "$rsa_v" = 1 ] && printf '%s\n' "$rsa_body" | grep '^Verify:' | grep -q '`[^`][^`]*`'; } || fail "completion report: the summary block needs exactly one line 'Verify: \`<one command the user runs on their own machine>\`'"
-  rsa_main=$(printf '%s\n' "$rsa_body" | grep -v '^Verify:' || true)
-  while IFS= read -r rsa_i; do
-    [ -n "$rsa_i" ] || continue
-    ! printf '%s\n' "$rsa_main" | grep -iqF -- "$rsa_i" || fail "completion report: the summary block repeats a QA_REPORT.md 'Human checks' item ('$rsa_i'); the script copies that list as 'Look at:' lines, remove your copy"
-  done <<EOF
-$rsa_items
-EOF
-  rsa_n=$(( $(printf '%s\n' "$rsa_body" | grep -c . || true) + $(printf '%s\n' "$rsa_items" | grep -c . || true) ))
-  [ "$rsa_n" -le 5 ] || fail "completion report: the summary block is $rsa_n lines with the 'Look at:' lines the script adds; at most five (what changed, what to look at, one command to verify)"
-  rsa_t=$(mktemp "${TMPDIR:-/tmp}/agent-summary.XXXXXX") || fail "cannot create a temporary file"
-  { sed -n "1,${rsa_b}p" "$rsa_f"
-    [ -z "$rsa_main" ] || printf '%s\n' "$rsa_main"
-    printf '%s\n' "$rsa_items" | sed '/^$/d; s/^/Look at: /'
-    printf '%s\n' "$rsa_body" | grep '^Verify:'
-    sed -n "${rsa_e},\$p" "$rsa_f"; } > "$rsa_t" && cp "$rsa_t" "$rsa_f"; rm -f "$rsa_t"
-}
-validate_completion_report_structure() {
-  id=$1 dir=$(run_dir "$1"); report="$dir/COMPLETION_REPORT.md"
-  [ -f "$report" ] || fail "completion report missing: $report"
-  size=$(wc -c < "$report" | tr -d ' '); [ "$size" -ge 200 ] || fail "completion report is too short to be meaningful"
-  # A202: the evidence checks below read the report without its summary block (the summary is a note to the user, not evidence)
-  mkdir -p "$dir/scratch"; report_blank_summary "$report" > "$dir/scratch/COMPLETION_REPORT.evidence.md"; report="$dir/scratch/COMPLETION_REPORT.evidence.md"
-  for vc_h in $(required_report_headings "$dir" | sed 's/^## //; s/ /_/g'); do
-    vc_h=$(printf '## %s' "$vc_h" | tr '_' ' ')
-    grep -Fq "$vc_h" "$report" || fail "completion report missing required section: $vc_h"
-  done
-  # A202: a task with a `Completion response` section needs the requested summary written in the report, not left out
-  if [ -n "$(task_section_lines "$dir/TASK.md" 'Completion response' | grep '[^[:space:]]')" ]; then
-    awk '/^## Requested Response[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report" | grep -q '[^[:space:]]' || fail "completion report: the '## Requested Response' section is empty (the task's Completion response asks for a final summary in its own format: write it there, and end your last message with the same text)"
-  fi
-  # A79: every assumption that is not verified is listed in `## Assumptions` (an accepted-by-user one with the
-  # answer file that accepted it); a run with none writes "none".
-  vc_sec=$(awk '/^## Assumptions[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
-  printf '%s\n' "$vc_sec" | grep -q '[^[:space:]]' || fail "completion report: the '## Assumptions' section is empty (list every unverified and accepted-by-user assumption, or write none)"
-  vc_miss=$(assumption_states "$id" | awk -F'\t' '$3 != "verified" { print $1 "\t" $3 "\t" $4 }' | while IFS="$(printf '\t')" read -r vc_a vc_s vc_ref; do
-    printf '%s\n' "$vc_sec" | grep -Eq "(^|[^A-Za-z0-9-])$vc_a([^0-9]|\$)" || { echo "$vc_a"; continue; }
-    # the line naming the id states its status (unverified | accepted-by-user): "AS-1 verified" does not pass
-    printf '%s\n' "$vc_sec" | grep -E "(^|[^A-Za-z0-9-])$vc_a([^0-9]|\$)" | grep -Eq "(^|[^A-Za-z-])$vc_s([^A-Za-z-]|\$)" || { echo "$vc_a($vc_s)"; continue; }
-    [ "$vc_s" != accepted-by-user ] || printf '%s\n' "$vc_sec" | grep -Fq "$(basename "$vc_ref")" || echo "$vc_a(answer $vc_ref)"
-  done | tr '\n' ' ')
-  [ -z "$vc_miss" ] || fail "completion report: '## Assumptions' does not list: $vc_miss (every unverified assumption by id with its status word, unverified or accepted-by-user; an accepted one with its answer file)"
-  # A78/A98: every UNSUPPORTED check is named (GATE:focus) in the report on a line that says what it leaves
-  # unproven ('not proven: <what>'); it was never a PASS, so the report never asserts it as verified.
-  vc_usec=$(awk '/^## Unsupported Checks[ \t]*$/ { i = 1; next } /^## / { i = 0 } i' "$report")
-  # A130: a gate that re-ran nothing has its own report line saying 'not reproduced (NOT_RERUN)'; no line naming it
-  # calls it reproduced. Every finding row of a gate (info included; UNSUPPORTED rows are A98's) is named by id on a
-  # line that also names the gate; 'none' is true only for a gate whose record has no finding row. All misses are
-  # collected and reported at once.
-  vc_gaps=''
-  for vc_n in $(risk_not_rerun "$id" | cut -d' ' -f1 | sort -u); do
-    vc_nl=$(report_key_lines "$report" "$vc_n")
-    printf '%s\n' "$vc_nl" | grep -Fq 'not reproduced (NOT_RERUN)' || vc_gaps="$vc_gaps
-- gate $vc_n re-ran nothing: add the line '- $vc_n: not reproduced (NOT_RERUN)'"
-    vc_bad=$(printf '%s\n' "$vc_nl" | while IFS= read -r vc_l; do printf '%s\n' "$vc_l" | sed 's/not reproduced//Ig' | grep -qi 'reproduced' && printf '%s\n' "$vc_l"; done | head -1)
-    [ -z "$vc_bad" ] || vc_gaps="$vc_gaps
-- the line naming $vc_n calls it reproduced: \"$vc_bad\" (it is 'not reproduced (NOT_RERUN)')"
-  done
-  for vc_g in $(required_gates "$id"); do
-    vc_miss=''
-    for vc_i in $(gate_report_ids "$id" "$vc_g"); do report_names_id "$report" "$vc_g" "$vc_i" || vc_miss="$vc_miss $vc_i"; done
-    [ -z "$vc_miss" ] || vc_gaps="$vc_gaps
-- gate $vc_g: name the finding id(s)$vc_miss, each on a line that also names $vc_g (for example '- $vc_g: ${vc_miss# } <severity> <what>'); an id is a finding row of the gate record, info rows included, and 'none' is true only for a gate with no finding row"
-  done
-  [ -z "$vc_gaps" ] || fail "completion report is incomplete (A130):$vc_gaps"
-  for vc_u in $(risk_unsupported "$id" | cut -d'|' -f1 | sort -u); do
-    printf '%s\n' "$vc_usec" | grep -Fq "$vc_u" || fail "completion report must name the UNSUPPORTED check $vc_u under '## Unsupported Checks'"
-    # 'not proven:' says what, in at least three words ('n/a' is not an answer)
-    printf '%s\n' "$vc_usec" | grep -F "$vc_u" | sed -n 's/.*not proven:[[:space:]]*//p' | awk '{ n = 0; for (i = 1; i <= NF; i++) if ($i ~ /[A-Za-z][A-Za-z]/) n++; if (n >= 3) ok = 1 } END { exit !ok }' || fail "completion report: the line naming the UNSUPPORTED check $vc_u under '## Unsupported Checks' must say 'not proven: <what>' in at least three words (an unproven claim is never reported as verified)"
-  done
 }
 # --- Report facts (A143, C-22): counts and statuses come from records, never from the model's text ---------
 # report_facts ID: the Facts block, generated from the gate records, the ledger, the task-owned paths and the
@@ -6335,11 +4911,6 @@ report_facts() {
 }
 REPORT_FACTS_BEGIN='<!-- proofline:facts:begin -->'
 REPORT_FACTS_END='<!-- proofline:facts:end -->'
-report_strip_facts() { # FILE: remove an earlier Facts block
-  [ -f "$1" ] || return 0
-  rs_t=$(mktemp "${TMPDIR:-/tmp}/agent-report.XXXXXX") || fail "cannot create a temporary file"
-  awk -v b="$REPORT_FACTS_BEGIN" -v e="$REPORT_FACTS_END" '$0 == b { skip = 1; next } skip && $0 == e { skip = 0; next } !skip' "$1" > "$rs_t" && cp "$rs_t" "$1"; rm -f "$rs_t"
-}
 # report_execution ID (A203): the `## Execution` section of the completion report, generated from the decision records (decisions/NNN-*.decision),
 # one row per dispatch decision in order. The lead's own table was copied by hand and drifted from the records (a failover, an escalation or a
 # model left out); publish replaces whatever the lead wrote under that heading with this text. Nothing is printed when no decision exists.
@@ -6365,121 +4936,7 @@ report_execution() {
     $1 == "role" { role = v } $1 == "focus" { focus = v } $1 == "runtime" { rt = v } $1 == "model" { model = v } $1 == "effort" { effort = v }
     $1 == "signals" { sig = v } $1 == "runtime_reason" { rr = v } $1 == "escalated" { esc = v } $1 == "escalation_reason" { xr = v } $1 == "via" { via = v }'
 }
-# report_execution_apply ID: the generated section replaces the lead's `## Execution` section (or goes before `## Known Limitations`, or last).
-report_execution_apply() {
-  rx_id=$1; rx_f=$(run_dir "$rx_id")/COMPLETION_REPORT.md
-  [ -n "$(decision_files "$rx_id")" ] && [ -f "$rx_f" ] || return 0
-  rx_g=$(mktemp "${TMPDIR:-/tmp}/agent-exec.XXXXXX") || fail "cannot create a temporary file"; rx_t=$rx_g.new
-  report_execution "$rx_id" > "$rx_g"
-  awk -v g="$rx_g" '
-    function emit(   l) { while ((getline l < g) > 0) print l; close(g); print ""; done = 1 }
-    /^## Execution[ \t]*$/ && !done { skip = 1; emit(); next }
-    skip && /^## / { skip = 0 }
-    skip { next }
-    /^## Known Limitations/ && !done { emit() }
-    { print }
-    END { if (!done) { print ""; emit() } }' "$rx_f" > "$rx_t" && cp "$rx_t" "$rx_f"; rm -f "$rx_g" "$rx_t"
-}
-# report_claims_check ID FILE: a number next to the words tests, gates, fix rounds or refreezes must be a recorded
-# value. Narrow on purpose: digits only, directly beside the word (before it, or after it with `:`/`=`), fenced code skipped.
-report_claims_check() {
-  rc_id=$1
-  rc_wt=$(evidence_run_counts "$rc_id"); rc_wp=${rc_wt#* }; rc_wt=${rc_wt%% *}; rc_wp=${rc_wp%% *}
-  rc_gn=$(required_gates "$rc_id" | grep -c . || true)
-  rc_fr=$(fix_rounds_used "$rc_id"); rc_fm=$(max_fix_rounds)
-  rc_rz=$(grep -c 'event=refreeze ' "$(ledger_file "$rc_id")" 2>/dev/null || true)
-  rc_bad=$(awk -v tests="$rc_wt $rc_wp $((rc_wt - rc_wp))" -v tlab="worker-evidence run records: total $rc_wt, ended pass $rc_wp, ended fail $((rc_wt - rc_wp)); no record counts individual tests" \
-    -v gates="$rc_gn 0" -v glab="required gates $rc_gn" -v rounds="$rc_fr $rc_fm $(fix_rounds_done "$rc_id")" -v rlab="used $(fix_rounds_done "$rc_id"), maximum $rc_fm" -v refz="$rc_rz" -v zlab="refreezes $rc_rz" '
-    function allowed(set, n,   a, i, k) { k = split(set, a, " "); for (i = 1; i <= k; i++) if (a[i] + 0 == n + 0) return 1; return 0 }
-    # number words one..twenty become digits, so "Two tests" is read like "2 tests"
-    function numwords(s,   i, w, m, lead, trail) {
-      split("one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty", w, " ")
-      for (i = 1; i <= 20; i++)
-        while (match(s, "(^|[^a-z0-9_-])" w[i] "( |$)")) {
-          m = substr(s, RSTART, RLENGTH); lead = (substr(m, 1, length(w[i])) == w[i]) ? "" : substr(m, 1, 1); trail = (substr(m, length(m)) == " ") ? " " : ""
-          s = substr(s, 1, RSTART - 1) lead i trail substr(s, RSTART + RLENGTH)
-        }
-      return s
-    }
-    function scan(kind, re, set, lab,   s, m, n, rest) {
-      s = $0
-      while (match(s, re)) {
-        m = substr(s, RSTART, RLENGTH); n = m; sub(/^[^0-9]*/, "", n); sub(/[^0-9].*$/, "", n)
-        s = substr(s, RSTART + RLENGTH); rest = s
-        # a verb ("step 3 tests the lookup") or another noun ("2 test files") is no count
-        if (rest ~ /^(the|a|an|this|that|these|those|its|their|each|every|how|whether|it|cases?|files?|suites?|scenarios?|commands?|fixtures?|names?|helpers?)([^a-z_]|$)/) continue
-        if (n + 0 == 0 && (m ~ /(failed|failing|skipped)/ || rest ~ /^(failed|failing|fail|skipped|failures?)([^a-z_]|$)/)) continue
-        if (!allowed(set, n)) printf "line %d: \"%s %s\" (recorded: %s)\n", NR, n, kind, lab
-      }
-    }
-    BEGIN {
-      b = "(^|[^0-9a-z._-])"
-      tb = b "[0-9]+ +((new|unit|integration|e2e|regression|failing|passing|passed|added|existing|total) +)*tests?([^a-z_]|$)"
-      ta = b "tests?( (run|passed|failed|passing|failing|total|count))* *[:=] *[0-9]+"
-      gb = b "[0-9]+ +((required|review|blocking|lifecycle|passing|failing|passed|failed|total) +)*gates?([^a-z_]|$)"
-      ga = b "gates?( (required|passed|failed|passing|total|count))* *[:=] *[0-9]+"
-      rb = b "[0-9]+ +((more|extra|total) +)?fix +rounds?([^a-z_]|$)"
-      ra = b "fix +rounds?( +(used|taken|needed|count|total))* *[:=]? *[0-9]+"
-      fb = b "[0-9]+ +refreezes?([^a-z_]|$)"
-      fa = b "refreezes?( +(count|total))* *[:=]? *[0-9]+"
-    }
-    /^```/ { fence = !fence; next }
-    fence { next }
-    { $0 = tolower($0); gsub(/[*`]/, " "); while (match($0, /[0-9],[0-9][0-9][0-9]/)) $0 = substr($0, 1, RSTART) substr($0, RSTART + 2)
-      $0 = numwords($0)
-      scan("tests", tb, tests, tlab); scan("tests", ta, tests, tlab); scan("gates", gb, gates, glab); scan("gates", ga, gates, glab)
-      scan("fix rounds", rb, rounds, rlab); scan("fix rounds", ra, rounds, rlab); scan("refreezes", fb, refz, zlab); scan("refreezes", fa, refz, zlab) }' "$2")
-  [ -z "$rc_bad" ] || fail "completion report numbers contradict the run records (A143, C-22):
-$rc_bad
-Remove the number or use the recorded one: see 'agent.sh report-facts $rc_id'. The Facts block is added at publish. Digits and the words one to twenty beside tests, gates, fix rounds and refreezes are read; other phrasings and table cells are not."
-}
 adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
-publish_completion_report() {
-  id=$1 adapter=${2:-$(cfg tasks.adapter markdown)}; require_run "$id"; dir=$(run_dir "$id"); require_lead
-  [ "$(run_state "$dir")" = CODE_DONE ] || fail "completion report may only be published after CODE_DONE"
-  verify_seal "$id"
-  # A143: the Facts block of an earlier publish is removed first so it never satisfies a check, the text is checked
-  # against the records, and a fresh block generated from them is appended verbatim.
-  report_strip_facts "$dir/COMPLETION_REPORT.md"
-  report_execution_apply "$id"   # A203: the Execution table is generated from the decision records, whatever the lead wrote there
-  report_summary_apply "$id"
-  validate_completion_report_structure "$id"
-  report_claims_check "$id" "$dir/COMPLETION_REPORT.md"
-  { printf '\n'; report_facts "$id"; } >> "$dir/COMPLETION_REPORT.md"
-  script=$(adapter_script "$adapter")
-  contract_backup=''
-  if local_task_source_run "$id"; then
-    verify_freshness "$id" >/dev/null
-    contract_backup=$(mktemp "${TMPDIR:-/tmp}/agent-task-source.XXXXXX"); cp -p "$(local_task_source "$dir")" "$contract_backup"
-  fi
-  if ! receipt=$(sh "$script" publish "$id" "$dir/COMPLETION_REPORT.md"); then
-    [ -z "$contract_backup" ] || { cp -p "$contract_backup" "$(local_task_source "$dir")"; rm -f "$contract_backup"; }
-    fail "completion report publish failed via adapter: $adapter"
-  fi
-  [ -n "$receipt" ] || { [ -z "$contract_backup" ] || { cp -p "$contract_backup" "$(local_task_source "$dir")"; rm -f "$contract_backup"; }; fail "adapter $adapter returned an empty receipt"; }
-  if [ -n "$contract_backup" ]; then
-    # A separate process on purpose: inside an `if` condition `set -e` is off and inner failures would be lost.
-    if ! sh "$scripts/agent.sh" freshness "$id" >/dev/null 2>&1; then
-      cp -p "$contract_backup" "$(local_task_source "$dir")"; rm -f "$contract_backup"
-      fail "adapter $adapter changed the frozen task contract outside the completion-report block; the task source was restored and nothing was recorded"
-    fi
-    rm -f "$contract_backup"
-  fi
-  set_run_value "$id" completion_report adapter "$adapter"
-  set_run_value "$id" completion_report published true
-  set_run_value "$id" completion_report receipt "$receipt"
-  if gates_enforced "$id"; then ledger_append "$id" publish-completion-report CODE_DONE CODE_DONE "$adapter $receipt"; fi
-  echo "completion report published: $id via $adapter -> $receipt"
-}
-verify_completion_report() {
-  id=$1; require_run "$id"; dir=$(run_dir "$id")
-  [ "$(section_value "$dir" completion_report published)" = true ] || fail "completion report not published: $id"
-  adapter=$(section_value "$dir" completion_report adapter); receipt=$(section_value "$dir" completion_report receipt)
-  [ -n "$adapter" ] && [ -n "$receipt" ] || fail "completion report adapter/receipt missing: $id"
-  script=$(adapter_script "$adapter")
-  sh "$script" verify "$id" "$receipt" || fail "completion report publication could not be verified: $id"
-  echo "completion report publication verified: $id"
-}
 # --- Status block (A202): the one live status of a task, updated in place --------------------------------------------------
 # The content is written by the control plane from RECORDED state only (RUN.yaml, the ledger, the questions, the delivery records, the
 # metrics records, the batch state): no agent text is copied in except the three recorded reasons (a question, a park, a failure), and
@@ -6685,26 +5142,6 @@ sb_main_restore() { for smr_f in "$1"/*.blk; do [ -f "$smr_f" ] || continue; sed
 sb_final_prepare() { sfp_p=$(awk '/^task_source:$/ { i = 1; next } i && /^[^[:space:]]/ { exit } i && /^[[:space:]]*path:/ { sub(/^[^:]*:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$(run_dir "$1")/RUN.yaml" 2>/dev/null); sfp_a=$(cfg tasks.adapter markdown); [ "$(cfg tasks.status_block on)" != off ] || { sfp_f=''; return 0; }; sfp_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-final.XXXXXX") || { sfp_f=''; return 0; }; status_block_body "$1" merged "${2:-}" > "$sfp_f" 2>/dev/null || { rm -f "$sfp_f"; sfp_f=''; }; }
 # sb_final_put ID: after the run is gone, the final block into the main working tree's task file (only when the run lived in a worktree)
 sb_final_put() { [ -n "${sfp_f:-}" ] || return 0; [ "$sr_main" = "$root" ] || [ -z "${sfp_p:-}" ] || [ ! -f "$sr_main/$sfp_p" ] || sb_main_put "$1" "$sfp_f"; rm -f "$sfp_f"; sfp_f=''; sfp_a=''; }
-# A159: `not_applicable` is a claim the script checks. It needs one specific sentence and is refused, with the signal named,
-# when the task changed something the wiki or the design documents describe: a documentation path in the diff, a contract,
-# data or design-document mention in the frozen plan, or user-visible words in the acceptance criteria. Any signal refuses.
-knowledge_na_signal() {
-  kn_id=$1; kn_d=$(run_dir "$kn_id"); kn_pl=$kn_d/PLAN.md; kn_dd=''
-  for kn_q in $(design_doc_paths); do kn_dd="$kn_dd $kn_q"; done
-  for kn_p in $(task_owned_paths "$kn_id" 2>/dev/null || true); do
-    case "$kn_p" in docs/*) echo "the task changed $kn_p, a documentation path"; return 0 ;; esac
-    for kn_q in $kn_dd; do [ "$kn_p" != "$kn_q" ] || { echo "the task changed the design document $kn_p"; return 0; }; done
-  done
-  if [ -f "$kn_pl" ]; then
-    if awk '/^## Contracts[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF && tolower($0) !~ /^none/ { f = 1 } END { exit !f }' "$kn_pl"; then echo "PLAN.md lists a contract change"; return 0; fi
-    if grep -Eq '^contract_change:[[:space:]]*yes' "$kn_pl"; then echo "PLAN.md flags contract_change: yes"; return 0; fi
-    if [ "$(awk '/^## Data[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i && NF { n++ } END { print n + 0 }' "$kn_pl")" -gt 1 ]; then echo "PLAN.md has a Data section (a durable contract)"; return 0; fi
-    for kn_q in $kn_dd; do if grep -Fq -- "$kn_q" "$kn_pl"; then echo "PLAN.md names the design document $kn_q"; return 0; fi; done
-  fi
-  kn_w=$(awk '/^## Acceptance criteria[[:space:]]*$/ { i = 1; next } /^## / { i = 0 } i' "$kn_d/TASK.md" 2>/dev/null | grep -Eiow '(commands?|flags?|options?|config(uration)?|outputs?|error messages?|APIs?|endpoints?)' | head -n 1 || true)
-  if [ -n "$kn_w" ]; then echo "the acceptance criteria mention '$kn_w' (user-visible behaviour)"; return 0; fi
-  return 1
-}
 # A171: design-sync drift in knowledge-scope documents that the verifier reported (design/SYNC.md) and that the current
 # tree still shows. Printed as `<doc>:<line> -> <claim>`; empty when nothing is left, when the run has no SYNC.md (design-sync
 # did not run for it) or when node / the design-sync script is not installed (nothing can be proven then: no block).
@@ -6732,65 +5169,6 @@ knowledge_drift() { # ID
 require_no_knowledge_drift() { # ID WHAT
   rnk=$(knowledge_drift "$1" | head -n 5 | tr '\n' ';')
   [ -z "$rnk" ] || fail "$2: design-sync drift in knowledge-scope documents is still there (${rnk%;}); the knowledge step must fix it (update the document or the code claim), then 'agent.sh knowledge-done $1'. No waiver or scope change applies to these documents"
-}
-# wiki_lint_run ID PATHS (A200): the llm-wiki lint of every wiki folder the knowledge step changed. Fails on a lint error; a project
-# that has no node or no installed llm-wiki script cannot be linted, and then knowledge-done is refused (ambiguity -> safe side).
-wiki_lint_run() {
-  wl_x=$root/.agents/skills/llm-wiki/scripts/validate-wiki.mjs
-  wl_dirs=$(printf '%s\n' "$2" | sed -n 's|^\(\(.*/\)\{0,1\}wiki\)/.*|\1|p' | sort -u)
-  [ -n "$wl_dirs" ] || return 0
-  if ! command -v node >/dev/null 2>&1; then fail "knowledge-done blocked (A200): the wiki lint cannot run because node is missing. Install node (https://nodejs.org), then run knowledge-done again"; fi
-  if [ ! -f "$wl_x" ]; then fail "knowledge-done blocked (A200): the wiki lint cannot run because .agents/skills/llm-wiki/scripts/validate-wiki.mjs is missing. Install the llm-wiki skill into .agents/skills/llm-wiki/ (its scripts/validate-wiki.mjs), then run knowledge-done again"; fi
-  for wl_d in $wl_dirs; do
-    [ -d "$root/$wl_d" ] || continue
-    wl_rc=0; wl_o=$(cd "$root" && node .agents/skills/llm-wiki/scripts/validate-wiki.mjs "$wl_d" --root . 2>&1) || wl_rc=$?
-    case "$wl_rc" in
-      0) ;;
-      1) printf '%s\n' "$wl_o" | head -n 12 | sed 's/^/  /' >&2; fail "knowledge-done blocked (A200): the wiki lint of $wl_d found errors (listed above; $wl_d/lint-report.md has them all). Fix the pages, then run knowledge-done again" ;;
-      *) fail "knowledge-done blocked (A200): the wiki lint of $wl_d could not run (exit $wl_rc): $(printf '%s' "$wl_o" | head -n 2 | tr '\n' ' ')" ;;
-    esac
-  done
-}
-knowledge_done() {
-  id=$1 state=${2:-KNOWLEDGE_DONE} reason=${3:-}; require_run "$id"; dir=$(run_dir "$id"); require_lead
-  case "$state" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "invalid knowledge state: $state" ;; esac
-  # A FAILED or BLOCKED run records what it learned too (A147); cleanup accepts 'knowledge-done' after 'terminate'.
-  case "$(run_state "$dir")" in CODE_DONE) term=0 ;; FAILED|BLOCKED) term=1 ;; *) fail "knowledge-done requires CODE_DONE (or a FAILED/BLOCKED run) first" ;; esac
-  section_key_present "$dir" execution knowledge_state || fail "run schema has no execution.knowledge_state field to set"
-  if [ "$state" = not_applicable ]; then
-    reject_generic_justification "$reason" || fail "not_applicable needs a reason: agent.sh knowledge-done $id not_applicable \"<one specific sentence: why the wiki and the design documents need nothing>\" (>=20 chars, not a stock phrase)"
-    section_key_present "$dir" execution knowledge_reason || fail "run predates 0.0.17 (no knowledge_reason field): do the real knowledge step, then knowledge-done without not_applicable"
-    case "$reason" in *'"'*|*'\'*|*'#'*) fail "the not_applicable reason must not contain a double quote, a backslash or a #" ;; esac
-    [ "$(printf '%s\n' "$reason" | grep -c .)" -le 1 ] && ! printf '%s' "$reason" | grep -Eq '[.!?][[:space:]]+[^[:space:]]' || fail "the not_applicable reason must be one sentence on one line"
-    kn_sig=$(knowledge_na_signal "$id" || true)
-    [ -z "$kn_sig" ] || fail "not_applicable refused: $kn_sig. Run the knowledge step instead: a one-page note under docs/wiki/ is enough and does not change the tier or any gate (knowledge files the plan does not name are not task output); then 'agent.sh knowledge-done $id'"
-  else
-    [ -z "$reason" ] || fail "a reason is only for not_applicable"
-  fi
-  verify_seal "$id"
-  require_no_knowledge_drift "$id" "knowledge-done blocked"
-  # A200: the checks handoff DONE used to be the first to make run here, where the lead can still act: the page is written (KNOWLEDGE_DONE
-  # with no knowledge-scope change is refused, as DONE did), the secret scan of those files passes, and the wiki lint ran on the wiki the
-  # step changed (the script runs it itself; an agent's word that it ran is no evidence) and found no error.
-  if [ "$term" = 0 ] && [ "$state" = KNOWLEDGE_DONE ]; then
-    kd_own=$(knowledge_owned_paths "$id")
-    [ -n "$kd_own" ] || fail "knowledge-done blocked (A200): no knowledge page was written. KNOWLEDGE_DONE records pages: write the wiki page, the ADR or the design document change the step is for (under $(cfg knowledge_scope_root 'docs/design/ docs/adr/ docs/wiki/ docs/product/')), run the wiki lint, then run knowledge-done again; or, when the task needs no knowledge, agent.sh knowledge-done $id not_applicable \"<one specific sentence>\" (refused with the signal when the task changed behaviour or a contract)"
-    scan_knowledge_secrets "$id"
-    wiki_lint_run "$id" "$kd_own"
-  fi
-  [ "$term" = 1 ] || ! local_task_source_run "$id" || verify_freshness "$id" >/dev/null
-  [ ! -f "$scripts/lessons.sh" ] || sh "$scripts/lessons.sh" validate >/dev/null || fail "knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)"
-  set_run_value "$id" execution knowledge_state "$state"
-  if section_key_present "$dir" execution knowledge_reason; then set_run_value "$id" execution knowledge_reason "$reason"; fi
-  if gates_enforced "$id"; then
-    ledger_append "$id" knowledge-done "$(section_value "$dir" handoff state)" "$state" "$reason"
-    # A169: the knowledge files this step owns, with their content, so a later range check can tell them from someone else's commit
-    if [ "$state" = KNOWLEDGE_DONE ]; then
-      kd_l=''; for kd_p in $(knowledge_owned_paths "$id"); do [ -f "$root/$kd_p" ] && kd_l="$kd_l $kd_p@$(hash_file "$root/$kd_p")"; done
-      [ -z "$kd_l" ] || ledger_append "$id" knowledge-paths - - "${kd_l# }"
-    fi
-  fi
-  echo "knowledge state recorded: $id $state"
 }
 # Delivery waits for the knowledge step (A147); deliver-plan runs it as part of the delivery (A152) instead of stopping.
 require_knowledge_done() {
@@ -7893,23 +6271,15 @@ case "$command" in
   verify-knowledge-scope) verify_knowledge_scope "${2:?usage: agent.sh verify-knowledge-scope <ID>}" ;;
   freshness) verify_freshness "${2:?usage: agent.sh freshness <ID>}" ;;
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
-  worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
   entry-tier) et_o=$(entry_tier "${2:?usage: agent.sh entry-tier <bullet text>}"); echo "${et_o:-none}" ;;
   verify-qa-plan) require_run "${2:?usage: agent.sh verify-qa-plan <ID>}"; verify_qa_plan_bound "$2"; echo "QA plan bound to PLAN.md: $2" ;;
   verify-worker-evidence) verify_worker_evidence "${2:?usage: agent.sh verify-worker-evidence <ID>}" ;;
-  submit) sid=${2:?usage: agent.sh submit <ID> --confidence C [options]}; shift 2; submit_result "$sid" "$@" ;;
-  record) rid=${2:?usage: agent.sh record <ID> [--file F]}; rfile=''; if [ "${3:-}" = --file ]; then rfile=${4:?usage: agent.sh record <ID> --file F}; fi; record_result "$rid" "$rfile" ;;
-  gate) record_gate "${2:?usage: agent.sh gate <ID> <GATE> <pass|fail> [ARTIFACT]}" "${3:?usage: agent.sh gate <ID> <GATE> <pass|fail>}" "${4:?usage: agent.sh gate <ID> <GATE> <pass|fail>}" "${5:-}" ;;
-  secret-scan) secret_scan "${2:?usage: agent.sh secret-scan <ID>}" ;;
   request-approval) request_approval "${2:?usage: agent.sh request-approval <ID> <KIND>}" "${3:?usage: agent.sh request-approval <ID> <KIND>}" ;;
   approve) [ $# -ge 3 ] || fail "usage: agent.sh approve <ID> <KIND>..."; ap_a=$2; shift 2; approve_kinds "$ap_a" "$@" ;;
   hook-time) hook_time "${2:-}" ;;
   language-check) language_check "${2:--}" "${3:-}" ;;
-  run-language) run_language "${2:--}" ;;
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) [ $# -ge 3 ] || fail "usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT [REF...]]"; shift; approval_consume "$@" ;;
-  raise-budget) raise_budget "${2:?usage: agent.sh raise-budget <ID> <N>}" "${3:?usage: agent.sh raise-budget <ID> <N>}" ;;
-  waive) wid=${2:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; wfid=${3:?usage: agent.sh waive <ID> <FINDING-ID> --reason TEXT}; shift 3; waive "$wid" "$wfid" "$@" ;;   # [--group]
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
   metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
   friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell|proofline_bug>}" "${3:-}" ;;
@@ -7964,9 +6334,6 @@ case "$command" in
   ci-check) ci_check; exit $? ;;
   ci-task-command) ci_task_command ;;
   task-source-done) task_source_done "${2:?usage: agent.sh task-source-done <ID>}" ;;
-  knowledge-done) knowledge_done "${2:?usage: agent.sh knowledge-done <ID> [not_applicable \"<reason>\"]}" "${3:-KNOWLEDGE_DONE}" "${4:-}" ;;
-  publish-completion-report) publish_completion_report "${2:?usage: agent.sh publish-completion-report <ID> [ADAPTER]}" "${3:-}" ;;
-  verify-completion-report) verify_completion_report "${2:?usage: agent.sh verify-completion-report <ID>}" ;;
   validate) validate_run "${2:?usage: agent.sh validate <ID>}" ;;
   db-config) db_config "${2:-all}" ;;
   hook-config) hook_config ;;

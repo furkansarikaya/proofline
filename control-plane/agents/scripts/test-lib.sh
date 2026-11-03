@@ -52,7 +52,7 @@ pipe_val() { A pipeline "$RID" | sed -n "s/^$1=//p"; }
 install_control_plane() {
   mkdir -p "$1/.agents/scripts" "$1/.agents/task-integrations" "$1/.agents/local"
   cp "$tl_agents/config.yaml" "$1/.agents/"; cp -R "$tl_agents/modes" "$tl_agents/templates" "$1/.agents/"
-  # A212, A213: the commands of stage 4 packages 4A and 4B have no shell arm any more and run in the Node core. A fixture's agent.sh is the real one with a prologue that sends
+  # A212, A213, A214: the commands of stage 4 packages 4A, 4B and 4C have no shell arm any more and run in the Node core. A fixture's agent.sh is the real one with a prologue that sends
   # those commands to the Node core, installed in .agents/core4a (beside agent.sh's folder the core would take every moved command of stages 1 to 3 as well,
   # and the scenarios that still test those run the shell code). The prologue goes with the last shell suite.
   mkdir -p "$1/.agents/core4a"; cp "$tl_agents/scripts/proofline-core.mjs" "$1/.agents/core4a/"; cp -R "$tl_agents/scripts/core" "$1/.agents/core4a/core"
@@ -63,7 +63,8 @@ install_control_plane() {
 case "$0" in */*) tl_here=${0%/*} ;; *) tl_here=. ;; esac
 case "${1:-}" in
   baseline|discard-stray|branch|tier|classify|verify-assumptions|delivery-check|db-check|ask|status-block|tree-inspect|tree-accept|task-source-status|task-source-relocate|\
-  start|freeze|refreeze|handoff|terminate|cleanup|amend|reopen)
+  start|freeze|refreeze|handoff|terminate|cleanup|amend|reopen|\
+  worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|knowledge-done|publish-completion-report|verify-completion-report)
     # a run worktree is served by the main tree's core, with the worktree as the root
     tl_core=$tl_here/../core4a; tl_root=$(cd "$tl_here/../.." && pwd -P)
     case "$tl_root" in */.agents/local/worktrees/*) tl_core=${tl_root%%/.agents/local/worktrees/*}/.agents/core4a ;; esac

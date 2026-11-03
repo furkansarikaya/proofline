@@ -139,7 +139,7 @@ export function languageHit(ctx, file, text, hint, history) {
 }
 
 /** `language_scan FILE...`: the "relative-path:line" hits of the files that hold non-English text; a missing file is skipped. @param {Context} ctx @param {string[]} files */
-export function languageScanFiles(ctx, files) {
+export function languageScanFiles(ctx, files, hint = '') {
   const prompts = `${sharedDirOf(ctx, 'prompts')}/history`;
   let history = '';
   for (const n of sortedNames(prompts, /\.txt$/)) history += readBytes(`${prompts}/${n}`) ?? '';
@@ -148,7 +148,7 @@ export function languageScanFiles(ctx, files) {
     if (!isFile(f)) continue;
     const text = readBytes(f);
     if (text === null) continue;
-    const hit = languageHit(ctx, f, text, '', history);
+    const hit = languageHit(ctx, f, text, hint, history);
     if (hit !== 0) hits.push(`${f.startsWith(`${ctx.root}/`) ? f.slice(ctx.root.length + 1) : f}:${hit}`);
   }
   return hits;

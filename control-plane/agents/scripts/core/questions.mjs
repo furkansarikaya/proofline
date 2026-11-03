@@ -72,7 +72,7 @@ export function askCommand(ctx, args) {
  * `assumption_states ID`: [id, risk, state, ref, text] rows.
  * @param {Context} ctx @param {string} dir @returns {string[][]}
  */
-function assumptionStates(ctx, dir) {
+export function assumptionStates(ctx, dir) {
   return assumptionRegister(ctx, dir).map(([a, r, s, t]) => {
     if (s === 'verified') return [a, r, 'verified', '-', t];
     const st = assumptionState(ctx, dir, `${a}@${sha256(t).slice(0, 12)}`);
