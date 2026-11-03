@@ -113,14 +113,12 @@ test('cleanup: a terminal run whose last ledger line is not its terminate (a han
   assert.ok(!existsSync(`${d}/.agents/runs/LC`));
 });
 
-test('cleanup --delivered counts only for a child of a command that holds the locks; typed by hand it is refused and nothing is removed', () => {
+test('a child of a lock-holding command takes the locks over (no wait, no early release); the take-over proves nothing else', () => {
   const d = project('scaffold standalone');
   accepted(A(d, ['terminate', 'LC', 'BLOCKED'], { input: REASON }), 'terminate');
-  refused(A(d, ['cleanup', 'LC', '--delivered']), 'a typed --delivered', "delivery code's own flag");
-  assert.ok(existsSync(`${d}/.agents/runs/LC`));
-  // a parent that holds the shared lock (as deliver-step does) hands it to the child: no wait, no early release, and the flag counts
+  // a parent that holds the shared lock (as deliver-step does) starts the child: it is not waited for and the parent's pid file stays
   const script = 'mkdir .agents/local/locks/shared.lock && echo $$ > .agents/local/locks/shared.lock/pid; '
-    + 'PROOFLINE_LOCK_TIMEOUT=3 sh .agents/scripts/agent.sh cleanup LC --delivered; rc=$?; '
+    + 'PROOFLINE_LOCK_TIMEOUT=3 sh .agents/scripts/agent.sh cleanup LC; rc=$?; '
     + '[ "$(cat .agents/local/locks/shared.lock/pid)" = "$$" ] || exit 90; rm -rf .agents/local/locks/shared.lock; exit $rc';
   const r = spawnSync('sh', ['-c', script], { cwd: d, encoding: 'utf8', timeout: 60000 });
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);

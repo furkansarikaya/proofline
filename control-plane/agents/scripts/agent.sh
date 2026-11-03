@@ -5407,7 +5407,7 @@ deliver_plan() {
   dl_paths=$(git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || true)
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
   dl_kn=$(knowledge_owned_paths "$dl_id" 2>/dev/null || true)
-  mkdir -p "$dl_dir"; rm -f "$dl_dir/PR"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
+  mkdir -p "$dl_dir"; rm -f "$dl_dir/PR" "$dl_dir/MERGED"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
   cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg
   # A180: no CI here -> the description says the verification was local (the merge step makes it true before merging)
   if ci_absent; then printf '\n\n## Verification\n\nverified locally, no CI: no check runs on pull requests here; proofline merge runs the configured build and test commands in a clean copy of the commit before it merges.\n' >> "$dl_dir/PR_BODY.md"; fi
@@ -5854,7 +5854,8 @@ deliver_step() {
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
       status_block_update "$ds_id" merged "$ds_pr"
       sb_final_prepare "$ds_id" "$ds_pr"
-      sh "$scripts/agent.sh" cleanup "$ds_id" --delivered   # 4B: cleanup is a Node command; --delivered counts only from a child of this locked command
+      printf '%s\n' "$(now_epoch)" > "$ds_dir/MERGED"   # the merge is proved above; cleanup (a Node command, started as a child of this locked command) removes the worktree only with this record
+      sh "$scripts/agent.sh" cleanup "$ds_id"
       sb_final_put "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
@@ -5946,7 +5947,8 @@ deliver_merged() {
   else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
   rm -f "$dm_dir/MERGE_HEAD"
   [ -z "${dm_sbd:-}" ] || { sb_main_restore "$dm_sbd"; rm -rf "$dm_sbd"; }
-  sh "$scripts/agent.sh" cleanup "$dm_id" --delivered
+  mkdir -p "$dm_dir"; printf '%s\n' "$(now_epoch)" > "$dm_dir/MERGED"   # the merge is proved above (git); cleanup removes the worktree only with this record
+  sh "$scripts/agent.sh" cleanup "$dm_id"
   sb_final_put "$dm_id"
   rm -rf "$dm_dir"
 }

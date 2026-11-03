@@ -48,6 +48,8 @@ test('freeze: a non-lead, a missing baseline and a second plain freeze are refus
   refused(A(e, ['freeze', 'LC']), 'a second plain freeze', 'existing freeze requires an explicit amendment. Expected: agent.sh refreeze LC <AMENDMENT-FILE-NAME>');
   refused(A(e, ['refreeze', 'LC', '../x.md']), 'a path as the amendment', 'invalid amendment name: ../x.md');
   refused(A(e, ['refreeze', 'LC', '009.md']), 'a missing amendment', 'amendment 009.md not found');
+  mkdirSync(`${e}/.agents/runs/LC/amendments/dir.md`, { recursive: true });
+  refused(A(e, ['refreeze', 'LC', 'dir.md']), 'a directory as the amendment', 'amendment dir.md not found');
   mkdirSync(`${e}/.agents/runs/LC/amendments`, { recursive: true });
   writeFileSync(`${e}/.agents/runs/LC/amendments/001.md`, '# amendment 001: nothing changes\n');
   refused(A(e, ['refreeze', 'LC', '001.md']), 'a refreeze that changes nothing', 'refreeze changes nothing');
@@ -122,6 +124,16 @@ test('freeze: the mutation budget is one question now, a destructive plan become
   d = project(SUP());
   addPlan(d, '\n## UI\n\nA page with a form.\n');
   refused(AF(d, ['freeze', 'LC']), 'a UI plan without visual_writes', "no 'visual_writes: <how the data the page writes is thrown away>' line");
+  // the shell's [[:blank:]]* takes zero or more blanks after the colon
+  for (const line of ['visual_writes:  none, the page sends no writes', 'visual_writes:none, the page sends no writes', '- `visual_writes: none, the page sends no writes`']) {
+    d = project(SUP());
+    addPlan(d, `\n## UI\n\nA page with a form.\n${line}\n`);
+    const r = AF(d, ['freeze', 'LC']);
+    assert.ok(!r.text.includes("no 'visual_writes:"), `${line}: ${r.text}`);
+  }
+  d = project(SUP());
+  addPlan(d, '\n## UI\n\nA page with a form.\nvisual_writes:\n');
+  refused(AF(d, ['freeze', 'LC']), 'an empty visual_writes', "no 'visual_writes:");
 });
 
 /** @param {string} d */

@@ -505,7 +505,7 @@ export function freezeRun(ctx, id, word, amendment) {
   const plan = fileText(ctx, `${dir}/PLAN.md`) ?? '';
   // A112: QA's visual focus runs for every non-TRIVIAL plan with a UI part; its same-origin-write allowance is declared in the plan, now
   if (gatesEnforced(ctx, dir) && planSectionPresent(plan, 'UI') && pipelineClass(ctx, dir) !== 'TRIVIAL'
-    && !textLines(plan).some((l) => /^[ \t\n\v\f\r]*([-*][ \t\n\v\f\r]*)?`?visual_writes:[ \t][^ \t\n\v\f\r]/.test(l))) {
+    && !textLines(plan).some((l) => /^[ \t\n\v\f\r]*([-*][ \t\n\v\f\r]*)?`?visual_writes:[ \t]*[^ \t\n\v\f\r]/.test(l))) {
     fail("PLAN.md has a ## UI section and QA's visual focus will run, but no 'visual_writes: <how the data the page writes is thrown away>' line: add it under ## UI (write 'visual_writes: none, <why>' if the page sends no same-origin writes) and freeze again; without it QA ends INCONCLUSIVE and needs a plan amendment (A112)");
   }
   // A destructive data change makes the task CRITICAL (D9/D14), whatever was classified.
@@ -521,7 +521,7 @@ export function freezeRun(ctx, id, word, amendment) {
   if (freezeHashPresent(ctx, dir)) {
     if (!(word === 'refreeze' && amendment !== '')) fail(`existing freeze requires an explicit amendment. ${refreezeHint(id)}`);
     if (amendment.includes('/') || amendment.includes('..')) fail(`invalid amendment name: ${amendment} (a file name inside the run's amendments/ folder, no directory part). ${refreezeHint(id)}`);
-    if (!isFile(`${dir}/amendments/${amendment}`) && !existsSync(`${dir}/amendments/${amendment}`)) fail(`amendment ${amendment} not found at ${dir}/amendments/${amendment}. ${refreezeHint(id)}`);
+    if (!isFile(`${dir}/amendments/${amendment}`)) fail(`amendment ${amendment} not found at ${dir}/amendments/${amendment}. ${refreezeHint(id)}`);
     if (fileLines(ctx, `${dir}/LEDGER.log`).some((l) => l.includes('event=refreeze ') && l.includes(`detail=amendment ${amendment}`))) fail(`amendment ${amendment} was already used for a refreeze; write a new amendment`);
     mode = 'refreeze';
   }
