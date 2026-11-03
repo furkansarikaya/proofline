@@ -2,6 +2,7 @@
 // Stage 4, package 4C: `record`, the only way a verdict enters a run (D12). The validation (`record_validate`), the visual PASS check and the apply step
 // (`record_apply`) of agent.sh 0.0.47, in this process: the text of the result is held in memory, not in a temporary folder, and `submit` calls this
 // function directly. Every refusal is the shell's text ("record rejected: ..."), in the shell's order, so that no check is easier to pass.
+import { asciiLower, asciiUpper } from './shellglob.mjs';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -224,10 +225,10 @@ function recordValidate(ctx, id, raw) {
   if (findings.includes('MALFORMED')) reject('malformed findings row (want | id | severity | path:line | finding | evidence |)');
   if (findings.includes('NO_FINDINGS_PLACEHOLDER')) reject('no findings: omit rows, keep only the table header');
   const prefix = findingPrefix(role, kind, gate);
-  const prefixRe = new RegExp(`^${prefix.toUpperCase()}-[0-9]+$`);
+  const prefixRe = new RegExp(`^${asciiUpper(prefix)}-[0-9]+$`);
   for (const r of findings) {
     const c = r.split('|');
-    if (!prefixRe.test(c[0].toUpperCase())) reject(`invalid finding id ${c[0]} (want ${prefix}-<n>)`);
+    if (!prefixRe.test(asciiUpper(c[0]))) reject(`invalid finding id ${c[0]} (want ${prefix}-<n>)`);
     if (!/^(blocking|info)$/.test(c[1] ?? '')) reject(`invalid finding severity ${c[1]}`);
   }
   const keys = findings.map((r) => idKey(r.split('|')[0]));
@@ -327,7 +328,7 @@ function recordApply(ctx, id, raw, v, stepAgent) {
     if (sectionKeyPresent(ctx, dir, 'execution', 'awaiting_input')) setRunValue(ctx, id, 'execution', 'awaiting_input', 'true');
   }
   if (gatesEnforced(ctx, dir)) led(ctx, id, `record:${v.role}:${v.res}`, '-', '-', `${rawName} sha256=${sha}${v.gate !== '' ? ` gate=${v.gate}` : ''}`);
-  metricsStep(ctx, id, v.role, v.focus, v.res.toLowerCase(), stepAgent);
+  metricsStep(ctx, id, v.role, v.focus, asciiLower(v.res), stepAgent);
   /** @type {string[]} */ const risk = [];
   if (v.added !== 0) risk.push(`risk: ${v.added} script finding(s) added to ${v.gate} focus ${v.focus} (a blocking UNSUPPORTED or a risk signal without its PLAN.md flag, A78/A98); the result is FAIL`);
   if (v.res === 'UNSUPPORTED') risk.push(`risk: ${v.gate} focus ${v.focus} is UNSUPPORTED (unproven, reported, A98): never a PASS; the completion report lists it under '## Unsupported Checks' with a 'not proven:' line`);

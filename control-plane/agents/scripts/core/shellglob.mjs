@@ -15,6 +15,8 @@ const reTrimBoth = /^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g;
 export function trimSpace(s) { return s.replace(reTrimBoth, ''); }
 
 /** awk `tolower` and `tr '[:upper:]' '[:lower:]'` in the C locale: ASCII only. @param {string} s */
+export function asciiUpper(s) { return s.replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32)); }
+/** ASCII-only lower case. @param {string} s */
 export function asciiLower(s) { return s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32)); }
 
 /**
