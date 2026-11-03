@@ -2,11 +2,11 @@
 // Gate records and their evaluation (agent.sh 3279-3640, 3700-3850, 3915-4020): which gates a run requires, the state of each gate
 // (pass, pass_low, waived, fail, stale, missing, unsupported) and of each risk focus, selective repetition, fix rounds, the task-owned
 // patch fingerprint, mutation ownership and `verify-gates`. Read-only.
-// Two states stay with the shell until the stages that move their writers: a known-issues list (LIST.tsv) or an approved batch summary
-// that could accept a finding, and a persistent waiver key; reaching one throws BridgeToShell before any output.
+// A finding is waived by a listed known issue, an accepted batch finding or a ledger-bound waiver (the persistent key included), all decided here (4B).
 import { asciiLower } from './shellglob.mjs';
+import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
-import { BridgeToShell, fail, unsupported } from './errors.mjs';
+import { fail, unsupported } from './errors.mjs';
 import { baselineFingerprint, gateFingerprint, legacyFingerprintMatch, pathFingerprint } from './fingerprint.mjs';
 import { catFile, git, objectExists, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { sha256 } from './hash.mjs';
@@ -14,6 +14,7 @@ import { boundNames, listNames, verifySeal } from './ledger.mjs';
 import { isFile } from './paths.mjs';
 import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, planScope, planSectionPresent, sectionValue, textLines } from './records.mjs';
 import { knownControlArtifact, runDir } from './runs.mjs';
+import { findingBatchAccepted, findingKnownIssue } from './knownissues.mjs';
 import { pathMatches } from './scope.mjs';
 import { ecosystemSets, pipelineClassValid, pipelineClass, pipelineDeclared, pipelineNeeds, riskGateFocuses, riskNames, riskPaths, tierEffective } from './signals.mjs';
 
@@ -137,20 +138,77 @@ export function findingRows(ctx, rec) {
 export function findingWaived(ctx, dir, rec, finding) {
   const gate = gateField(ctx, rec, 'gate');
   if (gate === 'SECRETS' || gate === 'SECURITY') return false;
-  const shared = ctx.sharedMain();
-  if (nonEmptyFile(`${shared}/.agents/local/known-issues/LIST.tsv`)) throw new BridgeToShell('known issues list present');
-  const focusLow = asciiLower(gateField(ctx, rec, 'focus'));
-  if (!/secret|secur/.test(focusLow) && isFile(`${shared}/.agents/local/batch/SUMMARY.md`)) throw new BridgeToShell('batch summary present');
+  const id = dir.slice(dir.lastIndexOf('/') + 1);
+  if (findingKnownIssue(ctx, id, rec, finding) !== null) return true; // A202 item 27: a listed, untouched, already-existing finding
+  if (findingBatchAccepted(ctx, id, rec, finding)) return true; // the user accepted this listed finding for the approved batch with one answer
   const all = listNames(`${dir}/waivers`, /^[0-9]{3}-.*\.yaml$/);
   if (all.length === 0) return false;
   const rs = hashOnce(ctx, rec);
   const base = rec.slice(rec.lastIndexOf('/') + 1);
+  let ck = '';
   for (const n of boundNames(ctx, dir, 'waivers', 'waive$', all)) {
     const f = `${dir}/waivers/${n}`;
     if (gateField(ctx, f, 'gate_record') === base && gateField(ctx, f, 'gate_record_sha256') === rs && gateField(ctx, f, 'finding') === finding) return true;
-    if (gateField(ctx, f, 'finding_key') !== '' && gateField(ctx, f, 'gate') === gate) throw new BridgeToShell('persistent waiver key');
+    // the same finding on a later record of the same gate (a re-run): the waiver carries the finding's persistent key
+    const wk = gateField(ctx, f, 'finding_key');
+    if (wk !== '' && gateField(ctx, f, 'gate') === gate) {
+      if (ck === '') ck = findingWaiverKey(ctx, rec, finding);
+      if (ck !== '' && ck === wk) return true;
+    }
   }
   return false;
+}
+
+/** `git hash-object --stdin` of a text without a final newline (macOS and GNU sed keep a missing final newline missing; the key must equal the one `waive` computes). @param {string} text */
+function blobId(text) {
+  const body = Buffer.from(text, 'latin1');
+  return createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${body.length}\0`), body])).digest('hex');
+}
+
+/** `tr -cs 'a-z0-9' ' ' | sed 's/^ //;s/ $//'` over the lower-cased text. @param {string} t */
+function wordsOf(t) {
+  return asciiLower(t).replace(/[^a-z0-9]+/g, ' ').replace(/^ /, '').replace(/ $/, '');
+}
+
+/** `finding_key FINGERPRINT LOCATION TEXT`: the identity of an observation across revisions. @param {Context} ctx @param {string} fp @param {string} loc0 @param {string} txt */
+export function findingKey(ctx, fp, loc0, txt) {
+  const loc = loc0.replace(/ /g, '');
+  const t = treeLine(ctx, fp, loc);
+  const path0 = loc.includes(':') ? loc.slice(0, loc.lastIndexOf(':')) : loc;
+  if (/[^ \t\n\v\f\r]/.test(t)) {
+    const trimmed = t.replace(/^[ \t\n\v\f\r]*/, '').replace(/[ \t\n\v\f\r]*$/, '');
+    return `${path0}@${blobId(trimmed).slice(0, 12)}`;
+  }
+  return `${path0}~${blobId(wordsOf(txt)).slice(0, 12)}`;
+}
+
+/**
+ * `finding_waiver_key RECORD FINDING-ID`: the persistent identity of a finding, so that a waiver follows the finding and not the gate record; empty when
+ * no order can be told (the waiver then binds the record only, the safe side).
+ * @param {Context} ctx @param {string} rec @param {string} fid
+ */
+export function findingWaiverKey(ctx, rec, fid) {
+  const row = findingRows(ctx, rec).find((r) => r.split('|')[0] === fid);
+  if (row === undefined) return '';
+  const cols = row.split('|');
+  const loc = (cols[2] ?? '').replace(/ /g, '');
+  const txt = cols[3] ?? '';
+  const fp = gateField(ctx, rec, 'fingerprint');
+  const fc = gateField(ctx, rec, 'focus');
+  const k = findingKey(ctx, fp, loc, txt);
+  let n = loc.includes(':') ? loc.slice(loc.lastIndexOf(':') + 1) : loc;
+  n = n.replace(/-[^]*$/, '');
+  if (!/^[0-9]+$/.test(n)) return '';
+  if (loc === n) return '';
+  const lt = treeLine(ctx, fp, loc);
+  if (lt === '') return '';
+  let ord = 0;
+  if (Number(n) > 1) {
+    const text = catFile(ctx, `${fp}:${loc.slice(0, loc.lastIndexOf(':'))}`);
+    if (text !== null) { const lines = text.split('\n'); for (let i = 0; i < Number(n) - 1 && i < lines.length; i++) if (lines[i] === lt) ord++; }
+  }
+  const line = `${gateField(ctx, rec, 'gate')}\t${fc === '' ? '-' : fc}\t${k}\t${ord}\t${wordsOf(txt)}\n`;
+  return blobId(line);
 }
 
 /** `[ -s FILE ]` @param {string} file */

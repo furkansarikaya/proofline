@@ -119,7 +119,7 @@ function findingVisualRows(ctx, rec) {
 function countRows(ctx, rec, re) { return fileLines(ctx, rec).filter((l) => re.test(l)).length; }
 
 /** `latest_finding_file ID` @param {Context} ctx @param {string} dir */
-function latestFindingFile(ctx, dir) {
+export function latestFindingFile(ctx, dir) {
   let hit = '';
   for (const n of gateNames(ctx, dir)) {
     const f = `${gatesDirOf(dir)}/${n}`;
@@ -131,12 +131,12 @@ function latestFindingFile(ctx, dir) {
 }
 
 /** `scope_entry_paths LIST`: the paths of a comma list. @param {string} list @returns {string[]} */
-function scopeEntryPaths(list) {
+export function scopeEntryPaths(list) {
   return list.split(',').map((x) => x.replace(new RegExp(`^${WS}*`), '').replace(new RegExp(`${WS}*$`), '').replace(/:[^]*$/, '')).filter((x) => x !== '');
 }
 
 /** `fix_scope_union ID FILE` @param {Context} ctx @param {string} dir @param {string} ff */
-function fixScopeUnion(ctx, dir, ff) {
+export function fixScopeUnion(ctx, dir, ff) {
   let scope = gateField(ctx, ff, 'fix_scope');
   if (gateField(ctx, ff, 'result') === 'fail') {
     const fp = gateField(ctx, ff, 'fingerprint');
@@ -149,7 +149,7 @@ function fixScopeUnion(ctx, dir, ff) {
 }
 
 /** `fix_scope_siblings ID SCOPE`: the plan-scope paths sharing a criterion with a path of the list. @param {Context} ctx @param {string} dir @param {string} scope */
-function fixScopeSiblings(ctx, dir, scope) {
+export function fixScopeSiblings(ctx, dir, scope) {
   const ip = new Set(scopeEntryPaths(scope));
   const rows = planScope(ctx, dir).rows.map(([p, c]) => [p.includes('|') ? p.slice(0, p.indexOf('|')) : p, p.includes('|') ? p.slice(p.indexOf('|') + 1).split('|')[0] : c.split('|')[0]]);
   const crit = (/** @type {string} */ s) => s.split(',').map((c) => c.replace(new RegExp(`${WS}`, 'g'), ''));
@@ -159,7 +159,7 @@ function fixScopeSiblings(ctx, dir, scope) {
 }
 
 /** `fix_allowed_paths ID` (A123) @param {Context} ctx @param {string} id @param {string} dir @returns {string[]} */
-function fixAllowedPaths(ctx, id, dir) {
+export function fixAllowedPaths(ctx, id, dir) {
   const ff = latestFindingFile(ctx, dir);
   if (ff === '') return [];
   const sc = fixScopeUnion(ctx, dir, ff);
@@ -238,7 +238,7 @@ function batchContinueNote(ctx, id) {
 }
 
 /** `build_record_unmakeable`: the reason, or '' when a build record can be made. @param {Context} ctx */
-function buildRecordUnmakeable(ctx) {
+export function buildRecordUnmakeable(ctx) {
   return configEmptyCmds(ctx) ? 'commands.build and commands.test are empty, so no build record can be made for this tree and the reviewers and the verifier have none to read' : '';
 }
 
@@ -249,7 +249,7 @@ function configEmptyCmds(ctx) {
 }
 
 /** `build_record_missing`: the build record script says exit 3 (no finished record for this tree). @param {Context} ctx */
-function buildRecordMissing(ctx) {
+export function buildRecordMissing(ctx) {
   if (configEmptyCmds(ctx)) return false;
   const script = `${ctx.trustedScripts}/build-record.sh`;
   if (!isFile(script)) return false;
@@ -257,7 +257,7 @@ function buildRecordMissing(ctx) {
   return r.status === 3;
 }
 
-const BUILD_STEP = (/** @type {string} */ id) => `proofline doctor --commands   (finds the commands, proves each by one run and asks the user ONE question; the user's yes writes only the proven ones; then agent.sh build-record ${id} run). If the user declines, say in the completion report that no build or test was recorded`;
+export const BUILD_STEP = (/** @type {string} */ id) => `proofline doctor --commands   (finds the commands, proves each by one run and asks the user ONE question; the user's yes writes only the proven ones; then agent.sh build-record ${id} run). If the user declines, say in the completion report that no build or test was recorded`;
 
 /** `knowledge_drift ID` and its one use: the shell runs the design-sync script; only the case without it is answered here. @param {Context} ctx @param {string} dir */
 function knowledgeDriftNote(ctx, dir) {
@@ -328,7 +328,7 @@ function states(ctx, id, d, st, hs, emit, o, r) {
 }
 
 /** `freeze_hash_present` @param {Context} ctx @param {string} d */
-function freezeHashPresent(ctx, d) {
+export function freezeHashPresent(ctx, d) {
   let inside = false;
   const re = new RegExp(`^${WS}*(task|evidence|plan|policy)_sha256: "[0-9a-f][0-9a-f]`);
   for (const l of fileLines(ctx, `${d}/RUN.yaml`)) {

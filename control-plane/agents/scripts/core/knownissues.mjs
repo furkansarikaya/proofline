@@ -2,11 +2,14 @@
 // Known issues (A202), the part the status block reads: the data rules stay in known-issues.sh (run as a child, like the task adapters, until its
 // own stage); the decision whether a blocking finding is a listed known issue is made here (`ki_untouched`, `finding_known_issue`, `ki_gate_facts`).
 import { readdirSync, statSync } from 'node:fs';
+import { batchApproval, sharedDirOf } from './approvals.mjs';
+import { hashFile } from './fingerprint.mjs';
 import { git, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { blockingFindingIds, gateLatestFile, requiredGates } from './gates.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
-import { gateField, sectionValue } from './records.mjs';
+import { fileText, gateField, sectionValue, textLines } from './records.mjs';
+import { asciiLower } from './shellglob.mjs';
 import { riskGateFocuses } from './signals.mjs';
 import { normRelPath, scopeEntryCovers } from './taskfile.mjs';
 
@@ -61,7 +64,7 @@ function kiUntouched(ctx, dir, place) {
  * `finding_known_issue ID RECORD FINDING-ID`: "KI-n<TAB>follow-up..." when the blocking finding is an active record the task does not touch, else null.
  * @param {Context} ctx @param {string} id @param {string} rec @param {string} fid
  */
-function findingKnownIssue(ctx, id, rec, fid) {
+export function findingKnownIssue(ctx, id, rec, fid) {
   if (!knownIssuesListed(ctx)) return null;
   const gate = gateField(ctx, rec, 'gate');
   if (gate === 'SECRETS' || gate === 'SECURITY') return null;
@@ -76,6 +79,62 @@ function findingKnownIssue(ctx, id, rec, fid) {
   if (mrow.split('\t')[1] === id) return null;
   if (!kiUntouched(ctx, `${ctx.root}/.agents/runs/${id}`, p.split(':')[0])) return null;
   return mrow;
+}
+
+/**
+ * `batch_answer_row ID KIND` (A200): letter, parameter and question of the newest answer to a batch pre-flight question, valid only while the batch
+ * approval of the summary that asked it stands; null when there is none.
+ * @param {Context} ctx @param {string} id @param {string} kind @returns {string[] | null}
+ */
+export function batchAnswerRow(ctx, id, kind) {
+  const dir = sharedDirOf(ctx, 'batch');
+  const answers = fileText(ctx, `${dir}/answers.tsv`);
+  if (answers === null || answers === '') return null;
+  if (batchApproval(ctx) === null) return null;
+  const b = hashFile(`${dir}/SUMMARY.md`).slice(0, 12);
+  /** @type {string[] | null} */ let r = null;
+  for (const l of textLines(answers)) {
+    const f = l.split('\t');
+    if (f[0] === b && f[1] === id && f[3] === kind) r = [f[4] ?? '', f[5] ?? '', f[2] ?? ''];
+  }
+  return r;
+}
+
+/** `batch_accept_given`: the batch approval of the current summary stands and the newest answer to its accept question is b, from a captured user message. @param {Context} ctx */
+function batchAcceptGiven(ctx) {
+  if (batchApproval(ctx) === null) return false;
+  const row = batchAnswerRow(ctx, 'batch', 'accept');
+  if (row === null || row[0] !== 'b') return false;
+  const dir = sharedDirOf(ctx, 'batch');
+  const b = hashFile(`${dir}/SUMMARY.md`).slice(0, 12);
+  let m = '';
+  for (const l of textLines(fileText(ctx, `${dir}/answers.tsv`) ?? '')) { const f = l.split('\t'); if (f[0] === b && f[1] === 'batch' && f[3] === 'accept') m = f[6] ?? ''; }
+  return m !== '' && isFile(`${sharedDirOf(ctx, 'prompts')}/history/${m}`);
+}
+
+/**
+ * `finding_batch_accepted ID GATE-RECORD FINDING-ID`: the blocking finding is on the approved summary's accepted list, the task belongs to the batch
+ * and does not touch the place. SECRETS and SECURITY are never accepted this way.
+ * @param {Context} ctx @param {string} id @param {string} rec @param {string} fid
+ */
+export function findingBatchAccepted(ctx, id, rec, fid) {
+  const gate = gateField(ctx, rec, 'gate');
+  if (gate === 'SECRETS' || gate === 'SECURITY') return false;
+  if (/secret|secur/.test(asciiLower(gateField(ctx, rec, 'focus')))) return false;
+  if (batchApproval(ctx) === null) return false;
+  const order = fileText(ctx, `${sharedDirOf(ctx, 'batch')}/order.tsv`);
+  if (order === null || !textLines(order).some((l) => l.split('\t')[0] === id)) return false;
+  if (!batchAcceptGiven(ctx)) return false;
+  const c = ki(ctx, ['canon', rec, fid]);
+  if (c.status !== 0) return false;
+  const row = c.out.replace(/\n+$/, '').split('\t');
+  const [g, p] = row;
+  const t = row.slice(2).join('\t');
+  if (/secret|secur/.test(asciiLower(g))) return false;
+  if (ki(ctx, ['listable', g, p]).status !== 0) return false;
+  const summary = fileText(ctx, `${sharedDirOf(ctx, 'batch')}/SUMMARY.md`) ?? '';
+  if (!textLines(summary).includes(`- accept K ${g} ${p}: ${t}`)) return false;
+  return kiUntouched(ctx, `${ctx.root}/.agents/runs/${id}`, p.split(':')[0]);
 }
 
 /** `ki_gate_facts ID GATE`: "KI-n:FINDING:follow-up" for the gate's current blocking findings that are listed known issues. @param {Context} ctx @param {string} id @param {string} gate @returns {string[]} */

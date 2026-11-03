@@ -310,6 +310,9 @@ export function riskConfigLines(ctx) {
 /** @param {string[]} lines */
 const hashLines = (lines) => sha256(lines.length === 0 ? '' : `${lines.join('\n')}\n`);
 
+/** The digest the freeze binds: `risk_config | sha256`. @param {Context} ctx */
+export function riskConfigHash(ctx) { return hashLines(riskConfigLines(ctx)); }
+
 /** `risk_freeze_ok RECORDED` -> the hash is the current block or one of the bounded legacy forms. @param {Context} ctx @param {string} h */
 export function riskFreezeOk(ctx, h) {
   const all = riskConfigLines(ctx);
@@ -593,7 +596,7 @@ export function planValidationMissing(ctx, plan) {
 const commaJoin = (a) => a.join(',').replace(/,$/, '').replace(/,/g, ', ');
 
 /** `validation_candidates ID`: "scope|path" or "diff|path" for code that looks like an entry point (information only). @param {Context} ctx @param {string} dir @returns {string[]} */
-function validationCandidates(ctx, dir) {
+export function validationCandidates(ctx, dir) {
   const pat = ctx.config().get('validation.code_patterns', '');
   if (pat === '') return [];
   const base = baseOrHead(ctx, dir);

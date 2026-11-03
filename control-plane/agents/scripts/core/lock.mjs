@@ -92,11 +92,15 @@ export class LockSet {
   constructor(ctx) {
     this.ctx = ctx;
     /** @type {string[]} */ this.held = [];
+    /** true when a lock of the parent process was taken over */ this.inherited = false;
   }
 
   /** `acquire_lock PATH` @param {string} lockPath */
   acquire(lockPath) {
     if (this.held.includes(lockPath)) return;
+    // a lock whose pid file names this process's parent is the parent's own transaction (a lock-holding command started this one as a child):
+    // it is neither waited for nor released here
+    if (cat(`${lockPath}/pid`) === String(process.ppid)) { this.inherited = true; return; }
     const env = this.ctx.env;
     const given = env.PROOFLINE_LOCK_TIMEOUT;
     const timeoutText = given !== undefined && given !== '' ? given : String(tmScaled(this.ctx.config(), 120, 1, 3600));
@@ -144,6 +148,7 @@ export class LockSet {
 
   /** `take_old_lock PATH` (A199): the lock older versions took; taken when the folder is writable, otherwise only a live holder is waited for. @param {string} lockPath */
   takeOld(lockPath) {
+    if (cat(`${lockPath}/pid`) === String(process.ppid)) { this.inherited = true; return; }
     const given = this.ctx.env.PROOFLINE_LOCK_TIMEOUT;
     const base = given !== undefined && given !== '' ? given : '120';
     if (!DIGITS.test(base)) fail(`invalid PROOFLINE_LOCK_TIMEOUT: ${base}`);

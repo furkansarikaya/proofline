@@ -32,11 +32,11 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # The commands that still run as shell code (listed here, one list); every other command, a name that is no command and no command at all run in
 # proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
 case "${1:-}" in
-  start|friction|calibrate|build-record|lessons|rules|decide|freeze|refreeze|handoff|\
+  friction|calibrate|build-record|lessons|rules|decide|\
   worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|metrics-dispatch|wait-line|ledger-note|\
-  terminate|cleanup|deliver-merged|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
+  deliver-merged|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
   batch-answers|task-rename-plan|task-rename-apply|known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|pr-state|batch-next|\
-  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|amend|reopen|platform|platform-warn|task-source-done|\
+  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|platform|platform-warn|task-source-done|\
   knowledge-done|publish-completion-report|verify-completion-report|test) ;;
   *)
     pl_sh=no
@@ -56,7 +56,6 @@ case "${1:-}" in
     fi
     [ "$pl_sh" = yes ] || exec node "$pl_core_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
 esac
-cleanup_merged_claim=''   # set only by deliver-step cleanup and deliver-merged after their own proof; an environment value never counts
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
 
 # A188: the digest is the first word of the tool's line (no awk process)
@@ -101,6 +100,7 @@ release_locks() {
 }
 # take_old_lock PATH (A199): the lock older versions took. Taken when the folder is writable; otherwise (a sandbox) only a live holder is waited for.
 take_old_lock() {
+  [ ! -f "$1/pid" ] || [ "$(cat "$1/pid" 2>/dev/null || :)" != "$PPID" ] || return 0   # 4B: the parent's own lock
   to_t=$(( ${PROOFLINE_LOCK_TIMEOUT:-120} * 5 )); to_n=0
   while [ "$to_n" -lt "$to_t" ]; do
     if mkdir "$1" 2>/dev/null; then rmdir "$1" 2>/dev/null || :; acquire_lock "$1"; return $?; fi
@@ -115,6 +115,8 @@ take_old_lock() {
 acquire_lock() {
   al_path=$1
   case " $held_locks " in *" $al_path "*) return 0 ;; esac
+  # 4B: a lock whose pid file names this process's parent is the parent's own transaction (a lock-holding command started this one as a child); it is neither waited for nor released here
+  [ ! -f "$al_path/pid" ] || [ "$(cat "$al_path/pid" 2>/dev/null || :)" != "$PPID" ] || return 0
   al_timeout=${PROOFLINE_LOCK_TIMEOUT:-$(tm_scaled 120 1 3600)}
   case "$al_timeout" in ''|*[!0-9]*) fail "invalid PROOFLINE_LOCK_TIMEOUT: $al_timeout"; return 1 ;; esac
   [ -w "${al_path%/*}" ] || { fail "cannot take the lock $al_path: its directory is not writable by this process (a sandbox must grant .agents/local and the run folder)"; return 1; }
@@ -482,63 +484,6 @@ require_run() {
   [ ! -f "$(deliver_dir "$1")/SUMMARY.md" ] || delivered_mode "$1"   # A169: a run under its own delivery commit is judged from base_sha, like cleanup does
 }
 
-start_run() { # ID [--title TITLE] [--task-file PATH]; otherwise read the task body on stdin
-  require_lead
-  sr_id=${1:-}; [ -n "$sr_id" ] || fail 'usage: agent.sh start <TASK-ID> [--title TITLE] [--task-file PATH]'
-  shift
-  valid_task_id "$sr_id" || fail "invalid task id: $sr_id"
-  case "$sr_id" in [!A-Za-z0-9]*|*..*) fail "invalid task id: $sr_id" ;; esac
-  sr_title='' sr_file=''
-  while [ $# -gt 0 ]; do
-    [ $# -ge 2 ] || fail 'start option needs a value'
-    case "$1" in --title) sr_title=$2 ;; --task-file) sr_file=$2 ;; *) fail "unknown start option: $1" ;; esac
-    shift 2
-  done
-  sr_dir=$(run_dir "$sr_id")
-  [ ! -e "$sr_dir" ] || fail "run already exists: $sr_id"
-  sr_open=$(open_runs); [ -z "$sr_open" ] || fail "another open run exists in this worktree: $sr_open. A second run needs a worktree of its own: agent.sh worktree-add <TASK-ID> in the main working tree (night mode does it for every task, A169)"
-  sr_active=$(active_run); [ -z "$sr_active" ] || fail "another active run exists: $sr_active"
-  sr_adapter=$(cfg tasks.adapter markdown)
-  sr_tool=$agents/task-integrations/markdown.sh
-  [ -f "$sr_tool" ] || fail 'markdown task adapter is missing'
-  sr_tasks=$(cfg tasks.dir .agents/tasks)
-  case "$sr_tasks" in /*|*..*) fail "tasks.dir must be project-relative: $sr_tasks" ;; esac
-  sr_tmp=$(mktemp "${TMPDIR:-/tmp}/agent-start.XXXXXX")
-  if [ -n "$sr_file" ]; then
-    case "$sr_file" in "$root"/*) sr_rel=${sr_file#"$root"/} ;; *) sr_rel=${sr_file#./} ;; esac
-    case "$sr_rel" in "$sr_tasks"/*) ;; *) rm -f "$sr_tmp"; fail "task file must be under tasks.dir ($sr_tasks): $sr_file" ;; esac
-    case "$sr_rel" in *..*) rm -f "$sr_tmp"; fail "invalid task path: $sr_file" ;; esac
-    [ -f "$root/$sr_rel" ] || { rm -f "$sr_tmp"; fail "task file missing: $sr_file"; }
-    sr_name=${sr_rel##*/}; case "$sr_name" in "$sr_id".md|"$sr_id"-*.md) ;; *) rm -f "$sr_tmp"; fail "task file name must start with $sr_id: $sr_file" ;; esac
-    sr_rc=0; sh "$sr_tool" import "$sr_rel" "$sr_tmp" || sr_rc=$?
-    if [ "$sr_rc" -ne 0 ]; then rm -f "$sr_tmp"; return "$sr_rc"; fi
-    [ "$(sed -n '1s/^# Task: \([^ ]*\) .*/\1/p' "$sr_tmp")" = "$sr_id" ] || { rm -f "$sr_tmp"; fail "task file ID does not match $sr_id"; }
-    sr_path=$(sh "$sr_tool" status "$sr_id" in-progress "$sr_rel") || { rm -f "$sr_tmp"; fail 'could not move task to in-progress'; }
-  else
-    cat > "$sr_tmp"
-    [ -n "$sr_title" ] || sr_title=$(sed -n '1s/^# Task: [^ ]* — //p' "$sr_tmp")
-    [ -n "$sr_title" ] || { printf 'MISSING title\n'; rm -f "$sr_tmp"; return 3; }
-    sr_rc=0; sr_path=$(sh "$sr_tool" create "$sr_id" "$sr_title" "$sr_tmp") || sr_rc=$?
-    if [ "$sr_rc" -ne 0 ]; then printf '%s\n' "$sr_path"; rm -f "$sr_tmp"; return "$sr_rc"; fi
-    sh "$sr_tool" import "$sr_path" "$sr_tmp" || { rm -f "$sr_tmp"; fail 'created task could not be imported'; }
-  fi
-  mkdir -p "$sr_dir" "$(dirname "$(active_run_file)")"
-  awk -v id="$sr_id" -v path="$sr_path" -v adapter="$sr_adapter" '
-    /^task:$/ { section="task" } /^task_source:$/ { section="task_source" } /^completion_report:$/ { section="completion_report" }
-    /^[^[:space:]#]/ && $0 !~ /^(task|task_source|completion_report):$/ { section="" }
-    section=="task" && /^  id:/ { print "  id: " id; next }
-    section=="task_source" && /^  type:/ { print "  type: local_markdown"; next }
-    section=="task_source" && /^  path:/ { print "  path: " path; next }
-    section=="completion_report" && /^  adapter:/ { print "  adapter: " adapter; next }
-    { print }
-  ' "$agents/templates/RUN.yaml" > "$sr_dir/RUN.yaml"
-  cp "$sr_tmp" "$sr_dir/TASK.md"; rm -f "$sr_tmp"
-  printf '%s\n' "$sr_id" > "$(active_run_file)"
-  ledger_append "$sr_id" start - PLANNED "task=$sr_path adapter=$sr_adapter"
-  db_guard_baseline "$sr_id"
-  status_block_update "$sr_id" run-start
-  echo "run started: $sr_id task=$sr_path"
-}
 
 effective() {
   task=${1:-}; [ -n "$task" ] || task=$(active_run); [ -z "$task" ] || require_run "$task"
@@ -1079,47 +1024,6 @@ assumption_states() {
   done
 }
 assumption_blocked() { assumption_states "$1" | awk -F'\t' '$3 == "blocked"'; }
-# verify_assumptions ID [ask]: shape of both registers, then every unverified high-risk assumption must be
-# answered `accept` by the user. With `ask` (freeze) each one without a question gets its NEEDS_INPUT question.
-verify_assumptions() {
-  va_id=$1; require_run "$va_id"; va_d=$(run_dir "$va_id")
-  [ -f "$va_d/PLAN.md" ] || fail "missing PLAN.md"
-  va_err=$(assumption_shape_errors "$va_id" | tr '\n' ';')
-  [ -z "$va_err" ] || fail "invalid '## Assumptions': $va_err"
-  va_all=$(assumption_states "$va_id")
-  [ -z "$va_all" ] || printf '%s\n' "$va_all" | awk -F'\t' '$3 != "verified" { printf "%s risk=%s status=%s", $1, $2, $3; if ($4 != "-") printf " ref=%s", $4; printf "\n" }'
-  va_blocked=$(printf '%s\n' "$va_all" | awk -F'\t' '$3 == "blocked"')
-  if [ -z "$va_blocked" ]; then echo "assumptions verified: $va_id"; return 0; fi
-  va_msg=''
-  while IFS="$(printf '\t')" read -r va_a _ _ va_ref va_t; do
-    va_ask=no
-    case "$va_ref" in
-      pending*) va_msg="$va_msg $va_a: its question ${va_ref#pending } is unanswered (relay it: 'agent.sh questions $va_id'; the user answers 'accept $va_a' or gives the corrected fact);" ;;
-      declined*)
-        if [ "${2:-}" = ask ]; then va_ask=yes; va_msg="$va_msg $va_a: the answer ${va_ref#declined } did not accept it (not the user's own accept, or a corrected fact: change the plan or verify the assumption);"
-        else va_msg="$va_msg $va_a: the answer ${va_ref#declined } did not accept it (verify it or change the decisions it affects in the plan, then freeze again);"; fi ;;
-      *)
-        if [ "${2:-}" = ask ]; then va_ask=yes
-        else va_msg="$va_msg $va_a: no question bound to it yet ('agent.sh freeze $va_id' records one);"; fi ;;
-    esac
-    if [ "$va_ask" = yes ]; then
-      va_row=$(assumption_register "$va_id" | awk -F'\t' -v i="$va_a" '$1 == i')
-      va_q=$(mktemp "${TMPDIR:-/tmp}/proofline-assumption.XXXXXX")
-      if [ "$(run_language "$va_id")" = tr ]; then
-        printf '1. Yüksek riskli varsayım %s doğrulanmadı: %s\n   kaynak: %s; doğrulama: %s; etkilediği kararlar: %s\n   ASSUMPTION: %s\n   seçenekler: "accept %s" yazın (kimlik ifadenin parçasıdır; bu varsayımla ilerlenir, cevabınızla kabul edilmiş olarak kaydedilir) | düzeltilmiş olgu (plan değiştirilir, varsayım yeniden denetlenir)\n   önerilen: doğrulanabiliyorsa düzeltilmiş olgu, aksi halde accept\n   neden: freeze doğrulanmamış yüksek riskli varsayımı reddeder; sessizce kabul edilmez\n' \
-          "$va_a" "$va_t" "$(printf '%s' "$va_row" | cut -f5)" "$(printf '%s' "$va_row" | cut -f6)" "$(printf '%s' "$va_row" | cut -f7)" "$(assumption_token "$va_a" "$va_t")" "$va_a" > "$va_q"
-      else
-        printf '1. High-risk assumption %s is unverified: %s\n   source: %s; verification: %s; affects: %s\n   ASSUMPTION: %s\n   options: "accept %s" (the id is part of the phrase; proceed on this assumption, recorded as accepted-by-user with your answer) | the corrected fact (the plan is changed and the assumption checked again)\n   recommended: the corrected fact when it can be checked, otherwise accept\n   why: freeze refuses an unverified high-risk assumption; it is never accepted silently\n' \
-        "$va_a" "$va_t" "$(printf '%s' "$va_row" | cut -f5)" "$(printf '%s' "$va_row" | cut -f6)" "$(printf '%s' "$va_row" | cut -f7)" "$(assumption_token "$va_a" "$va_t")" "$va_a" > "$va_q"
-      fi
-      ask_question "$va_id" "$va_q" >/dev/null; rm -f "$va_q"
-      va_msg="$va_msg $va_a: question recorded (relay it: 'agent.sh questions $va_id');"
-    fi
-  done <<EOF
-$va_blocked
-EOF
-  fail "unverified high-risk assumption(s) block the freeze; they are never accepted silently, the user answers each:$va_msg"
-}
 
 # --- Tier (D14): computed from the task-owned diff, recorded, never decreasing. ------
 tier_rank() { case "$1" in docs) echo 0 ;; small) echo 1 ;; full) echo 2 ;; *) echo -1 ;; esac; }
@@ -1197,16 +1101,6 @@ tier_effective() {
   te_now=$(tier_compute "$1")
   case "$te_rec" in docs|small|full) tier_max "$te_rec" "$te_now" ;; *) printf '%s\n' "$te_now" ;; esac
 }
-# Records the effective tier when it rose (lead only; a no-op for other roles and for runs without the key).
-tier_record() {
-  tr_id=$1; tr_d=$(run_dir "$1"); tr_t=$(tier_effective "$tr_id")
-  if [ "$execution_role" = lead ] && section_key_present "$tr_d" pipeline tier && [ "$(section_value "$tr_d" pipeline tier)" != "$tr_t" ]; then
-    tr_prev=$(section_value "$tr_d" pipeline tier)
-    set_run_value "$tr_id" pipeline tier "$tr_t"
-    ledger_append "$tr_id" tier "$tr_prev" "$tr_t" "effective tier"
-  fi
-  printf '%s\n' "$tr_t"
-}
 
 # --- Risk signals (A78): deterministic signals select extra focuses inside the existing gates. -------------
 # A signal comes from a changed path (diff), a PLAN.md scope path (scope; visible before FREEZE), the content
@@ -1233,13 +1127,6 @@ plan_flag() { # PLAN FLAG -> yes|no
     destructive) if [ "$(plan_destructive "$1")" = yes ]; then echo yes; else echo no; fi ;;
     *) awk -v f="$2" '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ ("^" f ":[[:space:]]*yes([[:space:]]|$)")) y = 1 } END { print (y ? "yes" : "no") }' "$1" ;;
   esac
-}
-plan_risk_invalid() { # PLAN -> the first `## Risk` line that is not `<flag>: yes|no [note]` or the rollback note (A202: `rollback: <text>` and its indented continuation lines)
-  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); rb = 0; next } i && /[^[:space:]]/ { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ /^rollback:[[:space:]]*[^[:space:]]/) { rb = 1; next } if (rb && $0 ~ /^[[:space:]]+[^[:space:]]/) next; rb = 0; if (l !~ /^(contract_change|concurrency|performance_critical):[[:space:]]*(yes|no)([[:space:]].*)?$/) { print; exit } }' "$1"
-}
-# A202: a COMPLEX or CRITICAL plan carries a short rollback note inside its Risk section; its absence is a warning, never a stop (TRIVIAL and STANDARD are never asked)
-plan_rollback_present() { # PLAN
-  awk '/^## / { i = ($0 ~ /^## Risk[[:space:]]*$/); next } i { l = $0; sub(/^[-*][[:space:]]*/, "", l); if (l ~ /^rollback:[[:space:]]*[^[:space:]]/) y = 1 } END { exit !y }' "$1"
 }
 # The block the freeze binds: the risk mapping, the performance thresholds (A87), every non-empty security.* key
 # (A88: license policy, audit command) and every non-empty contract.* key (A83: contract.paths / contract.ignore
@@ -1472,16 +1359,6 @@ build_record_unmakeable() { # ID
   echo "commands.build and commands.test are empty, so no build record can be made for this tree and the reviewers and the verifier have none to read"
 }
 build_record_step_text() { printf 'proofline doctor --commands   (finds the commands, proves each by one run and asks the user ONE question; the user'"'"'s yes writes only the proven ones; then agent.sh build-record %s run). If the user declines, say in the completion report that no build or test was recorded\n' "$1"; }
-# handoff IMPLEMENTED (lead): produce the record once for the implemented tree; a failing build is recorded, never a refusal.
-build_record_auto() {
-  [ "$execution_role" = lead ] || return 0
-  if bru_r=$(build_record_unmakeable "$1"); then
-    echo "MISSING STEP (lead): $bru_r. Do: $(build_record_step_text "$1")" >&2; return 0
-  fi
-  build_record_missing "$1" || return 0
-  if sh "$scripts/build-record.sh" run >/dev/null 2>&1; then echo "build record made for the implemented tree (agent.sh build-record $1 show)" >&2
-  else echo "MISSING STEP (lead): the build record of this tree could not be made (see agent.sh build-record $1 run); the handoff is not blocked, but the reviewers and the verifier have no record to read. Fix what it reports (a missing install, secret or env file), then run agent.sh build-record $1 run" >&2; fi
-}
 # A171: gate dependencies, written in GATES.md "Gate dependencies". A gate that needs the output of another gate
 # (VERIFY reads the visual evidence report that the QA visual focus produces) is offered by `next` and accepted by
 # `decide` and `record` only when that dependency is satisfied for the current content.
@@ -1537,28 +1414,6 @@ result_kind() {
 # <role id>-<n> (roles/README.md). `submit` writes it and `record` demands it, both from this function.
 finding_prefix() { if [ "$2" = gate ] && [ -n "$3" ]; then printf '%s\n' "$3"; else printf '%s\n' "$1"; fi; }
 
-# A171: a plan over the class's max_scope_paths stops at freeze and proposes a split. The user's answer
-# `proceed without splitting` (answered_by user, at the start of the prompt, no negation or condition) to the question
-# bound to this exact scope list is the recorded override; any other answer keeps the freeze stopped.
-split_token() { # ID COUNT : COUNT@hash of the sorted scope paths
-  printf '%s@%s\n' "$2" "$(scope_mappings "$(run_dir "$1")/PLAN.md" | cut -d '|' -f1 | LC_ALL=C sort | sha256 | cut -c1-12)"
-}
-split_state() { # ID TOKEN -> accepted <answer> | pending <question> | declined <answer> | none
-  ss_d=$(run_dir "$1"); ss_pend='' ss_decl=''
-  for ss_q in "$ss_d"/questions/[0-9][0-9][0-9].md; do
-    [ -e "$ss_q" ] || continue
-    grep -Eq "^[[:space:]]*SPLIT: $2[[:space:]]*\$" "$ss_q" || continue
-    ss_a=${ss_q%.md}.answer.md
-    if [ ! -e "$ss_a" ]; then ss_pend=questions/$(basename "$ss_q"); continue; fi
-    ss_t=$(sed '1,/^---$/d' "$ss_a" | unquote_block | tr -s '[:space:]' ' ' | sed 's/^ //' | tr '[:upper:]' '[:lower:]')
-    if [ "$(gate_field "$ss_a" answered_by)" = user ] && printf '%s' "$ss_t" | grep -Eq '^proceed without splitting' \
-      && ! printf ' %s ' "${ss_t#proceed without splitting}" | grep -Eq "(^|[^[:alpha:]])(not|never|no|n't|if|unless|but|except|until|yet|wait|maybe|or|actually|instead)([^[:alpha:]]|\$)"; then
-      echo "accepted questions/$(basename "$ss_a")"; return 0
-    fi
-    ss_decl=questions/$(basename "$ss_a")
-  done
-  if [ -n "$ss_pend" ]; then echo "pending $ss_pend"; elif [ -n "$ss_decl" ]; then echo "declined $ss_decl"; else echo none; fi
-}
 # A200: the answer to a batch pre-flight question (batch.sh answer: the user's own captured message, parsed by the script),
 # valid only while the batch approval of the summary that asked it stands. Prints `letter<TAB>param<TAB>question` of the
 # newest answer for the task and kind; nothing when there is none, when the batch is not approved or a new summary replaced it.
@@ -1568,34 +1423,6 @@ batch_answer_row() { # ID KIND
   bar_b=$(hash_file "$(batch_dir)/SUMMARY.md" | cut -c1-12)
   awk -F'\t' -v b="$bar_b" -v t="$1" -v k="$2" '$1 == b && $2 == t && $4 == k { r = $5 "\t" $6 "\t" $3 } END { if (r != "") print r }' "$(batch_dir)/answers.tsv"
 }
-split_check() { # ID CLASS COUNT MAX
-  sp_id=$1 sp_n=$3 sp_max=$4; sp_tok=$(split_token "$sp_id" "$sp_n"); sp_st=$(split_state "$sp_id" "$sp_tok")
-  # A200: "proceed without splitting" answered before the night, in the batch summary, up to the ceiling the user was shown;
-  # a plan with more code paths than that ceiling asks again like any other (the safe side).
-  sp_ba=$(batch_answer_row "$sp_id" split)
-  if [ -n "$sp_ba" ] && [ "$(printf '%s' "$sp_ba" | cut -f1)" = b ] && [ "$sp_n" -le "$(printf '%s' "$sp_ba" | cut -f2)" ] 2>/dev/null; then
-    echo "note: $sp_n code paths exceed the $2 limit of $sp_max; freezing without splitting on the user's batch answer $(printf '%s' "$sp_ba" | cut -f3) (up to $(printf '%s' "$sp_ba" | cut -f2))" >&2
-    ledger_append "$sp_id" split_override - - "scope_paths=$sp_n max=$sp_max class=$2 answer=batch:$(printf '%s' "$sp_ba" | cut -f3)"; return 0
-  fi
-  case "$sp_st" in
-    accepted*)
-      echo "note: $sp_n scope paths exceed the $2 limit of $sp_max; freezing without splitting on the user's answer (${sp_st#accepted })" >&2
-      ledger_append "$sp_id" split_override - - "scope_paths=$sp_n max=$sp_max class=$2 answer=${sp_st#accepted }" ; return 0 ;;
-    pending*) fail "this plan has $sp_n code paths (content and document paths are not counted); the $2 pipeline allows at most $sp_max. The split question ${sp_st#pending } is unanswered (relay it: 'agent.sh questions $sp_id'): the user splits the task or answers 'proceed without splitting'" ;;
-  esac
-  sp_parts=$(( (sp_n + sp_max - 1) / sp_max ))
-  sp_q=$(mktemp "${TMPDIR:-/tmp}/proofline-split.XXXXXX")
-  if [ "$(run_language "$sp_id")" = tr ]; then
-    printf '1. Plan %s kapsam yolu içeriyor; %s hattı en fazla %s yola izin verir. Görev bölünsün mü? Önerim: her biri en fazla %s yol içeren en az %s göreve bölmek (task-author bölme akışı).\n   SPLIT: %s\n   seçenekler: "böl" (task-author görevi böler, bu koşu daralır) | "proceed without splitting" (bölmeden devam; cevabınızla kayda geçer)\n   önerilen: böl\n   neden: büyük kapsam gözden geçirmeyi ve geri almayı zorlaştırır; bölmeden devam yalnızca sizin açık cevabınızla olur\n' \
-      "$sp_n" "$2" "$sp_max" "$sp_max" "$sp_parts" "$sp_tok" > "$sp_q"
-  else
-    printf '1. The plan has %s scope paths; the %s pipeline allows at most %s. Split the task? Proposal: split it into at least %s tasks of at most %s scope paths each (the task-author split flow).\n   SPLIT: %s\n   options: "split" (task-author splits the task, this run is narrowed) | "proceed without splitting" (the phrase is part of the answer; recorded as the user'"'"'s override)\n   recommended: split\n   why: a wide scope is hard to review and to roll back; continuing unsplit happens only on your explicit answer\n' \
-      "$sp_n" "$2" "$sp_max" "$sp_parts" "$sp_max" "$sp_tok" > "$sp_q"
-  fi
-  if [ "$sp_st" = none ] || [ "${sp_st%% *}" = declined ]; then ask_question "$sp_id" "$sp_q" >/dev/null; fi
-  rm -f "$sp_q"
-  fail "this plan has $sp_n code paths (content and document paths are not counted); the $2 pipeline allows at most $sp_max. Propose the split to the user: at least $sp_parts tasks of at most $sp_max paths each (task-author split flow). Question recorded (relay it: 'agent.sh questions $sp_id'); the user answers 'proceed without splitting' to continue unsplit, which is recorded"
-}
 
 # A200: the scope bound counts code paths. A content or document path (is_doc_path) is not a reason to split (forty content
 # files with the same correction are one piece of work), but a path that holds code (review.executable_code) is always counted,
@@ -1604,11 +1431,6 @@ path_kind() { # PATH -> content | code
   if [ -n "$(printf '%s\n' "$1" | paths_executable)" ]; then echo code
   elif is_doc_path "$1"; then echo content
   else echo code; fi
-}
-scope_code_count() { # PLAN.md -> the number of scope paths that are not content or document paths
-  scc_n=0
-  for scc_p in $(scope_mappings "$1" 2>/dev/null | cut -d '|' -f1); do [ "$(path_kind "$scc_p")" = code ] && scc_n=$((scc_n + 1)); done
-  echo "$scc_n"
 }
 
 # A202: the scope table's optional `kind:` column (code | test | content | doc) is a claim, never an input. The script derives the kind of
@@ -1643,40 +1465,6 @@ plan_path_claim() { # ID PATH
   plan_kind_claims "$(run_dir "$1")/PLAN.md" 2>/dev/null | grep -F -- "$2|" | head -1 | cut -d '|' -f2
 }
 
-# Freeze-time artifact contract: required artifacts exist, unrequired ones do not, class plan rules hold.
-pipeline_check() {
-  id=$1; dir=$(run_dir "$id")
-  if gates_enforced "$id"; then
-    pipeline_declared "$id" || fail "RUN.yaml has no pipeline block (create the run from .agents/templates/RUN.yaml)"
-    pipeline_class_valid "$(pipeline_class "$id")" || fail "run $id is not classified: run 'agent.sh classify $id <TRIVIAL|STANDARD|COMPLEX|CRITICAL>' first"
-  fi
-  class=$(pipeline_class "$id")
-  for pc in "evidence EVIDENCE.md" "qa QA_PLAN.md"; do
-    pc_key=${pc% *} pc_file=${pc#* }
-    if [ "$(pipeline_needs "$id" "$pc_key")" = yes ]; then [ -f "$dir/$pc_file" ] || fail "missing $pc_file (required by the ${class:-default} pipeline)"
-    else [ ! -e "$dir/$pc_file" ] || fail "$pc_file is not part of the ${class:-default} pipeline; remove it (no artifacts without a consumer)"; fi
-  done
-  if [ "$(pipeline_needs "$id" architect)" = yes ]; then
-    plan_section_present "$dir/PLAN.md" Architecture || fail "the $class pipeline requires an '## Architecture' section in PLAN.md (the Architect's contribution)"
-  fi
-  [ "$(plan_destructive "$dir/PLAN.md")" != invalid ] || fail "PLAN.md '## Data' must start with 'destructive: yes' or 'destructive: no'"
-  pc_bad=$(plan_risk_invalid "$dir/PLAN.md")
-  [ -z "$pc_bad" ] || fail "PLAN.md '## Risk' holds only flag lines '<flag>: yes|no' (flags: $risk_plan_flags); not one: $pc_bad"
-  pc_max=$(pipeline_value "$class" max_scope_paths)
-  [ -n "$pc_max" ] || [ -z "$class" ] || pc_max=15   # A171: a class without its own limit still has the default one
-  if [ -n "$pc_max" ]; then
-    pc_n=$(scope_code_count "$dir/PLAN.md")   # A200: content and document paths are not counted; a file that holds code always is
-    if [ "$pc_n" -gt "$pc_max" ]; then
-      if [ "$class" = TRIVIAL ]; then fail "the $class pipeline allows at most $pc_max code paths (content and document paths are not counted); this plan has $pc_n — reclassify"; fi
-      split_check "$id" "$class" "$pc_n" "$pc_max"
-    fi
-  fi
-  # A115: TRIVIAL covers text and configuration; code (tests included) in the scope is refused at freeze, not at IMPLEMENTED (A31).
-  if [ "$class" = TRIVIAL ]; then
-    pc_code=$(scope_mappings "$dir/PLAN.md" | cut -d '|' -f1 | paths_executable)
-    [ -z "$pc_code" ] || fail "the TRIVIAL pipeline covers text and configuration only; scope has executable code:$pc_code — classify STANDARD ('agent.sh classify $id STANDARD', write the evidence and QA plan it requires, then amend and 'agent.sh refreeze $id <AMENDMENT>' on a frozen run)"
-  fi
-}
 
 # What a run requires: class artifacts, tier and every required gate with its status.
 pipeline_show() {
@@ -1724,28 +1512,6 @@ risk_not_rerun() {
   done
 }
 
-# --- Freeze ------------------------------------------------------------------------
-replace_hashes() {
-  dir=$1 target=$2; id=$(basename "$dir"); mode=$(section_value "$dir" execution mode); case "$mode" in ''|PENDING) mode=$(cfg default_mode deterministic) ;; esac
-  task_hash=$(hash_file "$dir/TASK.md"); plan_hash=$(hash_file "$dir/PLAN.md"); policy_hash=$(hash_file "$agents/modes/$mode.yaml")
-  evidence_hash=not_required; [ "$(pipeline_needs "$id" evidence)" != yes ] || evidence_hash=$(hash_file "$dir/EVIDENCE.md")
-  qa_plan_hash=not_required; [ "$(pipeline_needs "$id" qa)" != yes ] || qa_plan_hash=$(hash_file "$dir/QA_PLAN.md")
-  scope_paths=$(scope_mappings "$dir/PLAN.md" | cut -d '|' -f1 | tr '\n' ',' | sed 's/,$//')
-  awk -v a="$task_hash" -v b="$evidence_hash" -v c="$plan_hash" -v d="$policy_hash" -v e="$qa_plan_hash" -v f="$(pipeline_signature "$id")" -v s="$scope_paths" -v r="$(risk_config | sha256)" '
-    /^freeze:$/ { i=1; print; next }
-    i && /^[^[:space:]#]/ { if (!rk) print "  risk_sha256: \"" r "\""; rk=1; i=0 }
-    i && /^  task_sha256:/ { print "  task_sha256: \"" a "\""; next }
-    i && /^  evidence_sha256:/ { print "  evidence_sha256: \"" b "\""; next }
-    i && /^  plan_sha256:/ { print "  plan_sha256: \"" c "\""; next }
-    i && /^  qa_plan_sha256:/ { print "  qa_plan_sha256: \"" e "\""; next }
-    i && /^  policy_sha256:/ { print "  policy_sha256: \"" d "\""; next }
-    i && /^  pipeline:/ && f != "" { print "  pipeline: \"" f "\""; next }
-    i && /^  scope_paths:/ { print "  scope_paths: \"" s "\""; next }
-    i && /^  risk_sha256:/ { print "  risk_sha256: \"" r "\""; rk=1; next }
-    { print }
-    END { if (i && !rk) print "  risk_sha256: \"" r "\"" }
-  ' "$dir/RUN.yaml" > "$target"
-}
 freeze_hash_present() {
   awk '/^freeze:$/ { inside=1; next } inside && /^[^[:space:]]/ { exit } inside && /^[[:space:]]*(task|evidence|plan|policy)_sha256: "[0-9a-f][0-9a-f]/ { found=1 } END { exit !found }' "$1/RUN.yaml"
 }
@@ -1782,18 +1548,6 @@ scope_mappings() {
 # A101: the one scope-mapping check, shared by freeze and handoff IMPLEMENTING; nothing is recorded before it passes.
 require_scope_mapping() { # ID
   rsm_m=$(scope_mappings "$(run_dir "$1")/PLAN.md") && [ -n "$rsm_m" ] || fail "invalid scope mapping: fix PLAN.md ## Scope entries: each entry needs \`path\` and \`criteria:\` (a non-empty flow list such as [AC-1]); run the plan-contract validator (skills/plan-contract/scripts/validate-plan.mjs)"
-}
-# A129: a TASK.md criterion mapped to no scope path and no explicit test is a plan defect, refused at freeze and refreeze
-# with the plan-contract validator's own rule and text (only these two coverage errors; every other check stays advisory).
-# Checked where the skill and node are installed (a real install has both), like the other validator calls.
-require_ac_coverage() { # ID
-  rac_s=$root/.agents/skills/plan-contract/scripts/validate-plan.mjs; rac_d=$(run_dir "$1")
-  rac_c=$(pipeline_class "$1")
-  [ -f "$rac_s" ] || { echo "note: AC coverage not checked (the plan-contract skill is not installed)"; return 0; }
-  command -v node >/dev/null 2>&1 || { echo "note: AC coverage not checked (node is not installed)"; return 0; }
-  [ -n "$rac_c" ] || { echo "note: AC coverage not checked (the run has no pipeline classification)"; return 0; }
-  rac_o=$(node "$rac_s" "$rac_d/PLAN.md" "$rac_d/TASK.md" --class "$rac_c" --repo "$root" 2>/dev/null | grep -E ': maps to no scope path and no explicit test$|: maps to no criterion$' | tr '\n' ';') || true
-  [ -z "$rac_o" ] || fail "plan defect: ${rac_o%;} -- add AC-n to \`criteria:\` of the PLAN.md scope entries (front matter) that implement it, or name an explicit test for it in \`## Tests\`; freeze again (A129)"
 }
 authorized_path() { printf '%s\n' "$1" | cut -d '|' -f1 | grep -Fxq -- "$2"; }
 
@@ -1838,9 +1592,6 @@ task_scope_parse() {
 task_scope_entries() { # FILE HEADING -> one path, folder or glob per line
   task_scope_parse ok "$1" "$2"
 }
-task_scope_bad() { # FILE HEADING -> what is in the section but not a readable entry, one per line
-  task_scope_parse bad "$1" "$2"
-}
 norm_rel_path() { # PATH -> the path without ./ segments, doubled or leading or trailing slashes, and with .. resolved lexically
   printf '%s\n' "$1" | awk '{ n = split($0, a, "/"); m = 0
     for (i = 1; i <= n; i++) { if (a[i] == "" || a[i] == ".") continue; if (a[i] == "..") { if (m > 0) m--; continue }; s[++m] = a[i] }
@@ -1857,73 +1608,6 @@ scope_entry_covers() { # ENTRY PATH [fold]: the entry is the path, a folder abov
   [ "$sc_p" != "$sc_e" ] || return 0
   case "$sc_p" in "$sc_e"/*) return 0 ;; esac
   return 1
-}
-scope_path_listed() { # PATH ENTRIES (newline separated) [fold]
-  while IFS= read -r slp_e; do
-    [ -n "$slp_e" ] || continue
-    scope_entry_covers "$slp_e" "$1" "${3:-}" && return 0
-  done <<EOF
-$2
-EOF
-  return 1
-}
-# A202: the freeze (and every refreeze) checks the plan against the task's own boundaries. Forbidden scope is a hard refusal with
-# no waiver path: only the user's edit of the task lifts it. Allowed scope, when given, is a boundary the user either widens in the
-# task or answers at the batch pre-flight (kind scope, option b). Existing pattern references must exist and be named in the plan.
-# require_task_copy_matches_source ID: before the FIRST freeze the run's TASK.md must carry what the task file says about the task type and the
-# three boundary sections (Allowed scope, Forbidden scope, Existing pattern references): the lead cannot retype a bug or drop a Forbidden scope in
-# the run copy and then freeze it. Compared only for a run whose task file is a task document of this id (first line `# Task: <ID> `), which is every
-# run started from a task file; a run whose task source is some other document (a scaffolded test run, an untracked note) has nothing to compare with.
-require_task_copy_matches_source() { # ID
-  rcs_d=$(run_dir "$1"); local_task_source_run "$1" || return 0
-  rcs_p=$(section_value "$rcs_d" task_source path); [ -n "$rcs_p" ] && [ -f "$root/$rcs_p" ] && [ ! -L "$root/$rcs_p" ] || return 0
-  case "$(sed -n 1p "$root/$rcs_p" | tr -d '\r')" in "# Task: $1 "*) ;; *) return 0 ;; esac
-  rcs_a=$(task_type "$root/$rcs_p"); rcs_b=$(task_type "$rcs_d/TASK.md")
-  [ "$rcs_a" = "$rcs_b" ] || fail "the run's TASK.md says type $rcs_b but the task file $rcs_p says $rcs_a: the type is the user's, an agent cannot change it before the freeze. Restore the run copy from the task file (A202)"
-  for rcs_h in 'Allowed scope' 'Forbidden scope' 'Existing pattern references'; do
-    rcs_x=$(task_section_lines "$root/$rcs_p" "$rcs_h" prefix | tr -d '\r' | sed 's/[[:space:]]*$//'); rcs_y=$(task_section_lines "$rcs_d/TASK.md" "$rcs_h" prefix | tr -d '\r' | sed 's/[[:space:]]*$//')
-    [ "$rcs_x" = "$rcs_y" ] || fail "the run's TASK.md differs from the task file $rcs_p in '## $rcs_h' (- task file, + run copy): $(printf '%s\n' "$rcs_x" | sed 's/^/- /' | head -n 3 | tr '\n' ' ')/ $(printf '%s\n' "$rcs_y" | sed 's/^/+ /' | head -n 3 | tr '\n' ' '). A boundary is the user's; restore the run copy from the task file (A202)"
-  done
-}
-require_task_boundaries() { # ID
-  rtb_d=$(run_dir "$1"); rtb_t=$rtb_d/TASK.md; [ -f "$rtb_t" ] || return 0
-  rtb_paths=$(scope_mappings "$rtb_d/PLAN.md" 2>/dev/null | cut -d '|' -f1)
-  for rtb_h in 'Forbidden scope' 'Allowed scope' 'Existing pattern references'; do
-    rtb_bad=$(task_scope_bad "$rtb_t" "$rtb_h" | head -n 1)
-    [ -z "$rtb_bad" ] || fail "the task section '## $rtb_h' has an entry that is not a path or glob: \"$rtb_bad\". Write one path, folder or glob per bullet, each in backticks, e.g. - \`src/billing/\` or - \`**/*.sql\`, several per bullet allowed (a sentence is not a boundary and is never guessed at, so the freeze is refused until the user fixes the task) (A202)"
-  done
-  rtb_forb=$(task_scope_entries "$rtb_t" 'Forbidden scope')
-  if [ -n "$rtb_forb" ]; then
-    for rtb_p in $rtb_paths; do
-      if scope_path_listed "$rtb_p" "$rtb_forb" fold; then
-        fail "plan scope path $rtb_p is inside the task's Forbidden scope: the freeze is refused and nothing waives it (an agent cannot lift a boundary the user wrote). Remove the path from the plan, or the user changes the task's Forbidden scope himself (A202)"
-      fi
-    done
-  fi
-  rtb_allow=$(task_scope_entries "$rtb_t" 'Allowed scope')
-  if [ -n "$rtb_allow" ]; then
-    rtb_out=''
-    for rtb_p in $rtb_paths; do scope_path_listed "$rtb_p" "$rtb_allow" || rtb_out="$rtb_out $rtb_p"; done
-    if [ -n "$rtb_out" ]; then
-      rtb_ba=$(batch_answer_row "$1" scope)
-      if [ "$(printf '%s' "$rtb_ba" | cut -f1)" = b ]; then
-        echo "note: plan paths outside the task's Allowed scope:$rtb_out; freezing on the user's batch answer $(printf '%s' "$rtb_ba" | cut -f3) (A202)" >&2
-      else
-        fail "plan scope path(s) outside the task's Allowed scope:$rtb_out. Plan inside it, or ask the user: they widen the Allowed scope in the task, or answer the batch pre-flight question about it with the option that allows the paths (A202)"
-      fi
-    fi
-  fi
-  rtb_refs=$(task_scope_entries "$rtb_t" 'Existing pattern references')
-  if [ -n "$rtb_refs" ]; then
-    while IFS= read -r rtb_r; do
-      [ -n "$rtb_r" ] || continue
-      case "$rtb_r" in *'*'*|*'?'*|*'['*) continue ;; esac
-      [ -e "$root/${rtb_r%/}" ] || fail "the task's Existing pattern references name $rtb_r, which does not exist in the repository: the user corrects the reference (A202)"
-      grep -Fq -- "$rtb_r" "$rtb_d/PLAN.md" || fail "PLAN.md does not mention the task's Existing pattern reference $rtb_r: name it where the plan follows that pattern (or says why it cannot), in the architecture, scope or tests text, and freeze again (A202)"
-    done <<EOF
-$rtb_refs
-EOF
-  fi
 }
 
 # Approvals a freeze needs (D3): plan (supervised),
@@ -1962,214 +1646,6 @@ task_defect_errors() { # ID
       if (w(req, "bugs?|defects?|regression|broken|fix|fixes|fixed|wrong|incorrect|crash(es)?|disappears?|disappeared|unreachable") || req ~ /hata|bozuk|kaybol|yanlış|düzelt/) exit
       sub(/[.]$/, "", m); print "mentions a defect or a fix the request does not ask for: " substr(m, 1, 120)
     }' "$te_f"
-}
-require_task_defects() { # ID
-  rtd=$(task_defect_errors "$1" | head -1)
-  [ -z "$rtd" ] || fail "TASK.md ## Pre-existing defects (A105): $rtd. List each defect the request does not ask for as '- <path:symbol>: <what> -- decision: report' (left unchanged, named in the completion report); 'decision: fix' only when the user asked for it in their own words, and then the user's scope approval ('agent.sh request-approval $1 scope') is needed. A delegated answer such as 'use your recommended option' never makes a defect fix requested"
-}
-# Answers recorded as the user's must be the user's words (A60): in INTENT.md `## Rounds`, a round answering a
-# `scope` decision with answered_by user must appear in a captured user prompt (.agents/local/prompts/history/).
-# intent_scope_answers ID D-n: the bodies of the answers the prompt hook recorded as the user's to the run's `USER_ONLY: scope D-n` questions
-intent_scope_answers() {
-  isa_d=$(run_dir "$1")
-  for isa_q in "$isa_d"/questions/[0-9][0-9][0-9].md; do
-    [ -f "$isa_q" ] || continue
-    grep -Eq "^[[:space:]]*USER_ONLY: scope $2[[:space:]]*\$" "$isa_q" || continue
-    isa_a=${isa_q%.md}.answer.md; [ -f "$isa_a" ] || continue
-    [ "$(gate_field "$isa_a" answered_by)" = user ] || continue
-    sed '1,/^---$/d' "$isa_a" | sed 's/^> //; s/^>$//'
-  done
-}
-verify_intent_provenance() { # ID
-  vi_id=$1
-  vi_f=$(run_dir "$vi_id")/design/INTENT.md
-  [ -f "$vi_f" ] || vi_f=$root/$(cfg tasks.dir .agents/tasks)/$vi_id/design/INTENT.md
-  vi_h=$(shared_dir prompts)/history
-  [ -f "$vi_f" ] || return 0
-  vi_all=$(cat "$vi_h"/* 2>/dev/null | tr -s ' \t\n' ' ')
-  # `id<TAB>decision` of every scope decision of the tree (A105 reads the decision).
-  vi_scope=$(awk -F'|' '/^## Decision tree/ { i = 1; next } /^## / { i = 0 }
-    i && NF >= 8 { id = $2; br = $3; dc = $7; gsub(/^[ \t]+|[ \t]+$/, "", id); gsub(/^[ \t]+|[ \t]+$/, "", br); gsub(/^[ \t]+|[ \t]+$/, "", dc); if (br == "scope") print id "\t" dc }' "$vi_f")
-  awk -F'|' '/^## Rounds/ { i = 1; next } /^## / { i = 0 }
-    i && NF >= 5 { a = $3; t = $4; by = $5; gsub(/^[ \t]+|[ \t]+$/, "", a); gsub(/^[ \t]+|[ \t]+$/, "", t); gsub(/^[ \t]+|[ \t]+$/, "", by)
-      if (by == "user" && a ~ /^D-[0-9]+$/) print a "\t" t }' "$vi_f" | while IFS="$(printf '\t')" read -r vi_a vi_t; do
-    vi_dc=$(printf '%s\n' "$vi_scope" | awk -F'\t' -v a="$vi_a" '$1 == a { print "d:" $2; exit }')
-    [ -n "$vi_dc" ] || continue
-    # A105: a blanket "use your recommended option" never decides a scope question; only "report" may follow it.
-    if printf '%s' "$vi_t" | grep -iq 'recommend' && ! printf '%s' "$vi_dc" | grep -Eiq 'report|out of scope|unchanged'; then echo "$vi_a"; continue; fi
-    [ -d "$vi_h" ] || continue
-    vi_n=$(printf '%s' "$vi_t" | tr -s ' \t\n' ' ')
-    # A210, #187: the user's answer to this decision's `USER_ONLY: scope` question, recorded by the prompt hook, is the provenance
-    vi_u=$(intent_scope_answers "$vi_id" "$vi_a" | tr -s ' \t\n' ' ' | tr 'A-Z' 'a-z'); vi_l=$(printf '%s' "$vi_n" | tr 'A-Z' 'a-z')
-    case "$vi_u" in *"$vi_l"*) continue ;; esac
-    case "$vi_all" in *"$vi_n"*) ;; *) echo "$vi_a"; ;; esac
-  done
-}
-# K-6: approvals the handoff PLANNED -> IMPLEMENTING needs: destructive (PLAN `## Data` destructive: yes) and, for
-# a single_step shape, single_step; both bound to the sha256 of the frozen PLAN.md (a refreeze drops them).
-# Prints the approval files to consume, one per line.
-implement_approvals() { # ID
-  ia_id=$1; ia_d=$(run_dir "$1")
-  require_task_defects "$ia_id"
-  [ "$(plan_destructive "$ia_d/PLAN.md")" = yes ] || return 0
-  ia_plan=$(hash_file "$ia_d/PLAN.md")
-  ia_f=$(find_approval "$ia_id" destructive "$ia_plan") || fail "PLAN.md declares a destructive data change: a destructive approval bound to the frozen PLAN.md is required before IMPLEMENT ('agent.sh request-approval $ia_id destructive'; relay it, the runtime records the user's reply; a refreeze drops an earlier approval)"
-  printf '%s\n' "$ia_f"
-  if [ "$(plan_migration_shape "$ia_d/PLAN.md")" = single_step ]; then
-    ia_f=$(find_approval "$ia_id" single_step "$ia_plan") || fail "PLAN.md '## Data' declares single_step: yes: a destructive migration without expand/contract steps needs the user's explicit single-step approval bound to the frozen PLAN.md before IMPLEMENT ('agent.sh request-approval $ia_id single_step')"
-    printf '%s\n' "$ia_f"
-  fi
-}
-freeze_approvals() {
-  fa_id=$1 fa_mode=$2; fa_d=$(run_dir "$1"); fa_plan=$(hash_file "$fa_d/PLAN.md")
-  require_task_defects "$fa_id"
-  if [ "$(run_autonomy "$fa_id")" = supervised ]; then
-    fa_f=$(find_approval "$fa_id" plan "$fa_plan") || fail "supervised freeze requires a plan approval for this PLAN.md: run 'agent.sh request-approval $fa_id plan', relay it, then 'agent.sh approve $fa_id plan'"
-    printf '%s\n' "$fa_f"
-  fi
-  # K-6: the destructive / single_step approvals are not a freeze condition: they stop the run after the freeze,
-  # before IMPLEMENT (implement_approvals), bound to the frozen PLAN.md hash. The freeze validates the shape only.
-  if [ "$(plan_destructive "$fa_d/PLAN.md")" = yes ]; then
-    case "$(plan_migration_shape "$fa_d/PLAN.md")" in
-      expand_contract|single_step) ;;
-      *) fail "PLAN.md '## Data' is destructive without expand/contract steps: the step table needs a non-destructive step in phase expand, backfill or switch, and every destructive step in phase contract or deferred (a separate, later migration file after the stop-reading step). Only the user's explicit single-step approval allows one step: add 'single_step: yes' (the approval is requested after the freeze, before IMPLEMENT)" ;;
-    esac
-  fi
-  if [ -n "$(task_defect_fixes "$fa_d/TASK.md")" ]; then
-    fa_f=$(find_approval "$fa_id" scope "$fa_plan") || fail "TASK.md lists a pre-existing defect with 'decision: fix': changing behaviour nobody asked for needs the user's scope approval for this PLAN.md ('agent.sh request-approval $fa_id scope'), or list it as 'decision: report' and leave it unchanged"
-    printf '%s\n' "$fa_f"
-  fi
-  fa_bad=$(verify_intent_provenance "$fa_id" | tr '\n' ' ')
-  [ -z "$fa_bad" ] || fail "INTENT.md records the user's answer to scope decision(s) $fa_bad, but those words are in no captured user prompt, or are a blanket 'use your recommended option' for a decision other than report: an answer recorded as the user's must be what the user said, and a blanket answer never decides a fix (A105: record the decision as report, or ask for the user's scope approval)"
-  # D15: an exhausted fix budget ends in `terminate FAILED`; a refreeze (which starts a fresh budget) needs
-  # the user's explicit budget approval.
-  if [ "$fa_mode" = refreeze ] && [ "$(fix_rounds_used "$fa_id")" -gt "$(max_fix_rounds)" ]; then
-    fa_f=$(find_approval "$fa_id" budget "$fa_plan") || fail "the fix rounds are exhausted: only 'agent.sh terminate $fa_id FAILED', or a refreeze with the user's budget approval for this PLAN.md ('agent.sh request-approval $fa_id budget')"
-    printf '%s\n' "$fa_f"
-  fi
-  if [ "$fa_mode" = refreeze ] && section_key_present "$fa_d" freeze scope_paths; then
-    fa_old=$(section_value "$fa_d" freeze scope_paths); fa_new=''
-    for fa_p in $(scope_mappings "$fa_d/PLAN.md" | cut -d '|' -f1); do
-      printf '%s\n' "$fa_old" | tr ',' '\n' | grep -Fxq -- "$fa_p" || fa_new="$fa_new $fa_p"
-    done
-    if [ -n "$fa_new" ]; then
-      fa_f=$(find_approval "$fa_id" scope "$fa_plan") || fail "the amendment adds scope paths ($fa_new ): a scope approval for this PLAN.md is required ('agent.sh request-approval $fa_id scope')"
-      printf '%s\n' "$fa_f"
-    fi
-  fi
-}
-# Scope entries may carry `new: true` (the path does not exist yet at freeze). Checked for every path a
-# freeze adds: a `new: true` path that exists FAILS; a path without it that does not exist FAILS.
-scope_new_paths() { awk '/^scope:$/ { i=1; next } i && /^---$/ { exit } i && /^  - path: / { p=$0; sub(/^  - path: /, "", p); next } i && /^    new:[[:space:]]*true[[:space:]]*$/ { print p }' "$1"; }
-verify_scope_existence() { # ID freeze|refreeze
-  vse_d=$(run_dir "$1"); vse_old=''; [ "$2" != refreeze ] || vse_old=$(section_value "$vse_d" freeze scope_paths)
-  vse_new=$(scope_new_paths "$vse_d/PLAN.md")
-  for vse_p in $(scope_mappings "$vse_d/PLAN.md" | cut -d '|' -f1); do
-    if [ -n "$vse_old" ] && printf '%s\n' "$vse_old" | tr ',' '\n' | grep -Fxq -- "$vse_p"; then continue; fi
-    if printf '%s\n' "$vse_new" | grep -Fxq -- "$vse_p"; then
-      [ ! -e "$root/$vse_p" ] || fail "scope path $vse_p is marked 'new: true' but already exists"
-    else
-      [ -e "$root/$vse_p" ] || fail "scope path $vse_p does not exist; mark it 'new: true' when the task creates it"
-    fi
-  done
-}
-# A200 (item 9): the expected form of a refreeze and of an amend, with an example, shown by the errors that refuse them.
-refreeze_format_hint() { # ID
-  printf 'Expected: agent.sh refreeze %s <AMENDMENT-FILE-NAME>, where the file exists at .agents/runs/%s/amendments/<NNN>.md, is new (one amendment, one refreeze) and says what changed and why. Example: write amendments/001.md ("Adds AC-4 to PLAN scope: the footer link"), edit PLAN.md to match, then: agent.sh refreeze %s 001.md' "$1" "$1" "$1"
-}
-amend_format_hint() { # ID
-  printf 'Expected: agent.sh amend %s with a form on stdin, one key per line: reason: <what is wrong, 20+ characters> / fix_scope: <comma-separated paths the fix may touch> / fix_instruction: <what to change, 20+ characters> / authorized_by: <who allowed reopening> / plan_change: yes|no (optional). Example: printf "reason: footer link points to the old URL\\nfix_scope: src/footer.html, src/footer.test.js\\nfix_instruction: point the footer link to /docs and update its test\\nauthorized_by: user message 2026-10-28\\n" | agent.sh amend %s' "$1" "$1"
-}
-freeze() {
-  id=$1; require_run "$id"; db_guard_check "$id"; dir=$(run_dir "$id"); for f in TASK.md PLAN.md RUN.yaml; do [ -f "$dir/$f" ] || fail "missing $f"; done
-  require_open_run "$id"
-  [ "$(run_state "$dir")" != CODE_DONE ] || fail "cannot freeze completed run: $id"; [ "$(baseline_status "$dir")" = captured ] || fail "baseline required before freeze: $id"
-  enforce_task_branch "$id"
-  verify_seal "$id"
-  verify_task_source_status "$id"
-  require_scope_mapping "$id"
-  [ "$(task_type "$dir/TASK.md")" != invalid ] || fail "$(task_type_refusal "$dir/TASK.md")"
-  freeze_hash_present "$dir" || require_task_copy_matches_source "$id"
-  require_task_boundaries "$id"   # A202
-  require_ac_coverage "$id"
-  # A112: QA's visual focus runs for every non-TRIVIAL plan with a UI part; its same-origin-write allowance is declared
-  # in the plan, now, not found missing at QA time (INCONCLUSIVE, then an amendment and a second approval).
-  if gates_enforced "$id" && plan_section_present "$dir/PLAN.md" UI && [ "$(pipeline_class "$id")" != TRIVIAL ] \
-    && ! grep -Eq '^[[:space:]]*([-*][[:space:]]*)?`?visual_writes:[[:blank:]]*[^[:space:]]' "$dir/PLAN.md"; then
-    fail "PLAN.md has a ## UI section and QA's visual focus will run, but no 'visual_writes: <how the data the page writes is thrown away>' line: add it under ## UI (write 'visual_writes: none, <why>' if the page sends no same-origin writes) and freeze again; without it QA ends INCONCLUSIVE and needs a plan amendment (A112)"
-  fi
-  # A destructive data change makes the task CRITICAL (D9/D14), whatever was classified.
-  if gates_enforced "$id" && [ "$(plan_destructive "$dir/PLAN.md")" = yes ] && [ "$(pipeline_class "$id")" != CRITICAL ]; then
-    fz_prev=$(pipeline_class "$id")
-    set_run_value "$id" pipeline classification CRITICAL; set_run_value "$id" pipeline review "$(pipeline_value CRITICAL review)"
-    ledger_append "$id" classify "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "CRITICAL (forced: destructive data change; was $fz_prev)"
-    echo "classification forced to CRITICAL: PLAN.md declares a destructive data change"
-  fi
-  pipeline_check "$id"
-  fz_mode=freeze
-  if freeze_hash_present "$dir"; then
-    [ "${2:-}" = refreeze ] && [ -n "${3:-}" ] || fail "existing freeze requires an explicit amendment. $(refreeze_format_hint "$id")"
-    case "$3" in */*|*..*) fail "invalid amendment name: $3 (a file name inside the run's amendments/ folder, no directory part). $(refreeze_format_hint "$id")" ;; esac
-    [ -f "$dir/amendments/$3" ] || fail "amendment $3 not found at $dir/amendments/$3. $(refreeze_format_hint "$id")"
-    ! grep -F "event=refreeze " "$(ledger_file "$id")" 2>/dev/null | grep -Fq "detail=amendment $3" || fail "amendment $3 was already used for a refreeze; write a new amendment"
-    fz_mode=refreeze
-  fi
-  verify_scope_existence "$id" "$fz_mode"
-  # A79: the mandatory `## Assumptions` registers are well-formed and no unverified high-risk assumption stands
-  # without the user's `accept` answer (the missing ones are recorded as NEEDS_INPUT questions).
-  verify_assumptions "$id" ask >/dev/null
-  if gates_enforced "$id"; then require_mutation_budget "$id"; fi
-  if gates_enforced "$id"; then verify_plan_validation "$id"; verify_qa_plan_bound "$id"; fi
-  # A197: a document path in scope (design_docs, knowledge_scope_root, verification.doc_paths) without a tdd_exemption has no RED/GREEN to show;
-  # that surfaced only after the implementer finished (amendment, refreeze, a rewritten QA plan). Freeze does not stop: one line, with the fix.
-  check_type_exemptions "$dir"   # A202
-  fz_nd=''
-  for fz_p in $(scope_mappings "$dir/PLAN.md" 2>/dev/null | cut -d '|' -f1); do
-    is_doc_path "$fz_p" || continue
-    [ -z "$(exempted_path "$dir/PLAN.md" "$fz_p")" ] || continue
-    fz_nd="$fz_nd $fz_p"
-  done
-  if [ -n "$fz_nd" ]; then
-    echo "warning: PLAN.md scope has document path(s) without tdd_exemption:$fz_nd; the implementer cannot show RED/GREEN for a document, so add 'tdd_exemption: <specific reason, 20+ characters>' to each (or a test that proves it, for example design-sync finding the drift first and then passing clean); a plan fixed later costs an amendment and a refreeze (A197)" >&2
-    fz_ba=$(batch_answer_row "$id" exempt)
-    [ -z "$fz_ba" ] || echo "note: the user answered the batch pre-flight question $(printf '%s' "$fz_ba" | cut -f3) for $id with option $(printf '%s' "$fz_ba" | cut -f1) (a: document paths take a tdd_exemption with a specific reason; b: each needs a test); the plan follows it (A200)" >&2
-  fi
-  case "$(pipeline_class "$id")" in COMPLEX|CRITICAL)
-    plan_rollback_present "$dir/PLAN.md" || echo "warning: PLAN.md '## Risk' has no rollback note; a $(pipeline_class "$id") plan carries 'rollback: <feature flag, how a migration is reversed, the first step if production breaks>' there, a few lines at most (A202)" >&2 ;;
-  esac
-  # A202: a `kind:` the script does not agree with is told, and the path is treated as code (the claim never lowers a gate or the bound).
-  fz_kd=$(scope_kind_rows "$dir/PLAN.md" | awk -F'\t' '$2 != "-" && $2 != $3 && !($2 == "doc" && $3 == "content") { printf " %s (claimed %s, derived %s)", $1, $2, $3 }')
-  if [ -n "$fz_kd" ]; then
-    echo "warning: PLAN.md scope kind differs from the script's own:$fz_kd; the path is treated as code in the scope bound and in the gate re-run (a plan's kind is a claim; correct it or drop it)" >&2
-  fi
-  if fz_i=$(plan_entries "$dir/PLAN.md" information | cut -c1-60 | tr '\n' ';') && [ -n "$fz_i" ]; then
-    echo "note (information only): PLAN.md ## Contracts mentions an entry point without new input (${fz_i%;}); if one takes new or changed external input, state it in the bullet and add a ## Validation line (A162)" >&2
-  fi
-  if [ -z "$(plan_entry_points "$dir/PLAN.md")" ] && fz_c=$(validation_candidates "$id" | cut -d'|' -f2 | sort -u | tr '\n' ' ') && [ -n "$fz_c" ]; then
-    echo "note (information only): ${fz_c% } look like entry-point code, but PLAN.md ## Contracts declares none; if one takes external input, declare it there with a ## Validation line (A162)" >&2
-  fi
-  fz_lang=$(for fz_f in TASK.md PLAN.md EVIDENCE.md QA_PLAN.md; do [ ! -f "$dir/$fz_f" ] || printf '%s\n' "$dir/$fz_f"; done)
-  # shellcheck disable=SC2086
-  fz_hits=$(language_scan $fz_lang) || fail "$(language_fail_text "$(printf '%s' "$fz_hits" | tr '\n' ' ')")"
-  fz_approvals=''
-  if gates_enforced "$id"; then fz_approvals=$(freeze_approvals "$id" "$fz_mode"); fi
-  fz_oldplan=$(section_value "$dir" freeze plan_sha256)
-  tmp=$dir/RUN.yaml.tmp; replace_hashes "$dir" "$tmp"
-  if [ "$fz_mode" = refreeze ] && gates_enforced "$id"; then
-    [ "$(sed -n '/^freeze:$/,/^[^ ]/p' "$dir/RUN.yaml" | grep -v scope_paths)" != "$(sed -n '/^freeze:$/,/^[^ ]/p' "$tmp" | grep -v scope_paths)" ] || { rm -f "$tmp"; fail "refreeze changes nothing: an amendment must change the task, evidence, plan, QA plan or classification"; }
-  fi
-  mv "$tmp" "$dir/RUN.yaml"; sv_reset; set_task_source_revision "$dir"
-  if gates_enforced "$id"; then
-    if [ "$fz_mode" = refreeze ]; then refreeze_lifecycle "$id" "$3" "$fz_oldplan"
-    else ledger_append "$id" freeze "$(section_value "$dir" handoff state)" "$(section_value "$dir" handoff state)" "$(section_value "$dir" freeze pipeline)"; fi
-    for fz_a in $fz_approvals; do consume_approval "$id" "$fz_a"; done
-  fi
-  echo "freeze recorded: $id"
-  if [ "$fz_mode" = refreeze ] && gates_enforced "$id" && [ "$(plan_destructive "$dir/PLAN.md")" = yes ]; then
-    if [ "$(section_value "$dir" handoff state)" = PLANNED ] && [ "$fz_oldplan" != "$(section_value "$dir" freeze plan_sha256)" ]; then
-      echo "refreeze: PLAN.md has a new hash; an earlier destructive / single_step approval was bound to the old one and no longer counts. The run is back at PLANNED: the implementer cannot work, and IMPLEMENTED/CODE_DONE are unreachable, until a destructive approval for this PLAN.md exists ('agent.sh request-approval $id destructive', then 'agent.sh handoff $id IMPLEMENTING')"
-    fi
-  fi
 }
 
 # --- Task-source contract (projection hash; see WORKFLOW.md "Task-source contract") --
@@ -2216,14 +1692,6 @@ task_source_contract_hash() {
       for (i = 1; i <= n; i++) print kept[i]
     }
   ' "$2" | sha256
-}
-set_task_source_revision() {
-  dir=$1 type=$(section_value "$1" task_source type)
-  case "$type" in
-    local_markdown) source=$(local_task_source "$dir") || return 1; replace_section_value "$dir" task_source revision "$(task_source_contract_hash "$(basename "$dir")" "$source")" "$dir/RUN.yaml.tmp" && mv "$dir/RUN.yaml.tmp" "$dir/RUN.yaml"; sv_reset ;;
-    none) [ "$(section_value "$dir" task_source revision)" = not_applicable ] || fail "task source none requires revision: not_applicable" ;;
-    *) fail "task source adapter unavailable: ${type:-missing}" ;;
-  esac
 }
 lifecycle_folder_status() {
   case "$(basename "$(dirname "$1")")" in
@@ -2535,13 +2003,6 @@ paths_executable() { # stdin: one path per line -> " p1 p2" of the paths matchin
   while IFS= read -r pe_p; do [ -z "$pe_p" ] || ! path_matches "$pe_p" "$pe_globs" || pe_hits="$pe_hits $pe_p"; done
   printf '%s' "$pe_hits"
 }
-verify_classification() { # ID
-  vc_id=$1
-  gates_enforced "$vc_id" && pipeline_class_valid "$(pipeline_class "$vc_id")" || return 0
-  [ "$(pipeline_class "$vc_id")" = TRIVIAL ] || return 0
-  vc_hits=$(task_changed_paths "$vc_id" | paths_executable)
-  [ -z "$vc_hits" ] || fail "classification blocked: run $vc_id is TRIVIAL but its diff changes executable code:${vc_hits}. TRIVIAL covers text and configuration only. Reclassify: write the evidence and QA plan the new class requires, 'agent.sh classify $vc_id STANDARD' (or higher), then amend and 'agent.sh refreeze $vc_id <AMENDMENT>'."
-}
 
 # --- Database guard (A40) -----------------------------------------------------------------------
 # No agent touches a database file that is not a test suite's own throwaway database: not to read, copy,
@@ -2572,35 +2033,6 @@ hook_config() {
 hook_knob() {
   hn_v=$(dec0 "$(cfg "hook.$1" "$2")"); case "$hn_v" in ''|*[!0-9]*) hn_v=$2 ;; esac
   [ "$hn_v" -ge "$3" ] || hn_v=$3; [ "$hn_v" -le "$4" ] || hn_v=$4; printf '%s\n' "$hn_v"
-}
-db_file_meta() { stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1" 2>/dev/null || echo unknown; }
-db_snapshot() { # "path|size mtime" per database file inside the project, sorted
-  ds_globs=$(db_config paths)
-  set -f; set --
-  for ds_g in $ds_globs; do
-    case "$ds_g" in */*) set -- "$@" -o -path "$root/${ds_g#\*\*/}" ;; *) set -- "$@" -o -name "$ds_g" ;; esac
-  done
-  set +f
-  [ $# -gt 0 ] || return 0
-  shift
-  find "$root" \( -name .git -o -name node_modules -o -name .agents \) -prune -o -type f \( "$@" \) -print 2>/dev/null | sort |
-    while IFS= read -r ds_f; do
-      [ -n "$ds_f" ] || continue
-      printf '%s|%s\n' "${ds_f#"$root"/}" "$(db_file_meta "$ds_f")"
-    done
-}
-db_baseline_file() { printf '%s/.agents/local/db/%s.snapshot\n' "$root" "$1"; }
-db_guard_baseline() { # ID
-  dg_f=$(db_baseline_file "$1"); mkdir -p "$(dirname "$dg_f")" 2>/dev/null || return 0
-  db_snapshot > "$dg_f.tmp" 2>/dev/null && mv "$dg_f.tmp" "$dg_f"
-}
-db_guard_check() { # ID: fails when a database file changed, appeared or vanished since the run started
-  dg_f=$(db_baseline_file "$1")
-  [ -f "$dg_f" ] || return 0   # a run started before the guard has no baseline
-  dg_now=$(db_snapshot); dg_then=$(cat "$dg_f")
-  [ "$dg_now" != "$dg_then" ] || return 0
-  dg_diff=$(printf '%s\n%s\n' "$dg_then" "$dg_now" | sort | uniq -u | cut -d '|' -f1 | sort -u | tr '\n' ' ')
-  fail "database guard: a database file changed during run $1 (${dg_diff% }). No agent touches a database that is not a test suite's own throwaway database, and no destructive step runs before the user's approval in any environment. Restore the file(s), then record the incident with 'agent.sh ledger-note $1 <TEXT>'; the run cannot continue until the baseline matches"
 }
 
 # --- QA plan bound to the plan (A42) -------------------------------------------------------------
@@ -2664,11 +2096,6 @@ plan_validation_missing() { # PLAN.md -> the entry points without a complete `##
   plan_entry_points "$1" | while IFS= read -r pv_n; do
     printf '%s\n' "$pv_l" | grep -F -- "$pv_n" | grep -i 'accepts' | grep -i 'limits' | grep -Eiq 'rejected at' || printf '%s\n' "$pv_n"
   done
-}
-verify_plan_validation() { # ID: freeze refuses a plan with an entry point and no validation summary line for it
-  vv_f=$(run_dir "$1")/PLAN.md; [ -f "$vv_f" ] || return 0
-  vv_m=$(plan_validation_missing "$vv_f" | tr '\n' ',' | sed 's/,$//;s/,/, /g')
-  [ -z "$vv_m" ] || fail "PLAN.md ## Contracts declares an entry point that takes external input, but ## Validation has no complete line for: $vv_m. Write one line per entry point: '- <entry point>: accepts <what>; limits <limits>; rejected at <where, server side>' (A162)"
 }
 qa_invalid_missing() { # PLAN.md QA_PLAN.md -> the entry points with no [invalid-input] scenario naming them
   plan_entry_points "$1" | while IFS= read -r qi_n; do
@@ -2774,26 +2201,6 @@ verify_design_sync() { # ID
   [ "$vs_need" = no ] || { echo "the plan changes what a design document describes: write design/SYNC.md (design-sync) or record 'design-sync: SKIPPED (<reason>)' in VERIFY.md"; return 1; }
 }
 
-# --- Scratch worktrees are removed before CODE_DONE (A53, C-18) -----------------------------------
-# Evidence worktrees live under $TMPDIR (or /tmp); a specialist that created one removes it. A scratch worktree
-# still registered when the run reaches CODE_DONE blocks it, with the paths and the way to remove them.
-verify_no_scratch_worktrees() {
-  vw_t=${TMPDIR:-/tmp}; vw_t=${vw_t%/}; vw_t=${vw_t#/private}
-  vw_extra=''
-  vw_list=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
-  vw_main=$(printf '%s\n' "$vw_list" | sed -n 1p); vw_main=${vw_main#/private}
-  for vw_p in $vw_list; do
-    vw_n=${vw_p#/private}
-    [ "$vw_n" != "${root#/private}" ] || continue
-    # A169: the main working tree and the worktrees proofline made for runs (.agents/local/worktrees/<ID>) are not scratch
-    [ "$vw_n" != "$vw_main" ] || continue
-    case "$vw_n" in "$vw_main"/.agents/local/worktrees/*) continue ;; esac
-    case "$vw_n" in
-      "$vw_t"/*|/tmp/*|/var/folders/*) vw_extra="$vw_extra $vw_p" ;;
-    esac
-  done
-  [ -z "$vw_extra" ] || fail "CODE_DONE blocked: scratch git worktrees created during the run are still registered:$vw_extra. Remove each ('git worktree remove --force <path>'; the lead may run it) and run it again"
-}
 
 # --- Defect tasks carry a debug-proof result (A35, A200). -----------------------------------------
 # A STANDARD-or-higher task TYPED as a defect must have a `reports/NNN-debug.md` (reproduction, root cause,
@@ -2811,107 +2218,7 @@ task_type() { # TASK.md -> the type
     END { if (n > 1) print "?"; else if (n == 1) print r }' "$1" 2>/dev/null)
   case "$tt_v" in ''|feature) echo feature ;; defect) echo bug ;; bug|refactor|content|docs|chore) echo "$tt_v" ;; *) echo invalid ;; esac
 }
-task_type_refusal() { # TASK.md: why an unreadable type stops the run
-  printf 'the task type in %s cannot be read (front matter `type:` must be one of feature, bug, refactor, content, docs, chore, optionally followed by a # comment); an unreadable type gets no exemption and no lighter path, so the user corrects it (A202)' "$1"
-}
-defect_words_default='bug defect regression'
-task_defect_label() { # TASK.md -> the first type or label word that makes the task a defect task, else nothing
-  awk -v words="$(cfg review.defect_words "$defect_words_default")" '
-    BEGIN { n = split(words, W, " ") }
-    function hit(s,   i, t) { t = " " tolower(s) " "; gsub(/[^a-z]+/, " ", t); for (i = 1; i <= n; i++) if (index(t, " " W[i] " ")) return W[i]; return "" }
-    /<!--/ { c = 1 } c { if (/-->/) c = 0; next }
-    !fm && !seen && $0 == "---" { fm = 1; next }
-    fm && $0 == "---" { fm = 0; next }
-    /^##/ { seen = 1 }
-    fm { if (tolower($0) ~ /^[[:space:]]*(type|kind|labels?)[[:space:]]*:/ && (x = hit($0)) != "") { print x; exit } ; next }
-    tolower($0) ~ /^[[:space:]]*[*_]*(type|kind|labels?)[*_]*[[:space:]]*:/ { if ((x = hit($0)) != "") { print x; exit } }
-    /^##[#]?[[:space:]]/ { h = tolower($0); sub(/^#+[[:space:]]+/, "", h); sub(/[[:space:]]+$/, "", h); sec = (h == "labels" || h == "type" || h == "suggested class") ? h : ""; next }
-    sec == "labels" || sec == "type" { if ((x = hit($0)) != "") { print x; exit } }
-    sec == "suggested class" { if ((x = hit($0)) != "") { print x; exit } }' "$1" 2>/dev/null
-}
-verify_debug_result() { # ID
-  vd_id=$1; vd_d=$(run_dir "$vd_id")
-  gates_enforced "$vd_id" && pipeline_class_valid "$(pipeline_class "$vd_id")" || return 0
-  [ -f "$vd_d/TASK.md" ] || return 0
-  # A202: type bug is the trigger; a bug is never lighter because it was classified TRIVIAL (classify refuses that too)
-  vd_hit=''; [ "$(task_type "$vd_d/TASK.md")" != bug ] || vd_hit='type: bug'
-  [ "$(pipeline_class "$vd_id")" != TRIVIAL ] || [ -n "$vd_hit" ] || return 0
-  [ -n "$vd_hit" ] || vd_hit=$(task_defect_label "$vd_d/TASK.md")
-  if [ -z "$vd_hit" ] && [ -n "$(task_defect_fixes "$vd_d/TASK.md")" ]; then vd_hit='decision: fix'; fi
-  [ -n "$vd_hit" ] || return 0
-  ls "$vd_d"/reports/[0-9][0-9][0-9]-debug.md >/dev/null 2>&1 && return 0
-  fail "IMPLEMENTED blocked: the task is typed or labelled as a defect ('$vd_hit' in its type, labels, suggested class or a decision: fix entry) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) (this always works, also after freeze); an UNRELATED pre-existing defect must instead be declared under '## Pre-existing defects' as '- <path:symbol>: <what> -- decision: report' BEFORE freeze: after freeze that needs an amendment and a refreeze (maybe another plan approval), so prefer the debug report"
-}
 
-# --- Handoff ladder: PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE ------------
-record_handoff() {
-  id=$1 phase=$2; require_run "$id"; dir=$(run_dir "$id")
-  enforce_task_branch "$id"; require_open_run "$id"
-  case "$phase" in IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE) ;; *) fail "invalid handoff phase";; esac
-  allow_knowledge=0; [ "$phase" = DONE ] && allow_knowledge=1
-  verify_freshness "$id"; verify_scope "$id" "$allow_knowledge"
-  verify_seal "$id"
-  patch=$(task_patch_fingerprint "$id")
-  current=$(section_value "$dir" handoff state)
-  hd_detail='' hd_approvals=''
-  case "$phase" in
-    IMPLEMENTING)
-      case "$current" in
-        PLANNED) if gates_enforced "$id"; then hd_approvals=$(implement_approvals "$id"); fi ;;
-        IMPLEMENTING) ;;
-        IMPLEMENTED) gates_enforced "$id" || fail "illegal handoff transition: $current -> $phase"
-          [ "$execution_role" = lead ] || fail "only the lead may reopen implementation after a gate finding (diagnosis comes first)"
-          reopen_for_fix "$id"; hd_detail="fix_round=$(fix_rounds_used "$id")" ;;
-        *) fail "illegal handoff transition: $current -> $phase";;
-      esac ;;
-    IMPLEMENTED)
-      case "$current" in IMPLEMENTING|IMPLEMENTED) ;; *) fail "illegal handoff transition: $current -> $phase" ;; esac
-      verify_classification "$id"
-      db_guard_check "$id"
-      verify_debug_result "$id"
-      verify_worker_evidence "$id"
-      verify_mutation_ownership "$id" 1
-      verify_fix_bound "$id"
-      build_record_auto "$id"
-      set_run_value "$id" handoff implemented_patch_sha256 "$patch"
-      set_run_value "$id" handoff code_done_patch_sha256 PENDING ;;
-    CODE_DONE)
-      case "$current" in IMPLEMENTED|CODE_DONE) ;; *) fail "illegal handoff transition: $current -> $phase";; esac
-      [ "$(section_value "$dir" handoff implemented_patch_sha256)" = "$patch" ] || fail "CODE_DONE blocked: the application tree changed since IMPLEMENTED"
-      verify_classification "$id"
-      db_guard_check "$id"
-      verify_no_scratch_worktrees
-      [ "$(section_value "$dir" execution awaiting_input)" != true ] || fail "CODE_DONE blocked: questions are pending ('agent.sh questions $id')"
-      if gates_enforced "$id"; then
-        verify_mutation_ownership "$id"
-        verify_required_gates "$id" reuse "CODE_DONE blocked"
-      fi
-      set_run_value "$id" handoff code_done_patch_sha256 "$patch" ;;
-    DONE)
-      case "$current" in CODE_DONE|DONE) ;; *) fail "illegal handoff transition: $current -> $phase";; esac
-      [ "$(section_value "$dir" handoff code_done_patch_sha256)" = "$patch" ] || fail "DONE blocked: CODE_DONE stale or missing"
-      db_guard_check "$id"
-      verify_run_language "$id"
-      verify_knowledge_scope "$id"
-      scan_knowledge_secrets "$id"
-      verify_lifecycle_gates "$id"
-      if section_key_present "$dir" completion_report required; then
-        ks=$(section_value "$dir" execution knowledge_state)
-        case "$ks" in KNOWLEDGE_DONE|not_applicable) ;; *) fail "DONE blocked: knowledge transaction not recorded complete (see 'agent.sh knowledge-done')" ;; esac
-        verify_completion_report "$id"
-      fi ;;
-  esac
-  set_run_value "$id" handoff state "$phase"
-  for hd_a in $hd_approvals; do consume_approval "$id" "$hd_a"; done
-  if [ "$phase" = CODE_DONE ]; then set_run_value "$id" execution state CODE_DONE; fi
-  if gates_enforced "$id"; then
-    ledger_append "$id" "handoff:$phase" "$current" "$phase" "$hd_detail"
-    case "$phase" in IMPLEMENTED|CODE_DONE) tier_record "$id" >/dev/null ;; esac
-  fi
-  [ "$phase" != DONE ] || [ "$current" = DONE ] || metrics_run "$id" "done"
-  [ "$phase" != CODE_DONE ] || status_block_update "$id" code-done
-  echo "handoff recorded: $id $phase${hd_detail:+ ($hd_detail)}"
-}
 verify_handoff() {
   id=$1 allow_knowledge=${2:-0}; require_run "$id"; dir=$(run_dir "$id")
   verify_scope "$id" "$allow_knowledge"; patch=$(task_patch_fingerprint "$id"); state=$(section_value "$dir" handoff state)
@@ -3742,64 +3049,6 @@ gate_fail_hint() {
 fix_paths_lines() { # ID
   fl_ff=$(latest_finding_file "$1"); [ "$(gate_field "${fl_ff:-/dev/null}" result 2>/dev/null)" = fail ] || return 0
   fix_allowed_paths "$1" | sed 's/^/fix_path=/'
-}
-# A fix stays inside the union fix_scope of every failing record on the failing content (A123: plus the plan-scope
-# paths sharing an acceptance criterion with a failing finding).
-verify_fix_bound() {
-  g_id=$1; gates_enforced "$g_id" || return 0
-  g_f=$(latest_finding_file "$g_id"); [ -n "$g_f" ] || return 0
-  g_patch=$(task_patch_fingerprint "$g_id")
-  [ "$g_patch" != "$(gate_field "$g_f" patch_sha256)" ] || fail "no application/test change since the finding in ${g_f##*/}: a fix must change the tree before it can be re-reviewed"
-  g_scope=$(fix_scope_union "$g_id" "$g_f")
-  [ "$(scope_entry_paths "$g_scope" | tr -d '\n')" != '*' ] || return 0
-  g_sib=$(fix_scope_siblings "$g_id" "$g_scope")
-  g_delta=$( { cat "${g_f%.yaml}.manifest"; patch_manifest "$g_id"; } | sed '/^$/d' | sort | uniq -u | cut -d '|' -f1 | sort -u )
-  g_bad=''
-  for g_p in $g_delta; do
-    scope_entry_paths "$g_scope" | grep -Fxq -- "$g_p" && continue
-    printf '%s\n' "$g_sib" | grep -Fxq -- "$g_p" && continue
-    # A fix needs its regression test (tdd): a test path of the frozen scope is always inside the fix.
-    if printf '%s\n' "$(section_value "$(run_dir "$g_id")" freeze scope_paths)" | tr ',' '\n' | grep -Fxq -- "$g_p" \
-       && path_matches "$g_p" '**/test/** **/tests/** **/__tests__/** **/spec/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*'; then continue; fi
-    g_bad="$g_bad $g_p"
-  done
-  [ -z "$g_bad" ] || fail "fix changed paths outside the finding's fix_scope (${g_f##*/}):$g_bad
-allowed fix paths (finding paths plus frozen plan scope paths sharing an acceptance criterion with them):
-$(fix_allowed_paths "$g_id" | sed 's/^/  /')
-a path the plan never scoped needs the user's scope approval: the lead asks (agent.sh ask, D13 block), then amends PLAN.md and runs agent.sh refreeze"
-}
-reopen_for_fix() {
-  g_id=$1; g_any=no
-  for g_g in $(required_gates "$g_id"); do [ "$(gate_status "$g_id" "$g_g")" != fail ] || g_any=yes; done
-  [ "$g_any" = yes ] || fail "no open gate finding on the current content: nothing to fix, and a run does not return to IMPLEMENTING without one"
-  g_used=$(fix_rounds_used "$g_id"); g_max=$(max_fix_rounds)
-  [ "$g_used" -le "$g_max" ] || fail "fix rounds exhausted ($g_used failing rounds, max_fix_rounds $g_max): end the run with 'agent.sh terminate $g_id FAILED' (a refreeze with a new budget needs the user's 'budget' approval)"
-  set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
-  set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
-}
-# K-6: a refreeze that changes PLAN.md of a destructive plan while the run is IMPLEMENTING or IMPLEMENTED sends
-# the run back to PLANNED, so the one gate (PLANNED -> IMPLEMENTING, implement_approvals) asks again for the
-# destructive (and single_step) approval bound to the new hash. Nothing else changes: the fix budget and the
-# worker evidence follow the existing refreeze rules (evidence bound to the old plan hash no longer counts).
-refreeze_lifecycle() {
-  g_id=$1 g_amend=$2 g_oldplan=${3:-}; g_d=$(run_dir "$g_id"); g_hs=$(section_value "$g_d" handoff state); g_to=$g_hs
-  case "$g_hs" in
-    IMPLEMENTED)
-      set_run_value "$g_id" handoff state IMPLEMENTING
-      set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
-      set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
-      g_to=IMPLEMENTING ;;
-  esac
-  case "$g_to" in
-    IMPLEMENTING)
-      if [ "$(plan_destructive "$g_d/PLAN.md")" = yes ] && [ "$g_oldplan" != "$(section_value "$g_d" freeze plan_sha256)" ]; then
-        set_run_value "$g_id" handoff state PLANNED
-        set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
-        set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
-        g_to=PLANNED
-      fi ;;
-  esac
-  ledger_append "$g_id" refreeze "$g_hs" "$g_to" "amendment $g_amend"
 }
 
 # Tree-attested mutation ownership under orchestrated topology (dispatch.sh brackets the implementer
@@ -4747,12 +3996,6 @@ language_check() {
   if [ "$lk_rc" = 1 ]; then printf '%s\n' "$(language_fail_text "line ${lk_hit##*:}")"; return 1; fi
   return 0
 }
-# verify_run_language ID: every run artifact a person or role wrote; raw runtime logs are exempt.
-verify_run_language() {
-  vrl_d=$(run_dir "$1"); vrl_files=$(find "$vrl_d" -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.json' \) ! -path "$vrl_d/dispatch/*" ! -path "$vrl_d/scratch/*" ! -path "$vrl_d/gates/*" ! -name 'dispatch-*' ! -name 'LEDGER.log' | sort)
-  # shellcheck disable=SC2086
-  vrl_hits=$(language_scan $vrl_files) || fail "$(language_fail_text "$(printf '%s' "$vrl_hits" | tr '\n' ' ')")"
-}
 
 # --- Submission: how a specialist's result enters a run (D12) ----------------------------------
 # `submit` takes facts (result, confidence, findings, artifact) and builds the protocol header itself: the
@@ -5125,13 +4368,6 @@ mutation_budget() {
   # the override counts only with the raise-budget ledger row that wrote it (a file alone could be written by any role)
   grep -q "event=raise-budget .*test_trust.mutation_budget $mb_o for this run" "$(ledger_file "$1")" 2>/dev/null || mb_o=0
   if [ "$mb_o" -gt "$mb_b" ]; then echo "$mb_o"; else echo "$mb_b"; fi
-}
-# Freeze: criteria above the budget are one question to the user now, not a BLOCKED REVIEW_TESTS later.
-require_mutation_budget() {
-  rmb_n=$(plan_test_acs "$(run_dir "$1")/PLAN.md"); rmb_b=$(mutation_budget "$1")
-  [ "$rmb_n" -gt "$rmb_b" ] || return 0
-  rmb_r=$(latest_request "$1" mutation_budget) && [ "$(gate_field "$rmb_r" bound)" = "$(approval_bound "$1" mutation_budget)" ] || request_approval "$1" mutation_budget
-  fail "PLAN ## Tests names $rmb_n criteria but the mutation budget is $rmb_b (one claim mutant per criterion is the minimum): relay the approval request above once; after the user's approval run 'agent.sh raise-budget $1 $rmb_n' and freeze again (or cut criteria from the plan)"
 }
 # raise-budget ID N: a budget above config for this run only, with the user's mutation_budget approval. It also
 # resolves a REVIEW_TESTS BLOCKED on the budget: raise, then dispatch the reviewer again.
@@ -6287,8 +5523,6 @@ assumption_prompt_accepts() {
 # user's own words (an answer, an approval) are kept verbatim in a run file; the language check exempts these lines.
 epoch_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$1"; }
 quote_block() { sed 's/^\(.\)/> \1/; s/^$/>/'; }
-# unquote_block: the inverse of quote_block (tests and readers get the user's text back byte for byte).
-unquote_block() { sed 's/^> //; s/^>$//'; }
 # answer ID N [--captured|--amend]: record the answer to question N. --captured takes the NEWEST user message captured
 # after the question was asked (A171; A171 replaces "oldest unused": a later correction by the user is what counts) and says
 # which message it took. --amend replaces a recorded answer with a newer captured user message: the old answer file is kept,
@@ -6642,17 +5876,6 @@ metrics_step() { # ID ROLE FOCUS OUTCOME
 task_size_of() {
   awk '/^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^size:/ { sub(/^size:[ \t]*/, ""); print; exit }' "$(run_dir "$1")/TASK.md" 2>/dev/null | tr -cd 'A-Za-z0-9 ._-' | cut -c1-16
 }
-metrics_run() { # ID OUTCOME
-  mr_first=$(head -1 "$(ledger_file "$1")" 2>/dev/null | sed -n 's/.* epoch=\([0-9]*\) .*/\1/p'); mr_dur=-
-  [ -z "$mr_first" ] || mr_dur=$(( $(now_epoch) - mr_first ))
-  metrics_line "$1" lead "$(cfg runtime.lead claude)" - "$mr_dur" "$2"
-  mr_del=$(decision_files "$1" | grep -c . || true); mr_fr=$(fix_rounds_used "$1" 2>/dev/null || echo -)
-  # A202: the estimate (task size) and the frozen scope path count, from the task and RUN.yaml, never from agent text
-  mr_sz=$(task_size_of "$1" | tr -d ' ' | tr '[:lower:]' '[:upper:]'); mr_sp=$(section_value "$(run_dir "$1")" freeze scope_paths 2>/dev/null | tr ',' '\n' | grep -c . || true)
-  metrics_json run "$1" lead - - "$(cfg runtime.lead claude)" - "$mr_dur" - - - - - "$mr_del" "$mr_fr" "$2" "$mr_sz" "$mr_sp"
-  hook_time "$1" 2>/dev/null || :   # A171: the hooks' timings spooled so far reach the ledger (this process holds the locks) before the report counts them
-  sh "$scripts/friction.sh" report "$1" >/dev/null 2>&1 || :   # A149: the friction report is built at run end, never sent unasked
-}
 # metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
 #   DELEGATIONS FIX_ROUNDS RESULT [SIZE SCOPE_PATHS] -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
 #   by the control plane from its own state and the runtime's structured output; no model-written text is copied in.
@@ -6912,134 +6135,7 @@ next_without_run() {
   printf 'task=none\nnext=agent.sh start <ID> [--title "<title>"] [--task-file <path>]\nreason=obtain a canonical task from task-author or an adapter import, then start it\n'
 }
 
-# --- Reopen a completed run (the only sanctioned way) ---------------------------------------
-amend_run() {
-  g_id=$1; require_run "$g_id"; g_d=$(run_dir "$g_id"); require_lead
-  gates_enforced "$g_id" || fail "amend requires the lifecycle_gates policy: run $g_id has none, so it cannot be reopened; open a new task"
-  require_open_run "$g_id"
-  [ "$(run_state "$g_d")" = CODE_DONE ] || fail "amend reopens a CODE_DONE/DONE run only (execution.state is '$(run_state "$g_d")'); before CODE_DONE, findings go through the gates and the fix loop"
-  enforce_task_branch "$g_id"; verify_seal "$g_id"; verify_freshness "$g_id" >/dev/null; verify_handoff "$g_id" 1 >/dev/null
-  g_scratch=$(mktemp "${TMPDIR:-/tmp}/agent-amend.XXXXXX"); cat > "$g_scratch"
-  g_reason=$(field_from "$g_scratch" reason); g_fscope=$(field_from "$g_scratch" fix_scope); g_finstr=$(field_from "$g_scratch" fix_instruction); g_auth=$(field_from "$g_scratch" authorized_by); g_pchange=$(field_from "$g_scratch" plan_change)
-  rm -f "$g_scratch"
-  reject_generic_justification "$g_reason" || fail "amend requires a specific reason (>=20 chars). $(amend_format_hint "$g_id")"
-  reject_generic_justification "$g_finstr" || fail "amend requires a specific fix_instruction (>=20 chars). $(amend_format_hint "$g_id")"
-  [ "${#g_auth}" -ge 3 ] || fail "amend requires authorized_by (who authorized reopening a completed run). $(amend_format_hint "$g_id")"
-  [ -n "$g_fscope" ] || fail "amend requires fix_scope (comma-separated paths the fix may touch). $(amend_format_hint "$g_id")"
-  if [ "$g_pchange" != yes ]; then
-    g_maps=$(scope_mappings "$g_d/PLAN.md") || fail "invalid scope mapping"
-    for g_p in $(scope_entry_paths "$g_fscope"); do authorized_path "$g_maps" "$g_p" || fail "fix_scope names a path outside the frozen scope: $g_p (add 'plan_change: yes' and follow with an amendment + refreeze if the plan itself must change)"; done
-  fi
-  g_fscope=$(scope_entry_paths "$g_fscope" | paste -sd, -)
-  [ -n "$g_fscope" ] || fail "fix_scope has no path (an entry must start with a repo path: path, path:line or path:symbol)"
-  g_patch=$(task_patch_fingerprint "$g_id"); g_seq=$(next_gate_seq "$g_id"); g_name=$(printf '%03d-REOPEN' "$g_seq"); g_gd=$(gates_dir "$g_id"); mkdir -p "$g_gd"
-  patch_manifest "$g_id" > "$g_gd/$g_name.manifest" || fail "could not write reopen manifest"
-  if [ -f "$g_d/COMPLETION_REPORT.md" ]; then cp "$g_d/COMPLETION_REPORT.md" "$g_gd/$g_name.completion-report.md"; fi
-  g_prev_hs=$(section_value "$g_d" handoff state)
-  {
-    printf 'task_id: "%s"\nseq: %s\ngate: "REOPEN"\nresult: "reopen"\nrole: "%s"\n' "$g_id" "$g_seq" "$execution_role"
-    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(gate_fingerprint)" "$g_patch" "$(hash_file "$g_gd/$g_name.manifest")"
-    printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$g_d" freeze task_sha256)" "$(section_value "$g_d" freeze evidence_sha256)" "$(section_value "$g_d" freeze plan_sha256)" "$(section_value "$g_d" freeze qa_plan_sha256)"
-    printf 'reason: %s\nauthorized_by: %s\nfix_scope: %s\nfix_instruction: %s\nplan_change: %s\n' "$(one_line "$g_reason")" "$(one_line "$g_auth")" "$g_fscope" "$(one_line "$g_finstr")" "${g_pchange:-no}"
-    printf 'previous_execution_state: "%s"\nprevious_handoff_state: "%s"\nprevious_knowledge_state: "%s"\n' "$(run_state "$g_d")" "$g_prev_hs" "$(section_value "$g_d" execution knowledge_state)"
-    printf 'previous_implemented_patch_sha256: "%s"\nprevious_code_done_patch_sha256: "%s"\n' "$(section_value "$g_d" handoff implemented_patch_sha256)" "$(section_value "$g_d" handoff code_done_patch_sha256)"
-    printf 'previous_completion_published: "%s"\nprevious_completion_receipt: "%s"\n' "$(section_value "$g_d" completion_report published)" "$(section_value "$g_d" completion_report receipt)"
-    printf 'timestamp: "%s"\n' "$(now_iso)"
-  } > "$g_gd/$g_name.yaml" || fail "could not write reopen record"
-  set_run_value "$g_id" execution state AMENDING
-  if section_key_present "$g_d" execution knowledge_state; then set_run_value "$g_id" execution knowledge_state not_started; fi
-  if section_key_present "$g_d" execution knowledge_reason; then set_run_value "$g_id" execution knowledge_reason ""; fi
-  set_run_value "$g_id" handoff state IMPLEMENTING
-  set_run_value "$g_id" handoff implemented_patch_sha256 PENDING
-  set_run_value "$g_id" handoff code_done_patch_sha256 PENDING
-  if section_key_present "$g_d" completion_report published; then set_run_value "$g_id" completion_report published false; set_run_value "$g_id" completion_report receipt PENDING; fi
-  ledger_append "$g_id" REOPEN "$g_prev_hs" IMPLEMENTING "$(ledger_token "gates/$g_name.yaml" "$g_id") authorized_by=$g_auth: $g_reason"
-  echo "run reopened: $g_id ($g_name); handoff IMPLEMENTING, execution AMENDING — implement the bounded fix, then every required gate runs again"
-}
 
-# --- Reopen a FAILED or BLOCKED run (A152) ----------------------------------------------------
-# reopen ID (reason on stdin): the way from FAILED/BLOCKED back to the run's earlier state, only with the user's
-# `reopen:<ID>` approval (bound to the PLAN.md hash; no model can create it). The plan stays frozen and its scope
-# is checked again. Gate records that passed on unchanged inputs stay; a gate that failed, was BLOCKED or never
-# concluded, or whose inputs changed, runs again (gate_focus_status, `reuse`). The fix-round allowance restarts.
-# A mutation-budget decision the plan needs is asked together with the reopen approval (A154): one summary, one question.
-# reopen_question ID PLANHASH N STATE PREV: writes the two requests (mutation_budget and reopen:ID, both marked `joint`,
-# so the one reply that approves the reopen answers both) unless they already stand for this plan, and prints the summary.
-reopen_question() {
-  rq2_id=$1 rq2_ph=$2 rq2_n=$3 rq2_st=$4 rq2_prev=$5; require_lead
-  rq2_ad=$(approvals_dir "$rq2_id"); mkdir -p "$rq2_ad"
-  for rq2_k in mutation_budget "reopen:$rq2_id"; do
-    approval_target "$rq2_id" "$rq2_k"
-    rq2_r=$(pending_request "$rq2_id" "$rq2_k") && [ "$(gate_field "$rq2_r" bound)" = "$rq2_ph" ] && [ "$(gate_field "$rq2_r" joint)" = "reopen:$rq2_id" ] && continue
-    printf 'kind: "%s"\nbound: "%s"\nrequested_at: %s\njoint: "reopen:%s"\n' "$rq2_k" "$rq2_ph" "$(now_epoch)" "$rq2_id" > "$rq2_ad/$(next_num "$rq2_ad")-request-$(kind_slug "$rq2_k").yaml"
-    ledger_if "$rq2_id" approval-request - - "$rq2_k bound=$rq2_ph joint=reopen:$rq2_id"
-  done
-  rq2_b=$(mutation_budget "$rq2_id")
-  if [ "$(run_language "$rq2_id")" = tr ]; then
-    printf 'YENİDEN AÇMA ÖZETİ (%s)\n  koşu: %s, açılışta dönülecek durum: %s\n  plan: dondurulmuş (sha256 %s), kapsam yeniden denetlendi\n  mutasyon bütçesi: %s -> %s (PLAN ## Tests %s ölçüt adlandırıyor; yalnızca bu koşuda artar)\n  kapılar: değişmemiş girdilerle geçenler kalır, geçmeyenler ve girdisi değişenler yeniden çalışır; düzeltme turu hakkı sıfırlanır\n' "$rq2_id" "$rq2_st" "$rq2_prev" "$rq2_ph" "$rq2_b" "$rq2_n" "$rq2_n"
-    printf '\nQUESTIONS:\n1. Bütçeyi %s değerine çıkarıp %s koşusunu yeniden açalım mı?\n' "$rq2_n" "$rq2_id"
-    printf '   seçenekler: approve | reject\n   kabul edilen yanıtlar: %s (tek yanıt iki kararı da kaydeder: bütçe artışı ve yeniden açma; başka sözcük onay sayılmaz)\n   önerilen: yok (karar sizin)\n' "$(approval_example "reopen:$rq2_id")"
-  else
-    printf 'REOPEN SUMMARY (%s)\n  run: %s, state it returns to: %s\n  plan: frozen (sha256 %s), scope checked again\n  mutation budget: %s -> %s (PLAN ## Tests names %s criteria; raised for this run only)\n  gates: those that passed on unchanged inputs stay, the others run again; the fix-round allowance restarts\n' "$rq2_id" "$rq2_st" "$rq2_prev" "$rq2_ph" "$rq2_b" "$rq2_n" "$rq2_n"
-    printf '\nQUESTIONS:\n1. Raise the budget to %s and reopen the run %s?\n' "$rq2_n" "$rq2_id"
-    printf '   options: approve | reject\n   accepted answers: %s (one reply records both decisions, the budget raise and the reopen; any other word approves nothing)\n   recommended: none (the user decides)\n' "$(approval_example "reopen:$rq2_id")"
-  fi
-}
-reopen_run() {
-  ro_id=$1; require_run "$ro_id"; ro_d=$(run_dir "$ro_id"); require_lead
-  gates_enforced "$ro_id" || fail "reopen requires the lifecycle_gates policy: run $ro_id has none; open a new task"
-  ro_st=$(run_state "$ro_d")
-  case "$ro_st" in FAILED|BLOCKED) ;; *) fail "reopen takes a FAILED or BLOCKED run only ($ro_id is $ro_st); a CODE_DONE run is reopened with 'agent.sh amend'" ;; esac
-  verify_seal "$ro_id"
-  ro_scratch=$(mktemp "${TMPDIR:-/tmp}/agent-reopen.XXXXXX"); cat > "$ro_scratch"
-  ro_reason=$(field_from "$ro_scratch" reason); rm -f "$ro_scratch"
-  reject_generic_justification "$ro_reason" || fail "reopen requires a specific 'reason:' on stdin (>=20 chars: what changed since the run ended)"
-  ro_prev=$(grep ' event=terminate ' "$(ledger_file "$ro_id")" | tail -1 | sed -n 's/.* from=\([^ ]*\) .*/\1/p')
-  [ -n "$ro_prev" ] || fail "reopen: the ledger has no terminate transition for $ro_id"
-  enforce_task_branch "$ro_id"
-  # 1. the plan is unchanged and the scope still holds (product changes made outside the run show up here)
-  ro_fr=$(verify_freshness "$ro_id") || exit 1
-  sv_reset   # the subshell may have moved repository.base_sha (A156)
-  printf '%s\n' "$ro_fr" | grep -v '^planning freshness verified' || :
-  verify_scope "$ro_id" 1 >/dev/null || fail "reopen blocked: files changed outside the frozen scope (listed above); the user resolves them first"
-  # 2. the approvals, asked as ONE question (A154): the budget decision the plan needs (criteria above the mutation
-  # budget) and the reopen itself. One reply of the user records both; each is still a normal single-use approval.
-  ro_ph=$(hash_file "$ro_d/PLAN.md"); ro_n=$(plan_test_acs "$ro_d/PLAN.md"); ro_budget=''; ro_kind=reopen:$ro_id; ro_need_b=0
-  if [ "$ro_n" -gt "$(mutation_budget "$ro_id")" ]; then
-    ro_need_b=1; ro_budget=$(find_approval "$ro_id" mutation_budget "$ro_ph") || ro_budget=''
-  fi
-  ro_app=$(find_approval "$ro_id" "$ro_kind" "$ro_ph") || ro_app=''
-  if [ -z "$ro_app" ] || { [ "$ro_need_b" = 1 ] && [ -z "$ro_budget" ]; }; then
-    if [ -z "$ro_app" ] && [ "$ro_need_b" = 1 ] && [ -z "$ro_budget" ]; then
-      reopen_question "$ro_id" "$ro_ph" "$ro_n" "$ro_st" "$ro_prev"
-      fail "reopen $ro_id needs the user's answer to the question above (raise the budget to $ro_n and reopen): relay it, wait for the user's reply, then run reopen again (reason on stdin)"
-    fi
-    if [ -z "$ro_budget" ] && [ "$ro_need_b" = 1 ]; then
-      ro_r=$(pending_request "$ro_id" mutation_budget) && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" mutation_budget
-      fail "reopen $ro_id: PLAN ## Tests names $ro_n criteria above the mutation budget $(mutation_budget "$ro_id"). Relay the budget question above, wait for the user's answer, then run reopen again"
-    fi
-    ro_r=$(pending_request "$ro_id" "$ro_kind") && [ "$(gate_field "$ro_r" bound)" = "$ro_ph" ] || request_approval "$ro_id" "$ro_kind"
-    fail "reopen $ro_id needs the user's approval: relay the question above, wait for the user's answer, then run reopen again (reason on stdin)"
-  fi
-  # 4. apply: the record is written like amend's, marked terminal (it restarts the fix rounds only)
-  ro_seq=$(next_gate_seq "$ro_id"); ro_name=$(printf '%03d-REOPEN' "$ro_seq"); ro_gd=$(gates_dir "$ro_id"); mkdir -p "$ro_gd"
-  patch_manifest "$ro_id" > "$ro_gd/$ro_name.manifest" || fail "could not write reopen manifest"
-  ro_hs=$(section_value "$ro_d" handoff state)
-  {
-    printf 'task_id: "%s"\nseq: %s\ngate: "REOPEN"\nresult: "reopen"\nrole: "%s"\n' "$ro_id" "$ro_seq" "$execution_role"
-    printf 'fingerprint: "%s"\npatch_sha256: "%s"\nmanifest_sha256: "%s"\n' "$(gate_fingerprint)" "$(task_patch_fingerprint "$ro_id")" "$(hash_file "$ro_gd/$ro_name.manifest")"
-    printf 'task_sha256: "%s"\nevidence_sha256: "%s"\nplan_sha256: "%s"\nqa_plan_sha256: "%s"\n' "$(section_value "$ro_d" freeze task_sha256)" "$(section_value "$ro_d" freeze evidence_sha256)" "$(section_value "$ro_d" freeze plan_sha256)" "$(section_value "$ro_d" freeze qa_plan_sha256)"
-    printf 'reason: %s\nauthorized_by: user approval %s\nreopened_from: "%s"\nrestored_execution_state: "%s"\nhandoff_state: "%s"\n' "$(one_line "$ro_reason")" "$(basename "$ro_app")" "$ro_st" "$ro_prev" "$ro_hs"
-    printf 'previous_knowledge_state: "%s"\ntimestamp: "%s"\n' "$(section_value "$ro_d" execution knowledge_state)" "$(now_iso)"
-  } > "$ro_gd/$ro_name.yaml" || fail "could not write reopen record"
-  consume_approval "$ro_id" "$ro_app"
-  set_run_value "$ro_id" execution state "$ro_prev"
-  if section_key_present "$ro_d" execution knowledge_state; then set_run_value "$ro_id" execution knowledge_state not_started; fi
-  if section_key_present "$ro_d" execution knowledge_reason; then set_run_value "$ro_id" execution knowledge_reason ""; fi
-  ledger_append "$ro_id" REOPEN "$ro_hs" "$ro_hs" "$(ledger_token "gates/$ro_name.yaml" "$ro_id") reopened from $ro_st, authorized_by=user approval $(basename "$ro_app"): $ro_reason"
-  if [ -n "$ro_budget" ]; then raise_budget "$ro_id" "$ro_n" >/dev/null; fi
-  echo "run reopened: $ro_id ($ro_name); execution $ro_st -> $ro_prev, handoff $ro_hs, fix rounds restart at 0; gates that did not pass or whose inputs changed run again (agent.sh next $ro_id)"
-}
 
 # --- Completion report (task-system agnostic; adapters in .agents/task-integrations/) ------
 # A98: `next` names every UNSUPPORTED focus before CODE_DONE and the report: unproven, never a PASS.
@@ -7702,29 +6798,6 @@ require_knowledge_done() {
   require_no_knowledge_drift "$1" "delivery blocked"
 }
 
-# --- Terminal outcomes and cleanup -----------------------------------------------------------
-terminate_run() {
-  id=$1 outcome=$2; require_run "$id"; dir=$(run_dir "$id"); require_lead
-  case "$outcome" in FAILED|BLOCKED) ;; *) fail "invalid outcome: $outcome (want FAILED|BLOCKED)" ;; esac
-  gates_enforced "$id" || fail "terminate requires the lifecycle_gates policy"
-  require_open_run "$id"
-  [ "$(run_state "$dir")" != CODE_DONE ] || fail "a CODE_DONE run is complete, not terminated"
-  enforce_task_branch "$id"; verify_seal "$id"
-  scratch=$(mktemp "${TMPDIR:-/tmp}/agent-terminate.XXXXXX"); cat > "$scratch"
-  reason=$(field_from "$scratch" reason); evidence=$(field_from "$scratch" evidence); rm -f "$scratch"
-  reject_generic_justification "$reason" || fail "terminate requires a specific reason (>=20 chars)"
-  reject_generic_justification "$evidence" || fail "terminate requires the evidence behind it (>=20 chars: the failing gate records, the failing command and its output)"
-  if [ "$outcome" = FAILED ]; then
-    used=$(fix_rounds_used "$id"); max=$(max_fix_rounds)
-    [ "$used" -gt "$max" ] || fail "FAILED requires the fix rounds to be exhausted ($used failing rounds, max_fix_rounds $max); use BLOCKED for an environment/tooling/external blocker"
-  fi
-  prev=$(run_state "$dir")
-  set_run_value "$id" execution state "$outcome"
-  ledger_append "$id" terminate "$prev" "$outcome" "reason: $reason; evidence: $evidence"
-  metrics_run "$id" "$(printf '%s' "$outcome" | tr "[:upper:]" "[:lower:]")"
-  status_block_update "$id" failed
-  echo "run terminated: $id $outcome"
-}
 # archive_run ID RUNDIR (A200): before cleanup or worktree-remove deletes a run's records, a compressed copy goes to
 # <main tree>/.agents/local/archive/<ID>/<ID>-<UTC time>.tar.gz (git-ignored local state; the main tree's folder, so it outlives a worktree).
 # The newest archive.keep runs are kept (default 10; 0 = no archive), older archive folders are removed. A copy that cannot be made and
@@ -7749,85 +6822,6 @@ archive_run() {
     if [ -d "$ar_root/$ar_d" ] && [ ! -L "$ar_root/$ar_d" ]; then rm -rf "${ar_root:?}/$ar_d"; fi
   done
   echo "evidence archived: .agents/local/archive/$ar_id/${ar_f##*/} (the newest $ar_keep runs are kept)"
-}
-cleanup_run() {
-  id=$1; require_run "$id"; dir=$(run_dir "$id"); require_lead
-  [ ! -L "$dir" ] && [ "$(dirname "$dir")" = "$root/.agents/runs" ] || fail "refusing to remove $dir: not a plain run directory"
-  cu_term=no; case "$(run_state "$dir")" in FAILED|BLOCKED) cu_term=yes ;; esac
-  [ ! -f "$scripts/rules.sh" ] || sh "$scripts/rules.sh" tally >/dev/null 2>&1 || :   # A202: the rule-use counter keeps the review counts after the run documents go
-  case "$(run_state "$dir")" in
-    FAILED|BLOCKED)
-      verify_seal "$id"; grep -Ev " event=hook(-timeout)? " "$(ledger_file "$id")" | tail -n 1 | grep -Eq "event=(terminate|knowledge-done) " && grep -Fq "event=terminate " "$(ledger_file "$id")" || fail "cleanup of a $(run_state "$dir") run requires its ledgered terminate transition: $id" ;;
-    *)
-      [ "$(section_value "$dir" handoff state)" = DONE ] || fail "cleanup requires handoff DONE (or a FAILED/BLOCKED run): $id"
-      cu_base=$(repository_base_sha "$dir")
-      if [ "$cu_base" != "$(git -C "$root" rev-parse HEAD)" ]; then
-        # Delivered: the commit moved HEAD past base_sha. base_sha must be an ancestor of HEAD; task paths are
-        # measured from base_sha, so the task-owned patch must still equal the CODE_DONE patch and every gate must
-        # hold; and every task-owned path must be committed exactly (HEAD = working tree there). Knowledge-scope
-        # files are checked by the knowledge scope, committed or not.
-        git -C "$root" merge-base --is-ancestor "$cu_base" HEAD || fail "cleanup blocked: HEAD does not descend from the run's base_sha $cu_base"
-        ctp_base=$cu_base
-        verify_freshness "$id" >/dev/null; verify_handoff "$id" 1 >/dev/null; verify_knowledge_scope "$id" >/dev/null
-        cu_owned=$(task_owned_paths "$id")
-        if [ -n "$cu_owned" ]; then
-          # shellcheck disable=SC2086 # one argument per path (paths contain no whitespace by contract)
-          cu_dirty=$(git -C "$root" status --porcelain --untracked-files=all -- $cu_owned)
-          [ -z "$cu_dirty" ] || fail "cleanup blocked: task-owned changes are not committed exactly: $(printf '%s' "$cu_dirty" | tr '\n' ' ')"
-        fi
-      else
-        verify_freshness "$id" >/dev/null; verify_handoff "$id" 1 >/dev/null
-      fi
-      if section_key_present "$dir" completion_report required; then verify_completion_report "$id" >/dev/null; fi ;;
-  esac
-  # A116: the run's per-run assignments directory goes with it; guard before any removal so a refusal leaves both.
-  adir="$root/.agents/local/assignments/$id"
-  for cu_p in "$root/.agents/local" "$root/.agents/local/assignments"; do
-    [ ! -L "$cu_p" ] || fail "refusing to remove assignments under $cu_p: it is a symlink"
-  done
-  if [ -e "$adir" ] || [ -L "$adir" ]; then
-    [ ! -L "$adir" ] && [ -d "$adir" ] || fail "refusing to remove $adir: not a plain assignments directory"
-  fi
-  archive_run "$id" "$dir"
-  marker=$(active_run_file)
-  if [ -f "$marker" ] && [ "$(sed '/^[[:space:]]*$/d' "$marker")" = "$id" ]; then : > "$marker"; fi
-  # assignments first: if this rm fails the run still exists and cleanup can be retried
-  [ ! -d "$adir" ] || rm -rf "$adir" || fail "could not remove $adir; the run is kept, retry cleanup"
-  rm -rf "$dir"
-  echo "run cleaned up: $id (runtime artifacts and .agents/local/assignments/$id removed; ACTIVE_RUN cleared)"
-  cleanup_worktree "$id" "$cu_term"
-}
-# cleanup_worktree ID TERMINAL (A169, round 3): the worktree of a run that is merged and cleaned up goes away with it. Only a delivered run (never
-# a FAILED or BLOCKED one: its evidence is the point), only when the merge is on record (batch merged.tsv, or the caller proved it:
-# deliver-step cleanup after a merged pull request, deliver-merged), only from inside that very worktree, and only when it holds no other run.
-cleanup_worktree() {
-  [ "$2" = no ] && [ "$sr_main" != "$root" ] || return 0
-  cw_p=$(cd "$root" && pwd -P); [ "$cw_p" = "$sr_main/.agents/local/worktrees/$1" ] || return 0
-  # round 6: the merge must be ON RECORD for this run (a merged.tsv row of this ID after the run began); a caller's claim (CLEANUP_MERGED) is read
-  # into a local and the environment value is never trusted
-  cw_ok=$cleanup_merged_claim; cleanup_merged_claim=''
-  cw_from=0; [ ! -s "$(deliver_dir "$1")/SUMMARY.md" ] || cw_from=$(sed -n 's/^nonce: \([0-9]*\)-.*/\1/p' "$(deliver_dir "$1")/SUMMARY.md" | head -n 1)
-  case "$cw_from" in ''|*[!0-9]*) cw_from=0 ;; esac
-  [ "$cw_ok" = yes ] || awk -F'\t' -v t="$1" -v from="$cw_from" '$1 == t && $3 + 0 >= from + 0 { f = 1 } END { exit !f }' "$(shared_dir batch)/merged.tsv" 2>/dev/null || { echo "note: the worktree $cw_p is kept: no merge of $1 is on record"; return 0; }
-  for cw_r in "$cw_p"/.agents/runs/*; do [ ! -d "$cw_r" ] || { echo "note: the worktree $cw_p is kept: it still holds the run ${cw_r##*/}"; return 0; }; done
-  # untracked or ignored files outside the run state are evidence or work: refuse (the copies worktree-prep made are known and allowed)
-  # a missing copied-files manifest is an empty list; any command that fails refuses (fail closed: the worktree is kept)
-  cw_list=$cw_p/.agents/local/worktree-copied; [ -f "$cw_list" ] || cw_list=/dev/null
-  cw_st=$(git -C "$cw_p" status --porcelain --ignored --untracked-files=all 2>/dev/null) || { echo "note: the worktree $cw_p is kept: git status failed"; return 0; }
-  cw_rc=0; cw_x=$(printf '%s\n' "$cw_st" | sed 's/^...//' | grep -v -e '^\.agents/runs/' -e '^\.agents/local/' | grep -vxF -f "$cw_list") || cw_rc=$?
-  [ "$cw_rc" -le 1 ] || { echo "note: the worktree $cw_p is kept: the file check failed"; return 0; }
-  if [ -n "$cw_x" ]; then   # A202: a task file changed only by its status block is the control plane's own edit, not work
-    cw_y=''; for cw_q in $cw_x; do sb_block_only "$cw_p" "$cw_q" "$1" || cw_y="$cw_y$cw_q
-"; done
-    cw_x=$(printf '%s' "$cw_y")
-  fi
-  if [ -n "$cw_x" ] && [ -f "$scripts/ecosystems.sh" ] && [ -s "$agents/ecosystems.tsv" ]; then
-    # shellcheck source=/dev/null
-    . "$scripts/ecosystems.sh"; eco_init "$agents/ecosystems.tsv" && for cw_f in $(eco_union worktree_deps.folders); do cw_x=$(printf '%s\n' "$cw_x" | grep -v -e "^$cw_f/" -e "^$cw_f\$" || true); done
-  fi
-  if [ -n "$cw_x" ]; then echo "note: the worktree $cw_p is kept: it holds files git does not track (not removed): $(printf '%s' "$cw_x" | head -n 3 | tr '\n' ' ')"; return 0; fi
-  # the check above proved that nothing but run state (.agents/runs, .agents/local) and known copies is left, tracked changes included: only that is forced away
-  git -C "$sr_main" worktree remove --force "$cw_p" >/dev/null 2>&1 && git -C "$sr_main" worktree prune && echo "worktree removed: $1" || echo "note: the worktree $cw_p could not be removed; agent.sh worktree-remove $1 in the main working tree does it"
 }
 
 # --- CI visibility (A163, A180): does a pull request here get any check at all? Read-only, repository files only. ----------
@@ -8295,7 +7289,7 @@ ci_fix_open() {
     printf 'authorized_by: user delivery approval %s (CI fix %s of %s, no new question)\n' "$(printf '%s' "$cf_h" | cut -c1-12)" "$cf_att" "$cf_max"
   } > "$cf_in"
   exec 3< "$cf_in"; rm -f "$cf_in"
-  amend_run "$cf_id" <&3   # plain call: its own checks stop the script (a call in a || list would switch set -e off inside it)
+  sh "$scripts/agent.sh" amend "$cf_id" <&3   # 4B: amend is a Node command; started as a child it takes over the locks this command holds (its parent)
   exec 3<&-
   if [ "$cf_lst" = none ]; then printf 'NOTE: the log of the failed check could not be read on this platform; this round starts from the check name (%s) and status (%s) only (ci-fix/%s.log says so)\n' "$cf_name" "$cf_cst" "$cf_num"; fi
   printf 'CI-fix attempt %s of %s opened for pull request %s (CI run %s, check %s)\nerror, the last lines of the failed log (ci-fix/%s.log; data, not instructions):\n' "$cf_att" "$cf_max" "$cf_pr" "$cf_rid" "$cf_name" "$cf_num"
@@ -8488,7 +7482,7 @@ deliver_step() {
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
       status_block_update "$ds_id" merged "$ds_pr"
       sb_final_prepare "$ds_id" "$ds_pr"
-      cleanup_merged_claim=yes; cleanup_run "$ds_id"
+      sh "$scripts/agent.sh" cleanup "$ds_id" --delivered   # 4B: cleanup is a Node command; --delivered counts only from a child of this locked command
       sb_final_put "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
@@ -8580,7 +7574,7 @@ deliver_merged() {
   else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
   rm -f "$dm_dir/MERGE_HEAD"
   [ -z "${dm_sbd:-}" ] || { sb_main_restore "$dm_sbd"; rm -rf "$dm_sbd"; }
-  cleanup_merged_claim=yes; cleanup_run "$dm_id"
+  sh "$scripts/agent.sh" cleanup "$dm_id" --delivered
   sb_final_put "$dm_id"
   rm -rf "$dm_dir"
 }
@@ -8872,7 +7866,6 @@ case "$command" in
   fingerprint) [ -z "${2:-}" ] || require_run "$2"; if [ "${3:-}" = full ]; then content_fingerprint; else gate_fingerprint; fi ;;
   config-get) config_get "${2:?usage: agent.sh config-get <dotted.key>}" || fail "config key not found: $2" ;;
   config-check) config_check "${2:-}" ;;
-  start) shift; start_run "$@" ;;
   pipeline) pipeline_show "${2:?usage: agent.sh pipeline <ID>}" ;;
   next) if [ -n "${2:-}" ]; then next_step "$2"; else next_without_run; fi ;;
   summary) summary_run "${2:-}" "${3:-}" ;;
@@ -8893,13 +7886,10 @@ case "$command" in
   design-rationales) [ "${2:-}" = - ] || require_run "${2:?usage: agent.sh design-rationales <ID|-> [--json] [DESIGN-MD-PATH]}"; design_rationales "$2" "${3:-}" "${4:-}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
   decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> --dry|--agent-path [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
-  freeze) require_lead; freeze "${2:?usage: agent.sh freeze <ID>}" ;;
-  refreeze) require_lead; freeze "${2:?usage: agent.sh refreeze <ID> <AMENDMENT>}" refreeze "${3:?usage: agent.sh refreeze <ID> <AMENDMENT>}" ;;
   verify-freeze) verify_freeze "${2:?usage: agent.sh verify-freeze <ID>}" ;;
   verify-scope) verify_scope "${2:?usage: agent.sh verify-scope <ID>}" ;;
   verify-knowledge-scope) verify_knowledge_scope "${2:?usage: agent.sh verify-knowledge-scope <ID>}" ;;
   freshness) verify_freshness "${2:?usage: agent.sh freshness <ID>}" ;;
-  handoff) [ "$execution_role" = lead ] || [ "${3:-}" = IMPLEMENTING ] || fail "handoff phase denied for $execution_role"; record_handoff "${2:?usage: agent.sh handoff <ID> <PHASE>}" "${3:?usage: agent.sh handoff <ID> <PHASE>}" ;;
   verify-handoff) verify_handoff "${2:?usage: agent.sh verify-handoff <ID>}" ;;
   worker-evidence) record_worker_evidence "${2:?usage: agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>}" "${3:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" "${4:?usage: agent.sh worker-evidence <ID> <PHASE> <RESULT>}" ;;
   entry-tier) et_o=$(entry_tier "${2:?usage: agent.sh entry-tier <bullet text>}"); echo "${et_o:-none}" ;;
@@ -8924,12 +7914,6 @@ case "$command" in
   wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
-  terminate) require_lead; terminate_run "${2:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" "${3:?usage: agent.sh terminate <ID> <FAILED|BLOCKED>}" ;;
-  cleanup) require_lead
-    # round 3: the run is already cleaned up but its worktree was left behind (an older version, an interrupted cleanup): from the main working tree it is removed
-    # once the merge is on record (nothing else holds the evidence any more)
-    if [ -n "${2:-}" ] && rw_valid_id "$2" && [ ! -d "$(run_dir "$2")" ] && ! wt_linked && grep -q "^$2	" "$(shared_dir batch)/merged.tsv" 2>/dev/null && rw_registered "$(rw_dir "$2")"; then worktree_remove "$2"
-    else cleanup_run "${2:?usage: agent.sh cleanup <ID>}"; fi ;;
   deliver-merged) deliver_merged "${2:?usage: agent.sh deliver-merged <ID> [--check]}" "${3:-}" ;;
   worktree-add) require_lead; worktree_add "${2:-}" ;;
   worktree-path) require_lead; worktree_path "${2:-}" ;;
@@ -8968,8 +7952,6 @@ case "$command" in
   batch-park) require_lead; sh "$scripts/batch.sh" park "${2:?usage: agent.sh batch-park <ID> <reason>|--clear}" "${3:?usage: agent.sh batch-park <ID> <reason>|--clear}" ;;
   deliver-plan) require_lead; dpid=${2:?usage: agent.sh deliver-plan <ID> [--message MSG]}; shift 2; deliver_plan "$dpid" "$@" ;;
   deliver-step) require_lead; deliver_step "${2:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${3:?usage: agent.sh deliver-step <ID> <STEP> [PR]}" "${4:-}" ;;
-  amend) require_lead; amend_run "${2:?usage: agent.sh amend <ID>}" ;;
-  reopen) require_lead; reopen_run "${2:?usage: agent.sh reopen <ID>   (reason: on stdin; needs the approval reopen:<ID>)}" ;;
   patch-fingerprint) require_run "${2:?usage: agent.sh patch-fingerprint <ID>}"; task_patch_fingerprint "$2" ;;
   window-open) require_lead; window_open "${2:?usage: agent.sh window-open <ID> [implementer|designer]}" "${3:-}" ;;
   window-close) require_lead; window_close "${2:?usage: agent.sh window-close <ID> <BEFORE> [EXIT-STATUS] [implementer|designer]}" "${3:-}" "${4:-0}" "${5:-}" ;;

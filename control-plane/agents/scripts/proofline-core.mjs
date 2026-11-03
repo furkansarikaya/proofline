@@ -124,7 +124,7 @@ function dispatch(ctx, locks, argv) {
   if (!validRole(ctx.role)) throw new ProoflineError(`invalid execution role: ${bytes(ctx.rawRole)}`, 1);
   // A169: a run that lives in its own worktree is served by that worktree's agent.sh (only for a command this core owns)
   const id = args[0];
-  if (handler && id !== undefined && validTaskId(id) && !isExisting(`${ctx.root}/.agents/runs/${id}`)
+  if (handler && command !== 'start' && id !== undefined && validTaskId(id) && !isExisting(`${ctx.root}/.agents/runs/${id}`)
     && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`) && isFile(`${ctx.root}/.agents/local/worktrees/${id}/.agents/scripts/agent.sh`)) {
     // served in process by THIS core with the worktree as the root (its agent.sh is only the path that names the root; nothing of it is run: its
     // proofline-core.mjs and scripts are tracked content a task could have rewritten)
