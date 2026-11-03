@@ -56,7 +56,7 @@ export function gatePreconditions(ctx, id, gate) {
   quietly(ctx, () => must(freshness(ctx, id)));
   verifySeal(ctx, id, dir);
   if (sectionValue(ctx, dir, 'handoff', 'state') !== 'IMPLEMENTED') fail(`${gate} gate may only be recorded while handoff state is IMPLEMENTED`);
-  quietly(ctx, () => must(verifyScope(ctx, id, '0')));
+  quietly(ctx, () => must(verifyScope(ctx, id, false)));
   if (sectionValue(ctx, dir, 'handoff', 'implemented_patch_sha256') !== taskPatchFingerprint(ctx, dir)) fail(`${gate} gate blocked: the application tree changed since IMPLEMENTED`);
   verifyMutationOwnership(ctx, dir, id);
 }

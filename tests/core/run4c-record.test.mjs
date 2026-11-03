@@ -290,3 +290,10 @@ test('submit: a declared validator result is never trusted and a missing validat
   assert.match(r.out, /submitted: LC reviewer PASS gate=REVIEW_SMALL/);
   assert.match(read(d, '.agents/runs/LC/results/001-reviewer.result.md'), /^\| REVIEW_SMALL-1 \| info \| reviews\/proof-review\/small\/REPORT\.md \| NOT_VALIDATED: REVIEW_SMALL:rules\+tests skill proof-review is not installed, so no validator ran; the result follows from the findings \| agent\.sh submit \(A107\) \|$/m);
 });
+
+test('record: a gate record with the old NOT_RERUN info row (before A130) is still honoured by `pipeline`', () => {
+  const d = impl();
+  const row = `REVIEW_SMALL-1|info|${REPORT.REVIEW_SMALL}|NOT_RERUN: REVIEW_SMALL:rules+tests no reproduced evidence; this gate is not reproduced proof|x`;
+  accepted(rec(d, 'REVIEW_SMALL', 'PASS', { rows: [row] }), 'old style record');
+  assert.match(A(d, ['pipeline', 'LC']).out, /^not_rerun\.REVIEW_SMALL:rules\+tests=NOT_RERUN \(not reproduced proof\)/m);
+});
