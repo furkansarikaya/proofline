@@ -210,6 +210,72 @@ test('SECURITY (A215 round 4): hermeticFetch reads the pinned url with no reposi
   assert.equal(g(w, 'for-each-ref', 'refs/remotes'), '', 'no project ref was written');
 });
 
+test('SECURITY (A215 round 5): the hermetic repository fails closed when anything of it changed (a refs/replace planted by a same-user process), and its folder is not in the shared temporary folder', async () => {
+  const { hermeticFetch } = await import('../../control-plane/agents/scripts/core/deliver.mjs');
+  const base = mkdtempSync(path.join(tmpdir(), 'hf5-'));
+  const w = `${base}/w`; const real = `${base}/real.git`;
+  gOk(base, 'init', '-q', '-b', 'main', w);
+  gOk(w, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
+  gOk(base, 'clone', '-q', '--bare', w, real);
+  const realGit = run(w, 'sh', ['-c', 'command -v git']).out.trim();
+  const ctx = /** @type {any} */ ({ env: { PATH: '/usr/bin:/bin' }, cwd: w, root: w, childEnv: () => ({ PATH: '/usr/bin:/bin' }), sharedMain: () => w });
+  const hf = hermeticFetch(ctx, realGit, real, 'main');
+  assert.ok(hf !== null);
+  assert.ok(hf.intact(), 'untouched');
+  assert.ok(!hf.tmp.startsWith(`${tmpdir()}/pl-proof-`), `the folder has a predictable place: ${hf.tmp}`);
+  const F = gOk(w, 'commit-tree', `${hf.tip}^{tree}`, '-m', 'other');
+  hf.gp(['update-ref', `refs/replace/${hf.tip}`, F]);
+  assert.equal(hf.intact(), false, 'a planted replace ref is noticed');
+  hf.done();
+  const hf2 = hermeticFetch(ctx, realGit, real, 'main');
+  assert.ok(hf2 !== null);
+  wf(`${hf2.tmp}/info-grafts-probe`, '');
+  wf(`${hf2.tmp}/hooks-probe`, '');
+  mkdirSync(`${hf2.tmp}/info`, { recursive: true });
+  wf(`${hf2.tmp}/info/grafts`, `${hf2.tip}\n`);
+  assert.equal(hf2.intact(), false, 'a planted grafts file is noticed');
+  hf2.done();
+});
+
+test('SECURITY (A215 round 5): a loose object of the project store rewritten in place (git does not hash-check an object it reads) is caught: the history is walked with every commit re-hashed', async () => {
+  const { hermeticFetch } = await import('../../control-plane/agents/scripts/core/deliver.mjs');
+  const { deflateSync } = await import('node:zlib');
+  const base = mkdtempSync(path.join(tmpdir(), 'hf5b-'));
+  const w = `${base}/w`; const real = `${base}/real.git`;
+  const id = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
+  gOk(base, 'init', '-q', '-b', 'main', w);
+  gOk(w, ...id, 'commit', '-q', '--allow-empty', '-m', 'base');
+  const c0 = g(w, 'rev-parse', 'HEAD');
+  gOk(base, 'clone', '-q', '--bare', w, real);
+  gOk(w, ...id, 'commit', '-q', '--allow-empty', '-m', 'someone else landed this');
+  const c1 = g(w, 'rev-parse', 'HEAD');
+  gOk(w, ...id, 'commit', '-q', '--allow-empty', '-m', 'and this');
+  const x = g(w, 'rev-parse', 'HEAD');
+  gOk(w, 'push', '-q', real, 'HEAD:refs/heads/main');
+  gOk(w, 'update-ref', 'refs/remotes/origin/main', x);
+  const tree = g(w, 'rev-parse', `${c0}^{tree}`);
+  const d = gOk(w, 'commit-tree', tree, '-p', c0, '-m', 'delivered, never merged');
+  const realGit = run(w, 'sh', ['-c', 'command -v git']).out.trim();
+  const ctx = /** @type {any} */ ({ env: { PATH: '/usr/bin:/bin' }, cwd: w, root: w, childEnv: () => ({ PATH: '/usr/bin:/bin' }), sharedMain: () => w });
+  const honest = hermeticFetch(ctx, realGit, real, 'main');
+  assert.ok(honest !== null);
+  assert.equal(honest.reaches(d, c0), false, 'the delivered commit is not on origin');
+  assert.equal(honest.reaches(c1, c0), true, 'a commit that is on the history is found');
+  assert.ok(honest.verify(c0, [d]), 'an honest range re-hashes');
+  honest.done();
+  // the forgery: the loose object of a commit of the range rewritten so that its parent is the delivered commit
+  const f = `${w}/.git/objects/${c1.slice(0, 2)}/${c1.slice(2)}`;
+  chmodSync(f, 0o644);
+  const body = `tree ${tree}\nparent ${d}\nauthor t <t@t> 1 +0000\ncommitter t <t@t> 1 +0000\n\nforged\n`;
+  wf(f, deflateSync(Buffer.concat([Buffer.from(`commit ${Buffer.byteLength(body)}\0`), Buffer.from(body)])));
+  const hf = hermeticFetch(ctx, realGit, real, 'main');
+  assert.ok(hf !== null);
+  assert.equal(hf.gp(['merge-base', '--is-ancestor', d, hf.tip]).status, 0, 'the forgery fakes the ancestry for git itself (it does not hash-check)');
+  assert.throws(() => hf.reaches(d, c0), /does not match its hash/, 'the walk re-hashes every commit and refuses');
+  assert.throws(() => hf.verify(c0, [d]), /does not match its hash/);
+  hf.done();
+});
+
 /** The finished run LC moves with its uncommitted work into its own worktree (night mode). @param {string} d @returns {string} the worktree */
 function intoWorktree(d) {
   const r = verbs(d, `base=$DIR-aux; rm -rf "$base"; mkdir -p "$base"
