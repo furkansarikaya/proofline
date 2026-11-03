@@ -879,7 +879,8 @@ export function deliverStep(ctx, id, step, prArg) {
         if (sub(git(ctx, ['rev-parse', 'HEAD']).out) !== head) stop('HEAD moved');
         if (v('origin_url') !== ou) stop(`origin changed since the summary was approved (was '${v('origin_url')}', now '${ou}'): plan the delivery again`);
         if (ctx.config().get('git.push_requires_approval', 'true') !== 'false') consumeApproval(ctx, id, /** @type {string} */ (app));
-        if (git(ctx, ['-c', 'core.hooksPath=/dev/null', 'push', '-q', '--', ou, `${head}:refs/heads/${br}`]).status !== 0) stop(`git push to ${ou} failed`);
+        const pushed = proc.run('git', ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+        if (pushed.status !== 0) stop(`git push to ${ou} failed: ${(pushed.stderr.toString('latin1') + pushed.stdout.toString('latin1')).trim().split('\n').slice(0, 3).join(' ')}`);
         git(ctx, ['update-ref', `refs/remotes/${v('remote')}/${br}`, head]);
         ctx.out(`pushed: ${br} -> ${ou}\nthen: agent.sh deliver-step ${id} pr\n`);
       } else if (v('remote') === 'origin') ctx.out(`run: ${originPushCmd(ctx, br)}\nthen: agent.sh deliver-step ${id} pr\n`);

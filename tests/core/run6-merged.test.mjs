@@ -193,6 +193,34 @@ test('deliver-step cleanup after a merged pull request removes the worktree and 
   assert.equal(g(d, 'status', '--porcelain', '--untracked-files=no'), '', 'the main working tree is dirty after deliver-step cleanup');
 });
 
+test('a cleanup that fails after the merge step is recorded can be repeated: the batch row written before it lets a standalone `cleanup` remove the worktree', () => {
+  const gh = fakeGh();
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  gOk(d, 'remote', 'set-url', 'origin', 'https://github.com/acme/app.git');
+  gOk(d, 'init', '-q', '--bare', `${d}-bare.git`);
+  gOk(d, 'remote', 'add', 'bare', `${d}-bare.git`);
+  wtDeliver(d, wt, 'gh');
+  const h = g(wt, 'rev-parse', 'HEAD');
+  gh.says('OPEN', h);
+  accepted(A(wt, ['deliver-step', 'LC', 'merge', '7'], { env: gh.env }), 'merge step');
+  gh.says('MERGED', h);
+  // the assignments folder of the run is a link: cleanup refuses to remove it, after the approval was consumed
+  mkdirSync(`${wt}/.agents/local`, { recursive: true });
+  mkdirSync(`${d}-elsewhere`, { recursive: true });
+  run(wt, 'ln', ['-s', `${d}-elsewhere`, `${wt}/.agents/local/assignments`]);
+  mkdirSync(`${d}-elsewhere/LC`, { recursive: true });
+  const first = A(wt, ['deliver-step', 'LC', 'cleanup', '7'], { env: gh.env });
+  assert.notEqual(first.status, 0, 'the cleanup should have failed');
+  assert.ok(existsSync(wt) && existsSync(`${wt}/.agents/runs/LC`), 'the run or the worktree went in a failed cleanup');
+  assert.match(read(d, '.agents/local/batch/merged.tsv'), /^LC\t7\t[0-9]+$/m, 'the merge row is written before the cleanup');
+  refused(A(wt, ['deliver-step', 'LC', 'cleanup', '7'], { env: gh.env }), 'the step cannot run twice', 'already used');
+  rmSync(`${wt}/.agents/local/assignments`);
+  const second = accepted(A(wt, ['cleanup', 'LC']), 'a standalone cleanup after the failure');
+  assert.match(second.out, /^worktree removed: LC/m);
+  assert.ok(wtGone(d, wt));
+});
+
 test('cleanup: removes the worktree once the merge is on record (a batch row), also a leftover one from the main tree; a BLOCKED run keeps it', () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
@@ -307,6 +335,24 @@ test('a relative origin: a changed origin and an option-like origin are refused,
   wf(`${wt}/.agents/local/deliver/LC/MERGE_HEAD`, `${base}\tmain\tproofline/LC-lookup\n`);
   refused(A(wt, ['deliver-merged', 'LC']), 'deliver-merged of an empty delivery', 'empty delivery');
   assert.ok(!existsSync(`${d}/.agents/local/batch/merged.tsv`) || read(d, '.agents/local/batch/merged.tsv') === '', 'an empty delivery was recorded as merged');
+});
+
+test('a push git itself refuses (the relative origin rejects the branch) says why in the message', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const lo = `${d}-lo.git`;
+  gOk(d, 'init', '-q', '--bare', lo);
+  gOk(d, 'remote', 'set-url', 'origin', `../${lo.slice(lo.lastIndexOf('/') + 1)}`);
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
+  accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan');
+  approveDelivery(d, undefined, wt);
+  accepted(A(wt, ['deliver-step', 'LC', 'commit']), 'commit');
+  A(wt, ['task-source-done', 'LC']);
+  gOk(wt, 'add', '-A');
+  assert.equal(run(wt, 'git', ['commit', '-qF', '.agents/local/deliver/LC/COMMIT_MSG']).status, 0);
+  wf(`${lo}/hooks/pre-receive`, '#!/bin/sh\necho "rejected by the test origin" >&2\nexit 1\n');
+  run(d, 'chmod', ['+x', `${lo}/hooks/pre-receive`]);
+  refused(A(wt, ['deliver-step', 'LC', 'push']), 'a push the origin rejects', 'rejected by the test origin');
 });
 
 test('a delivery the user pushed by hand is recovered from the delivered branch\'s current head; the base is never the delivery, an unmerged push is not recorded', () => {

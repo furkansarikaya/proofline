@@ -92,6 +92,18 @@ function commandV(name, env) {
 /** @param {string} p */
 function realOr(p) { try { return realpathSync(p); } catch { return p; } }
 
+/** Is FILE inside the folder DIR? By text of the real paths and by (device, inode) of every ancestor of FILE. @param {string} file @param {string} dir */
+function insideFolder(file, dir) {
+  let ds;
+  try { ds = statSync(dir); } catch { return false; }
+  for (const d of new Set([dir, realOr(dir)])) if (file.startsWith(`${d}/`)) return true;
+  for (let cur = path.dirname(file); ; cur = path.dirname(cur)) {
+    try { const s = statSync(cur); if (s.dev === ds.dev && s.ino === ds.ino) return true; } catch { /* an ancestor that cannot be read is no match */ }
+    if (cur === '/' || cur === '.' || cur === path.dirname(cur)) break;
+  }
+  return false;
+}
+
 /**
  * `deliver_cli_path NAME` (A180): the absolute real path of the platform tool, or a refusal text. The tool must come from an absolute PATH entry and must not
  * resolve into the project, the working directory or a temporary folder (a model could put a fake there). Same rule as `proofline merge`.
@@ -106,10 +118,11 @@ export function resolveTool(ctx, name) {
     try { l = readlinkSync(g); } catch { break; }
     g = l.startsWith('/') ? l : `${path.dirname(g)}/${l}`;
   }
-  try { g = `${realpathSync(path.dirname(g))}/${path.basename(g)}`; } catch { return { unreadable: 'unreadable' }; }
+  try { g = `${realpathSync.native(path.dirname(g))}/${path.basename(g)}`; } catch { return { unreadable: 'unreadable' }; }
+  // the folders a model can write: compared by the identity of the folder (device and inode of every ancestor of the tool), never by the spelling of the
+  // path, so that an upper-case spelling on a case-insensitive file system, a link or a bind of the folder is the same folder
   for (const d of [ctx.root, ctx.cwd, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/var/folders', '/dev/shm']) {
-    const r = realOr(d);
-    if (g.startsWith(`${d}/`) || g.startsWith(`${r}/`)) return { unreadable: `unreadable (${name} at ${g} may be shadowed)` };
+    if (insideFolder(g, d)) return { unreadable: `unreadable (${name} at ${g} may be shadowed)` };
   }
   return { path: g };
 }
