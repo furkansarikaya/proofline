@@ -144,7 +144,7 @@ export function workerEvidenceCommand(ctx, args) {
   if (!['RED', 'GREEN', 'REFACTOR', 'FIX'].includes(phase)) fail(`invalid worker-evidence phase: ${phase}`);
   if (result !== 'pass' && result !== 'fail') fail(`invalid worker-evidence result: ${result} (want pass|fail)`);
   if (sectionValue(ctx, dir, 'handoff', 'state') !== 'IMPLEMENTING') fail('worker evidence may only be recorded while handoff state is IMPLEMENTING');
-  verifyFreeze(ctx, id, true);
+  verifyFreeze(ctx, id); // prints `freeze verified: ID`, as the shell did
   enforceTaskBranch(ctx, id);
   verifySeal(ctx, id, dir);
   const stdin = readStdin();

@@ -1901,10 +1901,16 @@ verify_knowledge_scope() {
 scan_knowledge_secrets() {
   sk_paths=$(knowledge_owned_paths "$1" | while IFS= read -r p; do [ -f "$root/$p" ] && printf '%s\n' "$p"; done)
   [ -n "$sk_paths" ] || return 0
-  [ -f "$scripts/secret-scan.sh" ] || fail "secret scanner missing: .agents/scripts/secret-scan.sh"
   sk_rc=0
-  # shellcheck disable=SC2086 # one argument per path (paths contain no whitespace by contract)
-  sk_out=$(cd "$root" && sh "$scripts/secret-scan.sh" $sk_paths 2>&1) || sk_rc=$?
+  # the project's own scanner script when it has one (only a fixture stub; the installer ships none), else the scanner of the Node core (A214)
+  if [ -f "$scripts/secret-scan.sh" ]; then
+    # shellcheck disable=SC2086 # one argument per path (paths contain no whitespace by contract)
+    sk_out=$(cd "$root" && sh "$scripts/secret-scan.sh" $sk_paths 2>&1) || sk_rc=$?
+  else
+    [ -f "$sr_main/.agents/scripts/proofline-core.mjs" ] || fail "secret scanner missing: $sr_main/.agents/scripts/proofline-core.mjs"
+    # shellcheck disable=SC2086
+    sk_out=$(node "$sr_main/.agents/scripts/proofline-core.mjs" cli scan-secrets --root "$root" $sk_paths 2>&1) || sk_rc=$?
+  fi
   case "$sk_rc" in
     0) return 0 ;;
     1) printf '%s\n' "$sk_out" | sed 's/^/  /' >&2; fail "secret scan of the knowledge-scope files written after CODE_DONE found secrets: remove them" ;;

@@ -2,6 +2,7 @@
 // Stage 4, package 4C: `submit` (agent.sh 0.0.47 `submit_result`): a specialist hands its result over; this builds the result document (header, findings
 // table, evidence lines, reasons), checks what it can before recording, snapshots the artifact and calls `record` IN PROCESS (there is no nested
 // `sh agent.sh record`). Every refusal is the shell's "submit rejected: ..." text, exit 1.
+import { takeCommandLocks } from './lock.mjs';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -408,7 +409,9 @@ export function submitResult(ctx, id, args) {
     const mark = ctx.chunks.length;
     let rec;
     try {
-      rec = recordText(ctx, id, raw, agent);
+      // the gate number, the gate record and the hash-chain row are one transaction: the command locks are held for record only (the re-run phase above stays unlocked)
+      if (ctx.locks) { takeCommandLocks(/** @type {import('./lock.mjs').LockSet} */ (ctx.locks), ctx, 'record', [id]); forgetFiles(ctx); ctx.forget('changed:'); }
+      try { rec = recordText(ctx, id, raw, agent); } finally { ctx.locks?.releaseAll(); }
     } catch (e) {
       const errs = ctx.chunks.slice(mark).filter((c) => c[0] === 'err').map((c) => c[1].toString('latin1')).join('');
       ctx.chunks.length = mark;

@@ -134,7 +134,7 @@ test('worker-evidence: the owner role records RED fail then GREEN pass; every ot
   refused(w(['GREEN', 'pass'], ev('go test', 'impl.txt')), 'GREEN before RED', 'GREEN evidence rejected: no RED evidence for impl.txt yet');
   refused(w(['GREEN', 'fail'], ev('go test', 'impl.txt')), 'GREEN fail', 'GREEN evidence must record result: pass');
   const red = accepted(w(['RED', 'fail'], ev('go test ./...', 'impl.txt,impl_test.txt', RED_WHY)), 'RED');
-  assert.equal(red.out, 'worker evidence recorded: LC RED-1 (fail)\n');
+  assert.equal(red.out, 'freeze verified: LC\nworker evidence recorded: LC RED-1 (fail)\n');
   const body = read(d, '.agents/runs/LC/worker-evidence/RED-1.yaml');
   assert.match(body, /^task_id: "LC"\nphase: "RED"\nresult: "fail"\nrole: "implementer"\ntopology: "orchestrated"\ncommand: go test \.\/\.\.\.\ntarget: impl\.txt,impl_test\.txt\nexpected_failure: TestImpl fails: lookup is not implemented in impl\.txt yet\nscope_snapshot: impl\.txt=[0-9a-f]{64};impl_test\.txt=[0-9a-f]{64};|scope_snapshot: impl\.txt=(missing|[0-9a-f]{64});/);
   assert.match(body, /base_sha: "[0-9a-f]{40}"/);

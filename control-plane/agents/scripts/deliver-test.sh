@@ -23,6 +23,20 @@ hooks() {
 tasks_in_tasks() { sed 's#^  dir: .agents/tasks#  dir: tasks#' .agents/config.yaml > "$base/cfg" && cp "$base/cfg" .agents/config.yaml; }   # the fixtures keep task files in tasks/
 pushed() { git update-ref "refs/remotes/origin/$(git branch --show-current)" HEAD; A approval-consume "$1" push '' "refs/heads/$(git branch --show-current)" >/dev/null; }   # what git push and pre-push do
 
+# A214: the installer ships no secret-scan.sh; the delivery check scans the knowledge files with the scanner of the Node core
+scenario_plan_without_scanner_script() {
+  SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks
+  mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/
+  printf -- '---\ntitle: lookup\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Lookup\n\nThe lookup returns the stored value.\n' > docs/wiki/lookup.md
+  A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null   # a knowledge file exists: the scan has something to scan
+  rm -f .agents/scripts/secret-scan.sh   # as `proofline init` lays the project out
+  cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
+  printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> .git/info/exclude
+  A deliver-plan LC > "$base/plan.out" 2>&1 || die "deliver-plan without a scanner script: $(tail -2 "$base/plan.out")"
+  grep -q '^steps: commit push pr merge cleanup$' "$base/plan.out" || die "summary: $(cat "$base/plan.out")"
+  ! grep -q 'scanner missing' "$base/plan.out" || die "the scan asked for a script"
+  ok "deliver-plan: the knowledge secret scan runs in the core when the project has no scanner script"
+}
 scenario_normal_chain() {
   SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; hooks
   has 'not ready to summarize' A deliver-plan LC   # A152: no refusal, no summary, no question
@@ -658,6 +672,7 @@ scenario_wt_relative_guards() {
 }
 
 run_sc scenario_normal_chain
+run_sc scenario_plan_without_scanner_script
 run_sc scenario_cleanup_crash_keeps_merged
 run_sc scenario_content_change_stops
 run_sc scenario_failed_refused
