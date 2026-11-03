@@ -4,7 +4,7 @@
 // push; `proofline merge` merges). The pull request is read through the platform tool (core/platform.mjs) BEFORE the locks are taken (a slow tool never
 // holds them). A merge is proved IN PROCESS (a pull request seen merged, or git) and the cleanup that follows is a call of this process: no file, flag or
 // lock says "merged" (A215).
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -67,8 +67,11 @@ export function originUrl(ctx) {
   if (u.startsWith('-')) return null;
   if (u === '' || u.startsWith('/') || u.includes('://') || u.includes('@') || u.includes(':')) return u;
   const main = ctx.sharedMain();
-  const abs = proc.run('sh', ['-c', 'cd "$1" 2>/dev/null && cd "$2" 2>/dev/null && pwd -P', 'sh', main, u], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
-  return abs.status === 0 && abs.stdout.length > 0 ? sub(abs.stdout.toString('latin1')) : `${main}/${u}`;
+  try {
+    const abs = realpathSync(path.resolve(main, u));
+    if (statSync(abs).isDirectory()) return abs;
+  } catch { /* not a folder next to the main working tree */ }
+  return `${main}/${u}`;
 }
 
 /** `origin_push_cmd BRANCH [FLAGS]` @param {Context} ctx @param {string} branch @param {string} [flags] */
