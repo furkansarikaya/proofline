@@ -205,7 +205,10 @@ function cleanupWorktree(ctx, id, terminal) {
   try { if (statSync(delivered).size > 0) { const m = /^nonce: ([0-9]*)-/m.exec(readFileSync(delivered, 'latin1')); from = m ? m[1] : '0'; } } catch { /* none */ }
   if (from === '' || /[^0-9]/.test(from)) from = '0';
   // the delivery code writes MERGED after its own proof (a pull request seen merged, or git); a merged.tsv row is the batch's record
-  let merged = isFile(`${ctx.root}/.agents/local/deliver/${id}/MERGED`);
+  // it carries the epoch of the proof and counts only when that is not older than this delivery's summary (a MERGED left by an earlier delivery does not)
+  const mt = fileText(ctx, `${ctx.root}/.agents/local/deliver/${id}/MERGED`);
+  const mv = mt === null ? '' : mt.replace(/\n+$/, '');
+  let merged = /^[0-9]+$/.test(mv) && Number(mv) >= Number(from);
   if (!merged) {
     const t = fileText(ctx, `${main}/.agents/local/batch/merged.tsv`);
     merged = t !== null && textLines(t).some((l) => { const f = l.split('\t'); return f[0] === id && Number(f[2]) + 0 >= Number(from) + 0; });

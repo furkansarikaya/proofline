@@ -7035,7 +7035,7 @@ deliver_plan() {
   dl_paths=$(git -C "$root" status --porcelain --untracked-files=all | grep -v '^.. \.agents/\(runs\|local\)/' || true)
   [ -n "$dl_paths" ] || dl_steps=${dl_steps#commit }
   dl_kn=$(knowledge_owned_paths "$dl_id" 2>/dev/null || true)
-  mkdir -p "$dl_dir"; rm -f "$dl_dir/PR"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
+  mkdir -p "$dl_dir"; rm -f "$dl_dir/PR" "$dl_dir/MERGED"; printf '%s\n' "$dl_msg" > "$dl_dir/COMMIT_MSG"
   cp "$dl_d/COMPLETION_REPORT.md" "$dl_dir/PR_BODY.md"; dl_prt=$dl_msg
   # A180: no CI here -> the description says the verification was local (the merge step makes it true before merging)
   if ci_absent; then printf '\n\n## Verification\n\nverified locally, no CI: no check runs on pull requests here; proofline merge runs the configured build and test commands in a clean copy of the commit before it merges.\n' >> "$dl_dir/PR_BODY.md"; fi
