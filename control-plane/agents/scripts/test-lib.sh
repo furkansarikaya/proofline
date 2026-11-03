@@ -142,7 +142,7 @@ STUB
 tl_build_template() { # DIR: an empty directory
   install_control_plane "$1"
   git -C "$1" init -q -b main
-  printf '.agents/core4a/\n' >> "$1/.git/info/exclude"   # the Node core is installed, not part of the fixture's history
+  printf '.agents/core4a/\n.agents/scripts/proofline-core.mjs\n' >> "$1/.git/info/exclude"   # the Node core is installed, not part of the fixture's history
   printf '.agents/runs/\n.agents/local/\n' > "$1/.gitignore"
 }
 tl_fixture_lib=$tl_agents/../../tests/shared/fixture-lib.sh
