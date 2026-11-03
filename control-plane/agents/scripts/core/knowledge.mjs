@@ -3,7 +3,7 @@
 // the order of the checks are those of the shell; a run that cannot be proven right is refused (the safe side).
 import { existsSync } from 'node:fs';
 import { fail } from './errors.mjs';
-import { requireLead } from './approve.mjs';
+import { forgetFiles, requireLead } from './approve.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { taskOwnedPaths } from './gates.mjs';
 import { verifySeal } from './ledger.mjs';
@@ -114,6 +114,7 @@ export function knowledgeDoneCommand(ctx, args) {
     if (own.length === 0) fail(`knowledge-done blocked (A200): no knowledge page was written. KNOWLEDGE_DONE records pages: write the wiki page, the ADR or the design document change the step is for (under ${ctx.config().get('knowledge_scope_root', 'docs/design/ docs/adr/ docs/wiki/ docs/product/')}), run the wiki lint, then run knowledge-done again; or, when the task needs no knowledge, agent.sh knowledge-done ${id} not_applicable "<one specific sentence>" (refused with the signal when the task changed behaviour or a contract)`);
     scanKnowledgeSecrets(ctx, id);
     wikiLintRun(ctx, own);
+    forgetFiles(ctx); ctx.forget('changed:'); // the lint wrote its report into the wiki: the knowledge paths below are read again
   }
   if (!term && localTaskSourceRun(ctx, id)) quietly(ctx, () => must(freshness(ctx, id)));
   const lessons = `${ctx.trustedScripts}/lessons.sh`;

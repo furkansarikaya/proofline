@@ -199,3 +199,35 @@ test('gate (the compatibility form): the owner role only, one Verdict line that 
   refused(g(['VERIFY', 'pass', '/etc/passwd'], SUMMARY, 'verifier'), 'an absolute artifact', /artifact path must be run-relative|VERIFY gate may only|not a required gate/);
   refused(g(['VERIFY', 'pass'], SUMMARY, 'verifier'), 'the gates before it are missing or the report is', /requires the role's report VERIFY\.md|not a required gate|may only be recorded/);
 });
+
+const CODE_DONE = `scaffold orchestrated no COMPLEX; ${IMPLEMENTED}; pass_all; A handoff LC CODE_DONE >/dev/null`;
+
+test('knowledge-done: not_applicable needs one specific sentence; a page is needed for KNOWLEDGE_DONE; the wiki lint report the step writes is a ledgered knowledge path', () => {
+  const d = project(CODE_DONE);
+  const k = (/** @type {string[]} */ ...a) => A(d, ['knowledge-done', 'LC', ...a]);
+  refused(k('KNOWLEDGE_DONE', 'a reason'), 'a reason for KNOWLEDGE_DONE', 'a reason is only for not_applicable');
+  refused(k('not_applicable', 'nope'), 'a stock reason', 'not_applicable needs a reason');
+  refused(k('not_applicable', 'nothing durable changed "here" in this run at all'), 'a quote', 'must not contain a double quote, a backslash or a #');
+  refused(k('not_applicable', 'nothing durable changed. Really nothing at all here'), 'two sentences', 'must be one sentence on one line');
+  refused(k(), 'no page written', 'no knowledge page was written');
+  // a page under the wiki, the lint installed: the step runs the lint itself and ledgers every knowledge file it owns, the lint report included
+  mkdirSync(`${d}/docs/wiki`, { recursive: true });
+  mkdirSync(`${d}/.agents/skills/llm-wiki/scripts`, { recursive: true });
+  writeFileSync(`${d}/.agents/skills/llm-wiki/scripts/validate-wiki.mjs`, readFileSync(new URL('../../skills/llm-wiki/scripts/validate-wiki.mjs', import.meta.url)));
+  writeFileSync(`${d}/docs/wiki/lookup.md`, '---\ntitle: lookup\nstatus: current\nsource: .agents/config.yaml\n---\n\n# Lookup\n\nThe lookup returns the stored value.\n');
+  const r = accepted(k(), 'knowledge-done with a page');
+  assert.equal(r.out, 'knowledge state recorded: LC KNOWLEDGE_DONE\n');
+  const ledger = read(d, '.agents/runs/LC/LEDGER.log');
+  assert.match(ledger, /event=knowledge-done .* to=KNOWLEDGE_DONE /);
+  const paths = /event=knowledge-paths .* detail=(.*)$/m.exec(ledger)?.[1] ?? '';
+  assert.match(paths, /docs\/wiki\/lookup\.md@[0-9a-f]{64}/);
+  assert.match(paths, /docs\/wiki\/lint-report\.md@[0-9a-f]{64}/, 'the lint report written by the step is not among the ledgered knowledge paths');
+  assert.match(read(d, '.agents/runs/LC/RUN.yaml'), /knowledge_state: "KNOWLEDGE_DONE"/);
+});
+
+test('knowledge-done: a secret in a knowledge file written after CODE_DONE is refused', () => {
+  const d = project(CODE_DONE);
+  mkdirSync(`${d}/docs/wiki`, { recursive: true });
+  writeFileSync(`${d}/docs/wiki/leak.md`, `notes\nAKIA${'ABCDEFGHIJKLMNOP'}\nPLANTED_SECRET=abc\n`);
+  refused(A(d, ['knowledge-done', 'LC']), 'a secret in the page', /secret scan of the knowledge-scope files written after CODE_DONE found secrets/);
+});
