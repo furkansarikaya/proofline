@@ -10,6 +10,7 @@ import { gateReportIds } from './next.mjs';
 import { led, must, quietly } from './lifeutil.mjs';
 import { localTaskSource, localTaskSourceRun, setRunValue } from './lifecycle.mjs';
 import { isFile } from './paths.mjs';
+import { adapterExists, runTaskAdapter } from './adapters/index.mjs';
 import * as proc from './proc.mjs';
 import { assumptionStates } from './questions.mjs';
 import { fileLines, fileText, gatesEnforced, sectionValue } from './records.mjs';
@@ -59,11 +60,10 @@ function sectionBody(lines, heading) {
   return out;
 }
 
-/** `adapter_script ADAPTER`. The name is one file name of .agents/task-integrations (a slash or a control character never leaves the folder). @param {Context} ctx @param {string} adapter */
+/** `adapter_script ADAPTER`: the adapter must exist (a project script or a built-in one). The name is one file name (a slash or a control character never leaves the folder). @param {Context} ctx @param {string} adapter */
 function adapterScript(ctx, adapter) {
-  const p = `${ctx.agents}/task-integrations/${adapter}.sh`;
-  if (adapter === '' || /[/\\\x00-\x1f\x7f]/.test(adapter) || adapter.startsWith('.') || !isFile(p)) fail(`unknown task-integration adapter: ${adapter}`);
-  return p;
+  if (!adapterExists(ctx.root, adapter)) fail(`unknown task-integration adapter: ${adapter}`);
+  return adapter;
 }
 
 // ---- the structure of the report -------------------------------------------------------------------------------------------------
@@ -377,7 +377,7 @@ export function publishCompletionReport(ctx, id, given) {
     ctx.forget('');
   };
   ctx.flush();
-  const r = proc.run('sh', [script, 'publish', id, report], { cwd: ctx.cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
+  const r = /** @type {NonNullable<ReturnType<typeof runTaskAdapter>>} */ (runTaskAdapter(ctx, script, ['publish', id, report]));
   if (r.stderr.length > 0) ctx.err(r.stderr.toString('latin1'));
   ctx.forget('');
   if (r.status !== 0) { restore(); fail(`completion report publish failed via adapter: ${adapter}`); }
@@ -411,7 +411,7 @@ export function verifyCompletionReport(ctx, id) {
   if (adapter === '' || receipt === '') fail(`completion report adapter/receipt missing: ${id}`);
   const script = adapterScript(ctx, adapter);
   ctx.flush();
-  const r = proc.run('sh', [script, 'verify', id, receipt], { cwd: ctx.cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
+  const r = /** @type {NonNullable<ReturnType<typeof runTaskAdapter>>} */ (runTaskAdapter(ctx, script, ['verify', id, receipt]));
   if (r.stdout.length > 0) ctx.out(r.stdout.toString('latin1'));
   if (r.stderr.length > 0) ctx.err(r.stderr.toString('latin1'));
   if (r.status !== 0) fail(`completion report publication could not be verified: ${id}`);

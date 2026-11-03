@@ -26,6 +26,7 @@ import { must, quietly } from './lifeutil.mjs';
 import { nextStep } from './next.mjs';
 import { detectPlatform, linkText, parseJson, resolveTool, runTool, ciFailed } from './platform.mjs';
 import * as proc from './proc.mjs';
+import { runTaskAdapter } from './adapters/index.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
 import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
 import { amendRun } from './reopen.mjs';
@@ -383,12 +384,11 @@ function readdirSyncSafe(d) { try { return readdirSync(d); } catch { return []; 
 function sbMainPut(ctx, adapter, id, body) {
   if (adapter !== 'markdown') return; // a tracker holds its block remotely; only a task FILE needs this
   const main = ctx.sharedMain();
-  if (!existsSync(`${main}/.agents/task-integrations/markdown.sh`)) return;
   const tmp = mkdtempSync(path.join(tmpdir(), 'agent-sb-put.'));
   try {
     writeFileSync(`${tmp}/body`, body, 'latin1');
-    const r = proc.run('sh', ['.agents/task-integrations/markdown.sh', 'statusblock', id, `${tmp}/body`], { cwd: main, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
-    if (r.status !== 0) ctx.err(`note: the status block of ${id} could not be placed in the main working tree\n`);
+    const r = runTaskAdapter(ctx, 'markdown', ['statusblock', id, `${tmp}/body`], { root: main, cwd: main });
+    if (r === null || r.status !== 0) ctx.err(`note: the status block of ${id} could not be placed in the main working tree\n`);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }
 

@@ -2613,7 +2613,7 @@ sc_evidence_gap_files_gate() {
 }
 sc_start() {
   new_repo; RID=ST-1
-  cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" .agents/task-integrations/
+  rm -f .agents/task-integrations/markdown.sh   # A216: the built-in markdown adapter, not the fixture stub
   git add -A; git commit -qm base
   A next | grep -Fq 'next=agent.sh start <ID>' || die 'next did not guide intake'
   expect_msg 'invalid task ID accepted' 'invalid task id' A start '../bad' --title bad
@@ -2684,7 +2684,7 @@ Check the task.
 PLAN
   A freeze ST-1 >/dev/null || die 'start to freeze failed'
   [ "$(rv task_source revision)" != PENDING ] || die 'freeze left task source revision pending'
-  new_repo; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" .agents/task-integrations/
+  new_repo; rm -f .agents/task-integrations/markdown.sh   # A216: the built-in markdown adapter
   git add -A; git commit -qm base
   sed '/## Risks/,$d' "$base/start-body.md" > "$base/incomplete.md"
   rc=0; A start ST-3 --title incomplete < "$base/incomplete.md" > "$base/out" 2>&1 || rc=$?

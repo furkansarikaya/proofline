@@ -1,5 +1,5 @@
 // @ts-check
-// Stage 4, package 4B: `start`. The task adapter (markdown.sh import, status, create) stays a child until stage 7; everything else is in process.
+// Stage 4, package 4B: `start`. The task adapter (markdown import, status, create) is the built-in one of core/adapters (a project script of the same name wins, A216).
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,7 +9,7 @@ import { fail, unsupported } from './errors.mjs';
 import { requireLead } from './approve.mjs';
 import { led } from './lifeutil.mjs';
 import { isFile } from './paths.mjs';
-import * as proc from './proc.mjs';
+import { runTaskAdapter } from './adapters/index.mjs';
 import { textLines, validTaskId } from './records.mjs';
 import { activeRun, openRuns, runDir } from './runs.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
@@ -36,7 +36,7 @@ export function dbGuardBaseline(ctx, id) {
 
 /** A task adapter call: stderr goes to the user, stdout is returned (and shown unless `capture`). @param {Context} ctx @param {string[]} args @param {boolean} capture */
 function adapterRun(ctx, args, capture) {
-  const r = proc.run('sh', args, { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = runTaskAdapter(ctx, 'markdown', args) ?? { status: 127, stdout: Buffer.alloc(0), stderr: Buffer.from('markdown task adapter is missing\n') };
   const out = r.stdout.toString('latin1');
   if (r.stderr.length) ctx.err(r.stderr.toString('latin1'));
   if (!capture && out !== '') ctx.out(out);
@@ -71,8 +71,6 @@ export function startRun(ctx, argv) {
   const active = activeRun(ctx);
   if (active !== '') fail(`another active run exists: ${active}`);
   const adapter = ctx.config().get('tasks.adapter', 'markdown');
-  const tool = `${ctx.agents}/task-integrations/markdown.sh`;
-  if (!isFile(tool)) fail('markdown task adapter is missing');
   const tasks = ctx.config().get('tasks.dir', '.agents/tasks');
   if (tasks.startsWith('/') || tasks.includes('..')) fail(`tasks.dir must be project-relative: ${tasks}`);
   const tmpd = mkdtempSync(`${tmpdir()}/agent-start.`);
@@ -87,12 +85,12 @@ export function startRun(ctx, argv) {
       if (!isFile(`${ctx.root}/${Buffer.from(rel, 'latin1').toString('utf8')}`)) fail(`task file missing: ${file}`);
       const name = rel.slice(rel.lastIndexOf('/') + 1);
       if (!(name === `${id}.md` || (name.startsWith(`${id}-`) && name.endsWith('.md')))) fail(`task file name must start with ${id}: ${file}`);
-      const imp = adapterRun(ctx, [tool, 'import', toArg(rel), tmp], false);
+      const imp = adapterRun(ctx, ['import', toArg(rel), tmp], false);
       if (imp.status !== 0) return imp.status;
       const head = textLines(readFileSync(tmp, 'latin1'))[0] ?? '';
       const m = /^# Task: ([^ ]*) .*/.exec(head);
       if ((m ? m[1] : '') !== id) fail(`task file ID does not match ${id}`);
-      const st = adapterRun(ctx, [tool, 'status', id, 'in-progress', toArg(rel)], true);
+      const st = adapterRun(ctx, ['status', id, 'in-progress', toArg(rel)], true);
       if (st.status !== 0) fail('could not move task to in-progress');
       taskPath = st.out;
     } else {
@@ -101,10 +99,10 @@ export function startRun(ctx, argv) {
       writeFileSync(tmp, body, 'latin1');
       if (title === '') { const m = /^# Task: [^ ]* — (.*)$/.exec(Buffer.from(textLines(body)[0] ?? '', 'latin1').toString('utf8')); title = m ? bytes(m[1]) : ''; }
       if (title === '') { ctx.out('MISSING title\n'); return 3; }
-      const cr = adapterRun(ctx, [tool, 'create', id, toArg(title), tmp], true);
+      const cr = adapterRun(ctx, ['create', id, toArg(title), tmp], true);
       if (cr.status !== 0) { ctx.out(`${cr.out}\n`); return cr.status; }
       taskPath = cr.out;
-      const imp = adapterRun(ctx, [tool, 'import', taskPath, tmp], false);
+      const imp = adapterRun(ctx, ['import', taskPath, tmp], false);
       if (imp.status !== 0) fail('created task could not be imported');
     }
     plainValue(taskPath); plainValue(adapter);

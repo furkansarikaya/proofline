@@ -131,7 +131,9 @@ case "$op" in
   *) exit 2 ;;
 esac
 STUB
-  cp "$tl_agents/task-integrations/slug.sh" "$1/.agents/task-integrations/slug.sh"   # A202: agent.sh derives the branch slug with it
+  # A216: the shell code that is left (task-rename) asks the core for a slug; a fixture has the core in .agents/core4a, so a three-line stub beside agent.sh (no core/ folder, so
+  # agent.sh still runs its shell code) hands `cli slug` over to it
+  printf "import { main } from '../core4a/proofline-core.mjs';\nprocess.exitCode = main(new URL(import.meta.url).pathname);\n" > "$1/.agents/scripts/proofline-core.mjs"
   chmod +x "$1/.agents/scripts/"*.sh "$1/.agents/task-integrations/markdown.sh"
 }
 # The fixture repository is built once per content hash of the control plane and the stubs above, shared by every

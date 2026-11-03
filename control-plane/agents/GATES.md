@@ -215,7 +215,7 @@ each blocking finding; waivers of SECRETS or SECURITY findings never count.
 
 The waiver is written to `waivers/NNN-<FINDING-ID>.yaml`, ledgered, consumes the approval and must appear
 in the completion report `## Waivers`. With `review.waiver_followup: task` a follow-up task file is written
-next to it and passed to `.agents/task-integrations/<tasks.adapter>.sh followup <ID> <file>` when the adapter
+next to it and passed to `proofline-core.mjs cli task-adapter <tasks.adapter> followup <ID> <file>` when the adapter
 exists (receipt recorded; `pending` otherwise).
 
 ## Known issues (A202)

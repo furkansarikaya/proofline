@@ -92,7 +92,7 @@ install_scripts() { # DIR: the control-plane scripts a fixture lacks (batch.sh, 
     case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
     cp "$is_s" "$1/"
   done
-  mkdir -p "$1/../task-integrations"; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" "$1/../task-integrations/"   # A169: sessions run the real `agent.sh start`
+  rm -f "$1/../task-integrations/markdown.sh"   # A216: sessions use the built-in markdown adapter, not the fixture stub
 }
 # bnew: a fresh fixture without task files (the shared template may carry some, see tpl_tasks)
 bnew() { new_repo; rm -rf .agents/tasks; }

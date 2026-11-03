@@ -3923,6 +3923,8 @@ commands_check() {
 # only by a slug and proposes <ID>-<slug-of-the-title>.md; it asks the user's approval (kind `rename`, bound to the proposal's sha256).
 # task-rename-apply renames only after that approval, and re-checks every row first. A task that has a run or a worktree, one whose file
 # holds a published completion report, and every file in in-progress/ or done/ is never proposed and never renamed.
+# task_slug TITLE: the slug of a title, from the Node core (cli slug): the project's core beside this script, or the main tree's
+task_slug() { node "$sr_main/.agents/scripts/proofline-core.mjs" cli slug "$1"; }
 rename_candidate() { # ABS-FILE -> ABS-NEW-NAME on stdout when the file is a queued, non-conforming task file
   rc_f=$1; rc_b=$(basename "$rc_f" .md)
   rc_id=$(sed -n '1s/^# Task: *\([^ ]*\).*/\1/p' "$rc_f" 2>/dev/null | head -1)
@@ -3930,12 +3932,12 @@ rename_candidate() { # ABS-FILE -> ABS-NEW-NAME on stdout when the file is a que
   case "$rc_b" in "$rc_id"-FU[0-9]*) return 1 ;; esac
   { [ ! -e "$root/.agents/runs/$rc_id" ] && [ ! -e "$(shared_dir worktrees)/$rc_id" ]; } || return 1
   ! grep -q "COMPLETION-REPORT:BEGIN" "$rc_f" 2>/dev/null || return 1
-  rc_idl=$(sh "$agents/task-integrations/slug.sh" "$rc_id")
+  rc_idl=$(task_slug "$rc_id")
   case "$rc_b" in "$rc_id"-?*)
     rc_sl=${rc_b#"$rc_id"-}
-    if [ "$rc_sl" = "$(sh "$agents/task-integrations/slug.sh" "$rc_sl")" ] && [ "$rc_sl" != "$rc_idl" ]; then return 1; fi ;;
+    if [ "$rc_sl" = "$(task_slug "$rc_sl")" ] && [ "$rc_sl" != "$rc_idl" ]; then return 1; fi ;;
   esac
-  rc_sl=$(sh "$agents/task-integrations/slug.sh" "$(task_title_of "$rc_f")")
+  rc_sl=$(task_slug "$(task_title_of "$rc_f")")
   { [ -n "$rc_sl" ] && [ "$rc_sl" != "$rc_idl" ]; } || return 1
   rc_new=$(dirname "$rc_f")/$rc_id-$rc_sl.md
   [ ! -e "$rc_new" ] || return 1

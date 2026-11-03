@@ -15,6 +15,8 @@ import { nextUser } from '../nextuser.mjs';
 import { queue } from '../queue.mjs';
 import { preCommit, prePush } from '../githooks.mjs';
 import { builtinScan } from '../secretscan.mjs';
+import { slug as slugOf } from '../slug.mjs';
+import { runTaskAdapter } from '../adapters/index.mjs';
 import { detectPlatform, detectText, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -108,8 +110,30 @@ function platformCli(ctx, args) {
   }
 }
 
+/** `cli slug <title>` (the former task-integrations/slug.sh): the file and branch slug of a title; nothing for a title without a usable letter or digit. @param {Context} ctx @param {string[]} args */
+function slugCli(ctx, args) {
+  if (args.length !== 1) throw new ProoflineError('usage: proofline-core cli slug <title>', 2, 'USAGE');
+  const s = slugOf(Buffer.from(args[0], 'utf8').toString('latin1'));
+  if (s !== '') ctx.out(`${s}\n`);
+  return 0;
+}
+
+/**
+ * `cli task-adapter <adapter> <operation> <args...>` (the former `sh .agents/task-integrations/<adapter>.sh <operation> ...`): one operation of a task adapter of the
+ * project (markdown, github, jira, linear, or a script of the project's own). Its output and exit code are the adapter's (0 ok, 1 failure, 2 usage, 3 import incomplete).
+ * @param {Context} ctx @param {string[]} args
+ */
+function taskAdapterCli(ctx, args) {
+  if (args.length < 2) throw new ProoflineError('usage: proofline-core cli task-adapter <adapter> <import|publish|verify|followup|status|statusblock|create> <args...>', 2, 'USAGE');
+  const r = runTaskAdapter(ctx, args[0], args.slice(1));
+  if (r === null) throw new ProoflineError(`unknown task-integration adapter: ${args[0]}`, 1);
+  ctx.out(r.stdout.toString('latin1'));
+  ctx.err(r.stderr.toString('latin1'));
+  return r.status;
+}
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli });
+export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

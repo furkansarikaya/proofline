@@ -57,7 +57,11 @@ test("upgrade --dry-run offers the DESIGN.md move and moves nothing", () => {
 const mdProject = () => {
   const d = mkdtempSync(join(tmpdir(), "mdp-"));
   mkdirSync(join(d, ".agents"));
-  sh("cp", ["-R", join(root, "control-plane/agents/task-integrations"), join(root, "control-plane/agents/templates"), join(d, ".agents")]);
+  sh("cp", ["-R", join(root, "control-plane/agents/templates"), join(d, ".agents")]);
+  // the markdown adapter is built into the Node core (A216): the project's own copy of the core runs it
+  mkdirSync(join(d, ".agents/scripts"), { recursive: true });
+  sh("cp", ["-R", join(root, "control-plane/agents/scripts/core"), join(d, ".agents/scripts/core")]);
+  sh("cp", [join(root, "control-plane/agents/scripts/proofline-core.mjs"), join(d, ".agents/scripts/")]);
   return d;
 };
 const BODY = "## Goal\nDo it.\n\n## Context\nNone.\n\n## Acceptance criteria\n- AC-1: works\n\n## Out of scope\nNothing.\n\n## Constraints\nNone.\n\n## Risks\nNone.\n";
@@ -71,7 +75,7 @@ const checkRun = (out) => {
 test("markdown.sh import: planning block behind a Status line stays under the H1, not in Context", () => {
   const d = mdProject();
   writeFileSync(join(d, "T-1.md"), `# Task: T-1 — Sample\n\n**Status:** in-progress\n\n${BLOCK}\n${BODY}`);
-  const r = sh("sh", [join(d, ".agents/task-integrations/markdown.sh"), "import", join(d, "T-1.md"), join(d, "TASK.md")], d);
+  const r = sh("node", [join(d, ".agents/scripts/proofline-core.mjs"), "cli", "task-adapter", "markdown", "import", join(d, "T-1.md"), join(d, "TASK.md")], d);
   assert.equal(r.status, 0, r.stderr + r.stdout);
   checkRun(join(d, "TASK.md"));
 });
@@ -79,22 +83,22 @@ test("markdown.sh import: planning block behind a Status line stays under the H1
 test("markdown.sh create: planning block in the body is kept after Status and not leaked into Context", () => {
   const d = mdProject();
   writeFileSync(join(d, "body.md"), `# Task: T-2 — Sample\n\n${BLOCK}\n${BODY}`);
-  const md = join(d, ".agents/task-integrations/markdown.sh");
-  const c = sh("sh", [md, "create", "T-2", "Sample", join(d, "body.md")], d);
+  const md = join(d, ".agents/scripts/proofline-core.mjs");
+  const c = sh("node", [md, "cli", "task-adapter", "markdown", "create", "T-2", "Sample", join(d, "body.md")], d);
   assert.equal(c.status, 0, c.stderr + c.stdout);
   const file = join(d, c.stdout.trim());
   const t = readFileSync(file, "utf8");
   assert.match(t, /^# Task: [^\n]*\n\n\*\*Status:\*\* in-progress\n\n---\nsize: S\nsprint: 1\n---\n/);
   assert.ok(!t.slice(t.indexOf("## Context")).includes("sprint: 1"), t);
-  assert.equal(sh("sh", [md, "import", file, join(d, "TASK.md")], d).status, 0);
+  assert.equal(sh("node", [md, "cli", "task-adapter", "markdown", "import", file, join(d, "TASK.md")], d).status, 0);
   checkRun(join(d, "TASK.md"));
 });
 
 test("markdown.sh create: body with no H1 and a leading blank line keeps the block out of Context", () => {
   const d = mdProject();
   writeFileSync(join(d, "body.md"), `\n${BLOCK}\n${BODY}`);
-  const md = join(d, ".agents/task-integrations/markdown.sh");
-  const c = sh("sh", [md, "create", "T-3", "Sample", join(d, "body.md")], d);
+  const md = join(d, ".agents/scripts/proofline-core.mjs");
+  const c = sh("node", [md, "cli", "task-adapter", "markdown", "create", "T-3", "Sample", join(d, "body.md")], d);
   assert.equal(c.status, 0, c.stderr + c.stdout);
   const t = readFileSync(join(d, c.stdout.trim()), "utf8");
   assert.match(t, /^# Task: [^\n]*\n\n\*\*Status:\*\* in-progress\n\n---\nsize: S\nsprint: 1\n---\n/);
