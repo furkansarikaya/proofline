@@ -211,6 +211,30 @@ test('the merge is recorded in merged.tsv before the cleanup, so a crash in betw
   assert.match(read(d, '.agents/local/batch/merged.tsv'), /^LC\t7\t[0-9]+$/m);
 });
 
+test('knowledge: after CODE_DONE .md pages stay out of the tier; a script, an executable doc, a symlink and a data file under docs/wiki count (round 6)', () => {
+  const d = project(`SC_BRANCH=1 SC_SCOPE_NAMED=app.go scaffold standalone no STANDARD; ${TASKS_IN_TASKS}; solo RED fail impl_test.txt 'test: lookup returns the stored value'; `
+    + "solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go; A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null");
+  const tier = () => A(d, ['tier', 'LC'], { role: 'reviewer' }).out.trim();
+  const wiki = `${d}/docs/wiki`;
+  const clear = () => run(d, 'sh', ['-c', 'rm -f docs/wiki/* docs/wiki/.[!.]*']);
+  mkdirSync(wiki, { recursive: true });
+  assert.equal(tier(), 'small', 'the fixture is not small');
+  for (const n of ['a', 'b', 'c']) wf(`${wiki}/${n}.md`, `# ${n}\n`);
+  assert.equal(tier(), 'small', 'plain .md pages counted toward the tier');
+  clear();
+  wf(`${wiki}/gen.sh`, 'echo 1\n'); wf(`${wiki}/gen2.sh`, 'echo 2\n');
+  assert.equal(tier(), 'full', 'unnamed scripts under docs/wiki did not count');
+  clear();
+  wf(`${wiki}/x1.md`, '# a\n'); wf(`${wiki}/x2.md`, '# b\n'); run(d, 'chmod', ['+x', `${wiki}/x1.md`, `${wiki}/x2.md`]);
+  assert.equal(tier(), 'full', 'executable docs did not count');
+  clear();
+  run(d, 'ln', ['-s', '../../impl.txt', `${wiki}/l1.md`]); run(d, 'ln', ['-s', '../../impl_test.txt', `${wiki}/l2.md`]);
+  assert.equal(tier(), 'full', 'symlinked docs did not count');
+  clear();
+  wf(`${wiki}/d1.json`, '{}\n'); wf(`${wiki}/d2.json`, '{}\n');
+  assert.equal(tier(), 'full', 'non-doc extensions did not count');
+});
+
 /** @param {string} d */
 function requireNames(d) { return existsSync(`${d}/.agents/runs/LC/approvals`) ? readdir(`${d}/.agents/runs/LC/approvals`) : []; }
 import { readdirSync as readdir } from 'node:fs';

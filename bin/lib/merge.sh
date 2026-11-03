@@ -25,7 +25,7 @@
 
 mg_refuse() { printf 'proofline merge: REFUSED: %s\n' "$*" >&2; exit 1; }
 # the hosting platform of the origin remote is read by the Node core (A215): `mg_platform detect|field KEY|link BRANCH BASE|env`
-mg_platform() { node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli platform "$@"; }
+mg_platform() { node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli platform-info "$@"; }
 
 # mg_manual PLATFORM WHY DETECT-OUTPUT: the user merges; nothing is merged here.
 mg_manual() {

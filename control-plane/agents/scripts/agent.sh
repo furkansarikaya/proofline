@@ -5085,10 +5085,6 @@ archive_run() {
   echo "evidence archived: .agents/local/archive/$ar_id/${ar_f##*/} (the newest $ar_keep runs are kept)"
 }
 
-# --- CI visibility (A163, A180): does a pull request here get any check at all? Read-only, repository files only. ----------
-# Without checks proofline merge does not wait for them: it verifies the commit with the project's build and test commands in a
-# clean copy, and the pull request and the delivery record say "verified locally, no CI". That is a warning, not a blocker.
-CI_WARN='no CI check runs on pull requests here. proofline merge verifies the commit locally instead (commands.build and commands.test in a clean copy) and the pull request says "verified locally, no CI".'
 
 
 # --- One-command delivery: one summary, one reply, one approval per step -------------------------

@@ -335,6 +335,18 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/run4c-report.test.mjs
+          - name: run6-deliver
+            mode: files
+            pattern: 'none'
+            files: tests/core/run6-deliver.test.mjs tests/core/run6-plan.test.mjs
+          - name: run6-merged
+            mode: files
+            pattern: 'none'
+            files: tests/core/run6-merged.test.mjs tests/core/run6-sbblock.test.mjs
+          - name: run6-cifix
+            mode: files
+            pattern: 'none'
+            files: tests/core/run6-cifix.test.mjs tests/core/run6-platform.test.mjs
           - name: legacy-slow-a
             mode: files
             pattern: 'none'

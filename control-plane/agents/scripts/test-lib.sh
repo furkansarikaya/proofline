@@ -52,7 +52,7 @@ pipe_val() { A pipeline "$RID" | sed -n "s/^$1=//p"; }
 install_control_plane() {
   mkdir -p "$1/.agents/scripts" "$1/.agents/task-integrations" "$1/.agents/local"
   cp "$tl_agents/config.yaml" "$1/.agents/"; cp -R "$tl_agents/modes" "$tl_agents/templates" "$1/.agents/"
-  # A212, A213, A214: the commands of stage 4 packages 4A, 4B and 4C have no shell arm any more and run in the Node core. A fixture's agent.sh is the real one with a prologue that sends
+  # A212, A213, A214: the commands of stage 4 packages 4A, 4B, 4C and of stage 6 (delivery) have no shell arm any more and run in the Node core. A fixture's agent.sh is the real one with a prologue that sends
   # those commands to the Node core, installed in .agents/core4a (beside agent.sh's folder the core would take every moved command of stages 1 to 3 as well,
   # and the scenarios that still test those run the shell code). The prologue goes with the last shell suite.
   mkdir -p "$1/.agents/core4a"; cp "$tl_agents/scripts/proofline-core.mjs" "$1/.agents/core4a/"; cp -R "$tl_agents/scripts/core" "$1/.agents/core4a/core"
@@ -64,7 +64,8 @@ case "$0" in */*) tl_here=${0%/*} ;; *) tl_here=. ;; esac
 case "${1:-}" in
   baseline|discard-stray|branch|tier|classify|verify-assumptions|delivery-check|db-check|ask|status-block|tree-inspect|tree-accept|task-source-status|task-source-relocate|\
   start|freeze|refreeze|handoff|terminate|cleanup|amend|reopen|\
-  worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|knowledge-done|publish-completion-report|verify-completion-report)
+  worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|knowledge-done|publish-completion-report|verify-completion-report|\
+  deliver-plan|deliver-step|deliver-merged|pr-state|task-source-done|platform|platform-warn|batch-ci|ci-check|ci-task-command)
     # a run worktree is served by the main tree's core, with the worktree as the root
     tl_core=$tl_here/../core4a; tl_root=$(cd "$tl_here/../.." && pwd -P)
     case "$tl_root" in */.agents/local/worktrees/*) tl_core=${tl_root%%/.agents/local/worktrees/*}/.agents/core4a ;; esac
@@ -76,7 +77,6 @@ PROLOGUE
   [ ! -f "$tl_agents/ecosystems.tsv" ] || { cp "$tl_agents/ecosystems.tsv" "$1/.agents/"; cp "$tl_agents/scripts/ecosystems.sh" "$1/.agents/scripts/"; }   # A173: the risk sets read the ecosystem definition
   [ ! -f "$tl_agents/scripts/next-user.sh" ] || cp "$tl_agents/scripts/next-user.sh" "$1/.agents/scripts/"   # A159: agent.sh next-user runs it
   [ ! -f "$tl_agents/scripts/known-issues.sh" ] || cp "$tl_agents/scripts/known-issues.sh" "$1/.agents/scripts/"   # A202: the known-issues list data rules
-  [ ! -f "$tl_agents/scripts/platform.sh" ] || cp "$tl_agents/scripts/platform.sh" "$1/.agents/scripts/"   # A180: the delivery reads the hosting platform
   [ ! -f "$tl_agents/scripts/worktree-prep.sh" ] || cp "$tl_agents/scripts/worktree-prep.sh" "$1/.agents/scripts/"   # A185: worktree-add prepares dependency folders and env files
   cat > "$1/.agents/scripts/secret-scan.sh" <<'STUB'
 #!/bin/sh

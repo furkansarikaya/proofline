@@ -1,6 +1,0 @@
-#!/bin/sh
-case "$*" in
-  *"pr policy list"*) echo '[{"status":"rejected","context":{"buildId":77},"configuration":{"settings":{"displayName":"CI build"}}}]' ;;
-  *"devops invoke"*) [ -f "/Users/furkansarikaya/claude/FsPackages/proofline/.claude/worktrees/agent-aa01af562470ebecf/tests/core/.fake-tools-cx-meFYgB/tl.none" ] || echo '{"records":[{"name":"Run tests","result":"failed","issues":[{"type":"error","message":"npm test exited 1"}]}]}' ;;
-esac
-exit 0

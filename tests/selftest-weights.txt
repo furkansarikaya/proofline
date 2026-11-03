@@ -19,7 +19,6 @@
 319 enforcement-test link_writes
 311 risk-test sc_unsupported_inconclusive
 308 lifecycle-test scenario_orchestrated_loop
-291 deliver-test scenario_reopened_run_delivers
 290 gates-test sc_fix_loop
 279 lifecycle-test scenario_amend_plan_change
 269 gates-test sc_record
@@ -33,15 +32,12 @@
 218 risk-test sc_missing_flag
 215 lifecycle-test scenario_cleanup_after_delivery
 206 lifecycle-test scenario_task_contract_bookkeeping standalone
-199 deliver-test scenario_content_change_stops
 194 risk-test sc_unsupported_block
 192 enforcement-test read_roles_tree
 179 lifecycle-test scenario_terminal
-176 deliver-test scenario_normal_chain
 170 gates-test sc_debug_result
 168 gates-test sc_submit
 167 lifecycle-test scenario_task_contract_adapter
-166 deliver-test scenario_task_move_skipped
 165 tasks-test
 155 lifecycle-test scenario_amendment_fresh_budget
 152 cli-test sc_init_role
@@ -51,9 +47,7 @@
 143 enforcement-test waivers
 139 lifecycle-test scenario_reopen_after_upgrade
 138 lifecycle-test scenario_base_moved_new_block_file CLAUDE.md
-135 deliver-test scenario_summary_warns_without_ci
 135 lifecycle-test scenario_reopen_one_question
-134 deliver-test scenario_task_moves_to_done
 130 lifecycle-test scenario_classification
 129 risk-test sc_selective_focus
 128 lifecycle-test scenario_base_moved_updates_base
@@ -92,12 +86,10 @@
 76 gates-test sc_legacy_fingerprint_new_rule
 76 lifecycle-test scenario_base_moved_agents_files
 75 cli-test sc_upgrade_block
-75 deliver-test scenario_failed_refused
 75 gates-test sc_scratch_worktrees
 74 dispatch-test
 74 gates-test sc_questions_grill
 73 lifecycle-test scenario_base_moved_stale
-70 deliver-test scenario_task_done_noop
 70 lifecycle-test scenario_base_moved_named_path
 70 lifecycle-test scenario_uncommitted_block_file
 69 lifecycle-test scenario_fingerprint_excludes_agents
@@ -199,7 +191,6 @@
 7 enforcement-test out_of_scope
 7 gates-test sc_config_scope_misc
 7 merge-guard-test
-6 deliver-test scenario_ci_check
 6 enforcement-test git_hooks
 6 gates-test sc_lock_break_race
 6 gates-test sc_open_runs

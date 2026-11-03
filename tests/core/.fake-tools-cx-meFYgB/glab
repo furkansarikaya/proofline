@@ -1,7 +1,0 @@
-#!/bin/sh
-case "$1 $2" in
-  "mr view") echo '{"head_pipeline":{"id":55,"status":"failed"}}' ;;
-  "api projects/:id/pipelines/55/jobs?scope[]=failed&per_page=20") echo '[{"id":901,"name":"unit","status":"failed","allow_failure":false}]' ;;
-  "ci trace") [ -f "/Users/furkansarikaya/claude/FsPackages/proofline/.claude/worktrees/agent-aa01af562470ebecf/tests/core/.fake-tools-cx-meFYgB/trace.none" ] || echo 'FAIL: TestLookup expected 1 got 2' ;;
-esac
-exit 0

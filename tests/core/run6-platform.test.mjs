@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { ciFailed, detectPlatform, linkText, platformEnv, resolveTool, warnText } from '../../control-plane/agents/scripts/core/platform.mjs';
-import { A, DONE, accepted, existsSync, fakeGh, fakeTool, g, gOk, readFileSync, refused, run } from './run6-lib.mjs';
+import { A, DONE, accepted, existsSync, fakeGh, fakeTool, g, gOk, readFileSync, refused, run, toolRoot } from './run6-lib.mjs';
 import { project } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
 
@@ -87,7 +87,7 @@ test('git.platform and git.platform_host: whole-host equality, look-alikes stay 
 function rmConfig(p) { wf(`${p}/.agents/config.yaml`, ''); }
 
 test('ci-failed reads the failed job log of GitHub and GitLab and the build errors of Azure DevOps; an unreadable log says so; Bitbucket has no reader', () => {
-  const cx = mkdtempSync(path.join(repo, 'tests/core/.fake-tools-cx-'));
+  const cx = mkdtempSync(path.join(toolRoot, 'cx-'));
   const put = (/** @type {string} */ name, /** @type {string} */ body) => { wf(`${cx}/${name}`, `#!/bin/sh\n${body}`); chmodSync(`${cx}/${name}`, 0o755); return `${cx}/${name}`; };
   const glab = put('glab', `case "$1 $2" in
   "mr view") echo '{"head_pipeline":{"id":55,"status":"failed"}}' ;;
@@ -136,7 +136,7 @@ test('a platform tool that resolves into the project, the working directory or a
   assert.ok('path' in ok, 'a gh outside every temporary folder is accepted');
   const bad = resolveTool(ctxOf(empty, { PATH: `${shadow}:/usr/bin:/bin` }), 'gh');
   assert.ok('unreadable' in bad && /may be shadowed/.test(bad.unreadable), 'a gh in a temporary folder is refused');
-  const link = mkdtempSync(path.join(repo, 'tests/core/.fake-tools-ln-'));
+  const link = mkdtempSync(path.join(toolRoot, 'ln-'));
   symlinkSync(`${shadow}/gh`, `${link}/gh`);
   const viaLink = resolveTool(ctxOf(empty, { PATH: `${link}:/usr/bin:/bin` }), 'gh');
   assert.ok('unreadable' in viaLink, 'a symlink into a temporary folder is refused');

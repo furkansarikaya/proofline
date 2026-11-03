@@ -14,7 +14,7 @@ case $hook in *.mjs) hrun='node' ;; *) hrun='sh' ;; esac
 core_into() { [ "$hrun" = node ] || return 0; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$1/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$1/.agents/scripts/core"; }
 pl=$repo/bin/proofline
 core=$repo/control-plane/agents/scripts/proofline-core.mjs; NODE=$(command -v node)
-pfc() { "$NODE" "$core" cli platform "$@"; }   # the hosting platform is read by the Node core (A215)
+pfc() { "$NODE" "$core" cli platform-info "$@"; }   # the hosting platform is read by the Node core (A215)
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-platform.XXXXXX") || { echo "platform: TMPDIR must be an existing directory" >&2; exit 2; }
 trap 'rm -rf "$base"' EXIT
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -210,7 +210,7 @@ for u in https://bitbucket.org/acme/app.git ssh://git@git.example.com/acme/app.g
 done
 ok "bitbucket and an unrecognized host: nothing is merged, the message says the USER merges and prints the steps"
 git -C "$proj" remote set-url origin https://gitlab.com/acme/app.git
-nogl=$base/nogl; mkdir -p "$nogl"; for t in git sed awk head tr dirname cat readlink jq sh; do p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogl/$t"; done
+nogl=$base/nogl; mkdir -p "$nogl"; for t in git sed awk head tr dirname cat readlink jq sh node; do p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogl/$t"; done
 (cd "$proj" && PROOFLINE_SELFTEST=1 PATH=$nogl "$(command -v sh)" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without glab"
 grep -Fq 'NOT MERGED' "$base/out" && grep -Fq 'glab' "$base/out" && grep -Fq 'YOU merge it' "$base/out" || die "missing-tool message: $(cat "$base/out")"
 ok "a recognized platform whose tool is not installed falls back to the manual path"

@@ -10,7 +10,7 @@ import { project, scripts } from './legacy-lib.mjs';
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
 const ADAPTERS = `${scripts}/../task-integrations`;
-const cli = (/** @type {string} */ d, /** @type {string[]} */ args) => run(d, 'node', [`${scripts}/proofline-core.mjs`, 'cli', 'platform', ...args]);
+const cli = (/** @type {string} */ d, /** @type {string[]} */ args) => run(d, 'node', [`${scripts}/proofline-core.mjs`, 'cli', 'platform-info', ...args]);
 
 /** A bare repository that holds main of the project. @param {string} d @param {string} name */
 function bareOrigin(d, name = 'lo.git') {

@@ -11,7 +11,7 @@ import { A, accepted, refused, say, verbs } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
 
 /** Where the fake platform tools live: inside the checkout, never under a temporary folder. */
-const toolRoot = path.join(repo, 'tests/core/.fake-tools');
+export const toolRoot = path.join(repo, 'tests/core/.fake-tools', String(process.pid));
 mkdirSync(toolRoot, { recursive: true });
 after(() => { rmSync(toolRoot, { recursive: true, force: true }); });
 let counter = 0;

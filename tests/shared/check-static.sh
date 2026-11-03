@@ -21,7 +21,7 @@
 #    is and how it builds, tests, lints and lists workspace members is data in control-plane/agents/ecosystems.json. A line of
 #    bin/, control-plane/agents/ (scripts, githooks, task-integrations), adapters/ or skills/*/scripts shell scripts that
 #    branches on an ecosystem id (a case label such as `go)` or `npm|pnpm)`, or a comparison such as `[ "$x" = dotnet ]`) fails.
-#    The ids are read from ecosystems.tsv, never hardcoded here. Excluded: platform.sh (platform adapter), ecosystems.sh (the
+#    The ids are read from ecosystems.tsv, never hardcoded here. Excluded: ecosystems.sh (the
 #    reader of the data), the self-tests (*-test.sh, test-lib.sh, tests/) and comment lines. A line that names an interpreter or
 #    a tool and not an ecosystem (a process-group method, an interpreter whose inline code a safety hook reads) may be marked
 #    by a comment line directly above it: `# eco-ok: <why this is not ecosystem knowledge>`. A line that names a plain manifest, project
@@ -143,7 +143,7 @@ else
   hits=''
   for f in $list; do
     case $f in
-      */fixtures/*|*/templates/*|*/library/*|*-test.sh|*/test-lib.sh|*/platform.sh|*/ecosystems.sh|*.md|*.json|*.toml|*.tsv|*.mjs|*.yaml|*.yml|*.conf) continue ;; esac
+      */fixtures/*|*/templates/*|*/library/*|*-test.sh|*/test-lib.sh|*/ecosystems.sh|*.md|*.json|*.toml|*.tsv|*.mjs|*.yaml|*.yml|*.conf) continue ;; esac
     case $f in skills/*) case $f in skills/*/scripts/*) ;; *) continue ;; esac ;; esac
     [ -f "$root/$f" ] || continue
     case $f in *.sh) ;; *) head -n 1 "$root/$f" | grep -Eq '^#!.*(sh|bash)' || continue ;; esac

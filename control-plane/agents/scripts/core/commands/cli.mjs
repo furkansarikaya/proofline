@@ -72,12 +72,12 @@ function secretScanCli(ctx, args) {
 }
 
 /**
- * `cli platform detect|field KEY|link BRANCH BASE|env|warn [-C DIR] [--url URL]` (the former scripts/platform.sh, for bin/lib/merge.sh): the hosting platform of
+ * `cli platform-info detect|field KEY|link BRANCH BASE|env|warn [-C DIR] [--url URL]` (the former scripts/platform.sh, for bin/lib/merge.sh): the hosting platform of
  * the origin remote of DIR (default the working directory). Prints what platform.sh printed; status 2 for a usage error.
  * @param {Context} ctx @param {string[]} args
  */
 function platformCli(ctx, args) {
-  const usage = () => new ProoflineError('usage: proofline-core cli platform detect|field KEY|link BRANCH BASE|env|warn [-C DIR] [--url URL]', 2, 'USAGE');
+  const usage = () => new ProoflineError('usage: proofline-core cli platform-info detect|field KEY|link BRANCH BASE|env|warn [-C DIR] [--url URL]', 2, 'USAGE');
   const op = args[0] ?? '';
   let rest = args.slice(1);
   let key = ''; let br = ''; let base = '';
@@ -101,13 +101,13 @@ function platformCli(ctx, args) {
     case 'warn': ctx.out(warnText(info)); return 0;
     case 'env': ctx.out(Object.entries(platformEnv(info)).map(([k, v]) => `${k}=${v}\n`).join('')); return 0;
     default:
-      if (br === '' || base === '') throw new ProoflineError('usage: proofline-core cli platform link BRANCH BASE', 2, 'USAGE');
+      if (br === '' || base === '') throw new ProoflineError('usage: proofline-core cli platform-info link BRANCH BASE', 2, 'USAGE');
       ctx.out(`${linkText(info, br, base)}\n`); return 0;
   }
 }
 
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, platform: platformCli });
+export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {
