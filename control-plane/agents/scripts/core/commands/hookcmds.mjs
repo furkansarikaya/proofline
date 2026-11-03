@@ -66,7 +66,7 @@ function worktreeRoot(ctx, args) {
 function inKnowledgeScopeCommand(ctx, args) { return inKnowledgeScope(ctx, args[0] ?? '') ? 0 : 1; }
 
 /** `hook_time ID` @param {Context} ctx @param {string[]} args */
-function hookTime(ctx, args) {
+export function hookTime(ctx, args) {
   const id = args[0] ?? '';
   requireLead(ctx);
   const f = `${ctx.root}/.agents/local/hook-times`;

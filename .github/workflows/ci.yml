@@ -315,6 +315,14 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/run4a-records.test.mjs
+          - name: run4b-lifecycle
+            mode: files
+            pattern: 'none'
+            files: tests/core/run4b-lifecycle.test.mjs
+          - name: run4b-freeze
+            mode: files
+            pattern: 'none'
+            files: tests/core/run4b-freeze.test.mjs
           - name: legacy-slow-a
             mode: files
             pattern: 'none'

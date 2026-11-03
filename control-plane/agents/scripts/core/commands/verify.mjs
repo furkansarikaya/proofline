@@ -41,7 +41,7 @@ function hashRequired(file) {
 // ---- verify-freeze -------------------------------------------------------------------------------------------------------------
 
 /** `pipeline_signature ID` @param {Context} ctx @param {string} dir */
-function pipelineSignature(ctx, dir) {
+export function pipelineSignature(ctx, dir) {
   return pipelineDeclared(ctx, dir) && pipelineClassValid(pipelineClass(ctx, dir)) ? `${pipelineClass(ctx, dir)}:review=${pipelineReview(ctx, dir)}` : '';
 }
 
@@ -283,7 +283,7 @@ function qaRemovedTerms(plan) {
 function commaJoin(a) { return a.map((x) => `${x},`).join('').replace(/,$/, '').replace(/,/g, ', '); }
 
 /** @param {Context} ctx @param {string} id */
-function verifyQaPlanBound(ctx, id) {
+export function verifyQaPlanBound(ctx, id) {
   const dir = runDir(ctx, id);
   if (pipelineNeeds(ctx, dir, 'qa') !== 'yes') return;
   if (!isFile(`${dir}/QA_PLAN.md`) || !isFile(`${dir}/PLAN.md`)) return;
@@ -360,7 +360,7 @@ function verifyQaPlan(ctx, args) {
 // ---- verify-worker-evidence ------------------------------------------------------------------------------------------------------
 
 /** `exempted_path PLAN PATH`: the reason after the first `|` of the first exemption line that contains `PATH|`. @param {string[]} plan @param {string} p */
-function exemptedPath(plan, p) {
+export function exemptedPath(plan, p) {
   let inside = false;
   let cur = '';
   for (const l of plan) {
@@ -401,6 +401,22 @@ function validateTddExemptions(ctx, dir) {
   const rows = mappingsOrFail(ctx, dir);
   const plan = fileLines(ctx, `${dir}/PLAN.md`);
   const paths = shellWords(ctx, scopePaths(rows));
+  checkTypeExemptions(ctx, dir, rows);
+  for (const p of paths) {
+    const reason = exemptedPath(plan, p);
+    if (reason === '') continue;
+    if (!justificationOk(reason)) fail(`invalid TDD exemption for ${p}: reason is missing or too generic`);
+  }
+}
+
+/**
+ * `check_type_exemptions RUNDIR` (A202): a content or docs task has the test-first exemption by default, but the plan carries its reason for each document path.
+ * @param {Context} ctx @param {string} dir @param {Array<[string, string]>} [given]
+ */
+export function checkTypeExemptions(ctx, dir, given) {
+  const rows = given ?? planScope(ctx, dir).rows;
+  const plan = fileLines(ctx, `${dir}/PLAN.md`);
+  const paths = shellWords(ctx, scopePaths(rows));
   const taskText = fileText(ctx, `${dir}/TASK.md`);
   if (taskText === null) throw unsupported('TASK.md is not readable');
   const ty = taskType(taskText);
@@ -415,11 +431,6 @@ function validateTddExemptions(ctx, dir) {
         fail(`the ${ty} task type exempts document paths from test-first by default, with the reason written in the plan: add 'tdd_exemption: <specific reason, 20+ characters>' to ${p} in PLAN.md scope`);
       }
     }
-  }
-  for (const p of paths) {
-    const reason = exemptedPath(plan, p);
-    if (reason === '') continue;
-    if (!justificationOk(reason)) fail(`invalid TDD exemption for ${p}: reason is missing or too generic`);
   }
 }
 
@@ -458,7 +469,7 @@ function evidenceCovers(ctx, file, p) {
 }
 
 /** @param {Context} ctx @param {string} id */
-function verifyWorkerEvidence(ctx, id) {
+export function verifyWorkerEvidence(ctx, id) {
   ctx.fpMode = 'refresh';
   requireRun(ctx, id);
   const dir = runDir(ctx, id);

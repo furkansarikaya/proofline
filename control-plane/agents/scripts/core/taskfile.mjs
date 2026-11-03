@@ -168,3 +168,41 @@ export function afterFrontMatter(text) {
 }
 
 export { trimSpace };
+
+/**
+ * `task_scope_bad FILE HEADING` (mode bad of task_scope_parse): what is in the section but is not a readable entry (a token that is no path or glob,
+ * or a line that is no bullet), one per line.
+ * @param {string} text @param {string} heading
+ */
+export function scopeBad(text, heading) {
+  /** @type {string[]} */ const out = [];
+  /** @param {string} tok @param {boolean} ticked */
+  const emit = (tok, ticked) => {
+    const t = tok.replace(/^[ \t]+|[ \t]+$/g, '').replace(/[,;:]+$/, '');
+    if (t === '') return;
+    if (BAD_RE.test(t) || /^[./]+$/.test(t) || (!ticked && !PATH_RE.test(t))) out.push(t);
+  };
+  for (const raw of sectionLines(text, heading)) {
+    const line = raw.replace(/\r/g, '');
+    if (/^[ \t]*$/.test(line)) continue;
+    const bullet = /^[ \t]*(?:[-*]|[0-9]+[.)])[ \t]+/.exec(line);
+    if (bullet) {
+      const l = line.slice(bullet[0].length);
+      if (asciiLower(l).replace(/^[ \t]+|[ \t]+$/g, '') === 'none') continue;
+      if (l.includes('`')) {
+        let rest = l;
+        for (;;) {
+          const m = /`[^`]*`/.exec(rest);
+          if (!m) break;
+          const tk = m[0].slice(1, -1);
+          rest = rest.slice(m.index + m[0].length);
+          for (const part of tk.split(',')) emit(part, true);
+        }
+      } else for (const part of l.split(/[ \t,]+/)) emit(part, false);
+      continue;
+    }
+    if (asciiLower(line).replace(/^[ \t]+|[ \t]+$/g, '') === 'none') continue;
+    out.push(line.slice(0, 60));
+  }
+  return out;
+}

@@ -14,7 +14,7 @@ import { memoryIo, repo, scriptsDir } from './helpers.mjs';
 
 const core = path.join(scriptsDir, 'proofline-core.mjs');
 // derived from the sources, so it cannot rot when a command moves: a command that no handler owns, and one that is read-only (any role may run it)
-const UNMOVED = ['terminate', 'approve', 'start', 'baseline', 'branch'].filter((c) => !Object.hasOwn(HANDLERS, c));
+const UNMOVED = ['raise-budget', 'waive', 'record', 'gate', 'secret-scan'].filter((c) => !Object.hasOwn(HANDLERS, c));
 const UNMOVED_READ_ONLY = READ_ONLY_COMMANDS.filter((c) => !Object.hasOwn(HANDLERS, c))[0];
 const LEAD_ONLY = ['terminate', 'approve', 'waive', 'handoff', 'classify', 'raise-budget', 'ledger-note', 'freeze', 'reopen', 'cleanup'];
 
@@ -35,7 +35,7 @@ describe('the core entry accepts only the commands it owns', () => {
     }
   });
   test('the lead, and a read-only command of any role, are refused too: not a command of the Node core', () => {
-    for (const [role, cmd] of [['lead', UNMOVED[0]], ['lead', UNMOVED[1]], ['lead', UNMOVED_READ_ONLY], ['explorer', UNMOVED_READ_ONLY], ['implementer', 'handoff']]) {
+    for (const [role, cmd] of [['lead', UNMOVED[0]], ['lead', UNMOVED[1]], ['lead', UNMOVED_READ_ONLY], ['explorer', UNMOVED_READ_ONLY], ['implementer', 'record']]) {
       proc.resetSpawnCounts();
       const m = memoryIo('/nonexistent-root', { AGENT_ROLE: role });
       assert.equal(run([cmd, 'T-1'], m.io), 2, `${role} ${cmd}`);

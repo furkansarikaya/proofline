@@ -139,7 +139,7 @@ function discardStray(ctx, args) {
 // ---- branch -----------------------------------------------------------------------------------------------------------------------
 
 /** `wt_linked`: the run's tree is a linked worktree. @param {Context} ctx */
-function wtLinked(ctx) {
+export function wtLinked(ctx) {
   const r = git(ctx, ['rev-parse', '--git-dir', '--git-common-dir']);
   if (r.status !== 0) return false;
   const [a, b] = r.out.split('\n');
@@ -507,7 +507,7 @@ export function runSecretScan(ctx, paths) {
 }
 
 /** `scan_knowledge_secrets ID` @param {Context} ctx @param {string} id */
-function scanKnowledgeSecrets(ctx, id) {
+export function scanKnowledgeSecrets(ctx, id) {
   const paths = knowledgeOwnedPaths(ctx, id).filter((p) => isFile(`${ctx.root}/${p}`));
   if (paths.length === 0) return;
   const r = runSecretScan(ctx, paths);

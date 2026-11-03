@@ -77,13 +77,13 @@ describe('--pl-argv0 is checked, never trusted', () => {
   });
   test('the entry still refuses unmoved commands, with or without the argument', () => {
     for (const role of ['explorer', 'implementer']) {
-      for (const args of [['terminate', 'T-1'], ['--pl-argv0', 'x', 'terminate', 'T-1'], ['--pl-argv0', 'x', 'approve', 'T-1', 'plan'], ['--pl-argv0', '.agents/scripts/agent.sh', 'waive', 'T-1']]) {
+      for (const args of [['raise-budget', 'T-1', '30'], ['--pl-argv0', 'x', 'raise-budget', 'T-1', '30'], ['--pl-argv0', 'x', 'approve', 'T-1', 'plan'], ['--pl-argv0', '.agents/scripts/agent.sh', 'waive', 'T-1']]) {
         const r = spawnSync(process.execPath, [core, ...args], { env: { ...process.env, AGENT_ROLE: role }, encoding: 'utf8' });
         assert.notEqual(r.status, 0, `${role} ${args.join(' ')}`);
         assert.match(r.stderr, /command denied for/);
       }
     }
-    const lead = spawnSync(process.execPath, [core, '--pl-argv0', 'x', 'terminate', 'T-1'], { encoding: 'utf8' });
+    const lead = spawnSync(process.execPath, [core, '--pl-argv0', 'x', 'raise-budget', 'T-1', '30'], { encoding: 'utf8' });
     assert.equal(lead.status, 2); assert.match(lead.stderr, /not a command of the Node core/);
   });
 });

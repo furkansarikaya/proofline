@@ -19,6 +19,7 @@ import { VERIFY_HANDLERS } from './verify.mjs';
 import { APPROVE_HANDLERS } from './approve.mjs';
 import { HOOKCMD_HANDLERS } from './hookcmds.mjs';
 import { RUNCMD_HANDLERS } from './runcmds.mjs';
+import { LIFECMD_HANDLERS } from './lifecmds.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -177,4 +178,6 @@ export const HANDLERS = {
   ...HOOKCMD_HANDLERS,
   // --- stage 4, package 4A ---
   ...RUNCMD_HANDLERS,
+  // --- stage 4, package 4B ---
+  ...LIFECMD_HANDLERS,
 };

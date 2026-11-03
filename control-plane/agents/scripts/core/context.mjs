@@ -132,7 +132,7 @@ export class Context {
   }
 
   /** Print the message of an error like `fail` does. @param {ProoflineError} e */
-  printError(e) { this.err(`${e.message}\n`); }
+  printError(e) { if (e.message !== '') this.err(`${e.message}\n`); }
 }
 
 export { bytes };

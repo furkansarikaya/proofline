@@ -113,19 +113,10 @@ function inCorpus(corpus, piece) {
 const FAIL_TEXT = (/** @type {string} */ where) => `language: run artifacts are English, but ${where} holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span ("..."), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file COMMITTED to git (HEAD; never a staged, modified or untracked file) outside .agents/, on word boundaries; the user's own messages are quoted verbatim in a '> ' block. Text that this task writes into new or changed files cannot be quoted until it is committed, except through TASK.md: put the text in TASK.md to quote it (A171, A172). Write everything else in English`;
 
 /**
- * `language_check FILE|- [PATH]`: exit 0 when the text is English (or its non-English part is quoted product text), else exit 1 and the refusal on
- * stdout. @param {Context} ctx @param {string[]} args @param {string} stdin the text for `-`
+ * The line of the third foreign letter of one text that is not quoted product text, 0 when there is none (the core of `language_scan` for one file).
+ * @param {Context} ctx @param {string} file @param {string} text @param {string} hint @param {string} history
  */
-export function languageCheck(ctx, args, stdin) {
-  const f = args[0] === undefined || args[0] === '' ? '-' : args[0];
-  const hint = args[1] ?? '';
-  const stdinMode = f === '-';
-  const file = stdinMode ? '/proofline-lang.stdin' : f;
-  const text = stdinMode ? stdin : (isFile(f) ? readBytes(f) : null);
-  if (text === null) return 0; // language_scan: `[ -f FILE ] || continue`
-  const prompts = `${sharedDirOf(ctx, 'prompts')}/history`;
-  let history = '';
-  for (const n of sortedNames(prompts, /\.txt$/)) history += readBytes(`${prompts}/${n}`) ?? '';
+export function languageHit(ctx, file, text, hint, history) {
   const first = scanLine(text, file, hint, history);
   if (first === 0) return 0;
   // the quoted pieces: product text of the run's TASK.md, of the user's prompts, or of the committed files
@@ -144,7 +135,43 @@ export function languageCheck(ctx, args, stdin) {
     const r = proc.run('git', ['-C', ctx.root, 'grep', '-q', '-I', '-E', '-e', Buffer.from(confirmPattern(piece), 'latin1').toString('utf8'), 'HEAD', '--', '.', ':(exclude).agents'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
     if (r.status === 0) ok.add(piece);
   }
-  const hit = scanLine(text, file, hint, history, ok, null);
+  return scanLine(text, file, hint, history, ok, null);
+}
+
+/** `language_scan FILE...`: the "relative-path:line" hits of the files that hold non-English text; a missing file is skipped. @param {Context} ctx @param {string[]} files */
+export function languageScanFiles(ctx, files) {
+  const prompts = `${sharedDirOf(ctx, 'prompts')}/history`;
+  let history = '';
+  for (const n of sortedNames(prompts, /\.txt$/)) history += readBytes(`${prompts}/${n}`) ?? '';
+  /** @type {string[]} */ const hits = [];
+  for (const f of files) {
+    if (!isFile(f)) continue;
+    const text = readBytes(f);
+    if (text === null) continue;
+    const hit = languageHit(ctx, f, text, '', history);
+    if (hit !== 0) hits.push(`${f.startsWith(`${ctx.root}/`) ? f.slice(ctx.root.length + 1) : f}:${hit}`);
+  }
+  return hits;
+}
+
+/** `language_fail_text WHERE` @param {string} where */
+export function languageFailText(where) { return FAIL_TEXT(where); }
+
+/**
+ * `language_check FILE|- [PATH]`: exit 0 when the text is English (or its non-English part is quoted product text), else exit 1 and the refusal on
+ * stdout. @param {Context} ctx @param {string[]} args @param {string} stdin the text for `-`
+ */
+export function languageCheck(ctx, args, stdin) {
+  const f = args[0] === undefined || args[0] === '' ? '-' : args[0];
+  const hint = args[1] ?? '';
+  const stdinMode = f === '-';
+  const file = stdinMode ? '/proofline-lang.stdin' : f;
+  const text = stdinMode ? stdin : (isFile(f) ? readBytes(f) : null);
+  if (text === null) return 0; // language_scan: `[ -f FILE ] || continue`
+  const prompts = `${sharedDirOf(ctx, 'prompts')}/history`;
+  let history = '';
+  for (const n of sortedNames(prompts, /\.txt$/)) history += readBytes(`${prompts}/${n}`) ?? '';
+  const hit = languageHit(ctx, file, text, hint, history);
   if (hit === 0) return 0;
   ctx.out(`${FAIL_TEXT(`line ${hit}`)}\n`);
   return 1;

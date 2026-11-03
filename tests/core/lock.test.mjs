@@ -95,7 +95,7 @@ describe('lock protocol (new engine alone)', () => {
     try {
       const l = path.join(root, '.agents', 'local', 'locks', 'busy.lock');
       mkdirSync(l, { recursive: true });
-      writeFileSync(path.join(l, 'pid'), `${process.ppid}\n`); // alive
+      writeFileSync(path.join(l, 'pid'), `${process.pid}\n`); // alive, and not the parent (a lock of the parent is its own transaction, 4B)
       const { io } = memoryIo(root, { PROOFLINE_LOCK_TIMEOUT: '1' });
       const ctx = new Context(io, io.scriptPath);
       assert.throws(() => new LockSet(ctx).acquire(l), { message: `lock timeout after 1s: ${l}` });

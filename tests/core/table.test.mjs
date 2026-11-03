@@ -17,7 +17,9 @@ const STAGE2_TOOLS = ['debt', 'task-type', 'task-scope-entries', 'scope-covers',
 const MOVED = [...STAGE1, ...STAGE2_TOOLS];
 // stage 4, package 4A: their agent.sh arms are deleted (A212)
 const STAGE4A = ['baseline', 'discard-stray', 'branch', 'tier', 'classify', 'verify-assumptions', 'delivery-check', 'db-check', 'ask', 'status-block', 'tree-inspect', 'tree-accept', 'task-source-status', 'task-source-relocate'];
-const NO_SHELL_ARM = ['next-user', ...STAGE4A];
+// stage 4, package 4B: their agent.sh arms and functions are deleted (A213)
+const STAGE4B = ['start', 'freeze', 'refreeze', 'handoff', 'terminate', 'cleanup', 'amend', 'reopen'];
+const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B];
 
 describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {

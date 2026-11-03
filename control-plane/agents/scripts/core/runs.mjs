@@ -177,7 +177,7 @@ export function knownControlArtifact(ctx, id, p) {
   if (['TASK.md', 'PLAN.md', 'RUN.yaml', 'COMPLETION_REPORT.md', 'LEDGER.log', 'HOOKS.log', 'VERIFY.md', 'mutation_budget', '.lock/pid'].includes(rel)) return true;
   if (/^(amendments|dispatch|worker-evidence|decisions|gates|results|reports|questions|approvals|waivers|security|ci-fix|scratch)\//.test(rel)) return true;
   if (/^reviews\/(proof-review\/(plan|rules|small)|test-trust\/(tests|qa)|data-design|proof-review\/config|contract-proof|concurrency-proof|performance-proof|data-migration|visual-proof)\//.test(rel)) return true;
-  if (/^design\/[^/]*\.(md|json)$/.test(rel)) return true;
+  if (/^design\/[^]*\.(md|json)$/.test(rel)) return true; // the shell's `case` pattern design/*.md also matches design/adr/0001-x.md
   if (rel === 'EVIDENCE.md') return pipelineNeeds(ctx, dir, 'evidence') === 'yes';
   if (rel === 'QA_PLAN.md' || rel === 'QA_REPORT.md') return pipelineNeeds(ctx, dir, 'qa') === 'yes';
   return false;
