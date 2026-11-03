@@ -3,10 +3,10 @@
 // scripts/platform.sh and its part of platform-test.sh (detection, A186 config, round 6 local origins, the ci-failed readers) and the `ci` part of batch.sh.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync as wf } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { ciFailed, detectPlatform, linkText, platformEnv, resolveTool, warnText } from '../../control-plane/agents/scripts/core/platform.mjs';
+import { ciFailed, detectPlatform, linkText, platformEnv, resolveTool, runTool, warnText } from '../../control-plane/agents/scripts/core/platform.mjs';
 import { A, DONE, accepted, fakeGh, fakeTool, g, gOk, readFileSync, refused, run, toolRoot } from './run6-lib.mjs';
 import { project } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
@@ -223,6 +223,35 @@ test('batch-ci: one check of the CI run of the merge commit: green is recorded, 
   // not GitHub: recorded as not checked here
   gOk(d, 'remote', 'set-url', 'origin', 'https://bitbucket.org/acme/app.git');
   r = ci(); assert.equal(r.status, 0); assert.match(r.out, /^ci: not checked here/);
+});
+
+test('SECURITY: a platform tool starts with an allowlisted environment: config, host, repository, proxy and certificate variables of the caller never reach it (A215)', () => {
+  const dump = path.join(toolRoot, `envdump-${process.pid}`);
+  const bin = path.join(toolRoot, `envbin-${process.pid}`, 'bin');
+  mkdirSync(bin, { recursive: true });
+  wf(`${bin}/gh`, `#!/bin/sh\nenv > "${dump}"\nexit 0\n`);
+  chmodSync(`${bin}/gh`, 0o755);
+  const hostile = {
+    GH_CONFIG_DIR: '/evil/cfg', XDG_CONFIG_HOME: '/evil/xdg', HOME: '/evil/home', GH_HOST: 'evil.example', GH_REPO: 'evil/repo', GH_ENTERPRISE_TOKEN_X: 'x',
+    GLAB_CONFIG_DIR: '/evil/glab', AZURE_CONFIG_DIR: '/evil/az', HTTPS_PROXY: 'http://evil:1', https_proxy: 'http://evil:1', ALL_PROXY: 'http://evil:1', NO_PROXY: 'x',
+    SSL_CERT_FILE: '/evil/ca', SSL_CERT_DIR: '/evil/cadir', CURL_CA_BUNDLE: '/evil/ca', NODE_OPTIONS: '--require /evil.js', GH_PROMPT_DISABLED: '0', GH_API_URL: 'http://evil', GH_TOKEN: 'tok123', LANG: 'C.UTF-8',
+  };
+  const ctx = ctxOf(empty, { PATH: `${bin}:/usr/bin:/bin`, ...hostile });
+  const info = detectPlatform(ctx, { url: 'https://github.com/acme/app.git', dir: empty });
+  const t = resolveTool(ctx, 'gh');
+  assert.ok('path' in t);
+  runTool(ctx, info, /** @type {any} */ (t).path, ['pr', 'view', '7']);
+  const seen = new Map(readFileSync(dump, 'utf8').split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+  for (const k of ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'GH_HOST', 'GH_REPO', 'GLAB_CONFIG_DIR', 'AZURE_CONFIG_DIR', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'NODE_OPTIONS', 'GH_PROMPT_DISABLED', 'GH_API_URL', 'GH_ENTERPRISE_TOKEN_X']) assert.ok(!seen.has(k), `${k} must not reach the tool`);
+  assert.equal(seen.get('HOME'), userInfo().homedir, 'HOME comes from the account database');
+  assert.equal(seen.get('GH_TOKEN'), 'tok123', 'a credential variable that cannot redirect traffic is kept');
+  assert.equal(seen.get('LANG'), 'C.UTF-8');
+  assert.ok((seen.get('PATH') ?? '').startsWith(bin));
+  // the private-host variable of A186 is still set from the platform info, not from the caller
+  const priv = detectPlatform(ctx, { url: 'https://git.corp.example/acme/app.git', dir: empty });
+  runTool(ctx, { ...priv, platform: 'github' }, /** @type {any} */ (t).path, ['pr', 'view', '7']);
+  const again = readFileSync(dump, 'utf8');
+  assert.ok(/^GH_HOST=git\.corp\.example$/m.test(again), again);
 });
 
 void [fakeTool, g, run, refused];

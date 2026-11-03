@@ -10,6 +10,7 @@
 //   warn     one warning line when git.platform is set without git.platform_host for an origin that is not a known host of it
 //   ciFailed the failed check of a pull request's head (A186)
 import { accessSync, constants, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { userInfo } from 'node:os';
 import path from 'node:path';
 import { git } from './git.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -264,12 +265,33 @@ export function warnText(i) {
 const TOOL_TIMEOUT_MS = 180000;
 
 /**
- * One call of a platform tool: an argument array, stdin closed, the environment of the control plane plus the private-host variables. Returns the
+ * The environment a platform tool or a remote-facing call starts with (A215 security round 2): an ALLOWLIST, never the caller's whole environment.
+ * A model can set GH_CONFIG_DIR / XDG_CONFIG_HOME / HOME (a config with `http_unix_socket`), GH_HOST, GH_REPO, GH_*_URL, GLAB_*, AZURE_CONFIG_DIR, a proxy
+ * or a certificate variable, GIT_CONFIG_*, GIT_SSH_COMMAND or GIT_ASKPASS and make the real tool talk to a server of its own that fakes a merged pull
+ * request or a green CI run. Kept: PATH, the locale and terminal (LC_*, LANG, TERM, TZ, TMPDIR), colour switches, and only credential variables
+ * that cannot redirect traffic. HOME is taken from the account database, not from the caller. Dropped on purpose, and a decision for the owner
+ * (corporate proxies): every *_PROXY and certificate variable. With `opt.remote` SSH_AUTH_SOCK is kept for a push over ssh.
+ * @param {Context} ctx @param {{ remote?: boolean }} [opt] @returns {Record<string, string>}
+ */
+export function cleanToolEnv(ctx, opt = {}) {
+  const src = ctx.childEnv();
+  const keep = new Set(['PATH', 'LANG', 'TERM', 'TZ', 'TMPDIR', 'NO_COLOR', 'CLICOLOR', 'CLICOLOR_FORCE', 'CI', 'SYSTEMROOT', 'COMSPEC', 'PATHEXT',
+    'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GITLAB_TOKEN', 'GLAB_TOKEN', 'AZURE_DEVOPS_EXT_PAT', 'RTK_DISABLED']);
+  if (opt.remote === true) keep.add('SSH_AUTH_SOCK');
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [k, v] of Object.entries(src)) if (v !== undefined && (keep.has(k) || k.startsWith('LC_'))) out[k] = v;
+  try { const h = userInfo().homedir; if (h !== '') out['HOME'] = h; } catch { /* no account entry: no HOME */ }
+  return out;
+}
+
+/**
+ * One call of a platform tool: an argument array, stdin closed, an allowlisted environment (cleanToolEnv) plus the private-host variables. Returns the
  * exit status and the output; stderr is dropped unless `merge` (the shell's 2>&1).
  * @param {Context} ctx @param {PlatformInfo} info @param {string} tool @param {string[]} args @param {boolean} [merge]
  */
 export function runTool(ctx, info, tool, args, merge = false) {
-  const r = proc.run(tool, args, { cwd: ctx.root, env: { ...ctx.childEnv(), ...platformEnv(info) }, input: '', stdio: ['pipe', 'pipe', merge ? 'pipe' : 'ignore'], timeoutMs: TOOL_TIMEOUT_MS });
+  const r = proc.run(tool, args, { cwd: ctx.root, env: { ...cleanToolEnv(ctx), ...platformEnv(info) }, input: '', stdio: ['pipe', 'pipe', merge ? 'pipe' : 'ignore'], timeoutMs: TOOL_TIMEOUT_MS });
   return { status: r.status, out: r.stdout.toString('latin1'), err: r.stderr.toString('latin1') };
 }
 
