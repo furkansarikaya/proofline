@@ -110,7 +110,18 @@ function insideFolder(file, dir) {
  * @param {Context} ctx @param {string} name @returns {{ path: string } | { unreadable: string }}
  */
 export function resolveTool(ctx, name) {
-  const found = commandV(name, ctx.env);
+  const r = resolveToolIn(ctx.env, name, [ctx.root, ctx.cwd, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/var/folders', '/dev/shm']);
+  if ('path' in r) return r;
+  return 'shadowed' in r ? { unreadable: `unreadable (${name} at ${r.shadowed} may be shadowed)` } : r;
+}
+
+/**
+ * The tool NAME found first on the PATH of ENV, as its real absolute path, unless that is inside one of the folders DIRS (compared by folder identity, see
+ * insideFolder). `{ shadowed: path }` for a tool inside one of them, `{ unreadable }` for none or a relative match.
+ * @param {NodeJS.ProcessEnv} env @param {string} name @param {string[]} dirs @returns {{ path: string } | { shadowed: string } | { unreadable: string }}
+ */
+export function resolveToolIn(env, name, dirs) {
+  const found = commandV(name, env);
   if (found === null || !found.startsWith('/')) return { unreadable: 'unreadable' };
   let g = found;
   for (let n = 0; n < 20; n++) {
@@ -119,11 +130,7 @@ export function resolveTool(ctx, name) {
     g = l.startsWith('/') ? l : `${path.dirname(g)}/${l}`;
   }
   try { g = `${realpathSync.native(path.dirname(g))}/${path.basename(g)}`; } catch { return { unreadable: 'unreadable' }; }
-  // the folders a model can write: compared by the identity of the folder (device and inode of every ancestor of the tool), never by the spelling of the
-  // path, so that an upper-case spelling on a case-insensitive file system, a link or a bind of the folder is the same folder
-  for (const d of [ctx.root, ctx.cwd, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/var/folders', '/dev/shm']) {
-    if (insideFolder(g, d)) return { unreadable: `unreadable (${name} at ${g} may be shadowed)` };
-  }
+  for (const d of dirs) if (insideFolder(g, d)) return { shadowed: g };
   return { path: g };
 }
 

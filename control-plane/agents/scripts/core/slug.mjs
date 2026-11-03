@@ -1,7 +1,7 @@
 // @ts-check
 // The task slug (A202) of the branch name: Turkish and other Latin letters become ASCII, everything else that is not a letter or digit one `-`,
-// lower case, at most 48 characters. The table is the one of task-integrations/slug.sh (the adapters still run that script until stage 7);
-// tests/core/run4a-records.test.mjs compares both on a corpus so that they cannot drift.
+// lower case, at most 48 characters. The table is the one of the former task-integrations/slug.sh (A216: the adapters, the branch name and `cli slug` use this one);
+// tests/core/run4a-records.test.mjs holds known answers.
 import { bytes } from './config.mjs';
 
 const TABLE = `c ç Ç ć č ĉ ċ

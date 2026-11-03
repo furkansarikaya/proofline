@@ -17,6 +17,7 @@ import { preCommit, prePush } from '../githooks.mjs';
 import { builtinScan } from '../secretscan.mjs';
 import { slug as slugOf } from '../slug.mjs';
 import { runTaskAdapter } from '../adapters/index.mjs';
+import { mergeCommand } from '../merge.mjs';
 import { detectPlatform, detectText, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -132,8 +133,11 @@ function taskAdapterCli(ctx, args) {
   return r.status;
 }
 
+/** `cli merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]` (bin/lib/merge.sh is a launcher of it): the only allowed way to merge a pull request, A136. @param {Context} ctx @param {string[]} args */
+function mergeCli(ctx, args) { return mergeCommand(ctx, args); }
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli });
+export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

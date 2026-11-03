@@ -38,7 +38,6 @@
 170 gates-test sc_debug_result
 168 gates-test sc_submit
 167 lifecycle-test scenario_task_contract_adapter
-165 tasks-test
 155 lifecycle-test scenario_amendment_fresh_budget
 152 cli-test sc_init_role
 152 gates-test sc_next

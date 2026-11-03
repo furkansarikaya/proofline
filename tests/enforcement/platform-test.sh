@@ -16,15 +16,16 @@ pl=$repo/bin/proofline
 core=$repo/control-plane/agents/scripts/proofline-core.mjs; NODE=$(command -v node)
 pfc() { "$NODE" "$core" cli platform-info "$@"; }   # the hosting platform is read by the Node core (A215)
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-platform.XXXXXX") || { echo "platform: TMPDIR must be an existing directory" >&2; exit 2; }
-trap 'rm -rf "$base"' EXIT
+# the fake tools live in the checkout (git-ignored), never under a temporary folder: a tool that resolves there is refused (A180, no environment switch lifts that)
+stubd=$repo/tests/core/.fake-tools/platform-$$/stub; mkdir -p "$stubd"
+trap 'rm -rf "$base" "$repo/tests/core/.fake-tools/platform-$$"' EXIT
 die() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
-command -v jq >/dev/null 2>&1 || { echo "platform: jq is required"; exit 2; }
 
 # --- detection ------------------------------------------------------------------------------------
-mkdir -p "$base/stub" "$base/empty"
-for t in glab az; do printf '#!/bin/sh\nexit 0\n' > "$base/stub/$t"; chmod +x "$base/stub/$t"; done
-det() { PATH="$base/stub:$PATH" pfc field "$1" --url "$2"; }
+mkdir -p "$base/empty"
+for t in glab az; do printf '#!/bin/sh\nexit 0\n' > "$stubd/$t"; chmod +x "$stubd/$t"; done
+det() { PATH="$stubd:$PATH" pfc field "$1" --url "$2"; }
 want() { [ "$(det "$1" "$2")" = "$3" ] || die "$1 of $2: want $3, got $(det "$1" "$2")"; }
 want platform git@github.com:acme/app.git github
 want platform https://github.com/acme/app github
@@ -65,7 +66,7 @@ core_into "$proj"
 git -C "$proj" config user.name t; git -C "$proj" config user.email t@t
 printf '.agents/local/\n' > "$proj/.gitignore"
 FS=$base/fs; mkdir -p "$FS"; export FS
-cat > "$base/stub/glab" <<'EOF'
+cat > "$stubd/glab" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$FS/glab.log"
 case "$1 $2" in
@@ -75,7 +76,7 @@ case "$1 $2" in
 esac
 exit 0
 EOF
-cat > "$base/stub/az" <<'EOF'
+cat > "$stubd/az" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$FS/az.log"
 case "$*" in
@@ -86,12 +87,12 @@ case "$*" in
 esac
 exit 0
 EOF
-chmod +x "$base/stub/glab" "$base/stub/az"
+chmod +x "$stubd/glab" "$stubd/az"
 reset() { rm -f "$FS"/*; printf 'echo built\n' > "$proj/.agents/cmd.build"; printf 'echo tested\n' > "$proj/.agents/cmd.test"; rm -rf "$proj/.agents/local"; }
 glabview() { # STATE DRAFT SHA PIPELINE-JSON(null|{...})
   printf '{"iid":7,"state":"%s","draft":%s,"sha":"%s","head_pipeline":%s}\n' "$1" "$2" "$3" "$4" > "$FS/glab.view"; }
 azview() { printf '{"pullRequestId":7,"status":"%s","isDraft":%s,"lastMergeSourceCommit":{"commitId":"%s"},"description":"old text"}\n' "$1" "$2" "$3" > "$FS/az.view"; }
-merge() { (cd "$proj" && PROOFLINE_SELFTEST=1 PATH="$base/stub:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
+merge() { (cd "$proj" && PATH="$stubd:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
 refused() { # LABEL TEXT ARGS...
   l=$1; t=$2; shift 2
   if merge "$@"; then die "$l: merged: $(cat "$base/out")"; fi
@@ -210,14 +211,14 @@ for u in https://bitbucket.org/acme/app.git ssh://git@git.example.com/acme/app.g
 done
 ok "bitbucket and an unrecognized host: nothing is merged, the message says the USER merges and prints the steps"
 git -C "$proj" remote set-url origin https://gitlab.com/acme/app.git
-nogl=$base/nogl; mkdir -p "$nogl"; for t in git sed awk head tr dirname cat readlink jq sh node; do p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogl/$t"; done
-(cd "$proj" && PROOFLINE_SELFTEST=1 PATH=$nogl "$(command -v sh)" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without glab"
+nogl=$base/nogl; mkdir -p "$nogl"; for t in git sed awk head tr dirname cat readlink sh node; do p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogl/$t"; done
+(cd "$proj" && PATH=$nogl "$(command -v sh)" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without glab"
 grep -Fq 'NOT MERGED' "$base/out" && grep -Fq 'glab' "$base/out" && grep -Fq 'YOU merge it' "$base/out" || die "missing-tool message: $(cat "$base/out")"
 ok "a recognized platform whose tool is not installed falls back to the manual path"
 
 # --- gh with no checks: local verification (the gh path keeps its strictness) ----------------------------
 git -C "$proj" remote set-url origin https://github.com/acme/app.git
-cat > "$base/stub/gh" <<'EOF'
+cat > "$stubd/gh" <<'EOF'
 #!/bin/sh
 case "$*" in
   *"pr merge"*) echo "$*" >> "$FS/merge.log"; exit 0 ;;
@@ -227,7 +228,7 @@ case "$*" in
   *headRefOid*) printf '{"headRefOid":"%s"}\n' "$(sed -n 's/.*"headRefOid":"\([0-9a-f]*\)".*/\1/p' "$FS/gh.view")" ;;
 esac
 EOF
-chmod +x "$base/stub/gh"
+chmod +x "$stubd/gh"
 ghview() { printf '{"number":7,"state":"OPEN","isDraft":false,"headRefOid":"%s","statusCheckRollup":%s}\n' "$1" "$2" > "$FS/gh.view"; }
 reset; ghview "$sha" '[]'
 merge 7 || die "gh no checks, verification passing: $(cat "$base/out")"

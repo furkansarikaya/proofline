@@ -96,7 +96,7 @@ export const TYPE_SECTIONS = {
 };
 const EXISTING_TESTS_PASS = /\bexisting\s+tests?\b[^\n]*\b(pass|passes|passing|stay|stays|remain|remains|green)\b|\b(pass|passes|passing|green)\b[^\n]*\bexisting\s+tests?\b/i;
 
-// ASCII slug of a title, the same rules as control-plane/agents/task-integrations/slug.sh (Turkish and other Latin letters first, max 48)
+// ASCII slug of a title, the same rules as control-plane/agents/scripts/core/slug.mjs (Turkish and other Latin letters first, max 48)
 const SPECIAL = { "ı": "i", "İ": "i", "ß": "ss", "æ": "ae", "Æ": "ae", "œ": "oe", "Œ": "oe", "ø": "o", "Ø": "o", "đ": "d", "Đ": "d", "ł": "l", "Ł": "l" };
 export function slugify(title) {
   const ascii = String(title).replace(/[ıİßæÆœŒøØđĐłŁ]/g, (c) => SPECIAL[c]).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
