@@ -137,7 +137,7 @@ function readStdin(ctx) {
 function readFileSyncRead(buf) { return readSync(0, buf, 0, buf.length, null); }
 
 /** @type {Array<[RegExp, string]>} */
-const NORMALIZE = [
+export const NORMALIZE = [
   [/[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})?/g, '<TIMESTAMP>'],
   [/(^|[^0-9:])[0-9]{1,2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?/g, '$1<TIME>'],
   [/((^|[^A-Za-z])([Ii]n|[Tt]ook|[Dd]uration|[Ee]lapsed|[Tt]ime)[ :=]+)[0-9]+(\.[0-9]+)? ?(ms|sec|secs|seconds|min|s|m)([^A-Za-z0-9]|$)/g, '$1<DURATION>$6'],

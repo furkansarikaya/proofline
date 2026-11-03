@@ -418,7 +418,7 @@ export function riskWordsMatch(ctx, content, wordList, lines) {
 }
 
 /** `grep -Eq PATTERN` over a text (some line matches). @param {Context} ctx @param {string} pattern @param {string} text @param {boolean} [ci] */
-function grepEq(ctx, pattern, text, ci = false) {
+export function grepEq(ctx, pattern, text, ci = false) {
   const re = ereToRegExp(pattern, ci);
   if (re !== null) return text.split('\n').some((l) => re.test(l));
   const r = proc.run('grep', [ci ? '-Eiq' : '-Eq', '--', Buffer.from(pattern, 'latin1').toString('utf8')], { env: ctx.childEnv(), input: Buffer.from(text, 'latin1'), stdio: ['pipe', 'ignore', 'ignore'] });

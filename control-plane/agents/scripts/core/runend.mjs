@@ -26,7 +26,7 @@ import { statusBlockUpdate } from './statusblock.mjs';
 // ---- metrics (A80): the run record ---------------------------------------------------------------------------------------------------
 
 /** `metrics_line TASK ROLE RUNTIME MODEL DURATION OUTCOME`. @param {Context} ctx @param {string[]} f */
-function metricsLine(ctx, f) {
+export function metricsLine(ctx, f) {
   if (ctx.config().get('metrics', 'on') === 'off') return;
   const file = `${ctx.sharedMain()}/.agents/local/metrics/history.tsv`;
   try {
@@ -39,7 +39,7 @@ function metricsLine(ctx, f) {
 }
 
 /** `metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TIN TOUT TTOT TURNS RETRIES DELEG FIXR RESULT SIZE SCOPE`. @param {Context} ctx @param {string[]} a */
-function metricsJson(ctx, a) {
+export function metricsJson(ctx, a) {
   if (ctx.config().get('metrics', 'on') === 'off') return;
   const file = `${ctx.sharedMain()}/.agents/local/metrics/records.jsonl`;
   const s = (/** @type {string | undefined} */ v) => { const t = (v ?? '').replace(/[^A-Za-z0-9._+:-]/g, ''); return t === '' || t === '-' ? 'null' : `"${t}"`; };
