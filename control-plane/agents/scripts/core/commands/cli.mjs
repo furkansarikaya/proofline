@@ -13,6 +13,7 @@ import { nextUser } from '../nextuser.mjs';
 import { queue } from '../queue.mjs';
 import { preCommit, prePush } from '../githooks.mjs';
 import { builtinScan } from '../secretscan.mjs';
+import { detectPlatform, detectText, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -70,8 +71,43 @@ function secretScanCli(ctx, args) {
   return r.status;
 }
 
+/**
+ * `cli platform detect|field KEY|link BRANCH BASE|env|warn [-C DIR] [--url URL]` (the former scripts/platform.sh, for bin/lib/merge.sh): the hosting platform of
+ * the origin remote of DIR (default the working directory). Prints what platform.sh printed; status 2 for a usage error.
+ * @param {Context} ctx @param {string[]} args
+ */
+function platformCli(ctx, args) {
+  const usage = () => new ProoflineError('usage: proofline-core cli platform detect|field KEY|link BRANCH BASE|env|warn [-C DIR] [--url URL]', 2, 'USAGE');
+  const op = args[0] ?? '';
+  let rest = args.slice(1);
+  let key = ''; let br = ''; let base = '';
+  if (op === 'field') { key = rest[0] ?? ''; rest = rest.slice(1); }
+  if (op === 'link') { br = rest[0] ?? ''; base = rest[1] ?? ''; rest = rest.slice(2); }
+  let dir = ctx.cwd; let url = '';
+  for (let i = 0; i < rest.length; i += 2) {
+    if (rest[i] === '-C') dir = rest[i + 1] ?? '.';
+    else if (rest[i] === '--url') url = rest[i + 1] ?? '';
+    else throw new ProoflineError(`platform: unknown argument ${rest[i]}`, 2, 'USAGE');
+  }
+  if (!['detect', 'field', 'link', 'env', 'warn'].includes(op)) throw usage();
+  const info = detectPlatform(ctx, { dir, url });
+  switch (op) {
+    case 'detect': ctx.out(detectText(info)); return 0;
+    case 'field': {
+      const v = fieldOf(info, key);
+      if (v === null) throw new ProoflineError(`platform: unknown field ${key}`, 2, 'USAGE');
+      ctx.out(`${v}\n`); return 0;
+    }
+    case 'warn': ctx.out(warnText(info)); return 0;
+    case 'env': ctx.out(Object.entries(platformEnv(info)).map(([k, v]) => `${k}=${v}\n`).join('')); return 0;
+    default:
+      if (br === '' || base === '') throw new ProoflineError('usage: proofline-core cli platform link BRANCH BASE', 2, 'USAGE');
+      ctx.out(`${linkText(info, br, base)}\n`); return 0;
+  }
+}
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli });
+export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, platform: platformCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

@@ -38,7 +38,6 @@ control-plane/agents/scripts/lessons-test.sh
 control-plane/agents/scripts/lessons.sh
 control-plane/agents/scripts/lifecycle-test.sh
 control-plane/agents/scripts/perf-test.sh
-control-plane/agents/scripts/platform.sh
 control-plane/agents/scripts/risk-test.sh
 control-plane/agents/scripts/rules-test.sh
 control-plane/agents/scripts/rules.sh

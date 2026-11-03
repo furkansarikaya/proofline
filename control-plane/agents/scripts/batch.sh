@@ -14,8 +14,6 @@
 #   batch.sh answer            (A200) record the user's answers to the summary's pre-flight questions from their newest captured message
 #   batch.sh answers [ID]      (A200) the recorded answers, one per line
 #   batch.sh status            the morning table, from the same records, never from a log
-#   batch.sh ci <ID>           one check of the CI run of the merge commit of the merged task ID (exit 0 green or not applicable, 1 red,
-#                              2 still running, 3 unreadable, 4 no run yet); a green result is recorded in ci.tsv
 #   batch.sh awake             macOS: caffeinate -i -w <the session's pid>; Linux: systemd-inhibit held while the session lives
 #   batch.sh park <ID> <reason> | park <ID> --clear
 #                              the lead's own park of a task that has no run to carry a question (state.tsv)
@@ -633,37 +631,6 @@ status() {
   printf '\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n'
 }
 
-# --- the CI of a merge commit ------------------------------------------------------------------------------------------
-# ci_once SHA: the CI runs of exactly that commit, once. 0 green, 1 red, 2 still running, 3 unreadable, 4 no run appeared. A red run wins over a
-# running one; an older green run never counts.
-ci_once() {
-  co_j=$(cd "$root" && gh run list --branch "$(cfgv canonical_branch main)" --commit "$1" --limit 30 --json status,conclusion 2>/dev/null) || return 3
-  co_v=$(printf '%s' "$co_j" | tr '}' '\n' | awk '/"status"/ { n++; if ($0 !~ /"status":"completed"/) r = 1; else if ($0 !~ /"conclusion":"(success|skipped|neutral)"/) x = 1 }
-    END { if (x) print "red"; else if (!n) print "none"; else if (r) print "running"; else print "green" }')
-  case "$co_v" in green) return 0 ;; red) return 1 ;; none) return 4 ;; *) return 2 ;; esac
-}
-ci_record() { printf '%s\t%s\t%s\n' "$1" "$2" "$(date +%s)" >> "$bd/ci.tsv"; }
-ci_cmd() { # ID
-  cc_id=${1:?usage: batch.sh ci <ID>}
-  cc_pr=$(merged_pr "$cc_id") || die "$cc_id is not merged (no record in merged.tsv)"
-  if [ "$(sh "$agent" ci-check 2>/dev/null | head -1)" = 'ci: absent' ]; then ci_record "$cc_id" none; echo "ci: not applicable (no CI check runs on pull requests; the merge was verified locally)"; return 0; fi
-  cc_pf=$(sh "$here/platform.sh" field platform -C "$root" 2>/dev/null || echo other)
-  cc_pe=$(sh "$here/platform.sh" env -C "$root" 2>/dev/null || true)   # a private host (A186)
-  case "$cc_pe" in GH_HOST=*) GH_HOST=${cc_pe#GH_HOST=}; export GH_HOST ;; esac
-  if [ "$cc_pf" != github ] || ! command -v gh >/dev/null 2>&1; then ci_record "$cc_id" none; echo "ci: not checked here (the CI of a merge commit is read through gh on GitHub; platform $cc_pf): look at it yourself before you go on"; return 0; fi
-  cc_sha=$(cd "$root" && gh pr view "$cc_pr" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null) || cc_sha=''
-  [ -n "$cc_sha" ] || { echo "ci: cannot read the merge commit of PR $cc_pr ($cc_id)"; return 3; }
-  cc_s7=$(printf '%s' "$cc_sha" | cut -c1-7); cc_rc=0; ci_once "$cc_sha" || cc_rc=$?
-  case "$cc_rc" in
-    0) ci_record "$cc_id" "$cc_sha"; echo "ci: green (run of $cc_s7)" ;;
-    1) echo "ci: RED (run of $cc_s7): stop the batch" ;;
-    2) echo "ci: still running (run of $cc_s7): ask again in a minute, give up after $(sh "$agent" tm-scaled "$(cfgv batch.ci_wait_minutes 30)" 1 720) minutes" ;;
-    4) echo "ci: no run for $cc_s7 yet: ask again in a minute, give up after $(sh "$agent" tm-scaled "$(cfgv batch.ci_appear_minutes 10)" 1 240) minutes" ;;
-    *) echo "ci: cannot be read (gh run list failed)" ;;
-  esac
-  return "$cc_rc"
-}
-
 # --- keep the computer awake (the sleep inhibitor belongs to the session, not to a driver) ---------------------------------
 uname_s() { if [ "${PROOFLINE_TEST:-}" = 1 ] && [ -n "${PROOFLINE_UNAME:-}" ]; then printf '%s\n' "$PROOFLINE_UNAME"; else uname -s; fi; }
 inhibit_kind() { # caffeinate | systemd-inhibit | none
@@ -720,9 +687,8 @@ case "${1:-}" in
   status) status ;;
   answer) answer_cmd ;;
   answers) answers_cmd "${2:-}" ;;
-  ci) ci_cmd "${2:-}" ;;
   awake) awake ;;
   park) shift; park "$@" ;;
   run|start|stop) echo "batch: the headless batch driver is gone (removed in 0.0.32): the batch runs in the session. Plan it with /proofline batch <ID...|all>, approve it, and continue an interrupted one with /proofline batch" >&2; exit 2 ;;
-  *) echo "usage: batch.sh plan [--replace] <ID...|all> | next [--tsv] | status | ci <ID> | awake | park <ID> <reason>|--clear" >&2; exit 2 ;;
+  *) echo "usage: batch.sh plan [--replace] <ID...|all> | next [--tsv] | status | awake | park <ID> <reason>|--clear" >&2; exit 2 ;;
 esac

@@ -176,7 +176,7 @@ function sbStrip(id, text) {
 }
 
 /** `sb_block_only TREE PATH ID`: the tracked file differs from HEAD only by task ID's own status block. @param {Context} ctx @param {string} tree @param {string} p @param {string} id */
-function sbBlockOnly(ctx, tree, p, id) {
+export function sbBlockOnly(ctx, tree, p, id) {
   const run = (/** @type {string[]} */ a) => proc.run('git', ['-C', tree, ...a], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
   if (run(['ls-files', '--error-unmatch', '--', p]).status !== 0) return false;
   if (!isFile(`${tree}/${p}`)) return false;
@@ -194,8 +194,13 @@ function worktreeDepFolders(ctx) {
   return out;
 }
 
-/** `cleanup_worktree ID TERMINAL` (A169). @param {Context} ctx @param {string} id @param {boolean} terminal */
-function cleanupWorktree(ctx, id, terminal) {
+/**
+ * `cleanup_worktree ID TERMINAL` (A169). The worktree of a delivered run is removed only when the merge is proved: IN PROCESS by the delivery code that
+ * calls `cleanupRun` with `mergeProved` after its own proof (a pull request seen merged, or git), or by a `batch/merged.tsv` row of this run that is not
+ * older than the nonce of this delivery's summary. There is no file, flag, lock or environment value that says "merged" (A215).
+ * @param {Context} ctx @param {string} id @param {boolean} terminal @param {boolean} [mergeProved]
+ */
+function cleanupWorktree(ctx, id, terminal, mergeProved = false) {
   const main = ctx.sharedMain();
   if (terminal || main === ctx.root) return;
   let p;
@@ -205,11 +210,7 @@ function cleanupWorktree(ctx, id, terminal) {
   let from = '0';
   try { if (statSync(delivered).size > 0) { const m = /^nonce: ([0-9]*)-/m.exec(readFileSync(delivered, 'latin1')); from = m ? m[1] : '0'; } } catch { /* none */ }
   if (from === '' || /[^0-9]/.test(from)) from = '0';
-  // the delivery code writes MERGED after its own proof (a pull request seen merged, or git); a merged.tsv row is the batch's record
-  // it carries the epoch of the proof and counts only when that is not older than this delivery's summary (a MERGED left by an earlier delivery does not)
-  const mt = fileText(ctx, `${ctx.root}/.agents/local/deliver/${id}/MERGED`);
-  const mv = mt === null ? '' : mt.replace(/\n+$/, '');
-  let merged = /^[0-9]+$/.test(mv) && Number(mv) >= Number(from);
+  let merged = mergeProved;
   if (!merged) {
     const t = fileText(ctx, `${main}/.agents/local/batch/merged.tsv`);
     merged = t !== null && textLines(t).some((l) => { const f = l.split('\t'); return f[0] === id && Number(f[2]) + 0 >= Number(from) + 0; });
@@ -235,7 +236,7 @@ function cleanupWorktree(ctx, id, terminal) {
  * `cleanup_run ID`.
  * @param {Context} ctx @param {string} id
  */
-export function cleanupRun(ctx, id) {
+export function cleanupRun(ctx, id, mergeProved = false) {
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   requireLead(ctx);
@@ -281,6 +282,6 @@ export function cleanupRun(ctx, id) {
   rmSync(dir, { recursive: true, force: true });
   ctx.forget('file:');
   ctx.out(`run cleaned up: ${id} (runtime artifacts and .agents/local/assignments/${id} removed; ACTIVE_RUN cleared)\n`);
-  cleanupWorktree(ctx, id, term);
+  cleanupWorktree(ctx, id, term, mergeProved);
   return 0;
 }

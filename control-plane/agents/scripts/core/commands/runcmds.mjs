@@ -521,7 +521,7 @@ function requireKnowledgeDone(ctx, id) {
 }
 
 /** @param {Context} ctx @param {string[]} args */
-function deliveryCheck(ctx, args) {
+export function deliveryCheck(ctx, args) {
   ctx.fpMode = 'refresh';
   requireLead(ctx);
   const id = need(args, 0);
