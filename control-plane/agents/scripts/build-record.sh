@@ -19,7 +19,7 @@
 # configured, runs first in the export (it is part of the record); otherwise the ignored dependency folders that
 # worktree_deps names in ecosystems.json (A185) are COPIED into the export by worktree-prep.sh --deps, never linked.
 # Env files (verification.env_files, default none): secret-free test env files (for example .env.test) that MAY enter the export; every
-# other .env* stays out. Each listed file is scanned first (secret-scan.sh, the project's own scanner included); one visible secret
+# other .env* stays out. Each listed file is scanned first (the core's secret scanner, the project's commands.secret_scan included); one visible secret
 # rejects the run with exit 2, naming the file and line (never the value), before anything is built.
 # shortcut: the copy is taken at run time and is not part of the key; the key covers sources and command strings, not node version or installed packages.
 # Set `commands.install` when that matters. A stale lock is reclaimed when its process is dead or after
@@ -87,7 +87,7 @@ if [ ! -f "$dir/done" ]; then
   [ -n "$bc$tc" ] || { echo "build-record: commands.build and commands.test are not configured" >&2; exit 2; }
   mkdir -p "$root/.agents/local/builds" || exit 2
   if [ -n "$envs" ]; then   # secret-free test env files only: a visible secret rejects the record before anything runs
-    [ -f "$here/secret-scan.sh" ] || { echo "build-record: secret-scan.sh is missing, so verification.env_files cannot be checked" >&2; exit 2; }
+    [ -f "$here/proofline-core.mjs" ] || { echo "build-record: proofline-core.mjs is missing, so verification.env_files cannot be checked" >&2; exit 2; }
     rr=$(CDPATH='' cd -P "$root" && pwd -P) || exit 2
     for f in $envs; do   # a listed file must really lie inside the project: its parent directory, symbolic links followed, may not leave it or be under .git
       if [ ! -e "$root/$f" ] && [ ! -L "$root/$f" ]; then echo "build-record: note: verification.env_files lists $f, which does not exist; skipped" >&2; continue; fi
@@ -109,7 +109,7 @@ if [ ! -f "$dir/done" ]; then
     done
     src=0; sout=''
     # shellcheck disable=SC2086 # the paths are plain generated names
-    [ -z "$paths" ] || sout=$(sh "$here/secret-scan.sh" --root "$root" $paths 2>"$sd/err") || src=$?
+    [ -z "$paths" ] || sout=$(node "$here/proofline-core.mjs" cli secret-scan --root "$root" $paths 2>"$sd/err") || src=$?
     if [ "$src" != 0 ]; then
       if [ "$src" = 1 ]; then
         printf '%s\n' "$sout" | while IFS=: read -r fp ln rl; do

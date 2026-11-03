@@ -250,7 +250,6 @@
 1 risk-test sc_log_words_match
 1 risk-test sc_not_contract_drift
 1 risk-test sc_probe_drift
-1 secret-scan-test
 1 static-test
 1 weights-test
 1 batch-test sc_driver_removed

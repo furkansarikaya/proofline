@@ -43,8 +43,6 @@ control-plane/agents/scripts/risk-test.sh
 control-plane/agents/scripts/rules-test.sh
 control-plane/agents/scripts/rules.sh
 control-plane/agents/scripts/runtime-detect.sh
-control-plane/agents/scripts/secret-scan-test.sh
-control-plane/agents/scripts/secret-scan.sh
 control-plane/agents/scripts/task-adversarial-test.sh
 control-plane/agents/scripts/test-lib.sh
 control-plane/agents/scripts/worktree-prep.sh

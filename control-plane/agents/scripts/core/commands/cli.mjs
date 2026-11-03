@@ -12,6 +12,7 @@ import { insightsReport, insightsStream } from '../insights.mjs';
 import { nextUser } from '../nextuser.mjs';
 import { queue } from '../queue.mjs';
 import { preCommit, prePush } from '../githooks.mjs';
+import { builtinScan } from '../secretscan.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -54,8 +55,23 @@ function nextLine(ctx, args) {
   return nextUser(ctx, args);
 }
 
+/**
+ * `cli secret-scan [--root DIR] <path>...` (the former scripts/secret-scan.sh): prints one `path:line:rule` per finding, never a value; status 0 clean, 1 found,
+ * 2 error. build-record.sh (shell until stage 7) scans the env files of a build record with it.
+ * @param {Context} ctx @param {string[]} args
+ */
+function secretScanCli(ctx, args) {
+  let root = ctx.root;
+  let rest = args;
+  if (rest[0] === '--root') { if (rest[1] === undefined || rest[1] === '') throw new ProoflineError('proofline-core cli secret-scan: --root needs a directory', 2, 'USAGE'); root = rest[1]; rest = rest.slice(2); }
+  if (rest.length === 0) throw new ProoflineError('proofline-core cli secret-scan: [--root DIR] <path>...', 2, 'USAGE');
+  const r = builtinScan(ctx, root, rest);
+  ctx.out(r.stdout); ctx.err(r.stderr);
+  return r.status;
+}
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand });
+export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'secret-scan': secretScanCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

@@ -105,7 +105,7 @@ ok "scalar config keeps the original key, so a record made before command lists 
 
 # --- verification.env_files: a listed, secret-free test env file enters the export; other .env* never do; a visible secret rejects ---
 setenvs() { sed -i.bak "s|^  env_files:.*|  env_files: $1|" .agents/config.yaml && rm -f .agents/config.yaml.bak; }
-new_repo; cp "$tl_agents/scripts/build-record.sh" "$tl_agents/scripts/secret-scan.sh" .agents/scripts/
+new_repo; cp "$tl_agents/scripts/build-record.sh" "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core
 setcmd build "echo build-ok >> $cnt"; setcmd test "echo tested-line"; echo one > f.txt
 printf '.env\n.env.test\n' >> .gitignore; printf 'MODE=test\n' > .env.test; printf 'MODE=dev\n' > .env
 printf 'set -e\ntest -f .env.test\ntest ! -f .env\n' > "$base/chk-in.sh"; setcmd build "sh $base/chk-in.sh"
