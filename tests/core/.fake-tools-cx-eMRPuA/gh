@@ -1,0 +1,6 @@
+#!/bin/sh
+case "$1 $2" in
+  "run list") echo '[{"databaseId":5,"status":"completed","conclusion":"failure","name":"build"},{"databaseId":4,"status":"completed","conclusion":"success","name":"lint"}]' ;;
+  "run view") echo 'log line one'; echo 'log line two' ;;
+esac
+exit 0
