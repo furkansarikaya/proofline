@@ -194,7 +194,7 @@ function run(ctx, argv) {
     const m = parseJson(v.out);
     if (!m || typeof m !== 'object' || Array.isArray(m)) refuse(`glab mr view output is not parseable JSON of the expected shape: ${head200(v.out)}`);
     const pl = m.head_pipeline ?? m.pipeline ?? null;
-    const draft = str(m.draft || m.work_in_progress || false);
+    const dv = m.draft; const draft = str((dv === false || dv == null) ? (m.work_in_progress ?? false) : dv); // jq `.draft // .work_in_progress // false`, fail closed: only false or absent falls through
     const msha = str(m.sha) || '?';
     const pst = pl === null ? 'none' : (str(pl.status) || '?');
     const psha = pl === null ? '-' : (str(pl.sha) || '-');

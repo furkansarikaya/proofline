@@ -37,6 +37,31 @@ function setup() {
   const merged = () => { try { return readFileSync(`${st}/merge.log`, 'utf8'); } catch { return ''; } };
   return { proj, st, bin, view, merge, merged, done: () => { rmSync(proj, { recursive: true, force: true }); rmSync(st, { recursive: true, force: true }); rmSync(path.dirname(bin), { recursive: true, force: true }); } };
 }
+test('merge (GitLab): a draft is refused whether `draft` or the older `work_in_progress` says so (fail closed, jq `//` semantics); a clean merge request goes on', () => {
+  const proj = mkdtempSync(path.join(tmpdir(), 'mg-gl-'));
+  run(proj, 'git', ['init', '-q', '-b', 'main']);
+  run(proj, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base']);
+  run(proj, 'git', ['remote', 'add', 'origin', 'https://gitlab.com/acme/app.git']);
+  const st = mkdtempSync(path.join(tmpdir(), 'mg-gl-state-'));
+  const bin = path.join(toolRoot, `mgl-${path.basename(st)}`, 'bin');
+  mkdirSync(bin, { recursive: true });
+  wf(`${bin}/glab`, `#!/bin/sh\ncase "$*" in\n  *"mr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"mr view"*) cat "${st}/view.json" ;;\nesac\n`);
+  chmodSync(`${bin}/glab`, 0o755);
+  const mr = (/** @type {Record<string, unknown>} */ extra) => wf(`${st}/view.json`, JSON.stringify({ iid: 7, state: 'opened', sha, head_pipeline: { status: 'success', sha }, ...extra }));
+  const merge = () => run(proj, process.execPath, [core, 'cli', 'merge', '7'], { PATH: `${bin}:/usr/bin:/bin:${path.dirname(process.execPath)}` });
+  for (const extra of [{ draft: false, work_in_progress: true }, { work_in_progress: true }, { draft: true }, { draft: true, work_in_progress: false }]) {
+    mr(extra);
+    const r = merge();
+    assert.notEqual(r.status, 0, `${JSON.stringify(extra)}: ${r.text}`);
+    assert.match(r.text, /is a draft/, JSON.stringify(extra));
+  }
+  mr({ draft: false, work_in_progress: false });
+  const ok = merge();
+  assert.equal(ok.status, 0, ok.text);
+  assert.match(readFileSync(`${st}/merge.log`, 'utf8'), /mr merge 7 --sha 1{40}/);
+  rmSync(proj, { recursive: true, force: true }); rmSync(st, { recursive: true, force: true }); rmSync(path.dirname(bin), { recursive: true, force: true });
+});
+
 const okRun = { __typename: 'CheckRun', name: 'static', status: 'COMPLETED', conclusion: 'SUCCESS' };
 const okCtx = { __typename: 'StatusContext', context: 'ci/legacy', state: 'SUCCESS' };
 
