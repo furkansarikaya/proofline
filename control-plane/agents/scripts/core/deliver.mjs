@@ -24,7 +24,7 @@ import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf, localTaskSource, localTaskSourceRun, setRunValue, taskSourceContractHash } from './lifecycle.mjs';
 import { must, quietly } from './lifeutil.mjs';
 import { nextStep } from './next.mjs';
-import { detectPlatform, linkText, parseJson, resolveTool, runTool, ciFailed } from './platform.mjs';
+import { cleanToolEnv, detectPlatform, linkText, parseJson, resolveTool, runTool, ciFailed } from './platform.mjs';
 import * as proc from './proc.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
 import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
@@ -465,7 +465,9 @@ export function deliverMerged(ctx, id, flag) {
   const [dmHead = '', dmBase = '', dmBr = ''] = (fileText(ctx, mergeHead) ?? '').replace(/\n+$/, '').split('\t');
   if (g(['cat-file', '-e', `${dmHead}^{commit}`]).status !== 0) fail(`deliver-merged: the delivered commit ${dmHead !== '' ? dmHead : '?'} is unknown here`);
   const ou = originUrl(ctx) ?? 'origin';
-  if (g(['fetch', '-q', '--', ou, `+refs/heads/${dmBase}:refs/remotes/origin/${dmBase}`]).status !== 0) fail(`deliver-merged: cannot read origin/${dmBase} (git fetch origin ${dmBase} failed)`);
+  // the fetch is the proof of the merge: it reads the remote with an allowlisted environment (no GIT_CONFIG_*, GIT_SSH_COMMAND, proxy or config redirect, A215)
+  const fetched = proc.run('git', ['-C', ctx.root, 'fetch', '-q', '--', ou, `+refs/heads/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+  if (fetched.status !== 0) fail(`deliver-merged: cannot read origin/${dmBase} (git fetch origin ${dmBase} failed)`);
   const tipR = g(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}`]);
   if (tipR.status !== 0) fail(`deliver-merged: origin/${dmBase} not found`);
   const tip = sub(tipR.stdout.toString('latin1'));
@@ -879,7 +881,7 @@ export function deliverStep(ctx, id, step, prArg) {
         if (sub(git(ctx, ['rev-parse', 'HEAD']).out) !== head) stop('HEAD moved');
         if (v('origin_url') !== ou) stop(`origin changed since the summary was approved (was '${v('origin_url')}', now '${ou}'): plan the delivery again`);
         if (ctx.config().get('git.push_requires_approval', 'true') !== 'false') consumeApproval(ctx, id, /** @type {string} */ (app));
-        const pushed = proc.run('git', ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+        const pushed = proc.run('git', ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'pipe'] });
         if (pushed.status !== 0) stop(`git push to ${ou} failed: ${(pushed.stderr.toString('latin1') + pushed.stdout.toString('latin1')).trim().split('\n').slice(0, 3).join(' ')}`);
         git(ctx, ['update-ref', `refs/remotes/${v('remote')}/${br}`, head]);
         ctx.out(`pushed: ${br} -> ${ou}\nthen: agent.sh deliver-step ${id} pr\n`);
