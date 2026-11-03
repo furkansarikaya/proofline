@@ -146,8 +146,10 @@ export function detectPlatform(ctx, opt = {}) {
   if (host === '' || p === '') platform = 'other';
   const autoPlatform = platform;
   // config (A186)
-  const topR = g(['rev-parse', '--show-toplevel']);
-  const top = topR.status === 0 ? topR.stdout.toString('latin1').replace(/\n+$/, '') : '';
+  // the project's own root is the top of its working tree: no git call to ask (a caller that names another directory, `cli platform-info`, still asks)
+  let top = '';
+  if (opt.dir === undefined) top = ctx.root;
+  else { const topR = g(['rev-parse', '--show-toplevel']); top = topR.status === 0 ? topR.stdout.toString('latin1').replace(/\n+$/, '') : ''; }
   const cfg = top !== '' ? readPlatformConfig(`${top}/.agents/config.yaml`) : { platform: '', host: '' };
   const KNOWN = ['github', 'gitlab', 'azure', 'bitbucket', 'other'];
   const envPlatform = ctx.env.PROOFLINE_PLATFORM ?? '';
