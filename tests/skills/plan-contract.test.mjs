@@ -71,14 +71,14 @@ test("CLI rejects the known-bad plan with exit 1 and accepts the good one with 0
   assert.equal(spawnSync(process.execPath, [script, good]).status, 2);
 });
 
-// agent.sh (require_ac_coverage, A129) refuses a freeze by matching these two exact error endings; a rewording here
-// would silently disable that check, so both the validator and agent.sh are pinned to the same strings.
-test("the coverage errors agent.sh matches at freeze keep their wording", () => {
+// core/freeze.mjs (requireAcCoverage, A129) refuses a freeze by matching these two exact error endings; a rewording here
+// would silently disable that check, so both the validator and the Node freeze are pinned to the same strings.
+test("the coverage errors the Node freeze matches keep their wording", () => {
   const e = errs(plan({ scope: ["  - path: src/cart.js", "    criteria: []"], body: { ...BODY, Tests: [] } }));
   has(e, "src/cart.js: maps to no criterion");
   has(e, "AC-1: maps to no scope path and no explicit test");
-  const agent = readFileSync(join(here, "../../control-plane/agents/scripts/agent.sh"), "utf8");
-  for (const s of ["maps to no scope path and no explicit test", "maps to no criterion"]) assert.ok(agent.includes(s), `agent.sh no longer matches "${s}"`);
+  const freeze = readFileSync(join(here, "../../control-plane/agents/scripts/core/freeze.mjs"), "utf8");
+  for (const s of ["maps to no scope path and no explicit test", "maps to no criterion"]) assert.ok(freeze.includes(s), `core/freeze.mjs no longer matches "${s}"`);
 });
 
 test("every criterion must map to a path or an explicit test", () => {
@@ -151,14 +151,14 @@ test("A112: every non-TRIVIAL plan with ## UI needs a visual_writes line at plan
   assert.ok(!errs(withUi([], {}), { cls: "TRIVIAL" }).some((e) => e.includes("visual_writes")), "TRIVIAL is not asked");
 });
 
-test("A112 drift: agent.sh freeze, validate-plan and validate-visual accept and refuse the same visual_writes lines", () => {
-  const sh = readFileSync(join(here, "../../control-plane/agents/scripts/agent.sh"), "utf8");
-  const grepRx = sh.match(/grep -Eq '([^']*visual_writes[^']*)'/)[1];
+test("A112 drift: the Node freeze, validate-plan and validate-visual accept and refuse the same visual_writes lines", () => {
+  const freezeSrc = readFileSync(join(here, "../../control-plane/agents/scripts/core/freeze.mjs"), "utf8");
+  const freezeRx = new RegExp(freezeSrc.match(/\/(\^[^\n]*visual_writes[^\n]*?)\/\.test\(l\)/)[1]);
   const vv = readFileSync(join(here, "../../skills/visual-proof/scripts/validate-visual.mjs"), "utf8");
   const jsRx = new RegExp(vv.match(/\/(\^[^\n]*visual_writes[^\n]*?)\/m\.test/)[1], "m");
   const samples = [["visual_writes: x", true], ["- visual_writes: x", true], ["* `visual_writes: x`", true], ["visual_writes:\tx", true], ["visual_writes:", false], ["visual_writes:\nx", false], ["-visual_writes: x", true], ["text visual_writes: x", false]];
   for (const [text, want] of samples) {
-    const g = spawnSync("grep", ["-Eq", grepRx], { input: text + "\n" }).status === 0;
+    const g = freezeRx.test(text);
     const planOk = !errs(plan({ body: { ...BODY, Architecture: ["One module."], UI: ["Screens S1.", "visual_proof: AC-1", text] } }), { cls: "COMPLEX" }).some((e) => e.includes("visual_writes"));
     assert.deepEqual([g, jsRx.test(text), planOk], [want, want, want], JSON.stringify(text));
   }

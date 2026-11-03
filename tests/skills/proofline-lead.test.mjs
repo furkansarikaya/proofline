@@ -347,8 +347,8 @@ test("intake follows the order agent.sh next prints: classify, branch, baseline 
   const at = (s) => { const i = intake.indexOf(s); assert.ok(i >= 0, `intake lacks ${s}`); return i; };
   assert.ok(at("`A classify <ID>") < at("`A branch <ID>`") && at("`A branch <ID>`") < at("`A baseline <ID>`"));
   assert.match(ref("LIFECYCLE.md"), /intake -> classify -> branch -> baseline/);
-  const agentSh = readFileSync(join(repoRoot, "control-plane/agents/scripts/agent.sh"), "utf8");
-  assert.ok(agentSh.indexOf('o "agent.sh classify') < agentSh.indexOf('o "agent.sh branch'), "agent.sh next no longer prints classify before branch");
+  const next = readFileSync(join(repoRoot, "control-plane/agents/scripts/core/next.mjs"), "utf8");
+  assert.ok(next.indexOf("agent.sh classify ${id}") < next.indexOf("agent.sh branch ${id}"), "agent.sh next no longer prints classify before branch");
 });
 
 test("dispatch assignments and the PR body live in .agents/local/assignments/<ID>/; failover never decides before dispatch.sh", () => {
@@ -364,11 +364,12 @@ test("dispatch assignments and the PR body live in .agents/local/assignments/<ID
   assert.match(ref("DISPATCH.md"), /Never call `A decide` before `D` \(also not for a failover/);
 });
 
-test("the lead's own questions go through agent.sh ask, which agent.sh and dispatch.sh implement", () => {
+test("the lead's own questions go through agent.sh ask, which the Node core and dispatch.sh implement", () => {
   assert.match(SKILL, /`A ask <ID>`/);
   assert.match(readFileSync(join(skill, "references/HANDOFF.md"), "utf8"), /stored with `A ask <ID>`/);
-  const agentSh = readFileSync(join(repoRoot, "control-plane/agents/scripts/agent.sh"), "utf8");
-  assert.match(agentSh, /^ {2}ask\) require_lead;/m);
+  const scripts = join(repoRoot, "control-plane/agents/scripts");
+  assert.match(readFileSync(join(scripts, "core/questions.mjs"), "utf8"), /export function askCommand\(ctx, args\) \{\n {2}requireLead\(ctx\);/);
+  assert.match(readFileSync(join(scripts, "core/commands/runcmds.mjs"), "utf8"), /^ {2}ask: askCommand,$/m);
   assert.match(readFileSync(join(repoRoot, "control-plane/agents/scripts/dispatch.sh"), "utf8"), /"\$agent" ask "\$id" --file/);
 });
 
