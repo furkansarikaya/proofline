@@ -122,11 +122,23 @@ export function resolveTool(ctx, name) {
   try { g = `${realpathSync.native(path.dirname(g))}/${path.basename(g)}`; } catch { return { unreadable: 'unreadable' }; }
   // the folders a model can write: compared by the identity of the folder (device and inode of every ancestor of the tool), never by the spelling of the
   // path, so that an upper-case spelling on a case-insensitive file system, a link or a bind of the folder is the same folder
-  for (const d of [ctx.root, ctx.cwd, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/var/folders', '/dev/shm']) {
-    if (insideFolder(g, d)) return { unreadable: `unreadable (${name} at ${g} may be shadowed)` };
-  }
+  if (refusedLocation(ctx, g)) return { unreadable: `unreadable (${name} at ${g} may be shadowed)` };
   return { path: g };
 }
+
+/**
+ * Is FILE in a folder a model can write: the project, the working directory or a temporary folder? By folder identity (A215 round 2).
+ * @param {Context} ctx @param {string} file
+ */
+export function refusedLocation(ctx, file) {
+  return [ctx.root, ctx.cwd, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/private/tmp', '/var/folders', '/dev/shm'].some((d) => insideFolder(file, d));
+}
+
+/**
+ * The git every delivery step runs (A215 round 3): found once on the PATH under the same location rule as the platform tools, never a git inside the
+ * project, the working directory or a temporary folder. @param {Context} ctx @returns {{ path: string } | { unreadable: string }}
+ */
+export function resolveGit(ctx) { return resolveTool(ctx, 'git'); }
 
 /**
  * The platform of the origin remote (or of URL). Reads the config of the repository that holds DIR (default the project root).
@@ -267,13 +279,15 @@ const TOOL_TIMEOUT_MS = 180000;
  * @param {Context} ctx @param {{ remote?: boolean }} [opt] @returns {Record<string, string>}
  */
 export function cleanToolEnv(ctx, opt = {}) {
-  const src = ctx.childEnv();
+  const src = { ...ctx.env, LC_ALL: 'C', RTK_DISABLED: '1' }; // not ctx.childEnv(): sharedMain needs a project, merge runs in any repository
   const keep = new Set(['PATH', 'LANG', 'TERM', 'TZ', 'TMPDIR', 'NO_COLOR', 'CLICOLOR', 'CLICOLOR_FORCE', 'CI', 'SYSTEMROOT', 'COMSPEC', 'PATHEXT',
     'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GITLAB_TOKEN', 'GLAB_TOKEN', 'AZURE_DEVOPS_EXT_PAT', 'RTK_DISABLED']);
   if (opt.remote === true) keep.add('SSH_AUTH_SOCK');
   /** @type {Record<string, string>} */
   const out = {};
   for (const [k, v] of Object.entries(src)) if (v !== undefined && (keep.has(k) || k.startsWith('LC_'))) out[k] = v;
+  // the PATH the tool and its own children (gh runs git) search: an entry that is relative or inside the project, the working directory or a temporary folder is dropped
+  if (out['PATH'] !== undefined) out['PATH'] = out['PATH'].split(path.delimiter).filter((e) => e.startsWith('/') && !refusedLocation(ctx, `${e}/x`)).join(path.delimiter);
   try { const h = userInfo().homedir; if (h !== '') out['HOME'] = h; } catch { /* no account entry: no HOME */ }
   return out;
 }
