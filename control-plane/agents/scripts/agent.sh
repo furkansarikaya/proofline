@@ -33,11 +33,10 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
 case "${1:-}" in
   friction|calibrate|build-record|lessons|rules|decide|\
-  worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|metrics-dispatch|wait-line|ledger-note|\
+  metrics-dispatch|wait-line|ledger-note|\
   deliver-merged|worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
   batch-answers|task-rename-plan|task-rename-apply|known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|pr-state|batch-next|\
-  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|platform|platform-warn|task-source-done|\
-  knowledge-done|publish-completion-report|verify-completion-report|test) ;;
+  batch-ci|batch-awake|batch-park|deliver-plan|deliver-step|platform|platform-warn|task-source-done|test) ;;
   *)
     pl_sh=no
     # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
