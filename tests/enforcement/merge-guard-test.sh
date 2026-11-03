@@ -12,17 +12,18 @@ case $hook in *.mjs) hrun='node' ;; *) hrun='sh' ;; esac
 core_into() { [ "$hrun" = node ] || return 0; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$1/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$1/.agents/scripts/core"; }
 pl=$repo/bin/proofline
 base=$(mktemp -d "${TMPDIR:-/tmp}/proofline-merge.XXXXXX") || { echo "merge-guard: TMPDIR must be an existing directory" >&2; exit 2; }
-trap 'rm -rf "$base"' EXIT
+# the fake tools live in the checkout (git-ignored), never under a temporary folder: a gh that resolves there is refused (A180, no environment switch lifts that)
+stubd=$repo/tests/core/.fake-tools/merge-guard-$$/stub; mkdir -p "$stubd"
+trap 'rm -rf "$base" "$repo/tests/core/.fake-tools/merge-guard-$$"' EXIT
 die() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
-command -v jq >/dev/null 2>&1 || { echo "merge-guard: jq is required"; exit 2; }
 
 # --- a project (not proofline-installed) and a stub gh -------------------------------------------
 proj=$base/proj; mkdir -p "$proj"
 git -C "$proj" init -q -b main 2>/dev/null || { git -C "$proj" init -q; git -C "$proj" checkout -q -b main; }
 git -C "$proj" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
-GHS=$base/ghs; mkdir -p "$GHS" "$base/stub"; export GHS
-cat > "$base/stub/gh" <<'EOF'
+GHS=$base/ghs; mkdir -p "$GHS"; export GHS
+cat > "$stubd/gh" <<'EOF'
 #!/bin/sh
 [ ! -f "$GHS/fail" ] || { echo "gh: HTTP 502" >&2; exit 1; }
 case "$*" in
@@ -32,7 +33,8 @@ case "$*" in
   *headRefOid*) cat "$GHS/head.json" ;;
 esac
 EOF
-chmod +x "$base/stub/gh"
+sed -i.bak "s|\"\$GHS|\"$GHS|g" "$stubd/gh"; rm -f "$stubd/gh.bak"  # the tool gets no caller variables (A215): the state folder is baked in
+chmod +x "$stubd/gh"
 sha=1111111111111111111111111111111111111111; sha2=2222222222222222222222222222222222222222
 view() { # NUMBER STATE DRAFT SHA ROLLUP-JSON
   printf '{"number":%s,"state":"%s","isDraft":%s,"headRefOid":"%s","statusCheckRollup":%s}\n' "$1" "$2" "$3" "$4" "$5" > "$GHS/view.json"
@@ -42,7 +44,7 @@ run_ok='{"__typename":"CheckRun","name":"static","status":"COMPLETED","conclusio
 ctx_ok='{"__typename":"StatusContext","context":"ci/legacy","state":"SUCCESS"}'
 green="[$run_ok,$ctx_ok]"
 reset() { rm -f "$GHS"/*.json "$GHS/merge.log" "$GHS/fail"; unset HEAD2; }
-merge() { (cd "$proj" && PROOFLINE_SELFTEST=1 PATH="$base/stub:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
+merge() { (cd "$proj" && PATH="$stubd:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
 refused() { # NAME MSG-FRAGMENT ARGS...
   n=$1 f=$2; shift 2
   merge "$@" && die "$n: merged"; [ ! -f "$GHS/merge.log" ] || die "$n: gh pr merge ran"
@@ -89,21 +91,20 @@ refused "a skipped required check is refused" "visual (skipping)" 7
 # required checks: one that is not in the rollup yet (registered late) refuses; a missing one that is a pass elsewhere merges
 reset; view 7 OPEN false $sha "$green"; printf '[{"name":"static","bucket":"pass"},{"name":"selftest","bucket":"pass"}]\n' > "$GHS/required.json"
 refused "a required check missing from the rollup is refused" "missing from the rollup" 7
-grep -Fq "using gh at $base/stub/gh" "$base/out" || die "the wrapper does not print the gh it uses: $(cat "$base/out")"; ok "the wrapper prints the gh path it uses"
+grep -Fq "using gh at $stubd/gh" "$base/out" || die "the wrapper does not print the gh it uses: $(cat "$base/out")"; ok "the wrapper prints the gh path it uses"
 # PATH shadowing: a gh in a temp dir without the self-test switch, and an empty PATH entry
 reset; view 7 OPEN false $sha "$green"
-(cd "$proj" && PATH="$base/stub:$PATH" sh "$pl" merge 7) > "$base/out" 2>&1 && die "merged with a gh from a temp directory"
+mkdir -p "$base/tmpgh"; cp "$stubd/gh" "$base/tmpgh/gh"
+(cd "$proj" && PATH="$base/tmpgh:$PATH" sh "$pl" merge 7) > "$base/out" 2>&1 && die "merged with a gh from a temp directory"
 grep -Fq "possibly shadowed gh" "$base/out" || die "temp-dir gh message: $(cat "$base/out")"; [ ! -f "$GHS/merge.log" ] || die "gh ran"; ok "a gh found in a temp directory is refused"
-(cd "$proj" && PROOFLINE_SELFTEST=1 PATH="$base/stub::$PATH" sh "$pl" merge 7) > "$base/out" 2>&1 && die "merged with an empty PATH entry"
+(cd "$proj" && PATH="$stubd::$PATH" sh "$pl" merge 7) > "$base/out" 2>&1 && die "merged with an empty PATH entry"
 grep -Fq "empty or relative entry" "$base/out" || die "empty PATH entry message: $(cat "$base/out")"; ok "an empty PATH entry is refused"
-# gh / jq missing: a PATH with only the tools the wrapper needs
+# gh missing: a PATH with only the tools the wrapper needs
 nogh=$base/nogh; mkdir -p "$nogh"
-for t in git sed awk head tr dirname cat readlink shasum sha256sum jq; do p=$(command -v "$t" 2>/dev/null) && ln -s "$p" "$nogh/$t"; done
+for t in git sed awk head tr dirname cat readlink shasum sha256sum node; do p=$(command -v "$t" 2>/dev/null) && ln -s "$p" "$nogh/$t"; done
 shbin=$(command -v sh)
 (cd "$proj" && PATH=$nogh "$shbin" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without gh"
 grep -Fq "gh is not installed" "$base/out" || die "gh missing message: $(cat "$base/out")"; ok "gh missing is refused"
-rm -f "$nogh/jq"; (cd "$proj" && PROOFLINE_SELFTEST=1 PATH="$base/stub:$nogh" "$shbin" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without jq"
-grep -Fq "jq is not installed" "$base/out" || die "jq missing message: $(cat "$base/out")"; ok "jq missing is refused"
 
 # --- the hook ----------------------------------------------------------------------------------
 jstr() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); if (NR > 1) print "\\n"; print }'; }

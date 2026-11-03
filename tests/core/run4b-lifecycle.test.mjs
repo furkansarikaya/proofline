@@ -8,9 +8,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, 
 import { test } from 'node:test';
 import { A, accepted, approveAsUser, project, read, refused } from './legacy-lib.mjs';
 
-const ADAPTERS = new URL('../../control-plane/agents/task-integrations/', import.meta.url).pathname;
-/** The fixture installs a two-operation stub of the markdown adapter; `start` runs the real one, so the real adapter and its libraries are installed. @param {string} d */
-const withAdapter = (d) => { for (const f of ['markdown.sh', '_lib.sh', 'slug.sh']) copyFileSync(`${ADAPTERS}${f}`, `${d}/.agents/task-integrations/${f}`); return d; };
+/** The fixture installs a two-operation stub of the markdown adapter (a project script wins); `start` runs the built-in one, so the stub is removed. @param {string} d */
+const withAdapter = (d) => { rmSync(`${d}/.agents/task-integrations/markdown.sh`, { force: true }); return d; };
 const BODY = '## Goal\n\nLook the stored value up.\n\n## Context\n\nThe store has no lookup yet.\n\n## Acceptance criteria\n\n- AC-1: lookup returns the stored value\n\n## Out of scope\n\n- the store format\n\n## Constraints\n\nnone\n\n## Risks\n\nnone\n\n## Suggested class\n\nSTANDARD\n';
 const runValue = (/** @type {string} */ d, /** @type {string} */ s, /** @type {string} */ k, id = 'LC') => {
   const m = new RegExp(`^${s}:\\n(?:  .*\\n)*?  ${k}: "?([^"\\n]*)"?$`, 'm').exec(read(d, `.agents/runs/${id}/RUN.yaml`));

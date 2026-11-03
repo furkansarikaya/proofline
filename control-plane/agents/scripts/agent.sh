@@ -3923,6 +3923,8 @@ commands_check() {
 # only by a slug and proposes <ID>-<slug-of-the-title>.md; it asks the user's approval (kind `rename`, bound to the proposal's sha256).
 # task-rename-apply renames only after that approval, and re-checks every row first. A task that has a run or a worktree, one whose file
 # holds a published completion report, and every file in in-progress/ or done/ is never proposed and never renamed.
+# task_slug TITLE: the slug of a title, from the Node core (cli slug): the project's core beside this script, or the main tree's
+task_slug() { node "$sr_main/.agents/scripts/proofline-core.mjs" cli slug "$1"; }
 rename_candidate() { # ABS-FILE -> ABS-NEW-NAME on stdout when the file is a queued, non-conforming task file
   rc_f=$1; rc_b=$(basename "$rc_f" .md)
   rc_id=$(sed -n '1s/^# Task: *\([^ ]*\).*/\1/p' "$rc_f" 2>/dev/null | head -1)
@@ -3930,12 +3932,12 @@ rename_candidate() { # ABS-FILE -> ABS-NEW-NAME on stdout when the file is a que
   case "$rc_b" in "$rc_id"-FU[0-9]*) return 1 ;; esac
   { [ ! -e "$root/.agents/runs/$rc_id" ] && [ ! -e "$(shared_dir worktrees)/$rc_id" ]; } || return 1
   ! grep -q "COMPLETION-REPORT:BEGIN" "$rc_f" 2>/dev/null || return 1
-  rc_idl=$(sh "$agents/task-integrations/slug.sh" "$rc_id")
+  rc_idl=$(task_slug "$rc_id")
   case "$rc_b" in "$rc_id"-?*)
     rc_sl=${rc_b#"$rc_id"-}
-    if [ "$rc_sl" = "$(sh "$agents/task-integrations/slug.sh" "$rc_sl")" ] && [ "$rc_sl" != "$rc_idl" ]; then return 1; fi ;;
+    if [ "$rc_sl" = "$(task_slug "$rc_sl")" ] && [ "$rc_sl" != "$rc_idl" ]; then return 1; fi ;;
   esac
-  rc_sl=$(sh "$agents/task-integrations/slug.sh" "$(task_title_of "$rc_f")")
+  rc_sl=$(task_slug "$(task_title_of "$rc_f")")
   { [ -n "$rc_sl" ] && [ "$rc_sl" != "$rc_idl" ]; } || return 1
   rc_new=$(dirname "$rc_f")/$rc_id-$rc_sl.md
   [ ! -e "$rc_new" ] || return 1
@@ -4882,7 +4884,6 @@ report_execution() {
     $1 == "role" { role = v } $1 == "focus" { focus = v } $1 == "runtime" { rt = v } $1 == "model" { model = v } $1 == "effort" { effort = v }
     $1 == "signals" { sig = v } $1 == "runtime_reason" { rr = v } $1 == "escalated" { esc = v } $1 == "escalation_reason" { xr = v } $1 == "via" { via = v }'
 }
-adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
 # --- Status block (A202): the one live status of a task, updated in place --------------------------------------------------
 # The content is written by the control plane from RECORDED state only (RUN.yaml, the ledger, the questions, the delivery records, the
 # metrics records, the batch state): no agent text is copied in except the three recorded reasons (a question, a park, a failure), and
@@ -5006,10 +5007,10 @@ status_block_body() {
 # status_block_run ID EVENT [PR]: build the block and hand it to the configured adapter
 status_block_run() {
   sbr_id=$1; valid_task_id "$sbr_id" || { echo "invalid task id" >&2; return 1; }
-  sbr_adapter=$(cfg tasks.adapter markdown); sbr_script=$(adapter_script "$sbr_adapter") || return 1
+  sbr_adapter=$(cfg tasks.adapter markdown)
   sbr_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-block.XXXXXX") || return 1
   status_block_body "$sbr_id" "$2" "${3:-}" > "$sbr_f" || { rm -f "$sbr_f"; return 1; }
-  sbr_rc=0; sh "$sbr_script" statusblock "$sbr_id" "$sbr_f" >/dev/null || sbr_rc=$?
+  sbr_rc=0; node "$sr_main/.agents/scripts/proofline-core.mjs" cli task-adapter "$sbr_adapter" statusblock "$sbr_id" "$sbr_f" >/dev/null || sbr_rc=$?   # A216: a project script or the built-in adapter
   rm -f "$sbr_f"; return "$sbr_rc"
 }
 # status_block_update ID EVENT [PR]: the lifecycle hook. Best effort in every way: a subshell (the run never sees a failure), bounded

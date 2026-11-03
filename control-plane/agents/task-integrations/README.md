@@ -1,29 +1,32 @@
 # Task-integration adapters (D18, D25)
 
 `agent.sh` never talks to a task tracker. It validates the Completion Report structure and delegates to the
-adapter script `task-integrations/<tasks.adapter>.sh` (config `tasks.adapter`: `markdown` | `github` | `jira` |
-`linear`; `publish-completion-report <ID> [ADAPTER]` overrides it per call). An adapter is a standalone POSIX `sh`
-script; provider logic (auth, API calls, formatting) stays inside it. A new adapter needs no change to `agent.sh`.
+adapter `tasks.adapter` (config: `markdown` | `github` | `jira` | `linear`; `publish-completion-report <ID> [ADAPTER]`
+overrides it per call). The four adapters are Node code of the control plane (`core/adapters/`, A216) and run with
+no install step. A project can write its own adapter: an executable script `.agents/task-integrations/<name>.sh` that
+speaks the operations below is run as a child (`sh <script> <operation> ...`), and a script named like a built-in adapter
+(`markdown.sh`) takes its place. Provider logic (auth, API calls, formatting) stays inside the adapter. A new adapter needs no
+change to `agent.sh`. Run one operation by hand: `node .agents/scripts/proofline-core.mjs cli task-adapter <adapter> <operation> <args...>`.
 
 | Adapter | Status | Transport |
 |---|---|---|
-| `markdown.sh` | default, fully supported, tested | files in `tasks.dir` |
-| `github.sh` | fully supported, tested against a fake `gh` | `gh` CLI only |
-| `jira.sh` | **not tested** (argument-validation smoke only) | REST via `curl`, needs `jq` |
-| `linear.sh` | **not tested** (argument-validation smoke only) | GraphQL via `curl`, needs `jq` |
+| `markdown` | default, fully supported, tested | files in `tasks.dir` |
+| `github` | fully supported, tested against a fake `gh` | `gh` CLI only (argument arrays, JSON read in process) |
+| `jira` | **not tested** against a real service (fake `fetch` only) | REST via `fetch` |
+| `linear` | **not tested** against a real service (fake `fetch` only) | GraphQL via `fetch` |
 
-`_lib.sh` is shared helper code (ID validation, config read, the import engine), sourced by every adapter.
+The shared helper code (ID validation, the import engine, the status block check) is `core/adapters/lib.mjs`.
 
 ## Operations
 
 ```sh
-<adapter>.sh import   <external-ref> <out TASK.md>   # external issue -> canonical TASK.md
-<adapter>.sh publish  <TASK-ID> <report-file>        # write the completion report back + update status; print a receipt
-<adapter>.sh verify   <TASK-ID> <receipt>            # re-read; exit 0 iff the published report is still there
-<adapter>.sh followup <TASK-ID> <waiver-file>        # create a follow-up task; print a receipt (path, key or URL)
-<adapter>.sh status   <TASK-ID> <backlog|todo|in-progress|done>
-<adapter>.sh statusblock <TASK-ID> <block-file>       # the one live status block of the task, created or replaced in place (A202)
-markdown.sh create    <TASK-ID> <title> <body-file>  # create in-progress task for agent.sh start
+<adapter> import   <external-ref> <out TASK.md>   # external issue -> canonical TASK.md
+<adapter> publish  <TASK-ID> <report-file>        # write the completion report back + update status; print a receipt
+<adapter> verify   <TASK-ID> <receipt>            # re-read; exit 0 iff the published report is still there
+<adapter> followup <TASK-ID> <waiver-file>        # create a follow-up task; print a receipt (path, key or URL)
+<adapter> status   <TASK-ID> <backlog|todo|in-progress|done>
+<adapter> statusblock <TASK-ID> <block-file>       # the one live status block of the task, created or replaced in place (A202)
+markdown create    <TASK-ID> <title> <body-file>  # create in-progress task for agent.sh start
 ```
 
 Exit codes: `0` ok, `1` failure (message on stderr), `2` usage, `3` import is incomplete.
@@ -31,7 +34,7 @@ Exit codes: `0` ok, `1` failure (message on stderr), `2` usage, `3` import is in
 What `agent.sh` calls today: `publish <ID> <run>/COMPLETION_REPORT.md` and `verify <ID> <receipt>` (the receipt
 recorded in `RUN.yaml` `completion_report.receipt`, passed back unmodified) from `publish-completion-report` /
 `verify-completion-report`; `followup <ID> <file>` from `waive` when `review.waiver_followup: task`. `import` and
-`status` are called by the task-author skill and the lead. `agent.sh start` calls markdown `create` for a
+`status` are called by the task-author skill and the lead (`cli task-adapter`). `agent.sh start` calls markdown `create` for a
 stdin task body or `import` and `status` for a file under `tasks.dir`. As a convenience every adapter also accepts the report
 file in place of the receipt in `verify`.
 
@@ -84,7 +87,7 @@ in-progress/ done/` with a `**Status:**` line, named `<ID>-<slug>.md`.
 missing or `gh auth status` fails, the adapter exits 1 with a clear message before any other call.
 
 - Reference forms for `import`: `N`, `#N`, `GH-N`, an issue URL, `owner/repo#N`. The run's task ID is `GH-<N>`; the
-  repository is the one `gh` resolves (current remote or `GH_REPO`).
+  repository is the one `gh` resolves from the current remote. `GH_REPO`, `GH_HOST` and the `gh` configuration directory of the caller do not reach `gh` (it runs with an allowlisted environment, A215/A216); for a GitHub Enterprise host set `git.platform: github` and `git.platform_host: <host>` in `.agents/config.yaml`, the adapter then sets `GH_HOST` itself.
 - `publish` comments `<!-- proofline:completion-report:<ID> sha256:<hash> -->` plus the report, then swaps the issue
   to label `proofline:done` (best effort; a failed label never fails the publish). `verify` looks for that marker
   and hash among the issue's comments. `status` keeps exactly one `proofline:<state>` label (labels must exist in
@@ -92,8 +95,7 @@ missing or `gh auth status` fails, the adapter exits 1 with a clear message befo
 
 ## jira, linear (not tested)
 
-Written to this contract and exercised only with a fake `curl` for argument validation; no real service was
-contacted. Review before relying on them.
+Written to this contract and exercised only with a fake `fetch`; no real service was contacted. Review before relying on them.
 
 - jira: `JIRA_BASE_URL` (https), `JIRA_EMAIL`, `JIRA_API_TOKEN`. Reads via REST v2 (wiki-markup description,
   tolerated by the importer), writes comments as minimal ADF (one paragraph per non-empty line), `status` runs the
@@ -102,7 +104,7 @@ contacted. Review before relying on them.
 - linear: `LINEAR_API_KEY` (optionally `LINEAR_API_URL`). GraphQL queries/mutations (`issue`, `commentCreate`,
   `issueUpdate` to the first workflow state of type backlog/unstarted/started/completed, `issueCreate`). The task ID
   is the issue identifier.
-- Both hand the credential to `curl` on stdin (`-K -`), so it appears in no argument list; neither logs it.
+- Both put the credential in a request header only: no argument list, URL, log or error message holds it, and an HTTP failure reports its status code only. Jira needs an https base URL, Linear an https API URL.
 
 ## Task formats (D25)
 
@@ -113,7 +115,7 @@ fields and sections once; import and export follow it.
 
 ## Names and types (A202)
 
-`slug.sh` builds the slug from the title (ASCII, at most 48 characters); `markdown` always writes `<ID>-<slug>.md` and the branch
+`cli slug` (core/slug.mjs) builds the slug from the title (ASCII, at most 48 characters); `markdown` always writes `<ID>-<slug>.md` and the branch
 is `proofline/<ID>-<slug>`. `type:` (`feature|bug|refactor|content|docs|chore`, none means feature) travels with the task; other
 trackers carry it as a label and an `Origin:` line. Renaming queued files is `agent.sh task-rename-plan` / `task-rename-apply`
 after the user's `approve rename`.

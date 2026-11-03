@@ -50,7 +50,6 @@ q() { "$@" >/dev/null; }
 
 # --- installed project (the layout `proofline init` writes) ---------------------------------
 mkdir -p .agents/scripts .agents/local .agents/tasks .agents/task-integrations src test
-cp "$CP/agents/task-integrations/slug.sh" .agents/task-integrations/   # branch slug (A202), as `proofline init` installs it
 cp "$CP/agents/config.yaml" "$CP/agents/roles.conf" "$CP/agents/"*.md .agents/
 cp -R "$CP/agents/modes" "$CP/agents/templates" "$CP/agents/roles" "$CP/agents/githooks" .agents/
 for f in agent.sh dispatch.sh exec-policy.sh runtime-detect.sh proofline-core.mjs; do cp "$CP/agents/scripts/$f" .agents/scripts/; done

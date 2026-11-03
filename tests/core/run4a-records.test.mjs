@@ -392,12 +392,11 @@ test('scrub: equals the sb_scrub of agent.sh on a corpus (the shell copy stays u
 
 // ---- the slug of the branch name ---------------------------------------------------------------------------------------------------------
 
-test('slug: the Node table equals task-integrations/slug.sh on a corpus (the adapters still run that script)', () => {
-  const corpus = ['Sample Feature', 'Çalışma Şeması ıı İİ', 'Straße über Ångström', 'Œuvre æther', '  --leading and trailing--  ', 'a'.repeat(60), 'x'.repeat(47) + '-yz', 'UPPER lower 123', '!!!', '', 'Ünïcödé ñ ý ž ł đ ť ř', 'emoji \u{1F600} text'];
-  for (const t of corpus) {
-    const sh = spawnSync('sh', [path.join(repo, 'control-plane/agents/task-integrations/slug.sh'), t], { encoding: 'utf8' }).stdout.replace(/\n$/, '');
-    assert.equal(slug(Buffer.from(t, 'utf8').toString('latin1')), sh, `slug of ${JSON.stringify(t)}`);
-  }
+test('slug: known answers (Turkish and other Latin letters first, a-z and 0-9 only, at most 48, nothing for a title without a usable character)', () => {
+  const b = (/** @type {string} */ t) => Buffer.from(t, 'utf8').toString('latin1');
+  const want = /** @type {Array<[string, string]>} */ ([['Sample Feature', 'sample-feature'], ['\u00c7al\u0131\u015fma \u015eemas\u0131 \u0131\u0131 \u0130\u0130', 'calisma-semasi-ii-ii'], ['Stra\u00dfe \u00fcber \u00c5ngstr\u00f6m', 'strasse-uber-angstrom'],
+    ['\u0152uvre \u00e6ther', 'oeuvre-aether'], ['  --leading and trailing--  ', 'leading-and-trailing'], ['a'.repeat(60), 'a'.repeat(48)], ['UPPER lower 123', 'upper-lower-123'], ['!!!', ''], ['', '']]);
+  for (const [t, s] of want) assert.equal(slug(b(t)), s, `slug of ${JSON.stringify(t)}`);
 });
 
 // ---- review round 1 ---------------------------------------------------------------------------------------------------------------------

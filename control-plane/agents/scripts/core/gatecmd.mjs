@@ -17,6 +17,7 @@ import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf } from './lifecycle.mjs';
 import { fieldFromText, justificationOk, led, need, oneLine, readStdin } from './lifeutil.mjs';
 import { isFile } from './paths.mjs';
+import { adapterExists, runTaskAdapter } from './adapters/index.mjs';
 import * as proc from './proc.mjs';
 import { ledgerToken } from './questions.mjs';
 import { fieldOf, fileLines, fileText, gateField, gatesEnforced, planScope, scopePaths, authorizedPath, sectionValue } from './records.mjs';
@@ -257,10 +258,11 @@ export function waiveCommand(ctx, args) {
       const fu = `${dir}/waivers/${n}-${f}.followup.md`;
       const rows = fileLines(ctx, rec).filter((l) => l.startsWith(`finding: ${f}|`)).map((l) => `${l.slice('finding: '.length)}\n`).join('');
       writeFileSync(fu, Buffer.from(`# Follow-up: waived finding ${f} of ${id}\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\nOrigin: ${id} (waived finding ${f})\n\n${rows}\nWaiver reason: ${reason}\n`, 'latin1'));
-      const ad = `${ctx.agents}/task-integrations/${ctx.config().get('tasks.adapter', 'markdown')}.sh`;
-      if (isFile(ad)) {
-        const r = proc.run('sh', [ad, 'followup', id, fu], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'inherit'] });
-        if (r.status !== 0) fail(`follow-up task creation failed via ${ad}`);
+      const adapter = ctx.config().get('tasks.adapter', 'markdown');
+      if (adapterExists(ctx.root, adapter)) {
+        const r = runTaskAdapter(ctx, adapter, ['followup', id, fu]);
+        if (r !== null && r.stderr.length > 0) ctx.err(r.stderr.toString('latin1'));
+        if (r === null || r.status !== 0) fail(`follow-up task creation failed via ${ctx.agents}/task-integrations/${adapter}.sh`);
         follow = r.stdout.toString('latin1').replace(/\n+$/, '');
       } else follow = 'pending';
     }

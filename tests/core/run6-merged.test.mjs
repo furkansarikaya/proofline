@@ -11,7 +11,6 @@ import { project, scripts } from './legacy-lib.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
-const ADAPTERS = `${scripts}/../task-integrations`;
 const cli = (/** @type {string} */ d, /** @type {string[]} */ args) => run(d, 'node', [`${scripts}/proofline-core.mjs`, 'cli', 'platform-info', ...args]);
 
 /** A bare repository that holds main of the project. @param {string} d @param {string} name */
@@ -294,10 +293,17 @@ echo "WT=$wt"`);
   return /WT=(.*)$/m.exec(r.out)?.[1] ?? '';
 }
 const wtGone = (/** @type {string} */ d, /** @type {string} */ wt) => !existsSync(wt) && g(d, 'worktree', 'list').split('\n').length === 1;
-const withAdapter = (/** @type {string} */ wt) => { for (const f of ['markdown.sh', '_lib.sh', 'slug.sh']) copyFileSync(`${ADAPTERS}/${f}`, `${wt}/.agents/task-integrations/${f}`); };
 
 /** A finished run in its own worktree. @param {string} d */
-function wtDoneRun(d) { hooks(d); return intoWorktree(d); }
+function wtDoneRun(d) {
+  hooks(d);
+  // the fixture's two-operation stub of the markdown adapter is a project script and would win over the built-in one: it is removed and committed, so the worktree has none either
+  gOk(d, 'rm', '-q', '-f', '.agents/task-integrations/markdown.sh');
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'drop the adapter stub', '--', '.agents/task-integrations/markdown.sh');
+  const wt = intoWorktree(d);
+  rmSync(`${wt}/.agents/task-integrations/markdown.sh`, { force: true }); // worktree-add copies the project's adapter folder
+  return wt;
+}
 
 /** The delivery inside the worktree up to the hand-off to the user (local) or to the open pull request (gh). @param {string} d @param {string} wt @param {'local' | 'gh'} kind */
 function wtDeliver(d, wt, kind) {
@@ -319,8 +325,7 @@ function wtDeliver(d, wt, kind) {
 test('deliver-merged inside the run\'s worktree: merge proven from git, recorded, local main fast-forwarded, the worktree removed; the final status block lands in the main tree', () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
-  withAdapter(wt);
-  const { lo } = wtDeliver(d, wt, 'local');
+    const { lo } = wtDeliver(d, wt, 'local');
   refused(A(wt, ['deliver-merged', 'LC']), 'deliver-merged before the merge', 'not merged');
   assert.ok(existsSync(wt), 'an unmerged run lost its worktree');
   const taskFile = run(wt, 'find', ['tasks', '-name', 'LC*.md']).out.split('\n')[0];
@@ -343,8 +348,7 @@ test('deliver-merged inside the run\'s worktree: merge proven from git, recorded
 test('a task file changed by more than the task\'s own status block keeps the worktree', () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
-  withAdapter(wt);
-  const { lo } = wtDeliver(d, wt, 'local');
+    const { lo } = wtDeliver(d, wt, 'local');
   const f = `${wt}/${run(wt, 'find', ['tasks', '-name', 'LC*.md']).out.split('\n')[0]}`;
   wf(f, `${readFileSync(f, 'utf8')}\n## Proofline Status\n\n<!-- PROOFLINE-STATUS:BEGIN:OTHER-1 -->\n- run: OTHER-1\n<!-- PROOFLINE-STATUS:END:OTHER-1 -->\n`);
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
@@ -359,8 +363,7 @@ test('deliver-step cleanup after a merged pull request removes the worktree and 
   gOk(d, 'remote', 'set-url', 'origin', 'https://github.com/acme/app.git');
   gOk(d, 'init', '-q', '--bare', `${d}-bare.git`);
   gOk(d, 'remote', 'add', 'bare', `${d}-bare.git`);
-  withAdapter(wt);
-  wtDeliver(d, wt, 'gh');
+    wtDeliver(d, wt, 'gh');
   const h = g(wt, 'rev-parse', 'HEAD');
   gh.says('OPEN', h);
   accepted(A(wt, ['deliver-step', 'LC', 'merge', '7'], { env: gh.env }), 'merge step in the worktree');
@@ -568,7 +571,8 @@ test('the approved commands\' uncommitted config edit is dropped once origin has
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged').out;
   assert.match(out, /local \.agents\/config\.yaml edit was dropped/);
   assert.match(out, /^local main fast-forwarded/m);
-  assert.equal(g(d, 'status', '--porcelain', '--untracked-files=no'), '');
+  // the only change left in the main tree is the status block the control plane put into the task file (a block-only change never stops a fast-forward)
+  assert.ok(['', ' M tasks/done/LC.md'].includes(g(d, 'status', '--porcelain', '--untracked-files=no')), g(d, 'status', '--porcelain', '--untracked-files=no'));
 });
 
 /** @param {string} d */

@@ -43,12 +43,6 @@ control-plane/agents/scripts/runtime-detect.sh
 control-plane/agents/scripts/task-adversarial-test.sh
 control-plane/agents/scripts/test-lib.sh
 control-plane/agents/scripts/worktree-prep.sh
-control-plane/agents/task-integrations/_lib.sh
-control-plane/agents/task-integrations/github.sh
-control-plane/agents/task-integrations/jira.sh
-control-plane/agents/task-integrations/linear.sh
-control-plane/agents/task-integrations/markdown.sh
-control-plane/agents/task-integrations/slug.sh
 docs/reference/generate-skills.sh
 fixtures/api-design/selfcheck.sh
 fixtures/api-design/setup.sh
@@ -161,4 +155,3 @@ tests/shared/check-static.sh
 tests/shared/fixture-lib.sh
 tests/shared/static-test.sh
 tests/tasks/status-block-test.sh
-tests/tasks/tasks-test.sh

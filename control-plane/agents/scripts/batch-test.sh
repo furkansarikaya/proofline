@@ -44,9 +44,10 @@ GHBIN=$(CDPATH='' cd "$tl_agents/../.." && pwd)/tests/core/.fake-tools/batch-$$/
 trap 'chmod -R u+w "$base" 2>/dev/null || :; rm -rf "$base" "$GHBIN/.." 2>/dev/null || :' EXIT
 PATH=$GHBIN:$FAKE/bin:$PATH; export PATH
 
-# fake gh: authenticated, main CI green
-cat > "$GHBIN/gh" <<'EOF'
-#!/bin/sh
+# fake gh: authenticated, main CI green. The platform tool runs with an allowlisted environment (cleanToolEnv): $FAKE is NOT passed on, so the
+# fake gets its state folder written into its text (a test must not rely on an environment seam, D14).
+printf '#!/bin/sh\nFAKE=%s\n' "'$FAKE'" > "$GHBIN/gh"
+cat >> "$GHBIN/gh" <<'EOF'
 # A160: `run list --commit <sha>` answers from $FAKE/ci/<sha> (the JSON) or $FAKE/ci/<sha>.none (no run); any other query is green
 sha=''; prev=''; for a in "$@"; do [ "$prev" != --commit ] || sha=$a; prev=$a; done
 if [ -n "$sha" ] && [ -f "$FAKE/ci/$sha" ]; then cat "$FAKE/ci/$sha"; exit 0; fi
@@ -92,7 +93,7 @@ install_scripts() { # DIR: the control-plane scripts a fixture lacks (batch.sh, 
     case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
     cp "$is_s" "$1/"
   done
-  mkdir -p "$1/../task-integrations"; cp "$tl_agents/task-integrations/markdown.sh" "$tl_agents/task-integrations/_lib.sh" "$tl_agents/task-integrations/slug.sh" "$1/../task-integrations/"   # A169: sessions run the real `agent.sh start`
+  rm -f "$1/../task-integrations/markdown.sh"   # A216: sessions use the built-in markdown adapter, not the fixture stub
 }
 # bnew: a fresh fixture without task files (the shared template may carry some, see tpl_tasks)
 bnew() { new_repo; rm -rf .agents/tasks; }
@@ -696,6 +697,10 @@ sc_manual_merge_batch() {
   git -C "$wt" checkout -q -b proofline/T-1-x; echo delivered > "$wt/delivered.txt"; git -C "$wt" add delivered.txt; git -C "$wt" commit -qm 'feat: delivered'
   git -C "$wt" push -q origin proofline/T-1-x 2> "$base/p.err" || die "push: $(cat "$base/p.err")"
   mkdir -p "$wt/.agents/local/deliver/T-1"; printf '%s\tmain\tproofline/T-1-x\n' "$(git -C "$wt" rev-parse HEAD)" > "$wt/.agents/local/deliver/T-1/MERGE_HEAD"
+  # A215 round 4: the proof reads origin and the delivered head from the summary the user approved: a summary that pins the origin (as deliver-plan
+  # writes it) and an approval bound to its hash (as approve-pending leaves it)
+  printf 'merge_by: user\nhead: %s\nbase: main\nbranch: proofline/T-1-x\norigin_url: %s\norigin_effective: %s\n' "$(git -C "$wt" rev-parse HEAD)" "$(git -C "$wt" remote get-url origin)" "$(git -C "$wt" ls-remote --get-url origin)" > "$wt/.agents/local/deliver/T-1/SUMMARY.md"
+  mkdir -p "$wt/.agents/runs/T-1/approvals"; printf 'kind: push\ndelivery: %s\nconsumed: true\n' "$(tsha "$wt/.agents/local/deliver/T-1/SUMMARY.md")" > "$wt/.agents/runs/T-1/approvals/001-push.yaml"
   A batch-next > "$base/bn.out" 2>&1 || die "batch-next: $(cat "$base/bn.out")"
   grep -q 'awaiting merge' "$base/bn.out" || die "batch-next does not say the task awaits the user's merge: $(cat "$base/bn.out")"
   grep -q 'YOUR merge into origin' "$base/bn.out" && grep -q '^NEXT: run T-2' "$base/bn.out" || die "an unmerged task blocked the batch or lacks the instruction: $(cat "$base/bn.out")"

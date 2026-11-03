@@ -12,7 +12,7 @@ import { git } from './git.mjs';
 import { humanChecks } from './taskfile.mjs';
 import { isFile } from './paths.mjs';
 import { asciiLower } from './shellglob.mjs';
-import * as proc from './proc.mjs';
+import { adapterExists, runTaskAdapter } from './adapters/index.mjs';
 import { fileLines, fileText, sectionValue, textLines, validTaskId } from './records.mjs';
 import { runDir } from './runs.mjs';
 import { knownIssueFacts, knownIssuesListed } from './knownissues.mjs';
@@ -212,13 +212,13 @@ function readJsonl(f) { try { return readFileSync(f, 'latin1'); } catch { return
 function run(ctx, id, event, pr, seconds) {
   if (!validTaskId(id)) return 'invalid task id';
   const adapter = ctx.config().get('tasks.adapter', 'markdown');
-  const script = `${ctx.agents}/task-integrations/${adapter}.sh`;
-  if (!isFile(script)) return `unknown task-integration adapter: ${adapter}`;
+  if (!adapterExists(ctx.root, adapter)) return `unknown task-integration adapter: ${adapter}`;
   const tmp = mkdtempSync(`${tmpdir()}/agent-status-block.`);
   try {
     const file = `${tmp}/block`;
     writeFileSync(file, Buffer.from(statusBlockBody(ctx, id, event, pr), 'latin1'));
-    const r = proc.run('sh', [script, 'statusblock', id, file], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'pipe'], timeoutMs: seconds * 1000 });
+    const r = runTaskAdapter(ctx, adapter, ['statusblock', id, file], { timeoutMs: seconds * 1000 });
+    if (r === null) return `unknown task-integration adapter: ${adapter}`;
     if (r.status === 0) return null;
     // a child stopped by the time bound ends with a signal (128 + n)
     return r.status > 128 && r.stderr.length === 0 ? `timed out after ${seconds}s` : r.stderr.toString('latin1');
