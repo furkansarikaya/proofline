@@ -102,7 +102,7 @@ export function waiveTarget(ctx, id, fid, nowFp) {
 }
 
 /** `waive_canon ID FINDING-ID`: the finding id in the spelling of the gate record. @param {Context} ctx @param {string} id @param {string} fid */
-function waiveCanon(ctx, id, fid) {
+export function waiveCanon(ctx, id, fid) {
   let rec;
   try { rec = waiveTarget(ctx, id, fid); } catch (e) { if (e instanceof ProoflineError) return fid; throw e; }
   return blockingFindingIds(ctx, rec).find((x) => idKey(x) === idKey(fid)) ?? fid;

@@ -661,13 +661,19 @@ export function verifyRequiredGates(ctx, dir, id, mode, message) {
 const CANON = /** @type {Record<string, string>} */ ({ full_lifecycle: 'lead', implementation_worker: 'implementer', independent_reviewer: 'reviewer', independent_qa: 'qa', independent_verifier: 'verifier' });
 
 /** `verify_mutation_ownership ID [force]` @param {Context} ctx @param {string} dir @param {string} id @param {boolean} [force] */
-export function verifyMutationOwnership(ctx, dir, id, force = false) {
-  if (!gatesEnforced(ctx, dir)) return;
+/** `resolve_topology RUNDIR`: the run's topology, else the configured default; anything else stops the command. @param {Context} ctx @param {string} dir */
+export function resolveTopology(ctx, dir) {
   let topo = sectionValue(ctx, dir, 'execution', 'topology');
   if (topo !== 'standalone' && topo !== 'orchestrated') {
     topo = ctx.config().get('default_topology', '');
     if (topo !== 'standalone' && topo !== 'orchestrated') fail('no valid execution topology resolved: set execution.topology in RUN.yaml or default_topology in .agents/config.yaml');
   }
+  return topo;
+}
+
+export function verifyMutationOwnership(ctx, dir, id, force = false) {
+  if (!gatesEnforced(ctx, dir)) return;
+  const topo = resolveTopology(ctx, dir);
   if (topo !== 'orchestrated') return;
   const hs = sectionValue(ctx, dir, 'handoff', 'state');
   if (!['IMPLEMENTED', 'CODE_DONE', 'DONE'].includes(hs) && !force) return;

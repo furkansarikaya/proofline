@@ -30,6 +30,8 @@ import { freshness, knowledgeOwnedPaths, verifyFreeze, verifyHandoff, verifyKnow
 import { topology, windowFiles } from './hookcmds.mjs';
 import { forgetFiles } from '../approve.mjs';
 import { sha256 } from '../hash.mjs';
+import { runSecretScan } from '../secretscan.mjs';
+export { runSecretScan };
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -477,7 +479,7 @@ function taskSourceRelocate(ctx, args) {
 // ---- delivery-check ---------------------------------------------------------------------------------------------------------------
 
 /** `knowledge_drift ID`: design-sync drift in knowledge-scope documents that the verifier reported and the tree still shows (at most five). @param {Context} ctx @param {string} id @returns {string[]} */
-function knowledgeDrift(ctx, id) {
+export function knowledgeDrift(ctx, id) {
   const sync = `${runDir(ctx, id)}/design/SYNC.md`;
   const script = `${ctx.root}/.agents/skills/design-sync/scripts/design-sync.mjs`;
   if (!isFile(sync) || !isFile(script)) return [];
@@ -497,13 +499,6 @@ function knowledgeDrift(ctx, id) {
     }
   }
   return out.slice(0, 5);
-}
-
-/** The project's scanner (in a run worktree the main tree's copy, which is the trusted one) over paths of THIS tree: `--root` names the tree, else the script would look in the main tree. @param {Context} ctx @param {string[]} paths */
-export function runSecretScan(ctx, paths) {
-  const script = `${ctx.trustedScripts}/secret-scan.sh`;
-  if (!isFile(script)) fail('secret scanner missing: .agents/scripts/secret-scan.sh');
-  return proc.run('sh', [script, '--root', ctx.root, ...paths], { cwd: ctx.root, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 /** `scan_knowledge_secrets ID` @param {Context} ctx @param {string} id */

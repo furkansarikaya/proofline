@@ -7,7 +7,7 @@ import { now } from './clock.mjs';
 import { fail } from './errors.mjs';
 import { requireOpenRun } from './approve.mjs';
 import { hashFile } from './fingerprint.mjs';
-import { patchManifest, requiredGates, gatesDir, taskPatchFingerprint, verifyMutationOwnership } from './gates.mjs';
+import { patchManifest, requiredGates, gatesDir, resolveTopology, taskPatchFingerprint, verifyMutationOwnership } from './gates.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch } from './lifecycle.mjs';
 import { led, must, quietly } from './lifeutil.mjs';
@@ -97,11 +97,7 @@ export function writeGate(ctx, g) {
   const n = now();
   const patch = taskPatchFingerprint(ctx, dir);
   let t = `task_id: "${g.id}"\nseq: ${seq}\ngate: "${g.gate}"\nresult: "${g.result}"\nrole: "${g.role}"\nconfidence: "${g.confidence}"\nfocus: "${g.focus}"\n`;
-  let topo = sv('execution', 'topology');
-  if (topo !== 'standalone' && topo !== 'orchestrated') {
-    topo = ctx.config().get('default_topology', '');
-    if (topo !== 'standalone' && topo !== 'orchestrated') fail('no valid execution topology resolved: set execution.topology in RUN.yaml or default_topology in .agents/config.yaml');
-  }
+  const topo = resolveTopology(ctx, dir);
   t += `topology: "${topo}"\ntier: "${tierEffective(ctx, dir)}"\n`;
   t += `fingerprint: "${g.fingerprint}"\npatch_sha256: "${patch}"\nmanifest_sha256: "${hashFile(manifest)}"\n`;
   if (g.artifact !== '') t += `artifact: "${g.artifact}"\nartifact_sha256: "${hashFile(`${dir}/${g.artifact}`)}"\n`;
