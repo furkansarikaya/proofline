@@ -31,8 +31,10 @@ function topology(ctx, d) {
 
 /** `gate_label ID GATE MODE NOW` @param {Context} ctx @param {string} d @param {string} id @param {string} g @param {string} now */
 function gateLabel(ctx, d, id, g, now) {
-  const s = gateStatus(ctx, d, id, g, 'reuse', now);
+  let s = gateStatus(ctx, d, id, g, 'reuse', now);
   const u = gateUnsupportedFocuses(ctx, d, id, g, 'reuse', now);
+  const k = knownIssuesListed(ctx) ? gateFacts(ctx, id, g).join(' ') : '';
+  if (k !== '') s = `${s} (known issue: ${k})`;
   return u !== '' ? `${s} (unsupported: ${u})` : s;
 }
 

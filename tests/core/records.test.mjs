@@ -36,15 +36,13 @@ describe('RUN.yaml access equals section_value', () => {
 });
 
 describe('record fields', () => {
-  test('evidence_field and field_from', () => {
+  test('evidence_field and field_from (goldens recorded from the shell functions of agent.sh 0.0.47)', () => {
     put('rec.yaml', 'result: "pass"\ngate:   QA\nfingerprint: a"b"c\nresult: second\nfield: x\n');
-    const fns = extractFunctions(['evidence_field', 'field_from']);
     const ctx = fx.ctx();
-    for (const k of ['result', 'gate', 'fingerprint', 'field', 'none', 'res']) {
-      const e = sh(`${fns}\nevidence_field "$1" "$2"`, [`${fx.root}/rec.yaml`, k]).stdout.replace(/\n$/, '');
-      assert.equal(gateField(ctx, `${fx.root}/rec.yaml`, k), e, `evidence_field ${k}`);
-      const f = sh(`${fns}\nfield_from "$1" "$2"`, [`${fx.root}/rec.yaml`, k]).stdout.replace(/\n$/, '');
-      assert.equal(fieldFrom(ctx, `${fx.root}/rec.yaml`, k), f, `field_from ${k}`);
+    const golden = { result: ['pass', '"pass"'], gate: ['QA', 'QA'], fingerprint: ['abc', 'a"b"c'], field: ['x', 'x'], none: ['', ''], res: ['', ''] };
+    for (const [k, [ev, ff]] of Object.entries(golden)) {
+      assert.equal(gateField(ctx, `${fx.root}/rec.yaml`, k), ev, `evidence_field ${k}`);
+      assert.equal(fieldFrom(ctx, `${fx.root}/rec.yaml`, k), ff, `field_from ${k}`);
     }
     assert.equal(fieldOf([], 'x'), '');
   });
