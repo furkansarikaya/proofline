@@ -139,11 +139,12 @@ export function runMarkdown(a, argv) {
     case 'import': {
       if (n !== 3) usage(a, 'markdown.sh import <task-file|TASK-ID> <out TASK.md>');
       const [, ref, out] = argv;
-      let src;
-      if (isFile(path.resolve(a.cwd, ref))) src = path.resolve(a.cwd, ref);
-      else if (isFile(`${root}/${ref}`)) src = `${root}/${ref}`;
-      else { checkId(a, ref); const rel = findTask(a, ref); if (rel === null) die(a, `no task file for ${ref} in ${tdir}`); src = `${root}/${rel}`; }
-      const text = readText(src) ?? '';
+      let src; // as the shell adapter kept it: the reference as typed when that file exists (read from the caller's directory), else the project path
+      let srcFile;
+      if (isFile(path.resolve(a.cwd, ref))) { src = ref; srcFile = path.resolve(a.cwd, ref); }
+      else if (isFile(`${root}/${ref}`)) { src = `${root}/${ref}`; srcFile = src; }
+      else { checkId(a, ref); const rel = findTask(a, ref); if (rel === null) die(a, `no task file for ${ref} in ${tdir}`); src = `${root}/${rel}`; srcFile = src; }
+      const text = readText(srcFile) ?? '';
       let h1 = firstH1(text);
       if (h1.startsWith('Task: ')) h1 = h1.slice(6);
       let id = ''; let title = h1;

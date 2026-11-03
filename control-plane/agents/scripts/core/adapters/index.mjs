@@ -6,7 +6,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Config } from '../config.mjs';
-import { cleanToolEnv, resolveTool } from '../platform.mjs';
+import { cleanToolEnv, detectPlatform, platformEnv, resolveTool } from '../platform.mjs';
 import * as proc from '../proc.mjs';
 import { AdapterExit, isFile } from './lib.mjs';
 import { runGithub } from './github.mjs';
@@ -53,13 +53,16 @@ export function runTaskAdapter(ctx, name, args, opt = {}) {
   }
   /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
   const cfg = Config.load(`${root}/.agents/config.yaml`);
+  /** @type {Record<string, string> | undefined} */ let hostEnv;
   const a = {
     root, cwd, env: ctx.childEnv(), name: `${name} adapter`, tasksDir: cfg.get('tasks.dir', '.agents/tasks'),
     out: (/** @type {string} */ s) => { out.push(Buffer.from(s, 'latin1')); }, err: (/** @type {string} */ s) => { err.push(Buffer.from(s, 'latin1')); },
     gh: (/** @type {string[]} */ ghArgs) => {
       const t = resolveTool(ctx, 'gh');
       if ('unreadable' in t) return null;
-      const r = proc.run(t.path, ghArgs, { cwd, env: cleanToolEnv(ctx), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: 120000 });
+      // a private host (GitHub Enterprise): GH_HOST comes from the origin's host, as for the delivery (A186); the caller's GH_HOST, GH_REPO and config are dropped (A215)
+      hostEnv ??= platformEnv(detectPlatform(ctx));
+      const r = proc.run(t.path, ghArgs, { cwd, env: { ...cleanToolEnv(ctx), ...hostEnv }, input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: 120000 });
       return r.started ? { status: r.status, out: r.stdout.toString('utf8'), err: r.stderr.toString('utf8') } : null;
     },
   };

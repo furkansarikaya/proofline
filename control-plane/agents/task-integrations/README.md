@@ -87,7 +87,7 @@ in-progress/ done/` with a `**Status:**` line, named `<ID>-<slug>.md`.
 missing or `gh auth status` fails, the adapter exits 1 with a clear message before any other call.
 
 - Reference forms for `import`: `N`, `#N`, `GH-N`, an issue URL, `owner/repo#N`. The run's task ID is `GH-<N>`; the
-  repository is the one `gh` resolves (current remote or `GH_REPO`).
+  repository is the one `gh` resolves from the current remote. `GH_REPO`, `GH_HOST` and the `gh` configuration directory of the caller do not reach `gh` (it runs with an allowlisted environment, A215/A216); for a GitHub Enterprise host set `git.platform: github` and `git.platform_host: <host>` in `.agents/config.yaml`, the adapter then sets `GH_HOST` itself.
 - `publish` comments `<!-- proofline:completion-report:<ID> sha256:<hash> -->` plus the report, then swaps the issue
   to label `proofline:done` (best effort; a failed label never fails the publish). `verify` looks for that marker
   and hash among the issue's comments. `status` keeps exactly one `proofline:<state>` label (labels must exist in

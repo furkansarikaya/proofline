@@ -48,6 +48,10 @@ test('markdown import: by id and by path, canonical sections, criteria numbering
   for (const s of ['# Task: T-1 — Lookup default', '- AC-1: an empty key returns the documented default', '- AC-2: a missing key still returns nil', 'Source: markdown']) assert.ok(t.includes(s), s);
   assert.ok(!t.includes('**Status:**'));
   assert.equal((await md(['import', '.agents/tasks/todo/T-1-lookup-default.md', `${root}/t1b.md`])).code, 0);
+  // the Source line keeps the reference as typed (a relative path stays relative; by id and by absolute path are the project path), as the shell adapter did
+  assert.ok(read(`${root}/t1b.md`).includes('Source: markdown .agents/tasks/todo/T-1-lookup-default.md\n') || /^Source: markdown \.agents\/tasks\/todo\/T-1-lookup-default\.md$/m.test(read(`${root}/t1b.md`)), read(`${root}/t1b.md`));
+  assert.ok(!read(`${root}/t1b.md`).includes(`Source: markdown ${root}`), 'a relative reference became an absolute path');
+  assert.ok(read(`${root}/t1.md`).includes(`Source: markdown ${root}/.agents/tasks/todo/T-1-lookup-default.md`), 'by id: the project path');
   // bullets without a prefix, checkboxes and numbered lists are numbered; a continued line is kept
   write(`${root}/.agents/tasks/T-2.md`, ['# Task: T-2 — Numbering', '', '## Goal', 'g', '## Acceptance criteria', '- [ ] first thing', '1. second thing', '   continued line', '## Out of scope', 'none', '## Constraints', 'none', '## Risks', 'none', ''].join('\n'));
   await md(['import', 'T-2', `${root}/t2.md`]);
@@ -389,6 +393,34 @@ test('jira: argument validation, the credential only in the header, status trans
   const e = await run((a, v) => runJira({ ...a, env, fetch: fail.f }, v), ['publish', 'PROJ-1', `${root}/rep.md`], 'jira adapter');
   assert.equal(e.code, 1);
   assert.ok(!e.err.includes('secret body') && !e.err.includes('SECRET-VALUE-123'), 'an error text holds the response body or the token');
+});
+
+test('github followup: what `gh issue create` says on stderr is shown again, on success and on failure (the shell adapter did not capture it)', async () => {
+  const { root, run, o } = setup();
+  write(`${root}/w.md`, '# Waiver of GH-7\n\nbody\n');
+  let fail = false;
+  const gh = (/** @type {string[]} */ args) => {
+    if (args[0] === '--version') return { status: 0, out: 'gh 2', err: '' };
+    if (args[0] === 'auth') return { status: 0, out: '', err: '' };
+    return fail ? { status: 1, out: '', err: 'GraphQL: Resource not accessible\n' } : { status: 0, out: 'https://github.com/acme/app/issues/9\n', err: 'Creating issue in acme/app\n' };
+  };
+  let r = await run((a, argv) => runGithub({ ...a, gh }, argv), ['followup', 'GH-7', `${root}/w.md`], 'github adapter');
+  assert.equal(r.code, 0); assert.match(o.err, /Creating issue in acme\/app/); assert.match(r.out, /issues\/9/);
+  fail = true;
+  r = await run((a, argv) => runGithub({ ...a, gh }, argv), ['followup', 'GH-7', `${root}/w.md`], 'github adapter');
+  assert.equal(r.code, 1); assert.match(o.err, /Resource not accessible/); assert.match(o.err, /could not create the follow-up issue/);
+});
+
+test('net adapters: a redirect is an error (curl without -L followed none); an empty LINEAR_API_URL is unset like the shell `:-`', async () => {
+  const { run } = setup({ LINEAR_API_KEY: 'K', LINEAR_API_URL: '' });
+  /** @type {any[]} */ const inits = [];
+  /** @type {string[]} */ const urls = [];
+  /** @type {typeof fetch} */
+  const f = async (url, init) => { urls.push(String(url)); inits.push(init); return new Response(JSON.stringify({ data: { issue: { identifier: 'ENG-1', title: 't', description: 'd', state: { name: 'Todo' }, team: { key: 'ENG' }, labels: { nodes: [] } } } }), { status: 200 }); };
+  const res = await run((a, argv) => runLinear({ ...a, fetch: f }, argv), ['status', 'ENG-1', 'in-progress'], 'linear adapter');
+  assert.ok(urls.length > 0, JSON.stringify(res));
+  assert.ok(urls.every((u) => u === 'https://api.linear.app/graphql'), `an empty LINEAR_API_URL must mean the default: ${urls[0]}`);
+  assert.ok(inits.every((i) => i?.redirect === 'error'), 'a redirect must not be followed');
 });
 
 test('linear: credential checks (https only), status, publish/verify/followup/statusblock, GraphQL errors fail (not tested against a real Linear)', async () => {

@@ -127,6 +127,7 @@ export function runGithub(a, argv) {
       const h1 = wf.split('\n').find((l) => l.startsWith('# '));
       const title = h1 !== undefined ? h1.slice(2) : `Follow-up of ${id}`;
       const r = ghr(['issue', 'create', '--title', Buffer.from(title, 'latin1').toString('utf8'), '--body-file', argv[2]]);
+      if (r.err !== '') a.err(Buffer.from(r.err, 'utf8').toString('latin1')); // what gh says (the shell adapter let it through)
       if (r.status !== 0) die(a, 'could not create the follow-up issue');
       a.out(Buffer.from(r.out, 'utf8').toString('latin1'));
       return;

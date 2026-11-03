@@ -26,7 +26,7 @@ async function http(a, method, url, headers, json) {
   const f = a.fetch ?? fetch;
   let res;
   try {
-    res = await f(url, { method, headers: { Accept: 'application/json', ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: json !== undefined ? JSON.stringify(json) : undefined, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    res = await f(url, { method, headers: { Accept: 'application/json', ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: json !== undefined ? JSON.stringify(json) : undefined, signal: AbortSignal.timeout(TIMEOUT_MS), redirect: 'error' });
   } catch { throw new Error('the request failed'); }
   const text = await res.text();
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -159,7 +159,7 @@ export async function runLinear(a, argv) {
   if (!['import', 'publish', 'verify', 'followup', 'status', 'statusblock'].includes(op)) usage(a, 'linear.sh <import|publish|verify|followup|status|statusblock> ...');
   const keyOk = (/** @type {string} */ k) => { checkId(a, k); if (!/^[A-Za-z].*-[0-9]/s.test(k)) die(a, `not a Linear issue identifier (expected TEAM-123): ${k}`); };
   const key = a.env.LINEAR_API_KEY ?? '';
-  const url = a.env.LINEAR_API_URL ?? 'https://api.linear.app/graphql';
+  const url = a.env.LINEAR_API_URL || 'https://api.linear.app/graphql'; // an empty value is unset (the shell's :-)
   const ready = () => {
     if (key === '') die(a, 'LINEAR_API_KEY must be set');
     if (unsupported(key)) die(a, 'LINEAR_API_KEY contains unsupported characters');
