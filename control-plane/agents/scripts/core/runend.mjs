@@ -9,7 +9,8 @@ import { fixRoundsUsed, maxFixRounds, taskOwnedPaths } from './gates.mjs';
 import { git, isAncestor, headSha } from './git.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, setRunValue } from './lifecycle.mjs';
-import { fieldFromText, justificationOk, led, must, quietly, readStdin, shellChild } from './lifeutil.mjs';
+import { fieldFromText, justificationOk, led, must, quietly, readStdin } from './lifeutil.mjs';
+import { verifyCompletionReport } from './complreport.mjs';
 import { requireLead, requireOpenRun } from './approve.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -262,8 +263,7 @@ export function cleanupRun(ctx, id, claim) {
       quietly(ctx, () => { must(freshness(ctx, id)); must(verifyHandoff(ctx, id, true)); });
     }
     if (sectionKeyPresent(ctx, dir, 'completion_report', 'required')) {
-      const r = shellChild(ctx, ['verify-completion-report', id]);
-      if (r.status !== 0) fail(r.err.replace(/\n+$/, '') || `completion report verification failed: ${id}`);
+      quietly(ctx, () => verifyCompletionReport(ctx, id));
     }
   }
   // A116: the run's per-run assignments directory goes with it; guard before any removal so a refusal leaves both.

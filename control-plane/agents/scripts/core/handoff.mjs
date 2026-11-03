@@ -13,7 +13,7 @@ import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, setRunValue } from './lifecycle.mjs';
-import { led, must, shellChild } from './lifeutil.mjs';
+import { led, must } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
@@ -29,6 +29,7 @@ import { planDestructive } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { taskType } from './taskfile.mjs';
 import { metricsRun } from './runend.mjs';
+import { verifyCompletionReport } from './complreport.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -286,10 +287,7 @@ export function recordHandoff(ctx, id, phase) {
       if (sectionKeyPresent(ctx, dir, 'completion_report', 'required')) {
         const ks = sectionValue(ctx, dir, 'execution', 'knowledge_state');
         if (ks !== 'KNOWLEDGE_DONE' && ks !== 'not_applicable') fail("DONE blocked: knowledge transaction not recorded complete (see 'agent.sh knowledge-done')");
-        const r = shellChild(ctx, ['verify-completion-report', id]);
-        ctx.out(r.out);
-        if (r.err !== '') ctx.err(r.err);
-        if (r.status !== 0) return r.status;
+        verifyCompletionReport(ctx, id);
       }
   }
   setRunValue(ctx, id, 'handoff', 'state', phase);
