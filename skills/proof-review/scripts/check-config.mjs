@@ -79,7 +79,7 @@ export function envDefaultOn(line, name) {
     new RegExp(`environ\\.get\\(\\s*['"]${n}['"]\\s*,\\s*['"]?(true|1|on|yes|enabled)['"]?\\s*\\)`, "i").test(line);
 }
 
-// --- secrets (same rule names as control-plane/agents/scripts/secret-scan.sh) --------------------------
+// --- secrets (same rule names as control-plane/agents/scripts/core/secretscan.mjs) --------------------------
 const SECRET_RULES = [
   ["aws_access_key_id", /(A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}/],
   ["aws_secret_access_key", /aws_?secret_?access_?key[^=:]{0,20}[=:]\s*["']?[A-Za-z0-9/+=]{40}/i],
