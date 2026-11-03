@@ -4,9 +4,9 @@
 // push; `proofline merge` merges). The pull request is read through the platform tool (core/platform.mjs) BEFORE the locks are taken (a slow tool never
 // holds them). A merge is proved IN PROCESS (a pull request seen merged, or git) and the cleanup that follows is a call of this process: no file, flag or
 // lock says "merged" (A215).
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { tmpdir } from 'node:os';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import { bytes } from './config.mjs';
 import { now } from './clock.mjs';
@@ -85,34 +85,105 @@ export function originEffective(ctx, gitPath = 'git') {
 }
 
 /**
- * The merge-proof fetch, HERMETIC (A215 round 4): into a throwaway bare repository in a fresh temporary folder that has no configuration of the project
- * (a `http.proxy`, `core.sshCommand`, `http.sslVerify`, `url.<x>.insteadOf`, a hook path of the project's own config never applies), with the global and system
- * configuration switched off, reading the PINNED url directly (not the project's remote). The project's object store is an alternate, so the delivered
- * commit is known there, and the project's own tracking ref (when it has one) seeds the negotiation. Returns the tip of `base` and the folder, or null when
- * the url cannot be read. `done()` removes the folder; `gp(args)` runs git in it.
+ * The merge-proof fetch, HERMETIC (A215 rounds 4 and 5): into a throwaway bare repository that has no configuration of the project (a `http.proxy`,
+ * `core.sshCommand`, `http.sslVerify`, `url.<x>.insteadOf`, a hook path of the project's own config never applies), with the global and system configuration off,
+ * reading the PINNED url directly (not the project's remote). The project's object store is an alternate, so the delivered commit is known there; its own
+ * tracking ref (when it has one) seeds the negotiation. Round 5 (cheap hardening, the same-user file system stays the trust boundary, A211): the folder has an
+ * unpredictable name inside a private (0700) folder of the account's cache, not in the shared temporary folder; every git call of the proof ignores replace
+ * refs and grafts; `intact()` fails when anything of the repository (config, hooks, info, refs/replace, alternates) is not what was created; `verify(from)`
+ * walks the history itself with the hash of every commit recomputed (`reaches`; git does not hash-check an object it reads), so a rewritten loose object proves nothing.
+ * Returns null when the url cannot be read. `done()` removes the folder; `gp(args)` runs git in it.
  * @param {Context} ctx @param {string} gitPath @param {string} url @param {string} base
- * @returns {{ tip: string, tmp: string, gp: (args: string[]) => { status: number | null, out: string }, done: () => void } | null}
+ * @returns {{ tip: string, tmp: string, gp: (args: string[]) => { status: number | null, out: string }, intact: () => boolean, reaches: (target: string, rb: string) => boolean, verify: (rb: string, extra: string[]) => boolean, done: () => void } | null}
  */
 export function hermeticFetch(ctx, gitPath, url, base) {
   const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
-  const env = { ...cleanToolEnv(ctx, { remote: true }), GIT_CONFIG_GLOBAL: nul, GIT_CONFIG_SYSTEM: nul, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
-  const tmp = mkdtempSync(path.join(tmpdir(), 'pl-proof-'));
+  const env = { ...cleanToolEnv(ctx, { remote: true }), GIT_CONFIG_GLOBAL: nul, GIT_CONFIG_SYSTEM: nul, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: nul };
+  /** @type {string} */ let parent = '';
+  try { const home = userInfo().homedir; if (home !== '') { mkdirSync(`${home}/.cache/proofline-proof`, { recursive: true, mode: 0o700 }); parent = `${home}/.cache/proofline-proof`; } } catch { parent = ''; }
+  const tmp = mkdtempSync(path.join(parent !== '' ? parent : tmpdir(), 'pl-proof-'));
+  try { chmodSync(tmp, 0o700); } catch { /* not ours to change */ }
   const done = () => { rmSync(tmp, { recursive: true, force: true }); };
-  const gp = (/** @type {string[]} */ a) => { const r = proc.run(gitPath, ['--git-dir', tmp, ...a], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'ignore'], timeoutMs: 180000 }); return { status: r.status, out: sub(r.stdout.toString('latin1')) }; };
+  const gp = (/** @type {string[]} */ a) => { const r = proc.run(gitPath, ['--no-replace-objects', '--git-dir', tmp, ...a], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'ignore'], timeoutMs: 180000 }); return { status: r.status, out: sub(r.stdout.toString('latin1')) }; };
+  /** What the repository holds besides objects and refs the fetch writes: all of it must stay as created. */
+  const state = () => {
+    /** @param {string} p */ const ls = (p) => { try { return readdirSync(p).sort().join(','); } catch { return '-'; } };
+    /** @param {string} p */ const rd = (p) => { try { return readFileSync(p, 'latin1'); } catch { return '-'; } };
+    return [rd(`${tmp}/config`), ls(`${tmp}/hooks`), ls(`${tmp}/info`), ls(`${tmp}/refs/replace`), rd(`${tmp}/objects/info/alternates`), ls(`${tmp}/objects/info`), rd(`${tmp}/shallow`)].join('\n--\n');
+  };
   try {
     const cd = proc.run(gitPath, ['-C', ctx.root, 'rev-parse', '--git-common-dir'], { cwd: ctx.cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
     if (cd.status !== 0) { done(); return null; }
     const objects = path.resolve(ctx.root, sub(cd.stdout.toString('latin1')), 'objects');
-    if (proc.run(gitPath, ['init', '-q', '--bare', tmp], { cwd: tmp, env, stdio: 'ignore' }).status !== 0) { done(); return null; }
+    if (proc.run(gitPath, ['init', '-q', '--bare', '--template=', tmp], { cwd: tmp, env, stdio: 'ignore' }).status !== 0) { done(); return null; }
     mkdirSync(`${tmp}/objects/info`, { recursive: true });
     writeFileSync(`${tmp}/objects/info/alternates`, `${objects}\n`);
     const local = proc.run(gitPath, ['-C', ctx.root, 'rev-parse', '-q', '--verify', `refs/remotes/origin/${base}`], { cwd: ctx.cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
     if (local.status === 0) gp(['update-ref', `refs/remotes/origin/${base}`, sub(local.stdout.toString('latin1'))]);
+    const created = state();
     const r = gp(['fetch', '-q', '--no-tags', '--', url, `+refs/heads/${base}:refs/remotes/origin/${base}`]);
-    if (r.status !== 0) { done(); return null; }
+    if (r.status !== 0 || state() !== created) { done(); return null; }
     const tip = gp(['rev-parse', '-q', '--verify', `refs/remotes/origin/${base}`]);
     if (tip.status !== 0 || tip.out === '') { done(); return null; }
-    return { tip: tip.out, tmp, gp, done };
+    const fmt = gp(['rev-parse', '--show-object-format']).out === 'sha256' ? 'sha256' : 'sha1';
+    const intact = () => state() === created;
+    /** Commit objects read with their hash recomputed (git does not hash-check an object it reads): name -> body. Throws when one does not match its name. @param {string[]} names */
+    const readVerified = (names) => {
+      /** @type {Map<string, Buffer>} */ const out = new Map();
+      if (names.length === 0) return out;
+      const r2 = proc.run(gitPath, ['--no-replace-objects', '--git-dir', tmp, 'cat-file', '--batch'], { cwd: tmp, env, input: `${names.join('\n')}\n`, stdio: ['pipe', 'pipe', 'ignore'], timeoutMs: 180000 });
+      if (r2.status !== 0) throw new Error('an object could not be read');
+      const buf = r2.stdout;
+      let pos = 0;
+      while (pos < buf.length) {
+        const nl = buf.indexOf(10, pos);
+        if (nl < 0) throw new Error('unreadable object listing');
+        const m = /^([0-9a-f]+) (\S+) ([0-9]+)$/.exec(buf.subarray(pos, nl).toString('latin1'));
+        if (!m) throw new Error('an object is missing');
+        const size = Number(m[3]); const body = buf.subarray(nl + 1, nl + 1 + size);
+        if (m[2] !== 'commit' || createHash(fmt).update(Buffer.concat([Buffer.from(`commit ${size}\0`), body])).digest('hex') !== m[1]) throw new Error(`object ${(m[1] ?? '').slice(0, 7)} does not match its hash`);
+        out.set(m[1] ?? '', body);
+        pos = nl + 1 + size + 1;
+      }
+      if (out.size !== new Set(names).size) throw new Error('an object is missing');
+      return out;
+    };
+    const CAP = 20000;
+    /** The commits git lists for `rb..tip` (it only narrows what is looked at: a lie can hide a path, never invent one), at most CAP. @param {string} rb */
+    const candidates = (rb) => {
+      const l = gp(['rev-list', `--max-count=${CAP + 1}`, tip.out, `^${rb}`]).out.split('\n').filter((x) => x !== '');
+      if (l.length > CAP) throw new Error(`origin moved by more than ${CAP} commits since the base of the run`);
+      return l;
+    };
+    /**
+     * Is TARGET a commit on the history of the tip? Walks the parents of every commit of `rb..tip` itself, each read with its hash recomputed, so a
+     * rewritten loose object of the project (a parent that is not what its name says, or a cycle) never makes a path: throws instead.
+     * @param {string} target @param {string} rb
+     */
+    const reaches = (target, rb) => {
+      const cand = new Set(candidates(rb));
+      cand.add(tip.out);
+      const seen = new Set();
+      /** @type {string[]} */ let frontier = [tip.out];
+      while (frontier.length > 0) {
+        const batch = frontier.filter((c) => !seen.has(c) && cand.has(c));
+        frontier = [];
+        for (const c of batch) seen.add(c);
+        const bodies = readVerified(batch);
+        for (const c of batch) {
+          if (c === target) return true;
+          for (const line of (bodies.get(c) ?? Buffer.alloc(0)).toString('latin1').split('\n')) {
+            if (line === '') break;
+            const m = /^parent ([0-9a-f]+)$/.exec(line);
+            if (m) { if (m[1] === target) return true; frontier.push(m[1] ?? ''); }
+          }
+        }
+      }
+      return false;
+    };
+    /** Every commit of `rb..tip`, and RB, TIP and the EXTRA commits, hash to their names (the squash and rebase proof). @param {string} rb @param {string[]} extra */
+    const verify = (rb, extra) => { readVerified([...new Set([...candidates(rb), rb, tip.out, ...extra])]); return true; };
+    return { tip: tip.out, tmp, gp, intact, reaches, verify, done };
   } catch (e) { done(); throw e; }
 }
 
@@ -546,7 +617,9 @@ export function deliverMerged(ctx, id, flag) {
   try {
     const gp = hf.gp;
     const gps = (/** @type {string[]} */ a) => gp(a).out;
-    if (gp(['merge-base', '--is-ancestor', dmHead, tip]).status === 0) how = `the delivered commit is on origin/${dmBase}`;
+    const tampered = (/** @type {unknown} */ e) => fail(`deliver-merged: the merge cannot be trusted (${e instanceof Error ? e.message : 'the repository it was read into changed'}); nothing is recorded`);
+    const reaches = () => { try { return hf.reaches(dmHead, rb); } catch (e) { return tampered(e); } };
+    if (reaches()) how = `the delivered commit is on origin/${dmBase}`;
     else {
       const paths = gps(['diff', '--no-renames', '--name-only', rb, dmHead, '--']).split('\n').filter((p) => p !== '' && !/^\.agents\/(runs|local)\//.test(p));
       let same = false;
@@ -558,12 +631,14 @@ export function deliverMerged(ctx, id, flag) {
           if ((a.status === 0 ? a.out : 'none') !== (b.status === 0 ? b.out : 'none')) { same = false; break; }
         }
       }
+      if (same) { try { hf.verify(rb, [dmHead]); } catch (e) { tampered(e); } }
       if (!same) {
         if (chk) { ctx.out(`open: ${dmBr} is not merged into origin/${dmBase}\n`); return 1; }
         fail(`deliver-merged: not merged: the delivered commit ${dmHead.slice(0, 7)} is not on origin/${dmBase} and its content is not there either. Merge ${dmBr} into origin's ${dmBase} (git push origin ${dmBr}:${dmBase}), then run this again.`);
       }
       how = `every delivered path has the same content at origin/${dmBase} (a squash or rebase merge)`;
     }
+    if (!hf.intact()) tampered(null);
     if (!chk) {
       // the proven tip becomes the project's tracking ref (hooks off) and must be exactly the proven commit: the later steps read it
       const imp = proc.run(gitBin, ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'fetch', '-q', '--no-tags', '--', hf.tmp, `+refs/remotes/origin/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
