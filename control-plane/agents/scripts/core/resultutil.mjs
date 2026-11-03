@@ -3,6 +3,7 @@
 // where each role reports (`artifact_paths`, `artifact_allowed`), the result kinds and finding prefixes, the header and findings parsers, the cited
 // evidence checks, the skill validators, the reproduced-evidence re-run, the evidence of an UNSUPPORTED result, the classification flip and the
 // per-step metrics.
+import { asciiLower, asciiUpper } from './shellglob.mjs';
 import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { hashFile } from './fingerprint.mjs';
 import { NORMALIZE } from './commands/tools.mjs';
@@ -42,7 +43,7 @@ export function resultKind(role, res) {
 export const findingPrefix = (role, kind, gate) => (kind === 'gate' && gate !== '' ? gate : role);
 
 /** `id_keys`: upper case, leading zeros of the number dropped. @param {string} id */
-export const idKey = (id) => id.toUpperCase().replace(/-0+([0-9])/g, '-$1');
+export const idKey = (id) => asciiUpper(id).replace(/-0+([0-9])/g, '-$1');
 
 /** `risk_focus_report FOCUS` @param {string} f */
 export function riskFocusReport(f) {
@@ -188,7 +189,7 @@ export function parseFindings(raw) {
     const f = l.split('|');
     const id = trim(f[1] ?? '');
     if (id === 'id' || id === '') continue;
-    const low = id.toLowerCase();
+    const low = asciiLower(id);
     if (low === '(none)' || low === 'none' || low === '-' || low === 'n/a') { out.push('NO_FINDINGS_PLACEHOLDER'); continue; }
     if (f.length < 7) { out.push('MALFORMED'); continue; }
     out.push(`${id}|${trim(f[2])}|${trim(f[3])}|${trim(f[4])}|${trim(f[5])}`);

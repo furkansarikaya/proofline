@@ -19,6 +19,7 @@ import { deliveryCheck } from './commands/runcmds.mjs';
 import { freshness, knowledgeOwnedPaths, verifyHandoff } from './commands/verify.mjs';
 import { fullFingerprint, hashFile } from './fingerprint.mjs';
 import { git } from './git.mjs';
+import { asciiUpper } from './shellglob.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf, localTaskSource, localTaskSourceRun, setRunValue, taskSourceContractHash } from './lifecycle.mjs';
 import { must, quietly } from './lifeutil.mjs';
@@ -95,7 +96,7 @@ export function prView(ctx, pr) {
   if (cli !== 'gh' && cli !== 'glab' && cli !== 'az') return 'unreadable';
   const t = resolveTool(ctx, cli);
   if ('unreadable' in t) return t.unreadable;
-  const up = (/** @type {unknown} */ s) => String(s ?? '?').replace(/[a-z]/g, (c) => c.toUpperCase());
+  const up = (/** @type {unknown} */ s) => asciiUpper(String(s ?? '?'));
   if (cli === 'gh') {
     const r = runTool(ctx, info, t.path, ['pr', 'view', pr, '--json', 'state,isDraft,headRefOid,headRefName,baseRefName,headRepositoryOwner']);
     const j = r.status === 0 ? parseJson(r.out) : undefined;

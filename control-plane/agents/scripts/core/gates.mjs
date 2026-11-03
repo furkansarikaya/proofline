@@ -7,7 +7,7 @@ import { asciiLower } from './shellglob.mjs';
 import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { fail, unsupported } from './errors.mjs';
-import { baselineFingerprint, gateFingerprint, legacyFingerprintMatch, pathFingerprint } from './fingerprint.mjs';
+import { baselineFingerprint, gateFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { catFile, git, objectExists, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { sha256 } from './hash.mjs';
 import { boundNames, listNames, verifySeal } from './ledger.mjs';
@@ -396,7 +396,7 @@ export function gateFocusStatus(ctx, dir, id, gate, focus, mode, now) {
   if (last === '' && focus === '-' && mode !== 'strict') last = gateAmendCarry(ctx, dir, id, gate, mode, now);
   if (last === '') return 'missing';
   if (!validGateFile(ctx, dir, id, last)) return 'stale';
-  if (gateField(ctx, last, key) !== now && !(key === 'fingerprint' && legacyFingerprintMatch(ctx, gateField(ctx, last, 'fingerprint')))) {
+  if (gateField(ctx, last, key) !== now) {
     const carried = mode !== 'strict' && gateField(ctx, last, 'result') === 'pass'
       && (focusUntouched(ctx, dir, last, focus, mode, now) || (focus === '-' && gateInputsUnchanged(ctx, dir, last, gate, mode, now)));
     if (!carried) return 'stale';

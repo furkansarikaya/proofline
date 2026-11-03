@@ -12,6 +12,7 @@
 import { accessSync, constants, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { git } from './git.mjs';
+import { asciiLower } from './shellglob.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -44,7 +45,7 @@ const afterLast = (s) => { const i = s.lastIndexOf('/'); return i < 0 ? s : s.sl
 const afterLastGit = (s) => { const i = s.lastIndexOf('/_git/'); return i < 0 ? s : s.slice(i + 6); };
 
 /** The lower-case ASCII form of a string. @param {string} s */
-const lower = (s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+const lower = asciiLower;
 
 /**
  * `git.platform` and `git.platform_host` of the project's config, read without the agent.sh parser (the awk of platform.sh).

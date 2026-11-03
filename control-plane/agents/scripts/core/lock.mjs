@@ -192,7 +192,7 @@ export function takesLocks(command, args, role, readOnly) {
   let lock = !readOnly;
   if (command === 'tier' && role === 'lead') lock = true;
   if (UNLOCKED.has(command) || (command === 'deliver-merged' && args[1] === '--check')) lock = false;
-  if (command === 'submit') lock = false;
+  if (command === 'submit') lock = false; // submit takes the locks itself around record (core/submit.mjs): its long re-run phase must not hold them
   return lock;
 }
 

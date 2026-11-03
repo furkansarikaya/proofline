@@ -286,7 +286,7 @@ export function contentFingerprint(ctx, mode = '') {
         if (!l.isFile()) continue;
         const text = fileText(ctx, f);
         if (text === null || !hasBlockMarkers(text)) continue;
-        if (mode !== 'legacy' && blockOnlyText(text)) { g(['rm', '-q', '--cached', '--ignore-unmatch', '--', b]); continue; }
+        if (blockOnlyText(text)) { g(['rm', '-q', '--cached', '--ignore-unmatch', '--', b]); continue; }
         const h = g(['hash-object', '-w', '--stdin'], Buffer.from(stripProoflineBlock(text), 'latin1'));
         const blob = h.out.replace(/\n+$/, '');
         if (h.status !== 0 || blob === '') return '';
@@ -315,21 +315,3 @@ export function gateFingerprint(ctx) { return ctx.once('fp:gate', () => contentF
 
 /** The content fingerprint without a mode, once per invocation. @param {Context} ctx */
 export function fullFingerprint(ctx) { return ctx.once('fp:full', () => contentFingerprint(ctx, '')); }
-
-/**
- * `legacy_fingerprint_match RECORDED` (A161): a record of 0.0.12/0.0.13 holds a tree in which a block-only AGENTS.md/CLAUDE.md is still
- * part of the tree; it is the current one iff the tree computed the old way equals it. Nothing is computed unless such a file exists.
- * @param {Context} ctx @param {string} recorded
- */
-export function legacyFingerprintMatch(ctx, recorded) {
-  let any = false;
-  for (const f of ['AGENTS.md', 'CLAUDE.md']) {
-    const abs = `${ctx.root}/${f}`;
-    let l; try { l = lstatSync(abs); } catch { continue; }
-    if (!l.isFile()) continue;
-    const t = fileText(ctx, abs);
-    if (t !== null && blockOnlyText(t)) any = true;
-  }
-  if (!any) return false;
-  return ctx.once(`fp:legacy`, () => contentFingerprint(ctx, 'legacy')) === recorded;
-}

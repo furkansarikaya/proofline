@@ -49,19 +49,19 @@ function genericHit(content) {
 
 /**
  * Every regular file below the given path (a symbolic link is neither followed nor listed), `.git` pruned.
- * @param {string} root @param {string} rel @param {string[]} out
+ * @param {string} root @param {string} rel @param {string[]} out @param {string[]} errors the paths that could not be read (the scan then fails)
  */
-function walk(root, rel, out) {
+function walk(root, rel, out, errors) {
   const base = rel.replace(/\/+$/, '').split('/').pop() ?? '';
   if (base === '.git') return;
   let st;
-  try { st = lstatSync(`${root}/${rel}`); } catch { return; }
+  try { st = lstatSync(`${root}/${rel}`); } catch { errors.push(rel); return; }
   if (st.isFile()) { out.push(rel); return; }
   if (!st.isDirectory()) return;
   let names = [];
-  try { names = readdirSync(`${root}/${rel}`); } catch { return; }
+  try { names = readdirSync(`${root}/${rel}`); } catch { errors.push(rel); return; }
   const pre = rel.endsWith('/') ? rel : `${rel}/`;
-  for (const n of names) walk(root, `${pre}${n}`, out);
+  for (const n of names) walk(root, `${pre}${n}`, out, errors);
 }
 
 /** The project's `commands.secret_scan` of `.agents/config.yaml` under the root (the awk step of secret-scan.sh). @param {string} root */
@@ -97,14 +97,16 @@ export function builtinScan(ctx, root, paths) {
     if (!there) return { status: 2, stdout: '', stderr: `secret-scan: no such path: ${p}\n` };
   }
   /** @type {string[]} */ const files = [];
-  for (const p of paths) walk(root, p, files);
+  /** @type {string[]} */ const unreadable = [];
+  for (const p of paths) walk(root, p, files, unreadable);
   const found = new Set();
   for (const f of files) {
     let buf;
-    try { buf = readFileSync(`${root}/${f}`); } catch { continue; }
+    try { buf = readFileSync(`${root}/${f}`); } catch { unreadable.push(f); continue; }
     const base = f.split('/').pop() ?? '';
     const env = (base === '.env' || base.startsWith('.env.')) && !/\.(example|sample|template)$/.test(base);
-    const binary = buf.includes(0);
+    // as grep -I: the head of the file decides, a NUL further in does not hide a secret before it
+    const binary = buf.subarray(0, 8192).includes(0);
     if (binary && !env) continue;
     const text = buf.toString('latin1');
     const lines = text.split('\n');
@@ -118,6 +120,8 @@ export function builtinScan(ctx, root, paths) {
       if (env && ENV_LINE.test(line)) rec('env_file');
     }
   }
+  // an in-scope file that cannot be read is never skipped: the scan fails closed and names it
+  if (unreadable.length > 0) return { status: 2, stdout: '', stderr: `secret-scan: cannot read: ${unreadable.join(' ')}\n` };
   if (found.size === 0) return { status: 0, stdout: '', stderr: '' };
   const out = [...found].map((l) => l.replace(/^\.\//, '')).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return { status: 1, stdout: [...new Set(out)].map((l) => `${l}\n`).join(''), stderr: '' };

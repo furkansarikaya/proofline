@@ -326,11 +326,11 @@ jobs:
           - name: run4c-gates
             mode: files
             pattern: 'none'
-            files: tests/core/run4c-gates.test.mjs tests/core/run4c-probes.test.mjs
+            files: tests/core/run4c-gates.test.mjs tests/core/run4c-probes.test.mjs tests/core/run4c-secretscan.test.mjs
           - name: run4c-record
             mode: files
             pattern: 'none'
-            files: tests/core/run4c-record.test.mjs
+            files: tests/core/run4c-record.test.mjs tests/core/run4c-lock.test.mjs
           - name: run4c-report
             mode: files
             pattern: 'none'

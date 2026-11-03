@@ -100,6 +100,16 @@ test('the task file moves to done/ inside the delivery commit (one copy), the ch
   accepted(S(d, gh.env, 'cleanup', '7'), 'cleanup after the moved task file');
 });
 
+test('deliver-plan: the knowledge secret scan runs in the core when the project has no scanner script (the installer ships none)', () => {
+  const d = project(`SC_BRANCH=1 scaffold orchestrated; to_code_done orchestrated; mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/; `
+    + "printf -- '---\\ntitle: lookup\\nstatus: current\\nsource: .agents/config.yaml\\n---\\n\\n# Lookup\\n\\nThe lookup returns the stored value.\\n' > docs/wiki/lookup.md; "
+    + 'A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null; rm -f .agents/scripts/secret-scan.sh');
+  hooks(d);
+  const plan = accepted(A(d, ['deliver-plan', 'LC']), 'deliver-plan without a scanner script').out;
+  assert.match(plan, /^steps: commit push pr merge cleanup$/m);
+  assert.ok(!plan.includes('scanner missing'), 'the scan asked for a script');
+});
+
 test('task-source-done leaves other adapters alone', () => {
   const d = project(`${DONE}; sed 's/^  adapter: markdown/  adapter: github/' .agents/config.yaml > .agents/cfg.tmp && cp .agents/cfg.tmp .agents/config.yaml && rm .agents/cfg.tmp`);
   assert.equal(accepted(A(d, ['task-source-done', 'LC']), 'task-source-done').out, '');

@@ -2,6 +2,8 @@
 // Stage 4, package 4C: `submit` (agent.sh 0.0.47 `submit_result`): a specialist hands its result over; this builds the result document (header, findings
 // table, evidence lines, reasons), checks what it can before recording, snapshots the artifact and calls `record` IN PROCESS (there is no nested
 // `sh agent.sh record`). Every refusal is the shell's "submit rejected: ..." text, exit 1.
+import { asciiLower } from './shellglob.mjs';
+import { takeCommandLocks } from './lock.mjs';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -80,7 +82,7 @@ function verifyDesignSync(ctx, id) {
       for (const l of textLines(plan)) {
         if (new RegExp(`^## Contracts${WSC}*$`).test(l)) { inside = true; continue; }
         if (l.startsWith('## ')) inside = false;
-        if (inside && /[^ \t\n\v\f\r]/.test(l) && !/^none/.test(l.toLowerCase())) { need = true; break; }
+        if (inside && /[^ \t\n\v\f\r]/.test(l) && !/^none/.test(asciiLower(l))) { need = true; break; }
       }
     }
   }
@@ -208,7 +210,7 @@ export function submitResult(ctx, id, args) {
         const n = f.length;
         if (/^[-:| ]+$/.test(line)) return;
         let k = 0;
-        const f1 = t(f[0]).toLowerCase();
+        const f1 = asciiLower(t(f[0]));
         if (f1 === 'id' || f1 === 'severity') return;
         if (!/^(blocking|info)$/.test(t(f[0])) && n >= 5) k = 1;
         const sev = t(f[k] ?? ''); const loc = t(f[k + 1] ?? ''); const fnd = t(f[k + 2] ?? '');
@@ -408,7 +410,9 @@ export function submitResult(ctx, id, args) {
     const mark = ctx.chunks.length;
     let rec;
     try {
-      rec = recordText(ctx, id, raw, agent);
+      // the gate number, the gate record and the hash-chain row are one transaction: the command locks are held for record only (the re-run phase above stays unlocked)
+      if (ctx.locks) { takeCommandLocks(/** @type {import('./lock.mjs').LockSet} */ (ctx.locks), ctx, 'record', [id]); forgetFiles(ctx); ctx.forget('changed:'); }
+      try { rec = recordText(ctx, id, raw, agent); } finally { ctx.locks?.releaseAll(); }
     } catch (e) {
       const errs = ctx.chunks.slice(mark).filter((c) => c[0] === 'err').map((c) => c[1].toString('latin1')).join('');
       ctx.chunks.length = mark;
