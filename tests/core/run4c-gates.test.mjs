@@ -185,3 +185,17 @@ test('run-language: the TASK.md Language line, the quoted user text, else en', (
   writeFileSync(`${d}/.agents/runs/LC/TASK.md`, 'language: en\n# Task: LC\n');
   assert.equal(A(d, ['run-language', 'LC']).out, 'en\n');
 });
+
+const SUMMARY = 'summary: ran the full verification command set on the whole tree\n';
+
+test('gate (the compatibility form): the owner role only, one Verdict line that matches, a specific summary; the lead and SECRETS are refused', () => {
+  const d = project(GATED);
+  const g = (/** @type {string[]} */ a, /** @type {string} */ input, /** @type {string} */ role) => A(d, ['gate', 'LC', ...a], { input, role });
+  refused(g(['VERIFY', 'pass'], SUMMARY, 'lead'), 'the lead', 'the lead can never record a gate verdict');
+  refused(g(['SECRETS', 'pass'], SUMMARY, 'verifier'), 'SECRETS', "invalid gate: SECRETS (SECRETS is recorded by 'agent.sh secret-scan')");
+  refused(g(['BOGUS', 'pass'], SUMMARY, 'verifier'), 'an unknown gate', 'invalid gate: BOGUS');
+  refused(g(['VERIFY', 'maybe'], SUMMARY, 'verifier'), 'a result', 'invalid gate result: maybe (want pass|fail)');
+  refused(g(['VERIFY', 'pass'], SUMMARY, 'qa'), 'another role', 'role qa may not record a VERIFY gate');
+  refused(g(['VERIFY', 'pass', '/etc/passwd'], SUMMARY, 'verifier'), 'an absolute artifact', /artifact path must be run-relative|VERIFY gate may only|not a required gate/);
+  refused(g(['VERIFY', 'pass'], SUMMARY, 'verifier'), 'the gates before it are missing or the report is', /requires the role's report VERIFY\.md|not a required gate|may only be recorded/);
+});

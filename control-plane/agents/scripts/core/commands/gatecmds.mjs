@@ -2,7 +2,7 @@
 // Stage 4, package 4C: `secret-scan`, `worker-evidence`, `raise-budget`, `waive`, `knowledge-done`, `run-language` (and `gate`, in gatecmd.mjs).
 import { runLanguage } from '../approve.mjs';
 import { knowledgeDoneCommand } from '../knowledge.mjs';
-import { raiseBudgetCommand, secretScanCommand, waiveCommand, workerEvidenceCommand } from '../gatecmd.mjs';
+import { gateCommand, raiseBudgetCommand, secretScanCommand, waiveCommand, workerEvidenceCommand } from '../gatecmd.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -17,6 +17,7 @@ function runLanguageCommand(ctx, args) {
 
 /** @type {Record<string, (ctx: Context, args: string[]) => number>} */
 export const GATECMD_HANDLERS = {
+  gate: writing(gateCommand),
   'secret-scan': writing(secretScanCommand),
   'worker-evidence': writing(workerEvidenceCommand),
   'raise-budget': writing(raiseBudgetCommand),

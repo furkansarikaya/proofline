@@ -8,9 +8,11 @@ import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
 import { consumeApproval, mutationBudget, nextNum, planTestAcs, requireLead, waiveCanon, waiveGroupIds, waiveTarget, requireOpenRun } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
-import { findingWaiverKey, resolveTopology } from './gates.mjs';
+import { findingWaiverKey, gateFocus, gateOwner, resolveTopology } from './gates.mjs';
 import { taskChangedPaths } from './signals.mjs';
-import { gatePreconditions, writeGate } from './gatewrite.mjs';
+import { gateDefaultArtifact, gatePreconditions, validGateName, writeGate } from './gatewrite.mjs';
+import { artifactAllowed, artifactPaths } from './resultutil.mjs';
+import { scopeEntryPaths } from './reopen.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf } from './lifecycle.mjs';
 import { fieldFromText, justificationOk, led, need, oneLine, readStdin } from './lifeutil.mjs';
@@ -270,5 +272,41 @@ export function waiveCommand(ctx, args) {
   }
   consumeApproval(ctx, id, app);
   if (group) ctx.out(`group waiver recorded: ${id} ${rep} and ${list.length} finding(s) of the same rule (${gate}): ${list.join(' ')}\n`);
+  return 0;
+}
+
+// ---- gate ----------------------------------------------------------------------------------------------------------------------------
+
+/** `gate ID GATE pass|fail [ARTIFACT]` (the compatibility form): the role's report holds exactly one `Verdict:` line and the form on stdin names the summary. @param {Context} ctx @param {string[]} args */
+export function gateCommand(ctx, args) {
+  const id = need(args, 0); const gate = need(args, 1); const result = need(args, 2);
+  let art = args[3] ?? '';
+  requireRun(ctx, id);
+  const dir = runDir(ctx, id);
+  if (!validGateName(gate) || gate === 'SECRETS') fail(`invalid gate: ${gate} (SECRETS is recorded by 'agent.sh secret-scan')`);
+  if (result !== 'pass' && result !== 'fail') fail(`invalid gate result: ${result} (want pass|fail)`);
+  if (ctx.role === 'lead') fail('the lead can never record a gate verdict');
+  if (ctx.role !== gateOwner(gate)) fail(`role ${ctx.role} may not record a ${gate} gate`);
+  gatePreconditions(ctx, id, gate);
+  if (art === '') art = gateDefaultArtifact(gate);
+  if (art.startsWith('/') || art.includes('..')) fail(`artifact path must be run-relative: ${art}`);
+  if (!artifactAllowed(ctx.role, 'gate', gateFocus(gate), art)) fail(`artifact ${art} is outside the paths of ${gate}: ${artifactPaths(ctx.role, 'gate', gateFocus(gate))}`);
+  const report = fileText(ctx, `${dir}/${art}`);
+  if (report === null || report.length === 0) fail(`${gate} gate requires the role's report ${art} in the run directory`);
+  const lines = report.split('\n');
+  if (lines.filter((l) => l.startsWith('Verdict:')).length !== 1) fail(`${art} must contain exactly one 'Verdict:' line`);
+  const verdict = (lines.find((l) => l.startsWith('Verdict:')) ?? '').slice('Verdict:'.length).replace(/^ */, '').replace(/ /g, '');
+  if (!((result === 'pass' && verdict === 'PASS') || (result === 'fail' && verdict === 'FAIL'))) fail(`${art} says 'Verdict: ${verdict === '' ? '<missing>' : verdict}' but the gate result is '${result}'`);
+  const stdin = readStdin();
+  const summary = fieldFromText(stdin, 'summary'); const findings = fieldFromText(stdin, 'findings'); const fscope = fieldFromText(stdin, 'fix_scope');
+  if (!justificationOk(summary)) fail(`${gate} gate requires a specific summary (>=20 chars, not a stock phrase)`);
+  /** @type {string[]} */ const rows = [];
+  if (result === 'fail') {
+    if (!justificationOk(findings)) fail('a failing gate requires specific findings (>=20 chars)');
+    if (scopeEntryPaths(fscope).length === 0) fail('a failing gate requires fix_scope with at least one path (comma-separated paths the fix may touch)');
+    let i = 0;
+    for (const p of expandWords(fscope.replace(/,/g, ' '), ctx.cwd)) { i++; rows.push(`${gate}-${i}|blocking|${p}|${oneLine(findings)}|${art}`); }
+  }
+  writeGate(ctx, { id, gate, result, role: ctx.role, confidence: 'high', focus: gateFocus(gate), artifact: art, findings: rows, resultFile: '', fingerprint: gateFingerprint(ctx) });
   return 0;
 }
