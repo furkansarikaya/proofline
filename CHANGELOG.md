@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.50 — 2026-11-03
+
 - Node migration, stage 6 (A215, issue #171), delivery: `deliver-plan`, `deliver-step` (with the CI-fix rounds), `deliver-merged`, `pr-state`, `task-source-done`, `platform`, `platform-warn` and `batch-ci` run in Node, and `scripts/platform.sh` is gone (the hosting platform, the failed-log readers and the platform tools `gh`, `glab` and `az` are Node code now: argument arrays, their JSON read in process, no `jq`). A merge is proved in the delivery process and its cleanup is a call of that process: there is no `MERGED` file, flag, lock or environment value that says "merged" any more (the claim A213 left to a hook-guarded file is gone). The platform tool still must not resolve into the project, the working directory or a temporary folder, and no environment value lifts that. `deliver-test` and `cifix-test` are replaced by Node tests; the task adapters (`task-integrations/*.sh`) and `proofline merge` (`bin/lib/merge.sh`, which reads the platform through `cli platform`) are still shell code.
 
 ## 0.0.49 — 2026-11-03
