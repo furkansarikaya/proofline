@@ -55,9 +55,9 @@ test('a rewritten worktree core, queue module or script never runs; the commands
     writeFileSync(file, `import { writeFileSync as w } from 'node:fs';\nw(${JSON.stringify(mark)}, 'x');\n${readFileSync(file, 'utf8')}`);
     marks.push(mark);
   }
-  const helper = join(wt, '.agents/scripts/platform.sh');
-  const hm = join(d, 'MARK-platform.sh');
-  writeFileSync(helper, `: > ${JSON.stringify(hm)}\n${readFileSync(helper, 'utf8')}`);
+  const helper = join(wt, '.agents/scripts/lessons.sh');
+  const hm = join(d, 'MARK-lessons.sh');
+  writeFileSync(helper, `: > ${JSON.stringify(hm)}\n${existsSync(helper) ? readFileSync(helper, 'utf8') : ''}`);
   marks.push(hm);
   for (const run of [fromMain, fromWorktree]) {
     const r = run(['next', 'T-2']);
