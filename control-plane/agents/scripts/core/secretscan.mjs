@@ -13,7 +13,7 @@ import * as proc from './proc.mjs';
 const WS = ' \\t\\n\\v\\f\\r';
 const ALLOW = 'proofline:allow-secret';
 
-/** The built-in rules: name, ERE (as a JS expression over latin1 bytes) and the case flag. */
+/** The built-in rules: name and ERE (as a JS expression over latin1 bytes). @type {Array<[string, RegExp]>} */
 const RULES = [
   ['aws_access_key_id', new RegExp('(A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}')],
   ['aws_secret_access_key', new RegExp(`aws_?secret_?access_?key[^=:]{0,20}[=:][${WS}]*["']?[A-Za-z0-9/+=]{40}`, 'i')],
@@ -113,7 +113,7 @@ export function builtinScan(ctx, root, paths) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const rec = (/** @type {string} */ rule) => { if (!`${f}:${i + 1}:${line}`.includes(ALLOW)) found.add(`${f}:${i + 1}:${rule}`); };
-      for (const [name, re] of RULES) if (re.test(line)) rec(/** @type {string} */ (name));
+      for (const [name, re] of RULES) if (re.test(line)) rec(name);
       if (GENERIC.test(line) && genericHit(line)) rec('generic_secret');
       if (env && ENV_LINE.test(line)) rec('env_file');
     }

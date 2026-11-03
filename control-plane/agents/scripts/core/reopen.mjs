@@ -10,7 +10,8 @@ import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import { gatesDir, patchManifest, taskPatchFingerprint } from './gates.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, setRunValue } from './lifecycle.mjs';
-import { fieldFromText, justificationOk, led, must, oneLine, quietly, readStdin, shellChild } from './lifeutil.mjs';
+import { fieldFromText, justificationOk, led, must, oneLine, quietly, readStdin } from './lifeutil.mjs';
+import { raiseBudgetCommand } from './gatecmd.mjs';
 import { isFile } from './paths.mjs';
 import { authorizedPath, ledgerLines, fileText, gateField, gatesEnforced, planScope, sectionKeyPresent, sectionValue } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
@@ -185,10 +186,7 @@ export function reopenRun(ctx, id) {
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_state')) setRunValue(ctx, id, 'execution', 'knowledge_state', 'not_started');
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) setRunValue(ctx, id, 'execution', 'knowledge_reason', '');
   led(ctx, id, 'REOPEN', hs, hs, `${ledgerToken(dir, `gates/${name}.yaml`)} reopened from ${st}, authorized_by=user approval ${base}: ${reason}`);
-  if (budget !== null) {
-    const r = shellChild(ctx, ['raise-budget', id, String(n)]);
-    if (r.status !== 0) fail(r.err.replace(/\n+$/, '') || `raise-budget failed: ${id}`);
-  }
+  if (budget !== null) quietly(ctx, () => raiseBudgetCommand(ctx, [id, String(n)]));
   ctx.out(`run reopened: ${id} (${name}); execution ${st} -> ${prev}, handoff ${hs}, fix rounds restart at 0; gates that did not pass or whose inputs changed run again (agent.sh next ${id})\n`);
   return 0;
 }

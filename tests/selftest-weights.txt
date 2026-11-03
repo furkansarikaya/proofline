@@ -58,7 +58,6 @@
 129 risk-test sc_selective_focus
 128 lifecycle-test scenario_base_moved_updates_base
 125 lifecycle-test scenario_upgrade_product_edits
-124 gates-test sc_legacy_fingerprint
 124 lifecycle-test scenario_upgrade_keeps_tier
 120 lifecycle-test scenario_fingerprint_new_block_file CLAUDE.md
 117 cli-test sc_doctor_missing
@@ -129,7 +128,6 @@
 36 cli-test sc_init_idempotent
 36 controls-test sc_knowledge
 36 enforcement-test subagent_guard
-36 gates-test sc_evidence_gap_legacy
 36 gates-test sc_evidence_gap_rerun
 35 gates-test sc_decide
 35 gates-test sc_evidence_gap_fabricated

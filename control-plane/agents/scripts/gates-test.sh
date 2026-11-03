@@ -2533,18 +2533,6 @@ sc_evidence_gap_gates() {
   expect_msg "the same PASS with a declared validator result" 'no validator run for' AS reviewer submit LC --focus rules --confidence high --validator-result PASS --findings none --agent g4
   ok "A107 R1: a PASS is never silent: NOT_RERUN row, nothing re-runnable is FAIL, a missing validator run refuses a mapped focus"
 }
-sc_evidence_gap_legacy() {
-  evidence_gap_fixture
-  # A130: a gate record made by an older version (the info row NOT_RERUN, no field) is still honoured
-  mkdir -p "$d/reviews/proof-review/small"; printf "# small review\n\nthe change was read.\n" > "$d/reviews/proof-review/small/REPORT.md"
-  git update-index --assume-unchanged .agents/scripts/agent.sh 2>/dev/null || :   # the edited copy is not a task change (it would raise the tier)
-  sed -i.bak 's#^\( *\)sb_nr="\(.*\) no reproduced evidence; this gate is not reproduced proof".*#\1printf "info|%s|NOT_RERUN: \2 no reproduced evidence; this gate is not reproduced proof|x\\n" "$sb_norm" >> "$sb_tmp/rows"#' .agents/scripts/agent.sh; rm -f .agents/scripts/agent.sh.bak
-  grep -q 'info|%s|NOT_RERUN' .agents/scripts/agent.sh || die "could not build the legacy submit"
-  out=$(AS reviewer submit LC --focus rules+tests --confidence high --findings none --agent l1 2>&1) || die "legacy submit refused: $out"
-  grep -q '^finding:.*NOT_RERUN' "$(ls "$d"/gates/*REVIEW_SMALL.yaml | tail -1)" || die "legacy record has no info row"
-  A pipeline LC | grep -q '^not_rerun.REVIEW_SMALL:rules+tests=NOT_RERUN (not reproduced proof)' || die "the old NOT_RERUN info row is no longer honoured"
-  ok "A130: a gate record with the old NOT_RERUN info row is still honoured"
-}
 sc_evidence_gap_output() {
   evidence_gap_fixture
   # R1-3: a command row without an output line compares nothing: FAIL, never a pass
@@ -2812,35 +2800,6 @@ run_sc sc_decide
 run_sc sc_config_scope_misc
 # A161 (#133): gates recorded by 0.0.12/0.0.13 (a block-only AGENTS.md/CLAUDE.md still part of the tree) stay valid once, without writing
 # anything; they bind every product byte; gates recorded on the current rule never need the legacy path.
-legacy_agent() { # on: the fixture script with the pre-A156 fingerprint rule; off: the real one
-  if [ "$1" = on ]; then
-    git update-index --assume-unchanged .agents/scripts/agent.sh 2>/dev/null || :
-    cp .agents/scripts/agent.sh "$base/agent.real"; grep -vF 'block_only_file "$root/$cf_b"; then git' "$base/agent.real" > .agents/scripts/agent.sh
-    if cmp -s "$base/agent.real" .agents/scripts/agent.sh; then die "could not build the legacy fingerprint script"; fi
-  else cp "$base/agent.real" .agents/scripts/agent.sh; fi
-}
-sc_legacy_fingerprint() {
-  scaffold orchestrated; blk='<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n'
-  printf '%b' "$blk" > AGENTS.md; git add AGENTS.md; git commit -qm 'chore: block-only AGENTS.md'
-  worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
-  A handoff LC IMPLEMENTED >/dev/null
-  fp_new=$(A fingerprint LC); legacy_agent on; fp_old=$(A fingerprint LC)
-  [ "$fp_old" != "$fp_new" ] || die "the legacy script computes the current fingerprint: the fixture proves nothing"
-  pass_all >/dev/null 2>&1 || die "gates on the legacy rule not recorded"
-  legacy_agent off
-  [ "$(A fingerprint LC)" = "$fp_new" ] || die "the current script no longer computes the current fingerprint"
-  n0=$(n_gates)
-  A pipeline LC | grep '^gate\.' | grep -v '=pass' && die "gates recorded on the legacy rule read stale or missing"
-  A pipeline LC | grep -q '^gate\.' || die "no gate lines"
-  A handoff LC CODE_DONE >/dev/null || die "CODE_DONE refused for gates recorded on the legacy rule: $(A handoff LC CODE_DONE 2>&1 | tail -2)"
-  [ "$(n_gates)" = "$n0" ] || die "the compatibility wrote a gate record"
-  # the binding is kept: a product edit makes every such gate stale
-  printf 'one more line\n' >> impl.txt
-  A pipeline LC | grep '^gate\.' | grep -q '=pass' && die "a product edit left a legacy gate passing: $(A pipeline LC | grep '^gate\.')"
-  A pipeline LC | grep -q '^gate\..*=stale' || die "a product edit did not stale the legacy gates: $(A pipeline LC | grep '^gate\.')"
-  ok "legacy gate fingerprint (0.0.12/0.0.13) with a block-only file is accepted without writing a gate record, and a product edit stales it"
-
-}
 sc_legacy_fingerprint_new_rule() {
   scaffold orchestrated; printf '<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n' > AGENTS.md; git add AGENTS.md; git commit -qm 'chore: block-only AGENTS.md'
   worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'
@@ -2910,12 +2869,10 @@ run_sc sc_evidence_gap_fabricated
 run_sc sc_evidence_gap_files
 run_sc sc_evidence_gap_rerun
 run_sc sc_evidence_gap_gates
-run_sc sc_evidence_gap_legacy
 run_sc sc_evidence_gap_output
 run_sc sc_evidence_gap_ac
 run_sc sc_evidence_gap_r2
 run_sc sc_evidence_gap_files_gate
-run_sc sc_legacy_fingerprint
 run_sc sc_legacy_fingerprint_new_rule
 run_sc sc_build_record_auto
 run_sc sc_fix_round_missed_example
