@@ -43,8 +43,8 @@ function amend(ctx, args) { ctx.fpMode = 'refresh'; requireLead(ctx); return ame
 function reopen(ctx, args) { ctx.fpMode = 'refresh'; requireLead(ctx); return reopenRun(ctx, need(args, 0)); }
 
 /**
- * `cleanup ID [--delivered]`. `--delivered` is the delivery code's claim that the merge is proved (deliver-step cleanup, deliver-merged); it counts only
- * for a process that took over the locks of its parent, so no typed command, no hook and no model can claim a merge.
+ * `cleanup ID`. There is no flag that says "merged": the worktree of a delivered run is removed only when the merge is on record (a merged.tsv row, or the
+ * MERGED file the delivery code writes in the run's deliver folder after its own proof), so a typed claim gains nothing.
  * @param {Context} ctx @param {string[]} args
  */
 function cleanup(ctx, args) {
@@ -66,12 +66,7 @@ function cleanup(ctx, args) {
     }
   }
   const id = need(args, 0);
-  let claim = false;
-  if (args[1] === '--delivered') {
-    if (ctx.locks === null || !(/** @type {{ inherited?: boolean }} */ (ctx.locks).inherited === true)) fail('cleanup --delivered is the delivery code\'s own flag: it is accepted only from a command that holds the locks');
-    claim = true;
-  }
-  return cleanupRun(ctx, id, claim);
+  return cleanupRun(ctx, id);
 }
 
 /** @type {Record<string, (ctx: Context, args: string[]) => number>} */

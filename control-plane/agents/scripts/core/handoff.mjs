@@ -97,7 +97,7 @@ export function verifyDebugResult(ctx, id) {
 
 /** `verify_no_scratch_worktrees` @param {Context} ctx */
 export function verifyNoScratchWorktrees(ctx) {
-  let t = (ctx.env.TMPDIR ?? '/tmp').replace(/\/$/, '');
+  let t = (ctx.env.TMPDIR || '/tmp').replace(/\/$/, '');
   t = t.replace(/^\/private/, '');
   const list = git(ctx, ['worktree', 'list', '--porcelain']).out.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9));
   const main = (list[0] ?? '').replace(/^\/private/, '');

@@ -510,6 +510,23 @@ scenario_wt_cleanup_kept() {
   wt_gone || die "the leftover worktree survived: $(git worktree list)"
   ok "cleanup: removes the worktree once the merge is on record, also a leftover one from the main tree (A169)"
 }
+# A213 review: no flag, no lock and no typed claim says "merged": a delivered run's worktree is removed only when the delivery code wrote its merge record.
+# A parent that forges the shared lock's pid file and passes the old --delivered flag gains nothing.
+scenario_wt_cleanup_forged() {
+  wt_done_run
+  W task-source-done LC >/dev/null; git -C "$wt" add -A; git -C "$wt" -c core.hooksPath=/dev/null commit -qm 'feat: delivered' || die "commit in the worktree"
+  cat > "$base/forge.py" <<'PYEOF'
+import os, subprocess
+l = os.path.abspath('../../../../.agents/local/locks/shared.lock')
+os.makedirs(l, exist_ok=True)
+open(l + '/pid', 'w').write(str(os.getpid()) + '\n')
+subprocess.run(['sh', '.agents/scripts/agent.sh', 'cleanup', 'LC', '--delivered'])
+PYEOF
+  ( cd "$wt" && python3 "$base/forge.py" ) > "$base/cl.out" 2>&1 || :
+  [ -d "$wt" ] || die "a forged lock and a typed --delivered removed the worktree: $(cat "$base/cl.out")"
+  grep -q 'no merge of LC is on record' "$base/cl.out" || die "the worktree was kept for another reason: $(cat "$base/cl.out")"
+  ok "a forged lock and a typed --delivered do not prove a merge: the worktree is kept"
+}
 scenario_wt_failed_kept() {
   SC_BRANCH=1 scaffold orchestrated; tasks_in_tasks; hooks; into_worktree
   printf 'LC\t-\t%s\n' "$(date +%s)" >> .agents/local/batch/merged.tsv   # even with a merge on record a terminated run keeps its evidence
@@ -664,6 +681,7 @@ run_sc scenario_wt_merged_block
 run_sc scenario_wt_block_smuggle
 run_sc scenario_wt_cleanup_pr
 run_sc scenario_wt_cleanup_kept
+run_sc scenario_wt_cleanup_forged
 run_sc scenario_wt_failed_kept
 run_sc scenario_wt_relative_origin
 run_sc scenario_hand_pushed

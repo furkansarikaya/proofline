@@ -193,8 +193,8 @@ function worktreeDepFolders(ctx) {
   return out;
 }
 
-/** `cleanup_worktree ID TERMINAL` (A169). @param {Context} ctx @param {string} id @param {boolean} terminal @param {boolean} claim a caller proved the merge */
-function cleanupWorktree(ctx, id, terminal, claim) {
+/** `cleanup_worktree ID TERMINAL` (A169). @param {Context} ctx @param {string} id @param {boolean} terminal */
+function cleanupWorktree(ctx, id, terminal) {
   const main = ctx.sharedMain();
   if (terminal || main === ctx.root) return;
   let p;
@@ -204,7 +204,8 @@ function cleanupWorktree(ctx, id, terminal, claim) {
   let from = '0';
   try { if (statSync(delivered).size > 0) { const m = /^nonce: ([0-9]*)-/m.exec(readFileSync(delivered, 'latin1')); from = m ? m[1] : '0'; } } catch { /* none */ }
   if (from === '' || /[^0-9]/.test(from)) from = '0';
-  let merged = claim;
+  // the delivery code writes MERGED after its own proof (a pull request seen merged, or git); a merged.tsv row is the batch's record
+  let merged = isFile(`${ctx.root}/.agents/local/deliver/${id}/MERGED`);
   if (!merged) {
     const t = fileText(ctx, `${main}/.agents/local/batch/merged.tsv`);
     merged = t !== null && textLines(t).some((l) => { const f = l.split('\t'); return f[0] === id && Number(f[2]) + 0 >= Number(from) + 0; });
@@ -227,10 +228,10 @@ function cleanupWorktree(ctx, id, terminal, claim) {
 }
 
 /**
- * `cleanup_run ID`. `claim` is the merge proof of the delivery code that started this command as a child of its own transaction.
- * @param {Context} ctx @param {string} id @param {boolean} claim
+ * `cleanup_run ID`.
+ * @param {Context} ctx @param {string} id
  */
-export function cleanupRun(ctx, id, claim) {
+export function cleanupRun(ctx, id) {
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   requireLead(ctx);
@@ -277,6 +278,6 @@ export function cleanupRun(ctx, id, claim) {
   rmSync(dir, { recursive: true, force: true });
   ctx.forget('file:');
   ctx.out(`run cleaned up: ${id} (runtime artifacts and .agents/local/assignments/${id} removed; ACTIVE_RUN cleared)\n`);
-  cleanupWorktree(ctx, id, term, claim);
+  cleanupWorktree(ctx, id, term);
   return 0;
 }

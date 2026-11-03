@@ -7482,7 +7482,8 @@ deliver_step() {
       [ ! -d "$(shared_dir batch)" ] || printf '%s\t%s\t%s\n' "$ds_id" "$ds_pr" "$(now_epoch)" >> "$(shared_dir batch)/merged.tsv"
       status_block_update "$ds_id" merged "$ds_pr"
       sb_final_prepare "$ds_id" "$ds_pr"
-      sh "$scripts/agent.sh" cleanup "$ds_id" --delivered   # 4B: cleanup is a Node command; --delivered counts only from a child of this locked command
+      printf '%s\n' "$(now_epoch)" > "$ds_dir/MERGED"   # the merge is proved above; cleanup (a Node command, started as a child of this locked command) removes the worktree only with this record
+      sh "$scripts/agent.sh" cleanup "$ds_id"
       sb_final_put "$ds_id"
       rm -rf "$ds_dir"
       echo "delivery of $ds_id complete" ;;
@@ -7574,7 +7575,8 @@ deliver_merged() {
   else echo "note: the main working tree is not on a clean $dm_base: update it from origin/$dm_base before the next task starts"; fi
   rm -f "$dm_dir/MERGE_HEAD"
   [ -z "${dm_sbd:-}" ] || { sb_main_restore "$dm_sbd"; rm -rf "$dm_sbd"; }
-  sh "$scripts/agent.sh" cleanup "$dm_id" --delivered
+  mkdir -p "$dm_dir"; printf '%s\n' "$(now_epoch)" > "$dm_dir/MERGED"   # the merge is proved above (git); cleanup removes the worktree only with this record
+  sh "$scripts/agent.sh" cleanup "$dm_id"
   sb_final_put "$dm_id"
   rm -rf "$dm_dir"
 }
