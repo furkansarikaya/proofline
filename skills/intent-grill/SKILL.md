@@ -4,7 +4,7 @@ description: Interviews the user about a vague or high-stakes request before a t
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.48"
+  version: "0.0.49"
 ---
 
 # intent-grill

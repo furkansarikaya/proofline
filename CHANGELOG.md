@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.49 — 2026-11-03
+
 - Node migration, stage 4, package 4C (A214, issue #169): 11 more commands run in Node and their shell arms and 71 functions are deleted (1,641 lines of `agent.sh`, plus `scripts/secret-scan.sh` and its suite): `record`, `submit` (which calls `record` in process, under the command locks), `gate`, `secret-scan`, `worker-evidence`, `raise-budget`, `waive`, `knowledge-done`, `publish-completion-report`, `verify-completion-report` and `run-language`. The secret scanner is part of the core (a project `commands.secret_scan` still decides when set; `scripts/secret-scan.sh` is no longer installed, a project that has one still has it run; the delivery check in the shell and `build-record.sh` call the core scanner through `cli scan-secrets`). The capability probes of an UNSUPPORTED result no longer have a test switch: they read the PATH of the process and the real application folders. `report-facts`, `summary`, `digest`, the gate labels and `next` print listed known issues and design-sync drift natively. An adapter name or a publication receipt with a control character, a quote or a backslash is refused before it is recorded. The built-in secret scan fails closed: an unreadable file is an error that names it, and only the head of a file decides that it is binary.
 
 ## 0.0.48 — 2026-11-03

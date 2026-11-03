@@ -4,7 +4,7 @@ description: Turns a one-sentence request or an external issue (GitHub, Jira, Li
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.48"
+  version: "0.0.49"
 ---
 
 # task-author

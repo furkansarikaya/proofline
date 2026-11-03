@@ -4,7 +4,7 @@ description: Concurrency review of a change (working tree, branch, pull request 
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.48"
+  version: "0.0.49"
 ---
 
 # concurrency-proof
