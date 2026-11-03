@@ -463,8 +463,6 @@ sc_classification_stable() {
     rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|info|impl.txt:1|wrong default|traced" "REVIEW_SMALL-2|blocking|impl.txt:3|new finding|traced; $sev"
   rec REVIEW_SMALL FAIL high "REVIEW_SMALL-1|blocking|impl.txt:1|wrong default|traced; $sev" "REVIEW_SMALL-2|info|impl.txt:2|observation only|traced"
   [ "$(gate_st REVIEW_SMALL)" = fail ] || die "the same classification was not recorded"
-  [ "$(sed -n 's/^blocking_rule_version=//p' "$tl_agents/scripts/agent.sh")" = "$(sed -n 's/^Blocking rule version: //p' "$tl_agents/GATES.md")" ] \
-    || die "GATES.md and agent.sh state different blocking rule versions"
   ok "classification: the same observation keeps blocking or info across revisions under one rule version"
 }
 

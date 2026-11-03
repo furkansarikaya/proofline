@@ -3,12 +3,19 @@
 // absolute Node tests (A214). They replace secret-scan-test.sh and the scenarios of gates-test.sh / lifecycle-test.sh named in tests/legacy-port-map.tsv; the
 // shell scenarios that remain run against the Node commands as black-box tests through the fixture prologue.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { BLOCKING_RULE_VERSION } from '../../control-plane/agents/scripts/core/gatewrite.mjs';
 import { builtinScan } from '../../control-plane/agents/scripts/core/secretscan.mjs';
 import { A, IMPLEMENTED, accepted, project, read, refused, existsSync, readdirSync } from './legacy-lib.mjs';
+
+test('the blocking rule version of a gate record is the one GATES.md states (golden: recorded from agent.sh 0.0.47, "1")', () => {
+  assert.equal(BLOCKING_RULE_VERSION, '1');
+  const gates = readFileSync(new URL('../../control-plane/agents/GATES.md', import.meta.url), 'utf8');
+  assert.equal(/^Blocking rule version: (.*)$/m.exec(gates)?.[1], BLOCKING_RULE_VERSION, 'GATES.md and the core state different blocking rule versions');
+});
 
 const ctx = /** @type {any} */ ({ childEnv: () => ({ ...process.env, LC_ALL: 'C' }) });
 /** Fake secrets are assembled at run time so this repository never holds a realistic secret literal. */
