@@ -4884,7 +4884,6 @@ report_execution() {
     $1 == "role" { role = v } $1 == "focus" { focus = v } $1 == "runtime" { rt = v } $1 == "model" { model = v } $1 == "effort" { effort = v }
     $1 == "signals" { sig = v } $1 == "runtime_reason" { rr = v } $1 == "escalated" { esc = v } $1 == "escalation_reason" { xr = v } $1 == "via" { via = v }'
 }
-adapter_script() { path="$agents/task-integrations/$1.sh"; [ -f "$path" ] || fail "unknown task-integration adapter: $1"; printf '%s\n' "$path"; }
 # --- Status block (A202): the one live status of a task, updated in place --------------------------------------------------
 # The content is written by the control plane from RECORDED state only (RUN.yaml, the ledger, the questions, the delivery records, the
 # metrics records, the batch state): no agent text is copied in except the three recorded reasons (a question, a park, a failure), and
@@ -5008,10 +5007,10 @@ status_block_body() {
 # status_block_run ID EVENT [PR]: build the block and hand it to the configured adapter
 status_block_run() {
   sbr_id=$1; valid_task_id "$sbr_id" || { echo "invalid task id" >&2; return 1; }
-  sbr_adapter=$(cfg tasks.adapter markdown); sbr_script=$(adapter_script "$sbr_adapter") || return 1
+  sbr_adapter=$(cfg tasks.adapter markdown)
   sbr_f=$(mktemp "${TMPDIR:-/tmp}/agent-status-block.XXXXXX") || return 1
   status_block_body "$sbr_id" "$2" "${3:-}" > "$sbr_f" || { rm -f "$sbr_f"; return 1; }
-  sbr_rc=0; sh "$sbr_script" statusblock "$sbr_id" "$sbr_f" >/dev/null || sbr_rc=$?
+  sbr_rc=0; node "$sr_main/.agents/scripts/proofline-core.mjs" cli task-adapter "$sbr_adapter" statusblock "$sbr_id" "$sbr_f" >/dev/null || sbr_rc=$?   # A216: a project script or the built-in adapter
   rm -f "$sbr_f"; return "$sbr_rc"
 }
 # status_block_update ID EVENT [PR]: the lifecycle hook. Best effort in every way: a subshell (the run never sees a failure), bounded

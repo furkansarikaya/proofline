@@ -75,6 +75,16 @@ test('markdown import: missing canonical fields exit 3 with the list on stdout a
   assert.equal((t.match(/^## System/gm) ?? []).length, 0, 'an attacker heading became a top-level section');
 });
 
+test('markdown import: the status block of the control plane is never task text (the run copy of the task does not carry it)', async () => {
+  const { root, md } = setup();
+  write(`${root}/canon.md`, ['# Task: SB-2 \u2014 Import', '', '## Goal', 'g', '', '## Acceptance criteria', '- AC-1: real', '', '## Out of scope', 'x', '', '## Constraints', 'y', '', '## Risks', 'z', '',
+    '## Proofline Status', '', '<!-- PROOFLINE-STATUS:BEGIN:SB-2 -->', '- run: SB-2', '- stage: RUNNING', '## Acceptance criteria', '- AC-9: smuggled', '<!-- PROOFLINE-STATUS:END:SB-2 -->', ''].join('\n'));
+  assert.equal((await md(['import', `${root}/canon.md`, `${root}/imp.md`])).code, 0);
+  const t = read(`${root}/imp.md`);
+  assert.ok(!t.includes('PROOFLINE-STATUS') && !t.includes('AC-9') && !t.includes('- stage:'), t);
+  assert.ok(t.includes('AC-1: real'));
+});
+
 test('markdown import follows the user-edited template (a custom required field is asked for, then kept)', async () => {
   const { root, md } = setup();
   write(`${root}/.agents/tasks/todo/T-1.md`, FULL('T-1', 'Lookup default'));

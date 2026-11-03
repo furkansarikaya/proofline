@@ -393,7 +393,8 @@ test('the approved commands\' uncommitted config edit is dropped once origin has
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged').out;
   assert.match(out, /local \.agents\/config\.yaml edit was dropped/);
   assert.match(out, /^local main fast-forwarded/m);
-  assert.equal(g(d, 'status', '--porcelain', '--untracked-files=no'), '');
+  // the only change left in the main tree is the status block the control plane put into the task file (a block-only change never stops a fast-forward)
+  assert.ok(['', ' M tasks/done/LC.md'].includes(g(d, 'status', '--porcelain', '--untracked-files=no')), g(d, 'status', '--porcelain', '--untracked-files=no'));
 });
 
 /** @param {string} d */
