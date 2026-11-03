@@ -87,6 +87,7 @@ case "$*" in
 esac
 exit 0
 EOF
+for f in glab az; do sed -i.bak "s|\"\$FS|\"$FS|g" "$stubd/$f"; rm -f "$stubd/$f.bak"; done  # the tool gets no caller variables (A215): the state folder is baked in
 chmod +x "$stubd/glab" "$stubd/az"
 reset() { rm -f "$FS"/*; printf 'echo built\n' > "$proj/.agents/cmd.build"; printf 'echo tested\n' > "$proj/.agents/cmd.test"; rm -rf "$proj/.agents/local"; }
 glabview() { # STATE DRAFT SHA PIPELINE-JSON(null|{...})
@@ -228,6 +229,7 @@ case "$*" in
   *headRefOid*) printf '{"headRefOid":"%s"}\n' "$(sed -n 's/.*"headRefOid":"\([0-9a-f]*\)".*/\1/p' "$FS/gh.view")" ;;
 esac
 EOF
+sed -i.bak "s|\"\$FS|\"$FS|g" "$stubd/gh"; rm -f "$stubd/gh.bak"  # state folder baked in (A215)
 chmod +x "$stubd/gh"
 ghview() { printf '{"number":7,"state":"OPEN","isDraft":false,"headRefOid":"%s","statusCheckRollup":%s}\n' "$1" "$2" > "$FS/gh.view"; }
 reset; ghview "$sha" '[]'

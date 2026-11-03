@@ -6,7 +6,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Config } from '../config.mjs';
-import { resolveTool } from '../platform.mjs';
+import { cleanToolEnv, resolveTool } from '../platform.mjs';
 import * as proc from '../proc.mjs';
 import { AdapterExit, isFile } from './lib.mjs';
 import { runGithub } from './github.mjs';
@@ -59,7 +59,7 @@ export function runTaskAdapter(ctx, name, args, opt = {}) {
     gh: (/** @type {string[]} */ ghArgs) => {
       const t = resolveTool(ctx, 'gh');
       if ('unreadable' in t) return null;
-      const r = proc.run(t.path, ghArgs, { cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: 120000 });
+      const r = proc.run(t.path, ghArgs, { cwd, env: cleanToolEnv(ctx), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: 120000 });
       return r.started ? { status: r.status, out: r.stdout.toString('utf8'), err: r.stderr.toString('utf8') } : null;
     },
   };

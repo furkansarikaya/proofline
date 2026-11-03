@@ -33,6 +33,7 @@ case "$*" in
   *headRefOid*) cat "$GHS/head.json" ;;
 esac
 EOF
+sed -i.bak "s|\"\$GHS|\"$GHS|g" "$stubd/gh"; rm -f "$stubd/gh.bak"  # the tool gets no caller variables (A215): the state folder is baked in
 chmod +x "$stubd/gh"
 sha=1111111111111111111111111111111111111111; sha2=2222222222222222222222222222222222222222
 view() { # NUMBER STATE DRAFT SHA ROLLUP-JSON

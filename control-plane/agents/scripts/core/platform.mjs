@@ -274,7 +274,7 @@ const TOOL_TIMEOUT_MS = 180000;
  * @param {Context} ctx @param {{ remote?: boolean }} [opt] @returns {Record<string, string>}
  */
 export function cleanToolEnv(ctx, opt = {}) {
-  const src = ctx.childEnv();
+  const src = { ...ctx.env, LC_ALL: 'C', RTK_DISABLED: '1' }; // not ctx.childEnv(): sharedMain needs a project, merge runs in any repository
   const keep = new Set(['PATH', 'LANG', 'TERM', 'TZ', 'TMPDIR', 'NO_COLOR', 'CLICOLOR', 'CLICOLOR_FORCE', 'CI', 'SYSTEMROOT', 'COMSPEC', 'PATHEXT',
     'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GITLAB_TOKEN', 'GLAB_TOKEN', 'AZURE_DEVOPS_EXT_PAT', 'RTK_DISABLED']);
   if (opt.remote === true) keep.add('SSH_AUTH_SOCK');

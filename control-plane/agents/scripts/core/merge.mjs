@@ -9,7 +9,7 @@
 // read in process (no jq).
 import { existsSync, statSync } from 'node:fs';
 import { ProoflineError } from './errors.mjs';
-import { detectPlatform, linkText, parseJson, platformEnv, resolveToolIn } from './platform.mjs';
+import { cleanToolEnv, detectPlatform, linkText, parseJson, platformEnv, resolveToolIn } from './platform.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -71,7 +71,7 @@ function run(ctx, argv) {
   const info = detectPlatform(ctx, { dir: ctx.cwd });
   let plat = 'github'; let cli = 'gh';
   if (info.url !== '' || info.source !== 'auto') { plat = info.platform; cli = info.cli; }
-  const toolEnv = { ...ctx.env, ...platformEnv(info) }; // a private host (A186): the tool talks to the origin's host
+  const toolEnv = { ...cleanToolEnv(ctx), ...platformEnv(info) }; // a private host (A186): the tool talks to the origin's host
   const org = plat === 'azure' ? info.orgUrl : '';
   const wantTool = plat === 'gitlab' ? 'glab' : plat === 'azure' ? 'az' : 'gh';
   const top = gitOut(ctx, ['rev-parse', '--show-toplevel']) || ctx.cwd;

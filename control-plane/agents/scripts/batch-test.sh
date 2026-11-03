@@ -74,6 +74,7 @@ printf '%s\n' "$*" >> "$FAKE/inhibit.argv"
 while :; do case "${1:-}" in --*) shift ;; *) break ;; esac; done
 exec "$@"
 EOF
+sed -i.bak "s|\$FAKE/|$FAKE/|g" "$GHBIN/gh"; rm -f "$GHBIN/gh.bak"  # state folder baked in: the tool gets no caller variables (A215)
 chmod +x "$GHBIN/gh" "$FAKE/bin/caffeinate" "$FAKE/bin/systemd-inhibit"
 mkdir -p "$FAKE/ci"; MSHA=0123456789abcdef0123456789abcdef01234567   # the merge commit the fake gh reports for every PR
 
