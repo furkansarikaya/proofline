@@ -84,6 +84,38 @@ export function originEffective(ctx, gitPath = 'git') {
   return r.status === 0 ? sub(r.stdout.toString('latin1')) : '';
 }
 
+/**
+ * The merge-proof fetch, HERMETIC (A215 round 4): into a throwaway bare repository in a fresh temporary folder that has no configuration of the project
+ * (a `http.proxy`, `core.sshCommand`, `http.sslVerify`, `url.<x>.insteadOf`, a hook path of the project's own config never applies), with the global and system
+ * configuration switched off, reading the PINNED url directly (not the project's remote). The project's object store is an alternate, so the delivered
+ * commit is known there, and the project's own tracking ref (when it has one) seeds the negotiation. Returns the tip of `base` and the folder, or null when
+ * the url cannot be read. `done()` removes the folder; `gp(args)` runs git in it.
+ * @param {Context} ctx @param {string} gitPath @param {string} url @param {string} base
+ * @returns {{ tip: string, tmp: string, gp: (args: string[]) => { status: number | null, out: string }, done: () => void } | null}
+ */
+export function hermeticFetch(ctx, gitPath, url, base) {
+  const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  const env = { ...cleanToolEnv(ctx, { remote: true }), GIT_CONFIG_GLOBAL: nul, GIT_CONFIG_SYSTEM: nul, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
+  const tmp = mkdtempSync(path.join(tmpdir(), 'pl-proof-'));
+  const done = () => { rmSync(tmp, { recursive: true, force: true }); };
+  const gp = (/** @type {string[]} */ a) => { const r = proc.run(gitPath, ['--git-dir', tmp, ...a], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'ignore'], timeoutMs: 180000 }); return { status: r.status, out: sub(r.stdout.toString('latin1')) }; };
+  try {
+    const cd = proc.run(gitPath, ['-C', ctx.root, 'rev-parse', '--git-common-dir'], { cwd: ctx.cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (cd.status !== 0) { done(); return null; }
+    const objects = path.resolve(ctx.root, sub(cd.stdout.toString('latin1')), 'objects');
+    if (proc.run(gitPath, ['init', '-q', '--bare', tmp], { cwd: tmp, env, stdio: 'ignore' }).status !== 0) { done(); return null; }
+    mkdirSync(`${tmp}/objects/info`, { recursive: true });
+    writeFileSync(`${tmp}/objects/info/alternates`, `${objects}\n`);
+    const local = proc.run(gitPath, ['-C', ctx.root, 'rev-parse', '-q', '--verify', `refs/remotes/origin/${base}`], { cwd: ctx.cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (local.status === 0) gp(['update-ref', `refs/remotes/origin/${base}`, sub(local.stdout.toString('latin1'))]);
+    const r = gp(['fetch', '-q', '--no-tags', '--', url, `+refs/heads/${base}:refs/remotes/origin/${base}`]);
+    if (r.status !== 0) { done(); return null; }
+    const tip = gp(['rev-parse', '-q', '--verify', `refs/remotes/origin/${base}`]);
+    if (tip.status !== 0 || tip.out === '') { done(); return null; }
+    return { tip: tip.out, tmp, gp, done };
+  } catch (e) { done(); throw e; }
+}
+
 /** `origin_push_cmd BRANCH [FLAGS]` @param {Context} ctx @param {string} branch @param {string} [flags] */
 function originPushCmd(ctx, branch, flags = '-u') {
   const u = originUrl(ctx) ?? '';
@@ -195,6 +227,18 @@ function watchCmd(ctx, pr) {
     case 'az': return `az repos pr policy list --id ${pr} -o table`;
     default: return `gh pr checks ${pr} --watch --fail-fast`;
   }
+}
+
+/** The user answered "approve delivery" for exactly this summary: an answered (not a request) approval of the commit, push or pr step is bound to its hash (A215 round 4). @param {Context} ctx @param {string} id @param {string} hash */
+function approvedSummary(ctx, id, hash) {
+  const dir = approvalsDirOf(ctx, id);
+  let names = [];
+  try { names = readdirSync(dir).filter((n) => /^[0-9]{3}-(commit|push|pr)\.yaml$/.test(n)).sort(); } catch { names = []; }
+  for (const n of names) {
+    const f = `${dir}/${n}`;
+    if (safeStateFile(ctx, f) && gateField(ctx, f, 'delivery') === hash) return true;
+  }
+  return false;
 }
 
 /** `deliver_consumed TARGET KIND HASH`: this summary's KIND approval exists and was consumed. @param {Context} ctx @param {string} id @param {string} kind @param {string} hash */
@@ -479,6 +523,10 @@ export function deliverMerged(ctx, id, flag) {
   }
   const [dmHead = '', dmBase = '', dmBr = ''] = (fileText(ctx, mergeHead) ?? '').replace(/\n+$/, '').split('\t');
   if (g(['cat-file', '-e', `${dmHead}^{commit}`]).status !== 0) fail(`deliver-merged: the delivered commit ${dmHead !== '' ? dmHead : '?'} is unknown here`);
+  // A215 round 4: what is proven here, the pinned origin and the delivered head, comes from SUMMARY.md. That file is only the user's approval if its hash is the
+  // one a CONSUMED push approval is bound to (the chain deliver-step walks); a summary written again afterwards (deliver-plan) has a fresh nonce and no such approval
+  const sumNow = existsSync(`${ddir}/SUMMARY.md`) ? hashFile(`${ddir}/SUMMARY.md`) : '';
+  if (sumNow === '' || !approvedSummary(ctx, id, sumNow)) fail(`deliver-merged: the delivery summary of ${id} is not the one the user approved (no approval of the user is bound to it; a summary planned again needs its own approval cycle), so no merge is proven from it and nothing is recorded`);
   const ou = originUrl(ctx) ?? 'origin';
   // the origin read here is the one the summary pinned (A215 round 3): the url and the url git really contacts (url.<x>.insteadOf). A remote re-pointed
   // at a repository the model controls would make any delivery look merged
@@ -488,33 +536,40 @@ export function deliverMerged(ctx, id, flag) {
     const eff = originEffective(ctx, gitBin);
     if (pinned === '' || ou !== pinned || eff === '' || eff !== pinnedEff) fail(`deliver-merged: origin changed since the summary was approved (was '${pinned}', now '${ou}'${eff !== pinnedEff ? `; git contacts '${eff}', was '${pinnedEff}'` : ''}), so no merge is proven from it: plan the delivery again`);
   }
-  // the fetch is the proof of the merge: it reads the remote with an allowlisted environment (no GIT_CONFIG_*, GIT_SSH_COMMAND, proxy or config redirect, A215)
-  const fetched = proc.run(gitBin, ['-C', ctx.root, 'fetch', '-q', '--', ou, `+refs/heads/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
-  if (fetched.status !== 0) fail(`deliver-merged: cannot read origin/${dmBase} (git fetch origin ${dmBase} failed)`);
-  const tipR = g(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}`]);
-  if (tipR.status !== 0) fail(`deliver-merged: origin/${dmBase} not found`);
-  const tip = sub(tipR.stdout.toString('latin1'));
   const rb = sectionValue(ctx, dir, 'repository', 'base_sha');
   if (dmHead === rb) fail('deliver-merged: the delivered commit is the base of the run (an empty delivery): nothing is recorded');
+  // the fetch is the proof of the merge: hermetic (see hermeticFetch), the pinned url, the allowlisted environment (A215 rounds 2 to 4)
+  const hf = hermeticFetch(ctx, gitBin, ou, dmBase);
+  if (hf === null) fail(`deliver-merged: cannot read origin/${dmBase} (git fetch origin ${dmBase} failed)`);
+  const tip = hf.tip;
   let how;
-  if (g(['merge-base', '--is-ancestor', dmHead, tip]).status === 0) how = `the delivered commit is on origin/${dmBase}`;
-  else {
-    const paths = gs(['diff', '--no-renames', '--name-only', rb, dmHead, '--']).split('\n').filter((p) => p !== '' && !/^\.agents\/(runs|local)\//.test(p));
-    let same = false;
-    // a squash or rebase proof also needs a real commit on origin's tip that touches those paths after the run's base
-    if (paths.length > 0 && gs(['log', '-n', '1', '--format=%H', `${rb}..${tip}`, '--', ...paths]) !== '') {
-      same = true;
-      for (const p of paths) {
-        const a = g(['rev-parse', '-q', '--verify', `${dmHead}:${p}`]); const b = g(['rev-parse', '-q', '--verify', `${tip}:${p}`]);
-        if ((a.status === 0 ? sub(a.stdout.toString('latin1')) : 'none') !== (b.status === 0 ? sub(b.stdout.toString('latin1')) : 'none')) { same = false; break; }
+  try {
+    const gp = hf.gp;
+    const gps = (/** @type {string[]} */ a) => gp(a).out;
+    if (gp(['merge-base', '--is-ancestor', dmHead, tip]).status === 0) how = `the delivered commit is on origin/${dmBase}`;
+    else {
+      const paths = gps(['diff', '--no-renames', '--name-only', rb, dmHead, '--']).split('\n').filter((p) => p !== '' && !/^\.agents\/(runs|local)\//.test(p));
+      let same = false;
+      // a squash or rebase proof also needs a real commit on origin's tip that touches those paths after the run's base
+      if (paths.length > 0 && gps(['log', '-n', '1', '--format=%H', `${rb}..${tip}`, '--', ...paths]) !== '') {
+        same = true;
+        for (const p of paths) {
+          const a = gp(['rev-parse', '-q', '--verify', `${dmHead}:${p}`]); const b = gp(['rev-parse', '-q', '--verify', `${tip}:${p}`]);
+          if ((a.status === 0 ? a.out : 'none') !== (b.status === 0 ? b.out : 'none')) { same = false; break; }
+        }
       }
+      if (!same) {
+        if (chk) { ctx.out(`open: ${dmBr} is not merged into origin/${dmBase}\n`); return 1; }
+        fail(`deliver-merged: not merged: the delivered commit ${dmHead.slice(0, 7)} is not on origin/${dmBase} and its content is not there either. Merge ${dmBr} into origin's ${dmBase} (git push origin ${dmBr}:${dmBase}), then run this again.`);
+      }
+      how = `every delivered path has the same content at origin/${dmBase} (a squash or rebase merge)`;
     }
-    if (!same) {
-      if (chk) { ctx.out(`open: ${dmBr} is not merged into origin/${dmBase}\n`); return 1; }
-      fail(`deliver-merged: not merged: the delivered commit ${dmHead.slice(0, 7)} is not on origin/${dmBase} and its content is not there either. Merge ${dmBr} into origin's ${dmBase} (git push origin ${dmBr}:${dmBase}), then run this again.`);
+    if (!chk) {
+      // the proven tip becomes the project's tracking ref (hooks off) and must be exactly the proven commit: the later steps read it
+      const imp = proc.run(gitBin, ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'fetch', '-q', '--no-tags', '--', hf.tmp, `+refs/remotes/origin/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+      if (imp.status !== 0 || gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}`]) !== tip) fail(`deliver-merged: origin/${dmBase} could not be brought into this repository as the proven commit; nothing is recorded`);
     }
-    how = `every delivered path has the same content at origin/${dmBase} (a squash or rebase merge)`;
-  }
+  } finally { hf.done(); }
   if (chk) { ctx.out(`merged: ${how}\n`); return 0; }
   const bd = batchDir(ctx);
   if (existsSync(bd) && !textLines(fileText(ctx, `${bd}/merged.tsv`) ?? '').some((l) => l.startsWith(`${id}\t`))) appendFileSync(`${bd}/merged.tsv`, `${id}\t-\t${now().epoch}\n`);

@@ -2,7 +2,9 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
@@ -143,6 +145,70 @@ test('SECURITY (A215 round 3): a fake git first on PATH (in the project) neither
   assert.ok(!/fetch/.test(existsSync(mark) ? read(d, '.agents/local/scratch/fake-git-ran') : ''), 'the fake git never answered the fetch');
   assert.ok(existsSync(`${d}/.agents/runs/LC`), 'the run is kept');
   assert.ok(!/^LC\t/m.test(existsSync(`${d}/.agents/local/batch/merged.tsv`) ? read(d, '.agents/local/batch/merged.tsv') : ''), 'nothing recorded');
+});
+
+test('SECURITY (A215 round 4): a re-plan after the approvals rewrites the summary and its origin pins; the proof then needs the approval chain of THAT summary, so it records nothing', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  loChain(d, lo);
+  mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
+  const realMain = g(d, `--git-dir=${lo}`, 'rev-parse', 'refs/heads/main');
+  const fake = `${d}/.agents/local/scratch/fake.git`;
+  gOk(d, 'clone', '-q', '--bare', lo, fake);
+  gOk(d, `--git-dir=${fake}`, 'update-ref', 'refs/heads/main', g(d, 'rev-parse', 'proofline/LC-lookup'));
+  gOk(d, 'remote', 'set-url', 'origin', fake);
+  A(d, ['deliver-plan', 'LC']);
+  const out = A(d, ['deliver-merged', 'LC']);
+  assert.notEqual(out.status, 0, out.text);
+  assert.match(out.text, /summary the user approved|approval/i);
+  assert.ok(existsSync(`${d}/.agents/runs/LC`), 'the run is kept');
+  assert.ok(!/^LC\t/m.test(existsSync(`${d}/.agents/local/batch/merged.tsv`) ? read(d, '.agents/local/batch/merged.tsv') : ''), 'nothing recorded');
+  assert.equal(g(d, `--git-dir=${lo}`, 'rev-parse', 'refs/heads/main'), realMain);
+});
+
+test('SECURITY (A215 round 4): the merge-proof fetch is hermetic: a repository config (a reference-transaction hook through core.hooksPath) cannot move origin/main during it', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  loChain(d, lo);
+  mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
+  const realMain = g(d, `--git-dir=${lo}`, 'rev-parse', 'refs/heads/main');
+  const realGit = run(d, 'sh', ['-c', 'command -v git']).out.trim();
+  const hd = `${d}/.agents/local/scratch/hk`;
+  mkdirSync(hd, { recursive: true });
+  const del = g(d, 'rev-parse', 'proofline/LC-lookup');
+  wf(`${hd}/reference-transaction`, `#!/bin/sh\n[ "$1" = committed ] || exit 0\n[ -n "$PL_X" ] && exit 0\nif grep -q ' refs/remotes/origin/main$'; then PL_X=1 "${realGit}" update-ref refs/remotes/origin/main ${del}; fi\nexit 0\n`);
+  chmodSync(`${hd}/reference-transaction`, 0o755);
+  gOk(d, 'config', 'core.hooksPath', hd);
+  const out = A(d, ['deliver-merged', 'LC']);
+  assert.notEqual(out.status, 0, out.text);
+  assert.ok(!/^LC\t/m.test(existsSync(`${d}/.agents/local/batch/merged.tsv`) ? read(d, '.agents/local/batch/merged.tsv') : ''), 'nothing recorded');
+  assert.equal(g(d, `--git-dir=${lo}`, 'rev-parse', 'refs/heads/main'), realMain);
+});
+
+test('SECURITY (A215 round 4): hermeticFetch reads the pinned url with no repository config (core.sshCommand, http.proxy and the like never apply) and leaves the project refs alone', async () => {
+  const { hermeticFetch } = await import('../../control-plane/agents/scripts/core/deliver.mjs');
+  const base = mkdtempSync(path.join(tmpdir(), 'hf-'));
+  const w = `${base}/w`; const real = `${base}/real.git`; const fake = `${base}/fake.git`;
+  gOk(base, 'init', '-q', '-b', 'main', w);
+  gOk(w, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
+  gOk(base, 'clone', '-q', '--bare', w, real);
+  gOk(w, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'delivered');
+  gOk(base, 'clone', '-q', '--bare', w, fake);
+  const realGit = run(w, 'sh', ['-c', 'command -v git']).out.trim();
+  const ctx = /** @type {any} */ ({ env: { PATH: '/usr/bin:/bin' }, cwd: w, root: w, childEnv: () => ({ PATH: '/usr/bin:/bin' }), sharedMain: () => w });
+  // a local url: with the project config nothing changes, the real repository is read
+  const ok = hermeticFetch(ctx, realGit, real, 'main');
+  assert.ok(ok !== null && ok.tip === g(w, '--git-dir', real, 'rev-parse', 'main'), 'the pinned url is read');
+  assert.ok(existsSync(ok.tmp));
+  ok.done();
+  assert.ok(!existsSync(ok.tmp), 'the temporary repository is removed');
+  // an ssh url the project config would serve from a fake repository: the config is ignored, so the fetch fails here
+  gOk(w, 'config', 'core.sshCommand', `sh -c 'exec git-upload-pack ${fake}' x`);
+  const bad = hermeticFetch(ctx, realGit, 'ssh://git.example.invalid/acme/app.git', 'main');
+  assert.equal(bad, null, 'the project sshCommand did not serve the fetch');
+  assert.equal(g(w, 'for-each-ref', 'refs/remotes'), '', 'no project ref was written');
 });
 
 /** The finished run LC moves with its uncommitted work into its own worktree (night mode). @param {string} d @returns {string} the worktree */
