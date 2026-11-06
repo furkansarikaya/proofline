@@ -37,7 +37,7 @@ function setup() {
   const st = mkdtempSync(path.join(tmpdir(), 'mg-state-'));
   const bin = path.join(toolRoot, `mg-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
-  wf(`${bin}/gh`, `#!/bin/sh\n[ ! -f "${st}/fail" ] || { echo "gh: HTTP 502" >&2; exit 1; }\ncase "$*" in\n  *"pr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"pr checks"*) cat "${st}/required.json" 2>/dev/null || { echo "no required checks reported" >&2; exit 1; } ;;\n  *"pr comment"*) echo "$*" >> "${st}/comment.log"; exit 0 ;;\n  *statusCheckRollup*) cat "${st}/view.json" ;;\n  *headRefOid*) cat "${st}/head.json" ;;\nesac\n`);
+  wf(`${bin}/gh`, `#!/bin/sh\n[ ! -f "${st}/fail" ] || { echo "gh: HTTP 502" >&2; exit 1; }\ncase "$*" in\n  *"pr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"pr checks"*) [ ! -f "${st}/proxyerr" ] || { cat "${st}/proxyerr" >&2; exit 1; }; cat "${st}/required.json" 2>/dev/null || { echo "no required checks reported on the 'feat/x' branch" >&2; exit 1; } ;;\n  *"pr comment"*) echo "$*" >> "${st}/comment.log"; exit 0 ;;\n  *statusCheckRollup*) cat "${st}/view.json" ;;\n  *headRefOid*) cat "${st}/head.json" ;;\nesac\n`);
   chmodSync(`${bin}/gh`, 0o755);
   const view = (/** @type {string} */ state, /** @type {boolean} */ draft, /** @type {string} */ head, /** @type {unknown} */ rollup, now = head) => {
     wf(`${st}/view.json`, JSON.stringify({ number: 7, state, isDraft: draft, headRefOid: head, statusCheckRollup: rollup }));
@@ -179,4 +179,23 @@ test('merge: a gh in a temporary folder, in the working directory or behind an e
   assert.equal(t.merged(), '');
   t.done();
   rmSync(shadow, { recursive: true, force: true });
+});
+
+test('SECURITY (A220): "no required checks" counts only as gh\'s own whole sentence; the same words inside a transport error (a proxy reason phrase) refuse the merge', () => {
+  const t = setup();
+  t.view('OPEN', false, sha, [okRun, okCtx]);
+  // what gh prints behind a proxy that answers CONNECT with the reason phrase "no required checks"
+  for (const msg of ['Post "https://api.github.com/graphql": no required checks', 'no required checks', 'no required checks reported', "no required checks reported on the 'main' branch and more", 'x: no required checks reported on the \'main\' branch']) {
+    wf(`${t.st}/proxyerr`, `${msg}\n`);
+    const r = t.merge(['7']);
+    assert.notEqual(r.code, 0, `${msg}: merged`);
+    assert.equal(t.merged(), '', `${msg}: gh pr merge ran`);
+    assert.match(r.text, /gh pr checks --required failed, so the required checks cannot be judged/, msg);
+  }
+  // gh's genuine sentence still means "nothing is required"
+  wf(`${t.st}/proxyerr`, "no required checks reported on the 'feat/x' branch\n");
+  const ok = t.merge(['7']);
+  assert.equal(ok.code, 0, ok.text);
+  assert.match(t.merged(), /pr merge 7/);
+  t.done();
 });

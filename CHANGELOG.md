@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.54 — 2026-11-07
+
+- Corporate networks and GitHub Enterprise (A220, epic #165): the proxy variables `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` (and the lowercase forms) and the certificate variables `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS` now reach `gh`, `glab`, `az` and the git of the merge proof, so a network behind a proxy can deliver and merge. Only a well-formed value passes (a plain `http(s)://[user:password@]host[:port]` address; a plain NO_PROXY list; an absolute path of an existing certificate file that is not in the project, the working directory or a temporary folder); any other value is dropped without a message (a certificate also must not have a `.git` entry or an `.agents` folder in any folder above it, and neither it nor a folder above it may be writable by a group or everybody). Every other proxy or certificate variable stays dropped. The GitHub Enterprise or self-hosted GitLab host (`GH_HOST`, `GITLAB_HOST`) comes only from `git.platform_host` in `.agents/config.yaml`: a host of the caller is never used, and a platform named only by `PROOFLINE_PLATFORM` exports no host variable (set `git.platform` and `git.platform_host`). `proofline merge` treats "no required checks" only as gh's own sentence, never as part of a transport error. The merge guard of the hook denies a proxy or certificate variable named in the command that runs the merge proof, like `PATH=`. The hook also denies the `X+=v` form, and it recognises the merge proof or a platform tool by command word, not by a substring. The hook gaps `git config http.*`, `declare -x` / `typeset -x` / `readonly` forms and wrapper scripts stay accepted limits.
+
 ## 0.0.53 — 2026-11-06
 
 - `discard-stray` also removes a stray file one level inside a run's `evidence/` folder (A219, issue #195): `agent.sh discard-stray <ID> evidence/<file-name>` (lead only, open run). It refuses symlinks, any other path form, and a file that a run record cites by path (in any letter case, also as the full `.agents/runs/<ID>/evidence/<file>` path); the sha256 is ledgered. An explorer's copy left in `evidence/` no longer parks the run.

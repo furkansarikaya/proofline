@@ -346,7 +346,7 @@ jobs:
           - name: run6-cifix
             mode: files
             pattern: 'none'
-            files: tests/core/run6-cifix.test.mjs tests/core/run6-platform.test.mjs
+            files: tests/core/run6-cifix.test.mjs tests/core/run6-platform.test.mjs tests/core/run6-corpnet.test.mjs
           - name: run6b
             mode: files
             pattern: 'none'

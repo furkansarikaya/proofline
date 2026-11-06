@@ -28,7 +28,7 @@ cat > "$stubd/gh" <<'EOF'
 [ ! -f "$GHS/fail" ] || { echo "gh: HTTP 502" >&2; exit 1; }
 case "$*" in
   *"pr merge"*) echo "$*" >> "$GHS/merge.log"; exit 0 ;;
-  *"pr checks"*) cat "$GHS/required.json" 2>/dev/null || { echo "no required checks reported" >&2; exit 1; } ;;
+  *"pr checks"*) cat "$GHS/required.json" 2>/dev/null || { echo "no required checks reported on the 'feat/x' branch" >&2; exit 1; } ;;
   *statusCheckRollup*) cat "$GHS/view.json" ;;
   *headRefOid*) cat "$GHS/head.json" ;;
 esac

@@ -225,7 +225,7 @@ test('batch-ci: one check of the CI run of the merge commit: green is recorded, 
   r = ci(); assert.equal(r.status, 0); assert.match(r.out, /^ci: not checked here/);
 });
 
-test('SECURITY: a platform tool starts with an allowlisted environment: config, host, repository, proxy and certificate variables of the caller never reach it (A215)', () => {
+test('SECURITY: a platform tool starts with an allowlisted environment: config, host, repository and the other proxy and certificate variables of the caller never reach it (A215, A220)', () => {
   const dump = path.join(toolRoot, `envdump-${process.pid}`);
   const bin = path.join(toolRoot, `envbin-${process.pid}`, 'bin');
   mkdirSync(bin, { recursive: true });
@@ -233,8 +233,8 @@ test('SECURITY: a platform tool starts with an allowlisted environment: config, 
   chmodSync(`${bin}/gh`, 0o755);
   const hostile = {
     GH_CONFIG_DIR: '/evil/cfg', XDG_CONFIG_HOME: '/evil/xdg', HOME: '/evil/home', GH_HOST: 'evil.example', GH_REPO: 'evil/repo', GH_ENTERPRISE_TOKEN_X: 'x',
-    GLAB_CONFIG_DIR: '/evil/glab', AZURE_CONFIG_DIR: '/evil/az', HTTPS_PROXY: 'http://evil:1', https_proxy: 'http://evil:1', ALL_PROXY: 'http://evil:1', NO_PROXY: 'x',
-    SSL_CERT_FILE: '/evil/ca', SSL_CERT_DIR: '/evil/cadir', CURL_CA_BUNDLE: '/evil/ca', NODE_OPTIONS: '--require /evil.js', GH_PROMPT_DISABLED: '0', GH_API_URL: 'http://evil', GH_TOKEN: 'tok123', LANG: 'C.UTF-8',
+    GLAB_CONFIG_DIR: '/evil/glab', AZURE_CONFIG_DIR: '/evil/az', ALL_PROXY: 'http://evil:1', REQUESTS_CA_BUNDLE: '/evil/ca', GIT_SSL_CAINFO: '/evil/ca',
+    SSL_CERT_DIR: '/evil/cadir', CURL_CA_BUNDLE: '/evil/ca', NODE_OPTIONS: '--require /evil.js', GH_PROMPT_DISABLED: '0', GH_API_URL: 'http://evil', GH_TOKEN: 'tok123', LANG: 'C.UTF-8',
   };
   const ctx = ctxOf(empty, { PATH: `${bin}:/usr/bin:/bin`, ...hostile });
   const info = detectPlatform(ctx, { url: 'https://github.com/acme/app.git', dir: empty });
@@ -242,14 +242,19 @@ test('SECURITY: a platform tool starts with an allowlisted environment: config, 
   assert.ok('path' in t);
   runTool(ctx, info, /** @type {any} */ (t).path, ['pr', 'view', '7']);
   const seen = new Map(readFileSync(dump, 'utf8').split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
-  for (const k of ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'GH_HOST', 'GH_REPO', 'GLAB_CONFIG_DIR', 'AZURE_CONFIG_DIR', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'NODE_OPTIONS', 'GH_PROMPT_DISABLED', 'GH_API_URL', 'GH_ENTERPRISE_TOKEN_X']) assert.ok(!seen.has(k), `${k} must not reach the tool`);
+  for (const k of ['GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'GH_HOST', 'GH_REPO', 'GLAB_CONFIG_DIR', 'AZURE_CONFIG_DIR', 'ALL_PROXY', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'NODE_OPTIONS', 'GH_PROMPT_DISABLED', 'GH_API_URL', 'GH_ENTERPRISE_TOKEN_X']) assert.ok(!seen.has(k), `${k} must not reach the tool`);
   assert.equal(seen.get('HOME'), userInfo().homedir, 'HOME comes from the account database');
   assert.equal(seen.get('GH_TOKEN'), 'tok123', 'a credential variable that cannot redirect traffic is kept');
   assert.equal(seen.get('LANG'), 'C.UTF-8');
   assert.ok((seen.get('PATH') ?? '').startsWith(bin));
-  // the private-host variable of A186 is still set from the platform info, not from the caller
-  const priv = detectPlatform(ctx, { url: 'https://git.corp.example/acme/app.git', dir: empty });
-  runTool(ctx, { ...priv, platform: 'github' }, /** @type {any} */ (t).path, ['pr', 'view', '7']);
+  // the private-host variable of A186 is still set from git.platform_host of the config (A220), not from the caller
+  const cp = mkdtempSync(path.join(tmpdir(), 'pf-envproj-'));
+  gOk(cp, 'init', '-q', '-b', 'main');
+  mkdirSync(`${cp}/.agents`);
+  wf(`${cp}/.agents/config.yaml`, 'git:\n  platform: github\n  platform_host: git.corp.example\n');
+  const priv = detectPlatform(ctxOf(cp, { PATH: `${bin}:/usr/bin:/bin` }), { url: 'https://git.corp.example/acme/app.git', dir: cp });
+  assert.equal(priv.source, 'config');
+  runTool(ctx, priv, /** @type {any} */ (t).path, ['pr', 'view', '7']);
   const again = readFileSync(dump, 'utf8');
   assert.ok(/^GH_HOST=git\.corp\.example$/m.test(again), again);
 });
