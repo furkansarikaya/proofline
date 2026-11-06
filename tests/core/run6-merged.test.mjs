@@ -575,6 +575,59 @@ test('the approved commands\' uncommitted config edit is dropped once origin has
   assert.ok(['', ' M tasks/done/LC.md'].includes(g(d, 'status', '--porcelain', '--untracked-files=no')), g(d, 'status', '--porcelain', '--untracked-files=no'));
 });
 
+// ---- the final status block does not depend on the main working tree being fast-forwarded (A221, #172) -----------------------------------------------------
+
+const STUB = '.agents/task-integrations/markdown.sh';
+const CFG = '.agents/config.yaml';
+/** The fixture's `tasks.dir: tasks` (TASKS_IN_TASKS). @param {string} text */
+const tasksInTasks = (text) => text.replace(/^  dir: \.agents\/tasks/m, '  dir: tasks');
+/** The task file of LC in a tree, whichever lifecycle folder it is in (its path relative to the tree), or ''. @param {string} tree */
+const taskFileOf = (tree) => run(tree, 'find', ['tasks', '-name', 'LC*.md']).out.split('\n')[0];
+/** The block assertions: exactly one section, MERGED, no local path. @param {string} tree @param {string} why */
+function assertMergedBlock(tree, why) {
+  const f = taskFileOf(tree);
+  assert.notEqual(f, '', `${why}: no task file of LC in ${tree}`);
+  const blk = read(tree, f);
+  assert.equal((blk.match(/^## Proofline Status/gm) ?? []).length, 1, `${why}: not exactly one status section in ${f}`);
+  assert.equal((blk.match(/^<!-- PROOFLINE-STATUS:BEGIN:LC -->$/gm) ?? []).length, 1, `${why}: not exactly one block in ${f}`);
+  assert.match(blk, /^- stage: MERGED$/m, `${why}: the block of ${f} does not say MERGED`);
+  assert.ok(!blk.includes(tree) && !blk.includes('.agents/local'), `${why}: the block holds a local path`);
+}
+
+test('A221: a main working tree that cannot be fast-forwarded (a local commit origin lacks) still gets the MERGED block, in the task file it has', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const { lo } = wtDeliver(d, wt, 'local');
+  // the fixture keeps its task files in tasks/ (a config edit the run carried into its worktree) and has an adapter stub that would win over the built-in
+  // adapter: the local commit gives the main tree the first and drops the second, as a project that works this way has them
+  wf(`${d}/${CFG}`, tasksInTasks(read(d, CFG)));
+  gOk(d, 'add', CFG);
+  wf(`${d}/local-only.txt`, 'a commit only the local main has\n');
+  gOk(d, 'add', 'local-only.txt');
+  gOk(d, 'rm', '-q', '-f', STUB);
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'local only');
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
+  const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
+  assert.match(out, /was not fast-forwarded/, 'the fixture did not stop the fast-forward');
+  assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
+  assertMergedBlock(d, 'main not fast-forwarded');
+});
+
+test('A221: a dirty main working tree (a tracked file the user edited) still gets the MERGED block, in the task file it has', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const { lo } = wtDeliver(d, wt, 'local');
+  const tracked = CFG;
+  wf(`${d}/${tracked}`, `${tasksInTasks(read(d, tracked))}\n# an edit of the user\n`);
+  rmSync(`${d}/${STUB}`, { force: true });
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
+  const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
+  assert.match(out, /not on a clean main/, 'the fixture did not stop the fast-forward');
+  assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
+  assertMergedBlock(d, 'main dirty');
+  assert.match(read(d, tracked), /an edit of the user/, 'the user\'s edit was touched');
+});
+
 /** @param {string} d */
 function requireNames(d) { return existsSync(`${d}/.agents/runs/LC/approvals`) ? readdir(`${d}/.agents/runs/LC/approvals`) : []; }
 import { readdirSync as readdir } from 'node:fs';
