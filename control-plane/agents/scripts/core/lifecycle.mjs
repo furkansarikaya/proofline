@@ -302,6 +302,6 @@ export function validateControlArtifacts(ctx, id) {
   for (const p of files) if (p !== '' && !knownControlArtifact(ctx, id, p)) bad += `${p}\n`;
   for (const p of links) if (p !== '') bad += `${p}\n`;
   if (bad === '') return true;
-  ctx.err(`unexpected run artifact:\n${bad}the lead removes a stray regular file (never a known artifact) with: agent.sh discard-stray ${id} <top-level-file-name> (A119)\n`);
+  ctx.err(`unexpected run artifact:\n${bad}the lead removes a stray regular file (never a known artifact) with: agent.sh discard-stray ${id} <top-level-file-name | evidence/file-name> (A119, A219)\n`);
   return false;
 }

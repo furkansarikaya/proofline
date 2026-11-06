@@ -2,7 +2,7 @@
 // Stage 4, package 4A: the run lifecycle commands that were agent.sh arms: baseline, discard-stray, branch, tier, classify, verify-assumptions,
 // delivery-check, db-check, ask, status-block, tree-inspect, tree-accept, task-source-status, task-source-relocate. File formats, output texts and
 // exit codes are those of agent.sh 0.0.46.
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { bytes } from '../config.mjs';
@@ -103,6 +103,31 @@ const DS_PROTECTED = 'task.md plan.md run.yaml run.yaml.tmp completion_report.md
 /** `[ -L ]`, `[ -f ]` and the inode, without following a link. @param {string} p */
 function inode(p) { try { return String(statSync(p).ino); } catch { return ''; } }
 
+/**
+ * A210/A219: is the run-relative path `rel` cited by a record? Structured records only (the run state, the ledger without its own discard rows,
+ * the lead's evidence and verdict files, the gate, approval, waiver, worker-evidence and decision folders); the free text of reports, results
+ * and dispatch is not read, because an explorer's report names its own stray. Unreadable means cited (refuse when in doubt).
+ * @param {string} dir @param {string} id @param {string} rel
+ */
+function citedByRecord(dir, id, rel) {
+  // case-insensitive (the file system folds case on macOS and Windows); the run-relative spelling, the project-relative `.agents/runs/<ID>/` spelling
+  // and an absolute path ending in it all name the file; any other prefix makes it a different path (`other/evidence/x`, another run's folder)
+  const esc = (/** @type {string} */ x) => x.replace(/[.]/g, '\\.');
+  const re = new RegExp(`(?:(?<![A-Za-z0-9._/-])(?:\\.agents/runs/${esc(id)}/)?|/\\.agents/runs/${esc(id)}/)${esc(rel)}(?![A-Za-z0-9._-])`, 'i');
+  /** @type {string[]} */ const files = ['RUN.yaml', 'LEDGER.log', 'EVIDENCE.md', 'VERIFY.md', 'QA_REPORT.md', 'COMPLETION_REPORT.md'].map((f) => `${dir}/${f}`);
+  for (const sub of ['gates', 'approvals', 'waivers', 'worker-evidence', 'decisions']) {
+    let names = [];
+    try { names = readdirSync(`${dir}/${sub}`); } catch { /* absent */ }
+    for (const n of names) files.push(`${dir}/${sub}/${n}`);
+  }
+  for (const f of files) {
+    let text;
+    try { text = readFileSync(f, 'latin1'); } catch (e) { if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT' || /** @type {NodeJS.ErrnoException} */ (e).code === 'ENOTDIR' || /** @type {NodeJS.ErrnoException} */ (e).code === 'EISDIR') continue; return true; }
+    for (const line of text.split('\n')) if (!/ event=discard-stray /.test(line) && re.test(line)) return true;
+  }
+  return false;
+}
+
 /** @param {Context} ctx @param {string[]} args */
 function discardStray(ctx, args) {
   ctx.fpMode = 'refresh';
@@ -113,24 +138,42 @@ function discardStray(ctx, args) {
   requireOpenRun(ctx, id);
   const d0 = runDir(ctx, id);
   if (sectionValue(ctx, d0, 'completion_report', 'published') === 'true') fail('discard-stray refused: the run is sealed (completion report published)');
-  if (rel === '') fail('usage: agent.sh discard-stray <ID> <file-name-in-the-run-directory>');
-  if (rel.includes('/') || rel.startsWith('.') || rel.startsWith('-')) fail(`discard-stray refused: '${rel}' must be a single top-level file name of the run directory (strays in subdirectories are not handled)`);
-  if (/[^A-Za-z0-9._-]/.test(rel)) fail(`discard-stray refused: '${rel}' may contain only A-Z a-z 0-9 . _ -`);
-  const lc = rel.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  if (rel === '') fail('usage: agent.sh discard-stray <ID> <file-name-in-the-run-directory | evidence/file-name>');
+  // A219: exactly one extra level is accepted, and only the folder `evidence/` (a name no registry entry knows, so nothing there is a record)
+  const inEvidence = rel.startsWith('evidence/');
+  const name = inEvidence ? rel.slice('evidence/'.length) : rel;
+  if (name.includes('/') || name.startsWith('.') || name.startsWith('-')) fail(`discard-stray refused: '${rel}' must be a single top-level file name of the run directory, or evidence/<file-name> (strays elsewhere in subdirectories are not handled)`);
+  if (name === '' || /[^A-Za-z0-9._-]/.test(name)) fail(`discard-stray refused: '${rel}' may contain only A-Z a-z 0-9 . _ - in the file name`);
+  const lc = name.replace(/[A-Z]/g, (c) => c.toLowerCase());
   let dir;
   try { dir = realpathSync(d0); } catch { return fail('discard-stray refused: run directory does not resolve'); }
-  const file = `${dir}/${rel}`;
+  if (inEvidence) {
+    let ed = false;
+    try { const st = lstatSync(`${dir}/evidence`); ed = st.isDirectory() && !st.isSymbolicLink(); } catch { /* absent */ }
+    if (!ed) fail("discard-stray refused: 'evidence' is not a plain folder of the run directory");
+    let real = '';
+    try { real = realpathSync(`${dir}/evidence`); } catch { /* checked below */ }
+    if (real !== `${dir}/evidence`) fail("discard-stray refused: 'evidence' resolves outside the run directory");
+  }
+  const file = inEvidence ? `${dir}/evidence/${name}` : `${dir}/${name}`;
   let link = false;
   try { link = lstatSync(file).isSymbolicLink(); } catch { /* absent */ }
   if (link) fail(`discard-stray refused: '${rel}' is a symlink`);
   const ino = inode(file);
-  for (const p of DS_PROTECTED) {
-    const pino = inode(`${dir}/${p}`);
-    if (lc === p || (ino !== '' && ino === pino)) fail(`discard-stray refused: '${rel}' is a known run artifact`);
+  if (!inEvidence && DS_PROTECTED.includes(lc)) fail(`discard-stray refused: '${rel}' is a known run artifact`);
+  // the protected inodes come from the real directory entries (PLAN.md, not plan.md): a lookup by the lower-case name finds nothing on a
+  // case-sensitive file system, and a hard-link alias of PLAN.md would then be deleted as a stray
+  if (ino !== '') {
+    let entries = [];
+    try { entries = readdirSync(dir); } catch { fail('discard-stray refused: run directory cannot be read'); }
+    for (const e of entries) {
+      if (DS_PROTECTED.includes(e.replace(/[A-Z]/g, (c) => c.toLowerCase())) && inode(`${dir}/${e}`) === ino) fail(`discard-stray refused: '${rel}' is a known run artifact`);
+    }
   }
   let regular = false;
   try { regular = statSync(file).isFile(); } catch { /* absent */ }
   if (!regular) fail(`discard-stray refused: '${rel}' is not a regular file in the run directory`);
+  if (inEvidence && citedByRecord(dir, id, rel)) fail(`discard-stray refused: '${rel}' is cited by a run record (RUN.yaml, the ledger, EVIDENCE.md, a gate, approval, waiver or worker-evidence record): it is evidence, not a stray`);
   const sha = hashFile(file);
   rmSync(file, { force: true });
   if (gatesEnforced(ctx, d0)) { const s = sectionValue(ctx, d0, 'handoff', 'state'); led(ctx, id, 'discard-stray', s, s, `path=${rel} sha256=${sha}`); }

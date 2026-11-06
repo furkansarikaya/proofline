@@ -11,7 +11,7 @@ export const USAGE_LINES = [
   "  window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)",
   "  status-block <ID> [EVENT [PR]]   (lead, A202: rebuild the task's one status block from the records and place it through the task adapter; best effort, never fails a run)",
   "  worktree-add <ID> | worktree-path <ID> | worktree-remove <ID> [--force]   (A169, lead, main working tree: one worktree per run under .agents/local/worktrees/<ID>; night mode uses it for every task)",
-  "  open-runs | discard-stray <ID> <FILE-NAME>   (lead: remove one stray, non-artifact top-level regular file of the run directory)",
+  "  open-runs | discard-stray <ID> <FILE-NAME|evidence/FILE-NAME>   (lead: remove one stray, non-artifact regular file of the run directory or of its evidence/ folder, A219)",
   "  submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]",
   "  record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>",
   "  decide <ID> <ROLE> --dry|--agent-path [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>",
