@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix (A221, issue #172): the last (MERGED) status block of a merged task is put into the task file of the main working tree wherever that file is, also when the merge could not be fast-forwarded into the main tree (a dirty tree, a local commit origin lacks); before, the block was dropped with the removed worktree and the real-session smoke rows "status block (T-2)/(T-3)" failed with "no task file of T-x holds a status block".
+
 ## 0.0.51 — 2026-11-03
 
 - Node migration, stage 6, package 6B (A216, issue #171): the task adapters `markdown`, `github`, `jira`, `linear` (and `slug`) and `proofline merge` run in Node (`core/adapters/`, `core/merge.mjs`; `task-integrations/*.sh` and `bin/lib/merge.sh` logic are deleted, the launcher stays until stage 9). The skills and the remaining shell call `proofline-core.mjs cli task-adapter <adapter> <op> ...`, `cli slug` and `cli merge`; a project script `.agents/task-integrations/<name>.sh` still runs as a child and wins over a built-in of the same name. `jira` and `linear` use `fetch` (credential only in a header, status-only errors, https required, 30 s bound; no `curl` or `jq`); `github` reads JSON in process. `proofline merge` keeps A136 (merge only when every check is green on the head being merged); `PROOFLINE_SELFTEST` is no longer read. Not ported: Windows `.cmd` shims, proxy variables for `fetch`. A platform tool and the merge-proof `git` start with an allowlisted environment (A215/A216). The github adapter no longer honours the caller's `GH_REPO`, `GH_HOST` or `gh` configuration directory (`GH_HOST` for a private host comes from `git.platform_host`); a project that needs another repository uses its own adapter script.

@@ -525,11 +525,15 @@ function sbFinalPrepare(ctx, id, pr = '') {
   try { return { path: p, adapter, body: statusBlockBody(ctx, id, 'merged', pr) }; } catch { return null; }
 }
 
-/** `sb_final_put ID` after the run is gone. @param {Context} ctx @param {string} id @param {{ path: string, adapter: string, body: string } | null} fin */
+/**
+ * `sb_final_put ID` after the run is gone: the last (MERGED) block goes into the task file of the main working tree, wherever that file is NOW. The run's
+ * `task_source.path` names the file as the delivery moved it (`done/`), but the main tree holds that path only when the merge could be fast-forwarded into it;
+ * when it could not (a dirty tree, a local commit origin lacks, another branch) the file is still where it was, and the adapter finds it by the task id.
+ * Only a run whose task has no file at all (no `task_source.path`) has nothing to put (A221).
+ * @param {Context} ctx @param {string} id @param {{ path: string, adapter: string, body: string } | null} fin
+ */
 function sbFinalPut(ctx, id, fin) {
-  if (fin === null) return;
-  const main = ctx.sharedMain();
-  if (main === ctx.root || fin.path === '' || !existsSync(`${main}/${fin.path}`)) return;
+  if (fin === null || fin.path === '') return;
   sbMainPut(ctx, fin.adapter, id, fin.body);
 }
 
