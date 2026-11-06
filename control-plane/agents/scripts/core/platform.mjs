@@ -9,7 +9,7 @@
 //   env      GH_HOST / GITLAB_HOST for a private host
 //   warn     one warning line when git.platform is set without git.platform_host for an origin that is not a known host of it
 //   ciFailed the failed check of a pull request's head (A186)
-import { accessSync, constants, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import path from 'node:path';
 import { git } from './git.mjs';
@@ -342,7 +342,8 @@ export function noProxyValue(v) {
  * A certificate bundle (A220): an absolute path of an existing regular file (a symbolic link is followed) that is neither named nor resolved into a
  * folder a model can write: the root and the working directory of the control plane, a temporary folder, the working tree of the working directory and of
  * the root (found from the nearest `.git`), the main checkout of a linked worktree, and any `.agents` folder (A220 security round 1: `proofline merge` has the
- * install folder as its root, so the project itself must be found from the working directory). The file and every folder above its real path must be owned by
+ * install folder as its root, so the project itself must be found from the working directory), and, decided from the file alone (round 2), any file with a
+ * `.git` entry or an `.agents` folder in ANY folder above it, up to the root. The file and every folder above its real path must be owned by
  * root or this user and not writable by a group or by everybody. A relative path, a missing file, a folder or a control character is not accepted.
  * @param {Context} ctx @param {string} v
  */
@@ -355,6 +356,12 @@ export function caFileValue(ctx, v) {
     for (const f of [v, real]) {
       if (refusedLocation(ctx, f) || extra.some((d) => insideFolder(f, d))) return false;
       if (f.split('/').includes('.agents')) return false; // the control folder of any project, whatever the working directory is
+      // decided from the FILE, not from where the control plane runs (`proofline merge -R OWNER/REPO` runs from any directory): an ancestor, however far up, that
+      // holds a `.git` entry (a repository, a nested one, a linked worktree) or an `.agents` folder makes the file a file of a project
+      for (let cur = path.dirname(f); ; cur = path.dirname(cur)) {
+        if (existsSync(`${cur}/.git`) || existsSync(`${cur}/.agents`)) return false;
+        if (cur === '/' || cur === path.dirname(cur)) break;
+      }
     }
     // the file and every folder above it: owned by root or by this user and not writable by a group or by everybody (a file a model can write is not a trust anchor)
     const me = typeof process.getuid === 'function' ? process.getuid() : -1;

@@ -4,8 +4,8 @@
 // GitHub Enterprise host comes from git.platform_host of the config and never from the caller's GH_HOST, in check delivery, `merge` and the github adapter.
 // The merge proof stays un-steerable (A136): nothing a model can name inline or export makes the tool talk to another server.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync as wf } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { scanCommand } from '../../adapters/claude/hooks/command-scan.mjs';
@@ -179,16 +179,16 @@ test('SECURITY (A220): the hook denies a proxy or certificate variable named in 
   };
   for (const c of ['HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'SSL_CERT_FILE=/p/ca.pem HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'env NODE_EXTRA_CA_CERTS=/p/ca.pem proofline merge 7',
     'export SSL_CERT_FILE=/p/ca.pem; proofline merge 7', 'export https_proxy=http://127.0.0.1:9; proofline merge 7', 'no_proxy=x HTTP_PROXY=http://127.0.0.1:9 sh .agents/scripts/agent.sh deliver-merged T', 'env HTTPS_PROXY=http://127.0.0.1:9 gh pr view 7',
-    'PATH=/tmp/fake:$PATH proofline merge 7']) {
+    'PATH=/tmp/fake:$PATH proofline merge 7', 'HTTPS_PROXY+=http://127.0.0.1:9 SSL_CERT_FILE+=/p/ca.pem proofline merge 7 -R o/r', 'PATH+=:/tmp/fake proofline merge 7']) {
     const r = await verdict(c);
     assert.ok(r !== null, `not denied: ${c}`);
     assert.ok(r.includes('proofline merge'), c);
   }
-  for (const c of ['proofline merge 7', 'HTTPS_PROXY=http://proxy.corp:3128 curl -s https://example.com', 'export HTTPS_PROXY=http://proxy.corp:3128', 'SSL_CERT_FILE=/etc/ssl/ca.pem git fetch origin main', 'GH_HOST=evil.example ls']) {
+  for (const c of ['proofline merge 7', 'HTTPS_PROXY=http://proxy.corp:3128 curl -s https://example.com', 'export HTTPS_PROXY=http://proxy.corp:3128', 'SSL_CERT_FILE=/etc/ssl/ca.pem git fetch origin main', 'GH_HOST=evil.example ls', 'NO_PROXY=x npm run lint-merge', 'export no_proxy=localhost; git merge-base main HEAD', 'HTTPS_PROXY=http://p:1 git fetch origin; git log --grep=merge']) {
     assert.equal(await verdict(c), null, c);
   }
-  // accepted limits (tripwires, not a boundary; .out-of-scope/small-rejected-ideas.md): a wrapper script, git config http.* and declare -x PATH= are not seen
-  for (const c of ['sh ./wrapper.sh', 'git config http.proxy http://127.0.0.1:9', 'declare -x PATH=/p/fake:$PATH; proofline merge 7']) assert.equal(await verdict(c), null, c);
+  // accepted limits (tripwires, not a boundary; .out-of-scope/small-rejected-ideas.md): a wrapper script, git config http.*, declare -x / typeset -x / readonly are not seen
+  for (const c of ['sh ./wrapper.sh', 'git config http.proxy http://127.0.0.1:9', 'declare -x PATH=/p/fake:$PATH; proofline merge 7', 'declare -x SSL_CERT_FILE=/p/ca.pem; proofline merge 7', 'typeset -x HTTPS_PROXY=http://127.0.0.1:9; proofline merge 7', 'readonly SSL_CERT_FILE=/p/ca.pem; export SSL_CERT_FILE; proofline merge 7']) assert.equal(await verdict(c), null, c);
 });
 
 /** A project inside the checkout (so outside every temporary folder) with its own .git, the install folder elsewhere, and files of the project the model can write. */
@@ -222,18 +222,6 @@ test('SECURITY-1 (A220): with the control plane rooted in the install folder, a 
   wf(path.join(base, 'elsewhere/.agents/ca.pem'), 'x');
   const unrelated = { ...ctxOf('/etc'), root: '/etc' };
   assert.equal(caFileValue(unrelated, path.join(base, 'elsewhere/.agents/ca.pem')), false, '.agents');
-  // a certificate that is group or world writable, or sits in such a folder, is refused; a private file of this user and a system file pass
-  const ok = path.join(base, 'elsewhere/ok.pem');
-  wf(ok, 'x');
-  chmodSync(ok, 0o666);
-  assert.equal(caFileValue(unrelated, ok), false, 'a world-writable file');
-  chmodSync(ok, 0o664);
-  assert.equal(caFileValue(unrelated, ok), false, 'a group-writable file');
-  chmodSync(ok, 0o644);
-  chmodSync(path.join(base, 'elsewhere'), 0o775);
-  assert.equal(caFileValue(unrelated, ok), false, 'a group-writable folder above it');
-  chmodSync(path.join(base, 'elsewhere'), 0o755);
-  assert.equal(caFileValue(unrelated, ok), true, 'a private file of this user in a private folder passes');
   assert.equal(caFileValue({ ...ctxOf(install), root: install }, CA), true, 'a system file passes');
 });
 
@@ -257,9 +245,69 @@ test('SECURITY-1 (A220): proofline merge started with a project certificate and 
   };
   for (const f of ['other/ca.pem', '.agents/local/scratch/ca.pem']) {
     const seen = go(path.join(proj, f));
-    assert.ok(seen.length > 0, 'gh was not run');
+    assert.ok(seen.length > 0, "gh was not run");
     assert.ok(!/^SSL_CERT_FILE=/m.test(seen), `${f}: the project certificate reached gh: ${seen}`);
     assert.match(seen, /^HTTPS_PROXY=http:\/\/127\.0\.0\.1:9$/m, 'the proxy shape is allowed on its own (it cannot forge a TLS answer without the certificate)');
   }
   assert.match(go(CA), /^SSL_CERT_FILE=\/etc\/passwd$/m, 'a system file still passes');
+});
+
+test('SECURITY-1 round 2 (A220): the certificate is judged from the FILE up to the filesystem root, whatever the working directory is: a repository, a nested one, a linked worktree or an .agents folder above it refuse it; a plain folder passes', (t) => {
+  // outside every temporary folder and outside the checkout: a folder of the home directory (skipped when the home cannot be used)
+  let base = '';
+  try { base = mkdtempSync(path.join(homedir(), '.pf-corpnet-')); } catch { t.skip('the home directory is not writable'); return; }
+  try {
+    const neutral = ctxOf('/usr'); // proofline merge -R OWNER/REPO runs from any directory
+    const plain = path.join(base, 'plain');
+    mkdirSync(plain);
+    wf(path.join(plain, 'ca.pem'), 'x');
+    chmodSync(plain, 0o755); chmodSync(path.join(plain, 'ca.pem'), 0o644);
+    // where the home directory is itself in a repository, holds an .agents folder or is group-writable, no file under it can pass: the positive checks are then skipped
+    const usable = caFileValue(neutral, path.join(plain, 'ca.pem'));
+    chmodSync(path.join(plain, 'ca.pem'), 0o600);
+    if (usable) assert.equal(caFileValue(neutral, path.join(plain, 'ca.pem')), true, 'a private file in a plain folder outside any repository passes (0600)');
+    // a project: a repository, a nested repository, a linked worktree, an .agents folder
+    const proj = path.join(base, 'proj');
+    mkdirSync(path.join(proj, 'sub'), { recursive: true });
+    gOk(proj, 'init', '-q', '-b', 'main');
+    gOk(proj, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
+    gOk(path.join(proj, 'sub'), 'init', '-q', '-b', 'main');
+    gOk(proj, 'worktree', 'add', '-q', path.join(base, 'wt'), '-b', 'w');
+    mkdirSync(path.join(proj, '.agents/local/scratch'), { recursive: true });
+    const files = ['README.md', 'sub/ca.pem', '.agents/local/scratch/ca.pem'];
+    for (const f of files) wf(path.join(proj, f), 'x');
+    wf(path.join(base, 'wt/ca.pem'), 'x');
+    for (const f of [...files.map((x) => path.join(proj, x)), path.join(base, 'wt/ca.pem')]) {
+      assert.equal(caFileValue(neutral, f), false, `from /usr: ${f}`);
+      assert.equal(caFileValue({ ...ctxOf('/'), root: '/usr/local' }, f), false, `from /: ${f}`);
+      assert.equal(caFileValue({ ...ctxOf(path.join(base, 'plain')), root: path.join(base, 'plain') }, f), false, `from a plain folder: ${f}`);
+    }
+    // a link from a plain folder to a project file resolves into the project
+    symlinkSync(path.join(proj, 'README.md'), path.join(plain, 'link.pem'));
+    assert.equal(caFileValue(neutral, path.join(plain, 'link.pem')), false, 'a link into a project');
+    // owner and mode: a group- or world-writable file or folder above it is refused
+    const ok = path.join(plain, 'ca.pem');
+    chmodSync(ok, 0o666);
+    assert.equal(caFileValue(neutral, ok), false, 'a world-writable file');
+    chmodSync(ok, 0o664);
+    assert.equal(caFileValue(neutral, ok), false, 'a group-writable file');
+    chmodSync(ok, 0o644);
+    chmodSync(plain, 0o775);
+    assert.equal(caFileValue(neutral, ok), false, 'a group-writable folder above it');
+    chmodSync(plain, 0o755);
+    if (usable) assert.equal(caFileValue(neutral, ok), true, 'a file of this user in a private folder passes again (0644)');
+    // end to end: proofline merge from a neutral directory with a project certificate and a loopback proxy hands gh no certificate
+    const bin = path.join(base, 'ghbin');
+    const dump = path.join(base, 'env.txt');
+    mkdirSync(bin);
+    const sha = '1'.repeat(40);
+    const view = JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, headRefOid: sha, statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }] });
+    wf(path.join(bin, 'gh'), `#!/bin/sh\nenv >> "${dump}"\ncase "$*" in\n  *"pr merge"*) exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'main' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) echo '${view}' ;;\n  *"--json headRefOid") echo '{"headRefOid":"${sha}"}' ;;\nesac\nexit 0\n`);
+    chmodSync(path.join(bin, 'gh'), 0o755);
+    wf(dump, '');
+    const mr = run('/var', process.execPath, [path.join(scripts, 'proofline-core.mjs'), 'cli', 'merge', '7', '-R', 'acme/app'], { PATH: `${bin}:${process.env.PATH}`, HTTPS_PROXY: 'http://127.0.0.1:9', SSL_CERT_FILE: path.join(proj, 'README.md') });
+    const seen = readFileSync(dump, 'utf8');
+    assert.ok(seen.length > 0, `gh was not run: ${mr.status} ${mr.text} | ${mr.err}`);
+    assert.ok(!/^SSL_CERT_FILE=/m.test(seen), `the project file reached gh: ${seen}`);
+  } finally { rmSync(base, { recursive: true, force: true }); }
 });

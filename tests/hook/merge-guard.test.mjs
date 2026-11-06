@@ -55,6 +55,7 @@ const groups = [
     'env GIT_DIR=$PWD/.git git merge x', 'GIT_WORK_TREE=. git merge x', 'env -C . git merge x', 'cd - && git merge x', 'cd $B && git merge x', `cd ${other} && git merge x`, `cd ${other} | cat; git merge x`,
     'PATH=/tmp/fake:$PATH gh pr view 7', 'export PATH=/tmp/x:$PATH; proofline merge 7', 'env PATH=/tmp/x proofline merge 7',
     // A220: a proxy or certificate variable in the command that runs the merge proof or a platform tool (a tripwire, not a boundary)
+    'HTTPS_PROXY+=http://127.0.0.1:9 proofline merge 7', 'SSL_CERT_FILE+=/p/ca.pem proofline merge 7', 'PATH+=:/tmp/fake proofline merge 7', 'cd /usr && HTTPS_PROXY+=x SSL_CERT_FILE+=/p/ca.pem proofline merge 7 -R o/r',
     'HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'SSL_CERT_FILE=/p/ca.pem HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'env SSL_CERT_FILE=/p/ca.pem proofline merge 7',
     'export NODE_EXTRA_CA_CERTS=/p/ca.pem; proofline merge 7', 'export https_proxy=http://127.0.0.1:9; proofline merge 7', 'http_proxy=http://127.0.0.1:9 NO_PROXY=x proofline merge 7',
     'HTTPS_PROXY=http://127.0.0.1:9 sh .agents/scripts/agent.sh deliver-merged T', 'env HTTPS_PROXY=http://127.0.0.1:9 gh pr view 7', 'no_proxy=x glab mr view 7', 'PROOFLINE_SELFTEST=1 proofline merge 7',
@@ -74,7 +75,7 @@ const groups = [
     'proofline merge 7', 'sh bin/proofline merge 7 --squash', 'git push -n origin main', 'git push --dry-run', 'git push -u origin feat/x', 'git push origin feat/x', 'git push', 'git merge main',
     'git merge --abort', 'git status', 'git push -n -o -n origin main', 'git push -o ci.skip origin feat/x', 'git push origin feat/x -o x', 'git push --push-option=x origin feat/x',
     'gh pr create --title t --body "$(cat f)"', 'gh pr view $N --json state', 'gh api repos/o/r/pulls/7/comments', 'curl -s https://example.com', 'curl -s https://api.github.com/repos/o/r/pulls/7',
-    'gh api repos/$O/$R/pulls/7', 'cd . && git push origin feat/x', 'echo hello | sh', 'python3 -c "print(1)"', 'PATH=/usr/bin ls', 'export FOO=1', 'HTTPS_PROXY=http://proxy.corp:3128 curl -s https://example.com', 'export HTTPS_PROXY=http://proxy.corp:3128', 'NO_PROXY=x npm install', 'SSL_CERT_FILE=/etc/ssl/ca.pem git fetch origin main',
+    'gh api repos/$O/$R/pulls/7', 'cd . && git push origin feat/x', 'echo hello | sh', 'python3 -c "print(1)"', 'PATH=/usr/bin ls', 'export FOO=1', 'HTTPS_PROXY=http://proxy.corp:3128 curl -s https://example.com', 'export HTTPS_PROXY=http://proxy.corp:3128', 'NO_PROXY=x npm install', 'NO_PROXY=x npm run lint-merge', 'export no_proxy=localhost; git merge-base main HEAD', 'HTTPS_PROXY=http://p:1 git fetch origin; git log --grep=merge', 'HTTPS_PROXY+=x npm test', 'PATH+=:/x ls', 'SSL_CERT_FILE=/etc/ssl/ca.pem git fetch origin main',
     'gh pr view 7 --json statusCheckRollup', 'gh pr checks 7', 'gh pr create --title t --body b', 'gh pr list', 'gh api repos/o/r/pulls/7', 'gh api repos/o/r/commits/abc/check-runs',
     'git commit -m "docs: gh pr merge goes through the wrapper"', 'echo gh pr merge 7', 'grep -rn "pr merge" docs', 'git log --oneline', 'git merge-base main HEAD', 'git fetch origin main',
     'git pull --ff-only origin main',
