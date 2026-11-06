@@ -133,7 +133,7 @@ function enterpriseProject(/** @type {string} */ tag) {
   const sha = '1'.repeat(40);
   const view = JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, headRefOid: sha, statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }] });
   const state = JSON.stringify({ state: 'OPEN', isDraft: false, headRefOid: sha, headRefName: 'proofline/LC', baseRefName: 'main', headRepositoryOwner: { login: 'acme' } });
-  wf(`${bin}/gh`, `#!/bin/sh\nenv >> "${dump}"\ncase "$*" in\n  *"pr merge"*) exit 0 ;;\n  *"pr checks"*) echo "no required checks reported" >&2; exit 1 ;;\n  *statusCheckRollup*) echo '${view}' ;;\n  *"--json headRefOid") echo '{"headRefOid":"${sha}"}' ;;\n  *"pr view"*) echo '${state}' ;;\n  --version) echo gh ;;\n  auth*) exit 0 ;;\n  issue*) echo '{"title":"t","url":"u","body":"","labels":[]}' ;;\nesac\nexit 0\n`);
+  wf(`${bin}/gh`, `#!/bin/sh\nenv >> "${dump}"\ncase "$*" in\n  *"pr merge"*) exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'main' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) echo '${view}' ;;\n  *"--json headRefOid") echo '{"headRefOid":"${sha}"}' ;;\n  *"pr view"*) echo '${state}' ;;\n  --version) echo gh ;;\n  auth*) exit 0 ;;\n  issue*) echo '{"title":"t","url":"u","body":"","labels":[]}' ;;\nesac\nexit 0\n`);
   chmodSync(`${bin}/gh`, 0o755);
   run(d, 'git', ['remote', 'remove', 'origin']);
   run(d, 'git', ['remote', 'add', 'origin', 'https://git.corp.example/acme/app.git']);
@@ -170,20 +170,96 @@ test('check delivery (pr-state), `merge` and the github adapter take GH_HOST fro
   checkHost(t.seen(), 'github adapter');
 });
 
-test('SECURITY: the hook does not see a proxy or certificate variable set inline before `proofline merge` (A136, accepted limit); cleanToolEnv is what keeps it harmless', async () => {
+test('SECURITY (A220): the hook denies a proxy or certificate variable named in the command that runs the merge proof, like PATH=; a plain command and an unrelated use pass; the other limits stay open', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'pf-corp-hook-'));
   gOk(dir, 'init', '-q', '-b', 'feat/x');
   const verdict = async (/** @type {string} */ cmd) => {
     const ctx = /** @type {any} */ ({ ev: 'pretool', cwd: dir, root: dir, env: { ...process.env }, act: '', installed: false, agent: async () => ({ status: 0, stdout: '', stderr: '' }), agents: { proc: async () => null } });
     try { await mergeGuard(ctx, cmd, scanCommand(cmd)); return null; } catch (e) { if (e instanceof Deny) return e.reason; throw e; }
   };
-  // not denied: the hook reads command text and is a tripwire, not a boundary (.out-of-scope/small-rejected-ideas.md)
-  for (const c of ['HTTPS_PROXY=http://evil:1 proofline merge 7', 'SSL_CERT_FILE=/tmp/evil.pem proofline merge 7', 'export NODE_EXTRA_CA_CERTS=/tmp/evil.pem; proofline merge 7', 'GH_HOST=evil.example proofline merge 7']) {
+  for (const c of ['HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'SSL_CERT_FILE=/p/ca.pem HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'env NODE_EXTRA_CA_CERTS=/p/ca.pem proofline merge 7',
+    'export SSL_CERT_FILE=/p/ca.pem; proofline merge 7', 'export https_proxy=http://127.0.0.1:9; proofline merge 7', 'no_proxy=x HTTP_PROXY=http://127.0.0.1:9 sh .agents/scripts/agent.sh deliver-merged T', 'env HTTPS_PROXY=http://127.0.0.1:9 gh pr view 7',
+    'PATH=/tmp/fake:$PATH proofline merge 7']) {
+    const r = await verdict(c);
+    assert.ok(r !== null, `not denied: ${c}`);
+    assert.ok(r.includes('proofline merge'), c);
+  }
+  for (const c of ['proofline merge 7', 'HTTPS_PROXY=http://proxy.corp:3128 curl -s https://example.com', 'export HTTPS_PROXY=http://proxy.corp:3128', 'SSL_CERT_FILE=/etc/ssl/ca.pem git fetch origin main', 'GH_HOST=evil.example ls']) {
     assert.equal(await verdict(c), null, c);
   }
-  // denied today: a PATH that could substitute a fake gh
-  assert.ok(await verdict('PATH=/tmp/fake:$PATH proofline merge 7'));
-  // so the values that matter are judged where the tool starts: a certificate in a temporary folder and a malformed proxy do not reach gh
-  const e = cleanToolEnv(ctxOf(work, { HTTPS_PROXY: 'http://evil:1/;x', SSL_CERT_FILE: '/tmp/evil.pem', NODE_EXTRA_CA_CERTS: path.join(work, 'evil.pem'), GH_HOST: 'evil.example' }));
-  assert.deepEqual(Object.keys(e).filter((k) => /PROXY|CERT|CA_|HOST/.test(k)), []);
+  // accepted limits (tripwires, not a boundary; .out-of-scope/small-rejected-ideas.md): a wrapper script, git config http.* and declare -x PATH= are not seen
+  for (const c of ['sh ./wrapper.sh', 'git config http.proxy http://127.0.0.1:9', 'declare -x PATH=/p/fake:$PATH; proofline merge 7']) assert.equal(await verdict(c), null, c);
+});
+
+/** A project inside the checkout (so outside every temporary folder) with its own .git, the install folder elsewhere, and files of the project the model can write. */
+function projectOutsideTmp(/** @type {string} */ tag) {
+  const base = path.join(toolRoot, `${tag}-${process.pid}`);
+  const proj = path.join(base, 'proj');
+  mkdirSync(path.join(proj, '.git'), { recursive: true });
+  mkdirSync(path.join(proj, 'docs'), { recursive: true });
+  mkdirSync(path.join(proj, 'other'), { recursive: true });
+  mkdirSync(path.join(proj, '.agents/local/scratch'), { recursive: true });
+  mkdirSync(path.join(base, 'install'), { recursive: true });
+  for (const f of ['other/ca.pem', '.agents/local/scratch/ca.pem', 'docs/ca.pem']) wf(path.join(proj, f), 'x');
+  return { base, proj, install: path.join(base, 'install') };
+}
+
+test('SECURITY-1 (A220): with the control plane rooted in the install folder, a certificate the model wrote anywhere in the PROJECT (not only the working directory) is refused', () => {
+  const { base, proj, install } = projectOutsideTmp('corp-ca');
+  // proofline merge: root is the install folder, the working directory a subfolder of the project
+  const ctx = { ...ctxOf(path.join(proj, 'docs')), root: install };
+  for (const f of ['other/ca.pem', '.agents/local/scratch/ca.pem', 'docs/ca.pem']) assert.equal(caFileValue(ctx, path.join(proj, f)), false, f);
+  // a linked worktree: the main checkout it points into is refused too
+  const main = path.join(base, 'main');
+  mkdirSync(path.join(main, '.git/worktrees/w'), { recursive: true });
+  wf(path.join(main, 'ca.pem'), 'x');
+  const wt = path.join(base, 'wt');
+  mkdirSync(wt, { recursive: true });
+  wf(path.join(wt, '.git'), `gitdir: ${path.join(main, '.git/worktrees/w')}\n`);
+  assert.equal(caFileValue({ ...ctxOf(wt), root: install }, path.join(main, 'ca.pem')), false, 'the main checkout of a worktree');
+  // a .agents folder anywhere
+  mkdirSync(path.join(base, 'elsewhere/.agents'), { recursive: true });
+  wf(path.join(base, 'elsewhere/.agents/ca.pem'), 'x');
+  const unrelated = { ...ctxOf('/etc'), root: '/etc' };
+  assert.equal(caFileValue(unrelated, path.join(base, 'elsewhere/.agents/ca.pem')), false, '.agents');
+  // a certificate that is group or world writable, or sits in such a folder, is refused; a private file of this user and a system file pass
+  const ok = path.join(base, 'elsewhere/ok.pem');
+  wf(ok, 'x');
+  chmodSync(ok, 0o666);
+  assert.equal(caFileValue(unrelated, ok), false, 'a world-writable file');
+  chmodSync(ok, 0o664);
+  assert.equal(caFileValue(unrelated, ok), false, 'a group-writable file');
+  chmodSync(ok, 0o644);
+  chmodSync(path.join(base, 'elsewhere'), 0o775);
+  assert.equal(caFileValue(unrelated, ok), false, 'a group-writable folder above it');
+  chmodSync(path.join(base, 'elsewhere'), 0o755);
+  assert.equal(caFileValue(unrelated, ok), true, 'a private file of this user in a private folder passes');
+  assert.equal(caFileValue({ ...ctxOf(install), root: install }, CA), true, 'a system file passes');
+});
+
+test('SECURITY-1 (A220): proofline merge started with a project certificate and a loopback proxy hands gh no certificate (the forged green pull request needs both)', () => {
+  const { proj } = projectOutsideTmp('corp-merge-ca');
+  run(proj, 'git', ['init', '-q', '-b', 'main']);
+  run(proj, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base']);
+  run(proj, 'git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git']);
+  const bin = path.join(path.dirname(proj), 'ghbin');
+  const dump = path.join(path.dirname(proj), 'env.txt');
+  mkdirSync(bin, { recursive: true });
+  const sha = '1'.repeat(40);
+  const view = JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, headRefOid: sha, statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }] });
+  wf(path.join(bin, 'gh'), `#!/bin/sh\nenv >> "${dump}"\ncase "$*" in\n  *"pr merge"*) exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'main' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) echo '${view}' ;;\n  *"--json headRefOid") echo '{"headRefOid":"${sha}"}' ;;\nesac\nexit 0\n`);
+  chmodSync(path.join(bin, 'gh'), 0o755);
+  const core = path.join(scripts, 'proofline-core.mjs');
+  const go = (/** @type {string} */ ca) => {
+    wf(dump, '');
+    run(path.join(proj, 'docs'), process.execPath, [core, 'cli', 'merge', '7'], { PATH: `${bin}:${process.env.PATH}`, HTTPS_PROXY: 'http://127.0.0.1:9', SSL_CERT_FILE: ca });
+    return readFileSync(dump, 'utf8');
+  };
+  for (const f of ['other/ca.pem', '.agents/local/scratch/ca.pem']) {
+    const seen = go(path.join(proj, f));
+    assert.ok(seen.length > 0, 'gh was not run');
+    assert.ok(!/^SSL_CERT_FILE=/m.test(seen), `${f}: the project certificate reached gh: ${seen}`);
+    assert.match(seen, /^HTTPS_PROXY=http:\/\/127\.0\.0\.1:9$/m, 'the proxy shape is allowed on its own (it cannot forge a TLS answer without the certificate)');
+  }
+  assert.match(go(CA), /^SSL_CERT_FILE=\/etc\/passwd$/m, 'a system file still passes');
 });

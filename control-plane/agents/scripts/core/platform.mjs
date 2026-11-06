@@ -340,8 +340,10 @@ export function noProxyValue(v) {
 
 /**
  * A certificate bundle (A220): an absolute path of an existing regular file (a symbolic link is followed) that is neither named nor resolved into a
- * folder a model can write (the project, the working directory, a temporary folder; the PATH rule). A relative path, a missing file, a folder or a
- * path with a control character is not accepted.
+ * folder a model can write: the root and the working directory of the control plane, a temporary folder, the working tree of the working directory and of
+ * the root (found from the nearest `.git`), the main checkout of a linked worktree, and any `.agents` folder (A220 security round 1: `proofline merge` has the
+ * install folder as its root, so the project itself must be found from the working directory). The file and every folder above its real path must be owned by
+ * root or this user and not writable by a group or by everybody. A relative path, a missing file, a folder or a control character is not accepted.
  * @param {Context} ctx @param {string} v
  */
 export function caFileValue(ctx, v) {
@@ -349,8 +351,54 @@ export function caFileValue(ctx, v) {
   try {
     const real = realpathSync.native(v);
     if (!statSync(real).isFile()) return false;
-    return !refusedLocation(ctx, v) && !refusedLocation(ctx, real);
+    const extra = projectDirs(ctx);
+    for (const f of [v, real]) {
+      if (refusedLocation(ctx, f) || extra.some((d) => insideFolder(f, d))) return false;
+      if (f.split('/').includes('.agents')) return false; // the control folder of any project, whatever the working directory is
+    }
+    // the file and every folder above it: owned by root or by this user and not writable by a group or by everybody (a file a model can write is not a trust anchor)
+    const me = typeof process.getuid === 'function' ? process.getuid() : -1;
+    for (let cur = real; ; cur = path.dirname(cur)) {
+      const s = statSync(cur);
+      if ((s.mode & 0o022) !== 0) return false;
+      if (me >= 0 && s.uid !== 0 && s.uid !== me) return false;
+      if (cur === '/' || cur === path.dirname(cur)) break;
+    }
+    return true;
   } catch { return false; }
+}
+
+/**
+ * The project folders a model can write, found from the filesystem alone (no git call, no trust in a configuration): for the working directory and the
+ * control plane's own root, the nearest ancestor that holds a `.git` entry (the working tree), and, when that entry is a file (a linked worktree), the main
+ * checkout its `gitdir:` line points into. `proofline merge` runs with the install folder as its root, so these are what keep a file of the project out.
+ * @param {Context} ctx @returns {string[]}
+ */
+function projectDirs(ctx) {
+  /** @type {string[]} */ const out = [];
+  for (const start of new Set([ctx.cwd, ctx.root])) {
+    for (let cur = start; ; cur = path.dirname(cur)) {
+      let st;
+      try { st = statSync(`${cur}/.git`); } catch { st = undefined; }
+      if (st !== undefined) {
+        out.push(cur);
+        if (st.isFile()) {
+          try {
+            const m = /^gitdir:[ \t]*(.+)$/m.exec(readFileSync(`${cur}/.git`, 'utf8'));
+            if (m?.[1] !== undefined) {
+              const gd = path.resolve(cur, m[1].trim());
+              const at = gd.indexOf('/.git/'); // <main checkout>/.git/worktrees/<name> or <super project>/.git/modules/<name>
+              if (at > 0) out.push(gd.slice(0, at));
+              else if (gd.endsWith('/.git')) out.push(path.dirname(gd));
+            }
+          } catch { /* an unreadable pointer: the working tree itself is already refused */ }
+        }
+        break;
+      }
+      if (cur === '/' || cur === path.dirname(cur)) break;
+    }
+  }
+  return out;
 }
 
 /**

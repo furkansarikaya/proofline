@@ -154,7 +154,8 @@ function run(ctx, argv) {
   const rq = call(['pr', 'checks', pr, '--required', '--json', 'name,bucket']);
   let req = /** @type {any[]} */ ([]);
   if (rq.status !== 0) {
-    if (both(rq).includes('no required checks')) req = [];
+    // only gh's own sentence, whole and alone (A220): a proxy can put "no required checks" into a transport error (`Post "https://...": no required checks`)
+    if (/^no required checks reported on the '[^\n]*' branch$/.test(both(rq))) req = [];
     else refuse(`gh pr checks --required failed, so the required checks cannot be judged: ${both(rq)}`);
   } else {
     const p = parseJson(rq.out);

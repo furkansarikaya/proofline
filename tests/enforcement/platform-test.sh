@@ -224,7 +224,7 @@ cat > "$stubd/gh" <<'EOF'
 case "$*" in
   *"pr merge"*) echo "$*" >> "$FS/merge.log"; exit 0 ;;
   *"pr comment"*) echo "$*" >> "$FS/note.log"; exit 0 ;;
-  *"pr checks"*) echo "no required checks reported" >&2; exit 1 ;;
+  *"pr checks"*) echo "no required checks reported on the 'main' branch" >&2; exit 1 ;;
   *statusCheckRollup*) cat "$FS/gh.view" ;;
   *headRefOid*) printf '{"headRefOid":"%s"}\n' "$(sed -n 's/.*"headRefOid":"\([0-9a-f]*\)".*/\1/p' "$FS/gh.view")" ;;
 esac
