@@ -33,7 +33,9 @@ function STAGE6_LOCKS(command, a3, readOnly) {
   assert.equal(readOnly, ['platform', 'platform-warn', 'ci-check', 'ci-task-command'].includes(command), `${command} read-only`);
   return explicit[command];
 }
-const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6];
+// stage 7, package 172-B (A222): the known-issue commands; their agent.sh arms and functions are deleted
+const STAGE172B = ['known-issue-propose', 'known-issue-apply', 'known-issue-list', 'known-issue-candidates'];
+const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B];
 
 describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {

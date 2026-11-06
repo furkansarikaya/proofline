@@ -127,7 +127,7 @@ test('after delivery, merge or clean the next step is the next queued task, else
 
 /** The batch scripts into the project and a planned batch of one task. @param {string} d @param {string} [id] */
 function batchPlan(d, id = 'T-1') {
-  for (const n of readdirSync(scripts)) if (n.endsWith('.sh') && !n.endsWith('-test.sh') && !['test-lib.sh', 'agent.sh', 'exec-policy.sh', 'secret-scan.sh'].includes(n)) cpSync(path.join(scripts, n), `${d}/.agents/scripts/${n}`);
+  for (const n of readdirSync(scripts)) if (n.endsWith('.sh') && !n.endsWith('-test.sh') && !['test-lib.sh', 'agent.sh', 'secret-scan.sh'].includes(n)) cpSync(path.join(scripts, n), `${d}/.agents/scripts/${n}`);
   mkdirSync(`${d}/.agents/tasks`, { recursive: true });
   writeFileSync(`${d}/.agents/tasks/${id}.md`, `# Task: ${id} — one\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nCOMPLEX\n`);
   accepted(A(d, ['batch-plan', id]), 'batch-plan');

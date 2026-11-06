@@ -23,15 +23,11 @@ control-plane/agents/scripts/debt.sh
 control-plane/agents/scripts/dispatch-test.sh
 control-plane/agents/scripts/dispatch.sh
 control-plane/agents/scripts/ecosystems.sh
-control-plane/agents/scripts/exec-policy-test.sh
-control-plane/agents/scripts/exec-policy.sh
 control-plane/agents/scripts/friction-test.sh
 control-plane/agents/scripts/friction.sh
 control-plane/agents/scripts/gates-test.sh
 control-plane/agents/scripts/githooks-test.sh
 control-plane/agents/scripts/identity-test.sh
-control-plane/agents/scripts/known-issues-test.sh
-control-plane/agents/scripts/known-issues.sh
 control-plane/agents/scripts/lessons-test.sh
 control-plane/agents/scripts/lessons.sh
 control-plane/agents/scripts/lifecycle-test.sh
@@ -39,7 +35,6 @@ control-plane/agents/scripts/perf-test.sh
 control-plane/agents/scripts/risk-test.sh
 control-plane/agents/scripts/rules-test.sh
 control-plane/agents/scripts/rules.sh
-control-plane/agents/scripts/runtime-detect.sh
 control-plane/agents/scripts/task-adversarial-test.sh
 control-plane/agents/scripts/test-lib.sh
 control-plane/agents/scripts/worktree-prep.sh

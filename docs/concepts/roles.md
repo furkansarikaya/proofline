@@ -41,6 +41,6 @@ The designer does not derive candidate directions from its own habits: `skills/u
 
 ## The lead model
 
-A cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `exec-policy.sh check-lead` and the end-to-end harness refuse a Codex lead below the base model or without a model. `proofline doctor` fails on a resolved model below base, and only warns when it cannot resolve the model. No other runtime has a base model, so choose the lead model yourself.
+A cheap model can follow the route poorly, most of all as lead. Give the lead a base-level model. `cli exec-policy check-lead` of the Node core and the end-to-end harness refuse a Codex lead below the base model or without a model. `proofline doctor` fails on a resolved model below base, and only warns when it cannot resolve the model. No other runtime has a base model, so choose the lead model yourself.
 
 Role source format: [roles/README.md](../../roles/README.md). Related: [workflow](workflow.md), [gates](gates.md).

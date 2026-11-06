@@ -48,6 +48,16 @@ agent=$here/agent.sh
 
 usage() { echo "usage: $0 <TASK-ID> <role> [--focus F] [--prompt-file F] [--model M] [--effort E] [--runtime RT]" >&2; exit 2; }
 die() { echo "dispatch: $*" >&2; exit 2; }
+# core_run ARGS...: the project's Node core (A222: runtime detection is `cli runtime-detect`); in a task worktree the main tree's core, because a
+# worktree's scripts are tracked content a task could have rewritten
+core_run() {
+  cr_d=$here
+  if [ -f "$root/.git" ]; then
+    cr_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+    case "$(cd "$root" && pwd -P)" in "$cr_m"/.agents/local/worktrees/*) cr_d=$cr_m/.agents/scripts ;; esac
+  fi
+  node "$cr_d/proofline-core.mjs" "$@"
+}
 tok() { case "$2" in ''|*[!A-Za-z0-9._+:-]*|-*) die "invalid value for $1: '$2'" ;; esac; }
 
 # codex_profile_args ID (A199): the `-c` arguments, one per line, that give a Codex worker the narrowest write access `agent.sh submit` and the
@@ -565,7 +575,7 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
       auto) ;;
       *) die "invalid failover mode in config: $mode (want auto|ask|off)" ;;
     esac
-    sh "$here/runtime-detect.sh" has "$other" || blocked "runtime $rt failed ($reason); $other is not installed"
+    core_run cli runtime-detect has "$other" || blocked "runtime $rt failed ($reason); $other is not installed"
     from=$rt; o_model=''   # model ids are runtime-specific; the policy picks the other runtime's model
     note "failover from=$from to=$other reason=$reason role=$role" || blocked "runtime $rt failed ($reason); failover could not be ledgered"
     a_runtime=$other a_rtreason=AUTOMATIC_FAILOVER

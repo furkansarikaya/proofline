@@ -716,8 +716,8 @@ sc_init_role() {
 rl=$(mkrepo role1)
 pl "$rl" init --yes --runtimes claude,codex --role implementer=codex >/dev/null 2>&1 && ok "init --role implementer=codex is accepted" || die "init --role accepted"
 [ "$(cfgv "$rl" runtime.roles.implementer)" = codex ] && ok "the role override is in the config and agent.sh reads it" || die "runtime.roles.implementer not read"
-[ "$(cd "$rl" && sh .agents/scripts/exec-policy.sh runtime implementer)" = codex ] && ok "exec-policy resolves the overridden role to codex" || die "exec-policy runtime implementer"
-[ "$(cd "$rl" && sh .agents/scripts/exec-policy.sh runtime reviewer)" = claude ] && ok "other roles keep their group runtime" || die "exec-policy runtime reviewer"
+[ "$(cd "$rl" && node .agents/scripts/proofline-core.mjs cli exec-policy runtime implementer)" = codex ] && ok "exec-policy resolves the overridden role to codex" || die "exec-policy runtime implementer"
+[ "$(cd "$rl" && node .agents/scripts/proofline-core.mjs cli exec-policy runtime reviewer)" = claude ] && ok "other roles keep their group runtime" || die "exec-policy runtime reviewer"
 out=$(pl "$rl" doctor 2>&1); reject "doctor does not fail the config check with runtime.roles set" "$out" "FAIL config"
 rl2=$(mkrepo role2)
 pl "$rl2" init --yes --runtimes claude,codex --role implementer=codex --role qa=claude --role implementer=claude >/dev/null 2>&1 && ok "init --role is repeatable" || die "init --role repeated"

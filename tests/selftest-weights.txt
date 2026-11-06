@@ -203,7 +203,6 @@
 5 gates-test sc_question_language
 4 build-record-test
 4 controls-test sc_standalone
-4 exec-policy-test
 4 gates-test sc_mutation_budget
 4 gates-test sc_start
 3 batch-test sc_order_and_cycle

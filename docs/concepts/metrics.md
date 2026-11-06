@@ -76,7 +76,7 @@ record carries cost, the `step` record carries the gate verdict.
 - **Evidence archive (A200).** `cleanup` and `worktree-remove` put a compressed copy of a run's records under `.agents/local/archive/<ID>/` (git-ignored) before
   they delete them; `archive.keep` in `config.yaml` (default 10, 0 turns it off) is the number of runs kept, and the deletion is refused when archiving fails.
 - **`metrics: off`** writes neither file, from `agent.sh` or `dispatch.sh`. Existing files are left alone.
-- **Metrics never change a decision.** The execution policy (`exec-policy.sh`) does not read them (A80):
+- **Metrics never change a decision.** The execution policy (`cli exec-policy` of the Node core) does not read them (A80):
   routing stays a pure function of class, tier, profile, role and signals, and quality and security rules cannot be
   traded for cost.
 

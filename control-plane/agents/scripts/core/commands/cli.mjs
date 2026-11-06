@@ -18,6 +18,9 @@ import { builtinScan } from '../secretscan.mjs';
 import { slug as slugOf } from '../slug.mjs';
 import { runTaskAdapter } from '../adapters/index.mjs';
 import { mergeCommand } from '../merge.mjs';
+import { bytes } from '../config.mjs';
+import { policyCommand } from '../execpolicy.mjs';
+import { runtimeDetect } from '../runtimedetect.mjs';
 import { detectPlatform, detectText, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -136,8 +139,33 @@ function taskAdapterCli(ctx, args) {
 /** `cli merge <PR> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]` (bin/lib/merge.sh is a launcher of it): the only allowed way to merge a pull request, A136. @param {Context} ctx @param {string[]} args */
 function mergeCli(ctx, args) { return mergeCommand(ctx, args); }
 
+/**
+ * `cli exec-policy [--config F] [--roles F] resolve|explain|check-capabilities|check-lead|lead-base|runtime ...` (the former scripts/exec-policy.sh; `agent.sh decide`,
+ * the step records, doctor and the end-to-end harness call it). The resolver reads the project's .agents/config.yaml and .agents/roles.conf; `--config` names another
+ * pair for a check outside a project (no environment value does). While the project holds .agents/scripts/exec-policy.sh (a fixture stub) that file is run instead.
+ * Output and status are the resolver's: 0 resolved | 2 usage or invalid config | 3 invalid override | 4 unresolvable.
+ * @param {Context} ctx @param {string[]} args
+ */
+function execPolicyCli(ctx, args) {
+  const a = args.map(bytes);
+  let i = 0;
+  while (i + 1 < a.length && (a[i] === '--config' || a[i] === '--roles')) i += 2;
+  let input = '';
+  if (a[i] === 'explain') { try { input = readFileSync(0, 'latin1'); } catch { input = ''; } }
+  const r = policyCommand(ctx, a, input);
+  ctx.out(r.out); ctx.err(r.err);
+  return r.status;
+}
+
+/** `cli runtime-detect [has|bin <runtime>]` (the former scripts/runtime-detect.sh; dispatch.sh asks it before a failover). @param {Context} ctx @param {string[]} args */
+function runtimeDetectCli(ctx, args) {
+  const r = runtimeDetect(ctx, args.map(bytes));
+  ctx.out(r.out); ctx.err(r.err);
+  return r.status;
+}
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli });
+export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {
