@@ -84,6 +84,89 @@ test('discard-stray: only one stray top-level regular file of the run folder, le
   refused(A(d, ['discard-stray', 'LC', 'other-E']), 'a sealed (published) run', 'the run is sealed (completion report published)');
 });
 
+test('discard-stray evidence/<file> (A219, #195): a stray in the evidence folder is discarded and ledgered', () => {
+  const d = project(`scaffold orchestrated no TRIVIAL; ${IMPLEMENTED}`);
+  const ld = `${d}/.agents/runs/LC`;
+  mkdirSync(`${ld}/evidence`); writeFileSync(`${ld}/evidence/copy-of-notes.txt`, 'an explorer copy\n');
+  refused(A(d, ['verify-scope', 'LC']), 'a stray under evidence/ passed verify-scope', 'discard-stray LC <top-level-file-name | evidence/file-name>');
+  const before = ledger(d).trimEnd().split('\n').pop();
+  const r = accepted(A(d, ['discard-stray', 'LC', 'evidence/copy-of-notes.txt']), 'discard-stray of an evidence/ stray');
+  assert.match(r.out, /^discarded stray run file: evidence\/copy-of-notes\.txt \(sha256 [0-9a-f]{64}\)$/m);
+  assert.ok(!existsSync(`${ld}/evidence/copy-of-notes.txt`), 'the stray is still there');
+  assert.match(ledger(d), /event=discard-stray .*path=evidence\/copy-of-notes\.txt sha256=[0-9a-f]{64}/m, 'no ledger row for the evidence/ stray');
+  const lines = ledger(d).trimEnd().split('\n');
+  assert.equal(lines[lines.length - 2], before, 'the discard broke the ledger chain');
+  accepted(A(d, ['verify-seal', 'LC']), 'the seal after the evidence/ discard');
+  accepted(A(d, ['verify-scope', 'LC']), 'verify-scope after the evidence/ stray is gone');
+});
+
+test('discard-stray evidence/<file> (A219): never a record, a registered artifact, or anything outside the run', () => {
+  const d = project(`scaffold orchestrated no TRIVIAL; ${IMPLEMENTED}`);
+  const ld = `${d}/.agents/runs/LC`;
+  mkdirSync(`${ld}/evidence`);
+  const keep = (/** @type {string} */ f) => assert.ok(existsSync(f), `${f} was removed`);
+  // a file a run record cites is evidence, not a stray (EVIDENCE.md, a gate record, the ledger)
+  writeFileSync(`${ld}/evidence/real.txt`, 'proof\n'); writeFileSync(`${ld}/evidence/gated.txt`, 'proof\n'); writeFileSync(`${ld}/evidence/ledgered.txt`, 'proof\n');
+  writeFileSync(`${ld}/EVIDENCE.md`, '# Evidence\n\n- AC-1: see `evidence/real.txt`\n');
+  mkdirSync(`${ld}/gates`, { recursive: true }); writeFileSync(`${ld}/gates/TESTS.yaml`, 'artifact: "evidence/gated.txt abc"\n');
+  A(d, ['ledger-note', 'LC', 'see evidence/ledgered.txt']);
+  for (const f of ['real.txt', 'gated.txt', 'ledgered.txt']) {
+    refused(A(d, ['discard-stray', 'LC', `evidence/${f}`]), `discard-stray removed the cited evidence/${f}`, 'cited by a run record');
+    keep(`${ld}/evidence/${f}`);
+  }
+  // a longer name that only contains a cited name is still a stray
+  writeFileSync(`${ld}/evidence/real.txt.bak`, 'x\n');
+  accepted(A(d, ['discard-stray', 'LC', 'evidence/real.txt.bak']), 'a name that only starts with a cited name');
+  // registered artifacts: the folder itself, a hard-link alias of a control file, the top-level files
+  refused(A(d, ['discard-stray', 'LC', 'evidence']), 'the evidence folder itself', 'not a regular file');
+  spawnSync('ln', [`${ld}/PLAN.md`, `${ld}/evidence/alias.md`]);
+  refused(A(d, ['discard-stray', 'LC', 'evidence/alias.md']), 'a hard-link alias of PLAN.md', 'known run artifact');
+  keep(`${ld}/PLAN.md`);
+  refused(A(d, ['discard-stray', 'LC', 'EVIDENCE.md']), 'the top-level EVIDENCE.md', 'known run artifact');
+  keep(`${ld}/EVIDENCE.md`);
+  // path forms outside the one level: parent, absolute, deeper, hidden, case, other folders, empty
+  writeFileSync(`${d}/outside.txt`, 'x\n'); writeFileSync(`${ld}/PLAN.md-E`, 'x\n');
+  mkdirSync(`${ld}/evidence/deep`); writeFileSync(`${ld}/evidence/deep/x.txt`, 'x\n'); writeFileSync(`${ld}/evidence/.hid`, 'x\n');
+  for (const [name, msg] of /** @type {Array<[string, string]>} */ ([
+    ['evidence/../PLAN.md-E', 'single top-level'], ['evidence/../../../outside.txt', 'single top-level'], ['../LC/evidence/real.txt', 'single top-level'],
+    [`${d}/outside.txt`, 'single top-level'], [`${ld}/evidence/gated.txt`, 'single top-level'], ['evidence/deep/x.txt', 'single top-level'],
+    ['evidence/.hid', 'single top-level'], ['Evidence/real.txt', 'single top-level'], ['evidence//real.txt', 'single top-level'],
+    ['evidence/', 'may contain only'], ['evidence/sp ace', 'may contain only'], ['evidence/taſtk.md', 'may contain only'], ['x/evidence/real.txt', 'single top-level'],
+  ])) {
+    refused(A(d, ['discard-stray', 'LC', name]), `discard-stray accepted ${name}`, msg);
+  }
+  keep(`${d}/outside.txt`); keep(`${ld}/PLAN.md-E`); keep(`${ld}/evidence/deep/x.txt`); keep(`${ld}/evidence/.hid`);
+  // a symlinked file inside evidence/, and a symlinked evidence/ folder pointing at another place
+  symlinkSync(`${d}/outside.txt`, `${ld}/evidence/lnk.txt`);
+  refused(A(d, ['discard-stray', 'LC', 'evidence/lnk.txt']), 'discard-stray followed a symlink in evidence/', 'symlink');
+  keep(`${d}/outside.txt`);
+  rmSync(`${ld}/evidence`, { recursive: true });
+  mkdirSync(`${d}/elsewhere`); writeFileSync(`${d}/elsewhere/x.txt`, 'x\n'); symlinkSync(`${d}/elsewhere`, `${ld}/evidence`);
+  refused(A(d, ['discard-stray', 'LC', 'evidence/x.txt']), 'discard-stray went through a symlinked evidence folder', 'not a plain folder');
+  keep(`${d}/elsewhere/x.txt`);
+  rmSync(`${ld}/evidence`);
+  refused(A(d, ['discard-stray', 'LC', 'evidence/x.txt']), 'discard-stray with no evidence folder', 'not a plain folder');
+  // another run's evidence folder is not reachable: by path, nor by naming a run that is not there
+  mkdirSync(`${d}/.agents/runs/OT/evidence`, { recursive: true }); writeFileSync(`${d}/.agents/runs/OT/evidence/o.txt`, 'x\n');
+  refused(A(d, ['discard-stray', 'LC', '../OT/evidence/o.txt']), 'discard-stray reached another run by path', 'single top-level');
+  refused(A(d, ['discard-stray', 'ZZ', 'evidence/o.txt']), 'discard-stray reached a run that does not exist');
+  keep(`${d}/.agents/runs/OT/evidence/o.txt`);
+});
+
+test('discard-stray evidence/<file> (A219): lead only, and a sealed run keeps its evidence folder', () => {
+  const d = project(`scaffold orchestrated no TRIVIAL; ${IMPLEMENTED}`);
+  const ld = `${d}/.agents/runs/LC`;
+  mkdirSync(`${ld}/evidence`); writeFileSync(`${ld}/evidence/s.txt`, 'x\n');
+  for (const role of ['qa', 'implementer', 'explorer']) {
+    refused(A(d, ['discard-stray', 'LC', 'evidence/s.txt'], { role }), `${role} discarded an evidence/ stray`, `command denied for ${role}: discard-stray`);
+  }
+  assert.ok(existsSync(`${ld}/evidence/s.txt`), 'a non-lead removed the stray');
+  const y = read(d, '.agents/runs/LC/RUN.yaml');
+  writeFileSync(`${ld}/RUN.yaml`, y.replace('published: false', 'published: true'));
+  refused(A(d, ['discard-stray', 'LC', 'evidence/s.txt']), 'a sealed (published) run', 'the run is sealed (completion report published)');
+  assert.ok(existsSync(`${ld}/evidence/s.txt`), 'a sealed run lost a file');
+});
+
 // ---- verify-assumptions and ask ---------------------------------------------------------------------------------------------------------
 
 const HEAD = '| id | assumption | source | risk | verification | status | decisions |\n|---|---|---|---|---|---|---|';

@@ -33,7 +33,7 @@ behaviour as technically prevented.
 | Scope `new: true` | Script-enforced at freeze | a `new: true` path that exists FAILS; a path without it that is missing FAILS. |
 | Planning freshness, task-source contract | Script-enforced for local Markdown and `none` sources | `freshness`; projection hash; `task-source-status`, `task-source-relocate`; adapter confinement. |
 | Run artifact registry | Script-enforced | unknown files in the run directory FAIL `verify-scope`, gates and `validate` (WORKFLOW.md table). |
-| Stray file in a run directory is recoverable | Script-enforced (A119) | lead-only `discard-stray <ID> <file-name>`: one top-level regular file, never a symlink, never a protected name (compared case-insensitively), ledgered with its sha256. Strays in subdirectories are not handled. |
+| Stray file in a run directory is recoverable | Script-enforced (A119) | lead-only `discard-stray <ID> <file-name>` or `<ID> evidence/<file-name>` (A219): one regular file (top level, or exactly one level inside `evidence/`), never a symlink, never a protected name (compared case-insensitively), never an `evidence/` file that a run record cites, ledgered with its sha256. Other subdirectories are not handled. |
 | `sed -i` leaves no backup-suffix stray | Hook-enforced (heuristic, A119) | the hook denies `sed -i` followed by an option-looking word or with letters glued to `-i` (`-iE`): BSD sed takes them as the backup suffix. |
 | Branch isolation | Script-enforced for a RUN.yaml with `repository.task_branch` | `branch` creates `<git.branch_prefix><ID>-<slug>` from the canonical tip; transitions require that branch; a conflicting branch is never reused. |
 | Baseline of user changes | Script-enforced | fingerprints; a later change to a user file is task scope. |
