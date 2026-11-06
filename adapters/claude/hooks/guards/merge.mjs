@@ -31,6 +31,11 @@ const RE_NET_APPEND = /(^|[\s;&|(])(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|
 const RE_ASSIGN_WORD =/^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 const NET_TOOLS = new Set(['proofline', 'agent.sh', 'proofline-core.mjs', 'gh', 'glab', 'az']);
 const baseName = (/** @type {string} */ w) => w.slice(w.lastIndexOf('/') + 1);
+// A220: a tool name as a word inside text (`env -S` string, inline interpreter program), and the interpreters whose -e/-c program text is read for one
+const RE_NET_WORD = re(String.raw`(^|[^[:alnum:]_.-])(proofline|agent\.sh|gh|glab|az)([^[:alnum:]_]|$)`);
+const RE_NET_ANY = /(^|[\s;&|("'`])(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|http_proxy|no_proxy|SSL_CERT_FILE|NODE_EXTRA_CA_CERTS)\+?=/;
+const RE_INLINE_INTERP = /^(node(js)?|bun|deno|perl|python[0-9.]*|ruby|php|lua|Rscript)$/;
+const RE_INLINE_FLAG = /^(-[A-Za-z]*[ecEr]|--eval|--print|--command)$/;
 const RE_SWITCH_VAR = re(String.raw`(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?[$${BT}]`);
 
 /** The exempt command words: they cannot merge or push by themselves, so they do not load the protected-branch list. */
@@ -300,7 +305,16 @@ export async function mergeGuard(ctx, cmd, scan) {
     const { cw, rest } = cParts(rec);
     const words = rest.replace(/[\x03\x02]/g, '\n').split('\n').filter((w) => w !== '');
     if ((!RE_ASSIGN_WORD.test(cw) && NET_TOOLS.has(baseName(cw))) || words.some((w) => !RE_ASSIGN_WORD.test(w) && NET_TOOLS.has(baseName(w)))) netRun = true;
+    // a command word that is a variable expansion (`$p`, `${p}`, `"$p"`, `${GH:-gh}`) can be any of them
+    const ecw = RE_ASSIGN_WORD.test(cw) ? (words.find((w) => !RE_ASSIGN_WORD.test(w)) ?? '') : cw;
+    if (ecw.startsWith('$') || ecw.startsWith('`')) netRun = true;
+    // an interpreter's inline program (`node -e`, `perl -e`, `python3 -c`, `ruby -e`) that names one as a word
+    const toks = [cw, ...words];
+    const ix = toks.findIndex((w) => RE_INLINE_INTERP.test(baseName(w)));
+    if (ix >= 0 && toks.slice(ix + 1).some((w) => RE_INLINE_FLAG.test(w)) && RE_NET_WORD.test(toks.slice(ix + 1).join(' '))) netRun = true;
   }
+  // `env -S` / `--split-string` runs a string the scanner cannot split: the variable and the tool may both be inside it
+  if (scan.records.some((r) => r.kind === 'X' && r.raw.startsWith('env -S')) && RE_NET_WORD.test(flat) && RE_NET_ANY.test(flat)) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
 
   // the prefix-append form (`HTTPS_PROXY+=v proofline merge 7`) does not reach the scanner as an assignment, so it is read from the text, as a word of its own
   if (netRun && RE_NET_APPEND.test(flat)) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
