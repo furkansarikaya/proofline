@@ -18,7 +18,7 @@ Ids are unique across the file. Acceptance scenarios carry no category; adversar
 
 - One or more per `AC-n`; the title restates the behaviour, `input` is a concrete case (real values), `expected` is what an observer sees (status code and body field, rendered text, row count, exit code, log line).
 - Include the criterion's own examples. Where a criterion has a limit, the limit value itself is an acceptance scenario ("the sixth attempt"), not only an adversarial one.
-- `run:` prefers an existing test selector or command; otherwise a script QA writes into the evidence folder; otherwise (only when nothing can run it) a manual scenario. Be specific enough that someone else repeats it.
+- `run:` prefers an existing test selector or command; otherwise a script QA writes into `reports/qa-evidence/` (in a run); otherwise (only when nothing can run it) a manual scenario. Be specific enough that someone else repeats it.
 
 ## Execution: auto or manual
 
