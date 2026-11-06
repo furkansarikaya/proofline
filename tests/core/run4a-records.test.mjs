@@ -122,6 +122,11 @@ test('discard-stray evidence/<file> (A219): never a record, a registered artifac
   spawnSync('ln', [`${ld}/PLAN.md`, `${ld}/evidence/alias.md`]);
   refused(A(d, ['discard-stray', 'LC', 'evidence/alias.md']), 'a hard-link alias of PLAN.md', 'known run artifact');
   keep(`${ld}/PLAN.md`);
+  // the same on the top level, and for every protected spelling of the real file name (PLAN.md, not plan.md: a case-sensitive file system)
+  spawnSync('ln', [`${ld}/PLAN.md`, `${ld}/plan-alias.txt`]); spawnSync('ln', [`${ld}/TASK.md`, `${ld}/evidence/task-alias.txt`]);
+  refused(A(d, ['discard-stray', 'LC', 'plan-alias.txt']), 'a top-level hard-link alias of PLAN.md', 'known run artifact');
+  refused(A(d, ['discard-stray', 'LC', 'evidence/task-alias.txt']), 'a hard-link alias of TASK.md', 'known run artifact');
+  keep(`${ld}/plan-alias.txt`); keep(`${ld}/evidence/task-alias.txt`); rmSync(`${ld}/plan-alias.txt`); rmSync(`${ld}/evidence/task-alias.txt`);
   refused(A(d, ['discard-stray', 'LC', 'EVIDENCE.md']), 'the top-level EVIDENCE.md', 'known run artifact');
   keep(`${ld}/EVIDENCE.md`);
   // path forms outside the one level: parent, absolute, deeper, hidden, case, other folders, empty
@@ -157,7 +162,9 @@ test('discard-stray evidence/<file> (A219): a citation matches in any letter cas
   const d = project(`scaffold orchestrated no TRIVIAL; ${IMPLEMENTED}`);
   const ld = `${d}/.agents/runs/LC`;
   mkdirSync(`${ld}/evidence`); mkdirSync(`${ld}/gates`, { recursive: true });
-  for (const f of ['real.txt', 'full.txt', 'abs.txt', 'other.txt', 'prefixed.txt']) writeFileSync(`${ld}/evidence/${f}`, `${f}\n`);
+  // the other-case names are written too: on a case-folding file system (macOS, Windows) they are the same file as the lower-case one, on a
+  // case-sensitive one (Linux) they are distinct files; the cited name protects both, so the test holds on either
+  for (const f of ['real.txt', 'full.txt', 'abs.txt', 'other.txt', 'prefixed.txt', 'REAL.txt', 'Real.TXT', 'FULL.txt']) writeFileSync(`${ld}/evidence/${f}`, `${f}\n`);
   writeFileSync(`${ld}/EVIDENCE.md`, '- AC-1: `evidence/real.txt`\n- AC-2: x/evidence/prefixed.txt and .agents/runs/OT/evidence/other.txt\n');
   writeFileSync(`${ld}/gates/TESTS.yaml`, `artifact: ".agents/runs/LC/evidence/full.txt abc"\nalso: "${d}/.agents/runs/LC/evidence/abs.txt"\n`);
   // another letter case of the cited name (the same file on macOS and Windows)
@@ -168,7 +175,7 @@ test('discard-stray evidence/<file> (A219): a citation matches in any letter cas
   for (const name of ['full.txt', 'FULL.txt', 'abs.txt']) {
     refused(A(d, ['discard-stray', 'LC', `evidence/${name}`]), `discard-stray removed evidence/${name}, cited by its full path`, 'cited by a run record');
   }
-  assert.ok(existsSync(`${ld}/evidence/real.txt`) && existsSync(`${ld}/evidence/full.txt`) && existsSync(`${ld}/evidence/abs.txt`), 'a cited file was removed');
+  for (const f of ['real.txt', 'REAL.txt', 'Real.TXT', 'full.txt', 'FULL.txt', 'abs.txt']) assert.ok(existsSync(`${ld}/evidence/${f}`), `the cited evidence/${f} was removed`);
   // another prefix is a different path: another folder's file, or another run's evidence, does not protect this run's stray
   accepted(A(d, ['discard-stray', 'LC', 'evidence/prefixed.txt']), 'a stray whose name is cited only under another folder');
   accepted(A(d, ['discard-stray', 'LC', 'evidence/other.txt']), 'a stray whose name is cited only for another run');

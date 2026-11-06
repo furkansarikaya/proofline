@@ -160,9 +160,15 @@ function discardStray(ctx, args) {
   try { link = lstatSync(file).isSymbolicLink(); } catch { /* absent */ }
   if (link) fail(`discard-stray refused: '${rel}' is a symlink`);
   const ino = inode(file);
-  for (const p of DS_PROTECTED) {
-    const pino = inode(`${dir}/${p}`);
-    if ((!inEvidence && lc === p) || (ino !== '' && ino === pino)) fail(`discard-stray refused: '${rel}' is a known run artifact`);
+  if (!inEvidence && DS_PROTECTED.includes(lc)) fail(`discard-stray refused: '${rel}' is a known run artifact`);
+  // the protected inodes come from the real directory entries (PLAN.md, not plan.md): a lookup by the lower-case name finds nothing on a
+  // case-sensitive file system, and a hard-link alias of PLAN.md would then be deleted as a stray
+  if (ino !== '') {
+    let entries = [];
+    try { entries = readdirSync(dir); } catch { fail('discard-stray refused: run directory cannot be read'); }
+    for (const e of entries) {
+      if (DS_PROTECTED.includes(e.replace(/[A-Z]/g, (c) => c.toLowerCase())) && inode(`${dir}/${e}`) === ino) fail(`discard-stray refused: '${rel}' is a known run artifact`);
+    }
   }
   let regular = false;
   try { regular = statSync(file).isFile(); } catch { /* absent */ }
