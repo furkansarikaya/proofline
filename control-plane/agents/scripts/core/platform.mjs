@@ -260,9 +260,14 @@ export function linkText(i, br, base) {
   }
 }
 
-/** `platform.sh env`: GH_HOST or GITLAB_HOST for a private host, else nothing. @param {PlatformInfo} i @returns {Record<string, string>} */
+/**
+ * `platform.sh env`: GH_HOST or GITLAB_HOST for a private host, else nothing. The host is exported only when `git.platform` and `git.platform_host` of
+ * `.agents/config.yaml` decided the platform (source `config`, A220): the host then equals the config host. A platform named by the PROOFLINE_PLATFORM
+ * variable of the caller gets no host variable, and neither does a caller's GH_HOST (cleanToolEnv drops it).
+ * @param {PlatformInfo} i @returns {Record<string, string>}
+ */
 export function platformEnv(i) {
-  if (i.loose) return {};
+  if (i.loose || i.source !== 'config') return {};
   if (i.host === '' || /[^a-z0-9.-]/.test(i.host)) return {};
   if (i.platform === 'github' && i.host !== 'github.com' && i.host !== 'www.github.com') return { GH_HOST: i.host };
   if (i.platform === 'gitlab' && i.host !== 'gitlab.com') return { GITLAB_HOST: i.host };
@@ -284,8 +289,11 @@ const TOOL_TIMEOUT_MS = 180000;
  * A model can set GH_CONFIG_DIR / XDG_CONFIG_HOME / HOME (a config with `http_unix_socket`), GH_HOST, GH_REPO, GH_*_URL, GLAB_*, AZURE_CONFIG_DIR, a proxy
  * or a certificate variable, GIT_CONFIG_*, GIT_SSH_COMMAND or GIT_ASKPASS and make the real tool talk to a server of its own that fakes a merged pull
  * request or a green CI run. Kept: PATH, the locale and terminal (LC_*, LANG, TERM, TZ, TMPDIR), colour switches, and only credential variables
- * that cannot redirect traffic. HOME is taken from the account database, not from the caller. Dropped on purpose, and a decision for the owner
- * (corporate proxies): every *_PROXY and certificate variable. With `opt.remote` SSH_AUTH_SOCK is kept for a push over ssh.
+ * that cannot redirect traffic. HOME is taken from the account database, not from the caller. With `opt.remote` SSH_AUTH_SOCK is kept for a push over ssh.
+ * Corporate networks (A220, decided by the owner after stage 6): the proxy variables (HTTPS_PROXY, HTTP_PROXY, NO_PROXY and their lowercase forms) and
+ * the certificate variables (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) are kept ONLY when the value has the narrow shape of proxyValue / noProxyValue /
+ * caFileValue; any other value is dropped, never repaired, and nothing says so. Every other proxy or certificate variable (ALL_PROXY, SSL_CERT_DIR,
+ * CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, GIT_SSL_*, NODE_OPTIONS) stays dropped. The GitHub Enterprise or GitLab host never comes from the caller (platformEnv).
  * @param {Context} ctx @param {{ remote?: boolean }} [opt] @returns {Record<string, string>}
  */
 export function cleanToolEnv(ctx, opt = {}) {
@@ -299,7 +307,50 @@ export function cleanToolEnv(ctx, opt = {}) {
   // the PATH the tool and its own children (gh runs git) search: an entry that is relative or inside the project, the working directory or a temporary folder is dropped
   if (out['PATH'] !== undefined) out['PATH'] = out['PATH'].split(path.delimiter).filter((e) => e.startsWith('/') && !refusedLocation(ctx, `${e}/x`)).join(path.delimiter);
   try { const h = userInfo().homedir; if (h !== '') out['HOME'] = h; } catch { /* no account entry: no HOME */ }
+  for (const k of PROXY_VARS) { const v = ctx.env[k]; if (v !== undefined && proxyValue(v)) out[k] = v; }
+  for (const k of NO_PROXY_VARS) { const v = ctx.env[k]; if (v !== undefined && noProxyValue(v)) out[k] = v; }
+  for (const k of CA_VARS) { const v = ctx.env[k]; if (v !== undefined && caFileValue(ctx, v)) out[k] = v; }
   return out;
+}
+
+const PROXY_VARS = ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy'];
+const NO_PROXY_VARS = ['NO_PROXY', 'no_proxy'];
+const CA_VARS = ['SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS'];
+
+/**
+ * A proxy address (A220): `http://` or `https://`, an optional `user[:password]@` (percent-encoded), a host name, IPv4 address or bracketed IPv6 address,
+ * an optional port and at most one trailing slash. No path, query, fragment, whitespace or control character, at most 2048 characters. Nothing else
+ * (no socks, no bare `host:port`) is repaired or guessed.
+ * @param {string} v
+ */
+export function proxyValue(v) {
+  if (v.length > 2048) return false;
+  return /^https?:\/\/([A-Za-z0-9._~%!$&'()*+,;=-]+(:[A-Za-z0-9._~%!$&'()*+,;=-]*)?@)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?\/?$/i.test(v);
+}
+
+/**
+ * A no-proxy list (A220): comma separated entries, each a host name, a domain suffix (`.corp.example`, `*.corp.example`), an address with an optional
+ * `/bits` or `:port`, or `*`, with at most one space after a comma. Plain text only; at most 4096 characters. It can only make a call skip the proxy.
+ * @param {string} v
+ */
+export function noProxyValue(v) {
+  if (v.length > 4096) return false;
+  return /^[A-Za-z0-9._*:/[\]-]+(, ?[A-Za-z0-9._*:/[\]-]+)*$/.test(v);
+}
+
+/**
+ * A certificate bundle (A220): an absolute path of an existing regular file (a symbolic link is followed) that is neither named nor resolved into a
+ * folder a model can write (the project, the working directory, a temporary folder; the PATH rule). A relative path, a missing file, a folder or a
+ * path with a control character is not accepted.
+ * @param {Context} ctx @param {string} v
+ */
+export function caFileValue(ctx, v) {
+  if (!v.startsWith('/') || v.length > 4096 || /[\u0000-\u001f\u007f]/.test(v)) return false;
+  try {
+    const real = realpathSync.native(v);
+    if (!statSync(real).isFile()) return false;
+    return !refusedLocation(ctx, v) && !refusedLocation(ctx, real);
+  } catch { return false; }
 }
 
 /**

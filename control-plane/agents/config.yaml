@@ -49,7 +49,7 @@ git:
   # Bare host name of the origin remote that `platform` applies to, for example gitlab.company.com, github.company.com or an
   # Azure DevOps Server host. It must EQUAL the host of the origin URL (never a prefix, suffix or part of it), so a look-alike
   # host never gets the platform; empty means `platform` applies to whatever the origin is. GitHub Enterprise uses GH_HOST and
-  # self-hosted GitLab GITLAB_HOST (set for the tool from this host); Azure DevOps Server uses the collection URL of the origin.
+  # self-hosted GitLab GITLAB_HOST (set for the tool from this host only when this key and `platform` decided; a GH_HOST of the caller is never used, A220); Azure DevOps Server uses the collection URL of the origin.
   platform_host:
   # Forbidden commit identities (glob or ERE, case-insensitive), for example *@example-corp.com
   forbidden_identities:
