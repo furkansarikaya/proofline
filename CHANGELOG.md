@@ -5,6 +5,7 @@
 ## 0.0.52 — 2026-11-06
 
 - Fix (A221, issue #172): the last (MERGED) status block of a merged task is put into the task file of the main working tree wherever that file is, also when the merge could not be fast-forwarded into the main tree (a dirty tree, a local commit origin lacks); before, the block was dropped with the removed worktree and the real-session smoke rows "status block (T-2)/(T-3)" failed with "no task file of T-x holds a status block".
+- `discard-stray` also removes a stray file one level inside a run's `evidence/` folder (A219, issue #195): `agent.sh discard-stray <ID> evidence/<file-name>` (lead only, open run). It refuses symlinks, any other path form, and a file that a run record cites by path (in any letter case, also as the full `.agents/runs/<ID>/evidence/<file>` path); the sha256 is ledgered. An explorer's copy left in `evidence/` no longer parks the run.
 
 ## 0.0.51 — 2026-11-03
 

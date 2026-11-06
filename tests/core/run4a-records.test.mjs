@@ -153,6 +153,27 @@ test('discard-stray evidence/<file> (A219): never a record, a registered artifac
   keep(`${d}/.agents/runs/OT/evidence/o.txt`);
 });
 
+test('discard-stray evidence/<file> (A219): a citation matches in any letter case and as the full run path, never as another path', () => {
+  const d = project(`scaffold orchestrated no TRIVIAL; ${IMPLEMENTED}`);
+  const ld = `${d}/.agents/runs/LC`;
+  mkdirSync(`${ld}/evidence`); mkdirSync(`${ld}/gates`, { recursive: true });
+  for (const f of ['real.txt', 'full.txt', 'abs.txt', 'other.txt', 'prefixed.txt']) writeFileSync(`${ld}/evidence/${f}`, `${f}\n`);
+  writeFileSync(`${ld}/EVIDENCE.md`, '- AC-1: `evidence/real.txt`\n- AC-2: x/evidence/prefixed.txt and .agents/runs/OT/evidence/other.txt\n');
+  writeFileSync(`${ld}/gates/TESTS.yaml`, `artifact: ".agents/runs/LC/evidence/full.txt abc"\nalso: "${d}/.agents/runs/LC/evidence/abs.txt"\n`);
+  // another letter case of the cited name (the same file on macOS and Windows)
+  for (const name of ['REAL.txt', 'Real.TXT']) {
+    refused(A(d, ['discard-stray', 'LC', `evidence/${name}`]), `discard-stray removed evidence/${name}, cited as evidence/real.txt`, 'cited by a run record');
+  }
+  // a record that cites the full path, project-relative or absolute (any case)
+  for (const name of ['full.txt', 'FULL.txt', 'abs.txt']) {
+    refused(A(d, ['discard-stray', 'LC', `evidence/${name}`]), `discard-stray removed evidence/${name}, cited by its full path`, 'cited by a run record');
+  }
+  assert.ok(existsSync(`${ld}/evidence/real.txt`) && existsSync(`${ld}/evidence/full.txt`) && existsSync(`${ld}/evidence/abs.txt`), 'a cited file was removed');
+  // another prefix is a different path: another folder's file, or another run's evidence, does not protect this run's stray
+  accepted(A(d, ['discard-stray', 'LC', 'evidence/prefixed.txt']), 'a stray whose name is cited only under another folder');
+  accepted(A(d, ['discard-stray', 'LC', 'evidence/other.txt']), 'a stray whose name is cited only for another run');
+});
+
 test('discard-stray evidence/<file> (A219): lead only, and a sealed run keeps its evidence folder', () => {
   const d = project(`scaffold orchestrated no TRIVIAL; ${IMPLEMENTED}`);
   const ld = `${d}/.agents/runs/LC`;

@@ -107,10 +107,13 @@ function inode(p) { try { return String(statSync(p).ino); } catch { return ''; }
  * A210/A219: is the run-relative path `rel` cited by a record? Structured records only (the run state, the ledger without its own discard rows,
  * the lead's evidence and verdict files, the gate, approval, waiver, worker-evidence and decision folders); the free text of reports, results
  * and dispatch is not read, because an explorer's report names its own stray. Unreadable means cited (refuse when in doubt).
- * @param {string} dir @param {string} rel
+ * @param {string} dir @param {string} id @param {string} rel
  */
-function citedByRecord(dir, rel) {
-  const re = new RegExp(`(?<![A-Za-z0-9._/-])${rel.replace(/[.]/g, '\\.')}(?![A-Za-z0-9._-])`);
+function citedByRecord(dir, id, rel) {
+  // case-insensitive (the file system folds case on macOS and Windows); the run-relative spelling, the project-relative `.agents/runs/<ID>/` spelling
+  // and an absolute path ending in it all name the file; any other prefix makes it a different path (`other/evidence/x`, another run's folder)
+  const esc = (/** @type {string} */ x) => x.replace(/[.]/g, '\\.');
+  const re = new RegExp(`(?:(?<![A-Za-z0-9._/-])(?:\\.agents/runs/${esc(id)}/)?|/\\.agents/runs/${esc(id)}/)${esc(rel)}(?![A-Za-z0-9._-])`, 'i');
   /** @type {string[]} */ const files = ['RUN.yaml', 'LEDGER.log', 'EVIDENCE.md', 'VERIFY.md', 'QA_REPORT.md', 'COMPLETION_REPORT.md'].map((f) => `${dir}/${f}`);
   for (const sub of ['gates', 'approvals', 'waivers', 'worker-evidence', 'decisions']) {
     let names = [];
@@ -164,7 +167,7 @@ function discardStray(ctx, args) {
   let regular = false;
   try { regular = statSync(file).isFile(); } catch { /* absent */ }
   if (!regular) fail(`discard-stray refused: '${rel}' is not a regular file in the run directory`);
-  if (inEvidence && citedByRecord(dir, rel)) fail(`discard-stray refused: '${rel}' is cited by a run record (RUN.yaml, the ledger, EVIDENCE.md, a gate, approval, waiver or worker-evidence record): it is evidence, not a stray`);
+  if (inEvidence && citedByRecord(dir, id, rel)) fail(`discard-stray refused: '${rel}' is cited by a run record (RUN.yaml, the ledger, EVIDENCE.md, a gate, approval, waiver or worker-evidence record): it is evidence, not a stray`);
   const sha = hashFile(file);
   rmSync(file, { force: true });
   if (gatesEnforced(ctx, d0)) { const s = sectionValue(ctx, d0, 'handoff', 'state'); led(ctx, id, 'discard-stray', s, s, `path=${rel} sha256=${sha}`); }
