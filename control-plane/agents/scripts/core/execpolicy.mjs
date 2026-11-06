@@ -44,6 +44,9 @@ const hard = (code, m) => new ProoflineError(`exec-policy: UNRESOLVABLE ${code}:
 const words = (s) => s.split(/[ \t\n]+/).filter((w) => w !== '');
 /** `int`: digits only. @param {string} s */
 const isInt = (s) => /^[0-9]+$/.test(s);
+/** The shell's integer range (signed 64 bits): a longer number is an `Illegal number` error of `[ ]`, never a value. @param {string} s @returns {bigint | null} */
+const SHELL_MAX = 9223372036854775807n;
+const shellInt = (s) => { if (!isInt(s)) return null; const n = BigInt(s); return n > SHELL_MAX ? null : n; };
 /** `idx WORD LIST`: the 1-based position, or 0. @param {string} w @param {string[]} list */
 const idx = (w, list) => list.indexOf(w) + 1;
 
@@ -234,8 +237,8 @@ export function resolve(pol, argv) {
   if (efforts.length === 0) throw die(`execution_policy.providers.${rt}.efforts missing`);
   const forbidden = words(pol.cfg('execution_policy', 'forbidden_efforts'));
   const maxCtxS = pol.cfg('execution_policy', 'max_context_bytes');
-  if (!isInt(maxCtxS)) throw die('execution_policy.max_context_bytes must be an integer');
-  const maxCtx = Number(maxCtxS);
+  const maxCtx = shellInt(maxCtxS);
+  if (maxCtx === null) throw die('execution_policy.max_context_bytes must be an integer');
   let maxEscS = pol.cfg('budgets', 'max_escalations');
   if (maxEscS === '') maxEscS = '2';
   if (!isInt(maxEscS)) throw die('budgets.max_escalations must be an integer');
@@ -329,15 +332,17 @@ export function resolve(pol, argv) {
   // context budget: class budget, halved for docs/small tiers; override; hard cap
   const ctxS = kv(classLine, 'context_bytes');
   if (ctxS === null) throw die(`class ${cls} has no context_bytes`);
-  if (!isInt(ctxS)) throw die(`class ${cls}: context_bytes must be an integer`);
-  let ctx = Number(ctxS);
+  let ctxN = shellInt(ctxS);
+  if (ctxN === null) throw die(`class ${cls}: context_bytes must be an integer`);
+  let ctx = ctxS;   // the digits as written, like the shell's string (only arithmetic turns them into a number)
   let creason = 'CLASS_BUDGET';
-  if (tier === 'docs' || tier === 'small') { ctx = Math.floor(ctx / 2); creason = `${creason},TIER_${tier.toUpperCase()}`; }
+  if (tier === 'docs' || tier === 'small') { ctxN /= 2n; ctx = String(ctxN); creason = `${creason},TIER_${tier.toUpperCase()}`; }
   if (oCtx !== '') {
-    if (!(isInt(oCtx) && Number(oCtx) > 0)) throw reject('INVALID_OVERRIDE', 'context-bytes must be a positive integer');
-    ctx = Number(oCtx); creason = 'OPERATOR_OVERRIDE';
+    const o = shellInt(oCtx);   // a number beyond the shell's range is an error of `[ -gt ]` there: refused (fail closed)
+    if (o === null || o <= 0n) throw reject('INVALID_OVERRIDE', 'context-bytes must be a positive integer');
+    ctx = oCtx; ctxN = o; creason = 'OPERATOR_OVERRIDE';
   }
-  if (ctx > maxCtx) { ctx = maxCtx; creason = `${creason},CAPPED_AT_HARD_LIMIT`; }
+  if (ctxN > maxCtx) { ctx = maxCtxS; creason = `${creason},CAPPED_AT_HARD_LIMIT`; }
 
   const sig = signalsAll.join(',');
   return [

@@ -60,6 +60,8 @@ const extras = [[], ['--profile', 'max'], ['--profile', 'economy'], ['--profile'
 /** @type {Array<{ config: string, args: string[], stdin?: string }>} */ const corpus = [];
 for (const r of ALL_ROLES) for (const c of ['TRIVIAL', 'STANDARD', 'COMPLEX', 'CRITICAL', 'NOPE']) for (const t of ['docs', 'full', 'x']) corpus.push({ config: 'base', args: ['resolve', '--role', r, '--class', c, '--tier', t] });
 for (const r of ['implementer', 'designer', 'lead', 'security_reviewer', 'explorer', 'qa']) for (const c of ['STANDARD', 'CRITICAL']) for (const x of extras) corpus.push({ config: 'base', args: ['resolve', '--role', r, '--class', c, '--tier', 'small', ...x] });
+// --context-bytes at the edges of the shell's integer range: the digits are echoed as written, a number beyond 64 bits is refused
+for (const t of ['full', 'docs']) for (const v of ['007', '00100', '0262145', '99999999999999999999', '9223372036854775807', '9223372036854775808', '0', '000', '-5', '1x']) corpus.push({ config: 'base', args: ['resolve', '--role', 'lead', '--class', 'STANDARD', '--tier', t, '--context-bytes', v] });
 for (const rt of ['claude', 'codex', 'zzz']) corpus.push({ config: 'base', args: ['lead-base', rt] });
 for (const r of ALL_ROLES) corpus.push({ config: 'base', args: ['runtime', r] });
 for (const x of [['--runtime', 'codex', '--model', 'gpt-6-luna'], ['--runtime', 'codex', '--model', 'gpt-6-sol'], ['--runtime', 'codex'], ['--runtime', 'claude'], ['--runtime', 'codex', '--model', 'zzz'], [], ['--bogus', '1']]) corpus.push({ config: 'base', args: ['check-lead', ...x] });
@@ -80,7 +82,9 @@ const recorded = corpus.map((c) => {
   const r = spawnSync('sh', [shellScript, ...c.args], { env: { PATH: process.env.PATH, LC_ALL: 'C', EXEC_POLICY_CONFIG: cfg, EXEC_POLICY_ROLES: rolesFile }, input: c.stdin ?? '', encoding: 'utf8' });
   // the file name of the config is the recorder's own: the replay uses the same fixture folder, so it is written relative
   const rel = (/** @type {string} */ s) => s.split(out).join('<DIR>');
-  return { ...c, status: r.status, stdout: rel(r.stdout), stderr: rel(r.stderr) };
+  // the shell's own diagnostic of a number beyond its range (`<script>: line N: [: ...: integer expression expected`) is the shell's text, not the resolver's
+  const own = r.stderr.split('\n').filter((l) => !l.startsWith(`${shellScript}: line `)).join('\n');
+  return { ...c, status: r.status, stdout: rel(r.stdout), stderr: rel(own) };
 });
 writeFileSync(path.join(out, 'cases.json.gz'), gzipSync(JSON.stringify(recorded)));
 console.log(`${recorded.length} cases recorded`);

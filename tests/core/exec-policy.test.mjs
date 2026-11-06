@@ -1,6 +1,6 @@
 // @ts-check
 // The execution-policy resolver and the runtime detection in Node (A222; the shell files exec-policy.sh, exec-policy-test.sh and runtime-detect.sh are gone).
-//  - golden: 700 calls recorded once from the shell resolver of 0.0.52 against ten config variants (golden/exec-policy-record.mjs); the Node resolver
+//  - golden: the calls (722 and the edges of --context-bytes) recorded once from the shell resolver of 0.0.52 against ten config variants (golden/exec-policy-record.mjs); the Node resolver
 //    must give the recorded stdout, stderr and status. Nothing compares with a shell at test time.
 //  - the rules exec-policy-test.sh stated, as absolute assertions (precedence, floors, caps, escalation, failover label, lead base, runtime table);
 //  - the fixture stub: while .agents/scripts/exec-policy.sh exists the core runs it; without it no environment value changes a decision (D14);
@@ -47,6 +47,13 @@ describe('golden: the answers of the shell resolver', () => {
       try { assert.deepEqual(got, { status: c.status, stdout: c.stdout, stderr: c.stderr }, `${c.config}: ${c.args.join(' ')}`); } catch (e) { if (bad++ < 5) console.error(String(/** @type {Error} */ (e).message).slice(0, 800)); }
     }
     assert.equal(bad, 0, `${bad} calls differ from the recording`);
+  });
+  test('--context-bytes: the digits are echoed as written (007), a number beyond 64 bits is refused as the shell refused it', () => {
+    const { ctx } = project();
+    const r = (/** @type {string} */ v) => policyCommand(ctx, ['resolve', '--role', 'lead', '--class', 'STANDARD', '--tier', 'full', '--context-bytes', v]);
+    assert.match(r('007').out, /^context_bytes=007$/m);
+    assert.match(r('9223372036854775807').out, /^context_bytes=262144$/m);
+    for (const v of ['99999999999999999999', '9223372036854775808']) { const x = r(v); assert.equal(x.status, 3, v); assert.match(x.err, /INVALID_OVERRIDE/); }
   });
   test('the corpus holds every exit status of the resolver (0, 2, 3, 4)', () => {
     assert.deepEqual([...new Set(cases.map((c) => c.status))].sort(), [0, 2, 3, 4]);
