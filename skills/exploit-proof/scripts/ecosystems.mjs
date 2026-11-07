@@ -17,7 +17,7 @@
 //   toRegExp(spec)                "/source/flags" -> RegExp; a bare string is a source
 //   flatten(data)                 the rows [id, path, value] of ecosystems.tsv
 // Workspace members (A187): workspace_roots[].members says how a workspace file's member list is read, commands.*[].workspace and
-// at_workspace are command templates with {members}; discover.sh (d_members, d_rule) builds the command from them.
+// at_workspace are command templates with {members}; core/discover.mjs (members, rule) builds the command from them.
 // CLI: node ecosystems.mjs write|sync|check|validate|get <id|*> <path>|ids|risky|dependency
 //   write     regenerates ecosystems.tsv next to ecosystems.json
 //   sync      write, then refreshes the byte-identical copies in every skills/*/ that carries one (the control plane only)

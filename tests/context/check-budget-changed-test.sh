@@ -8,7 +8,7 @@ run() { # WANT DESC BODY PATH...
   printf '%s\n' "$@" | env -u GITHUB_EVENT_NAME -u PR_BODY_FILE -u GITHUB_EVENT_PATH PR_BODY="$body" sh "$here/check-budget-changed.sh" >/dev/null 2>&1; got=$?
   if [ "$got" = "$want" ]; then printf 'ok %s\n' "$desc"; else printf 'FAIL %s: want exit %s, got %s\n' "$desc" "$want" "$got"; fail=1; fi
 }
-run 0 'budget unchanged' '' README.md bin/lib/context-size.sh
+run 0 'budget unchanged' '' README.md control-plane/agents/scripts/core/contextsize.mjs
 run 1 'budget changed, empty description' '' tests/context/budget.tsv
 run 1 'budget changed, a different reason line' 'Invariant-test-change: this is not the right line' tests/context/budget.tsv
 run 0 'budget changed, reason given' 'Adds a section.

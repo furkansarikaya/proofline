@@ -56,9 +56,9 @@ doctor_platform() {
   esac
 }
 
-# doctor_context (A202): the size of the text loaded into every session and every role (one script, bin/lib/context-size.sh).
+# doctor_context (A202): the size of the text loaded into every session and every role (one module of the Node core, A230).
 doctor_context() {
-  dx_o=$(sh "$PL_HOME/bin/lib/context-size.sh" project "$ROOT" report 2>/dev/null) || dx_o=''
+  dx_o=$(pl_core cli context-size project "$ROOT" report 2>/dev/null) || dx_o=''
   [ -n "$dx_o" ] || { d_warn "context: the size of the text loaded into every session could not be measured"; return 0; }
   d_pass "$(printf '%s\n' "$dx_o" | sed 's/^/    /;1s/^ *//')"
 }
@@ -183,12 +183,18 @@ doctor_toolchain() {
   dt_s=$PL_HOME/skills/verify-proof/scripts/runtime-versions.sh
   [ -f "$dt_s" ] || return 0
   dt_out=$(cd "$ROOT" && sh "$dt_s" 2>/dev/null) || return 0
+  dt_eco=''   # the flat form of the ecosystem definition, read by the sh reader of the control plane
+  if [ -f "$PL_HOME/control-plane/agents/scripts/ecosystems.sh" ]; then
+    # shellcheck source=/dev/null # control-plane/agents/scripts/ecosystems.sh, found through PL_HOME
+    . "$PL_HOME/control-plane/agents/scripts/ecosystems.sh"
+    ! eco_init "$PL_HOME/control-plane/agents/ecosystems.tsv" || dt_eco=1
+  fi
   while read -r dt_k dt_n dt_l dt_c dt_f dt_st; do
     [ "$dt_k" = 'runtime:' ] || continue
     [ "$dt_n" != none ] || continue # `runtime: none (...)` says no runtime was found; it is not a runtime named none
     dt_l=${dt_l#local=}; dt_c=${dt_c#ci=}; dt_f=${dt_f#source=}; dt_st=${dt_st#status=}
     dt_u=major # without the definition only the major version is compared; runtime.compare says how many components (A187)
-    if [ -n "$D_ECO" ]; then # the number of version components compared comes from the ecosystem definition (A173)
+    if [ -n "$dt_eco" ]; then # the number of version components compared comes from the ecosystem definition (A173)
       dt_id=$(eco_match '^runtime\.name$' | awk -F'\t' -v n="$dt_n" '$3 == n { print $1; exit }')
       [ -z "$dt_id" ] || case "$(eco_first "$dt_id" runtime.compare)" in 1) dt_u=major ;; *) dt_u='major.minor' ;; esac
     fi
@@ -310,13 +316,16 @@ doctor_netenv() {
   d_warn "network: these proxy or certificate variables are set here but NOT passed to gh, glab, az and the merge-proof git (values are never shown): ${dn_list%; }. Allowed, with a value that passes the check: HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO"
 }
 
+# exit_next: a failed core command already said why; add the user's next step like `die` does, and stop.
+exit_next() { nu_line "--error${PL_KIND:+=$PL_KIND}" >&2 || :; exit 1; }
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   case "${1:-}" in
-    --commands) require_installed; cm_propose; return 0 ;;
-    --apply-commands) require_installed; cm_apply; return 0 ;;
-    --scale) require_installed; ts_propose; return 0 ;;
-    --apply-scale) require_installed; ts_apply; return 0 ;;
+    --commands) require_installed; core_cli doctor-commands propose || exit_next; return 0 ;;
+    --apply-commands) require_installed; core_cli doctor-commands apply || exit_next; return 0 ;;
+    --scale) require_installed; core_cli doctor-scale propose || exit_next; return 0 ;;
+    --apply-scale) require_installed; core_cli doctor-scale apply || exit_next; return 0 ;;
     '') ;;
     *) die "doctor: unknown argument: $1" ;;
   esac
@@ -414,11 +423,8 @@ EOF
     for ev in SessionStart UserPromptSubmit PreToolUse PostToolUse SubagentStart SubagentStop Stop; do hook_has "$ROOT/.claude/settings.json" "$ev" || miss="$miss $ev"; done
     if [ -z "$miss" ]; then d_pass "claude hooks: .claude/settings.json wires all 7 proofline events"
     else
-      RW_OUT=$(mktemp "${TMPDIR:-/tmp}/proofline-plugin.XXXXXX"); export RW_OUT
-      run_with_timeout 20 "${PROOFLINE_CLAUDE_BIN:-claude}" plugin list 2>/dev/null
-      if [ -f "$RW_OUT" ] && grep -qi proofline "$RW_OUT"; then d_pass "claude hooks: provided by the proofline plugin (project settings do not need them)"
+      if pl_core cli run-timeout 20 "${PROOFLINE_CLAUDE_BIN:-claude}" plugin list 2>/dev/null | grep -qi proofline; then d_pass "claude hooks: provided by the proofline plugin (project settings do not need them)"
       else d_fail "claude hooks: .claude/settings.json lacks proofline hooks for:$miss (run: proofline init)"; fi
-      rm -f "$RW_OUT"; unset RW_OUT
     fi
   fi
   if rt_has codex; then
@@ -440,7 +446,8 @@ EOF
   dc_ci=$(cd "$ROOT" && sh "$A" ci-check 2>/dev/null) || :   # exit 1 means absent; the output still holds the verdict
   case "$(printf '%s\n' "$dc_ci" | head -1)" in
     'ci: absent')
-      discover_commands "$ROOT" >/dev/null 2>&1 || true
+      dc_rows=$(mktemp "${TMPDIR:-/tmp}/proofline-disc.XXXXXX") && pl_core cli discover "$ROOT" --quiet --out "$dc_rows" >/dev/null 2>&1 || :
+      D_BUILD=$(awk -F'\t' '$1 == "build" { print $2 }' "$dc_rows" 2>/dev/null); D_TEST=$(awk -F'\t' '$1 == "test" { print $2 }' "$dc_rows" 2>/dev/null); rm -f "$dc_rows"
       d_warn "ci: $(printf '%s\n' "$dc_ci" | sed -n 2p) Fix: $(cd "$ROOT" && PROOFLINE_CI_BUILD=$D_BUILD PROOFLINE_CI_TEST=$D_TEST sh "$A" ci-task-command)" ;;
     'ci: present'*) d_pass "$dc_ci" ;;
   esac

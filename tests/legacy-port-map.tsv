@@ -1323,3 +1323,100 @@ rules-test	a project without rules reports none	none	tests/core/rules.test.mjs::
 (agent.sh function wait_line)	wait-line	the one-line wait status, the clock file, --done, the dispatch in flight	tests/core/helpercmds.test.mjs::wait-line: the first call for a WHAT starts its clock, the line is `waiting: <what>, <M>m<SS>s so far`, --done stops it, WHAT is cleaned to letters, digits and . _ -
 (agent.sh function task_rename_plan/apply)	task-rename-plan, task-rename-apply	the proposal, the approval, the re-check, git mv, single use (batch-plan.test.mjs keeps sc_task_names)	tests/core/helpercmds.test.mjs::task-rename-apply renames only after the user's approval of exactly that proposal, re-checks every row first, uses git mv for tracked files, and the approval is single use
 (agent.sh function run_suites)	test	every sibling *-test.sh in order, the first failure stops with its status, lead only	tests/core/helpercmds.test.mjs::test runs every sibling *-test.sh of the scripts folder in order, announces each, stops at the first failure with its status, and is the lead's
+discover-eco-test	npm: pnpm at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: npm: pnpm at the root
+discover-eco-test	npm: yarn at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: npm: yarn at the root
+discover-eco-test	npm: bun at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: npm: bun at the root
+discover-eco-test	npm: workspaces root stands for its members	exact commands for the layout	tests/core/discover.test.mjs::discovery: npm: workspaces root stands for its members
+discover-eco-test	npm: pnpm-workspace.yaml root stands for its members	exact commands for the layout	tests/core/discover.test.mjs::discovery: npm: pnpm-workspace.yaml root stands for its members
+discover-eco-test	npm: one nested app, its own lock picks the runner	exact commands for the layout	tests/core/discover.test.mjs::discovery: npm: one nested app, its own lock picks the runner
+discover-eco-test	npm: one nested app, no lock	exact commands for the layout	tests/core/discover.test.mjs::discovery: npm: one nested app, no lock
+discover-eco-test	npm: two apps and no workspace root	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: npm: two apps and no workspace root
+discover-eco-test	python: uv at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: python: uv at the root
+discover-eco-test	python: poetry at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: python: poetry at the root
+discover-eco-test	python: pdm at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: python: pdm at the root
+discover-eco-test	python: hatch project with a tests folder	exact commands for the layout	tests/core/discover.test.mjs::discovery: python: hatch project with a tests folder
+discover-eco-test	python: pip project (pytest.ini)	exact commands for the layout	tests/core/discover.test.mjs::discovery: python: pip project (pytest.ini)
+discover-eco-test	python: one nested service	exact commands for the layout	tests/core/discover.test.mjs::discovery: python: one nested service
+discover-eco-test	python: uv workspace root stands for its members	exact commands for the layout	tests/core/discover.test.mjs::discovery: python: uv workspace root stands for its members
+discover-eco-test	python: two nested projects	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: python: two nested projects
+discover-eco-test	go: module at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: go: module at the root
+discover-eco-test	go: one nested module	exact commands for the layout	tests/core/discover.test.mjs::discovery: go: one nested module
+discover-eco-test	go: two nested modules	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: go: two nested modules
+discover-eco-test	go: go.work without a root module gives nothing, and init names it	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: go: go.work without a root module gives nothing, and init names it
+discover-eco-test	go.work: a use block gives the member commands (no root module)	exact commands for the layout	tests/core/discover.test.mjs::discovery: go.work: a use block gives the member commands (no root module)
+discover-eco-test	go.work: with a root go.mod the members still decide, not ./...	exact commands for the layout	tests/core/discover.test.mjs::discovery: go.work: with a root go.mod the members still decide, not ./...
+discover-eco-test	go.work: single-line use	exact commands for the layout	tests/core/discover.test.mjs::discovery: go.work: single-line use
+discover-eco-test	go.work: an empty use list behaves as before (root module)	exact commands for the layout	tests/core/discover.test.mjs::discovery: go.work: an empty use list behaves as before (root module)
+discover-eco-test	go.work: an empty use list without a root module still gives nothing	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: go.work: an empty use list without a root module still gives nothing
+discover-eco-test	go.work: an unsafe member path falls back to the plain rule	exact commands for the layout	tests/core/discover.test.mjs::discovery: go.work: an unsafe member path falls back to the plain rule
+discover-eco-test	npm: a pnpm workspace root without scripts gives nothing, and init names it	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: npm: a pnpm workspace root without scripts gives nothing, and init names it
+discover-eco-test	jvm: maven at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: jvm: maven at the root
+discover-eco-test	jvm: maven multi-module root stands for its modules	exact commands for the layout	tests/core/discover.test.mjs::discovery: jvm: maven multi-module root stands for its modules
+discover-eco-test	jvm: one nested maven module	exact commands for the layout	tests/core/discover.test.mjs::discovery: jvm: one nested maven module
+discover-eco-test	jvm: gradle with wrapper at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: jvm: gradle with wrapper at the root
+discover-eco-test	jvm: gradle without wrapper	exact commands for the layout	tests/core/discover.test.mjs::discovery: jvm: gradle without wrapper
+discover-eco-test	jvm: nested gradle with wrapper	exact commands for the layout	tests/core/discover.test.mjs::discovery: jvm: nested gradle with wrapper
+discover-eco-test	jvm: two nested maven projects	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: jvm: two nested maven projects
+discover-eco-test	cargo: crate at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: cargo: crate at the root
+discover-eco-test	cargo: workspace root stands for its crates	exact commands for the layout	tests/core/discover.test.mjs::discovery: cargo: workspace root stands for its crates
+discover-eco-test	cargo: one nested crate	exact commands for the layout	tests/core/discover.test.mjs::discovery: cargo: one nested crate
+discover-eco-test	cargo: two nested crates	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: cargo: two nested crates
+discover-eco-test	php: composer scripts at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: php: composer scripts at the root
+discover-eco-test	php: phpunit.xml.dist without a script	exact commands for the layout	tests/core/discover.test.mjs::discovery: php: phpunit.xml.dist without a script
+discover-eco-test	php: one nested composer project	exact commands for the layout	tests/core/discover.test.mjs::discovery: php: one nested composer project
+discover-eco-test	ruby: rspec at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: ruby: rspec at the root
+discover-eco-test	ruby: rake test and rubocop at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: ruby: rake test and rubocop at the root
+discover-eco-test	ruby: a nested project has no targeted form	exact commands for the layout	tests/core/discover.test.mjs::discovery: ruby: a nested project has no targeted form
+discover-eco-test	swift: package at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: swift: package at the root
+discover-eco-test	swift: one nested package	exact commands for the layout	tests/core/discover.test.mjs::discovery: swift: one nested package
+discover-eco-test	dart: dart package at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: dart: dart package at the root
+discover-eco-test	dart: flutter package at the root	exact commands for the layout	tests/core/discover.test.mjs::discovery: dart: flutter package at the root
+discover-eco-test	dart: a nested package has a targeted analyze only	exact commands for the layout	tests/core/discover.test.mjs::discovery: dart: a nested package has a targeted analyze only
+discover-eco-test	.NET: .slnx and a nested project	exact commands for the layout	tests/core/discover.test.mjs::discovery: .NET: .slnx and a nested project
+discover-eco-test	.NET: .slnx beside a same-name .sln (legacy copy)	exact commands for the layout	tests/core/discover.test.mjs::discovery: .NET: .slnx beside a same-name .sln (legacy copy)
+discover-eco-test	.NET: two root solutions	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: .NET: two root solutions
+discover-eco-test	.NET: only a nested project	exact commands for the layout	tests/core/discover.test.mjs::discovery: .NET: only a nested project
+discover-eco-test	.NET: two nested projects	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: .NET: two nested projects
+discover-eco-test	.NET: a root fsproj is run bare	exact commands for the layout	tests/core/discover.test.mjs::discovery: .NET: a root fsproj is run bare
+discover-eco-test	.NET: root .editorconfig adds dotnet format on a bare project	exact commands for the layout	tests/core/discover.test.mjs::discovery: .NET: root .editorconfig adds dotnet format on a bare project
+discover-eco-test	.NET: root .editorconfig adds dotnet format on the target	exact commands for the layout	tests/core/discover.test.mjs::discovery: .NET: root .editorconfig adds dotnet format on the target
+discover-eco-test	.NET: a project only under obj is ignored	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: .NET: a project only under obj is ignored
+discover-eco-test	.NET: a path with a space is never a candidate	no command and the ecosystem named as ambiguous	tests/core/discover.test.mjs::discovery: .NET: a path with a space is never a candidate
+discover-eco-test	.NET: a CI dotnet format line is the lint command	exact commands for the layout	tests/core/discover.test.mjs::discovery: .NET: a CI dotnet format line is the lint command
+discover-eco-test	pruned folder: a real root project is found next to a pruned one	exact commands for the layout	tests/core/discover.test.mjs::discovery: pruned folder: a real root project is found next to a pruned one
+discover-eco-test	mixed: a root .slnx and a nested npm app give a list	exact commands for the layout	tests/core/discover.test.mjs::discovery: mixed: a root .slnx and a nested npm app give a list
+discover-eco-test	mixed: two ambiguous solutions leave only the npm app	exact commands for the layout	tests/core/discover.test.mjs::discovery: mixed: two ambiguous solutions leave only the npm app
+discover-eco-test	mixed: a Makefile target closes its kind, the other kinds still list every ecosystem	exact commands for the layout	tests/core/discover.test.mjs::discovery: mixed: a Makefile target closes its kind, the other kinds still list every ecosystem
+discover-eco-test	pruned folder: <name> is not searched (nine folders)	a project file in a pruned folder gives no command and no ambiguity	tests/core/discover.test.mjs::discovery: pruned folder: node_modules/x/package.json is not searched (and the eight others)
+discover-eco-test	pruned folder: a real root project is found next to a pruned one	the root project is found	tests/core/discover.test.mjs::discovery: a real root project is found next to a pruned one
+discover-eco-test	300 nested package.json are judged in seconds	no fork per project; several projects named	tests/core/discover.test.mjs::discovery: 300 nested package.json are judged in seconds and named as several projects
+discover-pgroup-test	method setm: timeout returns 124 and nothing of the hung tree is left	one process-group stop (the four shell methods are one Node call)	tests/core/discover.test.mjs::runWithTimeout: a hung tree (a nested sh, a plain sleep, a subshell that ignores TERM) is closed whole and the status is 124
+discover-pgroup-test	method setsid: timeout returns 124 and nothing of the hung tree is left	one process-group stop (the four shell methods are one Node call)	tests/core/discover.test.mjs::runWithTimeout: a hung tree (a nested sh, a plain sleep, a subshell that ignores TERM) is closed whole and the status is 124
+discover-pgroup-test	method perl: timeout returns 124 and nothing of the hung tree is left	one process-group stop (the four shell methods are one Node call)	tests/core/discover.test.mjs::runWithTimeout: a hung tree (a nested sh, a plain sleep, a subshell that ignores TERM) is closed whole and the status is 124
+discover-pgroup-test	method pysetpgid: timeout returns 124 and nothing of the hung tree is left	one process-group stop (the four shell methods are one Node call)	tests/core/discover.test.mjs::runWithTimeout: a hung tree (a nested sh, a plain sleep, a subshell that ignores TERM) is closed whole and the status is 124
+discover-pgroup-test	fallback (no process-group method): grandchildren stay, as documented	deleted with the fallback: there is no shell method to fall back from, the group is always stopped	tests/core/discover.test.mjs::runWithTimeout: a hung tree (a nested sh, a plain sleep, a subshell that ignores TERM) is closed whole and the status is 124
+cli-test	sc_discovery: discovery: package.json with pnpm; the npm placeholder test script is ignored	same expectation	tests/core/discover.test.mjs::discovery: package.json with pnpm; the npm placeholder test script is ignored
+cli-test	sc_discovery: discovery: Makefile targets	same expectation	tests/core/discover.test.mjs::discovery: Makefile targets
+cli-test	sc_discovery: discovery: go.mod	same expectation	tests/core/discover.test.mjs::discovery: go: module at the root
+cli-test	sc_discovery: discovery: Cargo.toml	same expectation	tests/core/discover.test.mjs::discovery: cargo: crate at the root
+cli-test	sc_discovery: discovery: pyproject (pytest, ruff)	same expectation	tests/core/discover.test.mjs::discovery: python: poetry at the root
+cli-test	sc_discovery: discovery: *.csproj	same expectation	tests/core/discover.test.mjs::discovery: .NET: a root fsproj is run bare
+cli-test	sc_discovery: discovery: CI configuration (compound and templated lines are skipped)	same expectation	tests/core/discover.test.mjs::discovery: CI configuration (compound and templated lines are skipped)
+cli-test	sc_discovery: discovery: README code lines	same expectation	tests/core/discover.test.mjs::discovery: README code lines
+cli-test	sc_discovery: discovery: README lines with & ; | < > backticks $() are rejected	same expectation	tests/core/discover.test.mjs::discovery: README lines with & ; | < > backticks and $() are rejected
+cli-test	sc_discovery: --verify-commands never runs a command with shell operators	same expectation	tests/core/discover.test.mjs::verifyCommands never runs a command with shell operators, keeps a passing one and drops a failing one
+cli-test	sc_discovery: discovery: package.json scripts win over README text	same expectation	tests/core/discover.test.mjs::discovery: package.json scripts win over README text
+cli-test	sc_discovery: --verify-commands keeps a command whose trial passes and drops one that fails	same expectation	tests/core/discover.test.mjs::verifyCommands never runs a command with shell operators, keeps a passing one and drops a failing one
+context-budget-test	the repository is within the context budget	same expectation	tests/core/contextsize.test.mjs::the repository is within its context budget
+context-budget-test	all mapped rules exist at their new place	same expectation	tests/core/contextsize.test.mjs::every moved rule is still at its new place
+context-budget-test	a project counts the proofline block only, not the user text around it	same expectation	tests/core/contextsize.test.mjs::a project counts the proofline block only, not the user text around it; tokens are bytes / 4, rounded up
+context-budget-test	tokens are bytes / 4, rounded up	same expectation	tests/core/contextsize.test.mjs::a project counts the proofline block only, not the user text around it; tokens are bytes / 4, rounded up
+context-budget-test	a big text in the AGENTS.md proofline block: the budget test breaks	same expectation	tests/core/contextsize.test.mjs::a big text in the AGENTS.md proofline block: the budget check breaks
+context-budget-test	a big text in the CLAUDE.md proofline block: the budget test breaks	same expectation	tests/core/contextsize.test.mjs::a big text in the CLAUDE.md proofline block: the budget check breaks
+context-budget-test	a big text in the entry skill: the budget test breaks	same expectation	tests/core/contextsize.test.mjs::a big text in the entry skill: the budget check breaks
+context-budget-test	a big text in an agent file: the budget test breaks	same expectation	tests/core/contextsize.test.mjs::a big text in an agent file: the budget check breaks
+context-budget-test	a big text in the first skill of a role: the budget test breaks	same expectation	tests/core/contextsize.test.mjs::a big text in the first skill of a role: the budget check breaks
+context-budget-test	a big SessionStart text: the budget test breaks	same expectation	tests/core/contextsize.test.mjs::a big SessionStart text: the budget check breaks
+context-budget-test	an item without a budget line fails	same expectation	tests/core/contextsize.test.mjs::an item without a budget line fails, and a budget line for an unmeasured item fails (a budget cannot be dodged by renaming an item)
+context-budget-test	a budget line for an unmeasured item fails	same expectation	tests/core/contextsize.test.mjs::an item without a budget line fails, and a budget line for an unmeasured item fails (a budget cannot be dodged by renaming an item)
+context-budget-test	the report shows the lead session and each role	same expectation	tests/core/contextsize.test.mjs::the report names the lead and every role; the usage errors have status 2

@@ -9,7 +9,9 @@
 //     command, as secret-scan.sh did), so it is not an agent.sh command and does not run for a model (the bash guard owns that);
 //   - AGENT_ROLE does not gate them (the CLI is the user's terminal and the report holds nothing a role may not read through `agent.sh`);
 //   - no name may equal a command of agent.sh, so `cli` can never become a second front door to a moved or unmoved agent.sh command.
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { ProoflineError } from '../errors.mjs';
 import { insightsReport, insightsStream } from '../insights.mjs';
 import { nextUser } from '../nextuser.mjs';
@@ -24,6 +26,10 @@ import { policyCommand } from '../execpolicy.mjs';
 import { runtimeDetect } from '../runtimedetect.mjs';
 import { leftoverCommand } from '../leftover.mjs';
 import { prepareWorktree } from '../worktree.mjs';
+import { applyCommands, emptyKinds, proposeCommands } from '../commandsprop.mjs';
+import { checkBudget, contextRows, reportText, rootExists, tsvText } from '../contextsize.mjs';
+import { KINDS, ambigNotes, discoverCommands, joinCommands, runWithTimeout, verifyCommands } from '../discover.mjs';
+import { applyHookTimeouts, applyScale, proposeScale } from '../scale.mjs';
 import { detectPlatform, detectText, droppedNetVars, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -180,8 +186,99 @@ function worktreeDepsCli(ctx, args) {
   return prepareWorktree(ctx, args[0], args[1], '', true);
 }
 
+
+/**
+ * `cli discover <ROOT> [--verify] [--quiet] [--out FILE]` (the former bin/lib/discover.sh, for `proofline init` and `doctor`): the build, test and lint commands the project's own
+ * files give. Prints what `init` says (the commands found, the ecosystems that got none because their target is ambiguous, and with `--verify` the trial runs; `--quiet`
+ * prints nothing); `--out FILE` writes one `kind TAB command` row per command (after the trial runs). Nothing but command text is read from the project; no secret is printed.
+ * @param {Context} ctx @param {string[]} args
+ */
+function discoverCli(ctx, args) {
+  const usage = () => new ProoflineError('proofline-core cli discover: <ROOT> [--verify] [--quiet] [--out FILE]', 2, 'USAGE');
+  let root = ''; let verify = false; let quiet = false; let out = '';
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--verify') verify = true;
+    else if (args[i] === '--quiet') quiet = true;
+    else if (args[i] === '--out' && i + 1 < args.length) out = args[++i];
+    else if (!args[i].startsWith('--') && root === '') root = args[i];
+    else throw usage();
+  }
+  if (root === '') throw usage();
+  const found = discoverCommands(path.resolve(ctx.cwd, root));
+  const say = (/** @type {string} */ l) => { if (!quiet) { ctx.out(`${l}\n`); ctx.flush(); } };
+  say(`discovered commands: build='${joinCommands(found.build)}' test='${joinCommands(found.test)}' lint='${joinCommands(found.lint)}'`);
+  for (const n of ambigNotes(found.ambig)) say(`  ${n}`);
+  let cmds = { build: found.build, test: found.test, lint: found.lint };
+  if (verify) { say('verifying commands (trial runs)...'); cmds = verifyCommands(path.resolve(ctx.cwd, root), cmds, say, { env: ctx.env }); }
+  if (out !== '') writeFileSync(out, KINDS.flatMap((k) => cmds[k].map((c) => `${k}\t${c}\n`)).join(''));
+  return 0;
+}
+
+/**
+ * `cli run-timeout <SECONDS> <program> [args...]` (the former `run_with_timeout`, for `proofline doctor`): runs the program with a time limit and prints its output (standard
+ * output and error together). The program leads a process group of its own and the whole group is killed when the time is up; the status is the program's, or 124 on a timeout.
+ * @param {Context} ctx @param {string[]} args
+ */
+function runTimeoutCli(ctx, args) {
+  if (args.length < 2 || !/^[0-9]+$/.test(args[0])) throw new ProoflineError('proofline-core cli run-timeout: <SECONDS> <program> [args...]', 2, 'USAGE');
+  const dir = mkdtempSync(path.join(tmpdir(), 'proofline-rt-'));
+  try {
+    const r = runWithTimeout(Number(args[0]), args.slice(1), { cwd: ctx.cwd, env: ctx.env, outFile: `${dir}/out` });
+    try { ctx.out(readFileSync(`${dir}/out`, 'latin1')); } catch { /* nothing written */ }
+    return r.status;
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** `cli doctor-commands propose|apply|empty` (the former bin/lib/commands.sh): `proofline doctor --commands`, `--apply-commands`, and the empty keys of the config. @param {Context} ctx @param {string[]} args */
+function doctorCommandsCli(ctx, args) {
+  if (args.length !== 1) throw new ProoflineError('proofline-core cli doctor-commands: propose|apply|empty', 2, 'USAGE');
+  if (args[0] === 'propose') return proposeCommands(ctx);
+  if (args[0] === 'apply') return applyCommands(ctx);
+  if (args[0] === 'empty') { ctx.out(`${emptyKinds(ctx).join(' ')}\n`); return 0; }
+  throw new ProoflineError('proofline-core cli doctor-commands: propose|apply|empty', 2, 'USAGE');
+}
+
+/** `cli doctor-scale propose|apply` (the former bin/lib/timeouts.sh): `proofline doctor --scale` and `--apply-scale`. @param {Context} ctx @param {string[]} args */
+function doctorScaleCli(ctx, args) {
+  if (args.length === 1 && args[0] === 'propose') return proposeScale(ctx);
+  if (args.length === 1 && args[0] === 'apply') return applyScale(ctx);
+  throw new ProoflineError('proofline-core cli doctor-scale: propose|apply', 2, 'USAGE');
+}
+
+/**
+ * `cli hook-timeouts-apply <ROOT> <REL>` (the former `hook_timeouts_apply` of bin/lib/install.sh): sets the timeout of the proofline hooks in the settings file REL of the project
+ * ROOT from its config. Prints one line `same|merged|warn TAB text`, nothing when there is nothing to do.
+ * @param {Context} ctx @param {string[]} args
+ */
+function hookTimeoutsApplyCli(ctx, args) {
+  if (args.length !== 2 || args[1].startsWith('/') || args[1].split('/').includes('..')) throw new ProoflineError('proofline-core cli hook-timeouts-apply: <ROOT> <relative settings file>', 2, 'USAGE');
+  const r = applyHookTimeouts(path.resolve(ctx.cwd, args[0]), args[1]);
+  if (r.state !== 'absent') ctx.out(`${r.state}\t${r.text}\n`);
+  return 0;
+}
+
+/**
+ * `cli context-size <repo|project> <ROOT> [report|tsv|check <budget-file>]` (the former bin/lib/context-size.sh, A202): the size of the text proofline loads into every session. A
+ * project falls back to the checkout in PL_HOME (default ROOT) for a file it lacks. Status 1 when `check` finds an item above its budget, 2 for a usage error.
+ * @param {Context} ctx @param {string[]} args
+ */
+function contextSizeCli(ctx, args) {
+  const [mode = '', root = '', cmd = 'report', budget = ''] = args;
+  if (mode !== 'repo' && mode !== 'project') throw new ProoflineError('usage: proofline-core cli context-size <repo|project> <root> [report|tsv|check <budget-file>]', 2, 'USAGE');
+  if (!rootExists(path.resolve(ctx.cwd, root))) throw new ProoflineError(`context-size: no such directory: ${root}`, 2, 'USAGE');
+  if (cmd !== 'report' && cmd !== 'tsv' && cmd !== 'check') throw new ProoflineError(`context-size: unknown command: ${cmd}`, 2, 'USAGE');
+  const rows = contextRows(mode, root, ctx.env.PL_HOME || root);
+  if (cmd === 'tsv') { ctx.out(tsvText(rows)); return 0; }
+  if (cmd === 'report') { ctx.out(reportText(rows)); return 0; }
+  let text;
+  try { text = readFileSync(path.resolve(ctx.cwd, budget), 'latin1'); } catch { throw new ProoflineError(`context-size: budget file not found: ${budget}`, 2, 'USAGE'); }
+  const bad = checkBudget(rows, text);
+  for (const l of bad) ctx.out(`${l}\n`);
+  return bad.length > 0 ? 1 : 0;
+}
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli });
+export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli, discover: discoverCli, 'run-timeout': runTimeoutCli, 'doctor-commands': doctorCommandsCli, 'doctor-scale': doctorScaleCli, 'hook-timeouts-apply': hookTimeoutsApplyCli, 'context-size': contextSizeCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

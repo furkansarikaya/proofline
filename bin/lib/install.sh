@@ -196,37 +196,14 @@ json_merge() { # REL SRC
 # project's config gives (`agent.sh hook-timeouts`: hook.<event>_timeout_seconds times timeouts.scale, bounded). Only the `timeout` of a hook whose command
 # names proofline-hook.mjs is touched; every other key, hook and setting stays byte for byte as it was. Idempotent: a file that already holds the values
 # is not rewritten. The config is the one place to change a hook limit; a limit edited by hand in the settings file is put back to it on the next upgrade.
+# The work is done by the Node core (`cli hook-timeouts-apply`, A230); this function only logs what it reports.
 hook_timeouts_apply() {
   [ -f "$ROOT/$1" ] || return 0
   if [ "$DRY" = 1 ]; then plog same "$1 (hook timeouts are set from the config when it is written)"; return 0; fi
   [ -f "$ROOT/.agents/scripts/agent.sh" ] || return 0
-  ht_tab=$(cd "$ROOT" && sh .agents/scripts/agent.sh hook-timeouts 2>/dev/null) || ht_tab=''
-  if [ -z "$ht_tab" ]; then plog warn "$1: hook timeouts not set (this install's agent.sh does not know hook-timeouts)"; return 0; fi
-  ht_out=$STAGE/hook-timeouts.json; rm -f "$ht_out"
-  ht_map=$(printf '%s\n' "$ht_tab" | awk -F= 'BEGIN { m["session"]="SessionStart"; m["prompt"]="UserPromptSubmit"; m["pretool"]="PreToolUse"; m["posttool"]="PostToolUse"; m["subagent-start"]="SubagentStart"; m["subagent-stop"]="SubagentStop"; m["stop"]="Stop" }
-    $1 in m && $2 ~ /^[0-9]+$/ { printf "%s\"%s\":%s", (n++ ? "," : ""), m[$1], $2 } END { if (n) print "" }')
-  [ -n "$ht_map" ] || return 0
-  ht_rc=1
-  if command -v jq >/dev/null 2>&1; then
-    jq --argjson t "{$ht_map}" '
-      if (.hooks | type) == "object" then
-        .hooks |= with_entries(.key as $ev | .value |= (if type == "array" then map(if (.hooks | type) == "array" then .hooks |= map(if ((.command // "") | tostring | test("proofline-hook[.]mjs")) and ($t[$ev] != null) then .timeout = $t[$ev] else . end) else . end) else . end))
-      else . end' "$ROOT/$1" > "$ht_out" 2>/dev/null && ht_rc=0
-  elif command -v node >/dev/null 2>&1; then
-    node -e '
-      const fs = require("fs"); const [src, out, map] = process.argv.slice(1);
-      let j; try { j = JSON.parse(fs.readFileSync(src, "utf8")); } catch (e) { process.exit(1); }
-      const t = JSON.parse("{" + map + "}");
-      if (j && typeof j.hooks === "object" && j.hooks) for (const [ev, groups] of Object.entries(j.hooks)) {
-        if (!Array.isArray(groups) || t[ev] == null) continue;
-        for (const g of groups) if (g && Array.isArray(g.hooks)) for (const h of g.hooks) if (h && String(h.command || "").match(/proofline-hook[.]mjs/)) h.timeout = t[ev];
-      }
-      fs.writeFileSync(out, JSON.stringify(j, null, 2) + "\n");' "$ROOT/$1" "$ht_out" "$ht_map" && ht_rc=0
-  fi
-  if [ "$ht_rc" != 0 ]; then plog warn "$1: hook timeouts not set (invalid JSON, or neither jq nor node is installed)"; return 0; fi
-  if [ "$(jq -S -c . "$ROOT/$1" 2>/dev/null || node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))))' "$ROOT/$1")" = "$(jq -S -c . "$ht_out" 2>/dev/null || node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))))' "$ht_out")" ]; then plog same "$1 (hook timeouts)"; return 0; fi
-  plog merged "$1 (hook timeouts from the config; other settings kept)"
-  cat "$ht_out" > "$ROOT/$1"
+  ht_r=$(pl_core cli hook-timeouts-apply "$ROOT" "$1") || { plog warn "$1: hook timeouts not set (the Node core could not run)"; return 0; }
+  ht_t=$(printf '\t')
+  case "$ht_r" in same"$ht_t"*|merged"$ht_t"*|warn"$ht_t"*) plog "${ht_r%%"$ht_t"*}" "${ht_r#*"$ht_t"}" ;; esac
 }
 
 # merge_block REL SRC: a marked block inside a user-owned markdown file. The sha256 of the block as installed is
@@ -482,15 +459,17 @@ cmd_init() {
   CANON=$(detect_branch)
   D_BUILD=''; D_TEST=''; D_LINT=''
   if [ ! -f "$ex" ] || [ -z "$(cfg_cmds "$ex" commands.test)$(cfg_cmds "$ex" commands.build)" ]; then
-    discover_commands "$ROOT"
-    say "discovered commands: build='$(d_join "${D_BUILD:-}")' test='$(d_join "${D_TEST:-}")' lint='$(d_join "${D_LINT:-}")'"
-    d_ambig_notes | while IFS= read -r dn_l; do say "  $dn_l"; done
-    [ "$VERIFY" != 1 ] || { say "verifying commands (trial runs)..."; verify_commands "$ROOT"; }
+    # the Node core discovers (and with --verify-commands proves by a trial run) the commands, says what init says, and leaves one `kind TAB command` row per command (A230)
+    dc_rows=$(mktemp "${TMPDIR:-/tmp}/proofline-disc.XXXXXX") || die "no temporary file for the command discovery"
+    if [ "$VERIFY" = 1 ]; then pl_core cli discover "$ROOT" --verify --out "$dc_rows"; else pl_core cli discover "$ROOT" --out "$dc_rows"; fi || warn "command discovery failed; commands.* stay empty"
+    D_BUILD=$(awk -F'\t' '$1 == "build" { print $2 }' "$dc_rows"); D_TEST=$(awk -F'\t' '$1 == "test" { print $2 }' "$dc_rows"); D_LINT=$(awk -F'\t' '$1 == "lint" { print $2 }' "$dc_rows")
+    rm -f "$dc_rows"
   fi
   install_run
-  if [ "$DRY" != 1 ] && [ -f "$ROOT/.agents/config.yaml" ] && [ -n "$(cm_empty)" ]; then
+  ie_k=''; [ "$DRY" = 1 ] || [ ! -f "$ROOT/.agents/config.yaml" ] || ie_k=$(core_cli doctor-commands empty 2>/dev/null) || ie_k=''
+  if [ -n "$ie_k" ]; then
     say ""
-    say "commands.$(cm_empty | sed 's/ /, commands./g') still empty: no build record can be made and the verify gate has nothing to run for them. proofline doctor --commands finds the commands, proves each by one run and asks you once (A200)"
+    say "commands.$(printf '%s\n' "$ie_k" | sed 's/ /, commands./g') still empty: no build record can be made and the verify gate has nothing to run for them. proofline doctor --commands finds the commands, proves each by one run and asks you once (A200)"
   fi
   if [ "$DRY" != 1 ]; then
     say ""

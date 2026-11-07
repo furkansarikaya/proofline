@@ -1,14 +1,10 @@
 adapters/codex/install.sh
 adapters/generate.sh
-bin/lib/commands.sh
 bin/lib/config.sh
-bin/lib/context-size.sh
-bin/lib/discover.sh
 bin/lib/doctor.sh
 bin/lib/insights.sh
 bin/lib/install.sh
 bin/lib/merge.sh
-bin/lib/timeouts.sh
 bin/proofline
 control-plane/agents/githooks/pre-commit
 control-plane/agents/githooks/pre-push
@@ -105,11 +101,8 @@ tests/ci/sync-design-library-test.sh
 tests/ci/sync-design-library.sh
 tests/ci/weights-test.sh
 tests/cli/cli-test.sh
-tests/cli/discover-eco-test.sh
-tests/cli/discover-pgroup-test.sh
 tests/context/check-budget-changed-test.sh
 tests/context/check-budget-changed.sh
-tests/context/context-budget-test.sh
 tests/e2e/capabilities-test.sh
 tests/e2e/pending-kind-test.sh
 tests/e2e/pending-kind.sh

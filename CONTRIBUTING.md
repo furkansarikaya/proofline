@@ -88,8 +88,8 @@ A patch that changes anything under `tests/invariants/` must say why in the pull
 fails the pull request otherwise. Locally: `sh tests/invariants/invariants-test.sh`, and `PR_BODY="..." sh tests/invariants/check-changed.sh < changed-paths.txt`.
 
 The text proofline loads into every session (the AGENTS.md and CLAUDE.md blocks, the SessionStart text, the entry skill, each role's agent
-file and first skill) has a size budget (A202): `sh bin/lib/context-size.sh repo .` measures it, `tests/context/budget.tsv` holds the limits and
-`tests/context/context-budget-test.sh` fails a patch that grows an item above its limit. A patch that changes the budget file says why on a line
+file and first skill) has a size budget (A202): `node control-plane/agents/scripts/proofline-core.mjs cli context-size repo .` measures it, `tests/context/budget.tsv` holds the limits and
+`tests/core/contextsize.test.mjs` fails a patch that grows an item above its limit. A patch that changes the budget file says why on a line
 that starts with `Context-budget-change:` (`tests/context/check-budget-changed.sh`). A rule that leaves the AGENTS.md block gets a row in
 `tests/context/rule-map.tsv` with its new place.
 

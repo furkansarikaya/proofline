@@ -48,6 +48,14 @@ function genericHit(content) {
 }
 
 /**
+ * Does one line of text hold a secret by the built-in rules (a known token shape, or a quoted random-looking value)? For text that is about to be shown or recorded.
+ * @param {string} line
+ */
+export function lineHoldsSecret(line) {
+  return RULES.some(([, re]) => re.test(line)) || (GENERIC.test(line) && genericHit(line));
+}
+
+/**
  * Every regular file below the given path (a symbolic link is neither followed nor listed), `.git` pruned.
  * @param {string} root @param {string} rel @param {string[]} out @param {string[]} errors the paths that could not be read (the scan then fails)
  */

@@ -383,6 +383,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/buildrecord.test.mjs tests/core/friction.test.mjs tests/core/lessons.test.mjs tests/core/rules.test.mjs tests/core/helpercmds.test.mjs
+          - name: discovery
+            mode: files
+            pattern: 'none'
+            files: tests/core/discover.test.mjs tests/core/commandsprop.test.mjs tests/core/scale.test.mjs tests/core/contextsize.test.mjs
           - name: enforcement-recorded-lead
             mode: files
             pattern: 'none'
@@ -554,9 +558,14 @@ jobs:
         run: sh tests/invariants/invariants-test.sh
       - name: context budget (A202)
         if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
-        run: |
-          sh tests/context/check-budget-changed-test.sh
-          sh tests/context/context-budget-test.sh
+        run: sh tests/context/check-budget-changed-test.sh
+      - uses: actions/setup-node@v4
+        if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
+        with:
+          node-version: 22.13.0
+      - name: context budget, measured by the Node core (A202, A230)
+        if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
+        run: node --test tests/core/contextsize.test.mjs
       - name: invariant tests changed only with a reason
         if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
         env:
