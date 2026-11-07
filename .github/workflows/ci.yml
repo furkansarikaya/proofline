@@ -351,6 +351,14 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/run6b-adapters.test.mjs tests/core/run6b-merge.test.mjs tests/core/run6b-wire.test.mjs
+          - name: batch-plan
+            mode: files
+            pattern: 'none'
+            files: tests/core/batch-plan.test.mjs tests/core/batch-golden.test.mjs tests/core/batch-answers.test.mjs
+          - name: batch-state
+            mode: files
+            pattern: 'none'
+            files: tests/core/batch-state.test.mjs tests/core/batch-cover.test.mjs tests/core/worktree.test.mjs
           - name: legacy-slow-a
             mode: files
             pattern: 'none'
@@ -465,6 +473,9 @@ jobs:
       - name: process and output budgets of the execution policy, the runtime detection and the known-issue commands
         if: matrix.suite == 'node-tests'
         run: node --test tests/bench/exec-budgets.test.mjs
+      - name: process and output budgets of the night-mode read commands (batch-next, batch-status, batch-answers)
+        if: matrix.suite == 'node-tests'
+        run: node --test tests/bench/batch-budgets.test.mjs
       - name: guard tests against the Node hook
         if: matrix.suite == 'node-tests'
         env:

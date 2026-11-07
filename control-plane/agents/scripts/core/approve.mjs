@@ -143,7 +143,7 @@ function hashFileOrBridge(file) {
 }
 
 /** `rationale_line ID`: the justification line of the first DESIGN.md candidate that has it. @param {Context} ctx @param {string} id */
-function rationaleLine(ctx, id) {
+export function rationaleLine(ctx, id) {
   for (const c of DESIGN_MD_CANDIDATES) {
     const f = `${ctx.root}/${c}`;
     if (!isFile(f)) continue;

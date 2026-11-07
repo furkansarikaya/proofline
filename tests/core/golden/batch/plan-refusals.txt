@@ -1,0 +1,62 @@
+===== plan T-1 T-2 T-3
+--- exit 1
+--- stdout
+--- stderr
+dependency cycle: T-1 -> T-2 -> T-3 -> T-1
+batch: the batch is refused; nothing was written
+
+===== plan run
+--- exit 1
+--- stdout
+--- stderr
+batch: 'run' is a reserved word, not a task ID
+
+===== plan all T-1
+--- exit 1
+--- stdout
+--- stderr
+batch: 'all' stands alone
+
+===== plan bad!id
+--- exit 1
+--- stdout
+--- stderr
+batch: invalid task ID: bad!id
+
+===== plan NOPE
+--- exit 1
+--- stdout
+--- stderr
+batch: task NOPE not found in <DIR>/.agents/tasks (top level, todo/ or backlog/)
+
+===== plan 
+--- exit 1
+--- stdout
+--- stderr
+batch: usage: agent.sh batch-plan [--replace] <ID...|all> (no task IDs: only to continue an approved batch)
+
+===== plan T-4 T-5
+--- exit 1
+--- stdout
+--- stderr
+  T-4: class CRITICAL (keeps its per-task approvals)
+  T-5: depends on T-4, which is not in this batch
+batch: no task can be batched; nothing was written
+
+===== plan --codex-danger-full-access T-4
+--- exit 1
+--- stdout
+--- stderr
+batch: --codex-danger-full-access is gone: night mode runs in your own session (removed in 0.0.32), so the session's own permissions apply
+
+===== plan --replace
+--- exit 1
+--- stdout
+--- stderr
+batch: usage: agent.sh batch-plan [--replace] <ID...|all> (no task IDs: only to continue an approved batch)
+
+===== plan adapter
+--- exit 1
+--- stdout
+--- stderr
+batch: night mode runs markdown task files only, but tasks.adapter is github (a design decision, A161: the order and the classes are read from the task files, not from network calls). Next step: set tasks.adapter to markdown in .agents/config.yaml, import each task with '/proofline task <issue reference>' (it writes <tasks.dir>/<ID>.md with its Suggested class and depends_on), then run '/proofline batch <ID...>' again

@@ -2,6 +2,7 @@
 // CLI-only core subcommands: `node proofline-core.mjs cli <name> ...`. They are NOT agent.sh commands (no entry in the command table, no
 // role gate of agent.sh, no preamble delegation); the shell front ends of bin/proofline call them until stage 9. The set is closed and tested:
 //   - exactly the names of CLI_COMMANDS run; any other name is refused with status 2 and nothing is run, never handed to the shell;
+//   - leftover-worktrees only reads (it proposes a command, nothing is removed); worktree-deps copies dependency folders into the folder it is given;
 //   - insights and queue are read-only: no lock, no file written, no program other than `agent.sh status|next`; pre-commit and pre-push (stage 3) are the
 //     logic of the git hooks: they run git, the run commands the hooks asked (in process) and `delivery-check` (the shell, until stage 4);
 //   - scan-secrets writes nothing; it runs the `commands.secret_scan` of `<--root>/.agents/config.yaml` through /bin/sh when the project sets one (the project's own
@@ -21,6 +22,8 @@ import { mergeCommand } from '../merge.mjs';
 import { bytes } from '../config.mjs';
 import { policyCommand } from '../execpolicy.mjs';
 import { runtimeDetect } from '../runtimedetect.mjs';
+import { leftoverCommand } from '../leftover.mjs';
+import { prepareWorktree } from '../worktree.mjs';
 import { detectPlatform, detectText, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -164,8 +167,18 @@ function runtimeDetectCli(ctx, args) {
   return r.status;
 }
 
+/**
+ * `cli worktree-deps <MAIN-ROOT> <DIR>` (the former `worktree-prep.sh --deps`, for build-record.sh): the ignored dependency folders of the project are COPIED into DIR
+ * (the throwaway export of a build record), never linked. Writes nothing outside DIR; status 0, 1 when a copy failed, 2 for a missing folder.
+ * @param {Context} ctx @param {string[]} args
+ */
+function worktreeDepsCli(ctx, args) {
+  if (args.length !== 2) throw new ProoflineError('proofline-core cli worktree-deps: <MAIN-ROOT> <DIR>', 2, 'USAGE');
+  return prepareWorktree(ctx, args[0], args[1], '', true);
+}
+
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli });
+export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

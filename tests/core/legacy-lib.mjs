@@ -24,7 +24,7 @@ let counter = 0;
 const codeKey = (() => {
   const h = createHash('sha256');
   const walk = (/** @type {string} */ d) => { for (const n of readdirSync(d).sort()) { const f = path.join(d, n); const st = statSync(f); if (st.isDirectory()) walk(f); else h.update(`${f}:${st.size}:${st.mtimeMs}\n`); } };
-  for (const f of ['test-lib.sh', 'agent.sh', 'proofline-core.mjs', 'batch.sh']) { const p = path.join(scripts, f); if (existsSync(p)) { const st = statSync(p); h.update(`${p}:${st.size}:${st.mtimeMs}\n`); } }
+  for (const f of ['test-lib.sh', 'agent.sh', 'proofline-core.mjs']) { const p = path.join(scripts, f); if (existsSync(p)) { const st = statSync(p); h.update(`${p}:${st.size}:${st.mtimeMs}\n`); } }
   walk(path.join(scripts, 'core'));
   return h.digest('hex').slice(0, 12);
 })();
@@ -47,7 +47,6 @@ export function template(recipe) {
   if (r.status !== 0) throw new Error(`recipe failed (${r.status}): ${recipe}\n${r.stderr}${r.stdout}`);
   cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(out, '.agents/scripts/proofline-core.mjs'));
   cpSync(path.join(scripts, 'core'), path.join(out, '.agents/scripts/core'), { recursive: true });
-  if (existsSync(path.join(scripts, 'batch.sh'))) cpSync(path.join(scripts, 'batch.sh'), path.join(out, '.agents/scripts/batch.sh'));
   appendFileSync(path.join(out, '.git/info/exclude'), '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n.agents/local/\n');
   try { renameSync(out, keep); } catch { rmSync(out, { recursive: true, force: true }); /* another process finished first */ }
   writeFileSync(`${keep}.built`, '');

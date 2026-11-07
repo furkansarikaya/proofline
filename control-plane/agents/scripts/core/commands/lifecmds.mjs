@@ -5,7 +5,8 @@ import { fail } from '../errors.mjs';
 import { freezeRun } from '../freeze.mjs';
 import { git } from '../git.mjs';
 import { recordHandoff } from '../handoff.mjs';
-import { need, shellChild } from '../lifeutil.mjs';
+import { need } from '../lifeutil.mjs';
+import { worktreeRemove } from '../worktree.mjs';
 import { requireLead } from '../approve.mjs';
 import { isDir } from '../paths.mjs';
 import { amendRun, reopenRun } from '../reopen.mjs';
@@ -58,9 +59,7 @@ function cleanup(ctx, args) {
       try { main = realpathSync(ctx.root); } catch { /* keep */ }
       const dir = `${main}/.agents/local/worktrees/${raw}`;
       if (git(ctx, ['worktree', 'list', '--porcelain']).out.split('\n').some((l) => l === `worktree ${dir}`)) {
-        const r = shellChild(ctx, ['worktree-remove', raw]);
-        ctx.out(r.out); if (r.err !== '') ctx.err(r.err);
-        return r.status;
+        return worktreeRemove(ctx, [raw]);
       }
     }
   }

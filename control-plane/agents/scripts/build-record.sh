@@ -17,7 +17,7 @@
 # nothing configured or not allowed, 3 no record.
 # Dependencies (the export holds tracked and untracked files, not ignored ones): `commands.install`, when
 # configured, runs first in the export (it is part of the record); otherwise the ignored dependency folders that
-# worktree_deps names in ecosystems.json (A185) are COPIED into the export by worktree-prep.sh --deps, never linked.
+# worktree_deps names in ecosystems.json (A185) are COPIED into the export by `proofline-core.mjs cli worktree-deps`, never linked.
 # Env files (verification.env_files, default none): secret-free test env files (for example .env.test) that MAY enter the export; every
 # other .env* stays out. Each listed file is scanned first (the core's secret scanner, the project's commands.secret_scan included); one visible secret
 # rejects the run with exit 2, naming the file and line (never the value), before anything is built.
@@ -137,10 +137,10 @@ if [ ! -f "$dir/done" ]; then
       wt=$(mktemp -d "${TMPDIR:-/tmp}/build-record.XXXXXX") || exit 2
       idx=$wt/index; GIT_INDEX_FILE=$idx g read-tree "$tree" && GIT_INDEX_FILE=$idx g checkout-index -a -f --prefix="$wt/src/"; rc=$?
       [ "$rc" = 0 ] || { echo "build-record: cannot export $key" >&2; exit 2; }
-      if [ -z "$ic" ] && [ -f "$here/worktree-prep.sh" ]; then
+      if [ -z "$ic" ] && [ -f "$here/proofline-core.mjs" ]; then
         # A185: the dependency folders named by worktree_deps in ecosystems.json are COPIED into the export, never linked, so a build or
         # install step cannot write through into the project
-        sh "$here/worktree-prep.sh" --deps "$root" "$wt/src" >/dev/null 2>&1 || :
+        node "$here/proofline-core.mjs" cli worktree-deps "$root" "$wt/src" >/dev/null 2>&1 || :
       fi
       for f in $envs; do   # listed and scanned above; copied only when the export lacks it (a tracked file is already there)
         [ -f "$root/$f" ] && [ ! -L "$root/$f" ] && [ ! -e "$wt/src/$f" ] || continue

@@ -287,6 +287,17 @@ doctor_timeouts() {
   d_pass "time limits: timeouts.scale $dt_sc, a dispatched step may take up to ${dt_mx:-?} s (CRITICAL); the approval budget is never scaled. This machine's speed: proofline doctor --scale"
 }
 
+# A225 (#172): a worktree of a run that is DONE and merged but still present (the process of a standalone delivery died after its merge proof, before the
+# cleanup finished). Doctor only PROPOSES the command; the user runs it (it archives the run's records first, then removes the worktree).
+doctor_worktrees() {
+  dw_out=$(cd "$ROOT" && node "$ROOT/.agents/scripts/proofline-core.mjs" cli leftover-worktrees 2>/dev/null) || dw_out=''
+  [ -n "$dw_out" ] || return 0
+  printf '%s\n' "$dw_out" | while IFS="$(printf '\t')" read -r dw_id dw_dir dw_why dw_cmd; do
+    printf 'WARN worktrees: the worktree of %s is a leftover: its run is DONE and %s, but %s is still present. To remove it (the run records are archived first), run: %s\n' "$dw_id" "$dw_why" "$dw_dir" "$dw_cmd"
+  done
+  D_WARNS=$((D_WARNS + $(printf '%s\n' "$dw_out" | grep -c .)))
+}
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   case "${1:-}" in
@@ -421,6 +432,7 @@ EOF
     'ci: present'*) d_pass "$dc_ci" ;;
   esac
 
+  doctor_worktrees
   doctor_context
   doctor_rules
   doctor_version

@@ -78,6 +78,18 @@ export function run(program, args, options = {}) {
 }
 
 /**
+ * Start a program that outlives this process (a sleep inhibitor): its own session, no descriptors, never waited for. Returns its pid (0 when it did not start).
+ * @param {string} program @param {string[]} args @param {NodeJS.ProcessEnv} [env] @returns {number}
+ */
+export function spawnDetached(program, args, env) {
+  count(program);
+  const child = spawn(program, args, { env, stdio: 'ignore', detached: true, windowsHide: true });
+  child.on('error', () => {});
+  child.unref();
+  return child.pid ?? 0;
+}
+
+/**
  * Asynchronous form of run.
  * @param {string} program @param {string[]} args @param {ProcOptions} [options] @returns {Promise<ProcResult>}
  */

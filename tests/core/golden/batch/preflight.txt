@@ -1,0 +1,221 @@
+===== plan
+--- exit 0
+--- stdout
+# Night batch
+
+nonce: <NONCE>
+
+One approval of this summary stands in for the approvals listed below, for the tasks in the table and for nothing else.
+The batch id is the first 12 hex digits of the sha256 of this file; the approval is bound to that hash.
+
+## Order (one task at a time, in this session: run it, deliver it, and only when it is merged the next one; each task in a git worktree of its own)
+
+| # | task | title | class | depends_on |
+|---|------|-------|-------|------------|
+| 1 | P-1 | wide task | COMPLEX | - |
+| 2 | P-2 | title of P-2 | STANDARD | - |
+| 3 | P-3 | title of P-3 | COMPLEX | - |
+| 4 | S-1 | scoped | STANDARD | - |
+| 5 | B-1 | Crash | TRIVIAL | - |
+
+## What the approval covers, per task
+
+- plan: the freeze of the plan (kind plan), after classification and the usual checks
+- delivery: commit, push, pull request, merge only when CI is green and every gate passed (proofline merge), cleanup
+- CI red after the pull request is open: up to 2 CI-fix rounds, each a normal fix round that passes the gates again, pushed to the same pull request branch and nothing else; the delivery approval covers exactly those pushes, then the task is parked with the error and what was tried
+- mutation budget: a raise of test_trust.mutation_budget (now 20) up to the cap batch.mutation_budget_cap = 40
+
+## Expected known issues and rationales (accept for this batch)
+
+- none
+
+## Pre-flight questions (plan-lint, A200)
+
+These are the questions the plan of each task would raise at freeze, asked now so that no task parks on them overnight. Answer with the letters ("Q1 a, Q2 b"), in your own words ("Q1: do not split", "Q3 hayir"), or "all recommended". Your message is recorded as it is (agent.sh batch-answer) and applied when each plan freezes; a question you leave open is asked again at freeze, as before. An answer is never an approval of anything else.
+
+- Q1 [P-1, split] The task names 18 code paths (2 content or document paths are not counted); the COMPLEX limit is 15. Split it? Otherwise the freeze would stop and ask.
+    a) split it into at least 2 tasks (task-author) [recommended]
+    b) proceed without splitting, up to 27 code paths (more than that asks again at freeze)
+- Q2 [P-1, exempt] The task names 2 content or document path(s) (docs/g1.md docs/g2.md). A document has no RED/GREEN to show, so the plan needs a tdd_exemption for each, or a test. Which?
+    a) tdd_exemption with a specific reason per path, verified by the check the task names [recommended]
+    b) a test for each path (the plan names it)
+- Q3 [P-1, dep] The task reads as if it adds or changes a dependency. A new dependency needs your own approval, which this batch does not cover. Which?
+    a) no new dependency: the task uses what exists [recommended]
+    b) a dependency is needed: park the task until you decide it yourself
+- Q4 [P-1, ac] A criterion cannot be measured as written: "AC-1: the output is better". Which?
+    a) park the task until it is rewritten with a number, a path or an observable result (task-author) [recommended]
+    b) run it as written (QA may block on it)
+- Q5 [P-3, class] Classified COMPLEX (0 path(s) named). Its reason: "COMPLEX". COMPLEX adds an architect, a stricter review and more gates (more time). Keep it?
+    a) keep COMPLEX [recommended]
+    b) STANDARD (you take the lighter review)
+    c) another class: say which in your answer
+- Q6 [S-1, scope] The task has an Allowed scope but names path(s) outside it: lib/x.js. The plan would need them and the freeze refuses a path outside the Allowed scope. Which?
+    a) park the task until its Allowed scope is widened or the path is dropped (you edit the task) [recommended]
+    b) the plan may use paths outside the Allowed scope for this task
+- Q7 [B-1, type] The task is typed bug but these sections are empty or missing: Reproduction steps, Expected and actual behaviour, Environment. The validator refuses such a task. Which?
+    a) park the task until they are written (task-author) [recommended]
+    b) run it anyway (the freeze or the review stops on it)
+- Q8 [B-1, type] The task is typed bug but classified TRIVIAL; a bug changes behaviour or code, so `classify` refuses TRIVIAL. Which?
+    a) park the task until it is classified STANDARD or higher (task-author) [recommended]
+    b) run it anyway (the classification stops at freeze)
+
+## Verification commands (A200)
+
+- commands.build, commands.test, commands.lint are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here
+
+## Stop rules
+
+- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped
+- every task works in its own git worktree (.agents/local/worktrees/<ID>, made from the canonical branch just before the task starts): a parked task, one waiting for its merge and one in a CI-fix round keep theirs and block no task that does not depend on them; the main working tree is never touched. A task starts only when every task it depends on is merged; a merged task's worktree is removed
+- after every merge the lead checks the CI run of the merge commit itself (not the latest run, agent.sh batch-ci): the batch stops when that run is red, still running after batch.ci_wait_minutes (30), or when no run for it appears within batch.ci_appear_minutes (10)
+- the batch stops when the session closes, a usage limit is hit or the computer sleeps; the same approved batch continues with /proofline batch and never runs a merged task again
+
+## NOT covered (each stays a question the batch parks on)
+
+- a waiver of a finding, a scope expansion, a new dependency, a reopen of a FAILED or BLOCKED run
+- a destructive or single_step data change, a rule promotion, sending the friction report, a new fix-round budget
+- a mutation budget above the cap, and any CRITICAL task
+
+## Not in this batch
+
+- none
+
+## Keep the computer awake and this session open
+
+The batch runs in THIS session, task after task; there is no background process. It stops when the session closes, a usage limit is hit or the computer sleeps. Keep the computer awake (plugged in, lid open) and this session open.
+On macOS the session offers to start caffeinate -i -w <this session's pid>, which keeps the Mac awake exactly as long as the session lives (agent.sh batch-awake).
+After an interruption run /proofline batch again: the approved batch continues where it stopped and a merged task is never run again.
+
+batch id: <BID>
+
+QUESTIONS:
+1. Approve the night batch shown above (batch <BID>)?
+   options: approve | reject
+   accepted answers: approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur (with the kind word, for example "approve batch"; besides those only the words: the, a, an, it, this, please, for, with, to, and, lütfen, lutfen, bu, planı, plani, için, icin); or the whole reply as one full sentence: "" | ""; any other word makes the reply ambiguous: it is not an approval and the question is asked again
+   recommended: none (the user decides)
+   why: night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else
+--- stderr
+
+===== lint.tsv
+Q1	P-1	split	The task names 18 code paths (2 content or document paths are not counted); the COMPLEX limit is 15. Split it? Otherwise the freeze would stop and ask.	a) split it into at least 2 tasks (task-author) [recommended]|b) proceed without splitting, up to 27 code paths (more than that asks again at freeze)	a	27
+Q2	P-1	exempt	The task names 2 content or document path(s) (docs/g1.md docs/g2.md). A document has no RED/GREEN to show, so the plan needs a tdd_exemption for each, or a test. Which?	a) tdd_exemption with a specific reason per path, verified by the check the task names [recommended]|b) a test for each path (the plan names it)	a	-
+Q3	P-1	dep	The task reads as if it adds or changes a dependency. A new dependency needs your own approval, which this batch does not cover. Which?	a) no new dependency: the task uses what exists [recommended]|b) a dependency is needed: park the task until you decide it yourself	a	-
+Q4	P-1	ac	A criterion cannot be measured as written: "AC-1: the output is better". Which?	a) park the task until it is rewritten with a number, a path or an observable result (task-author) [recommended]|b) run it as written (QA may block on it)	a	-
+Q5	P-3	class	Classified COMPLEX (0 path(s) named). Its reason: "COMPLEX". COMPLEX adds an architect, a stricter review and more gates (more time). Keep it?	a) keep COMPLEX [recommended]|b) STANDARD (you take the lighter review)|c) another class: say which in your answer	a	-
+Q6	S-1	scope	The task has an Allowed scope but names path(s) outside it: lib/x.js. The plan would need them and the freeze refuses a path outside the Allowed scope. Which?	a) park the task until its Allowed scope is widened or the path is dropped (you edit the task) [recommended]|b) the plan may use paths outside the Allowed scope for this task	a	-
+Q7	B-1	type	The task is typed bug but these sections are empty or missing: Reproduction steps, Expected and actual behaviour, Environment. The validator refuses such a task. Which?	a) park the task until they are written (task-author) [recommended]|b) run it anyway (the freeze or the review stops on it)	a	-
+Q8	B-1	type	The task is typed bug but classified TRIVIAL; a bug changes behaviour or code, so `classify` refuses TRIVIAL. Which?	a) park the task until it is classified STANDARD or higher (task-author) [recommended]|b) run it anyway (the classification stops at freeze)	a	-
+
+===== answers before
+--- exit 0
+--- stdout
+no answers recorded
+--- stderr
+
+===== answer none
+--- exit 1
+--- stdout
+--- stderr
+batch: no captured user message since the summary answers a question (the user answers Q1, Q2 ... or says 'all recommended'; then run this again)
+
+===== answer remark
+--- exit 1
+--- stdout
+--- stderr
+batch: no captured user message since the summary answers a question (the user answers Q1, Q2 ... or says 'all recommended'; then run this again)
+
+===== answer 1
+--- exit 0
+--- stdout
+batch: Q1 (P-1, split): option b recorded from the user's message <EPOCH>-bbbb2222.txt
+batch: Q2 (P-1, exempt): option a recorded from the user's message <EPOCH>-bbbb2222.txt
+batch: Q3 (P-1, dep): option b recorded from the user's message <EPOCH>-bbbb2222.txt
+batch: Q4 (P-1, ac): option a recorded from the user's message <EPOCH>-bbbb2222.txt
+batch: Q5 (P-3, class): option a recorded from the user's message <EPOCH>-bbbb2222.txt
+--- stderr
+
+===== answers
+--- exit 0
+--- stdout
+Q1 P-1 split: option b (up to 27)
+Q2 P-1 exempt: option a
+Q3 P-1 dep: option b
+Q4 P-1 ac: option a
+Q5 P-3 class: option a
+--- stderr
+
+===== answers P-1
+--- exit 0
+--- stdout
+Q1 P-1 split: option b (up to 27)
+Q2 P-1 exempt: option a
+Q3 P-1 dep: option b
+Q4 P-1 ac: option a
+--- stderr
+
+===== answer 2
+--- exit 0
+--- stdout
+batch: Q1 (P-1, split): option a recorded from the user's message <EPOCH>-cccc3333.txt
+batch: Q2 (P-1, exempt): option a recorded from the user's message <EPOCH>-cccc3333.txt
+batch: Q3 (P-1, dep): option a recorded from the user's message <EPOCH>-cccc3333.txt
+batch: Q4 (P-1, ac): option a recorded from the user's message <EPOCH>-cccc3333.txt
+batch: Q5 (P-3, class): option a recorded from the user's message <EPOCH>-cccc3333.txt
+batch: Q6 (S-1, scope): option a recorded from the user's message <EPOCH>-cccc3333.txt
+batch: Q7 (B-1, type): option a recorded from the user's message <EPOCH>-cccc3333.txt
+batch: Q8 (B-1, type): option a recorded from the user's message <EPOCH>-cccc3333.txt
+--- stderr
+
+===== answers 2
+--- exit 0
+--- stdout
+Q1 P-1 split: option b (up to 27)
+Q2 P-1 exempt: option a
+Q3 P-1 dep: option b
+Q4 P-1 ac: option a
+Q5 P-3 class: option a
+Q1 P-1 split: option a
+Q2 P-1 exempt: option a
+Q3 P-1 dep: option a
+Q4 P-1 ac: option a
+Q5 P-3 class: option a
+Q6 S-1 scope: option a
+Q7 B-1 type: option a
+Q8 B-1 type: option a
+--- stderr
+
+===== answer 3
+--- exit 0
+--- stdout
+batch: Q6 (S-1, scope): option b recorded from the user's message <EPOCH>-dddd4444.txt
+--- stderr
+
+===== next
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+task | state | detail | pending question
+P-1 | PARKED | criteria to write | you answered Q4 with a: the acceptance criteria are written (task-author) first; then agent.sh batch-park P-1 --clear
+P-2 | open | run | -
+P-3 | open | run | -
+S-1 | open | run | -
+B-1 | PARKED | type sections to write | you answered Q8 with a: the sections the task type needs are written (task-author) first; then agent.sh batch-park B-1 --clear
+NEXT: run P-2   (agent.sh worktree-add P-2, then /proofline run P-2 with .agents/local/worktrees/P-2 as the working folder)
+--- stderr
+
+===== status
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+
+task | result | PR | merge | park reason | pending question
+P-1 | PARKED | - | - | criteria to write | you answered Q4 with a: the acceptance criteria are written (task-author) first; then agent.sh batch-park P-1 --clear
+P-2 | pending | - | - | - | -
+P-3 | pending | - | - | - | -
+S-1 | pending | - | - | - | -
+B-1 | PARKED | - | - | type sections to write | you answered Q8 with a: the sections the task type needs are written (task-author) first; then agent.sh batch-park B-1 --clear
+
+no friction report
+
+resume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.
+--- stderr

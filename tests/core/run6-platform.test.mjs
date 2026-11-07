@@ -1,6 +1,6 @@
 // @ts-check
 // Stage 6 (A215): the hosting platform (detection, config, local origins, the failed-log readers), pr-state and batch-ci, in Node. They replace
-// scripts/platform.sh and its part of platform-test.sh (detection, A186 config, round 6 local origins, the ci-failed readers) and the `ci` part of batch.sh.
+// scripts/platform.sh and its part of platform-test.sh (detection, A186 config, round 6 local origins, the ci-failed readers) and the `ci` part of the former batch.sh (batch-ci).
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir, userInfo } from 'node:os';

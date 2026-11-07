@@ -80,7 +80,11 @@ to `in-progress/` and the open-run check of the commit and push hooks all belong
   or awaiting its merge keeps the dependent skipped; the next `/proofline batch` judges it again, so it follows the merge
   and starts from the new canonical tip;
 - a merged task's worktree is removed; a parked one keeps its worktree (its run evidence lives there) and the next session
-  for that task resumes in it. A pull request that is open but not merged parks the task as `awaiting merge`.
+  for that task resumes in it. A pull request that is open but not merged parks the task as `awaiting merge`;
+- a worktree whose run is DONE and merged but that is still present (a delivery whose process died after the merge proof,
+  before the cleanup finished) is reported by `proofline doctor` with the command that removes it
+  (`agent.sh worktree-remove <ID> --force`, the run's records are archived first); doctor never removes it. The refusal of a
+  second `start` in a folder that holds another run names the task's own worktree when the task is in the approved batch.
 
 **Where state lives (A185).** The state of one run (`.agents/runs`, `ACTIVE_RUN`, the delivery folder, assignments, locks, the
 hook's windows, records and timings) lives in the worktree that owns the run. The runtime hook decides which worktree an event

@@ -1,0 +1,11 @@
+# Budgets of the read-oriented night-mode commands (A225, issue #172): the most external processes one run of the path may start on the fixture of tests/bench/batch-procs.mjs
+# (a PATH shim counts them, the measured command itself included: no clock is read), and the most stdout bytes it may print. max_procs = the measured count (REPEAT=3 median) plus
+# a margin of max(2, 25 percent). max_bytes: the size of the output on that fixture: a command may print less, never more. before = the shell form of 0.0.56 on the same fixture.
+# The paths are measured with `sh agent.sh <command>` (the launcher sh and the node it execs are 2 of the count; batch-next adds one `ps` where the session process cannot be read
+# from /proc, i.e. on macOS). tests/bench/batch-budgets.test.mjs fails above a row. Raise a row only with a decision in docs/decisions.md. (The execution-policy and known-issue paths
+# have their own file, tests/bench/exec-budgets.tsv.)
+# path<TAB>max_procs<TAB>measured<TAB>before<TAB>max_bytes
+batch-next	5	3	112	393
+batch-next-tsv	4	2	78	152
+batch-status	7	5	52	514
+batch-answers	4	2	9	46

@@ -66,7 +66,8 @@ case "${1:-}" in
   start|freeze|refreeze|handoff|terminate|cleanup|amend|reopen|\
   worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|knowledge-done|publish-completion-report|verify-completion-report|\
   deliver-plan|deliver-step|deliver-merged|pr-state|task-source-done|platform|platform-warn|batch-ci|ci-check|ci-task-command|\
-  known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates)
+  known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|\
+  worktree-add|worktree-path|worktree-remove|worktree-root|batch-plan|batch-cover|batch-status|batch-check|batch-answer|batch-answers|batch-next|batch-awake|batch-park)
     # a run worktree is served by the main tree's core, with the worktree as the root
     tl_core=$tl_here/../core4a; tl_root=$(cd "$tl_here/../.." && pwd -P)
     case "$tl_root" in */.agents/local/worktrees/*) tl_core=${tl_root%%/.agents/local/worktrees/*}/.agents/core4a ;; esac
@@ -77,7 +78,6 @@ PROLOGUE
   } > "$1/.agents/scripts/agent.sh"
   [ ! -f "$tl_agents/ecosystems.tsv" ] || { cp "$tl_agents/ecosystems.tsv" "$1/.agents/"; cp "$tl_agents/scripts/ecosystems.sh" "$1/.agents/scripts/"; }   # A173: the risk sets read the ecosystem definition
   [ ! -f "$tl_agents/scripts/next-user.sh" ] || cp "$tl_agents/scripts/next-user.sh" "$1/.agents/scripts/"   # A159: agent.sh next-user runs it
-  [ ! -f "$tl_agents/scripts/worktree-prep.sh" ] || cp "$tl_agents/scripts/worktree-prep.sh" "$1/.agents/scripts/"   # A185: worktree-add prepares dependency folders and env files
   cat > "$1/.agents/scripts/secret-scan.sh" <<'STUB'
 #!/bin/sh
 # test stub: a line containing PLANTED_SECRET is a finding (path:line:rule); exit 1 on findings.

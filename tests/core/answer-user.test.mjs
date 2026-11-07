@@ -29,7 +29,6 @@ function build(script) {
   assert.equal(r.status, 0, `fixture: ${r.stderr}${r.stdout}`);
   cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(out, '.agents/scripts/proofline-core.mjs'));
   cpSync(path.join(scripts, 'core'), path.join(out, '.agents/scripts/core'), { recursive: true });
-  cpSync(path.join(scripts, 'batch.sh'), path.join(out, '.agents/scripts/batch.sh'));
   appendFileSync(path.join(out, '.git/info/exclude'), '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n.agents/local/\n');
   return out;
 }

@@ -70,7 +70,6 @@
 100 gates-test sc_supervised_destructive
 99 cli-test sc_doctor_faults
 97 lifecycle-test scenario_upgrade_named_pattern_path
-88 batch-test sc_cover_delivery
 87 gates-test sc_destructive_refreeze
 87 lifecycle-test scenario_base_moved_agents_named
 87 lifecycle-test scenario_pipeline_trivial
@@ -110,7 +109,6 @@
 46 lifecycle-test scenario_failed_run_cleanup
 46 risk-test sc_frozen
 45 lifecycle-test scenario_upgrade_named_path
-40 batch-test sc_park_skip_continue
 39 lifecycle-test scenario_approval_fail_closed
 38 gates-test sc_questions
 37 gates-test sc_artifact_snapshots
@@ -139,7 +137,6 @@
 25 gates-test sc_evidence_gap_files
 25 reply-loop-test plan
 25 risk-test sc_log_unsupported
-25 batch-test sc_restart
 24 enforcement-test questions
 24 gates-test sc_evidence_gap_ac
 24 reply-loop-test budget
@@ -162,14 +159,12 @@
 16 gates-test sc_validation_refreeze
 16 lifecycle-test scenario_evidence_order
 15 risk-test sc_unsupported_toolfree
-15 batch-test sc_sequential
 13 cli-test sc_init_dry_errors
 13 controls-test sc_policy
 13 enforcement-test database_guard
 13 gates-test sc_questions_keys
 13 gates-test sc_report_focus_lines
 13 gates-test sc_validation_node
-12 batch-test sc_merge_commit_ci
 12 risk-test sc_contract_content
 11 controls-test sc_base
 11 enforcement-test owned_paths
@@ -186,7 +181,6 @@
 8 gates-test sc_qa_plan_bound
 8 gates-test sc_validation_tiers
 8 risk-test sc_dependency_manifests
-8 batch-test sc_awake
 7 enforcement-test out_of_scope
 7 gates-test sc_config_scope_misc
 7 merge-guard-test
@@ -195,9 +189,6 @@
 6 gates-test sc_open_runs
 6 gates-test sc_validation_qa
 6 lessons-test
-5 batch-test sc_cover_limits
-5 batch-test sc_mutation_cap
-5 batch-test sc_status_from_records
 5 cli-test sc_static
 5 enforcement-test git_bypass
 5 gates-test sc_question_language
@@ -205,20 +196,14 @@
 4 controls-test sc_standalone
 4 gates-test sc_mutation_budget
 4 gates-test sc_start
-3 batch-test sc_order_and_cycle
 3 fixture-test
 3 gates-test sc_capture_integrity
-2 batch-test sc_ci_required
-2 batch-test sc_late_critical
 2 cli-test sc_insights
 2 controls-test sc_branch
 2 controls-test sc_roles
 2 friction-test
 2 lifecycle-test scenario_freeze_scope_mapping
 1 affected-test
-1 batch-test sc_adapter_refused
-1 batch-test sc_critical_excluded
-1 batch-test sc_no_approval_no_start
 1 classify-test
 1 cli-test sc_basics
 1 cli-test sc_help_lists
@@ -239,6 +224,5 @@
 1 risk-test sc_probe_drift
 1 static-test
 1 weights-test
-1 batch-test sc_driver_removed
 150 status-block-test
 2 smoke-fixture-test

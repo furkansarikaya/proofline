@@ -35,7 +35,15 @@ function STAGE6_LOCKS(command, a3, readOnly) {
 }
 // stage 7, package 172-B (A222): the known-issue commands; their agent.sh arms and functions are deleted
 const STAGE172B = ['known-issue-propose', 'known-issue-apply', 'known-issue-list', 'known-issue-candidates'];
-const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B];
+// stage 7, package C (A225): the worktree commands and night mode; their agent.sh arms and functions are deleted, batch.sh and worktree-prep.sh with them
+const STAGE7C = ['worktree-add', 'worktree-path', 'worktree-remove', 'worktree-root', 'batch-plan', 'batch-cover', 'batch-status', 'batch-check', 'batch-answer', 'batch-answers', 'batch-next', 'batch-awake', 'batch-park'];
+/** The locking rule of the stage 7 commands, written out (their shell text is gone): batch-status, batch-check, batch-next, batch-awake, batch-park take no lock (the shell rule line), worktree-root and batch-answers are read-only, the rest locks. */
+function STAGE7C_LOCKS(command, readOnly) {
+  const unlocked = ['batch-status', 'batch-check', 'batch-next', 'batch-awake', 'batch-park'];
+  assert.equal(readOnly, ['worktree-root', 'batch-answers'].includes(command), `${command} read-only`);
+  return !readOnly && !unlocked.includes(command);
+}
+const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B, ...STAGE7C];
 
 describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {
@@ -103,7 +111,7 @@ describe('role gate and locking rule equal the shell text', () => {
       const [role, command, a2, a3, verdict] = row.split('|');
       const readOnly = READ_ONLY_COMMANDS.includes(command);
       // a stage 6 command has no shell text any more: the rule it had was read-only commands and pr-state, batch-ci and deliver-merged --check unlocked, the rest locked
-      const expected = STAGE6.includes(command) ? STAGE6_LOCKS(command, a3, readOnly) : verdict === 'yes';
+      const expected = STAGE6.includes(command) ? STAGE6_LOCKS(command, a3, readOnly) : STAGE7C.includes(command) ? STAGE7C_LOCKS(command, readOnly) : verdict === 'yes';
       assert.equal(takesLocks(command, [a2, a3], role, readOnly), expected, row);
     }
   });
