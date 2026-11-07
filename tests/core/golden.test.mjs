@@ -20,12 +20,15 @@ import { NEXT_STATES, shellRiskWordsMatch } from './golden/record.mjs';
 
 const golden = (/** @type {string} */ n) => path.join(import.meta.dirname, 'golden', n);
 
+/** Entry scripts of the core folder: importing one runs it (guardian.mjs starts a process), so the scan for the export leaves them out. */
+const ENTRY_SCRIPTS = new Set(['guardian.mjs']);
+
 /** @returns {Promise<((re: string, words: string, text: string) => boolean)|null>} the Node implementation, once a core module exports it */
 async function nodeRiskWordsMatch() {
   const dirs = [path.join(scriptsDir, 'core'), path.join(scriptsDir, 'core', 'commands')];
   for (const d of dirs) {
     if (!existsSync(d)) continue;
-    for (const f of readdirSync(d).filter((x) => x.endsWith('.mjs')).sort()) {
+    for (const f of readdirSync(d).filter((x) => x.endsWith('.mjs') && !ENTRY_SCRIPTS.has(x)).sort()) {
       const m = await import(pathToFileURL(path.join(d, f)).href);
       if (typeof m.riskWordsMatch === 'function') {
         // the core function is riskWordsMatch(ctx, content, wordList, lines): the context only serves the awk fallback of a pattern the translator does not cover

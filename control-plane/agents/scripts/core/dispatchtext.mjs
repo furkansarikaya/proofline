@@ -3,6 +3,8 @@
 // reports, the final message of `claude -p --output-format json`, the --agents JSON of a role without a generated agent, a command template. Text is a byte
 // string (latin1, one char per byte), as the logs are read. Nothing here touches a file, a process or the clock, so each rule is tested on its own.
 
+import { asciiLower } from './shellglob.mjs';
+
 const WS = '[ \\t\\n\\v\\f\\r]';
 
 /** The last N lines of a text as `tail -n N` gives them (a last line without a newline counts). @param {string} text @param {number} n @returns {string[]} */
@@ -113,7 +115,7 @@ export function codexTotal(out, log) {
       if (t !== '' && new RegExp(`^[0-9][0-9.,${WS.slice(1, -1)}]*$`).test(s)) v = t;
       f = false;
     }
-    if (/tokens used/.test(s.toLowerCase())) {
+    if (/tokens used/.test(asciiLower(s))) {
       const t = s.replace(/^[^]*[Uu]sed/, '').replace(/[^0-9]/g, '');
       if (t !== '') v = t; else f = true;
     }
