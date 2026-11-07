@@ -37,7 +37,7 @@ rm -f "$D/.agents/local/metrics/records.jsonl"; mkdir -p "$D/.agents/local/workt
 codex_dispatch_seen "$T/claude-only.jsonl" || { echo "FAIL: a dispatch file of a Codex implementer is not seen" >&2; exit 1; }
 # codex_config_commit puts the Codex config on MAIN and the origin's main even when the lead left a task branch checked out
 mkdir -p "$T/bin"; printf '#!/bin/sh\nexit 0\n' > "$T/bin/codex"; chmod +x "$T/bin/codex"
-O=$T/origin.git; P=$T/p2; ORIGIN=$O; git init -q --bare -b main "$O"; git init -q -b main "$P"; mkdir -p "$P/.agents"; printf 'runtime:\n  lead: claude\n  roles:\n' > "$P/.agents/config.yaml"
+O=$T/origin.git; P=$T/p2; git init -q --bare -b main "$O"; git init -q -b main "$P"; mkdir -p "$P/.agents"; printf 'runtime:\n  lead: claude\n  roles:\n' > "$P/.agents/config.yaml"
 git -C "$P" add -A; git -C "$P" commit -q -m base; git -C "$P" remote add origin "$O"; git -C "$P" push -q origin main; git -C "$P" checkout -q -b proofline/T-1-x
 PATH="$T/bin:$PATH" codex_config_commit || { echo "FAIL: codex_config_commit failed on a task branch" >&2; exit 1; }
 git -C "$P" show main:.agents/config.yaml | grep -q '^    implementer: codex' || { echo "FAIL: the Codex config is not on main" >&2; exit 1; }
