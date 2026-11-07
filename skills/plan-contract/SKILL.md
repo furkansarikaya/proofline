@@ -4,7 +4,7 @@ description: "Writes an executable, scoped PLAN.md for one task and validates it
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.58"
+  version: "0.0.59"
 ---
 
 # plan-contract

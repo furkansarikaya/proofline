@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+## 0.0.59 — 2026-11-07
+
+- Change (A225, Part of #172): night mode and the run worktrees run in the Node core: `batch-plan`, `batch-cover`, `batch-next`, `batch-status`, `batch-answer`, `batch-answers`, `batch-awake`, `batch-park`, `worktree-add`, `worktree-path` and `worktree-remove` (the shell scripts `batch.sh`, `worktree-prep.sh` and their shell test are deleted). The read commands start far fewer processes (`batch-next` 112 -> 3, `batch-status` 52 -> 5, `batch-answers` 9 -> 2) and have output and process budgets (`tests/bench/batch-budgets.tsv`). `proofline doctor` warns about a worktree of a run that is DONE and merged but still present and proposes the command that removes it (it never removes it itself). The refusal of a second `start` in a folder that holds another run names the task's own worktree when the task belongs to the approved batch. Fix: the morning table of `batch-status` no longer shows a merged task's pull request and merge time in the wrong columns; an answer "Q1 option b" is read on macOS too.
+
 ## 0.0.58 — 2026-11-07
 
 - Fix (A227, issue #172, package 172-A3): a lead keeps its turn alive until the background worker dispatch it started has finished (a bounded wait loop on the dispatch pid in the Bash tool, repeated until the process is gone) and never ends its turn while one is in flight; in a headless session nothing re-invokes it, which left the hermetic batch of the real-session smoke at `RUNNING (PLANNING)`. Text only: `references/DISPATCH.md`, rule 4 of the lead skill, and the `next=wait` line.
-- Change (A225, Part of #172): night mode and the run worktrees run in the Node core: `batch-plan`, `batch-cover`, `batch-next`, `batch-status`, `batch-answer`, `batch-answers`, `batch-awake`, `batch-park`, `worktree-add`, `worktree-path` and `worktree-remove` (the shell scripts `batch.sh`, `worktree-prep.sh` and their shell test are deleted). The read commands start far fewer processes (`batch-next` 112 -> 3, `batch-status` 52 -> 5, `batch-answers` 9 -> 2) and have output and process budgets (`tests/bench/batch-budgets.tsv`). `proofline doctor` warns about a worktree of a run that is DONE and merged but still present and proposes the command that removes it (it never removes it itself). The refusal of a second `start` in a folder that holds another run names the task's own worktree when the task belongs to the approved batch. Fix: the morning table of `batch-status` no longer shows a merged task's pull request and merge time in the wrong columns; an answer "Q1 option b" is read on macOS too.
 
 ## 0.0.57 — 2026-11-07
 
