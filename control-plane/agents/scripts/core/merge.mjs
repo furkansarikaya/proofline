@@ -8,6 +8,8 @@
 // it resolves into the working directory, the project or a temporary folder; no environment value lifts that (D14). The tools get argument arrays; their JSON is
 // read in process (no jq).
 import { existsSync, statSync } from 'node:fs';
+import { buildRecord } from './buildrecord.mjs';
+import { Context } from './context.mjs';
 import { ProoflineError } from './errors.mjs';
 import { cleanToolEnv, detectPlatform, linkText, parseJson, platformEnv, resolveToolIn } from './platform.mjs';
 import * as proc from './proc.mjs';
@@ -113,10 +115,11 @@ function run(ctx, argv) {
   /** `mg_local_verify SHA`: no checks exist; the project's build and test must pass in a clean export of exactly the commit. Returns the note for the pull request. @param {string} sha */
   const localVerify = (sha) => {
     if (proc.run('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: ctx.cwd, env: ctx.env, stdio: 'ignore' }).status !== 0) refuse(`pull request ${pr} has no checks and its head commit ${sha} is not in this clone, so it cannot be verified locally (git fetch it first)`);
-    const script = `${top}/.agents/scripts/build-record.sh`;
-    if (!existsSync(script)) refuse(`pull request ${pr} has no checks and proofline is not installed here (no .agents/scripts/build-record.sh), so there is nothing to verify the commit with locally`);
-    const r = proc.run('sh', [script, 'run', sha], { cwd: top, env: ctx.env, input: '', stdio: ['pipe', 'pipe', 'pipe'] });
-    const out = (r.stdout.toString('utf8') + r.stderr.toString('utf8')).replace(/\n+$/, '');
+    const script = `${top}/.agents/scripts/agent.sh`;
+    if (!existsSync(script)) refuse(`pull request ${pr} has no checks and proofline is not installed here (no .agents/scripts/agent.sh), so there is nothing to verify the commit with locally`);
+    // the record of exactly that commit, made by this core for the project at TOP (its config names the commands)
+    const r = buildRecord(new Context({ ...ctx.io, cwd: top, scriptPath: script }, script), 'run', sha);
+    const out = (r.out + r.err).replace(/\n+$/, '');
     if (r.status === 2) refuse(`pull request ${pr} has no checks and the verification commands are not configured (commands.build / commands.test in .agents/config.yaml): ${head200(out.split('\n')[0] ?? '')}`);
     if (r.status !== 0) refuse(`pull request ${pr} has no checks and the verification commands FAILED in a clean copy of ${sha}: ${out.split('\n').filter((l) => /^(build|test|install)|^failed:/.test(l)).slice(0, 4).map((l) => `${l} `).join('')}(see the record: sh .agents/scripts/agent.sh build-record <ID> show)`);
     const key = (out.split('\n').find((l) => l.startsWith('key: ')) ?? '').slice(5);

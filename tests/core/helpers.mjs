@@ -61,6 +61,6 @@ export function memoryIo(root, env = {}) {
 /** The commands the agent.sh preamble leaves to the shell code (every other command runs in the Node core). @param {string} text the text of agent.sh @returns {string[]} */
 export function shellListed(text) {
   const m = /\ncase "\$\{1:-\}" in\n((?:  [^\n]*\\\n)*  [^\n]*\) ;;)\n  \*\)\n/.exec(text);
-  if (!m) throw new Error('the preamble list of the shell commands was not found');
+  if (!m) return [];   // issue #173 package A moved the last nine: the preamble has no list of shell commands any more
   return m[1].replace(/\\\n/g, '').trim().replace(/\) ;;$/, '').split('|').map((x) => x.trim());
 }

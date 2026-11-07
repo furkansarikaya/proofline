@@ -129,7 +129,6 @@ warn_line() {
 build_timeout() {
   fixture
   command -v timeout >/dev/null 2>&1 || { ok "A202-29 build timeout (no timeout command here: skipped)"; return 0; }
-  cp "$tl_agents/scripts/build-record.sh" .agents/scripts/   # a fixture does not install it; on Linux (GNU timeout) this scenario runs
   setcfg verification command_timeout_seconds 60
   # the shipped bound is 60 s; a test cannot wait that long, so the stop is forced with a stub that exits 124 like timeout(1) does
   mkdir -p "$base/shim"; printf '#!/bin/sh\nshift\nexit 124\n' > "$base/shim/timeout"; chmod +x "$base/shim/timeout"

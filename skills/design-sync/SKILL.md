@@ -4,7 +4,7 @@ description: Checks durable design documents against the code and reports drift 
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.62"
+  version: "0.0.63"
 ---
 
 # design-sync

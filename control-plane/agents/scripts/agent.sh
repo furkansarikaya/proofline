@@ -29,30 +29,25 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # Node migration (ADR 0001): a moved command runs in proofline-core.mjs, before anything below is parsed. Without a usable node the exec fails
 # with 127. The leading --pl-argv0 argument hands over this script's own $0, so that a fallback to this code prints the same $0 in its error
 # texts; the core uses it only when it names this very file.
-# The commands that still run as shell code (listed here, one list); every other command, a name that is no command and no command at all run in
-# proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
-case "${1:-}" in
-  friction|calibrate|build-record|lessons|rules|\
-  wait-line|\
-  task-rename-plan|task-rename-apply|test) ;;
-  *)
-    pl_sh=no
-    # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
-    [ -z "${PROOFLINE_BRIDGED:-}" ] || pl_sh=yes
-    # A run worktree's scripts are tracked content a task could have rewritten (security round 3): from a worktree the PROJECT's (main tree's) core runs,
-    # and --pl-argv0 below names the worktree's agent.sh, which tells the core which folder is the root. In the main tree pl_core_dir is self_dir.
-    pl_core_dir=$self_dir
-    [ "$sr_main" = "$root" ] || pl_core_dir=$sr_main/.agents/scripts
-    # No core beside this file: a folder that is not an installed project (no manifest; a test fixture that copies agent.sh alone, test-lib.sh)
-    # runs the shell code; an installed project fails closed (a guard that needs this command must deny, not see empty settings).
-    if [ "$pl_sh" = no ] && { [ ! -f "$pl_core_dir/proofline-core.mjs" ] || [ ! -d "$pl_core_dir/core" ]; }; then
-      if [ -f "$sr_main/.agents/.proofline-manifest" ]; then
-        echo "proofline: $pl_core_dir/proofline-core.mjs or $pl_core_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
-      fi
-      pl_sh=yes
-    fi
-    [ "$pl_sh" = yes ] || exec node "$pl_core_dir/proofline-core.mjs" --pl-argv0 "$0" "$@" ;;
-esac
+# Every command runs in proofline-core.mjs, which answers a name that is no command, and no command at all, with the usage text (issue #173 package A moved the
+# last nine; the shell code below stays until its dead arms are deleted, #176). The shell code runs only for a bridged input and for a folder that is no
+# installed project (a test fixture that copies agent.sh alone, test-lib.sh).
+pl_sh=no
+# PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
+[ -z "${PROOFLINE_BRIDGED:-}" ] || pl_sh=yes
+# A run worktree's scripts are tracked content a task could have rewritten (security round 3): from a worktree the PROJECT's (main tree's) core runs,
+# and --pl-argv0 below names the worktree's agent.sh, which tells the core which folder is the root. In the main tree pl_core_dir is self_dir.
+pl_core_dir=$self_dir
+[ "$sr_main" = "$root" ] || pl_core_dir=$sr_main/.agents/scripts
+# No core beside this file: a folder that is not an installed project (no manifest; a test fixture that copies agent.sh alone, test-lib.sh)
+# runs the shell code; an installed project fails closed (a guard that needs this command must deny, not see empty settings).
+if [ "$pl_sh" = no ] && { [ ! -f "$pl_core_dir/proofline-core.mjs" ] || [ ! -d "$pl_core_dir/core" ]; }; then
+  if [ -f "$sr_main/.agents/.proofline-manifest" ]; then
+    echo "proofline: $pl_core_dir/proofline-core.mjs or $pl_core_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2; exit 127
+  fi
+  pl_sh=yes
+fi
+[ "$pl_sh" = yes ] || exec node "$pl_core_dir/proofline-core.mjs" --pl-argv0 "$0" "$@"
 ctp_base=''   # set by cleanup of a delivered run and by delivered_mode (a run under its own delivery commit): task paths are then measured from base_sha, not HEAD
 
 # A188: the digest is the first word of the tool's line (no awk process)
@@ -3907,61 +3902,6 @@ commands_check() {
   find_approval - commands "$(hash_file "$cc_f")" >/dev/null || fail "the user's newest message does not approve the commands: no unconsumed commands approval is bound to this proposal (ask: agent.sh request-approval - commands, relay it; the reply \"approve commands\" records the approval)"
   echo "commands $cc_h: approved by the user"
 }
-# --- A202: consistent task file names: <ID>-<slug>.md ----------------------------------------------
-# task-rename-plan lists the queued markdown task files (backlog/, todo/ and the top level of tasks.dir) that are named only by their ID or
-# only by a slug and proposes <ID>-<slug-of-the-title>.md; it asks the user's approval (kind `rename`, bound to the proposal's sha256).
-# task-rename-apply renames only after that approval, and re-checks every row first. A task that has a run or a worktree, one whose file
-# holds a published completion report, and every file in in-progress/ or done/ is never proposed and never renamed.
-# task_slug TITLE: the slug of a title, from the Node core (cli slug): the project's core beside this script, or the main tree's
-task_slug() { node "$sr_main/.agents/scripts/proofline-core.mjs" cli slug "$1"; }
-# pl_core ARGS...: the project's Node core (the main tree's, like the delegation at the top of this file); --pl-argv0 names this script, so that a
-# run in a task worktree reads that worktree's config (A222: the execution-policy resolver is `pl_core cli exec-policy`)
-pl_core() { node "$sr_main/.agents/scripts/proofline-core.mjs" --pl-argv0 "$0" "$@"; }
-rename_candidate() { # ABS-FILE -> ABS-NEW-NAME on stdout when the file is a queued, non-conforming task file
-  rc_f=$1; rc_b=$(basename "$rc_f" .md)
-  rc_id=$(sed -n '1s/^# Task: *\([^ ]*\).*/\1/p' "$rc_f" 2>/dev/null | head -1)
-  { [ -n "$rc_id" ] && valid_task_id "$rc_id"; } || return 1
-  case "$rc_b" in "$rc_id"-FU[0-9]*) return 1 ;; esac
-  { [ ! -e "$root/.agents/runs/$rc_id" ] && [ ! -e "$(shared_dir worktrees)/$rc_id" ]; } || return 1
-  ! grep -q "COMPLETION-REPORT:BEGIN" "$rc_f" 2>/dev/null || return 1
-  rc_idl=$(task_slug "$rc_id")
-  case "$rc_b" in "$rc_id"-?*)
-    rc_sl=${rc_b#"$rc_id"-}
-    if [ "$rc_sl" = "$(task_slug "$rc_sl")" ] && [ "$rc_sl" != "$rc_idl" ]; then return 1; fi ;;
-  esac
-  rc_sl=$(task_slug "$(task_title_of "$rc_f")")
-  { [ -n "$rc_sl" ] && [ "$rc_sl" != "$rc_idl" ]; } || return 1
-  rc_new=$(dirname "$rc_f")/$rc_id-$rc_sl.md
-  [ ! -e "$rc_new" ] || return 1
-  printf '%s\n' "$rc_new"
-}
-task_rename_files() { # the queued task files
-  trf_td=$root/$(cfg tasks.dir .agents/tasks)
-  for trf_f in "$trf_td"/backlog/*.md "$trf_td"/todo/*.md "$trf_td"/*.md; do [ -f "$trf_f" ] && [ ! -L "$trf_f" ] && printf '%s\n' "$trf_f"; done
-}
-task_rename_plan() {
-  require_lead; trp_pf=$(shared_dir rename)/PROPOSAL.tsv; mkdir -p "$(dirname "$trp_pf")"; trp_t=$trp_pf.tmp; : > "$trp_t"
-  task_rename_files | while IFS= read -r trp_f; do
-    trp_n=$(rename_candidate "$trp_f") || continue
-    printf '%s\t%s\n' "${trp_f#"$root"/}" "${trp_n#"$root"/}"
-  done > "$trp_t"
-  if [ ! -s "$trp_t" ]; then rm -f "$trp_t" "$trp_pf"; echo "task-rename: every queued task file is already named <ID>-<slug>.md"; return 0; fi
-  mv "$trp_t" "$trp_pf"; cat "$trp_pf"
-  request_approval - rename
-}
-task_rename_apply() {
-  require_lead; tra_pf=$(shared_dir rename)/PROPOSAL.tsv; [ -s "$tra_pf" ] || fail "no rename proposal (agent.sh task-rename-plan)"
-  tra_app=$(find_approval - rename "$(hash_file "$tra_pf")") || fail "renaming task files needs the user's approval: 'agent.sh request-approval - rename' (task-rename-plan does it), relay it; the reply \"approve rename\" records the approval"
-  while IFS="$(printf '\t')" read -r tra_o tra_n; do
-    [ "$(rename_candidate "$root/$tra_o" 2>/dev/null)" = "$root/$tra_n" ] || fail "$tra_o is no longer a queued task file that needs this rename (started, reported, renamed or changed since the proposal); run task-rename-plan again"
-  done < "$tra_pf"
-  consume_approval - "$tra_app"
-  while IFS="$(printf '\t')" read -r tra_o tra_n; do
-    if git -C "$root" ls-files --error-unmatch -- "$tra_o" >/dev/null 2>&1; then git -C "$root" mv -- "$tra_o" "$tra_n"; else mv -- "$root/$tra_o" "$root/$tra_n"; fi
-    echo "renamed: $tra_o -> $tra_n"
-  done < "$tra_pf"
-  rm -f "$tra_pf"
-}
 # --- the batch accept answer (A200; the known-issues list itself runs in the Node core since A222) -----------------------------------
 # batch_accept_given: 0 when the batch approval of the CURRENT summary stands and the newest answer to its accept question (id batch,
 # kind accept) is b, recorded from a user message the prompt hook captured (batch-answer). "all recommended" never gives b.
@@ -4160,27 +4100,6 @@ friction_note() {
   ledger_append "$fn_id" friction-note "$fn_s" "$fn_s" "$fn_kind"
   echo "friction noted: $fn_kind"
 }
-# wait-line (A171): the one-line status for a wait. `agent.sh wait-line <ID> ["WHAT"] [--done]` prints
-# `waiting: <what>, <M>m<SS>s so far`; WHAT defaults to the dispatch in flight. The first call for a WHAT starts its clock
-# (.agents/local/wait/); --done stops it. The lead prints this line and nothing more while it waits.
-wait_line() {
-  wl_id=$1 wl_what=${2:-} wl_done=no; require_run "$wl_id"; require_lead
-  if [ "$wl_what" = --done ]; then wl_what=''; wl_done=yes; fi
-  [ "${3:-}" != --done ] || wl_done=yes
-  if [ -z "$wl_what" ]; then
-    if wl_if=$(inflight_dispatch "$wl_id"); then wl_what="dispatch ${wl_if% *}"; else fail "nothing is in flight: name what you wait for, for example agent.sh wait-line $wl_id \"CI of the pull request\""; fi
-  fi
-  wl_what=$(printf '%s' "$wl_what" | tr -c 'A-Za-z0-9 ._-' ' ' | cut -c1-80)
-  wl_f=$root/.agents/local/wait/$wl_id-$(printf '%s' "$wl_what" | tr -c 'A-Za-z0-9' '-' | cut -c1-60)
-  if [ "$wl_done" = yes ]; then rm -f "$wl_f"; echo "wait over: $wl_what"; return 0; fi
-  mkdir -p "$root/.agents/local/wait" 2>/dev/null || true
-  [ -s "$wl_f" ] || now_epoch > "$wl_f" 2>/dev/null || true
-  wl_s=$(cat "$wl_f" 2>/dev/null); case "$wl_s" in ''|*[!0-9]*) wl_s=$(now_epoch) ;; esac
-  wl_e=$(( $(now_epoch) - wl_s ))
-  wl_t=$(budget_usage "$wl_id" | head -n 1)
-  printf 'waiting: %s, %dm%02ds so far%s\n' "$wl_what" $((wl_e / 60)) $((wl_e % 60)) "$([ -z "$wl_t" ] || { set -- $wl_t; printf ' (TIME: %d%% of its %dm limit)' $(($2 * 100 / $3)) $(($3 / 60)); })"
-}
-
 # task_size_of ID: the task-author's size estimate (front matter `size:`) from the run's frozen TASK.md; empty when none
 # (the status block and the metrics run record read the same source)
 task_size_of() {
@@ -4829,7 +4748,6 @@ ci_fix_last() { ci_fix_recs "$1" | tail -n 1; }
 # worktree that owns the run; the runtime hook resolves the same folder (adapters/claude/hooks/proofline-hook.sh, state root).
 rw_shared='batch approvals metrics friction prompts'
 
-task_title_of() { sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$1" 2>/dev/null | head -1; } # TASK.md -> the H1 title
 
 # --- Read-only summary --------------------------------------------------------------------
 ua() { if [ -n "$1" ]; then printf '%s' "$1"; else printf unavailable; fi; }
@@ -4888,10 +4806,6 @@ digest_run() {
     fi
   fi
   next_step "$dg_id" | sed -n 's/^next=/NEXT: /p;s/^reason=/WHY: /p'
-}
-
-run_suites() { # every sibling *-test.sh
-  for rs_t in "$scripts"/*-test.sh; do [ -f "$rs_t" ] || continue; echo "== ${rs_t##*/}"; sh "$rs_t"; done
 }
 
 # --- CLI ---------------------------------------------------------------------------------------
@@ -5014,12 +4928,7 @@ case "$command" in
   summary) summary_run "${2:-}" "${3:-}" ;;
   plan-section) plan_section "${2:?usage: agent.sh plan-section <ID> <section>}" "${3:?usage: agent.sh plan-section <ID> <section>}" ;;
   digest) digest_run "${2:?usage: agent.sh digest <ID>}" ;;
-  friction) case "${2:-}" in report|send) require_lead ;; esac; sh "$scripts/friction.sh" "${2:-}" "${3:-}" ;;
-  calibrate) sh "$scripts/friction.sh" calibrate ;;
   debt) case "${2:-}" in page) require_lead ;; esac; sh "$scripts/debt.sh" "${2:-list}" ;;
-  build-record) require_run "${2:?usage: agent.sh build-record <ID> [run|show]}"; sh "$scripts/build-record.sh" "${3:-show}" ;;
-  lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
-  rules) case "${2:-}" in tally) require_lead ;; esac; shift; sh "$scripts/rules.sh" "$@" ;;   # A202: project rules budget; proposes, never edits
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
@@ -5043,7 +4952,6 @@ case "$command" in
   approval-consume) [ $# -ge 3 ] || fail "usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT [REF...]]"; shift; approval_consume "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
   friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell|proofline_bug>}" "${3:-}" ;;
-  wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
   commands-check) commands_check ;;
   scale-check) scale_check ;;
@@ -5054,8 +4962,6 @@ case "$command" in
   test-path) shift; [ $# -gt 0 ] || fail "usage: agent.sh test-path <path>..."; for tp_p in "$@"; do if test_code_path "$tp_p"; then printf 'test\t%s\n' "$tp_p"; else printf 'product\t%s\n' "$tp_p"; fi; done ;;
   task-scope-entries) [ $# -eq 3 ] || fail "usage: agent.sh task-scope-entries <task-file> <heading>"; task_scope_entries "$2" "$3" ;;
   scope-covers) [ $# -eq 3 ] || fail "usage: agent.sh scope-covers <entry> <path>"; scope_entry_covers "$2" "$3" ;;
-  task-rename-plan) task_rename_plan ;;
-  task-rename-apply) task_rename_apply ;;
   task-type) [ $# -eq 2 ] || fail "usage: agent.sh task-type <TASK.md>"; task_type "$2" ;;
   human-checks) human_checks "${2:?usage: agent.sh human-checks <ID>}" ;;
   scope-kinds) scope_kind_rows "$(run_dir "${2:?usage: agent.sh scope-kinds <ID>}")/PLAN.md" ;;
@@ -5069,7 +4975,6 @@ case "$command" in
   validate) validate_run "${2:?usage: agent.sh validate <ID>}" ;;
   db-config) db_config "${2:-all}" ;;
   hook-config) hook_config ;;
-  test) require_lead; run_suites ;;
   help) usage; exit 0 ;;
   *) usage; exit 2 ;;
 esac

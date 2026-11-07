@@ -73,13 +73,13 @@ export function removeMarkers(dir, names) {
 }
 
 /**
- * `budget_note ID`: one line per live dispatch that has used timeouts.warn_percent of its time (A202 item 29).
- * @param {Context} ctx @param {string} dir @returns {string}
+ * `budget_usage ID`: one row per live dispatch that has used timeouts.warn_percent of its time (role, elapsed and limit in seconds).
+ * @param {Context} ctx @param {string} dir @returns {Array<{ role: string, e: number, t: number }>}
  */
-export function budgetNote(ctx, dir) {
+export function budgetUsage(ctx, dir) {
   const pct = tmWarnPercent(ctx.config());
   const nowS = now().epoch;
-  let out = '';
+  /** @type {Array<{ role: string, e: number, t: number }>} */ const rows = [];
   for (const n of markers(dir)) {
     const f = `${dir}/dispatch/${n}`;
     const lines = markerLines(ctx, f);
@@ -88,10 +88,21 @@ export function budgetNote(ctx, dir) {
     if (!/^[0-9]+$/.test(t + s) || t === '' || s === '' || !(Number(t) > 0)) continue;
     const e = nowS - Number(s);
     if (!(e * 100 >= Number(t) * pct)) continue;
-    const role = lineValue(lines, 'role=');
+    rows.push({ role: lineValue(lines, 'role='), e, t: Number(t) });
+  }
+  return rows;
+}
+
+/**
+ * `budget_note ID`: one line per live dispatch that has used timeouts.warn_percent of its time (A202 item 29).
+ * @param {Context} ctx @param {string} dir @returns {string}
+ */
+export function budgetNote(ctx, dir) {
+  let out = '';
+  for (const { role, e, t } of budgetUsage(ctx, dir)) {
     // the shell reads "ROLE ELAPSED TIMEOUT" back with `read`: an empty or blank-bearing role shifts the fields (its own error text)
     if (role === '' || /[ \t]/.test(role)) throw unsupported('dispatch marker role');
-    out += `note=TIME: dispatch ${role} has used ${Math.floor(e / 60)}m of its ${Math.floor(Number(t) / 60)}m limit (${Math.floor((e * 100) / Number(t))}%); at the limit it fails (never a pass) and the next dispatch of the step resumes from dispatch/RESUME-*.md. Do not stop it; tell the user in one line that this step is slow (proofline doctor --scale proposes a longer limit)\n`;
+    out += `note=TIME: dispatch ${role} has used ${Math.floor(e / 60)}m of its ${Math.floor(t / 60)}m limit (${Math.floor((e * 100) / t)}%); at the limit it fails (never a pass) and the next dispatch of the step resumes from dispatch/RESUME-*.md. Do not stop it; tell the user in one line that this step is slow (proofline doctor --scale proposes a longer limit)\n`;
   }
   return out;
 }

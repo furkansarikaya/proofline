@@ -68,7 +68,8 @@ case "${1:-}" in
   deliver-plan|deliver-step|deliver-merged|pr-state|task-source-done|platform|platform-warn|batch-ci|ci-check|ci-task-command|\
   known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|\
   worktree-add|worktree-path|worktree-remove|worktree-root|batch-plan|batch-cover|batch-status|batch-check|batch-answer|batch-answers|batch-next|batch-awake|batch-park|\
-  decide|ledger-note|metrics-dispatch)
+  decide|ledger-note|metrics-dispatch|\
+  friction|calibrate|build-record|lessons|rules|wait-line|task-rename-plan|task-rename-apply|test)
     # a run worktree is served by the main tree's core, with the worktree as the root
     tl_core=$tl_here/../core4a; tl_root=$(cd "$tl_here/../.." && pwd -P)
     case "$tl_root" in */.agents/local/worktrees/*) tl_core=${tl_root%%/.agents/local/worktrees/*}/.agents/core4a ;; esac

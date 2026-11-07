@@ -379,6 +379,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/decide.test.mjs tests/core/dispatch.test.mjs tests/core/dispatch-golden.test.mjs tests/core/dispatch-text.test.mjs tests/core/dispatch-watchdog.test.mjs tests/core/gitstate.test.mjs
+          - name: helper-commands
+            mode: files
+            pattern: 'none'
+            files: tests/core/buildrecord.test.mjs tests/core/friction.test.mjs tests/core/lessons.test.mjs tests/core/rules.test.mjs tests/core/helpercmds.test.mjs
           - name: enforcement-recorded-lead
             mode: files
             pattern: 'none'
@@ -483,6 +487,9 @@ jobs:
       - name: process budgets of the execution decision and the dispatcher
         if: matrix.suite == 'node-tests'
         run: node --test tests/bench/dispatch-budgets.test.mjs
+      - name: process budgets of the helper commands (build-record, friction, calibrate, lessons, rules)
+        if: matrix.suite == 'node-tests'
+        run: node --test tests/bench/helper-budgets.test.mjs
       - name: guard tests against the Node hook
         if: matrix.suite == 'node-tests'
         env:

@@ -25,6 +25,7 @@ import { GATECMD_HANDLERS } from './gatecmds.mjs';
 import { COMPLETION_HANDLERS } from './reportcmds.mjs';
 import { DELIVERCMD_HANDLERS } from './delivercmds.mjs';
 import { KI_HANDLERS } from './kicmds.mjs';
+import { HELPER_HANDLERS } from './helpercmds.mjs';
 import { BATCH_HANDLERS } from '../batch.mjs';
 import { BATCHPLAN_HANDLERS } from '../batchplan.mjs';
 import { WORKTREE_HANDLERS } from '../worktree.mjs';
@@ -199,4 +200,6 @@ export const HANDLERS = {
   ...BATCHPLAN_HANDLERS,
   // --- stage 7, package 172-D (A226) ---
   ...DECIDE_HANDLERS,
+  // --- stage 7, package 173-A (A229): the last commands that ran as shell code ---
+  ...HELPER_HANDLERS,
 };

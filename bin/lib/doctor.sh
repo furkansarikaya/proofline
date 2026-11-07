@@ -65,7 +65,7 @@ doctor_context() {
 
 # doctor_rules (A202): the Project rules budget and the proposals (merge, ask, remove); it only reports, a rule changes on the user's approval.
 doctor_rules() {
-  [ -f "$ROOT/.agents/scripts/rules.sh" ] || return 0
+  [ -f "$A" ] || return 0
   dr_o=$(cd "$ROOT" && sh "$A" rules report 2>/dev/null) || return 0
   case "$dr_o" in 'project rules: none') return 0 ;; esac
   if printf '%s\n' "$dr_o" | grep -Eq '\(OVER\)|^  (merge|ask the user|remove):'; then d_warn "$(printf '%s\n' "$dr_o" | sed 's/^/    /;1s/^ *//')"

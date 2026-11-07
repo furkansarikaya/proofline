@@ -2,6 +2,7 @@
 // `next`: the deterministic next step of a run (agent.sh 6878-7062). The state machine reads the records once (RUN.yaml, the gate records,
 // the ledger, the plan), asks the shared library for the gate states and prints the `task=`, `state=`, `handoff=`, `next=`, `reason=`,
 // `note=`, `missing_step=`, `finding=` and `fix_path=` lines the lead and the hooks parse. It removes stale dispatch markers like the shell.
+import { buildRecord } from './buildrecord.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { lstatSync, statSync } from 'node:fs';
 import { batchApproval } from './approvals.mjs';
@@ -253,11 +254,7 @@ function configEmptyCmds(ctx) {
 
 /** `build_record_missing`: the build record script says exit 3 (no finished record for this tree). @param {Context} ctx */
 export function buildRecordMissing(ctx) {
-  if (configEmptyCmds(ctx)) return false;
-  const script = `${ctx.trustedScripts}/build-record.sh`;
-  if (!isFile(script)) return false;
-  const r = proc.run('sh', [script, 'show'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
-  return r.status === 3;
+  return !configEmptyCmds(ctx) && buildRecord(ctx, 'show').status === 3;
 }
 
 export const BUILD_STEP = (/** @type {string} */ id) => `proofline doctor --commands   (finds the commands, proves each by one run and asks the user ONE question; the user's yes writes only the proven ones; then agent.sh build-record ${id} run). If the user declines, say in the completion report that no build or test was recorded`;

@@ -192,7 +192,7 @@ export function wtLinked(ctx) {
 }
 
 /** `task_title_of TASK.md`: the H1 title. @param {string} text */
-function taskTitle(text) {
+export function taskTitle(text) {
   const first = textLines(text)[0] ?? '';
   const m = /^# Task: *[^ ]* *[-—]* *(.*)$/.exec(Buffer.from(first, 'latin1').toString('utf8'));
   return m ? bytes(m[1]) : '';

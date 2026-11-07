@@ -53,15 +53,8 @@ proj=$base/proj; mkdir -p "$proj/.agents/scripts"
 git -C "$proj" init -q -b main 2>/dev/null || { git -C "$proj" init -q; git -C "$proj" checkout -q -b main; }
 printf 'x\n' > "$proj/f.txt"; git -C "$proj" add -A; git -C "$proj" -c user.name=t -c user.email=t@t commit -q -m base
 sha=$(git -C "$proj" rev-parse HEAD); sha2=2222222222222222222222222222222222222222
-cp "$repo/control-plane/agents/scripts/build-record.sh" "$proj/.agents/scripts/"
-# a stand-in agent.sh that answers config-get from files (build-record reads the verification commands through it)
-cat > "$proj/.agents/scripts/agent.sh" <<'EOF'
-#!/bin/sh
-here=$(dirname "$0")
-[ "$1" = config-get ] || exit 0
-case "$2" in commands.build) cat "$here/../cmd.build" 2>/dev/null ;; commands.test) cat "$here/../cmd.test" 2>/dev/null ;; esac
-exit 0
-EOF
+# a stand-in agent.sh (the merge only needs the project to look installed; the verification commands come from its config.yaml, see merge() below)
+printf '#!/bin/sh\nexit 0\n' > "$proj/.agents/scripts/agent.sh"
 core_into "$proj"
 git -C "$proj" config user.name t; git -C "$proj" config user.email t@t
 printf '.agents/local/\n' > "$proj/.gitignore"
@@ -93,7 +86,7 @@ reset() { rm -f "$FS"/*; printf 'echo built\n' > "$proj/.agents/cmd.build"; prin
 glabview() { # STATE DRAFT SHA PIPELINE-JSON(null|{...})
   printf '{"iid":7,"state":"%s","draft":%s,"sha":"%s","head_pipeline":%s}\n' "$1" "$2" "$3" "$4" > "$FS/glab.view"; }
 azview() { printf '{"pullRequestId":7,"status":"%s","isDraft":%s,"lastMergeSourceCommit":{"commitId":"%s"},"description":"old text"}\n' "$1" "$2" "$3" > "$FS/az.view"; }
-merge() { (cd "$proj" && PATH="$stubd:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
+merge() { printf 'commands:\n  build: %s\n  test: %s\n' "$(cat "$proj/.agents/cmd.build")" "$(cat "$proj/.agents/cmd.test")" > "$proj/.agents/config.yaml"; (cd "$proj" && PATH="$stubd:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
 refused() { # LABEL TEXT ARGS...
   l=$1; t=$2; shift 2
   if merge "$@"; then die "$l: merged: $(cat "$base/out")"; fi

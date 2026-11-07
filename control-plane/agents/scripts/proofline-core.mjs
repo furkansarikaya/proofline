@@ -140,14 +140,12 @@ function dispatch(ctx, locks, argv) {
   if (!commandAllowed(ctx.role, command)) throw new ProoflineError(`command denied for ${ctx.role}: ${command}`, 1);
   // This entry is not a second front door to agent.sh: it runs the commands it owns and nothing else. An unmoved command is run with agent.sh.
   if (!handler) {
-    // no command or a name that is no command at all: the usage text on stderr, status 2; the shell took its lock folder first (a locking command), so the folder exists
-    if (command === '' || !COMMAND_NAMES.includes(command)) {
-      try { mkdirSync(`${ctx.agents}/local/locks`, { recursive: true }); } catch { /* a read-only tree: the usage text is still the answer */ }
-      ctx.err(`${USAGE_LINES.join('\n')}\n`);
-      ctx.flush();
-      return 2;
-    }
-    throw new ProoflineError(`proofline-core: ${command} is not a command of the Node core; run it with agent.sh`, 2, 'NOT_MOVED');
+    // no command or a name that is no command at all (every command has a handler since issue #173 package A): the usage text on stderr, status 2; the shell
+    // took its lock folder first (a locking command), so the folder exists
+    try { mkdirSync(`${ctx.agents}/local/locks`, { recursive: true }); } catch { /* a read-only tree: the usage text is still the answer */ }
+    ctx.err(`${USAGE_LINES.join('\n')}\n`);
+    ctx.flush();
+    return 2;
   }
   // what deliver-step reads from the platform tool comes before the locks: a slow tool never holds them
   if (Object.hasOwn(PRELOCK, command) && ctx.role === 'lead') PRELOCK[command](ctx, args);

@@ -91,7 +91,7 @@ export class Context {
   }
 
   /**
-   * The scripts folder whose helper scripts (lessons.sh, platform.sh, build-record.sh) this command may start: the project's own. In a run worktree the
+   * The scripts folder whose helper scripts (platform.sh, the test suites of `agent.sh test`) this command may start: the project's own. In a run worktree the
    * worktree's copy is never started (it is tracked content a task could have rewritten), so the main tree's serves.
    */
   get trustedScripts() {

@@ -1076,7 +1076,6 @@ hook_transparency() {
   grep -q 'event=hook-timeout .*detail=name=prompt ms=[0-9]* note=killed-before-finish' .agents/runs/LC/HOOKS.log || die "A171-6 a killed hook (in-flight marker) is not a timeout in the ledger"
   [ ! -s .agents/local/hook-times ] || die "A171-6 the spool was not emptied"
   sh .agents/scripts/agent.sh verify-seal LC >/dev/null 2>&1 || A verify-seal LC >/dev/null || die "A171-6 the ledger chain broke after hook events"
-  cp "$tl_agents/scripts/friction.sh" .agents/scripts/
   mkdir -p .agents/local/metrics; : > .agents/local/metrics/records.jsonl; A friction report LC >/dev/null
   grep -Eq '^- hook timeouts: [2-9] \(of [0-9]+ recorded hook runs; total hook time [0-9]+ ms, slowest [0-9]+ ms\)' .agents/local/friction/latest.md || die "A171-6 the friction report does not count hook timeouts: $(grep -i hook .agents/local/friction/latest.md)"
   ok "A171-6 hook durations and timeouts are written to HOOKS.log (A203, not the ledger) and counted in the friction report"

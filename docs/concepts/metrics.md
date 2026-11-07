@@ -126,7 +126,7 @@ status only. Every `docs/decisions.md` lookup is a grep, not a full read.
 
 ## Friction report and calibration (A149)
 
-**Friction report.** When a run ends (`handoff DONE`, `terminate`), `friction.sh` builds
+**Friction report.** When a run ends (`handoff DONE`, `terminate`), `agent.sh friction report` builds
 `.agents/local/friction/latest.md` (and one file per run, `.agents/local/friction/<run id>.md`, so a later run does not replace an earlier run's report) from the run's `LEDGER.log`, its `HOOKS.log` (the hook timings; they are not ledger lines) and `records.jsonl`: how many times the user was
 asked (questions plus approval requests), failed gates and blocked steps per gate and role, runtime failovers and
 dispatch timeouts, fix rounds and delegated steps, run duration, and tokens (sums of the reported values only,
