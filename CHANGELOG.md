@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.65 — 2026-11-07
+
+- Fix (A231, Refs #173): `doctor` no longer trips shellcheck SC2015 in its CI hint (`A && B || C` became an explicit `if`); behaviour is the same. The pull request run of 0.0.64 did not see it because the CI fast mode skips the legacy shards.
+
 ## 0.0.64 — 2026-11-07
 
 - Change (A230, Part of #173): command discovery (`init`, `init --verify-commands`), `doctor --commands`, `--apply-commands`, `--scale`, `--apply-scale`, the run of `claude plugin list` with a time limit and the context-size measurement (`doctor`, `insights`, the context budget) run in the Node core. `bin/lib/{discover,commands,timeouts,context-size}.sh` and the suites `discover-eco-test.sh`, `discover-pgroup-test.sh` and `context-budget-test.sh` are deleted (1,056 lines); the callers call new `cli` subcommands of `proofline-core.mjs` (`discover`, `run-timeout`, `doctor-commands`, `doctor-scale`, `hook-timeouts-apply`, `context-size`). The time limit of a trial run stops the whole process group of the command at once and always counts as a failure (124). `doctor --commands` starts 11 processes instead of 336 (0.47 s instead of 5.0 s), the context measurement 2 instead of 101 (0.12 s instead of 0.46 s) with the same numbers for every budget item. A README or CI line that carries a secret is no longer offered as a command. The SessionStart text lives in `adapters/claude/hooks/lib/session-head.txt`.
