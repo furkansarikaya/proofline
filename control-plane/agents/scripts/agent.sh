@@ -147,7 +147,7 @@ acquire_lock() {
 # --- Config (.agents/config.yaml): indented YAML of scalars, read with awk. ---------
 # One exception (A173): commands.build|test|lint may be a block list, one command per `- ` line under the key. The item lines
 # become `key.0=...`, `key.1=...` (the key itself stays empty); config_items / cfg_cmds read them back.
-# bin/lib/config.sh (cfg_lines) keeps the same awk for the CLI; tests/shared/check-shared.sh compares the two programs.
+# The CLI reads the same file with core/config.mjs (`proofline-core.mjs cli config`).
 # Prints "dotted.key=value" for every key; comments and surrounding quotes are stripped.
 config_lines() {
   awk '

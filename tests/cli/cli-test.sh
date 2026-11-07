@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.65" "$out" "proofline 0.0.65"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.65 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.66" "$out" "proofline 0.0.66"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.66 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.65 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.66 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -174,7 +174,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.65' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.66' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -324,166 +324,14 @@ grep -qF 'One table in the control plane (`core/nextuser.mjs`) holds it; the ent
 
 }
 
-sc_doctor_fresh() {
-  need_base
-# ---- doctor -------------------------------------------------------------------------------------------------
-d1=$T/d1; cp -R "$base" "$d1"
-out=$(pl "$d1" doctor 2>&1); rc=$?
-[ "$rc" = 0 ] && ok "doctor passes on a fresh install" || { LAST=$out; die "doctor failed on a fresh install"; }
-reject "doctor prints no FAIL on a fresh install" "$out" "FAIL "
-expect "doctor verifies all 7 Claude hook events" "$out" "wires all 7 proofline events"
-expect "doctor verifies all 7 Codex hook events" "$out" "codex hooks: .codex/hooks.json wires all 7 proofline events"
-expect "doctor checks the Node hook" "$out" "PASS hooks: .agents/hooks/proofline-hook.mjs present"
-# the Stop event was never checked: a settings file without it is a FAIL in each form (Node string, or the shell string of 0.0.40)
-for dsf in claude codex; do
-  dst=$T/dstop-$dsf; cp -R "$base" "$dst"
-  if [ "$dsf" = claude ]; then dsfile=$dst/.claude/settings.json; else dsfile=$dst/.codex/hooks.json; fi
-  jq 'del(.hooks.Stop)' "$dsfile" > "$dsfile.t" && mv "$dsfile.t" "$dsfile"
-  out=$(pl "$dst" doctor 2>&1); rc=$?
-  expect "doctor FAILs when the $dsf hooks lack Stop" "$out" "FAIL $dsf hooks: "
-  expect "doctor names Stop as the missing event ($dsf)" "$out" "lacks proofline hooks for: Stop"
-  [ "$rc" != 0 ] && ok "doctor exits non-zero when $dsf Stop is not wired" || die "doctor passed without the $dsf Stop hook"
-done
-dmj=$T/dmj; cp -R "$base" "$dmj"; rm "$dmj/.agents/hooks/proofline-hook.mjs"
-expect "doctor FAILs when the Node hook file is missing" "$(pl "$dmj" doctor 2>&1)" "FAIL hooks: .agents/hooks/proofline-hook.mjs missing"
-expect "doctor shows the runtime versions" "$out" "runtime claude: 9.9.9"
-expect "doctor runs the identity probe" "$out" "probe: pre-commit blocks a forbidden identity"
-expect "doctor runs the push probe" "$out" "probe: pre-push blocks a push without approval"
-expect "doctor runs the PreToolUse probe" "$out" "Claude PreToolUse hook denies a lead edit"
-expect "doctor runs the Codex PreToolUse probe" "$out" "Codex PreToolUse hook denies"
-expect "doctor notes the Codex hook trust step" "$out" "codex trust"
-reject "doctor never prints the configured identity patterns" "$out" "forbidden-zz"
-reject "doctor stays quiet about commands when all three are configured" "$out" "WARN commands"
-dz=$T/dz; cp -R "$base" "$dz"; sed -e 's/^  build:.*/  build:/' -e 's/^  lint:.*/  lint:/' "$dz/.agents/config.yaml" > "$dz/cfg.tmp" && mv "$dz/cfg.tmp" "$dz/.agents/config.yaml"
-out=$(pl "$dz" doctor 2>&1)
-expect "doctor warns about empty commands.build and commands.lint" "$out" "WARN commands: empty in .agents/config.yaml: build lint ("
-reject "doctor lists no foreign hook or skill on a clean HOME" "$out" "WARN foreign hook"
-# A174: the risk sets live in .agents/ecosystems.tsv; a missing or stale one is a doctor FAIL, a fresh one passes
-expect "doctor passes the ecosystem definition check on a fresh install" "$(pl "$d1" doctor 2>&1)" "PASS ecosystems:"
-dec=$T/dec; cp -R "$base" "$dec"; rm "$dec/.agents/ecosystems.tsv"
-out=$(pl "$dec" doctor 2>&1); rc=$?
-expect "doctor FAILs when .agents/ecosystems.tsv is missing" "$out" "FAIL ecosystems: .agents/ecosystems.tsv is missing or empty"
-[ "$rc" != 0 ] && ok "doctor exits non-zero without the ecosystem definition" || die "doctor passed without .agents/ecosystems.tsv"
-dec2=$T/dec2; cp -R "$base" "$dec2"; printf 'npm\tmanifests\tstale.lock\n' >> "$dec2/.agents/ecosystems.tsv"
-expect "doctor FAILs when .agents/ecosystems.tsv is not what ecosystems.json generates" "$(pl "$dec2" doctor 2>&1)" "FAIL ecosystems:"
-# A194: a project install of another version than the plugin is one WARN line with the next step; equal versions pass; optional tools are one line
-expect "doctor says the plugin and the install are the same version" "$(pl "$d1" doctor 2>&1)" "PASS version: plugin and project install are both"
-dvs=$T/dvs; cp -R "$base" "$dvs"; sed 's/^proofline_version:.*/proofline_version: 0.0.1/' "$dvs/.agents/config.yaml" > "$dvs/cfg.tmp" && mv "$dvs/cfg.tmp" "$dvs/.agents/config.yaml"
-out=$(pl "$dvs" doctor 2>&1)
-expect "doctor warns when the project install is older than the plugin" "$out" "WARN version: plugin "
-expect "doctor names the next step for an older install" "$out" "the project is older. Next step: /proofline upgrade"
-sed 's/^proofline_version:.*/proofline_version: 99.0.0/' "$dvs/.agents/config.yaml" > "$dvs/cfg.tmp" && mv "$dvs/cfg.tmp" "$dvs/.agents/config.yaml"
-expect "doctor names the plugin update for a newer install" "$(pl "$dvs" doctor 2>&1)" "the project is newer than the plugin. Next step: update the plugin"
-expect "doctor shows ast-grep and rtk on one line" "$(pl "$d1" doctor 2>&1)" "PASS tools: ast-grep "
-mkdir -p "$T/rtkbin"; printf '#!/bin/sh\nexit 0\n' > "$T/rtkbin/rtk"; chmod +x "$T/rtkbin/rtk"
-expect "doctor shows an installed rtk and its bypass" "$(PATH="$T/rtkbin:$PATH" pl "$d1" doctor 2>&1)" "rtk installed ("
-# A163: a GitHub project without a pull_request workflow gets a WARN with the exact fix line; with one it passes
-dci=$T/dci; cp -R "$base" "$dci"; git -C "$dci" remote add origin https://github.com/acme/app.git 2>/dev/null || git -C "$dci" remote set-url origin https://github.com/acme/app.git
-out=$(pl "$dci" doctor 2>&1)
-expect "doctor warns when no workflow runs on pull requests" "$out" "WARN ci: no CI check runs on pull requests here. proofline merge verifies the commit locally instead"
-task_line=$(cd "$dci" && sh .agents/scripts/agent.sh ci-task-command)
-expect "doctor prints the ci-task-command line as the fix" "$out" "Fix: $task_line"
-mkdir -p "$dci/.github/workflows"; printf 'on:\n  pull_request:\njobs: {}\n' > "$dci/.github/workflows/ci.yml"
-out=$(pl "$dci" doctor 2>&1)
-expect "doctor passes the CI check with a pull_request workflow" "$out" "PASS ci: present (.github/workflows/ci.yml)"
-reject "doctor has no CI warning with a workflow" "$out" "WARN ci:"
-# 0.0.26: the major version of a runtime that CI specifies is compared with the local one; WARN only, exit stays 0
-dtc=$T/dtc; cp -R "$base" "$dtc"; mkdir -p "$dtc/.github/workflows" "$T/fakenode"
-printf 'on:\n  pull_request:\njobs:\n  t:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n' > "$dtc/.github/workflows/ci.yml"
-real_node=$(command -v node || true)
-printf '#!/bin/sh\ncase "${1:-}" in --version) echo v22.1.0 ;; *) exec "%s" "$@" ;; esac\n' "$real_node" > "$T/fakenode/node"; chmod +x "$T/fakenode/node"
-out=$(PATH="$T/fakenode:$PATH" pl "$dtc" doctor 2>&1); rc=$?
-[ "$rc" = 0 ] && expect "doctor warns on a Node major mismatch and still exits 0" "$out" "WARN toolchain node: local 22.1.0, CI specifies 20 (.github/workflows/ci.yml); the major version differs" || { LAST=$out; die "toolchain mismatch: rc=$rc"; }
-printf '#!/bin/sh\ncase "${1:-}" in --version) echo v20.5.0 ;; *) exec "%s" "$@" ;; esac\n' "$real_node" > "$T/fakenode/node"
-out=$(PATH="$T/fakenode:$PATH" pl "$dtc" doctor 2>&1)
-expect "doctor passes the toolchain check on the same major" "$out" "PASS toolchain node: local 20.5.0 matches CI 20 (.github/workflows/ci.yml)"
-reject "doctor has no toolchain warning on the same major" "$out" "WARN toolchain"
-# The base repository has a package.json (base_build), so it IS a Node project and doctor reports the Node toolchain (any
-# version, or "not installed here"). "No runtime" needs its own fixture with no runtime marker (A173); doctor looks only
-# inside the project (never at a parent directory), so the result does not depend on the directories above $T.
-out=$(pl "$d1" doctor 2>&1)
-expect "doctor reports the Node toolchain of a project with a package.json" "$out" "toolchain node:"
-dnr=$T/dnr; cp -R "$base" "$dnr"; rm -f "$dnr/package.json"
-out=$(pl "$dnr" doctor 2>&1)
-reject "doctor says nothing about toolchains in a project without a runtime" "$out" "toolchain"
-# 0.0.5: foreign context hooks and overlapping skills are listed as WARN, never FAIL, and the exit stays 0
-mkdir -p "$HOME/.claude/skills/test-driven-dev" "$HOME/.claude/skills/rust-lint"
-printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo foreign-ctx"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"echo not-listed"}]}]}}\n' > "$HOME/.claude/settings.json"
-out=$(pl "$d1" doctor 2>&1); rc=$?
-rm -rf "$HOME/.claude"
-[ "$rc" = 0 ] && expect "doctor lists a foreign SessionStart hook as WARN only" "$out" "WARN foreign hook: SessionStart in .claude/settings.json may add context to the prompt: echo foreign-ctx" || { LAST=$out; die "foreign hook: rc=$rc"; }
-expect "doctor lists an overlapping skill as WARN" "$out" "WARN overlapping skill: test-driven-dev"
-reject "doctor leaves ecosystem skills and other events alone" "$out" "rust-lint"
-reject "doctor ignores a foreign PreToolUse hook" "$out" "not-listed"
-}
-
-sc_doctor_platform_source() {
-  need_base
-  dp=$T/dp; cp -R "$base" "$dp"; git -C "$dp" remote add origin https://gitlab.company.com/acme/app.git 2>/dev/null || git -C "$dp" remote set-url origin https://gitlab.company.com/acme/app.git
-  expect "doctor: an unknown private host is auto, origin URL" "$(pl "$dp" doctor 2>&1)" "source auto: origin URL; a private host is named with git.platform"
-  sed -e 's/^  platform:.*/  platform: gitlab/' -e 's/^  platform_host:.*/  platform_host: gitlab.company.com/' "$dp/.agents/config.yaml" > "$dp/cfg.t" && mv "$dp/cfg.t" "$dp/.agents/config.yaml"
-  out=$(pl "$dp" doctor 2>&1)
-  expect "doctor shows the platform came from config (A186)" "$out" "platform: gitlab (source config: git.platform)"
-  sed -e 's/^  platform_host:.*/  platform_host:/' "$dp/.agents/config.yaml" > "$dp/cfg.t" && mv "$dp/cfg.t" "$dp/.agents/config.yaml"
-  git -C "$dp" remote set-url origin https://gitlab.com.evil.example/acme/app.git
-  expect "doctor warns about git.platform without git.platform_host on a look-alike origin" "$(pl "$dp" doctor 2>&1)" "WARN platform: git.platform is gitlab without git.platform_host"
-  cc=$(cd "$dp" && sh .agents/scripts/agent.sh config-check 2>&1 || true)
-  expect "config-check warns the same way (A185 review)" "$cc" "git.platform is gitlab without git.platform_host"
-  git -C "$dp" remote set-url origin https://gitlab.company.com/acme/app.git
-  sed -i.bak 's#^  platform_host:.*#  platform_host: other.company.com#' "$dp/.agents/config.yaml"; rm -f "$dp/.agents/config.yaml.bak"
-  expect "doctor: a configured host that is not the origin host is not applied" "$(pl "$dp" doctor 2>&1)" "source auto: origin URL; a private host is named with git.platform"
-}
-
-sc_doctor_faults() {
-  need_base
-d2=$T/d2; cp -R "$base" "$d2"; git -C "$d2" config --local --unset core.hooksPath
-out=$(pl "$d2" doctor 2>&1); rc=$?
-[ "$rc" != 0 ] && expect "doctor FAILs when core.hooksPath is unset" "$out" "FAIL git hooks: core.hooksPath is not set" || { LAST=$out; die "doctor passed without core.hooksPath"; }
-d3=$T/d3; cp -R "$base" "$d3"; git -C "$d3" config --local user.email someone@forbidden-zz.test
-out=$(pl "$d3" doctor 2>&1); rc=$?
-[ "$rc" != 0 ] && expect "doctor FAILs on a forbidden commit identity" "$out" "FAIL identity" || { LAST=$out; die "doctor passed with a forbidden identity"; }
-reject "...and names the config key, not the pattern" "$out" "forbidden-zz"; expect "...naming git.forbidden_identities" "$out" "git.forbidden_identities"
-d4=$T/d4; cp -R "$base" "$d4"; rm "$d4/.claude/settings.json"
-out=$(pl "$d4" doctor 2>&1); rc=$?
-[ "$rc" != 0 ] && expect "doctor FAILs when the Claude hooks are not wired" "$out" "FAIL claude hooks" || { LAST=$out; die "doctor passed without Claude hooks"; }
-d5=$T/d5; cp -R "$base" "$d5"; echo "tampered" >> "$d5/.agents/GATES.md"
-out=$(pl "$d5" doctor 2>&1); expect "doctor warns about a modified installed file" "$out" "WARN manifest"
-# A135: the used-runtime list keeps its spaces: a mixed config (Claude lead, Codex worker) with no codex binary still warns
-d8=$T/d8; cp -R "$base" "$d8"; sed 's/^  worker: claude/  worker: codex/' "$d8/.agents/config.yaml" > "$d8/c.tmp" && mv "$d8/c.tmp" "$d8/.agents/config.yaml"
-out=$(PROOFLINE_CODEX_BIN=/nonexistent/codex pl "$d8" doctor 2>&1)
-expect "doctor warns that a used runtime is not installed (mixed config)" "$out" "WARN runtime codex: not installed, but config.yaml uses it"
-# A135: a Codex lead on the shipped policy passes; an installed config without lead_base_model gets a warning
-d9=$T/d9; cp -R "$base" "$d9"; sed 's/^  lead: claude/  lead: codex/' "$d9/.agents/config.yaml" > "$d9/c.tmp" && mv "$d9/c.tmp" "$d9/.agents/config.yaml"
-out=$(pl "$d9" doctor 2>&1); expect "doctor passes a Codex lead on the base model" "$out" "PASS lead model: codex lead resolves to gpt-6-sol"
-grep -v 'lead_base_model:\|^    codex: gpt-6-sol$' "$d9/.agents/config.yaml" > "$d9/c.tmp" && mv "$d9/c.tmp" "$d9/.agents/config.yaml"
-out=$(pl "$d9" doctor 2>&1); expect "doctor warns when lead_base_model is absent from the installed config" "$out" "WARN lead model: .agents/config.yaml has no execution_policy.lead_base_model"
-nocheck "doctor FAILs outside an installed project" pl "$(mkrepo nodoc)" doctor
-}
-
-sc_doctor_missing() {
-  need_base
-# CLI-5: a missing control-plane file the manifest lists is a FAIL when critical, a WARN otherwise
-d6=$T/d6; cp -R "$base" "$d6"; rm "$d6/.agents/PROTOCOL.md"
-out=$(pl "$d6" doctor 2>&1); rc=$?
-[ "$rc" = 0 ] && expect "doctor only WARNs when a non-critical installed file is missing" "$out" "WARN manifest: 1 installed file" || { LAST=$out; die "non-critical missing file: rc=$rc"; }
-for crit in .agents/scripts/dispatch.sh .agents/owns.conf .agents/tools.conf .agents/roles.conf .agents/githooks/pre-push .agents/skills/proofline-lead; do
-  d7=$T/d7; rm -rf "$d7"; cp -R "$base" "$d7"; rm -rf "${d7:?}/$crit"
-  out=$(pl "$d7" doctor 2>&1); rc=$?
-  [ "$rc" != 0 ] && expect "doctor FAILs when $crit is missing" "$out" "FAIL manifest: required control-plane file missing: $crit" || { LAST=$out; die "doctor passed without $crit"; }
-done
-}
-
-sc_doctor_global_hookspath() {
-# CLI-11: a global/system core.hooksPath is warned about (init and doctor), never modified
+sc_init_global_hookspath() {
+# CLI-11: a global/system core.hooksPath is warned about by init, never modified (the doctor line is tested in Node: tests/core/doctor-faults.test.mjs)
 gh_cfg=$T/home/.gitconfig-hp; cp "$GIT_CONFIG_GLOBAL" "$gh_cfg"; printf '[core]\n\thooksPath = /nonexistent/global-hooks\n' >> "$gh_cfg"
 gh_sha=$(shasum -a 256 "$gh_cfg" | awk '{print $1}')
 ghp=$(mkrepo ghp)
 out=$(GIT_CONFIG_GLOBAL=$gh_cfg pl "$ghp" init --yes --runtimes claude 2>&1) || { LAST=$out; die "init with a global hooksPath exits 0"; }
 expect "init warns about a global core.hooksPath" "$out" "global/system git core.hooksPath"
 [ "$(git -C "$ghp" config --local --get core.hooksPath)" = .agents/githooks ] && [ "$(shasum -a 256 "$gh_cfg" | awk '{print $1}')" = "$gh_sha" ] && ok "...the local hooksPath is still set and the global config is untouched" || die "init changed the wrong hooksPath"
-out=$(GIT_CONFIG_GLOBAL=$gh_cfg pl "$ghp" doctor 2>&1)
-expect "doctor warns about a global core.hooksPath" "$out" "WARN git hooks: a global/system git core.hooksPath"
-
 }
 
 sc_state() {
@@ -554,7 +402,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.65" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.66" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1
@@ -581,69 +429,6 @@ if [ -n "$REAL_CLAUDE" ]; then
 else ok "claude plugin validate skipped (claude is not installed): not tested"; fi
 check "the proofline skill carries the shared-rules block verbatim" sh "$repo/tests/shared/check-shared.sh" proofline
 grep -q '^name: proofline$' "$repo/skills/proofline/SKILL.md" && grep -q 'ARGUMENTS' "$repo/skills/proofline/SKILL.md" && grep -q 'proofline init' "$repo/skills/proofline/SKILL.md" && ok "the proofline skill routes \$ARGUMENTS and documents the init requirement" || die "proofline skill content"
-
-}
-
-sc_insights() {
-# ---- insights (A89): read-only cost and recurring-failure report -------------------------------------------
-ins=$T/ins
-check "insights fixture builds" sh "$repo/fixtures/insights/setup.sh" "$ins"
-out=$(pl "$ins" insights 2>&1) || { LAST=$out; die "insights exits 0"; }
-ok "insights runs on planted records"
-expect "insights: a run with some null tokens shows the sum of the reported ones and how many reported" "$out" "6000 (2/3)"
-expect "insights: no token data at all is n/a, not zero" "$out" "RUN-C                  open               n/a     1 n/a              n/a              n/a"
-expect "insights: totals sum only recorded tokens" "$out" "tokens in 8000 (3/7), tokens out 1300 (3/7), tokens total 13300 (4/7)"
-reject "insights: a record of another schema version is not read" "$out" "999999"
-expect "insights: the same finding on shifted lines across rounds and runs is one pattern (x3)" "$out" "repeated-finding x3: REVIEW_RULES src/a.go: Error from Close is ignored"
-reject "insights: a different finding with similar text is not merged in" "$out" "Error from Open is ignored"
-expect "insights: repeated gate FAILs by gate" "$out" "gate-fail x3: REVIEW_RULES"
-expect "insights: repeated UNSUPPORTED checks" "$out" "unsupported x2:"
-expect "insights: approvals asked more often than granted" "$out" "approval x2: plan"
-expect "insights: every pattern carries a suggestion" "$out" "suggestion:"
-check "insights fixture selfcheck (known answers, files unchanged)" sh "$repo/fixtures/insights/selfcheck.sh" "$ins"
-out=$(pl "$ins" insights --json 2>&1); LAST=$out
-printf '%s' "$out" | jq -e '.schema == "proofline.insights/1"' >/dev/null 2>&1 && ok "insights --json is valid JSON" || die "insights --json is not valid JSON"
-printf '%s' "$out" | jq -e '(.runs[] | select(.run == "RUN-C") | .tokens_in) == null and .totals.tokens_in == 8000 and .totals.tokens_in_reported == 3 and .totals.tokens_total == 13300 and .totals.tokens_total_reported == 4 and .metrics.duplicate_run_records == 1 and .metrics.skipped_non_json == 1 and ([.patterns[] | select(.kind == "repeated-finding")] | length == 1)' >/dev/null 2>&1 \
-  && ok "insights --json: null tokens stay null, totals and one repeated-finding pattern" || die "insights --json content"
-# A202: estimated size against actual duration, tokens and scope paths: a suggestion line from planted records, no file changes
-cal=$T/cal; mkdir -p "$cal"; sh "$repo/fixtures/insights/setup.sh" "$cal/p" >/dev/null 2>&1 || die "calibration fixture"
-cf=$cal/p/.agents/local/metrics/records.jsonl
-for r in 1:S:1200:3000:2 2:S:1800:5000:4 3:S:2400:9000:3 4:M:600:20000:5 5:M:900:30000:6 6:M:1200:40000:7; do
-  oldifs=$IFS; IFS=:; set -- $r; IFS=$oldifs
-  printf '{"schema":"proofline.metrics/1","kind":"dispatch","time":"t","task":"CAL-%s","role":"implementer","model":"m","duration_s":1,"tokens_total":%s}\n' "$1" "$4" >> "$cf"
-  printf '{"schema":"proofline.metrics/1","kind":"run","time":"t","task":"CAL-%s","role":"lead","duration_s":%s,"result":"done","size":"%s","scope_paths":%s}\n' "$1" "$3" "$2" "$5" >> "$cf"
-done
-before=$(sig "$cal/p"); out=$(pl "$cal/p" insights 2>&1) || { LAST=$out; die "insights calibration run"; }
-expect "insights: calibration median for S tasks from the planted records" "$out" "S tasks (3): median 30 min / 5000 tokens / 3 paths"
-expect "insights: calibration suggests raising the estimate when smaller tasks took longer" "$out" "S tasks took longer or touched more paths than M tasks; consider estimating tasks like the S ones one size up."
-pl "$cal/p" insights --json 2>/dev/null | jq -e '.calibration[0].size == "S" and .calibration[0].median_min == 30' >/dev/null 2>&1 && ok "insights --json carries the calibration" || die "insights --json calibration"
-[ "$before" = "$(sig "$cal/p")" ] && ok "insights calibration changes no file" || die "insights calibration changed a file"
-out=$(pl "$ins" insights --run RUN-B 2>&1)
-expect "insights --run limits the report to one run" "$out" "RUN-B"
-reject "insights --run: other runs are not listed" "$out" "RUN-A"
-nocheck "insights --run of an unknown run fails" pl "$ins" insights --run NOPE-9
-nocheck "insights --run with a path-like id is refused" pl "$ins" insights --run ../x
-nocheck "insights with an unknown argument fails" pl "$ins" insights --frobnicate
-before=$(sig "$ins")
-chmod -R a-w "$ins/.agents"
-if [ "$(id -u)" != 0 ]; then
-  out=$(pl "$ins" insights --json 2>&1) && printf '%s' "$out" | jq -e .patterns >/dev/null 2>&1 && ok "insights works on a read-only checkout" || { LAST=$out; die "insights on a read-only checkout"; }
-else ok "read-only checkout case skipped (running as root): not tested"; fi
-chmod -R u+w "$ins/.agents"
-[ "$before" = "$(sig "$ins")" ] && ok "insights leaves every file byte-identical (rules, skills, config, ledger, metrics)" || die "insights changed a file"
-noruns=$(mkrepo noruns); mkdir -p "$noruns/.agents/scripts"; printf 'metrics: off\n' > "$noruns/.agents/config.yaml"; : > "$noruns/.agents/scripts/agent.sh"; cp "$repo/control-plane/agents/scripts/proofline-core.mjs" "$noruns/.agents/scripts/"; cp -R "$repo/control-plane/agents/scripts/core" "$noruns/.agents/scripts/core"
-out=$(pl "$noruns" insights 2>&1) || { LAST=$out; die "insights with no runs and metrics off exits 0"; }
-expect "insights with metrics off says no metrics recorded" "$out" "no metrics recorded (metrics: off)"
-expect "insights with no runs says so" "$out" "no runs and no metrics to report"
-expect "insights with no data finds no recurring failure" "$out" "none found"
-out=$(pl "$noruns" insights --json 2>&1); printf '%s' "$out" | jq -e '.metrics.off == true and .runs == [] and .patterns == []' >/dev/null 2>&1 && ok "insights --json with no data is empty and valid" || { LAST=$out; die "insights --json empty"; }
-out=$(sh "$PL" help); expect "help lists insights" "$out" "insights [--run ID] [--json]"
-# A157: night mode. help lists `batch` (the entry skill and README lists are compared by the checks below)
-printf '%s\n' "$out" | grep -Eq '^[[:space:]]*batch[[:space:]]' && printf '%s\n' "$out" | grep -E '^[[:space:]]*batch[[:space:]]' | grep -q 'ID' && ok "help lists batch" || { LAST=$out; die "help does not list batch <ID...|all>"; }
-printf "%s\n" "$out" | grep -q "batch run" && { LAST=$out; die "help still names batch run"; }
-printf '%s\n' "$out" | grep -q 'batch status' || { LAST=$out; die "help does not name batch status"; }
-out=$(pl "$noruns" batch run 2>&1) && die "proofline batch run still works"; expect "proofline batch run says what to do instead" "$out" "runs in your agent session"
-out=$(pl "$noruns" batch stop 2>&1) && die "proofline batch stop still works"; expect "proofline batch stop says what to do instead" "$out" "continue an interrupted batch with /proofline batch"
 
 }
 
@@ -723,10 +508,8 @@ out=$(pl "$(mkrepo rolebad5)" init --yes --runtimes claude --role implementer=co
 sc_cmd_lists() {
   need_base
 # ---- commands.build|test|lint as a list (A176): build record, config-check, discovery through init, idempotence ----
-# shellcheck source=../../bin/lib/config.sh
-. "$repo/bin/lib/config.sh"
 br() { ( cd "$1" && mkdir -p .agents/runs/BR && sh .agents/scripts/agent.sh build-record BR run ); }   # prints the record, exits like the record
-setc() { cfg_set "$1/.agents/config.yaml" "commands.$2" "$3"; }
+setc() { node "$snap/control-plane/agents/scripts/proofline-core.mjs" cli config set "$1/.agents/config.yaml" "commands.$2" "$3"; }
 step_exit() { printf '%s\n' "$1" | awk -v l="$2: " 'index($0, l) == 1 { f = 1; next } f && /^exit: / { print $2; exit }'; }
 nl='
 '
@@ -835,16 +618,11 @@ run_sc sc_init_dry_errors
 run_sc sc_upgrade
 run_sc sc_upgrade_logging
 run_sc sc_upgrade_block
-run_sc sc_doctor_fresh
-run_sc sc_doctor_platform_source
-run_sc sc_doctor_faults
-run_sc sc_doctor_missing
-run_sc sc_doctor_global_hookspath
+run_sc sc_init_global_hookspath
 run_sc sc_state
 run_sc sc_discovery
 run_sc sc_installer
 run_sc sc_plugin
-run_sc sc_insights
 run_sc sc_help_lists
 run_sc sc_init_role
 run_sc sc_cmd_lists

@@ -207,12 +207,12 @@ export function splitArgv0(args, scriptPath, cwd) {
 
 /**
  * `cli next-line` runs for the project named by PROOFLINE_ROOT (the front end bin/proofline runs it from the plugin, also for a project that is
- * not installed yet): the script path that names the root. No other command reads PROOFLINE_ROOT.
+ * not installed yet): the script path that names the root. `cli doctor` and `cli insights-front` (A232) run for the installed project the same way. No other command reads PROOFLINE_ROOT.
  * @param {string[]} argv @param {NodeJS.ProcessEnv} env @returns {string | undefined}
  */
 function cliRootScript(argv, env) {
   const r = env.PROOFLINE_ROOT;
-  return argv[0] === 'cli' && argv[1] === 'next-line' && r && path.isAbsolute(r) ? path.join(r, '.agents', 'scripts', 'proofline-core.mjs') : undefined;
+  return argv[0] === 'cli' && ['next-line', 'doctor', 'insights-front'].includes(argv[1]) && r && path.isAbsolute(r) ? path.join(r, '.agents', 'scripts', 'proofline-core.mjs') : undefined;
 }
 
 /**

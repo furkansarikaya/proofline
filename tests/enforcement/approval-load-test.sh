@@ -91,14 +91,13 @@ hook_config_knobs() {
   [ "$(A hook-config | sed -n 's/^lock_wait_seconds=//p')" = 9 ] || die "lock_wait_seconds 09 is not read as 9"
   A hook-timeouts 2>&1 | grep -q '^prompt=' || die "hook-timeouts failed with a leading zero"
   # upgrade: the user's value is kept, an old config without the block gets the defaults
-  # shellcheck disable=SC1091
-  . "$AL_REPO/bin/lib/config.sh"
+  cfg_core() { node "$AL_REPO/control-plane/agents/scripts/proofline-core.mjs" cli config "$@"; }
   sed 's/approve_budget_seconds: 20/approve_budget_seconds: 12/' "$base/cfg.bak" > "$base/user.yaml"
-  cfg_merge_new "$base/user.yaml" "$tl_agents/config.yaml" > "$base/merged.yaml"
-  [ "$(cfg_get "$base/merged.yaml" hook.approve_budget_seconds)" = 12 ] || die "upgrade did not keep the user's hook.approve_budget_seconds"
+  cfg_core merge-new "$base/user.yaml" "$tl_agents/config.yaml" > "$base/merged.yaml"
+  [ "$(cfg_core get "$base/merged.yaml" hook.approve_budget_seconds)" = 12 ] || die "upgrade did not keep the user's hook.approve_budget_seconds"
   grep -v '^hook:\|^  approve_budget_seconds\|^  next_budget_seconds\|^  lock_wait_seconds' "$base/cfg.bak" > "$base/old.yaml"
-  cfg_merge_new "$base/old.yaml" "$tl_agents/config.yaml" > "$base/merged2.yaml"
-  [ "$(cfg_get "$base/merged2.yaml" hook.approve_budget_seconds)" = 20 ] || die "upgrade did not add the default hook block to an old config"
+  cfg_core merge-new "$base/old.yaml" "$tl_agents/config.yaml" > "$base/merged2.yaml"
+  [ "$(cfg_core get "$base/merged2.yaml" hook.approve_budget_seconds)" = 20 ] || die "upgrade did not add the default hook block to an old config"
   ok "A202-28 hook time knobs are validated, bounded below and above, and kept by an upgrade"
 }
 

@@ -1,5 +1,5 @@
 // @ts-check
-// `proofline merge <PR>` in Node (stage 6B, A216; the former bin/lib/merge.sh), the only allowed way to merge a pull request (A136). The runtime hook denies every
+// `proofline merge <PR>` in Node (stage 6B, A216; the former shell launcher is gone, bin/proofline calls this), the only allowed way to merge a pull request (A136). The runtime hook denies every
 // other merge path. Fail closed: whatever cannot be seen or parsed is a refusal that says what was seen. The merge happens only when the pull request is open, not
 // a draft, and EVERY check is a success on the head that is merged: that head is read twice (the check and right before the merge) and must be equal, and the merge
 // itself is pinned to it (--match-head-commit / --sha). --admin and --auto are never allowed. A pull request with no checks at all is merged only after the

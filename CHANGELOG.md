@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.66 — 2026-11-07
+
+- Change (A232, Part of #173): `proofline doctor` (with its flags), `proofline insights`, the config helpers (`init`, `upgrade` and the CLI read and write `.agents/config.yaml` through `proofline-core.mjs cli config`) and the launcher of `proofline merge` run in the Node core. `bin/lib/{doctor,config,insights,merge}.sh` and the doctor and insights scenarios of `tests/cli/cli-test.sh` are deleted; the behaviour is covered by Node tests (`doctor-fresh`, `doctor-faults`, `insights-front`, `cfgcli`, `merge-front`). `doctor` runs from the plugin's core, so a project whose own engine is missing is still diagnosed. A `proofline doctor` run starts 315 processes instead of 1,599 and takes about 4 s instead of 13 s. Differences: foreign context hooks are listed also without `jq`, the machine load is read in process. See A232.
+
 ## 0.0.65 — 2026-11-07
 
 - Fix (A231, Refs #173): `doctor` no longer trips shellcheck SC2015 in its CI hint (`A && B || C` became an explicit `if`); behaviour is the same. The pull request run of 0.0.64 did not see it because the CI fast mode skips the legacy shards.

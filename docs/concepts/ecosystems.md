@@ -67,7 +67,7 @@ commands:
     - npm --prefix web test
 ```
 
-- One reader serves every consumer: `cfg_cmds` in `agent.sh` and `bin/lib/config.sh`; `agent.sh config-get commands.build` prints the items one per line.
+- One reader serves every consumer: `cfg_cmds` in `agent.sh` and `cli config cmds` of the Node core; `agent.sh config-get commands.build` prints the items one per line.
 - `agent.sh config-check` rejects a value together with a list, an empty item, a duplicate item, an inline list (`[a, b]`; a command may start with a bracket) and a list under `install` or `secret_scan`.
 - The build record and the verify re-run run every command of a key even when an earlier one fails, and report each as `build[2/3]` with its exit code, its output tail and a `failed:` line. A key that failed still stops the next key (a failed build stops the tests).
 - `init` writes a list when discovery found several commands; `init --verify-commands` drops the failing item and keeps the others.
