@@ -1,0 +1,12 @@
+# Budgets of the helper commands (A229, issue #173 package A): build-record, friction report, calibrate, lessons and rules, the most external processes one run of the
+# path may start on the fixture of tests/bench/helper-procs.mjs (a PATH shim counts them, the measured command itself included: no clock is read). max_procs = the
+# measured count (REPEAT=3 median) plus a margin of max(2, 25 percent). before = the shell form of 0.0.62 on the same fixture (the build-record row counts the two
+# commands of the fixture, which run as `timeout` plus `sh`). tests/bench/helper-budgets.test.mjs fails above a row. Raise a row only with a decision in docs/decisions.md.
+# path<TAB>max_procs<TAB>measured<TAB>before
+build-record-run	13	10	56
+build-record-show	8	6	37
+friction-report	6	4	19
+calibrate	4	2	14
+lessons-derive	4	2	11
+lessons-count	4	2	13
+rules-report	4	2	103

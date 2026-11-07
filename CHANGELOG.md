@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.63 — 2026-11-07
+
+- Change (A229, Part of #173): the last nine commands that ran as shell code, `friction`, `calibrate`, `build-record`, `lessons`, `rules`, `wait-line`, `task-rename-plan`, `task-rename-apply` and `test`, run in the Node core. `scripts/{build-record,friction,lessons,rules}.sh` and their four shell suites are deleted (1,055 lines), with the shell functions only these commands used in `agent.sh`; every command of `agent.sh` is now a Node handler. Arguments, output, exit codes and file formats are unchanged; the build record keeps each command's full output. A build record is 56 processes -> 10, a friction report 19 -> 4, `lessons` 11-13 -> 2, `rules report` 103 -> 2. Differences: the build record's time limit also holds where there is no `timeout` command (macOS); `friction send` runs the `gh` on PATH (the `PROOFLINE_TEST`/`PROOFLINE_GH` seam is deleted); the entries of a friction report group are listed in name order.
+
 ## 0.0.62 — 2026-11-07
 
 - Docs (A228): the open decision points of epic #165 are recorded as decided by the user's earlier rules; ADR 0001 section 16 records the three confirmed answers; the unused `PENDING_APPROVAL` test constant is deleted. No product code changes. (Refs #165.)

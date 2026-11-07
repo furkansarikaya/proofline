@@ -45,7 +45,9 @@ function STAGE7C_LOCKS(command, readOnly) {
 }
 // stage 7, package 172-D (A226): decide, ledger-note and metrics-dispatch; their agent.sh arms and functions are deleted
 const STAGE172D = ['decide', 'ledger-note', 'metrics-dispatch'];
-const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B, ...STAGE7C, ...STAGE172D];
+// stage 7, package 173-A (A229): the last commands that ran as shell code; their agent.sh arms and functions are deleted
+const STAGE173A = ['friction', 'calibrate', 'build-record', 'lessons', 'rules', 'wait-line', 'task-rename-plan', 'task-rename-apply', 'test'];
+const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B, ...STAGE7C, ...STAGE172D, ...STAGE173A];
 
 describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {

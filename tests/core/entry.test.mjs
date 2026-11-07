@@ -8,18 +8,16 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
 import { HANDLERS } from '../../control-plane/agents/scripts/core/commands/moved.mjs';
-import { READ_ONLY_COMMANDS } from '../../control-plane/agents/scripts/core/commands/names.mjs';
+import { COMMAND_NAMES, READ_ONLY_COMMANDS } from '../../control-plane/agents/scripts/core/commands/names.mjs';
 import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { memoryIo, repo, scriptsDir } from './helpers.mjs';
 
 const core = path.join(scriptsDir, 'proofline-core.mjs');
-// derived from the sources, so it cannot rot when a command moves: a command that no handler owns, and one that is read-only (any role may run it)
-const UNMOVED = ['wait-line', 'friction', 'calibrate', 'lessons', 'rules'].filter((c) => !Object.hasOwn(HANDLERS, c) && !READ_ONLY_COMMANDS.includes(c));
-const UNMOVED_READ_ONLY = READ_ONLY_COMMANDS.filter((c) => !Object.hasOwn(HANDLERS, c))[0];
 const LEAD_ONLY = ['terminate', 'approve', 'waive', 'handoff', 'classify', 'raise-budget', 'ledger-note', 'freeze', 'reopen', 'cleanup'];
 
-test('the unmoved commands used below are unmoved and exist', () => {
-  assert.ok(UNMOVED.length >= 2 && UNMOVED_READ_ONLY, 'pick other unmoved commands');
+test('every command of the table has a Node handler: nothing is left for the shell code to run (issue #173 package A moved the last nine)', () => {
+  assert.deepEqual(COMMAND_NAMES.filter((c) => !Object.hasOwn(HANDLERS, c)), []);
+  assert.ok(READ_ONLY_COMMANDS.every((c) => Object.hasOwn(HANDLERS, c)));
 });
 
 describe('the core entry accepts only the commands it owns', () => {
@@ -32,16 +30,6 @@ describe('the core entry accepts only the commands it owns', () => {
         assert.equal(m.stderr(), `command denied for ${role}: ${cmd}\n`);
         assert.equal(proc.spawnCounts().total, 0, `${role} ${cmd} reached the bridge`);
       }
-    }
-  });
-  test('the lead, and a read-only command of any role, are refused too: not a command of the Node core', () => {
-    for (const [role, cmd] of [['lead', UNMOVED[0]], ['lead', UNMOVED[1]], ['lead', UNMOVED_READ_ONLY], ['explorer', UNMOVED_READ_ONLY]]) {
-      proc.resetSpawnCounts();
-      const m = memoryIo('/nonexistent-root', { AGENT_ROLE: role });
-      assert.equal(run([cmd, 'T-1'], m.io), 2, `${role} ${cmd}`);
-      assert.match(m.stderr(), /not a command of the Node core; run it with agent\.sh/);
-      assert.equal(m.stdout(), '');
-      assert.equal(proc.spawnCounts().total, 0);
     }
   });
   test('a name that is no command, and no command at all, are answered with the usage text (exit 2) and the lock folder, nothing started', () => {

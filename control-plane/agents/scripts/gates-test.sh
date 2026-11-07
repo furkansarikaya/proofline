@@ -342,7 +342,7 @@ sc_parallel_lock() {
 
 # A waiter that read a dead holder's pid must not break the lock when a live holder took it right after that read.
 # A fake `cat` plays the holder: after the waiter's first read of the lock's pid it writes a live pid into the file. The waiter is a command that still runs as
-# shell code (wait-line): the Node commands read the pid file without a `cat` process (core/lock.mjs takes the pid file by rename and checks whose it was).
+# shell code (hook-time): the Node commands read the pid file without a `cat` process (core/lock.mjs takes the pid file by rename and checks whose it was).
 sc_lock_break_race() {
   scaffold orchestrated
   mkdir "$base/fakebin"
@@ -353,7 +353,7 @@ sc_lock_break_race() {
   mkdir .agents/runs/LC/.lock; printf '99999999\n' > .agents/runs/LC/.lock/pid
   : > "$base/fake-cat.flag"
   expect_msg 'a lock taken by a live holder after the stale read was broken' 'lock timeout after 1s' \
-    env PATH="$base/fakebin:$PATH" FAKE_CAT_FLAG="$base/fake-cat.flag" FAKE_CAT_LIVE="$$" PROOFLINE_LOCK_TIMEOUT=1 sh ./.agents/scripts/agent.sh wait-line LC racer
+    env PATH="$base/fakebin:$PATH" FAKE_CAT_FLAG="$base/fake-cat.flag" FAKE_CAT_LIVE="$$" PROOFLINE_LOCK_TIMEOUT=1 sh ./.agents/scripts/agent.sh hook-time LC
   [ ! -e "$base/fake-cat.flag" ] || die 'the fake holder never took the lock (the race was not exercised)'
   [ "$(/bin/cat .agents/runs/LC/.lock/pid)" = "$$" ] || die 'the live holder lost its pid'
   rm -f .agents/runs/LC/.lock/pid; rmdir .agents/runs/LC/.lock
@@ -2815,8 +2815,9 @@ sc_legacy_fingerprint_new_rule() {
 # A171: the build record is made before the review gate wave (at handoff IMPLEMENTED) and, when it is missing,
 # `next` names it as a missing step before any review gate.
 sc_build_record_auto() {
+  # `next` of the Node core (the shell code of agent.sh looked for scripts/build-record.sh, which is gone with the move of build-record, A229)
+  NXT() { node .agents/core4a/proofline-core.mjs --pl-argv0 "$PWD/.agents/scripts/agent.sh" next LC; }
   scaffold standalone no STANDARD manual
-  cp "$tl_agents/scripts/build-record.sh" .agents/scripts/
   sed -i.bak 's|^  build:.*|  build: echo built-line|; s|^  test:.*|  test: echo tested-line|' .agents/config.yaml && rm -f .agents/config.yaml.bak
   A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null
   implemented SOLO
@@ -2825,11 +2826,11 @@ sc_build_record_auto() {
   ok "build record: made at handoff IMPLEMENTED, before the review gate wave"
   # a tree without a record (here: config added after the handoff) shows the step first in next
   rm -rf .agents/local/builds
-  nx=$(A next LC)
+  nx=$(NXT)
   printf '%s\n' "$nx" | grep -Fq 'next=agent.sh build-record LC run' || die "next does not show the missing build record: $nx"
   [ "$(printf '%s\n' "$nx" | grep -n 'next=' | head -1 | grep -c 'build-record')" = 1 ] || die "the build record is not the first step: $nx"
   A build-record LC run >/dev/null
-  ! A next LC | grep -Fq 'build-record' || die "next still names the build record after it was made"
+  ! NXT | grep -Fq 'build-record' || die "next still names the build record after it was made"
   ok "next shows a missing build record as the first missing step and drops it once made"
 }
 

@@ -31,8 +31,8 @@ and then refreshes the hook limits in the settings files.
 | Warning to the lead | 80 % of a step's limit | `timeouts.warn_percent`, 50 to 95 | `agent.sh next`, `agent.sh wait-line` |
 | Network retry wait | 15 s, doubling, 3 tries (not scaled: a pause, not a limit) | `dispatch.network_backoff_seconds`, `dispatch.network_retries` | `dispatch.sh` |
 | Kill after a timeout | 5 s grace after TERM (not scaled) | | `dispatch.sh` |
-| Build, test, install command of the build record; one re-run of reproduced evidence | 1800 s (was 900) | `verification.command_timeout_seconds`, 60 to 28800 | `build-record.sh`, `agent.sh` |
-| Wait for another build of the same commit | 1800 s | `BUILD_RECORD_WAIT` (environment) | `build-record.sh` |
+| Build, test, install command of the build record; one re-run of reproduced evidence | 1800 s (was 900) | `verification.command_timeout_seconds`, 60 to 28800 | `core/buildrecord.mjs`, `agent.sh` |
+| Wait for another build of the same commit | 1800 s | `BUILD_RECORD_WAIT` (environment) | `core/buildrecord.mjs` |
 | Lock wait of `agent.sh` | 120 s | `PROOFLINE_LOCK_TIMEOUT` (environment) | `agent.sh` |
 | Status block update | 20 s | `tasks.status_block_seconds`, 1 to 300 | `agent.sh` |
 | CI of a merge commit: wait for a run to finish, wait for it to appear | 30 min, 10 min (told to the lead; the lead asks again) | `batch.ci_wait_minutes` 1 to 720, `batch.ci_appear_minutes` 1 to 240 | `core/deliver.mjs` (batch-ci) |

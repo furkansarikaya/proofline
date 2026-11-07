@@ -197,7 +197,7 @@ function prepFiles(ctx, main, wt, globs, eco) {
 }
 
 /**
- * The preparation of a run worktree: dependency folders and local files. `depsOnly` is step 1 alone, into any folder (the throwaway export of build-record.sh).
+ * The preparation of a run worktree: dependency folders and local files. `depsOnly` is step 1 alone, into any folder (the throwaway export of the build record, core/buildrecord.mjs).
  * @param {Context} ctx @param {string} main @param {string} wt @param {string} globs @param {boolean} [depsOnly] @returns {number} 0, 1 (a copy failed), 2 (usage)
  */
 export function prepareWorktree(ctx, main, wt, globs, depsOnly = false) {

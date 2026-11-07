@@ -9,6 +9,7 @@
 // accept.tsv, owner (pid epoch of the session that works the batch), awake.pid / awake (the sleep inhibitor), history/<batch id>/.
 // Test seams (PROOFLINE_TEST=1 only): PROOFLINE_UNAME replaces the system name, PROOFLINE_BATCH_INHIBIT=none says no sleep inhibitor is installed,
 // PROOFLINE_SESSION_PID names the session process.
+import { frictionShowText } from './friction.mjs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -504,9 +505,8 @@ export function batchStatus(ctx) {
     ctx.out(`${r.id} | ${s} | ${r.pr === '' ? '-' : r.pr} | ${t === '' ? '-' : t} | ${d === '' ? '-' : d} | ${r.question === '' ? '-' : r.question}\n`);
   }
   ctx.out('\n');
-  const fr = proc.run('sh', [`${ctx.trustedScripts}/friction.sh`, 'show'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
-  ctx.out(fr.stdout.toString('latin1'));
-  if (fr.status !== 0) ctx.out('no friction report\n');
+  const fr = frictionShowText(ctx);
+  if (fr !== null) ctx.out(fr); else ctx.out('no friction report\n');
   ctx.out('\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n');
   return 0;
 }

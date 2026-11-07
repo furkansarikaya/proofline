@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 4, package 4C: `knowledge-done` (agent.sh 0.0.47 `knowledge_done`, `knowledge_na_signal`, `wiki_lint_run`, `require_no_knowledge_drift`). Messages and
 // the order of the checks are those of the shell; a run that cannot be proven right is refused (the safe side).
+import { lessonsValidate } from './lessons.mjs';
 import { existsSync } from 'node:fs';
 import { fail } from './errors.mjs';
 import { forgetFiles, requireLead } from './approve.mjs';
@@ -117,11 +118,10 @@ export function knowledgeDoneCommand(ctx, args) {
     forgetFiles(ctx); ctx.forget('changed:'); // the lint wrote its report into the wiki: the knowledge paths below are read again
   }
   if (!term && localTaskSourceRun(ctx, id)) quietly(ctx, () => must(freshness(ctx, id)));
-  const lessons = `${ctx.trustedScripts}/lessons.sh`;
-  if (isFile(lessons)) {
-    const r = proc.run('sh', [lessons, 'validate'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-    if (r.stderr.length > 0) ctx.err(r.stderr.toString('latin1'));
-    if (r.status !== 0) fail('knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)');
+  {
+    const v = lessonsValidate(ctx);
+    if (v.err !== '') ctx.err(v.err);
+    if (!v.ok) fail('knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)');
   }
   setRunValue(ctx, id, 'execution', 'knowledge_state', state);
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) setRunValue(ctx, id, 'execution', 'knowledge_reason', reason);

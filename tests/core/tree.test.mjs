@@ -18,7 +18,7 @@ function fixture() {
   for (const dir of [path.join(root, '.agents/scripts'), path.join(wt, '.agents/scripts/core')]) mkdirSync(dir, { recursive: true });
   mkdirSync(path.join(root, '.agents/scripts/core'), { recursive: true });
   for (const base of [root, wt]) {
-    for (const f of ['agent.sh', 'lessons.sh', 'platform.sh']) writeFileSync(path.join(base, '.agents/scripts', f), `#!/bin/sh\n: > "${mark}"\n`);
+    for (const f of ['agent.sh', 'debt.sh', 'platform.sh']) writeFileSync(path.join(base, '.agents/scripts', f), `#!/bin/sh\n: > "${mark}"\n`);
     writeFileSync(path.join(base, '.agents/scripts/core/x.mjs'), 'export {};\n');
   }
   return { root, wt, mark, clean: () => rmSync(root, { recursive: true, force: true }) };
@@ -37,7 +37,7 @@ test('no worktree script runs, identical tree or not; the project\'s own scripts
     rmSync(f.mark);
     appendFileSync(path.join(f.wt, '.agents/scripts/core/x.mjs'), '// planted\n'); // a rewritten core file: agent.sh itself is untouched
     for (const [script, cwd] of /** @type {Array<[string, string]>} */ ([
-      [path.join(f.wt, '.agents/scripts/agent.sh'), f.root], [path.join(f.wt, '.agents/scripts/lessons.sh'), f.root], [path.join(f.wt, '.agents/scripts/platform.sh'), f.root],
+      [path.join(f.wt, '.agents/scripts/agent.sh'), f.root], [path.join(f.wt, '.agents/scripts/debt.sh'), f.root], [path.join(f.wt, '.agents/scripts/platform.sh'), f.root],
       ['.agents/scripts/agent.sh', f.wt], ['./.agents/scripts/../scripts/agent.sh', f.wt],
     ])) {
       r = proc.run('sh', [script, 'x'], { cwd });

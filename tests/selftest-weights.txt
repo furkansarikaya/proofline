@@ -187,11 +187,9 @@
 6 gates-test sc_lock_break_race
 6 gates-test sc_open_runs
 6 gates-test sc_validation_qa
-6 lessons-test
 5 cli-test sc_static
 5 enforcement-test git_bypass
 5 gates-test sc_question_language
-4 build-record-test
 4 controls-test sc_standalone
 4 gates-test sc_mutation_budget
 4 gates-test sc_start
@@ -200,7 +198,6 @@
 2 cli-test sc_insights
 2 controls-test sc_branch
 2 controls-test sc_roles
-2 friction-test
 2 lifecycle-test scenario_freeze_scope_mapping
 1 affected-test
 1 classify-test

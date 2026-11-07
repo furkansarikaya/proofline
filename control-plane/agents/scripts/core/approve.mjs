@@ -19,6 +19,7 @@ import { blockingFindingIds, gateFocusStatus, gateLatestFile, requiredGates, tas
 import { gateFingerprint } from './fingerprint.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { ledgerIf } from './lifecycle.mjs';
+import { lessonBound, lessonText as candidateText } from './lessons.mjs';
 import * as proc from './proc.mjs';
 import { Context } from './context.mjs';
 import { LockSet, takeCommandLocks } from './lock.mjs';
@@ -175,9 +176,9 @@ export function approvalBound(ctx, id, kind, fp = '') {
   }
   if (kind.startsWith('reopen:')) return hashFileOrBridge(`${runDir(ctx, id)}/PLAN.md`);
   if (kind.startsWith('rule:')) {
-    const r = proc.run('sh', [`${ctx.trustedScripts}/lessons.sh`, 'bound', id, kind.slice(5)], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-    if (r.status !== 0) throw new BridgeToShell('lessons.sh bound failed');
-    return r.stdout.toString('latin1').replace(/\n+$/, '');
+    const h = lessonBound(ctx, kind.slice(5));
+    if (h === null) fail(`lessons: no candidate ${kind.slice(5)}`);
+    return h;
   }
   if (kind.startsWith('rationale:')) {
     const t = rationaleLine(ctx, kind.slice(10));
@@ -357,9 +358,9 @@ export function approvalScanReport(scan, nrec) {
 
 /** @param {Context} ctx @param {string} rule */
 function lessonText(ctx, rule) {
-  const r = proc.run('sh', [`${ctx.trustedScripts}/lessons.sh`, 'text', rule], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-  if (r.stderr.length) ctx.err(r.stderr.toString('latin1'));
-  return r.stdout.toString('latin1').replace(/\n+$/, '');
+  const t = candidateText(ctx, rule);
+  if (t === null) { ctx.err(`lessons: no candidate ${rule}\n`); return ''; }
+  return t.replace(/\n+$/, '');
 }
 
 /** `approval_why KIND BOUND [tr]` @param {Context} ctx @param {string} kind @param {string} bound @param {boolean} turkish */

@@ -69,7 +69,7 @@ function nextLine(ctx, args) {
 
 /**
  * `cli scan-secrets [--root DIR] <path>...` (the former scripts/secret-scan.sh): prints one `path:line:rule` per finding, never a value; status 0 clean, 1 found,
- * 2 error. build-record.sh (shell until stage 7) scans the env files of a build record with it.
+ * 2 error. The build record (core/buildrecord.mjs) scans the env files of a record with the same scanner in process.
  * @param {Context} ctx @param {string[]} args
  */
 function secretScanCli(ctx, args) {
@@ -171,7 +171,7 @@ function runtimeDetectCli(ctx, args) {
 }
 
 /**
- * `cli worktree-deps <MAIN-ROOT> <DIR>` (the former `worktree-prep.sh --deps`, for build-record.sh): the ignored dependency folders of the project are COPIED into DIR
+ * `cli worktree-deps <MAIN-ROOT> <DIR>` (the former `worktree-prep.sh --deps`, for the build record): the ignored dependency folders of the project are COPIED into DIR
  * (the throwaway export of a build record), never linked. Writes nothing outside DIR; status 0, 1 when a copy failed, 2 for a missing folder.
  * @param {Context} ctx @param {string[]} args
  */

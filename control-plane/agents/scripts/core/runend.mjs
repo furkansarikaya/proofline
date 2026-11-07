@@ -1,6 +1,8 @@
 // @ts-check
 // Stage 4, package 4B: the end of a run: `terminate`, `cleanup` (with the removal of the run's worktree and the archive of its records) and
 // `archive_run`. File formats, messages and the order of the checks are those of agent.sh 0.0.47.
+import { frictionReport } from './friction.mjs';
+import { rulesCommand } from './rules.mjs';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { now } from './clock.mjs';
@@ -72,8 +74,9 @@ export function metricsRun(ctx, id, outcome) {
   const sp = sectionValue(ctx, dir, 'freeze', 'scope_paths').split(',').filter((x) => x !== '').length;
   metricsJson(ctx, ['run', id, 'lead', '-', '-', runtime, '-', dur, '-', '-', '-', '-', '-', String(deleg), fr, outcome, size, String(sp)]);
   try { hookTime(ctx, [id]); } catch { /* 2>/dev/null || : */ }
-  const fr2 = `${ctx.trustedScripts}/friction.sh`;
-  if (isFile(fr2)) proc.run('sh', [fr2, 'report', id], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+  const mark = ctx.chunks.length;
+  try { frictionReport(ctx, id); } catch { /* the report is a courtesy: whatever it says is not the run's result */ }
+  ctx.chunks.length = mark;
 }
 
 // ---- terminate ----------------------------------------------------------------------------------------------------------------------
@@ -243,8 +246,7 @@ export function cleanupRun(ctx, id, mergeProved = false) {
   if (isLink(dir) || path.dirname(dir) !== `${ctx.root}/.agents/runs`) fail(`refusing to remove ${dir}: not a plain run directory`);
   const state = sectionValue(ctx, dir, 'execution', 'state');
   const term = state === 'FAILED' || state === 'BLOCKED';
-  const rules = `${ctx.trustedScripts}/rules.sh`;
-  if (isFile(rules)) proc.run('sh', [rules, 'tally'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+  { const mark = ctx.chunks.length; try { rulesCommand(ctx, ['tally']); } catch { /* the counter is a courtesy */ } ctx.chunks.length = mark; }
   if (term) {
     verifySeal(ctx, id, dir);
     const lines = ledgerLines(ctx, dir);

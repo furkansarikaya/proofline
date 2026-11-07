@@ -31,7 +31,6 @@ tests/context/context-budget-test.sh context-budget-test
 tests/context/budget.tsv context-budget-test
 tests/context/rule-map.tsv context-budget-test
 bin/lib/context-size.sh context-budget-test cli-test
-control-plane/agents/scripts/rules.sh rules-test
 tests/enforcement/approval-load-test.sh approval-load-test
 
 tests/ci/ecosystem-branching.mjs ecosystem-branching.test.mjs

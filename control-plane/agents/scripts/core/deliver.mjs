@@ -16,6 +16,7 @@ import { approvalTarget, consumeApproval, forgetFiles, nextNum, requireLead } fr
 import { MAX_TRAILER_LINES, composeCommitMessage, trailerFromConfig } from './committrailer.mjs';
 import { CI_WARN, ciAbsent, ciCheckResult, ciTaskCommandText } from './commands/checks.mjs';
 import { tmScaled } from './timeouts.mjs';
+import { lessonText } from './lessons.mjs';
 import { deliveryCheck } from './commands/runcmds.mjs';
 import { freshness, knowledgeOwnedPaths, verifyHandoff } from './commands/verify.mjs';
 import { fullFingerprint, hashFile } from './fingerprint.mjs';
@@ -485,8 +486,8 @@ export function deliverPlan(ctx, id, rest) {
     const answered = readdirSyncSafe(ad).some((m) => new RegExp(`^[0-9]{3}-${kindSlug(rk).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.yaml$`).test(m));
     if (answered || seen.includes(rk)) continue;
     seen.push(rk);
-    const lt = proc.run('sh', [`${ctx.trustedScripts}/lessons.sh`, 'text', rk.replace(/^rule:/, '')], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
-    rules += `  ${rk}: ${lt.status === 0 && lt.stdout.length > 0 ? sub(lt.stdout.toString('latin1')) : '(text unavailable)'}\n`;
+    const lt = lessonText(ctx, rk.replace(/^rule:/, ''));
+    rules += `  ${rk}: ${lt !== null && lt !== '' ? sub(`${lt}\n`) : '(text unavailable)'}\n`;
   }
   s += '\nseparate decisions (NOT covered by "approve delivery"):\n';
   s += rules !== '' ? `${rules}  each is promoted only with its own reply ("approve rule <ID>"; the summary is then prepared again); without it delivery goes on without the promotion\n` : '  none\n';

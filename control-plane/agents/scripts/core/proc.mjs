@@ -33,7 +33,7 @@ export function spawnLog() { return log.slice(); }
  * @property {number} [timeoutMs]
  * @property {AbortSignal} [signal] runAsync: when it aborts, the child (and its process group, with `group`) is stopped
  * @property {boolean} [allowEqualTree] a run worktree's script may run while its whole tree equals the project's (the hook's rollback mode only; see tree.mjs)
- * @property {boolean} [group] runAsync: the child leads its own process group on POSIX, so a stop reaches everything it started (no `ps` walk)
+ * @property {boolean} [group] the child leads its own process group on POSIX, so a stop reaches everything it started (no `ps` walk); run(): after the child has ended or hit `timeoutMs`, whatever is left in its group is killed
  */
 
 /**
@@ -42,6 +42,7 @@ export function spawnLog() { return log.slice(); }
  * @property {Buffer} stdout
  * @property {Buffer} stderr
  * @property {boolean} started false when the program could not be started (not found)
+ * @property {boolean} [timedOut] run(): `timeoutMs` expired (whatever status the child then reported)
  */
 
 /** @param {string|null} signal */
@@ -63,7 +64,7 @@ export function run(program, args, options = {}) {
   }
   count(program);
   const t0 = Date.now();
-  const r = spawnSync(program, args, {
+  const r = spawnSync(program, args, /** @type {import('node:child_process').SpawnSyncOptionsWithBufferEncoding & { detached?: boolean }} */ ({
     cwd: options.cwd,
     env: options.env,
     input: options.input,
@@ -71,13 +72,17 @@ export function run(program, args, options = {}) {
     timeout: options.timeoutMs,
     maxBuffer: 1 << 30,
     windowsHide: true,
-  });
+    detached: options.group === true && process.platform !== 'win32',   // spawnSync accepts it (a group leader); the typings of SpawnSyncOptions omit it
+  }));
   logSpawn(program, Date.now() - t0);
+  // a group leader has ended or been stopped: nothing it started may go on (a grandchild would keep writing to the descriptors it inherited)
+  if (options.group === true && process.platform !== 'win32' && r.pid) { try { process.kill(-r.pid, 'SIGKILL'); } catch { /* the group is empty */ } }
+  const timedOut = /** @type {NodeJS.ErrnoException | undefined} */ (r.error)?.code === 'ETIMEDOUT';
   if (r.error && /** @type {NodeJS.ErrnoException} */ (r.error).code === 'ENOENT') {
     return { status: 127, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), started: false };
   }
   const status = r.status ?? 128 + signalNumber(r.signal);
-  return { status, stdout: r.stdout ?? Buffer.alloc(0), stderr: r.stderr ?? Buffer.alloc(0), started: !r.error };
+  return { status, stdout: r.stdout ?? Buffer.alloc(0), stderr: r.stderr ?? Buffer.alloc(0), started: !r.error || timedOut, timedOut };
 }
 
 /**

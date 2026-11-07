@@ -39,6 +39,7 @@ import { Context } from './context.mjs';
 import { dispatcherIo } from './decide.mjs';
 import * as dt from './dispatchtext.mjs';
 import { gitState } from './gitstate.mjs';
+import { cksum } from './hash.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
 import { commandV, runtimeDetect } from './runtimedetect.mjs';
@@ -87,20 +88,7 @@ const lastLines = (text) => dt.tailLines(text, 1e9);
 const nowEpoch = () => Math.floor(Date.now() / 1000);
 const nowIso = () => new Date(nowEpoch() * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-/** POSIX `cksum` of the bytes: the CRC the explorer's resume note is named by. @param {Buffer} buf */
-export function cksum(buf) {
-  let crc = 0;
-  /** @param {number} b */
-  const step = (b) => {
-    crc ^= b << 24;
-    for (let k = 0; k < 8; k++) crc = (crc & 0x80000000) ? ((crc << 1) ^ 0x04C11DB7) : (crc << 1);
-    crc >>>= 0;
-  };
-  for (const b of buf) step(b);
-  let len = buf.length;
-  while (len > 0) { step(len & 0xff); len = Math.floor(len / 256); }
-  return String((~crc) >>> 0);
-}
+export { cksum };
 
 /**
  * Start a dispatch. `done` resolves with the exit status; `interrupt(signal)` is what a HUP, INT or TERM to the dispatcher calls.
@@ -564,9 +552,9 @@ class Dispatcher {
       if (fp.code !== 0 || fpBefore === '') { this.stderr(fp.err); this.stderr(`dispatch: no product-tree fingerprint; ${role} not started\n`); throw new Exit(1); }
       // One build and test run per tree: the first reviewer or verifier dispatch makes the record, later ones reuse it. Its result never stops a dispatch.
       if (role === 'reviewer' || role === 'verifier') {
-        const r = proc.run('sh', [`${this.scriptDir}/agent.sh`, 'build-record', id, 'run'], { cwd: this.io.cwd, env: this.env, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
-        if (r.status !== 0) {
-          const text = Buffer.concat([r.stdout, r.stderr]).toString('latin1');
+        const r = this.cmd(['build-record', id, 'run']);
+        if (r.code !== 0) {
+          const text = r.out + r.err;
           const lastLine = lastLines(text).slice(-1)[0] ?? '';
           this.stderr(`dispatch: MISSING STEP for the lead: no build record was made for this tree (${lastLine.slice(0, 200)}); the ${role} starts without one. With empty commands.build and commands.test: proofline doctor --commands (A200)\n`);
         }

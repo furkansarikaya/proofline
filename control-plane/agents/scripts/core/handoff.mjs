@@ -2,6 +2,7 @@
 // Stage 4, package 4B: `handoff` (the ladder PLANNED -> IMPLEMENTING -> IMPLEMENTED -> CODE_DONE -> DONE) with everything only it uses: the approvals of
 // the first step, the classification and defect-report checks, the fix bound, the scratch-worktree check, the language check of the run folder and the
 // effective tier record. Messages, ordering of the checks and the writes are those of agent.sh 0.0.47 (the freeze consumes approvals, so does this).
+import { buildRecord } from './buildrecord.mjs';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
@@ -161,7 +162,7 @@ function buildRecordAuto(ctx, id) {
   const why = buildRecordUnmakeable(ctx);
   if (why !== '') { ctx.err(`MISSING STEP (lead): ${why}. Do: ${BUILD_STEP(id)}\n`); return; }
   if (!buildRecordMissing(ctx)) return;
-  const r = proc.run('sh', [`${ctx.trustedScripts}/build-record.sh`, 'run'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+  const r = buildRecord(ctx, 'run');
   if (r.status === 0) ctx.err(`build record made for the implemented tree (agent.sh build-record ${id} show)\n`);
   else ctx.err(`MISSING STEP (lead): the build record of this tree could not be made (see agent.sh build-record ${id} run); the handoff is not blocked, but the reviewers and the verifier have no record to read. Fix what it reports (a missing install, secret or env file), then run agent.sh build-record ${id} run\n`);
 }

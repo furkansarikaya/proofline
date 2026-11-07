@@ -2,8 +2,8 @@
 # tests/bench/dispatch-procs.mjs (a PATH shim counts them, the measured command itself included, a fake runtime that restores the real PATH so that only the
 # dispatcher's own processes are counted: no clock is read). max_procs = the measured count (REPEAT=3 median) plus a margin of max(2, 25 percent). before = the shell
 # form of 0.0.57 on the same fixture. decide-dry is `sh agent.sh decide LC implementer --dry` (the launcher, node, and the two git calls that list the changed paths);
-# the dispatcher runs the decision in process, so it pays the two git calls only. Both dispatch rows include the worker's guardian (a node process, core/guardian.mjs, A226). The reviewer path includes the build record (build-record.sh, shell until a later
-# package; a later dispatch of a reviewer or verifier on the same tree reuses the record). tests/bench/dispatch-budgets.test.mjs fails above a row.
+# the dispatcher runs the decision in process, so it pays the two git calls only. Both dispatch rows include the worker's guardian (a node process, core/guardian.mjs, A226). The reviewer path includes the build record (core/buildrecord.mjs, run in process since A229: the fixture configures no build or test command, so it only reads the
+# config; a later dispatch of a reviewer or verifier on the same tree reuses the record). tests/bench/dispatch-budgets.test.mjs fails above a row.
 # Raise a row only with a decision in docs/decisions.md.
 # path<TAB>max_procs<TAB>measured<TAB>before
 decide-dry	6	4	123
