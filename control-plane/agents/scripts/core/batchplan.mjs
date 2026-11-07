@@ -8,7 +8,6 @@ import { batchApproval, sharedDirOf } from './approvals.mjs';
 import { requestApproval, requireLead } from './approve.mjs';
 import { fail } from './errors.mjs';
 import { sha256File } from './hash.mjs';
-import { shellChild } from './lifeutil.mjs';
 import { isFile } from './paths.mjs';
 import { PathKinds } from './pathkind.mjs';
 import { readBytes, textLines } from './records.mjs';
@@ -313,7 +312,7 @@ function plan(ctx, argv) {
   /** @type {string[][]} */ const raw = [];
   for (const x of kept) raw.push(...lintTask(ctx, pk, x.id, /** @type {string} */ (tfile(td, x.id)), x.cls));
   // lint_known (A202, item 27): blocking findings that runs on this machine recorded, whose run did not touch the place and that are not on the user's known-issues list
-  const cand = tabRows(shellChild(ctx, ['known-issue-candidates']).out).slice(0, 8);
+  const cand = tabRows(agentCall(ctx, ['known-issue-candidates']).out).slice(0, 8);
   for (const c of cand) {
     const [kr, kfid, kg, kp] = c; const kt = c.slice(4).join('\t');
     if (!kr) continue;
@@ -356,7 +355,7 @@ function plan(ctx, argv) {
     o('Findings that runs on this machine already recorded outside the tasks of this batch (they may be on main) and DESIGN.md pattern justifications nobody approved yet. One answer to the accept question below ("Q<n> b") accepts the whole list for THIS batch only; "all recommended" does not. SECRETS and SECURITY findings are never listed and never accepted this way.\n\n');
     for (const a of accept) { if (a[0] === 'K') o(`- accept K ${a[1]} ${a[2]}: ${a[3]}\n`); else o(`- accept R ${a[1]}: ${a[3]}\n`); }
   } else o('- none\n');
-  for (const l of lt(shellChild(ctx, ['known-issue-list']).out)) if (!l.startsWith('known issues: none')) o(`- already on the known-issues list: ${l}\n`);
+  for (const l of lt(agentCall(ctx, ['known-issue-list']).out)) if (!l.startsWith('known issues: none')) o(`- already on the known-issues list: ${l}\n`);
   o('\n## Pre-flight questions (plan-lint, A200)\n\n');
   if (lintRows.length > 0) {
     o('These are the questions the plan of each task would raise at freeze, asked now so that no task parks on them overnight. Answer with the letters ("Q1 a, Q2 b"), in your own words ("Q1: do not split", "Q3 hayir"), or "all recommended". Your message is recorded as it is (agent.sh batch-answer) and applied when each plan freezes; a question you leave open is asked again at freeze, as before. An answer is never an approval of anything else.\n\n');
