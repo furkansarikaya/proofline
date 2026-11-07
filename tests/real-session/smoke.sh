@@ -87,9 +87,21 @@ user_merges() {
 # succeeds once the commit on main is possible (the run of T-1 is closed) or when there is nothing to change
 codex_config_commit() {
   command -v codex >/dev/null 2>&1 || return 0
-  grep -q '^    implementer: codex' "$P/.agents/config.yaml" && git -C "$P" diff --quiet HEAD -- .agents/config.yaml && return 0
+  # the config must be on MAIN (the batch worktrees branch from main): the lead may have left the task branch checked out, so main is checked out first (A226)
+  git -C "$P" show main:.agents/config.yaml 2>/dev/null | grep -q '^    implementer: codex' && return 0
+  git -C "$P" checkout -q main 2>/dev/null || return 1
   grep -q '^    implementer: codex' "$P/.agents/config.yaml" || { sed 's/^  roles:[[:space:]]*$/  roles:\n    implementer: codex/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"; }
   git -C "$P" add -A && git -C "$P" commit -q -m 'chore: implementer runs on codex' 2>/dev/null && git -C "$P" push -q origin main
+}
+
+# codex_dispatch_seen TRANSCRIPT: did a Codex implementer really run in the batch? A dispatch line of the transcript says `implementer runtime=codex`, or the shared metrics
+# record the implementer with runtime codex, or a run folder holds a dispatch file named for it. (A text match on `implementer.*codex` over .agents/local also matches
+# roles.conf and the *-test.sh files a worktree carries, so it passed on a batch whose implementers ran on Claude: A226.)
+codex_dispatch_seen() {
+  grep -qs 'dispatch: T-[0-9]* implementer runtime=codex' "$1" 2>/dev/null && return 0
+  grep -qs '"role":"implementer".*"runtime":"codex"' "$P/.agents/local/metrics/records.jsonl" 2>/dev/null && return 0
+  for cds_f in "$P"/.agents/local/worktrees/*/.agents/runs/*/dispatch/*-implementer-codex.* "$P"/.agents/runs/*/dispatch/*-implementer-codex.*; do [ ! -e "$cds_f" ] || return 0; done
+  return 1
 }
 
 # codex_sandbox_row: the profile dispatch.sh gives a Codex worker, applied with `codex sandbox` (no model) to the installed scripts of this project:
@@ -325,7 +337,7 @@ EOF
   a202_rows "$pr_pre"   # A202: the status block and the slug in the branch name, read from files and agent.sh state
   if [ "${SMOKE_ONLY:-}" = a202 ]; then :
   elif command -v codex >/dev/null 2>&1; then
-    if grep -rqs 'implementer-codex\|implementer.*codex' "$P/.agents/local" "$work/$pr_pre-batch.jsonl" 2>/dev/null && ! grep -qs 'cannot take the lock' "$work/$pr_pre-batch.jsonl" "$P"/.agents/local/worktrees/*/.agents/runs/*/dispatch/*codex*.log 2>/dev/null; then
+    if codex_dispatch_seen "$work/$pr_pre-batch.jsonl" && ! grep -qs 'cannot take the lock' "$work/$pr_pre-batch.jsonl" "$P"/.agents/local/worktrees/*/.agents/runs/*/dispatch/*codex*.log 2>/dev/null; then
       row "$pr_pre batch: a Codex implementer in a worktree, submit included" PASS 0 "no lock failure in the transcript or dispatch logs"
     else row "$pr_pre batch: a Codex implementer in a worktree, submit included" FAIL 0 "no Codex dispatch seen, or a lock failure"; fi
   else row "$pr_pre batch: Codex implementer in a worktree" SKIP 0 "codex is not installed"; fi
