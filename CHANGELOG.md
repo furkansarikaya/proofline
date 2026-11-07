@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.62 — 2026-11-07
+
+- Docs (A228): the open decision points of epic #165 are recorded as decided by the user's earlier rules; ADR 0001 section 16 records the three confirmed answers; the unused `PENDING_APPROVAL` test constant is deleted. No product code changes. (Refs #165.)
+
 ## 0.0.61 — 2026-11-07
 
 - Change (A224, user decision of 2026-11-07): the CONTROL PLANE appends an attribution trailer to the delivery commit. `git.commit_trailer` (config.yaml; default `Co-Authored-By: Claude <noreply@anthropic.com>`, `off` adds none, up to 5 `Key: value` lines, strictly checked, `Signed-off-by`/`Reviewed-by`/`Acked-by`/`Tested-by`/`Approved-by` refused, read from the main working tree's config) is composed into `COMMIT_MSG` by `deliver-plan`; the summary shows the whole message, `message_sha256` and the approval cover it, the ledger records it (`commit-trailer`), and every later step compares the commit's whole message with it. A trailer in `--message` and a control character in the line are refused. `config-check` validates the key. The lead texts say an attribution instruction needs no action. (Part of #172.)

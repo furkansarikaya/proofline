@@ -558,13 +558,13 @@ earlier stage.
 | Node 22 leaves support in April 2027 | a new decision then; CI already tests the next LTS line |
 | the in-process hook runs several commands and leaks state between them | the per-invocation context; a test runs two commands in one process and compares with two processes |
 
-## 16. Open questions (recommended defaults, maintainer to confirm)
+## 16. Open questions (recommended defaults, confirmed by the user, A205)
 
 1. **Hook guard.** Recommended: the pinned fail-closed guard in all three hook forms (section 9). Failing open is not offered: it
-   contradicts Core invariant 6, and Node can be absent where `sh` never is. *Maintainer to confirm.*
+   contradicts Core invariant 6, and Node can be absent where `sh` never is. *Confirmed: YES (A205).*
 2. **Documented spelling.** Recommended: keep `agent.sh` and `dispatch.sh` as permanent launchers: 278 lines in skills and roles name
    `agent.sh`, and tests, git hooks and the hook's deny rules use both spellings; a rename would be its own later decision.
-   *Maintainer to confirm.*
+   *Confirmed: YES (A205).*
 3. **Invariant-suite overlap.** Recommended: the shell and Node invariant suites run side by side until the Node copy has been green on
    `main` through at least one full release after the one that added it; stage 15 deletes the shell copy only then, otherwise the deletion
-   waits for a later release. *Maintainer to confirm.*
+   waits for a later release. *Confirmed: YES (A205).*
