@@ -5,6 +5,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, writeSync } from 'node:fs';
 import path from 'node:path';
+import { env as ownEnv } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { refuseUntrustedScript } from './tree.mjs';
 
@@ -202,10 +203,12 @@ function descendants(pid) {
  * The guardian (core/guardian.mjs): the leader of the worker's process group. It starts the real worker in that group (same descriptors, working folder and
  * environment), ignores HUP, INT and TERM itself (the worker, in the same group, gets the same signal from the dispatcher), ends with the worker's status, and
  * polls its owner: when the dispatcher is gone (even by SIGKILL, which runs no handler) it kills its own group, so a worker never outlives its dispatcher (A226).
- * @param {string[]} argv `<owner pid> <program> [args...]`
+ * With an orphan spec (a user decision of 2026-11-07) it first starts a closer (below) that outlives the group: once the group is dead it closes the implementer's write
+ * window, because the dispatcher that held the window cannot.
+ * @param {string[]} argv `<owner pid> <orphan spec as JSON, or -> <program> [args...]`
  */
 export function runGuardian(argv) {
-  const [ownerText, program, ...args] = argv;
+  const [ownerText, specText, program, ...args] = argv;
   const owner = Number(ownerText);
   for (const sig of /** @type {const} */ (['SIGHUP', 'SIGINT', 'SIGTERM'])) process.on(sig, () => {});
   const child = spawn(program, args, { stdio: 'inherit', windowsHide: true });
@@ -215,6 +218,7 @@ export function runGuardian(argv) {
   };
   const poll = setInterval(() => {
     if (!ownerGone()) return;
+    if (specText !== undefined && specText !== '-') startCloser(process.pid, specText);
     try { process.kill(-process.pid, 'SIGKILL'); } catch { /* not the leader of a group: only this process */ }
     process.kill(process.pid, 'SIGKILL');
   }, 200);
@@ -223,12 +227,84 @@ export function runGuardian(argv) {
 }
 
 /**
+ * What the dispatcher hands the guardian for the case it is killed by SIGKILL while an implementer's write window is open: the working folder, the variables of the
+ * worker's environment to take away or put back (the closer must run as the lead, not as the worker), the command that closes the window, and the command that
+ * ledgers a note (the text is added as its last argument). No secret travels in it: only the variables the dispatcher itself changed for the worker.
+ * @typedef {{ cwd: string, remove: string[], set: Record<string, string>, close: string[], note: string[], noteText: string }} OrphanSpec
+ */
+
+/** @param {unknown} v @returns {v is string[]} */
+const stringList = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** @param {string} text @returns {OrphanSpec | null} */
+function parseSpec(text) {
+  try {
+    const o = JSON.parse(text);
+    if (typeof o !== 'object' || o === null || typeof o.cwd !== 'string' || !stringList(o.remove) || !stringList(o.close) || o.close.length === 0 || !stringList(o.note) || o.note.length === 0 || typeof o.noteText !== 'string') return null;
+    if (typeof o.set !== 'object' || o.set === null || Object.values(o.set).some((x) => typeof x !== 'string')) return null;
+    return o;
+  } catch { return null; }
+}
+
+/**
+ * The closer: started by the guardian just before it kills the worker's group, as a process of its own (a new session, so the group kill does not reach it).
+ * `<pgid> <spec JSON>`. It waits until no live process is left in the group (zombies do not count), then runs the close command once and ledgers the outcome. A group
+ * that is still alive after the wait is killed again; if it will not die the window is NOT closed (the safe side: the worker might still write; the A224 recovery
+ * applies). Nothing here prints; the ledger note and the window record are the evidence.
+ * @param {string[]} argv
+ */
+export function runCloser(argv) {
+  const pgid = Number(argv[0]);
+  const spec = parseSpec(argv[1] ?? '');
+  if (spec === null || !Number.isInteger(pgid) || pgid <= 1) return;
+  /** @type {NodeJS.ProcessEnv} */ const env = { ...ownEnv };
+  for (const k of spec.remove) delete env[k];
+  Object.assign(env, spec.set);
+  const nap = (/** @type {number} */ ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+  const waitDead = (/** @type {number} */ ms) => { const t0 = Date.now(); while (groupLive(pgid) && Date.now() - t0 < ms) nap(50); return !groupLive(pgid); };
+  let dead = waitDead(10000);
+  if (!dead) { try { process.kill(-pgid, 'SIGKILL'); } catch { /* gone */ } dead = waitDead(3000); }
+  let result = 'the worker group did not stop in time, so the write window was left open (nothing is attested: tree-inspect applies)';
+  if (dead) {
+    const r = run(spec.close[0], spec.close.slice(1), { cwd: spec.cwd, env, stdio: ['ignore', 'ignore', 'ignore'] });
+    result = r.status === 0 ? 'the worker group is dead and the write window was closed by the guardian' : `the worker group is dead but closing the write window failed (status ${r.status}): tree-inspect applies`;
+  }
+  run(spec.note[0], [...spec.note.slice(1), `${spec.noteText}; ${result}`], { cwd: spec.cwd, env, stdio: ['ignore', 'ignore', 'ignore'] });
+}
+
+/** Start the closer for the group PGID as a detached process of this same Node and guardian script. @param {number} pgid @param {string} specText */
+function startCloser(pgid, specText) {
+  if (parseSpec(specText) === null) return;
+  try {
+    const guardian = fileURLToPath(new URL('./guardian.mjs', import.meta.url));
+    spawn(process.execPath, [guardian, '--closer', String(pgid), specText], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch { /* no closer: the window stays open and the A224 recovery applies */ }
+}
+
+/**
+ * Does the process group PGID still hold a live process? A zombie (a killed member whose parent has not collected it yet) does not count. When the table cannot be
+ * read the answer is yes (the safe side: the window is not closed on a guess).
+ * @param {number} pgid
+ */
+function groupLive(pgid) {
+  try { process.kill(-pgid, 0); } catch (e) { return /** @type {NodeJS.ErrnoException} */ (e).code === 'EPERM'; }
+  const r = run('ps', ['-A', '-o', 'pgid=', '-o', 'stat='], { stdio: ['ignore', 'pipe', 'ignore'] });
+  if (r.status !== 0) return true;
+  for (const l of r.stdout.toString('latin1').split('\n')) {
+    const m = /^\s*(\d+)\s+(\S+)/.exec(l);
+    if (m && Number(m[1]) === pgid && !m[2].startsWith('Z')) return true;
+  }
+  return false;
+}
+
+/**
  * Start a long-running child as the leader of its own process group (POSIX: `detached`, which makes it a session and group leader; the leader is the guardian of
  * runGuardian, which starts the real program in that group and kills the group if this process dies; Windows: a tree, stopped with `taskkill /T`, no guardian),
  * for the dispatcher's watchdog (A226). stdio is given by the caller (files, never pipes, so the child never blocks on a reader). `stop()` signals the whole group
  * and every descendant found by a `ps` listing (a grandchild that started a session of its own is not in the group), waits `graceMs` and then kills what is
  * still there with SIGKILL; `exited` resolves once the leader is gone and the group is empty or killed. A child that ends by itself leaves its group alone.
- * @param {string} program @param {string[]} args @param {{ cwd?: string, env?: NodeJS.ProcessEnv, stdio: Array<'ignore'|number>, graceMs?: number }} options @returns {Leader}
+ * `onOrphan` (POSIX only): the guardian's orphan spec, see runCloser.
+ * @param {string} program @param {string[]} args @param {{ cwd?: string, env?: NodeJS.ProcessEnv, stdio: Array<'ignore'|number>, graceMs?: number, onOrphan?: OrphanSpec }} options @returns {Leader}
  */
 export function startLeader(program, args, options) {
   const graceMs = options.graceMs ?? 5000;
@@ -239,7 +315,7 @@ export function startLeader(program, args, options) {
   const t0 = Date.now();
   const child = win
     ? spawn(program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio, windowsHide: true })
-    : spawn(spawned, [guardian, String(process.pid), program, ...args], { cwd: options.cwd, env: options.env, stdio: options.stdio, windowsHide: true, detached: true });
+    : spawn(spawned, [guardian, String(process.pid), options.onOrphan === undefined ? '-' : JSON.stringify(options.onOrphan), program, ...args], { cwd: options.cwd, env: options.env, stdio: options.stdio, windowsHide: true, detached: true });
   const pid = child.pid;
   let leaderGone = false;
   let stopped = false;

@@ -44,6 +44,7 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
 
 ## Rules
 
+- **GitHub's closing words are never used for an issue that must stay open.** In a pull request description or a commit message, `close`, `fix`, `resolve` and their derivatives (closes, closed, fixes, fixed, resolves, resolved) next to an issue reference close that issue when the pull request merges, also in a negative sentence (a sentence that denies closing it still closes it). Use `Part of #N` or no reference.
 - **Every behaviour change is a decision.** Add an entry to [docs/decisions.md](docs/decisions.md) (next free
   `A<n>`): what changed, why, and the alternatives rejected.
 - **Markdown under `skills/**`, `roles/**`, `control-plane/**` and `adapters/**` is reviewed like code.** It is

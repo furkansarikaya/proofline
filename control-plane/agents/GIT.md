@@ -48,9 +48,11 @@ The agent never tags, and merges only inside `deliver` through `proofline merge`
   round, which the user's delivery approval covers (`deliver-step <ID> ci-fix|ci-commit|ci-push|ci-merge`, at most 2).
 
 Commit messages follow `git.commit_format` (default Conventional Commits with the task id). The commit message of a
-delivery is the one line `deliver-plan` wrote and the user approved, committed as written (`git commit -F`); a trailer or
-attribution instruction (`Co-Authored-By`) from the harness or the user's rules never changes it and is no reason to park,
-ask or edit it by hand (A224). The PR body is
+delivery is the one line `deliver-plan` wrote and the user approved plus the trailer the control plane itself appends from
+`git.commit_trailer` (default `Co-Authored-By: Claude <noreply@anthropic.com>`, `off` adds none), committed as written (`git commit -F`);
+a trailer or attribution instruction (`Co-Authored-By`) from the harness or the user's rules needs no action, never changes it and is
+no reason to park, ask or edit it by hand (A224). Only the control plane adds the trailer; the lead and `--message` never do, and the key
+is read from the main working tree's config. The PR body is
 derived from the completion report and the review summary. `.agents/runs/` and `.agents/local/` are
 git-ignored and never committed.
 

@@ -41,6 +41,12 @@ test('the table covers every batch path once, each row keeps a margin over its m
     if (r.path !== 'batch-answers') assert.ok(r.maxProcs * 4 < r.before, `${r.path}: the budget is not far below the shell form`);
   }
 });
+test('the target of issue #172 for batch-next is 2 processes, the launcher sh and node (user decision of 2026-11-07, A225): the macOS ps that reads the session process is counted separately', () => {
+  const header = readFileSync(join(repo, 'tests/bench/batch-budgets.tsv'), 'utf8').split('\n').filter((l) => l.startsWith('#')).join(' ');
+  assert.match(header, /target of issue #172 for batch-next is 2 processes/);
+  const next = rows.find((r) => r.path === 'batch-next');
+  assert.ok(next && next.measured >= 2 && next.measured <= 3, 'the recorded measurement is 2 (Linux) or 3 (macOS, with the ps)');
+});
 test('overBudget fails on an excess of processes or bytes and passes at the budget', () => {
   const t = parseBudgets('x\t5\t3\t60\t96\ny\t4\t2\t9\t-\n');
   assert.deepEqual(overBudget({ x: { procs: 5, bytes: 96 }, y: { procs: 4, bytes: 99999 } }, t), []);
@@ -53,4 +59,7 @@ test('every batch path stays inside its budget (the fixture of batch-procs.mjs)'
   for (const m of measured) got[m.path] = { procs: m.procs, bytes: m.bytes };
   assert.deepEqual(Object.keys(got), PATHS, `paths measured: ${table(measured)}`);
   assert.deepEqual(overBudget(got, rows), [], table(measured));
+  // the target of the issue: 2 processes (the launcher sh and the node it starts), not counting the ps of a platform without /proc
+  const next = measured.find((m) => m.path === 'batch-next');
+  assert.ok(next && next.procs - (next.byProgram['ps'] ?? 0) <= 2, `batch-next starts more than the launcher and node: ${next?.top}`);
 });

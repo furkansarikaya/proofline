@@ -24,7 +24,7 @@ import { policyCommand } from '../execpolicy.mjs';
 import { runtimeDetect } from '../runtimedetect.mjs';
 import { leftoverCommand } from '../leftover.mjs';
 import { prepareWorktree } from '../worktree.mjs';
-import { detectPlatform, detectText, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
+import { detectPlatform, detectText, droppedNetVars, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -83,8 +83,9 @@ function secretScanCli(ctx, args) {
 }
 
 /**
- * `cli platform-info detect|field KEY|link BRANCH BASE|env|warn [-C DIR] [--url URL]` (the former scripts/platform.sh, for bin/lib/merge.sh): the hosting platform of
- * the origin remote of DIR (default the working directory). Prints what platform.sh printed; status 2 for a usage error.
+ * `cli platform-info detect|field KEY|link BRANCH BASE|env|warn|net-dropped [-C DIR] [--url URL]` (the former scripts/platform.sh, for bin/lib/merge.sh): the hosting platform of
+ * the origin remote of DIR (default the working directory). Prints what platform.sh printed; status 2 for a usage error. `net-dropped` (for the doctor) lists the
+ * proxy and certificate variables the platform tools do not get: name and reason, never a value.
  * @param {Context} ctx @param {string[]} args
  */
 function platformCli(ctx, args) {
@@ -100,7 +101,9 @@ function platformCli(ctx, args) {
     else if (rest[i] === '--url') url = rest[i + 1] ?? '';
     else throw new ProoflineError(`platform: unknown argument ${rest[i]}`, 2, 'USAGE');
   }
-  if (!['detect', 'field', 'link', 'env', 'warn'].includes(op)) throw usage();
+  if (!['detect', 'field', 'link', 'env', 'warn', 'net-dropped'].includes(op)) throw usage();
+  // A220 (user decision of 2026-11-07), for `proofline doctor`: one line `NAME TAB reason` per proxy or certificate variable the tools do not get; never a value
+  if (op === 'net-dropped') { for (const d of droppedNetVars(ctx)) ctx.out(`${d.name}\t${d.reason}\n`); return 0; }
   const info = detectPlatform(ctx, { dir, url });
   switch (op) {
     case 'detect': ctx.out(detectText(info)); return 0;

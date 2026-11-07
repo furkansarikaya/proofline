@@ -51,6 +51,8 @@ case "\${FAKE_CODEX:-ok}" in
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\\n' > "$o"; sub PASS ;;
   implement) echo "work in progress" >> "$FAKE_ROOT/impl.txt"; printf 'x\\n' > "$o"; sub DONE ;;
   implementhang) echo "work in progress" >> "$FAKE_ROOT/impl.txt"; echo $$ > "$loc/codex.pid"; exec sleep 30 ;;
+  implementgrand) echo "work in progress" >> "$FAKE_ROOT/impl.txt"; echo $$ > "$loc/codex.pid"
+      sh -c 'trap "" TERM; echo $$ >> "'"$loc"'/grandchildren.pids"; while :; do echo tick >> "'"$FAKE_ROOT"'/impl.txt"; sleep 0.05; done' & wait ;;
   hooks) git -C "$FAKE_ROOT" config core.hooksPath /dev/null; printf 'x\\n' > "$o"; sub PASS ;;
   head) git -C "$FAKE_ROOT" symbolic-ref HEAD refs/heads/elsewhere; printf 'x\\n' > "$o"; sub PASS ;;
 esac

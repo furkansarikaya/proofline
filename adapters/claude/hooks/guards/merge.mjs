@@ -26,14 +26,14 @@ const RE_GH_ENDPOINT = re(String.raw`/pulls/[^[:space:]]*/merge|/merges|git/refs
 const RE_ANY_ENDPOINT = re(String.raw`/pulls/[^[:space:]]*/merge|/merge_requests/[^[:space:]]*(merge|state_event)|state_event|merge_when_pipeline_succeeds|/pullrequests/|_apis/git/[^[:space:]]*pullrequests`, 'i');
 const RE_PATH_GH = re(String.raw`merge|proofline|(^|[^[:alnum:]_.-])gh([^[:alnum:]_]|$)`);
 // A220: a proxy or certificate variable assigned (`X=v`, or the prefix-append form `X+=v`); it counts only when the same command runs the merge proof or a platform tool
-const RE_NET_VAR = /^(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|http_proxy|no_proxy|SSL_CERT_FILE|NODE_EXTRA_CA_CERTS)\+?=/;
-const RE_NET_APPEND = /(^|[\s;&|(])(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|http_proxy|no_proxy|SSL_CERT_FILE|NODE_EXTRA_CA_CERTS)\+=/;
+const RE_NET_VAR = /^(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|http_proxy|no_proxy|SSL_CERT_FILE|NODE_EXTRA_CA_CERTS|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)\+?=/;
+const RE_NET_APPEND = /(^|[\s;&|(])(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|http_proxy|no_proxy|SSL_CERT_FILE|NODE_EXTRA_CA_CERTS|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)\+=/;
 const RE_ASSIGN_WORD =/^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 const NET_TOOLS = new Set(['proofline', 'agent.sh', 'proofline-core.mjs', 'gh', 'glab', 'az']);
 const baseName = (/** @type {string} */ w) => w.slice(w.lastIndexOf('/') + 1);
 // A220: a tool name as a word inside text (`env -S` string, inline interpreter program), and the interpreters whose -e/-c program text is read for one
 const RE_NET_WORD = re(String.raw`(^|[^[:alnum:]_.-])(proofline|agent\.sh|gh|glab|az)([^[:alnum:]_]|$)`);
-const RE_NET_ANY = /(^|[\s;&|("'`])(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|http_proxy|no_proxy|SSL_CERT_FILE|NODE_EXTRA_CA_CERTS)\+?=/;
+const RE_NET_ANY = /(^|[\s;&|("'`])(HTTPS_PROXY|HTTP_PROXY|NO_PROXY|https_proxy|http_proxy|no_proxy|SSL_CERT_FILE|NODE_EXTRA_CA_CERTS|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)\+?=/;
 const RE_INLINE_INTERP = /^(node(js)?|bun|deno|perl|python[0-9.]*|ruby|php|lua|Rscript)$/;
 const RE_INLINE_FLAG = /^(-[A-Za-z]*[ecEr]|--eval|--print|--command)$/;
 const RE_SWITCH_VAR = re(String.raw`(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?[$${BT}]`);
@@ -314,10 +314,10 @@ export async function mergeGuard(ctx, cmd, scan) {
     if (ix >= 0 && toks.slice(ix + 1).some((w) => RE_INLINE_FLAG.test(w)) && RE_NET_WORD.test(toks.slice(ix + 1).join(' '))) netRun = true;
   }
   // `env -S` / `--split-string` runs a string the scanner cannot split: the variable and the tool may both be inside it
-  if (scan.records.some((r) => r.kind === 'X' && r.raw.startsWith('env -S')) && RE_NET_WORD.test(flat) && RE_NET_ANY.test(flat)) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
+  if (scan.records.some((r) => r.kind === 'X' && r.raw.startsWith('env -S')) && RE_NET_WORD.test(flat) && RE_NET_ANY.test(flat)) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
 
   // the prefix-append form (`HTTPS_PROXY+=v proofline merge 7`) does not reach the scanner as an assignment, so it is read from the text, as a word of its own
-  if (netRun && RE_NET_APPEND.test(flat)) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
+  if (netRun && RE_NET_APPEND.test(flat)) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
   if (/(^|[\s;&|(])PATH\+=/.test(flat) && RE_PATH_GH.test(flat)) deny(`setting PATH in a command that runs gh or proofline merge could substitute a fake gh: ${MG_MSG}`);
 
   for (const rec of scan.records) {
@@ -339,7 +339,7 @@ export async function mergeGuard(ctx, cmd, scan) {
         if (argLines.some((l) => /^(GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)=/.test(l))) envu = true;
         if (argLines.some((l) => /^PATH\+?=/.test(l)) && RE_PATH_GH.test(flat)) deny(`setting PATH in a command that runs gh or proofline merge could substitute a fake gh: ${MG_MSG}`);
         // A220: a proxy or certificate variable named in the command that runs the merge proof or a platform tool aims it at a server of the model's choosing (a tripwire, not a boundary)
-        if (argLines.some((l) => RE_NET_VAR.test(l)) && netRun) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
+        if (argLines.some((l) => RE_NET_VAR.test(l)) && netRun) deny(`setting a proxy or certificate variable (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO) in a command that runs gh or proofline merge could aim the tool at another server: ${MG_MSG}`);
         continue;
       case 'curl': case 'wget': case 'http': case 'https': case 'xh': case 'xhs': case 'aria2c':
         if (grepq(/github/i, args) && grepq(RE_GH_ENDPOINT, args)) deny(`${cw} aimed at a GitHub merge, refs, contents or graphql endpoint is denied: ${MG_MSG}`);

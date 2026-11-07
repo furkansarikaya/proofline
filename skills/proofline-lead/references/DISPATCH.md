@@ -29,8 +29,10 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   once, then BLOCKED.
 - **Start `D` for a worker in the background (A224).** An implementer or any worker takes many minutes. Run `D` with the Bash tool's
   `run_in_background` (or the longest tool timeout), then keep your turn alive and wait for it with the bounded wait loop of the next bullet (never by ending your turn to wait for a notice), then read its exit code. Never run it in the
-  foreground under the default tool timeout or a `timeout` of your own: the kill (exit 124 or "Terminated") ends `D` before it closes
-  the implementer's write window, so the partial edits stay unattested and the next `D` is refused (`window-open refused`). Recovery after such a kill is in [FAILOVER.md](FAILOVER.md) (an interrupted implementer).
+  foreground under the default tool timeout or a `timeout` of your own: it ends the step half done. Since the user's decision of 2026-11-07 the script closes
+  the implementer's write window itself after such a kill (`D` stopped by TERM, HUP or INT stops its worker, then closes the window with status 128 plus the signal; after a SIGKILL of
+  its group the worker's guardian kills the worker and then closes it with status 137, within seconds), so the next `D` continues from the RESUME note. Only when the window could not be closed
+  is the next `D` refused (`window-open refused`); that recovery is in [FAILOVER.md](FAILOVER.md) (an interrupted implementer).
 - **Keep your turn alive until that `D` has finished (A227).** A background job does not wake a lead that has ended its turn: in a
   headless or one-shot session (`claude -p`, a batch run by a script) nothing calls the lead again, so the run stays at its step
   and the result of `D` is never read. After starting `D` in the background you therefore never end your turn, and never answer

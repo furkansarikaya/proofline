@@ -66,6 +66,20 @@ export function ciFixRecs(ctx, dir) {
   return boundNames(ctx, dir, 'ci-fix', 'ci-fix-', names).sort().map((n) => `${dir}/ci-fix/${n}`);
 }
 
+/** A commit message without the whitespace git's cleanup removes (trailing blanks of a line, blank lines at both ends). @param {string} t */
+const messageCore = (t) => t.split('\n').map((l) => l.replace(/[ \t\r]+$/, '')).join('\n').replace(/^\n+|\n+$/g, '');
+
+/**
+ * A224 (user decision of 2026-11-07): is the WHOLE message of commit REV, trailers included, the approved COMMIT_MSG? The subject alone was compared before; a trailer
+ * appended or changed after the approval (by a hand-made `git commit`) must stop the chain too.
+ * @param {Context} ctx @param {string} id @param {string} rev
+ */
+export function commitMessageIsApproved(ctx, id, rev) {
+  const approved = fileText(ctx, `${deliverDir(ctx, id)}/COMMIT_MSG`);
+  if (approved === null) return false;
+  return messageCore(git(ctx, ['log', '-1', '--format=%B', rev]).out) === messageCore(approved);
+}
+
 /** `ci_chain_ok ID`: HEAD is the delivery's own commit chain. @param {Context} ctx @param {string} id */
 export function ciChainOk(ctx, id) {
   const dir = runDir(ctx, id);
@@ -79,6 +93,7 @@ export function ciChainOk(ctx, id) {
     const c = git(ctx, ['rev-list', '--reverse', '--ancestry-path', `${h0}..HEAD`]).out.split('\n')[0] ?? '';
     if (c === '' || verifyRev(ctx, `${c}^`) !== h0) return false;
     if (git(ctx, ['log', '-1', '--format=%s', c]).out.replace(/\n+$/, '') !== msg) return false;
+    if (!commitMessageIsApproved(ctx, id, c)) return false;
     tip = c;
   }
   for (const f of ciFixRecs(ctx, dir)) {

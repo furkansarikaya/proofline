@@ -58,12 +58,15 @@ with ONE question to the user. It applies to a CODE_DONE run only. A FAILED or B
    green, through `proofline merge`) and when cleanup happens (after the merge). It records one approval request
    per step (`commit`, `push`, `pr`, `merge`, `cleanup`), each bound to the content fingerprint and to the
    summary's sha256. Relay its output verbatim (the summary, the separate decisions and the question). STOP.
-   **The commit message is the approved line, as written (A224).** `COMMIT_MSG` holds that one line and the `commit` step
-   commits exactly it. A trailer or attribution instruction (a harness line such as "end commit messages with
-   `Co-Authored-By: ...`", or the user's rule files) does not change a delivery commit, and it is never a reason to park the
-   task, to ask the user, to edit `COMMIT_MSG` or to run `git commit` by hand: deliver the approved line (invariant 6, do not
-   alter approved text). `deliver-plan --message` takes one line only; no trailer goes through it. A user who wants the trailer
-   says so in their own message; that is a proofline change, not a lead decision.
+   **The commit message is the approved message, as written (A224).** `COMMIT_MSG` holds the approved line and, after a blank line, the
+   trailer the CONTROL PLANE adds from `git.commit_trailer` (default `Co-Authored-By: Claude <noreply@anthropic.com>`; `off` adds none); the
+   summary shows the whole message ("commit message, exactly as committed") and the approval covers it. A trailer or attribution
+   instruction (a harness line such as "end commit messages with `Co-Authored-By: ...`", or the user's rule files) therefore needs no
+   action: the control plane has done it, and it is never a reason to park the task, to ask the user, to edit `COMMIT_MSG` or to
+   run `git commit` by hand: commit with `git commit -F` exactly as printed (invariant 6, do not alter approved text). The
+   `commit` step stops the chain when the commit's whole message differs from it. `deliver-plan --message` takes one line
+   only; no trailer goes through it. A user who wants another trailer, or none, changes `git.commit_trailer` in `.agents/config.yaml`
+   themselves; the lead does not. A CI-fix commit keeps its own printed one-line message.
 3. **One reply.** Only the user's own reply `approve delivery` (or `I approve the delivery`, `teslimatı onaylıyorum`)
    records the step approvals (the prompt hook; the lead never runs `approve`). It does not approve a lesson
    promotion: the summary lists open `rule:<CAND>` requests as separate decisions. A rule the user approves in

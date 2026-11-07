@@ -298,6 +298,18 @@ doctor_worktrees() {
   D_WARNS=$((D_WARNS + $(printf '%s\n' "$dw_out" | grep -c .)))
 }
 
+# A220 (user decision of 2026-11-07): the proxy and certificate variables of THIS environment that the platform tools and the merge-proof git do not get. Names and
+# reasons only, never a value (a proxy address may hold credentials). The node helper prints validated names and a closed set of reasons; the filter below keeps
+# even that to a plain alphabet before anything is printed.
+doctor_netenv() {
+  dn_tab=$(printf '\t')
+  dn_out=$(cd "$ROOT" && node "$ROOT/.agents/scripts/proofline-core.mjs" cli platform-info net-dropped 2>/dev/null) || dn_out=''
+  dn_out=$(printf '%s\n' "$dn_out" | grep -E "^[A-Za-z0-9_]{1,64}${dn_tab}[A-Za-z0-9 ,.()_/:-]{1,200}\$") || dn_out=''
+  [ -n "$dn_out" ] || return 0
+  dn_list=$(printf '%s\n' "$dn_out" | while IFS="$dn_tab" read -r dn_n dn_r; do printf '%s (%s); ' "$dn_n" "$dn_r"; done)
+  d_warn "network: these proxy or certificate variables are set here but NOT passed to gh, glab, az and the merge-proof git (values are never shown): ${dn_list%; }. Allowed, with a value that passes the check: HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO"
+}
+
 cmd_doctor() {
   D_FAILS=0; D_WARNS=0
   case "${1:-}" in
@@ -423,6 +435,7 @@ EOF
 
   # A180: which hosting platform the origin remote is, which tool is installed for it, and so which merge rule applies.
   doctor_platform
+  doctor_netenv
   # A163, A180: no pull_request check is a warning (the commit is then verified locally before the merge), with the fix line.
   dc_ci=$(cd "$ROOT" && sh "$A" ci-check 2>/dev/null) || :   # exit 1 means absent; the output still holds the verdict
   case "$(printf '%s\n' "$dc_ci" | head -1)" in

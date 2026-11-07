@@ -21,13 +21,19 @@
 // Failover (D7) on a runtime failure (limit, quota, rate limit, 429, missing binary, auth error), never on a task failure; a transient network error is retried on
 // the same runtime (A200). A timeout (124) writes dispatch/RESUME-<role>[-focus].md, which the next dispatch of the same role and focus carries in its prompt (A171).
 // A dispatch stopped from outside (HUP, INT, TERM): the signal goes to the worker's group, the dispatcher waits for it, ledgers the interruption, writes the RESUME
-// note and exits 143. It does NOT close the implementer's write window (A226: the user has not decided that; the edits stay unattested, as A224 describes).
+// note, CLOSES the implementer's write window with the signal status (128 + signal; a user decision of 2026-11-07, A226: the safe side, the next dispatch continues the
+// step) and exits 143. The window is closed only after the worker's group has exited, so nothing can still write. A SIGKILL of the dispatcher runs no handler: the
+// worker's guardian (core/guardian.mjs, proc.mjs) kills the group, and then a closer closes the window with status 137 the same way (exactly once, only a window this
+// dispatcher opened). Remaining gaps: the guardian killed too, or the dispatcher killed after its worker has exited and before it closes the window (no guardian is
+// left): no one closes the window and the A224 recovery applies; a grandchild that started a session of its own
+// (it can outlive the kill and write after the close), and Windows (no guardian).
 // Exit: 0 recorded | 1 task failure or record rejected | 2 usage/config | 5 NEEDS_INPUT | 6 BLOCKED | 124 timeout | 143 stopped from outside.
 // Runtime binaries: PROOFLINE_CODEX_BIN, PROOFLINE_CLAUDE_BIN (tests use fake runtimes). The watchdog's grace and the shortest timeout are options of
 // startDispatch(), not environment values.
 import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bytes } from './config.mjs';
 import { Context } from './context.mjs';
 import { dispatcherIo } from './decide.mjs';
@@ -48,7 +54,6 @@ import { pipelineClassValid } from './signals.mjs';
  * @property {Runner} run runs one command of the Node core in process (proofline-core.mjs `run`)
  * @property {number} [graceMs] the watchdog's grace between TERM and KILL (default 5000)
  * @property {number} [minTimeoutSeconds] the shortest step time (default 30; tests lower it)
- * @property {boolean} [closeWindowOnSignal] close the implementer's write window when the dispatch is stopped from outside (default false: awaiting the user's decision, A226)
  */
 
 const NET_BACKOFF_CAP = 300;
@@ -133,6 +138,7 @@ class Dispatcher {
     /** @type {(() => void) | null} */ this.wake = null;
     this.writesCode = false;
     /** the fingerprint window-open printed (the implementer's bracket) */ this.before = '';
+    /** this dispatcher opened a write window and has not closed it yet */ this.windowOpen = false;
   }
 
   // ---- output and the commands of the core ------------------------------------------------------------------------------------------------------
@@ -551,7 +557,7 @@ class Dispatcher {
 
     const gsBefore = gitState(this.root, this.env);
     /** @type {string} */ let fpBefore = '';
-    this.before = '';
+    this.before = ''; this.windowOpen = false;
     if (!this.writesCode) {
       const fp = this.cmd(['fingerprint', id, 'full']);
       fpBefore = fp.out.replace(/\n+$/, '');
@@ -573,6 +579,7 @@ class Dispatcher {
         throw new Exit(1);
       }
       this.before = w.out.replace(/\n+$/, '');
+      this.windowOpen = true;
     }
     this.stderr(`dispatch: ${id} ${role} runtime=${rt} model=${this.model} effort=${this.effort} (${dv('model_reason')}) writes_code=${this.writesCode ? 'yes' : 'no'}${this.pm === '' ? '' : ` permission_mode=${this.pm}`}\n`);
     this.status = 0;
@@ -597,6 +604,7 @@ class Dispatcher {
     if (this.interrupted !== null) await this.onInterrupted();
     if (this.writesCode) {
       const c = this.cmd(['window-close', id, this.before, String(this.status), role]);
+      this.windowOpen = false;
       this.stderr(c.all);
       if (c.code !== 0) { this.stderr('dispatch: window-close failed (unattributed mutation?)\n'); throw new Exit(1); }
     }
@@ -660,7 +668,7 @@ class Dispatcher {
     const logFd = openSync(this.log, 'w');
     let timedOut = false;
     try {
-      const leader = proc.startLeader(argv[0], argv.slice(1), { cwd: this.root, env, stdio: [inFd, logFd, logFd], graceMs: this.graceMs });
+      const leader = proc.startLeader(argv[0], argv.slice(1), { cwd: this.root, env, stdio: [inFd, logFd, logFd], graceMs: this.graceMs, onOrphan: this.orphanSpec(env) });
       this.worker = leader;
       const timer = setTimeout(() => { timedOut = true; leader.stop('SIGTERM'); }, this.timeoutS * 1000);
       const r = await leader.exited;
@@ -672,17 +680,44 @@ class Dispatcher {
     }
   }
 
+  /**
+   * What the guardian needs to close the write window when this dispatcher is killed by SIGKILL (no handler runs): the commands run as the lead (the variables this
+   * dispatcher changed for the worker are put back), through the project's own core. Only for a window this dispatcher opened.
+   * @param {NodeJS.ProcessEnv} workerEnv @returns {import('./proc.mjs').OrphanSpec | undefined}
+   */
+  orphanSpec(workerEnv) {
+    if (!this.writesCode || !this.windowOpen || this.before === '') return undefined;
+    /** @type {string[]} */ const remove = [];
+    /** @type {Record<string, string>} */ const set = {};
+    for (const k of new Set([...Object.keys(workerEnv), ...Object.keys(this.env)])) {
+      if (workerEnv[k] === this.env[k]) continue;
+      const orig = this.env[k];
+      if (orig === undefined) remove.push(k); else set[k] = orig;
+    }
+    const core = fileURLToPath(new URL('../proofline-core.mjs', import.meta.url));
+    const agent = `${this.scriptDir}/agent.sh`;
+    return {
+      cwd: this.io.cwd, remove, set,
+      close: [process.execPath, core, '--pl-argv0', agent, 'window-close', this.id, this.before, '137', this.role],
+      note: [process.execPath, core, '--pl-argv0', agent, 'ledger-note', this.id],
+      noteText: `dispatch killed from outside role=${this.role} runtime=${this.rt} attempt=${this.attempts}: the dispatcher got SIGKILL (no handler ran)`,
+    };
+  }
+
   /** A dispatch stopped from outside: the worker has been told and has exited (or was killed after the grace). Record it and leave with 143. */
   async onInterrupted() {
     const sig = this.interrupted ?? 'SIGTERM';
     if (this.worker) { await this.worker.exited; this.worker = null; }
     this.note(`dispatch interrupted signal=${sig.slice(3)} role=${this.role} runtime=${this.rt} attempt=${this.attempts}`);
     if (this.rt !== '' && this.log !== '') this.writeResume('signal', sig);
-    if (this.o.closeWindowOnSignal === true && this.writesCode && this.before !== '') {
+    if (this.writesCode && this.windowOpen) {
+      // the worker's group is gone (exited above, or killed after the grace): nothing can write now. The close attributes the partial edits to the implementer, as a timeout does
+      // (124); it passes no gate: review, QA, verify and security still judge the content, and the scope and the worker-evidence checks still apply to it.
       const c = this.cmd(['window-close', this.id, this.before, String(128 + SIGNUM[sig]), this.role]);
+      this.windowOpen = false;
       this.stderr(c.all);
-    } else if (this.writesCode) {
-      this.stderr(`dispatch: stopped by ${sig.slice(3)}; the worker was stopped and the write window of the ${this.role} was NOT closed, so its edits are unattested: run agent.sh tree-inspect ${this.id} and put ONE question to the user (keep the tree with tree-accept, or discard the listed files); do not dispatch again, discard or edit by hand before the answer (A224)\n`);
+      if (c.code === 0) this.stderr(`dispatch: stopped by ${sig.slice(3)}; the worker was stopped and the write window of the ${this.role} was closed with status ${128 + SIGNUM[sig]} (its partial edits are the implementer's; dispatch again to continue from dispatch/RESUME-${this.role}.md)\n`);
+      else this.stderr(`dispatch: stopped by ${sig.slice(3)}; the worker was stopped but the write window of the ${this.role} could NOT be closed, so its edits are unattested: run agent.sh tree-inspect ${this.id} and put ONE question to the user (keep the tree with tree-accept, or discard the listed files); do not dispatch again, discard or edit by hand before the answer (A224)\n`);
     } else {
       this.stderr(`dispatch: stopped by ${sig.slice(3)}; the worker was stopped; log: ${this.rel(this.log)}\n`);
     }

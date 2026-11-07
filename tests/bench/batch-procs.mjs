@@ -29,7 +29,7 @@ function makeShims(dir, log) {
   }
 }
 
-/** @typedef {{ path: string, procs: number, ms: number, bytes: number, top: string }} Row */
+/** @typedef {{ path: string, procs: number, ms: number, bytes: number, top: string, byProgram: Record<string, number> }} Row */
 
 /** @param {{ repeat?: number }} [o] @returns {Row[]} */
 export function measureAll(o = {}) {
@@ -60,7 +60,7 @@ export function measureAll(o = {}) {
     ];
     /** @type {Row[]} */ const rows = [];
     for (const [name, argv] of paths) {
-      /** @type {number[]} */ const counts = []; /** @type {number[]} */ const times = []; let bytes = 0; let top = '';
+      /** @type {number[]} */ const counts = []; /** @type {number[]} */ const times = []; let bytes = 0; let top = ''; /** @type {Record<string, number>} */ let byProgram = {};
       for (let i = 0; i <= repeat; i++) {   // the first run is the warm-up and is not measured
         writeFileSync(log, '');
         const env = { ...cleanEnv({}), ...F.env, PATH: `${shims}:${F.env.PATH}` };
@@ -73,10 +73,11 @@ export function measureAll(o = {}) {
         counts.push(used.length); times.push(ms); bytes = Buffer.byteLength(r.stdout);
         /** @type {Map<string, number>} */ const tally = new Map();
         for (const u of used) tally.set(u, (tally.get(u) ?? 0) + 1);
+        byProgram = Object.fromEntries(tally);
         top = [...tally].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}=${v}`).join(' ');
       }
       const median = (/** @type {number[]} */ a) => [...a].sort((x, y) => x - y)[Math.floor((a.length - 1) / 2)];
-      rows.push({ path: name, procs: median(counts), ms: median(times), bytes, top });
+      rows.push({ path: name, procs: median(counts), ms: median(times), bytes, top, byProgram });
     }
     return rows;
   } finally {
