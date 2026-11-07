@@ -64,7 +64,7 @@ export function run(program, args, options = {}) {
   }
   count(program);
   const t0 = Date.now();
-  const r = spawnSync(program, args, {
+  const r = spawnSync(program, args, /** @type {import('node:child_process').SpawnSyncOptionsWithBufferEncoding & { detached?: boolean }} */ ({
     cwd: options.cwd,
     env: options.env,
     input: options.input,
@@ -72,8 +72,8 @@ export function run(program, args, options = {}) {
     timeout: options.timeoutMs,
     maxBuffer: 1 << 30,
     windowsHide: true,
-    detached: options.group === true && process.platform !== 'win32',
-  });
+    detached: options.group === true && process.platform !== 'win32',   // spawnSync accepts it (a group leader); the typings of SpawnSyncOptions omit it
+  }));
   logSpawn(program, Date.now() - t0);
   // a group leader has ended or been stopped: nothing it started may go on (a grandchild would keep writing to the descriptors it inherited)
   if (options.group === true && process.platform !== 'win32' && r.pid) { try { process.kill(-r.pid, 'SIGKILL'); } catch { /* the group is empty */ } }

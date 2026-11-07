@@ -14,7 +14,6 @@ import { ProoflineError } from './errors.mjs';
 import { cleanToolEnv, detectPlatform, linkText, parseJson, platformEnv, resolveToolIn } from './platform.mjs';
 import * as proc from './proc.mjs';
 
-/** @typedef {import('./context.mjs').Context} Context */
 
 /** The end of the command with an exit code (output already written). */
 class Stop extends Error {
