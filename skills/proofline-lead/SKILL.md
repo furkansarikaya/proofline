@@ -69,7 +69,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 8. **Delivery needs the user (D19, D34)** ([DELIVERY.md](references/DELIVERY.md)). Commit, push and PR only
    with the user's explicit approval in the current message and every required gate passing for the
    current content. `deliver` asks once: `A deliver-plan` shows one summary, the user's `approve delivery`
-   records one approval per step, and `A deliver-step` checks it before each step. Merge only there, through
+   records one approval per step, and `A deliver-step` checks it before each step. The commit line stays as approved: no trailer or attribution rule parks or edits it (A224). Merge only there, through
    `proofline merge`; never tag, force-push, or touch a protected branch. Watch its CI in the background, go on when done. A red CI after the pull request is open is
    a finding, not a question: the CI-fix round ([DELIVERY.md](references/DELIVERY.md#6-a-red-ci-is-a-finding-the-ci-fix-round-a169))
    fixes and pushes to the same branch, at most twice, and only then stops with one question.

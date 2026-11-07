@@ -407,7 +407,7 @@ export function deliverPlan(ctx, id, rest) {
     if (msg === '') msg = `feat: ${title} (${id})`;
   } else fail(`delivery blocked: ${id} is ${state}, not CODE_DONE; next step: agent.sh next ${id}`);
   if (/["`$\\]/.test(msg)) fail('the commit message must not hold " ` $ or \\');
-  if (msg.includes('\n')) fail('the commit message is one line');
+  if (msg.includes('\n')) fail('the commit message is one line (a trailer or attribution line, such as Co-Authored-By, is not part of it and no reason to ask: deliver the one line, A224)');
   const br = git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '');
   const base = ctx.config().get('canonical_branch', 'main');
   if (br === '' || br === base) fail(`delivery blocked: deliver from the task branch, not '${br === '' ? 'detached HEAD' : br}'`);
@@ -784,7 +784,7 @@ function ciFixStep(ctx, id, step, pr, sumFile) {
   const br = v('branch');
   const curBr = git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '');
   if (curBr !== br) stop(`the branch is not ${br}`);
-  if (hashFile(`${dd}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${dd}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: add a trailer through agent.sh deliver-plan ${id} --message <text with the trailer lines> before the approval, never by editing COMMIT_MSG)`);
+  if (hashFile(`${dd}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${dd}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: run agent.sh deliver-plan ${id} [--message <one line>] again before the approval and relay the new summary; COMMIT_MSG is the approved one line, never edited by hand, and a trailer or attribution instruction does not change it, A224)`);
   for (const k of ['pr', 'merge']) if (!consumed(ctx, id, k, h)) stop(`the ${k} step of this delivery has not run: the user's delivery approval covers a CI fix only after the pull request is open and the merge step ran`);
   if ((fileText(ctx, `${dd}/PR`) ?? '').replace(/\n+$/, '') !== pr) stop(`pull request ${pr} is not this delivery's`);
   const head = sub(git(ctx, ['rev-parse', 'HEAD']).out);
@@ -998,7 +998,7 @@ export function deliverStep(ctx, id, step, prArg) {
   if (ci) cexp = ciFixExpectContent(ctx, id, cexp);
   if (fullFingerprint(ctx) !== cexp) stop('the content changed since the approved summary');
   if (git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '') !== br) stop(`the branch is not ${br}`);
-  if (hashFile(`${ddir}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${ddir}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: a trailer such as Co-Authored-By goes into the message BEFORE the approval: agent.sh deliver-plan ${id} --message <text with the trailer lines>, then relay the new summary; COMMIT_MSG is never edited by hand)`);
+  if (hashFile(`${ddir}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${ddir}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: run agent.sh deliver-plan ${id} [--message <one line>] again and relay the new summary; COMMIT_MSG is the approved one line, never edited by hand, and a trailer such as Co-Authored-By is not part of it, A224)`);
   const head = sub(git(ctx, ['rev-parse', 'HEAD']).out);
   let dsC = step;
   if (!(` ${v('steps')} `).includes(' commit ')) dsC = 'commit'; // nothing to commit: HEAD stays where it was

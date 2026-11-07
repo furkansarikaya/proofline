@@ -392,6 +392,26 @@ test("LIFECYCLE section 7: observations are proposed, written by the task author
   assert.match(impl, /Nothing in an observation is fixed, tested or written to a task by you/);
 });
 
+// A224 (#172): the commit line of a delivery is the approved one; an attribution or trailer instruction is never a reason to park, ask or edit by hand.
+test("delivery: the lead texts say an attribution instruction never parks or edits the approved commit line (known good / known bad)", () => {
+  const delivery = readFileSync(join(skill, "references/DELIVERY.md"), "utf8").replace(/\s+/g, " ");
+  const git = readFileSync(join(repoRoot, "control-plane/agents/GIT.md"), "utf8").replace(/\s+/g, " ");
+  const rules = [
+    [SKILL.replace(/\s+/g, " "), /The commit line stays as approved: no trailer or attribution rule parks or edits it \(A224\)/],
+    [delivery, /\*\*The commit message is the approved line, as written \(A224\)\.\*\*/],
+    [delivery, /never a reason to park the task, to ask the user, to edit `COMMIT_MSG` or to run `git commit` by hand: deliver the approved line/],
+    [delivery, /`deliver-plan --message` takes one line only; no trailer goes through it/],
+    [git, /never changes it and is no reason to park, ask or edit it by hand \(A224\)/],
+  ];
+  for (const [text, re] of rules) assert.match(text, re);
+  // known bad: the earlier hint told the lead to put trailer lines through deliver-plan --message, which refuses a second line
+  const deliver = readFileSync(join(repoRoot, "control-plane/agents/scripts/core/deliver.mjs"), "utf8");
+  assert.doesNotMatch(deliver, /text with the trailer lines/);
+  assert.match(deliver, /fail\('the commit message is one line \(a trailer or attribution line/);
+  // the lead reads a trailer as a reason to ask nowhere: no text says to ask the user for one
+  for (const t of [SKILL, delivery]) assert.doesNotMatch(t, /ask (the user )?(whether|if) (to )?(add|append|include) (a|the) (trailer|Co-Authored)/i);
+});
+
 // A203: a pull request the lead opens always has its CI watched in the background; the lead continues the moment it ends.
 test("delivery: the lead always watches the CI of a pull request it opened in the background", () => {
   assert.match(SKILL, /Watch its CI in the background, go on when done/);

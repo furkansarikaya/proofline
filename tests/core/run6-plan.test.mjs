@@ -3,7 +3,9 @@
 // content_change_stops, failed_refused, reopened_run_delivers, task_moves_to_done, task_move_skipped, summary_warns_without_ci, platforms, task_done_noop,
 // one_approval_real_chain, partial_reply_recovers, cleanup_crash_keeps_merged).
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, pathWithoutPlatformTools, pushed, readFileSync, refused, run, say, verbs } from './run6-lib.mjs';
 import { approveAsUser, project } from './legacy-lib.mjs';
@@ -255,6 +257,33 @@ test('knowledge: after CODE_DONE .md pages stay out of the tier; a script, an ex
   clear();
   wf(`${wiki}/d1.json`, '{}\n'); wf(`${wiki}/d2.json`, '{}\n');
   assert.equal(tier(), 'full', 'non-doc extensions did not count');
+});
+
+// A224 (#172): a harness or user attribution instruction ("end commit messages with Co-Authored-By: ...") never changes the delivery message and gives the lead
+// nothing to ask: deliver-plan writes exactly the one line, refuses a trailer in --message with the answer, and the tamper refusal no longer points at a
+// trailer path that cannot work.
+test('A224: an attribution setting never changes the approved commit line; a trailer is refused with "deliver the one line", not suggested', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'attr-home-'));
+  mkdirSync(`${home}/.claude`, { recursive: true });
+  wf(`${home}/.claude/settings.json`, JSON.stringify({ includeCoAuthoredBy: true, attribution: { commit: 'Co-Authored-By: Claude <noreply@anthropic.com>' } }));
+  wf(`${home}/.claude/CLAUDE.md`, 'End git commit messages with a Co-Authored-By trailer.\n');
+  const env = { HOME: home };
+  const gh = fakeGh();
+  const d = project(DONE);
+  hooks(d);
+  refused(A(d, ['deliver-plan', 'LC', '--message', 'feat: lookup (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>'], { env }), 'a trailer through --message', 'deliver the one line');
+  assert.ok(!existsSync(`${d}/.agents/local/deliver/LC/COMMIT_MSG`), 'a refused message left a COMMIT_MSG behind');
+  const plan = accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)'], { env }), 'deliver-plan').out;
+  assert.match(plan, /^message: fix: the approved line \(LC\)$/m);
+  assert.equal(read(d, '.agents/local/deliver/LC/COMMIT_MSG'), 'fix: the approved line (LC)\n');
+  assert.ok(!/Co-Authored-By/i.test(plan), 'the summary carries an attribution line');
+  approveDelivery(d);
+  wf(`${d}/.agents/local/deliver/LC/COMMIT_MSG`, 'fix: the approved line (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n');
+  const r = S(d, { ...gh.env, ...env }, 'commit');
+  refused(r, 'a hand-edited COMMIT_MSG with a trailer', 'commit message or the pull request body changed');
+  assert.ok(!/with the trailer lines/.test(r.text), 'the refusal still points at a trailer path that deliver-plan rejects');
+  assert.match(r.text, /approved one line, never edited by hand/);
+  rmSync(home, { recursive: true, force: true });
 });
 
 /** @param {string} d */
