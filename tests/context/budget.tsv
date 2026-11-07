@@ -5,7 +5,7 @@ agents_md	2650
 claude_md	450
 session_start	250
 entry_skill	15850
-role.lead.skill	45150
+role.lead.skill	45400
 role.architect.agent	7850
 role.architect.skill	12700
 role.data_architect.agent	8000

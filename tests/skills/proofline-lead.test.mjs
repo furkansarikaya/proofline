@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.54"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.55"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -390,6 +390,50 @@ test("LIFECYCLE section 7: observations are proposed, written by the task author
   const impl = readFileSync(join(repoRoot, "roles/implementer.md"), "utf8");
   assert.match(impl, /Fix an observation, or write it to the task folder/);
   assert.match(impl, /Nothing in an observation is fixed, tested or written to a task by you/);
+});
+
+// A224 (#172): the commit line of a delivery is the approved one; an attribution or trailer instruction is never a reason to park, ask or edit by hand.
+test("delivery: the lead texts say an attribution instruction never parks or edits the approved commit line (known good / known bad)", () => {
+  const delivery = readFileSync(join(skill, "references/DELIVERY.md"), "utf8").replace(/\s+/g, " ");
+  const git = readFileSync(join(repoRoot, "control-plane/agents/GIT.md"), "utf8").replace(/\s+/g, " ");
+  const rules = [
+    [SKILL.replace(/\s+/g, " "), /The commit line stays as approved: no trailer or attribution rule parks or edits it \(A224\)/],
+    [delivery, /\*\*The commit message is the approved line, as written \(A224\)\.\*\*/],
+    [delivery, /never a reason to park the task, to ask the user, to edit `COMMIT_MSG` or to run `git commit` by hand: deliver the approved line/],
+    [delivery, /`deliver-plan --message` takes one line only; no trailer goes through it/],
+    [git, /never changes it and is no reason to park, ask or edit it by hand \(A224\)/],
+  ];
+  for (const [text, re] of rules) assert.match(text, re);
+  // known bad: the earlier hint told the lead to put trailer lines through deliver-plan --message, which refuses a second line
+  const deliver = readFileSync(join(repoRoot, "control-plane/agents/scripts/core/deliver.mjs"), "utf8");
+  assert.doesNotMatch(deliver, /text with the trailer lines/);
+  assert.match(deliver, /fail\('the commit message is one line \(a trailer or attribution line/);
+  // the lead reads a trailer as a reason to ask nowhere: no text says to ask the user for one
+  for (const t of [SKILL, delivery]) assert.doesNotMatch(t, /ask (the user )?(whether|if) (to )?(add|append|include) (a|the) (trailer|Co-Authored)/i);
+});
+
+// A224 (#172): a worker dispatch runs in the background; a dispatch killed from outside leaves unattested edits and the recovery is one question, never a silent undo.
+test("dispatch: the lead starts a worker D in the background; a killed D is recovered with one question, not a re-dispatch (known good / known bad)", () => {
+  const flat = (p) => readFileSync(p, "utf8").replace(/\s+/g, " ");
+  const dispatch = flat(join(skill, "references/DISPATCH.md"));
+  const failover = flat(join(skill, "references/FAILOVER.md"));
+  const sk = SKILL.replace(/\s+/g, " ");
+  assert.match(sk, /takes minutes: run it in the background and wait for its notice, never in the foreground under a tool timeout \(a killed `D` leaves unattested edits, A224\)/);
+  assert.match(dispatch, /\*\*Start `D` for a worker in the background \(A224\)\.\*\*/);
+  assert.match(dispatch, /Run `D` with the Bash tool's `run_in_background`/);
+  assert.match(dispatch, /Never run it in the foreground under the default tool timeout or a `timeout` of your own/);
+  assert.match(failover, /never closed its write window, so the next `D` says `window-open refused`/);
+  assert.match(failover, /no approval covers it, not even a batch's/);
+  assert.match(failover, /Do not re-dispatch, discard or hand-edit before the answer/);
+  // the script says the same where the lead meets the refusal
+  const dsh = readFileSync(join(repoRoot, "control-plane/agents/scripts/dispatch.sh"), "utf8");
+  assert.match(dsh, /window-open refused; \$role not started\. If an earlier dispatch of this step was killed from outside \(exit 124 or Terminated\)/);
+  assert.match(dsh, /do not dispatch again, discard or edit by hand before the answer \(A224\)/);
+  // known bad: no text tells the lead to wrap D in its own timeout, or to discard unattested edits without the user
+  for (const t of [sk, dispatch, failover]) {
+    assert.doesNotMatch(t, /(^|[^`\w])timeout \d+ [^ ]*dispatch\.sh/);
+    assert.doesNotMatch(t, /discard (the )?partial edits without (asking|the user)/i);
+  }
 });
 
 // A203: a pull request the lead opens always has its CI watched in the background; the lead continues the moment it ends.
