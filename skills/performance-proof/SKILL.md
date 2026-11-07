@@ -4,7 +4,7 @@ description: Proves or refutes a performance regression by measurement, never by
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.57"
+  version: "0.0.58"
 ---
 
 # performance-proof

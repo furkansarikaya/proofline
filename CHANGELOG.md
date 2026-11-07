@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.58 — 2026-11-07
+
+- Fix (A227, issue #172, package 172-A3): a lead keeps its turn alive until the background worker dispatch it started has finished (a bounded wait loop on the dispatch pid in the Bash tool, repeated until the process is gone) and never ends its turn while one is in flight; in a headless session nothing re-invokes it, which left the hermetic batch of the real-session smoke at `RUNNING (PLANNING)`. Text only: `references/DISPATCH.md`, rule 4 of the lead skill, and the `next=wait` line.
+
 ## 0.0.57 — 2026-11-07
 
 - Node migration, stage 7, package 172-B (A222, issue #172): the execution-policy resolver, the runtime detection and the known-issues list run in Node: `proofline-core.mjs cli exec-policy resolve|explain|check-capabilities|check-lead|lead-base|runtime` and `cli runtime-detect [has|bin <runtime>]` (what `decide`, `dispatch.sh` failover, `doctor` and the end-to-end harness call), and `known-issue-propose`, `known-issue-apply`, `known-issue-list`, `known-issue-candidates` (same commands, same files, same approval of the user's own `approve known issue`). `exec-policy.sh`, `runtime-detect.sh`, `known-issues.sh` and their two shell test files are deleted (1,005 lines of sh); the fixture stub `.agents/scripts/exec-policy.sh` of the self-tests is still run while it exists, no environment value changes a decision (`EXEC_POLICY_CONFIG` and `EXEC_POLICY_ROLES` are gone; `cli exec-policy --config` names another config explicitly). External processes: the resolver 18 -> 1, `known-issue-propose` 112 -> 3, `known-issue-apply` 71 -> 3, `known-issue-list` 39 -> 2, `known-issue-candidates` 78 -> 3 (`tests/bench/exec-budgets.tsv`). Tests: the resolver against 742 recorded answers of the shell resolver, every scenario of `known-issues-test.sh` as a Node test, the budgets.

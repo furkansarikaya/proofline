@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.57"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.58"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -418,7 +418,7 @@ test("dispatch: the lead starts a worker D in the background; a killed D is reco
   const dispatch = flat(join(skill, "references/DISPATCH.md"));
   const failover = flat(join(skill, "references/FAILOVER.md"));
   const sk = SKILL.replace(/\s+/g, " ");
-  assert.match(sk, /takes minutes: run it in the background and wait for its notice, never in the foreground under a tool timeout \(a killed `D` leaves unattested edits, A224\)/);
+  assert.match(sk, /takes minutes: run it in the background and hold your turn on it \(A227\), never in the foreground under a tool timeout \(a killed `D` leaves unattested edits, A224\)/);
   assert.match(dispatch, /\*\*Start `D` for a worker in the background \(A224\)\.\*\*/);
   assert.match(dispatch, /Run `D` with the Bash tool's `run_in_background`/);
   assert.match(dispatch, /Never run it in the foreground under the default tool timeout or a `timeout` of your own/);
@@ -433,6 +433,32 @@ test("dispatch: the lead starts a worker D in the background; a killed D is reco
   for (const t of [sk, dispatch, failover]) {
     assert.doesNotMatch(t, /(^|[^`\w])timeout \d+ [^ ]*dispatch\.sh/);
     assert.doesNotMatch(t, /discard (the )?partial edits without (asking|the user)/i);
+  }
+});
+
+// A227 (#172): a headless lead that ends its turn after starting a background dispatch is never called again; it waits inside the turn.
+test("dispatch: the lead keeps its turn alive until its background D has finished, with a wait it can run (known good / known bad)", () => {
+  const flat = (p) => readFileSync(p, "utf8").replace(/\s+/g, " ");
+  const dispatch = flat(join(skill, "references/DISPATCH.md"));
+  const sk = SKILL.replace(/\s+/g, " ");
+  const lead = flat(join(repoRoot, "roles/lead.md"));
+  assert.match(sk, /run it in the background and hold your turn on it \(A227\)/);
+  assert.match(dispatch, /\*\*Keep your turn alive until that `D` has finished \(A227\)\.\*\*/);
+  assert.match(dispatch, /you therefore never end your turn, and never answer "I will continue when it reports back", while a dispatch of your run is in flight/);
+  assert.match(dispatch, /bounded wait loop with the longest tool timeout/);
+  assert.match(dispatch, /`n=0; while kill -0 N 2>\/dev\/null && \[ "\$n" -lt 110 \]; do sleep 5;/);
+  assert.match(dispatch, /run the same wait call again, as many times as it takes/);
+  assert.match(dispatch, /Only when the process is gone, read the exit code/);
+  const agent = readFileSync(join(repoRoot, "control-plane/agents/scripts/agent.sh"), "utf8");
+  assert.match(agent, /never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it \(DISPATCH\.md, A227\)/);
+  // the wait uses only a tool the lead has: Bash; no Monitor tool is named as the way to wait
+  assert.match(lead, /tools: Read Grep Glob Bash Write Edit/);
+  // known bad: the old "wait for its notice" with no turn rule, and a wait that needs a tool the lead lacks
+  for (const t of [sk, dispatch]) {
+    assert.doesNotMatch(t, /wait for its notice/);
+    assert.doesNotMatch(t, /wait for the completion notice/);
+    assert.doesNotMatch(t, /until-loop/);
+    assert.doesNotMatch(t, /use (the )?Monitor/i);
   }
 });
 
