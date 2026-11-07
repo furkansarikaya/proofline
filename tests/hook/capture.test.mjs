@@ -91,7 +91,7 @@ test('a run worktree\'s own core is never run by the prompt hook', async () => {
   const corePath = join(wt, '.agents/scripts/proofline-core.mjs');
   writeFileSync(corePath, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(planted)}, 'x');\n${readFileSync(corePath, 'utf8')}`);
   // the shell fallback and the helper scripts of the worktree: a marker line in each (agent.sh is what the core's bridge starts)
-  const marks = ['agent.sh', 'lessons.sh', 'platform.sh'].map((f) => {
+  const marks = ['agent.sh', 'debt.sh', 'platform.sh'].map((f) => {
     const file = join(wt, '.agents/scripts', f);
     const mark = join(d, `MARK-${f}`);
     writeFileSync(file, `#!/bin/sh\n: > ${JSON.stringify(mark)}\n${existsSync(file) ? readFileSync(file, 'utf8') : ''}`);

@@ -270,6 +270,31 @@ test('without a `timeout` command the limit still holds: Node\'s timer stops the
   assert.equal(readFileSync(out, 'utf8'), 'quick\n');
 });
 
+test('the timer fallback: a command that traps TERM and exits 0 is still 124, and a grandchild is gone after the stop', () => {
+  const d = newProject();
+  const ctx = new Context({ env: { PATH: '/nonexistent' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+  const out = `${d}/trap.out`;
+  const t0 = Date.now();
+  assert.equal(runCommand(ctx, d, "trap 'exit 0' TERM; /bin/sleep 10 & wait", out, 2), 124, 'an expired limit is 124 whatever status the command reports');
+  assert.ok(Date.now() - t0 < 8000);
+  const pidFile = `${d}/gc.pid`;
+  assert.equal(runCommand(ctx, d, `/bin/sleep 60 & echo $! > ${pidFile}; /bin/sleep 60`, out, 1), 124);
+  const pid = Number(readFileSync(pidFile, 'utf8').trim());
+  assert.ok(pid > 1);
+  const until = Date.now() + 3000;
+  let alive = true;
+  while (alive && Date.now() < until) { try { process.kill(pid, 0); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } catch { alive = false; } }
+  assert.equal(alive, false, 'the grandchild survived the stop');
+  // a command that ends in time leaves nothing behind either
+  writeFileSync(pidFile, '');
+  assert.equal(runCommand(ctx, d, `/bin/sleep 60 & echo $! > ${pidFile}; exit 0`, out, 30), 0);
+  const pid2 = Number(readFileSync(pidFile, 'utf8').trim());
+  const until2 = Date.now() + 3000;
+  let alive2 = true;
+  while (alive2 && Date.now() < until2) { try { process.kill(pid2, 0); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } catch { alive2 = false; } }
+  assert.equal(alive2, false, 'a background process outlived its command');
+});
+
 test('commands.build and commands.test not configured exits 2', () => {
   const d = newProject();
   setCmd(d, 'build', ''); setCmd(d, 'test', '');

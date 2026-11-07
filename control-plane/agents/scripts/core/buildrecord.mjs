@@ -183,10 +183,11 @@ export function runCommand(ctx, cwd, command, file, limit) {
     const stdio = /** @type {Array<'ignore' | number>} */ (['ignore', fd, fd]);
     const timeoutBin = commandV('timeout', ctx.env);
     if (timeoutBin) return proc.run('timeout', [String(limit), '/bin/sh', '-c', command], { cwd, env: ctx.childEnv(), stdio }).status;
-    // no `timeout` on this machine (macOS): the limit still holds, with Node's own timer
-    const t0 = Date.now();
-    const st = proc.runUserCommand(command, { cwd, env: ctx.childEnv(), stdio, timeoutMs: limit * 1000 }).status;
-    return st === 143 && Date.now() - t0 >= limit * 1000 - 100 ? 124 : st;
+    // no `timeout` on this machine (macOS): the limit still holds, with Node's own timer. The command leads a process group that is killed whole when it ends or
+    // is stopped (no grandchild writes on after the record is sealed), and an expired limit is 124 whatever status the command then reports (a command that traps
+    // TERM and exits 0 is no pass, A202).
+    const r = proc.runUserCommand(command, { cwd, env: ctx.childEnv(), stdio, timeoutMs: limit * 1000, group: true });
+    return r.timedOut === true ? 124 : r.status;
   } finally { closeSync(fd); }
 }
 

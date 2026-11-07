@@ -4832,7 +4832,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 if [ "$lock_command" = yes ]; then
   mkdir -p "$agents/local"
