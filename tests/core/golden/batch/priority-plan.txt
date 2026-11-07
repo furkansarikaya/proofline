@@ -1,0 +1,245 @@
+===== plan all
+--- exit 0
+--- stdout
+# Night batch
+
+nonce: <NONCE>
+
+One approval of this summary stands in for the approvals listed below, for the tasks in the table and for nothing else.
+The batch id is the first 12 hex digits of the sha256 of this file; the approval is bound to that hash.
+
+## Order (one task at a time, in this session: run it, deliver it, and only when it is merged the next one; each task in a git worktree of its own)
+
+| # | task | title | class | depends_on |
+|---|------|-------|-------|------------|
+| 1 | T-3 | title of T-3 | STANDARD | - |
+| 2 | T-1 | title of T-1 | STANDARD | - |
+| 3 | T-5 | title of T-5 | STANDARD | - |
+| 4 | T-2 | title of T-2 | STANDARD | - |
+| 5 | T-4 | title of T-4 | STANDARD | T-2 |
+
+## What the approval covers, per task
+
+- plan: the freeze of the plan (kind plan), after classification and the usual checks
+- delivery: commit, push, pull request, merge only when CI is green and every gate passed (proofline merge), cleanup
+- CI red after the pull request is open: up to 2 CI-fix rounds, each a normal fix round that passes the gates again, pushed to the same pull request branch and nothing else; the delivery approval covers exactly those pushes, then the task is parked with the error and what was tried
+- mutation budget: a raise of test_trust.mutation_budget (now 20) up to the cap batch.mutation_budget_cap = 40
+
+## Expected known issues and rationales (accept for this batch)
+
+- none
+
+## Pre-flight questions (plan-lint, A200)
+
+- none: no task raises a question that can be told from its task file
+
+## Verification commands (A200)
+
+- commands.build, commands.test, commands.lint are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here
+
+## Stop rules
+
+- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped
+- every task works in its own git worktree (.agents/local/worktrees/<ID>, made from the canonical branch just before the task starts): a parked task, one waiting for its merge and one in a CI-fix round keep theirs and block no task that does not depend on them; the main working tree is never touched. A task starts only when every task it depends on is merged; a merged task's worktree is removed
+- after every merge the lead checks the CI run of the merge commit itself (not the latest run, agent.sh batch-ci): the batch stops when that run is red, still running after batch.ci_wait_minutes (30), or when no run for it appears within batch.ci_appear_minutes (10)
+- the batch stops when the session closes, a usage limit is hit or the computer sleeps; the same approved batch continues with /proofline batch and never runs a merged task again
+
+## NOT covered (each stays a question the batch parks on)
+
+- a waiver of a finding, a scope expansion, a new dependency, a reopen of a FAILED or BLOCKED run
+- a destructive or single_step data change, a rule promotion, sending the friction report, a new fix-round budget
+- a mutation budget above the cap, and any CRITICAL task
+
+## Not in this batch
+
+- T-6: class CRITICAL (keeps its per-task approvals)
+- T-7: class unknown (fail closed)
+- T-8: depends on T-6, which is not in this batch
+
+## Keep the computer awake and this session open
+
+The batch runs in THIS session, task after task; there is no background process. It stops when the session closes, a usage limit is hit or the computer sleeps. Keep the computer awake (plugged in, lid open) and this session open.
+On macOS the session offers to start caffeinate -i -w <this session's pid>, which keeps the Mac awake exactly as long as the session lives (agent.sh batch-awake).
+After an interruption run /proofline batch again: the approved batch continues where it stopped and a merged task is never run again.
+
+batch id: <BID>
+
+QUESTIONS:
+1. Approve the night batch shown above (batch <BID>)?
+   options: approve | reject
+   accepted answers: approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur (with the kind word, for example "approve batch"; besides those only the words: the, a, an, it, this, please, for, with, to, and, lütfen, lutfen, bu, planı, plani, için, icin); or the whole reply as one full sentence: "" | ""; any other word makes the reply ambiguous: it is not an approval and the question is asked again
+   recommended: none (the user decides)
+   why: night mode: this one summary stands in for the plan, delivery and mutation budget approvals of the listed tasks, and for nothing else
+--- stderr
+
+===== SUMMARY.md
+# Night batch
+
+nonce: <NONCE>
+
+One approval of this summary stands in for the approvals listed below, for the tasks in the table and for nothing else.
+The batch id is the first 12 hex digits of the sha256 of this file; the approval is bound to that hash.
+
+## Order (one task at a time, in this session: run it, deliver it, and only when it is merged the next one; each task in a git worktree of its own)
+
+| # | task | title | class | depends_on |
+|---|------|-------|-------|------------|
+| 1 | T-3 | title of T-3 | STANDARD | - |
+| 2 | T-1 | title of T-1 | STANDARD | - |
+| 3 | T-5 | title of T-5 | STANDARD | - |
+| 4 | T-2 | title of T-2 | STANDARD | - |
+| 5 | T-4 | title of T-4 | STANDARD | T-2 |
+
+## What the approval covers, per task
+
+- plan: the freeze of the plan (kind plan), after classification and the usual checks
+- delivery: commit, push, pull request, merge only when CI is green and every gate passed (proofline merge), cleanup
+- CI red after the pull request is open: up to 2 CI-fix rounds, each a normal fix round that passes the gates again, pushed to the same pull request branch and nothing else; the delivery approval covers exactly those pushes, then the task is parked with the error and what was tried
+- mutation budget: a raise of test_trust.mutation_budget (now 20) up to the cap batch.mutation_budget_cap = 40
+
+## Expected known issues and rationales (accept for this batch)
+
+- none
+
+## Pre-flight questions (plan-lint, A200)
+
+- none: no task raises a question that can be told from its task file
+
+## Verification commands (A200)
+
+- commands.build, commands.test, commands.lint are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here
+
+## Stop rules
+
+- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped
+- every task works in its own git worktree (.agents/local/worktrees/<ID>, made from the canonical branch just before the task starts): a parked task, one waiting for its merge and one in a CI-fix round keep theirs and block no task that does not depend on them; the main working tree is never touched. A task starts only when every task it depends on is merged; a merged task's worktree is removed
+- after every merge the lead checks the CI run of the merge commit itself (not the latest run, agent.sh batch-ci): the batch stops when that run is red, still running after batch.ci_wait_minutes (30), or when no run for it appears within batch.ci_appear_minutes (10)
+- the batch stops when the session closes, a usage limit is hit or the computer sleeps; the same approved batch continues with /proofline batch and never runs a merged task again
+
+## NOT covered (each stays a question the batch parks on)
+
+- a waiver of a finding, a scope expansion, a new dependency, a reopen of a FAILED or BLOCKED run
+- a destructive or single_step data change, a rule promotion, sending the friction report, a new fix-round budget
+- a mutation budget above the cap, and any CRITICAL task
+
+## Not in this batch
+
+- T-6: class CRITICAL (keeps its per-task approvals)
+- T-7: class unknown (fail closed)
+- T-8: depends on T-6, which is not in this batch
+
+## Keep the computer awake and this session open
+
+The batch runs in THIS session, task after task; there is no background process. It stops when the session closes, a usage limit is hit or the computer sleeps. Keep the computer awake (plugged in, lid open) and this session open.
+On macOS the session offers to start caffeinate -i -w <this session's pid>, which keeps the Mac awake exactly as long as the session lives (agent.sh batch-awake).
+After an interruption run /proofline batch again: the approved batch continues where it stopped and a merged task is never run again.
+
+===== order.tsv
+T-3	STANDARD	-
+T-1	STANDARD	-
+T-5	STANDARD	-
+T-2	STANDARD	-
+T-4	STANDARD	T-2
+
+===== lint.tsv
+
+===== paths.tsv
+
+===== accept.tsv
+
+===== next unapproved
+--- exit 0
+--- stdout
+batch <BID>: NOT approved (or the summary changed): the user replies "approve batch" to the summary; nothing runs before.
+NEXT: approve
+--- stderr
+
+===== next --tsv unapproved
+--- exit 0
+--- stdout
+state	unapproved
+T-3	open	run	
+T-1	open	run	
+T-5	open	run	
+T-2	open	run	
+T-4	waiting	depends on T-2 (not merged yet)	
+--- stderr
+
+===== status unapproved
+--- exit 0
+--- stdout
+batch <BID>, approved at 
+
+task | result | PR | merge | park reason | pending question
+T-3 | pending | - | - | - | -
+T-1 | pending | - | - | - | -
+T-5 | pending | - | - | - | -
+T-2 | pending | - | - | - | -
+T-4 | pending | - | - | - | -
+
+no friction report
+
+resume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.
+--- stderr
+
+===== next approved
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+task | state | detail | pending question
+T-3 | open | run | -
+T-1 | open | run | -
+T-5 | open | run | -
+T-2 | open | run | -
+T-4 | waiting | depends on T-2 (not merged yet) | -
+NEXT: run T-3   (agent.sh worktree-add T-3, then /proofline run T-3 with .agents/local/worktrees/T-3 as the working folder)
+--- stderr
+
+===== next --tsv approved
+--- exit 0
+--- stdout
+state	approved
+T-3	open	run	
+T-1	open	run	
+T-5	open	run	
+T-2	open	run	
+T-4	waiting	depends on T-2 (not merged yet)	
+--- stderr
+
+===== status approved
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+
+task | result | PR | merge | park reason | pending question
+T-3 | pending | - | - | - | -
+T-1 | pending | - | - | - | -
+T-5 | pending | - | - | - | -
+T-2 | pending | - | - | - | -
+T-4 | pending | - | - | - | -
+
+no friction report
+
+resume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.
+--- stderr
+
+===== plan again (continue)
+--- exit 0
+--- stdout
+batch <BID> is approved and not finished: continuing it, no new plan and no new approval (to plan a new batch instead: agent.sh batch-plan --replace <ID...|all>).
+
+batch <BID>, approved at <TS>
+task | state | detail | pending question
+T-3 | open | run | -
+T-1 | open | run | -
+T-5 | open | run | -
+T-2 | open | run | -
+T-4 | waiting | depends on T-2 (not merged yet) | -
+NEXT: run T-3   (agent.sh worktree-add T-3, then /proofline run T-3 with .agents/local/worktrees/T-3 as the working folder)
+--- stderr
+
+===== plan outside
+--- exit 1
+--- stdout
+--- stderr
+batch: batch <BID> is approved and not finished, and it does not contain: T-9. Continue it with /proofline batch (no task IDs), or plan a new batch that includes them with agent.sh batch-plan --replace <ID...|all> (a new summary and a new approval)

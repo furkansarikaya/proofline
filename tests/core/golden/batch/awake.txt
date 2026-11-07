@@ -1,0 +1,19 @@
+===== awake Darwin
+--- exit 0
+--- stdout
+sleep inhibitor: caffeinate -i -w <PID> (session pid <PID>): the Mac does not idle-sleep while this session lives
+Keep the computer awake (plugged in, lid open) and this session open. the lid still sleeps most machines when closed.
+--- stderr
+
+===== awake Linux
+--- exit 0
+--- stdout
+sleep inhibitor: systemd-inhibit --what=idle:sleep (session pid <PID>): held while this session lives
+Keep the computer awake (plugged in, lid open) and this session open. the lid still sleeps most machines when closed.
+--- stderr
+
+===== awake none
+--- exit 0
+--- stdout
+sleep inhibitor: none available (no caffeinate or systemd-inhibit); the machine may sleep and stop the batch. Keep the computer awake (plugged in, lid open) and this session open.
+--- stderr

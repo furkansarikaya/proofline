@@ -13,8 +13,6 @@ bin/proofline
 control-plane/agents/githooks/pre-commit
 control-plane/agents/githooks/pre-push
 control-plane/agents/scripts/agent.sh
-control-plane/agents/scripts/batch-test.sh
-control-plane/agents/scripts/batch.sh
 control-plane/agents/scripts/build-record-test.sh
 control-plane/agents/scripts/build-record.sh
 control-plane/agents/scripts/controls-test.sh
@@ -37,7 +35,6 @@ control-plane/agents/scripts/rules-test.sh
 control-plane/agents/scripts/rules.sh
 control-plane/agents/scripts/task-adversarial-test.sh
 control-plane/agents/scripts/test-lib.sh
-control-plane/agents/scripts/worktree-prep.sh
 docs/reference/generate-skills.sh
 fixtures/api-design/selfcheck.sh
 fixtures/api-design/setup.sh

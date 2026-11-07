@@ -645,7 +645,7 @@ sc_scope_content() {
   expect_msg "a code path over the bound froze" 'code paths (content and document paths are not counted)' A freeze LC
   ok "A200: a content or document path is not counted against max_scope_paths, a file that holds code always is"
 }
-# A200: the answer to a batch pre-flight question (the user's own captured message, parsed by batch.sh) replaces the split question at freeze
+# A200: the answer to a batch pre-flight question (the user's own captured message, parsed by batch-answer) replaces the split question at freeze
 # up to the ceiling the user was shown, and only while the batch approval of that summary stands.
 sc_batch_split_answer() {
   SC_SCOPE_NAMED=tool.sh unfrozen STANDARD; : > tool.sh

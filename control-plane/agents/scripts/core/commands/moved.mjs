@@ -25,6 +25,9 @@ import { GATECMD_HANDLERS } from './gatecmds.mjs';
 import { COMPLETION_HANDLERS } from './reportcmds.mjs';
 import { DELIVERCMD_HANDLERS } from './delivercmds.mjs';
 import { KI_HANDLERS } from './kicmds.mjs';
+import { BATCH_HANDLERS } from '../batch.mjs';
+import { BATCHPLAN_HANDLERS } from '../batchplan.mjs';
+import { WORKTREE_HANDLERS } from '../worktree.mjs';
 import { detectPlatform, warnText } from '../platform.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
@@ -189,4 +192,8 @@ export const HANDLERS = {
   ...DELIVERCMD_HANDLERS,
   // --- stage 7, package 172-B (A222) ---
   ...KI_HANDLERS,
+  // stage 7, package C (A225): the worktree commands and night mode
+  ...WORKTREE_HANDLERS,
+  ...BATCH_HANDLERS,
+  ...BATCHPLAN_HANDLERS,
 };

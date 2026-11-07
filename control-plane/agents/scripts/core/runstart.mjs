@@ -7,6 +7,7 @@ import { bytes } from './config.mjs';
 import { dbSnapshot, dbBaselineFile } from './dbguard.mjs';
 import { fail, unsupported } from './errors.mjs';
 import { requireLead } from './approve.mjs';
+import { batchMember } from './next.mjs';
 import { led } from './lifeutil.mjs';
 import { isFile } from './paths.mjs';
 import { runTaskAdapter } from './adapters/index.mjs';
@@ -67,7 +68,11 @@ export function startRun(ctx, argv) {
   const dir = runDir(ctx, id);
   if (existsSync(dir)) fail(`run already exists: ${id}`);
   const open = openRuns(ctx).join('\n');
-  if (open !== '') fail(`another open run exists in this worktree: ${open}. A second run needs a worktree of its own: agent.sh worktree-add <TASK-ID> in the main working tree (night mode does it for every task, A169)`);
+  if (open !== '') {
+    // inside an approved batch the task has a worktree of its own (A169): the lead must run the command there, not in the folder that holds another run (A225)
+    const hint = batchMember(ctx, id) ? ` ${id} belongs to the approved batch: run this command from the task's own worktree, .agents/local/worktrees/${id} (agent.sh worktree-add ${id} makes it; agent.sh batch-next names it), not from this folder.` : '';
+    fail(`another open run exists in this worktree: ${open}. A second run needs a worktree of its own: agent.sh worktree-add <TASK-ID> in the main working tree (night mode does it for every task, A169)${hint}`);
+  }
   const active = activeRun(ctx);
   if (active !== '') fail(`another active run exists: ${active}`);
   const adapter = ctx.config().get('tasks.adapter', 'markdown');

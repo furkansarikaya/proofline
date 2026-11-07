@@ -128,8 +128,8 @@ describe('cli subcommands through the front ends', () => {
 
 describe('the closed set of CLI-only subcommands', () => {
   const core = path.join(repo, 'control-plane/agents/scripts/proofline-core.mjs');
-  test('exactly insights, queue, the two hook commands, scan-secrets, platform-info, slug, task-adapter, merge, exec-policy and runtime-detect; none is an agent.sh command', () => {
-    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['exec-policy', 'insights', 'merge', 'next-line', 'platform-info', 'pre-commit', 'pre-push', 'queue', 'runtime-detect', 'scan-secrets', 'slug', 'task-adapter']);
+  test('exactly insights, queue, the two hook commands, scan-secrets, platform-info, slug, task-adapter, merge, exec-policy, runtime-detect, leftover-worktrees and worktree-deps; none is an agent.sh command', () => {
+    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['exec-policy', 'insights', 'leftover-worktrees', 'merge', 'next-line', 'platform-info', 'pre-commit', 'pre-push', 'queue', 'runtime-detect', 'scan-secrets', 'slug', 'task-adapter', 'worktree-deps']);
     for (const n of Object.keys(CLI_COMMANDS)) assert.ok(!COMMAND_NAMES.includes(n), n);
     assert.ok(!COMMAND_NAMES.includes('cli'));
     assert.throws(() => { CLI_COMMANDS.extra = () => 0; });

@@ -2,12 +2,9 @@
 // `next`: the deterministic next step of a run (agent.sh 6878-7062). The state machine reads the records once (RUN.yaml, the gate records,
 // the ledger, the plan), asks the shared library for the gate states and prints the `task=`, `state=`, `handoff=`, `next=`, `reason=`,
 // `note=`, `missing_step=`, `finding=` and `fix_path=` lines the lead and the hooks parse. It removes stale dispatch markers like the shell.
-// Three branches stay with the shell until the stages that move their writers (BridgeToShell before any output):
-// a delivery whose pull request is open (ci_progress), a task of an approved batch
-// (batch_member) and a listed known issue (ki_gate_facts).
 import { asciiLower } from './shellglob.mjs';
 import { lstatSync, statSync } from 'node:fs';
-import { BridgeToShell } from './errors.mjs';
+import { batchApproval } from './approvals.mjs';
 import { ciProgress } from './deliver.mjs';
 import { knowledgeDrift } from './commands/runcmds.mjs';
 import { approvalWaitO } from './approve.mjs';
@@ -21,7 +18,7 @@ import { boundNames, listNames } from './ledger.mjs';
 import { isFile } from './paths.mjs';
 import { assumptionBlocked, assumptionShapeErrors, planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
-import { fileLines, fileText, gateField, gatesEnforced, planDestructive, planScope, planSectionPresent, sectionKeyPresent, sectionValue, WS } from './records.mjs';
+import { fileLines, fileText, gateField, gatesEnforced, planDestructive, planScope, planSectionPresent, sectionKeyPresent, sectionValue, textLines, WS } from './records.mjs';
 import { activeRun, knownControlArtifact, requireRun, runDir } from './runs.mjs';
 import { pipelineClass, pipelineClassValid, pipelineNeeds, pipelineValue, riskGateFocuses, riskMissingFlags, runAutonomy, tierEffective } from './signals.mjs';
 
@@ -231,12 +228,16 @@ function notRerunNext(ctx, id, dir) {
   return out;
 }
 
+/** `batch_member ID`: the task belongs to the approved batch (A200: the lead then goes on by itself after CODE_DONE and DONE). @param {Context} ctx @param {string} id */
+export function batchMember(ctx, id) {
+  if (batchApproval(ctx) === null) return false;
+  return textLines(fileText(ctx, `${ctx.sharedMain()}/.agents/local/batch/order.tsv`) ?? '').some((l) => l.split('\t')[0] === id);
+}
+
 /** `batch_continue_note` after `batch_member`. @param {Context} ctx @param {string} id */
 function batchContinueNote(ctx, id) {
-  // batch_member: an approved batch needs the shared batch summary; without one the task is no member
-  if (isFile(`${ctx.sharedMain()}/.agents/local/batch/SUMMARY.md`)) throw new BridgeToShell('batch summary present');
-  void id;
-  return '';
+  if (!batchMember(ctx, id)) return '';
+  return `note=BATCH (A200): ${id} belongs to the approved batch. Do NOT stop at this state and do NOT hand the user a "Next step"; write ONE status line ("${id}: <state>, <what runs now>, next: <task>") and go on: finish the knowledge step, the report and DONE, then agent.sh batch-next (its NEXT: deliver covers the delivery with batch-cover, never a question). During a wait of a minute or more (a CI run, a dispatch) write one status line, then wait.\n`;
 }
 
 /** `build_record_unmakeable`: the reason, or '' when a build record can be made. @param {Context} ctx */
@@ -548,6 +549,7 @@ function done(ctx, id, d, emit, o, r) {
     r('the pull request is open (the merge step ran); its CI decides the next step (A169)');
     return;
   }
+  if (batchMember(ctx, id)) { o(`agent.sh batch-next (the delivery of ${id} is covered by the batch approval: agent.sh batch-cover ${id} delivery)`); r('run DONE, in the approved batch'); return; }
   o(`agent.sh request-approval ${id} commit (delivery needs the user's approval)`);
   o(`agent.sh cleanup ${id} (after delivery)`);
   o('optional: agent.sh friction show; send it as a GitHub issue only if the user wants it: agent.sh request-approval - report, then agent.sh friction send');

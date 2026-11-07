@@ -34,9 +34,7 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 case "${1:-}" in
   friction|calibrate|build-record|lessons|rules|decide|\
   metrics-dispatch|wait-line|ledger-note|\
-  worktree-add|worktree-path|worktree-remove|batch-plan|batch-cover|batch-status|batch-answer|\
-  batch-answers|task-rename-plan|task-rename-apply|batch-next|\
-  batch-awake|batch-park|test) ;;
+  task-rename-plan|task-rename-apply|test) ;;
   *)
     pl_sh=no
     # PROOFLINE_BRIDGED is set only by the core itself, when it hands one input to this code (no model or user sets it; the hook denies it): it stops the loop.
@@ -1375,7 +1373,7 @@ id_eq() { [ "$(id_key "$1")" = "$(id_key "$2")" ]; }
 # id_keys: stdin ids -> keys (for sort/comm/uniq over a list)
 id_keys() { tr '[:lower:]' '[:upper:]' | sed -E 's/-0+([0-9])/-\1/g'; }
 
-# A200: the answer to a batch pre-flight question (batch.sh answer: the user's own captured message, parsed by the script),
+# A200: the answer to a batch pre-flight question (batch-answer: the user's own captured message, parsed by the core),
 # valid only while the batch approval of the summary that asked it stands. Prints `letter<TAB>param<TAB>question` of the
 # newest answer for the task and kind; nothing when there is none, when the batch is not approved or a new summary replaced it.
 batch_answer_row() { # ID KIND
@@ -3886,7 +3884,7 @@ approval_consume() { # ID KIND [FINGERPRINT [REF...]] — for the git hooks; exi
 }
 
 # --- Night mode (A157): one approval of one summary stands in for the plan, delivery and mutation budget approvals of the
-# listed tasks. The plan, the digest of its state and the report are batch.sh; here are only the approval checks and the cover.
+# listed tasks. The plan, the digest of its state and the report are core/batch.mjs (A225); here are only the approval checks.
 batch_dir() { shared_dir batch; }
 # batch_approval: the batch approval file, valid only while SUMMARY.md still has the hash it is bound to; it is never consumed.
 batch_approval() {
@@ -3900,7 +3898,6 @@ batch_member() { batch_approval >/dev/null 2>&1 && awk -F'\t' -v t="$1" '$1 == t
 batch_continue_note() { # ID: one line for next_step
   ! batch_member "$1" || printf 'note=BATCH (A200): %s belongs to the approved batch. Do NOT stop at this state and do NOT hand the user a "Next step"; write ONE status line ("%s: <state>, <what runs now>, next: <task>") and go on: finish the knowledge step, the report and DONE, then agent.sh batch-next (its NEXT: deliver covers the delivery with batch-cover, never a question). During a wait of a minute or more (a CI run, a dispatch) write one status line, then wait.\n' "$1" "$1"
 }
-batch_check() { batch_approval >/dev/null || fail "no valid batch approval for the current summary (agent.sh batch-plan, then the user's reply \"approve batch\")"; hash_file "$(batch_dir)/SUMMARY.md"; }
 # A200: commands-check: 0 when the user agreed to the commands proposal (`proofline doctor --commands`) in their OWN words: either
 # a batch approval whose summary names this very proposal, or the newest captured prompt, newer than the proposal, which is an
 # approval of the kind `commands` (the approval grammar of A108: "approve commands"). The proposal file is written by the CLI
@@ -3972,70 +3969,13 @@ task_rename_apply() {
 }
 # --- the batch accept answer (A200; the known-issues list itself runs in the Node core since A222) -----------------------------------
 # batch_accept_given: 0 when the batch approval of the CURRENT summary stands and the newest answer to its accept question (id batch,
-# kind accept) is b, recorded from a user message the prompt hook captured (batch.sh answer). "all recommended" never gives b.
+# kind accept) is b, recorded from a user message the prompt hook captured (batch-answer). "all recommended" never gives b.
 batch_accept_given() {
   batch_approval >/dev/null 2>&1 || return 1
   [ "$(batch_answer_row batch accept | cut -f1)" = b ] || return 1
   bag_m=$(awk -F'\t' -v b="$(hash_file "$(batch_dir)/SUMMARY.md" | cut -c1-12)" '$1 == b && $2 == "batch" && $4 == "accept" { m = $7 } END { print m }' "$(batch_dir)/answers.tsv")
   [ -n "$bag_m" ] && [ -f "$(shared_dir prompts)/history/$bag_m" ]
 }
-batch_plan() {
-  require_lead; mkdir -p "$agents/local"
-  bp_rc=0; sh "$scripts/batch.sh" plan "$@" || bp_rc=$?
-  [ "$bp_rc" -ne 3 ] || return 0   # the same approved batch continues: no new plan, no new approval
-  [ "$bp_rc" -eq 0 ] || return 1
-  request_approval - batch
-}
-# batch_record ID KIND REQUEST BATCH-HASH [DELIVERY [CAP]]: an approval as `approve` writes it, marked source batch.
-batch_record() {
-  br_ad=$(approvals_dir "$1"); br_slug=$(kind_slug "$2"); br_n=$(next_num "$br_ad"); br_f=$br_ad/$br_n-$br_slug.yaml
-  printf 'kind: "%s"\nbound: "%s"\nsource: "batch"\nrequest: "%s"\nanswered_by: "user"\napproved_at: %s\nconsumed: "false"\nvia_batch: "%s"\n' \
-    "$2" "$(gate_field "$3" bound)" "$(basename "$3")" "$(now_epoch)" "$4" > "$br_f"
-  [ -z "${5:-}" ] || printf 'delivery: "%s"\n' "$5" >> "$br_f"
-  br_ref=$(gate_field "$3" ref); [ -z "$br_ref" ] || printf 'ref: "%s"\n' "$br_ref" >> "$br_f"   # A169
-  [ -z "${6:-}" ] || printf 'cap: "%s"\n' "$6" >> "$br_f"
-  ledger_if "$1" approval - - "$(ledger_token "approvals/$br_n-$br_slug.yaml" "$1") $2 source=batch answered_by=user bound=$(gate_field "$3" bound) via_batch=$4"
-  echo "batch approval recorded: $1 $2"
-}
-# batch_cover ID KIND: records the approval of a plan, a delivery or a mutation budget as the user's, only while every check holds.
-batch_cover() {
-  bc_id=$1 bc_k=$2; require_lead
-  case "$bc_k" in plan|delivery|mutation_budget) ;;
-    rationale:*)
-      # a DESIGN.md pattern justification the user accepted for this batch with the one accept answer; the line must be exactly the one the approved summary lists
-      batch_accept_given || fail "no accepted list in the approved batch: the user has not answered the accept question of the summary with b"
-      bc_rl=$(rationale_line "${bc_k#rationale:}"); [ -n "$bc_rl" ] || fail "DESIGN.md has no justification line for ${bc_k#rationale:}"
-      grep -Fxq -- "- accept R $bc_rl" "$(batch_dir)/SUMMARY.md" || fail "the DESIGN.md line for ${bc_k#rationale:} is not the one the approved batch summary lists (changed or never listed): the user approves it on its own" ;;
-    *) fail "$bc_k is not covered by the batch approval (only plan, delivery, mutation_budget, rationale:<pattern> accepted in the summary)" ;; esac
-  batch_approval >/dev/null || fail "no valid batch approval for the current summary"
-  bc_h=$(hash_file "$(batch_dir)/SUMMARY.md")
-  awk -F'\t' -v t="$bc_id" '$1 == t { f = 1 } END { exit !f }' "$(batch_dir)/order.tsv" 2>/dev/null || fail "$bc_id is not in the batch (excluded or never planned)"
-  require_run "$bc_id"; require_open_run "$bc_id"
-  bc_c=$(pipeline_class "$bc_id")
-  { pipeline_class_valid "$bc_c" && [ "$bc_c" != CRITICAL ]; } || fail "run $bc_id is classified ${bc_c:-unknown}: CRITICAL or unclassified work is not covered by the batch approval"
-  bc_list=''
-  if [ "$bc_k" = delivery ]; then
-    [ -f "$(deliver_dir "$bc_id")/SUMMARY.md" ] || fail "no delivery summary for $bc_id (agent.sh deliver-plan $bc_id first)"
-    bc_dh=$(hash_file "$(deliver_dir "$bc_id")/SUMMARY.md")
-    for bc_s in commit push pr merge cleanup; do
-      bc_rq=$(pending_request "$bc_id" "$bc_s") || continue
-      [ "$(gate_field "$bc_rq" delivery)" = "$bc_dh" ] && [ "$(gate_field "$bc_rq" bound)" = "$(approval_bound "$bc_id" "$bc_s")" ] || continue
-      bc_list="$bc_list $bc_s"
-    done
-    [ -n "$bc_list" ] || fail "no pending delivery step request of the current summary for $bc_id"
-    for bc_s in $bc_list; do batch_record "$bc_id" "$bc_s" "$(pending_request "$bc_id" "$bc_s")" "$bc_h" "$bc_dh"; done
-    return 0
-  fi
-  bc_rq=$(pending_request "$bc_id" "$bc_k") || fail "no pending $bc_k request for $bc_id"
-  [ "$(gate_field "$bc_rq" bound)" = "$(approval_bound "$bc_id" "$bc_k")" ] || fail "the content changed since the $bc_k request; request again"
-  if [ "$bc_k" = mutation_budget ]; then
-    bc_cap=$(cfg batch.mutation_budget_cap 40); case "$bc_cap" in ''|*[!0-9]*) bc_cap=40 ;; esac
-    bc_n=$(plan_test_acs "$(run_dir "$bc_id")/PLAN.md")
-    [ "$bc_n" -le "$bc_cap" ] || fail "mutation budget: PLAN ## Tests names $bc_n criteria, above the batch cap $bc_cap: not covered by the batch approval"
-    batch_record "$bc_id" "$bc_k" "$bc_rq" "$bc_h" '' "$bc_cap"
-  else batch_record "$bc_id" "$bc_k" "$bc_rq" "$bc_h"; fi
-}
-
 # --- Waivers (D16) -------------------------------------------------------------------------
 gate_latest_file() { # ID GATE [FOCUS] -> latest record after the last reopen (of that focus; '-' = the gate's own)
   gl_reopen=$(last_reopen_seq "$1"); gl_last=''
@@ -5077,105 +5017,12 @@ ci_progress() {
 }
 ci_fix_last() { ci_fix_recs "$1" | tail -n 1; }
 
-# --- One worktree per run (A169) ---------------------------------------------------------------------------------
-# A run lives in the worktree it was started in: `.agents/runs`, ACTIVE_RUN, the task file move and the open-run check
-# (open_runs, the commit and push hooks) belong to that worktree. A task that waits for merge, is parked or is being fixed
-# keeps its worktree and so blocks no other task and leaves the main working tree clean. Night mode makes one worktree per
-# task; outside night mode `worktree-add` does the same for a second run. Folder: <main working tree>/.agents/local/worktrees/<ID>
-# (git-ignored, inside the project so a sandboxed session may be given it, not scanned as a registered scratch worktree, A53).
-# wt_linked: this tree is a linked worktree (its git-dir differs from the common git-dir, compared as physical paths).
-wt_linked() {
-  wl_g=$(cd "$root" 2>/dev/null && cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
-  wl_c=$(cd "$root" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
-  [ "$wl_g" != "$wl_c" ]
-}
-rw_main() { (cd "$root" && pwd -P); }   # the main working tree's folder (worktree-add runs only there)
-rw_dir() { printf '%s/.agents/local/worktrees/%s\n' "$(rw_main)" "$1"; }
-rw_valid_id() { valid_task_id "$1" && case "$1" in [!A-Za-z0-9]*|*..*) return 1 ;; esac; }
-rw_registered() { git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$1"; }
+# --- One worktree per run (A169, A225): worktree-add|path|remove and the preparation of a worktree are in the Node core (core/worktree.mjs) ---
 # A185: the state that belongs to no single run (batch approvals metrics friction prompts) is NOT linked into a worktree: every reader asks
 # shared_dir, which names the main tree's folder by path. A link would be a copy where symlinks are not allowed (Git Bash without
 # developer mode), and a copy goes stale. Per-run state (runs, ACTIVE_RUN, deliver, assignments, locks, windows, records) lives in the
 # worktree that owns the run; the runtime hook resolves the same folder (adapters/claude/hooks/proofline-hook.sh, state root).
 rw_shared='batch approvals metrics friction prompts'
-rw_prepare() { # WORKTREE: the shared folders exist, the runtime config git does not track, dependency folders and local env files
-  rp_w=$1; rp_m=$(rw_main); mkdir -p "$rp_w/.agents/local"
-  for rp_s in $rw_shared; do mkdir -p "$rp_m/.agents/local/$rp_s"; done
-  # runtime hooks and settings that are ignored or untracked are not in a checkout; without them the session would run unconfined
-  for rp_f in .claude/settings.json .claude/settings.local.json .codex/hooks.json .codex/config.toml; do
-    if [ -f "$rp_m/$rp_f" ] && [ ! -e "$rp_w/$rp_f" ]; then mkdir -p "$rp_w/$(dirname "$rp_f")"; cp "$rp_m/$rp_f" "$rp_w/$rp_f"; fi
-  done
-  # A200: commands.build|test|lint written into the main tree (doctor --apply-commands, after the user's yes) are an uncommitted change a worktree made from
-  # the committed branch does not have; carried over only when the commands block is the ONLY difference between the two configs
-  rp_mc=$rp_m/.agents/config.yaml; rp_wc=$rp_w/.agents/config.yaml
-  if [ -f "$rp_mc" ] && [ -f "$rp_wc" ] && ! cmp -s "$rp_mc" "$rp_wc"; then
-    rp_a=$(awk '/^commands:/ { k = 1; next } k && /^[^ #]/ { k = 0 } !k' "$rp_mc" | sha256); rp_b=$(awk '/^commands:/ { k = 1; next } k && /^[^ #]/ { k = 0 } !k' "$rp_wc" | sha256)
-    [ "$rp_a" != "$rp_b" ] || cp "$rp_mc" "$rp_wc"
-  fi
-  # dependency folders (data: worktree_deps in ecosystems.json) become the worktree's own copies, never links into the main tree, and
-  # the untracked local files of worktree.copy_files (default .env*) are copied in; both by worktree-prep.sh (A185)
-  if [ -f "$scripts/worktree-prep.sh" ]; then
-    sh "$scripts/worktree-prep.sh" "$rp_m" "$rp_w" "$(cfg worktree.copy_files '.env*')" >&2 || echo "warning: worktree preparation reported a problem (the worktree is usable; dependencies or env files may be missing)" >&2
-  fi
-}
-# worktree_add ID: a detached worktree at the canonical branch's local tip, prepared; prints its folder. An existing one is reused.
-worktree_add() {
-  rw_valid_id "${1:-}" || fail "usage: agent.sh worktree-add <TASK-ID>"
-  ! wt_linked || fail "worktree-add runs in the main working tree ($(git -C "$root" worktree list --porcelain | sed -n '1s/^worktree //p')), not inside a task worktree"
-  wa_d=$(rw_dir "$1")
-  if rw_registered "$wa_d" && [ -d "$wa_d" ]; then rw_prepare "$wa_d"; printf '%s\n' "$wa_d"; return 0; fi
-  [ ! -e "$wa_d" ] || fail "$wa_d exists but is not a registered worktree; remove that folder, then run worktree-add again"
-  wa_b=$(cfg canonical_branch); [ -n "$wa_b" ] || fail "canonical_branch not configured"
-  wa_s=$(git -C "$root" rev-parse -q --verify "refs/heads/$wa_b") || fail "canonical branch not found locally: $wa_b"
-  mkdir -p "$(dirname "$wa_d")"
-  git -C "$root" worktree add -q --detach "$wa_d" "$wa_s" >/dev/null || fail "could not add the worktree $wa_d"
-  rw_prepare "$wa_d"
-  printf '%s\n' "$wa_d"
-}
-worktree_path() { # ID: the folder of a registered run worktree (exit 1 when there is none)
-  rw_valid_id "${1:-}" || fail "usage: agent.sh worktree-path <TASK-ID>"
-  wp_d=$(rw_dir "$1"); rw_registered "$wp_d" && [ -d "$wp_d" ] || return 1
-  printf '%s\n' "$wp_d"
-}
-# worktree_root PATH (A184): the root of the run worktree that contains PATH, the ONE definition every path classification asks (the runtime
-# hook calls `agent.sh worktree-root`; paths that agent.sh gets from git are already relative to the git worktree that contains them).
-# PATH is a physical absolute path. A folder counts only when it is exactly <main working tree>/.agents/local/worktrees/<ID>, is
-# registered by `git worktree list` of this project, is a linked worktree of the same common git-dir, and PATH is inside it; a crafted
-# folder, a link, an unregistered or pruned worktree, a nested one: no answer (exit 1) and the caller keeps the old, stricter judgement.
-worktree_root() {
-  wo_p=$1; case "$wo_p" in /*) ;; *) return 1 ;; esac
-  case "/$wo_p/" in */../*|*/./*) return 1 ;; esac
-  wo_m=$(git -C "$root" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'); [ -n "$wo_m" ] || return 1
-  wo_m=$(cd "$wo_m" 2>/dev/null && pwd -P) || return 1
-  wo_c=$(cd "$wo_m" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
-  wo_b=$wo_m/.agents/local/worktrees
-  case "$wo_p" in "$wo_b"/*) ;; *) return 1 ;; esac
-  wo_id=${wo_p#"$wo_b"/}; wo_id=${wo_id%%/*}
-  rw_valid_id "$wo_id" || return 1
-  wo_d=$wo_b/$wo_id
-  [ -d "$wo_d" ] && [ ! -L "$wo_d" ] && [ -f "$wo_d/.git" ] || return 1
-  [ "$(cd "$wo_d" 2>/dev/null && pwd -P)" = "$wo_d" ] || return 1
-  git -C "$root" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | grep -Fxq -- "$wo_d" || return 1
-  wo_g=$(cd "$wo_d" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
-  [ "$wo_g" = "$wo_c" ] || return 1
-  case "$wo_p" in "$wo_d"|"$wo_d"/*) printf '%s\n' "$wo_d" ;; *) return 1 ;; esac
-}
-# worktree_remove ID [--force]: only a worktree under .agents/local/worktrees; refused while it still holds a run (its evidence), unless forced.
-worktree_remove() {
-  rw_valid_id "${1:-}" || fail "usage: agent.sh worktree-remove <TASK-ID> [--force]"
-  ! wt_linked || fail "worktree-remove runs in the main working tree, not inside a task worktree"
-  wr_force=no; case "${2:-}" in '') ;; --force) wr_force=yes ;; *) fail "usage: agent.sh worktree-remove <TASK-ID> [--force]" ;; esac
-  wr_d=$(rw_dir "$1")
-  if ! rw_registered "$wr_d"; then git -C "$root" worktree prune; echo "no worktree for $1"; return 0; fi
-  wr_runs=''
-  for wr_r in "$wr_d"/.agents/runs/*; do [ -d "$wr_r" ] && wr_runs="$wr_runs ${wr_r##*/}"; done
-  [ -z "$wr_runs" ] || [ "$wr_force" = yes ] || fail "the worktree of $1 still holds the run:$wr_runs (its evidence goes with it). Finish or clean up the run first, or: agent.sh worktree-remove $1 --force"
-  for wr_r in "$wr_d"/.agents/runs/*; do [ ! -d "$wr_r" ] || archive_run "${wr_r##*/}" "$wr_r"; done   # A200: the records are archived before the worktree goes
-  git -C "$root" worktree remove --force "$wr_d" >/dev/null 2>&1 || fail "could not remove the worktree $wr_d"
-  git -C "$root" worktree prune
-  rmdir "$(dirname "$wr_d")" 2>/dev/null || :
-  echo "worktree removed: $1"
-}
 
 task_title_of() { sed -n '1s/^# Task: *[^ ]* *[-—]* *//p' "$1" 2>/dev/null | head -1; } # TASK.md -> the H1 title
 
@@ -5247,11 +5094,11 @@ valid_role "$execution_role" || fail "invalid execution role: ${AGENT_ROLE:-}"
 command=${1:-}
 # A202 item 28: read-only commands may use the big-file fingerprint cache (fp_cache_key); everything else hashes and refreshes it, so no
 # integrity check (gate record, handoff, freeze, verify-*, delivery, approval, window) ever trusts a remembered hash.
-case "$command" in next|digest|summary|status-block|next-user|status|friction|batch-status|batch-next|insights) fp_fast=yes ;; *) fp_fast=refresh ;; esac
+case "$command" in next|digest|summary|status-block|next-user|status|friction|insights) fp_fast=yes ;; *) fp_fast=refresh ;; esac
 # A169: a run that lives in its own worktree (night mode, worktree-add) is served by that worktree's agent.sh, so `answer`, `questions`,
 # `next`, `reopen` and the rest work for it from the main working tree too (the working directory becomes the worktree; use absolute paths).
 if [ -n "${2:-}" ] && valid_task_id "$2" && [ ! -e "$root/.agents/runs/$2" ] && [ -d "$root/.agents/local/worktrees/$2/.agents/runs/$2" ] && [ -f "$root/.agents/local/worktrees/$2/.agents/scripts/agent.sh" ]; then
-  case "$command" in start|worktree-add|worktree-path|worktree-remove|batch-*) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
+  case "$command" in start) ;; *) cd "$root/.agents/local/worktrees/$2" && exec sh .agents/scripts/agent.sh "$@" ;; esac
 fi
 read_only_commands='report-execution tree-inspect timeouts hook-timeouts verify-timeout tm-scaled scale-check human-checks repro-normalize design-rationales platform platform-warn language-check next-user in-knowledge-scope worktree-root design-surface report-facts build-record lessons rules calibrate debt role status open-runs effective pipeline tier next questions fingerprint config-get config-check verify-freeze verify-scope verify-knowledge-scope verify-handoff verify-worker-evidence verify-gates verify-seal verify-completion-report freshness validate patch-fingerprint summary plan-section digest help verify-qa-plan report-tokens verify-assumptions entry-tier ci-check ci-task-command path-kind scope-kinds task-scope-entries scope-covers test-path batch-answers commands-check task-type known-issue-list known-issue-candidates'
 cmd_allowed() { for ca_c in $read_only_commands "$@"; do [ "$ca_c" != "$command" ] || return 0; done; return 1; }
@@ -5266,7 +5113,7 @@ case " $read_only_commands " in *" $command "*) lock_command=no ;; esac
 [ "$command" != tier ] || [ "$execution_role" != lead ] || lock_command=yes
 # submit builds its message unlocked and hands it to `record`, which takes the locks in its own process.
 # approve-pending only enumerates requests; each `approve` it starts takes the locks in its own process.
-if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = batch-status ] || [ "$command" = batch-check ] || [ "$command" = batch-next ] || [ "$command" = batch-awake ] || [ "$command" = batch-park ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
+if [ "$command" = approve-pending ] || [ "$command" = friction ] || [ "$command" = db-config ] || [ "$command" = hook-config ]; then lock_command=no; fi   # friction.sh send calls approval-consume, which takes the locks itself; db-config and hook-config (A188) only read the config, which is parsed before any lock
 if [ "$command" = submit ]; then lock_command=no; trap '[ -z "$record_tmp" ] || rm -rf "$record_tmp"' 0; fi
 if [ "$lock_command" = yes ]; then
   mkdir -p "$agents/local"
@@ -5369,7 +5216,6 @@ case "$command" in
   lessons) case "${2:-}" in write|promote) require_lead ;; esac; shift; sh "$scripts/lessons.sh" "$@" ;;
   rules) case "${2:-}" in tally) require_lead ;; esac; shift; sh "$scripts/rules.sh" "$@" ;;   # A202: project rules budget; proposes, never edits
   design-surface) design_surface "${2:?usage: agent.sh design-surface <REL-PATH>}" ;;
-  worktree-root) worktree_root "${2:?usage: agent.sh worktree-root <ABS-PATH>}" ;;
   in-knowledge-scope) in_knowledge_scope "${2:?usage: agent.sh in-knowledge-scope <REL-PATH>}" ;;
   report-facts) report_facts "${2:?usage: agent.sh report-facts <ID>}" ;;
   report-execution) report_execution "${2:?usage: agent.sh report-execution <ID>}" ;;
@@ -5397,21 +5243,12 @@ case "$command" in
   wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
   ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
-  worktree-add) require_lead; worktree_add "${2:-}" ;;
-  worktree-path) require_lead; worktree_path "${2:-}" ;;
-  worktree-remove) require_lead; worktree_remove "${2:-}" "${3:-}" ;;
-  batch-plan) shift; batch_plan "$@" ;;
-  batch-cover) batch_cover "${2:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget|rationale:PATTERN>}" "${3:?usage: agent.sh batch-cover <ID> <plan|delivery|mutation_budget|rationale:PATTERN>}" ;;
-  batch-status) sh "$scripts/batch.sh" status ;;
-  batch-check) batch_check ;;
   commands-check) commands_check ;;
   scale-check) scale_check ;;
   timeouts) timeouts_info ;;
   hook-timeouts) hook_timeouts ;;
   verify-timeout) verify_command_timeout ;;
   tm-scaled) tm_scaled "${2:?usage: agent.sh tm-scaled <seconds> [min] [max]}" "${3:-1}" "${4:-28800}" ;;
-  batch-answer) require_lead; sh "$scripts/batch.sh" answer ;;
-  batch-answers) sh "$scripts/batch.sh" answers "${2:-}" ;;
   test-path) shift; [ $# -gt 0 ] || fail "usage: agent.sh test-path <path>..."; for tp_p in "$@"; do if test_code_path "$tp_p"; then printf 'test\t%s\n' "$tp_p"; else printf 'product\t%s\n' "$tp_p"; fi; done ;;
   task-scope-entries) [ $# -eq 3 ] || fail "usage: agent.sh task-scope-entries <task-file> <heading>"; task_scope_entries "$2" "$3" ;;
   scope-covers) [ $# -eq 3 ] || fail "usage: agent.sh scope-covers <entry> <path>"; scope_entry_covers "$2" "$3" ;;
@@ -5421,10 +5258,7 @@ case "$command" in
   human-checks) human_checks "${2:?usage: agent.sh human-checks <ID>}" ;;
   scope-kinds) scope_kind_rows "$(run_dir "${2:?usage: agent.sh scope-kinds <ID>}")/PLAN.md" ;;
   path-kind) shift; [ $# -gt 0 ] || fail "usage: agent.sh path-kind <path>..."; for pk_p in "$@"; do printf '%s\t%s\n' "$(path_kind "$pk_p")" "$pk_p"; done ;;
-  batch-next) shift; PROOFLINE_BATCH_ROLE=$execution_role sh "$scripts/batch.sh" next "$@" ;;   # every role may read the digest; only the lead claims the batch owner
 
-  batch-awake) require_lead; sh "$scripts/batch.sh" awake ;;
-  batch-park) require_lead; sh "$scripts/batch.sh" park "${2:?usage: agent.sh batch-park <ID> <reason>|--clear}" "${3:?usage: agent.sh batch-park <ID> <reason>|--clear}" ;;
   patch-fingerprint) require_run "${2:?usage: agent.sh patch-fingerprint <ID>}"; task_patch_fingerprint "$2" ;;
   window-open) require_lead; window_open "${2:?usage: agent.sh window-open <ID> [implementer|designer]}" "${3:-}" ;;
   window-close) require_lead; window_close "${2:?usage: agent.sh window-close <ID> <BEFORE> [EXIT-STATUS] [implementer|designer]}" "${3:-}" "${4:-0}" "${5:-}" ;;

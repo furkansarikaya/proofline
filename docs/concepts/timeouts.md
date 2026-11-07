@@ -35,7 +35,7 @@ and then refreshes the hook limits in the settings files.
 | Wait for another build of the same commit | 1800 s | `BUILD_RECORD_WAIT` (environment) | `build-record.sh` |
 | Lock wait of `agent.sh` | 120 s | `PROOFLINE_LOCK_TIMEOUT` (environment) | `agent.sh` |
 | Status block update | 20 s | `tasks.status_block_seconds`, 1 to 300 | `agent.sh` |
-| CI of a merge commit: wait for a run to finish, wait for it to appear | 30 min, 10 min (told to the lead; the lead asks again) | `batch.ci_wait_minutes` 1 to 720, `batch.ci_appear_minutes` 1 to 240 | `batch.sh` |
+| CI of a merge commit: wait for a run to finish, wait for it to appear | 30 min, 10 min (told to the lead; the lead asks again) | `batch.ci_wait_minutes` 1 to 720, `batch.ci_appear_minutes` 1 to 240 | `core/deliver.mjs` (batch-ci) |
 | CI-fix and delivery steps | no timer: each reads the CI once, the lead asks again | | |
 | Approval budget of the prompt hook | 20 s, never scaled | `hook.approve_budget_seconds`, 5 to 25 | the hook |
 | `agent.sh next` in the session hook | 10 s | `hook.next_budget_seconds`, 2 to 20 | the hook |

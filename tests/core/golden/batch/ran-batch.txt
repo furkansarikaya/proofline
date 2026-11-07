@@ -1,0 +1,78 @@
+===== next
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+task | state | detail | pending question
+T-1 | PARKED | question | 1. Which cache do we use for T-1?
+T-2 | skipped | depends on T-1 (parked) | -
+T-3 | merged | - | -
+T-4 | PARKED | awaiting merge | pull request 77: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself
+T-5 | PARKED | tab here and newline | -
+NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)
+--- stderr
+
+===== next --tsv
+--- exit 0
+--- stdout
+state	finished-parked
+T-1	parked	question	1. Which cache do we use for T-1?
+T-2	skipped	depends on T-1 (parked)	
+T-3	merged		
+T-4	parked	awaiting merge	pull request 77: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself
+T-5	parked	tab here and newline	
+--- stderr
+
+===== status
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+
+task | result | PR | merge | park reason | pending question
+T-1 | PARKED | - | - | question | 1. Which cache do we use for T-1?
+T-2 | skipped | - | - | depends on T-1 (parked) | -
+T-3 | merged | 103 | <TS> | - | -
+T-4 | PARKED | - | - | awaiting merge | pull request 77: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself
+T-5 | PARKED | - | - | tab here and newline | -
+
+no friction report
+
+resume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.
+--- stderr
+
+===== park
+--- exit 0
+--- stdout
+batch: T-5 is no longer parked by the lead
+--- stderr
+
+===== park unknown
+--- exit 1
+--- stdout
+--- stderr
+batch: T-9 is not in the batch
+
+===== next after
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+task | state | detail | pending question
+T-1 | PARKED | question | 1. Which cache do we use for T-1?
+T-2 | skipped | depends on T-1 (parked) | -
+T-3 | merged | - | -
+T-4 | PARKED | awaiting merge | pull request 77: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself
+T-5 | open | run | -
+NEXT: run T-5   (agent.sh worktree-add T-5, then /proofline run T-5 with .agents/local/worktrees/T-5 as the working folder)
+--- stderr
+
+===== next answered
+--- exit 0
+--- stdout
+batch <BID>, approved at <TS>
+task | state | detail | pending question
+T-1 | open | resume | -
+T-2 | waiting | depends on T-1 (not merged yet) | -
+T-3 | merged | - | -
+T-4 | PARKED | awaiting merge | pull request 77: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself
+T-5 | open | run | -
+NEXT: resume T-1   (agent.sh next T-1, in .agents/local/worktrees/T-1)
+--- stderr
