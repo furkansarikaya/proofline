@@ -67,7 +67,8 @@ case "${1:-}" in
   worker-evidence|submit|record|gate|secret-scan|run-language|raise-budget|waive|knowledge-done|publish-completion-report|verify-completion-report|\
   deliver-plan|deliver-step|deliver-merged|pr-state|task-source-done|platform|platform-warn|batch-ci|ci-check|ci-task-command|\
   known-issue-propose|known-issue-apply|known-issue-list|known-issue-candidates|\
-  worktree-add|worktree-path|worktree-remove|worktree-root|batch-plan|batch-cover|batch-status|batch-check|batch-answer|batch-answers|batch-next|batch-awake|batch-park)
+  worktree-add|worktree-path|worktree-remove|worktree-root|batch-plan|batch-cover|batch-status|batch-check|batch-answer|batch-answers|batch-next|batch-awake|batch-park|\
+  decide|ledger-note|metrics-dispatch)
     # a run worktree is served by the main tree's core, with the worktree as the root
     tl_core=$tl_here/../core4a; tl_root=$(cd "$tl_here/../.." && pwd -P)
     case "$tl_root" in */.agents/local/worktrees/*) tl_core=${tl_root%%/.agents/local/worktrees/*}/.agents/core4a ;; esac
@@ -132,8 +133,8 @@ case "$op" in
 esac
 STUB
   # A216: the shell code that is left (task-rename) asks the core for a slug; a fixture has the core in .agents/core4a, so a three-line stub beside agent.sh (no core/ folder, so
-  # agent.sh still runs its shell code) hands `cli slug` over to it
-  printf "import { main } from '../core4a/proofline-core.mjs';\nprocess.exitCode = main(new URL(import.meta.url).pathname);\n" > "$1/.agents/scripts/proofline-core.mjs"
+  # agent.sh still runs its shell code) hands `cli slug` over to it (and `dispatch`, a process of the core that main() returns a promise for)
+  printf "import { main } from '../core4a/proofline-core.mjs';\nprocess.exitCode = await main(new URL(import.meta.url).pathname);\n" > "$1/.agents/scripts/proofline-core.mjs"
   chmod +x "$1/.agents/scripts/"*.sh "$1/.agents/task-integrations/markdown.sh"
 }
 # The fixture repository is built once per content hash of the control plane and the stubs above, shared by every

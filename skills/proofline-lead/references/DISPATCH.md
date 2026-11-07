@@ -23,7 +23,7 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   `AGENT_ROLE` from the subagent type. dispatch path -> dispatch.sh records. The lead records nothing.
 - A dropped connection or an SSL/TLS error is retried by `D` itself (A200): the same step on the same runtime, resuming from the state the worker left (a RESUME note goes into its prompt), at most `dispatch.network_retries` times (default 3, at most 6) after a growing wait (`dispatch.network_backoff_seconds`, default 15, doubling). Do not re-dispatch by hand meanwhile; when the retries are spent `D` exits 6 with the network guidance. A sandbox that blocks the network is not retried.
 - Exit codes of `D`: 0 recorded, 1 task failure or record rejected, 2 usage/config, 5 NEEDS_INPUT, 6
-  BLOCKED, 124 timeout. 5 -> the question is already pending (`A ask` by dispatch.sh or the specialist's
+  BLOCKED, 124 timeout, 143 stopped from outside (the worker was stopped too; see FAILOVER.md, an interrupted implementer). 5 -> the question is already pending (`A ask` by dispatch.sh or the specialist's
   NEEDS_INPUT): [HANDOFF.md](HANDOFF.md); 6 -> read `BLOCKED_REASON` from check-result, or from `D`'s own stdout when
   `D` itself blocks (a worker that wrote nothing leaves no `.md` to check); 124 -> re-dispatch
   once, then BLOCKED.

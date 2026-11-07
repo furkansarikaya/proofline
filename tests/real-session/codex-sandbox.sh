@@ -57,7 +57,7 @@ for where in main worktree; do
     wt=$(cd "$main/.agents/local/worktrees/RW-1" && pwd -P)
     mkdir -p "$wt/.agents/runs" "$wt/.agents/local/locks" "$wt/.agents/local/submissions" "$wt/.agents/local/windows" "$wt/.agents/local/approvals" "$wt/.agents/local/prompts" "$wt/.agents/local/batch"
     cp -R "$main/.agents/runs/LC" "$wt/.agents/runs/LC"
-    for e in scripts hooks; do [ ! -d "$main/.agents/$e" ] || { rm -rf "$wt/.agents/$e"; cp -R "$main/.agents/$e" "$wt/.agents/$e"; }; done
+    for e in scripts hooks core4a; do [ ! -d "$main/.agents/$e" ] || { rm -rf "$wt/.agents/$e"; cp -R "$main/.agents/$e" "$wt/.agents/$e"; }; done
     cp "$main/.agents/config.yaml" "$wt/.agents/config.yaml"
     run_root=$wt
   else

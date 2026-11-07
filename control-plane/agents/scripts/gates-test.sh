@@ -341,7 +341,8 @@ sc_parallel_lock() {
 }
 
 # A waiter that read a dead holder's pid must not break the lock when a live holder took it right after that read.
-# A fake `cat` plays the holder: after the waiter's first read of the lock's pid it writes a live pid into the file.
+# A fake `cat` plays the holder: after the waiter's first read of the lock's pid it writes a live pid into the file. The waiter is a command that still runs as
+# shell code (wait-line): the Node commands read the pid file without a `cat` process (core/lock.mjs takes the pid file by rename and checks whose it was).
 sc_lock_break_race() {
   scaffold orchestrated
   mkdir "$base/fakebin"
@@ -352,7 +353,7 @@ sc_lock_break_race() {
   mkdir .agents/runs/LC/.lock; printf '99999999\n' > .agents/runs/LC/.lock/pid
   : > "$base/fake-cat.flag"
   expect_msg 'a lock taken by a live holder after the stale read was broken' 'lock timeout after 1s' \
-    env PATH="$base/fakebin:$PATH" FAKE_CAT_FLAG="$base/fake-cat.flag" FAKE_CAT_LIVE="$$" PROOFLINE_LOCK_TIMEOUT=1 sh ./.agents/scripts/agent.sh ledger-note LC racer
+    env PATH="$base/fakebin:$PATH" FAKE_CAT_FLAG="$base/fake-cat.flag" FAKE_CAT_LIVE="$$" PROOFLINE_LOCK_TIMEOUT=1 sh ./.agents/scripts/agent.sh wait-line LC racer
   [ ! -e "$base/fake-cat.flag" ] || die 'the fake holder never took the lock (the race was not exercised)'
   [ "$(/bin/cat .agents/runs/LC/.lock/pid)" = "$$" ] || die 'the live holder lost its pid'
   rm -f .agents/runs/LC/.lock/pid; rmdir .agents/runs/LC/.lock

@@ -32,8 +32,8 @@ PROOFLINE_SHARED_ROOT=$sr_main; export PROOFLINE_SHARED_ROOT
 # The commands that still run as shell code (listed here, one list); every other command, a name that is no command and no command at all run in
 # proofline-core.mjs, which answers an unknown name with the usage text. tests/core/table.test.mjs checks the list against the Node handlers.
 case "${1:-}" in
-  friction|calibrate|build-record|lessons|rules|decide|\
-  metrics-dispatch|wait-line|ledger-note|\
+  friction|calibrate|build-record|lessons|rules|\
+  wait-line|\
   task-rename-plan|task-rename-apply|test) ;;
   *)
     pl_sh=no
@@ -1061,11 +1061,6 @@ path_changed_lines() {
   elif [ -f "$root/$2" ]; then
     if grep -Iq . "$root/$2" 2>/dev/null || [ ! -s "$root/$2" ]; then wc -l < "$root/$2" | tr -d ' '; else echo 100000; fi
   else echo 0; fi
-}
-diff_stats() { # ID -> "files lines"
-  ds_f=0 ds_l=0
-  for ds_p in $(task_changed_paths "$1"); do ds_f=$((ds_f + 1)); ds_l=$((ds_l + $(path_changed_lines "$1" "$ds_p"))); done
-  printf '%s %s\n' "$ds_f" "$ds_l"
 }
 tier_compute() {
   tc_id=$1
@@ -4150,178 +4145,8 @@ answer() {
   if [ -n "$an_as" ] && [ "$an_by" != user ]; then echo "note:${an_as}: not an acceptance the user's own prompt carries (answered_by=$an_by; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted"; fi
 }
 
-role_results_count() { # ID ROLE [FOCUS] -> recorded results of exactly this role (and focus: the FOCUS header of the raw message)
-  rc_n=0
-  for rc_f in "$(run_dir "$1")"/results/[0-9][0-9][0-9]-"$2".result.md; do
-    [ -f "$rc_f" ] || continue
-    if [ -n "${3:-}" ]; then grep -qx "FOCUS: $3" "$rc_f" || continue; fi
-    rc_n=$((rc_n + 1))
-  done
-  echo "$rc_n"
-}
 decision_files() { ls -1 "$(run_dir "$1")/decisions" 2>/dev/null | grep -E '^[0-9]{3}-.*\.decision$' | sort || true; }
-latest_decision() { # ID ROLE [FOCUS]
-  ld_tag=$2; [ -z "${3:-}" ] || ld_tag="$2-$(printf '%s' "$3" | tr '+' '-')"
-  ld_hit=''; for ld_f in $(decision_files "$1"); do case "$ld_f" in [0-9][0-9][0-9]-"$ld_tag".decision) ld_hit=$(run_dir "$1")/decisions/$ld_f ;; esac; done
-  printf '%s\n' "$ld_hit"
-}
-# A132: max_explorers bounds the explorer slots of one planning phase. A slot is a DELIVERED report (a DONE result
-# recorded after the last freeze or refreeze) or an explorer dispatch still running. BLOCKED and NEEDS_INPUT hold
-# no slot (their retry or ANSWERS re-dispatch completes the same slot); neither does a dispatch that ended without a
-# result. A limit of 0 is not checked here (the class pipeline decides whether explorers exist).
-explorer_slot_check() {
-  es_id=$1 es_class=$2; es_max=$(pipeline_value "$es_class" max_explorers)
-  case "$es_max" in ''|*[!0-9]*|0) return 0 ;; esac
-  es_d=$(run_dir "$es_id"); es_l=$(ledger_file "$es_id"); es_floor=0
-  if [ -f "$es_l" ]; then es_floor=$(awk '/ event=(freeze|refreeze) / { s = $1; sub(/^seq=/, "", s); f = s } END { print f + 0 }' "$es_l"); fi
-  es_have='' es_keys=''
-  for es_f in $(ls -1 "$es_d/results" 2>/dev/null | grep -E '^[0-9]{3}-explorer\.result\.md$' || true); do
-    grep -qx 'RESULT: DONE' "$es_d/results/$es_f" || continue
-    es_s=''; [ ! -f "$es_l" ] || es_s=$(grep "detail=results/$es_f " "$es_l" | sed -n 's/^seq=\([0-9]*\) .*/\1/p' | tail -n 1)
-    [ -z "$es_s" ] || [ "$es_s" -gt "$es_floor" ] || continue
-    # one explorer = one allocated report: a resubmitted (revised) report is another result file for the same slot
-    es_k=$(sed -n 's/^ARTIFACT: [^ ]*\/[0-9a-f]\{12\}-\([^ ]*\) .*/\1/p' "$es_d/results/$es_f" | head -n 1)
-    [ -z "$es_k" ] || case " $es_keys " in *" $es_k "*) continue ;; esac
-    es_keys="$es_keys $es_k"
-    es_have="$es_have $es_f"
-  done
-  es_open=0
-  for es_m in "$es_d"/dispatch/*-explorer-*.running; do
-    [ -f "$es_m" ] || continue
-    # a dispatch whose submission is already recorded is counted as its delivered result, not twice
-    es_b=${es_m##*/}; ! grep -qx 'status=ok' "$(submission_dir)/d${es_b%.running}.status" 2>/dev/null || continue
-    ! inflight_pid_alive "$(sed -n 's/^pid=//p' "$es_m" | head -n 1)" "$es_m" || es_open=$((es_open + 1))
-  done
-  es_n=$(printf '%s\n' "$es_have" | wc -w | tr -d ' ')
-  [ $((es_n + es_open)) -lt "$es_max" ] || fail "decide refused (A132): class $es_class allows $es_max explorer slot(s) (pipelines.$es_class.max_explorers) and run $es_id holds ${es_n} delivered result(s)${es_have:+ ($es_have )}and $es_open running explorer dispatch(es). Consolidate EVIDENCE.md from the delivered reports; a BLOCKED or NEEDS_INPUT result or a dispatch that returned nothing holds no slot and is re-dispatched. The count restarts at each freeze/refreeze, so an extra explorer after a plan amendment is allowed once the plan is refrozen"
-}
-ui_surface_signal() { # ID [MODE] -> 0 when the task's UI surface is persuade or experience
-  uss_d=$(run_dir "$1")
-  case "$2" in persuade|experience) return 0 ;; esac
-  { [ ! -f "$uss_d/design/ui.json" ] || tr -d '\n' < "$uss_d/design/ui.json" | grep -oE '"visitor_mode"[[:space:]]*:[[:space:]]*\{[^}]*"mode"[[:space:]]*:[[:space:]]*"[a-z]+"' | sed 's/.*"//;s/"$//'
-    [ ! -f "$uss_d/PLAN.md" ] || awk '/^## /{ui=($0 ~ /^## UI/)} ui && /^[-* ]*`?visitor_mode`?:/{ sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]].*$/, ""); print }' "$uss_d/PLAN.md"
-  } | grep -qxE 'persuade|experience'
-}
-decide() {
-  dc_id=$1 dc_role=$(canon_role "$2"); shift 2; require_run "$dc_id"; require_lead; require_open_run "$dc_id"
-  valid_role "$dc_role" || fail "invalid role: $dc_role"
-  dc_class=$(pipeline_class "$dc_id"); pipeline_class_valid "$dc_class" || fail "run $dc_id is not classified: the execution policy is derived from its class"
-  dc_focus='' dc_over='' dc_uimode='' dc_dry=no dc_ap=no dc_redo=no
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --dry) dc_dry=yes; shift ;;
-      --agent-path) dc_ap=yes; shift ;;
-      --redecide) dc_redo=yes; dc_ap=yes; shift ;;
-      --ui-mode) dc_uimode=${2:?--ui-mode needs a value}; shift 2 ;;
-      --focus) dc_focus=${2:?--focus needs a value}; shift 2 ;;
-      --model|--effort|--context-bytes|--runtime|--runtime-reason) [ $# -ge 2 ] || fail "$1 needs a value"; dc_over="$dc_over $1 $2"; shift 2 ;;   # --runtime-reason: only dispatch.sh, for an automatic failover (A203)
-      *) fail "unknown decide argument: $1" ;;
-    esac
-  done
-  # A171: decide records the decision of one dispatch (a decisions/ file, a ledger event, an escalation count). It is run by dispatch.sh
-  # (which sets PROOFLINE_DISPATCH) or, on the Agent path, once right before the Agent call (--agent-path). Called ahead of a `D`
-  # dispatch it only duplicates the decision that dispatch.sh makes itself; to just read the decision use --dry (writes nothing).
-  [ "$dc_dry$dc_ap" != yesyes ] || fail "decide --dry and --agent-path exclude each other: --dry only reads, --agent-path records"
-  # The exemption is a per-dispatch nonce: dispatch.sh writes .agents/local/dispatch/nonce-<value> for the one decide it runs and
-  # removes it right after, so setting the variable by hand (any spelling) proves nothing.
-  # The nonce file holds the pid of the dispatch.sh that wrote it: it must be alive and an ancestor of this process; the file is
-  # removed on acceptance (one use).
-  dc_nonce=${PROOFLINE_DISPATCH:-}; dc_nok=no
-  case "$dc_nonce" in ''|*[!0-9a-f]*) ;; *)
-    dc_nf=$root/.agents/local/dispatch/nonce-$dc_nonce
-    if [ "${#dc_nonce}" -ge 16 ] && [ -f "$dc_nf" ]; then
-      dc_npid=$(head -n 1 "$dc_nf" 2>/dev/null)
-      case "$dc_npid" in ''|*[!0-9]*) ;; *)
-        if kill -0 "$dc_npid" 2>/dev/null; then
-          dc_anc=$$; dc_hops=0
-          while [ "$dc_hops" -lt 12 ] && [ -n "$dc_anc" ] && [ "$dc_anc" -gt 1 ]; do
-            [ "$dc_anc" != "$dc_npid" ] || { dc_nok=yes; break; }
-            dc_anc=$(ps -o ppid= -p "$dc_anc" 2>/dev/null | tr -d ' '); dc_hops=$((dc_hops + 1))
-          done
-        fi ;; esac
-      [ "$dc_nok" != yes ] || [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || rm -f "$dc_nf"
-    fi ;; esac
-  case "$dc_over " in *" --runtime-reason "*) [ "$dc_nok" = yes ] || fail "decide --runtime-reason is dispatch.sh's alone (an automatic failover): the lead does not label its own choice" ;; esac
-  [ "$dc_dry" = yes ] || [ "$dc_ap" = yes ] || [ "$dc_nok" = yes ] ||
-    fail "decide refused (A171): it records the decision of a dispatch and is not called ahead of one. Dispatch with dispatch.sh (it decides itself); to only read the decision run: agent.sh decide $dc_id $dc_role --dry (writes nothing); on the Agent path run it once, right before the Agent call: agent.sh decide $dc_id $dc_role --agent-path"
-  [ "$dc_role" != explorer ] || explorer_slot_check "$dc_id" "$dc_class"
-  # A171 (review): the Agent route decides once per step. A second --agent-path for the same role and focus is refused until a
-  # result of that role is recorded after the first (explorers run in parallel and are bounded by their slots instead).
-  if [ "$dc_redo" = yes ]; then
-    [ "$execution_role" = lead ] || fail "decide --redecide is the lead's"
-    gates_enforced "$dc_id" && ledger_append "$dc_id" note - - "decide --redecide $dc_role${dc_focus:+ focus=$dc_focus}: the earlier Agent-route decision stays in decisions/; another runtime or model is wanted"
-  elif [ "$dc_ap" = yes ] && [ "$dc_role" != explorer ]; then
-    dc_pv=$(latest_decision "$dc_id" "$dc_role" "$dc_focus")
-    if [ -n "$dc_pv" ] && grep -qx 'via=agent-path' "$dc_pv" && [ "$(sed -n 's/^results_n=//p' "$dc_pv" | head -n 1)" = "$(role_results_count "$dc_id" "$dc_role" "$dc_focus")" ]; then
-      fail "decide --agent-path refused: the $dc_role${dc_focus:+ ($dc_focus)} decision ${dc_pv##*/} was recorded for the Agent call and no result has been recorded since. Make the Agent call with that decision (agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --dry shows it again), or record its result first, or to choose another runtime or model: agent.sh decide $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --redecide [--runtime R] [--model M]"
-    fi
-  fi
-  # A171: a gate whose dependency has not completed is not dispatched
-  if dc_dgate=$(gate_of "$dc_role" "$dc_focus" "$dc_id" 2>/dev/null) && [ -n "$(gate_deps "$dc_id" "$dc_dgate")" ]; then
-    dc_unmet=$(gate_deps_unmet "$dc_id" "$dc_dgate" | tr '\n' ' ')
-    [ -z "$dc_unmet" ] || fail "$dc_dgate needs ${dc_unmet% } first (GATES.md, Gate dependencies): dispatch that gate and let it pass for the current content, then run this again ('agent.sh next $dc_id' lists the order)"
-  fi
-  dc_tier=$(tier_effective "$dc_id"); dc_sig=''
-  [ "$dc_class" != CRITICAL ] || dc_sig="$dc_sig critical_class"
-  dc_stats=$(diff_stats "$dc_id"); if [ "${dc_stats% *}" -gt 15 ] || [ "${dc_stats#* }" -gt 400 ]; then dc_sig="$dc_sig large_diff"; fi
-  [ "$(fix_rounds_used "$dc_id")" -lt 2 ] || dc_sig="$dc_sig fix_round_2"
-  # 0.0.27 (A170): a UI task on a persuade or experience surface puts designer and implementer on the strongest model.
-  # Detected from the run's own files: design/ui.json `visitor_mode.mode` (spec or any screen) or the PLAN.md `## UI`
-  # line `visitor_mode: <mode>`; before the designer has written either, the lead names the surface with `--ui-mode`.
-  case "$dc_role" in designer|implementer) ui_surface_signal "$dc_id" "$dc_uimode" && dc_sig="$dc_sig ui_persuade" ;; esac
-  if dc_gate=$(gate_of "$dc_role" "$dc_focus" "$dc_id" 2>/dev/null); then
-    dc_lf=$(gate_latest_file "$dc_id" "$dc_gate" "${dc_focus:--}")
-    if [ -n "$dc_lf" ]; then
-      case "$(gate_field "$dc_lf" result)" in fail) dc_sig="$dc_sig recent_fail_same_focus" ;; pass_low) dc_sig="$dc_sig low_confidence_pass" ;; esac
-    fi
-  fi
-  # Runtime and profile are passed only when overridden (decide --runtime, RUN.yaml execution.profile), so the
-  # resolver records the real reason from config otherwise.
-  dc_prof=$(section_value "$(run_dir "$dc_id")" execution profile)
-  set -- resolve --role "$dc_role" --class "$dc_class" --tier "$dc_tier"
-  case "$dc_prof" in max|balanced|economy) set -- "$@" --profile "$dc_prof" ;; *) dc_prof=$(run_profile "$dc_id") ;; esac
-  for dc_s in $dc_sig; do set -- "$@" --signal "$dc_s"; done
-  dc_esc=0; for dc_f in $(decision_files "$dc_id"); do grep -qx 'escalated=yes' "$(run_dir "$dc_id")/decisions/$dc_f" && dc_esc=$((dc_esc + 1)); done
-  set -- "$@" --escalations-used "$dc_esc"
-  # shellcheck disable=SC2086 # overrides are flag/value pairs without whitespace
-  set -- "$@" $dc_over
-  dc_rc=0
-  # A222: the resolver is the Node core's (cli exec-policy); a project's own .agents/scripts/exec-policy.sh (the fixture stub of the self-tests) is run by it instead
-  dc_res=$(pl_core cli exec-policy "$@") || dc_rc=$?
-  if [ "$dc_rc" != 0 ]; then [ "$dc_rc" != 1 ] || dc_rc=4; echo "decision refused by the execution policy (exit $dc_rc)" >&2; return "$dc_rc"; fi
-  # A200: the Agent path runs a Claude Code subagent. A role the configuration gives to another runtime (Codex, a command template) is
-  # dispatched with dispatch.sh; recording an Agent-path decision for it would run the role on the wrong runtime without a word.
-  if [ "$dc_ap" = yes ]; then
-    dc_rt=$(printf '%s\n' "$dc_res" | sed -n 's/^runtime=//p' | head -n 1)
-    case "$dc_rt" in ''|claude) ;; *) fail "decide --agent-path refused (A200): the role $dc_role is configured for the runtime $dc_rt, not Claude Code, so it has no Agent path. Dispatch it instead: dispatch.sh $dc_id $dc_role${dc_focus:+ --focus $dc_focus} --prompt-file <assignment file> (it decides itself). To run this role on Claude Code instead, the user changes runtime.roles.$dc_role (or the group key) in .agents/config.yaml" ;; esac
-  fi
-  dc_body=$(printf '%s\nrole=%s\nfocus=%s\nclass=%s\ntier=%s\nprofile=%s\nsignals=%s\ndecided_at=%s\n' "$dc_res" "$dc_role" "$dc_focus" "$dc_class" "$dc_tier" "$dc_prof" "$(printf '%s' "$dc_sig" | sed 's/^ //' | tr ' ' ',')" "$(now_epoch)")
-  [ "$dc_ap" != yes ] || dc_body="$dc_body
-via=agent-path
-results_n=$(role_results_count "$dc_id" "$dc_role" "$dc_focus")"
-  # The first line is a one-line summary (role, runtime, model, effort, reason): a truncated output still reads right (A171).
-  dc_v() { printf '%s\n' "$dc_body" | sed -n "s/^$1=//p" | head -n 1; }
-  dc_sum="decision: role=$(dc_v role) runtime=$(dc_v runtime) model=$(dc_v model) effort=$(dc_v effort) reason=$(dc_v model_reason)"
-  if [ "$dc_dry" = yes ]; then printf '%s (dry run: nothing recorded)\n%s\n' "$dc_sum" "$dc_body"; return 0; fi
-  dc_dir=$(run_dir "$dc_id")/decisions; mkdir -p "$dc_dir"
-  dc_tag=$dc_role; [ -z "$dc_focus" ] || dc_tag="$dc_role-$(printf '%s' "$dc_focus" | tr '+' '-')"
-  dc_out=$dc_dir/$(next_num "$dc_dir")-$dc_tag.decision
-  printf '%s\n' "$dc_body" > "$dc_out.tmp"
-  mv "$dc_out.tmp" "$dc_out"
-  if gates_enforced "$dc_id"; then ledger_append "$dc_id" decide - - "$(basename "$dc_out") runtime=$(sed -n 's/^runtime=//p' "$dc_out" | head -1) model=$(sed -n 's/^model=//p' "$dc_out" | head -1) effort=$(sed -n 's/^effort=//p' "$dc_out" | head -1) signals=${dc_sig# }"; fi
-  printf '%s\n' "$dc_sum"; cat "$dc_out"; echo "decision_file=${dc_out#"$root"/}"
-}
 
-# ledger-note: a ledgered free-text note (lead or dispatch.sh: failover, policy violation, ...).
-ledger_note() {
-  ln_id=$1 ln_text=$2; require_run "$ln_id"; require_lead
-  gates_enforced "$ln_id" || fail "ledger-note requires the lifecycle_gates policy"
-  [ -n "$(printf '%s' "$ln_text" | tr -d '[:space:]')" ] || fail "ledger-note needs text"
-  verify_seal "$ln_id"
-  ln_s=$(section_value "$(run_dir "$ln_id")" handoff state)
-  ledger_append "$ln_id" note "$ln_s" "$ln_s" "$ln_text"
-  echo "ledger note recorded: $ln_id"
-}
 
 # friction-note (A171): the lead (or the Stop hook) records that the user was asked to run an internal command or a shell command.
 # That is a proofline bug, never normal flow; the ledger event counts in the friction report. KIND is a controlled word (no free
@@ -4360,26 +4185,6 @@ wait_line() {
 # (the status block and the metrics run record read the same source)
 task_size_of() {
   awk '/^---[[:space:]]*$/ { fm = !fm; if (!fm && seen) exit; seen = 1; next } fm && /^size:/ { sub(/^size:[ \t]*/, ""); print; exit }' "$(run_dir "$1")/TASK.md" 2>/dev/null | tr -cd 'A-Za-z0-9 ._-' | cut -c1-16
-}
-# metrics_json KIND TASK ROLE FOCUS GATE RUNTIME MODEL DURATION TOKENS_IN TOKENS_OUT TOKENS_TOTAL TURNS RETRIES
-#   DELEGATIONS FIX_ROUNDS RESULT [SIZE SCOPE_PATHS] -> .agents/local/metrics/records.jsonl (A80). One JSON object per line, written
-#   by the control plane from its own state and the runtime's structured output; no model-written text is copied in.
-#   Empty or "-" is null; a number field that is not digits is null; strings are cut to [A-Za-z0-9._+:-], so a
-#   record can never carry free text (and so never a secret). `metrics: off` writes nothing.
-metrics_json() {
-  [ "$(cfg metrics on)" != off ] || return 0
-  mj_f=$(shared_dir metrics)/records.jsonl
-  mkdir -p "$(dirname "$mj_f")" 2>/dev/null || return 0
-  mj_s() { mj_v=$(printf '%s' "$1" | tr -cd 'A-Za-z0-9._+:-'); case "$mj_v" in ''|-) printf null ;; *) printf '"%s"' "$mj_v" ;; esac; }
-  mj_n() { case "$1" in ''|*[!0-9]*) printf null ;; *) printf '%s' "$1" ;; esac; }
-  printf '{"schema":"proofline.metrics/1","kind":%s,"time":"%s","task":%s,"role":%s,"focus":%s,"gate":%s,"runtime":%s,"model":%s,"duration_s":%s,"tokens_in":%s,"tokens_out":%s,"tokens_total":%s,"turns":%s,"retries":%s,"delegations":%s,"fix_rounds":%s,"result":%s,"size":%s,"scope_paths":%s}\n' \
-    "$(mj_s "$1")" "$(now_iso)" "$(mj_s "$2")" "$(mj_s "$3")" "$(mj_s "$4")" "$(mj_s "$5")" "$(mj_s "$6")" "$(mj_s "$7")" \
-    "$(mj_n "$8")" "$(mj_n "$9")" "$(mj_n "${10}")" "$(mj_n "${11}")" "$(mj_n "${12}")" "$(mj_n "${13}")" "$(mj_n "${14}")" "$(mj_n "${15}")" "$(mj_s "${16}")" "$(mj_s "${17:-}")" "$(mj_n "${18:-}")" >> "$mj_f" 2>/dev/null || true
-}
-# metrics-dispatch (called by dispatch.sh, lead only): one record per specialist dispatch.
-metrics_dispatch() { # ID ROLE FOCUS RUNTIME MODEL DURATION TIN TOUT TTOTAL TURNS RETRIES RESULT
-  require_run "$1"
-  metrics_json dispatch "$1" "$2" "$3" "$(gate_of "$2" "$3" "$1" 2>/dev/null || true)" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" - - "${12}"
 }
 
 # --- next (deterministic next step; an interrupted step restarts from its beginning) -------
@@ -5222,7 +5027,6 @@ case "$command" in
   repro-normalize) repro_normalize ;;
   design-rationales) [ "${2:-}" = - ] || require_run "${2:?usage: agent.sh design-rationales <ID|-> [--json] [DESIGN-MD-PATH]}"; design_rationales "$2" "${3:-}" "${4:-}" ;;
   report-tokens) report_tokens "${2:?usage: agent.sh report-tokens <ID>}" ;;
-  decide) require_lead; dcid=${2:?usage: agent.sh decide <ID> <ROLE> --dry|--agent-path [--focus F] [--ui-mode M] [overrides]}; dcr=${3:?usage: agent.sh decide <ID> <ROLE> ...}; shift 3; decide "$dcid" "$dcr" "$@" ;;
   verify-freeze) verify_freeze "${2:?usage: agent.sh verify-freeze <ID>}" ;;
   verify-scope) verify_scope "${2:?usage: agent.sh verify-scope <ID>}" ;;
   verify-knowledge-scope) verify_knowledge_scope "${2:?usage: agent.sh verify-knowledge-scope <ID>}" ;;
@@ -5238,10 +5042,8 @@ case "$command" in
   approve-pending) require_lead; approve_pending "${2:-}" ;;
   approval-consume) [ $# -ge 3 ] || fail "usage: agent.sh approval-consume <ID> <KIND> [FINGERPRINT [REF...]]"; shift; approval_consume "$@" ;;
   questions) require_run "${2:?usage: agent.sh questions <ID>}"; questions_show "$2" ;;
-  metrics-dispatch) require_lead; [ $# -ge 13 ] || fail "usage: agent.sh metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT> (empty = null)"; shift; metrics_dispatch "$@" ;;
   friction-note) friction_note "${2:?usage: agent.sh friction-note <ID> <user-command|user-shell|proofline_bug>}" "${3:-}" ;;
   wait-line) wait_line "${2:?usage: agent.sh wait-line <ID> [WHAT] [--done]}" "${3:-}" "${4:-}" ;;
-  ledger-note) ledger_note "${2:?usage: agent.sh ledger-note <ID> <TEXT>}" "${3:?usage: agent.sh ledger-note <ID> <TEXT>}" ;;
   answer) answer "${2:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${3:?usage: agent.sh answer <ID> <N> [--captured|--amend]}" "${4:-}" ;;
   commands-check) commands_check ;;
   scale-check) scale_check ;;

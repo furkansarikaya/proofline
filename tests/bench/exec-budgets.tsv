@@ -1,11 +1,9 @@
 # Budgets of the execution-policy, runtime-detection and known-issue paths (A222, issue #172): the most external processes one run of the path may start on
 # the fixture of tests/bench/exec-procs.mjs (a PATH shim counts them, the measured command itself included: no clock is read), and the most stdout bytes
-# it may print. max_procs = the measured count (REPEAT=3 median) plus a margin of max(2, 25 percent); decide-dry is the whole shell `decide` (its policy step
-# is one Node process now, the rest is shell until the dispatch package) and has a margin of 10 percent. max_bytes: the size of the output on that fixture
+# it may print. max_procs = the measured count (REPEAT=3 median) plus a margin of max(2, 25 percent); max_bytes: the size of the output on that fixture
 # ('-' for a path whose size is not a budget): a command may print less, never more. before = the shell form of 0.0.52 on the same fixture.
 # tests/bench/exec-budgets.test.mjs fails above a row. Raise a row only with a decision in docs/decisions.md.
 # path<TAB>max_procs<TAB>measured<TAB>before<TAB>max_bytes
-decide-dry	147	133	152	-
 exec-policy-resolve	3	1	18	389
 runtime-detect-has	3	1	2	-
 runtime-detect-list	4	2	5	-

@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import { measureAll, table } from './exec-procs.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
-const PATHS = ['decide-dry', 'exec-policy-resolve', 'runtime-detect-has', 'runtime-detect-list', 'known-issue-propose', 'known-issue-approve', 'known-issue-apply', 'known-issue-list', 'known-issue-candidates'];
+const PATHS = ['exec-policy-resolve', 'runtime-detect-has', 'runtime-detect-list', 'known-issue-propose', 'known-issue-approve', 'known-issue-apply', 'known-issue-list', 'known-issue-candidates'];
 
 /** @param {string} text @returns {{ path: string, maxProcs: number, measured: number, before: number, maxBytes: number | null }[]} */
 export function parseBudgets(text) {
@@ -36,7 +36,7 @@ const rows = parseBudgets(readFileSync(join(repo, 'tests/bench/exec-budgets.tsv'
 test('the table covers every path once, and each row keeps a margin over its measurement', () => {
   assert.deepEqual(rows.map((r) => r.path), PATHS);
   for (const r of rows) {
-    assert.ok(r.maxProcs >= r.measured + 2 || r.maxProcs >= Math.ceil(r.measured * 1.25) || (r.path === 'decide-dry' && r.maxProcs >= Math.ceil(r.measured * 1.1)), `${r.path}: no margin`);
+    assert.ok(r.maxProcs >= r.measured + 2 || r.maxProcs >= Math.ceil(r.measured * 1.25), `${r.path}: no margin`);
     // the known-issue commands that were shell code are the point of the package: far fewer processes than their shell form
     if (['known-issue-propose', 'known-issue-apply', 'known-issue-list', 'known-issue-candidates'].includes(r.path)) assert.ok(r.maxProcs * 4 < r.before, `${r.path}: the budget is not far below the shell form`);
   }

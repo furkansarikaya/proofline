@@ -28,6 +28,7 @@ import { KI_HANDLERS } from './kicmds.mjs';
 import { BATCH_HANDLERS } from '../batch.mjs';
 import { BATCHPLAN_HANDLERS } from '../batchplan.mjs';
 import { WORKTREE_HANDLERS } from '../worktree.mjs';
+import { DECIDE_HANDLERS } from '../decide.mjs';
 import { detectPlatform, warnText } from '../platform.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
@@ -196,4 +197,6 @@ export const HANDLERS = {
   ...WORKTREE_HANDLERS,
   ...BATCH_HANDLERS,
   ...BATCHPLAN_HANDLERS,
+  // --- stage 7, package 172-D (A226) ---
+  ...DECIDE_HANDLERS,
 };

@@ -15,6 +15,7 @@ import { COMMAND_NAMES, READ_ONLY_COMMANDS } from './core/commands/names.mjs';
 import { bytes } from './core/config.mjs';
 import { Context, validRole } from './core/context.mjs';
 import { BridgeToShell, ProoflineError } from './core/errors.mjs';
+import { startDispatch } from './core/dispatcher.mjs';
 import { LockSet, takeCommandLocks, takesLocks } from './core/lock.mjs';
 import { isDir, isFile } from './core/paths.mjs';
 import * as proc from './core/proc.mjs';
@@ -119,6 +120,8 @@ function dispatch(ctx, locks, argv) {
   const args = argv.slice(1);
   // the CLI-only subcommands (closed set, read-only; see core/commands/cli.mjs) are not agent.sh commands and take neither role gate nor bridge
   if (command === 'cli') return runCli(ctx, args);
+  // `dispatch` is a long-running process (a watchdog with timers and signals), not a command of agent.sh: main() runs it, never run()
+  if (command === 'dispatch') throw new ProoflineError('proofline-core: dispatch is a process of its own: node proofline-core.mjs dispatch <TASK-ID> <role> [options]', 2, 'NOT_MOVED');
   const handler = Object.hasOwn(HANDLERS, command) ? HANDLERS[command] : undefined;
   // agent.sh parses the config at its start: a config that exists but cannot be read is the shell's (awk's) error
   if (handler && isFile(ctx.configFile)) { try { accessSync(ctx.configFile, constants.R_OK); } catch { throw new ProoflineError('proofline: the configuration file is not readable', 1); } }
@@ -214,7 +217,17 @@ function cliRootScript(argv, env) {
   return argv[0] === 'cli' && argv[1] === 'next-line' && r && path.isAbsolute(r) ? path.join(r, '.agents', 'scripts', 'proofline-core.mjs') : undefined;
 }
 
-/** The entry point: the arguments of the process, its descriptors, its environment. @param {string} scriptPath */
+/**
+ * `dispatch ...` as a process: the specialist runner (core/dispatcher.mjs). HUP, INT and TERM go to the worker's group; the exit status is the dispatcher's.
+ * @param {Io} io @param {string[]} args the arguments after `dispatch` @returns {Promise<number>}
+ */
+function dispatchMain(io, args) {
+  const handle = startDispatch(io, args, { run });
+  for (const sig of /** @type {const} */ (['SIGHUP', 'SIGINT', 'SIGTERM'])) process.on(sig, () => handle.interrupt(sig));
+  return handle.done;
+}
+
+/** The entry point: the arguments of the process, its descriptors, its environment. @param {string} scriptPath @returns {number | Promise<number>} */
 export function main(scriptPath) {
   const cwd = process.cwd();
   const split = splitArgv0(process.argv.slice(2), path.resolve(scriptPath), cwd);
@@ -223,10 +236,13 @@ export function main(scriptPath) {
     // from a run worktree the script that names the root is the worktree's agent.sh; the code that runs stays this core's
     scriptPath: split.rootScript ?? cliRootScript(split.argv, process.env) ?? path.resolve(scriptPath), argv0: split.argv0,
   };
+  if (split.argv[0] === 'dispatch') return dispatchMain(io, split.argv.slice(1));
   return run(split.argv, io);
 }
 
 const entry = process.argv[1];
 if (entry && (() => { try { return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) {
-  process.exitCode = main(entry);
+  const code = main(entry);
+  if (typeof code === 'number') process.exitCode = code;
+  else void code.then((c) => { process.exitCode = c; });
 }

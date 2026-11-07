@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "../..");
@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.59"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.60"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -370,7 +370,7 @@ test("the lead's own questions go through agent.sh ask, which the Node core and 
   const scripts = join(repoRoot, "control-plane/agents/scripts");
   assert.match(readFileSync(join(scripts, "core/questions.mjs"), "utf8"), /export function askCommand\(ctx, args\) \{\n {2}requireLead\(ctx\);/);
   assert.match(readFileSync(join(scripts, "core/commands/runcmds.mjs"), "utf8"), /^ {2}ask: askCommand,$/m);
-  assert.match(readFileSync(join(repoRoot, "control-plane/agents/scripts/dispatch.sh"), "utf8"), /"\$agent" ask "\$id" --file/);
+  // the dispatcher's use of it (the failover question is stored with the lead's command) is held by tests/core/dispatch.test.mjs "failover ask"
 });
 
 // ---- A153: observations become tasks only after the user approves; debt page is a script ----
@@ -413,7 +413,7 @@ test("delivery: the lead texts say an attribution instruction never parks or edi
 });
 
 // A224 (#172): a worker dispatch runs in the background; a dispatch killed from outside leaves unattested edits and the recovery is one question, never a silent undo.
-test("dispatch: the lead starts a worker D in the background; a killed D is recovered with one question, not a re-dispatch (known good / known bad)", () => {
+test("dispatch: the lead starts a worker D in the background; a killed D is recovered with one question, not a re-dispatch (known good / known bad)", async () => {
   const flat = (p) => readFileSync(p, "utf8").replace(/\s+/g, " ");
   const dispatch = flat(join(skill, "references/DISPATCH.md"));
   const failover = flat(join(skill, "references/FAILOVER.md"));
@@ -426,9 +426,11 @@ test("dispatch: the lead starts a worker D in the background; a killed D is reco
   assert.match(failover, /no approval covers it, not even a batch's/);
   assert.match(failover, /Do not re-dispatch, discard or hand-edit before the answer/);
   // the script says the same where the lead meets the refusal
-  const dsh = readFileSync(join(repoRoot, "control-plane/agents/scripts/dispatch.sh"), "utf8");
-  assert.match(dsh, /window-open refused; \$role not started\. If an earlier dispatch of this step was killed from outside \(exit 124 or Terminated\)/);
-  assert.match(dsh, /do not dispatch again, discard or edit by hand before the answer \(A224\)/);
+  const { windowOpenRefusedText } = await import(pathToFileURL(join(repoRoot, "control-plane/agents/scripts/core/dispatcher.mjs")).href);
+  const refused = windowOpenRefusedText("T-9", "implementer");
+  assert.match(refused, /^dispatch: window-open refused; implementer not started\. If an earlier dispatch of this step was killed from outside \(exit 124 or Terminated\)/);
+  assert.match(refused, /run agent\.sh tree-inspect T-9 and put ONE question to the user/);
+  assert.match(refused, /do not dispatch again, discard or edit by hand before the answer \(A224\)$/);
   // known bad: no text tells the lead to wrap D in its own timeout, or to discard unattested edits without the user
   for (const t of [sk, dispatch, failover]) {
     assert.doesNotMatch(t, /(^|[^`\w])timeout \d+ [^ ]*dispatch\.sh/);

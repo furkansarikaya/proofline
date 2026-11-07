@@ -39,7 +39,7 @@ function files() {
     if (statSync(p).isDirectory()) out.push(...walk(p)); else out.push(p);
   }
   // dispatch prompts are text inside the shell/Node scripts
-  out.push(join(REPO, "control-plane/agents/scripts/dispatch.sh"));
+  out.push(join(REPO, "control-plane/agents/scripts/dispatch.sh"), join(REPO, "control-plane/agents/scripts/core/dispatcher.mjs"));
   return out;
 }
 
