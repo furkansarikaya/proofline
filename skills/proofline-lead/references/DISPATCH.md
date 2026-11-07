@@ -27,6 +27,10 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   NEEDS_INPUT): [HANDOFF.md](HANDOFF.md); 6 -> read `BLOCKED_REASON` from check-result, or from `D`'s own stdout when
   `D` itself blocks (a worker that wrote nothing leaves no `.md` to check); 124 -> re-dispatch
   once, then BLOCKED.
+- **Start `D` for a worker in the background (A224).** An implementer or any worker takes many minutes. Run `D` with the Bash tool's
+  `run_in_background` (or the longest tool timeout), wait for the completion notice, then read its exit code. Never run it in the
+  foreground under the default tool timeout or a `timeout` of your own: the kill (exit 124 or "Terminated") ends `D` before it closes
+  the implementer's write window, so the partial edits stay unattested and the next `D` is refused (`window-open refused`). Recovery after such a kill is in [FAILOVER.md](FAILOVER.md) (an interrupted implementer).
 - `D` is synchronous and can take minutes: its `dispatch/<NNN>-<role>-<runtime>.md` and `.log` stay empty until it
   returns, and a `.running` marker sits beside them meanwhile. Never read those files, or start the same step
   again, while the `D` command is still running (not even from a parallel tool call): wait for it to return. An

@@ -412,6 +412,30 @@ test("delivery: the lead texts say an attribution instruction never parks or edi
   for (const t of [SKILL, delivery]) assert.doesNotMatch(t, /ask (the user )?(whether|if) (to )?(add|append|include) (a|the) (trailer|Co-Authored)/i);
 });
 
+// A224 (#172): a worker dispatch runs in the background; a dispatch killed from outside leaves unattested edits and the recovery is one question, never a silent undo.
+test("dispatch: the lead starts a worker D in the background; a killed D is recovered with one question, not a re-dispatch (known good / known bad)", () => {
+  const flat = (p) => readFileSync(p, "utf8").replace(/\s+/g, " ");
+  const dispatch = flat(join(skill, "references/DISPATCH.md"));
+  const failover = flat(join(skill, "references/FAILOVER.md"));
+  const sk = SKILL.replace(/\s+/g, " ");
+  assert.match(sk, /takes minutes: run it in the background and wait for its notice, never in the foreground under a tool timeout \(a killed `D` leaves unattested edits, A224\)/);
+  assert.match(dispatch, /\*\*Start `D` for a worker in the background \(A224\)\.\*\*/);
+  assert.match(dispatch, /Run `D` with the Bash tool's `run_in_background`/);
+  assert.match(dispatch, /Never run it in the foreground under the default tool timeout or a `timeout` of your own/);
+  assert.match(failover, /never closed its write window, so the next `D` says `window-open refused`/);
+  assert.match(failover, /no approval covers it, not even a batch's/);
+  assert.match(failover, /Do not re-dispatch, discard or hand-edit before the answer/);
+  // the script says the same where the lead meets the refusal
+  const dsh = readFileSync(join(repoRoot, "control-plane/agents/scripts/dispatch.sh"), "utf8");
+  assert.match(dsh, /window-open refused; \$role not started\. If an earlier dispatch of this step was killed from outside \(exit 124 or Terminated\)/);
+  assert.match(dsh, /do not dispatch again, discard or edit by hand before the answer \(A224\)/);
+  // known bad: no text tells the lead to wrap D in its own timeout, or to discard unattested edits without the user
+  for (const t of [sk, dispatch, failover]) {
+    assert.doesNotMatch(t, /(^|[^`\w])timeout \d+ [^ ]*dispatch\.sh/);
+    assert.doesNotMatch(t, /discard (the )?partial edits without (asking|the user)/i);
+  }
+});
+
 // A203: a pull request the lead opens always has its CI watched in the background; the lead continues the moment it ends.
 test("delivery: the lead always watches the CI of a pull request it opened in the background", () => {
   assert.match(SKILL, /Watch its CI in the background, go on when done/);

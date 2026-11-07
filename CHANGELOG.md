@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Fix (A224, issue #172): a harness or user attribution instruction ("end commit messages with Co-Authored-By") no longer parks a delivery. The lead texts (`SKILL.md` rule 8, `DELIVERY.md` section 5, `GIT.md`) say the delivery commit is the approved one line, delivered as written, and never a reason to park, ask or edit `COMMIT_MSG`; the two `deliver-step` refusal hints no longer point at a trailer path that `deliver-plan` rejects (one-line rule). Whether the control plane should append a configured trailer itself is an open user decision (A224), not implemented.
+- Fix (A224, issue #172): a harness or user attribution instruction ("end commit messages with Co-Authored-By") no longer parks a delivery. The lead texts (`SKILL.md` rule 8, `DELIVERY.md` section 5, `GIT.md`) say the delivery commit is the approved one line, delivered as written, and never a reason to park, ask or edit `COMMIT_MSG`; the two `deliver-step` refusal hints no longer point at a trailer path that `deliver-plan` rejects (one-line rule). Whether the control plane should append a configured trailer itself is an open user decision (A224), not implemented. Same entry: a worker `dispatch.sh` is started in the background and never in the foreground under a tool timeout (a killed dispatch leaves unattested edits); the `window-open refused` line and FAILOVER.md give the recovery (`tree-inspect`, one question, no re-dispatch or discard before the answer). Whether a killed dispatch should close its own write window is an open user decision (A224).
 
 ## 0.0.54 — 2026-11-07
 

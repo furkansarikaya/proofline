@@ -16,7 +16,12 @@ transition. Nothing the lead remembers is state.
    from the middle:
    - an interrupted dispatch -> dispatch the same step again with the same assignment;
    - an interrupted implementer -> its partial edits are on disk: `A next` decides (an unattested change
-     fails the next transition; report it and ask the user before any undo, which is destructive);
+     fails the next transition; report it and ask the user before any undo, which is destructive). A `D` killed from outside
+     (exit 124 or "Terminated" under the lead's own tool timeout) never closed its write window, so the next `D` says
+     `window-open refused` and the edits are unattested (A224). The recovery needs the user and no approval covers it, not even a batch's:
+     `A tree-inspect <ID>`, then ONE question with both answers, verbatim from the script: keep the tree (`A tree-accept <ID>`, the
+     user's approval; every gate runs again) or discard the listed task files and dispatch again (destructive). Do not re-dispatch,
+     discard or hand-edit before the answer; in a batch park that task (`A batch-park`) and go on with the others;
    - an interrupted lead write (EVIDENCE.md, PLAN.md, COMPLETION_REPORT.md) -> rewrite it from its inputs.
 4. A pending question or approval request stays pending: re-print it (`A questions`, or the
    `request-approval` question) and STOP.

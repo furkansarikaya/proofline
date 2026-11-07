@@ -450,7 +450,7 @@ EOF_CP
       "$agent" build-record "$id" run > "$work/build-record.txt" 2>&1 || echo "dispatch: MISSING STEP for the lead: no build record was made for this tree ($(tail -n 1 "$work/build-record.txt" 2>/dev/null | cut -c1-200)); the $role starts without one. With empty commands.build and commands.test: proofline doctor --commands (A200)" >&2 ;;
     esac
   else
-    before=$("$agent" window-open "$id" "$role") || { echo "dispatch: window-open refused; $role not started" >&2; exit 1; }
+    before=$("$agent" window-open "$id" "$role") || { echo "dispatch: window-open refused; $role not started. If an earlier dispatch of this step was killed from outside (exit 124 or Terminated), its edits are unattested: run agent.sh tree-inspect $id and put ONE question to the user (keep the tree with tree-accept, or discard the listed files); do not dispatch again, discard or edit by hand before the answer (A224)" >&2; exit 1; }
   fi
   echo "dispatch: $id $role runtime=$rt model=$model effort=$effort ($(dv model_reason)) writes_code=$writes_code${pm:+ permission_mode=$pm}" >&2
   status=0
