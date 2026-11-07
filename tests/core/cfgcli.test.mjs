@@ -61,6 +61,13 @@ test('get: the value, status 1 when the key is absent; lines and cmds show a blo
   assert.equal(cli('cmds', f, 'commands.lint').out, '');
 });
 
+test('get: a list key has no value of its own (empty, status 0), a missing file is status 1 like the shell program', () => {
+  const f = put('l.yaml', 'commands:\n  build:\n    - one\n    - two\n');
+  assert.deepEqual([cli('get', f, 'commands.build').code, cli('get', f, 'commands.build').out], [0, '\n']);
+  assert.equal(cli('get', f, 'commands.build.0').out, 'one\n');
+  assert.equal(cli('get', path.join(dir, 'missing.yaml'), 'a').code, 1);
+});
+
 test('set: replaces, adds a new key right under its section line, writes a block list for a value of several lines, and fails with nothing written for a 3-level key without its parent', () => {
   const f = put('s.yaml', 'profile: economy  # why\ngit:\n  protected_branches: main\n');
   assert.equal(cli('set', f, 'profile', 'max').code, 0);

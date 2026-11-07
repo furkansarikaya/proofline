@@ -233,6 +233,7 @@ export function main(scriptPath) {
     env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
     // from a run worktree the script that names the root is the worktree's agent.sh; the code that runs stays this core's
     scriptPath: split.rootScript ?? cliRootScript(split.argv, process.env) ?? path.resolve(scriptPath), argv0: split.argv0,
+    viaAgent: process.argv[2] === '--pl-argv0',
   };
   if (split.argv[0] === 'dispatch') return dispatchMain(io, split.argv.slice(1));
   return run(split.argv, io);

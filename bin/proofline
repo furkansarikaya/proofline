@@ -23,7 +23,7 @@ say() { printf '%s\n' "$*"; }
 warn() { printf 'proofline: %s\n' "$*" >&2; }
 # nu_line [--error[=KIND]]: the user's next step (A159), from the one table in core/nextuser.mjs, for the command being run.
 PL_CMD=''; PL_ID=''; PL_KIND=''
-nu_line() { PROOFLINE_ROOT=$ROOT node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli next-line "${PL_CMD:-help}" ${PL_ID:+"$PL_ID"} "$@"; }
+nu_line() { command -v node >/dev/null 2>&1 || return 1; PROOFLINE_ROOT=$ROOT node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli next-line "${PL_CMD:-help}" ${PL_ID:+"$PL_ID"} "$@"; }
 # pl_core ARGS...: a command of the Node core of THIS plugin (discovery, the run with a time limit, the context size, the hook timeouts of the settings files; they need no installed project).
 pl_core() { command -v node >/dev/null 2>&1 || { printf 'proofline: node is not on PATH; proofline needs Node 22.13 or newer\n' >&2; return 127; }; export PL_HOME; node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" "$@"; }
 die() { printf 'proofline: %s\n' "$*" >&2; nu_line "--error${PL_KIND:+=$PL_KIND}" >&2 || :; exit 1; }
@@ -309,10 +309,25 @@ main() {
   PL_CMD=$cmd
   case "$cmd" in --version|-v) PL_CMD=version ;; --help|-h) PL_CMD=help ;; deliver|run|knowledge|reopen) PL_ID=${1:-} ;; esac
   nu_json=no; case " $* " in *" --json "*) nu_json=yes ;; esac   # machine-readable output carries no extra line
-  rc=0; dispatch "$cmd" "$@" || rc=$?
+  rc=0; need_node "$cmd" "$@" || rc=$?
+  [ "$rc" != 0 ] || dispatch "$cmd" "$@" || rc=$?
   if [ "$rc" != 0 ]; then nu_line --error >&2 || :
   elif [ "$nu_json" = no ]; then case "$PL_CMD" in init|upgrade|doctor|status|resume|queue|debt|clean|merge|insights) nu_line || : ;; esac; fi
   exit "$rc"
+}
+
+# need_node CMD [ARGS]: everything but help, version and init runs in the Node core (Node 22.13 or newer); without node it stops here with one message.
+# doctor still prints its report line and summary (a missing node is a FAIL of the diagnosis, not a crash).
+need_node() {
+  command -v node >/dev/null 2>&1 && return 0
+  case "$1" in
+    help|--help|-h|version|--version|-v|init) return 0 ;;
+    doctor) if [ $# -eq 1 ]; then
+      say "FAIL node: not found on PATH; proofline needs Node 22.13 or newer (the commands that run in Node exit 127 and the guards that need them deny; install it)"
+      say "doctor: 1 FAIL, 0 WARN"; return 1
+    fi ;;
+  esac
+  printf 'proofline: node is not on PATH; proofline needs Node 22.13 or newer\n' >&2; return 1
 }
 
 dispatch() {

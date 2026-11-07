@@ -46,7 +46,7 @@ export function hookHas(file, event) {
     const j = JSON.parse(readFileSync(file, 'utf8'));
     const g = (j && typeof j === 'object' ? j.hooks : null)?.[event];
     if (!Array.isArray(g)) return false;
-    return g.some((/** @type {any} */ x) => Array.isArray(x?.hooks) && x.hooks.some((/** @type {any} */ h) => HOOK_NAME.test(String(h?.command ?? ''))));
+    return g.some((/** @type {any} */ x) => Array.isArray(x?.hooks) && x.hooks.some((/** @type {any} */ h) => typeof h?.command === 'string' && HOOK_NAME.test(h.command)));
   } catch { return false; }
 }
 
@@ -645,7 +645,6 @@ export function requireInstalled(ctx) {
  */
 export function doctorCommand(ctx, args) {
   const a = args[0] ?? '';
-  if (args.length > 1) throw die(`doctor: unknown argument: ${args[1]}`);
   if (a === '--commands') { requireInstalled(ctx); return proposeCommands(ctx); }
   if (a === '--apply-commands') { requireInstalled(ctx); return applyCommands(ctx); }
   if (a === '--scale') { requireInstalled(ctx); return proposeScale(ctx); }

@@ -4,7 +4,7 @@
 // config has and the user's file lacks (`merge-new`), and the closed command that exposes all of them.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { Config, bytes, configGetFrom, configLines } from './config.mjs';
+import { Config, bytes, configLines } from './config.mjs';
 import { cfgSet } from './configset.mjs';
 import { ProoflineError } from './errors.mjs';
 
@@ -104,10 +104,12 @@ export function configCommand(ctx, args) {
     return 0;
   }
   if (op === 'get' && file !== '' && rest.length === 1) {
-    let v = null;
-    try { v = configGetFrom(Config.load(at(file)).lines, bytes(rest[0])); } catch { return 1; }
-    if (v === null) return 1;
-    ctx.out(`${v}\n`);
+    // the first `key=` line, as the awk reader of the shell found it: a list key has an empty value of its own
+    const key = `${bytes(rest[0])}=`;
+    let line;
+    try { line = Config.load(at(file)).lines.find((l) => l.startsWith(key)); } catch { return 1; }
+    if (line === undefined) return 1;
+    ctx.out(`${line.slice(key.length)}\n`);
     return 0;
   }
   if (op === 'lines' && file !== '' && rest.length === 0) {

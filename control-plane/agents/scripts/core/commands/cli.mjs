@@ -290,9 +290,16 @@ function hookspathMessageCli(ctx, args) {
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
 export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli, discover: discoverCli, 'run-timeout': runTimeoutCli, 'doctor-commands': doctorCommandsCli, 'doctor-scale': doctorScaleCli, 'hook-timeouts-apply': hookTimeoutsApplyCli, 'context-size': contextSizeCli, doctor: doctorCommand, 'insights-front': insightsFront, config: configCommand, 'hookspath-message': hookspathMessageCli });
 
+/**
+ * The `cli` names only bin/proofline may start (A232): writers (a config key, a settings file, a candidates file), the runner of an arbitrary program and the front ends.
+ * agent.sh always starts the core with `--pl-argv0` (io.viaAgent), and a model reaches the core only through agent.sh, so from there these are refused.
+ */
+export const LAUNCHER_ONLY = Object.freeze(['config', 'doctor', 'insights-front', 'hookspath-message', 'discover', 'run-timeout', 'hook-timeouts-apply']);
+
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {
   const name = args[0] ?? '';
+  if (ctx.io.viaAgent === true && LAUNCHER_ONLY.includes(name)) throw new ProoflineError(`proofline-core: cli ${name} is not reachable through agent.sh (it belongs to bin/proofline)`, 2, 'USAGE');
   if (!Object.hasOwn(CLI_COMMANDS, name)) throw new ProoflineError(`proofline-core: ${name === '' ? '(no name)' : name} is not a CLI subcommand of the Node core`, 2, 'NOT_MOVED');
   const code = CLI_COMMANDS[name](ctx, args.slice(1));
   ctx.flush();

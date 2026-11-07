@@ -166,6 +166,16 @@ test('the load line: above the core count it names the busiest executable; a fin
   assert.match(r.out, /^WARN load: machine load 120\.5 is above its 8 cores(; the executable with the most processes: \S+)?\. Hooks and tests slow down until it settles$/m);
 });
 
+test('hook wiring: a command that is not a string is not wired, whatever shape it has (it used to count after String())', () => {
+  const f = `${sb.T}/shapes.json`;
+  for (const cmd of ['["x/proofline-hook.mjs"]', '{"a":"proofline-hook.mjs"}', '5', 'null', 'true']) {
+    writeFileSync(f, `{"hooks":{"Stop":[{"hooks":[{"command":${cmd}}]}]}}`);
+    assert.equal(hookHas(f, 'Stop'), false, cmd);
+  }
+  writeFileSync(f, '{"hooks":{"Stop":[{"hooks":[{"command":"node x/proofline-hook.mjs stop"}]}]}}');
+  assert.equal(hookHas(f, 'Stop'), true);
+});
+
 test('the helpers: hook wiring is read from JSON for each event, a foreign hook list ignores proofline\'s own, head-and-join keeps the trailing space of a longer output', () => {
   const f = `${sb.T}/hooks.json`;
   writeFileSync(f, '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"node /p/proofline-hook.mjs stop"}]}],"PreToolUse":[{"hooks":[{"command":"echo other"}]}],"SessionStart":[{"hooks":[{"command":"echo a"},{"command":null},{"command":"node proofline-hook.mjs x"}]}]}}');

@@ -390,7 +390,7 @@ jobs:
           - name: cli-front
             mode: files
             pattern: 'none'
-            files: tests/core/doctor-fresh.test.mjs tests/core/doctor-faults.test.mjs tests/core/insights-front.test.mjs tests/core/cfgcli.test.mjs tests/core/merge-front.test.mjs
+            files: tests/core/doctor-fresh.test.mjs tests/core/doctor-faults.test.mjs tests/core/insights-front.test.mjs tests/core/cfgcli.test.mjs tests/core/merge-front.test.mjs tests/core/cli-agent-path.test.mjs tests/core/frontend-nonode.test.mjs
           - name: enforcement-recorded-lead
             mode: files
             pattern: 'none'
