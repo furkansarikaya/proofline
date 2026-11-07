@@ -446,7 +446,8 @@ EOF
   dc_ci=$(cd "$ROOT" && sh "$A" ci-check 2>/dev/null) || :   # exit 1 means absent; the output still holds the verdict
   case "$(printf '%s\n' "$dc_ci" | head -1)" in
     'ci: absent')
-      dc_rows=$(mktemp "${TMPDIR:-/tmp}/proofline-disc.XXXXXX") && pl_core cli discover "$ROOT" --quiet --out "$dc_rows" >/dev/null 2>&1 || :
+      dc_rows=$(mktemp "${TMPDIR:-/tmp}/proofline-disc.XXXXXX") || dc_rows=''
+      if [ -n "$dc_rows" ]; then pl_core cli discover "$ROOT" --quiet --out "$dc_rows" >/dev/null 2>&1 || :; fi
       D_BUILD=$(awk -F'\t' '$1 == "build" { print $2 }' "$dc_rows" 2>/dev/null); D_TEST=$(awk -F'\t' '$1 == "test" { print $2 }' "$dc_rows" 2>/dev/null); rm -f "$dc_rows"
       d_warn "ci: $(printf '%s\n' "$dc_ci" | sed -n 2p) Fix: $(cd "$ROOT" && PROOFLINE_CI_BUILD=$D_BUILD PROOFLINE_CI_TEST=$D_TEST sh "$A" ci-task-command)" ;;
     'ci: present'*) d_pass "$dc_ci" ;;
