@@ -31,6 +31,17 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   `run_in_background` (or the longest tool timeout), wait for the completion notice, then read its exit code. Never run it in the
   foreground under the default tool timeout or a `timeout` of your own: the kill (exit 124 or "Terminated") ends `D` before it closes
   the implementer's write window, so the partial edits stay unattested and the next `D` is refused (`window-open refused`). Recovery after such a kill is in [FAILOVER.md](FAILOVER.md) (an interrupted implementer).
+- **Keep your turn alive until that `D` has finished (A227).** A background job does not wake a lead that has ended its turn: in a
+  headless or one-shot session (`claude -p`, a batch run by a script) nothing calls the lead again, so the run stays at its step
+  and the result of `D` is never read. After starting `D` in the background you therefore never end your turn, and never answer
+  "I will continue when it reports back", while a dispatch of your run is in flight (`agent.sh next` says
+  `next=wait: dispatch.sh ... in flight (pid N ...)`). Wait inside the turn with the Bash tool (the lead's tools are Read, Grep,
+  Glob, Bash, Write, Edit: no other waiting tool): a bounded until-loop with the longest tool timeout (`timeout` 600000), for example
+  `n=0; while kill -0 N 2>/dev/null && [ "$n" -lt 110 ]; do sleep 5; n=$((n+1)); done; kill -0 N 2>/dev/null && echo "still running"`
+  (`N` is the pid from `next` or from `dispatch/*.running`). When it prints `still running`, run the same wait call again, as
+  many times as it takes; a foreground `sleep` chain is refused by the Bash tool, the loop is the sanctioned wait. Do not read the
+  log or start other work meanwhile (next bullet). Only when the process is gone, read the exit code and the
+  `dispatch/<NNN>-<role>-<runtime>.md` result and go on. The same holds for every dispatch of a batch step.
 - `D` is synchronous and can take minutes: its `dispatch/<NNN>-<role>-<runtime>.md` and `.log` stay empty until it
   returns, and a `.running` marker sits beside them meanwhile. Never read those files, or start the same step
   again, while the `D` command is still running (not even from a parallel tool call): wait for it to return. An
