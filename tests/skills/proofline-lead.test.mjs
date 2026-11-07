@@ -445,17 +445,19 @@ test("dispatch: the lead keeps its turn alive until its background D has finishe
   assert.match(sk, /run it in the background and hold your turn on it \(A227\)/);
   assert.match(dispatch, /\*\*Keep your turn alive until that `D` has finished \(A227\)\.\*\*/);
   assert.match(dispatch, /you therefore never end your turn, and never answer "I will continue when it reports back", while a dispatch of your run is in flight/);
-  assert.match(dispatch, /bounded until-loop with the longest tool timeout/);
+  assert.match(dispatch, /bounded wait loop with the longest tool timeout/);
   assert.match(dispatch, /`n=0; while kill -0 N 2>\/dev\/null && \[ "\$n" -lt 110 \]; do sleep 5;/);
   assert.match(dispatch, /run the same wait call again, as many times as it takes/);
   assert.match(dispatch, /Only when the process is gone, read the exit code/);
   const agent = readFileSync(join(repoRoot, "control-plane/agents/scripts/agent.sh"), "utf8");
-  assert.match(agent, /never end your turn while it runs: wait for the pid in a bounded until-loop and repeat it \(DISPATCH\.md, A227\)/);
+  assert.match(agent, /never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it \(DISPATCH\.md, A227\)/);
   // the wait uses only a tool the lead has: Bash; no Monitor tool is named as the way to wait
   assert.match(lead, /tools: Read Grep Glob Bash Write Edit/);
   // known bad: the old "wait for its notice" with no turn rule, and a wait that needs a tool the lead lacks
   for (const t of [sk, dispatch]) {
     assert.doesNotMatch(t, /wait for its notice/);
+    assert.doesNotMatch(t, /wait for the completion notice/);
+    assert.doesNotMatch(t, /until-loop/);
     assert.doesNotMatch(t, /use (the )?Monitor/i);
   }
 });

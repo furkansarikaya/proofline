@@ -28,15 +28,15 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   `D` itself blocks (a worker that wrote nothing leaves no `.md` to check); 124 -> re-dispatch
   once, then BLOCKED.
 - **Start `D` for a worker in the background (A224).** An implementer or any worker takes many minutes. Run `D` with the Bash tool's
-  `run_in_background` (or the longest tool timeout), wait for the completion notice, then read its exit code. Never run it in the
+  `run_in_background` (or the longest tool timeout), then keep your turn alive and wait for it with the bounded wait loop of the next bullet (never by ending your turn to wait for a notice), then read its exit code. Never run it in the
   foreground under the default tool timeout or a `timeout` of your own: the kill (exit 124 or "Terminated") ends `D` before it closes
   the implementer's write window, so the partial edits stay unattested and the next `D` is refused (`window-open refused`). Recovery after such a kill is in [FAILOVER.md](FAILOVER.md) (an interrupted implementer).
 - **Keep your turn alive until that `D` has finished (A227).** A background job does not wake a lead that has ended its turn: in a
   headless or one-shot session (`claude -p`, a batch run by a script) nothing calls the lead again, so the run stays at its step
   and the result of `D` is never read. After starting `D` in the background you therefore never end your turn, and never answer
   "I will continue when it reports back", while a dispatch of your run is in flight (`agent.sh next` says
-  `next=wait: dispatch.sh ... in flight (pid N ...)`). Wait inside the turn with the Bash tool (the lead's tools are Read, Grep,
-  Glob, Bash, Write, Edit: no other waiting tool): a bounded until-loop with the longest tool timeout (`timeout` 600000), for example
+  `next=wait: dispatch.sh ... in flight (pid N ...)`). Wait inside the turn with the Bash tool (one of the tools its role lists; no tool
+  outside that list is invented): a bounded wait loop with the longest tool timeout (`timeout` 600000), for example
   `n=0; while kill -0 N 2>/dev/null && [ "$n" -lt 110 ]; do sleep 5; n=$((n+1)); done; kill -0 N 2>/dev/null && echo "still running"`
   (`N` is the pid from `next` or from `dispatch/*.running`). When it prints `still running`, run the same wait call again, as
   many times as it takes; a foreground `sleep` chain is refused by the Bash tool, the loop is the sanctioned wait. Do not read the

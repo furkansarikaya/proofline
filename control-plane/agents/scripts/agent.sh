@@ -4508,7 +4508,7 @@ next_step() {
   if [ "$(section_value "$ns_d" execution awaiting_input)" = true ]; then o "agent.sh questions $ns_id"; o "relay verbatim and ask the user to answer in their next message (the prompt hook records it when it matches an accepted form; a typed agent.sh answer $ns_id <N> is recorded as yours)"; r "a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"; return 0; fi
   ns_stale=$(inflight_sweep "$ns_id")
   if ns_if=$(inflight_dispatch "$ns_id"); then
-    o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns; never end your turn while it runs: wait for the pid in a bounded until-loop and repeat it (DISPATCH.md, A227)"; r "a dispatch is running (A124)"; budget_note "$ns_id"; return 0
+    o "wait: dispatch.sh $ns_id ${ns_if% *} in flight (pid ${ns_if#* }; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns; never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it (DISPATCH.md, A227)"; r "a dispatch is running (A124)"; budget_note "$ns_id"; return 0
   fi
   [ -z "$ns_stale" ] || printf 'note=stale dispatch marker removed: %s\n' "${ns_stale% }"
   ns_class=$(pipeline_class "$ns_id")

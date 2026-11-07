@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Fix (A227, issue #172, package 172-A3): a lead keeps its turn alive until the background worker dispatch it started has finished (a bounded until-loop on the dispatch pid in the Bash tool, repeated until the process is gone) and never ends its turn while one is in flight; in a headless session nothing re-invokes it, which left the hermetic batch of the real-session smoke at `RUNNING (PLANNING)`. Text only: `references/DISPATCH.md`, rule 4 of the lead skill, and the `next=wait` line.
+- Fix (A227, issue #172, package 172-A3): a lead keeps its turn alive until the background worker dispatch it started has finished (a bounded wait loop on the dispatch pid in the Bash tool, repeated until the process is gone) and never ends its turn while one is in flight; in a headless session nothing re-invokes it, which left the hermetic batch of the real-session smoke at `RUNNING (PLANNING)`. Text only: `references/DISPATCH.md`, rule 4 of the lead skill, and the `next=wait` line.
 
 ## 0.0.57 — 2026-11-07
 
