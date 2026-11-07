@@ -28,13 +28,6 @@ export function isoToEpoch(/** @type {string} */ v) {
 }
 const epochOf = (/** @type {string} */ v) => (/^\d{1,12}$/.test(v) ? Number(v) : null);
 
-/**
- * Time fields that a full run lifecycle writes and that the closed list of ADR 6 does not name. They are NOT part of the closed list: they are masked
- * only when a caller passes { pendingApproval: true } (the alternating-engine lifecycle test does, and says so), until the maintainer approves them:
- * `epoch:` in gate records (it must name the second of the record's `timestamp:`), the time column of the metrics files, the line-leading time of
- * status-block.log, the epoch column of the hook timing spool.
- */
-export const PENDING_APPROVAL = Object.freeze(['gate-record epoch:', 'metrics time (history.tsv, records.jsonl)', 'status-block.log time', 'hook-times epoch column', 'approve.log line-leading time', 'HOOKS.log ts= and epoch=']);
 const EPOCH_FIELDS = ['requested_at', 'approved_at', 'consumed_at', 'asked_at', 'answered_epoch', 'amended_at'];
 const dirOf = (/** @type {string} */ p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 const baseOf = (/** @type {string} */ p) => p.slice(p.lastIndexOf('/') + 1);
@@ -45,7 +38,7 @@ const lat = (/** @type {Buffer} */ b) => b.toString('latin1');
  * Mask one side. `files` of the result holds the masked bytes; `problems` lists every failed check; `ranks` is the list of masked times.
  * @param {Side} side
  * @param {string} label
- * @param {{ pendingApproval?: boolean }} [opts] pendingApproval: also mask the time fields in PENDING_APPROVAL (not part of the closed list until the maintainer approves them)
+ * @param {{ pendingApproval?: boolean }} [opts] pendingApproval: also mask the pending-approval time fields (not part of the closed list until the maintainer approves them)
  */
 export function normaliseSide(side, label, opts = {}) {
   /** @type {string[]} */ const problems = [];
