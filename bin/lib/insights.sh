@@ -25,9 +25,9 @@ cmd_insights() {
   fi
   set --; [ "$in_json" = 0 ] || set -- --json; [ -z "$in_run" ] || set -- "$@" --run "$in_run"
   core_cli insights "$@" || return $?
-  # A202: the size of the text loaded into every session, from the same script doctor and the budget test use
+  # A202: the size of the text loaded into every session, from the same Node module doctor and the budget test use
   if [ "$in_json" = 0 ] && [ -z "$in_run" ]; then
-    printf '\n'; sh "$PL_HOME/bin/lib/context-size.sh" project "$ROOT" report || :
+    printf '\n'; pl_core cli context-size project "$ROOT" report || :
     if [ -f "$A" ]; then printf '\n'; (cd "$ROOT" && sh "$A" rules report) || :; fi
   fi
 }

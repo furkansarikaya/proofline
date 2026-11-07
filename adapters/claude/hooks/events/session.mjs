@@ -1,5 +1,6 @@
 // @ts-check
 // SessionStart: tell the lead its skill, the active run and the next step (bounded, A200), and say when plugin and project install differ (A194).
+import { fileURLToPath } from 'node:url';
 import { isFile, readText } from '../lib/fsx.mjs';
 import { jesc } from '../lib/text.mjs';
 
@@ -36,7 +37,9 @@ export async function handle(ctx) {
     if (sp !== '' && si !== '' && sp !== si) svMsg = `proofline version mismatch: plugin ${sp}, this project's install ${si}; run /proofline upgrade (or update the plugin if the project is the newer one)`;
   }
   const next = nxt !== '' ? nxt : `agent.sh next ${act} failed`;
-  const head = `proofline installed; you are the lead; use the proofline-lead skill (${skill}) (never through the Skill tool: proofline skills are not model-invocable); active run: ${act !== '' ? act : 'none'}; next step: ${next}`;
+  // A230: the text is the template file lib/session-head.txt (its size is what `proofline doctor` and the context budget measure, without reading this code)
+  const tpl = readText(fileURLToPath(new URL('../lib/session-head.txt', import.meta.url))).replace(/\n$/, '');
+  const head = tpl.replace(/\$\{skill\}|\$\{act !== '' \? act : 'none'\}|\$\{next\}/g, (m) => (m === '${skill}' ? skill : m === '${next}' ? next : act !== '' ? act : 'none'));
   if (svMsg !== '') {
     const c = `${head}. ${svMsg}. Tell the user this before you start a run.`;
     return `{"systemMessage":"${jesc(svMsg)}","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"${jesc(c)}"}}\n`;

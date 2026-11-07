@@ -1,6 +1,6 @@
 # Rule-to-location map for the proofline block of AGENTS.md (A202). Every rule the block carried before it was shortened has a row:
 # id <TAB> file (relative to the repository root) <TAB> a fragment of the rule's text that must exist verbatim (whitespace-normalised) in that file.
-# context-budget-test.sh fails when a fragment is missing from its file. A rule moves only by changing its row, never by deleting it.
+# tests/core/contextsize.test.mjs fails when a fragment is missing from its file. A rule moves only by changing its row, never by deleting it.
 boot.read	control-plane/AGENTS.md	Load `.agents/GATES.md`, `.agents/PROTOCOL.md`
 boot.status	control-plane/AGENTS.md	No active task: implementation is not allowed
 boot.role	control-plane/AGENTS.md	never runs state commands

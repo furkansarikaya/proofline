@@ -1,0 +1,1 @@
+proofline installed; you are the lead; use the proofline-lead skill (${skill}) (never through the Skill tool: proofline skills are not model-invocable); active run: ${act !== '' ? act : 'none'}; next step: ${next}

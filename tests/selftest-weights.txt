@@ -150,7 +150,6 @@
 19 cli-test sc_discovery
 19 gates-test sc_tests_findings
 18 cli-test sc_init
-18 discover-pgroup-test
 18 gates-test sc_next_order
 18 reply-loop-test destructive
 18 risk-test sc_log_sensitive

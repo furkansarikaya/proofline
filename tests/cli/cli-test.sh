@@ -102,8 +102,8 @@ mk_home2() { # an "upstream" checkout that differs from the installed one (upgra
 
 sc_basics() {
 # ---- version, help ---------------------------------------------------------------------------------------
-out=$(sh "$PL" version); expect "version prints proofline 0.0.63" "$out" "proofline 0.0.63"
-[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.63 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
+out=$(sh "$PL" version); expect "version prints proofline 0.0.64" "$out" "proofline 0.0.64"
+[ "$(jq -r .version "$repo/.claude-plugin/plugin.json")" = 0.0.64 ] && ok "plugin.json version equals the CLI version" || die "plugin.json version differs from the CLI"
 out=$(sh "$PL" help); expect "help lists init, upgrade, doctor" "$out" "doctor"
 nocheck "an unknown command fails" sh "$PL" frobnicate
 nocheck "status outside an installed project fails" pl "$(mkrepo bare)" status
@@ -122,7 +122,7 @@ expect "init discovered the build command from package.json" "$out" "build='npm 
 [ "$(cfgv "$base" profile)" = economy ] && [ "$(cfgv "$base" git.protected_branches)" = release ] && ok "config: profile and protected branches" || die "config profile / protected branches"
 [ "$(cfgv "$base" git.forbidden_identities)" = '*@forbidden-zz.test *@other-zz.test' ] && ok "config: two forbidden identities (repeatable flag)" || die "config forbidden identities: $(cfgv "$base" git.forbidden_identities)"
 [ "$(cfgv "$base" commands.test)" = "npm test" ] && [ "$(cfgv "$base" commands.lint)" = "npm run lint" ] && [ "$(cfgv "$base" canonical_branch)" = main ] && ok "config: discovered commands and canonical branch" || die "config commands / canonical branch"
-[ "$(cfgv "$base" proofline_version)" = 0.0.63 ] && ok "config: proofline_version stamped" || die "proofline_version"
+[ "$(cfgv "$base" proofline_version)" = 0.0.64 ] && ok "config: proofline_version stamped" || die "proofline_version"
 check "agent.sh config-check accepts the installed config" sh -c "cd '$base' && sh .agents/scripts/agent.sh config-check"
 for f in .agents/scripts/agent.sh .agents/scripts/dispatch.sh .agents/githooks/pre-commit .agents/githooks/pre-push; do
   [ -x "$base/$f" ] || die "$f is not executable"
@@ -174,7 +174,7 @@ bad=''
 while read -r s p; do [ "$(shasum -a 256 "$base/$p" | awk '{print $1}')" = "$s" ] || bad="$bad $p"; done <<EOF
 $(grep -v '^#' "$base/.agents/.proofline-manifest")
 EOF
-[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.63' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
+[ -z "$bad" ] && [ "$(grep -vc '^#' "$base/.agents/.proofline-manifest")" -gt 100 ] && grep -q '^# version: 0.0.64' "$base/.agents/.proofline-manifest" && ok "manifest lists every installed file with its sha256 and the version" || die "manifest wrong:$bad"
 # A154: the manifest paths outside .agents/ are what agent.sh treats as installed control plane (agent files of both runtimes, the entry skill)
 bad=''; cnt=0
 while IFS= read -r f; do
@@ -538,32 +538,7 @@ out=$(pl "$st" clean --yes 2>&1) || { LAST=$out; die "clean --yes exits 0"; }
 }
 
 sc_discovery() {
-# ---- discovery ---------------------------------------------------------------------------------------------
-say() { :; }
-# shellcheck source=../../bin/lib/discover.sh
-PL_HOME=$repo # discover.sh reads the ecosystem definition from the plugin home (A173)
-. "$repo/bin/lib/discover.sh"
-fx() { rm -rf "$T/fx"; mkdir -p "$T/fx"; }
-fx; printf '{"scripts":{"build":"b","test":"echo \\"Error: no test specified\\" && exit 1"}}' > "$T/fx/package.json"; : > "$T/fx/pnpm-lock.yaml"
-discover_commands "$T/fx"; [ "$D_BUILD" = "pnpm run build" ] && [ -z "$D_TEST" ] && ok "discovery: package.json with pnpm; the npm placeholder test script is ignored" || die "node discovery: build='$D_BUILD' test='$D_TEST'"
-fx; printf 'build:\n\tgo build\ntest:\n\tgo test\n' > "$T/fx/Makefile"
-discover_commands "$T/fx"; [ "$D_BUILD" = "make build" ] && [ "$D_TEST" = "make test" ] && [ -z "$D_LINT" ] && ok "discovery: Makefile targets" || die "make discovery"
-fx; : > "$T/fx/go.mod"; discover_commands "$T/fx"; [ "$D_TEST" = "go test ./..." ] && [ "$D_LINT" = "go vet ./..." ] && ok "discovery: go.mod" || die "go discovery"
-fx; : > "$T/fx/Cargo.toml"; discover_commands "$T/fx"; [ "$D_TEST" = "cargo test" ] && ok "discovery: Cargo.toml" || die "cargo discovery"
-fx; printf '[tool.pytest.ini_options]\n[tool.ruff]\n' > "$T/fx/pyproject.toml"; discover_commands "$T/fx"; [ "$D_TEST" = pytest ] && [ "$D_LINT" = "ruff check ." ] && ok "discovery: pyproject (pytest, ruff)" || die "python discovery"
-fx; : > "$T/fx/App.csproj"; discover_commands "$T/fx"; [ "$D_TEST" = "dotnet test" ] && ok "discovery: *.csproj" || die "dotnet discovery"
-fx; mkdir -p "$T/fx/.github/workflows"; printf 'jobs:\n  ci:\n    steps:\n      - run: npm run lint\n      - run: make test\n      - run: echo ${{ secrets.X }} && make build\n' > "$T/fx/.github/workflows/ci.yml"
-discover_commands "$T/fx"; [ "$D_LINT" = "npm run lint" ] && [ "$D_TEST" = "make test" ] && [ -z "$D_BUILD" ] && ok "discovery: CI configuration (compound and templated lines are skipped)" || die "ci discovery: '$D_BUILD' '$D_TEST' '$D_LINT'"
-fx; printf '# x\n\nRun the tests:\n\n    $ cargo test\n' > "$T/fx/README.md"; discover_commands "$T/fx"; [ "$D_TEST" = "cargo test" ] && ok "discovery: README code lines" || die "readme discovery"
-# CLI-6: README/CI lines with control operators or redirections are never candidates and never trial-run
-fx; printf '# x\n\n    make build & touch PWNED\n    npm test > out.txt\n    npm run lint; touch PWNED\n    cargo test <in\n    pytest `touch PWNED`\n    go test $(touch PWNED)\n    make lint || true\n' > "$T/fx/README.md"
-discover_commands "$T/fx"; [ -z "$D_BUILD$D_TEST$D_LINT" ] && ok "discovery: README lines with & ; | < > backticks \$() are rejected" || die "unsafe README lines accepted: '$D_BUILD' '$D_TEST' '$D_LINT'"
-D_BUILD='make build & touch PWNED'; D_TEST='npm test > out.txt'; D_LINT=''; verify_commands "$T/fx" >/dev/null
-[ ! -e "$T/fx/PWNED" ] && [ ! -e "$T/fx/out.txt" ] && [ -z "$D_BUILD$D_TEST" ] && ok "--verify-commands never runs a command with shell operators" || die "verify_commands ran an unsafe command"
-fx; printf '{"scripts":{"test":"jest"}}' > "$T/fx/package.json"; printf '# x\n\n    cargo test\n' > "$T/fx/README.md"
-discover_commands "$T/fx"; [ "$D_TEST" = "npm test" ] && ok "discovery: package.json scripts win over README text" || die "README beat package.json: '$D_TEST'"
-D_BUILD=true; D_TEST=false; D_LINT=''; : > "$T/fx/x"; verify_commands "$T/fx" >/dev/null
-[ "$D_BUILD" = true ] && [ -z "$D_TEST" ] && ok "--verify-commands keeps a command whose trial passes and drops one that fails" || die "verify_commands: '$D_BUILD' '$D_TEST'"
+# ---- discovery through init: the discovery itself is tested in Node (tests/core/discover.test.mjs, A230) ----
 vr=$(mkrepo verify); printf '{"scripts":{"test":"x"}}' > "$vr/package.json"
 mkdir -p "$T/stub"; printf '#!/bin/sh\nexit 1\n' > "$T/stub/npm"; chmod +x "$T/stub/npm"
 out=$(PATH="$T/stub:$PATH" pl "$vr" init --yes --runtimes claude --verify-commands 2>&1)
@@ -579,7 +554,7 @@ nocheck "install.sh without a terminal and without --yes installs nothing" sh -c
 [ ! -e "$T/h2/bin/proofline" ] && ok "...no symlink was created" || die "symlink created without consent"
 mkdir -p "$T/h2"; : > "$T/h2/.zshrc"
 out=$(HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes 2>&1) || { LAST=$out; die "install.sh --yes"; }
-[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.63" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
+[ -L "$T/h2/bin/proofline" ] && [ "$("$T/h2/bin/proofline" version)" = "proofline 0.0.64" ] && ok "install.sh --yes links bin/proofline and the link runs" || die "installed link broken"
 expect "install.sh tells the user to run proofline init" "$out" "proofline init"
 [ "$(grep -c "$T/h2/bin" "$T/h2/.zshrc")" = 1 ] && ok "install.sh --yes adds the dir to PATH in the rc file once" || die "rc file not updated"
 HOME=$T/h2 SHELL=/bin/zsh PATH=/usr/bin:/bin sh "$inst" --dir "$T/h2/bin" --yes >/dev/null 2>&1

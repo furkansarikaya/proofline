@@ -34,6 +34,7 @@ export function spawnLog() { return log.slice(); }
  * @property {AbortSignal} [signal] runAsync: when it aborts, the child (and its process group, with `group`) is stopped
  * @property {boolean} [allowEqualTree] a run worktree's script may run while its whole tree equals the project's (the hook's rollback mode only; see tree.mjs)
  * @property {boolean} [group] the child leads its own process group on POSIX, so a stop reaches everything it started (no `ps` walk); run(): after the child has ended or hit `timeoutMs`, whatever is left in its group is killed
+ * @property {NodeJS.Signals} [killSignal] run(): the signal that stops the child at `timeoutMs` (default SIGTERM; a child that ignores it would keep run() waiting, so a caller that cannot wait says SIGKILL)
  */
 
 /**
@@ -70,6 +71,7 @@ export function run(program, args, options = {}) {
     input: options.input,
     stdio: options.stdio ?? 'pipe',
     timeout: options.timeoutMs,
+    killSignal: options.killSignal,
     maxBuffer: 1 << 30,
     windowsHide: true,
     detached: options.group === true && process.platform !== 'win32',   // spawnSync accepts it (a group leader); the typings of SpawnSyncOptions omit it

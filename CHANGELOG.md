@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.64 — 2026-11-07
+
+- Change (A230, Part of #173): command discovery (`init`, `init --verify-commands`), `doctor --commands`, `--apply-commands`, `--scale`, `--apply-scale`, the run of `claude plugin list` with a time limit and the context-size measurement (`doctor`, `insights`, the context budget) run in the Node core. `bin/lib/{discover,commands,timeouts,context-size}.sh` and the suites `discover-eco-test.sh`, `discover-pgroup-test.sh` and `context-budget-test.sh` are deleted (1,056 lines); the callers call new `cli` subcommands of `proofline-core.mjs` (`discover`, `run-timeout`, `doctor-commands`, `doctor-scale`, `hook-timeouts-apply`, `context-size`). The time limit of a trial run stops the whole process group of the command at once and always counts as a failure (124). `doctor --commands` starts 11 processes instead of 336 (0.47 s instead of 5.0 s), the context measurement 2 instead of 101 (0.12 s instead of 0.46 s) with the same numbers for every budget item. A README or CI line that carries a secret is no longer offered as a command. The SessionStart text lives in `adapters/claude/hooks/lib/session-head.txt`.
+
 ## 0.0.63 — 2026-11-07
 
 - Change (A229, Part of #173): the last nine commands that ran as shell code, `friction`, `calibrate`, `build-record`, `lessons`, `rules`, `wait-line`, `task-rename-plan`, `task-rename-apply` and `test`, run in the Node core. `scripts/{build-record,friction,lessons,rules}.sh` and their four shell suites are deleted (1,055 lines), with the shell functions only these commands used in `agent.sh`; every command of `agent.sh` is now a Node handler. Arguments, output, exit codes and file formats are unchanged; the build record keeps each command's full output. A build record is 56 processes -> 10, a friction report 19 -> 4, `lessons` 11-13 -> 2, `rules report` 103 -> 2. Differences: the build record's time limit also holds where there is no `timeout` command (macOS); `friction send` runs the `gh` on PATH (the `PROOFLINE_TEST`/`PROOFLINE_GH` seam is deleted); the entries of a friction report group are listed in name order.
