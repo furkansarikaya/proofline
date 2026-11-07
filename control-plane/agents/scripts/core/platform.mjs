@@ -291,9 +291,9 @@ const TOOL_TIMEOUT_MS = 180000;
  * request or a green CI run. Kept: PATH, the locale and terminal (LC_*, LANG, TERM, TZ, TMPDIR), colour switches, and only credential variables
  * that cannot redirect traffic. HOME is taken from the account database, not from the caller. With `opt.remote` SSH_AUTH_SOCK is kept for a push over ssh.
  * Corporate networks (A220, decided by the owner after stage 6): the proxy variables (HTTPS_PROXY, HTTP_PROXY, NO_PROXY and their lowercase forms) and
- * the certificate variables (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) are kept ONLY when the value has the narrow shape of proxyValue / noProxyValue /
+ * the certificate variables (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO) are kept ONLY when the value has the narrow shape of proxyValue / noProxyValue /
  * caFileValue; any other value is dropped, never repaired, and nothing says so. Every other proxy or certificate variable (ALL_PROXY, SSL_CERT_DIR,
- * CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, GIT_SSL_*, NODE_OPTIONS) stays dropped. The GitHub Enterprise or GitLab host never comes from the caller (platformEnv).
+ * CURL_CA_BUNDLE, GIT_SSL_* other than GIT_SSL_CAINFO, NODE_OPTIONS) stays dropped. The GitHub Enterprise or GitLab host never comes from the caller (platformEnv).
  * @param {Context} ctx @param {{ remote?: boolean }} [opt] @returns {Record<string, string>}
  */
 export function cleanToolEnv(ctx, opt = {}) {
@@ -315,7 +315,11 @@ export function cleanToolEnv(ctx, opt = {}) {
 
 const PROXY_VARS = ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy'];
 const NO_PROXY_VARS = ['NO_PROXY', 'no_proxy'];
-const CA_VARS = ['SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS'];
+// the certificate variables that pass, each with the SAME check (caFileValue): SSL_CERT_FILE (Go tools: gh, glab), NODE_EXTRA_CA_CERTS (Node), REQUESTS_CA_BUNDLE (the
+// Python of az) and GIT_SSL_CAINFO (the merge-proof git); a user decision of 2026-11-07 added the last two to A220
+const CA_VARS = ['SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO'];
+// proxy and certificate variables that are never passed whatever their value (the doctor names them when they are set)
+const NEVER_VARS = ['ALL_PROXY', 'all_proxy', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'NODE_TLS_REJECT_UNAUTHORIZED'];
 
 /**
  * A proxy address (A220): `http://` or `https://`, an optional `user[:password]@` (percent-encoded), a host name, IPv4 address or bracketed IPv6 address,
@@ -347,19 +351,26 @@ export function noProxyValue(v) {
  * root or this user and not writable by a group or by everybody. A relative path, a missing file, a folder or a control character is not accepted.
  * @param {Context} ctx @param {string} v
  */
-export function caFileValue(ctx, v) {
-  if (!v.startsWith('/') || v.length > 4096 || /[\u0000-\u001f\u007f]/.test(v)) return false;
+export function caFileValue(ctx, v) { return caFileProblem(ctx, v) === null; }
+
+/**
+ * Why a certificate bundle is refused, as a sentence from a closed set that never repeats the value (the doctor prints it), or null when it is accepted.
+ * @param {Context} ctx @param {string} v @returns {string | null}
+ */
+export function caFileProblem(ctx, v) {
+  if (!v.startsWith('/')) return 'not an absolute path';
+  if (v.length > 4096 || /[\u0000-\u001f\u007f]/.test(v)) return 'too long or holds a control character';
   try {
     const real = realpathSync.native(v);
-    if (!statSync(real).isFile()) return false;
+    if (!statSync(real).isFile()) return 'not an existing regular file';
     const extra = projectDirs(ctx);
     for (const f of [v, real]) {
-      if (refusedLocation(ctx, f) || extra.some((d) => insideFolder(f, d))) return false;
-      if (f.split('/').includes('.agents')) return false; // the control folder of any project, whatever the working directory is
+      if (refusedLocation(ctx, f) || extra.some((d) => insideFolder(f, d))) return 'inside the project, the working directory or a temporary folder';
+      if (f.split('/').includes('.agents')) return 'inside a project (an .agents folder above it)'; // the control folder of any project, whatever the working directory is
       // decided from the FILE, not from where the control plane runs (`proofline merge -R OWNER/REPO` runs from any directory): an ancestor, however far up, that
       // holds a `.git` entry (a repository, a nested one, a linked worktree) or an `.agents` folder makes the file a file of a project
       for (let cur = path.dirname(f); ; cur = path.dirname(cur)) {
-        if (existsSync(`${cur}/.git`) || existsSync(`${cur}/.agents`)) return false;
+        if (existsSync(`${cur}/.git`) || existsSync(`${cur}/.agents`)) return 'inside a project (a .git or .agents entry above it)';
         if (cur === '/' || cur === path.dirname(cur)) break;
       }
     }
@@ -367,12 +378,29 @@ export function caFileValue(ctx, v) {
     const me = typeof process.getuid === 'function' ? process.getuid() : -1;
     for (let cur = real; ; cur = path.dirname(cur)) {
       const s = statSync(cur);
-      if ((s.mode & 0o022) !== 0) return false;
-      if (me >= 0 && s.uid !== 0 && s.uid !== me) return false;
+      if ((s.mode & 0o022) !== 0) return 'the file or a folder above it is writable by a group or by everybody';
+      if (me >= 0 && s.uid !== 0 && s.uid !== me) return 'the file or a folder above it is owned by another user';
       if (cur === '/' || cur === path.dirname(cur)) break;
     }
-    return true;
-  } catch { return false; }
+    return null;
+  } catch { return 'not an existing, readable regular file'; }
+}
+
+/**
+ * The proxy and certificate variables of the environment that cleanToolEnv DROPS (A220, the doctor lists them): the NAME and a reason from a closed set, never the
+ * value (a proxy address may hold credentials). A name comes from a fixed list or, for the `GIT_SSL_*` family, only when it matches `GIT_SSL_[A-Z0-9_]{1,40}`.
+ * @param {Context} ctx @returns {Array<{ name: string, reason: string }>}
+ */
+export function droppedNetVars(ctx) {
+  /** @type {Array<{ name: string, reason: string }>} */ const out = [];
+  const set = (/** @type {string} */ k) => ctx.env[k];
+  for (const k of PROXY_VARS) { const v = set(k); if (v !== undefined && !proxyValue(v)) out.push({ name: k, reason: v.length > 2048 ? 'too long' : 'not an http:// or https:// address of the allowed shape (host and optional port, no socks, path or query)' }); }
+  for (const k of NO_PROXY_VARS) { const v = set(k); if (v !== undefined && !noProxyValue(v)) out.push({ name: k, reason: v.length > 4096 ? 'too long' : 'not a plain comma separated list of hosts, suffixes and addresses' }); }
+  for (const k of CA_VARS) { const v = set(k); if (v !== undefined) { const why = caFileProblem(ctx, v); if (why !== null) out.push({ name: k, reason: why }); } }
+  const never = 'never passed to the platform tools and the merge-proof git';
+  for (const k of NEVER_VARS) if (set(k) !== undefined) out.push({ name: k, reason: never });
+  for (const k of Object.keys(ctx.env).sort()) if (/^GIT_SSL_[A-Z0-9_]{1,40}$/.test(k) && k !== 'GIT_SSL_CAINFO') out.push({ name: k, reason: never });
+  return out;
 }
 
 /**

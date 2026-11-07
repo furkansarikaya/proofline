@@ -1,6 +1,6 @@
 // @ts-check
 // A220 (epic #165 follow-up after stages 4 and 6): a corporate network. The proxy variables (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, lowercase too) and the
-// certificate variables (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS) reach gh, glab, az and the merge-proof git, but only with a value of a narrow shape; the
+// certificate variables (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO; the last two by the user decision of 2026-11-07) reach gh, glab, az and the merge-proof git, but only with a value of a narrow shape; the
 // GitHub Enterprise host comes from git.platform_host of the config and never from the caller's GH_HOST, in check delivery, `merge` and the github adapter.
 // The merge proof stays un-steerable (A136): nothing a model can name inline or export makes the tool talk to another server.
 import assert from 'node:assert/strict';
@@ -59,17 +59,17 @@ test('a certificate file is an absolute path of an existing regular file outside
 test('cleanToolEnv keeps a well-formed proxy and certificate variable (also for the merge-proof git) and drops a malformed one; the other variables stay dropped', () => {
   const good = {
     HTTPS_PROXY: 'http://proxy.corp.example:3128', https_proxy: 'http://u:p@proxy.corp.example:3128', HTTP_PROXY: 'http://proxy.corp.example:3128', http_proxy: 'http://proxy.corp.example:3128',
-    NO_PROXY: 'localhost,.corp.example', no_proxy: 'localhost', SSL_CERT_FILE: CA, NODE_EXTRA_CA_CERTS: CA,
+    NO_PROXY: 'localhost,.corp.example', no_proxy: 'localhost', SSL_CERT_FILE: CA, NODE_EXTRA_CA_CERTS: CA, REQUESTS_CA_BUNDLE: CA, GIT_SSL_CAINFO: CA,
   };
-  const ctx = ctxOf(work, { ...good, ALL_PROXY: 'http://other:1', SSL_CERT_DIR: '/etc', CURL_CA_BUNDLE: CA, REQUESTS_CA_BUNDLE: CA, GIT_SSL_CAINFO: CA, GIT_SSL_NO_VERIFY: '1', NODE_TLS_REJECT_UNAUTHORIZED: '0', GH_HOST: 'evil.example' });
+  const ctx = ctxOf(work, { ...good, ALL_PROXY: 'http://other:1', SSL_CERT_DIR: '/etc', CURL_CA_BUNDLE: CA, GIT_SSL_CAPATH: '/etc', GIT_SSL_CERT: CA, GIT_SSL_NO_VERIFY: '1', NODE_TLS_REJECT_UNAUTHORIZED: '0', GH_HOST: 'evil.example' });
   for (const opt of [{}, { remote: true }]) {
     const e = cleanToolEnv(ctx, opt);
     for (const [k, v] of Object.entries(good)) assert.equal(e[k], v, k);
-    for (const k of ['ALL_PROXY', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO', 'GIT_SSL_NO_VERIFY', 'NODE_TLS_REJECT_UNAUTHORIZED', 'GH_HOST']) assert.ok(!(k in e), `${k} reached the tool`);
+    for (const k of ['ALL_PROXY', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'GIT_SSL_CAPATH', 'GIT_SSL_CERT', 'GIT_SSL_NO_VERIFY', 'NODE_TLS_REJECT_UNAUTHORIZED', 'GH_HOST']) assert.ok(!(k in e), `${k} reached the tool`);
   }
-  const badCtx = ctxOf(work, { HTTPS_PROXY: 'http://proxy:1/ x', https_proxy: 'socks5://p:1', HTTP_PROXY: 'proxy:3128', NO_PROXY: 'a b', SSL_CERT_FILE: path.join(work, 'ca.pem'), NODE_EXTRA_CA_CERTS: 'relative.pem' });
+  const badCtx = ctxOf(work, { HTTPS_PROXY: 'http://proxy:1/ x', https_proxy: 'socks5://p:1', HTTP_PROXY: 'proxy:3128', NO_PROXY: 'a b', SSL_CERT_FILE: path.join(work, 'ca.pem'), NODE_EXTRA_CA_CERTS: 'relative.pem', REQUESTS_CA_BUNDLE: path.join(work, 'ca.pem'), GIT_SSL_CAINFO: 'relative.pem' });
   const e = cleanToolEnv(badCtx);
-  for (const k of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS']) assert.ok(!(k in e), `${k} was kept`);
+  for (const k of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO']) assert.ok(!(k in e), `${k} was kept`);
   // a proxy without its certificate, and a certificate without a proxy, are both fine
   assert.deepEqual(Object.keys(cleanToolEnv(ctxOf(work, { HTTPS_PROXY: good.HTTPS_PROXY }))).filter((k) => /PROXY|CERT|CA_/.test(k)), ['HTTPS_PROXY']);
   assert.deepEqual(Object.keys(cleanToolEnv(ctxOf(work, { SSL_CERT_FILE: CA }))).filter((k) => /PROXY|CERT|CA_/.test(k)), ['SSL_CERT_FILE']);
@@ -83,7 +83,7 @@ test('gh, glab and az each start with the same coherent set: the proxy and certi
   gOk(proj, 'init', '-q', '-b', 'main');
   mkdirSync(`${proj}/.agents`);
   const env = {
-    HTTPS_PROXY: 'http://proxy.corp.example:3128', NO_PROXY: 'localhost', SSL_CERT_FILE: CA, NODE_EXTRA_CA_CERTS: CA, GH_HOST: 'evil.example', GITLAB_HOST: 'evil.example',
+    HTTPS_PROXY: 'http://proxy.corp.example:3128', NO_PROXY: 'localhost', SSL_CERT_FILE: CA, NODE_EXTRA_CA_CERTS: CA, REQUESTS_CA_BUNDLE: CA, GIT_SSL_CAINFO: CA, GH_HOST: 'evil.example', GITLAB_HOST: 'evil.example',
     ALL_PROXY: 'http://evil:1', PATH: `${bin}:/usr/bin:/bin`,
   };
   for (const [tool, platform, url, host] of [['gh', 'github', 'https://git.corp.example/a/b.git', 'GH_HOST'], ['glab', 'gitlab', 'https://git.corp.example/a/b.git', 'GITLAB_HOST'], ['az', 'azure', 'https://dev.azure.com/acme/Proj/_git/app', '']]) {
@@ -102,6 +102,8 @@ test('gh, glab and az each start with the same coherent set: the proxy and certi
     assert.equal(seen.get('NO_PROXY'), 'localhost', `${tool}: no_proxy`);
     assert.equal(seen.get('SSL_CERT_FILE'), CA, `${tool}: certificate`);
     assert.equal(seen.get('NODE_EXTRA_CA_CERTS'), CA, `${tool}: node certificate`);
+    assert.equal(seen.get('REQUESTS_CA_BUNDLE'), CA, `${tool}: python certificate`);
+    assert.equal(seen.get('GIT_SSL_CAINFO'), CA, `${tool}: git certificate`);
     assert.ok(!seen.has('ALL_PROXY'), `${tool}: ALL_PROXY`);
     if (host !== '') assert.equal(seen.get(host), 'git.corp.example', `${tool}: ${host} comes from git.platform_host`);
     for (const h of ['GH_HOST', 'GITLAB_HOST']) assert.ok(seen.get(h) !== 'evil.example', `${tool}: the caller's ${h} reached the tool`);
@@ -179,7 +181,9 @@ test('SECURITY (A220): the hook denies a proxy or certificate variable named in 
   };
   for (const c of ['HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'SSL_CERT_FILE=/p/ca.pem HTTPS_PROXY=http://127.0.0.1:9 proofline merge 7', 'env NODE_EXTRA_CA_CERTS=/p/ca.pem proofline merge 7',
     'export SSL_CERT_FILE=/p/ca.pem; proofline merge 7', 'export https_proxy=http://127.0.0.1:9; proofline merge 7', 'no_proxy=x HTTP_PROXY=http://127.0.0.1:9 sh .agents/scripts/agent.sh deliver-merged T', 'env HTTPS_PROXY=http://127.0.0.1:9 gh pr view 7',
-    'PATH=/tmp/fake:$PATH proofline merge 7', 'HTTPS_PROXY+=http://127.0.0.1:9 SSL_CERT_FILE+=/p/ca.pem proofline merge 7 -R o/r', 'PATH+=:/tmp/fake proofline merge 7']) {
+    'PATH=/tmp/fake:$PATH proofline merge 7', 'HTTPS_PROXY+=http://127.0.0.1:9 SSL_CERT_FILE+=/p/ca.pem proofline merge 7 -R o/r', 'PATH+=:/tmp/fake proofline merge 7',
+    'GIT_SSL_CAINFO=/p/ca.pem proofline merge 7', 'REQUESTS_CA_BUNDLE=/p/ca.pem az repos pr show --id 7', 'export GIT_SSL_CAINFO=/p/ca.pem; proofline merge 7', 'env REQUESTS_CA_BUNDLE=/p/ca.pem gh pr view 7',
+    'REQUESTS_CA_BUNDLE+=/p/ca.pem proofline merge 7', 'env -S "GIT_SSL_CAINFO=/p/ca.pem proofline merge 7"']) {
     const r = await verdict(c);
     assert.ok(r !== null, `not denied: ${c}`);
     assert.ok(r.includes('proofline merge'), c);

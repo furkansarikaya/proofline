@@ -42,7 +42,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 4. **Dispatch by runtime (D6)** ([DISPATCH.md](references/DISPATCH.md)). Runtime `claude` and a Claude lead:
    `A decide <ID> <role> --agent-path` once, then the Agent tool with `proofline-<role>` (underscores in the role id become hyphens: `proofline-security-reviewer`) and the decided model. Otherwise:
    `D <ID> <role> [--focus F] --prompt-file .agents/local/assignments/<ID>/<file>`, which decides and records
-   itself and takes minutes: run it in the background and hold your turn on it (A227), never in the foreground under a tool timeout (a killed `D` leaves unattested edits, A224) (never `A decide` before `D`: the script refuses a bare `decide`, A171; `A decide <ID> <role> --dry` only reads the decision and writes nothing; if the Agent call failed before any result and another runtime or model is wanted, `A decide <ID> <role> [--focus F] --redecide [--runtime R] [--model M]` decides again, ledgered, the earlier decision kept). Never both for one step. `.agents/local/assignments/<ID>/` is the
+   itself and takes minutes: run it in the background and hold your turn on it (A227), never in the foreground under a tool timeout (A224) (never `A decide` before `D`: the script refuses a bare `decide`, A171; `A decide <ID> <role> --dry` only reads the decision and writes nothing; if the Agent call failed before any result and another runtime or model is wanted, `A decide <ID> <role> [--focus F] --redecide [--runtime R] [--model M]` decides again, ledgered, the earlier decision kept). Never both for one step. `.agents/local/assignments/<ID>/` is the
    only place under `.agents/local/` the lead writes (the runtime hook allows exactly that directory).
 5. **No re-asking.** A decision TASK.md, INTENT.md or the user's answers already record (an `Out of scope`
    item, a constraint, an answered question) is never asked again; a defect found next to the task that the
@@ -69,7 +69,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 8. **Delivery needs the user (D19, D34)** ([DELIVERY.md](references/DELIVERY.md)). Commit, push and PR only
    with the user's explicit approval in the current message and every required gate passing for the
    current content. `deliver` asks once: `A deliver-plan` shows one summary, the user's `approve delivery`
-   records one approval per step, and `A deliver-step` checks it before each step. The commit line stays as approved: no trailer or attribution rule parks or edits it (A224). Merge only there, through
+   records one approval per step, and `A deliver-step` checks it before each step. The commit message is the approved line plus the script's own trailer (`git.commit_trailer`); an attribution rule needs no action and never parks or edits it (A224). Merge only there, through
    `proofline merge`; never tag, force-push, or touch a protected branch. Watch its CI in the background, go on when done. A red CI after the pull request is open is
    a finding, not a question: the CI-fix round ([DELIVERY.md](references/DELIVERY.md#6-a-red-ci-is-a-finding-the-ci-fix-round-a169))
    fixes and pushes to the same branch, at most twice, and only then stops with one question.

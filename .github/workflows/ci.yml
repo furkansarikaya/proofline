@@ -338,7 +338,7 @@ jobs:
           - name: run6-deliver
             mode: files
             pattern: 'none'
-            files: tests/core/run6-deliver.test.mjs tests/core/run6-plan.test.mjs
+            files: tests/core/run6-deliver.test.mjs tests/core/run6-plan.test.mjs tests/core/committrailer.test.mjs
           - name: run6-merged
             mode: files
             pattern: 'none'
@@ -346,7 +346,7 @@ jobs:
           - name: run6-cifix
             mode: files
             pattern: 'none'
-            files: tests/core/run6-cifix.test.mjs tests/core/run6-platform.test.mjs tests/core/run6-corpnet.test.mjs
+            files: tests/core/run6-cifix.test.mjs tests/core/run6-platform.test.mjs tests/core/run6-corpnet.test.mjs tests/core/run6-netdropped.test.mjs
           - name: run6b
             mode: files
             pattern: 'none'

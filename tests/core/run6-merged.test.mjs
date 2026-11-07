@@ -345,6 +345,25 @@ test('deliver-merged inside the run\'s worktree: merge proven from git, recorded
   assert.ok(blk.includes(`- delivered_commit: ${sha.slice(0, 12)}`), 'no delivered commit in the final block');
 });
 
+test('A224 (user decision of 2026-11-07): in a run worktree the trailer is read from the MAIN working tree\'s config; a config the task branch carries cannot steer the commit text', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  bareOrigin(d);
+  const mainCfg = read(d, '.agents/config.yaml');
+  assert.match(mainCfg, /^ {2}commit_trailer: "Co-Authored-By: Claude <noreply@anthropic\.com>"$/m, 'the shipped config carries the documented default');
+  // the task branch\'s own copy names a trailer of its own; the main tree\'s says off
+  wf(`${wt}/.agents/config.yaml`, read(wt, '.agents/config.yaml').replace(/^ {2}commit_trailer: .*$/m, '  commit_trailer: Co-Authored-By: Evil <evil@example.com>'));
+  wf(`${d}/.agents/config.yaml`, mainCfg.replace(/^ {2}commit_trailer: .*$/m, '  commit_trailer: off'));
+  const plan = accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan in the worktree').out;
+  assert.match(plan, /^trailers: off \(none\)$/m);
+  assert.ok(!/Evil/.test(plan) && !/Evil/.test(read(wt, '.agents/local/deliver/LC/COMMIT_MSG')), 'the task branch config reached the commit text');
+  assert.equal(read(wt, '.agents/local/deliver/LC/COMMIT_MSG').split('\n').length, 2, 'one line and its newline');
+  wf(`${d}/.agents/config.yaml`, mainCfg.replace(/^ {2}commit_trailer: .*$/m, '  commit_trailer: Ticket: ABC-1'));
+  assert.match(read(wt, '.agents/local/deliver/LC/COMMIT_MSG'), /^feat: .*\(LC\)\n$/, 'a plan already written is not rewritten by a config edit');
+  accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan again');
+  assert.match(read(wt, '.agents/local/deliver/LC/COMMIT_MSG'), /\n\nTicket: ABC-1\n$/, 'the main config decides, also for a re-plan');
+});
+
 test('a task file changed by more than the task\'s own status block keeps the worktree', () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);

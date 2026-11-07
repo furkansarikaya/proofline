@@ -397,17 +397,19 @@ test("delivery: the lead texts say an attribution instruction never parks or edi
   const delivery = readFileSync(join(skill, "references/DELIVERY.md"), "utf8").replace(/\s+/g, " ");
   const git = readFileSync(join(repoRoot, "control-plane/agents/GIT.md"), "utf8").replace(/\s+/g, " ");
   const rules = [
-    [SKILL.replace(/\s+/g, " "), /The commit line stays as approved: no trailer or attribution rule parks or edits it \(A224\)/],
-    [delivery, /\*\*The commit message is the approved line, as written \(A224\)\.\*\*/],
-    [delivery, /never a reason to park the task, to ask the user, to edit `COMMIT_MSG` or to run `git commit` by hand: deliver the approved line/],
+    [SKILL.replace(/\s+/g, " "), /The commit message is the approved line plus the script's own trailer \(`git.commit_trailer`\); an attribution rule needs no action and never parks or edits it \(A224\)/],
+    [delivery, /\*\*The commit message is the approved message, as written \(A224\)\.\*\*/],
+    [delivery, /never a reason to park the task, to ask the user, to edit `COMMIT_MSG` or to run `git commit` by hand: commit with `git commit -F` exactly as printed/],
     [delivery, /`deliver-plan --message` takes one line only; no trailer goes through it/],
-    [git, /never changes it and is no reason to park, ask or edit it by hand \(A224\)/],
+    [delivery, /the trailer the CONTROL PLANE adds from `git.commit_trailer`/],
+    [git, /needs no action, never changes it and is no reason to park, ask or edit it by hand \(A224\)/],
   ];
   for (const [text, re] of rules) assert.match(text, re);
   // known bad: the earlier hint told the lead to put trailer lines through deliver-plan --message, which refuses a second line
   const deliver = readFileSync(join(repoRoot, "control-plane/agents/scripts/core/deliver.mjs"), "utf8");
   assert.doesNotMatch(deliver, /text with the trailer lines/);
   assert.match(deliver, /fail\('the commit message is one line \(a trailer or attribution line/);
+  assert.match(deliver, /the control plane adds the configured trailer itself, git\.commit_trailer/);
   // the lead reads a trailer as a reason to ask nowhere: no text says to ask the user for one
   for (const t of [SKILL, delivery]) assert.doesNotMatch(t, /ask (the user )?(whether|if) (to )?(add|append|include) (a|the) (trailer|Co-Authored)/i);
 });
@@ -418,11 +420,13 @@ test("dispatch: the lead starts a worker D in the background; a killed D is reco
   const dispatch = flat(join(skill, "references/DISPATCH.md"));
   const failover = flat(join(skill, "references/FAILOVER.md"));
   const sk = SKILL.replace(/\s+/g, " ");
-  assert.match(sk, /takes minutes: run it in the background and hold your turn on it \(A227\), never in the foreground under a tool timeout \(a killed `D` leaves unattested edits, A224\)/);
+  assert.match(sk, /takes minutes: run it in the background and hold your turn on it \(A227\), never in the foreground under a tool timeout \(A224\)/);
   assert.match(dispatch, /\*\*Start `D` for a worker in the background \(A224\)\.\*\*/);
   assert.match(dispatch, /Run `D` with the Bash tool's `run_in_background`/);
   assert.match(dispatch, /Never run it in the foreground under the default tool timeout or a `timeout` of your own/);
-  assert.match(failover, /never closed its write window, so the next `D` says `window-open refused`/);
+  assert.match(failover, /is closed by the script: the write window is closed after the worker has stopped \(status 128 plus the signal; 137 by the worker's guardian after a SIGKILL\)/);
+  assert.match(failover, /the next `D` says `window-open refused` \(the guardian itself was killed too\), the edits are unattested \(A224\)/);
+  assert.match(dispatch, /the script closes the implementer's write window itself after such a kill/);
   assert.match(failover, /no approval covers it, not even a batch's/);
   assert.match(failover, /Do not re-dispatch, discard or hand-edit before the answer/);
   // the script says the same where the lead meets the refusal

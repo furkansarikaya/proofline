@@ -42,6 +42,12 @@ git:
   # Empty by default (D34): the team decides.
   protected_branches:
   push_requires_approval: true
+  # Trailer lines the CONTROL PLANE appends to the delivery commit message, after a blank line (A224, user decision of 2026-11-07). The summary the user
+  # approves shows the whole message and the approval covers it; nobody else (not the lead, not --message) adds a trailer. One line `Key: value` in double quotes (the value holds a colon), or a block
+  # list of up to 5 (`- "Key: value"` per line), each up to 200 bytes, no " ` $ or \ in it; `off` adds none. Absent or empty: the default below (the standard
+  # attribution of a change made with Claude Code, without a model name). The keys Signed-off-by, Reviewed-by, Acked-by, Tested-by and Approved-by are refused
+  # (they certify what a person did). Read from the main working tree's config, so a task branch cannot change it; a comment starts at a blank followed by #.
+  commit_trailer: "Co-Authored-By: Claude <noreply@anthropic.com>"
   # Hosting platform of the remote (A186), for a private host proofline cannot recognize by name: github | gitlab | azure |
   # bitbucket | other. Precedence: this key, then the PROOFLINE_PLATFORM environment variable, then the origin URL (github.com,
   # gitlab.com, dev.azure.com, bitbucket.org). `proofline doctor` shows the platform and which of the three decided.

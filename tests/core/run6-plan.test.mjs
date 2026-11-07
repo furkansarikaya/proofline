@@ -3,6 +3,7 @@
 // content_change_stops, failed_refused, reopened_run_delivers, task_moves_to_done, task_move_skipped, summary_warns_without_ci, platforms, task_done_noop,
 // one_approval_real_chain, partial_reply_recovers, cleanup_crash_keeps_merged).
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,9 +29,11 @@ test('a changed file, message or an extra commit after the approval stops the ch
   wf(`${d}/late.txt`, 'late\n');
   refused(S(d, gh.env, 'commit'), 'a changed file after the approval', 'the content changed since the approved summary');
   rmSync(`${d}/late.txt`);
+  const approved = read(d, '.agents/local/deliver/LC/COMMIT_MSG');
+  assert.equal(approved, 'feat: lookup (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n', 'the default trailer is part of the approved message');
   wf(`${d}/.agents/local/deliver/LC/COMMIT_MSG`, 'chore: other\n');
   refused(S(d, gh.env, 'commit'), 'a changed commit message', 'commit message or the pull request body changed');
-  wf(`${d}/.agents/local/deliver/LC/COMMIT_MSG`, 'feat: lookup (LC)\n');
+  wf(`${d}/.agents/local/deliver/LC/COMMIT_MSG`, approved);
   accepted(S(d, gh.env, 'commit'), 'commit');
   commitDelivery(d);
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '--allow-empty', '-m', 'chore: extra');
@@ -259,31 +262,126 @@ test('knowledge: after CODE_DONE .md pages stay out of the tier; a script, an ex
   assert.equal(tier(), 'full', 'non-doc extensions did not count');
 });
 
-// A224 (#172): a harness or user attribution instruction ("end commit messages with Co-Authored-By: ...") never changes the delivery message and gives the lead
-// nothing to ask: deliver-plan writes exactly the one line, refuses a trailer in --message with the answer, and the tamper refusal no longer points at a
-// trailer path that cannot work.
-test('A224: an attribution setting never changes the approved commit line; a trailer is refused with "deliver the one line", not suggested', () => {
+// A224 (#172, user decision of 2026-11-07): the CONTROL PLANE appends the configured attribution trailer to the delivery commit. A harness or user attribution
+// instruction ("end commit messages with Co-Authored-By: ...") needs no action and never parks a delivery; nobody else adds a trailer.
+/** Replace the git.commit_trailer line of the project's config. @param {string} d @param {string} text the lines that replace it (already indented) */
+function setTrailer(d, text) {
+  const f = `${d}/.agents/config.yaml`;
+  const cur = read(d, '.agents/config.yaml');
+  const block = /^ {2}commit_trailer:[^\n]*\n(?: {4}- [^\n]*\n)*/m;
+  assert.match(cur, block, 'the shipped config has the key');
+  wf(f, cur.replace(block, `${text}\n`));
+}
+const MSG = '.agents/local/deliver/LC/COMMIT_MSG';
+const DEFAULT_MSG = 'fix: the approved line (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n';
+
+test('A224: the default trailer is added by deliver-plan, shown in the summary whole, covered by message_sha256 and the approval, ledgered, and committed as written', () => {
   const home = mkdtempSync(path.join(tmpdir(), 'attr-home-'));
   mkdirSync(`${home}/.claude`, { recursive: true });
-  wf(`${home}/.claude/settings.json`, JSON.stringify({ includeCoAuthoredBy: true, attribution: { commit: 'Co-Authored-By: Claude <noreply@anthropic.com>' } }));
-  wf(`${home}/.claude/CLAUDE.md`, 'End git commit messages with a Co-Authored-By trailer.\n');
+  wf(`${home}/.claude/settings.json`, JSON.stringify({ includeCoAuthoredBy: false, attribution: { commit: '' } }));
+  wf(`${home}/.claude/CLAUDE.md`, 'Never add a Co-Authored-By trailer to a commit.\n');
   const env = { HOME: home };
   const gh = fakeGh();
   const d = project(DONE);
   hooks(d);
-  refused(A(d, ['deliver-plan', 'LC', '--message', 'feat: lookup (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>'], { env }), 'a trailer through --message', 'deliver the one line');
-  assert.ok(!existsSync(`${d}/.agents/local/deliver/LC/COMMIT_MSG`), 'a refused message left a COMMIT_MSG behind');
   const plan = accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)'], { env }), 'deliver-plan').out;
+  assert.equal(read(d, MSG), DEFAULT_MSG, 'a harness setting in the home folder changes nothing: the config decides');
   assert.match(plan, /^message: fix: the approved line \(LC\)$/m);
-  assert.equal(read(d, '.agents/local/deliver/LC/COMMIT_MSG'), 'fix: the approved line (LC)\n');
-  assert.ok(!/Co-Authored-By/i.test(plan), 'the summary carries an attribution line');
+  assert.match(plan, /^trailers: default \(1 line, added by the control plane/m);
+  assert.match(plan, /^commit message, exactly as committed:\n {2}\| fix: the approved line \(LC\)\n {2}\|\n {2}\| Co-Authored-By: Claude <noreply@anthropic\.com>\n/m);
+  const sum = read(d, '.agents/local/deliver/LC/SUMMARY.md');
+  assert.match(sum, new RegExp(`^message_sha256: ${createHash('sha256').update(DEFAULT_MSG).digest('hex')}$`, 'm'), 'the hash covers the whole message, trailer included');
+  assert.match(read(d, '.agents/runs/LC/LEDGER.log'), /commit-trailer[^\n]*source=default lines=1 message_sha256=[0-9a-f]{64} trailer=Co-Authored-By: Claude <noreply@anthropic\.com>/);
   approveDelivery(d);
-  wf(`${d}/.agents/local/deliver/LC/COMMIT_MSG`, 'fix: the approved line (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n');
-  const r = S(d, { ...gh.env, ...env }, 'commit');
-  refused(r, 'a hand-edited COMMIT_MSG with a trailer', 'commit message or the pull request body changed');
-  assert.ok(!/with the trailer lines/.test(r.text), 'the refusal still points at a trailer path that deliver-plan rejects');
-  assert.match(r.text, /approved one line, never edited by hand/);
+  accepted(S(d, { ...gh.env, ...env }, 'commit'), 'commit');
+  commitDelivery(d);
+  assert.equal(g(d, 'log', '-1', '--format=%B').replace(/\n+$/, ''), DEFAULT_MSG.replace(/\n+$/, ''), 'git recorded the whole message');
+  assert.equal(g(d, 'log', '-1', '--format=%(trailers:key=Co-Authored-By,valueonly)'), 'Claude <noreply@anthropic.com>', 'git reads it as a trailer');
+  accepted(S(d, { ...gh.env, ...env }, 'push'), 'push with the trailer in the commit');
   rmSync(home, { recursive: true, force: true });
+});
+
+test('A224: a commit whose whole message differs from the approved one (a trailer changed, added or dropped by hand) stops the chain at the next step', () => {
+  for (const [what, msg] of /** @type {Array<[string, string]>} */ ([
+    ['a changed trailer', 'fix: the approved line (LC)\n\nCo-Authored-By: Evil <e@x.y>\n'],
+    ['an added trailer', `${DEFAULT_MSG}Signed-off-by: Someone <s@x.y>\n`],
+    ['a dropped trailer', 'fix: the approved line (LC)\n'],
+  ])) {
+    const gh = fakeGh();
+    const d = project(DONE);
+    hooks(d);
+    accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), 'deliver-plan');
+    approveDelivery(d);
+    accepted(S(d, gh.env, 'commit'), 'commit');
+    commitDelivery(d);
+    gOk(d, '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '--amend', '-m', msg.replace(/\n+$/, ''));
+    refused(S(d, gh.env, 'push'), what, 'not the approved COMMIT_MSG');
+  }
+});
+
+test('A224: a COMMIT_MSG edited by hand after the approval (a trailer added, changed or removed) stops the chain at the commit step', () => {
+  const gh = fakeGh();
+  const d = project(DONE);
+  hooks(d);
+  accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), 'deliver-plan');
+  approveDelivery(d);
+  for (const msg of [`${DEFAULT_MSG}Co-Authored-By: Another <a@x.y>\n`, 'fix: the approved line (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com> \n', 'fix: the approved line (LC)\n']) {
+    wf(`${d}/${MSG}`, msg);
+    const r = S(d, gh.env, 'commit');
+    refused(r, 'a hand-edited COMMIT_MSG', 'commit message or the pull request body changed');
+    assert.ok(!/with the trailer lines/.test(r.text), 'the refusal points at a trailer path that does not exist');
+    assert.match(r.text, /never edited by hand/);
+  }
+  wf(`${d}/${MSG}`, DEFAULT_MSG);
+  accepted(S(d, gh.env, 'commit'), 'the approved message again');
+});
+
+test('A224: off adds nothing; a configured line or list replaces the default, in order', () => {
+  const d = project(DONE);
+  hooks(d);
+  setTrailer(d, '  commit_trailer: off');
+  const plan = accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), 'deliver-plan').out;
+  assert.equal(read(d, MSG), 'fix: the approved line (LC)\n');
+  assert.match(plan, /^trailers: off \(none\)$/m);
+  assert.match(plan, /^commit message, exactly as committed:\n {2}\| fix: the approved line \(LC\)\n/m);
+  assert.match(read(d, '.agents/runs/LC/LEDGER.log'), /commit-trailer[^\n]*source=off lines=0 message_sha256=[0-9a-f]{64}\n/);
+  setTrailer(d, '  commit_trailer: "Co-Authored-By: Dev Team <dev@example.com>"');
+  accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), 'deliver-plan');
+  assert.equal(read(d, MSG), 'fix: the approved line (LC)\n\nCo-Authored-By: Dev Team <dev@example.com>\n');
+  setTrailer(d, '  commit_trailer:\n    - Co-Authored-By: Dev Team <dev@example.com>\n    - Ticket: ABC-123');
+  const p3 = accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), 'deliver-plan').out;
+  assert.equal(read(d, MSG), 'fix: the approved line (LC)\n\nCo-Authored-By: Dev Team <dev@example.com>\nTicket: ABC-123\n');
+  assert.match(p3, /^trailers: config \(2 lines/m);
+  assert.match(p3, /^ {2}\| Ticket: ABC-123$/m);
+});
+
+test('A224: a refused configuration or an injection through --message stops deliver-plan before any file is written; a trailer in --message is still refused', () => {
+  const d = project(DONE);
+  hooks(d);
+  for (const [text, why] of /** @type {Array<[string, string]>} */ ([
+    ['  commit_trailer: Signed-off-by: Someone <s@x.y>', 'certifies what a person did'],
+    ['  commit_trailer: not a trailer', 'is not "Key: value"'],
+    ['  commit_trailer: Key: a"b', 'is not "Key: value"'],
+    [`  commit_trailer: Key: ${'v'.repeat(300)}`, 'longer than 200 bytes'],
+    ['  commit_trailer:\n    - A: 1\n    - B: 2\n    - C: 3\n    - D: 4\n    - E: 5\n    - F: 6', 'at most 5 lines'],
+    ['  commit_trailer:\n    - off\n    - A: 1', 'off stands alone'],
+    ['  commit_trailer: Key: a\u0000b', 'holds a control character'],
+    ['  commit_trailer: Key: a\rb', 'holds a control character'],
+  ])) {
+    setTrailer(d, text);
+    refused(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), text, why);
+    assert.ok(!existsSync(`${d}/${MSG}`), `a refused trailer config left a COMMIT_MSG behind: ${text}`);
+    assert.ok(!existsSync(`${d}/.agents/local/deliver/LC/SUMMARY.md`), 'a refused trailer config left a summary');
+  }
+  setTrailer(d, '  commit_trailer: Co-Authored-By: Claude <noreply@anthropic.com>');
+  for (const m of ['feat: lookup (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>', 'feat: lookup (LC)\nCo-Authored-By: Evil <e@x.y>', 'feat: lookup (LC)\rCo-Authored-By: Evil <e@x.y>', 'feat: lookup\tx (LC)']) {
+    refused(A(d, ['deliver-plan', 'LC', '--message', m]), JSON.stringify(m), m.includes('\n') ? 'the commit message is one line' : 'must not hold a control character');
+    assert.ok(!existsSync(`${d}/${MSG}`), 'a refused message left a COMMIT_MSG behind');
+  }
+  // the one line may not carry the characters either; a line that merely mentions a trailer stays one subject line, with the real trailer after it
+  refused(A(d, ['deliver-plan', 'LC', '--message', 'feat: a "quoted" line (LC)']), 'a quote', 'must not hold');
+  accepted(A(d, ['deliver-plan', 'LC', '--message', 'feat: mentions Co-Authored-By: Evil (LC)']), 'a subject that only names a trailer');
+  assert.equal(read(d, MSG), 'feat: mentions Co-Authored-By: Evil (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n');
 });
 
 /** @param {string} d */

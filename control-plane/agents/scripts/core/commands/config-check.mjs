@@ -4,7 +4,9 @@
 // Where awk iterates an array (`for (s in ...)`), the order of its messages is not defined by awk; when such a loop would print more
 // than one message the order cannot be reproduced, and `ambiguous` is set so that the caller leaves the command to the shell code.
 
-const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts)$/;
+import { resolveTrailer } from '../committrailer.mjs';
+
+const TOP =/^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts)$/;
 const DIGITS = /^[0-9]+$/;
 const HOOK_EVENT_TIMEOUT = /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/;
 const REL_UP = /(^|\/)\.\.(\/|$)/;
@@ -45,6 +47,8 @@ export function checkConfigLines(lines) {
   /** @type {Record<string, boolean>} */ const sd = {};
   /** @type {Record<string, boolean>} */ const sp = {};
   let hs = false;
+  /** the lines of git.commit_trailer (A224, user decision of 2026-11-07), checked together in the END block */
+  /** @type {string[]} */ const trailerItems = [];
 
   for (const line of lines) {
     const eq = line.indexOf('=');
@@ -92,6 +96,7 @@ export function checkConfigLines(lines) {
     else if (k === 'git.push_requires_approval') en(k, v, 'true|false');
     else if (k === 'git.platform') en(k, v, 'github|gitlab|azure|bitbucket|other');
     else if (k === 'git.platform_host') { if (v !== '' && !/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(v)) bad(`git.platform_host is a bare host name such as gitlab.company.com (no scheme, port, path or spaces): ${v}`); }
+    else if (k === 'git.commit_trailer' || /^git\.commit_trailer\.[0-9]+$/.test(k)) { if (v !== '') trailerItems.push(v); }
     else if (k === 'tasks.adapter') en(k, v, 'markdown|github|jira|linear');
     else if (top === 'design_docs' && P(2) === 'design' && P(3) !== '') {
       if (P(3) === 'shared' && P(4) === '') { if (/^\//.test(v) || REL_UP.test(v)) bad(`${k} must be project-relative: ${v}`); }
@@ -170,6 +175,7 @@ export function checkConfigLines(lines) {
   if (!seen['canonical_branch']) bad('missing key: canonical_branch');
   if (!seen['git.branch_prefix']) bad('missing key: git.branch_prefix');
   if (seen['git.platform_host'] && gv['git.platform_host'] !== '' && (gv['git.platform'] ?? '') === '') bad('git.platform_host needs git.platform (the platform that host runs)');
+  if (trailerItems.length > 0) for (const m of resolveTrailer(trailerItems).problems) bad(m);
   unordered(Object.keys(sn), (s) => {
     /** @type {string[]} */ const m = [];
     if (!sd[s]) m.push(`design surface ${s} has no doc (design_docs.design.surfaces.${s}.doc)`);

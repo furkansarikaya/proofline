@@ -8,11 +8,12 @@ import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtemp
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
-import { bytes } from './config.mjs';
+import { Config, bytes } from './config.mjs';
 import { now } from './clock.mjs';
 import { ProoflineError, fail } from './errors.mjs';
 import { approvalExample, approvalsDirOf, findApproval, kindSlug, safeStateFile } from './approvals.mjs';
 import { approvalTarget, consumeApproval, forgetFiles, nextNum, requireLead } from './approve.mjs';
+import { MAX_TRAILER_LINES, composeCommitMessage, trailerFromConfig } from './committrailer.mjs';
 import { CI_WARN, ciAbsent, ciCheckResult, ciTaskCommandText } from './commands/checks.mjs';
 import { tmScaled } from './timeouts.mjs';
 import { deliveryCheck } from './commands/runcmds.mjs';
@@ -31,7 +32,7 @@ import { askQuestion, ledgerToken } from './questions.mjs';
 import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
 import { amendRun } from './reopen.mjs';
 import { cleanupRun, sbBlockOnly } from './runend.mjs';
-import { ciChainOk, ciFixRecs, lifecycleFolderStatus, requireRun, runDir } from './runs.mjs';
+import { ciChainOk, ciFixRecs, commitMessageIsApproved, lifecycleFolderStatus, requireRun, runDir } from './runs.mjs';
 import { statusBlockBody, statusBlockUpdate } from './statusblock.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -388,7 +389,7 @@ export function deliverPlan(ctx, id, rest) {
   const ddir = deliverDir(ctx, id);
   const taskText = fileText(ctx, `${dir}/TASK.md`) ?? '';
   const tm = /^# Task: *[^ ]* *[-\xe2\x80\x94]* */.exec(taskText.split('\n')[0] ?? '');
-  let title = tm ? (taskText.split('\n')[0] ?? '').slice(tm[0].length).replace(/["`$\\]/g, '') : '';
+  let title = tm ? (taskText.split('\n')[0] ?? '').slice(tm[0].length).replace(/["`$\\]/g, '').replace(/[\x00-\x1f\x7f]+/g, ' ').replace(/ +$/, '') : '';
   if (title === '') title = id;
   if (existsSync(`${dir}/ci-fix`)) fail(`delivery refused: a CI-fix round of ${id}'s pull request is under way (or stopped); it goes on with: agent.sh next ${id}`);
   let kind;
@@ -407,7 +408,14 @@ export function deliverPlan(ctx, id, rest) {
     if (msg === '') msg = `feat: ${title} (${id})`;
   } else fail(`delivery blocked: ${id} is ${state}, not CODE_DONE; next step: agent.sh next ${id}`);
   if (/["`$\\]/.test(msg)) fail('the commit message must not hold " ` $ or \\');
-  if (msg.includes('\n')) fail('the commit message is one line (a trailer or attribution line, such as Co-Authored-By, is not part of it and no reason to ask: deliver the one line, A224)');
+  if (msg.includes('\n')) fail('the commit message is one line (a trailer or attribution line, such as Co-Authored-By, is not part of it: the control plane adds the configured trailer itself, git.commit_trailer, and it is no reason to ask, A224)');
+  if (/[\x00-\x1f\x7f]/.test(msg)) fail('the commit message must not hold a control character (a carriage return, tab or NUL included): it is one line of plain text');
+  // A224 (user decision of 2026-11-07): the trailer is added HERE and nowhere else; a refused configuration stops before any file is written
+  // read from the MAIN working tree's config, not from the task branch's own copy: a task can carry a changed .agents/config.yaml, and it must not steer this text
+  const mainConfig = ctx.sharedMain() === ctx.root ? ctx.config() : Config.load(`${ctx.sharedMain()}/.agents/config.yaml`);
+  const trailer = trailerFromConfig(mainConfig);
+  if (trailer.problems.length > 0) fail(`delivery refused: the commit trailer of the config is not accepted (${trailer.problems.join('; ')}). Fix git.commit_trailer in .agents/config.yaml (a "Key: value" line, up to ${MAX_TRAILER_LINES}, or off), then plan the delivery again. The commit message stays the approved line plus these lines, nothing else`);
+  const fullMessage = composeCommitMessage(msg, trailer.lines);
   const br = git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '');
   const base = ctx.config().get('canonical_branch', 'main');
   if (br === '' || br === base) fail(`delivery blocked: deliver from the task branch, not '${br === '' ? 'detached HEAD' : br}'`);
@@ -428,7 +436,7 @@ export function deliverPlan(ctx, id, rest) {
   try { kn = knowledgeOwnedPaths(ctx, id).join('\n'); } catch (e) { if (!(e instanceof ProoflineError)) throw e; }
   mkdirSync(ddir, { recursive: true });
   rmSync(`${ddir}/PR`, { force: true });
-  writeFileSync(`${ddir}/COMMIT_MSG`, `${msg}\n`, 'latin1');
+  writeFileSync(`${ddir}/COMMIT_MSG`, fullMessage, 'latin1');
   copyFileSync(`${dir}/COMPLETION_REPORT.md`, `${ddir}/PR_BODY.md`);
   const noCi = ciAbsent(ctx);
   // A180: no CI here -> the description says the verification was local (the merge step makes it true before merging)
@@ -448,6 +456,9 @@ export function deliverPlan(ctx, id, rest) {
   if (td !== '') s += `task_done: ${tdOld} -> ${tdNew}\n`;
   const bodyHash = hashFile(`${ddir}/PR_BODY.md`);
   s += `kind: ${kind}\nsteps: ${steps}\nmessage: ${msg}\nmessage_sha256: ${hashFile(`${ddir}/COMMIT_MSG`)}\ntitle: ${msg}\nbody: .agents/local/deliver/${id}/PR_BODY.md\nbody_sha256: ${bodyHash}\n`;
+  // the whole message, as git commit -F records it; message_sha256 above covers every line of it, and this summary is what the approval hash covers
+  s += `trailers: ${trailer.source}${trailer.lines.length > 0 ? ` (${trailer.lines.length} line${trailer.lines.length === 1 ? '' : 's'}, added by the control plane from git.commit_trailer or its default)` : ' (none)'}\n`;
+  s += `commit message, exactly as committed:\n${fullMessage.replace(/\n$/, '').split('\n').map((l) => (l === '' ? '  |' : `  | ${l}`)).join('\n')}\n`;
   s += `\nchanged paths (the commit):\n${(paths.length > 0 ? paths : ['  none (nothing to commit; HEAD is pushed as it is)']).map((l) => `  ${l}`).join('\n')}\n`;
   if (td !== '') s += `task file: the commit step moves it to done/ (${tdOld} -> ${tdNew}) and sets its Status to done, inside the commit and so inside the pull request\n`;
   s += `changed by the knowledge step:\n${(kn !== '' ? kn.split('\n') : ['none']).map((l) => `  ${l}`).join('\n')}\n`;
@@ -481,6 +492,7 @@ export function deliverPlan(ctx, id, rest) {
   s += rules !== '' ? `${rules}  each is promoted only with its own reply ("approve rule <ID>"; the summary is then prepared again); without it delivery goes on without the promotion\n` : '  none\n';
   writeFileSync(`${ddir}/SUMMARY.md`, s, 'latin1');
   const h = hashFile(`${ddir}/SUMMARY.md`);
+  ledgerIf(ctx, id, 'commit-trailer', '-', '-', `source=${trailer.source} lines=${trailer.lines.length} message_sha256=${hashFile(`${ddir}/COMMIT_MSG`)}${trailer.lines.length > 0 ? ` trailer=${trailer.lines.join(' / ')}` : ''}`);
   mkdirSync(ad, { recursive: true });
   for (const k of (steps ?? '').split(' ')) {
     approvalTarget(ctx, id, k);
@@ -784,7 +796,7 @@ function ciFixStep(ctx, id, step, pr, sumFile) {
   const br = v('branch');
   const curBr = git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '');
   if (curBr !== br) stop(`the branch is not ${br}`);
-  if (hashFile(`${dd}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${dd}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: run agent.sh deliver-plan ${id} [--message <one line>] again before the approval and relay the new summary; COMMIT_MSG is the approved one line, never edited by hand, and a trailer or attribution instruction does not change it, A224)`);
+  if (hashFile(`${dd}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${dd}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: run agent.sh deliver-plan ${id} [--message <one line>] again before the approval and relay the new summary; COMMIT_MSG is the approved message (the approved one line and the control plane's own trailer), never edited by hand, and a trailer or attribution instruction does not change it, A224)`);
   for (const k of ['pr', 'merge']) if (!consumed(ctx, id, k, h)) stop(`the ${k} step of this delivery has not run: the user's delivery approval covers a CI fix only after the pull request is open and the merge step ran`);
   if ((fileText(ctx, `${dd}/PR`) ?? '').replace(/\n+$/, '') !== pr) stop(`pull request ${pr} is not this delivery's`);
   const head = sub(git(ctx, ['rev-parse', 'HEAD']).out);
@@ -998,7 +1010,7 @@ export function deliverStep(ctx, id, step, prArg) {
   if (ci) cexp = ciFixExpectContent(ctx, id, cexp);
   if (fullFingerprint(ctx) !== cexp) stop('the content changed since the approved summary');
   if (git(ctx, ['branch', '--show-current']).out.replace(/\n+$/, '') !== br) stop(`the branch is not ${br}`);
-  if (hashFile(`${ddir}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${ddir}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: run agent.sh deliver-plan ${id} [--message <one line>] again and relay the new summary; COMMIT_MSG is the approved one line, never edited by hand, and a trailer such as Co-Authored-By is not part of it, A224)`);
+  if (hashFile(`${ddir}/COMMIT_MSG`) !== v('message_sha256') || hashFile(`${ddir}/PR_BODY.md`) !== v('body_sha256')) stop(`the commit message or the pull request body changed (Instead: run agent.sh deliver-plan ${id} [--message <one line>] again and relay the new summary; COMMIT_MSG is the approved message (the approved one line and the control plane's own trailer), never edited by hand, and a trailer you add yourself is not part of it, A224)`);
   const head = sub(git(ctx, ['rev-parse', 'HEAD']).out);
   let dsC = step;
   if (!(` ${v('steps')} `).includes(' commit ')) dsC = 'commit'; // nothing to commit: HEAD stays where it was
@@ -1007,6 +1019,7 @@ export function deliverStep(ctx, id, step, prArg) {
   else {
     const par = git(ctx, ['rev-parse', '-q', '--verify', 'HEAD^']);
     if (!(par.status === 0 && sub(par.out) === v('head') && sub(git(ctx, ['log', '-1', '--format=%s']).out) === v('message'))) stop(`HEAD is not the one delivery commit on top of ${v('head')} (commit first; any other commit stops the chain)`);
+    if (!commitMessageIsApproved(ctx, id, 'HEAD')) stop('the message of the delivery commit is not the approved COMMIT_MSG (the whole message counts, trailers included; commit with git commit -F, never by hand)');
   }
   // A163: the commit must hold the move of the task file to done/; a lead that skipped the printed task-source-done stops the chain
   const tdCheck = () => {
