@@ -83,16 +83,26 @@ user_merges() {
   (cd "$P" && git fetch -q origin 2>/dev/null; true)
 }
 
-# codex_config_commit: with Codex installed, the implementer runs on Codex from now on (the batch then runs Codex implementers in run worktrees, A196);
-# succeeds once the commit on main is possible (the run of T-1 is closed) or when there is nothing to change
+# codex_config_commit: with Codex installed, the implementer runs on Codex from now on (the batch then runs Codex implementers in run worktrees, A196).
+# The config goes onto the ORIGIN's main from a clone of its own, whatever the project is in: the lead may leave the task branch checked out with a dirty
+# working tree (the status blocks of the task files), where a checkout of main is refused (A226). The project then learns main without a checkout.
+# Idempotent; non-zero when the origin's main does not hold the config afterwards.
 codex_config_commit() {
   command -v codex >/dev/null 2>&1 || return 0
-  # the config must be on MAIN (the batch worktrees branch from main): the lead may have left the task branch checked out, so main is checked out first (A226)
-  git -C "$P" show main:.agents/config.yaml 2>/dev/null | grep -q '^    implementer: codex' && return 0
-  git -C "$P" checkout -q main 2>/dev/null || return 1
-  grep -q '^    implementer: codex' "$P/.agents/config.yaml" || { sed 's/^  roles:[[:space:]]*$/  roles:\n    implementer: codex/' "$P/.agents/config.yaml" > "$P/cfg.tmp" && mv "$P/cfg.tmp" "$P/.agents/config.yaml"; }
-  git -C "$P" add -A && git -C "$P" commit -q -m 'chore: implementer runs on codex' 2>/dev/null && git -C "$P" push -q origin main
+  if ! git --git-dir="$ORIGIN" show main:.agents/config.yaml 2>/dev/null | grep -q '^    implementer: codex'; then
+    ccc_t=$(mktemp -d "$work/cfg.XXXXXX") || return 1
+    ( git clone -q "$ORIGIN" "$ccc_t/c" && cd "$ccc_t/c" && git config user.email smoke@example.invalid && git config user.name Smoke \
+      && sed 's/^  roles:[[:space:]]*$/  roles:\n    implementer: codex/' .agents/config.yaml > cfg.tmp && mv cfg.tmp .agents/config.yaml \
+      && git add .agents/config.yaml && git commit -q -m 'chore: implementer runs on codex' && git push -q origin HEAD:main ) >/dev/null 2>&1 || return 1
+  fi
+  git --git-dir="$ORIGIN" show main:.agents/config.yaml 2>/dev/null | grep -q '^    implementer: codex' || return 1
+  git -C "$P" fetch -q origin 2>/dev/null || return 1
+  if [ "$(git -C "$P" symbolic-ref -q --short HEAD)" = main ]; then git -C "$P" merge -q --ff-only origin/main 2>/dev/null || return 1
+  else git -C "$P" fetch -q origin main:main 2>/dev/null || return 1; fi
 }
+
+# p_closed_t1: the project is back on main (the lead's cleanup of T-1 returned to it), or there is no Codex to configure
+p_closed_t1() { ! command -v codex >/dev/null 2>&1 || [ "$(git -C "$P" symbolic-ref -q --short HEAD)" = main ]; }
 
 # codex_dispatch_seen TRANSCRIPT: did a Codex implementer really run in the batch? A dispatch line of the transcript says `implementer runtime=codex`, or the shared metrics
 # record the implementer with runtime codex, or a run folder holds a dispatch file named for it. (A text match on `implementer.*codex` over .agents/local also matches
@@ -317,8 +327,14 @@ EOF
   # the user merged the delivered branch on the origin; the lead closes the run (deliver-merged, cleanup) from that
   user_merges
   git -C "$P" checkout -q main 2>/dev/null; git -C "$P" pull -q --ff-only origin main 2>/dev/null || :
-  drive "$pr_pre-merged" "I merged the branch of T-1 on the origin. Finish T-1." 'codex_config_commit' "I merged it on the origin; please finish T-1 (deliver-merged and cleanup)." >/dev/null 2>&1 || :
-  else codex_config_commit; fi
+  drive "$pr_pre-merged" "I merged the branch of T-1 on the origin. Finish T-1." 'p_closed_t1' "I merged it on the origin; please finish T-1 (deliver-merged and cleanup)." >/dev/null 2>&1 || :
+  fi
+  # in every mode, once more and before the batch is planned: the drive above may have ended (replies spent) with the lead still finishing T-1; the config on
+  # the origin's main is what the batch worktrees branch from, and a batch without it runs Claude implementers (A226)
+  if command -v codex >/dev/null 2>&1; then
+    if codex_config_commit; then row "$pr_pre setup: implementer runs on codex (config on the origin's main)" PASS 0 "implementer: codex on origin main"
+    else row "$pr_pre setup: implementer runs on codex (config on the origin's main)" FAIL 0 "the Codex config did not reach the origin's main"; fi
+  fi
 
   [ "${SMOKE_ONLY:-}" = a202 ] || codex_sandbox_row
 

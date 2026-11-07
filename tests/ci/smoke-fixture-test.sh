@@ -35,13 +35,24 @@ printf '{"kind":"dispatch","task":"T-3","role":"implementer","focus":null,"gate"
 codex_dispatch_seen "$T/claude-only.jsonl" || { echo "FAIL: a codex metrics record is not seen" >&2; exit 1; }
 rm -f "$D/.agents/local/metrics/records.jsonl"; mkdir -p "$D/.agents/local/worktrees/T-3/.agents/runs/T-3/dispatch"; : > "$D/.agents/local/worktrees/T-3/.agents/runs/T-3/dispatch/001-implementer-codex.log"
 codex_dispatch_seen "$T/claude-only.jsonl" || { echo "FAIL: a dispatch file of a Codex implementer is not seen" >&2; exit 1; }
-# codex_config_commit puts the Codex config on MAIN and the origin's main even when the lead left a task branch checked out
+# codex_config_commit puts the Codex config on the origin's main and on the project's main even when the drive ended with the lead still finishing T-1: the task branch is
+# checked out and the working tree is dirty in a file that differs on main (the status blocks of the task files), where a checkout of main is refused
 mkdir -p "$T/bin"; printf '#!/bin/sh\nexit 0\n' > "$T/bin/codex"; chmod +x "$T/bin/codex"
-O=$T/origin.git; P=$T/p2; git init -q --bare -b main "$O"; git init -q -b main "$P"; mkdir -p "$P/.agents"; printf 'runtime:\n  lead: claude\n  roles:\n' > "$P/.agents/config.yaml"
+O=$T/origin.git; ORIGIN=$O; work=$T; export ORIGIN work   # read by the evaluated functions of smoke.sh
+P=$T/p2; git init -q --bare -b main "$O"; git init -q -b main "$P"; mkdir -p "$P/.agents"; printf 'runtime:\n  lead: claude\n  roles:\n' > "$P/.agents/config.yaml"; printf 'a\n' > "$P/.agents/T-1.md"
 git -C "$P" add -A; git -C "$P" commit -q -m base; git -C "$P" remote add origin "$O"; git -C "$P" push -q origin main; git -C "$P" checkout -q -b proofline/T-1-x
-PATH="$T/bin:$PATH" codex_config_commit || { echo "FAIL: codex_config_commit failed on a task branch" >&2; exit 1; }
-git -C "$P" show main:.agents/config.yaml | grep -q '^    implementer: codex' || { echo "FAIL: the Codex config is not on main" >&2; exit 1; }
+printf 'b\n' > "$P/.agents/T-1.md"; git -C "$P" commit -q -am 'feat: task branch'; printf 'c\n' > "$P/.agents/T-1.md"
+git -C "$P" checkout -q main 2>/dev/null && { echo "FAIL: the fixture does not reproduce a refused checkout of main" >&2; exit 1; }
+git clone -q "$O" "$T/user" && printf 'merged\n' > "$T/user/merged.txt" && git -C "$T/user" add -A && git -C "$T/user" commit -q -m 'the users merge' && git -C "$T/user" push -q origin main
+PATH="$T/bin:$PATH" codex_config_commit || { echo "FAIL: codex_config_commit failed with the task branch checked out and a dirty tree" >&2; exit 1; }
 git --git-dir="$O" show main:.agents/config.yaml | grep -q '^    implementer: codex' || { echo "FAIL: the Codex config is not on the origin's main" >&2; exit 1; }
+git --git-dir="$O" show main:merged.txt >/dev/null || { echo "FAIL: the config commit lost the user's merge" >&2; exit 1; }
+git -C "$P" show main:.agents/config.yaml | grep -q '^    implementer: codex' || { echo "FAIL: the project's main did not learn the Codex config" >&2; exit 1; }
+[ "$(git -C "$P" symbolic-ref --short HEAD)" = proofline/T-1-x ] && [ "$(cat "$P/.agents/T-1.md")" = c ] || { echo "FAIL: the project's branch or working tree was touched" >&2; exit 1; }
 git -C "$P" show proofline/T-1-x:.agents/config.yaml | grep -q 'implementer: codex' && { echo "FAIL: the Codex config landed on the task branch" >&2; exit 1; }
 PATH="$T/bin:$PATH" codex_config_commit || { echo "FAIL: codex_config_commit is not idempotent" >&2; exit 1; }
+# and from main: the project is fast-forwarded
+git clone -q "$O" "$T/user2" && printf 'more\n' > "$T/user2/more.txt" && git -C "$T/user2" add -A && git -C "$T/user2" commit -q -m 'more' && git -C "$T/user2" push -q origin main
+git -C "$P" checkout -q -f main && git -C "$P" merge -q --ff-only origin/main 2>/dev/null || git -C "$P" pull -q --ff-only origin main
+PATH="$T/bin:$PATH" codex_config_commit || { echo "FAIL: codex_config_commit failed on main" >&2; exit 1; }
 echo "smoke-fixture-test: all passed"
