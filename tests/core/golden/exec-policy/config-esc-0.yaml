@@ -1,0 +1,58 @@
+profile: balanced
+runtime:
+  lead: claude
+  worker: claude
+  reviewers: claude
+  # Optional per-role override, for example `security_reviewer: claude`.
+  roles:
+# Specialist failover (D7): auto | ask | off.
+budgets:
+  max_advisor_calls: 3
+  max_escalations: 0
+  max_parallel_reviewers: 5
+
+# Database guard (A40; enforced by the runtime hook and checked by agent.sh). No agent reads, copies, queries or
+# writes a database file, runs a SQL client, or runs a migration/seed command; the only database an agent may
+# meet is a test suite's own throwaway database (under $TMPDIR, outside the project, or in memory). Empty =
+# the built-in language-independent default. Lists are space-separated except migrate_commands (comma-separated
+# extended regular expressions, matched against each command word and its arguments).
+execution_policy:
+  # Policy semantics version; bump when resolution or escalation behaviour changes.
+  revision: 1
+  # Efforts no override may select.
+  forbidden_efforts: ultra
+  # Hard ceiling for the dynamic context budget in bytes, overrides included.
+  max_context_bytes: 262144
+  # Base (full-strength) model a LEAD must run on, per runtime (A135). A lead launched or resumed on a cheaper ladder
+  # model is refused (cli exec-policy check-lead; e2e harness; doctor). Workers are not bound by it.
+  lead_base_model:
+    codex: gpt-6-sol
+  # Per class: effort floor and dynamic context budget in bytes (the role's stable prefix is outside it).
+  classes:
+    TRIVIAL: effort=low context_bytes=16384
+    STANDARD: effort=low context_bytes=49152
+    COMPLEX: effort=medium context_bytes=98304
+    CRITICAL: effort=high context_bytes=163840
+  # Per runtime: model ladder (cheapest to strongest) and supported efforts (lowest to highest).
+  providers:
+    claude:
+      models: haiku sonnet opus
+      efforts: low medium high xhigh max
+    codex:
+      models: gpt-6-luna gpt-6-sol gpt-6-astra
+      efforts: none low medium high xhigh
+# Capability tier (1..3) of every runtime model; role tier floors are checked against it (D5, D7).
+# A ladder model without an entry gets its ladder position as tier.
+capabilities:
+  claude:
+    haiku: 1
+    sonnet: 2
+    opus: 3
+  codex:
+    gpt-6-luna: 1
+    gpt-6-sol: 2
+    gpt-6-astra: 3
+# Night mode (A157): `proofline batch`, run in the lead's own session since 0.0.32. mutation_budget_cap is the highest mutation budget the
+# batch approval may raise to (a task that needs more is parked with a question); ci_wait_minutes is how long the lead waits for a running CI
+# run of a merge commit before it stops the batch; ci_appear_minutes is how long it waits for that run to appear. runtimes and task_timeout
+# belonged to the removed headless driver: old configs may keep them, they are accepted, not validated, and ignored.

@@ -31,7 +31,7 @@ export function run(/** @type {string} */ cmd, /** @type {string[]} */ args, /**
   return { code: r.status, signal: r.signal, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') };
 }
 
-/** Install the control plane as `proofline init` lays it out, without any test stub (the real secret-scan.sh and exec-policy.sh stay). */
+/** Install the control plane as `proofline init` lays it out, without any test stub (the real secret-scan.sh stays; the execution policy is the core's). */
 export function installMinimal(/** @type {string} */ dir) {
   const a = join(dir, '.agents'); mkdirSync(join(a, 'scripts'), { recursive: true }); mkdirSync(join(a, 'local'), { recursive: true });
   for (const f of ['config.yaml', 'ecosystems.json', 'ecosystems.mjs', 'ecosystems.tsv', 'owns.conf', 'roles.conf', 'tools.conf']) if (existsSync(join(agentsSrc, f))) copyFileSync(join(agentsSrc, f), join(a, f));

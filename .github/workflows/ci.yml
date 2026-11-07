@@ -278,7 +278,7 @@ jobs:
           - name: core-rest
             mode: files
             pattern: 'none'
-            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/unsupported.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
+            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/unsupported.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/exec-policy.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
           - name: legacy-approvals
             mode: files
             pattern: 'none'
@@ -359,6 +359,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/legacy-reopen.test.mjs
+          - name: legacy-known-issues
+            mode: files
+            pattern: 'none'
+            files: tests/core/legacy-known-issues.test.mjs
           - name: legacy-language
             mode: files
             pattern: 'none'
@@ -458,6 +462,9 @@ jobs:
       - name: hook tests (node:test)
         if: matrix.suite == 'node-tests'
         run: node --test "tests/hook/*.test.mjs"
+      - name: process and output budgets of the execution policy, the runtime detection and the known-issue commands
+        if: matrix.suite == 'node-tests'
+        run: node --test tests/bench/exec-budgets.test.mjs
       - name: guard tests against the Node hook
         if: matrix.suite == 'node-tests'
         env:

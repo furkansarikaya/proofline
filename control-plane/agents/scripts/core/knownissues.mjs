@@ -1,13 +1,13 @@
 // @ts-check
-// Known issues (A202), the part the status block reads: the data rules stay in known-issues.sh (run as a child, like the task adapters, until its
-// own stage); the decision whether a blocking finding is a listed known issue is made here (`ki_untouched`, `finding_known_issue`, `ki_gate_facts`).
-import { readdirSync, statSync } from 'node:fs';
+// Known issues (A202), the decision side: whether a blocking finding is a listed known issue (`ki_untouched`, `finding_known_issue`, `ki_gate_facts`).
+// The data rules (the list, the approvals, canon, lookup, append) are in kirules.mjs (A222).
+import { statSync } from 'node:fs';
 import { batchApproval, sharedDirOf } from './approvals.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { git, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { blockingFindingIds, gateLatestFile, requiredGates } from './gates.mjs';
+import { canon, listable, lookup } from './kirules.mjs';
 import { isFile } from './paths.mjs';
-import * as proc from './proc.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { riskGateFocuses } from './signals.mjs';
@@ -18,27 +18,6 @@ import { normRelPath, scopeEntryCovers } from './taskfile.mjs';
 /** `[ -s LIST.tsv ]` of the shared known-issues folder. @param {Context} ctx */
 export function knownIssuesListed(ctx) {
   try { return statSync(`${ctx.sharedMain()}/.agents/local/known-issues/LIST.tsv`).size > 0; } catch { return false; }
-}
-
-/** `ki ARGS...`: known-issues.sh with the environment agent.sh gave it. @param {Context} ctx @param {string[]} args @returns {{ status: number, out: string }} */
-export function ki(ctx, args) {
-  const main = ctx.sharedMain();
-  const script = `${ctx.trustedScripts}/known-issues.sh`;
-  if (!isFile(script)) return { status: 127, out: '' };
-  /** @type {string[]} */ const runs = [`${main}/.agents/runs`];
-  try {
-    for (const n of readdirSync(`${main}/.agents/local/worktrees`).sort()) {
-      try { if (statSync(`${main}/.agents/local/worktrees/${n}/.agents/runs`).isDirectory()) runs.push(`${main}/.agents/local/worktrees/${n}/.agents/runs`); } catch { /* none */ }
-    }
-  } catch { /* no worktrees */ }
-  const env = {
-    ...ctx.childEnv(),
-    KI_DIR: `${main}/.agents/local/known-issues`, KI_APPROVALS: `${main}/.agents/local/approvals`,
-    KI_TASKS: `${main}/${ctx.config().get('tasks.dir', '.agents/tasks')}`, KI_ADAPTER: ctx.config().get('tasks.adapter', 'markdown'),
-    KI_MAIN: main, KI_RUNS: `${runs.join(' ')} `,
-  };
-  const r = proc.run('sh', [script, ...args], { cwd: ctx.cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
-  return { status: r.status, out: r.stdout.toString('latin1') };
 }
 
 /**
@@ -68,17 +47,13 @@ export function findingKnownIssue(ctx, id, rec, fid) {
   if (!knownIssuesListed(ctx)) return null;
   const gate = gateField(ctx, rec, 'gate');
   if (gate === 'SECRETS' || gate === 'SECURITY') return null;
-  const c = ki(ctx, ['canon', rec, fid]);
-  if (c.status !== 0) return null;
-  const row = c.out.replace(/\n+$/, '').split('\t');
-  const [g, p] = row;
-  const t = row.slice(2).join('\t');
-  const m = ki(ctx, ['lookup', g, p, t]);
-  if (m.status !== 0) return null;
-  const mrow = m.out.replace(/\n+$/, '');
-  if (mrow.split('\t')[1] === id) return null;
-  if (!kiUntouched(ctx, `${ctx.root}/.agents/runs/${id}`, p.split(':')[0])) return null;
-  return mrow;
+  const c = canon(ctx, rec, fid);
+  if (c === null) return null;
+  const m = lookup(ctx, c.gate, c.place, c.text);
+  if (m === null) return null;
+  if (m.followup === id) return null;   // the task that is the follow-up fixes it: it is not a known issue for that task
+  if (!kiUntouched(ctx, `${ctx.root}/.agents/runs/${id}`, c.place.split(':')[0])) return null;
+  return `${m.id}\t${m.followup}`;
 }
 
 /**
@@ -125,13 +100,11 @@ export function findingBatchAccepted(ctx, id, rec, fid) {
   const order = fileText(ctx, `${sharedDirOf(ctx, 'batch')}/order.tsv`);
   if (order === null || !textLines(order).some((l) => l.split('\t')[0] === id)) return false;
   if (!batchAcceptGiven(ctx)) return false;
-  const c = ki(ctx, ['canon', rec, fid]);
-  if (c.status !== 0) return false;
-  const row = c.out.replace(/\n+$/, '').split('\t');
-  const [g, p] = row;
-  const t = row.slice(2).join('\t');
+  const c = canon(ctx, rec, fid);
+  if (c === null) return false;
+  const { gate: g, place: p, text: t } = c;
   if (/secret|secur/.test(asciiLower(g))) return false;
-  if (ki(ctx, ['listable', g, p]).status !== 0) return false;
+  if (listable(ctx, g, p) !== null) return false;
   const summary = fileText(ctx, `${sharedDirOf(ctx, 'batch')}/SUMMARY.md`) ?? '';
   if (!textLines(summary).includes(`- accept K ${g} ${p}: ${t}`)) return false;
   return kiUntouched(ctx, `${ctx.root}/.agents/runs/${id}`, p.split(':')[0]);

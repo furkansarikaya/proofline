@@ -201,7 +201,7 @@ test('ci-fix: resume finds the CI step of an open pull request and every step of
 
 test('ci-fix (batch): the batch delivery cover carries two CI-fix rounds to the same PR branch with no user reply; the third red CI leaves the question a batch parks on', () => {
   const gh = fakeGh();
-  const d = project("SC_BRANCH=1 scaffold orchestrated; for s in \"$tl_agents\"/scripts/*.sh; do case \"$(basename \"$s\")\" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac; cp \"$s\" .agents/scripts/; done; mkdir -p .agents/tasks; printf '# Task: LC \u2014 title of LC\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nCOMPLEX\n' > .agents/tasks/LC.md; "
+  const d = project("SC_BRANCH=1 scaffold orchestrated; for s in \"$tl_agents\"/scripts/*.sh; do case \"$(basename \"$s\")\" in *-test.sh|test-lib.sh|agent.sh|secret-scan.sh) continue ;; esac; cp \"$s\" .agents/scripts/; done; mkdir -p .agents/tasks; printf '# Task: LC \u2014 title of LC\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Suggested class\n\nCOMPLEX\n' > .agents/tasks/LC.md; "
     + "A batch-plan all >/dev/null; capture 'approve batch'; A approve-pending >/dev/null; to_code_done orchestrated; finish_done");
   hooks(d);
   gOk(d, 'init', '-q', '--bare', `${d}-bare.git`);

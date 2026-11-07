@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.56
+proofline_version: 0.0.57
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -329,7 +329,7 @@ pipelines:
     max_explorers: 3
     max_scope_paths: 12
     dispatch_timeout_seconds: 7200
-# Execution policy (D5, D7): read by exec-policy.sh, dispatch.sh and runtime-detect.sh.
+# Execution policy (D5, D7): read by the Node core (cli exec-policy, cli runtime-detect) and dispatch.sh.
 execution_policy:
   # Policy semantics version; bump when resolution or escalation behaviour changes.
   revision: 1
@@ -338,7 +338,7 @@ execution_policy:
   # Hard ceiling for the dynamic context budget in bytes, overrides included.
   max_context_bytes: 262144
   # Base (full-strength) model a LEAD must run on, per runtime (A135). A lead launched or resumed on a cheaper ladder
-  # model is refused (exec-policy.sh check-lead; e2e harness; doctor). Workers are not bound by it.
+  # model is refused (cli exec-policy check-lead; e2e harness; doctor). Workers are not bound by it.
   lead_base_model:
     codex: gpt-6-sol
   # Per class: effort floor and dynamic context budget in bytes (the role's stable prefix is outside it).

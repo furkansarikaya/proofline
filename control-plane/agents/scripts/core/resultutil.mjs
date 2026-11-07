@@ -13,6 +13,7 @@ import { baseMovedLines } from './lifecycle.mjs';
 import * as proc from './proc.mjs';
 import { probePerformance, probeVisual } from './probes.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
+import { configuredRuntime } from './execpolicy.mjs';
 import { runDir } from './runs.mjs';
 import { riskSignals } from './signals.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
@@ -557,8 +558,7 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
     const at = get('decided_at');
     if (at !== '') dur = String(now().epoch - Number(at));
   } else {
-    const r = proc.run('sh', [`${ctx.trustedScripts}/exec-policy.sh`, 'runtime', role], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
-    const t = r.status === 0 ? r.stdout.toString('latin1').replace(/\n+$/, '') : '';
+    const t = configuredRuntime(ctx, role);
     rt = t === '' ? '-' : t;
   }
   let st = '';

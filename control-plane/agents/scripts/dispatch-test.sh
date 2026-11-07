@@ -1,7 +1,7 @@
 #!/bin/sh
 # shellcheck disable=SC2016,SC2086 # ck evaluates its condition later; d_env holds space-free assignments
 # Tests for dispatch.sh with fake runtimes and a stub agent.sh in a throwaway installed layout.
-# The stub's `decide` calls the real exec-policy.sh, so capability floors are the real ones.
+# The stub's `decide` calls the real resolver of the Node core (cli exec-policy), so capability floors are the real ones.
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-test.XXXXXX") || { echo "TMPDIR must be an existing directory: ${TMPDIR:-/tmp}" >&2; exit 2; }; trap 'rm -rf "$tmp"' EXIT
@@ -28,22 +28,23 @@ X
 }
 mkdir -p "$tmp/proj"; p=$(CDPATH='' cd "$tmp/proj" && pwd); a=$p/.agents; loc=$a/local
 mkdir -p "$a/scripts" "$a/roles" "$a/runs/T-1" "$loc" "$tmp/bin"
-cp "$here/dispatch.sh" "$here/exec-policy.sh" "$here/runtime-detect.sh" "$a/scripts/"
+cp "$here/dispatch.sh" "$here/proofline-core.mjs" "$a/scripts/"; cp -R "$here/core" "$a/scripts/core"   # the Node core: the resolver and the runtime detection
 fixture_roles > "$a/roles.conf"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 git init -q "$p"   # .git/config and HEAD are watched during every dispatched step
+printf '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n' >> "$p/.git/info/exclude"   # the Node core is installed, not part of the changed paths a resume note lists
 for r in implementer reviewer security_reviewer designer explorer; do printf 'You are the proofline %s. STABLE-PREFIX-%s\n' "$r" "$r" > "$a/roles/$r.md"; done
 
 cat > "$a/scripts/agent.sh" <<'EOF'
 #!/bin/sh
-# stub agent.sh: logs every call; decide resolves through the real exec-policy.sh
+# stub agent.sh: logs every call; decide resolves through the real resolver of the Node core
 loc=$(dirname "$0")/../local
 echo "$*" >> "$loc/calls.log"
 case "$1" in
   decide) id=$2 role=$3; shift 3; args=''
     while [ $# -gt 0 ]; do case "$1" in --focus) ;; *) args="$args $1 $2" ;; esac; shift 2; done
     # shellcheck disable=SC2086
-    exec sh "$(dirname "$0")/exec-policy.sh" resolve --role "$role" --class STANDARD --tier full $args ;;
+    exec node "$(dirname "$0")/proofline-core.mjs" cli exec-policy resolve --role "$role" --class STANDARD --tier full $args ;;
   window-open) echo FP-BEFORE ;;
   fingerprint) cat "$loc/../../product.txt" ;;
   window-close) ;;

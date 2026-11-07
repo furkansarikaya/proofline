@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.57 — 2026-11-07
+
+- Node migration, stage 7, package 172-B (A222, issue #172): the execution-policy resolver, the runtime detection and the known-issues list run in Node: `proofline-core.mjs cli exec-policy resolve|explain|check-capabilities|check-lead|lead-base|runtime` and `cli runtime-detect [has|bin <runtime>]` (what `decide`, `dispatch.sh` failover, `doctor` and the end-to-end harness call), and `known-issue-propose`, `known-issue-apply`, `known-issue-list`, `known-issue-candidates` (same commands, same files, same approval of the user's own `approve known issue`). `exec-policy.sh`, `runtime-detect.sh`, `known-issues.sh` and their two shell test files are deleted (1,005 lines of sh); the fixture stub `.agents/scripts/exec-policy.sh` of the self-tests is still run while it exists, no environment value changes a decision (`EXEC_POLICY_CONFIG` and `EXEC_POLICY_ROLES` are gone; `cli exec-policy --config` names another config explicitly). External processes: the resolver 18 -> 1, `known-issue-propose` 112 -> 3, `known-issue-apply` 71 -> 3, `known-issue-list` 39 -> 2, `known-issue-candidates` 78 -> 3 (`tests/bench/exec-budgets.tsv`). Tests: the resolver against 742 recorded answers of the shell resolver, every scenario of `known-issues-test.sh` as a Node test, the budgets.
+
 ## 0.0.56 — 2026-11-07
 
 - Fix (A223, user decision on A219, issue #195): `evidence/` is not a run folder and no role or skill directs anyone to it. The evidence-map skill and the explorer role now name the output path (`.agents/runs/<ID>/scratch/<agent token>-report.md`, handed over with `submit --report`; temp files in scratch), and a Node guard fails when a role, skill, template or doc names the run-level `evidence/` folder. `discard-stray evidence/<file>` stays as the cleanup for strays.

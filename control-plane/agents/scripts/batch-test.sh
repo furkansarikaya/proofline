@@ -90,7 +90,7 @@ mktask() {
 # binstall [remote:yes|no]: the batch scripts in .agents/scripts, committed, a local bare origin (never a network)
 install_scripts() { # DIR: the control-plane scripts a fixture lacks (batch.sh, dispatch.sh, friction.sh, ...), not the stubs
   for is_s in "$tl_agents"/scripts/*.sh; do
-    case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
+    case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|secret-scan.sh) continue ;; esac
     cp "$is_s" "$1/"
   done
   rm -f "$1/../task-integrations/markdown.sh"   # A216: sessions use the built-in markdown adapter, not the fixture stub

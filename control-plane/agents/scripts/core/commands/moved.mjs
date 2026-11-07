@@ -24,6 +24,7 @@ import { RESULTCMD_HANDLERS } from './resultcmds.mjs';
 import { GATECMD_HANDLERS } from './gatecmds.mjs';
 import { COMPLETION_HANDLERS } from './reportcmds.mjs';
 import { DELIVERCMD_HANDLERS } from './delivercmds.mjs';
+import { KI_HANDLERS } from './kicmds.mjs';
 import { detectPlatform, warnText } from '../platform.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
@@ -186,4 +187,6 @@ export const HANDLERS = {
   ...COMPLETION_HANDLERS,
   // --- stage 6 ---
   ...DELIVERCMD_HANDLERS,
+  // --- stage 7, package 172-B (A222) ---
+  ...KI_HANDLERS,
 };
