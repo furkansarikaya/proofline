@@ -167,7 +167,6 @@ function runtimeDetectCli(ctx, args) {
   return r.status;
 }
 
-/** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
 /**
  * `cli worktree-deps <MAIN-ROOT> <DIR>` (the former `worktree-prep.sh --deps`, for build-record.sh): the ignored dependency folders of the project are COPIED into DIR
  * (the throwaway export of a build record), never linked. Writes nothing outside DIR; status 0, 1 when a copy failed, 2 for a missing folder.
@@ -178,6 +177,7 @@ function worktreeDepsCli(ctx, args) {
   return prepareWorktree(ctx, args[0], args[1], '', true);
 }
 
+/** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
 export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli });
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
