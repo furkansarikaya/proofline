@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
-import { leftoverWorktrees } from '../../control-plane/agents/scripts/core/leftover.mjs';
+import { leftoverWorktrees, shQuote } from '../../control-plane/agents/scripts/core/leftover.mjs';
 import { A, AB, batchApprove, bnew, binstall, fakes, g, gOk, has, lines, mktask, path, put, read, readIf, real, repo, say, scripts, sh, wtp } from './batch-lib.mjs';
 import { makeFixture, git } from './fixture.mjs';
 
@@ -314,4 +314,44 @@ test('proofline doctor prints one WARN with the removal command per leftover wor
   const r2 = spawnSync('sh', ['-c', 'ROOT="$1"; D_WARNS=0; . "$2"; doctor_worktrees; echo "warns=$D_WARNS"', 'x', clean.root, path.join(repo, 'bin/lib/doctor.sh')], { encoding: 'utf8' });
   assert.equal(r2.stdout.trim(), 'warns=0');
   void Context; void say; void lines; void readFileSync;
+});
+
+const HOSTILE = ['x;touch PWNED;#', 'x;touch${IFS}PWNED;#', 'L$(touch PWNED)', 'L`touch PWNED`', "it's", 'L 1', 'L\ntouch PWNED', 'L\tPWNED', '-rf', 'ünï', 'a|b', 'a&b', '.hid', 'a..b'];
+
+test('doctor never proposes a command built from a hostile worktree folder name; a valid id is still proposed (security review of A225)', () => {
+  const fx = makeFixture();
+  const root = fx.root;
+  const head = git(root, ['rev-parse', 'HEAD']).trim();
+  /** @param {string} id */
+  const addLeftover = (id) => {
+    const d = `${root}/.agents/local/worktrees/${id}`;
+    const r = spawnSync('git', ['-C', root, 'worktree', 'add', '-q', '--detach', d, 'main'], { encoding: 'utf8' });
+    if (r.status !== 0) return false; // git refused the name: nothing to test
+    mkdirSync(`${d}/.agents/runs/${id}`, { recursive: true });
+    writeFileSync(`${d}/.agents/runs/${id}/RUN.yaml`, `execution:\n  state: DONE\nhandoff:\n  state: DONE\n`);
+    put(`${d}/.agents/local/deliver/${id}/SUMMARY.md`, `merge_by: user\nhead: ${head}\nbase: main\nbranch: x\n`);
+    return true;
+  };
+  const made = HOSTILE.filter(addLeftover);
+  assert.ok(made.length >= 8, `git accepted too few hostile names to mean anything: ${made.length}`);
+  assert.ok(addLeftover('V-1'));
+  const found = leftoverWorktrees(fx.ctx());
+  assert.deepEqual(found.map((f) => f.id), ['V-1'], 'a hostile folder name was proposed');
+  const cli = spawnSync('node', [path.join(root, '.agents/scripts/proofline-core.mjs'), 'cli', 'leftover-worktrees'], { cwd: root, encoding: 'utf8' });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(cli.stdout, 'V-1\t.agents/local/worktrees/V-1\tits delivered commit is on main\tsh .agents/scripts/agent.sh worktree-remove V-1 --force\n');
+  assert.ok(!cli.stdout.includes('touch') && !cli.stdout.includes('PWNED'));
+  // doctor.sh prints exactly one WARN, and running the proposed line creates nothing
+  const d = spawnSync('sh', ['-c', 'ROOT="$1"; D_WARNS=0; . "$2"; doctor_worktrees; echo "warns=$D_WARNS"', 'x', root, path.join(repo, 'bin/lib/doctor.sh')], { encoding: 'utf8' });
+  assert.equal(d.stdout.split('\n').filter((l) => l.startsWith('WARN')).length, 1, d.stdout);
+  assert.ok(!d.stdout.includes('PWNED') && /warns=1/.test(d.stdout), d.stdout);
+});
+
+test('shQuote returns a word a POSIX shell reads back unchanged, whatever it holds', () => {
+  for (const w of [...HOSTILE, 'plain-1', "'", "''", '"', '\\', '$HOME', '*']) {
+    const r = spawnSync('sh', ['-c', `printf '%s' ${shQuote(w)}`], { encoding: 'utf8' });
+    assert.equal(r.stdout, w, JSON.stringify(w));
+  }
+  assert.equal(shQuote('L-1'), 'L-1');
+  assert.equal(shQuote('-rf'), "'-rf'");
 });

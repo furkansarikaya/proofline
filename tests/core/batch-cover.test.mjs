@@ -41,7 +41,7 @@ test('batch-cover covers only plan, delivery and mutation_budget; it is lead-onl
   refused(AB(F, dir, ['batch-cover', 'LC', 'plan'], { role: 'reviewer' }), 'batch-cover without a lead');
   refused(AB(F, dir, ['batch-plan', 'all'], { role: 'reviewer' }), 'reviewer batch-plan', 'command denied');
   refused(AB(F, dir, ['batch-cover', 'LC', 'plan'], { role: 'implementer' }), 'implementer batch-cover', 'command denied');
-  refused(AB(F, dir, ['batch-cover', 'LC'], {}), 'batch-cover without a kind');
+  refused(AB(F, dir, ['batch-cover', 'LC'], {}), 'batch-cover without a kind', 'usage: agent.sh batch-cover');
   // waiver and scope still need their own approval: the request exists, the batch does not answer it
   A(dir, ['request-approval', 'LC', 'scope']);
   refused(AB(F, dir, ['batch-cover', 'LC', 'scope']), 'batch-cover scope');
