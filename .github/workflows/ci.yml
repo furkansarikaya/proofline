@@ -375,6 +375,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/legacy-identity.test.mjs tests/core/legacy-language.test.mjs
+          - name: dispatch
+            mode: files
+            pattern: 'none'
+            files: tests/core/decide.test.mjs tests/core/dispatch.test.mjs tests/core/dispatch-golden.test.mjs tests/core/dispatch-text.test.mjs tests/core/dispatch-watchdog.test.mjs tests/core/gitstate.test.mjs
           - name: enforcement-recorded-lead
             mode: files
             pattern: 'none'
@@ -476,6 +480,9 @@ jobs:
       - name: process and output budgets of the night-mode read commands (batch-next, batch-status, batch-answers)
         if: matrix.suite == 'node-tests'
         run: node --test tests/bench/batch-budgets.test.mjs
+      - name: process budgets of the execution decision and the dispatcher
+        if: matrix.suite == 'node-tests'
+        run: node --test tests/bench/dispatch-budgets.test.mjs
       - name: guard tests against the Node hook
         if: matrix.suite == 'node-tests'
         env:

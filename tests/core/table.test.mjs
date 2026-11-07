@@ -43,7 +43,9 @@ function STAGE7C_LOCKS(command, readOnly) {
   assert.equal(readOnly, ['worktree-root', 'batch-answers'].includes(command), `${command} read-only`);
   return !readOnly && !unlocked.includes(command);
 }
-const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B, ...STAGE7C];
+// stage 7, package 172-D (A226): decide, ledger-note and metrics-dispatch; their agent.sh arms and functions are deleted
+const STAGE172D = ['decide', 'ledger-note', 'metrics-dispatch'];
+const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B, ...STAGE7C, ...STAGE172D];
 
 describe('command table', () => {
   test('132 entries, each the label of a case of agent.sh, in its order', () => {

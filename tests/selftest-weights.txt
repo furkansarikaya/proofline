@@ -85,7 +85,6 @@
 76 lifecycle-test scenario_base_moved_agents_files
 75 cli-test sc_upgrade_block
 75 gates-test sc_scratch_worktrees
-74 dispatch-test
 74 gates-test sc_questions_grill
 73 lifecycle-test scenario_base_moved_stale
 70 lifecycle-test scenario_base_moved_named_path

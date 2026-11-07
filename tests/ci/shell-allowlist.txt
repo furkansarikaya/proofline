@@ -18,7 +18,6 @@ control-plane/agents/scripts/build-record.sh
 control-plane/agents/scripts/controls-test.sh
 control-plane/agents/scripts/debt-test.sh
 control-plane/agents/scripts/debt.sh
-control-plane/agents/scripts/dispatch-test.sh
 control-plane/agents/scripts/dispatch.sh
 control-plane/agents/scripts/ecosystems.sh
 control-plane/agents/scripts/friction-test.sh

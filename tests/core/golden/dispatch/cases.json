@@ -1,0 +1,449 @@
+{
+ "codex-implementer": {
+  "args": [
+   "LC",
+   "implementer",
+   "--prompt-file",
+   "<TMP>/assignment.txt"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC implementer DONE (results/001-implementer.result.md)\n",
+  "argv": [
+   "exec",
+   "-C",
+   "<ROOT>",
+   "-m",
+   "gpt-6-sol",
+   "-c",
+   "model_reasoning_effort=high",
+   "-c",
+   "approval_policy=\"never\"",
+   "--dangerously-bypass-hook-trust",
+   "-o",
+   "<ROOT>/.agents/runs/LC/dispatch/001-implementer-codex.md",
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"}}",
+   "-"
+  ],
+  "stdinBase64": "WW91IGFyZSB0aGUgcHJvb2ZsaW5lIGltcGxlbWVudGVyLiBTVEFCTEUtUFJFRklYLWltcGxlbWVudGVyCgo9PT0gVEFTSyA9PT0KVEFTSzogTEMKUk9MRTogaW1wbGVtZW50ZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPWltcGxlbWVudGVyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpXSU5ET1c6IGRpc3BhdGNoLnNoIG9wZW5lZCB5b3VyIHdyaXRlIHdpbmRvdyBiZWZvcmUgc3RhcnRpbmcgeW91ICh3aW5kb3ctb3BlbikuIEl0IGxlYXZlcyBubyBmaWxlIHVudGlsIHRoZSBzdGVwIGVuZHMgKHdpbmRvdy1jbG9zZSB3cml0ZXMgd29ya2VyLWV2aWRlbmNlL1dJTkRPVy08bj4ueWFtbCkuIERvIG5vdCBsb29rIGZvciBpdDsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyB3aW5kb3cuCgpBc3NpZ25tZW50IGxpbmUgb25lLgpMaW5lIHR3byB3aXRoIHwgcGlwZXMgYW5kICJxdW90ZXMiLgo=",
+  "env": "implementer|d001-implementer-codex||codex|<TMP>|"
+ },
+ "claude-reviewer-focus": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--focus",
+   "rules"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agents",
+   "{\"proofline-reviewer\":{\"description\":\"proofline reviewer\",\"prompt\":\"You are the proofline reviewer. STABLE-PREFIX-reviewer\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]}}",
+   "--agent",
+   "proofline-reviewer",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--permission-mode",
+   "bypassPermissions",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKRk9DVVM6IHJ1bGVzClJVTl9ESVI6IC5hZ2VudHMvcnVucy9MQwpSZXBvcnQgeW91ciByZXN1bHQgd2l0aDogQUdFTlRfUk9MRT1yZXZpZXdlciBzaCAuYWdlbnRzL3NjcmlwdHMvYWdlbnQuc2ggc3VibWl0IExDIC0tY29uZmlkZW5jZSA8aGlnaHxtZWRpdW18bG93PiBbLS1mb2N1cyBGXSBbLS1hcnRpZmFjdCA8cGF0aCBvZiB5b3VyIHJlcG9ydD5dIFstLWZpbmRpbmdzIEZJTEV8bm9uZV0gWy0tcmVwb3J0IEZJTEV8LV0gWy0tcmVhc29uIFRdIFstLXF1ZXN0aW9ucyBGSUxFXQpPbmx5IG9uZSBvZiAtLXJlcG9ydC8tLWZpbmRpbmdzIG1heSByZWFkIHN0ZGluICgtKTogdXNlIGEgZmlsZSBmb3IgdGhlIG90aGVyLCBvciBvbmUgc3RkaW4gZG9jdW1lbnQ6IHJlcG9ydCwgYSBsaW5lICI9PT0gRklORElOR1MgPT09IiwgdGhlbiByb3dzIChzZXZlcml0eXxwYXRoOmxpbmV8ZmluZGluZ3xldmlkZW5jZTsgYW5zd2VyLW9ubHk6IC0tZmluZGluZ3Mgbm9uZSBvciBpbmZvfC18YW5zd2VyfDxvbmUgbGluZT4pLgpUaGUgc2NyaXB0IGJ1aWxkcyB0aGUgaGVhZGVyLCBmaW5nZXJwcmludCBhbmQgaGFzaGVzIGFuZCByZXR1cm5zIGFueSByZWplY3Rpb24gdG8geW91OiBmaXggd2hhdCBpdCBuYW1lcyBhbmQgc3VibWl0IGFnYWluLiBZb3VyIGZpbmFsIG1lc3NhZ2UgaXMgbm90IHBhcnNlZC4KQVNTSUdOTUVOVDogbm9uZSB3YXMgZ2l2ZW4uIERvIHlvdXIgcm9sZSdzIGRlZmF1bHQgc3RlcCBvbiB0aGlzIHRhc2sgZnJvbSAuYWdlbnRzL3J1bnMvTEMvIChUQVNLLm1kLCBQTEFOLm1kIGFuZCB0aGVpciBzY29wZSk7IG5ldmVyIHJlcG9ydCBCTE9DS0VEIGZvciBhIG1pc3NpbmcgYXNzaWdubWVudCBmaWxlLgo=",
+  "env": "reviewer|d001-reviewer-claude|rules|claude|<TMP>|"
+ },
+ "claude-tools-conf": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--focus",
+   "rules"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agents",
+   "{\"proofline-reviewer\":{\"description\":\"proofline reviewer\",\"prompt\":\"You are the proofline reviewer. STABLE-PREFIX-reviewer\",\"tools\":[\"Read\",\"Grep\",\"Bash\"]}}",
+   "--agent",
+   "proofline-reviewer",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--permission-mode",
+   "bypassPermissions",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKRk9DVVM6IHJ1bGVzClJVTl9ESVI6IC5hZ2VudHMvcnVucy9MQwpSZXBvcnQgeW91ciByZXN1bHQgd2l0aDogQUdFTlRfUk9MRT1yZXZpZXdlciBzaCAuYWdlbnRzL3NjcmlwdHMvYWdlbnQuc2ggc3VibWl0IExDIC0tY29uZmlkZW5jZSA8aGlnaHxtZWRpdW18bG93PiBbLS1mb2N1cyBGXSBbLS1hcnRpZmFjdCA8cGF0aCBvZiB5b3VyIHJlcG9ydD5dIFstLWZpbmRpbmdzIEZJTEV8bm9uZV0gWy0tcmVwb3J0IEZJTEV8LV0gWy0tcmVhc29uIFRdIFstLXF1ZXN0aW9ucyBGSUxFXQpPbmx5IG9uZSBvZiAtLXJlcG9ydC8tLWZpbmRpbmdzIG1heSByZWFkIHN0ZGluICgtKTogdXNlIGEgZmlsZSBmb3IgdGhlIG90aGVyLCBvciBvbmUgc3RkaW4gZG9jdW1lbnQ6IHJlcG9ydCwgYSBsaW5lICI9PT0gRklORElOR1MgPT09IiwgdGhlbiByb3dzIChzZXZlcml0eXxwYXRoOmxpbmV8ZmluZGluZ3xldmlkZW5jZTsgYW5zd2VyLW9ubHk6IC0tZmluZGluZ3Mgbm9uZSBvciBpbmZvfC18YW5zd2VyfDxvbmUgbGluZT4pLgpUaGUgc2NyaXB0IGJ1aWxkcyB0aGUgaGVhZGVyLCBmaW5nZXJwcmludCBhbmQgaGFzaGVzIGFuZCByZXR1cm5zIGFueSByZWplY3Rpb24gdG8geW91OiBmaXggd2hhdCBpdCBuYW1lcyBhbmQgc3VibWl0IGFnYWluLiBZb3VyIGZpbmFsIG1lc3NhZ2UgaXMgbm90IHBhcnNlZC4KQVNTSUdOTUVOVDogbm9uZSB3YXMgZ2l2ZW4uIERvIHlvdXIgcm9sZSdzIGRlZmF1bHQgc3RlcCBvbiB0aGlzIHRhc2sgZnJvbSAuYWdlbnRzL3J1bnMvTEMvIChUQVNLLm1kLCBQTEFOLm1kIGFuZCB0aGVpciBzY29wZSk7IG5ldmVyIHJlcG9ydCBCTE9DS0VEIGZvciBhIG1pc3NpbmcgYXNzaWdubWVudCBmaWxlLgo=",
+  "env": "reviewer|d001-reviewer-claude|rules|claude|<TMP>|"
+ },
+ "claude-generated-agent": {
+  "args": [
+   "LC",
+   "security_reviewer"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC security_reviewer DONE (results/001-security_reviewer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agent",
+   "proofline-security-reviewer",
+   "--model",
+   "opus",
+   "--effort",
+   "high",
+   "--permission-mode",
+   "bypassPermissions",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogc2VjdXJpdHlfcmV2aWV3ZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPXNlY3VyaXR5X3Jldmlld2VyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpBU1NJR05NRU5UOiBub25lIHdhcyBnaXZlbi4gRG8geW91ciByb2xlJ3MgZGVmYXVsdCBzdGVwIG9uIHRoaXMgdGFzayBmcm9tIC5hZ2VudHMvcnVucy9MQy8gKFRBU0subWQsIFBMQU4ubWQgYW5kIHRoZWlyIHNjb3BlKTsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyBhc3NpZ25tZW50IGZpbGUuCg==",
+  "env": "security_reviewer|d001-security_reviewer-claude||claude|<TMP>|"
+ },
+ "claude-accept-edits": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--focus",
+   "rules"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agents",
+   "{\"proofline-reviewer\":{\"description\":\"proofline reviewer\",\"prompt\":\"You are the proofline reviewer. STABLE-PREFIX-reviewer\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]}}",
+   "--agent",
+   "proofline-reviewer",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--permission-mode",
+   "acceptEdits",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKRk9DVVM6IHJ1bGVzClJVTl9ESVI6IC5hZ2VudHMvcnVucy9MQwpSZXBvcnQgeW91ciByZXN1bHQgd2l0aDogQUdFTlRfUk9MRT1yZXZpZXdlciBzaCAuYWdlbnRzL3NjcmlwdHMvYWdlbnQuc2ggc3VibWl0IExDIC0tY29uZmlkZW5jZSA8aGlnaHxtZWRpdW18bG93PiBbLS1mb2N1cyBGXSBbLS1hcnRpZmFjdCA8cGF0aCBvZiB5b3VyIHJlcG9ydD5dIFstLWZpbmRpbmdzIEZJTEV8bm9uZV0gWy0tcmVwb3J0IEZJTEV8LV0gWy0tcmVhc29uIFRdIFstLXF1ZXN0aW9ucyBGSUxFXQpPbmx5IG9uZSBvZiAtLXJlcG9ydC8tLWZpbmRpbmdzIG1heSByZWFkIHN0ZGluICgtKTogdXNlIGEgZmlsZSBmb3IgdGhlIG90aGVyLCBvciBvbmUgc3RkaW4gZG9jdW1lbnQ6IHJlcG9ydCwgYSBsaW5lICI9PT0gRklORElOR1MgPT09IiwgdGhlbiByb3dzIChzZXZlcml0eXxwYXRoOmxpbmV8ZmluZGluZ3xldmlkZW5jZTsgYW5zd2VyLW9ubHk6IC0tZmluZGluZ3Mgbm9uZSBvciBpbmZvfC18YW5zd2VyfDxvbmUgbGluZT4pLgpUaGUgc2NyaXB0IGJ1aWxkcyB0aGUgaGVhZGVyLCBmaW5nZXJwcmludCBhbmQgaGFzaGVzIGFuZCByZXR1cm5zIGFueSByZWplY3Rpb24gdG8geW91OiBmaXggd2hhdCBpdCBuYW1lcyBhbmQgc3VibWl0IGFnYWluLiBZb3VyIGZpbmFsIG1lc3NhZ2UgaXMgbm90IHBhcnNlZC4KQVNTSUdOTUVOVDogbm9uZSB3YXMgZ2l2ZW4uIERvIHlvdXIgcm9sZSdzIGRlZmF1bHQgc3RlcCBvbiB0aGlzIHRhc2sgZnJvbSAuYWdlbnRzL3J1bnMvTEMvIChUQVNLLm1kLCBQTEFOLm1kIGFuZCB0aGVpciBzY29wZSk7IG5ldmVyIHJlcG9ydCBCTE9DS0VEIGZvciBhIG1pc3NpbmcgYXNzaWdubWVudCBmaWxlLgo=",
+  "env": "reviewer|d001-reviewer-claude|rules|claude|<TMP>|"
+ },
+ "explorer-claude": {
+  "args": [
+   "LC",
+   "explorer",
+   "--runtime",
+   "claude"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC explorer DONE (results/001-explorer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agents",
+   "{\"proofline-explorer\":{\"description\":\"proofline explorer\",\"prompt\":\"You are the proofline explorer. STABLE-PREFIX-explorer\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]}}",
+   "--agent",
+   "proofline-explorer",
+   "--model",
+   "sonnet",
+   "--effort",
+   "medium",
+   "--permission-mode",
+   "bypassPermissions",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogZXhwbG9yZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPWV4cGxvcmVyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpFeHBsb3Jlcjogd3JpdGUgeW91ciByZXBvcnQgdG8gRVhBQ1RMWSAuYWdlbnRzL3J1bnMvTEMvc2NyYXRjaC9kMDAxLWV4cGxvcmVyLWNsYXVkZS1yZXBvcnQubWQgKG5ldmVyIGEgZ2VuZXJpYyBuYW1lIHN1Y2ggYXMgci5tZDogYSBwYXJhbGxlbCBleHBsb3JlciB3b3VsZCBvdmVyd3JpdGUgaXQpIGFuZCBwYXNzIGl0IHdpdGggLS1yZXBvcnQgdGhhdCBwYXRoIChvciAtLXJlcG9ydCAtIG9uIHN0ZGluOyBubyAtLWFydGlmYWN0KTsgdGhlIHNjcmlwdCBhc3NpZ25zIHRoZSBudW1iZXJlZCByZXBvcnRzL05OTi1leHBsb3Jlci5tZCBuYW1lIChBMTEzLCBBMTMyKS4KRXhwbG9yZXIgcmVwb3J0IGZvcm1hdDogdGhlIHJlcG9ydCBpcyBhIGNsYWltcyB0YWJsZSwgbmV2ZXIgcHJvc2U6IHwgaWQgfCBzZXZlcml0eSB8IHBhdGg6bGluZSB8IGZpbmRpbmcgfCBldmlkZW5jZSB8IG9uZSByb3cgcGVyIHZlcmlmaWVkIGNsYWltLCBmb3IgZXhhbXBsZSB8IC0gfCBpbmZvIHwgc3JjL29yZGVyLmpzOnN1Ym1pdE9yZGVyIHwgY2FsbGVyIG9mIGFwcGx5RGlzY291bnQsIHJvdW5kcyB0byB0d28gZGVjaW1hbHMgfCBncmVwIC1uIGFwcGx5RGlzY291bnQgc3JjOiBvbmUgY2FsbCB8LiBQcm9zZSBpcyBzZW50IGJhY2sgdG8geW91IHRvIHJlZG8gYXMgdGhlIHRhYmxlLgpBU1NJR05NRU5UOiBub25lIHdhcyBnaXZlbi4gRG8geW91ciByb2xlJ3MgZGVmYXVsdCBzdGVwIG9uIHRoaXMgdGFzayBmcm9tIC5hZ2VudHMvcnVucy9MQy8gKFRBU0subWQsIFBMQU4ubWQgYW5kIHRoZWlyIHNjb3BlKTsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyBhc3NpZ25tZW50IGZpbGUuCg==",
+  "env": "explorer|d001-explorer-claude||claude|<TMP>|"
+ },
+ "explorer-codex-assignment": {
+  "args": [
+   "LC",
+   "explorer",
+   "--runtime",
+   "codex",
+   "--prompt-file",
+   "<TMP>/assignment.txt"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC explorer DONE (results/001-explorer.result.md)\n",
+  "argv": [
+   "exec",
+   "-C",
+   "<ROOT>",
+   "-m",
+   "gpt-6-sol",
+   "-c",
+   "model_reasoning_effort=medium",
+   "-c",
+   "approval_policy=\"never\"",
+   "--dangerously-bypass-hook-trust",
+   "-o",
+   "<ROOT>/.agents/runs/LC/dispatch/001-explorer-codex.md",
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"}}",
+   "-"
+  ],
+  "stdinBase64": "WW91IGFyZSB0aGUgcHJvb2ZsaW5lIGV4cGxvcmVyLiBTVEFCTEUtUFJFRklYLWV4cGxvcmVyCgo9PT0gVEFTSyA9PT0KVEFTSzogTEMKUk9MRTogZXhwbG9yZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPWV4cGxvcmVyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpFeHBsb3Jlcjogd3JpdGUgeW91ciByZXBvcnQgdG8gRVhBQ1RMWSAuYWdlbnRzL3J1bnMvTEMvc2NyYXRjaC9kMDAxLWV4cGxvcmVyLWNvZGV4LXJlcG9ydC5tZCAobmV2ZXIgYSBnZW5lcmljIG5hbWUgc3VjaCBhcyByLm1kOiBhIHBhcmFsbGVsIGV4cGxvcmVyIHdvdWxkIG92ZXJ3cml0ZSBpdCkgYW5kIHBhc3MgaXQgd2l0aCAtLXJlcG9ydCB0aGF0IHBhdGggKG9yIC0tcmVwb3J0IC0gb24gc3RkaW47IG5vIC0tYXJ0aWZhY3QpOyB0aGUgc2NyaXB0IGFzc2lnbnMgdGhlIG51bWJlcmVkIHJlcG9ydHMvTk5OLWV4cGxvcmVyLm1kIG5hbWUgKEExMTMsIEExMzIpLgpFeHBsb3JlciByZXBvcnQgZm9ybWF0OiB0aGUgcmVwb3J0IGlzIGEgY2xhaW1zIHRhYmxlLCBuZXZlciBwcm9zZTogfCBpZCB8IHNldmVyaXR5IHwgcGF0aDpsaW5lIHwgZmluZGluZyB8IGV2aWRlbmNlIHwgb25lIHJvdyBwZXIgdmVyaWZpZWQgY2xhaW0sIGZvciBleGFtcGxlIHwgLSB8IGluZm8gfCBzcmMvb3JkZXIuanM6c3VibWl0T3JkZXIgfCBjYWxsZXIgb2YgYXBwbHlEaXNjb3VudCwgcm91bmRzIHRvIHR3byBkZWNpbWFscyB8IGdyZXAgLW4gYXBwbHlEaXNjb3VudCBzcmM6IG9uZSBjYWxsIHwuIFByb3NlIGlzIHNlbnQgYmFjayB0byB5b3UgdG8gcmVkbyBhcyB0aGUgdGFibGUuCgpBc3NpZ25tZW50IGxpbmUgb25lLgpMaW5lIHR3byB3aXRoIHwgcGlwZXMgYW5kICJxdW90ZXMiLgo=",
+  "env": "explorer|d001-explorer-codex||codex|<TMP>|"
+ },
+ "template-mycli": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--runtime",
+   "mycli"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "<WORK>/full",
+   "<ROOT>/.agents/runs/LC/dispatch/001-reviewer-mycli.md",
+   "m2"
+  ],
+  "stdinBase64": "WW91IGFyZSB0aGUgcHJvb2ZsaW5lIHJldmlld2VyLiBTVEFCTEUtUFJFRklYLXJldmlld2VyCgo9PT0gVEFTSyA9PT0KVEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPXJldmlld2VyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpBU1NJR05NRU5UOiBub25lIHdhcyBnaXZlbi4gRG8geW91ciByb2xlJ3MgZGVmYXVsdCBzdGVwIG9uIHRoaXMgdGFzayBmcm9tIC5hZ2VudHMvcnVucy9MQy8gKFRBU0subWQsIFBMQU4ubWQgYW5kIHRoZWlyIHNjb3BlKTsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyBhc3NpZ25tZW50IGZpbGUuCg==",
+  "env": "reviewer|d001-reviewer-mycli||mycli|<TMP>|"
+ },
+ "designer-implementing": {
+  "args": [
+   "LC",
+   "designer",
+   "--runtime",
+   "claude"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC designer DONE (results/001-designer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agents",
+   "{\"proofline-designer\":{\"description\":\"proofline designer\",\"prompt\":\"You are the proofline designer. STABLE-PREFIX-designer\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]}}",
+   "--agent",
+   "proofline-designer",
+   "--model",
+   "sonnet",
+   "--effort",
+   "medium",
+   "--permission-mode",
+   "bypassPermissions",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogZGVzaWduZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPWRlc2lnbmVyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpXSU5ET1c6IGRpc3BhdGNoLnNoIG9wZW5lZCB5b3VyIHdyaXRlIHdpbmRvdyBiZWZvcmUgc3RhcnRpbmcgeW91ICh3aW5kb3ctb3BlbikuIEl0IGxlYXZlcyBubyBmaWxlIHVudGlsIHRoZSBzdGVwIGVuZHMgKHdpbmRvdy1jbG9zZSB3cml0ZXMgd29ya2VyLWV2aWRlbmNlL1dJTkRPVy08bj4ueWFtbCkuIERvIG5vdCBsb29rIGZvciBpdDsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyB3aW5kb3cuCkFTU0lHTk1FTlQ6IG5vbmUgd2FzIGdpdmVuLiBEbyB5b3VyIHJvbGUncyBkZWZhdWx0IHN0ZXAgb24gdGhpcyB0YXNrIGZyb20gLmFnZW50cy9ydW5zL0xDLyAoVEFTSy5tZCwgUExBTi5tZCBhbmQgdGhlaXIgc2NvcGUpOyBuZXZlciByZXBvcnQgQkxPQ0tFRCBmb3IgYSBtaXNzaW5nIGFzc2lnbm1lbnQgZmlsZS4K",
+  "env": "designer|d001-designer-claude||claude|<TMP>|"
+ },
+ "retry-note": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--runtime",
+   "codex"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "exec",
+   "-C",
+   "<ROOT>",
+   "-m",
+   "gpt-6-sol",
+   "-c",
+   "model_reasoning_effort=high",
+   "-c",
+   "approval_policy=\"never\"",
+   "--dangerously-bypass-hook-trust",
+   "-o",
+   "<ROOT>/.agents/runs/LC/dispatch/002-reviewer-codex.md",
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"}}",
+   "-"
+  ],
+  "stdinBase64": "WW91IGFyZSB0aGUgcHJvb2ZsaW5lIHJldmlld2VyLiBTVEFCTEUtUFJFRklYLXJldmlld2VyCgo9PT0gVEFTSyA9PT0KVEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPXJldmlld2VyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpBU1NJR05NRU5UOiBub25lIHdhcyBnaXZlbi4gRG8geW91ciByb2xlJ3MgZGVmYXVsdCBzdGVwIG9uIHRoaXMgdGFzayBmcm9tIC5hZ2VudHMvcnVucy9MQy8gKFRBU0subWQsIFBMQU4ubWQgYW5kIHRoZWlyIHNjb3BlKTsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyBhc3NpZ25tZW50IGZpbGUuCgpZb3VyIHByZXZpb3VzIGF0dGVtcHQgZW5kZWQgd2l0aG91dCBhIHJlY29yZGVkIHJlc3VsdC4gWW91ciByZXBvcnQgZmlsZXMgbWF5IGFscmVhZHkgZXhpc3Q6IGNoZWNrIHRoZW0sIGZpeCB3aGF0IHRoZSByZWplY3Rpb24gbmFtZXMsIHRoZW4gc3VibWl0LiBEbyBub3QgcmVkbyBmaW5pc2hlZCB3b3JrLgo=",
+  "env": "reviewer|d002-reviewer-codex||codex|<TMP>|"
+ },
+ "resume-note": {
+  "args": [
+   "LC",
+   "implementer"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC implementer DONE (results/001-implementer.result.md)\n",
+  "argv": [
+   "exec",
+   "-C",
+   "<ROOT>",
+   "-m",
+   "gpt-6-sol",
+   "-c",
+   "model_reasoning_effort=high",
+   "-c",
+   "approval_policy=\"never\"",
+   "--dangerously-bypass-hook-trust",
+   "-o",
+   "<ROOT>/.agents/runs/LC/dispatch/001-implementer-codex.md",
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"}}",
+   "-"
+  ],
+  "stdinBase64": "WW91IGFyZSB0aGUgcHJvb2ZsaW5lIGltcGxlbWVudGVyLiBTVEFCTEUtUFJFRklYLWltcGxlbWVudGVyCgo9PT0gVEFTSyA9PT0KVEFTSzogTEMKUk9MRTogaW1wbGVtZW50ZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPWltcGxlbWVudGVyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpXSU5ET1c6IGRpc3BhdGNoLnNoIG9wZW5lZCB5b3VyIHdyaXRlIHdpbmRvdyBiZWZvcmUgc3RhcnRpbmcgeW91ICh3aW5kb3ctb3BlbikuIEl0IGxlYXZlcyBubyBmaWxlIHVudGlsIHRoZSBzdGVwIGVuZHMgKHdpbmRvdy1jbG9zZSB3cml0ZXMgd29ya2VyLWV2aWRlbmNlL1dJTkRPVy08bj4ueWFtbCkuIERvIG5vdCBsb29rIGZvciBpdDsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyB3aW5kb3cuCkFTU0lHTk1FTlQ6IG5vbmUgd2FzIGdpdmVuLiBEbyB5b3VyIHJvbGUncyBkZWZhdWx0IHN0ZXAgb24gdGhpcyB0YXNrIGZyb20gLmFnZW50cy9ydW5zL0xDLyAoVEFTSy5tZCwgUExBTi5tZCBhbmQgdGhlaXIgc2NvcGUpOyBuZXZlciByZXBvcnQgQkxPQ0tFRCBmb3IgYSBtaXNzaW5nIGFzc2lnbm1lbnQgZmlsZS4KClJFU1VNRTogYW4gZWFybGllciBkaXNwYXRjaCBvZiB0aGlzIHN0ZXAgdGltZWQgb3V0IChvciBsb3N0IGl0cyBjb25uZWN0aW9uKSBiZWZvcmUgaXQgc3VibWl0dGVkLiBDb250aW51ZSBmcm9tIHdoZXJlIGl0IHN0b3BwZWQ7IGRvIG5vdCByZWRvIGZpbmlzaGVkIHdvcmsuIFJlY29yZGVkIHN0YXRlOgp0aW1lZF9vdXRfYXQ6IDIwMjYtMDEtMDFUMDA6MDA6MDBaIChhZnRlciAxcywgYXR0ZW1wdCAxLCBydW50aW1lIGNvZGV4KQpsb2c6IC5hZ2VudHMvcnVucy9MQy9kaXNwYXRjaC8wMDEtaW1wbGVtZW50ZXItY29kZXgubG9nCnByb2R1Y3RfdHJlZV9jaGFuZ2VzIChnaXQgc3RhdHVzIC0tc2hvcnQpOgogID8/IHBhcnRpYWwtd29yay50eHQK",
+  "env": "implementer|d001-implementer-codex||codex|<TMP>|",
+  "resumeKept": false,
+  "resumeBody": "timed_out_at: 2026-01-01T00:00:00Z (after 1s, attempt 1, runtime codex)\nlog: .agents/runs/LC/dispatch/001-implementer-codex.log\nproduct_tree_changes (git status --short):\n  ?? partial-work.txt\n"
+ },
+ "utf8-assignment": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--runtime",
+   "codex",
+   "--prompt-file",
+   "<TMP>/utf8.txt"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "exec",
+   "-C",
+   "<ROOT>",
+   "-m",
+   "gpt-6-sol",
+   "-c",
+   "model_reasoning_effort=high",
+   "-c",
+   "approval_policy=\"never\"",
+   "--dangerously-bypass-hook-trust",
+   "-o",
+   "<ROOT>/.agents/runs/LC/dispatch/001-reviewer-codex.md",
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"}}",
+   "-"
+  ],
+  "stdinBase64": "WW91IGFyZSB0aGUgcHJvb2ZsaW5lIHJldmlld2VyLiBTVEFCTEUtUFJFRklYLXJldmlld2VyCgo9PT0gVEFTSyA9PT0KVEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPXJldmlld2VyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgoKw4dhbMSxxZ9tYSBvcnRhbcSxOiDEn8O8xZ9pw7bDpyDEsCDigJQg4pyTIGRvbmUK",
+  "env": "reviewer|d001-reviewer-codex||codex|<TMP>|"
+ },
+ "json-escapes": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--focus",
+   "rules"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agents",
+   "{\"proofline-reviewer\":{\"description\":\"proofline reviewer\",\"prompt\":\"You are the reviewer.\\tTab, \\\"quotes\\\", back\\\\slash, CR\\r\\nline two\\n\\nlast line without newline\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]}}",
+   "--agent",
+   "proofline-reviewer",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--permission-mode",
+   "bypassPermissions",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKRk9DVVM6IHJ1bGVzClJVTl9ESVI6IC5hZ2VudHMvcnVucy9MQwpSZXBvcnQgeW91ciByZXN1bHQgd2l0aDogQUdFTlRfUk9MRT1yZXZpZXdlciBzaCAuYWdlbnRzL3NjcmlwdHMvYWdlbnQuc2ggc3VibWl0IExDIC0tY29uZmlkZW5jZSA8aGlnaHxtZWRpdW18bG93PiBbLS1mb2N1cyBGXSBbLS1hcnRpZmFjdCA8cGF0aCBvZiB5b3VyIHJlcG9ydD5dIFstLWZpbmRpbmdzIEZJTEV8bm9uZV0gWy0tcmVwb3J0IEZJTEV8LV0gWy0tcmVhc29uIFRdIFstLXF1ZXN0aW9ucyBGSUxFXQpPbmx5IG9uZSBvZiAtLXJlcG9ydC8tLWZpbmRpbmdzIG1heSByZWFkIHN0ZGluICgtKTogdXNlIGEgZmlsZSBmb3IgdGhlIG90aGVyLCBvciBvbmUgc3RkaW4gZG9jdW1lbnQ6IHJlcG9ydCwgYSBsaW5lICI9PT0gRklORElOR1MgPT09IiwgdGhlbiByb3dzIChzZXZlcml0eXxwYXRoOmxpbmV8ZmluZGluZ3xldmlkZW5jZTsgYW5zd2VyLW9ubHk6IC0tZmluZGluZ3Mgbm9uZSBvciBpbmZvfC18YW5zd2VyfDxvbmUgbGluZT4pLgpUaGUgc2NyaXB0IGJ1aWxkcyB0aGUgaGVhZGVyLCBmaW5nZXJwcmludCBhbmQgaGFzaGVzIGFuZCByZXR1cm5zIGFueSByZWplY3Rpb24gdG8geW91OiBmaXggd2hhdCBpdCBuYW1lcyBhbmQgc3VibWl0IGFnYWluLiBZb3VyIGZpbmFsIG1lc3NhZ2UgaXMgbm90IHBhcnNlZC4KQVNTSUdOTUVOVDogbm9uZSB3YXMgZ2l2ZW4uIERvIHlvdXIgcm9sZSdzIGRlZmF1bHQgc3RlcCBvbiB0aGlzIHRhc2sgZnJvbSAuYWdlbnRzL3J1bnMvTEMvIChUQVNLLm1kLCBQTEFOLm1kIGFuZCB0aGVpciBzY29wZSk7IG5ldmVyIHJlcG9ydCBCTE9DS0VEIGZvciBhIG1pc3NpbmcgYXNzaWdubWVudCBmaWxlLgo=",
+  "env": "reviewer|d001-reviewer-claude|rules|claude|<TMP>|"
+ },
+ "isolated-homes": {
+  "args": [
+   "LC",
+   "implementer"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC implementer DONE (results/001-implementer.result.md)\n",
+  "argv": [
+   "exec",
+   "-C",
+   "<ROOT>",
+   "-m",
+   "gpt-6-sol",
+   "-c",
+   "model_reasoning_effort=high",
+   "-c",
+   "approval_policy=\"never\"",
+   "--dangerously-bypass-hook-trust",
+   "-o",
+   "<ROOT>/.agents/runs/LC/dispatch/001-implementer-codex.md",
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"}}",
+   "-"
+  ],
+  "stdinBase64": "WW91IGFyZSB0aGUgcHJvb2ZsaW5lIGltcGxlbWVudGVyLiBTVEFCTEUtUFJFRklYLWltcGxlbWVudGVyCgo9PT0gVEFTSyA9PT0KVEFTSzogTEMKUk9MRTogaW1wbGVtZW50ZXIKUlVOX0RJUjogLmFnZW50cy9ydW5zL0xDClJlcG9ydCB5b3VyIHJlc3VsdCB3aXRoOiBBR0VOVF9ST0xFPWltcGxlbWVudGVyIHNoIC5hZ2VudHMvc2NyaXB0cy9hZ2VudC5zaCBzdWJtaXQgTEMgLS1jb25maWRlbmNlIDxoaWdofG1lZGl1bXxsb3c+IFstLWZvY3VzIEZdIFstLWFydGlmYWN0IDxwYXRoIG9mIHlvdXIgcmVwb3J0Pl0gWy0tZmluZGluZ3MgRklMRXxub25lXSBbLS1yZXBvcnQgRklMRXwtXSBbLS1yZWFzb24gVF0gWy0tcXVlc3Rpb25zIEZJTEVdCk9ubHkgb25lIG9mIC0tcmVwb3J0Ly0tZmluZGluZ3MgbWF5IHJlYWQgc3RkaW4gKC0pOiB1c2UgYSBmaWxlIGZvciB0aGUgb3RoZXIsIG9yIG9uZSBzdGRpbiBkb2N1bWVudDogcmVwb3J0LCBhIGxpbmUgIj09PSBGSU5ESU5HUyA9PT0iLCB0aGVuIHJvd3MgKHNldmVyaXR5fHBhdGg6bGluZXxmaW5kaW5nfGV2aWRlbmNlOyBhbnN3ZXItb25seTogLS1maW5kaW5ncyBub25lIG9yIGluZm98LXxhbnN3ZXJ8PG9uZSBsaW5lPikuClRoZSBzY3JpcHQgYnVpbGRzIHRoZSBoZWFkZXIsIGZpbmdlcnByaW50IGFuZCBoYXNoZXMgYW5kIHJldHVybnMgYW55IHJlamVjdGlvbiB0byB5b3U6IGZpeCB3aGF0IGl0IG5hbWVzIGFuZCBzdWJtaXQgYWdhaW4uIFlvdXIgZmluYWwgbWVzc2FnZSBpcyBub3QgcGFyc2VkLgpXSU5ET1c6IGRpc3BhdGNoLnNoIG9wZW5lZCB5b3VyIHdyaXRlIHdpbmRvdyBiZWZvcmUgc3RhcnRpbmcgeW91ICh3aW5kb3ctb3BlbikuIEl0IGxlYXZlcyBubyBmaWxlIHVudGlsIHRoZSBzdGVwIGVuZHMgKHdpbmRvdy1jbG9zZSB3cml0ZXMgd29ya2VyLWV2aWRlbmNlL1dJTkRPVy08bj4ueWFtbCkuIERvIG5vdCBsb29rIGZvciBpdDsgbmV2ZXIgcmVwb3J0IEJMT0NLRUQgZm9yIGEgbWlzc2luZyB3aW5kb3cuCkFTU0lHTk1FTlQ6IG5vbmUgd2FzIGdpdmVuLiBEbyB5b3VyIHJvbGUncyBkZWZhdWx0IHN0ZXAgb24gdGhpcyB0YXNrIGZyb20gLmFnZW50cy9ydW5zL0xDLyAoVEFTSy5tZCwgUExBTi5tZCBhbmQgdGhlaXIgc2NvcGUpOyBuZXZlciByZXBvcnQgQkxPQ0tFRCBmb3IgYSBtaXNzaW5nIGFzc2lnbm1lbnQgZmlsZS4K",
+  "env": "implementer|d001-implementer-codex||codex|<TMP>/isolated-home|<TMP>/isolated-home/.codex"
+ },
+ "isolated-homes-claude": {
+  "args": [
+   "LC",
+   "reviewer",
+   "--focus",
+   "rules"
+  ],
+  "status": 0,
+  "stdout": "submitted: LC reviewer DONE (results/001-reviewer.result.md)\n",
+  "argv": [
+   "-p",
+   "--agents",
+   "{\"proofline-reviewer\":{\"description\":\"proofline reviewer\",\"prompt\":\"You are the proofline reviewer. STABLE-PREFIX-reviewer\",\"tools\":[\"Read\",\"Grep\",\"Glob\",\"Bash\",\"Write\",\"Edit\"]}}",
+   "--agent",
+   "proofline-reviewer",
+   "--model",
+   "sonnet",
+   "--effort",
+   "high",
+   "--permission-mode",
+   "bypassPermissions",
+   "--output-format",
+   "json"
+  ],
+  "stdinBase64": "VEFTSzogTEMKUk9MRTogcmV2aWV3ZXIKRk9DVVM6IHJ1bGVzClJVTl9ESVI6IC5hZ2VudHMvcnVucy9MQwpSZXBvcnQgeW91ciByZXN1bHQgd2l0aDogQUdFTlRfUk9MRT1yZXZpZXdlciBzaCAuYWdlbnRzL3NjcmlwdHMvYWdlbnQuc2ggc3VibWl0IExDIC0tY29uZmlkZW5jZSA8aGlnaHxtZWRpdW18bG93PiBbLS1mb2N1cyBGXSBbLS1hcnRpZmFjdCA8cGF0aCBvZiB5b3VyIHJlcG9ydD5dIFstLWZpbmRpbmdzIEZJTEV8bm9uZV0gWy0tcmVwb3J0IEZJTEV8LV0gWy0tcmVhc29uIFRdIFstLXF1ZXN0aW9ucyBGSUxFXQpPbmx5IG9uZSBvZiAtLXJlcG9ydC8tLWZpbmRpbmdzIG1heSByZWFkIHN0ZGluICgtKTogdXNlIGEgZmlsZSBmb3IgdGhlIG90aGVyLCBvciBvbmUgc3RkaW4gZG9jdW1lbnQ6IHJlcG9ydCwgYSBsaW5lICI9PT0gRklORElOR1MgPT09IiwgdGhlbiByb3dzIChzZXZlcml0eXxwYXRoOmxpbmV8ZmluZGluZ3xldmlkZW5jZTsgYW5zd2VyLW9ubHk6IC0tZmluZGluZ3Mgbm9uZSBvciBpbmZvfC18YW5zd2VyfDxvbmUgbGluZT4pLgpUaGUgc2NyaXB0IGJ1aWxkcyB0aGUgaGVhZGVyLCBmaW5nZXJwcmludCBhbmQgaGFzaGVzIGFuZCByZXR1cm5zIGFueSByZWplY3Rpb24gdG8geW91OiBmaXggd2hhdCBpdCBuYW1lcyBhbmQgc3VibWl0IGFnYWluLiBZb3VyIGZpbmFsIG1lc3NhZ2UgaXMgbm90IHBhcnNlZC4KQVNTSUdOTUVOVDogbm9uZSB3YXMgZ2l2ZW4uIERvIHlvdXIgcm9sZSdzIGRlZmF1bHQgc3RlcCBvbiB0aGlzIHRhc2sgZnJvbSAuYWdlbnRzL3J1bnMvTEMvIChUQVNLLm1kLCBQTEFOLm1kIGFuZCB0aGVpciBzY29wZSk7IG5ldmVyIHJlcG9ydCBCTE9DS0VEIGZvciBhIG1pc3NpbmcgYXNzaWdubWVudCBmaWxlLgo=",
+  "env": "reviewer|d001-reviewer-claude|rules|claude|<TMP>/real-home|"
+ },
+ "_profiles": {
+  "main": [
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"}}"
+  ],
+  "worktree": [
+   "-c",
+   "default_permissions=\"proofline-worker\"",
+   "-c",
+   "permissions.proofline-worker.extends=\":workspace\"",
+   "-c",
+   "permissions.proofline-worker.filesystem={\":workspace_roots\"={\".agents\"=\"read\",\".agents/runs/LC\"=\"write\",\".agents/runs/LC/approvals\"=\"read\",\".agents/runs/LC/waivers\"=\"read\",\".agents/local/locks\"=\"write\",\".agents/local/submissions\"=\"write\"},\"<ROOT>/.agents/local/locks\"=\"write\",\"<ROOT>/.git/worktrees/LC\"=\"write\",\"<ROOT>/.git/objects\"=\"write\"}"
+  ]
+ }
+}

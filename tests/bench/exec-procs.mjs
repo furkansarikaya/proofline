@@ -1,6 +1,6 @@
 // @ts-check
 // Measurement (A222), not run by CI on its own (tests/bench/exec-budgets.test.mjs runs it): how many external processes the execution-policy, runtime-detection
-// and known-issue paths start, and how many bytes they print. A PATH shim logs every external command (the agent.sh it calls included); shell builtins and
+// and known-issue paths start (the execution decision and the dispatcher are measured by tests/bench/dispatch-procs.mjs since A226), and how many bytes they print. A PATH shim logs every external command (the agent.sh it calls included); shell builtins and
 // command-substitution forks are not counted. The count is the number of shim lines: every external command started through the PATH, the measured command
 // itself included (`sh agent.sh ...` is one).
 //   node tests/bench/exec-procs.mjs        prints `path  procs=N  ms=N  bytes=N  top commands`; REPEAT=<n> (default 3, the median is shown)
@@ -61,7 +61,6 @@ export function measureAll(o = {}) {
     const reset = () => { for (const f of [KI, '.agents/local/approvals', '.agents/local/prompts']) rmSync(path.join(d, f), { recursive: true, force: true }); };
     /** @type {Array<[string, () => void, string[]]>} */
     const paths = [
-      ['decide-dry', () => {}, ['.agents/scripts/agent.sh', 'decide', 'LC', 'implementer', '--dry']],
       ['exec-policy-resolve', () => {}, [core, 'cli', 'exec-policy', 'resolve', '--role', 'implementer', '--class', 'STANDARD', '--tier', 'full', '--signal', 'large_diff']],
       ['runtime-detect-has', () => {}, [core, 'cli', 'runtime-detect', 'has', 'codex']],
       ['runtime-detect-list', () => {}, [core, 'cli', 'runtime-detect']],
