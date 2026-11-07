@@ -6,7 +6,7 @@
 
 import { resolveTrailer } from '../committrailer.mjs';
 
-const TOP =/^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts)$/;
+const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts)$/;
 const DIGITS = /^[0-9]+$/;
 const HOOK_EVENT_TIMEOUT = /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/;
 const REL_UP = /(^|\/)\.\.(\/|$)/;

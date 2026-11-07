@@ -393,13 +393,14 @@ export function caFileProblem(ctx, v) {
  */
 export function droppedNetVars(ctx) {
   /** @type {Array<{ name: string, reason: string }>} */ const out = [];
-  const set = (/** @type {string} */ k) => ctx.env[k];
+  // an EMPTY value is a harmless setting (an unset proxy written as `HTTPS_PROXY=`): it is dropped like any other but never listed, so it gives no permanent warning
+  const set = (/** @type {string} */ k) => (ctx.env[k] === '' ? undefined : ctx.env[k]);
   for (const k of PROXY_VARS) { const v = set(k); if (v !== undefined && !proxyValue(v)) out.push({ name: k, reason: v.length > 2048 ? 'too long' : 'not an http:// or https:// address of the allowed shape (host and optional port, no socks, path or query)' }); }
   for (const k of NO_PROXY_VARS) { const v = set(k); if (v !== undefined && !noProxyValue(v)) out.push({ name: k, reason: v.length > 4096 ? 'too long' : 'not a plain comma separated list of hosts, suffixes and addresses' }); }
   for (const k of CA_VARS) { const v = set(k); if (v !== undefined) { const why = caFileProblem(ctx, v); if (why !== null) out.push({ name: k, reason: why }); } }
   const never = 'never passed to the platform tools and the merge-proof git';
   for (const k of NEVER_VARS) if (set(k) !== undefined) out.push({ name: k, reason: never });
-  for (const k of Object.keys(ctx.env).sort()) if (/^GIT_SSL_[A-Z0-9_]{1,40}$/.test(k) && k !== 'GIT_SSL_CAINFO') out.push({ name: k, reason: never });
+  for (const k of Object.keys(ctx.env).sort()) if (/^GIT_SSL_[A-Z0-9_]{1,40}$/.test(k) && k !== 'GIT_SSL_CAINFO' && set(k) !== undefined) out.push({ name: k, reason: never });
   return out;
 }
 

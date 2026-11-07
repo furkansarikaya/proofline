@@ -319,6 +319,44 @@ test('A224: a commit whose whole message differs from the approved one (a traile
   }
 });
 
+test('A224 KNOWN LIMIT: a commit-msg hook that rewrites the message (a Change-Id, a sign-off) stops the chain at the next step, also with the trailer off; the refusal says why', () => {
+  for (const trailer of ['default', 'off']) {
+    const gh = fakeGh();
+    const d = project(DONE);
+    hooks(d);
+    if (trailer === 'off') setTrailer(d, '  commit_trailer: off');
+    accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), 'deliver-plan');
+    approveDelivery(d);
+    accepted(S(d, gh.env, 'commit'), 'commit');
+    // the project's own commit-msg hook appends a line to every message (as a Gerrit Change-Id or a DCO hook does)
+    const hd = mkdtempSync(path.join(tmpdir(), 'msg-hooks-'));
+    wf(`${hd}/commit-msg`, '#!/bin/sh\nprintf "\\nChange-Id: I0123456789abcdef\\n" >> "$1"\n', { mode: 0o755 });
+    A(d, ['task-source-done', 'LC']);
+    gOk(d, 'add', '-A');
+    gOk(d, '-c', `core.hooksPath=${hd}`, 'commit', '-qF', MSG);
+    assert.match(g(d, 'log', '-1', '--format=%B'), /Change-Id: I0123456789abcdef/, 'the hook rewrote the message');
+    const r = S(d, gh.env, 'push');
+    refused(r, `a rewriting commit-msg hook (trailer ${trailer})`, 'the message of the delivery commit is not the approved COMMIT_MSG (the whole message counts, trailers included; commit with git commit -F, never by hand)');
+    rmSync(hd, { recursive: true, force: true });
+  }
+});
+
+test('A224 upgrade: a half-finished delivery whose COMMIT_MSG was written before the upgrade (no trailer) resumes: the step is not refused and that exact message is committed', () => {
+  const gh = fakeGh();
+  const d = project(DONE);
+  hooks(d);
+  setTrailer(d, '  commit_trailer: off'); // what the config effectively said before the upgrade: no trailer
+  accepted(A(d, ['deliver-plan', 'LC', '--message', 'fix: the approved line (LC)']), 'deliver-plan');
+  assert.equal(read(d, MSG), 'fix: the approved line (LC)\n');
+  approveDelivery(d);
+  setTrailer(d, '  commit_trailer: "Co-Authored-By: Claude <noreply@anthropic.com>"'); // the upgraded default; no re-plan happens
+  accepted(S(d, gh.env, 'commit'), 'commit step after the upgrade');
+  commitDelivery(d);
+  assert.equal(g(d, 'log', '-1', '--format=%B'), 'fix: the approved line (LC)', 'exactly the old message, no trailer added');
+  accepted(S(d, gh.env, 'push'), 'push step after the upgrade');
+  assert.equal(read(d, MSG), 'fix: the approved line (LC)\n');
+});
+
 test('A224: a COMMIT_MSG edited by hand after the approval (a trailer added, changed or removed) stops the chain at the commit step', () => {
   const gh = fakeGh();
   const d = project(DONE);
