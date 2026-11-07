@@ -24,6 +24,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ProoflineError } from './errors.mjs';
 import { isFile } from './paths.mjs';
+import { asciiUpper } from './shellglob.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -336,7 +337,7 @@ export function resolve(pol, argv) {
   if (ctxN === null) throw die(`class ${cls}: context_bytes must be an integer`);
   let ctx = ctxS;   // the digits as written, like the shell's string (only arithmetic turns them into a number)
   let creason = 'CLASS_BUDGET';
-  if (tier === 'docs' || tier === 'small') { ctxN /= 2n; ctx = String(ctxN); creason = `${creason},TIER_${tier.toUpperCase()}`; }
+  if (tier === 'docs' || tier === 'small') { ctxN /= 2n; ctx = String(ctxN); creason = `${creason},TIER_${asciiUpper(tier)}`; }
   if (oCtx !== '') {
     const o = shellInt(oCtx);   // a number beyond the shell's range is an error of `[ -gt ]` there: refused (fail closed)
     if (o === null || o <= 0n) throw reject('INVALID_OVERRIDE', 'context-bytes must be a positive integer');
