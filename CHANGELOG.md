@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.56 — 2026-11-07
+
+- Fix (A223, user decision on A219, issue #195): `evidence/` is not a run folder and no role or skill directs anyone to it. The evidence-map skill and the explorer role now name the output path (`.agents/runs/<ID>/scratch/<agent token>-report.md`, handed over with `submit --report`; temp files in scratch), and a Node guard fails when a role, skill, template or doc names the run-level `evidence/` folder. `discard-stray evidence/<file>` stays as the cleanup for strays.
+
 ## 0.0.55 — 2026-11-07
 
 - Fix (A224, issue #172): a harness or user attribution instruction ("end commit messages with Co-Authored-By") no longer parks a delivery. The lead texts (`SKILL.md` rule 8, `DELIVERY.md` section 5, `GIT.md`) say the delivery commit is the approved one line, delivered as written, and never a reason to park, ask or edit `COMMIT_MSG`; the two `deliver-step` refusal hints no longer point at a trailer path that `deliver-plan` rejects (one-line rule). Whether the control plane should append a configured trailer itself is an open user decision (A224), not implemented. Same entry: a worker `dispatch.sh` is started in the background and never in the foreground under a tool timeout (a killed dispatch leaves unattested edits); the `window-open refused` line and FAILOVER.md give the recovery (`tree-inspect`, one question, no re-dispatch or discard before the answer). Whether a killed dispatch should close its own write window is an open user decision (A224).
@@ -9,7 +13,6 @@
 ## 0.0.54 — 2026-11-07
 
 - Corporate networks and GitHub Enterprise (A220, epic #165): the proxy variables `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` (and the lowercase forms) and the certificate variables `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS` now reach `gh`, `glab`, `az` and the git of the merge proof, so a network behind a proxy can deliver and merge. Only a well-formed value passes (a plain `http(s)://[user:password@]host[:port]` address; a plain NO_PROXY list; an absolute path of an existing certificate file that is not in the project, the working directory or a temporary folder); any other value is dropped without a message (a certificate also must not have a `.git` entry or an `.agents` folder in any folder above it, and neither it nor a folder above it may be writable by a group or everybody). Every other proxy or certificate variable stays dropped. The GitHub Enterprise or self-hosted GitLab host (`GH_HOST`, `GITLAB_HOST`) comes only from `git.platform_host` in `.agents/config.yaml`: a host of the caller is never used, and a platform named only by `PROOFLINE_PLATFORM` exports no host variable (set `git.platform` and `git.platform_host`). `proofline merge` treats "no required checks" only as gh's own sentence, never as part of a transport error. The merge guard of the hook denies a proxy or certificate variable named in the command that runs the merge proof, like `PATH=`. The hook also denies the `X+=v` form, and it recognises the merge proof or a platform tool by command word, not by a substring. The hook gaps `git config http.*`, `declare -x` / `typeset -x` / `readonly` forms and wrapper scripts stay accepted limits.
-- Fix (A223, user decision on A219, issue #195): `evidence/` is not a run folder and no role or skill directs anyone to it. The evidence-map skill and the explorer role now name the output path (`.agents/runs/<ID>/scratch/<agent token>-report.md`, handed over with `submit --report`; temp files in scratch), and a Node guard fails when a role, skill, template or doc names the run-level `evidence/` folder. `discard-stray evidence/<file>` stays as the cleanup for strays.
 
 ## 0.0.53 — 2026-11-06
 
