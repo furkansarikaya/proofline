@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.56 — 2026-11-07
+
+- Fix (A223, user decision on A219, issue #195): `evidence/` is not a run folder and no role or skill directs anyone to it. The evidence-map skill and the explorer role now name the output path (`.agents/runs/<ID>/scratch/<agent token>-report.md`, handed over with `submit --report`; temp files in scratch), and a Node guard fails when a role, skill, template or doc names the run-level `evidence/` folder. `discard-stray evidence/<file>` stays as the cleanup for strays.
+
 ## 0.0.55 — 2026-11-07
 
 - Fix (A224, issue #172): a harness or user attribution instruction ("end commit messages with Co-Authored-By") no longer parks a delivery. The lead texts (`SKILL.md` rule 8, `DELIVERY.md` section 5, `GIT.md`) say the delivery commit is the approved one line, delivered as written, and never a reason to park, ask or edit `COMMIT_MSG`; the two `deliver-step` refusal hints no longer point at a trailer path that `deliver-plan` rejects (one-line rule). Whether the control plane should append a configured trailer itself is an open user decision (A224), not implemented. Same entry: a worker `dispatch.sh` is started in the background and never in the foreground under a tool timeout (a killed dispatch leaves unattested edits); the `window-open refused` line and FAILOVER.md give the recovery (`tree-inspect`, one question, no re-dispatch or discard before the answer). Whether a killed dispatch should close its own write window is an open user decision (A224).

@@ -670,7 +670,7 @@ A separate issue, outside the 15 stages and listed in the epic table. It applies
     command, whose output to the context is a short summary (counts, the top items, the path of the raw file, "truncated" when it is).
     The commands are control-plane code (reviewed, shipped, deterministic: declared inputs such as the frozen PLAN scope, fixed tools such
     as `git grep` and the skills' validators, byte-order output), run by the control plane, and write the exact command line, the input
-    hashes and the raw output to `runs/<ID>/evidence/<command>-<n>/`, so anyone can re-run them and compare. A script a model writes during
+    hashes and the raw output to `runs/<ID>/reports/<command>-<n>/`, so anyone can re-run them and compare. A script a model writes during
     the run, and its statement, is still not evidence (Core invariant 4).
   - Role and skill instructions name the combined commands for those jobs; `adapters/generate.sh` regenerates the agent files. These
     texts count as code for review (CONTRIBUTING: Markdown under `skills/`, `roles/`, `control-plane/` and `adapters/` is reviewed like code).
