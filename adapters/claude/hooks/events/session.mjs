@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { isFile, readText } from '../lib/fsx.mjs';
 import { jesc } from '../lib/text.mjs';
 
+/** The text of lib/session-head.txt, placeholders unexpanded (the context budget measures the file, not this constant). */
+const HEAD_TEMPLATE = "proofline installed; you are the lead; use the proofline-lead skill (${skill}) (never through the Skill tool: proofline skills are not model-invocable); active run: ${act !== '' ? act : 'none'}; next step: ${next}";
+
 /** @param {import('../lib/context.mjs').HookContext} ctx */
 export async function handle(ctx) {
   if (ctx.role !== 'lead' || ctx.sub) return undefined;
@@ -38,7 +41,8 @@ export async function handle(ctx) {
   }
   const next = nxt !== '' ? nxt : `agent.sh next ${act} failed`;
   // A230: the text is the template file lib/session-head.txt (its size is what `proofline doctor` and the context budget measure, without reading this code)
-  const tpl = readText(fileURLToPath(new URL('../lib/session-head.txt', import.meta.url))).replace(/\n$/, '');
+  // a missing or empty file (an old install, a partial upgrade) must not blank the message: the same text is embedded here (a test keeps the two equal)
+  const tpl = readText(fileURLToPath(new URL('../lib/session-head.txt', import.meta.url))).replace(/\n$/, '') || HEAD_TEMPLATE;
   const head = tpl.replace(/\$\{skill\}|\$\{act !== '' \? act : 'none'\}|\$\{next\}/g, (m) => (m === '${skill}' ? skill : m === '${next}' ? next : act !== '' ? act : 'none'));
   if (svMsg !== '') {
     const c = `${head}. ${svMsg}. Tell the user this before you start a run.`;
