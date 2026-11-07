@@ -4,7 +4,7 @@ description: Designs or changes API contracts. Uses the project's existing contr
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.57"
+  version: "0.0.58"
 ---
 
 # api-design
