@@ -9,14 +9,11 @@
 591 gates-test sc_knowledge_na
 515 risk-test sc_unsupported
 509 risk-test sc_unsupported_evidence
-387 enforcement-test knowledge_stage
-370 enforcement-test lead_edits
 348 lifecycle-test scenario_bounded_fix
 342 lifecycle-test scenario_report_root_cause
 336 gates-test sc_waiver
 331 risk-test sc_unsupported_rows
 330 gates-test sc_report_finding_ids
-319 enforcement-test link_writes
 311 risk-test sc_unsupported_inconclusive
 308 lifecycle-test scenario_orchestrated_loop
 290 gates-test sc_fix_loop
@@ -25,7 +22,6 @@
 256 risk-test sc_unsupported_probes
 249 capabilities-test
 249 lifecycle-test scenario_plan_level_verify_fail
-245 enforcement-test final_report_tokens
 243 gates-test sc_report_facts
 226 lifecycle-test scenario_reopen_failed
 223 lifecycle-test scenario_standalone
@@ -33,7 +29,6 @@
 215 lifecycle-test scenario_cleanup_after_delivery
 206 lifecycle-test scenario_task_contract_bookkeeping standalone
 194 risk-test sc_unsupported_block
-192 enforcement-test read_roles_tree
 179 lifecycle-test scenario_terminal
 170 gates-test sc_debug_result
 168 gates-test sc_submit
@@ -42,7 +37,6 @@
 152 gates-test sc_next
 151 lifecycle-test scenario_task_contract_edit standalone
 148 risk-test sc_unsupported_evidence_base_move
-143 enforcement-test waivers
 139 lifecycle-test scenario_reopen_after_upgrade
 138 lifecycle-test scenario_base_moved_new_block_file CLAUDE.md
 135 lifecycle-test scenario_reopen_one_question
@@ -73,7 +67,6 @@
 85 gates-test sc_waiver_rebind
 85 gates-test sc_wiki_knowledge_scope
 83 lifecycle-test scenario_fix_scope_format
-80 enforcement-test verdicts
 80 lifecycle-test scenario_second_reopen
 76 gates-test sc_legacy_fingerprint_new_rule
 76 lifecycle-test scenario_base_moved_agents_files
@@ -83,9 +76,7 @@
 70 lifecycle-test scenario_base_moved_named_path
 70 lifecycle-test scenario_uncommitted_block_file
 69 lifecycle-test scenario_fingerprint_excludes_agents
-68 enforcement-test stop_next_step
 68 reply-loop-test question-file
-67 enforcement-test hook_wiring
 66 gates-test sc_stdin_contract
 65 lifecycle-test scenario_fix_scope_shared_criteria
 63 gates-test sc_parallel_lock
@@ -105,7 +96,6 @@
 37 gates-test sc_validation_info_only
 37 lifecycle-test scenario_digest_resume
 36 controls-test sc_knowledge
-36 enforcement-test subagent_guard
 36 gates-test sc_evidence_gap_rerun
 35 gates-test sc_decide
 35 gates-test sc_evidence_gap_fabricated
@@ -125,13 +115,11 @@
 25 gates-test sc_evidence_gap_files
 25 reply-loop-test plan
 25 risk-test sc_log_unsupported
-24 enforcement-test questions
 24 gates-test sc_evidence_gap_ac
 24 reply-loop-test budget
 24 risk-test sc_contract_content_edit
 23 gates-test sc_evidence_gap_output
 23 lifecycle-test scenario_fix_scope_no_criteria
-22 enforcement-test agent_sh_forms
 21 risk-test sc_migration_small
 20 reply-loop-test single_step
 20 risk-test sc_log_upgrade_legacy
@@ -144,19 +132,16 @@
 16 lifecycle-test scenario_evidence_order
 15 risk-test sc_unsupported_toolfree
 13 controls-test sc_policy
-13 enforcement-test database_guard
 13 gates-test sc_questions_keys
 13 gates-test sc_report_focus_lines
 13 gates-test sc_validation_node
 12 risk-test sc_contract_content
 11 controls-test sc_base
-11 enforcement-test owned_paths
 11 gates-test sc_control_plane_edit
 11 lifecycle-test scenario_freeze_ac_coverage
 11 lifecycle-test scenario_reopen_blocked_and_state
 10 lifecycle-test scenario_classification_diff
 10 lifecycle-test scenario_task_contract_projection
-9 enforcement-test runtime_approvals
 9 gates-test sc_defect_scope
 9 lifecycle-test scenario_trivial_freeze_code
 8 gates-test sc_approvals
@@ -164,14 +149,10 @@
 8 gates-test sc_qa_plan_bound
 8 gates-test sc_validation_tiers
 8 risk-test sc_dependency_manifests
-7 enforcement-test out_of_scope
 7 gates-test sc_config_scope_misc
-7 merge-guard-test
-6 enforcement-test git_hooks
 6 gates-test sc_lock_break_race
 6 gates-test sc_open_runs
 6 gates-test sc_validation_qa
-5 enforcement-test git_bypass
 5 gates-test sc_question_language
 4 controls-test sc_standalone
 4 gates-test sc_mutation_budget
@@ -183,8 +164,6 @@
 2 lifecycle-test scenario_freeze_scope_mapping
 1 controls-test sc_write_failure
 1 debt-test
-1 enforcement-test live_claude
-1 enforcement-test not_installed
 1 gates-test sc_validation_config
 1 githooks-test
 1 lifecycle-test scenario_window_open_no_plan
@@ -194,5 +173,4 @@
 1 risk-test sc_log_words_match
 1 risk-test sc_not_contract_drift
 1 risk-test sc_probe_drift
-150 status-block-test
 2 smoke-fixture-test

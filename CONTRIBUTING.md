@@ -31,7 +31,7 @@ The self-tests split every suite into scenario units and run them on all cores; 
 core count and `SELFTEST_SHARD=<i>/<n>` runs one slice (CI uses sixteen).
 CI additionally runs `shellcheck -s sh` over every shell script. A pull request that changes only plain
 documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png` and `.svg` files under `docs/` except `docs/reference/`) skips the
-test jobs but still runs shellcheck, the sync checks and the core-invariant tests (`sh tests/invariants/invariants-test.sh`, see Core invariants); Markdown under `skills/`, `roles/`, `control-plane/`
+test jobs but still runs shellcheck, the sync checks and the core-invariant tests (`node --test tests/invariants-node`, see Core invariants); Markdown under `skills/`, `roles/`, `control-plane/`
 and `adapters/` counts as code. Pushes to `main` and pull requests run Linux only (about 8 minutes of wall time, A109); macOS runs nightly and on manual runs (A164).
 A pull request that changes hooks, skills, roles or the control plane also runs the real-session smoke test (A195) and pastes its table:
 `sh tests/real-session/smoke.sh` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
@@ -80,12 +80,12 @@ exception does not make it: it stops and asks the maintainer.
 5. The agent that wrote a change never reviews it.
 6. In doubt, the safe side wins: the gate runs, the question is asked, the finding stays blocking.
 
-Each rule has at least one test in [tests/invariants/](tests/invariants/) that really attempts the forbidden action against the real
+Each rule has at least one test in [tests/invariants-node/](tests/invariants-node/) (Node, since A239; the shell suite `tests/invariants/invariants-test.sh` is gone) that really attempts the forbidden action against the real
 `agent.sh`. CI runs the suite on every pull request, documentation-only ones included. A rule that cannot yet be tested mechanically is
-named in the header of `tests/invariants/invariants-test.sh` (its "Not yet mechanical" list) instead of being faked.
-A patch that changes anything under `tests/invariants/` must say why in the pull request description, on a line that starts with
+named in the header of the matching `tests/invariants-node/` test file (the "Not yet mechanical" notes) instead of being faked.
+A patch that changes anything under `tests/invariants/` or `tests/invariants-node/` must say why in the pull request description, on a line that starts with
 `Invariant-test-change:`, and the review approves that change separately from the rest of the patch. `node tests/ci/change-reason.mjs invariants`
-fails the pull request otherwise. Locally: `sh tests/invariants/invariants-test.sh`, and `PR_BODY="..." node tests/ci/change-reason.mjs invariants < changed-paths.txt`.
+fails the pull request otherwise. Locally: `node --test tests/invariants-node`, and `PR_BODY="..." node tests/ci/change-reason.mjs invariants < changed-paths.txt`.
 
 The text proofline loads into every session (the AGENTS.md and CLAUDE.md blocks, the SessionStart text, the entry skill, each role's agent
 file and first skill) has a size budget (A202): `node control-plane/agents/scripts/proofline-core.mjs cli context-size repo .` measures it, `tests/context/budget.tsv` holds the limits and
@@ -175,7 +175,7 @@ Pull request checklist:
 - [ ] help, entry skill, lead Commands table, README and `docs/concepts` updated for every new user-visible command, option or rule
 - [ ] documentation updated, in English; any test count, CI time or end-to-end result you quote is current, and an end-to-end result carries its date and `main` commit
 - [ ] `tests/e2e/README.md` holds every end-to-end result, and the README "Status" section claims no more than those tests show
-- [ ] no core invariant loosened; a change under `tests/invariants/` carries an `Invariant-test-change:` line in the description and was approved separately in review
+- [ ] no core invariant loosened; a change under `tests/invariants-node/` carries an `Invariant-test-change:` line in the description and was approved separately in review
 - [ ] no EXPECTED file loosened; no organisation-specific or third-party project name added
 
 ## Versions

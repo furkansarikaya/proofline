@@ -7,6 +7,7 @@ import { rmSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, IMPLEMENTED, accepted, gateStatus, project, readdirSync, refused, say, verbs, writeFileSync } from '../core/legacy-lib.mjs';
 import { mkdirSync } from 'node:fs';
+import { tsha } from '../lib/harness.mjs';
 
 test('inv3: approvals, waivers and rationales are recorded only from the user\'s message', () => {
   const d = project(`scaffold orchestrated no CRITICAL; ${IMPLEMENTED}; rec REVIEW_RULES FAIL high 'REVIEW_RULES-1|blocking|impl.txt:1|lookup returns the wrong value for an empty key|traced: empty key -> nil; scan: grep -n lookup impl.txt; instances: single'; A request-approval LC waive:REVIEW_RULES-1 >/dev/null`);
@@ -23,7 +24,7 @@ test('inv3: approvals, waivers and rationales are recorded only from the user\'s
   // an approval or waiver file written by hand is not in the ledger chain and counts for nothing
   mkdirSync(`${d}/.agents/runs/LC/waivers`, { recursive: true });
   const gr = readdirSync(`${d}/.agents/runs/LC/gates`).filter((n) => n.endsWith('REVIEW_RULES.yaml')).pop() ?? '';
-  writeFileSync(`${d}/.agents/runs/LC/waivers/001-REVIEW_RULES-1.yaml`, `finding: "REVIEW_RULES-1"\ngate_record: "${gr}"\n`);
+  writeFileSync(`${d}/.agents/runs/LC/waivers/001-REVIEW_RULES-1.yaml`, `finding: "REVIEW_RULES-1"\ngate_record: "${gr}"\ngate_record_sha256: "${tsha(`${d}/.agents/runs/LC/gates/${gr}`)}"\n`);
   assert.equal(gateStatus(d, 'REVIEW_RULES'), 'fail', 'a hand-written waiver counted');
   // a user sentence that is ambiguous about what it approves is not an approval
   for (const t of ['I approve the waiver', 'I approve the waiver of REVIEW_RULES-2', 'I approve the plan']) {

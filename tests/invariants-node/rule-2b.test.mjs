@@ -1,6 +1,6 @@
 // @ts-check
-// Core invariants 1 and 2 (CONTRIBUTING.md), the Node copy of tests/invariants/invariants-test.sh: each test really attempts the forbidden action against the
-// real control plane (the Node core) in a throwaway project. A change to these files needs the same `Invariant-test-change:` statement as the shell copy.
+// Core invariants 1 and 2 (CONTRIBUTING.md), the Node form of the former shell suite tests/invariants/invariants-test.sh (deleted in A239): each test really attempts the forbidden action against the
+// real control plane (the Node core) in a throwaway project. A change to these files needs an `Invariant-test-change:` statement (CONTRIBUTING.md).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { A, IMPLEMENTED, accepted, gateStatus, pipe, project, refused, say, verbs, writeFileSync } from '../core/legacy-lib.mjs';

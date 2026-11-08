@@ -18,23 +18,23 @@ describe('the Node hook is a pull request gate (hook-node)', () => {
     assert.ok(!/outputs\.fast|needs\.changes/.test(j), 'fast mode and the classifier are not read');
     assert.match(/^  checks:\n([\s\S]*)/m.exec(ci)?.[1] ?? '', /needs: \[[^\]]*\bhook-node\b/);
   });
-  test('it runs the hook tests, the guard tests with GUARDS_HOOK, the wiring tests and the five shell suites with HOOK_UNDER_TEST on the .mjs hook', () => {
+  test('it runs the hook tests, the guard tests with GUARDS_HOOK, and the wiring tests with HOOK_UNDER_TEST on the .mjs hook', () => {
     assert.match(j, /HOOK_UNDER_TEST: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
     assert.match(j, /GUARDS_HOOK: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
     assert.match(j, /run: node --test "tests\/hook\/\*\.test\.mjs"/);
     assert.match(j, /run: node --test tests\/enforcement\/guards\.test\.mjs/);
     assert.match(j, /run: node --test tests\/enforcement\/wiring\.test\.mjs/);
-    for (const s of ['enforcement-test', 'timeouts-test', 'merge-guard-test', 'platform-test', 'approval-load-test']) assert.match(j, new RegExp(`- suite: ${s}\\n\\s+node: '22\\.13\\.0'`), s);
-    assert.match(j, /SELFTEST_ONLY: \$\{\{ matrix\.suite \}\}\n\s+run: node tests\/selftest\.mjs/);
+    assert.ok(!/SELFTEST_ONLY|selftest/.test(j), 'no shell suite runs here any more (A239)');
   });
   test('the Node tests run on Node 22.13.0 and the active LTS', () => {
     assert.match(j, /- suite: node-tests\n\s+node: '22\.13\.0'/);
     assert.match(j, /- suite: node-tests\n\s+node: 'lts\/\*'/);
     assert.ok(!/\{suite:/.test(j), 'block style only: the repository YAML check rejects inline flow mappings with ": "');
   });
-  test('every suite named in the matrix exists and honours HOOK_UNDER_TEST', () => {
-    for (const s of ['enforcement-test', 'timeouts-test', 'merge-guard-test', 'platform-test', 'approval-load-test'])
-      assert.match(readFileSync(join(repo, 'tests/enforcement', `${s}.sh`), 'utf8'), /HOOK_UNDER_TEST:-/, s);
+  test('the enforcement suites that ran here as shell suites are node-tests legs and honour HOOK_UNDER_TEST', () => {
+    const ci = readFileSync(join(repo, '.github/workflows/ci.yml'), 'utf8');
+    for (const f of ['enforcement-a1', 'enforcement-a2', 'enforcement-b', 'platform', 'merge-guard', 'timeouts', 'approval-load']) assert.ok(ci.includes(`tests/enforcement/${f}.test.mjs`), f);
+    assert.match(readFileSync(join(repo, 'tests/enforcement/lib.mjs'), 'utf8'), /process\.env\.HOOK_UNDER_TEST/);
   });
 });
 
