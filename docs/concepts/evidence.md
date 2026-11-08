@@ -70,3 +70,14 @@ validation), exploit-proof (dependencies, logging) and proof-review (config).
 No new agent for a new capability, no end-of-task quiz, no separate decision memory, no confidence number, no style
 catalogue for UI design, and the agent never deploys or releases. Reasons and rejected alternatives: decision A91 in
 the [design decisions](../decisions.md).
+
+## Combined commands: `diff-digest` (A235)
+
+A role that must look at the whole task-owned diff first used to spend two to four tool calls on it (`git status`, `git diff`, `ls`, `verify-scope`; a
+measurement of earlier runs, see A235). `agent.sh diff-digest <ID>` (the lead, reviewer, security reviewer, QA and verifier) does it in one call. The context
+gets a short summary: the number of changed paths, their classes (the ones `verify-scope` judges: `scope`, `unexpected`, `control-plane`, `installed`,
+`knowledge`), lines added and deleted, the first ten paths outside the plan scope, the five largest in-scope changes, and `truncated: yes` when some paths are named only in the raw file.
+The complete list is `.agents/runs/<ID>/reports/diff-digest-<n>/raw.txt` (one `class`, `added`, `deleted`, `path` row per path, in byte order, no time or machine path);
+beside it `command.txt` holds the command line and `inputs.txt` the hashes of the inputs (PLAN.md, HEAD, the task patch fingerprint, the changed files). Running the same command on the same
+tree writes the same `raw.txt` byte for byte. A role that decides about one path reads the raw file, and may cite it as `evidence: reports/diff-digest-<n>/raw.txt`.
+The command only reports: it is no gate and it never replaces `verify-scope`, which the control plane runs itself. It writes nothing but those three files, in a folder it creates inside the run, and runs no program but `git diff --numstat`.

@@ -97,6 +97,43 @@ function mappingsOrFail(ctx, dir) {
   return sc.rows;
 }
 
+/** Knowledge-scope paths are allowed when asked for, and after a reopen. @param {Context} ctx @param {string} dir @param {boolean} allowArg */
+export function scopeAllow(ctx, dir, allowArg) {
+  return allowArg || listNames(`${dir}/gates`, /-REOPEN\.yaml$/).some((n) => isFile(`${dir}/gates/${n}`));
+}
+
+/**
+ * The task's changes as `verify_scope` judges them (A235: shared with `diff-digest`, so the two can never disagree): every tracked and untracked path that is no
+ * control artifact, no task-file bookkeeping and no knowledge-scope path an allowed step may write, and that differs from the baseline, with its class:
+ * `scope` (the plan scope names it), `knowledge`, `control-plane` (.agents/), `installed` (proofline's own files) or `unexpected`. A path that cannot be
+ * baselined (a symlink, a nested git directory) fails the whole call, as it always did. `fp` is the path's current fingerprint ('' for a knowledge path).
+ * @param {Context} ctx @param {string} id @param {string} dir @param {Array<[string, string]>} maps @param {boolean} allow
+ * @returns {Array<{ path: string, type: 'tracked' | 'untracked', cls: 'scope' | 'knowledge' | 'control-plane' | 'installed' | 'unexpected', fp: string }>}
+ */
+export function classifyChanges(ctx, id, dir, maps, allow) {
+  /** @type {Array<{ path: string, type: 'tracked' | 'untracked', cls: 'scope' | 'knowledge' | 'control-plane' | 'installed' | 'unexpected', fp: string }>} */
+  const out = [];
+  for (const type of /** @type {const} */ (['tracked', 'untracked'])) {
+    for (const changed of type === 'tracked' ? trackedPaths(ctx) : untrackedPaths(ctx)) {
+      if (changed === '') continue;
+      if (knownControlArtifact(ctx, id, changed)) continue;
+      if (taskSourceBookkeepingOnly(ctx, id, changed)) continue;
+      if (allow && inKnowledgeScope(ctx, changed) && !authorizedPath(maps, changed)) { out.push({ path: changed, type, cls: 'knowledge', fp: '' }); continue; }
+      const prior = baselineFingerprint(ctx, type, changed, dir);
+      // a path that cannot be baselined (a symlink, a nested git directory, a submodule) fails the whole command, as the shell's pipeline does under set -e
+      const current = pathFingerprint(ctx, changed);
+      if (prior !== '' && prior === current) continue;
+      /** @type {'scope' | 'control-plane' | 'installed' | 'unexpected'} */
+      let cls = 'unexpected';
+      if (authorizedPath(maps, changed)) cls = 'scope';
+      else if (changed.startsWith('.agents/')) cls = 'control-plane';
+      else if (controlPlaneOnly(ctx, changed)) cls = 'installed';
+      out.push({ path: changed, type, cls, fp: current });
+    }
+  }
+  return out;
+}
+
 /**
  * `verify_scope ID [ALLOW-KNOWLEDGE]`. Returns the exit status.
  * @param {Context} ctx @param {string} id @param {boolean} allowArg
@@ -110,28 +147,16 @@ export function verifyScope(ctx, id, allowArg) {
   const sc = planScope(ctx, dir);
   if (!sc.ok || sc.rows.length === 0) fail('invalid scope mapping: fix PLAN.md ## Scope entries: each entry needs `path` and `criteria:` (a non-empty flow list such as [AC-1]); run the plan-contract validator (skills/plan-contract/scripts/validate-plan.mjs)');
   const maps = sc.rows;
-  let allow = allowArg;
-  if (!allow) allow = listNames(`${dir}/gates`, /-REOPEN\.yaml$/).some((n) => isFile(`${dir}/gates/${n}`));
+  const allow = scopeAllow(ctx, dir, allowArg);
   if (sectionValue(ctx, dir, 'baseline', 'status') !== 'captured') fail(`baseline required before scope verification: ${id}`);
   if (!validateControlArtifacts(ctx, id)) return 1;
   const cp = [];
   const installed = [];
   const unexpected = [];
-  for (const type of ['tracked', 'untracked']) {
-    for (const changed of type === 'tracked' ? trackedPaths(ctx) : untrackedPaths(ctx)) {
-      if (changed === '') continue;
-      if (knownControlArtifact(ctx, id, changed)) continue;
-      if (taskSourceBookkeepingOnly(ctx, id, changed)) continue;
-      if (allow && inKnowledgeScope(ctx, changed) && !authorizedPath(maps, changed)) continue;
-      const prior = baselineFingerprint(ctx, type, changed, dir);
-      // a path that cannot be baselined (a symlink, a nested git directory, a submodule) fails the whole command, as the shell's pipeline does under set -e
-      const current = pathFingerprint(ctx, changed);
-      if (prior !== '' && prior === current) continue;
-      if (authorizedPath(maps, changed)) continue;
-      if (changed.startsWith('.agents/')) { cp.push(changed); continue; }
-      if (controlPlaneOnly(ctx, changed)) { installed.push(changed); continue; }
-      unexpected.push(changed);
-    }
+  for (const c of classifyChanges(ctx, id, dir, maps, allow)) {
+    if (c.cls === 'control-plane') cp.push(c.path);
+    else if (c.cls === 'installed') installed.push(c.path);
+    else if (c.cls === 'unexpected') unexpected.push(c.path);
   }
   if (cp.length) ctx.out(`control-plane files changed under .agents/ (not task changes, outside the plan scope):\n${cp.map((x) => `  ${x}\n`).join('')}`);
   if (installed.length) ctx.out(`installed proofline files changed (not task changes, outside the plan scope):\n${installed.map((x) => `  ${x}\n`).join('')}`);

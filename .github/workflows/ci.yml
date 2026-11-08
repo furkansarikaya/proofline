@@ -336,6 +336,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/run4c-report.test.mjs
+          - name: tool-economy
+            mode: files
+            pattern: 'none'
+            files: tests/core/toolstats.test.mjs tests/core/diffdigest.test.mjs
           - name: run6-deliver
             mode: files
             pattern: 'none'

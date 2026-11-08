@@ -49,7 +49,7 @@ export function commandTable() {
 function extraCommands(role) {
   switch (role) {
     case 'lead': return null;
-    case 'reviewer': case 'security_reviewer': case 'qa': case 'verifier': return ['record', 'gate', 'submit'];
+    case 'reviewer': case 'security_reviewer': case 'qa': case 'verifier': return ['record', 'gate', 'submit', 'diff-digest'];
     case 'implementer': return ['record', 'submit', 'worker-evidence', 'handoff'];
     default: return ['record', 'submit'];
   }

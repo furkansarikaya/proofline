@@ -1,5 +1,5 @@
 // @ts-check
-// The command table (132 entries), the role gate and the locking rule against the shell text of agent.sh.
+// The command table (133 entries), the role gate and the locking rule against the shell text of agent.sh.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
@@ -47,15 +47,17 @@ function STAGE7C_LOCKS(command, readOnly) {
 const STAGE172D = ['decide', 'ledger-note', 'metrics-dispatch'];
 // stage 7, package 173-A (A229): the last commands that ran as shell code; their agent.sh arms and functions are deleted
 const STAGE173A = ['friction', 'calibrate', 'build-record', 'lessons', 'rules', 'wait-line', 'task-rename-plan', 'task-rename-apply', 'test'];
-const NO_SHELL_ARM = ['next-user', ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B, ...STAGE7C, ...STAGE172D, ...STAGE173A];
+// #181 (A235): the combined command of the diff orientation has no shell arm at all (born in the Node core)
+const STAGE181 = ['diff-digest'];
+const NO_SHELL_ARM = ['next-user', ...STAGE181, ...STAGE4A, ...STAGE4B, ...STAGE4C, ...STAGE6, ...STAGE172B, ...STAGE7C, ...STAGE172D, ...STAGE173A];
 
 describe('command table', () => {
-  test('132 entries, each the label of a case of agent.sh, in its order', () => {
+  test('133 entries, each the label of a case of agent.sh, in its order', () => {
     const cli = agentSh.slice(agentSh.indexOf('\ncase "$command" in\n  role)'));
     const labels = [...cli.matchAll(/^  ([a-z][a-z0-9|-]*)\)/gm)].flatMap((m) => m[1].split('|'));
     // a command without shell code any more (next-user, A210; the stage 4 commands as they move) is only in the Node table, at its place of the old dispatch
     for (const c of COMMAND_NAMES.filter((n) => NO_SHELL_ARM.includes(n))) labels.splice(COMMAND_NAMES.indexOf(c), 0, c);
-    assert.equal(commandTable().length, 132);
+    assert.equal(commandTable().length, 133);
     assert.deepEqual(commandTable().map((e) => e.name), labels);
     assert.deepEqual(COMMAND_NAMES, labels);
   });
@@ -87,7 +89,7 @@ describe('role gate and locking rule equal the shell text', () => {
   const roList = extractRange('read_only_commands=', 'read_only_commands=');
   const lockRule = extractRange('lock_command=yes', 'if [ "$command" = submit ]');
 
-  test('every role against every one of the 132 commands (and an unknown one)', () => {
+  test('every role against every one of the 133 commands (and an unknown one)', () => {
     const cmds = [...COMMAND_NAMES, 'no-such-command', ''];
     const script = `fail() { echo deny; exit 0; }\nfor r in ${ROLES.join(' ')}; do for c in ${cmds.map((c) => `'${c}'`).join(' ')}; do\n( execution_role=$r; command=$c; ${gate}\n echo allow ) | sed "s/^/$r $c /"; done; done`;
     const r = spawnSync('sh', ['-c', script], { encoding: 'utf8' });
@@ -122,10 +124,10 @@ describe('role gate and locking rule equal the shell text', () => {
 });
 
 describe('commandTable()', () => {
-  test('is a function returning name, readOnly, roles and moved for the 132 commands', () => {
+  test('is a function returning name, readOnly, roles and moved for the 133 commands', () => {
     assert.equal(typeof commandTable, 'function');
     const t = commandTable();
-    assert.equal(t.length, 132);
+    assert.equal(t.length, 133);
     for (const e of t) {
       assert.equal(typeof e.name, 'string'); assert.equal(typeof e.readOnly, 'boolean'); assert.ok(Array.isArray(e.roles)); assert.equal(typeof e.moved, 'boolean');
       assert.ok(e.roles.includes('lead'));
