@@ -8,7 +8,7 @@
 // names is acted on only when it is a plain relative path inside the project (a hostile manifest cannot delete a file elsewhere). The installer is a front end of
 // bin/proofline: nothing here is a command of agent.sh or of the `cli` family.
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Config, bytes } from './config.mjs';
 import { cfgMergeNew } from './cfgcli.mjs';
@@ -293,7 +293,7 @@ class Install {
         const cmds = (g.hooks || []).map((/** @type {any} */ h) => h.command);
         // A238: a group that names the command counts as the shipped one only when its matcher is not narrower; otherwise the shipped group is added beside it
         const named = have.filter((/** @type {any} */ x) => Array.isArray(x?.hooks) && x.hooks.some((/** @type {any} */ h) => cmds.includes(h?.command)));
-        if (named.some((/** @type {any} */ x) => matcherCovers(x.matcher, g.matcher))) continue;
+        if (named.some((/** @type {any} */ x) => matcherCovers(x.matcher, g.matcher, ev))) continue;
         if (named.length > 0) narrowed.push(ev);
         have.push(g);
       }
@@ -487,7 +487,7 @@ class Install {
    * overwritten; the message says which path, from where, and what to do. Unset: set locally. The same folder: nothing, no message.
    */
   doGithooksPath() {
-    const st = hooksPathState((a) => this.git(a), this.root, this.p.env.HOME ?? homedir());
+    const st = hooksPathState((a) => this.git(a), this.root);
     if (st.state === 'same') this.plog('same', 'git config core.hooksPath');
     else if (st.state === 'unset') {
       this.plog('merged', 'git config --local core.hooksPath .agents/githooks');

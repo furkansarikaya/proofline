@@ -674,7 +674,7 @@ export function deliverMerged(ctx, id, flag) {
   // the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
   // A200: the approved commands were written into the main tree's config.yaml (uncommitted) and carried into the delivered commit; once origin has that very
   // content the local edit is redundant, and it is the only thing that would stop the fast-forward: it is dropped, nothing else is touched
-  if (gs(['status', '--porcelain', '--untracked-files=no'], main) === ' M .agents/config.yaml'
+  if (gs(['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=no'], main) === ' M .agents/config.yaml'
     && gs(['hash-object', '.agents/config.yaml'], main) === gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}:.agents/config.yaml`], main)) {
     if (g(['checkout', '-q', '--', '.agents/config.yaml'], main).status === 0) ctx.out(`the approved commands are on origin/${dmBase}: the local .agents/config.yaml edit was dropped\n`);
   }
@@ -683,10 +683,12 @@ export function deliverMerged(ctx, id, flag) {
   /** @type {(() => void) | null} */ let switchAfterCleanup = null;
   {
     const cur = gs(['branch', '--show-current'], main);
-    const dirty = gs(['status', '--porcelain', '--untracked-files=no'], main) !== '';
+    const dirty = gs(['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=no'], main) !== '';
     const tip2 = `refs/remotes/origin/${dmBase}`;
     const later = `update it from origin/${dmBase} before the next task starts`;
-    const hookless = ['-c', 'core.hooksPath=/dev/null'];
+    // what is neutralised on the user's checkout: hooks (core.hooksPath) and the file system monitor (core.fsmonitor, a program named in the repository config); a configured
+    // filter driver is not neutralised but avoided: see `filters` below
+    const hookless = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
     const ffNow = () => g([...hookless, 'merge', '--ff-only', '-q', tip2], main).status === 0;
     if (dirty) ctx.out(`note: the main working tree was left as it is: it has uncommitted changes (it is on ${cur === '' ? 'a detached HEAD' : `branch ${cur}`}); ${later}\n`);
     else if (cur === dmBase) ctx.out(ffNow() ? `local ${dmBase} fast-forwarded to origin/${dmBase}\n` : `note: local ${dmBase} was not fast-forwarded (it has commits origin lacks): ${later}\n`);
@@ -697,19 +699,39 @@ export function deliverMerged(ctx, id, flag) {
       // never switch when the fast-forward cannot follow: a local base with commits origin lacks stays untouched, and so does the checkout
       if (haveBase && g(['merge-base', '--is-ancestor', `refs/heads/${dmBase}`, tip2], main).status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: local ${dmBase} has commits origin lacks (no fast-forward); ${later}\n`);
       else {
-        // the cleanup below verifies the run on its task branch, so the switch waits for it
-        switchAfterCleanup = () => {
-          const sw = haveBase ? g([...hookless, 'switch', '-q', dmBase], main) : g([...hookless, 'switch', '-q', '--track', '-c', dmBase, tip2], main);
-          if (sw.status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: git could not switch to ${dmBase}; ${later}\n`);
-          else ctx.out(ffNow() ? `switched the main working tree from ${dmBr} to ${dmBase}, fast-forwarded to origin/${dmBase}\n` : `note: the main working tree is on ${dmBase} now but it was not fast-forwarded to origin/${dmBase}; ${later}\n`);
-        };
+        // B4: a configured filter driver (smudge, process, clean) is repository-controlled code that `switch` would run on every file that changes: no switch
+        const filters = g(['config', '--get-regexp', '^filter\\..*\\.(smudge|process|clean)$'], main).stdout.toString('latin1').trim() !== '';
+        // B5: a file git ignores here but the base tracks is overwritten by the switch or by the fast-forward without a word: no switch
+        let listFailed = false;
+        const lsz = (/** @type {string[]} */ a) => { const r = g(a, main); if (r.status !== 0) listFailed = true; return r.stdout.toString('latin1').split('\0').filter((x) => x !== ''); };
+        const ignored = new Set(lsz(['ls-files', '-z', '-o', '-i', '--exclude-standard']));
+        const tracked = ignored.size === 0 ? [] : [...(haveBase ? lsz(['ls-tree', '-r', '-z', '--name-only', `refs/heads/${dmBase}`]) : []), ...lsz(['ls-tree', '-r', '-z', '--name-only', tip2])];
+        const clash = listFailed ? '(the file list could not be read)' : (tracked.find((x) => ignored.has(x)) ?? '');
+        if (filters) ctx.out(`note: the main working tree was left on ${dmBr}: the repository configures a filter driver, which git would run during the switch; ${later}\n`);
+        else if (clash !== '') ctx.out(`note: the main working tree was left on ${dmBr}: the ignored file ${clash.replace(/[\x00-\x1f\x7f]/g, '?')} is tracked in ${dmBase} and the switch would overwrite it; ${later}\n`);
+        else {
+          // the cleanup below verifies the run on its task branch, so the switch waits for it
+          switchAfterCleanup = () => {
+            const sw = haveBase ? g([...hookless, 'switch', '-q', dmBase], main) : g([...hookless, 'switch', '-q', '--track', '-c', dmBase, tip2], main);
+            if (sw.status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: git could not switch to ${dmBase}; ${later}\n`);
+            else ctx.out(ffNow() ? `switched the main working tree from ${dmBr} to ${dmBase}, fast-forwarded to origin/${dmBase}\n` : `note: the main working tree is on ${dmBase} now but it was not fast-forwarded to origin/${dmBase}; ${later}\n`);
+          };
+        }
       }
     }
   }
   rmSync(mergeHead, { force: true });
   if (switchAfterCleanup === null) for (const p of parked) sbMainPut(ctx, adapter, p.id, p.body);
-  inProcessCleanup(ctx, id);
-  if (switchAfterCleanup !== null) { switchAfterCleanup(); for (const p of parked) sbMainPut(ctx, adapter, p.id, p.body); }
+  if (switchAfterCleanup === null) inProcessCleanup(ctx, id);
+  else {
+    // B3: the parked status blocks come back whatever the cleanup does; the switch only follows a cleanup that worked
+    let cleaned = false;
+    try { inProcessCleanup(ctx, id); cleaned = true; } finally {
+      if (cleaned) switchAfterCleanup();
+      else ctx.out(`note: the main working tree was left as it is: the cleanup of the run failed first, so it was not switched; update it from origin/${dmBase} before the next task starts\n`);
+      for (const p of parked) sbMainPut(ctx, adapter, p.id, p.body);
+    }
+  }
   sbFinalPut(ctx, id, fin);
   rmSync(ddir, { recursive: true, force: true });
   return 0;

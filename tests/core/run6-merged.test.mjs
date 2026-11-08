@@ -659,7 +659,7 @@ function mergedOnOrigin(d, lo) {
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(d, 'rev-parse', 'proofline/LC-lookup'));
 }
 /** The lines of an output that are notes. @param {string} out */
-const notes = (out) => out.split('\n').filter((l) => l.startsWith('note:') && l.includes('main working tree'));
+const notes = (out) => out.split('\n').filter((l) => l.startsWith('note: the main working tree'));
 
 test('A238: a clean tree on the merged task branch goes to main and fast-forwards (never a merge commit); the fresh-clone semantic holds with a local bare origin', () => {
   const d = project(RECIPE);
@@ -720,6 +720,82 @@ test('A238: a local main that cannot be fast-forwarded (diverged) keeps the chec
   assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: local main has commits origin lacks (no fast-forward); update it from origin/main before the next task starts']);
   assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
   assert.equal(g(d, 'rev-parse', 'main'), localMain, 'the local commit is still there');
+});
+
+test('B3 (fix round 1): a cleanup that fails after the merge proof still gives the parked status block back, the checkout stays where it was, ONE line says so', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  // the fixture's two-operation stub of the markdown adapter would win over the built-in one, which is the one that places a status block
+  gOk(d, 'rm', '-q', '-f', STUB);
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'drop the adapter stub', '--', STUB);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  wf(`${d}/stray-file.txt`, 'a file the task did not declare\n');
+  const r = A(d, ['deliver-merged', 'LC']);
+  assert.notEqual(r.status, 0, 'the cleanup was expected to refuse');
+  assert.match(r.text, /unexpected or unmapped task-introduced paths/, r.text);
+  assert.deepEqual(notes(r.text), ['note: the main working tree was left as it is: the cleanup of the run failed first, so it was not switched; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+  assert.match(read(d, taskFileOf(d)), /^- stage: MERGED$/m, 'the parked block body is back in the task file');
+  assert.ok(existsSync(`${d}/.agents/runs/LC`), 'the run is kept');
+});
+
+test('B4 (fix round 1): a configured filter driver is repository code that a switch would run: the checkout is left alone and the marker never appears', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const marker = `${d}-MARKER`;
+  gOk(d, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
+  gOk(d, 'config', 'filter.mk.clean', 'cat');
+  wf(`${d}/.git/info/attributes`, '* filter=mk\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), 'the smudge driver ran');
+  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: the repository configures a filter driver, which git would run during the switch; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+test('B5 (fix round 1): an ignored file that origin\'s base tracks is never overwritten by the switch or the fast-forward', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const c = `${d}-c5`;
+  gOk(d, 'clone', '-q', '-b', 'main', lo, c);
+  wf(`${c}/.env`, 'from origin\n'); gOk(c, 'add', '.env');
+  gOk(c, '-c', 'user.email=a@b.c', '-c', 'user.name=a', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'tracks .env'); gOk(c, 'push', '-q', 'origin', 'main');
+  wf(`${d}/.git/info/exclude`, '.env\n');
+  wf(`${d}/.env`, 'SECRET of the user\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.equal(read(d, '.env'), 'SECRET of the user\n');
+  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: the ignored file .env is tracked in main and the switch would overwrite it; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+test('B6 (fix round 1): a base branch checked out in another worktree makes git refuse the switch: nothing moves, ONE line says so', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  gOk(d, 'worktree', 'add', '-q', `${d}-other-wt`, 'main');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: git could not switch to main; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+test('B6 (fix round 1): a task branch whose name starts with a dash is only a string here: no option reaches git', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const mh = `${d}/.agents/local/deliver/LC/MERGE_HEAD`;
+  const [head, base] = read(d, '.agents/local/deliver/LC/MERGE_HEAD').trim().split('\t');
+  wf(mh, `${head}\t${base}\t-x\n`);
+  gOk(d, 'update-ref', 'refs/heads/-x', head);
+  gOk(d, 'symbolic-ref', 'HEAD', 'refs/heads/-x');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!/usage:|unknown option|unknown switch|invalid reference/i.test(out), out);
+  assert.equal(g(d, 'rev-parse', '--abbrev-ref', 'HEAD'), '-x', 'the checkout was not moved by an option');
 });
 
 /** @param {string} d */
