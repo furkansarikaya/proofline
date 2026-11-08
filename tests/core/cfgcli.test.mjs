@@ -91,9 +91,4 @@ test('an unknown operation or a missing argument is a usage error (status 2) tha
   }
 });
 
-test('hookspath-message: the one text init and doctor print for a global core.hooksPath', () => {
-  const r = spawnSync(process.execPath, [core, 'cli', 'hookspath-message', '/x/hooks'], { encoding: 'utf8' });
-  assert.equal(r.stdout, "a global/system git core.hooksPath ('/x/hooks') exists; the repository-local core.hooksPath wins here and is left set, but the global one is not touched and applies to your other repositories\n");
-});
-
 test('cleanup', () => { rmSync(dir, { recursive: true, force: true }); });

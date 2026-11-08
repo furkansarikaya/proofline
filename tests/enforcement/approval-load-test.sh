@@ -166,9 +166,9 @@ doctor_budget() {
   cp -R "$AL_REPO/bin" "$base/proofline-bin" 2>/dev/null || :
   sed 's/approve_budget_seconds: 20/approve_budget_seconds: 5/' .agents/config.yaml > "$base/cfg" && cp "$base/cfg" .agents/config.yaml
   mkdir -p "$base/shim"; printf '#!/bin/sh\ncase "$*" in *" add "*) sleep 3 ;; esac\nexec %s "$@"\n' "$(command -v git)" > "$base/shim/git"; chmod +x "$base/shim/git"
-  out=$(PATH="$base/shim:$PATH" sh "$AL_REPO/bin/proofline" doctor 2>&1) || :
+  out=$(PATH="$base/shim:$PATH" node "$AL_REPO/bin/proofline" doctor 2>&1) || :
   printf '%s' "$out" | grep -q '^WARN approval path: ' || die "doctor did not warn about a slow approval path: $(printf '%s' "$out" | grep -i 'approval path\|FAIL' | head -3)"
-  out=$(sh "$AL_REPO/bin/proofline" doctor 2>&1) || :
+  out=$(node "$AL_REPO/bin/proofline" doctor 2>&1) || :
   printf '%s' "$out" | grep -q 'approval path: ' || die "doctor did not report the approval path time"
   ok "A202-28 doctor measures the approval path and warns when it nears the hook budget"
 }

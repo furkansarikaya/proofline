@@ -28,7 +28,7 @@ function setup() {
     writeFileSync(`${st}/head.json`, JSON.stringify({ headRefOid: sha }));
   };
   const merge = (/** @type {string[]} */ args) => {
-    const r = spawnSync('sh', [PL, 'merge', ...args], { cwd: proj, env: { ...env, PATH: `${bin}:${process.env.PATH}`, PROOFLINE_NO_TTY: '1' }, encoding: 'utf8' });
+    const r = spawnSync(PL, ['merge', ...args], { cwd: proj, env: { ...env, PATH: `${bin}:${process.env.PATH}`, PROOFLINE_NO_TTY: '1' }, encoding: 'utf8' });
     return { status: r.status, out: r.stdout, err: r.stderr };
   };
   const merged = () => { try { return readFileSync(`${st}/merge.log`, 'utf8'); } catch { return ''; } };

@@ -1,6 +1,5 @@
 // @ts-check
-// `proofline-core.mjs cli config ...` (A232; the former bin/lib/config.sh): the config helpers of the CLI front end, which `init` and `upgrade` (still shell until 173-C2)
-// reach through one-line functions of bin/proofline. Reading is core/config.mjs, writing one key is core/configset.mjs; this module adds the merge of the keys a new default
+// `proofline-core.mjs cli config ...` (A232; the former bin/lib/config.sh): the config helpers of the CLI. `init` and `upgrade` (core/install.mjs, A233) now call the reader, `cfgSet` and `cfgMergeNew` in process; this closed command stays for the tests and scripts. Reading is core/config.mjs, writing one key is core/configset.mjs; this module adds the merge of the keys a new default
 // config has and the user's file lacks (`merge-new`), and the closed command that exposes all of them.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

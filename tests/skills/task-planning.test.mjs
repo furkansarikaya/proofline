@@ -32,7 +32,7 @@ test("DESIGN.md default is docs/design/DESIGN.md (config, knowledge scope, CLI f
   assert.match(c, /^  design: docs\/design\/DESIGN\.md$/m);
   const scope = /^knowledge_scope_root: (.*)$/m.exec(c)[1].split(/\s+/);
   assert.ok(!scope.includes("DESIGN.md"), scope.join(" "));
-  assert.match(read("bin/proofline"), /design_docs\.design docs\/design\/DESIGN\.md/);
+  assert.match(read("control-plane/agents/scripts/core/proflinecli.mjs"), /'design_docs\.design', 'docs\/design\/DESIGN\.md'/);
 });
 
 test("upgrade --dry-run offers the DESIGN.md move and moves nothing", () => {
@@ -40,12 +40,12 @@ test("upgrade --dry-run offers the DESIGN.md move and moves nothing", () => {
   sh("git", ["init", "-q"], d);
   writeFileSync(join(d, "DESIGN.md"), "# d\n");
   const pl = join(root, "bin/proofline");
-  assert.equal(sh("sh", [pl, "init", "--yes", "--runtimes", "claude"], d).status, 0);
+  assert.equal(sh(pl, ["init", "--yes", "--runtimes", "claude"], d).status, 0);
   // A pre-0.0.3 install: the old template wrote design_docs.design: DESIGN.md.
   const cfgPath = join(d, ".agents/config.yaml");
   const old = readFileSync(cfgPath, "utf8").replace(/^  design: .*$/m, "  design: DESIGN.md");
   writeFileSync(cfgPath, old);
-  const r = sh("sh", [pl, "upgrade", "--dry-run"], d);
+  const r = sh(pl, ["upgrade", "--dry-run"], d);
   assert.match(r.stdout, /offer: DESIGN\.md sits at the project root/);
   assert.match(r.stdout, /git mv DESIGN\.md docs\/design\/DESIGN\.md/);
   assert.match(r.stdout, /set design_docs\.design: docs\/design\/DESIGN\.md/);

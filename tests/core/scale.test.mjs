@@ -147,14 +147,3 @@ test('applyHookTimeouts: sets only proofline hooks of the seven events from the 
   assert.equal(readFileSync(path.join(d, '.codex/hooks.json'), 'utf8'), '{ not json');
 });
 
-test('cli hook-timeouts-apply <ROOT> <REL> prints the state and a tab, nothing when there is nothing to do, and refuses a path outside the project', () => {
-  const d = project(RECIPE);
-  settings(d, '.claude/settings.json', HOOKS);
-  const core = ['hook-timeouts-apply', d, '.claude/settings.json'];
-  assert.equal(cli(d, core).out, 'merged\t.claude/settings.json (hook timeouts from the config; other settings kept)\n');
-  assert.equal(cli(d, core).out, 'same\t.claude/settings.json (hook timeouts)\n');
-  assert.equal(cli(d, ['hook-timeouts-apply', d, '.codex/hooks.json']).out, '');
-  assert.equal(cli(d, ['hook-timeouts-apply', d, '../x.json']).status, 2);
-  assert.equal(cli(d, ['hook-timeouts-apply', d, '/etc/passwd']).status, 2);
-  assert.equal(cli(d, ['hook-timeouts-apply', d]).status, 2);
-});

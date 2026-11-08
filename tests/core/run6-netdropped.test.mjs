@@ -71,11 +71,11 @@ test('proofline doctor lists the dropped variables (names and reasons) and never
   try {
     spawnSync('git', ['init', '-q', root]);
     spawnSync('git', ['-C', root, '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'i']);
-    assert.equal(spawnSync('sh', [path.join(repo, 'bin', 'proofline'), 'init', '--yes', '--runtimes', 'claude'], { cwd: root, encoding: 'utf8' }).status, 0);
+    assert.equal(spawnSync(path.join(repo, 'bin', 'proofline'), ['init', '--yes', '--runtimes', 'claude'], { cwd: root, encoding: 'utf8' }).status, 0);
     const SECRET = 'SECRETPASSWORD123';
-    const quiet = spawnSync('sh', [path.join(repo, 'bin', 'proofline'), 'doctor'], { cwd: root, encoding: 'utf8', env: withoutNet(process.env) });
+    const quiet = spawnSync(path.join(repo, 'bin', 'proofline'), ['doctor'], { cwd: root, encoding: 'utf8', env: withoutNet(process.env) });
     assert.doesNotMatch(quiet.stdout, /^WARN network:/m);
-    const r = spawnSync('sh', [path.join(repo, 'bin', 'proofline'), 'doctor'], {
+    const r = spawnSync(path.join(repo, 'bin', 'proofline'), ['doctor'], {
       cwd: root, encoding: 'utf8',
       env: { ...withoutNet(process.env), HTTPS_PROXY: `http://user:${SECRET}@proxy.corp.example:3128/a b`, ALL_PROXY: `http://${SECRET}@x:1`, GIT_SSL_NO_VERIFY: '1', GIT_SSL_CAINFO: `/nonexistent/${SECRET}.pem`, REQUESTS_CA_BUNDLE: CA, SSL_CERT_FILE: CA },
     });

@@ -163,7 +163,7 @@ settings_merge() {
 }
 EOF
   PL=$TO_REPO/bin/proofline
-  sh "$PL" init --yes --runtimes claude --lead claude --worker claude --reviewers claude >/dev/null 2>&1 || die "init failed"
+  node "$PL" init --yes --runtimes claude --lead claude --worker claude --reviewers claude >/dev/null 2>&1 || die "init failed"
   s=.claude/settings.json
   command -v jq >/dev/null 2>&1 || command -v node >/dev/null 2>&1 || { ok "A202-29 settings merge (neither jq nor node here: skipped)"; return 0; }
   hk() { jq -r --arg ev "$1" '[.hooks[$ev][] | .hooks[] | select((.command // "") | contains("proofline-hook.mjs")) | .timeout] | first' "$s" 2>/dev/null || node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const g=j.hooks[process.argv[2]];for(const x of g)for(const h of x.hooks)if(String(h.command).includes("proofline-hook.mjs")){console.log(h.timeout);process.exit()}' "$s" "$1"; }
@@ -171,13 +171,13 @@ EOF
   grep -q '"model": "opus"' "$s" && grep -q 'MY_FLAG' "$s" && grep -q 'Read(./secrets' "$s" && grep -q 'echo note' "$s" && grep -q '"timeout": 7' "$s" || die "init lost a user setting: $(cat "$s")"
   # config -> settings: scale 2 and a single limit
   setcfg timeouts scale 2; setcfg hook subagent_start_timeout_seconds 45
-  sh "$PL" upgrade >/dev/null 2>&1 || die "upgrade failed"
+  node "$PL" upgrade >/dev/null 2>&1 || die "upgrade failed"
   [ "$(hk PreToolUse)" = 60 ] && [ "$(hk SubagentStop)" = 240 ] && [ "$(hk SubagentStart)" = 90 ] && [ "$(hk UserPromptSubmit)" = 60 ] || die "scaled hook limits not written: $(hk PreToolUse) $(hk SubagentStart) $(hk SubagentStop) $(hk UserPromptSubmit)"
   grep -q '"timeout": 7' "$s" || die "the timeout of a hook that is not proofline's was changed"
   grep -q '"model": "opus"' "$s" && grep -q 'MY_FLAG' "$s" && grep -q 'Read(./secrets' "$s" && grep -q 'echo note' "$s" && grep -q 'echo mine' "$s" || die "upgrade lost a user setting"
   [ "$(grep -c 'proofline-hook.mjs' "$s")" = 7 ] || die "hook groups were duplicated or lost: $(grep -c 'proofline-hook.mjs' "$s")"
   # the second run changes nothing, byte for byte
-  cp "$s" "$base/settings.once"; sh "$PL" upgrade >/dev/null 2>&1 || die "second upgrade failed"; sh "$PL" upgrade >/dev/null 2>&1 || die "third upgrade failed"
+  cp "$s" "$base/settings.once"; node "$PL" upgrade >/dev/null 2>&1 || die "second upgrade failed"; node "$PL" upgrade >/dev/null 2>&1 || die "third upgrade failed"
   cmp -s "$s" "$base/settings.once" || die "a repeated upgrade changed the settings file"
   # the user's config values survive an upgrade
   [ "$(grep -c '^  scale: 2$' .agents/config.yaml)" = 1 ] && grep -q 'subagent_start_timeout_seconds: 45' .agents/config.yaml || die "an upgrade overwrote the user's timeout values"
@@ -198,16 +198,16 @@ upgrade_defaults() {
   grep -q '^timeouts:' "$base/old2.yaml" && die "the fixture config still has the new section"
   PLH=$TO_REPO; cd "$base" && rm -rf up && mkdir up && cd up || exit 1
   git init -q -b main; git config user.email t@t.test; git config user.name t; echo hi > f.txt; git add -A; git commit -qm i
-  sh "$PLH/bin/proofline" init --yes --runtimes claude --lead claude --worker claude --reviewers claude >/dev/null 2>&1 || die "init failed"
+  node "$PLH/bin/proofline" init --yes --runtimes claude --lead claude --worker claude --reviewers claude >/dev/null 2>&1 || die "init failed"
   cp "$base/old2.yaml" .agents/config.yaml
-  sh "$PLH/bin/proofline" upgrade >/dev/null 2>&1 || die "upgrade failed"
+  node "$PLH/bin/proofline" upgrade >/dev/null 2>&1 || die "upgrade failed"
   g() { awk -v want="$1" '/^[^ #]/ { sec = $1 } /^  [A-Z]+:$/ { cls = $1 } /dispatch_timeout_seconds:/ && sec == "pipelines:" && cls == want { print $2 }' .agents/config.yaml; }
   [ "$(sed -n 's/^  timeout_seconds: //p' .agents/config.yaml)" = 5400 ] || die "dispatch.timeout_seconds at the old default was not moved: $(sed -n 's/^  timeout_seconds: //p' .agents/config.yaml)"
   [ "$(g TRIVIAL:)" = 1800 ] && [ "$(g STANDARD:)" = 5400 ] && [ "$(g CRITICAL:)" = 7200 ] || die "class limits at the old defaults were not moved: $(g TRIVIAL:) $(g STANDARD:) $(g CRITICAL:)"
   [ "$(g COMPLEX:)" = 2400 ] || die "a class limit the user changed (2400) was overwritten: $(g COMPLEX:)"
   grep -q '^  scale: 1.0$' .agents/config.yaml || die "the upgrade did not add timeouts.scale"
   # a user who sets 1800 after the upgrade keeps it
-  sed -i.b -e 's/^  timeout_seconds: 5400/  timeout_seconds: 1800/' -e 's/^proofline_version:.*/proofline_version: 0.0.39/' .agents/config.yaml; sh "$PLH/bin/proofline" upgrade >/dev/null 2>&1
+  sed -i.b -e 's/^  timeout_seconds: 5400/  timeout_seconds: 1800/' -e 's/^proofline_version:.*/proofline_version: 0.0.39/' .agents/config.yaml; node "$PLH/bin/proofline" upgrade >/dev/null 2>&1
   [ "$(sed -n 's/^  timeout_seconds: //p' .agents/config.yaml)" = 1800 ] || die "an upgrade from a current install overwrote a value the user set"
   cd "$base" || exit 1
   ok "A202-29 an upgrade moves a limit that still holds the earlier default, keeps a changed one and a value set later"
@@ -219,7 +219,7 @@ doctor_scale() {
   mkdir -p "$base/shim"; printf '#!/bin/sh\ncase "$*" in *" add "*) sleep 2 ;; esac\nexec %s "$@"\n' "$(command -v git)" > "$base/shim/git"; chmod +x "$base/shim/git"
   PL=$TO_REPO/bin/proofline
   before=$(cat .agents/config.yaml)
-  out=$(PATH="$base/shim:$PATH" sh "$PL" doctor --scale 2>&1) || die "doctor --scale failed: $out"
+  out=$(PATH="$base/shim:$PATH" node "$PL" doctor --scale 2>&1) || die "doctor --scale failed: $out"
   printf '%s' "$out" | grep -q 'scale proposal' || die "a slow machine got no proposal: $out"
   printf '%s' "$out" | grep -q 'approve scale' || die "the question does not show the exact phrase: $out"
   [ "$(cat .agents/config.yaml)" = "$before" ] || die "doctor --scale changed the config before the user's reply"
@@ -227,27 +227,27 @@ doctor_scale() {
   v=$(awk -F'\t' '$1 == "scale" { print $2 }' .agents/local/scale/PROPOSAL.tsv)
   case "$v" in [1-9]*.[05]|[1-9]|10) ;; *) die "the proposed scale is not a bounded half step: $v" ;; esac
   # no reply, a reply that is not an approval, a negation, another kind: nothing is written
-  rc=0; sh "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote without any reply"
+  rc=0; node "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote without any reply"
   sleep 1   # a capture is newer than its request and not ahead of the clock (the Node core ignores a capture dated more than 5 s ahead)
   for t in 'looks good' 'do not approve scale' 'approve commands' 'approve scale if it is safe'; do
     capture "$t" "$(date +%s)"; A approve-pending >/dev/null 2>&1 || :
-    rc=0; sh "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote after '$t'"
+    rc=0; node "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "--apply-scale wrote after '$t'"
     [ "$(cat .agents/config.yaml)" = "$before" ] || die "the config changed after '$t'"
   done
   # an agent cannot make the approval: the lead-side command refuses, and a forged proposal is another hash
   printf 'scale\t9\n' > .agents/local/scale/PROPOSAL.tsv; rc=0; A scale-check >/dev/null 2>&1 || rc=$?; [ "$rc" != 0 ] || die "a changed proposal was covered by the earlier request"
-  PATH="$base/shim:$PATH" sh "$PL" doctor --scale >/dev/null 2>&1
+  PATH="$base/shim:$PATH" node "$PL" doctor --scale >/dev/null 2>&1
   v=$(awk -F'\t' '$1 == "scale" { print $2 }' .agents/local/scale/PROPOSAL.tsv)   # measured again: the value may differ, the approval binds the new file
   sleep 1; capture 'approve scale' "$(date +%s)"; A approve-pending >/dev/null 2>&1 || :
-  sh "$PL" doctor --apply-scale >/dev/null 2>&1 || die "--apply-scale refused after the user's 'approve scale'"
+  node "$PL" doctor --apply-scale >/dev/null 2>&1 || die "--apply-scale refused after the user's 'approve scale'"
   [ "$(cfg_v=$(sed -n 's/^  scale: //p' .agents/config.yaml); echo "$cfg_v")" = "$v" ] || die "the approved scale was not written: $(sed -n 's/^  scale: //p' .agents/config.yaml) (wanted $v)"
   A config-check >/dev/null || die "the written scale does not pass config-check"
   # used up: the same reply does not apply a second proposal
-  printf 'scale\t3\n' > .agents/local/scale/PROPOSAL.tsv; rc=0; sh "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?
+  printf 'scale\t3\n' > .agents/local/scale/PROPOSAL.tsv; rc=0; node "$PL" doctor --apply-scale >/dev/null 2>&1 || rc=$?
   [ "$rc" != 0 ] || die "one reply applied two proposals"
   # a machine within the reference gets no proposal
   rm -rf .agents/local/scale; sed -i.b "s/^  scale: .*/  scale: 1.0/" .agents/config.yaml
-  out=$(sh "$PL" doctor --scale 2>&1) || :
+  out=$(node "$PL" doctor --scale 2>&1) || :
   printf '%s' "$out" | grep -q 'timing:' || die "doctor --scale printed no timing: $out"
   ok "A202-29 doctor proposes a scale from a measurement and writes it only after the user's own approve scale"
 }

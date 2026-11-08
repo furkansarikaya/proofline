@@ -26,7 +26,7 @@ const w = (/** @type {string} */ rel, /** @type {string} */ text) => { mkdirSync
 function exec(args, env = {}) {
   const e = { ...process.env, ...env };
   delete e.AGENT_ROLE;
-  const r = spawnSync('sh', [proofline, ...args], { cwd: fx, env: e, encoding: 'latin1' });
+  const r = spawnSync(proofline, args, { cwd: fx, env: e, encoding: 'latin1' });
   return { out: r.stdout, err: r.stderr, code: r.status };
 }
 /** @param {string[]} args @param {Record<string, string>} [env] */
@@ -128,8 +128,8 @@ describe('cli subcommands through the front ends', () => {
 
 describe('the closed set of CLI-only subcommands', () => {
   const core = path.join(repo, 'control-plane/agents/scripts/proofline-core.mjs');
-  test('exactly insights, queue, the two hook commands, scan-secrets, platform-info, slug, task-adapter, merge, exec-policy, runtime-detect, leftover-worktrees, worktree-deps, and the discovery, time-limit, doctor proposal, hook-timeouts and context-size commands of A230, and the doctor, insights-front, config and hookspath-message commands of A232; none is an agent.sh command', () => {
-    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['config', 'context-size', 'discover', 'doctor', 'doctor-commands', 'doctor-scale', 'exec-policy', 'hook-timeouts-apply', 'hookspath-message', 'insights', 'insights-front', 'leftover-worktrees', 'merge', 'next-line', 'platform-info', 'pre-commit', 'pre-push', 'queue', 'run-timeout', 'runtime-detect', 'scan-secrets', 'slug', 'task-adapter', 'worktree-deps']);
+  test('exactly insights, queue, the two hook commands, scan-secrets, platform-info, slug, task-adapter, merge, exec-policy, runtime-detect, leftover-worktrees, worktree-deps, and the discovery, time-limit, doctor proposal and context-size commands of A230, and the config command of A232 (the doctor, insights-front, hookspath-message and hook-timeouts-apply commands went with the CLI front end in A233); none is an agent.sh command', () => {
+    assert.deepEqual(Object.keys(CLI_COMMANDS).sort(), ['config', 'context-size', 'discover', 'doctor-commands', 'doctor-scale', 'exec-policy', 'insights', 'leftover-worktrees', 'merge', 'next-line', 'platform-info', 'pre-commit', 'pre-push', 'queue', 'run-timeout', 'runtime-detect', 'scan-secrets', 'slug', 'task-adapter', 'worktree-deps']);
     for (const n of Object.keys(CLI_COMMANDS)) assert.ok(!COMMAND_NAMES.includes(n), n);
     assert.ok(!COMMAND_NAMES.includes('cli'));
     assert.throws(() => { CLI_COMMANDS.extra = () => 0; });
