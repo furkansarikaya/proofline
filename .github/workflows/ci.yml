@@ -380,7 +380,7 @@ jobs:
           - name: cli-install
             mode: files
             pattern: 'none'
-            files: tests/core/install-init.test.mjs tests/core/install-upgrade.test.mjs
+            files: tests/core/install-init.test.mjs tests/core/user-decisions-1108.test.mjs tests/core/install-upgrade.test.mjs
           - name: cli-commands
             mode: files
             pattern: 'none'

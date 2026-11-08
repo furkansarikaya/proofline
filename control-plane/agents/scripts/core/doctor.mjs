@@ -3,7 +3,7 @@
 // repository (the project's own installed hooks and scripts are copied there). Prints PASS / WARN / FAIL lines and exits non-zero on any FAIL. It runs from the plugin's core
 // (bin/proofline calls it in process, A233) for the project it was started in: a project whose own engine is broken or missing is still diagnosed. PL_HOME names the
 // plugin checkout and PROOFLINE_VERSION its version. Text here is JavaScript text; the byte strings of the core (config values, command outputs) are decoded with `u`.
-import { accessSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { loadavg, availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { agentCall } from './batch.mjs';
@@ -48,6 +48,44 @@ export function hookHas(file, event) {
     if (!Array.isArray(g)) return false;
     return g.some((/** @type {any} */ x) => Array.isArray(x?.hooks) && x.hooks.some((/** @type {any} */ h) => typeof h?.command === 'string' && HOOK_NAME.test(h.command)));
   } catch { return false; }
+}
+
+/** A matcher that matches every tool or event: absent, empty, `*` or `.*`. @param {unknown} m */
+const wildMatcher = (m) => m === undefined || m === '' || m === '*' || m === '.*';
+/** Claude Code reads a matcher as a regular expression; only this form is a plain list of names. @param {unknown} m */
+const plainList = (m) => typeof m === 'string' && /^[a-zA-Z0-9_|]+$/.test(m);
+/** The values a SessionStart matcher is compared with (the sources Claude Code names); the other events have no list to enumerate. */
+const EVENT_SOURCES = /** @type {Record<string, string[]>} */ ({ SessionStart: ['startup', 'resume', 'clear', 'compact'] });
+
+/**
+ * A238 (user decision of 2026-11-08, A232): is a hook group's matcher at least as wide as the shipped one? A narrower matcher (a tool name that never fires, one tool of the
+ * shipped list) leaves proofline's hook off for the rest while the file still names proofline-hook.mjs. Claude Code reads a matcher as a REGULAR EXPRESSION, so only the
+ * plain form (letters, digits, `_` and `|`) is read as a list of names; any other matcher counts only when it is a wildcard or EXACTLY the shipped string, else it is
+ * narrower or unknown (a regular expression that never matches looks like a list of every tool). A wildcard shipped matcher needs a wildcard, except for an event with a
+ * known set of values (SessionStart sources): a plain list that names all of them is as wide.
+ * @param {unknown} have the matcher of the group in the settings @param {unknown} want the matcher of the shipped fragment @param {string} [event]
+ */
+export function matcherCovers(have, want, event = '') {
+  if (wildMatcher(have)) return true;
+  if (wildMatcher(want)) {
+    const all = EVENT_SOURCES[event];
+    return all !== undefined && plainList(have) && all.every((n) => String(have).split('|').includes(n));
+  }
+  if (have === want) return true;
+  return plainList(have) && plainList(want) && String(want).split('|').every((n) => String(have).split('|').includes(n));
+}
+
+/**
+ * The hook command with the way it names the hook script normalised: `node "<dir>/.agents/hooks/proofline-hook.mjs" rest` for any directory spelling
+ * (`$CLAUDE_PROJECT_DIR`, `${CLAUDE_PROJECT_DIR}`, an absolute or relative path), so a command compares with the shipped one by its shape, not by a substring.
+ * @param {unknown} cmd @returns {string}
+ */
+export function hookCommandShape(cmd) {
+  if (typeof cmd !== 'string') return '';
+  // the directory part has no white space or shell metacharacter; the script path is quoted on both ends or on neither
+  const dir = '(?:\\$CLAUDE_PROJECT_DIR|\\$\\{CLAUDE_PROJECT_DIR\\}|\\$\\(git rev-parse --show-toplevel\\)|[^\\s"\'$;&|`<>()\\\\#]*)';
+  const re = new RegExp(`^node +(?:"${dir}/?\\.agents/hooks/proofline-hook\\.mjs"|${dir.replace('|\\$\\(git rev-parse --show-toplevel\\)', '')}/?\\.agents/hooks/proofline-hook\\.mjs)(?= |$)`);
+  return cmd.replace(re, 'node <HOOK>');
 }
 
 /**
@@ -130,9 +168,44 @@ function psTop() {
   return rows.length > 0 ? rows[0].slice(rows[0].indexOf(' ') + 1) : '';
 }
 
-/** The message shared by `init` and `doctor` for a core.hooksPath in the global or system git config. @param {string} value */
-export function globalHookspathMessage(value) {
-  return `a global/system git core.hooksPath ('${value}') exists; the repository-local core.hooksPath wins here and is left set, but the global one is not touched and applies to your other repositories`;
+/** A path as the file system resolves it, also when its last parts do not exist yet (the folder `.agents/githooks` before its files are placed). @param {string} p @returns {string} */
+function realish(p) {
+  try { return realpathSync(p); } catch { /* the part that exists is resolved, the rest is appended */ }
+  const parent = path.dirname(p);
+  return parent === p ? p : path.join(realish(parent), path.basename(p));
+}
+
+/**
+ * A238 (user decision of 2026-11-08, A233): the `core.hooksPath` git resolves for the repository at ROOT, from any scope, and whether it is proofline's folder
+ * (`.agents/githooks`). The value is read EXPANDED BY GIT (`--type=path`: `~`, `~user`, `%(prefix)/`), so no spelling is guessed here; a relative result is resolved
+ * against ROOT and both sides are compared as real paths (a symbolic link to the folder is the folder).
+ * @param {(args: string[]) => { status: number | null, stdout: Buffer }} git a git call inside the repository @param {string} root
+ * @returns {{ state: 'unset' } | { state: 'same' | 'other', value: string, scope: string, origin: string }}
+ */
+export function hooksPathState(git, root) {
+  const r = git(['config', '--type=path', '-z', '--show-scope', '--show-origin', '--get', 'core.hooksPath']);
+  if (r.status !== 0) return { state: 'unset' };
+  const parts = r.stdout.toString('utf8').split('\0');
+  if (parts.length < 3) return { state: 'unset' };
+  const scope = parts[0]; const value = parts[2];
+  const origin = parts[1].startsWith('file:') ? parts[1].slice(5) : parts[1].replace(/:$/, '');
+  if (value === '') return { state: 'unset' };
+  const same = realish(path.resolve(root, value)) === realish(path.join(root, '.agents', 'githooks'));
+  return { state: same ? 'same' : 'other', value, scope, origin };
+}
+
+/**
+ * The text `init`/`upgrade` and `doctor` share for a `core.hooksPath` that is set to another folder: which path, from where, and what to do to use proofline's git hooks.
+ * A global or system value keeps the wording of the former WARN (`a global/system git core.hooksPath`).
+ * @param {string} value @param {string} [scope] @param {string} [origin]
+ */
+export function globalHookspathMessage(value, scope = 'global', origin = '') {
+  // a path is data from a config file: no control character reaches the terminal or forges a line
+  value = value.replace(/[\x00-\x1f\x7f]/g, '?'); origin = origin.replace(/[\x00-\x1f\x7f]/g, '?');
+  const from = origin === 'command line' ? 'the git command line' : origin !== '' ? `${scope} git config ${origin}` : `${scope} git config`;
+  const wide = scope === 'global' || scope === 'system';
+  const lead = wide ? `a global/system git core.hooksPath ('${value}') exists (${from}) and is NOT overwritten` : `core.hooksPath is '${value}' (${from}) and is NOT overwritten`;
+  return `${lead}; the proofline git hooks (.agents/githooks) are NOT active. To use them, run: git config --local core.hooksPath .agents/githooks${wide ? ' (this repository only; the global value stays and applies to your other repositories)' : ' (this replaces the value above), or chain them from that hook folder'}`;
 }
 
 /** @param {string} p */
@@ -459,17 +532,18 @@ class Doctor {
   }
 
   doctorGitHooks() {
-    const hp = this.gitOut(['config', '--get', 'core.hooksPath']);
-    if (hp === '.agents/githooks' || hp === `${this.root}/.agents/githooks`) {
+    const st = hooksPathState((a) => this.git(a), this.root);
+    if (st.state === 'same') {
       let ok = true;
       for (const h of ['pre-commit', 'pre-push']) {
         if (!isExecutable(`${this.root}/.agents/githooks/${h}`)) { this.fail(`git hooks: .agents/githooks/${h} is missing or not executable`); ok = false; }
       }
       if (ok) this.pass('git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable');
-    } else if (hp === '') this.fail('git hooks: core.hooksPath is not set; the commit and push locks are inactive. Fix: git config --local core.hooksPath .agents/githooks');
-    else this.fail(`git hooks: core.hooksPath is '${hp}', not .agents/githooks; the proofline locks are inactive`);
-    const glob = this.gitOut(['config', '--global', '--get', 'core.hooksPath']) || this.gitOut(['config', '--system', '--get', 'core.hooksPath']);
-    if (glob !== '') this.warn(`git hooks: ${globalHookspathMessage(glob)}`);
+    } else if (st.state === 'unset') this.fail('git hooks: core.hooksPath is not set; the commit and push locks are inactive. Fix: git config --local core.hooksPath .agents/githooks');
+    else {
+      this.fail(`git hooks: core.hooksPath is '${st.value.replace(/[\x00-\x1f\x7f]/g, '?')}', not .agents/githooks; the proofline locks are inactive`);
+      this.warn(`git hooks: ${globalHookspathMessage(st.value, st.scope, st.origin)}`);
+    }
   }
 
   doctorConfigAndApproval() {
@@ -526,17 +600,58 @@ class Doctor {
     if (!isFile(`${h}/proofline-hook.mjs`)) this.fail('hooks: .agents/hooks/proofline-hook.mjs missing (run: proofline upgrade)');
     else if (!isDir(`${h}/events`) || !isDir(`${h}/guards`) || !isDir(`${h}/lib`) || !isFile(`${h}/command-scan.mjs`)) this.fail('hooks: .agents/hooks/ lacks events/, guards/, lib/ or command-scan.mjs of the Node hook (run: proofline upgrade)');
     else this.pass('hooks: .agents/hooks/proofline-hook.mjs present');
-    if (this.hasRuntime('claude')) {
-      const miss = EVENTS.filter((e) => !hookHas(`${this.root}/.claude/settings.json`, e)).map((e) => ` ${e}`).join('');
-      if (miss === '') this.pass('claude hooks: .claude/settings.json wires all 7 proofline events');
-      else if (this.pluginListsProofline()) this.pass('claude hooks: provided by the proofline plugin (project settings do not need them)');
-      else this.fail(`claude hooks: .claude/settings.json lacks proofline hooks for:${miss} (run: proofline init)`);
-    }
+    if (this.hasRuntime('claude')) this.doctorClaudeSettings();
     if (this.hasRuntime('codex')) {
       const miss = EVENTS.filter((e) => !hookHas(`${this.root}/.codex/hooks.json`, e)).map((e) => ` ${e}`).join('');
       if (miss === '') this.pass('codex hooks: .codex/hooks.json wires all 7 proofline events');
       else this.fail(`codex hooks: .codex/hooks.json lacks proofline hooks for:${miss} (run: proofline init)`);
       this.warn('codex trust: Codex loads project hooks only once the project is trusted and the hooks are reviewed; open codex here and approve them with /hooks (doctor cannot check this)');
+    }
+  }
+
+  /**
+   * A238 (user decision of 2026-11-08, A232): the Claude Code settings of the project FAIL when they cannot carry proofline's hooks: a file that is not a JSON object,
+   * `disableAllHooks: true`, an event without a string command naming proofline-hook.mjs, or one whose matcher is narrower than the shipped fragment's.
+   */
+  doctorClaudeSettings() {
+    const files = ['.claude/settings.json', '.claude/settings.local.json'];
+    /** @type {Array<{ rel: string, json: any }>} */ const parsed = [];
+    let projectBroken = false;
+    for (const rel of files) {
+      const f = `${this.root}/${rel}`;
+      if (!existsSync(f)) continue;
+      let j; let why = '';
+      try { j = JSON.parse(readFileSync(f, 'utf8')); } catch (e) { why = e instanceof Error ? e.message : String(e); }
+      if (why === '' && (j === null || typeof j !== 'object' || Array.isArray(j))) why = 'the top level is not an object';
+      if (why !== '') {
+        this.fail(`claude hooks: ${rel} is not a valid JSON object (${why.split('\n')[0].slice(0, 120)}); Claude Code cannot read it, so no proofline hook runs from it. Fix the file by hand${rel === files[0] ? ' (init does not overwrite it), then run: proofline init' : ''}`);
+        if (rel === files[0]) projectBroken = true;
+        continue;
+      }
+      parsed.push({ rel, json: j });
+      if (j.disableAllHooks !== undefined && j.disableAllHooks !== false) this.fail(`claude hooks: disableAllHooks is ${JSON.stringify(j.disableAllHooks)} in ${rel} (only absent or false leaves the hooks on); Claude Code runs no hook at all, so every proofline guard is off. Remove the key or set it to false`);
+    }
+    if (projectBroken) return;
+    /** @type {any} */ let frag = null;
+    try { frag = JSON.parse(readFileSync(`${this.plHome}/adapters/claude/settings.fragment.json`, 'utf8')); } catch { /* reported below */ }
+    if (frag === null) this.warn('claude hooks: the shipped adapters/claude/settings.fragment.json could not be read, so the matchers were not compared');
+    /** @type {string[]} */ const missing = []; /** @type {string[]} */ const narrow = [];
+    for (const ev of EVENTS) {
+      /** @type {any[]} */ const groups = parsed.flatMap((x) => (Array.isArray(x.json.hooks?.[ev]) ? x.json.hooks[ev] : []));
+      // the command must have the shape of the shipped one (node + the hook script + its arguments), not merely contain the name of the script
+      const shipped = hookCommandShape(frag?.hooks?.[ev]?.[0]?.hooks?.[0]?.command);
+      const mine = groups.filter((g) => Array.isArray(g?.hooks) && g.hooks.some((/** @type {any} */ h) => typeof h?.command === 'string' && HOOK_NAME.test(h.command)
+        && (shipped === '' ? /^node +\S*proofline-hook[.]mjs\b/.test(h.command) : hookCommandShape(h.command) === shipped)));
+      if (mine.length === 0) { missing.push(ev); continue; }
+      const want = frag?.hooks?.[ev]?.[0]?.matcher;
+      if (frag !== null && !mine.some((g) => matcherCovers(g.matcher, want, ev))) narrow.push(ev);
+    }
+    if (missing.length === 0 && narrow.length === 0) {
+      if (!parsed.some((x) => x.json.disableAllHooks !== undefined && x.json.disableAllHooks !== false)) this.pass('claude hooks: .claude/settings.json wires all 7 proofline events');
+    } else if (this.pluginListsProofline()) this.pass('claude hooks: provided by the proofline plugin (project settings do not need them)');
+    else {
+      if (missing.length > 0) this.fail(`claude hooks: .claude/settings.json lacks proofline hooks for:${missing.map((e) => ` ${e}`).join('')} (run: proofline init)`);
+      if (narrow.length > 0) this.fail(`claude hooks: .claude/settings.json wires proofline hooks with a narrower matcher than proofline's for:${narrow.map((e) => ` ${e}`).join('')}; the hook does not run for the other tools or events (run: proofline init, which adds proofline's group beside it)`);
     }
   }
 

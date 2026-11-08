@@ -4,7 +4,7 @@ description: Designs UI work. Reverse-engineers a DESIGN.md design system (token
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.71"
+  version: "0.0.72"
 ---
 
 # ui-design

@@ -14,7 +14,7 @@ import * as proc from './proc.mjs';
  * @returns {GitResult}
  */
 export function git(ctx, args, opt = {}) {
-  const r = proc.run('git', ['-C', ctx.root, ...args], {
+  const r = proc.run('git', ['-C', ctx.root, '-c', 'core.fsmonitor=false', ...ctx.gitBlank, ...args], {
     cwd: ctx.cwd, env: { ...ctx.childEnv(), ...(opt.env ?? {}) }, input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
   });
   return { status: r.status, out: r.stdout.toString('latin1') };

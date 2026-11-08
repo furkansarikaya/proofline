@@ -101,11 +101,13 @@ test('a global core.hooksPath is warned about by init and doctor and never modif
   const init = sb.pl(ghp, ['init', '--yes', '--runtimes', 'claude'], { GIT_CONFIG_GLOBAL: gh });
   assert.equal(init.status, 0, init.text);
   assert.ok(init.text.includes('global/system git core.hooksPath'), init.text);
+  assert.ok(init.text.includes('NOT overwritten') && init.text.includes('/nonexistent/global-hooks'), init.text);
   const before = readFileSync(gh, 'utf8');
   const doc = sb.pl(ghp, ['doctor'], { GIT_CONFIG_GLOBAL: gh });
-  assert.ok(doc.out.includes(`WARN git hooks: ${globalHookspathMessage('/nonexistent/global-hooks')}\n`), doc.out);
+  assert.match(doc.out, /^WARN git hooks: a global\/system git core\.hooksPath \('\/nonexistent\/global-hooks'\) exists \(global git config .*\.gitconfig-hp\) and is NOT overwritten; /m, doc.out);
   assert.equal(readFileSync(gh, 'utf8'), before);
-  assert.equal(spawnSync('git', ['-C', ghp, 'config', '--local', '--get', 'core.hooksPath'], { env: sb.env, encoding: 'utf8' }).stdout, '.agents/githooks\n');
+  // A238: the user's value is not overwritten, so no local value is set
+  assert.equal(spawnSync('git', ['-C', ghp, 'config', '--local', '--get', 'core.hooksPath'], { env: sb.env, encoding: 'utf8' }).stdout, '');
 });
 
 test('proxy and certificate variables that are not passed to the platform tools are listed by name and reason, never by value; nothing is listed when none was dropped', async () => {

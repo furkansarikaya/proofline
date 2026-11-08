@@ -2,7 +2,7 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -95,7 +95,9 @@ test('deliver-merged: a fast-forward merge is proven (ancestor of origin/main), 
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(d, 'rev-parse', 'proofline/LC-lookup'));
   const out = accepted(A(d, ['deliver-merged', 'LC']), 'deliver-merged').out;
   assert.match(out, /^merge recorded for LC: the delivered commit is on origin\/main/m);
-  assert.match(out, /not on a clean main/);
+  assert.match(out, /^switched the main working tree from proofline\/LC-lookup to main, fast-forwarded to origin\/main$/m);
+  assert.equal(g(d, 'branch', '--show-current'), 'main', 'the checkout is on the base after the proven merge');
+  assert.equal(g(d, 'rev-parse', 'HEAD'), g(d, 'rev-parse', 'origin/main'));
   assert.match(read(d, '.agents/local/batch/merged.tsv'), /^LC\t-\t/m);
   assert.ok(!existsSync(`${d}/.agents/runs/LC`));
 });
@@ -627,7 +629,7 @@ test('A221: a main working tree that cannot be fast-forwarded (a local commit or
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'local only');
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
-  assert.match(out, /was not fast-forwarded/, 'the fixture did not stop the fast-forward');
+  assert.match(out, /^note: local main was not fast-forwarded \(it has commits origin lacks\): update it from origin\/main before the next task starts$/m, 'the fixture did not stop the fast-forward');
   assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
   assertMergedBlock(d, 'main not fast-forwarded');
 });
@@ -641,10 +643,254 @@ test('A221: a dirty main working tree (a tracked file the user edited) still get
   rmSync(`${d}/${STUB}`, { force: true });
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
-  assert.match(out, /not on a clean main/, 'the fixture did not stop the fast-forward');
+  assert.match(out, /^note: the main working tree was left as it is: it has uncommitted changes \(it is on branch main\); update it from origin\/main before the next task starts$/m, 'the fixture did not stop the fast-forward');
+  assert.ok(!out.includes('not on a clean'), 'the old wording is gone');
   assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
   assertMergedBlock(d, 'main dirty');
   assert.match(read(d, tracked), /an edit of the user/, 'the user\'s edit was touched');
+});
+
+// ---- A238 (user decision of 2026-11-08): after the proven merge the checkout goes back to the base when it is clean AND on the merged task branch ---------------
+
+/** A standalone project on its task branch whose delivery origin already holds the merge. @param {string} d @param {string} lo */
+function mergedOnOrigin(d, lo) {
+  loChain(d, lo);
+  mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(d, 'rev-parse', 'proofline/LC-lookup'));
+}
+/** The lines of an output that are notes. @param {string} out */
+const notes = (out) => out.split('\n').filter((l) => l.startsWith('note: the main working tree'));
+
+test('A238: a clean tree on the merged task branch goes to main and fast-forwards (never a merge commit); the fresh-clone semantic holds with a local bare origin', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const before = g(d, 'rev-parse', 'main');
+  const out = accepted(A(d, ['deliver-merged', 'LC']), 'deliver-merged').out;
+  assert.match(out, /^switched the main working tree from proofline\/LC-lookup to main, fast-forwarded to origin\/main$/m);
+  assert.equal(notes(out).length, 0);
+  assert.equal(g(d, 'branch', '--show-current'), 'main');
+  assert.equal(g(d, 'rev-parse', 'main'), g(d, 'rev-parse', 'origin/main'));
+  assert.equal(g(d, 'rev-list', '--count', '--merges', `${before}..main`), '0', 'no merge commit');
+  assert.equal(g(d, 'status', '--porcelain', '--untracked-files=no'), '');
+  // a fresh clone of the origin has the same head as the project's main
+  const c = `${d}-fresh`;
+  gOk(d, 'clone', '-q', lo, c);
+  assert.equal(g(c, 'rev-parse', 'origin/main'), g(d, 'rev-parse', 'HEAD'));
+});
+
+test('A238: a dirty tree on the task branch is left untouched with ONE line that names the missing condition', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const f = `${d}/${CFG}`;
+  wf(f, `${readFileSync(f, 'utf8')}\n# an edit of the user\n`);
+  const st = g(d, 'status', '--porcelain', '--untracked-files=no');
+  const out = accepted(A(d, ['deliver-merged', 'LC']), 'deliver-merged').out;
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: it has uncommitted changes (it is on branch proofline/LC-lookup); update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+  assert.equal(g(d, 'status', '--porcelain', '--untracked-files=no').replace(/ M tasks?\/.*\n?/g, ''), st.replace(/ M tasks?\/.*\n?/g, ''), 'the user\'s changes are as they were');
+  assert.match(readFileSync(f, 'utf8'), /an edit of the user/);
+});
+
+test('A238: a clean tree on ANOTHER branch is left untouched with ONE line', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'switch', '-q', '-c', 'my-feature');
+  const head = g(d, 'rev-parse', 'HEAD');
+  // the task's status block cannot be written from another branch (the adapter refuses, A221), so the command does not exit 0; the checkout is what counts here
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: it is on branch my-feature, not on the merged task branch proofline/LC-lookup; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'my-feature');
+  assert.equal(g(d, 'rev-parse', 'HEAD'), head);
+});
+
+test('A238: a local main that cannot be fast-forwarded (diverged) keeps the checkout on the task branch, loses nothing and says so in ONE line', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  gOk(d, 'update-ref', 'refs/heads/main', gOk(d, '-c', 'user.email=a@b.c', '-c', 'user.name=a', 'commit-tree', '-m', 'only local', '-p', 'main', 'main^{tree}'));
+  const localMain = g(d, 'rev-parse', 'main');
+  const out = accepted(A(d, ['deliver-merged', 'LC']), 'deliver-merged').out;
+  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: local main has commits origin lacks (no fast-forward); update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+  assert.equal(g(d, 'rev-parse', 'main'), localMain, 'the local commit is still there');
+});
+
+test('B3 (fix round 1): a cleanup that fails after the merge proof still gives the parked status block back, the checkout stays where it was, ONE line says so', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  // the fixture's two-operation stub of the markdown adapter would win over the built-in one, which is the one that places a status block
+  gOk(d, 'rm', '-q', '-f', STUB);
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'drop the adapter stub', '--', STUB);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  wf(`${d}/stray-file.txt`, 'a file the task did not declare\n');
+  const r = A(d, ['deliver-merged', 'LC']);
+  assert.notEqual(r.status, 0, 'the cleanup was expected to refuse');
+  assert.match(r.text, /unexpected or unmapped task-introduced paths/, r.text);
+  assert.deepEqual(notes(r.text), ['note: the main working tree was left as it is: the cleanup of the run failed first, so it was not switched; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+  assert.match(read(d, taskFileOf(d)), /^- stage: MERGED$/m, 'the parked block body is back in the task file');
+  assert.ok(existsSync(`${d}/.agents/runs/LC`), 'the run is kept');
+});
+
+test('B4 (fix round 1): a configured filter driver is repository code that a switch would run: the checkout is left alone and the marker never appears', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const marker = `${d}-MARKER`;
+  gOk(d, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
+  gOk(d, 'config', 'filter.mk.clean', 'cat');
+  wf(`${d}/.git/info/attributes`, '* filter=mk\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), 'the smudge driver ran');
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+test('F1 (fix round 3): a driver loaded by includeIf onbranch (invisible on the task branch, active on main) still blocks the switch: no marker, not half-switched', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const marker = `${d}-MARKER`;
+  wf(`${d}-inc.cfg`, `[filter "mk"]\n\tsmudge = touch ${marker}; cat\n\tclean = cat\n`);
+  gOk(d, 'config', 'includeIf.onbranch:main.path', `${d}-inc.cfg`);
+  wf(`${d}/.git/info/attributes`, '* filter=mk\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), `the smudge driver ran: ${out}`);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup', 'half-switched');
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; update it from origin/main before the next task starts']);
+});
+
+test('F2 (fix round 3): a local process or clean driver is not run by the cleanup\'s own tree reads either', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const cnt = `${d}-COUNT`;
+  wf(`${d}-proc.sh`, `#!/bin/sh\necho p >> ${cnt}\nexit 1\n`);
+  chmodSync(`${d}-proc.sh`, 0o755);
+  gOk(d, 'config', 'filter.pk.process', `${d}-proc.sh`);
+  gOk(d, 'config', 'filter.ck.clean', `echo c >> ${cnt}; cat`);
+  wf(`${d}/.git/info/attributes`, '*.md filter=pk\n*.txt filter=ck\n* filter=ck\n');
+  // every tracked file gets a new mtime: git must re-read (and so filter) it to answer a status or a diff
+  for (const f of g(d, 'ls-files').split('\n').filter((x) => x !== '')) utimesSync(`${d}/${f}`, new Date(), new Date(Date.now() + 5000));
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(cnt), `a driver ran after deliver-merged: ${out}`);
+});
+
+test('B5 (fix round 1): an ignored file that origin\'s base tracks is never overwritten by the switch or the fast-forward', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const c = `${d}-c5`;
+  gOk(d, 'clone', '-q', '-b', 'main', lo, c);
+  wf(`${c}/.env`, 'from origin\n'); gOk(c, 'add', '.env');
+  gOk(c, '-c', 'user.email=a@b.c', '-c', 'user.name=a', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'tracks .env'); gOk(c, 'push', '-q', 'origin', 'main');
+  wf(`${d}/.git/info/exclude`, '.env\n');
+  wf(`${d}/.env`, 'SECRET of the user\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.equal(read(d, '.env'), 'SECRET of the user\n');
+  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: the ignored file .env is tracked in main and the update would overwrite it; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+/** origin\'s main gets one more commit that adds FILES (path -> text); the project\'s ignore list gets IGNORE. @param {string} d @param {string} lo @param {Record<string, string>} files @param {string[]} ignore */
+function originAdds(d, lo, files, ignore) {
+  const c = `${d}-c-${Object.keys(files)[0].replace(/\W/g, '')}`;
+  gOk(d, 'clone', '-q', '-b', 'main', lo, c);
+  for (const [f, t] of Object.entries(files)) { mkdirSync(path.dirname(`${c}/${f}`), { recursive: true }); wf(`${c}/${f}`, t); gOk(c, 'add', f); }
+  gOk(c, '-c', 'user.email=a@b.c', '-c', 'user.name=a', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'adds files'); gOk(c, 'push', '-q', 'origin', 'main');
+  wf(`${d}/.git/info/exclude`, `${ignore.join('\n')}\n`);
+}
+
+test('R1 (fix round 1): a checkout ALREADY on main gets the same protection: an ignored file origin tracks is kept, and a configured filter driver never runs', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'switch', '-q', 'main');
+  originAdds(d, lo, { '.env': 'from origin\n' }, ['.env']);
+  wf(`${d}/.env`, 'SECRET of the user\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.equal(read(d, '.env'), 'SECRET of the user\n');
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: the ignored file .env is tracked in main and the update would overwrite it; update it from origin/main before the next task starts']);
+  const e = project(RECIPE);
+  hooks(e);
+  const lo2 = bareOrigin(e);
+  mergedOnOrigin(e, lo2);
+  gOk(e, '-c', 'core.hooksPath=/dev/null', 'switch', '-q', 'main');
+  originAdds(e, lo2, { 'later.txt': 'later\n' }, []);
+  const marker = `${e}-MARKER`;
+  gOk(e, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
+  gOk(e, 'config', 'filter.mk.clean', `touch ${marker}; cat`);
+  wf(`${e}/.git/info/attributes`, '* filter=mk\n');
+  const o2 = A(e, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), `a filter driver ran: ${o2}`);
+  assert.deepEqual(notes(o2), ['note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; update it from origin/main before the next task starts']);
+});
+
+test('R2 (fix round 1): git itself refuses to overwrite an ignored file, also where the shapes differ (an ignored FILE where origin has a directory, an ignored file inside what origin has as a FILE)', () => {
+  for (const [name, files, mine] of [['dirvsfile', { 'cfgdir/x': 'x\n' }, { cfgdir: 'my file\n' }], ['filevsdir', { secrets: 'tracked file\n' }, { 'secrets/a': 'my secret\n' }]]) {
+    const d = project(RECIPE);
+    hooks(d);
+    const lo = bareOrigin(d);
+    mergedOnOrigin(d, lo);
+    originAdds(d, lo, files, [...Object.keys(mine).map((k) => k.split('/')[0]), ...Object.keys(mine)]);
+    for (const [f, t] of Object.entries(mine)) { mkdirSync(path.dirname(`${d}/${f}`), { recursive: true }); wf(`${d}/${f}`, t); }
+    const out = A(d, ['deliver-merged', 'LC']).text;
+    for (const [f, t] of Object.entries(mine)) assert.equal(read(d, f), t, `${name}: ${f} was overwritten or deleted: ${out}`);
+    assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup', `${name}: the checkout moved: ${out}`);
+    assert.equal(notes(out).length, 1, `${name}: ${out}`);
+  }
+});
+
+test('R3 (fix round 1): a core.fsmonitor program of the repository never runs during deliver-merged', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const marker = `${d}-FSMARK`;
+  wf(`${d}-fsmon.sh`, `#!/bin/sh\ntouch ${marker}\n`);
+  chmodSync(`${d}-fsmon.sh`, 0o755);
+  gOk(d, 'config', 'core.fsmonitor', `${d}-fsmon.sh`);
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), `the fsmonitor program ran: ${out}`);
+});
+
+test('B6 (fix round 1): a base branch checked out in another worktree makes git refuse the switch: nothing moves, ONE line says so', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  gOk(d, 'worktree', 'add', '-q', `${d}-other-wt`, 'main');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: git could not switch to main; update it from origin/main before the next task starts']);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+test('B6 (fix round 1): a task branch whose name starts with a dash is only a string here: no option reaches git', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const mh = `${d}/.agents/local/deliver/LC/MERGE_HEAD`;
+  const [head, base] = read(d, '.agents/local/deliver/LC/MERGE_HEAD').trim().split('\t');
+  wf(mh, `${head}\t${base}\t-x\n`);
+  gOk(d, 'update-ref', 'refs/heads/-x', head);
+  gOk(d, 'symbolic-ref', 'HEAD', 'refs/heads/-x');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!/usage:|unknown option|unknown switch|invalid reference/i.test(out), out);
+  assert.equal(g(d, 'rev-parse', '--abbrev-ref', 'HEAD'), '-x', 'the checkout was not moved by an option');
 });
 
 /** @param {string} d */
