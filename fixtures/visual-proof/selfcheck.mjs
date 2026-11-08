@@ -9,7 +9,7 @@ import { fail, repoRoot, run } from '../../tests/lib/fixture.mjs';
 
 const dir = path.resolve(process.argv[2] ?? fail('usage: node selfcheck.mjs <built-dir>'));
 const skill = path.join(repoRoot, 'skills/visual-proof/scripts');
-const rd = (/** @type {string} */ f) => readFileSync(path.join(dir, f), 'utf8');
+const rd = (/** @type {string} */ f) => { try { return readFileSync(path.join(dir, f), 'utf8'); } catch { return fail(`${f} missing`); } };
 /** `grep -q '^…'`: some line of the file starts with the literal text. */
 const hasLine = (/** @type {string} */ f, /** @type {string} */ start) => rd(f).split('\n').some((l) => l.startsWith(start));
 

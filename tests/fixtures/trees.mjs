@@ -4,8 +4,8 @@
 // in fixtures/TREES.sha256. A change to a builder (or to a file it copies) therefore shows up as a diff of that file in the pull request.
 //   node tests/fixtures/trees.mjs            verify (exit 1 on any difference, naming the variant)
 //   node tests/fixtures/trees.mjs --update   rebuild every variant and rewrite fixtures/TREES.sha256 (do this on purpose, and read the diff)
-// Offline and deterministic; builds in a temporary directory. The recorded digests were first produced by the SHELL builders' trees: package B
-// proved the Node builders byte-identical to them before the shell was deleted (docs/decisions.md).
+// Offline and deterministic; builds in a temporary directory. The recorded digests are those of the SHELL builders' trees on main (0.0.70), taken with this same digest
+// function; migration-validation's is that of the shell script patched to `sed -E` and the fixed date 2026-01-01T10:00:00Z (A237, deviation 1).
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';

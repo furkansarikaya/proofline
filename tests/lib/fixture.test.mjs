@@ -57,3 +57,15 @@ test('a git history is part of the digest: another message gives another tree', 
     assert.notEqual(digest(path.join(t, 'a')), digest(path.join(t, 'c')));
   } finally { rmSync(t, { recursive: true, force: true }); }
 });
+
+test('a selfcheck whose file is missing fails like the others: message on stderr, exit 1, no stack', () => {
+  const t = tmp();
+  try {
+    const root = path.resolve(import.meta.dirname, '../..');
+    const dir = path.join(t, 'fx');
+    assert.equal(spawnSync(process.execPath, [path.join(root, 'fixtures/visual-proof/setup.mjs'), dir]).status, 0);
+    rmSync(path.join(dir, 'app/app.js'));
+    const r = spawnSync(process.execPath, [path.join(root, 'fixtures/visual-proof/selfcheck.mjs'), dir], { encoding: 'utf8' });
+    assert.equal(r.status, 1); assert.equal(r.stderr, 'selfcheck: app/app.js missing\n');
+  } finally { rmSync(t, { recursive: true, force: true }); }
+});
