@@ -3,7 +3,7 @@
 // queue, deliver, clean, run, task, design, batch, debt and the commands that only print the instruction for the agent session, with the text they printed in the shell.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -213,4 +213,31 @@ test('doctor --commands: a failed trial is not proven and writes no proposal; a 
   assert.equal(cfgv(cm, 'commands.test'), 'npm test');
   assert.equal(cfgv(cm, 'commands.build'), '');
   assert.notEqual(sb.pl(cm, ['doctor', '--apply-commands']).status, 0, 'the proposal is used up');
+});
+
+test('clean removes a link inside .agents/local as a link and never touches what it points to (find -P: S1 of the fix round)', () => {
+  const d = sb.copy('cl-link');
+  const victim = path.join(sb.T, 'victim-dir');
+  mkdirSync(victim, { recursive: true });
+  writeFileSync(`${victim}/precious.txt`, 'keep\n');
+  mkdirSync(`${d}/.agents/local/z`, { recursive: true });
+  writeFileSync(`${d}/.agents/local/z/a`, 'x');
+  mkdirSync(`${d}/.agents/local/y`, { recursive: true });
+  symlinkSync(victim, `${d}/.agents/local/y/link`);
+  symlinkSync(victim, `${d}/.agents/local/toplink`);
+  const r = sb.pl(d, ['clean', '--yes']);
+  assert.equal(r.status, 0, r.text);
+  assert.equal(read(`${victim}/precious.txt`), 'keep\n');
+  assert.ok(!existsSync(`${d}/.agents/local/z`) && !existsSync(`${d}/.agents/local/toplink`) && !existsSync(`${d}/.agents/local/y`));
+});
+
+test('clean does not follow .agents/local itself when it is a link', () => {
+  const d = sb.copy('cl-toplink');
+  const victim = path.join(sb.T, 'victim-local');
+  mkdirSync(victim, { recursive: true });
+  writeFileSync(`${victim}/precious.txt`, 'keep\n');
+  spawnSync('rm', ['-rf', `${d}/.agents/local`]);
+  symlinkSync(victim, `${d}/.agents/local`);
+  sb.pl(d, ['clean', '--yes']);
+  assert.equal(read(`${victim}/precious.txt`), 'keep\n');
 });

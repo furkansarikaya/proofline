@@ -100,6 +100,10 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install shellcheck
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       # every tracked shell file (.sh, a shell shebang, the git hook launchers): -x follows `# shellcheck source=` directives, -S warning: info notes (SC2015 `A && B || C` on guard lines) are style, warnings and errors fail the step
       - name: shellcheck
         run: node tests/ci/shellcheck.mjs
@@ -122,9 +126,6 @@ jobs:
         run: sh tests/shared/check-static.sh
 
       # A125: front matter, YAML/TOML and Markdown links; runs for documentation-only pull requests too
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - name: front matter and link check
         run: node --test tests/skills/frontmatter.test.mjs
       # ADR 0001 section 9 / A187: no ecosystem branching in shared Node code; fails when ecosystems.json is missing

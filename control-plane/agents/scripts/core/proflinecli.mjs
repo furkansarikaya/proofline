@@ -252,10 +252,14 @@ class Cli {
       if (field('handoff') === 'DONE') fin += ` ${rid}`;
     }
     const local = `${this.root}/.agents/local`;
-    // the folder is walked as `find` does (-P): a link in its place is not followed, a link inside is removed as a link
+    // S1 (fix round 1): `find -P` counts and deletes (argument array, no shell). It never follows a link and decides per entry as it goes, so a folder swapped for a
+    // link while clean runs is removed as a link; a walk in Node lists a folder by path after deciding it is one, and could be led into the link's target.
     const localOk = existsSync(local) && lstatSync(local).isDirectory();
-    /** @param {string} dir @param {boolean} top @param {(f: string) => void} onFile @param {(d: string) => void} onDir */
-    const walkLocal = (dir, top, onFile, onDir) => {
+    const keep = ['!', '-name', 'ACTIVE_RUN', '!', '-path', `${local}/worktrees`, '!', '-path', `${local}/worktrees/*`];
+    /** @param {string[]} extra @returns {string} */
+    const findLocal = (extra) => proc.run('find', ['-P', local, '-mindepth', '1', ...keep, ...extra], { cwd: this.root, env: this.env, stdio: ['ignore', 'pipe', 'ignore'] }).stdout.toString('latin1');
+    /** win32 has no find(1) of this kind: the walk stays there (no link is followed by readdir/unlink of a Dirent, but it is not race-free) */
+    const walkLocal = (/** @type {string} */ dir, /** @type {boolean} */ top, /** @type {(f: string) => void} */ onFile, /** @type {(d: string) => void} */ onDir) => {
       let ents;
       try { ents = readdirSync(dir, { withFileTypes: true }); } catch { return; }
       for (const e of ents) {
@@ -265,15 +269,22 @@ class Cli {
         if (e.isDirectory()) { walkLocal(f, false, onFile, onDir); onDir(f); } else onFile(f);
       }
     };
+    const win = process.platform === 'win32';
     let lf = 0;
-    if (localOk) walkLocal(local, true, (f) => { if (lstatSync(f).isFile()) lf++; }, () => {});
+    if (localOk) {
+      if (win) walkLocal(local, true, (f) => { if (lstatSync(f).isFile()) lf++; }, () => {});
+      else lf = linesOf(findLocal(['-type', 'f', '-print'])).length;
+    }
     this.say('clean would remove:');
     this.say(`  .agents/local state: ${lf} file(s) (the ACTIVE_RUN selector is kept unless its run is cleaned)`);
     this.say(`  finished runs:${fin === '' ? ' none' : fin}`);
     if (lf === 0 && fin === '') { this.say('nothing to clean'); return 0; }
     if (!yes && !this.confirm('remove these?')) throw this.die('refusing to remove anything without --yes (or a yes at the prompt)');
     // A169: run worktrees hold parked runs' evidence: agent.sh worktree-remove, never clean
-    if (localOk) walkLocal(local, true, (f) => { try { unlinkSync(f); } catch { /* as find -delete: silent */ } }, (d) => { try { rmdirSync(d); } catch { /* not empty */ } });
+    if (localOk) {
+      if (win) walkLocal(local, true, (f) => { try { unlinkSync(f); } catch { /* silent */ } }, (d) => { try { rmdirSync(d); } catch { /* not empty */ } });
+      else findLocal(['-delete']);
+    }
     for (const rid of fin.split(' ').filter((x) => x !== '')) if (this.agent(['cleanup', rid], { inherit: true }).status !== 0) this.warn(`run ${rid} was not cleaned (agent.sh refused)`);
     if (act !== '' && act !== 'none') this.say(`active run ${act} kept unless it was finished`);
     return 0;
