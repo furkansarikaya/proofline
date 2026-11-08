@@ -552,7 +552,7 @@ function sbFinalPut(ctx, id, fin) {
 
 /** `sb_main_park TREE DIR`: every block-only modified task file of TREE: its block body is kept and the file reset. @param {Context} ctx @param {string} tree @returns {Array<{ id: string, body: string }>} */
 function sbMainPark(ctx, tree) {
-  const run = (/** @type {string[]} */ a) => proc.run('git', ['-C', tree, ...a], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const run = (/** @type {string[]} */ a) => proc.run('git', ['-C', tree, '-c', 'core.fsmonitor=false', ...a], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
   /** @type {Array<{ id: string, body: string }>} */ const parked = [];
   for (const l of run(['status', '--porcelain', '--untracked-files=no']).stdout.toString('latin1').split('\n')) {
     if (!l.startsWith(' M ')) continue;
@@ -593,7 +593,7 @@ export function deliverMerged(ctx, id, flag) {
   const gt = resolveGit(ctx);
   if ('unreadable' in gt) fail(`deliver-merged: no trusted git to prove the merge with (${gt.unreadable}); nothing is recorded`);
   const gitBin = gt.path;
-  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => proc.run(gitBin, ['-C', cwdTree, ...a], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => proc.run(gitBin, ['-C', cwdTree, '-c', 'core.fsmonitor=false', ...a], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
   const gs = (/** @type {string[]} */ a, tree = ctx.root) => sub(g(a, tree).stdout.toString('latin1'));
   const mergeHead = `${ddir}/MERGE_HEAD`;
   const mh = fileText(ctx, mergeHead);
@@ -658,7 +658,7 @@ export function deliverMerged(ctx, id, flag) {
     if (!hf.intact()) tampered(null);
     if (!chk) {
       // the proven tip becomes the project's tracking ref (hooks off) and must be exactly the proven commit: the later steps read it
-      const imp = proc.run(gitBin, ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'fetch', '-q', '--no-tags', '--', hf.tmp, `+refs/remotes/origin/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+      const imp = proc.run(gitBin, ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', 'fetch', '-q', '--no-tags', '--', hf.tmp, `+refs/remotes/origin/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
       if (imp.status !== 0 || gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}`]) !== tip) fail(`deliver-merged: origin/${dmBase} could not be brought into this repository as the proven commit; nothing is recorded`);
     }
   } finally { hf.done(); }
@@ -670,52 +670,69 @@ export function deliverMerged(ctx, id, flag) {
   const fin = sbFinalPrepare(ctx, id);
   const main = ctx.sharedMain();
   const adapter = ctx.config().get('tasks.adapter', 'markdown');
-  const parked = sbMainPark(ctx, main);
+  // A238 (user decision of 2026-11-08, fix round 1): a filter driver (smudge, process, clean) defined by the repository or the command line is repository-controlled code that git
+  // runs on every file it reads or writes in the checkout (status, checkout, merge). It is looked for BEFORE the first such call, and when it exists the user's checkout is not
+  // touched at all (no parking, no fast-forward, no switch). A system or global driver (git-lfs on a CI image) is the administrator's or the user's own and does not count.
+  const filters = g(['config', '--show-scope', '--get-regexp', '^filter\\..*\\.(smudge|process|clean)$'], main).stdout.toString('latin1').split('\n').some((l) => /^(local|worktree|command)\t/.test(l));
+  const parked = filters ? [] : sbMainPark(ctx, main);
+  const tip2 = `refs/remotes/origin/${dmBase}`;
+  const later = `update it from origin/${dmBase} before the next task starts`;
+  // what is neutralised on the user's checkout: hooks (core.hooksPath) and the file system monitor (core.fsmonitor, a program named in the repository config; every git call of
+  // this command carries it); `--no-overwrite-ignore` makes git itself refuse to overwrite an ignored file the target tracks (also when it is a directory or differs in case)
+  const hookless = ['-c', 'core.hooksPath=/dev/null'];
+  const ffNow = () => g([...hookless, 'merge', '--ff-only', '-q', '--no-overwrite-ignore', tip2], main).status === 0;
+  const where = (/** @type {string} */ cur) => (cur === '' ? 'a detached HEAD' : `branch ${cur}`);
   // the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
   // A200: the approved commands were written into the main tree's config.yaml (uncommitted) and carried into the delivered commit; once origin has that very
   // content the local edit is redundant, and it is the only thing that would stop the fast-forward: it is dropped, nothing else is touched
-  if (gs(['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=no'], main) === ' M .agents/config.yaml'
+  if (!filters && gs(['status', '--porcelain', '--untracked-files=no'], main) === ' M .agents/config.yaml'
     && gs(['hash-object', '.agents/config.yaml'], main) === gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}:.agents/config.yaml`], main)) {
     if (g(['checkout', '-q', '--', '.agents/config.yaml'], main).status === 0) ctx.out(`the approved commands are on origin/${dmBase}: the local .agents/config.yaml edit was dropped\n`);
   }
-  // A238 (user decision of 2026-11-08): the proven merge also brings the user's checkout back to the base when that moves nothing of the user's: the tree is clean
-  // AND it sits on the merged task branch (a standalone project ends there). Anything else is left as it is, with ONE line that says what is missing.
+  // A238: after the proven merge the user's checkout also goes back to the base when that moves nothing of the user's: the tree is clean (no modified or staged TRACKED file; a
+  // colliding untracked file is refused by git itself) AND it sits on the merged task branch (a standalone project ends there). Anything else is left as it is, with ONE line.
   /** @type {(() => void) | null} */ let switchAfterCleanup = null;
   {
     const cur = gs(['branch', '--show-current'], main);
-    const dirty = gs(['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=no'], main) !== '';
-    const tip2 = `refs/remotes/origin/${dmBase}`;
-    const later = `update it from origin/${dmBase} before the next task starts`;
-    // what is neutralised on the user's checkout: hooks (core.hooksPath) and the file system monitor (core.fsmonitor, a program named in the repository config); a configured
-    // filter driver is not neutralised but avoided: see `filters` below
-    const hookless = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
-    const ffNow = () => g([...hookless, 'merge', '--ff-only', '-q', tip2], main).status === 0;
-    if (dirty) ctx.out(`note: the main working tree was left as it is: it has uncommitted changes (it is on ${cur === '' ? 'a detached HEAD' : `branch ${cur}`}); ${later}\n`);
-    else if (cur === dmBase) ctx.out(ffNow() ? `local ${dmBase} fast-forwarded to origin/${dmBase}\n` : `note: local ${dmBase} was not fast-forwarded (it has commits origin lacks): ${later}\n`);
-    else if (cur !== dmBr || dmBr === '') ctx.out(`note: the main working tree was left as it is: it is on ${cur === '' ? 'a detached HEAD' : `branch ${cur}`}, not on the merged task branch ${dmBr}; ${later}\n`);
+    const dirty = !filters && gs(['status', '--porcelain', '--untracked-files=no'], main) !== '';
+    // a file git ignores here but the target tracks: named for the message (git refuses it too, but says it in its own words)
+    let listFailed = false;
+    const lsz = (/** @type {string[]} */ a) => { const r = g(a, main); if (r.status !== 0) listFailed = true; return r.stdout.toString('latin1').split('\0').filter((x) => x !== ''); };
+    /** @param {string[]} refs */
+    const clashWith = (refs) => {
+      const ignored = new Set(lsz(['ls-files', '-z', '-o', '-i', '--exclude-standard']));
+      const tracked = ignored.size === 0 ? [] : refs.flatMap((r) => lsz(['ls-tree', '-r', '-z', '--name-only', r]));
+      return listFailed ? '(the file list could not be read)' : (tracked.find((x) => ignored.has(x)) ?? '');
+    };
+    const clashNote = (/** @type {string} */ f, /** @type {string} */ stays) => `note: the main working tree was left ${stays}: the ignored file ${f.replace(/[\x00-\x1f\x7f]/g, '?')} is tracked in ${dmBase} and the update would overwrite it; ${later}\n`;
+    const behind = () => g(['merge-base', '--is-ancestor', `refs/heads/${dmBase}`, tip2], main).status !== 0;
+    if (filters) ctx.out(`note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; ${later}\n`);
+    else if (dirty) ctx.out(`note: the main working tree was left as it is: it has uncommitted changes (it is on ${where(cur)}); ${later}\n`);
+    else if (cur === dmBase) {
+      const f = clashWith([tip2]);
+      if (f !== '') ctx.out(clashNote(f, 'as it is'));
+      else if (ffNow()) ctx.out(`local ${dmBase} fast-forwarded to origin/${dmBase}\n`);
+      else ctx.out(behind() ? `note: local ${dmBase} was not fast-forwarded (it has commits origin lacks): ${later}\n` : `note: local ${dmBase} was not fast-forwarded (git refused: a file in the way): ${later}\n`);
+    } else if (cur !== dmBr || dmBr === '') ctx.out(`note: the main working tree was left as it is: it is on ${where(cur)}, not on the merged task branch ${dmBr}; ${later}\n`);
     else if (g(['check-ref-format', '--branch', dmBase]).status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: '${dmBase}' is not a usable branch name; ${later}\n`);
     else {
       const haveBase = g(['rev-parse', '-q', '--verify', `refs/heads/${dmBase}^{commit}`], main).status === 0;
       // never switch when the fast-forward cannot follow: a local base with commits origin lacks stays untouched, and so does the checkout
-      if (haveBase && g(['merge-base', '--is-ancestor', `refs/heads/${dmBase}`, tip2], main).status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: local ${dmBase} has commits origin lacks (no fast-forward); ${later}\n`);
+      if (haveBase && behind()) ctx.out(`note: the main working tree was left on ${dmBr}: local ${dmBase} has commits origin lacks (no fast-forward); ${later}\n`);
       else {
-        // B4: a configured filter driver (smudge, process, clean) is repository-controlled code that `switch` would run on every file that changes: no switch
-        // Only drivers the repository (or the command line) defines count: a system or global one (git-lfs on a CI image) is the administrator's or the user's own, not repository-controlled.
-        const filters = g(['config', '--show-scope', '--get-regexp', '^filter\\..*\\.(smudge|process|clean)$'], main).stdout.toString('latin1').split('\n').some((l) => /^(local|worktree|command)\t/.test(l));
-        // B5: a file git ignores here but the base tracks is overwritten by the switch or by the fast-forward without a word: no switch
-        let listFailed = false;
-        const lsz = (/** @type {string[]} */ a) => { const r = g(a, main); if (r.status !== 0) listFailed = true; return r.stdout.toString('latin1').split('\0').filter((x) => x !== ''); };
-        const ignored = new Set(lsz(['ls-files', '-z', '-o', '-i', '--exclude-standard']));
-        const tracked = ignored.size === 0 ? [] : [...(haveBase ? lsz(['ls-tree', '-r', '-z', '--name-only', `refs/heads/${dmBase}`]) : []), ...lsz(['ls-tree', '-r', '-z', '--name-only', tip2])];
-        const clash = listFailed ? '(the file list could not be read)' : (tracked.find((x) => ignored.has(x)) ?? '');
-        if (filters) ctx.out(`note: the main working tree was left on ${dmBr}: the repository configures a filter driver, which git would run during the switch; ${later}\n`);
-        else if (clash !== '') ctx.out(`note: the main working tree was left on ${dmBr}: the ignored file ${clash.replace(/[\x00-\x1f\x7f]/g, '?')} is tracked in ${dmBase} and the switch would overwrite it; ${later}\n`);
+        const f = clashWith([...(haveBase ? [`refs/heads/${dmBase}`] : []), tip2]);
+        if (f !== '') ctx.out(clashNote(f, `on ${dmBr}`));
         else {
           // the cleanup below verifies the run on its task branch, so the switch waits for it
           switchAfterCleanup = () => {
-            const sw = haveBase ? g([...hookless, 'switch', '-q', dmBase], main) : g([...hookless, 'switch', '-q', '--track', '-c', dmBase, tip2], main);
+            const sw = haveBase ? g([...hookless, 'switch', '-q', '--no-overwrite-ignore', dmBase], main) : g([...hookless, 'switch', '-q', '--no-overwrite-ignore', '--track', '-c', dmBase, tip2], main);
             if (sw.status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: git could not switch to ${dmBase}; ${later}\n`);
-            else ctx.out(ffNow() ? `switched the main working tree from ${dmBr} to ${dmBase}, fast-forwarded to origin/${dmBase}\n` : `note: the main working tree is on ${dmBase} now but it was not fast-forwarded to origin/${dmBase}; ${later}\n`);
+            else if (ffNow()) ctx.out(`switched the main working tree from ${dmBr} to ${dmBase}, fast-forwarded to origin/${dmBase}\n`);
+            else {
+              // git refused the fast-forward (a file of the user's is in the way): the checkout goes back to where it was, nothing is lost
+              const back = g([...hookless, 'switch', '-q', '--no-overwrite-ignore', dmBr], main).status === 0;
+              ctx.out(back ? `note: the main working tree was left on ${dmBr}: git refused to bring ${dmBase} to origin/${dmBase} (a file in the way); ${later}\n` : `note: the main working tree is on ${dmBase} now but it was not fast-forwarded to origin/${dmBase}; ${later}\n`);
+            }
           };
         }
       }
@@ -729,7 +746,7 @@ export function deliverMerged(ctx, id, flag) {
     let cleaned = false;
     try { inProcessCleanup(ctx, id); cleaned = true; } finally {
       if (cleaned) switchAfterCleanup();
-      else ctx.out(`note: the main working tree was left as it is: the cleanup of the run failed first, so it was not switched; update it from origin/${dmBase} before the next task starts\n`);
+      else ctx.out(`note: the main working tree was left as it is: the cleanup of the run failed first, so it was not switched; ${later}\n`);
       for (const p of parked) sbMainPut(ctx, adapter, p.id, p.body);
     }
   }

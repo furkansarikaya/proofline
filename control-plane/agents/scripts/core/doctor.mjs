@@ -82,7 +82,10 @@ export function matcherCovers(have, want, event = '') {
  */
 export function hookCommandShape(cmd) {
   if (typeof cmd !== 'string') return '';
-  return cmd.replace(/^node +"?(?:\$CLAUDE_PROJECT_DIR|\$\{CLAUDE_PROJECT_DIR\}|\$\(git rev-parse --show-toplevel\)|[^ "'$;&|`<>()]*)?\/?\.agents\/hooks\/proofline-hook\.mjs"?( |$)/, 'node <HOOK>$1');
+  // the directory part has no white space or shell metacharacter; the script path is quoted on both ends or on neither
+  const dir = '(?:\\$CLAUDE_PROJECT_DIR|\\$\\{CLAUDE_PROJECT_DIR\\}|\\$\\(git rev-parse --show-toplevel\\)|[^\\s"\'$;&|`<>()\\\\#]*)';
+  const re = new RegExp(`^node +(?:"${dir}/?\\.agents/hooks/proofline-hook\\.mjs"|${dir.replace('|\\$\\(git rev-parse --show-toplevel\\)', '')}/?\\.agents/hooks/proofline-hook\\.mjs)(?= |$)`);
+  return cmd.replace(re, 'node <HOOK>');
 }
 
 /**
@@ -197,6 +200,8 @@ export function hooksPathState(git, root) {
  * @param {string} value @param {string} [scope] @param {string} [origin]
  */
 export function globalHookspathMessage(value, scope = 'global', origin = '') {
+  // a path is data from a config file: no control character reaches the terminal or forges a line
+  value = value.replace(/[\x00-\x1f\x7f]/g, '?'); origin = origin.replace(/[\x00-\x1f\x7f]/g, '?');
   const from = origin === 'command line' ? 'the git command line' : origin !== '' ? `${scope} git config ${origin}` : `${scope} git config`;
   const wide = scope === 'global' || scope === 'system';
   const lead = wide ? `a global/system git core.hooksPath ('${value}') exists (${from}) and is NOT overwritten` : `core.hooksPath is '${value}' (${from}) and is NOT overwritten`;
@@ -536,7 +541,7 @@ class Doctor {
       if (ok) this.pass('git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable');
     } else if (st.state === 'unset') this.fail('git hooks: core.hooksPath is not set; the commit and push locks are inactive. Fix: git config --local core.hooksPath .agents/githooks');
     else {
-      this.fail(`git hooks: core.hooksPath is '${st.value}', not .agents/githooks; the proofline locks are inactive`);
+      this.fail(`git hooks: core.hooksPath is '${st.value.replace(/[\x00-\x1f\x7f]/g, '?')}', not .agents/githooks; the proofline locks are inactive`);
       this.warn(`git hooks: ${globalHookspathMessage(st.value, st.scope, st.origin)}`);
     }
   }

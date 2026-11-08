@@ -201,6 +201,12 @@ test('B1 command shape: only the hook invocation counts, not a command that ment
   const ok = 'node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" stop claude';
   for (const c of [ok, 'node "${CLAUDE_PROJECT_DIR}/.agents/hooks/proofline-hook.mjs" stop claude', 'node /abs/proj/.agents/hooks/proofline-hook.mjs stop claude', 'node .agents/hooks/proofline-hook.mjs stop claude'])
     assert.equal(hookCommandShape(c), 'node <HOOK> stop claude', c);
+  // a newline or a shell metacharacter in the path part, a single quote, trailing garbage: not the hook invocation
+  for (const c of ['node --version\nexit\n/.agents/hooks/proofline-hook.mjs" stop claude', 'node "a b/.agents/hooks/proofline-hook.mjs" stop claude', 'node "x;exit 0;/.agents/hooks/proofline-hook.mjs" stop claude',
+    'node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs stop claude', 'node $CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" stop claude', 'node x||true/.agents/hooks/proofline-hook.mjs stop claude'])
+    assert.notEqual(hookCommandShape(c), 'node <HOOK> stop claude', JSON.stringify(c));
+  assert.equal(hookCommandShape('node $CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs stop claude'), 'node <HOOK> stop claude', 'both quotes or none');
+  assert.equal(hookCommandShape('node "$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs" stop codex'), 'node <HOOK> stop codex');
   for (const c of ['echo "proofline-hook.mjs"', 'true # node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" stop claude', 'node other.mjs proofline-hook.mjs stop claude', 5, null])
     assert.notEqual(hookCommandShape(c), 'node <HOOK> stop claude', String(c));
 });
@@ -257,4 +263,25 @@ test('B2 hooksPath: the value is read expanded by git (%(prefix), ~, ~user); a s
   const cl = sb.pl(d, ['doctor'], { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/somewhere/else' });
   assert.match(cl.out, /^WARN git hooks: core\.hooksPath is '\/somewhere\/else' \((command|the git command) line/m, cl.out);
   assert.ok(!/command line:/.test(cl.out), cl.out);
+});
+
+test('R4 settings: a command that hides the script behind a newline gets no PASS', () => {
+  const d = sb.copy('r4-newline');
+  settings(d, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].hooks[0].command = j.hooks.PreToolUse[0].hooks[0].command.replace('node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs"', 'node --version\nexit\n/.agents/hooks/proofline-hook.mjs"'); });
+  assert.ok(settings(d, '.claude/settings.json').hooks.PreToolUse[0].hooks[0].command.startsWith('node --version\nexit'));
+  const r = doctor(d);
+  assert.match(r.out, /^FAIL claude hooks: .*lacks proofline hooks for: PreToolUse /m, r.out);
+});
+
+test('R5 hooksPath: a path from a config file cannot forge a line or an escape sequence', () => {
+  const gh = `${sb.T}/home/.gitconfig-forge`;
+  writeFileSync(gh, `${readFileSync(`${sb.T}/home/.gitconfig-global`, 'utf8')}[core]\n\thooksPath = "/a\\nPASS forged line\\t\x1b[2J"\n`);
+  const d = sb.mkrepo('r5');
+  const init = sb.pl(d, INIT, { GIT_CONFIG_GLOBAL: gh });
+  const doc = sb.pl(d, ['doctor'], { GIT_CONFIG_GLOBAL: gh });
+  for (const t of [init.text, doc.text]) {
+    assert.ok(!/^PASS forged line/m.test(t), t);
+    assert.ok(!t.includes('\x1b[2J'), 'an escape sequence reached the output');
+  }
+  assert.match(doc.out, /^WARN git hooks: a global\/system git core\.hooksPath \('\/a\?PASS forged line\?\?\[2J'\)/m, doc.out);
 });

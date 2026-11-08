@@ -751,7 +751,7 @@ test('B4 (fix round 1): a configured filter driver is repository code that a swi
   wf(`${d}/.git/info/attributes`, '* filter=mk\n');
   const out = A(d, ['deliver-merged', 'LC']).text;
   assert.ok(!existsSync(marker), 'the smudge driver ran');
-  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: the repository configures a filter driver, which git would run during the switch; update it from origin/main before the next task starts']);
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; update it from origin/main before the next task starts']);
   assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
 });
 
@@ -768,8 +768,71 @@ test('B5 (fix round 1): an ignored file that origin\'s base tracks is never over
   wf(`${d}/.env`, 'SECRET of the user\n');
   const out = A(d, ['deliver-merged', 'LC']).text;
   assert.equal(read(d, '.env'), 'SECRET of the user\n');
-  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: the ignored file .env is tracked in main and the switch would overwrite it; update it from origin/main before the next task starts']);
+  assert.deepEqual(notes(out), ['note: the main working tree was left on proofline/LC-lookup: the ignored file .env is tracked in main and the update would overwrite it; update it from origin/main before the next task starts']);
   assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+/** origin\'s main gets one more commit that adds FILES (path -> text); the project\'s ignore list gets IGNORE. @param {string} d @param {string} lo @param {Record<string, string>} files @param {string[]} ignore */
+function originAdds(d, lo, files, ignore) {
+  const c = `${d}-c-${Object.keys(files)[0].replace(/\W/g, '')}`;
+  gOk(d, 'clone', '-q', '-b', 'main', lo, c);
+  for (const [f, t] of Object.entries(files)) { mkdirSync(path.dirname(`${c}/${f}`), { recursive: true }); wf(`${c}/${f}`, t); gOk(c, 'add', f); }
+  gOk(c, '-c', 'user.email=a@b.c', '-c', 'user.name=a', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'adds files'); gOk(c, 'push', '-q', 'origin', 'main');
+  wf(`${d}/.git/info/exclude`, `${ignore.join('\n')}\n`);
+}
+
+test('R1 (fix round 1): a checkout ALREADY on main gets the same protection: an ignored file origin tracks is kept, and a configured filter driver never runs', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  gOk(d, '-c', 'core.hooksPath=/dev/null', 'switch', '-q', 'main');
+  originAdds(d, lo, { '.env': 'from origin\n' }, ['.env']);
+  wf(`${d}/.env`, 'SECRET of the user\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.equal(read(d, '.env'), 'SECRET of the user\n');
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: the ignored file .env is tracked in main and the update would overwrite it; update it from origin/main before the next task starts']);
+  const e = project(RECIPE);
+  hooks(e);
+  const lo2 = bareOrigin(e);
+  mergedOnOrigin(e, lo2);
+  gOk(e, '-c', 'core.hooksPath=/dev/null', 'switch', '-q', 'main');
+  originAdds(e, lo2, { 'later.txt': 'later\n' }, []);
+  const marker = `${e}-MARKER`;
+  gOk(e, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
+  gOk(e, 'config', 'filter.mk.clean', `touch ${marker}; cat`);
+  wf(`${e}/.git/info/attributes`, '* filter=mk\n');
+  const o2 = A(e, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), `a filter driver ran: ${o2}`);
+  assert.deepEqual(notes(o2), ['note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; update it from origin/main before the next task starts']);
+});
+
+test('R2 (fix round 1): git itself refuses to overwrite an ignored file, also where the shapes differ (an ignored FILE where origin has a directory, an ignored file inside what origin has as a FILE)', () => {
+  for (const [name, files, mine] of [['dirvsfile', { 'cfgdir/x': 'x\n' }, { cfgdir: 'my file\n' }], ['filevsdir', { secrets: 'tracked file\n' }, { 'secrets/a': 'my secret\n' }]]) {
+    const d = project(RECIPE);
+    hooks(d);
+    const lo = bareOrigin(d);
+    mergedOnOrigin(d, lo);
+    originAdds(d, lo, files, [...Object.keys(mine).map((k) => k.split('/')[0]), ...Object.keys(mine)]);
+    for (const [f, t] of Object.entries(mine)) { mkdirSync(path.dirname(`${d}/${f}`), { recursive: true }); wf(`${d}/${f}`, t); }
+    const out = A(d, ['deliver-merged', 'LC']).text;
+    for (const [f, t] of Object.entries(mine)) assert.equal(read(d, f), t, `${name}: ${f} was overwritten or deleted: ${out}`);
+    assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup', `${name}: the checkout moved: ${out}`);
+    assert.equal(notes(out).length, 1, `${name}: ${out}`);
+  }
+});
+
+test('R3 (fix round 1): a core.fsmonitor program of the repository never runs during deliver-merged', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const marker = `${d}-FSMARK`;
+  wf(`${d}-fsmon.sh`, `#!/bin/sh\ntouch ${marker}\n`);
+  chmodSync(`${d}-fsmon.sh`, 0o755);
+  gOk(d, 'config', 'core.fsmonitor', `${d}-fsmon.sh`);
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), `the fsmonitor program ran: ${out}`);
 });
 
 test('B6 (fix round 1): a base branch checked out in another worktree makes git refuse the switch: nothing moves, ONE line says so', () => {
