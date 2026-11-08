@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-// tests/shared/check-shared.sh against throwaway roots, plus the real repository.
+// tests/shared/check-shared.mjs against throwaway roots, plus the real repository.
 const REPO = new URL("../../", import.meta.url).pathname;
-const SCRIPT = join(REPO, "tests/shared/check-shared.sh");
+const SCRIPT = join(REPO, "tests/shared/check-shared.mjs");
 const CANON = readFileSync(join(REPO, "tests/shared/shared-rules.md"), "utf8");
 
 const dirs = [];
@@ -25,7 +25,7 @@ function root(skills) {
   return dir;
 }
 const skill = (block = CANON) => `---\nname: x\n---\n\n# x\n\nbefore\n\n${block}\nafter\n`;
-const run = (dir, ...args) => spawnSync("sh", [SCRIPT, "--root", dir, ...args], { encoding: "utf8" });
+const run = (dir, ...args) => spawnSync(process.execPath, [SCRIPT, "--root", dir, ...args], { encoding: "utf8" });
 
 test("identical blocks pass for every skill that exists", () => {
   const r = run(root({ alpha: skill(), beta: skill() }));
@@ -86,7 +86,7 @@ test("usage errors exit 2", () => {
 });
 
 test("the ported skills carry the canonical block", () => {
-  const r = spawnSync("sh", [SCRIPT, "test-trust", "proof-review"], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [SCRIPT, "test-trust", "proof-review"], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /PASS test-trust/);
   assert.match(r.stdout, /PASS proof-review/);

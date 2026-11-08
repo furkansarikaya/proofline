@@ -1,7 +1,7 @@
 # Third-party notices
 
 The files in this directory (except `adapt/` and this notice) are byte-identical copies of data files from two
-MIT-licensed repositories, pinned to the commits below. `sh tests/ci/sync-design-library.sh` re-fetches them and
+MIT-licensed repositories, pinned to the commits below. `node tests/ci/sync-design-library.mjs` re-fetches them and
 rewrites the commit, hash and licence lines of this file; `--check` verifies the copies. Edit this file only through
 that script, except for the header list and the Repository, Commit, Path, Licence file and Files names.
 

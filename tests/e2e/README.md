@@ -131,8 +131,8 @@ these changed an EXPECTED file.
 - The Codex-lead behaviour was tested with the cheapest model only; its stop to ask for authorization in prose is
   model behaviour that `agent.sh next` cannot prevent.
 - No scenario was re-verified after A130 to A132, and none after A129 (COMPLEX `128e516` passed before A129, and its run on `9e70f03`
-  failed). Tests that do run on every change: the self-tests (`sh tests/selftest.sh`), the skill tests (`node --test tests/skills/`) and the fixtures
-  (`sh tests/fixtures/check-fixtures.sh`): more than 900 tests in all, as counted on 2026-10-17.
+  failed). Tests that do run on every change: the self-tests (`node tests/selftest.mjs`), the skill tests (`node --test tests/skills/`) and the fixtures
+  (`node tests/fixtures/check-fixtures.mjs`): more than 900 tests in all, as counted on 2026-10-17.
 
 ### Reply limit and item tags (decided, A133)
 
@@ -274,7 +274,7 @@ not exercise today:
 - Not exercised by any scenario: the concurrency, performance, dependencies and config focuses, evidence-map
   `impact` mode, the ui-design output (no EXPECTED item scores it), and the benchmark report over a run directory.
 - Covered elsewhere: the control-plane self-tests, `tests/skills`, and the known-answer `fixtures/*` with their
-  selfchecks (`sh tests/fixtures/check-fixtures.sh`); `node tests/benchmark/benchmark.mjs --e2e-dir DIR` can score a
+  selfchecks (`node tests/fixtures/check-fixtures.mjs`); `node tests/benchmark/benchmark.mjs --e2e-dir DIR` can score a
   run directory against EXPECTED.
 - Codex-only, mixed and failover configurations: see "Codex and mixed configurations" above; only integration
   checks were run, no scored scenario passed.

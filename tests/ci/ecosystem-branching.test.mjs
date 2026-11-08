@@ -1,6 +1,6 @@
 // @ts-check
 // Tests of tests/ci/ecosystem-branching.mjs: the repository passes, a planted `case` arm (and a comparison) naming an ecosystem id fails and is named,
-// the file it needs missing or empty fails, and eco-ok exempts one line. The shell twin (rule 5, missing ecosystems.tsv) is tested in tests/shared/static-test.sh.
+// the file it needs missing or empty fails, and eco-ok exempts one line. The shell twin (rule 5, missing ecosystems.tsv) is tested in tests/ci/static.test.mjs.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';

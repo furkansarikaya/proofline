@@ -92,7 +92,7 @@ test('the real claude validates the plugin, strictly (skipped where claude is no
 });
 
 test('the proofline skill carries the shared-rules block verbatim, routes $ARGUMENTS and documents the init requirement', () => {
-  const r = spawnSync('sh', [`${repo}/tests/shared/check-shared.sh`, 'proofline'], { cwd: repo, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [`${repo}/tests/shared/check-shared.mjs`, 'proofline'], { cwd: repo, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const skill = read(`${repo}/skills/proofline/SKILL.md`);
   assert.ok(/^name: proofline$/m.test(skill) && skill.includes('ARGUMENTS') && skill.includes('proofline init'));

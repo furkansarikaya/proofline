@@ -5,22 +5,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { cleanEnv } from '../lib/harness.mjs';
 
 export const repo = resolve(import.meta.dirname, '../..');
 export const nodeHook = join(repo, 'adapters/claude/hooks/proofline-hook.mjs');
 const scripts = join(repo, 'control-plane/agents/scripts');
 export const haveJq = spawnSync('jq', ['--version']).status === 0;
 
-/** The environment of every child: no inherited hook or engine settings, git without the user's configuration. */
-export function cleanEnv(extra = {}) {
-  /** @type {Record<string, string | undefined>} */
-  const e = {
-    PATH: process.env.PATH, HOME: tmpdir(), LC_ALL: 'C', TMPDIR: process.env.TMPDIR ?? tmpdir(), PROOFLINE_NO_TTY: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
-    GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid', ...extra,
-  };
-  return e;
-}
+export { cleanEnv };
 
 /**
  * A fixture template: the scaffold of the self-tests (orchestrated run LC, COMPLEX, committed), with the core next to agent.sh. The caller removes it.

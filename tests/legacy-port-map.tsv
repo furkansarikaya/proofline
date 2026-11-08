@@ -1605,3 +1605,82 @@ generator-test	conformance rejects wrong role count	same expectation	tests/gener
 generator-test	parseRole (the awk frontmatter reader)	new: the comment, quote and nested-key rules the roles rely on, unclosed and missing frontmatter	tests/generator/generator.test.mjs::10. parseRole: the rules of the frontmatter reader that the roles rely on
 generator-test	no write through a symbolic link	new (security): a linked generated file or folder is never followed	tests/generator/generator.test.mjs::11. nothing is written through a symbolic link, a stale agent file is replaced
 generator-test	docs/reference/generate-skills.sh --check (CI step)	the committed skills.md equals the rendering, row format, path order, stale check	tests/generator/skills-doc.test.mjs::the committed docs/reference/skills.md is what the generator renders (--check exits 0)
+affected-test	mapped change	a mapped script selects only its units	tests/ci/affected.test.mjs::a mapped script selects only its units
+affected-test	unmapped change	a change not in the mapping selects every unit	tests/ci/affected.test.mjs::a change not in the mapping selects every unit
+affected-test	shared file	a shared file (the runner) selects every unit	tests/ci/affected.test.mjs::a shared file selects every unit
+affected-test	--all	--all selects everything even with a mapped file	tests/ci/affected.test.mjs::--all selects everything even with a mapped file
+affected-test	--all includes node tests	--all includes the node test files outside tests/skills	tests/ci/affected.test.mjs::--all includes the node test files outside tests/skills, and the shell suites
+affected-test	unresolved unit	a mapped unit that does not exist selects every unit (fail safe)	tests/ci/affected.test.mjs::a mapped unit that does not exist selects every unit (fail safe)
+affected-test	docs-only	documentation only selects just the front matter test	tests/ci/affected.test.mjs::documentation only selects just the front matter test
+classify-test	README.md docs-only	README.md is documentation	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	CHANGELOG/CONTRIBUTING/decisions/concepts	root docs and docs/**.md are documentation	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	svg and png under docs	docs images are documentation	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	docs/tools/run.py	a script under docs/ is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	docs/data.json	json is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	docs/concepts/notes.txt	an unknown extension under docs/ is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	docs/Makefile	a Makefile under docs/ is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	skills/ roles/ control-plane/ adapters/ markdown	markdown agents read as instructions is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	docs/reference	generated docs/reference is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	mixed docs and script	one code path makes the pull request code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	ci.yml	the workflow is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	tests/e2e/README.md	markdown under tests/ is code	tests/ci/classify.test.mjs::CASES table (one test per row, see the file)
+classify-test	empty list	an empty list is code=true	tests/ci/classify.test.mjs::an empty list, or only blank lines, is code=true
+bump-version-test	check passes on the repository as it is	check passes on the repository as it is	tests/ci/bump-version.test.mjs::--check passes on the repository as it is, and prints the version
+bump-version-test	bad version string exits non-zero	bad version string exits non-zero	tests/ci/bump-version.test.mjs::bad input exits non-zero and changes nothing: no version, 1.2, v1.2.3, the current version, two arguments
+bump-version-test	same version exits non-zero	same version exits non-zero	tests/ci/bump-version.test.mjs::bad input exits non-zero and changes nothing: no version, 1.2, v1.2.3, the current version, two arguments
+bump-version-test	rejected input changes nothing	rejected input changes nothing	tests/ci/bump-version.test.mjs::bad input exits non-zero and changes nothing: no version, 1.2, v1.2.3, the current version, two arguments
+bump-version-test	bump to 9.8.7	bump to 9.8.7	tests/ci/bump-version.test.mjs::a bump rewrites only the listed sites, never a history comment, and moves the CHANGELOG
+bump-version-test	historical (0.0.24 in native.mjs untouched	historical (0.0.24 in native.mjs untouched	tests/ci/bump-version.test.mjs::a bump rewrites only the listed sites, never a history comment, and moves the CHANGELOG
+bump-version-test	no visual-proof file changed	no visual-proof file changed	tests/ci/bump-version.test.mjs::a bump rewrites only the listed sites, never a history comment, and moves the CHANGELOG
+bump-version-test	only listed sites changed	only listed sites changed	tests/ci/bump-version.test.mjs::a bump rewrites only the listed sites, never a history comment, and moves the CHANGELOG
+bump-version-test	every changed line names the old or new version	every changed line names the old or new version	tests/ci/bump-version.test.mjs::a bump rewrites only the listed sites, never a history comment, and moves the CHANGELOG
+bump-version-test	CHANGELOG heading added	CHANGELOG heading added	tests/ci/bump-version.test.mjs::a bump rewrites only the listed sites, never a history comment, and moves the CHANGELOG
+bump-version-test	check passes after the bump	check passes after the bump	tests/ci/bump-version.test.mjs::a bump rewrites only the listed sites, never a history comment, and moves the CHANGELOG
+bump-version-test	check fails when a site disagrees	check fails when a site disagrees	tests/ci/bump-version.test.mjs::--check fails when a site disagrees, and names it
+bump-version-test	new: regex-literal sites, front matter range, refusal	new: the JS regex-literal sites, only the SKILL.md front matter, a missing site or Unreleased entry refuses	tests/ci/bump-version.test.mjs::only the front matter of a SKILL.md is rewritten
+sync-design-library-test	--check passes against an identical mirror	--check passes against a mirror built from the library copies	tests/ci/sync-design-library.test.mjs::passes against an identical mirror and says how many files
+sync-design-library-test	--check fails when a copy differs	--check fails when a copy differs from its pin	tests/ci/sync-design-library.test.mjs::fails when a copy differs from its pin, and names the file
+sync-design-library-test	new: sync, --update, licence, usage	new: licence mismatch, stale hash, missing copy, sync/--update rewrite from the mirror, bad arguments exit 2	tests/ci/sync-design-library.test.mjs::sync and --update
+weights-test	median rule	an unlisted unit weighs the median of the listed ones (10 30 100 gives 30), not 15	tests/ci/selftest.test.mjs::an unlisted unit weighs the median of the listed ones (10 30 100 gives 30), not 15
+weights-test	median even	an even count takes the middle pair (10 20 30 100 gives 25)	tests/ci/selftest.test.mjs::an even count takes the middle pair (10 20 30 100 gives 25); no weights at all weigh 15
+weights-test	no weights	with no weights at all every unit weighs 15	tests/ci/selftest.test.mjs::an even count takes the middle pair (10 20 30 100 gives 25); no weights at all weigh 15
+weights-test	SELFTEST_TIMES_FILE	SELFTEST_TIMES_FILE gets one line per unit in the weights file format	tests/ci/selftest.test.mjs::SELFTEST_TIMES_FILE gets one line per unit that ran, in the weights file format
+weights-test	directory merged	a directory of times files is merged (same unit averaged), longest first	tests/ci/selftest-weights.test.mjs::a directory of times files is merged (same unit averaged), longest first
+weights-test	header	the header states its source and carries the note	tests/ci/selftest-weights.test.mjs::the header states its source and carries the note
+weights-test	single file	one times file works as well	tests/ci/selftest-weights.test.mjs::one times file works as well
+weights-test	malformed line	a malformed line is refused with file and line, and nothing is written	tests/ci/selftest-weights.test.mjs::a malformed line is refused with file and line, and nothing is written
+weights-test	missing input	a missing input path is refused	tests/ci/selftest-weights.test.mjs::a missing input path, an unknown option, a missing argument and no input are refused
+load-limits-test	CI uses every core, no nice note	CI=true uses all cores and does not nice	tests/ci/selftest.test.mjs::the summary names the jobs, and only a local run says its units were niced
+load-limits-test	local default is half the cores	a local run uses half the cores (min 1) and nices	tests/ci/selftest.test.mjs::CI uses every core; a local run half of them (at least 1); SELFTEST_JOBS overrides both; junk gives 4
+load-limits-test	SELFTEST_JOBS override	SELFTEST_JOBS overrides in both modes	tests/ci/selftest.test.mjs::CI uses every core; a local run half of them (at least 1); SELFTEST_JOBS overrides both; junk gives 4
+static-test	clean repository passes	a clean scratch repository passes	tests/ci/static.test.mjs::a clean scratch repository passes
+static-test	foreign label in comments fails	a foreign label in # // -- /* comments fails (exit 1)	tests/ci/static.test.mjs::a foreign label in a code comment fails, naming the rule and the file; each comment style is caught
+static-test	markdown and tests/ may quote	markdown and tests/ may quote the label	tests/ci/static.test.mjs::markdown and tests/ may quote the label
+static-test	evasion forms	evasion forms of a foreign label fail	tests/ci/static.test.mjs::evasion forms of a foreign label fail (A162)
+static-test	FOREIGN_TAGS extendable	FOREIGN_TAGS is extendable	tests/ci/static.test.mjs::FOREIGN_TAGS is extendable
+static-test	README bounds	README beyond the line bound, the byte bound, or missing fails	tests/ci/static.test.mjs::the real README fits; one past the line bound, one past the byte bound, or a missing README fails
+static-test	third-party names	a source name outside the notices file fails (exit 1)	tests/ci/static.test.mjs::a source name outside the notices file fails; inside it, passes
+static-test	personal paths	a personal path in captured tool output fails (exit 1)	tests/ci/static.test.mjs::a clean fixture passes; each personal path fails with the rule named
+static-test	ecosystem branching	an ecosystem branch added to a shared script fails; eco-ok exempts a marked line	tests/ci/static.test.mjs::a copy of the shared script passes; an ecosystem branch added to it fails and names the file; eco-ok exempts a marked line
+static-test	rule 5 without its table	rule 5 fails when ecosystems.tsv is missing or lists no ids	tests/ci/static.test.mjs::fails when ecosystems.tsv is missing or lists no ids (it used to pass)
+static-test	the repository passes	the repository itself passes the static rules	tests/ci/static.test.mjs::passes every rule
+check-budget-changed-test	budget unchanged	budget unchanged	tests/ci/change-reason.test.mjs::budget unchanged
+check-budget-changed-test	empty description	budget changed, empty description	tests/ci/change-reason.test.mjs::budget changed, empty description
+check-budget-changed-test	a different reason line	budget changed, a different reason line	tests/ci/change-reason.test.mjs::budget changed, a different reason line
+check-budget-changed-test	reason given	budget changed, reason given	tests/ci/change-reason.test.mjs::budget changed, reason given
+check-budget-changed-test	reason too short	reason too short	tests/ci/change-reason.test.mjs::reason too short
+check-budget-changed-test	phrase inside a sentence	the phrase inside a sentence is not the line	tests/ci/change-reason.test.mjs::the phrase inside a sentence is not the line
+check-budget-changed-test	sibling file	a sibling file is not the budget	tests/ci/change-reason.test.mjs::a sibling file is not the budget
+check-budget-changed-test	push	a push is not checked	tests/ci/change-reason.test.mjs::a push is not checked
+check-changed-test	no invariant file changed	no invariant file changed	tests/ci/change-reason.test.mjs::no invariant file changed
+check-changed-test	invariant test changed, empty description	invariant test changed, empty description	tests/ci/change-reason.test.mjs::invariant test changed, empty description
+check-changed-test	Node invariant test changed, empty description	Node invariant test changed, empty description	tests/ci/change-reason.test.mjs::Node invariant test changed, empty description
+check-changed-test	invariant test changed, description without the line	invariant test changed, description without the line	tests/ci/change-reason.test.mjs::invariant test changed, description without the line
+check-changed-test	invariant test changed, reason given	invariant test changed, reason given	tests/ci/change-reason.test.mjs::invariant test changed, reason given
+check-changed-test	reason with CRLF line endings	reason with CRLF line endings	tests/ci/change-reason.test.mjs::reason with CRLF line endings
+check-changed-test	the phrase inside a sentence is not the line	the phrase inside a sentence is not the line	tests/ci/change-reason.test.mjs::the phrase inside a sentence is not the line
+check-changed-test	indented line does not count	indented line does not count	tests/ci/change-reason.test.mjs::indented line does not count
+check-changed-test	a deleted invariant test is a change	a deleted invariant test is a change	tests/ci/change-reason.test.mjs::a deleted invariant test is a change
+check-changed-test	a sibling path is not under tests/invariants/	a sibling path is not under tests/invariants/	tests/ci/change-reason.test.mjs::a sibling path is not under tests/invariants/
+check-changed-test	line present but no reason / too short	line present but no reason; reason too short	tests/ci/change-reason.test.mjs::line present but no reason
+check-changed-test	event payload, body file, push	event payload with the line, null body, missing payload, PR_BODY_FILE, a push has no description to check	tests/ci/change-reason.test.mjs::the event payload (CI), a body file, and runs that are not pull requests
