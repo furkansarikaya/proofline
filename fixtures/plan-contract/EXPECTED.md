@@ -4,7 +4,7 @@ Evaluator-only. A runner never reads this file; build the scenario outside this 
 
 ## Scenario
 
-`sh fixtures/plan-contract/setup.sh <dir>` builds a small cart library and places the task at `<dir>/TASK.md` (git-excluded): T-7, free shipping above a configurable threshold, class STANDARD, criteria AC-1..AC-4.
+`node fixtures/plan-contract/setup.mjs <dir>` builds a small cart library and places the task at `<dir>/TASK.md` (git-excluded): T-7, free shipping above a configurable threshold, class STANDARD, criteria AC-1..AC-4.
 
 Run in `<dir>`: `/plan-contract TASK.md` (standalone; output `.agents/local/plan-contract/T-7/PLAN.md`), or the lead's planning step with `TASK.md` in the run folder.
 

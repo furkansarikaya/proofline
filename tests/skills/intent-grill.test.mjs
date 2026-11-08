@@ -164,7 +164,7 @@ test("SKILL.md frontmatter and shared rules block", () => {
 test("fixture builds and the planted items exist", () => {
   const dir = join(mkdtempSync(join(tmpdir(), "igfx-")), "repo");
   try {
-    const r = spawnSync("sh", [join(here, "../../fixtures/intent-grill/setup.sh"), dir], { encoding: "utf8" });
+    const r = spawnSync(process.execPath, [join(here, "../../fixtures/intent-grill/setup.mjs"), dir], { encoding: "utf8" });
     assert.equal(r.status, 0, r.stderr);
     assert.ok(existsSync(join(dir, "REQUEST.md")));
     assert.match(readFileSync(join(dir, "README.md"), "utf8"), /Do not ask the user/);

@@ -1,6 +1,6 @@
 # Expected: risk-signals
 
-Known answer of `agent.sh pipeline RS-1` for the project `setup.sh` builds (A78). `selfcheck.sh` compares the
+Known answer of `agent.sh pipeline RS-1` for the project `setup.mjs` builds (A78). `selfcheck.mjs` compares the
 lines below with the real output, line for line (order-insensitive); it is a script check, no model runs.
 
 Planted facts: run RS-1 is COMPLEX, its baseline is the initial commit, and the working tree changes

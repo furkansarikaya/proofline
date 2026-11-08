@@ -3,7 +3,7 @@
 Build the fixture outside this repository, start the agent in it, and send the prompt below exactly.
 
 ```sh
-sh fixtures/docs-writer/setup.sh /tmp/fx-docs-writer
+node fixtures/docs-writer/setup.mjs /tmp/fx-docs-writer
 ```
 
 - Skill: `docs-writer`

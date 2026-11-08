@@ -1,7 +1,7 @@
 # Expected: debug-proof
 
 Evaluator only; never shown to the runner. Commits are identified by position on `main` (1 = root) and
-subject; `selfcheck.sh` proves every planted fact.
+subject; `selfcheck.mjs` proves every planted fact.
 
 Planted facts: `v1.0` = commit 2 (good). Commit 5 `style: tidy formatCents` replaced
 `String(abs % 100).padStart(2, '0')` with `(abs % 100 + '').padEnd(2, '0')` in `src/money.js:formatCents`,

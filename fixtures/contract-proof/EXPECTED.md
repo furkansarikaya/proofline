@@ -4,7 +4,7 @@ Evaluator-only. A runner never reads this file; build the scenario outside this 
 
 ## Scenario
 
-`sh fixtures/contract-proof/setup.sh <dir>` builds a shop repository with two commits. The first holds the
+`node fixtures/contract-proof/setup.mjs <dir>` builds a shop repository with two commits. The first holds the
 base contracts, three in-repo consumers under `src/client/` and `PLAN.md` (its `## Contracts` as frozen).
 The second changes thirteen JSON, YAML, GraphQL and protobuf files. Run, from this repository:
 
@@ -12,7 +12,7 @@ The second changes thirteen JSON, YAML, GraphQL and protobuf files. Run, from th
     node skills/contract-proof/scripts/diff-contract.mjs --repo <dir> --base HEAD~1 --plan <dir>/PLAN.md --impact <tmp>/impact.json --out <tmp>/contract.json
     node skills/contract-proof/scripts/validate-contract.mjs <tmp>/contract.json --table --plan <dir>/PLAN.md --repo <dir> --base HEAD~1
 
-`EXPECTED.json` is the machine-readable form of this file; `selfcheck.sh` and
+`EXPECTED.json` is the machine-readable form of this file; `selfcheck.mjs` and
 `tests/skills/contract-proof.test.mjs` compare the differ's output with it. The planted facts below were
 written before the scripts existed (each review round's traps before its fixes).
 

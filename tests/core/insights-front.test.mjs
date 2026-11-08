@@ -1,7 +1,7 @@
 // @ts-check
 // `proofline insights` (A89, A232; the former bin/lib/insights.sh and the insights scenario of tests/cli/cli-test.sh): the front end around the report of core/insights.mjs:
-// argument checks, the `--run` scope, the JSON form, the calibration section, the read-only promise, and the context-size and rules tail of the plain report. The fixture is the
-// shell fixture of fixtures/insights (planted records and runs).
+// argument checks, the `--run` scope, the JSON form, the calibration section, the read-only promise, and the context-size and rules tail of the plain report. The fixture is
+// fixtures/insights (planted records and runs).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, chmodSync, cpSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ function sig(root) {
   walk(root);
   return out.join('\n');
 }
-const fixture = (/** @type {string} */ name) => { const d = `${sb.T}/${name}`; const r = spawnSync('sh', [path.join(repo, 'fixtures/insights/setup.sh'), d], { env: sb.env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return d; };
+const fixture = (/** @type {string} */ name) => { const d = `${sb.T}/${name}`; const r = spawnSync(process.execPath, [path.join(repo, 'fixtures/insights/setup.mjs'), d], { env: sb.env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return d; };
 
 test('the report on planted records: tokens are summed only where reported, a foreign schema is ignored, repeated findings and gates become patterns with a suggestion', () => {
   const ins = fixture('ins');
@@ -35,7 +35,7 @@ test('the report on planted records: tokens are summed only where reported, a fo
     'suggestion:',
   ]) assert.ok(r.out.includes(want), `missing ${want}\n${r.out}`);
   for (const nope of ['999999', 'Error from Open is ignored']) assert.ok(!r.out.includes(nope), `found ${nope}`);
-  const sc = spawnSync('sh', [path.join(repo, 'fixtures/insights/selfcheck.sh'), ins], { env: sb.env, encoding: 'utf8' });
+  const sc = spawnSync(process.execPath, [path.join(repo, 'fixtures/insights/selfcheck.mjs'), ins], { env: sb.env, encoding: 'utf8' });
   assert.equal(sc.status, 0, sc.stdout + sc.stderr);
   assert.match(r.out, /\ncontext loaded without being asked \(estimated tokens = bytes \/ 4\):\n {2}AGENTS\.md proofline block/);
 });

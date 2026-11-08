@@ -1,6 +1,5 @@
 b2e71164c61aa1bed1463058faf8cbcac175ecb5e3a56c79eca06a063e3fa70e .github/workflows/ci.yml::static::step8
 4d7d793debb3ff1dc2dae64292f14550885202af792c2e66773ab41c27b43607 .github/workflows/ci.yml::static::step11
 9dd98aa1b4b2afe39d2bd152edcd63bc97d8806bfab3986295371428bfc9747c .github/workflows/ci.yml::fixtures::step4
-bf03d6fe8b2c6eec609ea62f21e3026a8bb5e0e652c2c732cf255655d1f9b797 .github/workflows/ci.yml::visual-browser::step3
 9e290cef2255657ccd8b0f60e28179f844d0c254eb4f023aecbbc9ca4473c6d9 .github/workflows/ci.yml::checks::step1
 5ab5bcb5e7486936d05f66c46e272154093597faf4ffc3cd0f5612b80d7dd8d8 .github/workflows/ci.yml::checks::step2

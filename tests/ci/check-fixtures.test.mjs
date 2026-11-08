@@ -1,6 +1,6 @@
 // @ts-check
 // The fixture driver (tests/fixtures/check-fixtures.mjs): it builds a named fixture and runs its selfcheck, counts PASS and SKIP, and decides by the
-// node version whether the TypeScript fixtures run. (Every fixture is built by the CI fixtures job; the builders are shell until issue #176 package B.)
+// node version whether the TypeScript fixtures run. (Every fixture is built by the CI fixtures job; the builders are Node since issue #176 package B.)
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { main, nodeTsOk } from '../fixtures/check-fixtures.mjs';
@@ -11,7 +11,7 @@ test('a named fixture is built and its selfcheck passes; the proof-review and te
   assert.equal(status, 0, out);
   assert.equal(out, 'PASS api-design\nfixtures: 1/1 passed, 0 skipped\n');
 });
-test('a name without a setup.sh builds nothing and passes with zero fixtures', async () => {
+test('a name without a setup.mjs builds nothing and passes with zero fixtures', async () => {
   let out = '';
   assert.equal(await main(['no-such-fixture'], { write: (s) => { out += s; } }), 0);
   assert.equal(out, 'fixtures: 0/0 passed, 0 skipped\n');

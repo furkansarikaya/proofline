@@ -1,6 +1,6 @@
 # Fixture expectations
 
-Two modes are exercised: **full** (the planted projects below, `go/` and `ts/`) and **diff** (the same code split into a base commit and a task, built by `diff-setup.sh`; see "Diff mode" at the end).
+Two modes are exercised: **full** (the planted projects below, `go/` and `ts/`) and **diff** (the same code split into a base commit and a task, built by `diff-setup.mjs`; see "Diff mode" at the end).
 
 Two small projects with deliberately planted test problems, used to check that `test-trust` finds what it should and nothing else. Both implement the same tiny checkout library, so findings should line up across ecosystems.
 
@@ -72,10 +72,10 @@ Findings that were not planted on purpose but are genuine. They are **accepted, 
 
 ## Diff mode (D20)
 
-`diff-setup.sh` builds a repository whose base commit holds `shop` plus the solid price tests, and whose **uncommitted working tree is the task**. Run it outside this repository (the agent must not see this file):
+`diff-setup.mjs` builds a repository whose base commit holds `shop` plus the solid price tests, and whose **uncommitted working tree is the task**. Run it outside this repository (the agent must not see this file):
 
 ```sh
-sh fixtures/test-trust/diff-setup.sh go /tmp/tt-diff-go fail     # also: ts, and scenario pass
+node fixtures/test-trust/diff-setup.mjs go /tmp/tt-diff-go fail     # also: ts, and scenario pass
 cd /tmp/tt-diff-go     # then, in your agent:  /test-trust diff
 ```
 

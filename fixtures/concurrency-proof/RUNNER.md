@@ -3,7 +3,7 @@
 Build the fixture outside this repository, start the agent in it, and send the prompt below exactly.
 
 ```sh
-sh fixtures/concurrency-proof/setup.sh /tmp/fx-concurrency-proof
+node fixtures/concurrency-proof/setup.mjs /tmp/fx-concurrency-proof
 ```
 
 - Skill: `concurrency-proof`

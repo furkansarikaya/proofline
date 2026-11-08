@@ -4,7 +4,7 @@ Evaluator-only. A runner never reads this file; build the scenario outside this 
 
 ## Scenario
 
-`sh fixtures/intent-grill/setup.sh <dir>` builds a small back-office repository and places the request at `<dir>/REQUEST.md` (git-excluded):
+`node fixtures/intent-grill/setup.mjs <dir>` builds a small back-office repository and places the request at `<dir>/REQUEST.md` (git-excluded):
 
 > Add CSV export to the orders page so finance can download this month's orders.
 

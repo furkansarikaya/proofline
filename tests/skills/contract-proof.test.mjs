@@ -21,7 +21,7 @@ let base, repo;
 before(() => {
   base = mkdtempSync(join(tmpdir(), "cpfx-"));
   repo = join(base, "fx");
-  const r = spawnSync("sh", [join(fixture, "setup.sh"), repo], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [join(fixture, "setup.mjs"), repo], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 after(() => rmSync(base, { recursive: true, force: true }));
@@ -467,7 +467,7 @@ test("A102: the validator prints FILE and BASE lines, the evidence of an UNSUPPO
 
 // ---- fixture end to end ------------------------------------------------------------------------------
 test("fixture: whole diff FAILs with the planted uncovered breaks only; subsets PASS and UNSUPPORTED", () => {
-  let r = spawnSync("sh", [join(fixture, "selfcheck.sh"), repo], { encoding: "utf8" });
+  let r = spawnSync(process.execPath, [join(fixture, "selfcheck.mjs"), repo], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   // the differ alone (no impact report) leaves breaking consumers unsearched: the validator refuses it
   const out = join(base, "noimpact.json");

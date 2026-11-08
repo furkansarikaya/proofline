@@ -5,7 +5,7 @@ Chromium-family browser on `PATH` (or in the standard application folder) is nee
 without one the expected result is `UNSUPPORTED`.
 
 ```sh
-sh fixtures/visual-proof/setup.sh /tmp/fx-visual-proof
+node fixtures/visual-proof/setup.mjs /tmp/fx-visual-proof
 ```
 
 - Skill: `visual-proof`

@@ -88,7 +88,7 @@ It is a sibling of [test-trust](https://github.com/furkansarikaya/test-trust) an
 
 ### Fixtures
 
-15. **Fixtures are changes, not projects.** Nested git repositories cannot be committed, so each fixture is a `setup.sh` script that builds the git history from scratch in a temporary folder: a base commit, a feature branch, and a `PR.md` file with the PR description. Go and TS fixtures reuse the "shop" code from test-trust's fixtures. Each fixture deliberately contains:
+15. **Fixtures are changes, not projects.** Nested git repositories cannot be committed, so each fixture is a `setup.mjs` script that builds the git history from scratch in a temporary folder: a base commit, a feature branch, and a `PR.md` file with the PR description. Go and TS fixtures reuse the "shop" code from test-trust's fixtures. Each fixture deliberately contains:
     - one `missing` claim,
     - one `partial` claim,
     - one `unrequested` change,
@@ -127,8 +127,8 @@ proof-review/
 ├── docs/decisions.md                (this file)
 ├── fixtures/
 │   ├── EXPECTED.md
-│   ├── go/setup.sh                  builds base commit, feature branch, PR.md
-│   └── ts/setup.sh
+│   ├── go/setup.mjs                  builds base commit, feature branch, PR.md
+│   └── ts/setup.mjs
 └── skills/proof-review/
     ├── SKILL.md                     short: principles, flow, hard rules
     ├── agents/openai.yaml
@@ -149,7 +149,7 @@ proof-review/
 
 1. Write `SKILL.md` first and show it for approval.
 2. Write the reference files, ledger template, schema, validator (with tests), and `agents/openai.yaml`.
-3. Write the Go and TS fixtures with `setup.sh` and `EXPECTED.md`.
+3. Write the Go and TS fixtures with `setup.mjs` and `EXPECTED.md`.
 4. Write README, CHANGELOG, and package.json at version 0.0.1.
 5. Run the skill end to end on both fixtures outside this repository, compare with `EXPECTED.md`, and fix what breaks before the first release.
 
@@ -288,4 +288,4 @@ Added when the skill was ported into proofline (phase 4). Each entry says what w
 
 ### Fixtures
 
-- `fixtures/proof-review/` holds the original `go/setup.sh`, `ts/setup.sh` and `EXPECTED.md` (paths and output locations adjusted), plus `plan-setup.sh` (POSIX sh) which turns the branch-mode fixture into a run (`.agents/runs/FIX-1/`: `RUN.yaml`, `TASK.md`, `PLAN.md`, plus `ACTIVE_RUN`), adds a versioned contract in the base, and a feature commit with two new dependencies (one named in the plan, one not). `EXPECTED.md` has a "Focus plan inside a run" section (which claim is missing or partial, which dependency and contract edit are deviations, which controls must stay silent, the gate) and short expectations for the other focuses. Builds were checked for both languages; no LLM run (phase 9).
+- `fixtures/proof-review/` holds the original `go/setup.mjs`, `ts/setup.mjs` and `EXPECTED.md` (paths and output locations adjusted), plus `plan-setup.mjs` (Node) which turns the branch-mode fixture into a run (`.agents/runs/FIX-1/`: `RUN.yaml`, `TASK.md`, `PLAN.md`, plus `ACTIVE_RUN`), adds a versioned contract in the base, and a feature commit with two new dependencies (one named in the plan, one not). `EXPECTED.md` has a "Focus plan inside a run" section (which claim is missing or partial, which dependency and contract edit are deviations, which controls must stay silent, the gate) and short expectations for the other focuses. Builds were checked for both languages; no LLM run (phase 9).

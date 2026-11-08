@@ -1,7 +1,7 @@
 # Expected: visual-proof
 
-Evaluator only; never shown to the runner. `selfcheck.sh` proves the planted facts in the source without a
-browser (pull-request CI); `browser-check.sh` measures the built fixture with `measure.mjs` and `expect.mjs`
+Evaluator only; never shown to the runner. `selfcheck.mjs` proves the planted facts in the source without a
+browser (pull-request CI); `browser-check.mjs` measures the built fixture with `measure.mjs` and `expect.mjs`
 compares the result with the list below (main/nightly CI; no browser on the runner = `UNSUPPORTED`, the
 accepted result there).
 

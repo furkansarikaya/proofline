@@ -6,7 +6,7 @@ Scores recorded outputs against the known answers the repository already has: th
 ```sh
 node tests/benchmark/benchmark.mjs                                   # known answers only: counts per skill, all "not scored"
 node tests/benchmark/benchmark.mjs --verdicts verdicts.json          # score recorded verdicts
-node tests/benchmark/benchmark.mjs --run-validators                  # also run each fixture's selfcheck.sh and skill tests (minutes)
+node tests/benchmark/benchmark.mjs --run-validators                  # also run each fixture's selfcheck.mjs and skill tests (minutes)
 node tests/benchmark/benchmark.mjs --e2e-dir "$TMPDIR/proofline-e2e" # score e2e run directories (one run or a parent)
 node tests/benchmark/benchmark.mjs --out report-dir                  # write benchmark.md and benchmark.json
 node --test tests/benchmark/benchmark.test.mjs                                  # the benchmark's own known-answer test (seconds)
@@ -24,7 +24,7 @@ verdict that names an id EXPECTED does not have.
 | false positives | tripped traps (`tripped`) plus findings that match nothing (`extra`) |
 | scope adherence | verdict `changed_paths` that are not in `planned_scope` (a scope entry ending in `/` covers its folder) |
 | duration, tokens | verdict `duration_s`, `tokens_total`; `n/a` when absent (never estimated) |
-| selfcheck, skill tests | `--run-validators`: `fixtures/<skill>/setup.sh` + `selfcheck.sh`, and `tests/skills/<skill>.test.mjs` |
+| selfcheck, skill tests | `--run-validators`: `fixtures/<skill>/setup.mjs` + `selfcheck.mjs`, and `tests/skills/<skill>.test.mjs` |
 
 A fixture whose `EXPECTED.md` has no parseable items is `not measurable`; a parseable fixture without a verdict
 is `not scored`. Nothing is guessed from prose.

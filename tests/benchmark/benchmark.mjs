@@ -116,15 +116,14 @@ export function scoreFixture(name, items, v) {
 function runValidators(fixturesDir, name) {
   const dir = join(fixturesDir, name);
   const res = { selfcheck: "none", skill_tests: "none" };
-  const setup = join(dir, "setup.sh");
+  const setup = join(dir, "setup.mjs");
   if (existsSync(setup)) {
     const work = mkdtempSync(join(tmpdir(), "benchmark-"));
-    const sh = /bash/.test(readFileSync(setup, "utf8").split("\n")[0]) ? "bash" : "sh";
     const target = join(work, name);
-    let r = spawnSync(sh, [setup, target], { encoding: "utf8", timeout: 600000 });
+    let r = spawnSync(process.execPath, [setup, target], { encoding: "utf8", timeout: 600000 });
     if (r.status !== 0) res.selfcheck = "setup-failed";
-    else if (existsSync(join(dir, "selfcheck.sh"))) {
-      r = spawnSync("sh", [join(dir, "selfcheck.sh"), target], { encoding: "utf8", timeout: 600000 });
+    else if (existsSync(join(dir, "selfcheck.mjs"))) {
+      r = spawnSync(process.execPath, [join(dir, "selfcheck.mjs"), target], { encoding: "utf8", timeout: 600000 });
       res.selfcheck = r.status === 0 ? "pass" : "fail";
     }
     rmSync(work, { recursive: true, force: true });

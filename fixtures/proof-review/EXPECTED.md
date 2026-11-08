@@ -15,13 +15,13 @@ Items are keyed by **file + function** and by mechanism, never by line number. T
 
 ## How to run a fixture
 
-Requirements: git, bash (for `setup.sh`), Go (1.22 or newer) for the Go fixture, and Node 22.18+ or 23.6+ for the TS fixture (its `.ts` tests run with plain `node --test`, which needs built-in type stripping). Nothing is installed.
+Requirements: git, Go (1.22 or newer) for the Go fixture, and Node 22.18+ or 23.6+ for the TS fixture (its `.ts` tests run with plain `node --test`, which needs built-in type stripping). Nothing is installed.
 
 Build the fixture **outside this repository**, so the agent cannot read this file:
 
 ```sh
-bash fixtures/proof-review/go/setup.sh /tmp/pr-go            # branch mode: on feature/coupons, PR.md git-ignored via .git/info/exclude
-bash fixtures/proof-review/go/setup.sh /tmp/pr-go-wt --working-tree
+node fixtures/proof-review/go/setup.mjs /tmp/pr-go            # branch mode: on feature/coupons, PR.md git-ignored via .git/info/exclude
+node fixtures/proof-review/go/setup.mjs /tmp/pr-go-wt --working-tree
 ```
 
 Install the skill under test into the fixture (`.claude/`, `.agents/` and `skills-lock.json` are in `.git/info/exclude`, so this does not dirty the tree; standalone output goes to `.agents/local/proof-review/<slug>/`), start the agent in the fixture directory, and send the prompt for the mode, exactly as written:
@@ -254,10 +254,10 @@ Expect some run-to-run variation, so re-run before blaming the skill for a singl
 
 ## Focus plan inside a run (D21)
 
-`plan-setup.sh` builds the branch-mode fixture and turns it into a proofline run, so the plan, not a PR description, is the intent source:
+`plan-setup.mjs` builds the branch-mode fixture and turns it into a proofline run, so the plan, not a PR description, is the intent source:
 
 ```sh
-sh fixtures/proof-review/plan-setup.sh go /tmp/pr-run-go      # also: ts
+node fixtures/proof-review/plan-setup.mjs go /tmp/pr-run-go      # also: ts
 cd /tmp/pr-run-go    # then dispatch focus=plan for task FIX-1 (phase 9), or run it by hand:
                      #   /proof-review focus=plan  with the assignment: TASK-ID FIX-1, base_sha from .agents/runs/FIX-1/RUN.yaml
 ```
@@ -299,4 +299,4 @@ What it adds to the fixture: `api/v1/openapi.yaml` (a versioned contract) in the
 
 ### Verified when the fixtures were ported (no LLM run)
 
-`setup.sh` (branch and `--working-tree`) and `plan-setup.sh` build for both languages; the Go packages pass `go test ./...` on the branch, in the working-tree variant and in the run variant (the extra `require` lines do not break the build); the TS fixtures pass `node --test` in all variants; `.agents/` is git-ignored in every variant, so the run folder does not dirty the tree.
+`setup.mjs` (branch and `--working-tree`) and `plan-setup.mjs` build for both languages; the Go packages pass `go test ./...` on the branch, in the working-tree variant and in the run variant (the extra `require` lines do not break the build); the TS fixtures pass `node --test` in all variants; `.agents/` is git-ignored in every variant, so the run folder does not dirty the tree.

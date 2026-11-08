@@ -1,6 +1,6 @@
 # Runner prompt (the only input a runner gets)
 
-Start a lead session in one state directory built by `setup.sh` (proofline installed, active run `LK-7`).
+Start a lead session in one state directory built by `setup.mjs` (proofline installed, active run `LK-7`).
 Load the proofline-lead skill and send exactly this user message:
 
 > /proofline resume

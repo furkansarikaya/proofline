@@ -8,8 +8,8 @@ import { scanMigrations, parseSchema, diffSchemas, compatibility, diffData, isNa
 import { checkReport } from "../../skills/data-design/scripts/validate-migration.mjs";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const SETUP = join(ROOT, "fixtures/migration-validation/setup.sh");
-const SELFCHECK = join(ROOT, "fixtures/migration-validation/selfcheck.sh");
+const SETUP = join(ROOT, "fixtures/migration-validation/setup.mjs");
+const SELFCHECK = join(ROOT, "fixtures/migration-validation/selfcheck.mjs");
 const CHECK = join(ROOT, "skills/data-design/scripts/migration-check.mjs");
 const VALIDATE = join(ROOT, "skills/data-design/scripts/validate-migration.mjs");
 
@@ -194,14 +194,14 @@ test("cli: validator exit codes", () => {
 test("fixture: builds with and without the harness, planted facts hold (selfcheck)", () => {
   const d = mkdtempSync(join(tmpdir(), "mv-fix-"));
   dirs.push(d);
-  const s = spawnSync("sh", [SETUP, join(d, "acc")], { encoding: "utf8" });
+  const s = spawnSync(process.execPath, [SETUP, join(d, "acc")], { encoding: "utf8" });
   assert.equal(s.status, 0, s.stderr);
-  const c = spawnSync("sh", [SELFCHECK, join(d, "acc")], { encoding: "utf8" });
+  const c = spawnSync(process.execPath, [SELFCHECK, join(d, "acc")], { encoding: "utf8" });
   assert.equal(c.status, 0, c.stdout + c.stderr);
   assert.match(c.stdout, /selfcheck ok/);
   const t = spawnSync(process.execPath, ["--test", "test/"], { cwd: join(d, "acc"), encoding: "utf8" });
   assert.equal(t.status, 0, t.stdout + t.stderr);
-  const n = spawnSync("sh", [SETUP, join(d, "nohar"), "no-harness"], { encoding: "utf8" });
+  const n = spawnSync(process.execPath, [SETUP, join(d, "nohar"), "no-harness"], { encoding: "utf8" });
   assert.equal(n.status, 0, n.stderr);
   assert.throws(() => readFileSync(join(d, "nohar/test/helpers/temp-db.mjs")));
   assert.equal(spawnSync("git", ["status", "--porcelain"], { cwd: join(d, "acc"), encoding: "utf8" }).stdout, "");
