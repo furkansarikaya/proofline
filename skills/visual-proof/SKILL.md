@@ -4,7 +4,7 @@ description: Visual proof of a UI change with the browser tooling the project or
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.68"
+  version: "0.0.69"
 ---
 
 # visual-proof

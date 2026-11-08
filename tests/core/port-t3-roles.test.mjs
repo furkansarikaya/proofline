@@ -1,5 +1,5 @@
 // @ts-check
-// T3 port of tests/equivalence/role-table.test.mjs: every role against every one of the 132 commands is allowed or refused by the role gate as the shell did.
+// T3 port of tests/equivalence/role-table.test.mjs: every role against every one of the 133 commands (the 132 of the shell and diff-digest, A235) is allowed or refused by the role gate as the shell did.
 // The refusals were recorded ONCE from the shell (tests/fixtures/port-t3/roles.json); nothing runs the shell at test time. `lead test` was not run (it runs every suite);
 // the gate lets the lead through by construction.
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import { commandAllowed } from '../../control-plane/agents/scripts/proofline-cor
 /** @type {{ commands: string[], denied: Record<string, string[]> }} */
 const g = JSON.parse(readFileSync(new URL('../fixtures/port-t3/roles.json', import.meta.url), 'utf8'));
 
-test('the recorded command list is the 132 commands', () => { assert.equal(g.commands.length, 132); assert.equal(new Set(g.commands).size, 132); });
+test('the recorded command list is the 133 commands (the 132 of the shell and diff-digest, A235)', () => { assert.equal(g.commands.length, 133); assert.equal(new Set(g.commands).size, 133); });
 
 for (const [role, denied] of Object.entries(g.denied)) {
   test(`role ${role}: the commands the gate refuses are the recorded ones`, () => {

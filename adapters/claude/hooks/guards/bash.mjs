@@ -186,7 +186,7 @@ function agentRule(ctx, cmd, v, hasRole) {
   if (sc === 'window-open' || sc === 'window-close') deny('implementer and designer windows are opened and closed only by the runtime hooks and dispatch.sh');
   if (!(ctx.sub || role !== 'lead')) return;
   if (sc === 'approve' || sc === 'waive' || sc === 'answer') deny('a subagent never approves, waives or answers; only the user does, through the lead (D13, D16)');
-  if (['status', 'pipeline', 'fingerprint', 'build-record'].includes(sc) || sc.startsWith('verify-')) return; // build-record: `run` is refused for a non-lead role by the script itself
+  if (['status', 'pipeline', 'fingerprint', 'build-record', 'plan-section', 'config-get'].includes(sc) || (sc === 'diff-digest' && role !== 'implementer') || sc.startsWith('verify-')) return; // build-record: `run` is refused for a non-lead role by the script itself; plan-section and config-get are read-only (the roles' texts send every role to plan-section; 7% of the calls of earlier runs were refused here, A235); diff-digest: the core's role gate decides the rest
   if (sc === 'submit') {
     if (role === 'lead') deny('the lead never submits a specialist result (D12)');
     if (!hasRole) deny(`agent.sh submit runs as your role: prefix AGENT_ROLE=${role}`);

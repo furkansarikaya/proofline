@@ -4,8 +4,10 @@ The control plane records what each run and each specialist step cost, locally a
 Everything lives in `.agents/local/metrics/` (git-ignored); `metrics: off` in `.agents/config.yaml`
 disables all of it. A metrics failure never blocks a command.
 
-Two files:
+Three files:
 
+- `tools.jsonl` — one record per recorded specialist step: how many tool calls the step made and how many bytes of
+  tool results entered its context (A235, see "Tool calls and result bytes" below).
 - `history.tsv` — one flat line per recorded specialist step and per finished run
   (`time task role runtime model duration_s outcome`). Kept for simple readers.
 - `records.jsonl` — versioned records, one JSON object per line. This is the schema consumed by
@@ -79,6 +81,30 @@ record carries cost, the `step` record carries the gate verdict.
 - **Metrics never change a decision.** The execution policy (`cli exec-policy` of the Node core) does not read them (A80):
   routing stays a pure function of class, tier, profile, role and signals, and quality and security rules cannot be
   traded for cost.
+
+## Tool calls and result bytes (`tools.jsonl`, A235)
+
+`records.jsonl` has no tool data and its format does not change (ADR D3). The control plane writes one more file,
+`.agents/local/metrics/tools.jsonl`, with one `kind: step` record per recorded specialist result (the same moment as the
+`step` record of `records.jsonl`: `submit` / `record`). It is built from the runtime's own session log, the transcript whose path is
+line 1 of `.agents/local/submissions/<token>.started` (the file the token counts already come from); no model-written text is copied.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `schema` | string | always `proofline.tools/1` |
+| `kind` | string | always `step` |
+| `time` | string | UTC ISO-8601 time the record was written |
+| `task`, `role`, `focus`, `gate`, `runtime` | string or null | as in `records.jsonl` (reduced to `[A-Za-z0-9._+:-]`) |
+| `log` | string | `ok`, or why the counts are null: `no-log` (the runtime keeps no log the control plane reads: Codex, a command-template runtime, a path that is not a `.jsonl` file), `unreadable`, `malformed` (a line that is not JSON) |
+| `calls` | integer or null | tool calls in the log at the time of the record (a `tool_use` of an assistant entry; a repeated id counts once) |
+| `result_bytes` | integer or null | UTF-8 bytes of the text of the tool results that came back (images and other non-text blocks count 0) |
+| `denied` | integer or null | calls whose result is the hook's refusal (`PreToolUse:<Tool> hook error ...`): a call spent and answered with a rule, so a wasted round trip |
+| `by_tool` | object or null | per tool name (reduced; at most 40 names, the rest summed as `other`; keys in byte order): `{"calls": n, "bytes": n}` |
+
+Read the limits before using it: the log is read while the session still runs, so the record counts up to the call that submitted (that call's own result
+is not in it), a last half-written line is ignored, and a worker that submits twice (the first was rejected) is counted at its recorded submission only.
+A Claude subagent's log holds that subagent only; the lead's own session log is not recorded by proofline. Counts are never estimated: a log that
+cannot be read gives `null` and a `log` value that says so, never `0`; a log over 128 MiB is not read (`unreadable`), and `submit` still succeeds. Every string is cut to 64 characters after the reduction (a tool name included), so one line stays under about 5 KB. `metrics: off` writes nothing.
 
 ## Reading it: `proofline insights`
 

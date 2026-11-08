@@ -49,3 +49,28 @@ test('a project without proofline: only the merge and kill guards speak', { skip
   const k = await pre('node', d, 'pkill node', {}, {});
   assert.match(k.stdout, /"permissionDecision":"deny"/);
 });
+
+test('A235: diff-digest is allowed to the gate roles and the explorer in a run, refused to the implementer by the hook; a literal subcommand is still required', { skip }, async () => {
+  const d = copyProject(withRun, base);
+  const cmd = 'sh .agents/scripts/agent.sh diff-digest LC';
+  for (const agent_type of ['proofline-reviewer', 'proofline-security-reviewer', 'proofline-qa', 'proofline-verifier']) {
+    const r = await pre('node', d, cmd, { agent_type, agent_id: 'a1' }, {});
+    assert.equal(r.stdout, '', `${agent_type}: ${r.stdout}`);
+  }
+  const imp = await pre('node', d, cmd, { agent_type: 'proofline-implementer', agent_id: 'a1' }, {});
+  assert.match(imp.stdout, /the implementer runs only agent\.sh worker-evidence/);
+  const other = await pre('node', d, 'sh .agents/scripts/agent.sh diff-digestx LC', { agent_type: 'proofline-reviewer', agent_id: 'a1' }, {});
+  assert.match(other.stdout, /runs only the read-only agent\.sh/);
+});
+
+test('A235: plan-section and config-get (read-only, named by every role text) pass the hook for every subagent role; a state-changing command still does not', { skip }, async () => {
+  const d = copyProject(withRun, base);
+  for (const agent_type of ['proofline-reviewer', 'proofline-verifier', 'proofline-qa', 'proofline-security-reviewer', 'proofline-implementer']) {
+    for (const sub of ['plan-section LC scope', 'config-get commands.test']) {
+      const r = await pre('node', d, `sh .agents/scripts/agent.sh ${sub}`, { agent_type, agent_id: 'a1' }, {});
+      assert.equal(r.stdout, '', `${agent_type} ${sub}: ${r.stdout}`);
+    }
+  }
+  const w = await pre('node', d, 'sh .agents/scripts/agent.sh classify LC COMPLEX', { agent_type: 'proofline-reviewer', agent_id: 'a1' }, {});
+  assert.match(w.stdout, /runs only the read-only agent\.sh/);
+});

@@ -5,6 +5,7 @@ export const USAGE_LINES = [
   "  role | status | effective [ID] | fingerprint [ID] | config-get <dotted.key> | config-check [FILE]",
   "  start <ID> [--title TITLE] [--task-file PATH]",
   "  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID] | digest <ID> | plan-section <ID> <section>",
+  "  diff-digest <ID>   (A235: gate roles and the lead; the task's changed paths by class and line count in a short summary, the full list in runs/<ID>/reports/diff-digest-<n>/raw.txt with the command line and the input hashes beside it; it reports, it is no gate)",
   "  branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>",
   "  handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>",
   "  tree-inspect <ID> | tree-accept <ID>   (recovery: a change entered the working tree outside every worker window; tree-inspect shows it read-only, tree-accept (lead) asks for the user's approval of exactly that tree (kind tree), attests it, sends the handoff back to IMPLEMENTING and so makes every gate run again; the run is not discarded)",
