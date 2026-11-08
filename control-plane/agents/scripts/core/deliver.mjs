@@ -700,7 +700,8 @@ export function deliverMerged(ctx, id, flag) {
       if (haveBase && g(['merge-base', '--is-ancestor', `refs/heads/${dmBase}`, tip2], main).status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: local ${dmBase} has commits origin lacks (no fast-forward); ${later}\n`);
       else {
         // B4: a configured filter driver (smudge, process, clean) is repository-controlled code that `switch` would run on every file that changes: no switch
-        const filters = g(['config', '--get-regexp', '^filter\\..*\\.(smudge|process|clean)$'], main).stdout.toString('latin1').trim() !== '';
+        // Only drivers the repository (or the command line) defines count: a system or global one (git-lfs on a CI image) is the administrator's or the user's own, not repository-controlled.
+        const filters = g(['config', '--show-scope', '--get-regexp', '^filter\\..*\\.(smudge|process|clean)$'], main).stdout.toString('latin1').split('\n').some((l) => /^(local|worktree|command)\t/.test(l));
         // B5: a file git ignores here but the base tracks is overwritten by the switch or by the fast-forward without a word: no switch
         let listFailed = false;
         const lsz = (/** @type {string[]} */ a) => { const r = g(a, main); if (r.status !== 0) listFailed = true; return r.stdout.toString('latin1').split('\0').filter((x) => x !== ''); };
