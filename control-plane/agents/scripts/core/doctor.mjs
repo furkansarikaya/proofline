@@ -364,9 +364,9 @@ class Doctor {
 
   /** 0.0.26: the language runtimes the project's CI specifies against the ones installed here (WARN only). */
   doctorToolchain() {
-    const script = `${this.plHome}/skills/verify-proof/scripts/runtime-versions.sh`;
+    const script = `${this.plHome}/skills/verify-proof/scripts/runtime-versions.mjs`;
     if (this.plHome === '' || !isFile(script)) return;
-    const r = proc.run('sh', [script], { cwd: this.root, env: this.ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
+    const r = proc.run(process.execPath, [script], { cwd: this.root, env: this.ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
     if (r.status !== 0) return;
     /** @type {any} */ let defn = null;
     try { defn = JSON.parse(readFileSync(`${this.plHome}/control-plane/agents/ecosystems.json`, 'utf8')); } catch { defn = null; }

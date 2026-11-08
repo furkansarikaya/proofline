@@ -1489,3 +1489,119 @@ cli-test	sc_cmd_lists: two ambiguous solutions and an npm app	same expectation	t
 cli-test	sc_commands: doctor --commands / --apply-commands (A200)	same expectation	tests/core/cli-state.test.mjs::doctor --commands: a failed trial is not proven and writes no proposal; a proven command is proposed with one question; --apply-commands writes it only after the user's own "approve commands"
 cli-test	sc_harness: run_sc records a dying scenario as a failure (A177)	retired: the suite is Node tests, where a throwing test fails its file	-
 cli-test	sc_static: shellcheck -s sh of bin/, the installer and this suite	retired with the shell: bin/proofline is a Node launcher, bin/lib and cli-test.sh are gone; the CI static job still runs shellcheck -S warning over every tracked shell file (adapters/codex/install.sh)	-
+generator-test	generate all	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	claude agent for reviewer	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	claude agent for implementer	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	lead not a claude agent	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	lead not a codex agent	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	lead role text exists	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	lead listed in docs	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	docs header	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	roles.conf lists lead	same expectation	tests/generator/generator.test.mjs::1. render: lead is no agent, but in the control plane and the docs
+generator-test	claude frontmatter keys	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	claude name	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	claude tools comma list	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	claude model default is balanced	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	claude effort balanced	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	claude description length <= 1000	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	claude description escapes quotes/backslashes	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	claude frontmatter closed	same expectation	tests/generator/generator.test.mjs::2. the Claude frontmatter conforms to the agent format
+generator-test	profile max claude model	same expectation	tests/generator/generator.test.mjs::3. the profile switch changes models
+generator-test	profile max claude effort	same expectation	tests/generator/generator.test.mjs::3. the profile switch changes models
+generator-test	profile max codex model	same expectation	tests/generator/generator.test.mjs::3. the profile switch changes models
+generator-test	profile economy claude model	same expectation	tests/generator/generator.test.mjs::3. the profile switch changes models
+generator-test	bad profile rejected	same expectation	tests/generator/generator.test.mjs::3. the profile switch changes models
+generator-test	plugin skill path	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	codex skill path	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	role text skill path	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	role text has no plugin var	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	init-style render	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project skill path	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project: no .claude/skills path	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project agent has no plugin var	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project profile applied	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project codex agent	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project roles.conf	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project role text	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project owns.conf	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project tools.conf	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project: no docs	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	project: lead not an agent	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	no unreplaced placeholders	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	claude-plugin needs no --out	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	claude-project needs --out	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	foreign agent files untouched	same expectation	tests/generator/generator.test.mjs::4. {{skill:x}} per target, and the rendering into an installed project
+generator-test	toml structure reviewer / implementer	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	toml round trip reviewer / implementer	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	literal string when no triple quote	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	basic string fallback for triple quote	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	backslashes survive in literal string	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	codex description escaped	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	codex sandbox read-only	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	codex sandbox workspace-write	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	codex default profile model	same expectation	tests/generator/generator.test.mjs::5. TOML structure and escaping
+generator-test	roles.conf has 6 fields per data line	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	roles.conf has 3 roles x 3 profiles x 2 runtimes	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	roles.conf codex model from source	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	owns.conf reviewer line	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	owns.conf cuts NNN tokens to their prefix	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	owns.conf has one line per role	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	tools.conf comma list	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	tools.conf has one line per role	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	missing owns rejected	same expectation	tests/generator/generator.test.mjs::6. roles.conf, owns.conf, tools.conf
+generator-test	claude agent file hyphenated	same expectation	tests/generator/generator.test.mjs::6c. agent names: the role id with _ -> -
+generator-test	claude agent name hyphenated	same expectation	tests/generator/generator.test.mjs::6c. agent names: the role id with _ -> -
+generator-test	codex agent hyphenated	same expectation	tests/generator/generator.test.mjs::6c. agent names: the role id with _ -> -
+generator-test	role id keeps underscore in role text	same expectation	tests/generator/generator.test.mjs::6c. agent names: the role id with _ -> -
+generator-test	role id keeps underscore in roles.conf	same expectation	tests/generator/generator.test.mjs::6c. agent names: the role id with _ -> -
+generator-test	role id keeps underscore in owns.conf	same expectation	tests/generator/generator.test.mjs::6c. agent names: the role id with _ -> -
+generator-test	no underscore agent file	same expectation	tests/generator/generator.test.mjs::6c. agent names: the role id with _ -> -
+generator-test	deterministic output	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check passes when in sync	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check detects an edited file	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check detects an edited owns.conf	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check detects a missing tools.conf	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check detects a missing file	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check detects a stale file	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	regenerate removes stale file	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check passes again	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check detects a source change	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	--check and --out are exclusive	same expectation	tests/generator/generator.test.mjs::7. determinism and --check
+generator-test	missing frontmatter key rejected	same expectation	tests/generator/generator.test.mjs::8. source validation
+generator-test	id must match file name	same expectation	tests/generator/generator.test.mjs::8. source validation
+generator-test	missing codex model rejected	same expectation	tests/generator/generator.test.mjs::8. source validation
+generator-test	bad sandbox rejected	same expectation	tests/generator/generator.test.mjs::8. source validation
+generator-test	malformed skill reference rejected	same expectation	tests/generator/generator.test.mjs::8. source validation
+generator-test	overlong description rejected	same expectation	tests/generator/generator.test.mjs::8. source validation
+generator-test	real roles conform	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: (each mutation)	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance passes on an unmodified copy	same expectation (the real roles/ (and a copy of them) conform)	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: key order	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: spawn tool	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: bad effort enum	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: security reviewer below opus	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: tier floor above model	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: sandbox parity	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: unknown skill reference	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: inline hash in frontmatter	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: body section order	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: old severity value	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: uppercase severity word	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: README severity set	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: gate finding id	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: task finding id	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: qa plan-step id	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: gate RESULT set	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: task role with gate RESULT	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: no-spawn rule missing	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: lead no-dispatch rule missing	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: owns without Write	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: Write without workspace-write	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: writes_code on a design role	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: PRODUCT_SCOPE outside implementer	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: implementer without PRODUCT_SCOPE	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects: project code path owned by a non-implementer	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	conformance rejects wrong role count	same expectation	tests/generator/generator.test.mjs::9. role-source conformance: the real roles/ conform, and 25 mutations of a copy are each rejected
+generator-test	parseRole (the awk frontmatter reader)	new: the comment, quote and nested-key rules the roles rely on, unclosed and missing frontmatter	tests/generator/generator.test.mjs::10. parseRole: the rules of the frontmatter reader that the roles rely on
+generator-test	no write through a symbolic link	new (security): a linked generated file or folder is never followed	tests/generator/generator.test.mjs::11. nothing is written through a symbolic link, a stale agent file is replaced
+generator-test	docs/reference/generate-skills.sh --check (CI step)	the committed skills.md equals the rendering, row format, path order, stale check	tests/generator/skills-doc.test.mjs::the committed docs/reference/skills.md is what the generator renders (--check exits 0)

@@ -1,6 +1,6 @@
 # Roles
 
-Each role is defined once in `roles/<id>.md`; `adapters/generate.sh` renders the Claude Code agents, the
+Each role is defined once in `roles/<id>.md`; `adapters/generate.mjs` renders the Claude Code agents, the
 Codex agents and the prompt prefixes from it. The full generated table is in [the roles reference](../reference/roles.md).
 
 | Role | Does | Skills | When |

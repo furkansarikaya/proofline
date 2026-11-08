@@ -1,4 +1,4 @@
-<!-- Generated from roles/task_author.md by adapters/generate.sh. Do not edit. -->
+<!-- Generated from roles/task_author.md by adapters/generate.mjs. Do not edit. -->
 # Task Author
 
 ## Does / Must not

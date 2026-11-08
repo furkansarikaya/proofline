@@ -153,12 +153,12 @@ test("a REPORT.md is read through its json block", () => {
   assert.equal(v.status, 0, v.stderr); assert.match(v.stdout, /valid: PASS/);
 });
 
-// --- run-bench.sh smoke (a trivial command, short N; no timing is asserted) -----------------------------------
-test("run-bench.sh: interleaved samples, environment and exit codes", () => {
+// --- run-bench.mjs smoke (Node since A234; the shell twin passed the same expectations) (a trivial command, short N; no timing is asserted) -----------------------------------
+test("run-bench.mjs: interleaved samples, environment and exit codes", () => {
   const a = join(tmp, "wt-base"), b = join(tmp, "wt-change"), out = join(tmp, "bench");
   mkdirSync(a); mkdirSync(b);
   writeFileSync(join(b, "marker"), "");
-  const run = (...args) => spawnSync("sh", [join(scripts, "run-bench.sh"), ...args], { encoding: "utf8", timeout: 60000 });
+  const run = (...args) => spawnSync(process.execPath, [join(scripts, "run-bench.mjs"), ...args], { encoding: "utf8", timeout: 60000 });
   const r = run("--base", a, "--change", b, "--runs", "2", "--warmup", "1", "--timeout", "30", "--out", out, "--", "sh", "-c", "test -d .");
   assert.equal(r.status, 0, r.stderr);
   for (const side of ["base", "change"]) {
@@ -180,6 +180,37 @@ test("run-bench.sh: interleaved samples, environment and exit codes", () => {
   assert.equal(run("--base", a, "--change", b, "--runs", "1", "--timeout", "5", "--out", out, "--", "true").status, 2);
   assert.equal(run("--base", a, "--change", join(tmp, "missing"), "--runs", "1", "--out", out, "--", "true").status, 2);
   assert.equal(run("--base", a, "--change", b, "--runs", "1", "--out", out).status, 2);
+});
+
+test("run-bench.mjs: a run over the limit gets its whole process group stopped and is recorded as failed (143)", async () => {
+  const { runCommand } = await import(join(scripts, "run-bench.mjs"));
+  const d = join(tmp, "grp"); mkdirSync(d); const log = join(d, "log"); writeFileSync(log, "");
+  // the command starts a grandchild that would outlive it and writes a pid file
+  const r = await runCommand({ argv: ["sh", "-c", "sleep 60 & echo $! > pid; wait"], cwd: d, logFile: log, label: "x", timeoutMs: 700, graceMs: 300 });
+  assert.equal(r.rc, 143); assert.ok(r.ms >= 600 && r.ms < 10000, String(r.ms));
+  await new Promise((ok) => setTimeout(ok, 300));
+  const pid = Number(readFileSync(join(d, "pid"), "utf8"));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, "the grandchild is still alive");
+  const k = await runCommand({ argv: ["sh", "-c", "trap '' TERM; sleep 5"], cwd: d, logFile: log, label: "y", timeoutMs: 300, graceMs: 300 });
+  assert.equal(k.rc, 137);
+  const m = await runCommand({ argv: ["no-such-program-173d"], cwd: d, logFile: log, label: "z", timeoutMs: 5000 });
+  assert.equal(m.rc, 127); assert.match(readFileSync(log, "utf8"), /== z\nno-such-program-173d: not found/);
+});
+test("run-bench.mjs: usage errors are exit 2 with a run-bench: message; --help is exit 0", () => {
+  const a = join(tmp, "ub1"), run = (...args) => spawnSync(process.execPath, [join(scripts, "run-bench.mjs"), ...args], { encoding: "utf8" });
+  mkdirSync(a, { recursive: true });
+  for (const args of [["--bogus"], ["--base"], ["--base", a, "--change", a, "--out", join(tmp, "o"), "--runs", "0", "--", "true"], ["--base", a, "--change", a, "--out", join(tmp, "o"), "--runs", "1", "--warmup", "x", "--", "true"]]) {
+    const r = run(...args); assert.equal(r.status, 2, args.join(" ")); assert.match(r.stderr, /^run-bench: /);
+  }
+  const h = run("--help"); assert.equal(h.status, 0); assert.match(h.stdout, /Usage: node run-bench\.mjs/);
+  // a warmup that fails stops the run before anything is sampled
+  const w = run("--base", a, "--change", a, "--out", join(tmp, "o2"), "--runs", "1", "--warmup", "1", "--", "false");
+  assert.equal(w.status, 2); assert.match(w.stderr, /warmup run 1 on base exited 1/);
+});
+test("run-bench.mjs: reads only its own ecosystem definition and imports nothing outside the skill", () => {
+  const src = readFileSync(join(scripts, "run-bench.mjs"), "utf8");
+  for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || m[1] === "./ecosystems.mjs", m[1]);
+  assert.match(src, /references", "ecosystems\.json"/);
 });
 
 // --- review round: verified thresholds, plan budget, direction of claims, copied data, submission text ------

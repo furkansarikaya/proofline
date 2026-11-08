@@ -1,4 +1,4 @@
-# Generated from roles/implementer.md by adapters/generate.sh. Do not edit.
+# Generated from roles/implementer.md by adapters/generate.mjs. Do not edit.
 name = "proofline-implementer"
 description = "Implements the frozen plan inside its scope with recorded RED, GREEN and REFACTOR evidence, and fixes bounded findings. Use when: always, the only role that writes product code, one per run"
 model = "gpt-6-sol"

@@ -1,4 +1,4 @@
-# Generated from roles/architect.md by adapters/generate.sh. Do not edit.
+# Generated from roles/architect.md by adapters/generate.mjs. Do not edit.
 name = "proofline-architect"
 description = "Designs the smallest valid system and API solution from the task and frozen evidence, returning the PLAN Architecture text, design drafts and ADRs for real decisions. Use when: class COMPLEX or CRITICAL, or on request (proofline design system or api, proofline docs or explain)"
 model = "gpt-6-astra"

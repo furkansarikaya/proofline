@@ -1,4 +1,4 @@
-# Generated from roles/qa.md by adapters/generate.sh. Do not edit.
+# Generated from roles/qa.md by adapters/generate.mjs. Do not edit.
 name = "proofline-qa"
 description = "Writes the acceptance and adversarial QA plan before implementation and evaluates the implementation against the frozen plan after it. Use when: class STANDARD and up, plan step before FREEZE and report step once IMPLEMENTED"
 model = "gpt-6-sol"

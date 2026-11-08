@@ -74,7 +74,7 @@ commands:
 
 ## Runtime versions
 
-`runtime-versions.sh` reads the root first, then the same files in nested folders (pruned like above, at most `version_scan_depth` = 6 levels, at most 400 files). A .NET project is present when `global.json`, `*.slnx`, `*.sln`, `*.csproj`, `*.fsproj` or `*.vbproj` exists at the root or nested; a project only under `obj/` or `bin/` is ignored. A `dotnet-version` in a workflow that differs from the local SDK is still reported as `mismatch`. The runtimes are node, dotnet, go, python, java, rust, php, ruby, swift and dart.
+`runtime-versions.mjs` reads the root first, then the same files in nested folders (pruned like above, at most `version_scan_depth` = 6 levels, at most 400 files). A .NET project is present when `global.json`, `*.slnx`, `*.sln`, `*.csproj`, `*.fsproj` or `*.vbproj` exists at the root or nested; a project only under `obj/` or `bin/` is ignored. A `dotnet-version` in a workflow that differs from the local SDK is still reported as `mismatch`. The runtimes are node, dotnet, go, python, java, rust, php, ruby, swift and dart.
 
 ## Ecosystem matrix
 
@@ -241,7 +241,7 @@ Not supported or limited by design:
 - **Discovery of nested projects costs about 0.45 s per project** because it is plain sh; a repository with more than 1000 marker files counts as unknown and proposes nothing nested.
 - **MAUI is measured only through the project's own Maestro flows**; without one the visual check is UNSUPPORTED, never a pass.
 - **No doctor warning for a missing `.agents/ecosystems.tsv`**: without it the risky-path lists fall back to `config.yaml` alone and the benchmark probe reports nothing.
-- **Runtime versions:** the local version was read from the real tool only for node, Python, go, ruby and swift (`runtime-versions.sh` run on the maintainer's machine, 2026-10-25); for java and dotnet no run is recorded in the repository, and for Rust, PHP and Dart the tool was missing, so their extraction patterns are code reading only. The CI-side sources of every runtime are code reading only.
+- **Runtime versions:** the local version was read from the real tool only for node, Python, go, ruby and swift (`runtime-versions.mjs` run on the maintainer's machine, 2026-10-25); for java and dotnet no run is recorded in the repository, and for Rust, PHP and Dart the tool was missing, so their extraction patterns are code reading only. The CI-side sources of every runtime are code reading only.
 - **Qt** desktop projects are matched in `native.mjs`, not in the definition (there is no C or C++ ecosystem).
 
 ## Workspaces
@@ -273,15 +273,15 @@ Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapt
 | `benchmark`, `native_ui` | markers of a benchmark setup (script names, directories, a file pattern with a content marker, a dependency in a manifest, a config file) and of a native UI project (`file`, `contains`, `platform`, `kind`) |
 | `test_output` | per class `no_tests`, `compile` and `assertion`, entries with `pattern`, `runner`, `source` (`captured`: a fixture in `tests/skills/fixtures/tdd-proof-output`; `docs`: the tool's documentation, with its URL as `evidence`) and an optional `unless`; `exit_codes` per class, used only as a cross-check (A175) |
 
-Glob and pattern dialects, the `when` keys and the flat format are written in the header of `ecosystems.json`, `scripts/ecosystems.sh` and `ecosystems.mjs`.
+Glob and pattern dialects, the `when` keys and the flat format are written in the header of `ecosystems.json`, `ecosystems.mjs` and (until agent.sh moves, #176) `scripts/ecosystems.sh`.
 
 The risk lists are read at read time: `agent.sh` adds the ecosystem globs to `review.risky_paths` and to the signal whose check is `dependencies`, so a new ecosystem or file kind reaches every project on `proofline upgrade` without a config edit and a user's `config.yaml` is never rewritten. One synthetic line, `risk.ecosystems.dependencies`, binds that set into `freeze.risk_sha256`; a run frozen before keeps the paths it was frozen with and still passes `verify-freeze`. The exploit-proof manifest diff reads a project's own `.agents/ecosystems.json` in preference to its skill copy.
 
 ### Reading it
 
-- **sh:** `scripts/ecosystems.sh` reads `ecosystems.tsv`, the flat copy (`<id><TAB><path><TAB><value>`), so no sh script needs node or a JSON parser. `eco_init FILE`, then `eco_ids`, `eco_get ID PATH`, `eco_first`, `eco_children`, `eco_pack`, `eco_rows`, `eco_union`, `eco_risky`, `eco_glob_match`, `eco_pruned`.
+- **sh:** only the control plane's `scripts/ecosystems.sh` is left (A234): `agent.sh` still sources it until #176. It reads `ecosystems.tsv`, the flat copy (`<id><TAB><path><TAB><value>`), so no sh script needs node or a JSON parser. `eco_init FILE`, then `eco_ids`, `eco_get ID PATH`, `eco_first`, `eco_children`, `eco_pack`, `eco_rows`, `eco_union`, `eco_risky`, `eco_glob_match`, `eco_pruned`.
 - **node:** `ecosystems.mjs` (`loadEcosystems`, `globToRegExp`, `matchesAny`, `isPruned`, `riskyPaths`, `classifyPath`, `toRegExp`, `validate`) and the command line `node ecosystems.mjs write|check|validate|ids|risky|get`.
-- **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies (`scripts/ecosystems.sh`, `scripts/ecosystems.mjs`, `references/ecosystems.json`, `references/ecosystems.tsv`). `tests/shared/check-shared.sh` compares them with `control-plane/agents/` and checks that the flat file is what `write` produces.
+- **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies of `scripts/ecosystems.mjs` and `references/ecosystems.json` (no skill carries a shell reader or the flat file since A234; `runtime-versions.mjs` and `run-bench.mjs` read their own copy of `ecosystems.json` and never the project's `.agents/ecosystems.json`, because they start the version commands it names). `tests/shared/check-shared.sh` compares them with `control-plane/agents/`, and checks that the control plane's flat file is what `write` produces.
 
 ## Worktree dependencies (A185)
 

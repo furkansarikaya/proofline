@@ -52,7 +52,7 @@ Status per gate: `pass`, `pass_low` (a PASS with `CONFIDENCE: low` does not coun
 ## Runtime versions (doctor and VERIFY)
 
 A green local run proves little when CI runs another language version. `proofline doctor` and the verifier compare
-the runtime version the project's CI specifies with the one installed here (`skills/verify-proof/scripts/runtime-versions.sh`,
+the runtime version the project's CI specifies with the one installed here (`skills/verify-proof/scripts/runtime-versions.mjs`,
 read-only). The CI version is the first found of: a workflow's `node-version`, `go-version`, `dotnet-version` or
 `python-version` (a value, an inline list or a block list; `${{ ... }}` expressions are skipped), a version file
 (`.nvmrc`, `.node-version`, `.python-version`, `global.json`, `.tool-versions`), a manifest (`package.json`

@@ -10,7 +10,7 @@
 //   ## Scope               verify-scope: exit=N
 //   ## Design sync         design-sync: PASS|FAIL|SKIPPED (reason)
 //   ## Runtime             runtime: <name> local=<ver|missing> ci=<spec|none> source=<file|-> status=<match|mismatch|unknown>
-//                          (lines of runtime-versions.sh, or `runtime: none (reason)`); information only, never changes the verdict (0.0.26)
+//                          (lines of runtime-versions.mjs, or `runtime: none (reason)`); information only, never changes the verdict (0.0.26)
 //   ## Pre-existing failures   None | one line per command that failed at head AND base
 //   ## Failures            None | findings (each entry fails the gate: dependency, contract, design drift)
 //   Verdict: PASS|FAIL|BLOCKED          (last non-empty line)
@@ -128,7 +128,7 @@ export function validateVerify(text, taskText, planText) {
       valid++;
       if ((m[2] === "missing" || m[3] === "none") && m[5] !== "unknown") errors.push(`runtime ${m[1]}: status must be unknown when local is missing or ci is none`);
     }
-    if (!valid) errors.push("## Runtime needs `runtime: <name> local=... ci=... source=... status=...` (run scripts/runtime-versions.sh) or `runtime: none (reason)`");
+    if (!valid) errors.push("## Runtime needs `runtime: <name> local=... ci=... source=... status=...` (run scripts/runtime-versions.mjs) or `runtime: none (reason)`");
   }
 
   // failures: every entry under ## Failures (undeclared dependency, versioned-contract change,

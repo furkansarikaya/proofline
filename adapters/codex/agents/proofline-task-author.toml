@@ -1,4 +1,4 @@
-# Generated from roles/task_author.md by adapters/generate.sh. Do not edit.
+# Generated from roles/task_author.md by adapters/generate.mjs. Do not edit.
 name = "proofline-task-author"
 description = "Turns a one-sentence request or an imported issue into a standard task with testable acceptance criteria, grilling intent first when the request is vague or large. Use when: when no task exists, or an imported task lacks canonical fields, intent-grill first for COMPLEX or CRITICAL requests or on request"
 model = "gpt-6-sol"

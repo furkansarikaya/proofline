@@ -1,4 +1,4 @@
-# Generated from roles/designer.md by adapters/generate.sh. Do not edit.
+# Generated from roles/designer.md by adapters/generate.mjs. Do not edit.
 name = "proofline-designer"
 description = "Designs the user interface for a task, writing the PLAN UI section and the per-task UI spec, and keeps the durable design system consistent. Use when: when the task changes a user interface, or on request (proofline design ui)"
 model = "gpt-6-sol"

@@ -1,4 +1,4 @@
 #!/usr/bin/env node
 // proofline: the launcher of the CLI (ADR 0001 section 9). Everything it does is in control-plane/agents/scripts/core/proflinecli.mjs; node resolves the symlink
-// that adapters/codex/install.sh creates, so the relative path below is the checkout's.
+// that adapters/codex/install.mjs creates, so the relative path below is the checkout's.
 import('../control-plane/agents/scripts/core/proflinecli.mjs').then((m) => { process.exitCode = m.main(process.argv.slice(2)); });

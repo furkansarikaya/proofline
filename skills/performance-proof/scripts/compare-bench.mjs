@@ -19,7 +19,7 @@
 //
 // Sample files: JSON {"unit": "ms", "samples": [..]} or CSV with a header that has `value` and `unit` columns
 // (and optionally `exit`: a run with a non-zero exit is not a sample). Units must match exactly: nothing is
-// converted. --env reads run-bench.sh's environment.txt (key=value lines).
+// converted. --env reads run-bench.mjs's environment.txt (key=value lines).
 // Exit: 0 report printed (any status), 2 usage or input error (unit mismatch, unreadable, non-numeric).
 // No dependencies.
 import { readFileSync } from "node:fs";

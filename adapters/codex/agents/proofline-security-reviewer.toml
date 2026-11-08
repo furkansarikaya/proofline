@@ -1,4 +1,4 @@
-# Generated from roles/security_reviewer.md by adapters/generate.sh. Do not edit.
+# Generated from roles/security_reviewer.md by adapters/generate.mjs. Do not edit.
 name = "proofline-security-reviewer"
 description = "Reviews the task-owned diff as an attacker and reports only exploitable findings, each reproduced or traced from source to sink. Use when: full tier (D14), always for CRITICAL class"
 model = "gpt-6-astra"
