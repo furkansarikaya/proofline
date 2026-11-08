@@ -92,7 +92,7 @@ before(() => {
   const g = (...a) => spawnSync('git', a, { cwd: template, encoding: 'utf8' });
   g('init', '-q', '-b', 'main');
   g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
-  const r = spawnSync('sh', [join(repo, 'bin/proofline'), 'init'], { cwd: template, env: baseEnv(), encoding: 'utf8', timeout: 300000 });
+  const r = spawnSync(join(repo, 'bin/proofline'), ['init'], { cwd: template, env: baseEnv(), encoding: 'utf8', timeout: 300000 });
   assert.equal(r.status, 0, `proofline init failed: ${r.stdout}${r.stderr}`);
   mkdirSync(join(template, 'src'), { recursive: true });
 });

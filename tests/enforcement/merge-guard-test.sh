@@ -44,7 +44,7 @@ run_ok='{"__typename":"CheckRun","name":"static","status":"COMPLETED","conclusio
 ctx_ok='{"__typename":"StatusContext","context":"ci/legacy","state":"SUCCESS"}'
 green="[$run_ok,$ctx_ok]"
 reset() { rm -f "$GHS"/*.json "$GHS/merge.log" "$GHS/fail"; unset HEAD2; }
-merge() { (cd "$proj" && PATH="$stubd:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
+merge() { (cd "$proj" && PATH="$stubd:$PATH" node "$pl" merge "$@") > "$base/out" 2>&1; }
 refused() { # NAME MSG-FRAGMENT ARGS...
   n=$1 f=$2; shift 2
   merge "$@" && die "$n: merged"; [ ! -f "$GHS/merge.log" ] || die "$n: gh pr merge ran"
@@ -95,15 +95,15 @@ grep -Fq "using gh at $stubd/gh" "$base/out" || die "the wrapper does not print 
 # PATH shadowing: a gh in a temp dir without the self-test switch, and an empty PATH entry
 reset; view 7 OPEN false $sha "$green"
 mkdir -p "$base/tmpgh"; cp "$stubd/gh" "$base/tmpgh/gh"
-(cd "$proj" && PATH="$base/tmpgh:$PATH" sh "$pl" merge 7) > "$base/out" 2>&1 && die "merged with a gh from a temp directory"
+(cd "$proj" && PATH="$base/tmpgh:$PATH" node "$pl" merge 7) > "$base/out" 2>&1 && die "merged with a gh from a temp directory"
 grep -Fq "possibly shadowed gh" "$base/out" || die "temp-dir gh message: $(cat "$base/out")"; [ ! -f "$GHS/merge.log" ] || die "gh ran"; ok "a gh found in a temp directory is refused"
-(cd "$proj" && PATH="$stubd::$PATH" sh "$pl" merge 7) > "$base/out" 2>&1 && die "merged with an empty PATH entry"
+(cd "$proj" && PATH="$stubd::$PATH" node "$pl" merge 7) > "$base/out" 2>&1 && die "merged with an empty PATH entry"
 grep -Fq "empty or relative entry" "$base/out" || die "empty PATH entry message: $(cat "$base/out")"; ok "an empty PATH entry is refused"
 # gh missing: a PATH with only the tools the wrapper needs
 nogh=$base/nogh; mkdir -p "$nogh"
 for t in git sed awk head tr dirname cat readlink shasum sha256sum node; do p=$(command -v "$t" 2>/dev/null) && ln -s "$p" "$nogh/$t"; done
-shbin=$(command -v sh)
-(cd "$proj" && PATH=$nogh "$shbin" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without gh"
+nodebin=$(command -v node)
+(cd "$proj" && PATH=$nogh "$nodebin" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without gh"
 grep -Fq "gh is not installed" "$base/out" || die "gh missing message: $(cat "$base/out")"; ok "gh missing is refused"
 
 # --- the hook ----------------------------------------------------------------------------------

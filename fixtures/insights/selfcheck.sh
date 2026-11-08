@@ -7,7 +7,7 @@ cd "$1"
 fail() { echo "selfcheck: $*" >&2; exit 1; }
 sig() { find . -path ./.git -prune -o -type f -print | sort | while read -r f; do printf '%s %s\n' "$f" "$(shasum -a 256 "$f" | awk '{print $1}')"; done; }
 before=$(sig)
-out=$(sh "$PL" insights) || fail "insights failed"
+out=$(node "$PL" insights) || fail "insights failed"
 has() { printf '%s\n' "$out" | grep -Eq -- "$1" || { printf '%s\n' "$out" >&2; fail "missing: $1"; }; }
 no() { if printf '%s\n' "$out" | grep -Eq -- "$1"; then printf '%s\n' "$out" >&2; fail "unexpected: $1"; fi; }
 has '^  RUN-A +done +900s +3 +6000 \(2/3\) +1000 \(2/3\) +7000 \(2/3\) +1 +4 +1$'

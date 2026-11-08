@@ -92,17 +92,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: install shellcheck (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y shellcheck
+
+      - name: install shellcheck (macOS)
+        if: runner.os == 'macOS'
+        run: brew install shellcheck
+
+      # every tracked shell file (.sh, a shell shebang, the git hook launchers): -x follows `# shellcheck source=` directives, -S warning: info notes (SC2015 `A && B || C` on guard lines) are style, warnings and errors fail the step
       - name: shellcheck
-        run: |
-          if ! command -v shellcheck >/dev/null 2>&1; then
-            if [ "$(uname)" = Darwin ]; then brew install shellcheck; else sudo apt-get install -y shellcheck; fi
-          fi
-          files=$(find . -path ./.git -prune -o -type f \( -name '*.sh' -o -name 'pre-commit' -o -name 'pre-push' \) -print)
-          if [ -f bin/proofline ]; then files="$files bin/proofline"; fi
-          # shellcheck disable=SC2086
-          # -x follows `# shellcheck source=` directives (task-integrations/_lib.sh); -S warning: info notes
-          # (SC2015 `A && B || C` on guard lines) are style, warnings and errors fail the step
-          shellcheck -x -s sh -S warning $files
+        run: node tests/ci/shellcheck.mjs
 
       - name: generated files in sync
         run: |
@@ -391,6 +391,14 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/doctor-fresh.test.mjs tests/core/doctor-faults.test.mjs tests/core/insights-front.test.mjs tests/core/cfgcli.test.mjs tests/core/merge-front.test.mjs tests/core/cli-agent-path.test.mjs tests/core/frontend-nonode.test.mjs
+          - name: cli-install
+            mode: files
+            pattern: 'none'
+            files: tests/core/install-init.test.mjs tests/core/install-upgrade.test.mjs
+          - name: cli-commands
+            mode: files
+            pattern: 'none'
+            files: tests/core/cli-state.test.mjs tests/core/cli-help.test.mjs tests/core/cli-cmdlists.test.mjs tests/core/cli-launcher.test.mjs
           - name: enforcement-recorded-lead
             mode: files
             pattern: 'none'

@@ -1,7 +1,7 @@
 // @ts-check
 // `proofline doctor` in Node (D8, A232; the former bin/lib/doctor.sh): verifies the install and that each enforced rule is really enforced, with live probes in a throwaway
 // repository (the project's own installed hooks and scripts are copied there). Prints PASS / WARN / FAIL lines and exits non-zero on any FAIL. It runs from the plugin's core
-// for the project named by PROOFLINE_ROOT (see cliRootScript in proofline-core.mjs): a project whose own engine is broken or missing is still diagnosed. PL_HOME names the
+// (bin/proofline calls it in process, A233) for the project it was started in: a project whose own engine is broken or missing is still diagnosed. PL_HOME names the
 // plugin checkout and PROOFLINE_VERSION its version. Text here is JavaScript text; the byte strings of the core (config values, command outputs) are decoded with `u`.
 import { accessSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { loadavg, availableParallelism, tmpdir } from 'node:os';
@@ -640,7 +640,7 @@ export function requireInstalled(ctx) {
 }
 
 /**
- * `cli doctor [--commands|--apply-commands|--scale|--apply-scale]`. The root is the project named by PROOFLINE_ROOT.
+ * `proofline doctor [--commands|--apply-commands|--scale|--apply-scale]`. The root is the project the CLI was started in (ctx.root).
  * @param {Context} ctx @param {string[]} args
  */
 export function doctorCommand(ctx, args) {

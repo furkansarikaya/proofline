@@ -1,6 +1,6 @@
 // @ts-check
 // CLI-only core subcommands: `node proofline-core.mjs cli <name> ...`. They are NOT agent.sh commands (no entry in the command table, no
-// role gate of agent.sh, no preamble delegation); the shell front ends of bin/proofline call them until stage 9. The set is closed and tested:
+// role gate of agent.sh, no preamble delegation); bin/proofline is a Node program that calls the modules directly (A233); what is left here are the read-only reports and the tests' entry points. The set is closed and tested:
 //   - exactly the names of CLI_COMMANDS run; any other name is refused with status 2 and nothing is run, never handed to the shell;
 //   - leftover-worktrees only reads (it proposes a command, nothing is removed); worktree-deps copies dependency folders into the folder it is given;
 //   - insights and queue are read-only: no lock, no file written, no program other than `agent.sh status|next`; pre-commit and pre-push (stage 3) are the
@@ -29,10 +29,8 @@ import { prepareWorktree } from '../worktree.mjs';
 import { applyCommands, emptyKinds, proposeCommands } from '../commandsprop.mjs';
 import { checkBudget, contextRows, reportText, rootExists, tsvText } from '../contextsize.mjs';
 import { KINDS, ambigNotes, discoverCommands, joinCommands, runWithTimeout, verifyCommands } from '../discover.mjs';
-import { applyHookTimeouts, applyScale, proposeScale } from '../scale.mjs';
+import { applyScale, proposeScale } from '../scale.mjs';
 import { configCommand } from '../cfgcli.mjs';
-import { doctorCommand, globalHookspathMessage } from '../doctor.mjs';
-import { insightsFront } from '../insightsfront.mjs';
 import { detectPlatform, detectText, droppedNetVars, fieldOf, linkText, platformEnv, warnText } from '../platform.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -249,18 +247,6 @@ function doctorScaleCli(ctx, args) {
 }
 
 /**
- * `cli hook-timeouts-apply <ROOT> <REL>` (the former `hook_timeouts_apply` of bin/lib/install.sh): sets the timeout of the proofline hooks in the settings file REL of the project
- * ROOT from its config. Prints one line `same|merged|warn TAB text`, nothing when there is nothing to do.
- * @param {Context} ctx @param {string[]} args
- */
-function hookTimeoutsApplyCli(ctx, args) {
-  if (args.length !== 2 || args[1].startsWith('/') || args[1].split('/').includes('..')) throw new ProoflineError('proofline-core cli hook-timeouts-apply: <ROOT> <relative settings file>', 2, 'USAGE');
-  const r = applyHookTimeouts(path.resolve(ctx.cwd, args[0]), args[1]);
-  if (r.state !== 'absent') ctx.out(`${r.state}\t${r.text}\n`);
-  return 0;
-}
-
-/**
  * `cli context-size <repo|project> <ROOT> [report|tsv|check <budget-file>]` (the former bin/lib/context-size.sh, A202): the size of the text proofline loads into every session. A
  * project falls back to the checkout in PL_HOME (default ROOT) for a file it lacks. Status 1 when `check` finds an item above its budget, 2 for a usage error.
  * @param {Context} ctx @param {string[]} args
@@ -280,21 +266,14 @@ function contextSizeCli(ctx, args) {
   return bad.length > 0 ? 1 : 0;
 }
 
-/** `cli hookspath-message VALUE` (the text `init` and `doctor` share): the warning for a core.hooksPath in the global or system git config. @param {Context} ctx @param {string[]} args */
-function hookspathMessageCli(ctx, args) {
-  if (args.length !== 1) throw new ProoflineError('proofline-core cli hookspath-message: <value>', 2, 'USAGE');
-  ctx.out(`${globalHookspathMessage(args[0])}\n`);
-  return 0;
-}
-
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli, discover: discoverCli, 'run-timeout': runTimeoutCli, 'doctor-commands': doctorCommandsCli, 'doctor-scale': doctorScaleCli, 'hook-timeouts-apply': hookTimeoutsApplyCli, 'context-size': contextSizeCli, doctor: doctorCommand, 'insights-front': insightsFront, config: configCommand, 'hookspath-message': hookspathMessageCli });
+export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli, discover: discoverCli, 'run-timeout': runTimeoutCli, 'doctor-commands': doctorCommandsCli, 'doctor-scale': doctorScaleCli, 'context-size': contextSizeCli, config: configCommand });
 
 /**
- * The `cli` names only bin/proofline may start (A232): writers (a config key, a settings file, a candidates file), the runner of an arbitrary program and the front ends.
+ * The `cli` names only bin/proofline may start (A232): writers (a config key, a candidates file) and the runner of an arbitrary program.
  * agent.sh always starts the core with `--pl-argv0` (io.viaAgent), and a model reaches the core only through agent.sh, so from there these are refused.
  */
-export const LAUNCHER_ONLY = Object.freeze(['config', 'doctor', 'insights-front', 'hookspath-message', 'discover', 'run-timeout', 'hook-timeouts-apply']);
+export const LAUNCHER_ONLY = Object.freeze(['config', 'discover', 'run-timeout']);
 
 /** @param {Context} ctx @param {string[]} args the arguments after `cli` */
 export function runCli(ctx, args) {

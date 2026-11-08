@@ -1,7 +1,5 @@
 adapters/codex/install.sh
 adapters/generate.sh
-bin/lib/install.sh
-bin/proofline
 control-plane/agents/githooks/pre-commit
 control-plane/agents/githooks/pre-push
 control-plane/agents/scripts/agent.sh
@@ -96,7 +94,6 @@ tests/ci/smoke-fixture-test.sh
 tests/ci/sync-design-library-test.sh
 tests/ci/sync-design-library.sh
 tests/ci/weights-test.sh
-tests/cli/cli-test.sh
 tests/context/check-budget-changed-test.sh
 tests/context/check-budget-changed.sh
 tests/e2e/capabilities-test.sh

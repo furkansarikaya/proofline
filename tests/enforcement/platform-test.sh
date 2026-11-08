@@ -86,7 +86,7 @@ reset() { rm -f "$FS"/*; printf 'echo built\n' > "$proj/.agents/cmd.build"; prin
 glabview() { # STATE DRAFT SHA PIPELINE-JSON(null|{...})
   printf '{"iid":7,"state":"%s","draft":%s,"sha":"%s","head_pipeline":%s}\n' "$1" "$2" "$3" "$4" > "$FS/glab.view"; }
 azview() { printf '{"pullRequestId":7,"status":"%s","isDraft":%s,"lastMergeSourceCommit":{"commitId":"%s"},"description":"old text"}\n' "$1" "$2" "$3" > "$FS/az.view"; }
-merge() { printf 'commands:\n  build: %s\n  test: %s\n' "$(cat "$proj/.agents/cmd.build")" "$(cat "$proj/.agents/cmd.test")" > "$proj/.agents/config.yaml"; (cd "$proj" && PATH="$stubd:$PATH" sh "$pl" merge "$@") > "$base/out" 2>&1; }
+merge() { printf 'commands:\n  build: %s\n  test: %s\n' "$(cat "$proj/.agents/cmd.build")" "$(cat "$proj/.agents/cmd.test")" > "$proj/.agents/config.yaml"; (cd "$proj" && PATH="$stubd:$PATH" node "$pl" merge "$@") > "$base/out" 2>&1; }
 refused() { # LABEL TEXT ARGS...
   l=$1; t=$2; shift 2
   if merge "$@"; then die "$l: merged: $(cat "$base/out")"; fi
@@ -206,7 +206,7 @@ done
 ok "bitbucket and an unrecognized host: nothing is merged, the message says the USER merges and prints the steps"
 git -C "$proj" remote set-url origin https://gitlab.com/acme/app.git
 nogl=$base/nogl; mkdir -p "$nogl"; for t in git sed awk head tr dirname cat readlink sh node; do p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogl/$t"; done
-(cd "$proj" && PATH=$nogl "$(command -v sh)" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without glab"
+(cd "$proj" && PATH=$nogl "$(command -v node)" "$pl" merge 7) > "$base/out" 2>&1 && die "merged without glab"
 grep -Fq 'NOT MERGED' "$base/out" && grep -Fq 'glab' "$base/out" && grep -Fq 'YOU merge it' "$base/out" || die "missing-tool message: $(cat "$base/out")"
 ok "a recognized platform whose tool is not installed falls back to the manual path"
 

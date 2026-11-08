@@ -2,13 +2,17 @@
 // Shared helpers of the CLI front-end tests (A232): a sandbox like the one tests/cli/cli-test.sh builds (private HOME and global git config, fake claude and codex on the
 // PATH), an installed project made by the real `bin/proofline init`, and `proofline` runs against it. Every test file builds its own sandbox (files run in parallel).
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
+import { Config } from '../../control-plane/agents/scripts/core/config.mjs';
 import { repo } from './helpers.mjs';
 
 export const PL = path.join(repo, 'bin', 'proofline');
+/** The version every site holds (.claude-plugin/plugin.json; tests/ci/bump-version.sh --check keeps the sites equal). */
+export const VERSION = /** @type {string} */ (JSON.parse(readFileSync(path.join(repo, '.claude-plugin', 'plugin.json'), 'utf8')).version);
 export const INIT_FLAGS = ['--yes', '--runtimes', 'claude,codex', '--lead', 'claude', '--worker', 'codex', '--reviewers', 'claude', '--profile', 'economy', '--task-adapter', 'markdown',
   '--protected-branches', 'release', '--push-approval', 'true', '--forbidden-identity', '*@forbidden-zz.test', '--forbidden-identity', '*@other-zz.test'];
 
@@ -34,13 +38,13 @@ export function sandbox() {
     return d;
   };
   /** `proofline ARGS` in DIR. */
-  const pl = (/** @type {string} */ dir, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}) => {
-    const r = spawnSync('sh', [PL, ...args], { cwd: dir, env: { ...env, ...extra }, encoding: 'utf8' });
+  const pl = (/** @type {string} */ dir, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}, /** @type {string} */ bin = PL) => {
+    const r = spawnSync(bin, args, { cwd: dir, env: { ...env, ...extra }, encoding: 'utf8' });
     return { status: r.status, out: r.stdout, err: r.stderr, text: r.stdout + r.stderr };
   };
   /** The same, asynchronous, so several runs overlap. */
-  const plAsync = (/** @type {string} */ dir, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}) => new Promise((resolve) => {
-    const c = spawn('sh', [PL, ...args], { cwd: dir, env: { ...env, ...extra } });
+  const plAsync = (/** @type {string} */ dir, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}, /** @type {string} */ bin = PL) => new Promise((resolve) => {
+    const c = spawn(bin, args, { cwd: dir, env: { ...env, ...extra } });
     let out = ''; let err = '';
     c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
     c.on('close', (status) => resolve({ status, out, err, text: out + err }));
@@ -62,3 +66,34 @@ export function sandbox() {
 
 /** The lines of a doctor run that start with WARN, PASS or FAIL. @param {string} out */
 export function verdicts(out) { return out.split('\n').filter((l) => /^(PASS|WARN|FAIL) /.test(l)); }
+
+/** The value of a config key of a project (the one config reader of the core). @param {string} dir @param {string} key */
+export const cfgv = (dir, key) => {
+  const c = Config.load(path.join(dir, '.agents', 'config.yaml'));
+  const v = c.get(key, '');
+  return v !== '' || !key.startsWith('commands.') ? v : c.cmds(key).join('\n'); // a command list reads as its items, one per line (agent.sh config-get)
+};
+
+/** Every file of a folder (not .git) with the sha256 of its bytes, as one string: equal strings mean an untouched tree. @param {string} dir */
+export function sig(dir) {
+  /** @type {string[]} */ const rows = [];
+  /** @param {string} d @param {string} pre */
+  const rec = (d, pre) => {
+    for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      if (pre === '' && e.name === '.git') continue;
+      if (e.isDirectory()) rec(path.join(d, e.name), `${pre}${e.name}/`);
+      else if (e.isFile()) rows.push(`${pre}${e.name} ${createHash('sha256').update(readFileSync(path.join(d, e.name))).digest('hex')}`);
+      else rows.push(`${pre}${e.name} (link)`);
+    }
+  };
+  rec(dir, '');
+  return rows.join('\n');
+}
+
+/** A copy of the checkout that differs from the real one, for `upgrade` (an "upstream" release): the folders the CLI reads, plus the edits FN makes. @param {string} T @param {(home: string) => void} [fn] */
+export function upstream(T, fn) {
+  const home = mkdtempSync(path.join(T, 'home2-'));
+  for (const d of ['bin', 'control-plane', 'adapters', 'skills', 'roles', '.claude-plugin']) cpSync(path.join(repo, d), path.join(home, d), { recursive: true, verbatimSymlinks: true });
+  if (fn) fn(home);
+  return home;
+}

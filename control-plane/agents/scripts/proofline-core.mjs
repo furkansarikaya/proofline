@@ -4,7 +4,7 @@
 // worktree rule, check the role gate, take the locks of a locking command, run the handler, release the locks. A command it does not
 // own yet is run by the shell code through proc.mjs (the bridge; counted).
 import './core/node-check.mjs';
-import { accessSync, constants, mkdirSync, realpathSync, writeSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCli } from './core/commands/cli.mjs';
@@ -12,6 +12,7 @@ import { HANDLERS } from './core/commands/moved.mjs';
 import { PRELOCK } from './core/commands/delivercmds.mjs';
 import { USAGE_LINES } from './core/commands/data.mjs';
 import { COMMAND_NAMES, READ_ONLY_COMMANDS } from './core/commands/names.mjs';
+import { fdWriter } from './core/cliio.mjs';
 import { bytes } from './core/config.mjs';
 import { Context, validRole } from './core/context.mjs';
 import { BridgeToShell, ProoflineError } from './core/errors.mjs';
@@ -158,24 +159,6 @@ function dispatch(ctx, locks, argv) {
 /** `[ -e PATH ]` @param {string} p */
 function isExisting(p) { try { realpathSync(p); return true; } catch { return false; } }
 
-/** A synchronous writer for a descriptor of this process: output keeps its order with a child that inherits the descriptor. @param {number} fd */
-function fdWriter(fd) {
-  return {
-    /** @param {Buffer} chunk */
-    write(chunk) {
-      let off = 0;
-      while (off < chunk.length) {
-        try { off += writeSync(fd, chunk, off); } catch (e) {
-          const code = /** @type {NodeJS.ErrnoException} */ (e).code;
-          if (code === 'EAGAIN') continue;
-          return false; // EPIPE: the reader went away
-        }
-      }
-      return true;
-    },
-  };
-}
-
 /**
  * The leading `--pl-argv0 <$0>` that agent.sh's preamble passes: the typed script path, used by the bridge only when it names the core's own
  * sibling agent.sh (same real path); anything else is ignored and the bridge uses the absolute path. It never selects what is executed.
@@ -206,16 +189,6 @@ export function splitArgv0(args, scriptPath, cwd) {
 }
 
 /**
- * `cli next-line` runs for the project named by PROOFLINE_ROOT (the front end bin/proofline runs it from the plugin, also for a project that is
- * not installed yet): the script path that names the root. `cli doctor` and `cli insights-front` (A232) run for the installed project the same way. No other command reads PROOFLINE_ROOT.
- * @param {string[]} argv @param {NodeJS.ProcessEnv} env @returns {string | undefined}
- */
-function cliRootScript(argv, env) {
-  const r = env.PROOFLINE_ROOT;
-  return argv[0] === 'cli' && ['next-line', 'doctor', 'insights-front'].includes(argv[1]) && r && path.isAbsolute(r) ? path.join(r, '.agents', 'scripts', 'proofline-core.mjs') : undefined;
-}
-
-/**
  * `dispatch ...` as a process: the specialist runner (core/dispatcher.mjs). HUP, INT and TERM go to the worker's group; the exit status is the dispatcher's.
  * @param {Io} io @param {string[]} args the arguments after `dispatch` @returns {Promise<number>}
  */
@@ -232,7 +205,7 @@ export function main(scriptPath) {
   const io = {
     env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
     // from a run worktree the script that names the root is the worktree's agent.sh; the code that runs stays this core's
-    scriptPath: split.rootScript ?? cliRootScript(split.argv, process.env) ?? path.resolve(scriptPath), argv0: split.argv0,
+    scriptPath: split.rootScript ?? path.resolve(scriptPath), argv0: split.argv0,
     viaAgent: process.argv[2] === '--pl-argv0',
   };
   if (split.argv[0] === 'dispatch') return dispatchMain(io, split.argv.slice(1));

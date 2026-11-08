@@ -29,13 +29,12 @@ export const ALLOWLIST = 'tests/ci/shell-allowlist.txt';
 export const SNAPSHOT = 'tests/ci/inline-shell-snapshot.txt';
 export const HOOK_TEMPLATES = 'tests/ci/hook-templates.txt';
 export const WIRING_FILES = ['adapters/claude/hooks/hooks.json', 'adapters/claude/settings.fragment.json', 'adapters/codex/hooks.json'];
-// The launcher list of ADR section 9 (strict mode only; in ratchet mode every shell file of 0.0.40 is allowlisted).
+// The launcher list of ADR section 9 (strict mode only; in ratchet mode every shell file of 0.0.40 is allowlisted). bin/proofline is a Node program since A233 (`#!/usr/bin/env node`), not a shell launcher.
 export const LAUNCHERS = new Set([
   'control-plane/agents/scripts/agent.sh',
   'control-plane/agents/scripts/dispatch.sh',
   'control-plane/agents/githooks/pre-commit',
   'control-plane/agents/githooks/pre-push',
-  'bin/proofline',
 ]);
 
 /** @typedef {{ kind: string, file: string, job: string, index: number, text: string, location: string, group: string, sha?: string, line?: number }} Item */

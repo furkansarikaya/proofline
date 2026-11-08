@@ -1,5 +1,5 @@
 // @ts-check
-// A232 fix round (security): the `cli` family of the Node core is the front end of bin/proofline, not part of the command set a model reaches through
+// A232 fix round (security): the `cli` family of the Node core is not the front end of bin/proofline (A233: that is core/proflinecli.mjs, which calls the modules directly), and its writers are not part of the command set a model reaches through
 // `sh .agents/scripts/agent.sh`. agent.sh always starts the core with `--pl-argv0`; a `cli` writer or executor called that way is refused with status 2
 // and writes nothing (A169, A200: config.yaml keys such as commands.* change only through their approval gates).
 import assert from 'node:assert/strict';
@@ -24,8 +24,8 @@ test('cli config set and merge-new are refused through agent.sh and change no by
   assert.deepEqual([bytes(cfg), bytes(product)], before);
 });
 
-test('every other launcher-only cli subcommand is refused through agent.sh too (the writers, the program runner, the front ends)', () => {
-  for (const name of ['config', 'doctor', 'insights-front', 'hookspath-message', 'discover', 'run-timeout', 'hook-timeouts-apply']) {
+test('every other launcher-only cli subcommand is refused through agent.sh too (the writer and the program runner)', () => {
+  for (const name of ['config', 'discover', 'run-timeout']) {
     const r = fx.sh(['cli', name]);
     assert.equal(r.code, 2, name);
     assert.match(r.err, /not reachable through agent\.sh/, name);

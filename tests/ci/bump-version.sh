@@ -53,7 +53,7 @@ site() {
 }
 
 sites() {
-  site bin/proofline '^PROOFLINE_VERSION=' '$' 0
+  site control-plane/agents/scripts/core/proflinecli.mjs "^export const PROOFLINE_VERSION = '" "';\$" 0
   site .claude-plugin/plugin.json '^  "version": "' '",$' 0
   site .claude-plugin/marketplace.json '^ *"version": "' '"$' 0
   site control-plane/agents/config.yaml '^proofline_version: ' '$' 0
@@ -67,12 +67,6 @@ sites() {
   site adapters/README.md '^## Support status \(' '\)$' 0
   site fixtures/concurrency-proof/selfcheck.sh 'skill_version: "' '"' 0
   site fixtures/insights/setup.sh 'proofline_version: ' '\\nmetrics' 0
-  site tests/cli/cli-test.sh 'expect "version prints proofline ' '" "\$out"' 0
-  site tests/cli/cli-test.sh '" "\$out" "proofline ' '"$' 0
-  site tests/cli/cli-test.sh '\.claude-plugin/plugin\.json"\)" = ' ' \] && ok "plugin\.json version' 0
-  site tests/cli/cli-test.sh 'proofline_version\)" = ' ' \] && ok "config: proofline_version stamped' 0
-  site tests/cli/cli-test.sh "grep -q '\\^# version: " "'" 0
-  site tests/cli/cli-test.sh 'version\)" = "proofline ' '" \] && ok "install\.sh' 0
   site tests/skills/concurrency-proof.test.mjs 'schema_version: 1, skill_version: "' '"' 0
   site tests/skills/proof-review.test.mjs 'schema_version: 1, skill_version: "' '"' 0
   site tests/skills/data-design.test.mjs '\\n  version: "' '"\\n---' 1

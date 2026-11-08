@@ -1,7 +1,7 @@
 // @ts-check
 // `proofline insights` (A89, A232; the front end that was bin/lib/insights.sh): checks the arguments, then prints the read-only report of core/insights.mjs and, for the plain
 // report, the size of the text loaded into every session (A202) and the project rules budget. It opens nothing for writing: no rule, skill, config, ledger or metrics file is
-// ever changed. The root is the project named by PROOFLINE_ROOT.
+// ever changed. The root is the project the CLI was started in.
 import { readFileSync } from 'node:fs';
 import { agentCall } from './batch.mjs';
 import { requireInstalled } from './doctor.mjs';

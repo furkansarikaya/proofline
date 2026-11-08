@@ -29,14 +29,14 @@ grep -q 'native apps (0.0.24)' skills/visual-proof/scripts/native.mjs && ok "his
 git diff --name-only | sort > "$t/changed"
 grep -q -E 'visual-proof/scripts|visual-proof-native' "$t/changed" && no "a visual-proof file changed" || ok "no visual-proof file changed"
 # every changed file is a listed site, the changelog or a generated file
-bad=$(grep -v -E '^(bin/proofline|\.claude-plugin/(plugin|marketplace)\.json|control-plane/agents/config\.yaml|playground/package\.json|skills/[a-z-]+/SKILL\.md|skills/exploit-proof/scripts/diff-manifests\.mjs|skills/proof-review/(scripts/check-config\.mjs|references/REPORTING\.md)|README\.md|adapters/README\.md|fixtures/(concurrency-proof/selfcheck|insights/setup)\.sh|tests/cli/cli-test\.sh|tests/skills/(concurrency-proof|proof-review|data-design|proofline-lead)\.test\.mjs|CHANGELOG\.md|docs/reference/skills\.md)$' "$t/changed" || true)
+bad=$(grep -v -E '^(control-plane/agents/scripts/core/proflinecli\.mjs|\.claude-plugin/(plugin|marketplace)\.json|control-plane/agents/config\.yaml|playground/package\.json|skills/[a-z-]+/SKILL\.md|skills/exploit-proof/scripts/diff-manifests\.mjs|skills/proof-review/(scripts/check-config\.mjs|references/REPORTING\.md)|README\.md|adapters/README\.md|fixtures/(concurrency-proof/selfcheck|insights/setup)\.sh|tests/skills/(concurrency-proof|proof-review|data-design|proofline-lead)\.test\.mjs|CHANGELOG\.md|docs/reference/skills\.md)$' "$t/changed" || true)
 [ -z "$bad" ] && ok "only listed sites changed" || no "unlisted files changed: $bad"
 # every changed line names the old or the new version (nothing else was rewritten)
 stray=$(git diff -U0 | grep -E '^[-+][^-+]' | grep -v -F -e "$cur" -e '9.8.7' -e '9\.8\.7' -e "$(printf '%s' "$cur" | sed 's/\./\\\./g')" -e 'test entry' -e 'Unreleased' || true)
 [ -z "$stray" ] && ok "every changed line names the old or new version" || no "stray changed lines: $stray"
 grep -q '^## 9.8.7 — 2030-01-02$' CHANGELOG.md && ok "CHANGELOG heading added" || no "CHANGELOG heading missing"
 sh tests/ci/bump-version.sh --check >/dev/null && ok "check passes after the bump" || no "check fails after the bump"
-sed 's/^PROOFLINE_VERSION=.*/PROOFLINE_VERSION=0.0.1/' bin/proofline > "$t/pl"
-cat "$t/pl" > bin/proofline
+sed "s/^export const PROOFLINE_VERSION = .*/export const PROOFLINE_VERSION = '0.0.1';/" control-plane/agents/scripts/core/proflinecli.mjs > "$t/pl"
+cat "$t/pl" > control-plane/agents/scripts/core/proflinecli.mjs
 sh tests/ci/bump-version.sh --check >/dev/null 2>&1 && no "check missed a disagreeing site" || ok "check fails when a site disagrees"
 exit "$fail"
