@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Write, Edit
 model: opus
 effort: high
 ---
-<!-- Generated from roles/security_reviewer.md by adapters/generate.sh. Do not edit. -->
+<!-- Generated from roles/security_reviewer.md by adapters/generate.mjs. Do not edit. -->
 # Security Reviewer
 
 ## Does / Must not

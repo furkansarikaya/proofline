@@ -12,7 +12,7 @@ the report that `scripts/validate-performance.mjs` checks. `compare-bench.mjs` p
 | `status` | `PASS`, `FAIL`, `INCONCLUSIVE` or `UNSUPPORTED`; derived, never chosen |
 | `unsupported_reason` | UNSUPPORTED only: the missing command or capability |
 | `tool` | `{command, source}`: the project's benchmark command and the file that defines it |
-| `environment` | `os`, `cpu_count`, `load_avg_before` (and `load_avg_after`), `command`, `warmup_runs`, `runs`, `order: interleaved`, `timer`, `base_rev`, `change_rev`, `started_at`, `finished_at`, `tool_versions` (object); `run-bench.sh` writes all of them |
+| `environment` | `os`, `cpu_count`, `load_avg_before` (and `load_avg_after`), `command`, `warmup_runs`, `runs`, `order: interleaved`, `timer`, `base_rev`, `change_rev`, `started_at`, `finished_at`, `tool_versions` (object); `run-bench.mjs` writes all of them |
 | `thresholds` | `regression_pct`, `noise_pct`, `min_runs` (>= 5), `confidence`, `source` (`default`, `config`, `plan`) |
 | `measurements[]` | `id` `M<n>`, `metric`, `unit`, `direction` (`lower`/`higher`), `base` and `change` (`samples` plus the computed statistics), `delta` (`regression_pct`, `ci_low_pct`, `ci_high_pct`, `ci99_high_pct`, `confidence`, `resamples`, `seed`), `noise_pct`, `status`, `reason` |
 | `judged[]` | `id` `J<n>`, `text` (no measured numbers), `path`, `criterion` (the quoted written criterion, or null), `violates_criterion` |

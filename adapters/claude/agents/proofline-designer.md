@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
 effort: medium
 ---
-<!-- Generated from roles/designer.md by adapters/generate.sh. Do not edit. -->
+<!-- Generated from roles/designer.md by adapters/generate.mjs. Do not edit. -->
 # Designer
 
 ## Does / Must not

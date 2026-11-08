@@ -176,8 +176,8 @@ class Install {
       for (const [rel, abs] of walk(`${plHome}/skills/${e.name}`)) files.set(`.agents/skills/${e.name}/${rel}`, abs);
     }
     const gen = `${this.stage}/gen`;
-    // the role generator is a shell program until 173-D (adapters/generate.sh); it renders the agent files of the chosen profile
-    const g = proc.run('sh', [`${plHome}/adapters/generate.sh`, '--profile', this.p.profile, '--out', gen, '--root', plHome], { env: this.p.env, stdio: ['ignore', 'ignore', 'ignore'] });
+    // the role generator (adapters/generate.mjs) renders the agent files of the chosen profile into the staging folder: one Node process
+    const g = proc.run(process.execPath, [`${plHome}/adapters/generate.mjs`, '--profile', this.p.profile, '--out', gen, '--root', plHome], { env: this.p.env, stdio: ['ignore', 'ignore', 'ignore'] });
     if (g.status !== 0) throw new CliDie('role generation failed');
     for (const [rel, abs] of walk(`${gen}/.agents`)) files.set(`.agents/${rel}`, abs);
     if (this.has('claude')) {

@@ -90,6 +90,6 @@ date=${BUMP_DATE:-$(date +%Y-%m-%d)}
 tmp=$(mktemp)
 awk -v v="$new" -v d="$date" '{print} /^## Unreleased$/ {print ""; printf "## %s — %s\n", v, d}' CHANGELOG.md > "$tmp"
 cat "$tmp" > CHANGELOG.md; rm -f "$tmp"
-sh adapters/generate.sh >/dev/null
-sh docs/reference/generate-skills.sh >/dev/null
+node adapters/generate.mjs >/dev/null
+node docs/reference/generate-skills.mjs >/dev/null
 printf 'bump-version: %s -> %s\n' "$cur" "$new"

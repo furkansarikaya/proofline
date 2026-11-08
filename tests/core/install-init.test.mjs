@@ -66,9 +66,9 @@ test('every skill (including proofline) is installed in .agents/skills and the e
   assert.ok(existsSync(`${base}/.claude/skills/proofline/SKILL.md`));
 });
 
-test('the roles are rendered for the chosen profile (equal to generate.sh --profile economy)', () => {
+test('the roles are rendered for the chosen profile (equal to generate.mjs --profile economy)', () => {
   const gen = `${sb.T}/gen-economy`;
-  const r = spawnSync('sh', [`${repo}/adapters/generate.sh`, '--profile', 'economy', '--out', gen], { env: sb.env, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [`${repo}/adapters/generate.mjs`, '--profile', 'economy', '--out', gen], { env: sb.env, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   for (const [a, b] of [[`${gen}/.claude/agents`, `${base}/.claude/agents`], [`${gen}/.codex/agents`, `${base}/.codex/agents`]]) {
     assert.equal(sig(a), sig(b), a);

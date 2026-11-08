@@ -1,4 +1,4 @@
-# Generated from roles/data_architect.md by adapters/generate.sh. Do not edit.
+# Generated from roles/data_architect.md by adapters/generate.mjs. Do not edit.
 name = "proofline-data-architect"
 description = "Designs the data model change and its migration plan, returning the PLAN Data section text and design/DATA.md, and flags every destructive operation. Use when: when persistence, schema or stored data changes, or on request (proofline design data)"
 model = "gpt-6-astra"

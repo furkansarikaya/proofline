@@ -108,14 +108,14 @@ jobs:
       - name: shellcheck
         run: node tests/ci/shellcheck.mjs
 
+      - name: role sources conform
+        run: node tests/generator/role-conformance.mjs roles
+
       - name: generated files in sync
-        run: |
-          if ls roles/*.md >/dev/null 2>&1; then sh tests/generator/role-conformance.sh roles; fi
-          if ls roles/*.md >/dev/null 2>&1; then sh adapters/generate.sh --check
-          else echo "SKIPPED: roles/*.md do not exist yet"; fi
+        run: node adapters/generate.mjs --check
 
       - name: skills reference in sync
-        run: sh docs/reference/generate-skills.sh --check
+        run: node docs/reference/generate-skills.mjs --check
 
       - name: shared sections in sync
         run: |
@@ -142,7 +142,7 @@ jobs:
 
       - name: generator tests
         if: needs.changes.outputs.code == 'true'
-        run: sh tests/generator/generator-test.sh
+        run: node --test "tests/generator/*.test.mjs"
 
       - uses: actions/setup-node@v4
         if: needs.changes.outputs.code == 'true'

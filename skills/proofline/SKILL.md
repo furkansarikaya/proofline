@@ -5,7 +5,7 @@ argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.67"
+  version: "0.0.68"
 ---
 
 # proofline
@@ -18,7 +18,7 @@ Read the `SKILL.md` file by path (see "Locate the tools") and continue with the 
 
 ## Locate the tools
 
-- **CLI.** `proofline` when it is on `PATH` (terminal install: `adapters/codex/install.sh`; as a Claude Code
+- **CLI.** `proofline` when it is on `PATH` (terminal install: `adapters/codex/install.mjs`; as a Claude Code
   plugin its `bin/` is on `PATH` in the session). Otherwise `${CLAUDE_PLUGIN_ROOT}/bin/proofline` (plugin
   install; the variable is substituted in this file) or `bin/proofline` of the proofline checkout.
 - **Project install** is `.agents/` (config, scripts, git hooks, templates, skills), `AGENTS.md`, `CLAUDE.md`

@@ -14,7 +14,7 @@ Planted facts (12 runs per side unless stated; `samples/` after `setup.sh`):
 
 - **c1** clear regression: change = base x 1.30 on a tight base around 100 ms.
 - **c2** noise: both sides spread more than 10 % (relative MAD), median base 101.5 ms, change 111 ms (+9.4 %).
-- **c3** within threshold: change = base x 1.04. Stored as CSV in the `run-bench.sh` format.
+- **c3** within threshold: change = base x 1.04. Stored as CSV in the `run-bench.mjs` format.
 - **c4** improvement: change = base x 0.80.
 - **c5** tiny sample: 3 runs per side, change about 1 % faster.
 - **c6** identical medians (100.05 ms and 100.1 ms), change spread exploding (relative MAD about 44 %).

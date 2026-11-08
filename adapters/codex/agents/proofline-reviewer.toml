@@ -1,4 +1,4 @@
-# Generated from roles/reviewer.md by adapters/generate.sh. Do not edit.
+# Generated from roles/reviewer.md by adapters/generate.mjs. Do not edit.
 name = "proofline-reviewer"
 description = "Independently reviews the task-owned diff for one focus (plan, rules, tests, data, rules+tests, or a risk focus contract, concurrency, performance, config, migration, or the standalone focuses spec for a PRD and strategy for a plan's assumptions) and returns an evidence-based gate result. Use when: per tier (D14), small tier one reviewer with focus rules+tests, full tier one reviewer per focus plan rules tests and data when PLAN.md has a Data section; plus one per risk focus that agent.sh pipeline lists (A78)"
 model = "gpt-6-sol"

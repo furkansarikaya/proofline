@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Edit, Write
 model: sonnet
 effort: high
 ---
-<!-- Generated from roles/implementer.md by adapters/generate.sh. Do not edit. -->
+<!-- Generated from roles/implementer.md by adapters/generate.mjs. Do not edit. -->
 # Implementer
 
 ## Does / Must not

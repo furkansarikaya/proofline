@@ -1,4 +1,4 @@
-<!-- Generated from roles/explorer.md by adapters/generate.sh. Do not edit. -->
+<!-- Generated from roles/explorer.md by adapters/generate.mjs. Do not edit. -->
 # Explorer
 
 ## Does / Must not

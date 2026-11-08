@@ -122,7 +122,6 @@
 27 gates-test sc_validation_plan
 26 gates-test sc_language
 26 gates-test sc_secret_scan
-26 generator-test
 25 gates-test sc_evidence_gap_files
 25 reply-loop-test plan
 25 risk-test sc_log_unsupported

@@ -1,4 +1,4 @@
-<!-- Generated from roles/lead.md by adapters/generate.sh. Do not edit. -->
+<!-- Generated from roles/lead.md by adapters/generate.mjs. Do not edit. -->
 # Lead
 
 The lead is the main session (Claude Code, Codex or a terminal agent reading `AGENTS.md`). This file is

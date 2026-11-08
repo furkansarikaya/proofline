@@ -1,6 +1,6 @@
 # Role sources
 
-Each file `roles/<id>.md` defines one role once (D11). `adapters/generate.sh` renders it into the Claude
+Each file `roles/<id>.md` defines one role once (D11). `adapters/generate.mjs` renders it into the Claude
 subagent, the Codex custom agent, the role prompt prefix used by `dispatch.sh`, the `roles.conf` line set
 and the generated reference. Never edit generated files; edit the source and re-run the generator.
 This page is normative: a role file that breaks a MUST below is a generator error.

@@ -64,6 +64,6 @@ Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|de
 | A suite fails when a scenario dies (A177) | the only suite with a scenario runner of its own (`tests/cli/cli-test.sh`) is Node tests since A233, where a test that throws fails its file and the CI leg; `tests/selftest.sh` fails a unit on any non-zero exit and a scenario unit that ran no case |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
-Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and `roles/` (eleven roles). `sh adapters/generate.sh --check` and `sh docs/reference/generate-skills.sh --check` keep the generated references in step with them.
+Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and `roles/` (eleven roles). `node adapters/generate.mjs --check` and `node docs/reference/generate-skills.mjs --check` keep the generated references in step with them.
 
 The self-tests (`sh tests/selftest.sh`), the skill tests (`node --test tests/skills/`) and the fixtures (`sh tests/fixtures/check-fixtures.sh`) hold more than 900 tests in all (counted 2026-10-17). A pull request takes about 8 minutes of wall time in CI (Linux only; A109).

@@ -1,4 +1,4 @@
-<!-- Generated from roles/ — do not edit. Run adapters/generate.sh. -->
+<!-- Generated from roles/ — do not edit. Run adapters/generate.mjs. -->
 
 # Roles reference
 

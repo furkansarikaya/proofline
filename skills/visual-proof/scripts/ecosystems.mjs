@@ -23,7 +23,7 @@
 //   sync      write, then refreshes the byte-identical copies in every skills/*/ that carries one (the control plane only)
 //   check     validate + the tsv equals what write would produce (exit 1 otherwise)
 //   validate  the schema (every key every consumer relies on exists)
-import { readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync, realpathSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -253,4 +253,4 @@ const main = () => {
   console.error("usage: ecosystems.mjs write|sync|check|validate|ids|risky|dependency|get <id|*> <path>");
   process.exit(2);
 };
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) main();

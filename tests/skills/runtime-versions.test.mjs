@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, existsSync, cpSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-// runtime-versions.sh (0.0.26): the version CI specifies against the one installed here, from fake tools on PATH.
-const SCRIPT = fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-versions.sh", import.meta.url));
+// runtime-versions.mjs (0.0.26; Node since A234, the shell twin passed these same expectations): the version CI specifies against the one installed here, from fake tools on PATH.
+const SCRIPT = fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-versions.mjs", import.meta.url));
 
 const fakeBin = (versions) => {
   const bin = mkdtempSync(join(tmpdir(), "rv-bin-"));
@@ -26,7 +26,7 @@ const project = (files) => {
   return dir;
 };
 const run = (dir, tools) => {
-  const r = spawnSync("sh", [SCRIPT, dir], { encoding: "utf8", env: { ...process.env, PATH: `${fakeBin(tools)}:${process.env.PATH}` } });
+  const r = spawnSync(process.execPath, [SCRIPT, dir], { encoding: "utf8", env: { ...process.env, PATH: `${fakeBin(tools)}:${process.env.PATH}` } });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
 };
@@ -118,4 +118,80 @@ test("a nested .tool-versions names the versions, and a pruned folder is not rea
   assert.equal(line(dir, tools, "node"), "runtime: node local=20.9.0 ci=20.1.0 source=app/.tool-versions status=match");
   assert.equal(line(dir, tools, "java"), "runtime: java local=17.0.2 ci=17.0.1 source=app/.tool-versions status=match");
   assert.equal(run(project({ "node_modules/x/.nvmrc": "v10\n", "node_modules/x/package.json": "{}" }), tools), "runtime: none (no language runtime detected)");
+});
+
+// A234: what the shell twin did not pin
+test("a directory that cannot be entered is a usage error (exit 2), and no argument means the current directory", () => {
+  const r = spawnSync(process.execPath, [SCRIPT, join(tmpdir(), "rv-does-not-exist")], { encoding: "utf8" });
+  assert.equal(r.status, 2); assert.match(r.stderr, /^runtime-versions: cannot enter /);
+  const dir = project({ ".nvmrc": "v20\n", "package.json": "{}" });
+  const c = spawnSync(process.execPath, [SCRIPT], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${fakeBin({ node: "v20.1.0" })}:${process.env.PATH}` } });
+  assert.equal(c.status, 0); assert.equal(c.stdout.trim(), "runtime: node local=20.1.0 ci=v20 source=.nvmrc status=match");
+});
+
+test("a runtime that is not installed is local=missing and unknown", () => {
+  const dir = project({ ".nvmrc": "v20\n", "package.json": "{}" });
+  const env = { ...process.env, PATH: fakeBin({}) };
+  const r = spawnSync(process.execPath, [SCRIPT, dir], { encoding: "utf8", env });
+  assert.equal(r.status, 0); assert.match(r.stdout, /^runtime: node local=missing ci=v20 source=\.nvmrc status=unknown$/m);
+});
+
+test("a workflow value with an expression is skipped, the next source answers; a matrix block list is read", () => {
+  const expr = project({ ".github/workflows/ci.yml": WF("${{ matrix.node }}"), ".nvmrc": "18\n" });
+  assert.match(run(expr, { node: "v18.2.0" }), /ci=18 source=\.nvmrc status=match/);
+  const blk = project({ ".github/workflows/ci.yml": "jobs:\n  t:\n    strategy:\n      matrix:\n        node-version:\n          - 18   # old\n          - 20\n    steps: []\n" });
+  assert.match(run(blk, { node: "v20.1.0" }), /ci=18,20 source=\.github\/workflows\/ci\.yml status=match/);
+});
+
+test("a .gitlab-ci.yml image names the version; the root file wins over a nested one", () => {
+  assert.match(run(project({ ".gitlab-ci.yml": "build:\n  image: node:20-alpine\n" , "package.json": "{}"}), { node: "v22.0.0" }), /ci=20 source=\.gitlab-ci\.yml status=mismatch/);
+  const both = project({ ".nvmrc": "v22\n", "web/.nvmrc": "v18\n", "package.json": "{}" });
+  assert.match(run(both, { node: "v22.0.0" }), /ci=v22 source=\.nvmrc status=match/);
+});
+
+test("SECURITY: the skill reads only its own copy of the ecosystem definition, never the project's .agents/ecosystems.json", () => {
+  const marker = join(mkdtempSync(join(tmpdir(), "rv-sec-")), "ran");
+  const hostile = JSON.parse(readFileSync(fileURLToPath(new URL("../../skills/verify-proof/references/ecosystems.json", import.meta.url)), "utf8"));
+  hostile.ecosystems[0].runtime.local.commands = [`touch ${marker}`];
+  const dir = project({ "package.json": "{}", ".agents/ecosystems.json": JSON.stringify(hostile) });
+  // the installed layout: the script sits in .agents/skills/<name>/scripts of the project
+  const inst = join(dir, ".agents/skills/verify-proof");
+  cpSync(fileURLToPath(new URL("../../skills/verify-proof", import.meta.url)), inst, { recursive: true });
+  spawnSync(process.execPath, [join(inst, "scripts/runtime-versions.mjs"), dir], { encoding: "utf8", env: process.env });
+  assert.equal(existsSync(marker), false, "the project's definition was used to run a command");
+});
+
+test("the script imports nothing outside its skill (it is installable alone)", () => {
+  const src = readFileSync(fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-versions.mjs", import.meta.url)), "utf8");
+  for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || m[1] === "./ecosystems.mjs", m[1]);
+});
+
+// fix round 1 (F4, F5, F6)
+test("SECURITY: a version file that is a symbolic link to a file outside the project is not read into the report", () => {
+  const outside = project({ "secret.txt": "TOP-SECRET-LINE\n" });
+  const dir = project({ "package.json": "{}" });
+  symlinkSync(join(outside, "secret.txt"), join(dir, ".nvmrc"));
+  const out = run(dir, { node: "v20.0.0" });
+  assert.doesNotMatch(out, /TOP-SECRET/); assert.match(out, /ci=none source=-/);
+  const inner = project({ "package.json": "{}", "real.txt": "v18\n" });
+  symlinkSync(join(inner, "real.txt"), join(inner, ".nvmrc"));
+  assert.match(run(inner, { node: "v20.0.0" }), /ci=none source=-/, "even a link that stays inside is skipped");
+});
+
+test("SECURITY: a program planted in the project is not run, whatever PATH holds ('.' and empty entries)", () => {
+  const marker = join(mkdtempSync(join(tmpdir(), "rv-plant-")), "ran");
+  const dir = project({ "package.json": "{}" });
+  writeFileSync(join(dir, "node"), `#!/bin/sh\n: > ${marker}\necho v99.0.0\n`); chmodSync(join(dir, "node"), 0o755);
+  const r = spawnSync(process.execPath, [SCRIPT, dir], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `.::relative:${process.env.PATH}` } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(existsSync(marker), false, "the planted node ran");
+  assert.doesNotMatch(r.stdout, /99\.0\.0/);
+});
+
+test("a run through a symbolic link to the script folder still runs (the main guard compares real paths)", () => {
+  const link = join(mkdtempSync(join(tmpdir(), "rv-link-")), "scripts");
+  symlinkSync(realpathSync(fileURLToPath(new URL("../../skills/verify-proof/scripts", import.meta.url))), link);
+  const dir = project({ ".nvmrc": "v20\n", "package.json": "{}" });
+  const r = spawnSync(process.execPath, [join(link, "runtime-versions.mjs"), dir], { encoding: "utf8", env: { ...process.env, PATH: `${fakeBin({ node: "v20.1.0" })}:${process.env.PATH}` } });
+  assert.match(r.stdout, /^runtime: node local=20\.1\.0 ci=v20 /);
 });

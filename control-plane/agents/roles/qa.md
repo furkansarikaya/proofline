@@ -1,4 +1,4 @@
-<!-- Generated from roles/qa.md by adapters/generate.sh. Do not edit. -->
+<!-- Generated from roles/qa.md by adapters/generate.mjs. Do not edit. -->
 # QA
 
 ## Does / Must not

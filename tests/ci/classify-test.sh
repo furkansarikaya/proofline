@@ -21,7 +21,7 @@ expect true roles/lead.md
 expect true control-plane/agents/GATES.md
 expect true adapters/claude/README.md
 expect true docs/reference/skills.md
-expect true docs/reference/generate-skills.sh
+expect true docs/reference/generate-skills.mjs
 expect true docs/decisions.md tests/selftest.sh
 expect true .github/workflows/ci.yml
 expect true README.md fixtures/api-design/setup.sh

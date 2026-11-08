@@ -2,7 +2,7 @@
 // `proofline help` against the other places that list the commands, the plugin files, and the terminal installer (A233; the former scenarios sc_help_lists, sc_plugin and
 // sc_installer of tests/cli/cli-test.sh): the help text, the entry skill, the lead skill table, the README and the next-step table name the same commands.
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -98,19 +98,19 @@ test('the proofline skill carries the shared-rules block verbatim, routes $ARGUM
   assert.ok(/^name: proofline$/m.test(skill) && skill.includes('ARGUMENTS') && skill.includes('proofline init'));
 });
 
-// ---- the terminal installer (adapters/codex/install.sh stays a shell program until 173-D) ------------------------------------------------------------------------------
-const inst = `${repo}/adapters/codex/install.sh`;
+// ---- the terminal installer (adapters/codex/install.mjs, Node since A234; the shell twin passed the first two tests) ------------------------------------------------------------------------------
+const inst = `${repo}/adapters/codex/install.mjs`;
 const installer = (/** @type {string} */ home, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ env = {}, /** @type {string | undefined} */ input = '') =>
-  spawnSync('sh', [inst, ...args], { env: { HOME: home, SHELL: '/bin/zsh', PATH: '/usr/bin:/bin', ...env }, input, encoding: 'utf8' });
+  spawnSync(process.execPath, [inst, ...args], { env: { HOME: home, SHELL: '/bin/zsh', PATH: '/usr/bin:/bin', ...env }, input, encoding: 'utf8' });
 
-test('install.sh without a terminal and without --yes installs nothing', () => {
+test('install.mjs without a terminal and without --yes installs nothing', () => {
   const h = path.join(sb.T, 'h2'); mkdirSync(h, { recursive: true });
   const r = installer(h, ['--dir', `${h}/bin`]);
   assert.notEqual(r.status, 0);
   assert.ok(!existsSync(`${h}/bin/proofline`));
 });
 
-test('install.sh --yes links bin/proofline, the link runs (node resolves the symlink), the rc file gets the PATH line once, and a PATH that has the dir leaves the rc file alone', () => {
+test('install.mjs --yes links bin/proofline, the link runs (node resolves the symlink), the rc file gets the PATH line once, and a PATH that has the dir leaves the rc file alone', () => {
   const h = path.join(sb.T, 'h3'); mkdirSync(h, { recursive: true });
   writeFileSync(`${h}/.zshrc`, '');
   const r = installer(h, ['--dir', `${h}/bin`, '--yes']);
@@ -137,4 +137,31 @@ test('the launcher is a symlink-safe Node program: a link through two folders, a
     const r = spawnSync(f, ['version'], { cwd: dir, env: sb.env, encoding: 'utf8' });
     assert.equal(r.stdout, `proofline ${VERSION}\n`, `${f}: ${r.stderr}`);
   }
+});
+
+test('install.mjs: the questions (PROOFLINE_PROMPT=1 reads them from standard input), a refusal installs nothing, a typed directory is used', () => {
+  const h = path.join(sb.T, 'h5'); mkdirSync(h, { recursive: true });
+  const no = installer(h, ['--dir', `${h}/bin`], { PROOFLINE_PROMPT: '1' }, '\nn\n');
+  assert.equal(no.status, 1); assert.match(no.stdout, /^Directory for the proofline symlink \[.*\/bin\]: Link .*\/bin\/proofline -> .*\/bin\/proofline \? \[y\/N\]: nothing installed\n$/);
+  assert.ok(!existsSync(`${h}/bin/proofline`));
+  const yes = installer(h, ['--dir', `${h}/bin`], { PROOFLINE_PROMPT: '1' }, `${h}/other\ny\n`);
+  assert.equal(yes.status, 0, yes.stderr); assert.ok(lstatSync(`${h}/other/proofline`).isSymbolicLink());
+  assert.ok(yes.stdout.includes(`linked ${h}/other/proofline -> ${repo}/bin/proofline`));
+  assert.ok(yes.stdout.includes(`${h}/other is not on your PATH. Add this to your shell rc file (not edited without --yes):\n  export PATH="${h}/other:$PATH"\n`));
+  assert.ok(!existsSync(`${h}/.zshrc`), 'no rc file is touched without --yes');
+});
+
+test('install.mjs: a dangling or old link is replaced, a real file is never overwritten, usage errors are exit 2', () => {
+  const h = path.join(sb.T, 'h6'); mkdirSync(`${h}/bin`, { recursive: true });
+  spawnSync('ln', ['-s', `${h}/gone`, `${h}/bin/proofline`]);
+  const r = installer(h, ['--dir', `${h}/bin`, '--yes']);
+  assert.equal(r.status, 0, r.stderr); assert.equal(readlinkSync(`${h}/bin/proofline`), `${repo}/bin/proofline`);
+  unlinkSync(`${h}/bin/proofline`); writeFileSync(`${h}/bin/proofline`, 'mine\n');
+  const f = installer(h, ['--dir', `${h}/bin`, '--yes']);
+  assert.equal(f.status, 1); assert.match(f.stderr, /exists and is not a symlink; remove it first/); assert.equal(read(`${h}/bin/proofline`), 'mine\n');
+  assert.equal(installer(h, ['--bogus']).status, 2);
+  assert.equal(installer(h, ['--dir']).status, 2);
+  const nohome = spawnSync(process.execPath, [inst, '--yes'], { env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
+  assert.equal(nohome.status, 2); assert.match(nohome.stderr, /HOME is unset; pass --dir/);
+  const help = installer(h, ['--help']); assert.equal(help.status, 0); assert.match(help.stdout, /^Usage: node adapters\/codex\/install\.mjs/);
 });

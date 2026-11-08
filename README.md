@@ -17,7 +17,7 @@
 
 ## Status
 
-Version 0.0.67 is an early release.
+Version 0.0.68 is an early release.
 Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
 Codex as implementer is supported (real use, 2026-10-23 to 25).
 Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
@@ -44,7 +44,7 @@ Then, in your project (a git repository): `proofline init` (or `/proofline init`
 
 ```sh
 git clone https://github.com/furkansarikaya/proofline
-proofline/adapters/codex/install.sh        # links bin/proofline onto your PATH; options: --dir DIR, --yes
+node proofline/adapters/codex/install.mjs       # links bin/proofline onto your PATH; options: --dir DIR, --yes
 cd your-project && proofline init
 ```
 
@@ -134,7 +134,7 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 
 ## Versioning and license
 
-Version **0.0.67**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.68**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

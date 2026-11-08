@@ -6,9 +6,9 @@ adapter: state, gates and the commit/push lock are in `control-plane/agents/scri
 hooks, which work with any agent (D6). Supported: Claude Code and Codex (full). Others: send a PR (D8).
 Untested adapters must be labelled "not tested".
 
-## Support status (0.0.67)
+## Support status (0.0.68)
 
-Rendering and hooks are covered by `tests/generator/generator-test.sh`, the enforcement tests and the self-tests.
+Rendering and hooks are covered by `tests/generator/generator.test.mjs`, the enforcement tests and the self-tests.
 End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, with the commit of every run, are in
 [tests/e2e/README.md](../tests/e2e/README.md#current-results).
 
@@ -35,11 +35,11 @@ End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, w
 The `lead` role is the main session, not a subagent: adapters render no agent file for it (it still gets a
 role text and a docs entry).
 
-## 2. Rendering with `adapters/generate.sh`
+## 2. Rendering with `adapters/generate.mjs`
 
 ```
-adapters/generate.sh [--check] [--target claude-plugin|claude-project|codex|control-plane|docs|all]
-                     [--profile max|balanced|economy] [--out DIR] [--root DIR]
+node adapters/generate.mjs [--check] [--target claude-plugin|claude-project|codex|control-plane|docs|all]
+                           [--profile max|balanced|economy] [--out DIR] [--root DIR]
 ```
 
 | Output | Source of truth for |
@@ -67,11 +67,11 @@ body contains `'''` the generator falls back to a basic multi-line string with `
 
 1. Pick the target's agent format and where it loads agents from. Verify against its current documentation,
    not memory; note the version you tested in `adapters/<name>/README.md`.
-2. Add a `render_<name>` function to `generate.sh` (mirror `render_codex`: frontmatter fields from the role
-   source, body through `body_for <id> <skill-path-prefix> /SKILL.md`), a target name, and tests in
-   `tests/generator/generator-test.sh` (structure, skill substitution, profile switch, escaping, `--check`).
+2. Add a `render<Name>` function to `generate.mjs` (mirror `renderCodex`: frontmatter fields from the role
+   source, body through `bodyFor(role, <skill-path-prefix>, '/SKILL.md')`), a target name, and tests in
+   `tests/generator/generator.test.mjs` (structure, skill substitution, profile switch, escaping, `--check`).
 3. Map the hooks (section 4). The adapter writes only thin shims; every decision is made by `agent.sh`.
-4. Run `sh tests/generator/generator-test.sh` and `adapters/generate.sh --check`.
+4. Run `node --test tests/generator/*.test.mjs` and `node adapters/generate.mjs --check`.
 
 ## 4. Hook mapping
 

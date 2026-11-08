@@ -1,4 +1,4 @@
-# Generated from roles/explorer.md by adapters/generate.sh. Do not edit.
+# Generated from roles/explorer.md by adapters/generate.mjs. Do not edit.
 name = "proofline-explorer"
 description = "Investigates one bounded assignment and returns compact evidence where every claim is a verified path and symbol. Use when: class STANDARD and up, in parallel up to the class max_explorers bound for independent objectives"
 model = "gpt-6-sol"
