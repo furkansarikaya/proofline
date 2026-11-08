@@ -579,7 +579,7 @@ function sbMainPark(ctx, tree) {
  * A manual merge, recorded from git (A180/A181). `deliver-merged ID` fetches origin's canonical branch and PROVES the merge from git, never from a claim: the
  * delivered commit is an ancestor of origin/<base>, or, for a squash or rebase merge, every path the delivery changed has the identical content at origin's
  * tip. Anything else is "not merged": fail closed. Proven: the merge is recorded, the local canonical branch is fast-forwarded when the main working tree
- * sits on it and is clean, and the run is cleaned up with its worktree IN THIS PROCESS (A215). `--check` only answers.
+ * sits on it and is clean, or, when the clean tree sits on the merged task branch, the checkout goes to the canonical branch first (A238, user decision of 2026-11-08), and the run is cleaned up with its worktree IN THIS PROCESS (A215). `--check` only answers.
  * @param {Context} ctx @param {string} id @param {string} flag
  */
 export function deliverMerged(ctx, id, flag) {
@@ -678,13 +678,38 @@ export function deliverMerged(ctx, id, flag) {
     && gs(['hash-object', '.agents/config.yaml'], main) === gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}:.agents/config.yaml`], main)) {
     if (g(['checkout', '-q', '--', '.agents/config.yaml'], main).status === 0) ctx.out(`the approved commands are on origin/${dmBase}: the local .agents/config.yaml edit was dropped\n`);
   }
-  if (gs(['branch', '--show-current'], main) === dmBase && gs(['status', '--porcelain', '--untracked-files=no'], main) === '') {
-    const ff = g(['merge', '--ff-only', '-q', `refs/remotes/origin/${dmBase}`], main);
-    ctx.out(ff.status === 0 ? `local ${dmBase} fast-forwarded to origin/${dmBase}\n` : `note: local ${dmBase} was not fast-forwarded (it has commits origin lacks): update it before the next task\n`);
-  } else ctx.out(`note: the main working tree is not on a clean ${dmBase}: update it from origin/${dmBase} before the next task starts\n`);
+  // A238 (user decision of 2026-11-08): the proven merge also brings the user's checkout back to the base when that moves nothing of the user's: the tree is clean
+  // AND it sits on the merged task branch (a standalone project ends there). Anything else is left as it is, with ONE line that says what is missing.
+  /** @type {(() => void) | null} */ let switchAfterCleanup = null;
+  {
+    const cur = gs(['branch', '--show-current'], main);
+    const dirty = gs(['status', '--porcelain', '--untracked-files=no'], main) !== '';
+    const tip2 = `refs/remotes/origin/${dmBase}`;
+    const later = `update it from origin/${dmBase} before the next task starts`;
+    const hookless = ['-c', 'core.hooksPath=/dev/null'];
+    const ffNow = () => g([...hookless, 'merge', '--ff-only', '-q', tip2], main).status === 0;
+    if (dirty) ctx.out(`note: the main working tree was left as it is: it has uncommitted changes (it is on ${cur === '' ? 'a detached HEAD' : `branch ${cur}`}); ${later}\n`);
+    else if (cur === dmBase) ctx.out(ffNow() ? `local ${dmBase} fast-forwarded to origin/${dmBase}\n` : `note: local ${dmBase} was not fast-forwarded (it has commits origin lacks): ${later}\n`);
+    else if (cur !== dmBr || dmBr === '') ctx.out(`note: the main working tree was left as it is: it is on ${cur === '' ? 'a detached HEAD' : `branch ${cur}`}, not on the merged task branch ${dmBr}; ${later}\n`);
+    else if (g(['check-ref-format', '--branch', dmBase]).status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: '${dmBase}' is not a usable branch name; ${later}\n`);
+    else {
+      const haveBase = g(['rev-parse', '-q', '--verify', `refs/heads/${dmBase}^{commit}`], main).status === 0;
+      // never switch when the fast-forward cannot follow: a local base with commits origin lacks stays untouched, and so does the checkout
+      if (haveBase && g(['merge-base', '--is-ancestor', `refs/heads/${dmBase}`, tip2], main).status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: local ${dmBase} has commits origin lacks (no fast-forward); ${later}\n`);
+      else {
+        // the cleanup below verifies the run on its task branch, so the switch waits for it
+        switchAfterCleanup = () => {
+          const sw = haveBase ? g([...hookless, 'switch', '-q', dmBase], main) : g([...hookless, 'switch', '-q', '--track', '-c', dmBase, tip2], main);
+          if (sw.status !== 0) ctx.out(`note: the main working tree was left on ${dmBr}: git could not switch to ${dmBase}; ${later}\n`);
+          else ctx.out(ffNow() ? `switched the main working tree from ${dmBr} to ${dmBase}, fast-forwarded to origin/${dmBase}\n` : `note: the main working tree is on ${dmBase} now but it was not fast-forwarded to origin/${dmBase}; ${later}\n`);
+        };
+      }
+    }
+  }
   rmSync(mergeHead, { force: true });
-  for (const p of parked) sbMainPut(ctx, adapter, p.id, p.body);
+  if (switchAfterCleanup === null) for (const p of parked) sbMainPut(ctx, adapter, p.id, p.body);
   inProcessCleanup(ctx, id);
+  if (switchAfterCleanup !== null) { switchAfterCleanup(); for (const p of parked) sbMainPut(ctx, adapter, p.id, p.body); }
   sbFinalPut(ctx, id, fin);
   rmSync(ddir, { recursive: true, force: true });
   return 0;

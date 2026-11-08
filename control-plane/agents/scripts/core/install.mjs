@@ -8,14 +8,14 @@
 // names is acted on only when it is a plain relative path inside the project (a hostile manifest cannot delete a file elsewhere). The installer is a front end of
 // bin/proofline: nothing here is a command of agent.sh or of the `cli` family.
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { Config, bytes } from './config.mjs';
 import { cfgMergeNew } from './cfgcli.mjs';
 import { cfgCmds, cfgSet } from './configset.mjs';
 import { CliDie } from './cliio.mjs';
 import { KINDS, ambigNotes, discoverCommands, joinCommands, verifyCommands } from './discover.mjs';
-import { MANIFEST_REL, globalHookspathMessage } from './doctor.mjs';
+import { MANIFEST_REL, globalHookspathMessage, hooksPathState, matcherCovers } from './doctor.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import * as proc from './proc.mjs';
 import { commandV } from './runtimedetect.mjs';
@@ -278,26 +278,30 @@ class Install {
   // --- merges ---------------------------------------------------------------------------------------------------------
   /**
    * The fragment's hook groups missing from the current settings (a group is present when one of its commands is). 'same' unchanged, 'changed' (text), 'error'.
-   * @param {string} curFile @param {string} fragFile @returns {{ state: 'same' | 'changed' | 'error', text: string }}
+   * @param {string} curFile @param {string} fragFile @returns {{ state: 'same' | 'changed' | 'error', text: string, narrowed: string[] }}
    */
   hooksMerge(curFile, fragFile) {
     /** @type {any} */ let c; /** @type {any} */ let f;
-    try { c = JSON.parse(readFileSync(curFile, 'utf8')); f = JSON.parse(readFileSync(fragFile, 'utf8')); } catch { return { state: 'error', text: '' }; }
-    if (typeof c !== 'object' || c === null || Array.isArray(c)) return { state: 'error', text: '' };
+    try { c = JSON.parse(readFileSync(curFile, 'utf8')); f = JSON.parse(readFileSync(fragFile, 'utf8')); } catch { return { state: 'error', text: '', narrowed: [] }; }
+    if (typeof c !== 'object' || c === null || Array.isArray(c)) return { state: 'error', text: '', narrowed: [] };
     const before = JSON.stringify(c);
     const hooks = c.hooks && typeof c.hooks === 'object' ? c.hooks : {};
+    /** @type {string[]} */ const narrowed = [];
     for (const [ev, groups] of Object.entries(f.hooks || {})) {
       const have = Array.isArray(hooks[ev]) ? hooks[ev] : [];
-      const present = new Set(have.flatMap((/** @type {any} */ g) => (g.hooks || []).map((/** @type {any} */ h) => h.command)));
       for (const g of /** @type {any[]} */ (groups)) {
         const cmds = (g.hooks || []).map((/** @type {any} */ h) => h.command);
-        if (!cmds.some((/** @type {any} */ x) => present.has(x))) { have.push(g); cmds.forEach((/** @type {any} */ x) => present.add(x)); }
+        // A238: a group that names the command counts as the shipped one only when its matcher is not narrower; otherwise the shipped group is added beside it
+        const named = have.filter((/** @type {any} */ x) => Array.isArray(x?.hooks) && x.hooks.some((/** @type {any} */ h) => cmds.includes(h?.command)));
+        if (named.some((/** @type {any} */ x) => matcherCovers(x.matcher, g.matcher))) continue;
+        if (named.length > 0) narrowed.push(ev);
+        have.push(g);
       }
       hooks[ev] = have;
     }
     c.hooks = hooks;
-    if (JSON.stringify(c) === before) return { state: 'same', text: '' };
-    return { state: 'changed', text: `${JSON.stringify(c, null, 2)}\n` };
+    if (JSON.stringify(c) === before) return { state: 'same', text: '', narrowed: [] };
+    return { state: 'changed', text: `${JSON.stringify(c, null, 2)}\n`, narrowed };
   }
 
   /** @param {string} rel @param {string} src */
@@ -313,7 +317,7 @@ class Install {
     else if (r.state === 'changed') {
       if (!this.p.dry && !this.writeSafe(rel, Buffer.from(r.text, 'utf8'))) return;
       if (this.p.dry && !pathSafe(this.root, rel)) return this.unsafe(rel);
-      this.plog('merged', `${rel} (proofline hooks added, existing keys kept)`);
+      this.plog('merged', `${rel} (proofline hooks added, existing keys kept${r.narrowed.length > 0 ? `; the group for ${[...new Set(r.narrowed)].join(' ')} has a narrower matcher than proofline's, so proofline's group was added beside it` : ''})`);
     } else this.plog('warn', `${rel} not merged (invalid JSON); add the hooks from ${src.slice(this.p.plHome.length + 1)} by hand`);
   }
 
@@ -478,17 +482,17 @@ class Install {
   /** @param {string[]} a */
   git(a) { return proc.run('git', ['-C', this.root, ...a], { stdio: ['ignore', 'pipe', 'ignore'] }); }
 
+  /**
+   * A238 (user decision of 2026-11-08, A233): a `core.hooksPath` the user already set (local, global or system: whatever git resolves here) to another folder is never
+   * overwritten; the message says which path, from where, and what to do. Unset: set locally. The same folder: nothing, no message.
+   */
   doGithooksPath() {
-    const cur = this.git(['config', '--local', '--get', 'core.hooksPath']).stdout.toString('latin1').replace(/\n+$/, '');
-    if (cur === '.agents/githooks') this.plog('same', 'git config core.hooksPath');
-    else if (cur === '') {
+    const st = hooksPathState((a) => this.git(a), this.root, this.p.env.HOME ?? homedir());
+    if (st.state === 'same') this.plog('same', 'git config core.hooksPath');
+    else if (st.state === 'unset') {
       this.plog('merged', 'git config --local core.hooksPath .agents/githooks');
       if (!this.p.dry) this.git(['config', '--local', 'core.hooksPath', '.agents/githooks']);
-    } else this.plog('warn', `core.hooksPath is '${cur}'; the proofline git hooks (.agents/githooks) are NOT active. Chain them from that hook directory or run: git config --local core.hooksPath .agents/githooks`);
-    // a core.hooksPath in the global or system git config is never modified here
-    let glob = this.git(['config', '--global', '--get', 'core.hooksPath']).stdout.toString('latin1').replace(/\n+$/, '');
-    if (glob === '') glob = this.git(['config', '--system', '--get', 'core.hooksPath']).stdout.toString('latin1').replace(/\n+$/, '');
-    if (glob !== '') this.plog('warn', globalHookspathMessage(glob));
+    } else this.plog('warn', globalHookspathMessage(st.value, st.scope, st.origin));
   }
 
   writeManifest() {

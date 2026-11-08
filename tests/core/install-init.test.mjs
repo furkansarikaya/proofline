@@ -219,7 +219,7 @@ test('init fails outside a git repository, with an unknown profile, and with a l
   assert.match(sb.pl(sb.mkrepo('badrt'), ['init', '--yes', '--runtimes', 'gemini']).err, /unknown runtime: gemini \(claude or codex\)/);
 });
 
-test('a global core.hooksPath is warned about by init and never modified (the doctor line is tested in doctor-faults)', () => {
+test('a global core.hooksPath is warned about by init, never modified and not overridden (A238; the doctor line is tested in doctor-faults)', () => {
   const cfg = `${sb.T}/home/.gitconfig-hp`;
   writeFileSync(cfg, `${read(`${sb.T}/home/.gitconfig-global`)}[core]\n\thooksPath = /nonexistent/global-hooks\n`);
   const before = sha(cfg);
@@ -227,7 +227,7 @@ test('a global core.hooksPath is warned about by init and never modified (the do
   const r = sb.pl(d, ['init', '--yes', '--runtimes', 'claude'], { GIT_CONFIG_GLOBAL: cfg });
   assert.equal(r.status, 0, r.text);
   assert.ok(r.out.includes('global/system git core.hooksPath'), r.out);
-  assert.equal(git(d, 'config', '--local', '--get', 'core.hooksPath').stdout.trim(), '.agents/githooks');
+  assert.equal(git(d, 'config', '--local', '--get', 'core.hooksPath').stdout.trim(), '', 'A238: a global value of the user is not overridden by a local one');
   assert.equal(sha(cfg), before);
 });
 
@@ -237,7 +237,8 @@ test('a local core.hooksPath of the user is kept and warned about', () => {
   const r = sb.pl(d, ['init', '--yes', '--runtimes', 'claude']);
   assert.equal(r.status, 0, r.text);
   assert.equal(git(d, 'config', '--local', '--get', 'core.hooksPath').stdout.trim(), '.husky');
-  assert.ok(r.out.includes("core.hooksPath is '.husky'; the proofline git hooks (.agents/githooks) are NOT active"), r.out);
+  assert.ok(r.out.includes("core.hooksPath is '.husky' (local git config"), r.out);
+  assert.ok(r.out.includes('NOT overwritten') && r.out.includes('git config --local core.hooksPath .agents/githooks'), r.out);
 });
 
 test('--verify-commands drops a discovered command whose trial failed and leaves commands.test empty', () => {
