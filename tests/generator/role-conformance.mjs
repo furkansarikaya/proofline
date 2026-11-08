@@ -3,7 +3,7 @@
 // body sections, skill references, result header, severity values, finding ids, RESULT sets, the no-spawn
 // rule and owns/tools/sandbox/writes_code consistency. Node since A234 (it was role-conformance.sh, one awk program per role).
 // Usage: node tests/generator/role-conformance.mjs [--root REPO | ROLES-DIR]   (default: the repository's roles/)
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -153,7 +153,7 @@ export function conform(dir) {
   return { lines: res, fail };
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) {
   const a = process.argv.slice(2);
   const dir = a[0] === '--root' ? join(a[1] ?? '', 'roles') : a[0] ?? resolve(fileURLToPath(new URL('../..', import.meta.url)), 'roles');
   const r = conform(dir);

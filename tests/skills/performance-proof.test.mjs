@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, chmodSync, symlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -211,6 +211,27 @@ test("run-bench.mjs: reads only its own ecosystem definition and imports nothing
   const src = readFileSync(join(scripts, "run-bench.mjs"), "utf8");
   for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || m[1] === "./ecosystems.mjs", m[1]);
   assert.match(src, /references", "ecosystems\.json"/);
+});
+
+// fix round 1 (F3, F5, F6)
+test("run-bench.mjs: a command that traps TERM and exits 0 after the limit is a failed run (143), not a sample", async () => {
+  const { runCommand } = await import(join(scripts, "run-bench.mjs"));
+  const d = join(tmp, "trap"); mkdirSync(d); const log = join(d, "log"); writeFileSync(log, "");
+  const r = await runCommand({ argv: ["sh", "-c", "trap 'exit 0' TERM; sleep 10 & wait"], cwd: d, logFile: log, label: "t", timeoutMs: 400, graceMs: 2000 });
+  assert.equal(r.rc, 143);
+  const ok = await runCommand({ argv: ["sh", "-c", "exit 0"], cwd: d, logFile: log, label: "ok", timeoutMs: 5000 });
+  assert.equal(ok.rc, 0);
+});
+test("run-bench.mjs: SECURITY a node planted in the project is not run for tool_version; a symlinked script path still runs", () => {
+  const a = join(tmp, "pl-a"), b = join(tmp, "pl-b"), out = join(tmp, "pl-out"), marker = join(tmp, "pl-ran");
+  mkdirSync(a); mkdirSync(b);
+  writeFileSync(join(a, "node"), `#!/bin/sh\n: > ${marker}\necho v99\n`); chmodSync(join(a, "node"), 0o755);
+  const link = join(tmp, "pl-scripts"); symlinkSync(scripts, link);
+  const r = spawnSync(process.execPath, [join(link, "run-bench.mjs"), "--base", a, "--change", b, "--runs", "1", "--warmup", "0", "--out", out, "--", "true"], { cwd: a, encoding: "utf8", env: { ...process.env, PATH: `.::rel:${process.env.PATH}` } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /run-bench: 1 runs per side/);
+  assert.equal(existsSync(marker), false, "the planted node ran");
+  assert.doesNotMatch(readFileSync(join(out, "environment.txt"), "utf8"), /v99/);
 });
 
 // --- review round: verified thresholds, plan budget, direction of claims, copied data, submission text ------

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, existsSync, cpSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, existsSync, cpSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -164,4 +164,34 @@ test("SECURITY: the skill reads only its own copy of the ecosystem definition, n
 test("the script imports nothing outside its skill (it is installable alone)", () => {
   const src = readFileSync(fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-versions.mjs", import.meta.url)), "utf8");
   for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || m[1] === "./ecosystems.mjs", m[1]);
+});
+
+// fix round 1 (F4, F5, F6)
+test("SECURITY: a version file that is a symbolic link to a file outside the project is not read into the report", () => {
+  const outside = project({ "secret.txt": "TOP-SECRET-LINE\n" });
+  const dir = project({ "package.json": "{}" });
+  symlinkSync(join(outside, "secret.txt"), join(dir, ".nvmrc"));
+  const out = run(dir, { node: "v20.0.0" });
+  assert.doesNotMatch(out, /TOP-SECRET/); assert.match(out, /ci=none source=-/);
+  const inner = project({ "package.json": "{}", "real.txt": "v18\n" });
+  symlinkSync(join(inner, "real.txt"), join(inner, ".nvmrc"));
+  assert.match(run(inner, { node: "v20.0.0" }), /ci=none source=-/, "even a link that stays inside is skipped");
+});
+
+test("SECURITY: a program planted in the project is not run, whatever PATH holds ('.' and empty entries)", () => {
+  const marker = join(mkdtempSync(join(tmpdir(), "rv-plant-")), "ran");
+  const dir = project({ "package.json": "{}" });
+  writeFileSync(join(dir, "node"), `#!/bin/sh\n: > ${marker}\necho v99.0.0\n`); chmodSync(join(dir, "node"), 0o755);
+  const r = spawnSync(process.execPath, [SCRIPT, dir], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `.::relative:${process.env.PATH}` } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(existsSync(marker), false, "the planted node ran");
+  assert.doesNotMatch(r.stdout, /99\.0\.0/);
+});
+
+test("a run through a symbolic link to the script folder still runs (the main guard compares real paths)", () => {
+  const link = join(mkdtempSync(join(tmpdir(), "rv-link-")), "scripts");
+  symlinkSync(realpathSync(fileURLToPath(new URL("../../skills/verify-proof/scripts", import.meta.url))), link);
+  const dir = project({ ".nvmrc": "v20\n", "package.json": "{}" });
+  const r = spawnSync(process.execPath, [join(link, "runtime-versions.mjs"), dir], { encoding: "utf8", env: { ...process.env, PATH: `${fakeBin({ node: "v20.1.0" })}:${process.env.PATH}` } });
+  assert.match(r.stdout, /^runtime: node local=20\.1\.0 ci=v20 /);
 });

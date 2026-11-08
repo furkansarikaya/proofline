@@ -8,8 +8,8 @@
 //              DIR/.agents/roles.conf, owns.conf, tools.conf (used by `proofline init`)
 //   --root DIR repository root holding roles/ (default: the parent of this script's directory)
 // Output is deterministic: sorted roles, no timestamps. Nothing is written through a symbolic link.
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, realpathSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PROFILES = ['max', 'balanced', 'economy'];
@@ -237,6 +237,16 @@ export function write(base, { files, clean }) {
 /** The differences between a plan and the files under root: lines for stderr. */
 export function drift(root, { files, clean }) {
   const out = [];
+  // a generated folder that is, or sits under, a link is drift: a run would refuse to write there
+  const links = new Set();
+  for (const rel of files.keys()) {
+    let p = root;
+    for (const seg of rel.split('/').slice(0, -1)) {
+      p = join(p, seg);
+      try { if (lstatSync(p).isSymbolicLink()) { links.add(relative(root, p)); break; } } catch { break; }
+    }
+  }
+  for (const l of [...links].sort()) out.push(`symbolic link: ${l}`);
   for (const rel of [...files.keys()].sort()) {
     const f = join(root, rel);
     if (!existsSync(f) || !statSync(f).isFile()) out.push(`missing: ${rel}`);
@@ -298,7 +308,7 @@ export function main(argv) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) {
   const r = main(process.argv.slice(2));
   process.stdout.write(r.out); process.stderr.write(r.err);
   process.exitCode = r.code;

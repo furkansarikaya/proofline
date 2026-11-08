@@ -12,9 +12,9 @@
 //                TERM at the limit and KILL 5 seconds later, and the run is recorded with exit 143 (or 137)
 // Exit: 0 every run exited 0; 1 a run failed (it is recorded with its exit code and is not a sample);
 // 2 usage error. Installs nothing. The commands that print a runtime version come from references/ecosystems.json (this skill's own copy).
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs";
 import { constants as osc, availableParallelism, cpus, loadavg, machine, release, tmpdir, type as osType } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, delimiter, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { loadEcosystems } from "./ecosystems.mjs";
@@ -63,7 +63,7 @@ export function runCommand({ argv, cwd, logFile, label, timeoutMs, graceMs = 500
   const fd = openSync(logFile, "a");
   const t0 = process.hrtime.bigint();
   return new Promise((done) => {
-    let settled = false, timer = null, grace = null;
+    let settled = false, timer = null, grace = null, timedOut = false;
     const finish = (rc) => {
       if (settled) return; settled = true;
       clearTimeout(timer); clearTimeout(grace); current = null;
@@ -76,8 +76,13 @@ export function runCommand({ argv, cwd, logFile, label, timeoutMs, graceMs = 500
       try { appendFileSync(logFile, `${argv[0]}: ${e.code === "ENOENT" ? "not found" : e.message}\n`); } catch { /* log gone */ }
       finish(e.code === "EACCES" ? 126 : 127);
     });
-    child.on("close", (code, signal) => finish(code ?? 128 + (osc.signals[signal] ?? 0)));
+    // a command that traps TERM and exits 0 after the limit is still a timed-out run: never a sample
+    child.on("close", (code, signal) => {
+      const rc = code ?? 128 + (osc.signals[signal] ?? 0);
+      finish(timedOut && rc === 0 ? 128 + osc.signals.SIGTERM : rc);
+    });
     timer = setTimeout(() => {
+      timedOut = true;
       killGroup(child.pid, "SIGTERM");
       grace = setTimeout(() => killGroup(child.pid, "SIGKILL"), graceMs);
     }, timeoutMs);
@@ -95,17 +100,25 @@ function loadAvg() {
   return loadavg().map((v) => v.toFixed(2)).join(" ");
 }
 
-function onPath(name) {
-  for (const d of (process.env.PATH ?? "").split(POSIX ? ":" : ";")) { if (d === "") continue; try { if (statSync(join(d, name)).isFile()) return true; } catch { /* next */ } }
-  return false;
+/** The absolute path of an executable on PATH; empty and relative entries ('.', 'bin') are skipped, so a program planted in the project is never chosen. */
+function resolveProgram(name) {
+  if (name.includes("/") || name.includes("\\")) return null;
+  const exts = POSIX ? [""] : ["", ...(process.env.PATHEXT ?? ".EXE;.CMD").split(";")];
+  for (const d of (process.env.PATH ?? "").split(delimiter)) {
+    if (d === "" || !isAbsolute(d)) continue;
+    for (const e of exts) { try { const p = join(d, name + e); if (statSync(p).isFile()) return p; } catch { /* next */ } }
+  }
+  return null;
 }
 /** stdout and stderr of a program as one stream in the order it wrote them (`2>&1`); null when it cannot be started. */
 function combinedOutput(program, args) {
+  const abs = resolveProgram(program);
+  if (abs === null) return null;
   const dir = mkdtempSync(join(tmpdir(), "proofline-ver-"));
   const file = join(dir, "out");
   const fd = openSync(file, "w");
   try {
-    const r = spawnSync(program, args, { stdio: ["ignore", fd, fd], timeout: 30000, windowsHide: true });
+    const r = spawnSync(abs, args, { stdio: ["ignore", fd, fd], timeout: 30000, windowsHide: true });
     return r.error ? null : readFileSync(file, "utf8");
   } finally { closeSync(fd); rmSync(dir, { recursive: true, force: true }); }
 }
@@ -117,7 +130,7 @@ function toolVersions() {
     const name = e.runtime?.name; if (!name) continue;
     for (const c of e.runtime.local?.commands ?? []) {
       const argv = c.split(/\s+/).filter(Boolean);
-      if (argv.length === 0 || !onPath(argv[0])) continue;
+      if (argv.length === 0) continue;
       const text = combinedOutput(argv[0], argv.slice(1));
       if (text === null) continue;
       out.push(`tool_version.${name}=${text.split("\n")[0]}`);
@@ -176,4 +189,4 @@ async function main(argv) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) process.exitCode = await main(process.argv.slice(2));
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) process.exitCode = await main(process.argv.slice(2));

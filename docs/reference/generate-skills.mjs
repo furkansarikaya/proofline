@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Renders docs/reference/skills.md from skills/*/SKILL.md frontmatter (name, description, metadata.version). Node since A234.
 // Usage: node docs/reference/generate-skills.mjs [--check] [--root DIR]
-import { lstatSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -66,7 +66,7 @@ export function main(argv) {
   return { code: 0, out: '', err: '' };
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) {
   const r = main(process.argv.slice(2));
   process.stdout.write(r.out); process.stderr.write(r.err);
   process.exitCode = r.code;

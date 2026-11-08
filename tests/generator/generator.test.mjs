@@ -287,3 +287,19 @@ test('11. nothing is written through a symbolic link, a stale agent file is repl
   ck('a generated folder under a link is refused', !ok(r) && /symbolic link/.test(r.stderr));
   ck('nothing was written into the link target', readdirSync(outside).join() === 'victim');
 });
+
+test('12. --check: a symlinked generated folder is drift; a run through a symlinked path works', () => {
+  const R = newroot(); gen(R);
+  ck('in sync first', ok(gen(R, '--check')));
+  const moved = join(T, 'moved-agents');
+  cpSync(`${R}/adapters/claude/agents`, moved, { recursive: true });
+  rmSync(`${R}/adapters/claude/agents`, { recursive: true });
+  symlinkSync(moved, `${R}/adapters/claude/agents`);
+  const r = gen(R, '--check');
+  ck('the link is drift (exit 1)', !ok(r) && r.stderr.includes('symbolic link: adapters/claude/agents'));
+  if (!GEN.endsWith('.sh')) {
+    const link = join(T, 'gen-link'); symlinkSync(join(repo, 'adapters'), link);
+    const h = spawnSync(process.execPath, [join(link, 'generate.mjs'), '--help'], { encoding: 'utf8' });
+    ck('a symlinked path prints the usage', h.status === 0 && h.stdout.startsWith('Usage: node adapters/generate.mjs'));
+  }
+});

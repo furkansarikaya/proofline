@@ -20,9 +20,9 @@
 // status compares the first `runtime.compare` components of the version (the major for node, dotnet and java; major.minor for the
 // others): `mismatch` means the local version is not one the spec allows; a spec that cannot be compared (lts/*,
 // stable, a `<` range) or a missing side is `unknown`. Exit: 0 always, 2 on a usage error.
-import { existsSync, readFileSync, readdirSync, statSync, accessSync, constants, mkdtempSync, openSync, closeSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, lstatSync, realpathSync, accessSync, constants, mkdtempSync, openSync, closeSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, delimiter } from "node:path";
+import { join, delimiter, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { loadEcosystems, globToRegExp, matchesAny } from "./ecosystems.mjs";
@@ -32,7 +32,16 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
 /** One spec token: no comment, quotes, brackets, spaces or carriage returns; the first line only. */
 export const clean = (text) => String(text).replace(/\r?\n[\s\S]*$/, "").replace(/\s#.*$/, "").replace(/["'[\] \r]/g, "");
 
-const readText = (f) => { try { return statSync(f).isFile() ? readFileSync(f, "utf8") : null; } catch { return null; } };
+let ROOT_REAL = "";
+/** A regular file of the project: never a symbolic link, never a path whose real location leaves the project root (a link could leak a file from outside into the report). */
+const readText = (f) => {
+  try {
+    if (!lstatSync(f).isFile()) return null;
+    const real = realpathSync(f);
+    if (ROOT_REAL !== "" && real !== ROOT_REAL && !real.startsWith(ROOT_REAL + sep)) return null;
+    return readFileSync(f, "utf8");
+  } catch { return null; }
+};
 const lines = (t) => t.split("\n");
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -81,23 +90,26 @@ export function status(n, local, spec) {
   return seen ? "mismatch" : "unknown";
 }
 
-/** `command -v` for a program name: an executable file on PATH. */
-function onPath(name) {
-  const exts = process.platform === "win32" ? ["", ...(process.env.PATHEXT ?? ".EXE;.CMD").split(";")] : [""];
-  for (const d of (process.env.PATH ?? "").split(delimiter)) {
-    if (d === "") continue;
-    for (const e of exts) { try { const p = join(d, name + e); if (statSync(p).isFile()) { accessSync(p, constants.X_OK); return true; } } catch { /* next */ } }
+/** The absolute path of an executable on PATH; empty and relative entries ('.', 'bin') are skipped, so a program planted in the project is never chosen. */
+function resolveProgram(name) {
+  if (name.includes('/') || name.includes('\\')) return null;
+  const exts = process.platform === 'win32' ? ['', ...(process.env.PATHEXT ?? '.EXE;.CMD').split(';')] : [''];
+  for (const d of (process.env.PATH ?? '').split(delimiter)) {
+    if (d === '' || !isAbsolute(d)) continue;
+    for (const e of exts) { try { const p = join(d, name + e); if (statSync(p).isFile()) { accessSync(p, constants.X_OK); return p; } } catch { /* next */ } }
   }
-  return false;
+  return null;
 }
 
 /** stdout and stderr of a program as one stream in the order it wrote them (`2>&1`); null when it cannot be started. */
 function combinedOutput(program, args) {
+  const abs = resolveProgram(program);
+  if (abs === null) return null;
   const dir = mkdtempSync(join(tmpdir(), "proofline-ver-"));
   const file = join(dir, "out");
   const fd = openSync(file, "w");
   try {
-    const r = spawnSync(program, args, { stdio: ["ignore", fd, fd], timeout: 30000, windowsHide: true });
+    const r = spawnSync(abs, args, { stdio: ["ignore", fd, fd], timeout: 30000, windowsHide: true });
     return r.error ? null : readFileSync(file, "utf8");
   } finally { closeSync(fd); rmSync(dir, { recursive: true, force: true }); }
 }
@@ -107,7 +119,7 @@ function localVersion(commands, extract, group) {
   const ere = new RegExp(extract.startsWith("^") ? extract : `.*${extract}`, "s");
   for (const c of commands) {
     const argv = c.split(/\s+/).filter(Boolean);
-    if (argv.length === 0 || !onPath(argv[0])) continue;
+    if (argv.length === 0) continue;
     const text = combinedOutput(argv[0], argv.slice(1));
     if (text === null) continue;
     const out = lines(text).slice(0, 5);
@@ -137,7 +149,7 @@ function nestedFiles(names, prune, depth, maxf) {
 
 function main(argv) {
   const dir = argv[0] ?? ".";
-  try { process.chdir(dir); } catch { process.stderr.write(`runtime-versions: cannot enter ${dir}\n`); return 2; }
+  try { process.chdir(dir); ROOT_REAL = realpathSync("."); } catch { process.stderr.write(`runtime-versions: cannot enter ${dir}\n`); return 2; }
   let data;
   try { data = loadEcosystems(join(HERE, "..", "references", "ecosystems.json")); } catch {
     process.stdout.write("runtime: none (the ecosystem definition references/ecosystems.json is missing)\n"); return 0;
@@ -225,4 +237,4 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) process.exitCode = main(process.argv.slice(2));

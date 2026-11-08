@@ -11,7 +11,7 @@
 // Codex discovers the skills from each project's .agents/skills/ (installed by `proofline init`); there is
 // nothing to install into ~/.codex.
 import '../../control-plane/agents/scripts/core/node-check.mjs';
-import { accessSync, appendFileSync, constants, lstatSync, mkdirSync, readFileSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
+import { accessSync, appendFileSync, constants, lstatSync, mkdirSync, readFileSync, statSync, symlinkSync, unlinkSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLine } from '../../control-plane/agents/scripts/core/cliio.mjs';
@@ -88,4 +88,4 @@ export function install(argv, o = {}) {
   return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) process.exitCode = install(process.argv.slice(2));
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) process.exitCode = install(process.argv.slice(2));
