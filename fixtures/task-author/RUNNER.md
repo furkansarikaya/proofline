@@ -5,7 +5,7 @@ agent in it, and send that run's prompt exactly. When a run stops with questions
 the questions and end the run there: do not answer.
 
 ```sh
-sh fixtures/task-author/setup.sh /tmp/fx-task-author-a    # likewise -b, -c, -d
+node fixtures/task-author/setup.mjs /tmp/fx-task-author-a    # likewise -b, -c, -d
 ```
 
 - Skill: `task-author`

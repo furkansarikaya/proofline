@@ -3,7 +3,7 @@
 Build the fixture outside this repository, start the agent in it, and send the prompt below exactly.
 
 ```sh
-sh fixtures/verify-proof/setup.sh /tmp/fx-verify-proof
+node fixtures/verify-proof/setup.mjs /tmp/fx-verify-proof
 ```
 
 - Skill: `verify-proof`

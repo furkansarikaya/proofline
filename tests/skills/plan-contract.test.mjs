@@ -19,7 +19,7 @@ let repo;
 before(() => {
   base = mkdtempSync(join(tmpdir(), "pcfx-"));
   repo = join(base, "repo");
-  const r = spawnSync("sh", [join(fixture, "setup.sh"), repo], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [join(fixture, "setup.mjs"), repo], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
 });
 after(() => rmSync(base, { recursive: true, force: true }));

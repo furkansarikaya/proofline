@@ -1,7 +1,7 @@
 # Expected: qa-plan
 
 Evaluator only; never shown to the runner. Outputs: `QA_PLAN.md` and `QA_REPORT.md` (standalone: under
-`.agents/local/qa-plan/`). `selfcheck.sh` proves the planted facts.
+`.agents/local/qa-plan/`). `selfcheck.mjs` proves the planted facts.
 
 Planted facts: `src/shipping.js:shippingCents` uses `> FREE_SHIPPING_CENTS` (exclusive), so a subtotal of
 exactly 5000 cents is charged 499 although AC-1 says "50.00 or more" is free; its empty-cart guard is

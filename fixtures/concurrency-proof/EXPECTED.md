@@ -1,6 +1,6 @@
 # Expected: concurrency-proof
 
-Evaluator only; never shown to the runner. Written from the planted facts before any run; `selfcheck.sh`
+Evaluator only; never shown to the runner. Written from the planted facts before any run; `selfcheck.mjs`
 proves every one of them (the problems show under concurrent or retried calls, the look-alikes do not, the
 cited lines are where they are, the suite at HEAD passes).
 

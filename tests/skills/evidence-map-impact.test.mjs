@@ -33,7 +33,7 @@ function mini(name, files, edit) {
 before(() => {
   base = mkdtempSync(join(tmpdir(), "impfx-"));
   repo = join(base, "repo");
-  const r = spawnSync("sh", [join(fixture, "setup.sh"), repo], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [join(fixture, "setup.mjs"), repo], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   report = analyze(repo, { base: "HEAD~1" });
 });

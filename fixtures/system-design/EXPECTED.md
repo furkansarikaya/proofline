@@ -2,7 +2,7 @@
 
 Evaluator only; never shown to the runner. Outputs: the architecture text / `ARCHITECTURE.md` draft and
 any ADRs (standalone: under `.agents/local/system-design/`, or ADR drafts for `docs/adr/`), and the final
-message. `selfcheck.sh` proves the planted facts.
+message. `selfcheck.mjs` proves the planted facts.
 
 Planted facts: `src/customers/repository.js:createCustomerRepository` (`list`, `marketingOptIn` field),
 `src/orders/repository.js:createOrderRepository` (`byCustomerSince`), `src/notify/email.js:createMailer`

@@ -1,6 +1,6 @@
 # Expected: performance-proof
 
-Evaluator only; never shown to the runner. `selfcheck.sh` proves every planted fact with
+Evaluator only; never shown to the runner. `selfcheck.mjs` proves every planted fact with
 `skills/performance-proof/scripts/compare-bench.mjs`. No real benchmark runs: the samples are synthetic,
 written by hand, and the answers below were written from the planted numbers before the script existed.
 
@@ -10,7 +10,7 @@ planted case is far from the decision boundaries (a tight case moves its median 
 with a spread of 0.2 %), so the answers hold for any reasonable interval rule.
 Lower is better unless a case says otherwise.
 
-Planted facts (12 runs per side unless stated; `samples/` after `setup.sh`):
+Planted facts (12 runs per side unless stated; `samples/` after `setup.mjs`):
 
 - **c1** clear regression: change = base x 1.30 on a tight base around 100 ms.
 - **c2** noise: both sides spread more than 10 % (relative MAD), median base 101.5 ms, change 111 ms (+9.4 %).

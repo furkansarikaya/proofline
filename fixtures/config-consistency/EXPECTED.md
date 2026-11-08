@@ -1,6 +1,6 @@
 # Expected: config-consistency (proof-review `config` focus, A88)
 
-Evaluator only. `selfcheck.sh` proves every planted fact with the skill's own scripts. A tiny service with
+Evaluator only. `selfcheck.mjs` proves every planted fact with the skill's own scripts. A tiny service with
 `.env.example`, `README.md`, `config/app.yaml` and `config/flags.yaml`; `main` is the base. The plan is
 `.agents/runs/CC-1/PLAN-*.md`.
 

@@ -12,7 +12,7 @@ const { lint } = await import(script);
 
 const build = () => {
   const dir = join(mkdtempSync(join(tmpdir(), "wiki-")), "x");
-  const r = spawnSync("sh", [join(repo, "fixtures/llm-wiki/setup.sh"), dir], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [join(repo, "fixtures/llm-wiki/setup.mjs"), dir], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   return dir;
 };

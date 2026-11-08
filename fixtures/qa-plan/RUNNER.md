@@ -4,7 +4,7 @@ Build the fixture outside this repository, start the agent in it, and send the t
 in order, in the same session.
 
 ```sh
-sh fixtures/qa-plan/setup.sh /tmp/fx-qa-plan
+node fixtures/qa-plan/setup.mjs /tmp/fx-qa-plan
 ```
 
 - Skill: `qa-plan`

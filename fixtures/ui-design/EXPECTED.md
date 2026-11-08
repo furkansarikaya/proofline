@@ -1,7 +1,7 @@
 # Expected: ui-design
 
 Evaluator only; never shown to the runner. Outputs: the UI spec (`UI.md`; standalone: under
-`.agents/local/ui-design/`) and the final message. `selfcheck.sh` proves the planted facts.
+`.agents/local/ui-design/`) and the final message. `selfcheck.mjs` proves the planted facts.
 
 Planted facts: `docs/design/DESIGN.md` documents tokens in `src/ui/styles/tokens.css` and components in
 `src/ui/components/` (Button, TextInput, Select, Spinner, EmptyState, Alert; Chip deprecated;
@@ -43,7 +43,7 @@ error (Alert danger) and "No projects yet" (EmptyState) states; it has no filter
 ## Validator known-answer cases (A81)
 
 `cases/` holds `ui.json` specs for the built repository and `cases/TASK.md` (class COMPLEX, AC-1..AC-3, no
-redesign request). `selfcheck.sh` runs `validate-ui.mjs <case> --root <built repo> --task cases/TASK.md` on each
+redesign request). `selfcheck.mjs` runs `validate-ui.mjs <case> --root <built repo> --task cases/TASK.md` on each
 and requires exactly these results (a trap fails with its planted errors and nothing else):
 
 | Case | Exit | Errors |

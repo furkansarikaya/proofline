@@ -3,7 +3,7 @@
 Build the fixture outside this repository, start the agent in it, and send the prompt below exactly.
 
 ```sh
-sh fixtures/debug-proof/setup.sh /tmp/fx-debug-proof
+node fixtures/debug-proof/setup.mjs /tmp/fx-debug-proof
 ```
 
 - Skill: `debug-proof`

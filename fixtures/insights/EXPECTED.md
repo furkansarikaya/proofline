@@ -1,6 +1,6 @@
 # insights fixture: known answers
 
-`sh setup.sh DIR` plants metrics and three runs (RUN-A, RUN-B, RUN-C); `selfcheck.sh DIR` runs
+`node setup.mjs DIR` plants metrics and three runs (RUN-A, RUN-B, RUN-C); `selfcheck.mjs DIR` runs
 `proofline insights` against it and checks these answers. Nothing here is fitted to the output.
 
 ## Cost (from records.jsonl)

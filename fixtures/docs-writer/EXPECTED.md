@@ -1,7 +1,7 @@
 # Expected: docs-writer
 
 Evaluator only; never shown to the runner. Mode: audit. Output: the audit report and the corrected documents.
-`selfcheck.sh` proves the planted facts with the skill's own scripts.
+`selfcheck.mjs` proves the planted facts with the skill's own scripts.
 
 Planted facts: `docs/guide.md` quotes five things the project does not have; `docs/style.md` holds three
 length findings. The project is a small shell tool (`bin/acme` with `build` and `serve [--port N]`,

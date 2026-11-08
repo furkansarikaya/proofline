@@ -12,8 +12,8 @@ const sh = (cmd, args, cwd) => spawnSync(cmd, args, { cwd, encoding: "utf8" });
 
 test("task-planning fixture: tasks validate, ADR linked, team.yaml git-ignored", () => {
   const d = join(mkdtempSync(join(tmpdir(), "tp-")), "repo");
-  assert.equal(sh("sh", [join(root, "fixtures/task-planning/setup.sh"), d]).status, 0);
-  const r = sh("sh", [join(root, "fixtures/task-planning/selfcheck.sh"), d]);
+  assert.equal(sh(process.execPath, [join(root, "fixtures/task-planning/setup.mjs"), d]).status, 0);
+  const r = sh(process.execPath, [join(root, "fixtures/task-planning/selfcheck.mjs"), d]);
   assert.equal(r.status, 0, r.stderr);
 });
 

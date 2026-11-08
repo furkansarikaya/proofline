@@ -1,7 +1,7 @@
 # Expected: verify-proof
 
 Evaluator only; never shown to the runner. Output: `VERIFY.md` (standalone: under
-`.agents/local/verify-proof/`) and the final message. `selfcheck.sh` proves the planted facts.
+`.agents/local/verify-proof/`) and the final message. `selfcheck.mjs` proves the planted facts.
 
 Planted facts (diff `base`..`proofline/FX-VP-username-rules`):
 - AC-2 (reject uppercase) is implemented but untested: `test/username-case.test.js` is titled "AC-2" but

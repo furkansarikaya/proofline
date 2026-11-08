@@ -2,7 +2,7 @@
 
 Evaluator only; never shown to the runner. Outputs: the contract change and the design text (standalone:
 under `.agents/local/api-design/`, and/or `openapi.yaml` edited in place), and the final message.
-`selfcheck.sh` proves the planted facts.
+`selfcheck.mjs` proves the planted facts.
 
 Planted facts: the contract is `openapi.yaml` (OpenAPI 3.1, `info.version: 1.4.0`, server path `/v1`).
 `name` is required in both `ProjectInput` and `Project`. Consumers reading `name`:

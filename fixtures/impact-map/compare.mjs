@@ -1,4 +1,4 @@
-// Compares an impact report with EXPECTED.json (set equality per list). Used by selfcheck.sh and the skill tests.
+// Compares an impact report with EXPECTED.json (set equality per list). Used by selfcheck.mjs and the skill tests.
 import { readFileSync } from "node:fs";
 
 export function compare(report, expected) {

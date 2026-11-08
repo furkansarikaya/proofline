@@ -1,9 +1,9 @@
 # proofline-lead fixture: expected lead behaviour (evaluator only; a runner never reads this file)
 
-`setup.sh <dir>` builds five installed projects under `<dir>/<state>/`, each with the active run `LK-7` on
+`setup.mjs <dir>` builds five installed projects under `<dir>/<state>/`, each with the active run `LK-7` on
 branch `proofline/LK-7-empty-key-default`. The runner is a lead session started in one state directory with
 [RUNNER.md](RUNNER.md). Each state lists the `next:` line `agent.sh next LK-7` prints (checked by
-`selfcheck.sh` and `tests/skills/proofline-lead.test.mjs`), the one correct lead action, and what the lead
+`selfcheck.mjs` and `tests/skills/proofline-lead.test.mjs`), the one correct lead action, and what the lead
 must NOT do. An evaluator checks the transcript and the run directory (`LEDGER.log`, `gates/`,
 `decisions/`, `approvals/`, `waivers/`, `questions/`).
 

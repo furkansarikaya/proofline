@@ -1,7 +1,7 @@
 # Expected: design-sync
 
 Evaluator only; never shown to the runner. Output: `SYNC.md` (standalone: under
-`.agents/local/design-sync/`) and the final message. `selfcheck.sh` proves the planted facts.
+`.agents/local/design-sync/`) and the final message. `selfcheck.mjs` proves the planted facts.
 
 Planted facts: default locations `docs/design/DESIGN.md`, `docs/design/ARCHITECTURE.md`, `docs/design/DATA_MODEL.md`,
 `docs/design/API.md` all exist. The schema source is `migrations/*.sql` (001 creates `users`, `projects`;

@@ -1,6 +1,6 @@
 # Expected: dependency-audit (exploit-proof `dependencies` focus, A88)
 
-Evaluator only. `selfcheck.sh` proves every planted fact with the skill's own scripts. The project is a tiny
+Evaluator only. `selfcheck.mjs` proves every planted fact with the skill's own scripts. The project is a tiny
 npm project; `main` is the base. The plan for each branch is `.agents/runs/DA-1/PLAN-*.md`; the license policy is
 `.agents/config.yaml` (`security.licenses.deny: GPL-3.0-only AGPL-3.0-only`). No audit tool runs: the focus must
 still report what it did not check.

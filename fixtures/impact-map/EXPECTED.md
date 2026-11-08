@@ -4,12 +4,12 @@ Evaluator-only. A runner never reads this file; build the scenario outside this 
 
 ## Scenario
 
-`sh fixtures/impact-map/setup.sh <dir>` builds a small stock library with two commits. The second commit
+`node fixtures/impact-map/setup.mjs <dir>` builds a small stock library with two commits. The second commit
 changes the body of `reserveStock` (not `releaseStock`) and one line of `openapi.yaml`. Run:
 
     node skills/evidence-map/scripts/impact.mjs --repo <dir> --base HEAD~1
 
-`EXPECTED.json` is the machine-readable form of this file; `selfcheck.sh` and
+`EXPECTED.json` is the machine-readable form of this file; `selfcheck.mjs` and
 `tests/skills/evidence-map.test.mjs` compare the report with it. The planted facts below were written
 before the script existed.
 

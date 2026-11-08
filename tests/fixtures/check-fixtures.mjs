@@ -1,12 +1,12 @@
 // @ts-check
-// Builds every fixtures/*/setup.sh into a temporary directory and runs the fixture's selfcheck.sh (if any). Prints PASS/FAIL per fixture; exits non-zero
-// when any fixture fails. Offline; installs nothing. (The fixture builders stay shell until issue #176 package B; this is only their driver.)
-// Also builds the ported proof-review and test-trust fixtures (setup.sh, plan-setup.sh, diff-setup.sh; go and ts). Building needs only bash; their tests and
+// Builds every fixtures/*/setup.mjs into a temporary directory and runs the fixture's selfcheck.mjs (if any). Prints PASS/FAIL per fixture; exits non-zero
+// when any fixture fails. Offline; installs nothing. (The builders and selfchecks are Node since issue #176 package B; this is their driver.)
+// Also builds the proof-review and test-trust fixtures (setup.mjs, plan-setup.mjs, diff-setup.mjs; go and ts). Their tests and
 // the PLAN check run when the toolchain exists (go, node 22.18+/23.6+, vitest for test-trust ts), else a SKIP line with the reason is printed (SKIP is never
 // counted as a pass and never omitted).
 // Usage: node tests/fixtures/check-fixtures.mjs [fixture-name ...]
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,21 +28,20 @@ export async function main(names, o = {}) {
   try { work = mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'proofline-fixtures-')); } catch { console.error(`TMPDIR must be an existing directory: ${process.env.TMPDIR || os.tmpdir()}`); return 2; }
   try {
     const explicit = names.length > 0;
-    if (!explicit) names = readdirSync(path.join(root, 'fixtures')).sort().filter((n) => existsSync(path.join(root, 'fixtures', n, 'setup.sh')));
+    if (!explicit) names = readdirSync(path.join(root, 'fixtures')).sort().filter((n) => existsSync(path.join(root, 'fixtures', n, 'setup.mjs')));
     let pass = 0; let total = 0; let skips = 0;
     for (const name of names) {
       const dir = path.join(root, 'fixtures', name);
-      if (!existsSync(path.join(dir, 'setup.sh'))) continue;   // proof-review, test-trust: built by the ported-fixture steps below
+      if (!existsSync(path.join(dir, 'setup.mjs'))) continue;   // proof-review, test-trust: built by the steps below
       total++;
-      const shell = /bash/.test(readFileSync(path.join(dir, 'setup.sh'), 'utf8').split('\n')[0]) ? 'bash' : 'sh';
       const out = path.join(work, name);
-      let r = await runGroup(shell, [path.join(dir, 'setup.sh'), out], { timeoutMs });
-      if (r.status !== 0) { write(`FAIL ${name} (setup.sh)\n${indent(r.text)}\n`); continue; }
+      let r = await runGroup(process.execPath, [path.join(dir, 'setup.mjs'), out], { timeoutMs });
+      if (r.status !== 0) { write(`FAIL ${name} (setup.mjs)\n${indent(r.text)}\n`); continue; }
       let log = r.text;
-      if (existsSync(path.join(dir, 'selfcheck.sh'))) {
-        r = await runGroup('sh', [path.join(dir, 'selfcheck.sh'), out], { timeoutMs });
+      if (existsSync(path.join(dir, 'selfcheck.mjs'))) {
+        r = await runGroup(process.execPath, [path.join(dir, 'selfcheck.mjs'), out], { timeoutMs });
         log += r.text;
-        if (r.status !== 0) { write(`FAIL ${name} (selfcheck.sh)\n${indent(log)}\n`); continue; }
+        if (r.status !== 0) { write(`FAIL ${name} (selfcheck.mjs)\n${indent(log)}\n`); continue; }
       }
       write(`PASS ${name}\n`); pass++;
     }
@@ -57,16 +56,15 @@ export async function main(names, o = {}) {
     const runExtra = !explicit || names.some((a) => a === 'proof-review' || a === 'test-trust');
     if (runExtra) {
       const fx = path.join(root, 'fixtures');
-      if (!has('bash')) skip('proof-review and test-trust fixtures', 'bash not available (the setups need it)');
-      else {
+      {
         for (const lang of ['go', 'ts']) {
-          await step(`proof-review/${lang} setup.sh`, 'bash', [path.join(fx, 'proof-review', lang, 'setup.sh'), path.join(work, `pr-${lang}`)]);
-          await step(`proof-review/${lang} setup.sh --working-tree`, 'bash', [path.join(fx, 'proof-review', lang, 'setup.sh'), path.join(work, `pr-${lang}-wt`), '--working-tree']);
-          await step(`proof-review/${lang} plan-setup.sh`, 'sh', [path.join(fx, 'proof-review/plan-setup.sh'), lang, path.join(work, `pr-${lang}-run`)]);
+          await step(`proof-review/${lang} setup.mjs`, process.execPath, [path.join(fx, 'proof-review', lang, 'setup.mjs'), path.join(work, `pr-${lang}`)]);
+          await step(`proof-review/${lang} setup.mjs --working-tree`, process.execPath, [path.join(fx, 'proof-review', lang, 'setup.mjs'), path.join(work, `pr-${lang}-wt`), '--working-tree']);
+          await step(`proof-review/${lang} plan-setup.mjs`, process.execPath, [path.join(fx, 'proof-review/plan-setup.mjs'), lang, path.join(work, `pr-${lang}-run`)]);
           const run = path.join(work, `pr-${lang}-run`);
-          await step(`proof-review/${lang} plan-setup.sh PLAN passes validate-plan.mjs`, process.execPath,
+          await step(`proof-review/${lang} plan-setup.mjs PLAN passes validate-plan.mjs`, process.execPath,
             [path.join(root, 'skills/plan-contract/scripts/validate-plan.mjs'), path.join(run, '.agents/runs/FIX-1/PLAN.md'), path.join(run, '.agents/runs/FIX-1/TASK.md'), '--class', 'STANDARD', '--repo', run]);
-          for (const sc of ['fail', 'pass']) await step(`test-trust/${lang} diff-setup.sh ${sc}`, 'sh', [path.join(fx, 'test-trust/diff-setup.sh'), lang, path.join(work, `tt-${lang}-${sc}`), sc]);
+          for (const sc of ['fail', 'pass']) await step(`test-trust/${lang} diff-setup.mjs ${sc}`, process.execPath, [path.join(fx, 'test-trust/diff-setup.mjs'), lang, path.join(work, `tt-${lang}-${sc}`), sc]);
         }
         if (has('go')) {
           await step('proof-review/go branch fixture: go test', 'go', ['test', './...'], path.join(work, 'pr-go'));

@@ -1,7 +1,7 @@
 # Expected: task-author
 
 Evaluator only; never shown to the runner. Outputs per run: the written `TASK.md` (standalone: under
-`.agents/local/task-author/`) or the `NEEDS_INPUT` questions, and the final message. `selfcheck.sh`
+`.agents/local/task-author/`) or the `NEEDS_INPUT` questions, and the final message. `selfcheck.mjs`
 proves the planted facts.
 
 Planted facts: `src/slug.js:slugify` strips leading but not trailing hyphens (`'Hello, world!'` ->

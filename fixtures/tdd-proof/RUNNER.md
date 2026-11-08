@@ -3,7 +3,7 @@
 Build the fixture outside this repository, start the agent in it, and send the prompt below exactly.
 
 ```sh
-sh fixtures/tdd-proof/setup.sh /tmp/fx-tdd-proof
+node fixtures/tdd-proof/setup.mjs /tmp/fx-tdd-proof
 ```
 
 - Skill: `tdd-proof`

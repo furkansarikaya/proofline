@@ -183,4 +183,4 @@ Added when the skill was ported into proofline (phase 4). Each entry says what w
 
 ### Fixtures
 
-- `fixtures/test-trust/` holds the original `go/` and `ts/` projects and `EXPECTED.md` unchanged in substance (paths adjusted), plus `diff-setup.sh` (POSIX sh) which builds a base commit and a working-tree "task" in two scenarios (`fail`, `pass`) for each language. `EXPECTED.md` has a "Diff mode" section: which planted test must fail the gate and why, which decoys must not be flagged, what counts as a failure. The mutants and flaky rates were checked by hand against the built repositories; no LLM run (phase 9).
+- `fixtures/test-trust/` holds the original `go/` and `ts/` projects and `EXPECTED.md` unchanged in substance (paths adjusted), plus `diff-setup.mjs` (Node) which builds a base commit and a working-tree "task" in two scenarios (`fail`, `pass`) for each language. `EXPECTED.md` has a "Diff mode" section: which planted test must fail the gate and why, which decoys must not be flagged, what counts as a failure. The mutants and flaky rates were checked by hand against the built repositories; no LLM run (phase 9).

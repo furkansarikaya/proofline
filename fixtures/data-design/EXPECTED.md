@@ -3,7 +3,7 @@
 A runner never reads this file. Build the scenario outside this repository:
 
 ```sh
-sh fixtures/data-design/setup.sh "$(mktemp -d)/accounts"
+node fixtures/data-design/setup.mjs "$(mktemp -d)/accounts"
 ```
 
 Give the runner `fixtures/data-design/TASK.md` as the task (team mode: as the run's TASK.md with the

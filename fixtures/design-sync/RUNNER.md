@@ -3,7 +3,7 @@
 Build the fixture outside this repository, start the agent in it, and send the prompt below exactly.
 
 ```sh
-sh fixtures/design-sync/setup.sh /tmp/fx-design-sync
+node fixtures/design-sync/setup.mjs /tmp/fx-design-sync
 ```
 
 - Skill: `design-sync`

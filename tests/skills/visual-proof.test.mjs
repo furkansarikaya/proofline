@@ -1,5 +1,5 @@
 // visual-proof (A82): browser-less tests of the report validator, the depth and UNSUPPORTED rules, the config
-// check, detection and the assemble step. The browser measurement itself is fixtures/visual-proof/browser-check.sh
+// check, detection and the assemble step. The browser measurement itself is fixtures/visual-proof/browser-check.mjs
 // (main/nightly CI).
 import { test, after } from "node:test";
 import assert from "node:assert/strict";

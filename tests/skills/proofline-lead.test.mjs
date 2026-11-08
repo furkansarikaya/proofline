@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.70"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.71"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -259,7 +259,7 @@ const built = {};
 before(async () => {
   base = mkdtempSync(join(tmpdir(), "plfx-"));
   await Promise.all(STATES.map((s) => new Promise((done) => {
-    const p = spawn("sh", [join(fixture, "setup.sh"), join(base, s), s], { stdio: ["ignore", "ignore", "pipe"] });
+    const p = spawn(process.execPath, [join(fixture, "setup.mjs"), join(base, s), s], { stdio: ["ignore", "ignore", "pipe"] });
     let err = "";
     p.stderr.on("data", (d) => { err += d; });
     p.on("close", (code) => { built[s] = { code, err }; done(); });
@@ -288,8 +288,8 @@ for (const s of STATES) {
   });
 }
 
-test("fixture: selfcheck.sh passes on the built states and the branch is the task branch", { skip: !SLOW && "PROOFLINE_SLOW_TESTS=1" }, () => {
-  const r = spawnSync("sh", [join(fixture, "selfcheck.sh"), base], { encoding: "utf8" });
+test("fixture: selfcheck.mjs passes on the built states and the branch is the task branch", { skip: !SLOW && "PROOFLINE_SLOW_TESTS=1" }, () => {
+  const r = spawnSync(process.execPath, [join(fixture, "selfcheck.mjs"), base], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const br = spawnSync("git", ["-C", join(base, "security-pass-low"), "branch", "--show-current"], { env, encoding: "utf8" });
   assert.equal(br.stdout.trim(), "proofline/LK-7-empty-key-default");

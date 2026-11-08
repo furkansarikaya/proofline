@@ -52,7 +52,7 @@ Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|de
 | evidence-map `impact` mode | tested on fixtures (`impact-map`, skill tests); static analysis limits stated in every report; not exercised by a team run |
 | ui-design (creative direction, UX comparison, self-critique, `visual_proof` criteria) | tested on fixtures (`ui-design`, skill tests); not scored in a team run |
 | visual-proof, report validator and depth rules | tested (skill tests on every code pull request) |
-| visual-proof, browser measurement | run by the main/nightly CI step (`fixtures/visual-proof/browser-check.sh`); UNSUPPORTED where no browser is found |
+| visual-proof, browser measurement | run by the main/nightly CI step (`fixtures/visual-proof/browser-check.mjs`); UNSUPPORTED where no browser is found |
 | contract-proof | tested on fixtures (`contract-proof`, skill tests); compatibility tools of real projects not exercised |
 | concurrency-proof | tested on fixtures (`concurrency-proof`, skill tests); a concurrent reproduction in a real project's test runner not exercised; not exercised by a team run |
 | performance-proof | tested on fixtures (`performance-proof`, skill tests); not run against a real benchmark in CI; not exercised by a team run |

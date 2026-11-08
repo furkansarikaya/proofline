@@ -11,7 +11,7 @@ import { scan, scanText } from "../../skills/concurrency-proof/scripts/find-shar
 const SKILL = new URL("../../skills/concurrency-proof/", import.meta.url).pathname;
 const VALIDATE = join(SKILL, "scripts/validate-concurrency.mjs");
 const FIND = join(SKILL, "scripts/find-shared-state.mjs");
-const SETUP = new URL("../../fixtures/concurrency-proof/setup.sh", import.meta.url).pathname;
+const SETUP = new URL("../../fixtures/concurrency-proof/setup.mjs", import.meta.url).pathname;
 const dirs = [];
 const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "cp-test-")); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
@@ -76,7 +76,7 @@ const doubleCharge = () => ({
 });
 const CHANGED = ["src/inventory.js", "src/orders.js", "src/payments.js", "src/rates.js", "src/refunds.js", "src/retry.js", "src/wallet.js", "test/features.test.js"];
 const doc = (findings = [lostUpdate(), doubleShip(), doubleCharge()], over = {}) => ({
-  schema_version: 1, skill_version: "0.0.70",
+  schema_version: 1, skill_version: "0.0.71",
   target: { type: "branch", name: "main", base: "base", head: "HEAD" },
   scope: { changed_files: CHANGED, candidates: 40, not_reviewed: [] },
   reproduction: { status: "unsupported", reason: "test only" },
@@ -99,7 +99,7 @@ let fx;
 const fixture = () => {
   if (fx) return fx;
   fx = join(mktmp(), "fx");
-  const r = spawnSync("sh", [SETUP, fx], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [SETUP, fx], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   return fx;
 };
@@ -361,7 +361,7 @@ test("H6: closed needs a recheck the validator re-checks, never a sentence", () 
 });
 test("H6 re-review: a fix line is code inside the traced function and carries a synchronisation token", () => {
   // a fixed copy of the fixture: wallet.js gets a lock line in deposit, a comment trick and an unrelated function
-  const repo = join(mktmp(), "fx"); assert.equal(spawnSync("sh", [SETUP, repo]).status, 0);
+  const repo = join(mktmp(), "fx"); assert.equal(spawnSync(process.execPath, [SETUP, repo]).status, 0);
   writeFileSync(join(repo, "src/wallet.js"), [
     "// Deposits add to an account balance.", "export async function deposit(store, accountId, cents) {",
     "  const account = await store.get(accountId);", "  await mutex.lock(accountId); const balance = account.balance + cents;",

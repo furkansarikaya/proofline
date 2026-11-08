@@ -17,7 +17,7 @@ const run = (script, args, cwd = repo) => spawnSync("node", [script, ...args], {
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "docs-writer-"));
-  const r = spawnSync("sh", [join(repo, "fixtures/docs-writer/setup.sh"), join(dir, "p")], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [join(repo, "fixtures/docs-writer/setup.mjs"), join(dir, "p")], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   return join(dir, "p");
 }

@@ -1,7 +1,7 @@
 # Expected: tdd-proof
 
 Evaluator only; never shown to the runner. "Evidence" means the skill's recorded RED/GREEN/REFACTOR output
-(standalone: under `.agents/local/tdd-proof/`; team: `worker-evidence/`). `selfcheck.sh` proves the
+(standalone: under `.agents/local/tdd-proof/`; team: `worker-evidence/`). `selfcheck.mjs` proves the
 planted facts.
 
 Planted facts: `src/duration.js` has no `parseDuration` export, so a first test that imports it fails at

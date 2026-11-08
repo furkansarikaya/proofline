@@ -3,8 +3,8 @@
 Written from the planted facts first. Build the scenario outside this repository:
 
 ```sh
-sh fixtures/migration-validation/setup.sh "$(mktemp -d)/accounts"            # project with a throwaway-DB test helper
-sh fixtures/migration-validation/setup.sh "$(mktemp -d)/accounts" no-harness # same project, no such helper
+node fixtures/migration-validation/setup.mjs "$(mktemp -d)/accounts"            # project with a throwaway-DB test helper
+node fixtures/migration-validation/setup.mjs "$(mktemp -d)/accounts" no-harness # same project, no such helper
 ```
 
 The project is a Postgres service (README) whose test helper `test/helpers/temp-db.mjs` creates a fresh
@@ -14,7 +14,7 @@ The prior migrations are `migrations/001_create_users.sql` and `migrations/002_c
 `src/users.js` is the running application and reads `users.name`, `users.email`, `users.phone`.
 
 Scan command: `node skills/data-design/scripts/migration-check.mjs scan --engine postgres --context
-migrations/*.sql --readers src -- scenarios/<name>/migration/*.sql` (`selfcheck.sh` asserts the table below).
+migrations/*.sql --readers src -- scenarios/<name>/migration/*.sql` (`selfcheck.mjs` asserts the table below).
 
 ## Per scenario
 

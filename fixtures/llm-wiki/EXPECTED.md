@@ -1,6 +1,6 @@
 # Expected: llm-wiki
 
-Evaluator only. `selfcheck.sh` proves every planted fact.
+Evaluator only. `selfcheck.mjs` proves every planted fact.
 
 The repository holds `docs/design/ARCHITECTURE.md` and a valid wiki in `docs/wiki` (raw session summary, source,
 concept, entity, decision and lesson pages, `index.md`, `log.md`, `[[wikilinks]]`). `validate-wiki.mjs --root <repo>`

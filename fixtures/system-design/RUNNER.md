@@ -3,7 +3,7 @@
 Build the fixture outside this repository, start the agent in it, and send the prompt below exactly.
 
 ```sh
-sh fixtures/system-design/setup.sh /tmp/fx-system-design
+node fixtures/system-design/setup.mjs /tmp/fx-system-design
 ```
 
 - Skill: `system-design`
