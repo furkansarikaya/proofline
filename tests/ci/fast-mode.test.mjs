@@ -51,7 +51,7 @@ describe('decide', () => {
       const d = decide({ event: 'pull_request', text: FILE, changed: ['README.md', f] });
       assert.deepEqual([d.ok, d.fast], [true, false], f);
     }
-    assert.equal(decide({ event: 'pull_request', text: FILE, changed: ['README.md', 'tests/ci/classify.sh'] }).fast, true);
+    assert.equal(decide({ event: 'pull_request', text: FILE, changed: ['README.md', 'tests/ci/classify.mjs'] }).fast, true);
     assert.equal(touchesFastMode('tests/ci/fast-mode.txt'), true);
     assert.equal(touchesFastMode('tests/ci/other.mjs'), false);
   });

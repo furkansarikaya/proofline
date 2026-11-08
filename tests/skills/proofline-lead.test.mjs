@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.69"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.70"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -243,7 +243,7 @@ test("SKILL.md maps every D23 command and the rules that keep the lead out of ve
 });
 
 test("the shared-rules block is byte-identical", () => {
-  const r = spawnSync("sh", [join(repoRoot, "tests/shared/check-shared.sh"), "proofline-lead"], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [join(repoRoot, "tests/shared/check-shared.mjs"), "proofline-lead"], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 

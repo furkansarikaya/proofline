@@ -148,7 +148,7 @@ Added when the skill was ported into proofline (phase 4). Each entry says what w
 ### Version and shared floor
 
 - **Version 0.0.1 is the team version (D30)**; `metadata.version` stays `"0.0.1"`. `disable-model-invocation: true` and `agents/openai.yaml` are kept: standalone use stays user-invoked, and roles point agents at `SKILL.md` explicitly.
-- **Shared rules block.** `SKILL.md` carries the block between `<!-- proofline:shared-rules:begin` and `<!-- proofline:shared-rules:end -->`, byte-identical to `tests/shared/shared-rules.md` (checked by `tests/shared/check-shared.sh`, D29: no file sharing between skills). The skill's own hard rules stay below it; where they are stricter or more specific (timeouts per kind of run, sequential execution, mutation never in the working directory) they win, because the shared block is a floor.
+- **Shared rules block.** `SKILL.md` carries the block between `<!-- proofline:shared-rules:begin` and `<!-- proofline:shared-rules:end -->`, byte-identical to `tests/shared/shared-rules.md` (checked by `tests/shared/check-shared.mjs`, D29: no file sharing between skills). The skill's own hard rules stay below it; where they are stricter or more specific (timeouts per kind of run, sequential execution, mutation never in the working directory) they win, because the shared block is a floor.
 
 ### Two modes (D20)
 

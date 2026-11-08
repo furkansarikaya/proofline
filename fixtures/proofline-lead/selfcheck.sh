@@ -1,6 +1,6 @@
 #!/bin/sh
 # Checks that every state built by setup.sh is real: `agent.sh next LK-7` prints the expected first step.
-# Usage: sh selfcheck.sh <dir-built-by-setup.sh>   (all states, as tests/fixtures/check-fixtures.sh builds them)
+# Usage: sh selfcheck.sh <dir-built-by-setup.sh>   (all states, as tests/fixtures/check-fixtures.mjs builds them)
 set -eu
 [ $# -eq 1 ] || { echo "usage: sh selfcheck.sh <dir>" >&2; exit 2; }
 GIT_CONFIG_GLOBAL=/dev/null; GIT_CONFIG_NOSYSTEM=1; export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM

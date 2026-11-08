@@ -2,7 +2,7 @@
 # Shared installed-template fixture for the self-tests. Sourced, never run.
 # Installing the control plane into a throwaway repository is the same work in every scenario, so it is done
 # once per content hash and every scenario COPIES the result into its own fresh directory (copies share no
-# state). The cache lives in $SELFTEST_TEMPLATE_DIR (tests/selftest.sh sets it for one run and removes it after),
+# state). The cache lives in $SELFTEST_TEMPLATE_DIR (tests/selftest.mjs sets it for one run and removes it after),
 # else in a per-user directory under $TMPDIR. Concurrent processes build a template once: the winner of an
 # atomic `mkdir` lock builds into a private directory and renames it into place; the others wait for it.
 #   fx_key ROOT PATH...           content hash of the files under ROOT/PATH... (a changed file => a new key)

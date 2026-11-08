@@ -254,7 +254,7 @@ Added when the skill was ported into proofline (phase 4). Each entry says what w
 ### Version and shared floor
 
 - **Version 0.0.1 is the team version (D30).** `disable-model-invocation: true` and `agents/openai.yaml` are kept.
-- **Shared rules block** in `SKILL.md`, byte-identical to `tests/shared/shared-rules.md` (`tests/shared/check-shared.sh`, D29). The skill's own 14 hard rules stay: they are stricter (rule 14 on untrusted text, rule 5 on embedded instructions, rule 11 on the ledger) and the shared block is a floor.
+- **Shared rules block** in `SKILL.md`, byte-identical to `tests/shared/shared-rules.md` (`tests/shared/check-shared.mjs`, D29). The skill's own 14 hard rules stay: they are stricter (rule 14 on untrusted text, rule 5 on embedded instructions, rule 11 on the ledger) and the shared block is a floor.
 
 ### Focus and run mode (D21)
 

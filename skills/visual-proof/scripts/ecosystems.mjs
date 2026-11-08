@@ -2,7 +2,7 @@
 // Loader of the ecosystem definition (A173): ecosystems.json is the single source; this file reads it for node
 // scripts and generates ecosystems.tsv, the flat copy that sh scripts read (scripts/ecosystems.sh) without node.
 // Skills are installable alone, so a skill that uses this carries byte-identical copies of ecosystems.mjs and
-// ecosystems.json (references/ or scripts/); tests/shared/check-shared.sh compares them with the control plane's.
+// ecosystems.json (references/ or scripts/); tests/shared/check-shared.mjs compares them with the control plane's.
 //
 // Library: import { loadEcosystems, ... } from "./ecosystems.mjs"
 //   loadEcosystems([file])        the parsed definition (cached); looks next to this file, in ../references/ and in ../

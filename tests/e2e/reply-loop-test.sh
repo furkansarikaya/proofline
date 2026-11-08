@@ -1,7 +1,7 @@
 #!/bin/sh
 # Self-test (A128): the harness reply loop of run.sh against a stub `claude` that leaves an unanswered approval
 # request in the run's approvals/ directory after every call. No real runtime is called. One selftest unit per
-# scenario (LC_EXACT names one; see tests/selftest.sh).
+# scenario (LC_EXACT names one; see tests/selftest.mjs).
 set -u
 here=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 root=$(mktemp -d "${TMPDIR:-/tmp}/e2e-loop.XXXXXX") || exit 1

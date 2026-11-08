@@ -8,21 +8,21 @@ on whether it keeps that property.
 Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests). The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed). Nothing is installed into
 the project; there is no build step.
 
-Run locally (the `CI` variable unset), `tests/selftest.sh` and `tests/affected.sh` use half of the cores (at least one) and run under `nice`, so the machine stays usable; `SELFTEST_JOBS=N` sets the job count. With `CI` set (GitHub Actions does) they use every core at normal priority.
+Run locally (the `CI` variable unset), `node tests/selftest.mjs` and `node tests/affected.mjs` use half of the cores (at least one) and run under `nice`, so the machine stays usable; `SELFTEST_JOBS=N` sets the job count. With `CI` set (GitHub Actions does) they use every core at normal priority.
 
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 cd proofline
-sh tests/affected.sh                         # runs only the self-test units your changes can affect (--list prints them, --all selects everything)
-sh tests/selftest.sh                         # control-plane, enforcement, generator, CLI, task and e2e-harness suites (16 suites, over 145 units; a few minutes)
+node tests/affected.mjs                       # runs only the self-test units your changes can affect (--list prints them, --all selects everything)
+node tests/selftest.mjs                       # control-plane, enforcement, generator, CLI, task and e2e-harness suites (16 suites, over 145 units; a few minutes)
 node --test tests/skills/                    # skill validators and fixtures' known answers (about 740 tests)
-sh tests/fixtures/check-fixtures.sh          # builds every fixtures/*/setup.sh and runs its selfcheck (42 passed, 1 skipped without vitest)
+node tests/fixtures/check-fixtures.mjs        # builds every fixtures/*/setup.sh and runs its selfcheck (42 passed, 1 skipped without vitest)
 node --test tests/benchmark/benchmark.test.mjs            # benchmark report known-answer test (seconds)
 node adapters/generate.mjs --check            # generated agent files match roles/
 node docs/reference/generate-skills.mjs --check # docs/reference/skills.md matches the skills
-sh tests/shared/check-shared.sh              # shared skill sections have not drifted
-sh tests/shared/check-static.sh              # shortcut labels in code comments, README size bound, third-party names
-sh tests/ci/sync-design-library.sh --check   # design library copies are byte-identical to their pins (network; DESIGN_LIBRARY_MIRROR=<dir> uses a local mirror)
+node tests/shared/check-shared.mjs            # shared skill sections have not drifted
+node tests/shared/check-static.mjs            # shortcut labels in code comments, README size bound, third-party names
+node tests/ci/sync-design-library.mjs --check # design library copies are byte-identical to their pins (network; DESIGN_LIBRARY_MIRROR=<dir> uses a local mirror)
 node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Markdown links (also run alone by CI)
 ```
 
@@ -50,16 +50,16 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
 - **Markdown under `skills/**`, `roles/**`, `control-plane/**` and `adapters/**` is reviewed like code.** It is
   what the agents execute. Regenerate derived files (`node adapters/generate.mjs`,
   `node docs/reference/generate-skills.mjs`) and commit them.
-- **Every new user-visible command, option or rule updates the documentation before merge** (A153): `proofline help` (`control-plane/agents/scripts/core/cliusage.mjs`), the entry skill (`skills/proofline/SKILL.md`: argument-hint and routing), the lead Commands table (`skills/proofline-lead/SKILL.md`), the README (command list, and a short explanation of a new rule) and the relevant `docs/concepts` page. The README says what proofline is and how to use it; detail goes to `docs/concepts` (`tests/shared/check-static.sh` bounds the README size). `tests/core/cli-help.test.mjs` compares `proofline help` with the entry skill, the lead table and the README command list.
+- **Every new user-visible command, option or rule updates the documentation before merge** (A153): `proofline help` (`control-plane/agents/scripts/core/cliusage.mjs`), the entry skill (`skills/proofline/SKILL.md`: argument-hint and routing), the lead Commands table (`skills/proofline-lead/SKILL.md`), the README (command list, and a short explanation of a new rule) and the relevant `docs/concepts` page. The README says what proofline is and how to use it; detail goes to `docs/concepts` (`tests/shared/check-static.mjs` bounds the README size). `tests/core/cli-help.test.mjs` compares `proofline help` with the entry skill, the lead table and the README command list.
 - **EXPECTED files are never loosened to fit a result.** If an expectation contradicts the design, say so in the
   pull request and let the maintainer decide; fix the product, not the answer key.
 - **Read `.out-of-scope/README.md` before proposing or implementing a feature.** A request that matches a Rejected entry is not implemented and the user is told which entry it matches; a Deferred entry is not built as a side effect of other work. Changing an entry needs a user decision recorded in [docs/decisions.md](docs/decisions.md).
 - **No file sharing between skills.** A skill is installable alone; shared rules are copied into each skill
-  and checked by `tests/shared/check-shared.sh`.
+  and checked by `tests/shared/check-shared.mjs`.
 - **No organisation-specific names, rules or paths** anywhere in the repository, and no third-party project
   names (see D33). The single exception is a notice file that a licence requires
   (`skills/ui-design/library/THIRD_PARTY_NOTICES.md`) and the byte-identical data copies it lists, which carry the
-  sources' own strings. `tests/shared/check-static.sh` reads the names from the notices file and fails when one
+  sources' own strings. `tests/shared/check-static.mjs` reads the names from the notices file and fails when one
   (in any case or hyphenation) appears in any other file; it skips exactly the files listed there. Everywhere else refer to "source 1" and "source 2".
 - **Everything in the repository is English**, including comments, fixtures and test names; the only
   exception is the Turkish translation of the user guides under `docs/guides/tr/`.
@@ -84,13 +84,13 @@ Each rule has at least one test in [tests/invariants/](tests/invariants/) that r
 `agent.sh`. CI runs the suite on every pull request, documentation-only ones included. A rule that cannot yet be tested mechanically is
 named in the header of `tests/invariants/invariants-test.sh` (its "Not yet mechanical" list) instead of being faked.
 A patch that changes anything under `tests/invariants/` must say why in the pull request description, on a line that starts with
-`Invariant-test-change:`, and the review approves that change separately from the rest of the patch. `tests/invariants/check-changed.sh`
-fails the pull request otherwise. Locally: `sh tests/invariants/invariants-test.sh`, and `PR_BODY="..." sh tests/invariants/check-changed.sh < changed-paths.txt`.
+`Invariant-test-change:`, and the review approves that change separately from the rest of the patch. `node tests/ci/change-reason.mjs invariants`
+fails the pull request otherwise. Locally: `sh tests/invariants/invariants-test.sh`, and `PR_BODY="..." node tests/ci/change-reason.mjs invariants < changed-paths.txt`.
 
 The text proofline loads into every session (the AGENTS.md and CLAUDE.md blocks, the SessionStart text, the entry skill, each role's agent
 file and first skill) has a size budget (A202): `node control-plane/agents/scripts/proofline-core.mjs cli context-size repo .` measures it, `tests/context/budget.tsv` holds the limits and
 `tests/core/contextsize.test.mjs` fails a patch that grows an item above its limit. A patch that changes the budget file says why on a line
-that starts with `Context-budget-change:` (`tests/context/check-budget-changed.sh`). A rule that leaves the AGENTS.md block gets a row in
+that starts with `Context-budget-change:` (`node tests/ci/change-reason.mjs context-budget`). A rule that leaves the AGENTS.md block gets a row in
 `tests/context/rule-map.tsv` with its new place.
 
 ## New runtime support
@@ -143,9 +143,10 @@ How the lead works with sub-agents. Later releases cite this section.
 
 ## Test policy
 
-- Agents run only `sh tests/affected.sh` locally. The full self-test is CI's job, and a pull request is merged
+- Agents run only `node tests/affected.mjs` locally. The full self-test is CI's job, and a pull request is merged
   when CI is green.
 - The Core invariants suite, the Node tests and the static checks are never skipped, not even by the CI fast mode below.
+- A new test is a Node test (`node --test`). Its helpers are in `tests/lib/harness.mjs` (A236, issue #176): the hardened environment of every child (no real HOME, gh, git configuration or network, fixed identity), `A`/`AS` (a call of `agent.sh`), `expectFail`/`expectMsg`/`refused`, `newRepo` (the control plane installed in a throwaway repository, built once per content hash and copied), `scaffold`/`project`/`toCodeDone` and the gate and evidence verbs (`rec`, `gpass`, `gfail`, `passAll`, `worker`, `solo`, `approveAsUser`); do not write a second helper. The shell suites that are not ported yet (`control-plane/agents/scripts/*-test.sh`, `tests/*/*-test.sh`) still run as units of `node tests/selftest.mjs`, each in its own process group (`SELFTEST_UNIT_TIMEOUT` seconds, default 1800, then the group is killed and the unit fails).
 - The Node hook has a process-count budget per event (`tests/bench/hook-budgets.tsv`); raise one only with a decision that says why. The dispatcher and the execution decision have a process budget too (`tests/bench/dispatch-budgets.tsv`, A226), checked by `tests/bench/dispatch-budgets.test.mjs`. The helper commands (`build-record`, `friction report`, `calibrate`, `lessons`, `rules`) have one too (`tests/bench/helper-budgets.tsv`, A229), checked by `tests/bench/helper-budgets.test.mjs`. The commands of the Node core are tested by absolute golden recordings (`tests/fixtures/port-t3`, `tests/core/golden`), not by comparison with a shell engine (A210).
 - Tests run quiet: they print failures and one summary line.
 - A new validator gets one valid example and one or two invalid examples.
@@ -166,7 +167,7 @@ What: while `tests/ci/fast-mode.txt` exists, a pull request skips the legacy sel
 
 Pull request checklist:
 
-- [ ] CI is green (the full self-test, skill tests and fixtures are CI's job; locally run `sh tests/affected.sh`)
+- [ ] CI is green (the full self-test, skill tests and fixtures are CI's job; locally run `node tests/affected.mjs`)
 - [ ] generated files are in sync (`--check` commands above)
 - [ ] a decision entry in `docs/decisions.md` for every behaviour change
 - [ ] a test that fails without the change
@@ -179,7 +180,7 @@ Pull request checklist:
 
 ## Versions
 
-Every fix round that reaches users raises the patch version (0.0.3 to 0.0.4, and so on) in the same pull request; 0.x.0 is for new features or behaviour changes, and 1.0.0 is not planned yet. A release pull request runs `sh tests/ci/bump-version.sh <new-version>` (A168), never a global search-and-replace: that rewrote history comments in 0.0.25. `sh tests/ci/bump-version.sh --check` fails when a site disagrees with `.claude-plugin/plugin.json`. The script:
+Every fix round that reaches users raises the patch version (0.0.3 to 0.0.4, and so on) in the same pull request; 0.x.0 is for new features or behaviour changes, and 1.0.0 is not planned yet. A release pull request runs `node tests/ci/bump-version.mjs <new-version>` (A168), never a global search-and-replace: that rewrote history comments in 0.0.25. `node tests/ci/bump-version.mjs --check` fails when a site disagrees with `.claude-plugin/plugin.json`. The script:
 
 - changes the version everywhere it appears, and nothing else: `control-plane/agents/scripts/core/proflinecli.mjs` (`PROOFLINE_VERSION`), `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `control-plane/agents/config.yaml`, `playground/package.json`, every `skills/*/SKILL.md` (`metadata.version`), the `SKILL_VERSION` constants in `skills/exploit-proof/scripts/diff-manifests.mjs` and `skills/proof-review/scripts/check-config.mjs`, the README status lines, the heading in `adapters/README.md`, `docs/reference/skills.md` (regenerate: `node docs/reference/generate-skills.mjs`), the version example in `skills/proof-review/references/REPORTING.md`, the fixtures `fixtures/concurrency-proof/selfcheck.sh` and `fixtures/insights/setup.sh`, and the pinned versions in `tests/skills` (concurrency-proof, proof-review, data-design, proofline-lead). It never touches comments, prose or code that say when something was introduced;
 - moves the `Unreleased` entries of `CHANGELOG.md` under a new `## <version> — <date>` heading.

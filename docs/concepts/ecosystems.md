@@ -254,7 +254,7 @@ The other ecosystems keep the earlier mechanism: a workspace root (`workspace_ro
 
 ### No ecosystem code
 
-Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapters' hooks, `skills/*/scripts`) never branch on an ecosystem id. `tests/shared/check-static.sh` reads the ids from `ecosystems.tsv` and fails on a case arm or a comparison that names one; `platform.sh` and `ecosystems.sh` are excluded. A line that names an interpreter or a tool and not an ecosystem carries a comment line `# eco-ok: <why>` directly above it.
+Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapters' hooks, `skills/*/scripts`) never branch on an ecosystem id. `tests/shared/check-static.mjs` reads the ids from `ecosystems.tsv` and fails on a case arm or a comparison that names one; `platform.sh` and `ecosystems.sh` are excluded. A line that names an interpreter or a tool and not an ecosystem carries a comment line `# eco-ok: <why>` directly above it.
 
 ## The definition file
 
@@ -281,7 +281,7 @@ The risk lists are read at read time: `agent.sh` adds the ecosystem globs to `re
 
 - **sh:** only the control plane's `scripts/ecosystems.sh` is left (A234): `agent.sh` still sources it until #176. It reads `ecosystems.tsv`, the flat copy (`<id><TAB><path><TAB><value>`), so no sh script needs node or a JSON parser. `eco_init FILE`, then `eco_ids`, `eco_get ID PATH`, `eco_first`, `eco_children`, `eco_pack`, `eco_rows`, `eco_union`, `eco_risky`, `eco_glob_match`, `eco_pruned`.
 - **node:** `ecosystems.mjs` (`loadEcosystems`, `globToRegExp`, `matchesAny`, `isPruned`, `riskyPaths`, `classifyPath`, `toRegExp`, `validate`) and the command line `node ecosystems.mjs write|check|validate|ids|risky|get`.
-- **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies of `scripts/ecosystems.mjs` and `references/ecosystems.json` (no skill carries a shell reader or the flat file since A234; `runtime-versions.mjs` and `run-bench.mjs` read their own copy of `ecosystems.json` and never the project's `.agents/ecosystems.json`, because they start the version commands it names). `tests/shared/check-shared.sh` compares them with `control-plane/agents/`, and checks that the control plane's flat file is what `write` produces.
+- **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies of `scripts/ecosystems.mjs` and `references/ecosystems.json` (no skill carries a shell reader or the flat file since A234; `runtime-versions.mjs` and `run-bench.mjs` read their own copy of `ecosystems.json` and never the project's `.agents/ecosystems.json`, because they start the version commands it names). `tests/shared/check-shared.mjs` compares them with `control-plane/agents/`, and checks that the control plane's flat file is what `write` produces.
 
 ## Worktree dependencies (A185)
 

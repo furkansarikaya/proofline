@@ -3,7 +3,7 @@
 # ecosystems.json that `node ecosystems.mjs write` generates, so no sh script needs node or a JSON parser.
 # Each line is `<id><TAB><path><TAB><value>`; the id `*` is the global section. A scalar array repeats its path,
 # an array of objects adds an index segment (`commands.build.0.run`).
-# A skill that uses this carries a byte-identical copy of this file and of ecosystems.tsv (tests/shared/check-shared.sh).
+# A skill that uses this carries a byte-identical copy of this file and of ecosystems.tsv (tests/shared/check-shared.mjs).
 #
 #   eco_init FLAT         use FLAT (an ecosystems.tsv); returns 1 when it cannot be read
 #   eco_ids               the ecosystem ids, one per line, in file order

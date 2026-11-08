@@ -25,9 +25,9 @@ test('node-tests is a matrix of legs on both Node versions, with unique names', 
   assert.match(ci.slice(ci.indexOf('\n  checks:')), /needs: \[[^\]]*\bnode-tests\b[^\]]*\binvariants\b|needs: \[[^\]]*\binvariants\b[^\]]*\bnode-tests\b/, 'checks needs both matrix jobs by their stable names');
 });
 
-test('every test file the old globs matched (tests/ci, tests/enforcement, tests/core, tests/invariants-node) is in a leg, none is lost', () => {
+test('every test file the old globs matched (tests/ci, tests/enforcement, tests/core, tests/invariants-node, tests/lib) is in a leg, none is lost', () => {
   /** @type {string[]} */ const all = [];
-  for (const d of ['ci', 'enforcement', 'core', 'invariants-node']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
+  for (const d of ['ci', 'enforcement', 'core', 'invariants-node', 'lib']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
   assert.ok(all.length > 30);
   const where = new Map(all.map((f) => [f, /** @type {typeof legs} */ ([])]));
   /** A leg names files or globs of one directory (tests/<dir>/*.test.mjs); a glob picks up a new test file without a CI edit. @param {string} f */
@@ -53,6 +53,8 @@ test('invariants is a matrix of its scenarios; the non-scenario checks run in th
   const inJob = [...inv.matchAll(/^ {10}- (sc_\S+)$/gm)].map((m) => m[1]);
   assert.deepEqual(inJob, scen, 'one leg per scenario of the suite, in order');
   assert.match(inv, /env:\n\s+LC_EXACT: \$\{\{ matrix\.scenario \}\}\n\s+run: sh tests\/invariants\/invariants-test\.sh/);
-  assert.match(inv, /name: invariant change-reason script tests\n\s+if: matrix\.scenario == 'sc_inv1_code_done_needs_gates'\n\s+run: sh tests\/invariants\/check-changed-test\.sh/);
+  assert.ok(!/check-changed|check-budget-changed|sh tests\/context/.test(inv), 'the change-reason checks are Node (tests/ci/change-reason.mjs), tested in tests/ci/change-reason.test.mjs');
+  assert.match(inv, /name: invariant tests changed only with a reason\n\s+if: github\.event_name == 'pull_request' && matrix\.scenario == 'sc_inv1_code_done_needs_gates'\n[\s\S]*?run: node tests\/ci\/change-reason\.mjs invariants --base/);
+  assert.match(inv, /name: context budget changed only with a reason \(A202\)\n\s+if: github\.event_name == 'pull_request' && matrix\.scenario == 'sc_inv1_code_done_needs_gates'\n[\s\S]*?run: node tests\/ci\/change-reason\.mjs context-budget --base/);
   assert.ok(!/outputs\.fast|needs\.changes/.test(inv));
 });

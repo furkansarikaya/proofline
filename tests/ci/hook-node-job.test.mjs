@@ -25,7 +25,7 @@ describe('the Node hook is a pull request gate (hook-node)', () => {
     assert.match(j, /run: node --test tests\/enforcement\/guards\.test\.mjs/);
     assert.match(j, /run: node --test tests\/enforcement\/wiring\.test\.mjs/);
     for (const s of ['enforcement-test', 'timeouts-test', 'merge-guard-test', 'platform-test', 'approval-load-test']) assert.match(j, new RegExp(`- suite: ${s}\\n\\s+node: '22\\.13\\.0'`), s);
-    assert.match(j, /SELFTEST_ONLY: \$\{\{ matrix\.suite \}\}\n\s+run: sh tests\/selftest\.sh/);
+    assert.match(j, /SELFTEST_ONLY: \$\{\{ matrix\.suite \}\}\n\s+run: node tests\/selftest\.mjs/);
   });
   test('the Node tests run on Node 22.13.0 and the active LTS', () => {
     assert.match(j, /- suite: node-tests\n\s+node: '22\.13\.0'/);

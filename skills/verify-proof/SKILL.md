@@ -4,7 +4,7 @@ description: Mechanical proof that a frozen plan was implemented - every accepta
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.69"
+  version: "0.0.70"
 ---
 
 # verify-proof
@@ -71,7 +71,7 @@ One row per failed check or Failures entry, ids `VERIFY-<n>` from 1 with no gaps
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)
 
-These rules are identical in every proofline skill; `tests/shared/check-shared.sh` fails when a copy drifts.
+These rules are identical in every proofline skill; `tests/shared/check-shared.mjs` fails when a copy drifts.
 
 1. **Evidence or nothing.** A finding is `reproduced` (ran and observed) or `traced` (a concrete input followed along a concrete path). Everything else is a suspicion, never a finding.
 2. **Never install anything** in the user's project or machine. Use what exists; mark a missing capability unsupported and narrow the step.

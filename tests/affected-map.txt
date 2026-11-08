@@ -1,16 +1,16 @@
-# Maps changed paths to the self-test units that cover them (tests/affected.sh).
+# Maps changed paths to the self-test units that cover them (tests/affected.mjs).
 # Format: <sh case glob> <unit> [<unit>...]. A unit is a suite name (the -test.sh file name without .sh).
 # A path matching no line, a unit name that does not resolve, and every shared file select everything: this
 # file only lists what may be SAFELY skipped. Add a line only when grep shows the listed units are the sole
 # users of that path (scripts under control-plane/agents/scripts are copied into many suites: not listed).
 # A changed test file always selects itself without a line here.
-tests/ci/classify.sh classify-test affected-test
-tests/affected.sh affected-test load-limits-test
-tests/affected-map.txt affected-test
-tests/ci/bump-version.sh bump-version-test
-tests/ci/sync-design-library.sh sync-design-library-test
+tests/ci/classify.mjs classify.test.mjs affected.test.mjs change-reason.test.mjs
+tests/affected.mjs affected.test.mjs
+tests/affected-map.txt affected.test.mjs
+tests/ci/bump-version.mjs bump-version.test.mjs
+tests/ci/sync-design-library.mjs sync-design-library.test.mjs
 skills/ui-design/scripts/* ui-design.test.mjs ui-design-craft.test.mjs design-library.test.mjs plan-contract.test.mjs
-skills/ui-design/library/* ui-design.test.mjs ui-design-craft.test.mjs design-library.test.mjs sync-design-library-test static-test
+skills/ui-design/library/* ui-design.test.mjs ui-design-craft.test.mjs design-library.test.mjs sync-design-library.test.mjs static.test.mjs
 skills/ui-design/references/PATTERNS.md design-library.test.mjs
 skills/visual-proof/scripts/measure.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs
 skills/visual-proof/scripts/validate-visual.mjs visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
@@ -22,11 +22,12 @@ skills/visual-proof/scripts/patterns.mjs visual-proof.test.mjs visual-proof-seo.
 skills/visual-proof/scripts/build-ux-rules.mjs design-library.test.mjs
 skills/visual-proof/ux-rules.json visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
 fixtures/visual-proof-design/* visual-proof-design.test.mjs
-tests/invariants/check-changed.sh check-changed-test
-tests/invariants/check-changed-test.sh check-changed-test
 tests/invariants/invariants-test.sh invariants-test
-tests/context/check-budget-changed.sh check-budget-changed-test
-tests/context/check-budget-changed-test.sh check-budget-changed-test
+tests/ci/change-reason.mjs change-reason.test.mjs
+tests/ci/ci-steps.mjs change-reason.test.mjs
+tests/selftest-weights.mjs selftest-weights.test.mjs
+tests/fixtures/check-fixtures.mjs check-fixtures.test.mjs
+tests/shared/check-shared.mjs check-shared.test.mjs
 tests/context/budget.tsv contextsize.test.mjs
 tests/context/rule-map.tsv contextsize.test.mjs
 tests/enforcement/approval-load-test.sh approval-load-test
@@ -34,5 +35,5 @@ tests/enforcement/approval-load-test.sh approval-load-test
 tests/ci/ecosystem-branching.mjs ecosystem-branching.test.mjs
 tests/golden/capture/* capture.test.mjs windows-paths.test.mjs
 tests/ci/windows-paths.test.mjs windows-paths.test.mjs
-tests/shared/check-static.sh static-test
+tests/shared/check-static.mjs static.test.mjs
 tests/core/golden/* golden.test.mjs

@@ -2,7 +2,7 @@ name: ci
 # A76: pull requests run the Linux checks only, split into parallel jobs and shards. A164 changes A76's matrix:
 # pushes to main are Linux only too; macOS (static, fixtures, selftest), visual-browser and the benchmark report
 # run only on the nightly schedule and manual runs. A pull request that changes only plain documentation skips the heavy test
-# jobs (tests/ci/classify.sh) but still runs shellcheck and the sync checks. The `checks` job always reports.
+# jobs (tests/ci/classify.mjs) but still runs shellcheck and the sync checks. The `checks` job always reports.
 # Node migration (docs/adr/0001-node-control-plane.md): `node-tests` (the Node tests of tests/core, tests/ci, tests/enforcement and tests/invariants-node on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates. TEMPORARY FAST MODE: while
 # tests/ci/fast-mode.txt exists, a pull request skips the legacy self-test shards, the fixtures job and the skill tests
 # step (tests/ci/fast-mode.mjs, read by `changes`); it never skips invariants, node-tests, types or static. It has no expiry
@@ -70,14 +70,9 @@ jobs:
           NOTICE: ${{ steps.mode.outputs.notice || steps.modeboot.outputs.notice }}
         run: echo "::warning title=FAST MODE::$NOTICE"
       - id: classify
-        run: |
-          code=true
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" > changed.txt
-            code=$(sh tests/ci/classify.sh < changed.txt | sed 's/^code=//')
-          fi
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "code=$code"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node tests/ci/ci-steps.mjs classify
 
   static:
     needs: [changes]
@@ -118,12 +113,10 @@ jobs:
         run: node docs/reference/generate-skills.mjs --check
 
       - name: shared sections in sync
-        run: |
-          if [ -f tests/shared/check-shared.sh ]; then sh tests/shared/check-shared.sh
-          else echo "SKIPPED: tests/shared/check-shared.sh does not exist yet"; fi
+        run: node tests/shared/check-shared.mjs
 
       - name: static rules (shortcut labels, README size)
-        run: sh tests/shared/check-static.sh
+        run: node tests/shared/check-static.mjs
 
       # A125: front matter, YAML/TOML and Markdown links; runs for documentation-only pull requests too
       - name: front matter and link check
@@ -171,9 +164,7 @@ jobs:
         with:
           node-version: 22
       - name: fixtures
-        run: |
-          if [ -f tests/fixtures/check-fixtures.sh ]; then sh tests/fixtures/check-fixtures.sh
-          else echo "SKIPPED: tests/fixtures/check-fixtures.sh does not exist yet"; fi
+        run: node tests/fixtures/check-fixtures.mjs
       # A90: the full benchmark report (fixture selfchecks and skill tests) is nightly and manual only (A164), not a gate.
       - name: benchmark report
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -203,15 +194,12 @@ jobs:
   # A188, stage 3: the Node hook on Windows. It runs the hook tests (node:test) and the hook benchmark in its Node form (processes and time per event, the
   # table goes to the job summary). It replaces the Git Bash timing job for the hook: the hook no longer needs an `sh` of its own. Nightly and manual runs
   # only (A164, A204), a measurement and not a gate: it is not in `checks` and continue-on-error keeps a runner-image problem from failing the workflow.
-  # The hook tests and the benchmark still build their fixtures with Git Bash scripts (stage 15 removes that), so the steps run in bash.
+  # The benchmark still builds its fixture with the shell test library (Git Bash `sh`, started by the Node step); no step needs bash as its shell, so the job runs the runner's default shell.
   hook-windows:
     needs: [changes]
     if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     continue-on-error: true
-    defaults:
-      run:
-        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -219,18 +207,11 @@ jobs:
           node-version: 22.13.0
       - name: hook tests (node:test)
         run: node --test "tests/hook/*.test.mjs"
-      - name: summary heading
-        run: echo '### Node hook per event (Windows, Git Bash fixtures)' >> "$GITHUB_STEP_SUMMARY"
-      - name: summary table open
-        run: echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: hook processes and time per event (Node form)
-        run: REPEAT=5 sh tests/bench/hook-procs.sh adapters/claude/hooks/proofline-hook.mjs >> "$GITHUB_STEP_SUMMARY"
-      - name: summary table close
-        if: always()
-        run: echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: hook processes and time per event (Node form, table in the job summary)
+        run: node tests/ci/ci-steps.mjs windows-timing
 
   # The self-test suites are split into scenario units and spread over sixteen shards, balanced by unit weight (A109); inside a shard the units
-  # run on every core (tests/selftest.sh).
+  # run on every core (tests/selftest.mjs).
   selftest:
     needs: [changes]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.fast != 'true'
@@ -249,9 +230,9 @@ jobs:
       - name: script self-tests (shard ${{ matrix.shard }}/16)
         env:
           SELFTEST_TIMES_FILE: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
-        run: |
-          if [ -f tests/selftest.sh ]; then SELFTEST_SLOWEST=999 SELFTEST_SHARD=${{ matrix.shard }}/16 sh tests/selftest.sh
-          else echo "SKIPPED: tests/selftest.sh does not exist yet"; fi
+          SELFTEST_SLOWEST: 999
+          SELFTEST_SHARD: ${{ matrix.shard }}/16
+        run: node tests/selftest.mjs
       - name: upload unit timings
         if: always()
         uses: actions/upload-artifact@v4
@@ -440,6 +421,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/ci/*.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs
+          - name: harness
+            mode: files
+            pattern: 'none'
+            files: tests/lib/*.test.mjs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -452,7 +437,7 @@ jobs:
       # nightly and manual runs only: the whole set in one process as before, the safety net behind the legs (on a pull request this leg does nothing)
       - name: every test file in one process (nightly and manual runs)
         if: matrix.leg.mode == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/invariants-node/*.test.mjs"
+        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/invariants-node/*.test.mjs" "tests/lib/*.test.mjs"
       - name: tests of this leg (by test name)
         if: matrix.leg.mode == 'name'
         env:
@@ -523,7 +508,7 @@ jobs:
         if: matrix.suite != 'node-tests'
         env:
           SELFTEST_ONLY: ${{ matrix.suite }}
-        run: sh tests/selftest.sh
+        run: node tests/selftest.mjs
 
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
   # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.
@@ -566,16 +551,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: invariant change-reason script tests
-        if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
-        run: sh tests/invariants/check-changed-test.sh
       - name: invariant tests (this scenario)
         env:
           LC_EXACT: ${{ matrix.scenario }}
         run: sh tests/invariants/invariants-test.sh
-      - name: context budget (A202)
-        if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
-        run: sh tests/context/check-budget-changed-test.sh
       - uses: actions/setup-node@v4
         if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
         with:
@@ -587,16 +566,12 @@ jobs:
         if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          body=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""' 2>/dev/null) && export PR_BODY="$body"
-          git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" | sh tests/invariants/check-changed.sh
+        run: node tests/ci/change-reason.mjs invariants --base ${{ github.event.pull_request.base.sha }} --head ${{ github.sha }} --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
       - name: context budget changed only with a reason (A202)
         if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          body=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""' 2>/dev/null) && export PR_BODY="$body"
-          git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" | sh tests/context/check-budget-changed.sh
+        run: node tests/ci/change-reason.mjs context-budget --base ${{ github.event.pull_request.base.sha }} --head ${{ github.sha }} --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
 
   # One stable check name for branch protection: skipped jobs (documentation-only pull request) count as
   # passed, a failed or cancelled job fails it.

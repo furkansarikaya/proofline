@@ -1,0 +1,21 @@
+# Markdown task-integration adapter (fixture copy): publish appends the report under a delimited block in the
+# task source; verify re-hashes it against the receipt.
+set -eu
+root=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
+op=${1:?usage: markdown.sh <publish|verify> ...}
+task_source_path() { awk '/^task_source:$/ { i=1; next } i && /^[^[:space:]]/ { exit } i && /^[[:space:]]*path:/ { sub(/^[^:]*:[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$root/.agents/runs/$1/RUN.yaml"; }
+h() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 | awk '{print $1}'; else sha256sum | awk '{print $1}'; fi; }
+case "$op" in
+  publish)
+    id=$2 report=$3; path=$(task_source_path "$id"); target="$root/$path"; [ -f "$target" ] || exit 1
+    begin="<!-- COMPLETION-REPORT:BEGIN:$id -->"; end="<!-- COMPLETION-REPORT:END:$id -->"; tmp=$(mktemp "${TMPDIR:-/tmp}/md-adapter.XXXXXX")
+    if grep -Fq "$begin" "$target"; then
+      awk -v b="$begin" -v e="$end" -v rf="$report" '$0 == b { print; while ((getline l < rf) > 0) print l; s=1; next } $0 == e { print; s=0; next } s { next } { print }' "$target" > "$tmp"
+    else cp "$target" "$tmp"; { printf '\n## Completion Report\n\n%s\n' "$begin"; cat "$report"; printf '%s\n' "$end"; } >> "$tmp"; fi
+    mv "$tmp" "$target"; printf '%s#%s\n' "$path" "$(h < "$report")" ;;
+  verify)
+    id=$2 receipt=$3; path=${receipt%%#*}; want=${receipt#*#}; target="$root/$path"; [ -f "$target" ] || exit 1
+    got=$(awk -v b="<!-- COMPLETION-REPORT:BEGIN:$id -->" -v e="<!-- COMPLETION-REPORT:END:$id -->" '$0 == b { i=1; next } $0 == e { i=0; next } i { print }' "$target" | h)
+    [ "$got" = "$want" ] ;;
+  *) exit 2 ;;
+esac
