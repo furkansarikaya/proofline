@@ -59,9 +59,10 @@ function gitState(dir, o) {
   };
   const lines = [`.git\tHEAD\t${g(['symbolic-ref', '-q', 'HEAD'])}\t${g(['rev-parse', '-q', '--verify', 'HEAD'])}`];
   for (const l of g(['for-each-ref', '--format=%(refname) %(objectname)']).split('\n').filter(Boolean)) lines.push(`.git\tref\t${l}`);
-  lines.push(`.git\tconfig\t${sha(g(['config', '--local', '--list']))}`);
+  // only what a builder sets: git itself adds platform keys at init (core.ignorecase, precomposeunicode, filemode, symlinks, ...)
+  lines.push(`.git\tconfig\t${sha(g(['config', '--local', '--list']).split('\n').filter((l) => !/^core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks)=/.test(l)).join('\n'))}`);
   lines.push(`.git\tstatus\t${sha(g(['status', '--porcelain', '--ignored']))}`);
-  try { lines.push(`.git/info/exclude\tfile\t${sha(readFileSync(path.join(dir, '.git', 'info', 'exclude')))}`); } catch { /* none */ }
+  try { lines.push(`.git/info/exclude\tfile\t${sha(readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n').filter((l) => l && !l.startsWith('#')).join('\n'))}`); } catch { /* none */ }
   lines.push(`.git\tstash\t${sha(g(['stash', 'list']))}`);
   const hooks = path.join(dir, '.git', 'hooks');
   try { for (const h of readdirSync(hooks).sort()) if (!h.endsWith('.sample')) lines.push(`.git/hooks/${h}\tfile\t${sha(readFileSync(path.join(hooks, h)))}`); } catch { /* no hooks folder */ }
