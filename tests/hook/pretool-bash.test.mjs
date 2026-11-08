@@ -62,3 +62,15 @@ test('A235: diff-digest is allowed to the gate roles and the explorer in a run, 
   const other = await pre('node', d, 'sh .agents/scripts/agent.sh diff-digestx LC', { agent_type: 'proofline-reviewer', agent_id: 'a1' }, {});
   assert.match(other.stdout, /runs only the read-only agent\.sh/);
 });
+
+test('A235: plan-section and config-get (read-only, named by every role text) pass the hook for every subagent role; a state-changing command still does not', { skip }, async () => {
+  const d = copyProject(withRun, base);
+  for (const agent_type of ['proofline-reviewer', 'proofline-verifier', 'proofline-qa', 'proofline-security-reviewer', 'proofline-implementer']) {
+    for (const sub of ['plan-section LC scope', 'config-get commands.test']) {
+      const r = await pre('node', d, `sh .agents/scripts/agent.sh ${sub}`, { agent_type, agent_id: 'a1' }, {});
+      assert.equal(r.stdout, '', `${agent_type} ${sub}: ${r.stdout}`);
+    }
+  }
+  const w = await pre('node', d, 'sh .agents/scripts/agent.sh classify LC COMPLEX', { agent_type: 'proofline-reviewer', agent_id: 'a1' }, {});
+  assert.match(w.stdout, /runs only the read-only agent\.sh/);
+});
