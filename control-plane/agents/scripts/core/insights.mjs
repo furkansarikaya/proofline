@@ -1,5 +1,5 @@
 // @ts-check
-// `proofline insights` (A89, bin/lib/insights.sh): the aggregator of the cost and recurring-failure report, as the awk program of the shell
+// `proofline insights` (A89): the aggregator of the cost and recurring-failure report, as the awk program of the shell
 // front end read it, rule by rule. Read-only: it opens nothing for writing. Text is a byte string (LC_ALL=C: lengths are bytes).
 import { readdirSync, readFileSync, lstatSync, statSync } from 'node:fs';
 import { trimSpace } from './shellglob.mjs';

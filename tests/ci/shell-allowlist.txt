@@ -1,10 +1,6 @@
 adapters/codex/install.sh
 adapters/generate.sh
-bin/lib/config.sh
-bin/lib/doctor.sh
-bin/lib/insights.sh
 bin/lib/install.sh
-bin/lib/merge.sh
 bin/proofline
 control-plane/agents/githooks/pre-commit
 control-plane/agents/githooks/pre-push

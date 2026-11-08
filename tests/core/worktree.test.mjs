@@ -301,20 +301,7 @@ test('doctor proposes the removal of a worktree whose run is DONE and merged; it
   for (const id of ['L-1', 'L-2', 'L-3', 'L-4', 'L-5']) assert.ok(existsSync(`${root}/.agents/local/worktrees/${id}/.agents/runs/${id}`), `${id} was touched`);
 });
 
-test('proofline doctor prints one WARN with the removal command per leftover worktree and counts it (A215)', () => {
-  const fx = leftoverProject([{ id: 'L-1', state: 'DONE' }]);
-  put(`${fx.root}/.agents/local/batch/merged.tsv`, 'L-1\t12\t1700000000\n');
-  const r = spawnSync('sh', ['-c', 'ROOT="$1"; D_WARNS=0; . "$2"; doctor_worktrees; echo "warns=$D_WARNS"', 'x', fx.root, path.join(repo, 'bin/lib/doctor.sh')], { encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^WARN worktrees: the worktree of L-1 is a leftover: its run is DONE and its merge is recorded in the batch, but .*\.agents\/local\/worktrees\/L-1 is still present\. To remove it \(the run records are archived first\), run: sh \.agents\/scripts\/agent\.sh worktree-remove L-1 --force$/m);
-  assert.match(r.stdout, /warns=1/);
-  assert.ok(existsSync(`${fx.root}/.agents/local/worktrees/L-1`), 'doctor removed the worktree');
-  // no leftover: no output
-  const clean = leftoverProject([{ id: 'L-9', state: 'DONE' }]);
-  const r2 = spawnSync('sh', ['-c', 'ROOT="$1"; D_WARNS=0; . "$2"; doctor_worktrees; echo "warns=$D_WARNS"', 'x', clean.root, path.join(repo, 'bin/lib/doctor.sh')], { encoding: 'utf8' });
-  assert.equal(r2.stdout.trim(), 'warns=0');
-  void Context; void say; void lines; void readFileSync;
-});
+// (the doctor line for a leftover worktree is tested through `proofline doctor` in doctor-faults.test.mjs)
 
 const HOSTILE = ['x;touch PWNED;#', 'x;touch${IFS}PWNED;#', 'L$(touch PWNED)', 'L`touch PWNED`', "it's", 'L 1', 'L\ntouch PWNED', 'L\tPWNED', '-rf', 'ünï', 'a|b', 'a&b', '.hid', 'a..b'];
 
@@ -341,10 +328,6 @@ test('doctor never proposes a command built from a hostile worktree folder name;
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stdout, 'V-1\t.agents/local/worktrees/V-1\tits delivered commit is on main\tsh .agents/scripts/agent.sh worktree-remove V-1 --force\n');
   assert.ok(!cli.stdout.includes('touch') && !cli.stdout.includes('PWNED'));
-  // doctor.sh prints exactly one WARN, and running the proposed line creates nothing
-  const d = spawnSync('sh', ['-c', 'ROOT="$1"; D_WARNS=0; . "$2"; doctor_worktrees; echo "warns=$D_WARNS"', 'x', root, path.join(repo, 'bin/lib/doctor.sh')], { encoding: 'utf8' });
-  assert.equal(d.stdout.split('\n').filter((l) => l.startsWith('WARN')).length, 1, d.stdout);
-  assert.ok(!d.stdout.includes('PWNED') && /warns=1/.test(d.stdout), d.stdout);
 });
 
 test('shQuote returns a word a POSIX shell reads back unchanged, whatever it holds', () => {

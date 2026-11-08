@@ -1,5 +1,5 @@
 // @ts-check
-// The merge guard (A136, A180, A200): merging is possible only through `proofline merge <PR>` (bin/lib/merge.sh), which merges a pull request only
+// The merge guard (A136, A180, A200): merging is possible only through `proofline merge <PR>` (`bin/proofline merge`, core/merge.mjs), which merges a pull request only
 // when a fresh check shows every check green on its current head. Every other merge path is denied for every caller, a run open or not, proofline
 // installed in the project or not: gh/glab/az merges, gh api merge endpoints, HTTP clients aimed at them, git push to a protected branch (or a bare
 // push while one is checked out), git merge/reset/rebase/... on one. Token matching on the scan's command records, like the rest of the hook.

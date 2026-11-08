@@ -89,13 +89,13 @@ function agent(ctx, argv) {
 }
 
 /** `email_of IDENT` @param {Context} ctx @param {string} which */
-function emailOf(ctx, which) {
+export function emailOf(ctx, which) {
   const m = /.*<([^>]*)>/.exec(git(ctx, ['var', which]).out.split('\n')[0] ?? '');
   return m ? m[1] : '';
 }
 
 /** `forbidden EMAIL` @param {Context} ctx @param {string} config @param {string} email */
-function forbidden(ctx, config, email) {
+export function forbidden(ctx, config, email) {
   const low = email.replace(/[A-Z]/g, (c) => c.toLowerCase());
   for (const p of cfg2(config, 'git', 'forbidden_identities').split(/[ \t\n]+/).filter((x) => x !== '')) {
     if (caseMatch(p.replace(/[A-Z]/g, (c) => c.toLowerCase()), low)) return true;

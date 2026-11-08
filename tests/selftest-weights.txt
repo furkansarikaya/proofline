@@ -53,7 +53,6 @@
 125 lifecycle-test scenario_upgrade_product_edits
 124 lifecycle-test scenario_upgrade_keeps_tier
 120 lifecycle-test scenario_fingerprint_new_block_file CLAUDE.md
-117 cli-test sc_doctor_missing
 117 cli-test sc_init_merge
 116 lifecycle-test scenario_hardening
 115 lifecycle-test scenario_fingerprint_new_block_file AGENTS.md
@@ -68,7 +67,6 @@
 102 gates-test sc_assumptions
 102 lifecycle-test scenario_base_moved_control_only
 100 gates-test sc_supervised_destructive
-99 cli-test sc_doctor_faults
 97 lifecycle-test scenario_upgrade_named_pattern_path
 87 gates-test sc_destructive_refreeze
 87 lifecycle-test scenario_base_moved_agents_named
@@ -94,7 +92,6 @@
 68 reply-loop-test question-file
 67 enforcement-test hook_wiring
 66 gates-test sc_stdin_contract
-65 cli-test sc_doctor_fresh
 65 lifecycle-test scenario_fix_scope_shared_criteria
 63 gates-test sc_parallel_lock
 63 lifecycle-test scenario_reopen_approval_kinds
@@ -144,7 +141,7 @@
 23 lifecycle-test scenario_fix_scope_no_criteria
 22 enforcement-test agent_sh_forms
 21 risk-test sc_migration_small
-20 cli-test sc_doctor_global_hookspath
+20 cli-test sc_init_global_hookspath
 20 reply-loop-test single_step
 20 risk-test sc_log_upgrade_legacy
 19 cli-test sc_discovery
@@ -194,7 +191,6 @@
 4 gates-test sc_start
 3 fixture-test
 3 gates-test sc_capture_integrity
-2 cli-test sc_insights
 2 controls-test sc_branch
 2 controls-test sc_roles
 2 lifecycle-test scenario_freeze_scope_mapping

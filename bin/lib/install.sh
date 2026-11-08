@@ -319,9 +319,7 @@ codex_network_config() {
 
 # global_hookspath: a core.hooksPath in the global or system git config (never modified here), else empty.
 global_hookspath() { g config --global --get core.hooksPath 2>/dev/null || g config --system --get core.hooksPath 2>/dev/null || true; }
-global_hookspath_msg() { # VALUE: the warning shared by init and doctor
-  printf "a global/system git core.hooksPath ('%s') exists; the repository-local core.hooksPath wins here and is left set, but the global one is not touched and applies to your other repositories" "$1"
-}
+global_hookspath_msg() { pl_core cli hookspath-message "$1"; } # VALUE: the warning shared by init and doctor (one text, in the Node core)
 
 do_githooks_path() {
   dg_cur=$(g config --local --get core.hooksPath 2>/dev/null || true)

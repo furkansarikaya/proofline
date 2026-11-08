@@ -68,10 +68,10 @@ ok "page: lead only; list works for every role with no run"
 
 # A162: the five comments that used to carry a foreign label are listed as shortcut entries of this repository, and none is left
 real=$(CDPATH='' cd "$tl_agents/../.." && pwd)
-if [ -f "$real/bin/lib/config.sh" ] && git -C "$real" rev-parse --show-toplevel >/dev/null 2>&1; then
+if [ -f "$real/control-plane/agents/scripts/core/cfgcli.mjs" ] && git -C "$real" rev-parse --show-toplevel >/dev/null 2>&1; then
   out=$(sh "$tl_agents/scripts/debt.sh" list) || die "debt list failed in the repository"
   # asserted by file and shortcut text, not by line number: editing those files must not break this test
-  for want in 'bin/lib/config.sh|a new deep key under an existing 2-level key' \
+  for want in 'control-plane/agents/scripts/core/cfgcli.mjs|a new deep key under an existing 2-level key' \
     'skills/data-design/scripts/classify-migration.mjs|MySQL client "DELIMITER" blocks' \
     'skills/data-design/scripts/classify-migration.mjs|strips // and /* */ and leading-# line comments' \
     'skills/test-trust/scripts/validate-findings.mjs|implements only the JSON Schema keywords'; do

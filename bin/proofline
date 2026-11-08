@@ -7,7 +7,7 @@
 #   proofline help
 # shellcheck source-path=SCRIPTDIR
 set -u
-PROOFLINE_VERSION=0.0.65
+PROOFLINE_VERSION=0.0.66
 
 # Resolve this script through symlinks (no readlink -f: BSD has none) to find the proofline checkout.
 self=$0
@@ -23,23 +23,22 @@ say() { printf '%s\n' "$*"; }
 warn() { printf 'proofline: %s\n' "$*" >&2; }
 # nu_line [--error[=KIND]]: the user's next step (A159), from the one table in core/nextuser.mjs, for the command being run.
 PL_CMD=''; PL_ID=''; PL_KIND=''
-nu_line() { PROOFLINE_ROOT=$ROOT node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli next-line "${PL_CMD:-help}" ${PL_ID:+"$PL_ID"} "$@"; }
+nu_line() { command -v node >/dev/null 2>&1 || return 1; PROOFLINE_ROOT=$ROOT node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" cli next-line "${PL_CMD:-help}" ${PL_ID:+"$PL_ID"} "$@"; }
 # pl_core ARGS...: a command of the Node core of THIS plugin (discovery, the run with a time limit, the context size, the hook timeouts of the settings files; they need no installed project).
 pl_core() { command -v node >/dev/null 2>&1 || { printf 'proofline: node is not on PATH; proofline needs Node 22.13 or newer\n' >&2; return 127; }; export PL_HOME; node "$PL_HOME/control-plane/agents/scripts/proofline-core.mjs" "$@"; }
 die() { printf 'proofline: %s\n' "$*" >&2; nu_line "--error${PL_KIND:+=$PL_KIND}" >&2 || :; exit 1; }
 if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
 else sha256() { sha256sum "$1" | awk '{print $1}'; }; fi
 
-# shellcheck source=lib/config.sh
-. "$LIB/config.sh"
+# config helpers (A232): the Node core reads and writes .agents/config.yaml (core/cfgcli.mjs); install.sh and the commands below call them as before
+cfg_val() { pl_core cli config val "$@"; }            # FILE KEY [DEFAULT]: the value, or DEFAULT when absent or empty
+cfg_get() { pl_core cli config get "$@"; }            # FILE KEY: the value; status 1 when the key is absent
+cfg_lines() { pl_core cli config lines "$@"; }        # FILE: one dotted.key=value line per key
+cfg_cmds() { pl_core cli config cmds "$@"; }          # FILE KEY: a configured command, one per line (commands.build|test|lint, A173)
+cfg_set() { pl_core cli config set "$@"; }            # FILE KEY VALUE: replace or add one key
+cfg_merge_new() { pl_core cli config merge-new "$@"; }  # USER DEFAULT: USER with the keys only DEFAULT has
 # shellcheck source=lib/install.sh
 . "$LIB/install.sh"
-# shellcheck source=lib/doctor.sh
-. "$LIB/doctor.sh"
-# shellcheck source=lib/insights.sh
-. "$LIB/insights.sh"
-# shellcheck source=lib/merge.sh
-. "$LIB/merge.sh"
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$PWD
 CFG=$ROOT/.agents/config.yaml
@@ -310,10 +309,25 @@ main() {
   PL_CMD=$cmd
   case "$cmd" in --version|-v) PL_CMD=version ;; --help|-h) PL_CMD=help ;; deliver|run|knowledge|reopen) PL_ID=${1:-} ;; esac
   nu_json=no; case " $* " in *" --json "*) nu_json=yes ;; esac   # machine-readable output carries no extra line
-  rc=0; dispatch "$cmd" "$@" || rc=$?
+  rc=0; need_node "$cmd" "$@" || rc=$?
+  [ "$rc" != 0 ] || dispatch "$cmd" "$@" || rc=$?
   if [ "$rc" != 0 ]; then nu_line --error >&2 || :
   elif [ "$nu_json" = no ]; then case "$PL_CMD" in init|upgrade|doctor|status|resume|queue|debt|clean|merge|insights) nu_line || : ;; esac; fi
   exit "$rc"
+}
+
+# need_node CMD [ARGS]: everything but help, version and init runs in the Node core (Node 22.13 or newer); without node it stops here with one message.
+# doctor still prints its report line and summary (a missing node is a FAIL of the diagnosis, not a crash).
+need_node() {
+  command -v node >/dev/null 2>&1 && return 0
+  case "$1" in
+    help|--help|-h|version|--version|-v|init) return 0 ;;
+    doctor) if [ $# -eq 1 ]; then
+      say "FAIL node: not found on PATH; proofline needs Node 22.13 or newer (the commands that run in Node exit 127 and the guards that need them deny; install it)"
+      say "doctor: 1 FAIL, 0 WARN"; return 1
+    fi ;;
+  esac
+  printf 'proofline: node is not on PATH; proofline needs Node 22.13 or newer\n' >&2; return 1
 }
 
 dispatch() {
@@ -321,15 +335,15 @@ dispatch() {
   case "$cmd" in
     init) cmd_init "$@" ;;
     upgrade) cmd_upgrade "$@" ;;
-    doctor) cmd_doctor "$@" ;;
+    doctor) (cd "$ROOT" && PROOFLINE_ROOT=$ROOT PROOFLINE_VERSION=$PROOFLINE_VERSION pl_core cli doctor "$@") ;;
     status) cmd_status ;;
     resume) cmd_resume ;;
     queue) cmd_queue ;;
     deliver) cmd_deliver "$@" ;;
     debt) cmd_debt ;;
     clean) cmd_clean "$@" ;;
-    merge) cmd_merge "$@" ;;
-    insights) cmd_insights "$@" ;;
+    merge) pl_core cli merge "$@" ;;
+    insights) (cd "$ROOT" && PROOFLINE_ROOT=$ROOT pl_core cli insights-front "$@") ;;
     task) cmd_task "$@" ;;
     design) cmd_design "$@" ;;
     run) cmd_run "$@" ;;

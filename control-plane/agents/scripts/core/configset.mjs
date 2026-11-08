@@ -1,5 +1,5 @@
 // @ts-check
-// Writing .agents/config.yaml (A230; the former cfg_set and cfg_cmds of bin/lib/config.sh, for the commands and scale proposals): flat indented YAML of scalars, two
+// Writing .agents/config.yaml (A230; the former cfg_set and cfg_cmds of the shell config helpers, for the commands and scale proposals; `cli config` in cfgcli.mjs exposes them to bin/proofline): flat indented YAML of scalars, two
 // spaces per level; commands.build|test|lint may also be a block list of commands (A173).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Config } from './config.mjs';
