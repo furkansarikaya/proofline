@@ -104,7 +104,7 @@ line 1 of `.agents/local/submissions/<token>.started` (the file the token counts
 Read the limits before using it: the log is read while the session still runs, so the record counts up to the call that submitted (that call's own result
 is not in it), a last half-written line is ignored, and a worker that submits twice (the first was rejected) is counted at its recorded submission only.
 A Claude subagent's log holds that subagent only; the lead's own session log is not recorded by proofline. Counts are never estimated: a log that
-cannot be read gives `null` and a `log` value that says so, never `0`. `metrics: off` writes nothing.
+cannot be read gives `null` and a `log` value that says so, never `0`; a log over 128 MiB is not read (`unreadable`), and `submit` still succeeds. Every string is cut to 64 characters after the reduction (a tool name included), so one line stays under about 5 KB. `metrics: off` writes nothing.
 
 ## Reading it: `proofline insights`
 

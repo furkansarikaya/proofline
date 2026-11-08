@@ -3,7 +3,7 @@
 // The reader is tested with absolute known answers on a synthetic log (the shapes were taken from real Claude Code transcripts); the writer with the
 // `metrics: off`, null-visible and string-reduction rules of `records.jsonl` (A80).
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
@@ -119,5 +119,42 @@ describe('tools.jsonl record', () => {
     const step = JSON.parse(readFileSync(path.join(root, '.agents/local/metrics/records.jsonl'), 'utf8').trim());
     assert.equal(step.schema, 'proofline.metrics/1');
     assert.equal(Object.keys(step).length, 20);
+  });
+});
+
+describe('fix round 1 (A235)', () => {
+  test('T1: a tool named __proto__ is kept as a plain key, so by_tool sums to calls', () => {
+    const dir = makeProject();
+    const s = readToolStats(writeLog(dir, [use('a', '__proto__'), res('a', 'xy'), use('b', 'Bash'), res('b', 'z')]));
+    assert.equal(s.calls, 2);
+    assert.deepEqual(Object.keys(s.byTool ?? {}).sort(), ['Bash', '__proto__']);
+    assert.equal(Object.values(s.byTool ?? {}).reduce((a, e) => a + e.calls, 0), s.calls);
+  });
+  test('T2: a 5 MB tool name and long identifiers are cut to 64 characters; a line stays under 5 KB', () => {
+    const { root, ctx } = (() => { const r = makeProject(); const { io } = memoryIo(r); return { root: r, ctx: new Context(io, io.scriptPath ?? '') }; })();
+    const log = writeLog(root, [use('a', 'N'.repeat(5 * 1024 * 1024)), res('a', 'x')]);
+    const long = 'L'.repeat(5000);
+    toolsRecord(ctx, { task: long, role: long, focus: long, gate: long, runtime: long, log });
+    const line = readFileSync(path.join(root, '.agents/local/metrics/tools.jsonl'), 'utf8');
+    assert.ok(line.length < 5000, `${line.length}`);
+    const o = JSON.parse(line);
+    assert.equal(o.task.length, 64);
+    assert.equal(Object.keys(o.by_tool)[0].length, 64);
+  });
+  test('T3: a log over 128 MiB is unreadable (null counts), without being read', () => {
+    const dir = makeProject();
+    const f = path.join(dir, 'big.jsonl');
+    const fd = openSync(f, 'w'); ftruncateSync(fd, 128 * 1024 * 1024 + 1); closeSync(fd);
+    assert.deepEqual({ ...readToolStats(f) }, { log: 'unreadable', calls: null, resultBytes: null, denied: null, byTool: null });
+  });
+  test('T4: a non-string tool name does not throw; a reader that throws gives an unreadable record', () => {
+    const { root, ctx } = (() => { const r = makeProject(); const { io } = memoryIo(r); return { root: r, ctx: new Context(io, io.scriptPath ?? '') }; })();
+    const log = writeLog(root, [{ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'a', name: { toString: 1 }, input: {} }] } }, res('a', 'x')]);
+    const s = readToolStats(log);
+    assert.equal(s.log, 'ok'); assert.equal(s.calls, 1);
+    assert.deepEqual(Object.keys(s.byTool ?? {}), ['?']);
+    toolsRecord(ctx, { task: 'T-1', role: 'qa', focus: '', gate: 'QA', runtime: 'claude', log: root });   // a directory: the read throws
+    const o = JSON.parse(readFileSync(path.join(root, '.agents/local/metrics/tools.jsonl'), 'utf8').trim().split('\n').pop() ?? '');
+    assert.equal(o.log, 'unreadable'); assert.equal(o.calls, null);
   });
 });
