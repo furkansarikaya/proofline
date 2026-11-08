@@ -404,10 +404,10 @@ test("decision numbers cited in Markdown exist in docs/decisions.md", () => {
   assert.deepEqual([...new Set(bad)], []);
 });
 
-// ADR 0001 section 10: the documented commands are checked against the core's command table (all 132 entries, moved or bridged), not against
+// ADR 0001 section 10: the documented commands are checked against the core's command table (all 133 entries), not against
 // agent.sh text. The table is read through one stable function, `commandTable()`, exported by control-plane/agents/scripts/proofline-core.mjs and
 // returning an array of { name, readOnly, roles }.
-const COMMAND_COUNT = 132;
+const COMMAND_COUNT = 133;
 async function commandNames() {
   const core = await import(pathToFileURL(join(REPO, "control-plane/agents/scripts/proofline-core.mjs")).href);
   assert.equal(typeof core.commandTable, "function", "proofline-core.mjs must export commandTable()");
@@ -421,7 +421,7 @@ async function commandNames() {
   return table.map((e) => e.name);
 }
 
-test("the core's command table has all 132 commands, each once", async () => {
+test("the core's command table has all 133 commands, each once", async () => {
   const names = await commandNames();
   assert.equal(names.length, COMMAND_COUNT);
   assert.equal(new Set(names).size, COMMAND_COUNT, "no duplicate command name");
