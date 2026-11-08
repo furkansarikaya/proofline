@@ -11,7 +11,7 @@ import { Config } from '../../control-plane/agents/scripts/core/config.mjs';
 import { repo } from './helpers.mjs';
 
 export const PL = path.join(repo, 'bin', 'proofline');
-/** The version every site holds (.claude-plugin/plugin.json; tests/ci/bump-version.sh --check keeps the sites equal). */
+/** The version every site holds (.claude-plugin/plugin.json; tests/ci/bump-version.mjs --check keeps the sites equal). */
 export const VERSION = /** @type {string} */ (JSON.parse(readFileSync(path.join(repo, '.claude-plugin', 'plugin.json'), 'utf8')).version);
 export const INIT_FLAGS = ['--yes', '--runtimes', 'claude,codex', '--lead', 'claude', '--worker', 'codex', '--reviewers', 'claude', '--profile', 'economy', '--task-adapter', 'markdown',
   '--protected-branches', 'release', '--push-approval', 'true', '--forbidden-identity', '*@forbidden-zz.test', '--forbidden-identity', '*@other-zz.test'];

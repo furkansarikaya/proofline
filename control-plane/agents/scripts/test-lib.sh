@@ -308,7 +308,7 @@ to_code_done() {
   A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null
 }
 # LC_ONLY=<substring> runs only matching scenarios. LC_EXACT="name [arg]" runs only the scenario called exactly
-# so (tests/selftest.sh splits a suite into one process per scenario this way, A76).
+# so (tests/selftest.mjs splits a suite into one process per scenario this way, A76).
 run_sc() {
   if [ -n "${LC_EXACT:-}" ]; then [ "$LC_EXACT" = "$*" ] || return 0
   elif [ -n "${LC_ONLY:-}" ]; then printf '%s' "$*" | grep -q -- "$LC_ONLY" || return 0; fi

@@ -35,7 +35,7 @@ export function main(argv, io = {}) {
       let code = 'true';
       if (o.event === 'pull_request') {
         if (!o.base || !o.head) throw new Error('classify: --base and --head are needed for a pull request');
-        const names = (io.changed ?? ((b, h) => execFileSync('git', ['diff', '--name-only', '--no-renames', b, h], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n')))(o.base, o.head);
+        const names = (io.changed ?? ((b, h) => execFileSync('git', ['-c', 'core.quotepath=false', 'diff', '-z', '--name-only', '--no-renames', b, h], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\0')))(o.base, o.head);
         code = classify(names).replace(/^code=/, '');
       }
       if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `code=${code}\n`);

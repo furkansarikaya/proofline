@@ -152,3 +152,31 @@ describe('ci-steps windows-timing', () => {
     assert.match(readFileSync(sum, 'utf8'), /```\n$/);
   });
 });
+
+describe('non-ASCII paths (git quotes them unless told not to)', () => {
+  test('a changed non-ASCII path under tests/invariants/ or tests/context/ is seen; a docs-looking one classifies as documentation', () => {
+    const d = mkdtempSync(path.join(T, 'u-'));
+    const g = (/** @type {string[]} */ a) => execFileSync('git', a, { cwd: d, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
+    g(['init', '-q', '-b', 'main']); writeFileSync(path.join(d, 'a'), 'a'); g(['add', '-A']); g(['commit', '-q', '-m', 'a']);
+    const base = g(['rev-parse', 'HEAD']);
+    for (const f of ['tests/invariants/ä.sh', 'tests/context/budget.tsv', 'docs/ünï.md']) { execFileSync('mkdir', ['-p', path.dirname(path.join(d, f))]); writeFileSync(path.join(d, f), 'x'); }
+    g(['add', '-A']); g(['commit', '-q', '-m', 'b']);
+    const head = g(['rev-parse', 'HEAD']);
+    const cwd = process.cwd(); process.chdir(d);
+    const origErr = console.error; console.error = () => {};
+    try {
+      assert.equal(main(['invariants', '--base', base, '--head', head], { env: { PR_BODY: '' }, write: () => {} }), 1, 'the guard sees the non-ASCII invariant path');
+      let out = '';
+      const outFile = path.join(T, 'u-out'); writeFileSync(outFile, '');
+      assert.equal(steps(['classify', '--event', 'pull_request', '--base', base, '--head', head], { env: { GITHUB_OUTPUT: outFile }, write: (s) => { out += s; } }), 0);
+      assert.equal(out, 'code=true\n');
+    } finally { process.chdir(cwd); console.error = origErr; }
+    // a pull request that adds only a non-ASCII documentation file is documentation
+    writeFileSync(path.join(d, 'docs/ñ.md'), 'y'); g(['add', '-A']); g(['commit', '-q', '-m', 'c']);
+    const head2 = g(['rev-parse', 'HEAD']);
+    let out2 = ''; const outFile2 = path.join(T, 'u-out2'); writeFileSync(outFile2, '');
+    process.chdir(d);
+    try { assert.equal(steps(['classify', '--event', 'pull_request', '--base', head, '--head', head2], { env: { GITHUB_OUTPUT: outFile2 }, write: (s) => { out2 += s; } }), 0); } finally { process.chdir(cwd); }
+    assert.equal(out2, 'code=false\n');
+  });
+});

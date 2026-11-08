@@ -93,9 +93,9 @@ function changedFiles(root) {
   let base = '';
   for (const r of ['origin/main', 'main']) { const b = git(root, ['merge-base', 'HEAD', r])?.trim(); if (b) { base = b; break; } }
   const withHead = (/** @type {string} */ ref) => {
-    const diff = git(root, ['diff', '--name-only', '--no-renames', ref]) ?? '';
-    const untracked = git(root, ['ls-files', '-o', '--exclude-standard']) ?? '';
-    return `${diff}${untracked}`.split('\n').filter((x) => x !== '');
+    const diff = git(root, ['-c', 'core.quotepath=false', 'diff', '-z', '--name-only', '--no-renames', ref]) ?? '';
+    const untracked = git(root, ['-c', 'core.quotepath=false', 'ls-files', '-z', '-o', '--exclude-standard']) ?? '';
+    return `${diff}${untracked}`.split('\0').filter((x) => x !== '');
   };
   if (base) return withHead(base);
   if (git(root, ['rev-parse', '-q', '--verify', 'HEAD']) !== null) return withHead('HEAD');

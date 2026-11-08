@@ -3,11 +3,11 @@
 // and fails when one mirrored file or the mirrored licence differs; sync and --update rewrite the copies and the notices from the mirror. Source ids,
 // paths and file names are read from the notices file, never written here.
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
-import { main } from './sync-design-library.mjs';
+import { MAX_BYTES, getLimited, main } from './sync-design-library.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const T = mkdtempSync(path.join(tmpdir(), 'sync-test-'));
@@ -123,5 +123,52 @@ describe('usage', () => {
   test('bad arguments exit 2 with a message', async () => {
     const m = mirror(); const sha = 'b'.repeat(40);
     for (const a of [['--bogus'], ['--update', 'x'], ['--check', 'x'], ['--update', sources[0].id, 'abc'], ['--update', 'source-999', sha]]) assert.equal((await run(a, m)).status, 2, a.join(' '));
+  });
+});
+
+describe('hardening (A236 fix round 1)', () => {
+  /** A root whose notices file is edited. @param {(t: string) => string} edit */
+  function editedRoot(edit) {
+    const root = copyRoot(); const f = path.join(root, rel, 'THIRD_PARTY_NOTICES.md');
+    writeFileSync(f, edit(readFileSync(f, 'utf8')));
+    return root;
+  }
+  test('a Repository outside https://github.com/ and a Commit that is not 40 hex characters are refused before any request', async () => {
+    const m = mirror();
+    for (const edit of [(/** @type {string} */ t) => t.replace(/^- Repository: https:\/\/github\.com\//m, '- Repository: https://evil.example/'), (/** @type {string} */ t) => t.replace(/^- Commit: .*$/m, '- Commit: main')]) {
+      for (const argv of [['--check'], []]) {
+        const r = await run(argv, m, editedRoot(edit));
+        assert.equal(r.status, 1, argv.join(' ')); assert.match(r.msg, /must start with https:\/\/github\.com\/|40 hex/);
+      }
+    }
+  });
+  test('a file name that resolves outside the library is refused and nothing is written', async () => {
+    const m = mirror(); const s = sources[0];
+    const root = editedRoot((t) => t.replace(`  - \`${s.files[0]}\``, '  - `../../../escape.txt`'));
+    const r = await run([], m, root);
+    assert.equal(r.status, 1); assert.match(r.msg, /unsafe path|outside/);
+    assert.ok(!existsSync(path.join(root, 'skills/escape.txt')) && !existsSync(path.join(root, 'escape.txt')));
+  });
+  test('a mirrored file over the byte cap counts as not fetched', async () => {
+    const m = mirror(); const s = sources[0];
+    writeFileSync(path.join(m, s.id, s.srcPath, s.files[0]), Buffer.alloc(MAX_BYTES + 1));
+    const r = await run(['--check'], m);
+    assert.equal(r.status, 1); assert.match(r.out, /cannot fetch/);
+  });
+  const resp = (/** @type {number} */ status, /** @type {Record<string, string>} */ headers, /** @type {string | Buffer} */ body) => new Response(status === 200 ? body : null, { status, headers });
+  test('getLimited follows one hop to raw.githubusercontent.com only, never to another host, a second hop or plain http', async () => {
+    const at = (/** @type {string} */ loc) => async (/** @type {any} */ u) => (String(u).startsWith('https://github.test') ? resp(302, { location: loc }, '') : resp(200, {}, 'ok'));
+    assert.equal((await getLimited('https://github.test/x', /** @type {any} */ (at('https://raw.githubusercontent.com/a/b'))))?.toString(), 'ok');
+    assert.equal(await getLimited('https://github.test/x', /** @type {any} */ (at('https://evil.example/a'))), null);
+    assert.equal(await getLimited('https://github.test/x', /** @type {any} */ (at('http://raw.githubusercontent.com/a'))), null);
+    const modes = []; 
+    await getLimited('https://github.test/x', /** @type {any} */ (async (/** @type {any} */ u, /** @type {any} */ o) => { modes.push(o.redirect); return String(u).startsWith('https://github.test') ? resp(302, { location: 'https://raw.githubusercontent.com/a' }, '') : resp(200, {}, 'ok'); }));
+    assert.deepEqual(modes, ['manual', 'error'], 'the second request may not redirect again');
+  });
+  test('getLimited refuses a body over the cap, declared or streamed', async () => {
+    assert.equal(await getLimited('https://x.test/a', /** @type {any} */ (async () => resp(200, { 'content-length': String(MAX_BYTES + 1) }, 'x'))), null);
+    assert.equal(await getLimited('https://x.test/a', /** @type {any} */ (async () => resp(200, {}, Buffer.alloc(MAX_BYTES + 1)))), null);
+    assert.equal((await getLimited('https://x.test/a', /** @type {any} */ (async () => resp(200, {}, Buffer.alloc(1000)))))?.length, 1000);
+    assert.equal(await getLimited('https://x.test/a', /** @type {any} */ (async () => resp(404, {}, ''))), null);
   });
 });

@@ -7,7 +7,7 @@
 // DESIGN_LIBRARY_MIRROR=<dir> reads <dir>/<source-id>/<path-in-source> instead of the network (tests).
 // Prints failures and one summary line. Exit 0 ok, 1 mismatch or fetch failure, 2 usage error.
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -38,21 +38,59 @@ function parseNotices(text) {
   };
 }
 
-/** @param {{ root: string, mirror?: string }} o @returns {(id: string, p: string, n: ReturnType<typeof parseNotices>) => Promise<Buffer | null>} */
-function fetcher({ mirror }) {
+export const MAX_BYTES = 5 * 1024 * 1024;
+const RAW_HOST = 'raw.githubusercontent.com';
+
+/** A source's fields must be what a pinned GitHub source looks like: refuse anything else before a request or a write. @param {ReturnType<typeof parseNotices>} n @param {string} id */
+function checkSource(n, id) {
+  if (!n.field(id, 'Repository').startsWith('https://github.com/')) throw new Fail(`sync-design-library: ${id}: Repository must start with https://github.com/`);
+  if (!/^[0-9a-f]{40}$/.test(n.field(id, 'Commit'))) throw new Fail(`sync-design-library: ${id}: Commit must be 40 hex characters`);
+  for (const rel of [n.field(id, 'Path'), n.field(id, 'Licence file'), ...n.files(id)]) {
+    if (rel === '' || path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..') || rel.includes('\0')) throw new Fail(`sync-design-library: ${id}: unsafe path in the notices: ${rel}`);
+  }
+}
+/** A library file name must stay inside the library folder. @param {string} lib @param {string} f */
+function inLibrary(lib, f) {
+  const full = path.resolve(lib, f);
+  if (path.relative(lib, full).startsWith('..') || path.isAbsolute(path.relative(lib, full))) throw new Fail(`sync-design-library: ${f} resolves outside skills/ui-design/library/`);
+  return full;
+}
+
+/**
+ * One GET with no hidden hops: a redirect is followed at most once and only to https://raw.githubusercontent.com; the body may not exceed MAX_BYTES.
+ * @param {string} url @param {typeof fetch} [fetchImpl] @returns {Promise<Buffer | null>}
+ */
+export async function getLimited(url, fetchImpl = fetch) {
+  let res = await fetchImpl(url, { redirect: 'manual', signal: AbortSignal.timeout(60000) });
+  if (res.status >= 300 && res.status < 400) {
+    const loc = res.headers.get('location');
+    let u;
+    try { u = new URL(loc ?? '', url); } catch { return null; }
+    if (u.protocol !== 'https:' || u.hostname !== RAW_HOST) return null;
+    res = await fetchImpl(u.href, { redirect: 'error', signal: AbortSignal.timeout(60000) });
+  }
+  if (!res.ok || !res.body) return null;
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BYTES) return null;
+  /** @type {Buffer[]} */ const chunks = []; let size = 0;
+  for await (const c of /** @type {AsyncIterable<Uint8Array>} */ (res.body)) { size += c.length; if (size > MAX_BYTES) return null; chunks.push(Buffer.from(c)); }
+  return Buffer.concat(chunks);
+}
+
+/** @param {{ root: string, mirror?: string, fetchImpl?: typeof fetch }} o @returns {(id: string, p: string, n: ReturnType<typeof parseNotices>) => Promise<Buffer | null>} */
+function fetcher({ mirror, fetchImpl }) {
   return async (id, p, n) => {
-    if (mirror) { try { return readFileSync(path.join(mirror, id, p)); } catch { return null; } }
-    const raw = n.field(id, 'Repository').replace(/^https:\/\/github\.com\//, 'https://raw.githubusercontent.com/');
-    try {
-      const res = await fetch(`${raw}/${n.field(id, 'Commit')}/${p}`, { redirect: 'follow', signal: AbortSignal.timeout(60000) });
-      return res.ok ? Buffer.from(await res.arrayBuffer()) : null;
-    } catch { return null; }
+    if (mirror) {
+      try { const f = path.join(mirror, id, p); return statSync(f).size > MAX_BYTES ? null : readFileSync(f); } catch { return null; }
+    }
+    const raw = n.field(id, 'Repository').replace(/^https:\/\/github\.com\//, `https://${RAW_HOST}/`);
+    try { return await getLimited(`${raw}/${n.field(id, 'Commit')}/${p}`, fetchImpl); } catch { return null; }
   };
 }
 
 /**
  * @param {string[]} argv
- * @param {{ root?: string, env?: NodeJS.ProcessEnv, write?: (s: string) => void, fetchFile?: ReturnType<typeof fetcher> }} [o]
+ * @param {{ root?: string, env?: NodeJS.ProcessEnv, write?: (s: string) => void, fetchFile?: ReturnType<typeof fetcher>, fetchImpl?: typeof fetch }} [o]
  * @returns {Promise<number>}
  */
 export async function main(argv, o = {}) {
@@ -61,7 +99,7 @@ export async function main(argv, o = {}) {
   const write = o.write ?? ((s) => process.stdout.write(s));
   const lib = path.join(root, 'skills/ui-design/library');
   const noticesFile = path.join(lib, 'THIRD_PARTY_NOTICES.md');
-  const fetchFile = o.fetchFile ?? fetcher({ root, mirror: env.DESIGN_LIBRARY_MIRROR });
+  const fetchFile = o.fetchFile ?? fetcher({ root, mirror: env.DESIGN_LIBRARY_MIRROR, fetchImpl: o.fetchImpl });
   try {
     if (!existsSync(noticesFile)) throw new Fail(`sync-design-library: missing ${noticesFile}`);
     let notices = parseNotices(readFileSync(noticesFile, 'utf8'));
@@ -90,6 +128,7 @@ export async function main(argv, o = {}) {
     }
     const ids = notices.ids;
     if (ids.length === 0) throw new Fail(`sync-design-library: no sources listed in ${noticesFile}`);
+    for (const id of ids) { checkSource(notices, id); for (const f of notices.files(id)) inLibrary(lib, f); }
 
     if (mode === 'check') {
       for (const id of ids) {

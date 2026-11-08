@@ -78,7 +78,7 @@ export function main(argv, o = {}) {
   }
   let text;
   if (opt.base && opt.head) {
-    try { text = execFileSync('git', ['diff', '--name-only', '--no-renames', opt.base, opt.head], { encoding: 'utf8', maxBuffer: 1 << 28 }); } catch (e) { console.error(`change-reason: git diff failed: ${/** @type {Error} */ (e).message}`); return 2; }
+    try { text = execFileSync('git', ['-c', 'core.quotepath=false', 'diff', '-z', '--name-only', '--no-renames', opt.base, opt.head], { encoding: 'utf8', maxBuffer: 1 << 28 }).replace(/\0/g, '\n'); } catch (e) { console.error(`change-reason: git diff failed: ${/** @type {Error} */ (e).message}`); return 2; }
   } else text = (o.stdin ?? (() => readFileSync(0, 'utf8')))();
   const liveBody = opt.repo && opt.pr
     ? () => { try { return execFileSync('gh', ['api', `repos/${opt.repo}/pulls/${opt.pr}`, '--jq', '.body // ""'], { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] }).replace(/\n$/, ''); } catch { return null; } }
