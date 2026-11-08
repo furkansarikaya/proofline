@@ -2,7 +2,7 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -753,6 +753,38 @@ test('B4 (fix round 1): a configured filter driver is repository code that a swi
   assert.ok(!existsSync(marker), 'the smudge driver ran');
   assert.deepEqual(notes(out), ['note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; update it from origin/main before the next task starts']);
   assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup');
+});
+
+test('F1 (fix round 3): a driver loaded by includeIf onbranch (invisible on the task branch, active on main) still blocks the switch: no marker, not half-switched', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const marker = `${d}-MARKER`;
+  wf(`${d}-inc.cfg`, `[filter "mk"]\n\tsmudge = touch ${marker}; cat\n\tclean = cat\n`);
+  gOk(d, 'config', 'includeIf.onbranch:main.path', `${d}-inc.cfg`);
+  wf(`${d}/.git/info/attributes`, '* filter=mk\n');
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), `the smudge driver ran: ${out}`);
+  assert.equal(g(d, 'branch', '--show-current'), 'proofline/LC-lookup', 'half-switched');
+  assert.deepEqual(notes(out), ['note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; update it from origin/main before the next task starts']);
+});
+
+test('F2 (fix round 3): a local process or clean driver is not run by the cleanup\'s own tree reads either', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const cnt = `${d}-COUNT`;
+  wf(`${d}-proc.sh`, `#!/bin/sh\necho p >> ${cnt}\nexit 1\n`);
+  chmodSync(`${d}-proc.sh`, 0o755);
+  gOk(d, 'config', 'filter.pk.process', `${d}-proc.sh`);
+  gOk(d, 'config', 'filter.ck.clean', `echo c >> ${cnt}; cat`);
+  wf(`${d}/.git/info/attributes`, '*.md filter=pk\n*.txt filter=ck\n* filter=ck\n');
+  // every tracked file gets a new mtime: git must re-read (and so filter) it to answer a status or a diff
+  for (const f of g(d, 'ls-files').split('\n').filter((x) => x !== '')) utimesSync(`${d}/${f}`, new Date(), new Date(Date.now() + 5000));
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(cnt), `a driver ran after deliver-merged: ${out}`);
 });
 
 test('B5 (fix round 1): an ignored file that origin\'s base tracks is never overwritten by the switch or the fast-forward', () => {

@@ -670,10 +670,14 @@ export function deliverMerged(ctx, id, flag) {
   const fin = sbFinalPrepare(ctx, id);
   const main = ctx.sharedMain();
   const adapter = ctx.config().get('tasks.adapter', 'markdown');
-  // A238 (user decision of 2026-11-08, fix round 1): a filter driver (smudge, process, clean) defined by the repository or the command line is repository-controlled code that git
-  // runs on every file it reads or writes in the checkout (status, checkout, merge). It is looked for BEFORE the first such call, and when it exists the user's checkout is not
-  // touched at all (no parking, no fast-forward, no switch). A system or global driver (git-lfs on a CI image) is the administrator's or the user's own and does not count.
-  const filters = g(['config', '--show-scope', '--get-regexp', '^filter\\..*\\.(smudge|process|clean)$'], main).stdout.toString('latin1').split('\n').some((l) => /^(local|worktree|command)\t/.test(l));
+  // A238 (user decision of 2026-11-08, fix rounds 1 and 3): a filter driver (smudge, process, clean) defined by the repository or the command line is repository-controlled code that
+  // git runs on every file it reads or writes in the checkout (status, checkout, merge). It is looked for BEFORE the first such call, and when it exists the user's checkout is
+  // not switched or fast-forwarded and no status block is parked; the cleanup's own tree reads (diff, status) run with every such driver blanked (-c filter.<n>.clean= ...), so
+  // none of them runs. An `includeIf` in the local config counts as a driver too: its condition (onbranch) is judged by the branch checked out when git runs, so a driver that
+  // is invisible on the task branch becomes active on the base after the switch. A system or global driver (git-lfs on a CI image) is the administrator's or the user's own.
+  const cfgLines = g(['config', '--show-scope', '--get-regexp', '^(filter\\..*\\.(smudge|process|clean)|includeif\\..*\\.path)$'], main).stdout.toString('latin1').split('\n').filter((l) => /^(local|worktree|command)\t/.test(l));
+  const filters = cfgLines.length > 0;
+  ctx.gitBlank = [...new Set(cfgLines.map((l) => /^[a-z]+\tfilter\.(.*)\.(smudge|process|clean)\s/.exec(l)?.[1] ?? ''))].filter((n) => n !== '').flatMap((n) => ['-c', `filter.${n}.clean=`, '-c', `filter.${n}.smudge=`, '-c', `filter.${n}.process=`]);
   const parked = filters ? [] : sbMainPark(ctx, main);
   const tip2 = `refs/remotes/origin/${dmBase}`;
   const later = `update it from origin/${dmBase} before the next task starts`;
