@@ -7,7 +7,7 @@
 // group and fails). Units run in parallel on all cores (SELFTEST_JOBS overrides the count), so the wall time is the total work divided by the cores (A76).
 // Run locally (CI unset) it uses half the cores (min 1) and runs every unit under `nice -n 10` (when nice exists), so the machine stays usable; with
 // CI set (GitHub Actions) the count is all cores and nothing is niced.
-//   SELFTEST_ONLY=<name>   runs the suite with that name (e.g. gates-test); a value matching no name exactly selects every suite whose name contains it.
+//   SELFTEST_ONLY=<name>   runs the suite with that name (e.g. lifecycle-test); a value matching no name exactly selects every suite whose name contains it.
 //   SELFTEST_SHARD=I/N     runs only shard I of N (CI splits the work over N jobs); units are spread by the weights in tests/selftest-weights.txt (A109).
 //   SELFTEST_LIST=1        prints the shard's units (suite path relative to the repository, `|`, scenario) and exits (no test runs); =weights prefixes the
 //                          weight each unit was given. A unit missing from the weights file weighs the median of the listed.

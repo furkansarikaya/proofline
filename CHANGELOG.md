@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.75 — 2026-11-09
+
+- Change (A241, Part of #176): the gates suite runs in Node. `control-plane/agents/scripts/gates-test.sh` (2,895 lines, 92 scenarios) is deleted; its scenarios are Node tests in `tests/core/gates-s1.test.mjs` ... `gates-s6.test.mjs` (89 ported one for one with every assertion, attack input and message kept; 3 waiver scenarios were already covered by `tests/core/legacy-waivers.test.mjs`; none dropped), built on `tests/lib/harness.mjs`. Port-map rows for every scenario in `tests/legacy-port-map.tsv`; the six files are `node-tests` legs `gates-s1` .. `gates-s6`. The self-test unit list loses the 92 units, the shell allowlist and weights lose their entries. A mutation check of the gate logic (waiver, record, staleness) turns the new tests red wherever the shell suite was red. No product behaviour changed. Evidence and survivors: docs/decisions.md A241.
+
 ## 0.0.74 — 2026-11-09
 
 - Change (A240, Part of #176): the real-session smoke, the e2e harness and the Codex sandbox check run in Node. `tests/real-session/smoke.sh` (584 lines), `codex-sandbox.sh` (124), `tests/e2e/run.sh` (273) with its helpers `pending-kind.sh`, `question-open.sh`, `reply-decision.sh` and the three self-tests (246), and `tests/ci/smoke-fixture-test.sh` (58) are now `tests/real-session/smoke.mjs`, `codex-sandbox.mjs`, `tests/e2e/run.mjs` (+ `lib.mjs`) and Node tests. Same command line, environment switches (`SMOKE_MODEL`, `SMOKE_STEP_TIMEOUT`, `SMOKE_MAX_REPLIES`, `SMOKE_RTK`, `SMOKE_ONLY=codex|a196|a200|a202`, `SMOKE_KEEP`, `E2E_*`), row names, table format and exit codes: `node tests/real-session/smoke.mjs`, `node tests/e2e/run.mjs <SCENARIO> <CONFIG> [--dry-run] [--keep]`, `node tests/real-session/codex-sandbox.mjs`. CONTRIBUTING names the new smoke command. No product code changed.

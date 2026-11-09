@@ -456,7 +456,7 @@ describe('the self-test library refuses a missing TMPDIR before it builds a fixt
     const guard = path.join(fx.loc, 'guard-repo');
     mkdirSync(guard, { recursive: true });
     spawnSync('git', ['init', '-q'], { cwd: guard, env: fx.env });
-    const r = spawnSync('sh', [path.join(import.meta.dirname, '../../control-plane/agents/scripts/gates-test.sh')], { cwd: guard, env: { ...fx.env, TMPDIR: '/nonexistent/proofline-guard' }, encoding: 'utf8' });
+    const r = spawnSync('sh', ['-c', '. "$0"', path.join(import.meta.dirname, '../../control-plane/agents/scripts/test-lib.sh')], { cwd: guard, env: { ...fx.env, TMPDIR: '/nonexistent/proofline-guard' }, encoding: 'utf8' });
     assert.equal(r.status, 2);
     assert.equal(spawnSync('git', ['-C', guard, 'rev-list', '--all'], { encoding: 'utf8', env: fx.env }).stdout.trim(), '');
     assert.notEqual(spawnSync('git', ['-C', guard, 'config', '--local', 'core.hooksPath'], { env: fx.env }).status, 0);

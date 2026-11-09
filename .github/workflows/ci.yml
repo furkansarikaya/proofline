@@ -317,6 +317,30 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/run4c-report.test.mjs
+          - name: gates-s1
+            mode: files
+            pattern: 'none'
+            files: tests/core/gates-s1.test.mjs
+          - name: gates-s2
+            mode: files
+            pattern: 'none'
+            files: tests/core/gates-s2.test.mjs
+          - name: gates-s3
+            mode: files
+            pattern: 'none'
+            files: tests/core/gates-s3.test.mjs
+          - name: gates-s4
+            mode: files
+            pattern: 'none'
+            files: tests/core/gates-s4.test.mjs
+          - name: gates-s5
+            mode: files
+            pattern: 'none'
+            files: tests/core/gates-s5.test.mjs
+          - name: gates-s6
+            mode: files
+            pattern: 'none'
+            files: tests/core/gates-s6.test.mjs
           - name: tool-economy
             mode: files
             pattern: 'none'
