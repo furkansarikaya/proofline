@@ -409,6 +409,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/enforcement/timeouts.test.mjs tests/enforcement/approval-load.test.mjs
+          - name: e2e-real-session
+            mode: files
+            pattern: 'none'
+            files: tests/e2e/*.test.mjs tests/real-session/*.test.mjs
           - name: invariants-node-1
             mode: files
             pattern: 'none'
@@ -449,7 +453,7 @@ jobs:
       # nightly and manual runs only: the whole set in one process as before, the safety net behind the legs (on a pull request this leg does nothing)
       - name: every test file in one process (nightly and manual runs)
         if: matrix.leg.mode == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/invariants-node/*.test.mjs" "tests/lib/*.test.mjs"
+        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/e2e/*.test.mjs" "tests/real-session/*.test.mjs" "tests/invariants-node/*.test.mjs" "tests/lib/*.test.mjs"
       - name: tests of this leg (by test name)
         if: matrix.leg.mode == 'name'
         env:

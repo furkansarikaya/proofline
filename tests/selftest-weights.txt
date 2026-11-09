@@ -20,7 +20,6 @@
 279 lifecycle-test scenario_amend_plan_change
 269 gates-test sc_record
 256 risk-test sc_unsupported_probes
-249 capabilities-test
 249 lifecycle-test scenario_plan_level_verify_fail
 243 gates-test sc_report_facts
 226 lifecycle-test scenario_reopen_failed
@@ -76,7 +75,6 @@
 70 lifecycle-test scenario_base_moved_named_path
 70 lifecycle-test scenario_uncommitted_block_file
 69 lifecycle-test scenario_fingerprint_excludes_agents
-68 reply-loop-test question-file
 66 gates-test sc_stdin_contract
 65 lifecycle-test scenario_fix_scope_shared_criteria
 63 gates-test sc_parallel_lock
@@ -101,31 +99,23 @@
 35 gates-test sc_evidence_gap_fabricated
 35 risk-test sc_prefreeze
 34 gates-test sc_evidence_gap_files_gate
-34 reply-loop-test commit
-34 reply-loop-test push
-34 reply-loop-test waive-F-1
 33 risk-test sc_mapping
 31 gates-test sc_folded_defect
-31 reply-loop-test scope
 27 gates-test sc_design_sync
 27 gates-test sc_explorer_limit
 27 gates-test sc_validation_plan
 26 gates-test sc_language
 26 gates-test sc_secret_scan
 25 gates-test sc_evidence_gap_files
-25 reply-loop-test plan
 25 risk-test sc_log_unsupported
 24 gates-test sc_evidence_gap_ac
-24 reply-loop-test budget
 24 risk-test sc_contract_content_edit
 23 gates-test sc_evidence_gap_output
 23 lifecycle-test scenario_fix_scope_no_criteria
 21 risk-test sc_migration_small
-20 reply-loop-test single_step
 20 risk-test sc_log_upgrade_legacy
 19 gates-test sc_tests_findings
 18 gates-test sc_next_order
-18 reply-loop-test destructive
 18 risk-test sc_log_sensitive
 17 gates-test sc_report_stdin
 16 gates-test sc_validation_refreeze
@@ -167,10 +157,8 @@
 1 gates-test sc_validation_config
 1 githooks-test
 1 lifecycle-test scenario_window_open_no_plan
-1 pending-kind-test
 1 risk-test sc_log_config_check
 1 risk-test sc_log_pattern_wide
 1 risk-test sc_log_words_match
 1 risk-test sc_not_contract_drift
 1 risk-test sc_probe_drift
-2 smoke-fixture-test

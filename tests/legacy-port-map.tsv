@@ -1754,3 +1754,28 @@ status-block-test	human checks	QA Human checks list reaches the block once, scru
 status-block-test	terminate	failure reason scrubbed	tests/enforcement/status-block.test.mjs::terminate: the block shows the failure reason, scrubbed
 status-block-test	unreachable tracker	a note, never a failed run (was a shell black box)	tests/enforcement/status-block.test.mjs::unreachable tracker: a note, never a failed run
 invariants-test	sc_inv1..sc_inv6 (8 scenarios)	the six core invariants against the real control plane	tests/invariants-node/*.test.mjs::inv1, inv2a, inv2b, inv3, inv4, inv4b, inv5, inv6 (one test per shell scenario; inv3 hand-written waiver now carries gate_record_sha256 like the shell one)
+e2e-run	CLI, scenario selection, dry run, cleanup, reply loop	the e2e harness run.sh -> run.mjs (same CLI, exit codes, E2E_* switches, out/ files; dry-run stdout and out/ lists of 6 scenario/config combos equal)	tests/e2e/capabilities.test.mjs::a dry run records the global git config before and after and creates the collected files
+capabilities-test	global git config absent	absent record and no global config written	tests/e2e/capabilities.test.mjs::with no global config at all the record says absent and the harness writes none
+capabilities-test	A100/A135 Codex lead model	base model on every Codex lead line, effort only when asked, cheaper model refused, allowed for a mixed worker	tests/e2e/capabilities.test.mjs::A100/A135: the Codex lead command carries the base model, and the effort only when asked; a cheaper model is refused
+capabilities-test	A117/A121 cleanup, --keep, db probe	cleanup after a dry run, --keep, db_unchanged yes/unknown	tests/e2e/capabilities.test.mjs::A117/A121: cleanup after a dry run, --keep, and the database probe evidence
+capabilities-test	usage	exit 2 for a wrong call, FAILOVER needs mixed (new assertions)	tests/e2e/capabilities.test.mjs::the usage and the exit codes: 2 for a wrong call, FAILOVER needs mixed
+pending-kind-test	pending-kind	the approval kind read from next	tests/e2e/pending-kind.test.mjs::pending-kind: a plan approval and every other kind is read from `next`
+pending-kind-test	question-open	a question is open only when pending or asked without a step of its own	tests/e2e/pending-kind.test.mjs::question-open: the scripted question reply is sent only while a question is open
+pending-kind-test	approvals-dir (A128)	the newest unanswered request file names the kind, every kind slug maps back	tests/e2e/pending-kind.test.mjs::approvals-dir: a refreeze asks a second plan approval while `next` prints the fix-round step (run B1-COMPLEX, A128)
+pending-kind-test	reply-decision	only plan is answered; the accepted-answers lines are no commit request	tests/e2e/pending-kind.test.mjs::reply-decision: only exactly `plan` is answered as an approval
+reply-loop-test	plan	a plan request is answered until the cap, stopped=max-replies	tests/e2e/reply-loop.test.mjs::plan: a plan request pending until the cap is answered, then stopped=max-replies
+reply-loop-test	destructive	a destructive request is never answered	tests/e2e/reply-loop.test.mjs::destructive: a destructive request is never answered
+reply-loop-test	single_step	a single_step request is never answered	tests/e2e/reply-loop.test.mjs::single_step: a single_step request is never answered
+reply-loop-test	scope	a scope request is never answered	tests/e2e/reply-loop.test.mjs::scope: a scope request is never answered
+reply-loop-test	budget	a budget request is never answered	tests/e2e/reply-loop.test.mjs::budget: a budget request is never answered
+reply-loop-test	commit	a commit request is never answered	tests/e2e/reply-loop.test.mjs::commit: a commit request is never answered
+reply-loop-test	push	a push request is never answered	tests/e2e/reply-loop.test.mjs::push: a push request is never answered
+reply-loop-test	waive-F-1	a waive-F-1 request is never answered	tests/e2e/reply-loop.test.mjs::waive-F-1: a waive-F-1 request is never answered
+reply-loop-test	question-file	the question reply is chosen per scenario and holds no approval phrase	tests/e2e/reply-loop.test.mjs::question-file: the question reply is chosen per scenario (CRITICAL file, others generic) and holds no approval phrase
+codex-sandbox	A199 main and worktree: own paths writable, windows/approvals/prompts/batch/run approvals/escalate/roles.conf denied	probe in a real `codex sandbox -P proofline-worker` run (SKIPPED without Codex)	tests/real-session/codex-sandbox.mjs::A199 probe (both modes)
+codex-sandbox	A203 git status/diff ok; ref, other worktree folder, new worktree refused; add/commit ok in a worktree and refused in main	same probe (git half)	tests/real-session/codex-sandbox.mjs::A203 git probe (both modes)
+codex-sandbox	submit and the RED evidence recorder succeed inside the sandbox	same script	tests/real-session/codex-sandbox.mjs::submit and recorder (both modes)
+codex-sandbox	the profile dispatch.sh codex-profile prints (CI, no Codex)	grants of the worker profile	tests/real-session/codex-sandbox.test.mjs::the worker profile
+codex-sandbox	without the Codex CLI: message and exit 0	no-Codex behaviour	tests/real-session/codex-sandbox.test.mjs::without the Codex CLI
+smoke	row by row (setup, doctor, run, deliver, batch, codex rows, a200 a/b/c/d, a196, a202 status and branch rows, skill detour)	the real-session smoke keeps its row names, criteria, env switches and table	tests/real-session/smoke.mjs (a real model run; CI: tests/real-session/smoke.test.mjs::the table, the a202 rows with sabotaged data, stub claude run)
+smoke-fixture-test	fixture commands, codex_dispatch_seen, codex_config_commit	the smoke fixture helpers	tests/real-session/smoke.test.mjs::the fixture has build and lint scripts; codexDispatchSeen; codexConfigCommit

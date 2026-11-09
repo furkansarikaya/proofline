@@ -4,7 +4,7 @@
 // submission status and never parses the final message.
 //
 //   node proofline-core.mjs dispatch <TASK-ID> <role> [--focus F] [--prompt-file F] [--model M] [--effort E] [--runtime RT]
-//   node proofline-core.mjs dispatch codex-profile <TASK-ID>      (the Codex permission profile of a run; tests/real-session/codex-sandbox.sh)
+//   node proofline-core.mjs dispatch codex-profile <TASK-ID>      (the Codex permission profile of a run; tests/real-session/codex-sandbox.mjs)
 //
 // 1 decision: `decide` runs IN PROCESS with the dispatcher's authority (core/decide.mjs); nothing here re-decides it.
 // 2 prompt: the role's instructions (stable prefix), then the task-specific suffix (header, optional lines, --prompt-file), which must fit the decision's
