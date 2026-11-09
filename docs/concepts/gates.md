@@ -218,6 +218,6 @@ whose screenshots are byte-identical (measurement is always recomputed). The ver
 timestamps, `HH:MM:SS`, durations, the trailing duration of the `[build] Complete!` line); counts, names and exit status stay exact (`agent.sh repro-normalize`).
 A debug-proof is required by the task type or label (`bug`, `defect`) and `decision: fix`, not by the word "fix" in the text; a reviewer may still ask for it.
 `agent.sh design-rationales <ID>` lists the rationales and whether each is approved. `knowledge-done` checks the page, the secret scan and the wiki lint
-before DONE and refuses when the lint cannot run. The invariants these speed-ups must keep are the six "Core invariants" of CONTRIBUTING.md, tested in `tests/invariants/`.
+before DONE and refuses when the lint cannot run. The invariants these speed-ups must keep are the six "Core invariants" of CONTRIBUTING.md, tested in `tests/invariants-node/`.
 
 Related: [workflow](workflow.md), [enforcement layers](enforcement-layers.md).

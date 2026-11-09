@@ -1,5 +1,5 @@
 // @ts-check
-// Absolute Node port of enforcement-test.sh out_of_scope: a change outside the plan scope is blocked at verify-scope and at the IMPLEMENTED handoff.
+// Absolute Node port of the former enforcement-test.sh out_of_scope: a change outside the plan scope is blocked at verify-scope and at the IMPLEMENTED handoff.
 // The refusal names the unexpected path and only that path (the in-scope test file the worker also changed is not named). Nothing is compared with a shell.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

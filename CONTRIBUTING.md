@@ -82,7 +82,7 @@ exception does not make it: it stops and asks the maintainer.
 
 Each rule has at least one test in [tests/invariants-node/](tests/invariants-node/) (Node, since A239; the shell suite `tests/invariants/invariants-test.sh` is gone) that really attempts the forbidden action against the real
 `agent.sh`. CI runs the suite on every pull request, documentation-only ones included. A rule that cannot yet be tested mechanically is
-named in the header of the matching `tests/invariants-node/` test file (the "Not yet mechanical" notes) instead of being faked.
+named in the header of the matching `tests/invariants-node/` test file (its "Not yet mechanical" notes, copied from the former shell header) instead of being faked.
 A patch that changes anything under `tests/invariants/` or `tests/invariants-node/` must say why in the pull request description, on a line that starts with
 `Invariant-test-change:`, and the review approves that change separately from the rest of the patch. `node tests/ci/change-reason.mjs invariants`
 fails the pull request otherwise. Locally: `node --test tests/invariants-node`, and `PR_BODY="..." node tests/ci/change-reason.mjs invariants < changed-paths.txt`.
