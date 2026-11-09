@@ -135,11 +135,13 @@ async function claudeCall(proj, out, prompt, sess = '') {
   const src = smokeUserSettings === 'no' ? 'project,local' : 'user,project,local';
   const args = ['-p', prompt, ...(sess ? ['--resume', sess] : []), '--setting-sources', src, '--permission-mode', 'bypassPermissions', '--model', model, '--output-format', 'stream-json', '--verbose', '--max-turns', '150'];
   const fd = openSync(out, 'a');
-  const child = spawn('claude', args, { cwd: proj, env: { ...env, PATH: `${path.join(work, 'bin')}${path.delimiter}${env.PATH ?? ''}`, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }, stdio: ['ignore', fd, fd] });
+  const child = spawn('claude', args, { cwd: proj, env: { ...env, PATH: `${path.join(work, 'bin')}${path.delimiter}${env.PATH ?? ''}`, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }, stdio: ['ignore', fd, fd], detached: true });
   closeSync(fd);
   pids.add(child);
   const exited = new Promise((resolve) => { child.on('close', resolve); child.on('error', resolve); });
-  const timer = setTimeout(() => { appendFileSync(`${out}.note`, `timeout after ${stepTimeout}s\n`); child.kill('SIGTERM'); }, stepTimeout * 1000);
+  const killGroup = (/** @type {NodeJS.Signals} */ sig) => { try { if (child.pid) process.kill(-child.pid, sig); } catch { try { child.kill(sig); } catch { /* gone */ } } };
+  // the call runs in its own process group: on expiry the whole group gets TERM, and KILL three seconds later when something ignores it (the row then FAILs: no session id or not done)
+  const timer = setTimeout(() => { appendFileSync(`${out}.note`, `timeout after ${stepTimeout}s\n`); killGroup('SIGTERM'); setTimeout(() => killGroup('SIGKILL'), 3000).unref(); }, stepTimeout * 1000);
   await exited;
   clearTimeout(timer); pids.delete(child);
   return sess || sessionIdOf(readOr(out));
@@ -367,14 +369,19 @@ TRIVIAL — one new file and its test.
 `;
 }
 
+/** The doctor row: exit 0 is PASS (note: the last line), anything else FAIL (note: the first FAIL line). @param {string} pre @param {{ status: number, text: string }} doc @param {number} t0 */
+function doctorRow(pre, doc, t0) {
+  if (doc.status === 0) row(`${pre} doctor`, 'PASS', secs(t0), doc.text.split('\n').filter((l, i, a) => !(i === a.length - 1 && l === '')).at(-1) ?? '');
+  else row(`${pre} doctor`, 'FAIL', secs(t0), doc.text.split('\n').find((l) => l.startsWith('FAIL')) ?? '');
+}
+
 /** one full pass (setup, run, deliver, batch); NAME_PREFIX @param {string} pre */
 async function pass(pre) {
   if (!mkFixture(pre)) return;
   let t0 = now();
   const doc = run(path.join(repo, 'bin/proofline'), ['doctor'], { cwd: P });
   writeFileSync(path.join(work, `${pre}-doctor.txt`), doc.text);
-  if (doc.status === 0) row(`${pre} doctor`, 'PASS', secs(t0), doc.text.split('\n').filter((l, i, a) => !(i === a.length - 1 && l === '')).at(-1) ?? '');
-  else row(`${pre} doctor`, 'FAIL', secs(t0), doc.text.split('\n').find((l) => l.startsWith('FAIL')) ?? '');
+  doctorRow(pre, doc, t0);
 
   for (const tk of ['T-1', 'T-2', 'T-3']) writeFileSync(path.join(P, `.agents/tasks/${tk}.md`), fixtureTask(tk));
   git(['add', '-A'], P); git(['commit', '-q', '-m', 'chore: tasks'], P); git(['push', '-q', 'origin', 'main'], P);
@@ -651,7 +658,7 @@ async function main() {
   for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_MESSAGING_SOCKET',
     'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT', 'CODEX_CI', 'CODEX_SANDBOX', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID', 'AGENT_ROLE', 'PROOFLINE_NO_TTY']) delete env[k];
   work = mkdtempSync(path.join(env.TMPDIR || '/tmp', 'proofline-smoke.'));
-  const cleanup = () => { for (const p of pids) { try { p.kill('SIGTERM'); } catch { /* gone */ } } if (env.SMOKE_KEEP !== '1') { try { rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } } };
+  const cleanup = () => { for (const p of pids) { try { if (p.pid) process.kill(-p.pid, 'SIGKILL'); } catch { try { p.kill('SIGKILL'); } catch { /* gone */ } } } if (env.SMOKE_KEEP !== '1') { try { rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } } };
   process.on('exit', cleanup);
   for (const s of /** @type {const} */ (['SIGHUP', 'SIGINT', 'SIGTERM'])) process.on(s, () => process.exit(130));
   // the `proofline` command of every session is THIS checkout's CLI: the plugin cache on the machine may hold an older release whose doctor knows no --commands,
@@ -678,6 +685,6 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await main();
 
-/** For tests only: point the row helpers at a synthetic project, origin and work folder, and read the rows they wrote. @param {string} p @param {string} o @param {string} w */
-export function testState(p, o, w) { P = p; ORIGIN = o; work = w; rows.length = 0; fails = 0; return rows; }
-export { a202StatusRow, a202BranchRow, codexConfigCommit, codexDispatchSeen, fixtureCommands };
+/** For tests only: point the row helpers at a synthetic project, origin and work folder, and read the rows they wrote. @param {string} p @param {string} o @param {string} w @param {number} [failed] rows already failed */
+export function testState(p, o, w, failed = 0) { P = p; ORIGIN = o; work = w; rows.length = 0; fails = failed; return rows; }
+export { doctorRow, skillDetourRow, a202StatusRow, a202BranchRow, codexConfigCommit, codexDispatchSeen, fixtureCommands };

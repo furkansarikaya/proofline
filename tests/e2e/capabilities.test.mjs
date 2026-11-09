@@ -1,6 +1,6 @@
 // @ts-check
 // Self-test (A95) of the e2e harness: a dry run records the global git config and creates the collected files, with no runtime call.
-// E2E_RUNNER (e.g. `sh tests/e2e/run.sh`) runs the same assertions against another runner.
+// E2E_RUNNER (e.g. `node tests/e2e/run.mjs`) runs the same assertions against another runner.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';

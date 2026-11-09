@@ -1,5 +1,5 @@
 // @ts-check
-// Runs the e2e harness for the tests: E2E_RUNNER (a command line, e.g. `sh tests/e2e/run.sh`) replaces the default `node tests/e2e/run.mjs`.
+// Runs the e2e harness for the tests: E2E_RUNNER (a command line, e.g. `node tests/e2e/run.mjs`) replaces the default runner, `node tests/e2e/run.mjs`.
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 

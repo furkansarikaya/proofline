@@ -6,9 +6,9 @@
 // covered by tests/real-session/codex-sandbox.test.mjs).
 //   node tests/real-session/codex-sandbox.mjs
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { A, base, cleanEnv, git, repo, scripts, project } from '../lib/harness.mjs';
+import { A, base, cleanEnv, git, scripts, project } from '../lib/harness.mjs';
 
 /** @param {string} bin @param {string} [pathEnv] */
 export function onPath(bin, pathEnv = process.env.PATH ?? '') {
@@ -140,4 +140,3 @@ function main() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) process.exitCode = main();
-void chmodSync; void readFileSync; void repo;

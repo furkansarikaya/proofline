@@ -2,12 +2,12 @@
 // The real-session smoke (tests/real-session/smoke.mjs) calls a model and is never part of CI; what CI can check is its table format, its pure helpers and its
 // exit semantics with a stub `claude` that starts no session: the setup rows are real (init of a fixture project), every model step FAILS, the exit status is 1.
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
-import { a202BranchRow, a202StatusRow, codexConfigCommit, codexDispatchSeen, expand, fixtureCommands, renderTable, sessionIdOf, statusBlock, tableLine, testState } from './smoke.mjs';
+import { a202BranchRow, a202StatusRow, codexConfigCommit, codexDispatchSeen, doctorRow, expand, fixtureCommands, skillDetourRow, renderTable, sessionIdOf, statusBlock, tableLine, testState } from './smoke.mjs';
 
 const smoke = path.join(import.meta.dirname, 'smoke.mjs');
 const base = mkdtempSync(path.join(tmpdir(), 'smoke-test-'));
@@ -79,11 +79,12 @@ test('a202 status row: PASS on a merged block, FAIL when the block is doubled, n
     ['s3', block('T-2', 'PR OPEN'), /stage is 'PR OPEN', not MERGED/],
     ['s4', block('T-2', 'MERGED', '- worktree: /Users/someone/x\n'), /holds a local path: - worktree: \/Users\/someone\/x/],
     ['s5', '# Task\nno block\n', /no task file of T-2 holds a status block/],
+    ['s6', '# Task\n\n## Proofline Status\n\n<!-- PROOFLINE-STATUS:BEGIN:T-2 -->\n- run: T-9\n- stage: MERGED\n<!-- PROOFLINE-STATUS:END:T-2 -->\n', /the block of T-2 is empty or names another run/],
   ])) { const r = synthetic(name, text, []); a202StatusRow('t', 'T-2'); assert.equal(r[0][1], 'FAIL', name); assert.match(r[0][3], why, name); }
 });
 test('a202 branch row: PASS on proofline/<ID>-<slug> from the title, FAIL on a bare id, an id slug or a slug not from the title', () => {
   let r = synthetic('b1', '', ['proofline/T-2-whisper-text']); a202BranchRow('t', 'T-2', 'whisper'); assert.equal(r[0][1], 'PASS', r[0][3]);
-  for (const [name, branch, why] of /** @type {[string, string, RegExp][]} */ ([['b3', 'proofline/T-2-t-2', /repeats the id as its slug/], ['b4', 'proofline/T-2-other-words', /does not come from the task title/]])) {
+  for (const [name, branch, why] of /** @type {[string, string, RegExp][]} */ ([['b3', 'proofline/T-2-t-2', /repeats the id as its slug/], ['b4', 'proofline/T-2-other-words', /does not come from the task title/], ['b6', 'proofline/T-2-Whisper_Text', /not proofline\/T-2-<slug>/], ['b7', 'proofline/T-2-whisper--text', /not proofline\/T-2-<slug>/]])) {
     r = synthetic(name, '', [branch]); a202BranchRow('t', 'T-2', 'whisper'); assert.equal(r[0][1], 'FAIL', name); assert.match(r[0][3], why, name);
   }
   // a bare id on the origin is no match; a bare id RECORDED by the control plane is the failure the row names
@@ -154,4 +155,37 @@ test('codexConfigCommit puts the Codex config on the origin main and on the proj
     assert.equal(codexConfigCommit(), true, 'failed on main');
     assert.ok(existsSync(path.join(P, 'more.txt')), 'the project main was not fast-forwarded');
   } finally { process.env.PATH = oldPath; }
+});
+
+test('the skill-tool row: no call is a PASS; up to three rejected calls pass only while every step above passed (a failed step above fails it); more than three fail', () => {
+  const w = path.join(base, 'sk'); mkdirSync(w, { recursive: true });
+  /** @param {number} n @param {number} failed */
+  const rowFor = (n, failed) => { writeFileSync(path.join(w, 'x.jsonl'), '{"name":"Skill"}\n'.repeat(n)); const r = testState(path.join(base, 'p'), path.join(base, 'o'), w, failed); skillDetourRow(); return r[0]; };
+  assert.deepEqual(rowFor(0, 0).slice(0, 2), ['skill tool not used', 'PASS']);
+  assert.deepEqual(rowFor(2, 0).slice(0, 2), ['skill tool: the lead recovered', 'PASS']);
+  const afterFail = rowFor(2, 1); assert.deepEqual(afterFail.slice(0, 2), ['skill tool: the lead recovered', 'FAIL']); assert.match(afterFail[3], /2 Skill-tool call\(s\) and a failed step above/);
+  assert.equal(rowFor(4, 0)[1], 'FAIL');
+});
+
+test('the doctor row: exit 0 is PASS with the last line, any other exit is FAIL with the first FAIL line', () => {
+  let rs = testState(path.join(base, 'p'), path.join(base, 'o'), path.join(base, 'w'));
+  doctorRow('hermetic', { status: 0, text: 'ok a\nNext step: x\n' }, Math.floor(Date.now() / 1000));
+  assert.deepEqual([rs[0][0], rs[0][1], rs[0][3]], ['hermetic doctor', 'PASS', 'Next step: x']);
+  rs = testState(path.join(base, 'p'), path.join(base, 'o'), path.join(base, 'w'));
+  doctorRow('hermetic', { status: 1, text: 'ok a\nFAIL hooks missing\nNext step: x\n' }, Math.floor(Date.now() / 1000));
+  assert.deepEqual([rs[0][1], rs[0][3]], ['FAIL', 'FAIL hooks missing']);
+});
+
+test('a claude call that ignores TERM is stopped with its whole process group after the timeout; the row FAILs (no session id)', () => {
+  const bin = path.join(base, 'stubterm'); mkdirSync(bin, { recursive: true });
+  const pidFile = path.join(base, 'child.pid');
+  // the stub and its child both ignore TERM; the child's pid is written down so the test can see it die
+  writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\ntrap '' TERM\n( trap '' TERM; echo $$ > "${pidFile}"; exec sleep 300 ) &\nwhile [ ! -s "${pidFile}" ]; do sleep 0.1; done\nwhile :; do sleep 1; done\n`); chmodSync(path.join(bin, 'claude'), 0o755);
+  const r = spawnSync(process.execPath, [smoke], { encoding: 'utf8', env: { ...process.env, TMPDIR: base, SMOKE_STEP_TIMEOUT: '1', SMOKE_ONLY: 'a196', SMOKE_KEEP: '1', PATH: `${bin}${path.delimiter}${process.env.PATH}` }, timeout: 120000 });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /\(positive\) \| FAIL \| \d+ \| no session id in /);
+  const pid = Number(readFileSync(pidFile, 'utf8').trim());
+  let alive = true; try { process.kill(pid, 0); } catch { alive = false; }
+  assert.equal(alive, false, 'the TERM-ignoring child of the stub survived the timeout');
+  const kept = /kept: (.+)/.exec(r.stdout)?.[1]; if (kept) { assert.ok(readdirSync(kept).some((n) => n.endsWith('.note')), 'the timeout note is written'); rmSync(kept, { recursive: true, force: true }); }
 });
