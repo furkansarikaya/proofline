@@ -6,7 +6,6 @@ control-plane/agents/scripts/debt-test.sh
 control-plane/agents/scripts/debt.sh
 control-plane/agents/scripts/dispatch.sh
 control-plane/agents/scripts/ecosystems.sh
-control-plane/agents/scripts/gates-test.sh
 control-plane/agents/scripts/githooks-test.sh
 control-plane/agents/scripts/identity-test.sh
 control-plane/agents/scripts/lifecycle-test.sh
