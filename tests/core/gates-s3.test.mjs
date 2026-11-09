@@ -587,3 +587,18 @@ test('sc_artifact_snapshots: C-9 results of two rounds that wrote the same repor
 
 /** @param {string} d */
 function qaBindLocal(d) { qaBindHarness(d, 'LC'); }
+
+test('sc_waiver_cross_gate: a waiver of a VERIFY finding never waives the same location and text on another gate (fix round 1, B3)', () => {
+  const d = implementedProject({ cls: 'CRITICAL' });
+  const text = 'cache never invalidated on write';
+  must(d, ['record', 'LC', '--file', resultFor(d, 'VERIFY', 'FAIL', [`VERIFY-1|blocking|impl.txt:1|${text}|traced`])], { role: 'verifier' });
+  must(d, ['record', 'LC', '--file', resultFor(d, 'REVIEW_RULES', 'FAIL', [`REVIEW_RULES-1|blocking|impl.txt:1|${text}|traced: empty key -> nil; scan: grep -n lookup impl.txt; instances: single`])], { role: 'reviewer' });
+  // QA has no focus, like VERIFY: the persistent key of its finding differs from VERIFY's only by the gate name
+  must(d, ['record', 'LC', '--file', resultFor(d, 'QA', 'FAIL', [`QA-1|blocking|impl.txt:1|${text}|traced`])], { role: 'qa' });
+  for (const g of ['VERIFY', 'REVIEW_RULES', 'QA']) assert.equal(gateStatus(d, g), 'fail', g);
+  approveAsUser(d, 'waive:VERIFY-1', 'approve VERIFY-1');
+  accepted(A(d, ['waive', 'LC', 'VERIFY-1', '--reason', 'the user accepted the cache gap for this task']), 'waive VERIFY-1');
+  assert.equal(gateStatus(d, 'VERIFY'), 'waived', 'the waiver does not apply to its own gate');
+  assert.equal(gateStatus(d, 'REVIEW_RULES'), 'fail', 'a waiver of one gate waived the same location and text on another gate (rules)');
+  assert.equal(gateStatus(d, 'QA'), 'fail', 'a waiver of one gate waived the same location and text on another gate (qa, same focus)');
+});

@@ -472,26 +472,28 @@ test('sc_questions: NEEDS_INPUT stored verbatim, one round per role, awaiting_in
   // user-only questions (USER_ONLY): the hook records the user's message once; one message answers one question; the lead alone cannot --amend
   const uq = (/** @type {string} */ t) => `1. ${t}\n   USER_ONLY: scope\n   options: "strict" | "lenient"\n   recommended: strict\n   why: AC-1 depends on it\n`;
   accepted(a(d, ['ask', 'LC'], { input: uq('Which mode?') }), 'ask 6');
-  const m1 = hookAnswer(d, ['answer', 'LC', '6', '--captured'], { text: 'strict', time: now() + 1 });
+  const tStrict = now() + 1;   // one stamp: the second call is the SAME message
+  const m1 = hookAnswer(d, ['answer', 'LC', '6', '--captured'], { text: 'strict', time: tStrict });
   assert.equal(m1.status, 0, m1.text);
   assert.equal(by(d, '6'), 'user', "the hook did not record the user's message as the user's");
   assert.match(rf(d, 'questions/006.answer.md'), /^source_message: \d+-[0-9a-f]{8}\.txt$/m, 'the answer file does not name its source message');
   assert.match(m1.text, /answer source: the user's message \d+-[0-9a-f]{8}\.txt/, 'the answer did not say which message it took');
   assert.match(rf(d, 'questions/006.answer.md'), /^> strict$/m, "the user's text is not stored as a quote block");
   accepted(a(d, ['ask', 'LC'], { input: uq('Another?') }), 'ask 7');
-  const again = hookAnswer(d, ['answer', 'LC', '7', '--captured'], { text: 'strict', time: now() + 1 });   // the same message again
+  const again = hookAnswer(d, ['answer', 'LC', '7', '--captured'], { text: 'strict', time: tStrict });   // the same message again
   assert.notEqual(again.status, 0); assert.match(again.text, /already answered another question/, 'a used-up message answered a second question');
   // --amend: a newer user message corrects a recorded answer; the old record is kept, marked amended. The lead alone cannot.
   refused(a(d, ['answer', 'LC', '6', '--amend']), 'the lead amended an answer without a newer user message', "cannot be recorded as the user's from a file");
   refused(a(d, ['answer', 'LC', '6', '--amend'], { input: 'forced\n' }), "an amend with the lead's own text on stdin was accepted", "cannot be recorded as the user's from a file");
-  const am = hookAnswer(d, ['answer', 'LC', '6', '--amend'], { text: 'lenient', time: now() + 3 });
+  const tLenient = now() + 3;   // one stamp for the amend and its repeat
+  const am = hookAnswer(d, ['answer', 'LC', '6', '--amend'], { text: 'lenient', time: tLenient });
   assert.equal(am.status, 0, `--amend with a newer user message failed: ${am.text}`);
   assert.match(rf(d, 'questions/006.answer.amended-1.md'), /^amended: true/m, 'the old answer was not kept as amended');
   assert.match(rf(d, 'questions/006.answer.amended-1.md'), /^> strict$/m, 'the amended record lost the old answer');
   assert.match(rf(d, 'questions/006.answer.md'), /^> lenient$/m, 'the new answer is not the newer message');
   assert.match(rf(d, 'questions/006.answer.md'), /^amends: 006\.answer\.amended-1\.md/m); assert.ok(am.text.includes('old record is kept'));
   assert.match(rf(d, 'LEDGER.log'), /event=answer-amend/, 'the amend is not in the ledger');
-  const dup = hookAnswer(d, ['answer', 'LC', '6', '--amend'], { text: 'lenient', time: now() + 3 });
+  const dup = hookAnswer(d, ['answer', 'LC', '6', '--amend'], { text: 'lenient', time: tLenient });
   assert.notEqual(dup.status, 0, 'a second amend with the same message');
   // A171: the user's text is stored in a quote block, so a Turkish answer passes the language check
   const tr = 'Bence şu şekilde olsun: ığüşöç çok güzel';

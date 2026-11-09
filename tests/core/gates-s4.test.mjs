@@ -129,11 +129,14 @@ test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable
     writeFileSync(path.join(d, '.agents/local/.lock/pid'), `${holder.pid}\n`);
     const cmd = spawn('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: { PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', PROOFLINE_NO_TTY: '1', PROOFLINE_LOCK_TIMEOUT: '20', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' });
     /** @type {Promise<number>} */
-    const finished = new Promise((res) => { cmd.on('close', () => res(Date.now())); });
-    await new Promise((res) => setTimeout(res, 2000));   // the holder lives for these two seconds; a command that ignores the old lock is long done by then
-    const killedAt = Date.now(); holder.kill();
-    const doneAt = await finished;
-    assert.ok(doneAt >= killedAt, 'A196 a worktree command did not wait for the live holder of the old main-tree lock');
+    const finished = new Promise((res) => { cmd.on('close', () => res(0)); });
+    const noted = () => [path.join(d, '.agents/runs/LC/LEDGER.log'), path.join(rwp, '.agents/runs/LC/LEDGER.log')].some((f) => existsSync(f) && readFileSync(f, 'utf8').includes('A196 after the old lock'));
+    await new Promise((res) => setTimeout(res, 1500));   // the holder is alive for this time; only the state at the kill is asserted, not the length of the wait
+    assert.equal(cmd.exitCode, null, 'A196 a worktree command did not wait for the live holder of the old main-tree lock (it ended before the holder was gone)');
+    assert.ok(!noted(), 'A196 the command wrote its ledger note while the old main-tree lock was still held');
+    holder.kill();
+    await finished;
+    assert.ok(noted(), 'A196 the command did not write its ledger note after the old lock was released');
   } finally { holder.kill(); rmSync(path.join(d, '.agents/local/.lock'), { recursive: true, force: true }); }
 });
 
