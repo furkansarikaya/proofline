@@ -67,7 +67,15 @@ describe('path fingerprints and cache key', () => {
     put('big.bin', 'x'.repeat(300000));
     const fns = extractFunctions(['fp_cache_key']);
     const r = spawnSync('sh', ['-c', `cfg() { printf '%s\\n' "\${2:-}"; }\n${fns}\nfp_cache_key "$1" big.bin`, 'x', `${fx.root}/big.bin`], { encoding: 'latin1' });
-    assert.equal(cacheKey(fx.ctx(), `${fx.root}/big.bin`, 'big.bin'), r.stdout.trim());
+    // Path, size and inode must match exactly. The two file times are compared to 1 microsecond: a stat that prints seconds through a double (uutils, or
+    // awk/printf) rounds the last digits of the nanoseconds, and the ctime of a fresh file cannot be pinned, so exact digits flake on such a runner.
+    const fields = (/** @type {string} */ key) => key.split('|');
+    const ns = (/** @type {string} */ t) => { const [sec = '0', frac = ''] = t.split('.'); return BigInt(sec) * 1000000000n + BigInt(frac.padEnd(9, '0').slice(0, 9)); };
+    const node = fields(/** @type {string} */ (cacheKey(fx.ctx(), `${fx.root}/big.bin`, 'big.bin')));
+    const shell = fields(r.stdout.trim());
+    assert.equal(node.length, 5);
+    assert.deepEqual([node[0], node[1], node[3]], [shell[0], shell[1], shell[3]]);
+    for (const i of [2, 4]) assert.ok(ns(/** @type {string} */ (node[i])) - ns(/** @type {string} */ (shell[i])) < 1000n && ns(/** @type {string} */ (shell[i])) - ns(/** @type {string} */ (node[i])) < 1000n, `time field ${i}: ${node[i]} vs ${shell[i]}`);
     assert.equal(cacheKey(fx.ctx(), `${fx.root}/f.txt`, 'f.txt'), null);
   });
   test('cache modes: yes reads, refresh stores, no hashes', () => {
