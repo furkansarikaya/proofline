@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.76 — 2026-11-09
+
+- Change (A242, Part of #176): the lifecycle and risk suites run in Node. `control-plane/agents/scripts/lifecycle-test.sh` (1,460 lines) and `risk-test.sh` (996 lines) are deleted; their 97 scenarios are Node tests in `tests/core/lifecycle-s1..s3.test.mjs` and `risk-s1..s2.test.mjs` (93 ported, 4 already covered by hand-written Node tests, 0 dropped), run by five `node-tests` legs. The Node test harness now links `.agents/scripts/core` like an installed project, so every command it runs is the Node core (before, commands the fixture prologue did not list ran the shell arm of `agent.sh`). The shell allowlist, weights and unit list lose both suites. No control-plane code changed.
+
 ## 0.0.75 — 2026-11-09
 
 - Change (A241, Part of #176): the gates suite runs in Node. `control-plane/agents/scripts/gates-test.sh` (2,895 lines, 92 scenarios) is deleted; its scenarios are Node tests in `tests/core/gates-s1.test.mjs` ... `gates-s6.test.mjs` (89 ported one for one with every assertion, attack input and message kept; 3 waiver scenarios were already covered by `tests/core/legacy-waivers.test.mjs`; none dropped), built on `tests/lib/harness.mjs`. Port-map rows for every scenario in `tests/legacy-port-map.tsv`; the six files are `node-tests` legs `gates-s1` .. `gates-s6`. The self-test unit list loses the 92 units, the shell allowlist and weights lose their entries. A mutation check of the gate logic (waiver, record, staleness) turns the new tests red wherever the shell suite was red. No product behaviour changed. Evidence and survivors: docs/decisions.md A241.

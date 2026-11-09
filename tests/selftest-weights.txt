@@ -5,98 +5,13 @@
 # lightest shard; a stale weight only costs balance, it never drops or loosens a test.
 # Refresh: download the selftest-times artifacts of a CI run, then node tests/selftest-weights.mjs <dir>.
 # measured on CI run 39684075517 (PR #144, 12 Linux shards, 0.0.22)
-608 lifecycle-test scenario_independence
-515 risk-test sc_unsupported
-509 risk-test sc_unsupported_evidence
-348 lifecycle-test scenario_bounded_fix
-342 lifecycle-test scenario_report_root_cause
-331 risk-test sc_unsupported_rows
-311 risk-test sc_unsupported_inconclusive
-308 lifecycle-test scenario_orchestrated_loop
-279 lifecycle-test scenario_amend_plan_change
-256 risk-test sc_unsupported_probes
-249 lifecycle-test scenario_plan_level_verify_fail
-226 lifecycle-test scenario_reopen_failed
-223 lifecycle-test scenario_standalone
-218 risk-test sc_missing_flag
-215 lifecycle-test scenario_cleanup_after_delivery
-206 lifecycle-test scenario_task_contract_bookkeeping standalone
-194 risk-test sc_unsupported_block
-179 lifecycle-test scenario_terminal
-167 lifecycle-test scenario_task_contract_adapter
-155 lifecycle-test scenario_amendment_fresh_budget
-151 lifecycle-test scenario_task_contract_edit standalone
-148 risk-test sc_unsupported_evidence_base_move
-139 lifecycle-test scenario_reopen_after_upgrade
-138 lifecycle-test scenario_base_moved_new_block_file CLAUDE.md
-135 lifecycle-test scenario_reopen_one_question
-130 lifecycle-test scenario_classification
-129 risk-test sc_selective_focus
-128 lifecycle-test scenario_base_moved_updates_base
-125 lifecycle-test scenario_upgrade_product_edits
-124 lifecycle-test scenario_upgrade_keeps_tier
-120 lifecycle-test scenario_fingerprint_new_block_file CLAUDE.md
-116 lifecycle-test scenario_hardening
-115 lifecycle-test scenario_fingerprint_new_block_file AGENTS.md
-113 lifecycle-test scenario_task_contract_edit orchestrated
-109 lifecycle-test scenario_fingerprint_scoped_agents_path
-108 lifecycle-test scenario_task_contract_bookkeeping orchestrated
-106 lifecycle-test scenario_base_moved_new_block_file AGENTS.md
-106 lifecycle-test scenario_second_marker_pair
-104 lifecycle-test scenario_attribution
-103 lifecycle-test scenario_pipeline_standard
-102 lifecycle-test scenario_base_moved_control_only
-97 lifecycle-test scenario_upgrade_named_pattern_path
-87 lifecycle-test scenario_base_moved_agents_named
-87 lifecycle-test scenario_pipeline_trivial
-86 risk-test sc_flags
-83 lifecycle-test scenario_fix_scope_format
-80 lifecycle-test scenario_second_reopen
-76 lifecycle-test scenario_base_moved_agents_files
-73 lifecycle-test scenario_base_moved_stale
-70 lifecycle-test scenario_base_moved_named_path
-70 lifecycle-test scenario_uncommitted_block_file
-69 lifecycle-test scenario_fingerprint_excludes_agents
-65 lifecycle-test scenario_fix_scope_shared_criteria
-63 lifecycle-test scenario_reopen_approval_kinds
-63 lifecycle-test scenario_task_contract_laundering
-54 lifecycle-test scenario_fix_scope_symbol
-46 lifecycle-test scenario_failed_run_cleanup
-46 risk-test sc_frozen
-45 lifecycle-test scenario_upgrade_named_path
-39 lifecycle-test scenario_approval_fail_closed
-37 lifecycle-test scenario_digest_resume
 36 controls-test sc_knowledge
-35 risk-test sc_prefreeze
-33 risk-test sc_mapping
-25 risk-test sc_log_unsupported
-24 risk-test sc_contract_content_edit
-23 lifecycle-test scenario_fix_scope_no_criteria
-21 risk-test sc_migration_small
-20 risk-test sc_log_upgrade_legacy
-18 risk-test sc_log_sensitive
-16 lifecycle-test scenario_evidence_order
-15 risk-test sc_unsupported_toolfree
 13 controls-test sc_policy
-12 risk-test sc_contract_content
 11 controls-test sc_base
-11 lifecycle-test scenario_freeze_ac_coverage
-11 lifecycle-test scenario_reopen_blocked_and_state
-10 lifecycle-test scenario_classification_diff
-10 lifecycle-test scenario_task_contract_projection
-9 lifecycle-test scenario_trivial_freeze_code
-8 risk-test sc_dependency_manifests
 4 controls-test sc_standalone
 3 fixture-test
 2 controls-test sc_branch
 2 controls-test sc_roles
-2 lifecycle-test scenario_freeze_scope_mapping
 1 controls-test sc_write_failure
 1 debt-test
 1 githooks-test
-1 lifecycle-test scenario_window_open_no_plan
-1 risk-test sc_log_config_check
-1 risk-test sc_log_pattern_wide
-1 risk-test sc_log_words_match
-1 risk-test sc_not_contract_drift
-1 risk-test sc_probe_drift

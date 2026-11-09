@@ -8,9 +8,7 @@ control-plane/agents/scripts/dispatch.sh
 control-plane/agents/scripts/ecosystems.sh
 control-plane/agents/scripts/githooks-test.sh
 control-plane/agents/scripts/identity-test.sh
-control-plane/agents/scripts/lifecycle-test.sh
 control-plane/agents/scripts/perf-test.sh
-control-plane/agents/scripts/risk-test.sh
 control-plane/agents/scripts/task-adversarial-test.sh
 control-plane/agents/scripts/test-lib.sh
 tests/bench/hook-procs.sh

@@ -45,11 +45,11 @@ describe('risk_words_match golden', () => {
   /** @type {{ re: string, words: string, lines: string[], match: boolean }[]} */
   const cases = JSON.parse(readFileSync(golden('risk-words-match.json'), 'utf8'));
 
-  test('the golden holds every case of risk-test.sh and both outcomes', () => {
-    const t = readFileSync(path.join(scriptsDir, 'risk-test.sh'), 'utf8');
+  test('the golden holds every case of the risk tests (port-t2-drift.test.mjs, the cases of the former risk-test.sh) and both outcomes', () => {
+    const t = readFileSync(path.join(import.meta.dirname, 'port-t2-drift.test.mjs'), 'utf8');
     for (const fn of ['sc_log_words_match', 'sc_log_pattern_wide']) {
-      const body = t.slice(t.indexOf(`${fn}() {`)); const end = body.indexOf('\n}\n');
-      const lists = [...body.slice(0, end).matchAll(/for lw in ([^\n]*(?:\\\n[^\n]*)*); do/g)];
+      const body = t.slice(t.indexOf(`test('${fn}:`)); const end = body.indexOf('\n  });\n');
+      const lists = [...body.slice(0, end).matchAll(/for \(const lw of \[([\s\S]*?)\]\) \{/g)];
       assert.ok(lists.length >= 2, `${fn}: no case lists found`);
       for (const l of lists) for (const q of l[1].matchAll(/'([^']*)'/g)) {
         assert.ok(cases.some((c) => c.lines.includes(q[1])), `${fn}: the case ${JSON.stringify(q[1])} is not in the golden`);

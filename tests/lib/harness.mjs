@@ -8,7 +8,7 @@
 // call `A` and look at the Result.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
@@ -189,11 +189,20 @@ export function installControlPlane(dir) {
   for (const f of readdirSync(path.join(dir, '.agents/scripts'))) if (f.endsWith('.sh')) chmodSync(path.join(dir, '.agents/scripts', f), 0o755);
 }
 
+let liveCore = false;
+/**
+ * Make every project of this process an installed project: `.agents/scripts/core` is linked beside `proofline-core.mjs`, so agent.sh hands EVERY command to the
+ * Node core, as in a real install. Without it the fixture prologue sends only the verbs it lists there and the rest (pipeline, next, verify-*, freshness,
+ * approvals ...) would run the shell arm of agent.sh, which the product never reaches (A242). Call it at the top of a test file, before the first project().
+ */
+export function useLiveCore() { liveCore = true; }
+
 /** The template repository: the control plane installed, git initialised, nothing committed. @param {string} dir */
 function buildTemplate(dir) {
   installControlPlane(dir);
+  if (liveCore) symlinkSync('../core4a/core', path.join(dir, '.agents/scripts/core'));
   git(dir, ['init', '-q', '-b', 'main']);
-  appendFileSync(path.join(dir, '.git/info/exclude'), '.agents/core4a/\n.agents/scripts/proofline-core.mjs\n');   // the Node core is installed, not part of the fixture's history
+  appendFileSync(path.join(dir, '.git/info/exclude'), `.agents/core4a/\n.agents/scripts/proofline-core.mjs\n${liveCore ? '.agents/scripts/core\n' : ''}`);   // the Node core is installed, not part of the fixture's history
   writeFileSync(path.join(dir, '.gitignore'), '.agents/runs/\n.agents/local/\n');
 }
 
@@ -244,7 +253,7 @@ export function copyOf(template) {
 }
 
 /** A fresh repository with the control plane installed (nothing committed): `new_repo` of the shell library. */
-export function newRepo() { return copyOf(cached(`ctl-${codeKey()}`, buildTemplate)); }
+export function newRepo() { return copyOf(cached(`ctl-${codeKey()}${liveCore ? '-live' : ''}`, buildTemplate)); }
 
 // ---- gate results through the D12 protocol --------------------------------------------------------------------------------------------------
 export const gateOwner = (/** @type {string} */ g) => (g.startsWith('REVIEW_') ? 'reviewer' : ({ SECURITY: 'security_reviewer', QA: 'qa', VERIFY: 'verifier' })[g] ?? '');
@@ -419,7 +428,7 @@ export function toCodeDone(dir, topology = 'orchestrated') {
 
 /** A scaffolded project built once per option set and copied per call (kept on disk, keyed by the code and the options). @param {ScaffoldOptions} [o] */
 export function project(o = {}) {
-  const key = `sc-${codeKey()}-${sha256(JSON.stringify(Object.entries(o).sort())).slice(0, 12)}`;
+  const key = `sc-${codeKey()}${liveCore ? '-live' : ''}-${sha256(JSON.stringify(Object.entries(o).sort())).slice(0, 12)}`;
   return copyOf(cached(key, (work) => {
     const built = scaffold(o);
     cpSync(built, work, { recursive: true });
