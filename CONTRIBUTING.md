@@ -34,7 +34,7 @@ documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png`
 test jobs but still runs shellcheck, the sync checks and the core-invariant tests (`node --test tests/invariants-node`, see Core invariants); Markdown under `skills/`, `roles/`, `control-plane/`
 and `adapters/` counts as code. Pushes to `main` and pull requests run Linux only (about 8 minutes of wall time, A109); macOS runs nightly and on manual runs (A164).
 A pull request that changes hooks, skills, roles or the control plane also runs the real-session smoke test (A195) and pastes its table:
-`sh tests/real-session/smoke.sh` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
+`node tests/real-session/smoke.mjs` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
 `batch` in a throwaway repository and prints a PASS/FAIL table (a few minutes of model time; it is not part of CI). Do not merge on a table
 that is not all PASS. The table counts for the LAST commit that will be merged: if a commit that changes product code (hooks, skills, roles, control plane, adapters) arrives after the smoke, re-run the affected smoke steps and write the result in the pull request description. A change to the Codex sandbox profile also runs `sh tests/real-session/codex-sandbox.sh` (no model; needs the Codex CLI) and `SMOKE_ONLY=codex sh tests/real-session/smoke.sh`.
 End-to-end team runs are described in

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.74 — 2026-11-09
+
+- Change (A240, Part of #176): the real-session smoke, the e2e harness and the Codex sandbox check run in Node. `tests/real-session/smoke.sh` (584 lines), `codex-sandbox.sh` (124), `tests/e2e/run.sh` (273) with its helpers `pending-kind.sh`, `question-open.sh`, `reply-decision.sh` and the three self-tests (246), and `tests/ci/smoke-fixture-test.sh` (58) are now `tests/real-session/smoke.mjs`, `codex-sandbox.mjs`, `tests/e2e/run.mjs` (+ `lib.mjs`) and Node tests. Same command line, environment switches (`SMOKE_MODEL`, `SMOKE_STEP_TIMEOUT`, `SMOKE_MAX_REPLIES`, `SMOKE_RTK`, `SMOKE_ONLY=codex|a196|a200|a202`, `SMOKE_KEEP`, `E2E_*`), row names, table format and exit codes: `node tests/real-session/smoke.mjs`, `node tests/e2e/run.mjs <SCENARIO> <CONFIG> [--dry-run] [--keep]`, `node tests/real-session/codex-sandbox.mjs`. CONTRIBUTING names the new smoke command. No product code changed.
+
 ## 0.0.73 — 2026-11-09
 
 - Change (A239, Part of #176): the enforcement, task and invariant shell suites run in Node. `tests/enforcement/{enforcement,timeouts,platform,approval-load,merge-guard}-test.sh`, `tests/tasks/status-block-test.sh` and the shell copy `tests/invariants/invariants-test.sh` (2,588 lines) are deleted; their scenarios are Node tests (`tests/enforcement/*.test.mjs`, `tests/enforcement/status-block.test.mjs`, the existing `tests/invariants-node/`). The CI `invariants` legs keep their names and run the matching Node test by name; the hook-node job no longer runs shell suites (the ported files are `node-tests` legs). Gaps found on the way are closed: database-guard checks DB-33b and DB-37..41 had no Node test, and the invariant 3 test wrote a hand-made waiver without `gate_record_sha256` (the shell one did). No product code changed.

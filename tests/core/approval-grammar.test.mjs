@@ -1,6 +1,6 @@
 // @ts-check
 // The approval grammar against the golden text recorded from the old engine (tests/golden/approvals/record.mjs), beside the extraction of
-// approval_phrases in tests/e2e/reply-loop-test.sh (which keeps testing the old code until stage 10).
+// approval_phrases in tests/e2e/reply-loop.test.mjs (which keeps testing the old code until stage 10).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

@@ -17,15 +17,5 @@ control-plane/agents/scripts/test-lib.sh
 tests/bench/hook-procs.sh
 tests/bench/run-doc-size.sh
 tests/ci/fixture-test.sh
-tests/ci/smoke-fixture-test.sh
-tests/e2e/capabilities-test.sh
-tests/e2e/pending-kind-test.sh
-tests/e2e/pending-kind.sh
-tests/e2e/question-open.sh
-tests/e2e/reply-decision.sh
-tests/e2e/reply-loop-test.sh
-tests/e2e/run.sh
 tests/fixtures/entry-points/run-corpus.sh
-tests/real-session/codex-sandbox.sh
-tests/real-session/smoke.sh
 tests/shared/fixture-lib.sh

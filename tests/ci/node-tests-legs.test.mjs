@@ -25,9 +25,9 @@ test('node-tests is a matrix of legs on both Node versions, with unique names', 
   assert.match(ci.slice(ci.indexOf('\n  checks:')), /needs: \[[^\]]*\bnode-tests\b[^\]]*\binvariants\b|needs: \[[^\]]*\binvariants\b[^\]]*\bnode-tests\b/, 'checks needs both matrix jobs by their stable names');
 });
 
-test('every test file the old globs matched (tests/ci, tests/enforcement, tests/core, tests/invariants-node, tests/lib) is in a leg, none is lost', () => {
+test('every test file the old globs matched (tests/ci, tests/enforcement, tests/e2e, tests/real-session, tests/core, tests/invariants-node, tests/lib) is in a leg, none is lost', () => {
   /** @type {string[]} */ const all = [];
-  for (const d of ['ci', 'enforcement', 'core', 'invariants-node', 'lib']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
+  for (const d of ['ci', 'enforcement', 'e2e', 'real-session', 'core', 'invariants-node', 'lib']) for (const f of readdirSync(join(repo, 'tests', d))) if (f.endsWith('.test.mjs')) all.push(`tests/${d}/${f}`);
   assert.ok(all.length > 30);
   const where = new Map(all.map((f) => [f, /** @type {typeof legs} */ ([])]));
   /** A leg names files or globs of one directory (tests/<dir>/*.test.mjs); a glob picks up a new test file without a CI edit. @param {string} f */

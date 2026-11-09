@@ -59,7 +59,7 @@ not have and verdicts with no named judge. A forged or careless verdict is score
 
 ## End-to-end runs
 
-A run directory is what `tests/e2e/run.sh --keep` prints (`out/summary.txt` inside). The benchmark reads
+A run directory is what `node tests/e2e/run.mjs --keep` prints (`out/summary.txt` inside). The benchmark reads
 `out/evaluation.md` (or `evaluation.md` next to `out/`): the evaluator's table from `tests/e2e/evaluate.md`
 (`| C-1 | met | ... |`, `unmet`, `not-applicable`) (a tag column after the status is ignored) and its `E2E: PASS|FAIL` line. Unmet items count as missed; e2e
 expectations are requirements, so false positives are `n/a`. Scope comes from `out/runs/*/PLAN.md` `scope:` against
