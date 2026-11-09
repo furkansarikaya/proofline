@@ -365,7 +365,7 @@ test('task-source-relocate: a move, never a copy; the frozen contract must be un
 });
 
 test('task-source-relocate: before the freeze and after the completion report is published it is refused', () => {
-  const unfrozen = project('scaffold standalone yes no STANDARD manual');
+  const unfrozen = project('scaffold standalone yes STANDARD manual');
   refused(A(unfrozen, ['task-source-relocate', 'LC', 'tasks/x.md']), 'relocation before the freeze', 'only after the run is frozen');
 });
 

@@ -32,7 +32,12 @@ fx_template() { # KEY BUILDER -> template directory on stdout
         if ( "$ft_build" "$ft_tmp" ); then   # a subshell: a builder that dies must not leave the lock behind
           [ -z "${FX_BUILDS:-}" ] || echo "$ft_key" >> "$FX_BUILDS"
           if [ -d "$ft_final" ]; then rm -rf "$ft_tmp"   # a taken-over lock: someone else finished first; mv would nest
-          else mv "$ft_tmp" "$ft_final" || { rm -rf "$ft_tmp"; rm -rf "$ft_lock"; return 1; }; fi
+          else
+            mv "$ft_tmp" "$ft_final" || { rm -rf "$ft_tmp"; rm -rf "$ft_lock"; return 1; }
+            # `mv` moves INTO a directory that appeared between the test above and the move: the template would then hold a repository of its own (this build's private
+            # directory) and every fixture copied from it a nested one that `git add -A` refuses, so a scaffold silently stops at its first commit. Take it out again.
+            ft_nest=${ft_final:?}/${ft_tmp##*/}; [ ! -d "$ft_nest" ] || rm -rf "$ft_nest"
+          fi
         else rm -rf "$ft_tmp"; rm -rf "$ft_lock"; return 1; fi
       fi
       rm -rf "$ft_lock"; break
