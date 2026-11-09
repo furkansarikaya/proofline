@@ -86,7 +86,7 @@ test('scenario_terminal: FAILED only after the fix rounds, BLOCKED, dispatch mar
   assert.ok(!existsSync(run) && !existsSync(path.join(Ad, 'LC')), 'a FAILED cleanup left the run or its assignments directory (A116)');
   // a run that is neither DONE nor terminal; a BLOCKED run with an archive keep of 1
   const s = project({ topology: 'standalone' });
-  refused(A(s, ['cleanup', 'LC']), 'cleanup of a run that is neither DONE nor terminal');
+  refused(A(s, ['cleanup', 'LC']), 'cleanup of a run that is neither DONE nor terminal', 'cleanup requires handoff DONE');
   wr(s, '.agents/local/assignments/LC/a.md', '');
   refused(A(s, ['cleanup', 'LC']), 'a refused cleanup');
   assert.ok(existsSync(path.join(s, '.agents/local/assignments/LC/a.md')) && existsSync(path.join(s, RUN)), 'a refused cleanup removed the assignments or run directory (A116)');
@@ -628,6 +628,7 @@ test('scenario_reopen_failed: approval, roles, scope, kept passes, fix rounds 0 
   const d = failedRun();
   refused(A(d, ['deliver-plan', 'LC']), 'deliver-plan of a FAILED run', 'to reopen: /proofline reopen LC');
   must(d, ['knowledge-done', 'LC', 'not_applicable', KD]);
+  refused(A(d, ['reopen', 'LC'], { input: 'reason: no\n' }), 'reopen with a vague reason', "requires a specific 'reason:'");
   refused(reopen(d), 'reopen without the approval', 'needs the user');
   for (const r of ['implementer', 'qa', 'reviewer', 'verifier']) expectFail(reopen(d, r), `${r} reopened a run`);
   reopenApprove(d);

@@ -247,11 +247,11 @@ test('attribution: a change made outside the implementer is detected before and 
 
 test('tree_forged: a hand-written window of role user, not bound in the ledger by tree-accept, attests nothing', () => {
   const d = project({ topology: 'orchestrated' });
-  orchImplemented(d);
+  worker(d, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value'); worker(d, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value');   // not yet IMPLEMENTED: the forged window must be refused by the evidence check itself
   const b = must(d, ['patch-fingerprint', 'LC']).out.replace(/\n+$/, ''); appendFileSync(path.join(d, 'impl.txt'), 'forged\n'); const a = must(d, ['patch-fingerprint', 'LC']).out.replace(/\n+$/, '');
   const w = `${RUN}/worker-evidence`; const n = lsDir(d, w).filter((f) => /^WINDOW-.*\.yaml$/.test(f)).length + 1;
   wr(d, `${w}/WINDOW-${n}.yaml`, `task_id: "LC"\nseq: ${n}\nrole: "user"\ntopology: "orchestrated"\nbefore_sha256: "${b}"\nafter_sha256: "${a}"\nexit_status: "0"\n`);
-  expectFail(A(d, ['handoff', 'LC', 'CODE_DONE']), 'a hand-written user window attested a change');
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a hand-written user window attested a change', 'no tree-accept command bound it');
 });
 
 // Fix loop: a fix stays inside its findings' fix_scope, at most review.max_fix_rounds rounds per frozen contract, and an amendment + refreeze returns the
