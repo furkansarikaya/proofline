@@ -13,6 +13,19 @@ export { A, AS, accepted, capture, gfail, must, passAll, pipe, read, refused, rv
 export const now = () => Math.floor(Date.now() / 1000);
 
 /**
+ * A number field of a run file (`asked_at` of a question, `answered_epoch` of an answer), as the core wrote it. Stamps for messages are taken from these,
+ * never from the wall clock: the core stamps questions at real time, so a stamp of `now() + n` taken earlier can fall behind a question on a slow runner.
+ * @param {string} d @param {string} f run file @param {string} key @returns {number}
+ */
+export function stamp(d, f, key) {
+  const m = new RegExp(`^${key}: ([0-9]+)$`, 'm').exec(readFileSync(path.join(d, '.agents/runs/LC', f), 'utf8'));
+  if (!m) throw new Error(`${f} has no ${key}`);
+  return Number(m[1]);
+}
+/** The time question `n` was asked. @param {string} d @param {string|number} n */
+export const askedAt = (d, n) => stamp(d, `questions/${String(n).padStart(3, '0')}.md`, 'asked_at');
+
+/**
  * A scaffolded project with the Node core beside agent.sh (every command in Node, as an installed project). Options as the harness' `scaffold`.
  * @param {import('../lib/harness.mjs').ScaffoldOptions} [o] @returns {string}
  */
@@ -61,7 +74,8 @@ export function narrow(d, n) {
  * @param {string} d @param {string[]} args @param {{ text: string, time?: number }} m
  */
 export function hookAnswer(d, args, m) {
-  const time = m.time ?? now() + 1;
+  // default: one second after the question this answers (args = ['answer', id, n, ...]), not after the wall clock
+  const time = m.time ?? askedAt(d, args[2]) + 1;
   const stored = storePrompt(`${d}/.agents/local`, 's1', time, m.text);
   if (!stored) throw new Error('capture not stored');
   /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
