@@ -1,5 +1,7 @@
 // @ts-check
 // Core invariant 5: the agent that wrote the change cannot review it. Core invariant 6: in doubt the safe side wins.
+// Not yet mechanical (said here instead of faked): separation of an implementer from a reviewer SESSION (two agents with the same role name) is the lead's
+// dispatch discipline plus role-bound commands; the script enforces the role boundary, which is what is tested.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { existsSync } from 'node:fs';

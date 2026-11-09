@@ -25,14 +25,7 @@ tests/e2e/question-open.sh
 tests/e2e/reply-decision.sh
 tests/e2e/reply-loop-test.sh
 tests/e2e/run.sh
-tests/enforcement/approval-load-test.sh
-tests/enforcement/enforcement-test.sh
-tests/enforcement/merge-guard-test.sh
-tests/enforcement/platform-test.sh
-tests/enforcement/timeouts-test.sh
 tests/fixtures/entry-points/run-corpus.sh
-tests/invariants/invariants-test.sh
 tests/real-session/codex-sandbox.sh
 tests/real-session/smoke.sh
 tests/shared/fixture-lib.sh
-tests/tasks/status-block-test.sh

@@ -1684,3 +1684,73 @@ check-changed-test	a deleted invariant test is a change	a deleted invariant test
 check-changed-test	a sibling path is not under tests/invariants/	a sibling path is not under tests/invariants/	tests/ci/change-reason.test.mjs::a sibling path is not under tests/invariants/
 check-changed-test	line present but no reason / too short	line present but no reason; reason too short	tests/ci/change-reason.test.mjs::line present but no reason
 check-changed-test	event payload, body file, push	event payload with the line, null body, missing payload, PR_BODY_FILE, a push has no description to check	tests/ci/change-reason.test.mjs::the event payload (CI), a body file, and runs that are not pull requests
+enforcement-test	subagent_guard	subagent roles held to what they own: spoofed AGENT_ROLE, owns.conf, windows, markers, A200 lock wait, SubagentStop, PostToolUse relay, dispatched/failover roles	tests/enforcement/enforcement-a1.test.mjs::subagent_guard
+enforcement-test	verdicts	lead-authored verdicts, role-bound submits, A97 scratch/outside writes, A111/A132 stash and worktree rules, A120 ~/.claude writes, SubagentStop submissions	tests/enforcement/enforcement-a1.test.mjs::verdicts
+enforcement-test	git_hooks	git hooks block ungated commit, forbidden identity and unapproved push	tests/enforcement/enforcement-a2.test.mjs::git_hooks
+enforcement-test	out_of_scope	out-of-scope change blocked at verify-scope and handoff	tests/enforcement/enforcement-a2.test.mjs::out_of_scope
+enforcement-test	waivers	SECURITY never waivable; a waiver needs the captured user approval	tests/enforcement/enforcement-a2.test.mjs::waivers
+enforcement-test	final_report_tokens	final report identifiers, friction notes for requests to the user (A44/A154/A169/A171/A193/A203)	tests/enforcement/enforcement-a2.test.mjs::final_report_tokens
+enforcement-test	stop_next_step	Stop hook appends the user next step once (A159)	tests/enforcement/enforcement-a2.test.mjs::stop_next_step
+enforcement-test	runtime_approvals	lead never approves; prompt hook records approvals single-use per capture (A41/A106)	tests/enforcement/enforcement-a2.test.mjs::runtime_approvals
+enforcement-test	multi_approvals	several approvals in one user message; only the user prompt produces them (A202-31)	tests/enforcement/enforcement-a2.test.mjs::multi_approvals
+enforcement-test	hook_transparency	approve log, stale markers, one-line refusals, budget stop, HOOKS.log timings, write-time language check (A171/A203)	tests/enforcement/enforcement-a2.test.mjs::hook_transparency
+enforcement-test	questions	NEEDS_INPUT recorded and answered (lead attribution), SessionStart context for Claude and Codex	tests/enforcement/enforcement-b.test.mjs::questions
+enforcement-test	git_bypass	every spelling of a git hook bypass denied with and without a run; look-alikes allowed	tests/enforcement/enforcement-b.test.mjs::git_bypass
+enforcement-test	agent_sh_forms	agent.sh / AGENT_ROLE / PROOFLINE_DISPATCH matched on dequoted words, literal variables, task-output reads, role allowlists	tests/enforcement/enforcement-b.test.mjs::agent_sh_forms
+enforcement-test	hook_wiring	codex/claude hook commands resolve the root and fail closed, SessionStart skill path, one registration source, duplicates run once, task notification not captured, killed approval hook reported	tests/enforcement/enforcement-b.test.mjs::hook_wiring
+enforcement-test	not_installed	no-op and no capture outside a proofline project	tests/enforcement/enforcement-b.test.mjs::not_installed
+enforcement-test	live_claude	one real headless Claude session denied a product edit (PROOFLINE_LIVE_CLAUDE=1 opt-in)	tests/enforcement/enforcement-b.test.mjs::live_claude
+enforcement-test	worktree_state	run worktree judged by its own state, crafted/copied-.git/symlinked folders stay runtime state, implementer window in the worktree	tests/enforcement/enforcement-b.test.mjs::worktree_state
+enforcement-test	explorer_prose_note	explorer prose report gets the claims-table NOTE, a table does not	tests/enforcement/enforcement-b.test.mjs::explorer_prose_note
+enforcement-test	version_skew	SessionStart warns on plugin/project version mismatch	tests/enforcement/enforcement-b.test.mjs::version_skew
+enforcement-test	database_guard	hook half replayed from the corpus; DB-33b matchers and DB-37..41 control-plane half ported	tests/enforcement/enforcement-recorded-paths.test.mjs::database_guard (DB-1 .. DB-35, DB-42 .. DB-45); tests/enforcement/enforcement-b.test.mjs::database_guard (DB-33b, DB-37 .. DB-41); tests/core/legacy-database.test.mjs::DB-36
+enforcement-test	knowledge_stage	lead writes wiki/design only after CODE_DONE	tests/enforcement/enforcement-recorded-roles.test.mjs::knowledge_stage (A159)
+enforcement-test	knowledge_surfaces	design surfaces are knowledge-step paths	tests/enforcement/enforcement-recorded-lead.test.mjs::knowledge_surfaces
+enforcement-test	lead_edits	lead writes only run artifacts during a run	tests/enforcement/enforcement-recorded-lead.test.mjs::lead_edits
+enforcement-test	lead_no_run	lead ban on product files without a run (A169)	tests/enforcement/enforcement-recorded-lead.test.mjs::lead_no_run (A169)
+enforcement-test	link_writes	links, hard links, file-changing shell commands (H1, E1, E2)	tests/enforcement/enforcement-recorded-lead.test.mjs::link_writes (H1, E1, E2)
+enforcement-test	owned_paths	a role writes only owned paths, designer window (L1, P1, P2)	tests/enforcement/enforcement-recorded-paths.test.mjs::owned_paths (L1, P1, P2)
+enforcement-test	read_roles_tree	read-only roles never change the working tree (A143)	tests/enforcement/enforcement-recorded-roles.test.mjs::read_roles_tree (A143)
+enforcement-test	rtk_bypass	evidence commands need the rtk bypass (A194)	tests/enforcement/enforcement-recorded-paths.test.mjs::rtk_bypass (A194)
+enforcement-test	skill_detour	skill redirect and give-up message sent back once (A193)	tests/enforcement/enforcement-recorded-paths.test.mjs::skill_detour (A193)
+timeouts-test	scale_multiplies	timeouts.scale multiplies dispatch, build, lock, status block, CI wait and hook limits; the approval budget never moves; the prompt hook limit is at least budget+5	tests/enforcement/timeouts.test.mjs::scale_multiplies
+timeouts-test	bounds	every time limit has a minimum and a maximum in config-check (incl. per-class dispatch); a bad hand-edited scale is read as 1	tests/enforcement/timeouts.test.mjs::bounds
+timeouts-test	warn_line	one TIME line in next and wait-line at 80% of a step's time; none before, none when dead; threshold from config	tests/enforcement/timeouts.test.mjs::warn_line
+timeouts-test	build_timeout	a build command stopped by its limit fails, leaves no sealed record, the next run starts again	tests/enforcement/timeouts.test.mjs::build_timeout
+timeouts-test	settings_merge	hook limits from the config into settings.json: user settings kept, idempotent, kept on upgrade	tests/enforcement/timeouts.test.mjs::settings_merge
+timeouts-test	upgrade_defaults	an upgrade moves a limit at the earlier default, keeps a changed one and a value set later	tests/enforcement/timeouts.test.mjs::upgrade_defaults
+timeouts-test	doctor_scale	doctor proposes a scale and writes it only after the user's own approve scale	tests/enforcement/timeouts.test.mjs::doctor_scale
+approval-load-test	fp_run_folder	the content fingerprint does not read the run folder and sees product changes	tests/enforcement/approval-load.test.mjs::fp_run_folder
+approval-load-test	fp_cache_integrity	a forged or stale fp-cache never reaches a sealing fingerprint; a same-size same-mtime edit is detected	tests/enforcement/approval-load.test.mjs::fp_cache_integrity
+approval-load-test	hook_config_knobs	hook time knobs validated, bounded, leading zeros, kept by an upgrade (merge-new)	tests/enforcement/approval-load.test.mjs::hook_config_knobs
+approval-load-test	intake_first	the user's message is on disk before any git call and survives a stopped hook	tests/enforcement/approval-load.test.mjs::intake_first
+approval-load-test	timeout_message	a forced hook timeout keeps the message and says in one line the approval was not recorded; a normal approval is recorded; budget 08 works	tests/enforcement/approval-load.test.mjs::timeout_message
+approval-load-test	big_run_perf	next and digest do not grow with a large run folder (relative budget, 90 s ceiling)	tests/enforcement/approval-load.test.mjs::big_run_perf
+approval-load-test	doctor_budget	doctor measures the approval path and warns when it nears the hook budget	tests/enforcement/approval-load.test.mjs::doctor_budget
+platform-test	detection	GitHub, GitLab, Azure, Bitbucket, other remotes; missing tool or Bitbucket = manual rule; look-alike hosts; PROOFLINE_PLATFORM	tests/enforcement/platform.test.mjs::GitHub, GitLab, Azure DevOps, Bitbucket and other remotes are recognized
+platform-test	GitLab merges	green pipeline merges sha-pinned; failed/running/foreign pipeline, draft, merged refused	tests/enforcement/platform.test.mjs::gitlab: a merge request with a green pipeline on its head merges through glab (--sha pinned)
+platform-test	GitLab no pipeline	verified locally in a clean copy then merges; failing test, nothing configured, head not in clone refuse	tests/enforcement/platform.test.mjs::gitlab: no pipeline -> build and test pass in a clean copy of the commit
+platform-test	Azure DevOps	approved build policy merges; rejected, queued, abandoned refuse; no build policy verified locally	tests/enforcement/platform.test.mjs::azure: every build policy approved merges through az repos
+platform-test	glab merge line	exactly sha-pinned and final	tests/enforcement/platform.test.mjs::glab merge call line is pinned to the verified sha, only after a final (success) pipeline
+platform-test	A186 config	git.platform/platform_host whole-host equality, config>env>auto, host variable	tests/enforcement/platform.test.mjs::A186: git.platform_host recognises an on-prem address by whole-host equality
+platform-test	A186 warn	platform without platform_host on a look-alike origin warns and exports no host	tests/enforcement/platform.test.mjs::A186: git.platform without platform_host on a look-alike origin warns
+platform-test	round 6 local origins	./x ../x /abs file:/// are local; host-shaped are not	tests/enforcement/platform.test.mjs::round 6: local origins
+platform-test	manual path	Bitbucket and unrecognized host merge nothing; missing glab falls back to manual	tests/enforcement/platform.test.mjs::bitbucket and an unrecognized host: nothing is merged
+platform-test	gh no checks	local verification then merge; failing build and red check refused	tests/enforcement/platform.test.mjs::github: a pull request with no checks is merged after the local verification
+platform-test	hook glab/az	glab/az/curl merge paths denied naming proofline merge; reading and retitling allowed	tests/enforcement/platform.test.mjs::the hook: glab merge, glab api merge, az repos pr update that completes
+merge-guard-test	wrapper green	all green merges pinned to the checked head	tests/enforcement/merge-guard.test.mjs::the wrapper: all green merges, pinned to the checked head
+merge-guard-test	wrapper refusals	red, pending, neutral, cancelled, no checks, moved head, draft, merged, other PR, malformed head, unparsable, gh failing, --admin, --auto, URL	tests/enforcement/merge-guard.test.mjs::the wrapper refuses red, pending, neutral, cancelled, missing checks
+merge-guard-test	skipped/required	skipped passes unless required; required missing from rollup refuses; prints gh path	tests/enforcement/merge-guard.test.mjs::skipped checks pass unless required
+merge-guard-test	PATH shadowing	temp-dir gh, empty PATH entry, missing gh refused	tests/enforcement/merge-guard.test.mjs::PATH shadowing: a gh in a temp directory and an empty PATH entry are refused
+merge-guard-test	hook tables	204 denied/allowed commands (feat/x 128+59, main 13+4) through the real hook	tests/enforcement/merge-guard.test.mjs::hook: direct merge paths, branch advances, clustered flags
+merge-guard-test	hook on protected branch	bare push/merge/reset denied on main; unstage and pull stay	tests/enforcement/merge-guard.test.mjs::hook: a bare push, a push of HEAD and a merge are denied while the protected branch is checked out
+merge-guard-test	hook installed project	guard runs in an installed project	tests/enforcement/merge-guard.test.mjs::hook: the guard also runs in an installed project
+status-block-test	ask	block shows the park, question, scrubbed, freshness intact	tests/enforcement/status-block.test.mjs::ask: the block shows the park
+status-block-test	scrubber	sb_scrub redacts wrapped keys, addresses; plain text intact	tests/enforcement/status-block.test.mjs::scrubber: keys wrapped in quotes, brackets or after a colon are redacted
+status-block-test	answer/park/unpark	running vs parked, one block, reasons scrubbed	tests/enforcement/status-block.test.mjs::answer / park / unpark
+status-block-test	contract hash	block excluded, smuggling stales, every SB_KEYS key allowed	tests/enforcement/status-block.test.mjs::contract hash: the status block is excluded
+status-block-test	code-done/pr-opened/merged	one block next to the completion report	tests/enforcement/status-block.test.mjs::code-done / pr-opened / merged
+status-block-test	human checks	QA Human checks list reaches the block once, scrubbed	tests/enforcement/status-block.test.mjs::the QA report's Human checks list reaches the status block by script
+status-block-test	terminate	failure reason scrubbed	tests/enforcement/status-block.test.mjs::terminate: the block shows the failure reason, scrubbed
+status-block-test	unreachable tracker	a note, never a failed run (was a shell black box)	tests/enforcement/status-block.test.mjs::unreachable tracker: a note, never a failed run
+invariants-test	sc_inv1..sc_inv6 (8 scenarios)	the six core invariants against the real control plane	tests/invariants-node/*.test.mjs::inv1, inv2a, inv2b, inv3, inv4, inv4b, inv5, inv6 (one test per shell scenario; inv3 hand-written waiver now carries gate_record_sha256 like the shell one)

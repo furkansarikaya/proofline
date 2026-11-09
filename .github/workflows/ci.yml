@@ -397,6 +397,18 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/enforcement/enforcement-recorded-roles.test.mjs
+          - name: enforcement-ported-a
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-a1.test.mjs tests/enforcement/enforcement-a2.test.mjs
+          - name: enforcement-ported-b
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/enforcement-b.test.mjs tests/enforcement/platform.test.mjs tests/enforcement/merge-guard.test.mjs tests/enforcement/status-block.test.mjs
+          - name: enforcement-timeouts
+            mode: files
+            pattern: 'none'
+            files: tests/enforcement/timeouts.test.mjs tests/enforcement/approval-load.test.mjs
           - name: invariants-node-1
             mode: files
             pattern: 'none'
@@ -449,11 +461,9 @@ jobs:
           PATTERN: ${{ matrix.leg.pattern }}
         run: node --test "--test-skip-pattern=$PATTERN" ${{ matrix.leg.files }}
 
-  # The shipped Node hook (stage 3) is a pull request gate: its own tests, the guard tests and the five shell enforcement suites run AGAINST
-  # adapters/claude/hooks/proofline-hook.mjs (the legacy self-test shards keep testing the shell hook, which stays until stage 15). One leg per suite so the
-  # wall time is the slowest leg: enforcement-test about 8 minutes on a 4-core runner (the local run takes 380 s on 8 cores), timeouts-test about 3, the
-  # rest under a minute each; the node-tests legs (hook tests, guards, wiring, process budgets) about 6 minutes. The Node tests run on Node 22.13.0
-  # and the active LTS, the shell suites on 22.13.0. Never skipped by fast mode.
+  # The shipped Node hook (stage 3) is a pull request gate: its own tests and the guard tests run AGAINST
+  # adapters/claude/hooks/proofline-hook.mjs (the enforcement suites, ported to Node in A239, run as `node-tests` legs under tests/enforcement/ against the same hook). The
+  # wall time is the slowest leg (the hook tests, guards, wiring and process budgets, about 6 minutes). The Node tests run on Node 22.13.0 and the active LTS. Never skipped by fast mode.
   hook-node:
     strategy:
       fail-fast: false
@@ -463,16 +473,6 @@ jobs:
             node: '22.13.0'
           - suite: node-tests
             node: 'lts/*'
-          - suite: enforcement-test
-            node: '22.13.0'
-          - suite: timeouts-test
-            node: '22.13.0'
-          - suite: merge-guard-test
-            node: '22.13.0'
-          - suite: platform-test
-            node: '22.13.0'
-          - suite: approval-load-test
-            node: '22.13.0'
     runs-on: ubuntu-latest
     env:
       HOOK_UNDER_TEST: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
@@ -504,11 +504,6 @@ jobs:
       - name: wiring tests
         if: matrix.suite == 'node-tests'
         run: node --test tests/enforcement/wiring.test.mjs
-      - name: shell suite ${{ matrix.suite }} against the Node hook
-        if: matrix.suite != 'node-tests'
-        env:
-          SELFTEST_ONLY: ${{ matrix.suite }}
-        run: node tests/selftest.mjs
 
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
   # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.
@@ -525,24 +520,41 @@ jobs:
         run: node "$RUNNER_TEMP/tc/node_modules/typescript/bin/tsc" -p jsconfig.json --typeRoots "$RUNNER_TEMP/tc/node_modules/@types"
 
   # Core invariants (CONTRIBUTING.md): the invariant tests run on EVERY pull request, documentation-only ones included, and on every push
-  # to main. A pull request that changes tests/invariants/ must carry an `Invariant-test-change:` line in its description. The
+  # to main. A pull request that changes tests/invariants-node/ must carry an `Invariant-test-change:` line in its description. The
   # description is read live (a re-run sees an edited description), falling back to the event payload.
   invariants:
     name: invariants (${{ matrix.scenario }})
     strategy:
       fail-fast: false
       matrix:
-        # One leg per scenario of tests/invariants/invariants-test.sh (its own LC_EXACT filter, the one every suite has); before this one serial run took 22
-        # minutes. The first leg also runs the checks that are not scenarios (the change-reason scripts and the context budget).
-        scenario:
-          - sc_inv1_code_done_needs_gates
-          - sc_inv2_never_waivable
-          - sc_inv2_run_on_change
-          - sc_inv3_user_message_only
-          - sc_inv4_evidence_reproduced
-          - sc_inv4_green_needs_change
-          - sc_inv5_no_self_review
-          - sc_inv6_safe_side
+        # One leg per core-invariant test of tests/invariants-node/ (the leg names are the scenario names of the former shell suite, so a required-check list keeps
+        # its names; `pattern` selects the test by name, `^invN:` never matches `^invNb:`). The first leg also runs the checks that are not scenarios (the
+        # change-reason scripts and the context budget).
+        include:
+          - scenario: sc_inv1_code_done_needs_gates
+            file: tests/invariants-node/rules-1-2.test.mjs
+            pattern: '^inv1:'
+          - scenario: sc_inv2_never_waivable
+            file: tests/invariants-node/rules-1-2.test.mjs
+            pattern: '^inv2a:'
+          - scenario: sc_inv2_run_on_change
+            file: tests/invariants-node/rule-2b.test.mjs
+            pattern: '^inv2b:'
+          - scenario: sc_inv3_user_message_only
+            file: tests/invariants-node/rule-3.test.mjs
+            pattern: '^inv3:'
+          - scenario: sc_inv4_evidence_reproduced
+            file: tests/invariants-node/rule-4.test.mjs
+            pattern: '^inv4:'
+          - scenario: sc_inv4_green_needs_change
+            file: tests/invariants-node/rule-4.test.mjs
+            pattern: '^inv4b:'
+          - scenario: sc_inv5_no_self_review
+            file: tests/invariants-node/rules-5-6.test.mjs
+            pattern: '^inv5:'
+          - scenario: sc_inv6_safe_side
+            file: tests/invariants-node/rules-5-6.test.mjs
+            pattern: '^inv6:'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -551,14 +563,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: invariant tests (this scenario)
-        env:
-          LC_EXACT: ${{ matrix.scenario }}
-        run: sh tests/invariants/invariants-test.sh
       - uses: actions/setup-node@v4
-        if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
         with:
           node-version: 22.13.0
+      - name: invariant tests (this scenario)
+        env:
+          PATTERN: ${{ matrix.pattern }}
+        run: node --test "--test-name-pattern=$PATTERN" ${{ matrix.file }}
       - name: context budget, measured by the Node core (A202, A230)
         if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
         run: node --test tests/core/contextsize.test.mjs

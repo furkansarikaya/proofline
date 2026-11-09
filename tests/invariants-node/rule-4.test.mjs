@@ -1,6 +1,8 @@
 // @ts-check
 // Core invariant 4: evidence is reproduced independently; an agent's claim (a self-consistent report) is not evidence. Worker evidence is checked
 // against the tree: a GREEN record with no change since RED is refused.
+// Not yet mechanical (said here instead of faked): what a REVIEWER or QA "reproduced" is judgment; only the verifier's commands and the worker's
+// RED/GREEN evidence are re-derived by script, and those are what is tested.
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

@@ -22,7 +22,6 @@ skills/visual-proof/scripts/patterns.mjs visual-proof.test.mjs visual-proof-seo.
 skills/visual-proof/scripts/build-ux-rules.mjs design-library.test.mjs
 skills/visual-proof/ux-rules.json visual-proof.test.mjs visual-proof-seo.test.mjs visual-proof-seo-browser.test.mjs visual-proof-native.test.mjs visual-proof-design.test.mjs design-library.test.mjs
 fixtures/visual-proof-design/* visual-proof-design.test.mjs
-tests/invariants/invariants-test.sh invariants-test
 tests/ci/change-reason.mjs change-reason.test.mjs
 tests/ci/ci-steps.mjs change-reason.test.mjs
 tests/selftest-weights.mjs selftest-weights.test.mjs
@@ -30,7 +29,7 @@ tests/fixtures/check-fixtures.mjs check-fixtures.test.mjs
 tests/shared/check-shared.mjs check-shared.test.mjs
 tests/context/budget.tsv contextsize.test.mjs
 tests/context/rule-map.tsv contextsize.test.mjs
-tests/enforcement/approval-load-test.sh approval-load-test
+tests/enforcement/approval-load.test.mjs approval-load.test.mjs
 
 tests/ci/ecosystem-branching.mjs ecosystem-branching.test.mjs
 tests/golden/capture/* capture.test.mjs windows-paths.test.mjs

@@ -8,7 +8,8 @@ import { join, resolve } from 'node:path';
 import { cleanEnv } from '../lib/harness.mjs';
 
 export const repo = resolve(import.meta.dirname, '../..');
-export const nodeHook = join(repo, 'adapters/claude/hooks/proofline-hook.mjs');
+/** The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> (a harness choice for mutation checks, as the former shell suites read it); the shipped hook by default. */
+export const nodeHook = process.env.HOOK_UNDER_TEST || join(repo, 'adapters/claude/hooks/proofline-hook.mjs');
 const scripts = join(repo, 'control-plane/agents/scripts');
 export const haveJq = spawnSync('jq', ['--version']).status === 0;
 
