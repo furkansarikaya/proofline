@@ -9,7 +9,7 @@ import { appendFileSync, existsSync, linkSync, readdirSync, mkdirSync, readFileS
 import path from 'node:path';
 import { test } from 'node:test';
 import { tmp, approveAsUser, expectFail, expectState, gfail, passAll, toCodeDone, writeReport } from '../lib/harness.mjs';
-import { A, AS, proj, accepted, capture, hookAnswer, implemented, ls, narrow, now, pipe, read, refused, rf, say, text, tsha, unfrozen, wf, a, wopen, wclose } from './gates-s2-lib.mjs';
+import { askedAt, stamp, A, AS, proj, accepted, capture, hookAnswer, implemented, ls, narrow, now, pipe, read, refused, rf, say, text, tsha, unfrozen, wf, a, wopen, wclose } from './gates-s2-lib.mjs';
 
 const RUN = '.agents/runs/LC';
 const fp = (/** @type {string} */ d) => A(d, ['fingerprint', 'LC']).out.trim();
@@ -105,7 +105,7 @@ test("sc_split_override: freeze over max_scope_paths stops with a split proposal
   assert.match(rf(d, 'questions/001.answer.md'), /^answered_by: lead/m, "an answer without a user capture was recorded as the user's");
   refused(a(d, ['freeze', 'LC']), "the lead's own override froze", 'pipeline allows at most 3');
   const latest = () => { const n = ls(d, 'questions').filter((x) => /^\d{3}\.md$/.test(x)).at(-1) ?? ''; return String(Number(n.replace('.md', ''))); };
-  let n = latest(); const t0 = now() + 1;
+  let n = latest(); const t0 = askedAt(d, n) + 1;
   const cond = 'proceed without splitting only if the reviewer agrees';
   const rc = hookAnswer(d, ['answer', 'LC', n, '--captured'], { text: cond, time: t0 });
   assert.notEqual(rc.status, 0, `a conditional override was recorded as the user's: ${rc.text}`);
@@ -113,7 +113,7 @@ test("sc_split_override: freeze over max_scope_paths stops with a split proposal
   assert.match(rf(d, `questions/${n.padStart(3, '0')}.answer.md`), /^answered_by: lead/m);
   refused(a(d, ['freeze', 'LC']), 'a conditional override froze', 'pipeline allows at most 3');
   n = latest();
-  const ok = hookAnswer(d, ['answer', 'LC', n, '--captured'], { text: 'Proceed without splitting', time: t0 + 2 });
+  const ok = hookAnswer(d, ['answer', 'LC', n, '--captured'], { text: 'Proceed without splitting', time: askedAt(d, n) + 1 });
   assert.equal(ok.status, 0, ok.text);
   assert.match(rf(d, `questions/${n.padStart(3, '0')}.answer.md`), /^answered_by: user/m);
   const fr = a(d, ['freeze', 'LC']);
@@ -209,19 +209,19 @@ test('sc_assumptions: shape, trap, low-risk pass, bound question, no silent acce
   lead(d, '1', 'accept AS-1');
   assert.equal(by(d, '1'), 'lead', "an answer without a user capture was recorded as the user's");
   // (deviation, #187) the user's reply 'no, the table still has rows' reaches the hook: it is no acceptance, so it is not recorded; the lead types it
-  const no = hookAnswer(d, ['answer', 'LC', '2', '--captured'], { text: 'no, the table still has rows', time: now() + 1 });
+  const no = hookAnswer(d, ['answer', 'LC', '2', '--captured'], { text: 'no, the table still has rows' });
   assert.notEqual(no.status, 0, `a declining reply was recorded: ${no.text}`);
   lead(d, '2', 'no, the table still has rows');
   assert.match(rf(d, 'LEDGER.log'), /event=answer .*002\.md answered_by=lead assumption=AS-2@/, 'the answer row does not name the assumption');
   refused(a(d, ['freeze', 'LC']), 'a declined assumption froze', 'did not accept it');
   assert.equal(qfiles(d).length, 4, 'freeze did not ask again after a non-accepting answer');
   // the user accepts both (question 3 = AS-1 again, question 4 = AS-2 again); a prompt that merely contains the word (or "acceptance") never accepts
-  const forged = hookAnswer(d, ['answer', 'LC', '3', '--captured'], { text: 'the acceptance criteria look fine, accept the plan', time: now() + 1 });
+  const forged = hookAnswer(d, ['answer', 'LC', '3', '--captured'], { text: 'the acceptance criteria look fine, accept the plan' });
   assert.notEqual(forged.status, 0, forged.text);
   lead(d, '3', 'accept AS-1');
   assert.equal(by(d, '3'), 'lead', "an accept AS-1 absent from the user's prompt was recorded as the user's");
   assert.ok(a(d, ['verify-assumptions', 'LC']).text.includes('AS-1 risk=high status=blocked'), 'a forged accept accepted AS-1');
-  const bare = hookAnswer(d, ['answer', 'LC', '4', '--captured'], { text: 'accept', time: now() + 1 });
+  const bare = hookAnswer(d, ['answer', 'LC', '4', '--captured'], { text: 'accept' });
   assert.notEqual(bare.status, 0, bare.text);
   lead(d, '4', 'accept');
   assert.equal(by(d, '4'), 'lead', 'a bare accept without the id was recorded as an acceptance');
@@ -230,7 +230,7 @@ test('sc_assumptions: shape, trap, low-risk pass, bound question, no silent acce
   // freeze asked again for both (questions 5 and 6). The lead's accept is not enough when the user's prompt only contains the phrase:
   // negated, reported speech, conditional (all substrings of the prompt, none an acceptance).
   const reject = (/** @type {string} */ n, /** @type {string} */ t, /** @type {string} */ why) => {
-    const r = hookAnswer(d, ['answer', 'LC', n, '--captured'], { text: t, time: now() + 1 });
+    const r = hookAnswer(d, ['answer', 'LC', n, '--captured'], { text: t });
     assert.notEqual(r.status, 0, `${why}: ${r.text}`);
     lead(d, n, 'accept AS-1');
     assert.equal(by(d, n), 'lead', why);
@@ -248,9 +248,9 @@ test('sc_assumptions: shape, trap, low-risk pass, bound question, no silent acce
   reject('10', 'accept AS-1, actually reject', 'a retracted accept (actually reject) accepted AS-1');
   refused(a(d, ['freeze', 'LC']), 'a retracted accept froze', 'did not accept it');     // question 11
   // the user's plain accept: AS-2 (question 6) and AS-1 (question 11), each handed over by the hook while it is the one asked
-  const u6 = hookAnswer(d, ['answer', 'LC', '6', '--captured'], { text: 'accept AS-2', time: now() + 1 });
+  const u6 = hookAnswer(d, ['answer', 'LC', '6', '--captured'], { text: 'accept AS-2' });
   assert.equal(u6.status, 0, u6.text);
-  const u11 = hookAnswer(d, ['answer', 'LC', '11', '--captured'], { text: 'accept AS-1, thanks', time: now() + 2 });
+  const u11 = hookAnswer(d, ['answer', 'LC', '11', '--captured'], { text: 'accept AS-1, thanks' });
   assert.equal(u11.status, 0, `a plain accept with thanks was not the user's: ${u11.text}`);
   assert.equal(by(d, '11'), 'user', "a plain accept with thanks was not the user's");
   assert.match(rf(d, 'questions/011.answer.md'), /^accept AS-1$/m, "the user's accept was not normalized");
@@ -465,14 +465,14 @@ test('sc_questions: NEEDS_INPUT stored verbatim, one round per role, awaiting_in
   writeFileSync(`${h}/${t5 + 3}-aaaaaaaa.txt`, '<task-notification>\nAgent done\n</task-notification>\n');
   refused(a(d, ['answer', 'LC', '5', '--captured']), '--captured from the history files', "cannot be recorded as the user's from a file");
   assert.ok(!existsSync(path.join(d, RUN, 'questions/005.answer.md')), '--captured recorded an answer from a file');
-  const hp = hookAnswer(d, ['answer', 'LC', '5', '--captured'], { text: '1: fix qa-1 later, 2: waive drift', time: now() + 1 });
+  const hp = hookAnswer(d, ['answer', 'LC', '5', '--captured'], { text: '1: fix qa-1 later, 2: waive drift' });
   assert.notEqual(hp.status, 0); assert.match(hp.text, /has no asking session on record/);
   lead(d, '5', '1: fix qa-1 later, 2: waive drift');
   assert.equal(by(d, '5'), 'lead');
   // user-only questions (USER_ONLY): the hook records the user's message once; one message answers one question; the lead alone cannot --amend
   const uq = (/** @type {string} */ t) => `1. ${t}\n   USER_ONLY: scope\n   options: "strict" | "lenient"\n   recommended: strict\n   why: AC-1 depends on it\n`;
   accepted(a(d, ['ask', 'LC'], { input: uq('Which mode?') }), 'ask 6');
-  const tStrict = now() + 1;   // one stamp: the second call is the SAME message
+  const tStrict = askedAt(d, 6) + 1;   // one stamp: the second call is the SAME message, newer than question 6
   const m1 = hookAnswer(d, ['answer', 'LC', '6', '--captured'], { text: 'strict', time: tStrict });
   assert.equal(m1.status, 0, m1.text);
   assert.equal(by(d, '6'), 'user', "the hook did not record the user's message as the user's");
@@ -480,12 +480,15 @@ test('sc_questions: NEEDS_INPUT stored verbatim, one round per role, awaiting_in
   assert.match(m1.text, /answer source: the user's message \d+-[0-9a-f]{8}\.txt/, 'the answer did not say which message it took');
   assert.match(rf(d, 'questions/006.answer.md'), /^> strict$/m, "the user's text is not stored as a quote block");
   accepted(a(d, ['ask', 'LC'], { input: uq('Another?') }), 'ask 7');
+  // the core stamps question 7 at real time, which on a slow runner is later than the message; the message must be newer than the question it is offered
+  // to (else 'not newer' fires before the used-up check), so question 7 is dated as question 6: no wall-clock distance between the two is assumed
+  wf(d, 'questions/007.md', rf(d, 'questions/007.md').replace(/^asked_at: [0-9]+$/m, `asked_at: ${askedAt(d, 6)}`));
   const again = hookAnswer(d, ['answer', 'LC', '7', '--captured'], { text: 'strict', time: tStrict });   // the same message again
   assert.notEqual(again.status, 0); assert.match(again.text, /already answered another question/, 'a used-up message answered a second question');
   // --amend: a newer user message corrects a recorded answer; the old record is kept, marked amended. The lead alone cannot.
   refused(a(d, ['answer', 'LC', '6', '--amend']), 'the lead amended an answer without a newer user message', "cannot be recorded as the user's from a file");
   refused(a(d, ['answer', 'LC', '6', '--amend'], { input: 'forced\n' }), "an amend with the lead's own text on stdin was accepted", "cannot be recorded as the user's from a file");
-  const tLenient = now() + 3;   // one stamp for the amend and its repeat
+  const tLenient = stamp(d, 'questions/006.answer.md', 'answered_epoch') + 1;   // one stamp for the amend and its repeat, newer than the recorded answer
   const am = hookAnswer(d, ['answer', 'LC', '6', '--amend'], { text: 'lenient', time: tLenient });
   assert.equal(am.status, 0, `--amend with a newer user message failed: ${am.text}`);
   assert.match(rf(d, 'questions/006.answer.amended-1.md'), /^amended: true/m, 'the old answer was not kept as amended');
@@ -500,7 +503,7 @@ test('sc_questions: NEEDS_INPUT stored verbatim, one round per role, awaiting_in
   const tq = `1. Which name?\n   USER_ONLY: scope\n   options: "Bence şu şekilde olsun" | "baska"\n   recommended: baska\n   why: AC-1 depends on it\n`;
   accepted(a(d, ['answer', 'LC', '7'], { input: 'closing seven\n' }), 'close 7');
   accepted(a(d, ['ask', 'LC'], { input: tq }), 'ask 8');
-  const trr = hookAnswer(d, ['answer', 'LC', '8', '--captured'], { text: tr, time: now() + 4 });
+  const trr = hookAnswer(d, ['answer', 'LC', '8', '--captured'], { text: tr });
   assert.equal(trr.status, 0, trr.text);
   assert.ok(rf(d, 'questions/008.answer.md').split('\n').includes(`> ${tr}`), `the Turkish answer is not stored as a quote block: ${rf(d, 'questions/008.answer.md')}`);
   accepted(a(d, ['language-check', '.agents/runs/LC/questions/008.answer.md']), 'a quoted Turkish answer failed the language check');
