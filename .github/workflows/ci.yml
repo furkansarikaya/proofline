@@ -341,6 +341,26 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/gates-s6.test.mjs
+          - name: lifecycle-s1
+            mode: files
+            pattern: 'none'
+            files: tests/core/lifecycle-s1.test.mjs
+          - name: lifecycle-s2
+            mode: files
+            pattern: 'none'
+            files: tests/core/lifecycle-s2.test.mjs
+          - name: lifecycle-s3
+            mode: files
+            pattern: 'none'
+            files: tests/core/lifecycle-s3.test.mjs
+          - name: risk-s1
+            mode: files
+            pattern: 'none'
+            files: tests/core/risk-s1.test.mjs
+          - name: risk-s2
+            mode: files
+            pattern: 'none'
+            files: tests/core/risk-s2.test.mjs
           - name: tool-economy
             mode: files
             pattern: 'none'
