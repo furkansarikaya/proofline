@@ -4,12 +4,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { hermeticFetch, importProvenTip, sbMainPark } from '../../control-plane/agents/scripts/core/deliver.mjs';
 import { hermeticEnv, hgit, parseDrivers, populatedGitlinks, repoDrivers } from '../../control-plane/agents/scripts/core/hgit.mjs';
-import { addedLines } from '../../control-plane/agents/scripts/core/git.mjs';
+import { addedLines, diffNames, numstat, trackedPaths } from '../../control-plane/agents/scripts/core/git.mjs';
 
 const FIXED = new Date(Date.UTC(2031, 0, 2, 3, 4, 5));
 const nul = (/** @type {string[]} */ ...f) => `${f.join('\0')}\0`;
@@ -78,11 +78,13 @@ test('hermeticEnv: blanks each name as a key (so `=` is fine), keeps a count the
   assert.equal(e['GIT_CONFIG_PARAMETERS'], undefined);
   assert.equal(e['GIT_CONFIG_KEY_0'], 'a.b');
   assert.equal(e['GIT_CONFIG_KEY_1'], 'c.d');
-  assert.equal(e['GIT_CONFIG_KEY_2'], 'core.fsmonitor');
-  assert.equal(e['GIT_CONFIG_VALUE_2'], 'false');
-  assert.equal(e['GIT_CONFIG_KEY_3'], 'core.hooksPath');
-  assert.deepEqual(['clean', 'smudge', 'process'].map((v, i) => [e[`GIT_CONFIG_KEY_${4 + i}`], e[`GIT_CONFIG_VALUE_${4 + i}`]]), [['filter.a=b.clean', ''], ['filter.a=b.smudge', ''], ['filter.a=b.process', '']]);
-  assert.equal(e['GIT_CONFIG_COUNT'], '7');
+  /** @type {Record<string, string>} */ const kv = {};
+  for (let k = 0; k < Number(e['GIT_CONFIG_COUNT']); k++) kv[/** @type {string} */ (e[`GIT_CONFIG_KEY_${k}`])] = /** @type {string} */ (e[`GIT_CONFIG_VALUE_${k}`]);
+  assert.equal(e['GIT_CONFIG_COUNT'], '11');
+  assert.deepEqual(kv, { 'a.b': '1', 'c.d': '2', 'core.fsmonitor': 'false', 'diff.ignoreSubmodules': 'dirty', 'status.ignoreSubmodules': 'dirty', 'diff.submodule': 'short', 'submodule.recurse': 'false',
+    'core.hooksPath': '/dev/null', 'filter.a=b.clean': '', 'filter.a=b.smudge': '', 'filter.a=b.process': '' });
+  assert.equal(e['GIT_CONFIG_KEY_0'], 'a.b', 'the existing entries keep their places');
+  assert.equal(e['GIT_CONFIG_KEY_2'], 'core.fsmonitor', 'ours start after the existing count');
   for (const bad of ['1e1', '-1', '', ' 2', '0x2', 'abc']) assert.equal(hermeticEnv({ GIT_CONFIG_COUNT: bad }, [])['GIT_CONFIG_KEY_0'], 'core.fsmonitor', `count ${JSON.stringify(bad)} is not a count`);
 });
 
@@ -222,8 +224,8 @@ function proofSetup(s) {
   s.git(origin, 'add', 'g.txt');
   s.git(origin, 'commit', '-qm', 'two');
   const ctx = ctxOf(s, root);
-  ctx.env = { ...s.env, HOME: homedir() }; // the proof repository lives in the account's cache, like in production
-  const hf = hermeticFetch(ctx, 'git', origin, 'main');
+  const hf = hermeticFetch(ctx, 'git', origin, 'main', s.dir); // the proof repository lives in this test's own folder (`<dir>/.cache/proofline-proof`), never in the real home
+
   assert.ok(hf !== null, 'the proof repository could not be made');
   return { origin, root, ctx, hf };
 }
@@ -235,6 +237,7 @@ test('S3: the import of the proven tip runs no transport: url.<x>.insteadOf plus
     try {
       const p = proofSetup(s);
       hf = p.hf;
+      assert.ok(hf.tmp.startsWith(`${s.dir}/`), 'the proof repository must live in the test\'s own folder');
       const mark = `${s.dir}/PWNED`;
       const prefix = `${path.dirname(hf.tmp)}/`;
       if (variant === 'ssh') {
@@ -252,4 +255,110 @@ test('S3: the import of the proven tip runs no transport: url.<x>.insteadOf plus
       assert.equal(s.git(p.root, 'cat-file', '-t', p.hf.tip).trim(), 'commit');
     } finally { hf?.done(); s.done(); }
   }
+});
+
+/** A repository whose committed gitlink `name` is a checked out repository with a planted clean driver (counts into CNT) and a planted diff program (touches EXT). @param {ReturnType<typeof scratch>} s @param {string} name */
+function withSubmodule(s, name = 'sub') {
+  const t = repo(s);
+  const sub = path.join(t, name);
+  mkdirSync(sub);
+  s.git(sub, 'init', '-q', '-b', 'main');
+  writeFileSync(`${sub}/x`, 'x\n');
+  s.git(sub, 'add', 'x');
+  s.git(sub, 'commit', '-qm', 'x');
+  s.git(t, 'add', name);
+  s.git(t, 'commit', '-qm', 'sub');
+  const cnt = `${s.dir}/COUNT`; const ext = `${s.dir}/EXT`;
+  s.git(sub, 'config', 'filter.ev.clean', `echo c >> ${cnt}; cat`);
+  writeFileSync(`${s.dir}/ext.sh`, `#!/bin/sh\ntouch ${ext}\n`);
+  chmodSync(`${s.dir}/ext.sh`, 0o755);
+  s.git(sub, 'config', 'diff.external', `${s.dir}/ext.sh`);
+  writeFileSync(`${sub}/.gitattributes`, 'x filter=ev\n');
+  return { t, sub, cnt, ext };
+}
+
+test('B1: git() and hgit never enter a checked out submodule: trackedPaths, the status lists, addedLines, numstat and diffNames run none of its drivers', () => {
+  const s = scratch();
+  try {
+    const { t, sub, cnt } = withSubmodule(s);
+    touch(sub, 'x');
+    s.git(t, 'diff', '--name-only', 'HEAD');
+    assert.ok(existsSync(cnt), 'test premise: a plain diff of the working tree runs the submodule\'s driver');
+    for (const base of ['', 'HEAD']) {
+      rmSync(cnt, { force: true });
+      touch(sub, 'x');
+      const c = ctxOf(s, t);
+      c.ctpBase = base;
+      trackedPaths(c);
+      assert.ok(!existsSync(cnt), `trackedPaths(base=${JSON.stringify(base)}) ran the driver`);
+    }
+    touch(sub, 'x');
+    const c = ctxOf(s, t);
+    addedLines(c, 'HEAD', ['sub']); numstat(c, 'HEAD', ['sub']); diffNames(c, 'HEAD');
+    hgit(c, t, ['--no-optional-locks', '-c', 'status.renames=false', 'status', '--porcelain=v1']);
+    hgit(c, t, ['diff', '--name-only', 'HEAD']);
+    assert.ok(!existsSync(cnt), 'a git() or hgit call ran the submodule\'s driver');
+  } finally { s.done(); }
+});
+
+test('B1: diff.submodule=diff in the repository (a child diff in the submodule) runs no program of the submodule', () => {
+  const s = scratch();
+  try {
+    const { t, sub, ext } = withSubmodule(s);
+    s.git(t, 'config', 'diff.submodule', 'diff');
+    writeFileSync(`${sub}/x`, 'changed\n');
+    s.git(t, 'diff', '-U0', 'HEAD', '--', 'sub');
+    assert.ok(existsSync(ext), 'test premise: diff.submodule=diff starts a child diff that runs the submodule\'s program');
+    rmSync(ext);
+    const c = ctxOf(s, t);
+    addedLines(c, 'HEAD', ['sub']);
+    hgit(c, t, ['diff', '-U0', 'HEAD', '--', 'sub']);
+    assert.ok(!existsSync(ext), 'the child diff ran');
+  } finally { s.done(); }
+});
+
+test('B1: a moved submodule commit is still reported (the work tree of the submodule is what is not read)', () => {
+  const s = scratch();
+  try {
+    const { t, sub } = withSubmodule(s);
+    writeFileSync(`${sub}/y`, 'y\n');
+    s.git(sub, 'add', 'y');
+    s.git(sub, 'commit', '-qm', 'y');
+    const c = ctxOf(s, t);
+    c.ctpBase = 'HEAD';
+    assert.deepEqual(trackedPaths(c), ['sub']);
+  } finally { s.done(); }
+});
+
+test('B2: populatedGitlinks finds a non-ASCII submodule path (bytes, not a re-encoded name)', () => {
+  const s = scratch();
+  try {
+    const { t } = withSubmodule(s, 'süb');
+    assert.deepEqual(populatedGitlinks(ctxOf(s, t), t), ['süb']);
+  } finally { s.done(); }
+});
+
+test('B2: submodule.recurse=true in the repository makes a plain switch write the submodule through its smudge driver; through hgit it does not', () => {
+  const s = scratch();
+  try {
+    const { t, sub } = withSubmodule(s);
+    writeFileSync(`${t}/.gitmodules`, '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n');
+    s.git(t, 'add', '.gitmodules');
+    s.git(t, 'commit', '-qm', 'gitmodules');
+    const smu = `${s.dir}/SMUDGE`;
+    s.git(sub, 'config', 'filter.ev.smudge', `echo s >> ${smu}; cat`);
+    writeFileSync(`${sub}/x`, 'v2\n');
+    s.git(sub, 'commit', '-qam', 'v2');
+    s.git(t, 'switch', '-q', '-c', 'other');
+    s.git(t, 'add', 'sub');
+    s.git(t, 'commit', '-qm', 'sub v2');
+    s.git(t, 'config', 'submodule.recurse', 'true');
+    s.git(t, 'config', 'submodule.active', '.');
+    rmSync(smu, { force: true });
+    s.git(t, 'switch', '-q', 'main');
+    assert.ok(existsSync(smu), 'test premise: a recursive switch runs the submodule\'s smudge driver');
+    rmSync(smu);
+    assert.equal(hgit(ctxOf(s, t), t, ['switch', '-q', '--no-overwrite-ignore', 'other']).status, 0);
+    assert.ok(!existsSync(smu), 'the switch through hgit ran the submodule\'s smudge driver');
+  } finally { s.done(); }
 });

@@ -97,14 +97,14 @@ export function originEffective(ctx, gitPath = 'git') {
  * refs and grafts; `intact()` fails when anything of the repository (config, hooks, info, refs/replace, alternates) is not what was created; `verify(from)`
  * walks the history itself with the hash of every commit recomputed (`reaches`; git does not hash-check an object it reads), so a rewritten loose object proves nothing.
  * Returns null when the url cannot be read. `done()` removes the folder; `gp(args)` runs git in it.
- * @param {Context} ctx @param {string} gitPath @param {string} url @param {string} base
+ * @param {Context} ctx @param {string} gitPath @param {string} url @param {string} base @param {string} [cacheHome] the folder whose `.cache` holds the proof repositories (the account's home; a test passes its own)
  * @returns {{ tip: string, tmp: string, gp: (args: string[]) => { status: number | null, out: string }, intact: () => boolean, reaches: (target: string, rb: string) => boolean, verify: (rb: string, extra: string[]) => boolean, done: () => void } | null}
  */
-export function hermeticFetch(ctx, gitPath, url, base) {
+export function hermeticFetch(ctx, gitPath, url, base, cacheHome = '') {
   const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
   const env = { ...cleanToolEnv(ctx, { remote: true }), GIT_CONFIG_GLOBAL: nul, GIT_CONFIG_SYSTEM: nul, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: nul };
   /** @type {string} */ let parent = '';
-  try { const home = userInfo().homedir; if (home !== '') { mkdirSync(`${home}/.cache/proofline-proof`, { recursive: true, mode: 0o700 }); parent = `${home}/.cache/proofline-proof`; } } catch { parent = ''; }
+  try { const home = cacheHome !== '' ? cacheHome : userInfo().homedir; if (home !== '') { mkdirSync(`${home}/.cache/proofline-proof`, { recursive: true, mode: 0o700 }); parent = `${home}/.cache/proofline-proof`; } } catch { parent = ''; }
   const tmp = mkdtempSync(path.join(parent !== '' ? parent : tmpdir(), 'pl-proof-'));
   try { chmodSync(tmp, 0o700); } catch { /* not ours to change */ }
   const done = () => { rmSync(tmp, { recursive: true, force: true }); };

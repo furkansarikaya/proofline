@@ -64,6 +64,10 @@ export function hermeticEnv(base, names) {
   /** @param {string} k @param {string} v */
   const put = (k, v) => { out[`GIT_CONFIG_KEY_${n}`] = k; out[`GIT_CONFIG_VALUE_${n}`] = v; n += 1; };
   put('core.fsmonitor', 'false');
+  // submodules are never entered (B1): git starts a git in each checked out submodule for a diff or status of the working tree, and that reads the SUBMODULE's own
+  // configuration (its filter drivers, diff programs). `dirty` still reports a moved submodule commit, but never looks into the submodule's work tree; a `diff.submodule=diff`
+  // or `submodule.recurse=true` of the repository (a child diff, a recursive checkout) is overridden
+  put('diff.ignoreSubmodules', 'dirty'); put('status.ignoreSubmodules', 'dirty'); put('diff.submodule', 'short'); put('submodule.recurse', 'false');
   put('core.hooksPath', process.platform === 'win32' ? 'NUL' : '/dev/null'); // a hook (post-checkout, reference-transaction ...) is repository code too
   for (const name of names) for (const v of ['clean', 'smudge', 'process']) put(`filter.${name}.${v}`, '');
   out['GIT_CONFIG_COUNT'] = String(n);
@@ -91,9 +95,17 @@ export function hgit(ctx, tree, args, opt = {}) {
 export function populatedGitlinks(ctx, tree) {
   const r = hgit(ctx, tree, ['ls-files', '--stage', '-z']);
   /** @type {string[]} */ const out = [];
-  for (const rec of r.stdout.toString('latin1').split('\0')) {
-    const m = /^160000 [0-9a-f]+ [0-3]\t([^]*)$/.exec(rec);
-    if (m && existsSync(`${tree}/${m[1]}/.git`)) out.push(m[1]);
+  // the paths are bytes: a non-ASCII name must reach the file system as the bytes git printed (a latin1 or utf8 round trip would name another file and the guard would fail open)
+  const buf = r.stdout;
+  let start = 0;
+  for (let i = 0; i <= buf.length; i++) {
+    if (i < buf.length && buf[i] !== 0) continue;
+    const rec = buf.subarray(start, i);
+    start = i + 1;
+    const tab = rec.indexOf(9);
+    if (tab < 0 || !/^160000 [0-9a-f]+ [0-3]$/.test(rec.subarray(0, tab).toString('latin1'))) continue;
+    const name = rec.subarray(tab + 1);
+    if (existsSync(Buffer.concat([Buffer.from(`${tree}/`), name, Buffer.from('/.git')]))) out.push(name.toString('utf8'));
   }
   return out;
 }
