@@ -455,9 +455,7 @@ test("dispatch: the lead keeps its turn alive until its background D has finishe
   assert.match(dispatch, /`n=0; while kill -0 N 2>\/dev\/null && \[ "\$n" -lt 110 \]; do sleep 5;/);
   assert.match(dispatch, /run the same wait call again, as many times as it takes/);
   assert.match(dispatch, /Only when the process is gone, read the exit code/);
-  // A244: this test also asserted that the `wait:` line of `agent.sh next` ends with "never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it (DISPATCH.md, A227)".
-  // That sentence stood in the SHELL `next_step` of agent.sh (dead code since A210: no install reaches it); the live line (core/next.mjs) does not carry it. Found by retiring the shell arm, not fixed
-  // here (a change of what `next` prints is production behaviour): decision A244 lists it for the lead.
+  // the `wait:` line of the live `next` carries the A227 sentence: asserted against the core's output in tests/core/lifecycle-s2.test.mjs (A244 restored it in core/next.mjs)
   // the wait uses only a tool the lead has: Bash; no Monitor tool is named as the way to wait
   assert.match(lead, /tools: Read Grep Glob Bash Write Edit/);
   // known bad: the old "wait for its notice" with no turn rule, and a wait that needs a tool the lead lacks
