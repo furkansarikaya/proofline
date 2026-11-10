@@ -5,13 +5,4 @@
 # lightest shard; a stale weight only costs balance, it never drops or loosens a test.
 # Refresh: download the selftest-times artifacts of a CI run, then node tests/selftest-weights.mjs <dir>.
 # measured on CI run 39684075517 (PR #144, 12 Linux shards, 0.0.22)
-36 controls-test sc_knowledge
-13 controls-test sc_policy
-11 controls-test sc_base
-4 controls-test sc_standalone
 3 fixture-test
-2 controls-test sc_branch
-2 controls-test sc_roles
-1 controls-test sc_write_failure
-1 debt-test
-1 githooks-test

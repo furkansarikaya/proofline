@@ -361,6 +361,18 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/risk-s2.test.mjs
+          - name: controls
+            mode: files
+            pattern: 'none'
+            files: tests/core/controls.test.mjs tests/core/identity.test.mjs
+          - name: task-debt-perf
+            mode: files
+            pattern: 'none'
+            files: tests/core/task-adversarial.test.mjs tests/core/debt.test.mjs tests/core/perf.test.mjs
+          - name: githooks-run
+            mode: files
+            pattern: 'none'
+            files: tests/core/githooks-run.test.mjs
           - name: tool-economy
             mode: files
             pattern: 'none'

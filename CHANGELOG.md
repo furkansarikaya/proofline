@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.77 — 2026-11-10
+
+- Change (A243, Part of #176): the controls, identity, perf, githooks, task-adversarial and debt suites run in Node. `control-plane/agents/scripts/{controls,identity,perf,githooks,task-adversarial,debt}-test.sh` (840 lines, 26 units) are deleted. Their scenarios are Node tests: `tests/core/controls.test.mjs` (7), `identity.test.mjs` (1), `task-adversarial.test.mjs` (5), `perf.test.mjs` (3), `githooks-run.test.mjs` (2), `debt.test.mjs` (2); 18 scenarios ported with every assertion, attack input and message kept, 8 identity scenarios were already Node tests (`legacy-identity`, `legacy-language`; one missing assertion added), 0 dropped. Three `node-tests` legs; the shell allowlist, the weights and the unit list lose the suites (one legacy unit is left: `tests/ci/fixture-test.sh`). The perf test counts processes only: the 90 s wall-clock assertion of the shell test is gone and the process budgets live in `tests/bench/next-digest-budgets.tsv` (12 each; the Node core starts 9). The githooks test runs the core's hook logic (`core/githooks.mjs`) with a stub `agent.sh`, not the pre-stage-3 shell hooks. No control-plane code changed.
+
 ## 0.0.76 — 2026-11-09
 
 - Change (A242, Part of #176): the lifecycle and risk suites run in Node. `control-plane/agents/scripts/lifecycle-test.sh` (1,460 lines) and `risk-test.sh` (996 lines) are deleted; their 97 scenarios are Node tests in `tests/core/lifecycle-s1..s3.test.mjs` and `risk-s1..s2.test.mjs` (93 ported, 4 already covered by hand-written Node tests, 0 dropped), run by five `node-tests` legs. The Node test harness now links `.agents/scripts/core` like an installed project, so every command it runs is the Node core (before, commands the fixture prologue did not list ran the shell arm of `agent.sh`). The shell allowlist, weights and unit list lose both suites. No control-plane code changed.

@@ -1,0 +1,7 @@
+# Process budgets of `agent.sh next` and `agent.sh digest` (A203, ported to Node in A243, issue #176 package D3): the most external processes one run may start on the fixture of
+# tests/core/perf.test.mjs (a frozen COMPLEX run at IMPLEMENTED, 120 extra ledger lines, 30 result files, 12 hook flushes; a PATH shim counts them, the node the launcher execs included; no clock is read).
+# max_procs = the measured count on the Node core plus a margin of max(2, 25 percent). before = the shell form of 0.0.39 after A203 measured on the same fixture (about 110 and about 150; the
+# shell test allowed 260 and 340). tests/core/perf.test.mjs fails above a row. Raise a row only with a decision in docs/decisions.md.
+# path<TAB>max_procs<TAB>measured<TAB>before
+next	12	9	110
+digest	12	9	150
