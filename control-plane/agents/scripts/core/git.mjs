@@ -2,7 +2,7 @@
 // The git queries of the control plane. Every call goes through proc.mjs (counted); output is kept as byte strings (latin1) so that
 // quoted paths and byte order are what the shell saw. `git -C <root>` with LC_ALL=C, like agent.sh.
 import { unsupported } from './errors.mjs';
-import { hermeticEnv, repoDrivers } from './hgit.mjs';
+import { blankNames, hermeticEnv } from './hgit.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -16,22 +16,9 @@ import * as proc from './proc.mjs';
  */
 export function git(ctx, args, opt = {}) {
   const r = proc.run('git', ['-C', ctx.root, ...args], {
-    cwd: ctx.cwd, env: hermeticEnv({ ...ctx.childEnv(), ...(opt.env ?? {}) }, ctx.gitBlank), input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
+    cwd: ctx.cwd, env: hermeticEnv({ ...ctx.childEnv(), ...(opt.env ?? {}) }, blankNames(ctx, ctx.root, 'git', ctx.childEnv())), input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
   });
   return { status: r.status, out: r.stdout.toString('latin1') };
-}
-
-/**
- * Blank the filter drivers of the checked out submodules of the project root too, once per invocation, before a call that makes git enter a submodule (`git add -A` of the content
- * fingerprint compares each gitlink with its work tree by starting a git there, which reads the SUBMODULE's own configuration; no ignore setting stops it, A248 round 3). deliver-merged
- * has set the names of both its trees already (`ctx.gitBlank`); these are added, never replacing. Configuration only is read. @param {Context} ctx
- */
-export function ensureBlank(ctx) {
-  ctx.once('git:blank', () => {
-    const d = repoDrivers('git', [ctx.root], () => ({ cwd: ctx.cwd, env: ctx.childEnv() }));
-    ctx.gitBlank = [...new Set([...ctx.gitBlank, ...d.names])];
-    return true;
-  });
 }
 
 /** `LC_ALL=C sort -u` over lines (byte order: the strings are byte strings). @param {string[]} lines */

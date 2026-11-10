@@ -32,7 +32,7 @@ import { runTaskAdapter } from './adapters/index.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
 import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
 import { amendRun } from './reopen.mjs';
-import { hgit, populatedGitlinks, repoDrivers } from './hgit.mjs';
+import { MAX_TREES, hgit, populatedGitlinks, repoDrivers } from './hgit.mjs';
 import { cleanupRun, sbBlockOnly } from './runend.mjs';
 import { ciChainOk, ciFixRecs, commitMessageIsApproved, lifecycleFolderStatus, requireRun, runDir } from './runs.mjs';
 import { statusBlockBody, statusBlockUpdate } from './statusblock.mjs';
@@ -432,7 +432,6 @@ export function deliverPlan(ctx, id, rest) {
   }
   const byCli = info.merge === 'cli';
   if (!byCli) steps = 'commit push pr';
-  discoverBlankNow(ctx);
   const paths = sub(git(ctx, ['status', '--porcelain', '--untracked-files=all']).out).split('\n').filter((l) => l !== '' && !/^.. \.agents\/(runs|local)\//.test(l));
   if (paths.length === 0) steps = (steps ?? '').replace(/^commit /, '');
   let kn = '';
@@ -602,18 +601,13 @@ export function importProvenTip(ctx, gitBin, hf, base) {
  * this command runs in (the run's worktree). Round 3: the populated submodules of both trees, and theirs recursively, are searched too and their drivers join the names: git starts a child
  * in a checked out submodule for a status, a diff, an add or a switch, that child reads the submodule's own configuration and inherits the blanking of the environment, so no per-submodule
  * `ignore` setting matters. It runs BEFORE the first git call that could enter a submodule, and again before the cleanup (the set of checked out submodules may have changed); it only
- * reads configuration. @param {Context} ctx @param {string} gitBin @returns {{ names: string[], includes: boolean, submodules: string[] }}
+ * reads configuration. @param {Context} ctx @param {string} gitBin @returns {{ names: string[], includes: boolean, submodules: string[], capped: boolean }}
  */
 export function discoverBlank(ctx, gitBin) {
   const found = repoDrivers(gitBin, [...new Set([ctx.sharedMain(), ctx.root])], () => ({ cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }) }));
   ctx.gitBlank = found.names;
+  ctx.forget('git:blank');
   return found;
-}
-
-/** discoverBlank with the trusted git when there is one. @param {Context} ctx */
-function discoverBlankNow(ctx) {
-  const gt = resolveGit(ctx);
-  return discoverBlank(ctx, 'unreadable' in gt ? 'git' : gt.path);
 }
 
 // ---- deliver-merged ----------------------------------------------------------------------------------------------------------------------
@@ -637,6 +631,7 @@ export function deliverMerged(ctx, id, flag) {
   if ('unreadable' in gt) fail(`deliver-merged: no trusted git to prove the merge with (${gt.unreadable}); nothing is recorded`);
   const gitBin = gt.path;
   const found = discoverBlank(ctx, gitBin);
+  if (found.capped) ctx.out(`note: more than ${MAX_TREES} folders (submodules, or a nesting deeper than 8) were found in the checkouts, so the search for drivers stopped; they are treated as having one and the user's checkout is left as it is\n`);
   const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => hgit(ctx, cwdTree, a, { bin: gitBin, env: cleanToolEnv(ctx, { remote: true }) });
   const gs = (/** @type {string[]} */ a, tree = ctx.root) => sub(g(a, tree).stdout.toString('latin1'));
   const mergeHead = `${ddir}/MERGE_HEAD`;
@@ -801,8 +796,7 @@ export function deliverMerged(ctx, id, flag) {
 
 /** The cleanup that follows a merge this process proved: in process, with the proof as a parameter (A215). @param {Context} ctx @param {string} id */
 function inProcessCleanup(ctx, id) {
-  discoverBlankNow(ctx);
-  ctx.forget('');
+  ctx.forget(''); // also drops the lazily found submodule drivers of hgit (`git:blank:`), so the cleanup finds them again
   ctx.ctpBase = '';
   must(cleanupRun(ctx, id, true));
 }

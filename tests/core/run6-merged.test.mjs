@@ -918,3 +918,50 @@ test('A248 (wiring): a driver found only through an includeIf onbranch include t
   const out = A(wt, ['deliver-merged', 'LC']).text;
   assert.ok(!existsSync(cnt), `the include's driver ran in the run's worktree: ${out}`);
 });
+
+test('A248 round 4 (wiring): the standalone `cleanup` of a finished run whose worktree holds a populated submodule with a clean filter runs that filter nowhere (no prior discovery in the command)', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const sub = `${wt}/vendor`;
+  mkdirSync(sub);
+  gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
+  gOk(wt, 'add', 'vendor');
+  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(sh, 0o755);
+  gOk(sub, 'config', 'filter.ev.clean', sh);
+  wf(`${sub}/.git/info/attributes`, 'x filter=ev\n');
+  wf(`${wt}/.gitmodules`, '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = none\n'); // an untracked per-submodule ignore=none beats every global ignore key
+  const FIX = new Date(Date.UTC(2031, 0, 2));
+  utimesSync(`${sub}/x`, FIX, FIX);
+  g(wt, 'status', '--porcelain');
+  assert.ok(existsSync(mark), 'test premise: a plain status in the worktree runs the submodule\'s clean filter');
+  rmSync(mark);
+  utimesSync(`${sub}/x`, FIX, FIX);
+  const out = A(wt, ['cleanup', 'LC']).text;
+  assert.ok(!existsSync(mark), `the standalone cleanup ran the submodule's clean filter: ${out}`);
+});
+
+test('A248 round 4 (wiring): deliver-plan in a worktree with a populated submodule that has a clean filter runs that filter nowhere (its status runs before any discovery of the command)', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  bareOrigin(d);
+  const sub = `${wt}/vendor`;
+  mkdirSync(sub);
+  gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
+  gOk(wt, 'add', 'vendor');
+  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(sh, 0o755);
+  gOk(sub, 'config', 'filter.ev.clean', sh);
+  wf(`${sub}/.git/info/attributes`, 'x filter=ev\n');
+  wf(`${wt}/.gitmodules`, '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = none\n');
+  const FIX = new Date(Date.UTC(2031, 0, 2));
+  utimesSync(`${sub}/x`, FIX, FIX);
+  g(wt, 'status', '--porcelain');
+  assert.ok(existsSync(mark), 'test premise: a plain status in the worktree runs the submodule\'s clean filter');
+  rmSync(mark);
+  utimesSync(`${sub}/x`, FIX, FIX);
+  const out = A(wt, ['deliver-plan', 'LC']).text;
+  assert.ok(!existsSync(mark), `deliver-plan ran the submodule's clean filter: ${out}`);
+});

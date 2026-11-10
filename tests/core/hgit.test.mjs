@@ -3,13 +3,13 @@
 // hook, difftool, submodule configuration, url rewrite and ssh command touch a marker. Nothing waits, nothing reads the clock; every repository is unique and removed.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { hermeticFetch, importProvenTip, sbMainPark } from '../../control-plane/agents/scripts/core/deliver.mjs';
-import { hermeticEnv, hgit, parseDrivers, populatedGitlinks, repoDrivers } from '../../control-plane/agents/scripts/core/hgit.mjs';
-import { addedLines, diffNames, ensureBlank, git, numstat, trackedPaths } from '../../control-plane/agents/scripts/core/git.mjs';
+import { blankNames, hermeticEnv, hgit, indexHasGitlinks, parseDrivers, populatedGitlinks, repoDrivers } from '../../control-plane/agents/scripts/core/hgit.mjs';
+import { addedLines, diffNames, git, numstat, trackedPaths, untrackedPaths } from '../../control-plane/agents/scripts/core/git.mjs';
 
 const FIXED = new Date(Date.UTC(2031, 0, 2, 3, 4, 5));
 const nul = (/** @type {string[]} */ ...f) => `${f.join('\0')}\0`;
@@ -69,7 +69,7 @@ test('repoDrivers: an includeIf onbranch include is judged in each tree given: t
     s.git(t, 'config', 'includeIf.onbranch:task/**.path', `${s.dir}/inc.cfg`);
     const where = () => ({ cwd: s.dir, env: s.env });
     assert.deepEqual(repoDrivers('git', [t], where).names, [], 'invisible from the main tree');
-    assert.deepEqual(repoDrivers('git', [t, wt], where), { names: ['inc'], includes: true, submodules: [] });
+    assert.deepEqual(repoDrivers('git', [t, wt], where), { names: ['inc'], includes: true, submodules: [], capped: false });
   } finally { s.done(); }
 });
 
@@ -301,7 +301,7 @@ for (const [how, setIgnore] of IGNORE_NONE) {
       setIgnore(s, t);
       // the premise, git() itself (R3-3: the status path of trackedPaths with an empty base) with no driver found: the driver of the submodule runs, so every call below is a real test
       touch(sub, 'x');
-      trackedPaths(ctxOf(s, t));
+      s.git(t, 'status', '--porcelain');
       assert.ok(existsSync(cnt), 'test premise: trackedPaths without the blanking starts the submodule\'s driver (ignore=none beats any ignore setting)');
       for (const base of ['', 'HEAD']) {
         rmSync(cnt, { force: true });
@@ -327,20 +327,111 @@ for (const [how, setIgnore] of IGNORE_NONE) {
   });
 }
 
+for (const [how, setIgnore] of IGNORE_NONE) {
+  for (const withOnce of [true, false]) {
+    if (!withOnce && how !== 'config') continue; // the stand-in context without once is one variant, not two
+    test(`R4: NO prior discovery (gitBlank empty${withOnce ? '' : ', a context without once'}), ignore=none (${how}): git(), hgit(), trackedPaths, untrackedPaths, addedLines, numstat and diffNames run no submodule driver`, () => {
+      const s = scratch();
+      try {
+        const { t, sub, cnt } = withSubmodule(s);
+        setIgnore(s, t);
+        const fresh = () => {
+          const c = ctxOf(s, t);
+          if (!withOnce) delete c.once;
+          touch(sub, 'x');
+          rmSync(cnt, { force: true });
+          return c;
+        };
+        touch(sub, 'x');
+        git(ctxOf(s, t), ['status', '--porcelain']);
+        assert.ok(!existsSync(cnt), 'git() found the drivers itself');
+        touch(sub, 'x'); s.git(t, 'status', '--porcelain');
+        assert.ok(existsSync(cnt), 'test premise: a plain status runs the submodule\'s driver (ignore=none)');
+        for (const [label, call] of /** @type {Array<[string, (c: any) => unknown]>} */ ([
+          ['git() status', (c) => git(c, ['status', '--porcelain', '--untracked-files=all'])],
+          ['git() add -A', (c) => git(c, ['add', '-A'])],
+          ['hgit diff HEAD', (c) => hgit(c, t, ['diff', '--name-only', 'HEAD'])],
+          ['hgit status', (c) => hgit(c, t, ['status', '--porcelain=v1'])],
+          ['trackedPaths', (c) => trackedPaths(c)], ['trackedPaths(base)', (c) => { c.ctpBase = 'HEAD'; return trackedPaths(c); }], ['untrackedPaths', (c) => untrackedPaths(c)],
+          ['addedLines', (c) => addedLines(c, 'HEAD', ['sub'])], ['numstat', (c) => numstat(c, 'HEAD', ['sub'])], ['diffNames', (c) => diffNames(c, 'HEAD')],
+        ]).filter(([l]) => withOnce || /^(git|hgit)/.test(l))) {
+          call(fresh());
+          assert.ok(!existsSync(cnt), `${label} ran the submodule's driver before any discovery`);
+        }
+      } finally { s.done(); }
+    });
+  }
+}
+
+test('F2: gitlinks that are symlinks to "." are visited once (by real path), not B^8 times; a bound on the folders fails closed (includes, capped)', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    const head = s.git(t, 'rev-parse', 'HEAD').trim();
+    for (let i = 0; i < 3; i++) { s.git(t, 'update-index', '--add', '--cacheinfo', `160000,${head},s${i}`); symlinkSync('.', `${t}/s${i}`); }
+    const r = repoDrivers('git', [t], () => ({ cwd: t, env: s.env }));
+    assert.equal(r.submodules.length, 3, 'each gitlink named once, the tree itself not searched again');
+    assert.equal(r.capped, false);
+    // the bound: a real nested submodule with room for one folder only
+    const s2 = scratch();
+    try {
+    const { t: t2 } = withSubmodule(s2);
+    const c = repoDrivers('git', [t2], () => ({ cwd: t2, env: s2.env }), 1);
+    assert.equal(c.capped, true);
+    assert.equal(c.includes, true, 'a search that hit its bound fails closed');
+    assert.equal(repoDrivers('git', [t2], () => ({ cwd: t2, env: s2.env })).capped, false);
+    } finally { s2.done(); }
+  } finally { s.done(); }
+});
+
+test('R4: indexHasGitlinks reads the index itself: entries of every padding length before the gitlink, a worktree\'s .git file, a repository without one, garbage', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    assert.equal(indexHasGitlinks(t), false);
+    for (let i = 1; i <= 9; i++) writeFileSync(`${t}/${'n'.repeat(i)}.txt`, `${i}\n`); // names of nine lengths: every padding of the entry
+    s.git(t, 'add', '.');
+    s.git(t, 'commit', '-qm', 'names');
+    assert.equal(indexHasGitlinks(t), false, 'no gitlink among plain files');
+    const head = s.git(t, 'rev-parse', 'HEAD').trim();
+    s.git(t, 'update-index', '--add', '--cacheinfo', `160000,${head},zz-gitlink`);
+    assert.equal(indexHasGitlinks(t), true, 'the gitlink after nine entries of different padding');
+    s.git(t, 'worktree', 'add', '-q', '-b', 'w', `${s.dir}/wt`);
+    assert.equal(indexHasGitlinks(`${s.dir}/wt`), false, 'a worktree (.git is a file)');
+    writeFileSync(`${t}/.git/index`, 'garbage');
+    assert.equal(indexHasGitlinks(t), null, 'not understood: git is asked');
+    assert.equal(indexHasGitlinks(`${s.dir}/nowhere`), null);
+  } finally { s.done(); }
+});
+
+test('R4: the lazy discovery is made once per context and tree (cached), and ctx.forget drops it', () => {
+  const s = scratch();
+  try {
+    const { t } = withSubmodule(s);
+    const memo = new Map();
+    const c = ctxOf(s, t);
+    c.once = (/** @type {string} */ k, /** @type {() => unknown} */ f) => { if (!memo.has(k)) memo.set(k, f()); return memo.get(k); };
+    assert.deepEqual(blankNames(c, t, 'git', s.env), ['ev']);
+    s.git(t, 'config', 'filter.late.clean', 'cat');
+    assert.deepEqual(blankNames(c, t, 'git', s.env), ['ev'], 'cached: not searched again');
+    memo.clear();
+    assert.deepEqual(blankNames(c, t, 'git', s.env).sort(), ['ev', 'late'], 'forgotten: searched again');
+    assert.deepEqual(blankNames({ ...c, gitBlank: ['mine'] }, t, 'git', s.env).sort(), ['ev', 'late', 'mine'], 'the names deliver-merged found are kept');
+  } finally { s.done(); }
+});
+
 test('R3-1: git add -A (the content fingerprint) enters a populated submodule even when every ignore key is set; the blanking stops its driver', () => {
   const s = scratch();
   try {
     const { t, sub, cnt } = withSubmodule(s);
     s.git(t, 'config', 'diff.ignoreSubmodules', 'dirty'); s.git(t, 'config', 'status.ignoreSubmodules', 'dirty');
     touch(sub, 'x');
-    git(ctxOf(s, t), ['add', '-A']);
+    s.git(t, 'add', '-A');
     assert.ok(existsSync(cnt), 'test premise: git add -A starts the submodule\'s driver whatever the ignore keys say');
     rmSync(cnt);
     touch(sub, 'x');
-    const c = ctxOf(s, t);
-    ensureBlank(c);
-    git(c, ['add', '-A']);
-    assert.ok(!existsSync(cnt), 'git add -A after ensureBlank ran the driver');
+    git(ctxOf(s, t), ['add', '-A']); // no prior discovery: git() finds the submodule's drivers itself
+    assert.ok(!existsSync(cnt), 'git add -A ran the driver');
   } finally { s.done(); }
 });
 
@@ -364,7 +455,7 @@ test('R3-1: a submodule of a submodule is searched too (recursively): its driver
     s.git(t, 'commit', '-qm', 'sub with inner');
     s.git(t, 'config', 'submodule.sub.ignore', 'none'); s.git(sub, 'config', 'submodule.inner.ignore', 'none');
     touch(inner, 'y');
-    trackedPaths(ctxOf(s, t));
+    s.git(t, 'status', '--porcelain');
     assert.ok(existsSync(cnt2), 'test premise: the nested submodule\'s driver runs without the blanking');
     rmSync(cnt2);
     touch(inner, 'y');
