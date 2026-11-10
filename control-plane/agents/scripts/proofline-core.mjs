@@ -15,7 +15,7 @@ import { COMMAND_NAMES, READ_ONLY_COMMANDS } from './core/commands/names.mjs';
 import { fdWriter } from './core/cliio.mjs';
 import { bytes } from './core/config.mjs';
 import { Context, validRole } from './core/context.mjs';
-import { BridgeToShell, ProoflineError } from './core/errors.mjs';
+import { ProoflineError } from './core/errors.mjs';
 import { startDispatch } from './core/dispatcher.mjs';
 import { LockSet, takeCommandLocks, takesLocks } from './core/lock.mjs';
 import { isDir, isFile } from './core/paths.mjs';
@@ -68,26 +68,6 @@ export function commandAllowed(role, command) {
 const validTaskId = (id) => /^[A-Za-z0-9_-]+$/.test(id);
 
 /**
- * Run the shell code for a command (the bridge, and the worktree rule). PROOFLINE_BRIDGED makes agent.sh run the shell code, so that nothing loops.
- * @param {Context} ctx @param {string[]} argv @param {{ cwd?: string, script?: string, force?: boolean }} [opt]
- */
-function viaShell(ctx, argv, opt = {}) {
-  // the bridge exists for the shell-error-text fallbacks of the commands this core owns, never for another command
-  if (argv[0] === undefined || !Object.hasOwn(HANDLERS, argv[0])) throw new ProoflineError('proofline-core: the bridge only serves the commands of the Node core', 2, 'NOT_MOVED');
-  ctx.discard();
-  const env = opt.force === false ? { ...ctx.env } : { ...ctx.env, PROOFLINE_BRIDGED: '1' };
-  // the script as agent.sh was typed (so that $0 is identical in the shell's own error texts), else the absolute path of the sibling agent.sh
-  const script = opt.script ?? ctx.io.argv0 ?? path.join(ctx.scriptDir, 'agent.sh');
-  const own = ctx.io.isProcess === true;
-  const r = proc.run('sh', [script, ...argv], { cwd: opt.cwd ?? ctx.cwd, env, stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
-  if (!own) {
-    if (r.stdout.length) ctx.io.stdout.write(r.stdout);
-    if (r.stderr.length) ctx.io.stderr.write(r.stderr);
-  }
-  return r.status;
-}
-
-/**
  * One command invocation.
  * @param {string[]} argv the arguments after agent.sh
  * @param {Io} io
@@ -101,11 +81,9 @@ export function run(argv, io) {
   try {
     return dispatch(ctx, locks, argv);
   } catch (e) {
-    // the shell code takes the locks itself: ours go first (a locking command that hands over would wait for its own lock)
-    if (e instanceof BridgeToShell) { locks.releaseAll(); return viaShell(ctx, argv); }
     if (e instanceof ProoflineError) { ctx.printError(e); ctx.flush(); return e.exitCode; }
     // An unexpected exception is a bug of the core: it fails closed (message and stack on stderr, a non-zero status), it is never answered by
-    // the shell code. Only the enumerated shell-error-text shapes (BridgeToShell) are handed back.
+    // the shell code (there is none).
     ctx.discard();
     const text = e instanceof Error ? (e.stack ?? e.message) : String(e);
     io.stderr.write(Buffer.from(`proofline: internal error in ${argv[0] ?? ''}: ${text}\n`));

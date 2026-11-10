@@ -5,7 +5,7 @@
 //   - a `case` label naming an id:            case 'cargo':
 //   - a comparison with an id:                 x === 'npm'   'go' !== y
 // A line directly below a `// eco-ok: <reason>` comment is exempt (an interpreter name is not an ecosystem). Strings that merely contain an
-// id (messages, paths) do not count. The shell twin is rule 5 of tests/shared/check-static.mjs (which reads ecosystems.tsv).
+// id (messages, paths) do not count. The shell twin is rule 5 of tests/shared/check-static.mjs (which reads ecosystems.json).
 //   usage: node tests/ci/ecosystem-branching.mjs [--root DIR]
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';

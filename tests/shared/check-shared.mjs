@@ -6,7 +6,7 @@
 //   --root DIR   repository root (default: two directories above this script)
 //   skill-name   check only these skills; default: every skills/*/SKILL.md that exists
 //
-// Also: skills/<name>/scripts/ecosystems.{sh,mjs} and references/ecosystems.{json,tsv}, when present, equal control-plane/agents/ (A173).
+// Also: skills/<name>/scripts/ecosystems.mjs and references/ecosystems.json, when present, equal control-plane/agents/ (A173).
 // Also: skills/<name>/references/WRITING.md and scripts/check-writing.mjs, when present, equal tests/shared/writing-profile.md and check-writing.mjs.
 //
 // Block = from the line starting with `<!-- proofline:shared-rules:begin` through the line `<!-- proofline:shared-rules:end -->`, both included.
@@ -97,22 +97,21 @@ export function main(argv, o = {}) {
       else fail(`${name} (references/${ref} differs from skills/product-spec/references/${ref})`);
     }
   }
-  // Ecosystem definition copies (A173): control-plane/agents holds the canonical ecosystems.json, ecosystems.tsv (generated), ecosystems.mjs and
-  // scripts/ecosystems.sh; a skill that carries one carries the same bytes (it is installable alone). The canonical flat file must also be what
-  // `node ecosystems.mjs write` produces, and the definition must pass its schema.
+  // Ecosystem definition copies (A173): control-plane/agents holds the canonical ecosystems.json and ecosystems.mjs (A245: the generated tsv and
+  // the sh reader are gone); a skill that carries one carries the same bytes (it is installable alone). The definition must pass its schema.
   const eco = path.join(root, 'control-plane/agents');
   if (existsSync(path.join(eco, 'ecosystems.json'))) {
     const r = spawnSync(process.execPath, [path.join(eco, 'ecosystems.mjs'), 'check'], { encoding: 'utf8' });
-    if (r.status === 0) pass('control-plane ecosystems.json and ecosystems.tsv');
+    if (r.status === 0) pass('control-plane ecosystems.json');
     else fail(`control-plane ecosystems definition (${(r.stderr ?? '').replace(/\n/g, ' ')})`);
     for (const name of names) {
-      for (const [rel, canonRel] of [['scripts/ecosystems.sh', 'scripts/ecosystems.sh'], ['scripts/ecosystems.mjs', 'ecosystems.mjs'], ['references/ecosystems.json', 'ecosystems.json'], ['references/ecosystems.tsv', 'ecosystems.tsv']]) {
+      for (const [rel, canonRel] of [['scripts/ecosystems.mjs', 'ecosystems.mjs'], ['references/ecosystems.json', 'ecosystems.json']]) {
         const f = path.join(sk, name, rel);
         if (!existsSync(f)) {
           // a skill whose own scripts import the definition must carry the copy it imports (it is installable alone): a missing copy fails
-          const imp = rel === 'scripts/ecosystems.sh' || rel === 'references/ecosystems.tsv' ? 'ecosystems.sh' : 'ecosystems.mjs';
+          const imp = 'ecosystems.mjs';
           const dir = path.join(sk, name, 'scripts');
-          const users = existsSync(dir) ? readdirSync(dir).filter((n) => !/^ecosystems\.(mjs|sh)$/.test(n) && statSync(path.join(dir, n)).isFile() && new RegExp(imp).test(readFileSync(path.join(dir, n), 'latin1'))) : [];
+          const users = existsSync(dir) ? readdirSync(dir).filter((n) => !/^ecosystems\.mjs$/.test(n) && statSync(path.join(dir, n)).isFile() && new RegExp(imp).test(readFileSync(path.join(dir, n), 'latin1'))) : [];
           if (users.length) fail(`${name} (${rel} is missing: a script of the skill uses ${imp}, and a skill is installable alone)`);
           continue;
         }

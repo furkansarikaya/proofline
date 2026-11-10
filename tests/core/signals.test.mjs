@@ -129,3 +129,35 @@ describe('ERE polynomial patterns (S2-4)', () => {
     assert.ok(Date.now() - t0 < 1000);
   });
 });
+
+describe('the ecosystem definition as flat rows (A245: no tsv, no sh reader)', () => {
+  const json = path.join(repo, 'control-plane/agents/ecosystems.json');
+  test('the core\'s flattening equals flatten() of ecosystems.mjs on the shipped definition, and the sets are the union the tsv held', async () => {
+    const { flatten } = await import('../../control-plane/agents/ecosystems.mjs');
+    const { flattenDefinition, rowsOf } = await import('../../control-plane/agents/scripts/core/ecodata.mjs');
+    const data = JSON.parse(readFileSync(json, 'utf8'));
+    assert.deepEqual(flattenDefinition(data), flatten(data));
+    assert.deepEqual(rowsOf(json), flatten(data));
+    const ids = flatten(data).filter((r) => r[0] !== '*' && r[1] === 'id').map((r) => r[2]);
+    assert.ok(ids.length >= 10, `${ids.length} ecosystem ids`);
+  });
+  test('a project\'s own definition wins; a missing, empty or invalid one falls back to the control plane\'s, and without either nothing is loaded', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { ecosystemRowsAt } = await import('../../control-plane/agents/scripts/core/ecodata.mjs');
+    const ship = path.join(repo, 'control-plane/agents');
+    const d = mkdtempSync(path.join(tmpdir(), 'pl-eco-'));
+    try {
+      const agents = path.join(d, '.agents'); mkdirSync(agents);
+      assert.ok((ecosystemRowsAt(agents, ship) ?? []).length > 100, 'no fallback to the shipped definition');
+      writeFileSync(path.join(agents, 'ecosystems.json'), '');
+      assert.ok((ecosystemRowsAt(agents, ship) ?? []).length > 100, 'an empty file is no definition');
+      writeFileSync(path.join(agents, 'ecosystems.json'), '{not json');
+      assert.ok((ecosystemRowsAt(agents, ship) ?? []).length > 100, 'an invalid file is no definition');
+      writeFileSync(path.join(agents, 'ecosystems.json'), JSON.stringify({ global: { risky_paths: ['x/**'] }, ecosystems: [{ id: 'zz', manifests: ['zz.lock'] }] }));
+      assert.deepEqual(ecosystemRowsAt(agents, ship), [['*', 'risky_paths', 'x/**'], ['zz', 'id', 'zz'], ['zz', 'manifests', 'zz.lock']]);
+      writeFileSync(path.join(agents, 'ecosystems.json'), '');
+      assert.equal(ecosystemRowsAt(agents, agents), null, 'neither the project nor a different shipped folder: nothing loaded');
+    } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+});

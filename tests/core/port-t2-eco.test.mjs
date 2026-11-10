@@ -12,10 +12,9 @@ describe('risk-test: ecosystem fallback', () => {
     const r = stateOf('risk-fsproj');
     mkdirSync(path.join(r, 'ship/scripts'), { recursive: true });
     copyFileSync(path.join(r, '.agents/scripts/agent.sh'), path.join(r, 'ship/scripts/agent.sh'));
-    renameSync(path.join(r, '.agents/ecosystems.tsv'), path.join(r, 'ship/ecosystems.tsv'));
-    renameSync(path.join(r, '.agents/scripts/ecosystems.sh'), path.join(r, 'ship/scripts/ecosystems.sh'));
+    renameSync(path.join(r, '.agents/ecosystems.json'), path.join(r, 'ship/ecosystems.json'));
     let po = node(r, ['pipeline', 'LC']).out;
-    assert.ok(po.includes('warning=.agents/ecosystems.tsv is missing or empty'));
+    assert.ok(po.includes('warning=.agents/ecosystems.json is missing or empty'));
     assert.equal(po.includes('signal.dependency_manifest'), false);
     po = node(r, ['pipeline', 'LC'], { scriptPath: path.join(r, 'ship/scripts/agent.sh') }).out;
     assert.ok(po.includes('signal.dependency_manifest=source=scope:src/Api/a.fsproj(*.fsproj)'));

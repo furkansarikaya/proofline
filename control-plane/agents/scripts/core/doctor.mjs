@@ -463,21 +463,14 @@ class Doctor {
     }
   }
 
-  /** A174: the review risk paths and the dependency signal read .agents/ecosystems.tsv; a missing, empty or stale tsv would silently shrink them, so doctor FAILs. */
+  /** A174: the review risk paths and the dependency signal read .agents/ecosystems.json; a missing, empty or invalid definition would silently shrink them, so doctor FAILs (A245: no tsv, no sh reader). */
   doctorEcosystems() {
-    const j = `${this.root}/.agents/ecosystems.json`; const t = `${this.root}/.agents/ecosystems.tsv`; const m = `${this.root}/.agents/ecosystems.mjs`;
-    if (!nonEmpty(t)) { this.fail('ecosystems: .agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)'); return; }
-    if (!nonEmpty(j)) { this.fail('ecosystems: .agents/ecosystems.json is missing (run: proofline upgrade)'); return; }
-    if (!isFile(`${this.root}/.agents/scripts/ecosystems.sh`)) { this.fail('ecosystems: .agents/scripts/ecosystems.sh is missing, so agent.sh cannot read the definition (run: proofline upgrade)'); return; }
-    const same = (/** @type {string} */ a, /** @type {string} */ b) => { try { return readFileSync(a).equals(readFileSync(b)); } catch { return false; } };
-    if (commandV('node', this.ctx.env) !== null && isFile(m)) {
-      const o = runMerged('node', [m, 'check'], { cwd: this.ctx.cwd, env: this.ctx.env });
-      if (o.status === 0) this.pass('ecosystems: .agents/ecosystems.tsv is what .agents/ecosystems.json generates');
-      else this.fail(`ecosystems: ${headJoined(o.text, 2)} (fix: node .agents/ecosystems.mjs write, or proofline upgrade)`);
-    } else if (same(j, `${this.plHome}/control-plane/agents/ecosystems.json`)) {
-      if (same(t, `${this.plHome}/control-plane/agents/ecosystems.tsv`)) this.pass('ecosystems: .agents/ecosystems.tsv equals the shipped one');
-      else this.fail('ecosystems: .agents/ecosystems.tsv differs from the shipped one although ecosystems.json is the shipped file (run: proofline upgrade)');
-    } else this.warn('ecosystems: node is not available and .agents/ecosystems.json is not the shipped file, so the tsv could not be checked');
+    const j = `${this.root}/.agents/ecosystems.json`; const m = `${this.root}/.agents/ecosystems.mjs`;
+    if (!nonEmpty(j)) { this.fail('ecosystems: .agents/ecosystems.json is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)'); return; }
+    if (!isFile(m)) { this.fail('ecosystems: .agents/ecosystems.mjs is missing, so the definition cannot be read (run: proofline upgrade)'); return; }
+    const o = runMerged(process.execPath, [m, 'check'], { cwd: this.ctx.cwd, env: this.ctx.env });
+    if (o.status === 0) this.pass('ecosystems: .agents/ecosystems.json is a valid definition');
+    else this.fail(`ecosystems: ${headJoined(o.text, 2)} (run: proofline upgrade)`);
   }
 
   doctorVersion() {

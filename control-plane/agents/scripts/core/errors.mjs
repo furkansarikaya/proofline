@@ -17,19 +17,6 @@ export class ProoflineError extends Error {
 }
 
 /**
- * Thrown when a moved command meets an input whose shell behaviour (an arithmetic or `awk` error text, a shell-specific message) is
- * not reproduced byte for byte. Nothing has been written yet: the caller runs the shell code for the same arguments instead.
- */
-export class BridgeToShell extends Error {
-  /** @param {string} reason */
-  constructor(reason) {
-    super(reason);
-    this.name = 'BridgeToShell';
-    this.reason = reason;
-  }
-}
-
-/**
  * An input the Node implementation does not handle (A210: there is no fallback to the shell code any more): exit status 1 and a message that
  * names the reason. `usage` stands for a missing or empty mandatory argument.
  * @param {string} reason @returns {ProoflineError}

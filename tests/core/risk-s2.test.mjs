@@ -225,15 +225,15 @@ test('sc_eco_risky_paths: every risky path of ecosystems.json (root and nested) 
 
 test('sc_eco_freeze_compat: a run frozen before the set keeps its hash and signal paths, a run frozen with it binds it, config-owned paths still count', () => {
   let d = rrun('COMPLEX', '');
-  assert.ok(existsSync(path.join(d, '.agents/ecosystems.tsv')), 'the fixture has no .agents/ecosystems.tsv');
-  const ecoKeep = rd(d, '.agents/ecosystems.tsv'); rmSync(path.join(d, '.agents/ecosystems.tsv'));
+  assert.ok(existsSync(path.join(d, '.agents/ecosystems.json')), 'the fixture has no .agents/ecosystems.json');
+  const ecoKeep = rd(d, '.agents/ecosystems.json'); rmSync(path.join(d, '.agents/ecosystems.json'));
   // a missing definition is never silent: classify prints one warning line, pipeline names it (A174); nothing fails
   const cl = A(d, ['classify', 'LC', 'COMPLEX']);
-  assert.ok(cl.text.split('\n').some((l) => l.startsWith('warning: .agents/ecosystems.tsv is missing or empty')), `classify does not warn about the missing definition: ${cl.text}`);
-  has(snap(d), 'warning=.agents/ecosystems.tsv is missing or empty');
+  assert.ok(cl.text.split('\n').some((l) => l.startsWith('warning: .agents/ecosystems.json is missing or empty')), `classify does not warn about the missing definition: ${cl.text}`);
+  has(snap(d), 'warning=.agents/ecosystems.json is missing or empty');
   appr(d, 'plan', 'approve the plan'); must(d, ['freeze', 'LC'], { bind: true }); must(d, ['handoff', 'LC', 'IMPLEMENTING']);
-  wr(d, '.agents/ecosystems.tsv', ecoKeep);
-  let po = snap(d); hasnt(po, 'warning=.agents/ecosystems.tsv');
+  wr(d, '.agents/ecosystems.json', ecoKeep);
+  let po = snap(d); hasnt(po, 'warning=.agents/ecosystems.json');
   const vf = Af(d, ['verify-freeze', 'LC']);
   assert.equal(vf.status, 0, `a run frozen before the ecosystem set joined the hash fails verify-freeze: ${vf.text}`);
   wr(d, 'src/Api/a.fsproj', 'x\n'); wr(d, 'Directory.Build.props', 'x\n');
@@ -250,9 +250,9 @@ test('sc_eco_freeze_compat: a run frozen before the set keeps its hash and signa
   const vf2 = Af(d, ['verify-freeze', 'LC']); assert.equal(vf2.status, 0, `a run frozen with the definition fails verify-freeze: ${vf2.text}`);
   wr(d, 'src/Api/a.fsproj', 'x\n'); wr(d, 'Directory.Build.props', 'x\n');
   po = snap(d); has(po, 'diff:src/Api/a.fsproj('); has(po, 'diff:Directory.Build.props(');
-  ap(d, '.agents/ecosystems.tsv', 'npm\tmanifests\tmy-new-manifest.lock2\n');
+  const defn = JSON.parse(ecoKeep); defn.ecosystems.find((/** @type {{ id: string }} */ e) => e.id === 'npm').manifests.push('my-new-manifest.lock2'); wr(d, '.agents/ecosystems.json', JSON.stringify(defn, null, 2));
   refused(Af(d, ['verify-freeze', 'LC']), 'the ecosystem definition changed after freeze', 'freeze mismatch: risk');
-  wr(d, '.agents/ecosystems.tsv', ecoKeep);
+  wr(d, '.agents/ecosystems.json', ecoKeep);
   const vf3 = Af(d, ['verify-freeze', 'LC']); assert.equal(vf3.status, 0, `restoring the definition does not restore the freeze: ${vf3.text}`);
   // the project's own config paths are read beside the definition's
   const cfgMine = sed(sed(cfgKeep, /^ {2}risky_paths: "/, '  risky_paths: "custom/** '), /^ {4}paths: "mix\.exs mix\.lock/, '    paths: "my.lock mix.exs mix.lock');

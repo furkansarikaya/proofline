@@ -35,10 +35,10 @@ export function run(/** @type {string} */ cmd, /** @type {string[]} */ args, /**
 /** Install the control plane as `proofline init` lays it out, without any test stub (the real secret-scan.sh stays; the execution policy is the core's). */
 export function installMinimal(/** @type {string} */ dir) {
   const a = join(dir, '.agents'); mkdirSync(join(a, 'scripts'), { recursive: true }); mkdirSync(join(a, 'local'), { recursive: true });
-  for (const f of ['config.yaml', 'ecosystems.json', 'ecosystems.mjs', 'ecosystems.tsv', 'owns.conf', 'roles.conf', 'tools.conf']) if (existsSync(join(agentsSrc, f))) copyFileSync(join(agentsSrc, f), join(a, f));
+  for (const f of ['config.yaml', 'ecosystems.json', 'ecosystems.mjs', 'owns.conf', 'roles.conf', 'tools.conf']) if (existsSync(join(agentsSrc, f))) copyFileSync(join(agentsSrc, f), join(a, f));
   for (const d of ['modes', 'templates', 'task-integrations', 'githooks']) cpSync(join(agentsSrc, d), join(a, d), { recursive: true });
   for (const f of readdirSync(scriptsSrc)) {
-    if (f.endsWith('-test.sh') || f === 'test-lib.sh') continue;
+    if (f.endsWith('-test.sh')) continue;
     cpSync(join(scriptsSrc, f), join(a, 'scripts', f), { recursive: true });
   }
   for (const f of readdirSync(join(a, 'scripts'))) if (f.endsWith('.sh')) chmodSync(join(a, 'scripts', f), 0o755);

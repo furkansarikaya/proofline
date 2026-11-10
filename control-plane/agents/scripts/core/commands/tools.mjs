@@ -9,7 +9,7 @@ import { readSync, readdirSync, statSync } from 'node:fs';
 import { bytes } from '../config.mjs';
 import { debt } from '../debt.mjs';
 import { requireRun } from '../runs.mjs';
-import { BridgeToShell, ProoflineError, fail, unsupported } from '../errors.mjs';
+import { ProoflineError, fail, unsupported } from '../errors.mjs';
 import { designGlobMatch, PathKinds, scopeKindRows } from '../pathkind.mjs';
 import { isDir, isFile } from '../paths.mjs';
 import { afterFrontMatter, evidenceField, humanChecks, readBytes, scopeEntries, scopeEntryCovers, taskType } from '../taskfile.mjs';

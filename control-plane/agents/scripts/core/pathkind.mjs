@@ -1,11 +1,9 @@
 // @ts-check
-// Path classification of agent.sh for the leaf commands: the ecosystem sets (read as data from ecosystems.tsv, never branching on an
+// Path classification of agent.sh for the leaf commands: the ecosystem sets (read as data from ecosystems.json, never branching on an
 // ecosystem), the knowledge scope, document paths, test paths, path kinds, scope-kind rows and design surfaces. Local to the tools package;
 // the run library has its own readers of the same facts (NEEDS-LATER: one copy).
-import { readFileSync, statSync } from 'node:fs';
-import path from 'node:path';
 import { unsupported } from './errors.mjs';
-import { isFile } from './paths.mjs';
+import { ecosystemSets } from './signals.mjs';
 import { asciiLower, caseMatch, expandWords, pathMatches } from './shellglob.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -13,40 +11,12 @@ import { asciiLower, caseMatch, expandWords, pathMatches } from './shellglob.mjs
 export const TEST_PATH_GLOBS = '**/test/** **/tests/** **/__tests__/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*';
 export const EXECUTABLE_CODE_DEFAULT = '*.go *.py *.pyw *.js *.mjs *.cjs *.jsx *.ts *.mts *.cts *.tsx *.java *.kt *.kts *.scala *.groovy *.rs *.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.cs *.fs *.vb *.rb *.php *.swift *.m *.mm *.dart *.lua *.pl *.pm *.r *.jl *.ex *.exs *.erl *.hs *.ml *.clj *.sh *.bash *.zsh *.fish *.ps1 *.bat *.cmd *.sql *.vue *.svelte *.gradle';
 
-/** `[ -s F ]` @param {string} f */
-function nonEmptyFile(f) { try { return statSync(f).size > 0; } catch { return false; } }
-
 /**
  * The ecosystem sets of agent.sh's start (eco_risky_set, eco_dependency_set, eco_loaded).
  * @param {Context} ctx
  * @returns {{ loaded: boolean, risky: string, dependency: string }}
  */
-export function ecoSets(ctx) {
-  let tsv = `${ctx.agents}/ecosystems.tsv`;
-  let sh = `${ctx.scripts}/ecosystems.sh`;
-  if (!nonEmptyFile(tsv) || !isFile(sh)) {
-    const ship = path.resolve(ctx.scriptDir, '..');
-    if (ship !== ctx.agents && nonEmptyFile(`${ship}/ecosystems.tsv`) && isFile(`${ship}/scripts/ecosystems.sh`)) { tsv = `${ship}/ecosystems.tsv`; sh = `${ship}/scripts/ecosystems.sh`; }
-  }
-  if (!isFile(sh) || !nonEmptyFile(tsv)) return { loaded: false, risky: '', dependency: '' };
-  let text;
-  try { text = readFileSync(tsv, 'latin1'); } catch { return { loaded: false, risky: '', dependency: '' }; }
-  const rows = text.split('\n');
-  if (rows[rows.length - 1] === '') rows.pop();
-  const RD = new Set(['risky_paths', 'manifests', 'locks', 'settings']);
-  const DEP = new Set(['manifests', 'locks', 'settings']);
-  const rs = new Set(); const ds = new Set();
-  let rl = ''; let dl = '';
-  for (const row of rows) {
-    const f = row.split('\t');
-    const id = f[0] ?? ''; const key = f[1] ?? ''; const val = f[2] ?? '';
-    if ((id === '*' && key === 'risky_paths') || (id !== '*' && RD.has(key))) { if (!rs.has(val)) { rs.add(val); rl = `${rl}${rl === '' ? '' : ' '}${val}`; } }
-    if (id !== '*' && DEP.has(key)) { if (!ds.has(val)) { ds.add(val); dl = `${dl}${dl === '' ? '' : ' '}${val}`; } }
-  }
-  const both = `${rl}\n${dl}`.replace(/\n+$/, '');
-  const nl = both.indexOf('\n');
-  return { loaded: true, risky: nl < 0 ? both : both.slice(0, nl), dependency: nl < 0 ? both : both.slice(nl + 1) };
-}
+export function ecoSets(ctx) { return ecosystemSets(ctx); }
 
 /** The per-invocation view the classifiers need. */
 export class PathKinds {

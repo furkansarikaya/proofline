@@ -121,10 +121,10 @@ function ledgerStraddles(/** @type {string} */ dir) {
 function installLikeProject(/** @type {string} */ out) {
   const a = join(out, '.agents');
   for (const f of readdirSync(scriptsSrc)) {
-    if (f.endsWith('-test.sh') || f === 'test-lib.sh' || f === 'core' || f === 'proofline-core.mjs') continue;
+    if (f.endsWith('-test.sh') || f === 'core' || f === 'proofline-core.mjs') continue;
     if (!existsSync(join(a, 'scripts', f))) cpSync(join(scriptsSrc, f), join(a, 'scripts', f), { recursive: true });
   }
-  for (const f of ['ecosystems.json', 'ecosystems.mjs', 'ecosystems.tsv', 'owns.conf', 'roles.conf', 'tools.conf']) if (existsSync(join(agentsSrc, f)) && !existsSync(join(a, f))) copyFileSync(join(agentsSrc, f), join(a, f));
+  for (const f of ['ecosystems.json', 'ecosystems.mjs', 'owns.conf', 'roles.conf', 'tools.conf']) if (existsSync(join(agentsSrc, f)) && !existsSync(join(a, f))) copyFileSync(join(agentsSrc, f), join(a, f));
   for (const d of ['modes', 'templates', 'task-integrations', 'githooks']) if (!existsSync(join(a, d))) cpSync(join(agentsSrc, d), join(a, d), { recursive: true });
   for (const f of readdirSync(join(a, 'scripts'))) if (f.endsWith('.sh')) chmodSync(join(a, 'scripts', f), 0o755);
   // the added files are not part of the project's history: the scope checks must not list them

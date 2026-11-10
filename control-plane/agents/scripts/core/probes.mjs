@@ -7,13 +7,14 @@ import { git } from './git.mjs';
 import { isFile } from './paths.mjs';
 import { globToRegex } from './scope.mjs';
 import { grepEq } from './signals.mjs';
+import { ecosystemRows } from './ecodata.mjs';
 import { ecosystemSets } from './signals.mjs';
 import { textLines } from './records.mjs';
 import path from 'node:path';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
-/** The flat ecosystem definition: rows `<id> TAB <path> TAB <value>` (ecosystems.sh). */
+/** The flat ecosystem definition: rows `<id> TAB <path> TAB <value>` (ecodata.mjs). */
 class Eco {
   /** @param {string[][]} rows */
   constructor(rows) { this.rows = rows; }
@@ -43,13 +44,8 @@ class Eco {
 /** The ecosystem data of the project, or null when it is not loaded (a missing definition grants no capability). @param {Context} ctx */
 function loadEco(ctx) {
   if (!ecosystemSets(ctx).loaded) return null;
-  let tsv = `${ctx.agents}/ecosystems.tsv`;
-  const size = (/** @type {string} */ f) => { try { return statSync(f).size; } catch { return 0; } };
-  if (size(tsv) === 0 || !isFile(`${ctx.scripts}/ecosystems.sh`)) {
-    const ship = path.dirname(ctx.scriptDir);
-    if (ship !== ctx.agents && size(`${ship}/ecosystems.tsv`) > 0 && isFile(`${ship}/scripts/ecosystems.sh`)) tsv = `${ship}/ecosystems.tsv`;
-  }
-  try { return new Eco(textLines(readFileSync(tsv, 'latin1')).map((l) => l.split('\t'))); } catch { return null; }
+  const rows = ecosystemRows(ctx);
+  return rows ? new Eco(rows) : null;
 }
 
 /** `[ -x F ] && [ ! -d F ]` @param {string} f */

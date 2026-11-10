@@ -240,7 +240,7 @@ Not supported or limited by design:
 - **A second project of the same ecosystem** gets no command (several targets are ambiguous); a workspace root is the way to name them.
 - **Discovery of nested projects costs about 0.45 s per project** because it is plain sh; a repository with more than 1000 marker files counts as unknown and proposes nothing nested.
 - **MAUI is measured only through the project's own Maestro flows**; without one the visual check is UNSUPPORTED, never a pass.
-- **No doctor warning for a missing `.agents/ecosystems.tsv`**: without it the risky-path lists fall back to `config.yaml` alone and the benchmark probe reports nothing.
+- **A missing `.agents/ecosystems.json`** makes `classify` and `pipeline` print one warning line and `proofline doctor` FAIL (A174, A245): without it the risky-path lists fall back to `config.yaml` alone and the benchmark probe reports nothing.
 - **Runtime versions:** the local version was read from the real tool only for node, Python, go, ruby and swift (`runtime-versions.mjs` run on the maintainer's machine, 2026-10-25); for java and dotnet no run is recorded in the repository, and for Rust, PHP and Dart the tool was missing, so their extraction patterns are code reading only. The CI-side sources of every runtime are code reading only.
 - **Qt** desktop projects are matched in `native.mjs`, not in the definition (there is no C or C++ ecosystem).
 
@@ -254,7 +254,7 @@ The other ecosystems keep the earlier mechanism: a workspace root (`workspace_ro
 
 ### No ecosystem code
 
-Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapters' hooks, `skills/*/scripts`) never branch on an ecosystem id. `tests/shared/check-static.mjs` reads the ids from `ecosystems.tsv` and fails on a case arm or a comparison that names one; `platform.sh` and `ecosystems.sh` are excluded. A line that names an interpreter or a tool and not an ecosystem carries a comment line `# eco-ok: <why>` directly above it.
+Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapters' hooks, `skills/*/scripts`) never branch on an ecosystem id. `tests/shared/check-static.mjs` reads the ids from `ecosystems.json` and fails on a case arm or a comparison that names one; `platform.sh` is excluded. A line that names an interpreter or a tool and not an ecosystem carries a comment line `# eco-ok: <why>` directly above it.
 
 ## The definition file
 
@@ -268,20 +268,19 @@ Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapt
 | `workspace_roots` | `{file, contains, members}`: a file (and an optional line pattern) that makes a folder a workspace root. `members` (optional) says how the file lists its members: `single_prefix` (a line outside a block is a member once this pattern is removed), `block_open`, `block_close` and `block_item_prefix` (the lines of a block), `comment` (starts a comment) and `format` (how one member is written into a command, `{member}`); see [workspaces](#workspaces) |
 | `solution_files`, `units` | solution globs; how the target is chosen (`target` dir or file, `bare`, `stages`, `legacy` twins) |
 | `runtime`, `version_files` | the runtime name, how many version components are compared, presence globs, how the local version is read; the ordered sources of the CI-specified version |
-| `risky_paths` | extra paths that must never be reviewed as small: build-changing files (`Directory.Build.rsp`, `build.rs`, `rust-toolchain.toml`, `gradlew`, `Rakefile`, ...). The full risky set is these plus `manifests`, `locks` and `settings` plus `global.risky_paths`. Read at read time from `.agents/ecosystems.tsv` (A174); `config.yaml` adds only project-specific globs |
+| `risky_paths` | extra paths that must never be reviewed as small: build-changing files (`Directory.Build.rsp`, `build.rs`, `rust-toolchain.toml`, `gradlew`, `Rakefile`, ...). The full risky set is these plus `manifests`, `locks` and `settings` plus `global.risky_paths`. Read at read time from `.agents/ecosystems.json` (A174, A245); `config.yaml` adds only project-specific globs |
 | `commands` | `truth` (`scripts` or `tools`), `tools` (executables a CI or README line may start with), `ci_lint`, `runners`, and `build`, `test`, `lint` rules: `when` conditions, `run` (bare) and `at` (targeted, with `{dir}` or `{target}`); a rule with `workspace` and `at_workspace` (templates with `{members}`) applies only when the workspace file lists members |
 | `benchmark`, `native_ui` | markers of a benchmark setup (script names, directories, a file pattern with a content marker, a dependency in a manifest, a config file) and of a native UI project (`file`, `contains`, `platform`, `kind`) |
 | `test_output` | per class `no_tests`, `compile` and `assertion`, entries with `pattern`, `runner`, `source` (`captured`: a fixture in `tests/skills/fixtures/tdd-proof-output`; `docs`: the tool's documentation, with its URL as `evidence`) and an optional `unless`; `exit_codes` per class, used only as a cross-check (A175) |
 
-Glob and pattern dialects, the `when` keys and the flat format are written in the header of `ecosystems.json`, `ecosystems.mjs` and (until agent.sh moves, #176) `scripts/ecosystems.sh`.
+Glob and pattern dialects, the `when` keys and the flat format are written in the header of `ecosystems.json` and `ecosystems.mjs`.
 
-The risk lists are read at read time: `agent.sh` adds the ecosystem globs to `review.risky_paths` and to the signal whose check is `dependencies`, so a new ecosystem or file kind reaches every project on `proofline upgrade` without a config edit and a user's `config.yaml` is never rewritten. One synthetic line, `risk.ecosystems.dependencies`, binds that set into `freeze.risk_sha256`; a run frozen before keeps the paths it was frozen with and still passes `verify-freeze`. The exploit-proof manifest diff reads a project's own `.agents/ecosystems.json` in preference to its skill copy.
+The risk lists are read at read time: the core adds the ecosystem globs to `review.risky_paths` and to the signal whose check is `dependencies`, so a new ecosystem or file kind reaches every project on `proofline upgrade` without a config edit and a user's `config.yaml` is never rewritten. One synthetic line, `risk.ecosystems.dependencies`, binds that set into `freeze.risk_sha256`; a run frozen before keeps the paths it was frozen with and still passes `verify-freeze`. The exploit-proof manifest diff reads a project's own `.agents/ecosystems.json` in preference to its skill copy.
 
 ### Reading it
 
-- **sh:** only the control plane's `scripts/ecosystems.sh` is left (A234): `agent.sh` still sources it until #176. It reads `ecosystems.tsv`, the flat copy (`<id><TAB><path><TAB><value>`), so no sh script needs node or a JSON parser. `eco_init FILE`, then `eco_ids`, `eco_get ID PATH`, `eco_first`, `eco_children`, `eco_pack`, `eco_rows`, `eco_union`, `eco_risky`, `eco_glob_match`, `eco_pruned`.
-- **node:** `ecosystems.mjs` (`loadEcosystems`, `globToRegExp`, `matchesAny`, `isPruned`, `riskyPaths`, `classifyPath`, `toRegExp`, `validate`) and the command line `node ecosystems.mjs write|check|validate|ids|risky|get`.
-- **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies of `scripts/ecosystems.mjs` and `references/ecosystems.json` (no skill carries a shell reader or the flat file since A234; `runtime-versions.mjs` and `run-bench.mjs` read their own copy of `ecosystems.json` and never the project's `.agents/ecosystems.json`, because they start the version commands it names). `tests/shared/check-shared.mjs` compares them with `control-plane/agents/`, and checks that the control plane's flat file is what `write` produces.
+- **node:** `ecosystems.mjs` (`loadEcosystems`, `globToRegExp`, `matchesAny`, `isPruned`, `riskyPaths`, `classifyPath`, `toRegExp`, `validate`) and the command line `node ecosystems.mjs sync|check|validate|ids|risky|dependency|get`. The core reads the same data as flat rows (`core/ecodata.mjs`, a test pins that it equals `flatten`); there is no shell reader and no flat file since A245.
+- **Skills** are installable alone, so a skill that uses the definition carries byte-identical copies of `scripts/ecosystems.mjs` and `references/ecosystems.json` (no skill carries a shell reader or the flat file; `runtime-versions.mjs` and `run-bench.mjs` read their own copy of `ecosystems.json` and never the project's `.agents/ecosystems.json`, because they start the version commands it names). `tests/shared/check-shared.mjs` compares them with `control-plane/agents/`, and runs `ecosystems.mjs check` on the control plane's definition.
 
 ## Worktree dependencies (A185)
 

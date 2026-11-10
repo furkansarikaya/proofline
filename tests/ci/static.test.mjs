@@ -21,7 +21,7 @@ function scratch(opt = { git: true }) {
   const dir = path.join(T, `s${++n}`);
   w(dir, 'README.md', '# x\n'); w(dir, 'src/a.sh', 'x=1\n');
   mkdirSync(path.join(dir, 'control-plane/agents'), { recursive: true });
-  cpSync(path.join(repo, 'control-plane/agents/ecosystems.tsv'), path.join(dir, 'control-plane/agents/ecosystems.tsv'));
+  cpSync(path.join(repo, 'control-plane/agents/ecosystems.json'), path.join(dir, 'control-plane/agents/ecosystems.json'));
   if (opt.git) { git(dir, 'init', '-q'); git(dir, 'add', '-A'); }
   return dir;
 }
@@ -138,10 +138,10 @@ describe('rule 5: ecosystem branching in shared shell scripts (A187)', () => {
     w(d, 'bin/tool.sh', '#!/bin/sh\necho hi\n'); w(d, 'bin/x-test.sh', 'cat package.json\n'); w(d, 'bin/fixtures/y.sh', 'cat go.mod\n'); add(d);
     assert.equal(run(d).status, 0, run(d).text);
   });
-  test('fails when ecosystems.tsv is missing or lists no ids (it used to pass)', () => {
+  test('fails when ecosystems.json is missing or lists no ids (it used to pass)', () => {
     const d = path.join(T, `noeco${++n}`); w(d, 'README.md', '# x\n');
     const r = run(d); assert.equal(r.status, 1); assert.match(r.text, /^FAIL ecosystem branching: no ecosystem ids/m);
-    w(d, 'control-plane/agents/ecosystems.tsv', '# no id rows\n');
+    w(d, 'control-plane/agents/ecosystems.json', '{"global":{},"ecosystems":[]}\n');
     assert.match(run(d).text, /^FAIL ecosystem branching: no ecosystem ids/m);
   });
 });
