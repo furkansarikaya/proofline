@@ -6,7 +6,7 @@
 // processes that meet at a file barrier inside the builder (no sleep, no time window): all of them are inside the build when the first one publishes, so the loser path always runs.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { cached, cleanEnv, copyOf, discard, git, tmp } from './harness.mjs';
@@ -155,7 +155,9 @@ test('discard does not trust the first removal: a directory the platform call le
   mkdirSync(path.join(dir, '.git/objects/ab'), { recursive: true });
   writeFileSync(path.join(dir, '.git/objects/ab/cd'), 'x', { mode: 0o444 }); writeFileSync(path.join(dir, '.built'), '');
   symlinkSync(path.dirname(outside), path.join(dir, 'link'));
-  discard(dir, () => { /* a removal that reports success and removes nothing */ });
+  const ro = path.join(dir, '.git/objects/pack');   // a read-only directory with a file in it (git leaves such trees)
+  mkdirSync(ro); writeFileSync(path.join(ro, 'p.pack'), 'x'); chmodSync(ro, 0o555);
+  try { discard(dir, () => { /* a removal that reports success and removes nothing */ }); } finally { try { chmodSync(ro, 0o700); } catch { /* already gone */ } }
   assert.deepEqual(readdirSync(root), [], 'the directory is gone');
   assert.equal(readFileSync(outside, 'utf8'), 'mine', 'a link inside it was removed, not followed');
   discard(dir, () => { throw new Error('busy'); });   // already gone, whatever the first attempt did

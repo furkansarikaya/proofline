@@ -249,7 +249,7 @@ function removeTree(p) {
   let st;
   try { st = lstatSync(p); } catch (e) { if (/** @type {any} */ (e).code === 'ENOENT') return; throw e; }
   try {
-    if (st.isDirectory()) { for (const n of readdirSync(p)) removeTree(path.join(p, n)); rmdirSync(p); } else unlinkSync(p);
+    if (st.isDirectory()) { chmodSync(p, 0o700); for (const n of readdirSync(p)) removeTree(path.join(p, n)); rmdirSync(p); } else unlinkSync(p);   // lstat above: p is no link, so chmod never follows one; a read-only directory could not be emptied
   } catch (e) { if (/** @type {any} */ (e).code !== 'ENOENT') throw e; }
 }
 /** A copy of a template into a fresh directory. @param {string} template */
