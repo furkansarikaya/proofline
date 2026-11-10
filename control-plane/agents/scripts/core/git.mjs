@@ -2,6 +2,7 @@
 // The git queries of the control plane. Every call goes through proc.mjs (counted); output is kept as byte strings (latin1) so that
 // quoted paths and byte order are what the shell saw. `git -C <root>` with LC_ALL=C, like agent.sh.
 import { unsupported } from './errors.mjs';
+import { hermeticEnv } from './hgit.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -14,8 +15,8 @@ import * as proc from './proc.mjs';
  * @returns {GitResult}
  */
 export function git(ctx, args, opt = {}) {
-  const r = proc.run('git', ['-C', ctx.root, '-c', 'core.fsmonitor=false', ...ctx.gitBlank, ...args], {
-    cwd: ctx.cwd, env: { ...ctx.childEnv(), ...(opt.env ?? {}) }, input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
+  const r = proc.run('git', ['-C', ctx.root, ...args], {
+    cwd: ctx.cwd, env: hermeticEnv({ ...ctx.childEnv(), ...(opt.env ?? {}) }, ctx.gitBlank), input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
   });
   return { status: r.status, out: r.stdout.toString('latin1') };
 }

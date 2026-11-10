@@ -897,3 +897,66 @@ test('B6 (fix round 1): a task branch whose name starts with a dash is only a st
 function requireNames(d) { return existsSync(`${d}/.agents/runs/LC/approvals`) ? readdir(`${d}/.agents/runs/LC/approvals`) : []; }
 import { readdirSync as readdir } from 'node:fs';
 void [DONE, run];
+
+// ---- A248 (Part of #165): one hermetic git for every call on a checkout -------------------------------------------------------------------
+const FIXED = new Date(Date.UTC(2031, 0, 2, 3, 4, 5)); // a fixed instant: every tracked file of TREE is re-stat'ed, so git must read (and so filter) it to answer a status
+/** Make git re-read every tracked file of a tree. @param {string} tree */
+function touchAll(tree) {
+  for (const f of g(tree, 'ls-files').split('\n').filter((x) => x !== '')) utimesSync(`${tree}/${f}`, FIXED, FIXED);
+}
+/** A counting clean driver: `[filter "<name>"] clean = echo c >> CNT; cat` written with git config (key as given). @param {string} d @param {string} key @param {string} value */
+const counting = (d, key, value) => gOk(d, 'config', key, value);
+
+test('A248 (1): a driver whose NAME contains `=` is blanked (the name is a config key in the environment, not a `-c name=value` text)', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const cnt = `${d}-COUNT`;
+  counting(d, 'filter.a=b.clean', `echo c >> ${cnt}; cat`);
+  wf(`${d}/.git/info/attributes`, '* filter=a=b\n');
+  touchAll(d);
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(cnt), `a driver named a=b ran after deliver-merged: ${out}`);
+});
+
+test('A248 (2): a crafted VALUE cannot make the driver name wrong: ".clean " inside the value no longer hides the driver', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const lo = bareOrigin(d);
+  mergedOnOrigin(d, lo);
+  const cnt = `${d}-COUNT`;
+  counting(d, 'filter.ck.clean', `echo c >> ${cnt}; cat # .clean x`);
+  wf(`${d}/.git/info/attributes`, '* filter=ck\n');
+  touchAll(d);
+  const out = A(d, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(cnt), `a driver with a crafted value ran after deliver-merged: ${out}`);
+});
+
+test('A248 (3): a driver found only through an includeIf onbranch include that applies in the run\'s worktree is blanked for the cleanup\'s calls there', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const { lo } = wtDeliver(d, wt, 'local');
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
+  const cnt = `${d}-COUNT`;
+  wf(`${d}-inc.cfg`, `[filter "ck"]\n\tclean = echo c >> ${cnt}; cat\n`);
+  gOk(d, 'config', 'includeIf.onbranch:proofline/**.path', `${d}-inc.cfg`);
+  wf(`${d}/.git/info/attributes`, '* filter=ck\n');
+  assert.ok(!g(d, 'config', '--get-regexp', '^filter\\.').includes('ck'), 'the include must be invisible from the main tree');
+  touchAll(wt);
+  const out = A(wt, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(cnt), `the include's driver ran in the run's worktree: ${out}`);
+});
+
+test('A248 (4): the cleanup\'s status in the run\'s worktree (runend) runs with the file system monitor off', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const { lo } = wtDeliver(d, wt, 'local');
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
+  const marker = `${d}-FSMARK`;
+  wf(`${d}-fsmon.sh`, `#!/bin/sh\ntouch ${marker}\n`);
+  chmodSync(`${d}-fsmon.sh`, 0o755);
+  gOk(d, 'config', 'core.fsmonitor', `${d}-fsmon.sh`);
+  const out = A(wt, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(marker), `the fsmonitor program ran: ${out}`);
+});

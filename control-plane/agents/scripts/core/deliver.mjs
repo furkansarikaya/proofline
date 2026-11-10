@@ -32,6 +32,7 @@ import { runTaskAdapter } from './adapters/index.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
 import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
 import { amendRun } from './reopen.mjs';
+import { hgit, repoDrivers } from './hgit.mjs';
 import { cleanupRun, sbBlockOnly } from './runend.mjs';
 import { ciChainOk, ciFixRecs, commitMessageIsApproved, lifecycleFolderStatus, requireRun, runDir } from './runs.mjs';
 import { statusBlockBody, statusBlockUpdate } from './statusblock.mjs';
@@ -552,7 +553,7 @@ function sbFinalPut(ctx, id, fin) {
 
 /** `sb_main_park TREE DIR`: every block-only modified task file of TREE: its block body is kept and the file reset. @param {Context} ctx @param {string} tree @returns {Array<{ id: string, body: string }>} */
 function sbMainPark(ctx, tree) {
-  const run = (/** @type {string[]} */ a) => proc.run('git', ['-C', tree, '-c', 'core.fsmonitor=false', ...a], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const run = (/** @type {string[]} */ a) => hgit(ctx, tree, a);
   /** @type {Array<{ id: string, body: string }>} */ const parked = [];
   for (const l of run(['status', '--porcelain', '--untracked-files=no']).stdout.toString('latin1').split('\n')) {
     if (!l.startsWith(' M ')) continue;
@@ -593,7 +594,7 @@ export function deliverMerged(ctx, id, flag) {
   const gt = resolveGit(ctx);
   if ('unreadable' in gt) fail(`deliver-merged: no trusted git to prove the merge with (${gt.unreadable}); nothing is recorded`);
   const gitBin = gt.path;
-  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => proc.run(gitBin, ['-C', cwdTree, '-c', 'core.fsmonitor=false', ...a], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => hgit(ctx, cwdTree, a, { bin: gitBin, env: cleanToolEnv(ctx, { remote: true }) });
   const gs = (/** @type {string[]} */ a, tree = ctx.root) => sub(g(a, tree).stdout.toString('latin1'));
   const mergeHead = `${ddir}/MERGE_HEAD`;
   const mh = fileText(ctx, mergeHead);
@@ -675,9 +676,11 @@ export function deliverMerged(ctx, id, flag) {
   // not switched or fast-forwarded and no status block is parked; the cleanup's own tree reads (diff, status) run with every such driver blanked (-c filter.<n>.clean= ...), so
   // none of them runs. An `includeIf` in the local config counts as a driver too: its condition (onbranch) is judged by the branch checked out when git runs, so a driver that
   // is invisible on the task branch becomes active on the base after the switch. A system or global driver (git-lfs on a CI image) is the administrator's or the user's own.
-  const cfgLines = g(['config', '--show-scope', '--get-regexp', '^(filter\\..*\\.(smudge|process|clean)|includeif\\..*\\.path)$'], main).stdout.toString('latin1').split('\n').filter((l) => /^(local|worktree|command)\t/.test(l));
-  const filters = cfgLines.length > 0;
-  ctx.gitBlank = [...new Set(cfgLines.map((l) => /^[a-z]+\tfilter\.(.*)\.(smudge|process|clean)\s/.exec(l)?.[1] ?? ''))].filter((n) => n !== '').flatMap((n) => ['-c', `filter.${n}.clean=`, '-c', `filter.${n}.smudge=`, '-c', `filter.${n}.process=`]);
+  // A248: the names come from NUL separated keys (never from a value), are handed to git as environment keys (a name with `=` is blanked too), and are collected in the main tree AND
+  // in the tree this command runs in (the run's worktree), because an `includeIf onbranch:` include is judged by the branch checked out where git runs.
+  const found = repoDrivers(gitBin, [main, ctx.root], () => ({ cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }) }));
+  const filters = found.names.length > 0 || found.includes;
+  ctx.gitBlank = found.names;
   const parked = filters ? [] : sbMainPark(ctx, main);
   const tip2 = `refs/remotes/origin/${dmBase}`;
   const later = `update it from origin/${dmBase} before the next task starts`;

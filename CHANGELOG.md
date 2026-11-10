@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.82 — 2026-11-11
+
+- Change (A248, Part of #165): one hermetic git for every call on a checkout (`core/hgit.mjs`), hardening the filter-driver blanking of deliver-merged (A238, accepted limit A218). The driver names are read from `git config --show-scope --name-only -z --get-regexp` (NUL split, never from a value, so a crafted value cannot make a name wrong), blanked through `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` (a driver named `a=b` is blanked now), collected in the main tree AND in the run's worktree (an `includeIf onbranch:` include is judged where git runs), and every git call of the cleanup (`runend` status and `sbBlockOnly`, `sbMainPark`, the delivery's own calls, `git.mjs`) carries the blanking and `core.fsmonitor=false`. No guard is loosened.
+
 ## 0.0.81 — 2026-11-10
 
 - Change (A247, Part of #165): the prompt-history readers read one message at a time, and the harness template cache checks its own cleanup. The per-session history files carry no line end (their bytes are pinned by the capture goldens), so two consecutive messages joined into one line when the files were concatenated: `language.mjs` (the quote-line and quoted-piece checks, `language-check` and `language_scan`) and `freeze.mjs` `verifyIntentProvenance` now keep one entry per history file, so a quoted line, a quoted piece or an INTENT.md "user" answer can no longer span two messages. The approval and answer paths are unchanged (they use only the current event's capture). Test harness: `discard` in `tests/lib/harness.mjs` (A246 retried `rmSync` and failed loudly) now removes what is left entry by entry, read-only directories included, before it fails; the cause of the CI leftover is not proven.

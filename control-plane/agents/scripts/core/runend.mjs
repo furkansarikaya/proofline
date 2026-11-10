@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 4, package 4B: the end of a run: `terminate`, `cleanup` (with the removal of the run's worktree and the archive of its records) and
 // `archive_run`. File formats, messages and the order of the checks are those of agent.sh 0.0.47.
+import { hgit } from './hgit.mjs';
 import { frictionReport } from './friction.mjs';
 import { rulesCommand } from './rules.mjs';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -181,7 +182,7 @@ function sbStrip(id, text) {
 
 /** `sb_block_only TREE PATH ID`: the tracked file differs from HEAD only by task ID's own status block. @param {Context} ctx @param {string} tree @param {string} p @param {string} id */
 export function sbBlockOnly(ctx, tree, p, id) {
-  const run = (/** @type {string[]} */ a) => proc.run('git', ['-C', tree, ...a], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const run = (/** @type {string[]} */ a) => hgit(ctx, tree, a);
   if (run(['ls-files', '--error-unmatch', '--', p]).status !== 0) return false;
   if (!isFile(`${tree}/${p}`)) return false;
   const head = run(['show', `HEAD:${p}`]);
@@ -222,7 +223,7 @@ function cleanupWorktree(ctx, id, terminal, mergeProved = false) {
   let list = [];
   const copied = fileText(ctx, `${p}/.agents/local/worktree-copied`);
   if (copied !== null) list = textLines(copied);
-  const st = proc.run('git', ['-C', p, 'status', '--porcelain', '--ignored', '--untracked-files=all'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const st = hgit(ctx, p, ['status', '--porcelain', '--ignored', '--untracked-files=all']);
   if (st.status !== 0) { ctx.out(`note: the worktree ${p} is kept: git status failed\n`); return; }
   let extra = textLines(st.stdout.toString('latin1')).map((l) => l.slice(3)).filter((l) => !l.startsWith('.agents/runs/') && !l.startsWith('.agents/local/') && !list.includes(l));
   if (extra.length > 0) extra = extra.filter((q) => !sbBlockOnly(ctx, p, q, id));
