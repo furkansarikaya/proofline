@@ -52,7 +52,7 @@ export const STATES = /** @type {Record<string, string>} */ ({
   // a risky path makes the tier full: the full gate set (plan, rules, tests, security reviews), one passed, one failed
   'gates-full': `scaffold orchestrated no COMPLEX; ${IMPL}; printf '{}\\n' > package.json; A tier LC >/dev/null; A secret-scan LC >/dev/null; gpass REVIEW_PLAN; gfail REVIEW_RULES impl.txt`,
   // gates-test waiver, SECRETS/SECURITY, pass_low, pending approval and design-sync scenarios: the paths that carry Core invariants 1 and 2 (waiver key,
-  // known issues, batch accept) and the shell fallbacks of the Node engine
+  // known issues, batch accept) (the shell fallbacks of the Node engine are gone, A245)
   'gates-waived': `scaffold orchestrated no COMPLEX; ${IMPL}; failed_small; waive_it`,
   'gates-waived-key': `scaffold orchestrated no COMPLEX; ${IMPL}; failed_small; waive_it; gfail REVIEW_SMALL impl.txt`,
   'gates-waive-nomatch': `scaffold orchestrated no COMPLEX; ${IMPL}; failed_small; waive_it; rec REVIEW_SMALL FAIL high 'REVIEW_SMALL-1|blocking|impl_test.txt:1|a different defect|traced: empty key; scan: grep -n lookup impl_test.txt; instances: single'`,

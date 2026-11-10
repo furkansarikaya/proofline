@@ -32,7 +32,7 @@ export function memoryIo(root, env = {}) {
   return { io, stdout: () => Buffer.concat(out).toString('latin1'), stderr: () => Buffer.concat(err).toString('latin1') };
 }
 
-/** The commands the agent.sh preamble leaves to the shell code (every other command runs in the Node core). @param {string} text the text of agent.sh @returns {string[]} */
+/** The commands the old agent.sh preamble left to the shell code (none since A245: agent.sh is a launcher and every command runs in the Node core). @param {string} text the text of agent.sh @returns {string[]} */
 export function shellListed(text) {
   const m = /\ncase "\$\{1:-\}" in\n((?:  [^\n]*\\\n)*  [^\n]*\) ;;)\n  \*\)\n/.exec(text);
   if (!m) return [];   // issue #173 package A moved the last nine: the preamble has no list of shell commands any more

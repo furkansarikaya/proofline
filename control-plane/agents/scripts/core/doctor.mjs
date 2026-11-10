@@ -467,6 +467,7 @@ class Doctor {
   doctorEcosystems() {
     const j = `${this.root}/.agents/ecosystems.json`; const m = `${this.root}/.agents/ecosystems.mjs`;
     if (!nonEmpty(j)) { this.fail('ecosystems: .agents/ecosystems.json is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)'); return; }
+    try { JSON.parse(readFileSync(j, 'utf8')); } catch { this.fail('ecosystems: .agents/ecosystems.json is not valid JSON (run: proofline upgrade)'); return; }
     if (!isFile(m)) { this.fail('ecosystems: .agents/ecosystems.mjs is missing, so the definition cannot be read (run: proofline upgrade)'); return; }
     const o = runMerged(process.execPath, [m, 'check'], { cwd: this.ctx.cwd, env: this.ctx.env });
     if (o.status === 0) this.pass('ecosystems: .agents/ecosystems.json is a valid definition');

@@ -105,6 +105,10 @@ describe('agent.sh without the core', () => {
       assert.match(c.stderr, /run: proofline upgrade/);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+  test('an installed project called with no argument names "this command", not an empty command', () => {
+    const root = project({ manifest: true });
+    try { const r = agent(root, []); assert.equal(r.status, 127); assert.match(r.stderr, /is missing: this command runs in Node 22\.13/); } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   test('an installed project fails closed with exit 127 and a message naming Node 22.13 and the missing file', () => {
     for (const o of [{ manifest: true }, { manifest: true, core: true }, { manifest: true, coreDir: true }]) {
       const root = project(o);

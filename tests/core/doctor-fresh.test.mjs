@@ -94,7 +94,9 @@ test('the ecosystem definition: a missing, invalid or unreadable .agents/ecosyst
   const miss = sb.copy('dec'); rmSync(`${miss}/.agents/ecosystems.json`);
   const bad = sb.copy('dec2'); writeFileSync(`${bad}/.agents/ecosystems.json`, '{"global":{},"ecosystems":[]}\n');
   const nomjs = sb.copy('dec3'); rmSync(`${nomjs}/.agents/ecosystems.mjs`);
-  const [a, b, c] = await Promise.all([sb.plAsync(miss, ['doctor']), sb.plAsync(bad, ['doctor']), sb.plAsync(nomjs, ['doctor'])]);
+  const corrupt = sb.copy('dec4'); writeFileSync(`${corrupt}/.agents/ecosystems.json`, '{"global": [');
+  const [a, b, c, d] = await Promise.all([sb.plAsync(miss, ['doctor']), sb.plAsync(bad, ['doctor']), sb.plAsync(nomjs, ['doctor']), sb.plAsync(corrupt, ['doctor'])]);
+  assert.ok(d.out.includes('FAIL ecosystems: .agents/ecosystems.json is not valid JSON (run: proofline upgrade)\n'), d.out); assert.notEqual(d.status, 0);
   assert.ok(a.out.includes('FAIL ecosystems: .agents/ecosystems.json is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)\n'), a.out);
   assert.notEqual(a.status, 0);
   assert.match(b.out, /^FAIL ecosystems: .* \(run: proofline upgrade\)$/m);

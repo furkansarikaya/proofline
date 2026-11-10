@@ -13,8 +13,9 @@ if [ -f "$root/.git" ]; then
   case "$here" in "$main"/.agents/local/worktrees/*) [ -z "$main" ] || { root=$main; core_dir=$main/.agents/scripts; } ;; esac
 fi
 if [ ! -f "$core_dir/proofline-core.mjs" ] || [ ! -d "$core_dir/core" ]; then
+  what="the command ${1:-}"; [ -n "${1:-}" ] || what="this command"
   if [ -f "$root/.agents/.proofline-manifest" ]; then
-    echo "proofline: $core_dir/proofline-core.mjs or $core_dir/core/ is missing: the command $1 runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2
+    echo "proofline: $core_dir/proofline-core.mjs or $core_dir/core/ is missing: $what runs in Node 22.13 or newer and needs both (run: proofline upgrade)" >&2
   else
     echo "proofline: no control-plane core beside $0 and no .agents/.proofline-manifest: this is not an installed project (run: proofline init)" >&2
   fi
