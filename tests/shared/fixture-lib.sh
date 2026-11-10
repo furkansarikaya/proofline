@@ -26,7 +26,7 @@ fx_template() { # KEY BUILDER -> template directory on stdout
   ft_final=$ft_dir/$ft_key; ft_lock=$ft_dir/$ft_key.lock; ft_wait=0
   while [ ! -d "$ft_final" ]; do
     if mkdir "$ft_lock" 2>/dev/null; then
-      echo "$$" > "$ft_lock/pid"
+      echo "$$" > "$ft_lock/pid" || return 1
       if [ ! -d "$ft_final" ]; then   # another process may have finished between the test and the lock
         ft_tmp=$ft_dir/$ft_key.tmp.$$; rm -rf "$ft_tmp"; mkdir "$ft_tmp"
         if ( "$ft_build" "$ft_tmp" ); then   # a subshell: a builder that dies must not leave the lock behind
@@ -40,11 +40,19 @@ fx_template() { # KEY BUILDER -> template directory on stdout
           fi
         else rm -rf "$ft_tmp"; rm -rf "$ft_lock"; return 1; fi
       fi
-      rm -rf "$ft_lock"; break
+      [ "$(cat "$ft_lock/pid" 2>/dev/null || true)" != "$$" ] || rm -rf "$ft_lock"; break
     fi
     # a lock whose holder is gone (killed) is stale: take it over
     ft_holder=$(cat "$ft_lock/pid" 2>/dev/null || true)
-    if [ -n "$ft_holder" ] && ! kill -0 "$ft_holder" 2>/dev/null; then rm -rf "$ft_lock"; continue; fi
+    if [ -n "$ft_holder" ] && ! kill -0 "$ft_holder" 2>/dev/null; then
+      # Atomic: only the contender whose rename succeeds takes the lock over (a plain rm -rf let several of them, or one of them and a new holder, remove each other's lock).
+      ft_dead=$ft_lock.dead.$$
+      if mv "$ft_lock" "$ft_dead" 2>/dev/null; then
+        if [ "$(cat "$ft_dead/pid" 2>/dev/null || true)" = "$ft_holder" ]; then rm -rf "$ft_dead"
+        else [ -e "$ft_lock" ] || mv "$ft_dead" "$ft_lock" 2>/dev/null || rm -rf "$ft_dead"; [ ! -d "$ft_dead" ] || rm -rf "$ft_dead"; fi   # it was a new, live lock: put it back
+      fi
+      continue
+    fi
     sleep 1; ft_wait=$((ft_wait + 1))
     if [ "$ft_wait" -ge 300 ]; then   # the lock holder died: build a private copy, shared with nobody
       ft_final=$ft_dir/$ft_key.private.$$; mkdir "$ft_final" && "$ft_build" "$ft_final" || return 1

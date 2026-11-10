@@ -60,6 +60,13 @@ t5=$(fx_template nestkey build) || die "a template that appeared before the move
 unset -f mv
 [ -d "$t5" ] && [ -z "$(find "$t5" -mindepth 1 -maxdepth 1 -name '*.tmp.*')" ] && ok "a directory that appeared before the move is not nested into: no private build directory is left inside the template" || die "nested template: $(ls "$t5")"
 
+# 8 contenders on a lock left by a dead process: exactly one takes it over and builds, nobody writes to stderr
+dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/k8.lock"; echo "$dead" > "$SELFTEST_TEMPLATE_DIR/k8.lock/pid"
+before=$(builds)
+for i in 1 2 3 4 5 6 7 8; do ( fx_template k8 slow > "$T/c8.$i" 2> "$T/c8.err.$i" ) & done
+wait
+[ "$(builds)" = $((before + 1)) ] && [ "$(sort -u "$T"/c8.? | wc -l | tr -d ' ')" = 1 ] && [ ! -s "$T/c8.err.1" ] && [ -z "$(cat "$T"/c8.err.*)" ] && ok "eight contenders on a dead lock: one takes it over, one build, no stderr" || die "dead-lock race: builds=$(( $(builds) - before )) err=$(cat "$T"/c8.err.*)"
+
 dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/stale.lock"; echo "$dead" > "$SELFTEST_TEMPLATE_DIR/stale.lock/pid"
 t4=$(fx_template stale build) || die "a stale lock blocked the build"
 [ -d "$t4" ] && ok "a lock left by a dead process is taken over" || die "stale lock"
