@@ -43,7 +43,7 @@ function questionFile(p) {
 /**
  * `language_awk`: scan mode returns the line where the third foreign letter appears (0 for none); with `collect` it gathers the quoted pieces to look up
  * instead. `ok` is the set of pieces known to be product text.
- * @param {string} text @param {string} file the path the rules look at @param {string} hint @param {string} history the captured prompts
+ * @param {string} text @param {string} file the path the rules look at @param {string} hint @param {string[]} history the captured prompts, one entry per history file (a message)
  * @param {Set<string> | null} ok @param {Set<string> | null} collect
  */
 export function scanLine(text, file, hint, history, ok = null, collect = null) {
@@ -52,7 +52,8 @@ export function scanLine(text, file, hint, history, ok = null, collect = null) {
   const own = /\/questions\/[^]*\.answer\.md$|\/questions\/[^]*\.answer\.amended-[^]*\.md$|\/approvals\/|\/runs\/[^]*\/TASK\.md$/.test(file);
   let lines = textLines(text);
   if (/\/COMPLETION_REPORT\.md$/.test(file) || hint.includes('COMPLETION_REPORT.md')) lines = blankSummary(lines);
-  const blob = new Set(textLines(history));
+  // one message at a time: the history files carry no line end (capture.mjs), so a line must never join the end of one message to the start of the next (A247)
+  const blob = new Set(history.flatMap((m) => textLines(m)));
   const inprod = (/** @type {string} */ t0) => {
     const t = norm(t0);
     if (nchars(t) < 4 || t.length > 1000) return false;
@@ -114,7 +115,7 @@ const FAIL_TEXT = (/** @type {string} */ where) => `language: run artifacts are 
 
 /**
  * The line of the third foreign letter of one text that is not quoted product text, 0 when there is none (the core of `language_scan` for one file).
- * @param {Context} ctx @param {string} file @param {string} text @param {string} hint @param {string} history
+ * @param {Context} ctx @param {string} file @param {string} text @param {string} hint @param {string[]} history the captured prompts, one entry per message
  */
 export function languageHit(ctx, file, text, hint, history) {
   const first = scanLine(text, file, hint, history);
@@ -128,10 +129,11 @@ export function languageHit(ctx, file, text, hint, history) {
   if (run === '') run = (readBytes(`${ctx.root}/.agents/local/ACTIVE_RUN`) ?? '').split('\n')[0];
   if (!/^[A-Za-z0-9._-]+$/.test(run)) run = '';
   const task = run === '' ? '' : (readBytes(`${ctx.root}/.agents/runs/${run}/TASK.md`) ?? '');
-  const corpus = `${task}${history}`.replace(new RegExp(`${WSP}+`, 'g'), ' ');
+  const squeeze = (/** @type {string} */ t) => t.replace(new RegExp(`${WSP}+`, 'g'), ' ');
+  const corpora = [task, ...history].map(squeeze); // the task and each message on its own: a piece never spans two of them
   const ok = new Set();
   for (const piece of pieces) {
-    if (inCorpus(corpus, piece)) { ok.add(piece); continue; }
+    if (corpora.some((c) => inCorpus(c, piece))) { ok.add(piece); continue; }
     const r = proc.run('git', ['-C', ctx.root, 'grep', '-q', '-I', '-E', '-e', Buffer.from(confirmPattern(piece), 'latin1').toString('utf8'), 'HEAD', '--', '.', ':(exclude).agents'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
     if (r.status === 0) ok.add(piece);
   }
@@ -141,8 +143,7 @@ export function languageHit(ctx, file, text, hint, history) {
 /** `language_scan FILE...`: the "relative-path:line" hits of the files that hold non-English text; a missing file is skipped. @param {Context} ctx @param {string[]} files */
 export function languageScanFiles(ctx, files, hint = '') {
   const prompts = `${sharedDirOf(ctx, 'prompts')}/history`;
-  let history = '';
-  for (const n of sortedNames(prompts, /\.txt$/)) history += readBytes(`${prompts}/${n}`) ?? '';
+  const history = sortedNames(prompts, /\.txt$/).map((n) => readBytes(`${prompts}/${n}`) ?? '');
   /** @type {string[]} */ const hits = [];
   for (const f of files) {
     if (!isFile(f)) continue;
@@ -169,8 +170,7 @@ export function languageCheck(ctx, args, stdin) {
   const text = stdinMode ? stdin : (isFile(f) ? readBytes(f) : null);
   if (text === null) return 0; // language_scan: `[ -f FILE ] || continue`
   const prompts = `${sharedDirOf(ctx, 'prompts')}/history`;
-  let history = '';
-  for (const n of sortedNames(prompts, /\.txt$/)) history += readBytes(`${prompts}/${n}`) ?? '';
+  const history = sortedNames(prompts, /\.txt$/).map((n) => readBytes(`${prompts}/${n}`) ?? '');
   const hit = languageHit(ctx, file, text, hint, history);
   if (hit === 0) return 0;
   ctx.out(`${FAIL_TEXT(`line ${hit}`)}\n`);

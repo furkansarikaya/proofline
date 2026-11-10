@@ -429,6 +429,24 @@ test('sc_intent_provenance: an answer to a scope decision recorded as the user\'
   accepted(A(d, ['freeze', 'LC'], { bind: true }), 'a blanket answer deciding report was refused');
 });
 
+test('sc_intent_provenance: the history files carry no line end, so an answer that spans two captured messages is no user answer (A247)', () => {
+  const d = unfrozen('STANDARD');
+  const run = '.agents/runs/LC';
+  const answer = 'a) fix the page count in this change (round up); AC-6 is in scope.';
+  const intent = (/** @type {string} */ a) => `${['# Intent: LC', '', '## Decision tree', '', '| id | branch | question | depends_on | status | decision | decided_by | source |', '|---|---|---|---|---|---|---|---|',
+    '| D-12 | scope | Fix the paging defect in this change? | - | resolved | Reported, left unchanged | user | a) |', '', '## Rounds', '', '| round | asked | answer | answered_by |', '|---|---|---|---|',
+    `| 1 | D-12 | ${a} | user |`].join('\n')}\n`;
+  wr(d, `${run}/design/INTENT.md`, intent(answer));
+  // two consecutive messages, as the prompt hook writes them: no line end in either file
+  wr(d, '.agents/local/prompts/history/1-aaaaaaaa.txt', 'a) fix the page count in this ');   // a message may end on a blank
+  wr(d, '.agents/local/prompts/history/2-bbbbbbbb.txt', 'change (round up); AC-6 is in scope.');
+  expectMsg('an answer spanning two messages', 'in no captured user prompt', A(d, ['freeze', 'LC'], { bind: true }));
+  // the same words in ONE message are the user's (white space still folds inside a message)
+  rmSync(path.join(d, '.agents/local/prompts/history/2-bbbbbbbb.txt'));
+  wr(d, '.agents/local/prompts/history/1-aaaaaaaa.txt', 'a) fix the page count in this\nchange (round up); AC-6 is in scope.');
+  accepted(A(d, ['freeze', 'LC'], { bind: true }), 'an answer inside one message was refused');
+});
+
 test('sc_folded_defect: a COMPLEX task declares a folded defect fix; only the user\'s own scope approval unlocks the freeze; a reported or STANDARD defect task needs none (A105)', () => {
   let d = unfrozen('COMPLEX');
   const task = '.agents/runs/LC/TASK.md';

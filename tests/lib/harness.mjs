@@ -7,7 +7,7 @@
 // call `A` and look at the Result.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
@@ -225,7 +225,7 @@ export function cached(key, build, root = safeCacheRoot()) {
   const final = path.join(root, key);
   if (existsSync(path.join(final, '.built'))) return final;
   const work = mkdtempSync(path.join(root, `build-${key.slice(0, 12)}-`));
-  try { build(work); writeFileSync(path.join(work, '.built'), ''); } catch (e) { discard(work); throw e; }
+  try { build(work); writeFileSync(path.join(work, '.built'), ''); } catch (e) { try { discard(work); } catch { /* the build error is the one to report */ } throw e; }
   try { renameSync(work, final); } catch (e) {
     // The private copy is always removed, and removed before this returns (a leftover `build-*` beside the template is what the race test of A246 saw).
     // Losing the race is only the case where the template is complete at the final path; any other failure is a real error and is thrown.
@@ -234,10 +234,23 @@ export function cached(key, build, root = safeCacheRoot()) {
   }
   return final;
 }
-/** Removes a private build directory completely: retried (a late writer of a build command, a busy file), and an error if it is still there. @param {string} dir */
-function discard(dir) {
-  for (let i = 0; i < 5 && existsSync(dir); i++) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+/**
+ * Removes a private build directory completely or throws. `rmSync` is a thin layer over the C++ library's `remove_all` (Node 22+), whose behaviour on a tree that other
+ * processes are renaming and removing next to it is the platform's; the result is therefore checked, never assumed (A247): when the directory is still there afterwards it is
+ * removed entry by entry, and when it is STILL there the call fails, so a leftover `build-*` can never pass for a clean cache. @param {string} dir @param {(p: string, o?: import('node:fs').RmOptions) => void} [rm] the first attempt
+ */
+export function discard(dir, rm = rmSync) {
+  try { rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); } catch { /* the check below decides */ }
+  if (existsSync(dir)) removeTree(dir);
   if (existsSync(dir)) throw new Error(`harness: cannot remove the private build directory ${dir}`);
+}
+/** unlink/rmdir by hand, links never followed; a path that is already gone is done. @param {string} p */
+function removeTree(p) {
+  let st;
+  try { st = lstatSync(p); } catch (e) { if (/** @type {any} */ (e).code === 'ENOENT') return; throw e; }
+  try {
+    if (st.isDirectory()) { chmodSync(p, 0o700); for (const n of readdirSync(p)) removeTree(path.join(p, n)); rmdirSync(p); } else unlinkSync(p);   // lstat above: p is no link, so chmod never follows one; a read-only directory could not be emptied
+  } catch (e) { if (/** @type {any} */ (e).code !== 'ENOENT') throw e; }
 }
 /** A copy of a template into a fresh directory. @param {string} template */
 export function copyOf(template) {

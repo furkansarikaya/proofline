@@ -106,3 +106,21 @@ test('language: the reject message says quote the project\'s text, do not transl
   for (const want of ['Do NOT transliterate', 'do NOT ask the user', 'quote the text that exists in the project']) assert.ok(r.text.includes(want), `the reject message lacks: ${want}`);
   assert.match(r.out, /^language: run artifacts are English, but line 1 holds non-English text\./);
 });
+
+test('language: the history files carry no line end, so a line or a quoted piece spanning two captured messages is not the user\'s text (A247)', () => {
+  const d = project(LANG_RUN);
+  const m1 = 'Hesabınız silindi, lütfen'; const m2 = 'tekrar giriş yapın şimdi';
+  mkdirSync(`${d}/.agents/local/prompts/history`, { recursive: true });
+  writeFileSync(`${d}/.agents/local/prompts/history/1-aaaaaaaa.txt`, m1);   // as the prompt hook writes them: no line end
+  writeFileSync(`${d}/.agents/local/prompts/history/2-bbbbbbbb.txt`, m2);
+  // each message alone is the user's text, a quote line of it passes (the control: the user's words are accepted)
+  put(d, `> ${m1}\n> ${m2}`);
+  accepted(A(d, ['language-check', Q]), 'a quote of one whole message was refused');
+  // the two messages joined into one line, and a piece that crosses the boundary, are not
+  put(d, `> ${m1}${m2}`);
+  refused(A(d, ['language-check', Q]), 'a quote line spanning two messages was accepted', REFUSED);
+  put(d, `> ${m1} ${m2}`);
+  refused(A(d, ['language-check', Q]), 'a quote line spanning two messages (with a space) was accepted', REFUSED);
+  put(d, 'Expect `silindi, lütfen tekrar giriş yapın` on the page.');
+  refused(A(d, ['language-check', Q]), 'an inline piece spanning two messages was accepted', REFUSED);
+});
