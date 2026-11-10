@@ -1,12 +1,11 @@
 name: ci
 # A76: pull requests run the Linux checks only, split into parallel jobs and shards. A164 changes A76's matrix:
-# pushes to main are Linux only too; macOS (static, fixtures, selftest), visual-browser and the benchmark report
+# pushes to main are Linux only too; macOS (static, fixtures), visual-browser and the benchmark report
 # run only on the nightly schedule and manual runs. A pull request that changes only plain documentation skips the heavy test
 # jobs (tests/ci/classify.mjs) but still runs shellcheck and the sync checks. The `checks` job always reports.
-# Node migration (docs/adr/0001-node-control-plane.md): `node-tests` (the Node tests of tests/core, tests/ci, tests/enforcement and tests/invariants-node on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates. TEMPORARY FAST MODE: while
-# tests/ci/fast-mode.txt exists, a pull request skips the legacy self-test shards, the fixtures job and the skill tests
-# step (tests/ci/fast-mode.mjs, read by `changes`); it never skips invariants, node-tests, types or static. It has no expiry
-# date: it ends in the stage in which the legacy shell tests are completely gone (A210). The nightly run keeps the full suite.
+# Node migration (docs/adr/0001-node-control-plane.md): `node-tests` (the Node tests of tests/core, tests/ci, tests/enforcement and tests/invariants-node on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates.
+# The temporary pull request shortcut (A205) and the legacy self-test shards are gone (A246, issue #176): a pull request runs what a push runs on Linux,
+# including the fixtures job and the skill tests; only a documentation-only change skips the heavy jobs.
 on:
   push:
     branches: [main]
@@ -28,8 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.classify.outputs.code }}
-      fast: ${{ steps.mode.outputs.fast || steps.modeboot.outputs.fast || steps.modepush.outputs.fast }}
-      notice: ${{ steps.mode.outputs.notice || steps.modeboot.outputs.notice || steps.modepush.outputs.notice }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,38 +34,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
-      # Fast mode is decided from the BASE (security review F3): a pull request runs the base's reader and the base's tests/ci/fast-mode.txt, and a
-      # pull request that changes the fast-mode files runs the full suite. A base without the reader (the pull request that adds it) runs the full suite.
-      - name: base tree for the fast-mode reader
-        if: github.event_name == 'pull_request'
-        run: git worktree add --detach "$RUNNER_TEMP/base" ${{ github.event.pull_request.base.sha }}
-      - name: paths this pull request changes
-        if: github.event_name == 'pull_request'
-        run: git diff --name-only --no-renames ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > "$RUNNER_TEMP/fm-changed.txt"
-      - id: basehas
-        name: does the base have the fast-mode reader
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        run: git cat-file -e ${{ github.event.pull_request.base.sha }}:tests/ci/fast-mode.mjs
-      - id: mode
-        name: fast mode (pull request, from the base)
-        if: github.event_name == 'pull_request' && steps.basehas.outcome == 'success'
-        run: node "$RUNNER_TEMP/base/tests/ci/fast-mode.mjs" --event pull_request --file "$RUNNER_TEMP/base/tests/ci/fast-mode.txt" --changed-file "$RUNNER_TEMP/fm-changed.txt" --github-output "$GITHUB_OUTPUT"
-      # Bootstrap: only the pull request that introduces the mechanism (the base has no reader at all) uses its own head's reader and file. Once the base
-      # has the reader, the base rules above apply and a head change to tests/ci/fast-mode.* runs the full suite.
-      - id: modeboot
-        name: fast mode (the base has no reader yet, bootstrap from the head)
-        if: github.event_name == 'pull_request' && steps.basehas.outcome != 'success'
-        run: node tests/ci/fast-mode.mjs --event pull_request --github-output "$GITHUB_OUTPUT"
-      - id: modepush
-        name: fast mode (push, schedule, manual, always off, expiry enforced)
-        if: github.event_name != 'pull_request'
-        run: node tests/ci/fast-mode.mjs --event ${{ github.event_name }} --github-output "$GITHUB_OUTPUT"
-      - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests are skipped on this pull request
-        if: steps.mode.outputs.fast == 'true' || steps.modeboot.outputs.fast == 'true'
-        env:
-          NOTICE: ${{ steps.mode.outputs.notice || steps.modeboot.outputs.notice }}
-        run: echo "::warning title=FAST MODE::$NOTICE"
       - id: classify
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -143,7 +108,7 @@ jobs:
           node-version: 22
 
       - name: skill tests
-        if: needs.changes.outputs.code == 'true' && needs.changes.outputs.fast != 'true'
+        if: needs.changes.outputs.code == 'true'
         run: |
           if ls tests/skills/*.test.mjs >/dev/null 2>&1; then node --test tests/skills/
           else echo "SKIPPED: no tests/skills/*.test.mjs yet"; fi
@@ -151,7 +116,7 @@ jobs:
 
   fixtures:
     needs: [changes]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.fast != 'true'
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -210,38 +175,7 @@ jobs:
       - name: hook processes and time per event (Node form, table in the job summary)
         run: node tests/ci/ci-steps.mjs windows-timing
 
-  # The self-test suites are split into scenario units and spread over sixteen shards, balanced by unit weight (A109); inside a shard the units
-  # run on every core (tests/selftest.mjs).
-  selftest:
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.fast != 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        # macOS runs on the nightly schedule and manual runs only (A164); pushes and pull requests run Linux only.
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: script self-tests (shard ${{ matrix.shard }}/16)
-        env:
-          SELFTEST_TIMES_FILE: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
-          SELFTEST_SLOWEST: 999
-          SELFTEST_SHARD: ${{ matrix.shard }}/16
-        run: node tests/selftest.mjs
-      - name: upload unit timings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-times-${{ matrix.os }}-${{ matrix.shard }}
-          path: ${{ runner.temp }}/times-${{ matrix.shard }}.txt
-          if-no-files-found: error
-
-  # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped by fast mode.
+  # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped.
   node-tests:
     timeout-minutes: 40
     name: node-tests (${{ matrix.node }}, ${{ matrix.leg.name }})
@@ -260,7 +194,7 @@ jobs:
           - name: core-rest
             mode: files
             pattern: 'none'
-            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/unsupported.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/exec-policy.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
+            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/unsupported.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config-check-grep.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/exec-policy.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs
           - name: legacy-approvals
             mode: files
             pattern: 'none'
@@ -523,7 +457,7 @@ jobs:
 
   # The shipped Node hook (stage 3) is a pull request gate: its own tests and the guard tests run AGAINST
   # adapters/claude/hooks/proofline-hook.mjs (the enforcement suites, ported to Node in A239, run as `node-tests` legs under tests/enforcement/ against the same hook). The
-  # wall time is the slowest leg (the hook tests, guards, wiring and process budgets, about 6 minutes). The Node tests run on Node 22.13.0 and the active LTS. Never skipped by fast mode.
+  # wall time is the slowest leg (the hook tests, guards, wiring and process budgets, about 6 minutes). The Node tests run on Node 22.13.0 and the active LTS. Never skipped.
   hook-node:
     strategy:
       fail-fast: false
@@ -566,7 +500,7 @@ jobs:
         run: node --test tests/enforcement/wiring.test.mjs
 
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
-  # nothing is added to a package.json and nothing is shipped. Never skipped by fast mode.
+  # nothing is added to a package.json and nothing is shipped. Never skipped.
   types:
     runs-on: ubuntu-latest
     steps:
@@ -648,14 +582,9 @@ jobs:
   # passed, a failed or cancelled job fails it.
   checks:
     if: always()
-    needs: [changes, static, fixtures, visual-browser, selftest, invariants, node-tests, hook-node, types]
+    needs: [changes, static, fixtures, visual-browser, invariants, node-tests, hook-node, types]
     runs-on: ubuntu-latest
     steps:
-      - name: FAST MODE ACTIVE - legacy selftest, fixtures and skill tests were skipped
-        if: needs.changes.outputs.fast == 'true'
-        env:
-          NOTICE: ${{ needs.changes.outputs.notice }}
-        run: printf '%s\n' '### FAST MODE ACTIVE (temporary)' "$NOTICE" >> "$GITHUB_STEP_SUMMARY"
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
           echo "a CI job failed or was cancelled"

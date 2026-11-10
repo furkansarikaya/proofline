@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { buildContext, finish } from '../../adapters/claude/hooks/lib/context.mjs';
 import { handle } from '../../adapters/claude/hooks/events/pretool.mjs';
 import { buildTemplate, haveJq, cleanEnv, copyProject, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync } from './harness.mjs';
-import { symlinkSync, linkSync } from 'node:fs';
+import { symlinkSync, linkSync, realpathSync } from 'node:fs';
 
 const skip = false;
 /** @type {string} */ let base = '';
@@ -44,7 +44,7 @@ function prepare(d) {
 
 before(() => {
   template = buildTemplate();
-  base = mkdtempSync(join(tmpdir(), 'hook-gf-'));
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'hook-gf-'))).replaceAll('\\', '/');   // the spelling the guards compare in: long, forward slashes (A246)
   outside = join(base, 'elsewhere');
   mkdirSync(outside);
   runDir = copyProject(template, base);
@@ -74,7 +74,7 @@ function reasonOf(out) {
 }
 
 /**
- * @typedef {{ n: string, tool: string, input: (d: string) => any, who?: string, env?: Record<string, string>, run?: boolean, stricter?: boolean, expect?: 'deny' | 'allow' }} Case
+ * @typedef {{ n: string, tool: string, input: (d: string) => any, who?: string, env?: Record<string, string>, run?: boolean, stricter?: boolean, expect?: 'deny' | 'allow', posixOnly?: boolean }} Case
  * @param {Case} c
  */
 async function compare(c) {
@@ -157,8 +157,9 @@ const corpus = [
   fp('Read db', 'Read', '<P>/data.db', { expect: 'deny' }),
   fp('Read db relative', 'Read', 'data.db', { expect: 'deny' }),
   fp('Read sqlite3 deep', 'Read', 'a/b/c.sqlite3', { expect: 'deny' }),
-  fp('Read db in /tmp', 'Read', '/tmp/own.db', { expect: 'allow' }),
-  fp('Read db in /tmp with ..', 'Read', '/tmp/../proj/x.db', { stricter: true }),
+  // posixOnly: the guard's own /tmp rule names a POSIX directory that a Windows host does not have
+  fp('Read db in /tmp', 'Read', '/tmp/own.db', { expect: 'allow', posixOnly: true }),
+  fp('Read db in /tmp with ..', 'Read', '/tmp/../proj/x.db', { stricter: true, posixOnly: true }),
   fp('Read src', 'Read', 'src/app.js', { expect: 'allow' }),
   fp('Read secrets (no rule)', 'Read', '.env', { expect: 'allow' }),
   fp('Read approvals (no rule)', 'Read', '.agents/local/approvals/001-push.yaml', { expect: 'allow' }),
@@ -200,13 +201,13 @@ const corpus = [
   fp('unicode nfd name', 'Write', '.agents/runs/LC/scratch/e\u0301.txt', { expect: 'allow' }),
   fp('long path', 'Write', `.agents/runs/LC/scratch/${'a'.repeat(200)}/${'b'.repeat(200)}/c.txt`, { expect: 'allow' }),
   fp('newline in path', 'Write', 'src/x.js\n.agents/runs/LC/scratch/y.txt', { stricter: false }),
-  // not closed by the shell (a textual `..` after a link): the Node guard resolves physically
-  fp('link to outside then .. (the shell folds it textually and allows)', 'Edit', 'escdeep/../impl.txt', { who: 'proofline-implementer a7', stricter: true }),
+  // not closed by the shell (a textual `..` after a link): the Node guard resolves physically (on POSIX hosts)
+  fp('link to outside then .. (the shell folds it textually and allows)', 'Edit', 'escdeep/../impl.txt', { who: 'proofline-implementer a7', stricter: true, posixOnly: true }),   // Win32 folds `link/..` textually before it follows the link, for the guard and for the tool alike: no escape there
 ];
 
 // the pairs run in small batches: each pair is a shell hook (about 15 processes) and an in-process guard
 test('file-tool guards: the verdict of every case with an expectation (run open)', { skip, timeout: 280000 }, async () => {
-  const cases = corpus.filter((c) => c.run !== false);
+  const cases = corpus.filter((c) => c.run !== false && !(c.posixOnly && process.platform === 'win32'));
   for (let i = 0; i < cases.length; i += 8) await Promise.all(cases.slice(i, i + 8).map(compare));
 });
 

@@ -1,6 +1,5 @@
 // The Node hook (stage 3) is a pull request gate: the `hook-node` job of .github/workflows/ci.yml exists, is in the `checks` needs and is never skipped by
-// fast mode. These assertions live here, not in fast-mode.test.mjs: a pull request that changes tests/ci/fast-mode.* runs the full suite (the fast-mode
-// rule reads the base), so the fast-mode files stay exactly as on main.
+// the documentation classifier (A246 ended the fast mode).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

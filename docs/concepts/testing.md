@@ -42,7 +42,7 @@ Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|de
 
 ## Capabilities and what tests them
 
-"Tested" below means a test that runs in CI (on every code pull request; documentation-only pull requests skip the test jobs) or in `node tests/selftest.mjs`. "Tested on fixtures" means planted data with known answers (`fixtures/*/EXPECTED.md`) exercises the check, together with its validator or helper scripts. The end-to-end team runs and their results are in [tests/e2e/README.md](../../tests/e2e/README.md#capabilities-the-n--items).
+"Tested" below means a test that runs in CI (on every code pull request; documentation-only pull requests skip the test jobs) or in `node tests/affected.mjs`. "Tested on fixtures" means planted data with known answers (`fixtures/*/EXPECTED.md`) exercises the check, together with its validator or helper scripts. The end-to-end team runs and their results are in [tests/e2e/README.md](../../tests/e2e/README.md#capabilities-the-n--items).
 
 | Capability | Status |
 |---|---|
@@ -61,9 +61,9 @@ Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|de
 | UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests) |
 | Command discovery, several commands per key, runtime versions, risky paths and dependency manifests per ecosystem (A173, A174, A176) | tested on hand-written project layouts and file samples (`tests/core/discover.test.mjs`, `tests/core/cli-cmdlists.test.mjs`, skill tests, self-tests); the real tool of most ecosystems was not run for them; the per-ecosystem table is the [ecosystem matrix](ecosystems.md#ecosystem-matrix) |
 | tdd-proof test-output classes (A175) | tested against 94 recorded runner outputs (`tests/skills/fixtures/tdd-proof-output`); `captured` ones are real runs with tool, version, command and exit code, `docs` ones come from the tool's documentation |
-| A suite fails when a scenario dies (A177) | the only suite with a scenario runner of its own (`tests/cli/cli-test.sh`) is Node tests since A233, where a test that throws fails its file and the CI leg; `tests/selftest.mjs` fails a unit on any non-zero exit and a scenario unit that ran no case |
+| A suite fails when a scenario dies (A177) | the only suite with a scenario runner of its own (`tests/cli/cli-test.sh`) is Node tests since A233, where a test that throws fails its file and the CI leg; `node --test` fails a file on any non-zero exit |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
 Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and `roles/` (eleven roles). `node adapters/generate.mjs --check` and `node docs/reference/generate-skills.mjs --check` keep the generated references in step with them.
 
-The self-tests (`node tests/selftest.mjs`), the skill tests (`node --test tests/skills/`) and the fixtures (`node tests/fixtures/check-fixtures.mjs`) hold more than 900 tests in all (counted 2026-10-17). A pull request takes about 8 minutes of wall time in CI (Linux only; A109).
+The Node tests (`node --test`, CI legs), the skill tests (`node --test tests/skills/`) and the fixtures (`node tests/fixtures/check-fixtures.mjs`) hold more than 900 tests in all (counted 2026-10-17). A pull request takes about 8 minutes of wall time in CI (Linux only; A109).

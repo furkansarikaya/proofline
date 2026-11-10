@@ -12,9 +12,9 @@
 // and the text holds no kill word: that subshell, and only it, passes).
 import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { realpathSync } from 'node:fs';
-import { cmdSubst } from '../lib/text.mjs';
+import { cmdSubst, posix } from '../lib/text.mjs';
 import { scanText } from '../command-scan.mjs';
-import { bn, dn, deny, globMatch, grepq } from './kit.mjs';
+import { bn, dn, deny, globMatch, grepq, isAbsolute } from './kit.mjs';
 
 const KG_MSG = 'kill only a process you started yourself, by its PID (kill <pid>, kill $!); pkill, killall and kill by pattern, by name, by port or by a process search are forbidden (A156, A161)';
 const KG_TXT = 'Text in code or a script that contains a kill-by-name word (pkill, killall, slay, fuser -k) cannot be told from a command the code runs, so it is denied even when the code only prints or matches it; if the user really wants this command, the user can run it themselves with the ! prefix in the terminal';
@@ -166,15 +166,15 @@ class Kill {
 
   /** `kg_file_ok PATH`: the resolved path of a text file the guard may read, else ''. @param {string} p */
   fileOk(p) {
-    let kf = p.startsWith('/') ? p : `${this.ctx.cwd}/${p}`;
+    let kf = isAbsolute(p) ? p : `${this.ctx.cwd}/${p}`;
     try { const st = lstatSync(kf); if (st.isSymbolicLink() || !st.isFile()) return ''; } catch { return ''; }
     try { if (!statSync(kf).isFile()) return ''; } catch { return ''; }
     let d;
-    try { d = realpathSync.native(dn(kf)); } catch { return ''; }
+    try { d = posix(realpathSync.native(dn(kf))); } catch { return ''; }
     kf = `${d}/${bn(kf)}`;
     if (kf.includes('/node_modules/') || kf.startsWith(`${this.ctx.root}/.git/`)) return '';
     let kt = '/nonexistent';
-    try { kt = realpathSync.native(this.ctx.env.TMPDIR || '/nonexistent'); } catch { /* keep */ }
+    try { kt = posix(realpathSync.native(this.ctx.env.TMPDIR || '/nonexistent')); } catch { /* keep */ }
     if (!(kf.startsWith(`${this.ctx.root}/`) || kf.startsWith(`${kt}/`) || /^\/(tmp|private\/tmp|var\/folders|private\/var\/folders)\//.test(kf))) return '';
     try {
       const st = statSync(kf);

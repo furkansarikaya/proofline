@@ -81,7 +81,8 @@ function configCheck(ctx, args) {
     for (const key of ['validation.entry_words', 'validation.entry_candidates', 'validation.entry_input', 'validation.entry_new', 'validation.entry_output', 'validation.entry_skip', 'validation.code_patterns']) {
       const v = (configGetFrom(lines, key) ?? '').replace(/\n+$/, '');
       if (v === '') continue;
-      const r = proc.run('grep', ['-Eq', '--', toArg(v)], { cwd: ctx.cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'ignore', 'ignore'] });
+      // The pattern goes in on stdin (`-f -`), never as an argument: the MSYS grep of Windows re-parses its command line and eats the backslashes of an argument (A246).
+      const r = proc.run('grep', ['-Eq', '-f', '-'], { cwd: ctx.cwd, env: ctx.childEnv(), input: `${toArg(v)}\n`, stdio: ['pipe', 'ignore', 'ignore'] });
       if (r.status >= 2) messages.push(`invalid regular expression for ${key}`);
     }
     // A162: risk.log_sensitive.content is matched by awk (risk_words_match), so awk is the one that must accept it

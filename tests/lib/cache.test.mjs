@@ -128,3 +128,22 @@ describe('concurrent callers of one key', () => {
     outcome(root, 'late', second);
   });
 });
+
+test('a publish that fails for a real reason removes the private build directory and says so (it does not pass for a lost race)', () => {
+  const root = tmp('cache');
+  writeFileSync(path.join(root, 'blocked'), 'a file where the template should go');
+  assert.throws(() => cached('blocked', (d) => writeFileSync(path.join(d, 'a.txt'), 'x'), root));
+  assert.deepEqual(readdirSync(root).sort(), ['blocked'], 'no build-* directory is left');
+});
+
+test('a loser that finds the complete template discards its copy, and the copy is gone when cached() returns', () => {
+  const root = tmp('cache');
+  const first = cached('k', (d) => writeFileSync(path.join(d, 'a.txt'), 'v1'), root);
+  mkdirSync(path.join(first, 'sub')); // the winner's directory is not empty and stays so
+  // a second call that does not see .built (as a contender that started before the publish) builds, loses the rename and cleans up
+  rmSync(path.join(first, '.built'));
+  const second = cached('k', (d) => { writeFileSync(path.join(d, 'a.txt'), 'v2'); writeFileSync(path.join(first, '.built'), ''); }, root);
+  assert.equal(second, first);
+  assert.deepEqual(readdirSync(root).sort(), ['k']);
+  assert.equal(readFileSync(path.join(first, 'a.txt'), 'utf8'), 'v1', 'the winner is untouched');
+});

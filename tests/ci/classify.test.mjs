@@ -20,7 +20,7 @@ const CASES = /** @type {Array<[boolean, string[]]>} */ ([
   [true, ['adapters/claude/README.md']],
   [true, ['docs/reference/skills.md']],
   [true, ['docs/reference/generate-skills.mjs']],
-  [true, ['docs/decisions.md', 'tests/selftest.mjs']],
+  [true, ['docs/decisions.md', 'tests/lib/harness.mjs']],
   [true, ['.github/workflows/ci.yml']],
   [true, ['README.md', 'fixtures/api-design/setup.mjs']],
   [true, ['tests/e2e/README.md']],

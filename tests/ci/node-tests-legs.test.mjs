@@ -1,7 +1,6 @@
 // The `node-tests` job is a matrix of parallel legs (user order 2026-11-02: cut the long tests), and so is `invariants`. These tests read .github/workflows/ci.yml:
 // every test file the old globs matched is in exactly one leg (no file lost), the
-// job names `checks` waits for stay stable, and nothing reads the fast-mode output. They live here, not in fast-mode.test.mjs (a change there forces the
-// full legacy suite on the pull request).
+// job names `checks` waits for stay stable, and nothing is skipped by a pull-request shortcut (the fast mode ended in A246; tests/ci/ci-workflow.test.mjs pins its absence).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -21,7 +20,7 @@ test('node-tests is a matrix of legs on both Node versions, with unique names', 
   assert.equal(new Set(legs.map((l) => l.name)).size, legs.length);
   assert.match(nt, /node: \['22\.13\.0', 'lts\/\*'\]/);
   assert.match(nt, /name: node-tests \(\$\{\{ matrix\.node \}\}, \$\{\{ matrix\.leg\.name \}\}\)/);
-  assert.ok(!/outputs\.fast|needs\.changes/.test(nt), 'never skipped by fast mode');
+  assert.ok(!/outputs\.fast|needs\.changes/.test(nt), 'never skipped');
   assert.match(ci.slice(ci.indexOf('\n  checks:')), /needs: \[[^\]]*\bnode-tests\b[^\]]*\binvariants\b|needs: \[[^\]]*\binvariants\b[^\]]*\bnode-tests\b/, 'checks needs both matrix jobs by their stable names');
 });
 

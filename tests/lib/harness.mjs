@@ -225,9 +225,19 @@ export function cached(key, build, root = safeCacheRoot()) {
   const final = path.join(root, key);
   if (existsSync(path.join(final, '.built'))) return final;
   const work = mkdtempSync(path.join(root, `build-${key.slice(0, 12)}-`));
-  try { build(work); writeFileSync(path.join(work, '.built'), ''); } catch (e) { rmSync(work, { recursive: true, force: true }); throw e; }
-  try { renameSync(work, final); } catch { rmSync(work, { recursive: true, force: true }); /* another process finished first */ }
+  try { build(work); writeFileSync(path.join(work, '.built'), ''); } catch (e) { discard(work); throw e; }
+  try { renameSync(work, final); } catch (e) {
+    // The private copy is always removed, and removed before this returns (a leftover `build-*` beside the template is what the race test of A246 saw).
+    // Losing the race is only the case where the template is complete at the final path; any other failure is a real error and is thrown.
+    discard(work);
+    if (!existsSync(path.join(final, '.built'))) throw e;
+  }
   return final;
+}
+/** Removes a private build directory completely: retried (a late writer of a build command, a busy file), and an error if it is still there. @param {string} dir */
+function discard(dir) {
+  for (let i = 0; i < 5 && existsSync(dir); i++) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  if (existsSync(dir)) throw new Error(`harness: cannot remove the private build directory ${dir}`);
 }
 /** A copy of a template into a fresh directory. @param {string} template */
 export function copyOf(template) {

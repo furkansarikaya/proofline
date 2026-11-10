@@ -11,7 +11,7 @@
 //   stashPath               a directory named in command text, resolved the way the shell hook's stash_path did
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { cmdSubst } from '../lib/text.mjs';
+import { cmdSubst, posix } from '../lib/text.mjs';
 
 /** The refusal of a guard (the text without the "proofline: " prefix). */
 export class Deny extends Error {
@@ -120,7 +120,7 @@ function findGitDir(start) {
       if (st.isDirectory()) return g;
       if (st.isFile()) {
         const m = /^gitdir: (.*)$/m.exec(readFileSync(g, 'utf8'));
-        return m ? resolve(d, /** @type {string} */ (m[1])) : null;
+        return m ? posix(resolve(d, /** @type {string} */ (m[1]))) : null;
       }
     } catch { /* keep walking */ }
     const up = dirname(d);
@@ -141,9 +141,9 @@ export async function worktrees(ctx) {
   if (gd) {
     try {
       let common = gd;
-      try { common = resolve(gd, readFileSync(`${gd}/commondir`, 'utf8').replace(/\n+$/, '')); } catch { /* the main git dir itself */ }
+      try { common = posix(resolve(gd, readFileSync(`${gd}/commondir`, 'utf8').replace(/\n+$/, ''))); } catch { /* the main git dir itself */ }
       if (basename(common) === '.git') {
-        /** @type {string[]} */ const out = [dirname(common)];
+        /** @type {string[]} */ const out = [posix(dirname(common))];
         let names = [];
         try { names = readdirSync(`${common}/worktrees`).sort(); } catch { /* none */ }
         for (const n of names) {
@@ -222,8 +222,11 @@ export function bn(p) {
 
 /** The physical path (`cd -P && pwd -P`), or '' when it is not a directory. @param {string} p */
 export function physDir(p) {
-  try { if (!statSync(p).isDirectory()) return ''; return realpathSync.native(p); } catch { return ''; }
+  try { if (!statSync(p).isDirectory()) return ''; return posix(realpathSync.native(p)); } catch { return ''; }
 }
+
+/** An absolute path in the hook's spelling: `/x`, and on a Windows host `C:/x` too (elsewhere `C:/x` is a name under the working directory). @param {string} p */
+export function isAbsolute(p) { return p.startsWith('/') || (process.platform === 'win32' && /^[A-Za-z]:[\\/]/.test(p)); }
 
 /**
  * `stash_path P BASE`: P resolved against BASE (physical when it exists; leading $TMPDIR and $HOME expanded). '' when the path cannot be
@@ -236,7 +239,7 @@ export function stashPath(ctx, p, base) {
   if (q.startsWith('$TMPDIR/') || q.startsWith('${TMPDIR}/')) q = `${ctx.env.TMPDIR || '/tmp'}/${rest()}`;
   else if (q.startsWith('~/') || q.startsWith('$HOME/') || q.startsWith('${HOME}/')) q = `${ctx.env.HOME || '/nonexistent'}/${rest()}`;
   if (q === '' || q === '-' || q.startsWith('~') || /[$`*?]/.test(q)) return '';
-  if (!q.startsWith('/')) { if (!base) return ''; q = `${base}/${q}`; }
+  if (!isAbsolute(q)) { if (!base) return ''; q = `${base}/${q}`; }
   return cmdSubst(physDir(q));
 }
 

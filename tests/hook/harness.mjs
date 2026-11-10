@@ -2,11 +2,14 @@
 // Shared helpers of the Node hook tests: a throwaway installed-project fixture (the scaffold of the legacy self-tests, the core beside agent.sh),
 // the two hooks run on the same recorded input, and a normalised view of what they left on disk.
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { realpathSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
+import { tmpdir as osTmpdir } from 'node:os';
+import { join, resolve, sep } from 'node:path';
 import { cleanEnv } from '../lib/harness.mjs';
 import { buildRecipe } from '../lib/recipe.mjs';
+
+/** The temp directory in its long physical form: on a Windows runner `os.tmpdir()` is the 8.3 short path (`C:\\Users\\RUNNER~1\\...`) while git, the guards and `realpathSync.native` give `C:\\Users\\runneradmin\\...`; a test that compares paths must not mix the two (A246). */
+export const tmpdir = () => realpathSync.native(osTmpdir());
 
 export const repo = resolve(import.meta.dirname, '../..');
 /** The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> (a harness choice for mutation checks, as the former shell suites read it); the shipped hook by default. */
@@ -64,7 +67,7 @@ export function snapshot(dir) {
       const p = join(d, n);
       const st = statSync(p);
       if (st.isDirectory()) { walk(p); continue; }
-      const rel = p.slice(dir.length + 1);
+      const rel = p.slice(dir.length + 1).split(sep).join('/');
       if (/\.agents\/local\/(hook-times|hooks-inflight|hooklock\/)/.test(rel) || rel.endsWith('/.git') || /\/worktrees\//.test(rel)) continue;
       const name = rel.replace(/\/prompts\/intake\/[0-9]+-[0-9]+\.json$/, '/prompts/intake/<ms>-<pid>.json').replace(/\/prompts\/history\/[0-9]+-/, '/prompts/history/<s>-');
       out[name] = norm(readFileSync(p, 'utf8'), dir);
@@ -80,4 +83,4 @@ export function norm(text, dir) {
     .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/g, '<D>').replace(/\b(total_|max_)?ms=[0-9]*/g, 'ms=<N>').replace(/prev=[0-9a-f]{64}/g, 'prev=<H>').replace(/@[0-9a-f]{64}/g, '@<H>');
 }
 
-export { mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync, readFileSync, spawnSync };
+export { mkdirSync, writeFileSync, rmSync, mkdtempSync, join, existsSync, readFileSync, spawnSync };
