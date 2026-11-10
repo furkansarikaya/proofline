@@ -237,7 +237,7 @@ export function cached(key, build, root = safeCacheRoot()) {
 /**
  * Removes a private build directory completely or throws. `rmSync` is a thin layer over the C++ library's `remove_all` (Node 22+), whose behaviour on a tree that other
  * processes are renaming and removing next to it is the platform's; the result is therefore checked, never assumed (A247): when the directory is still there afterwards it is
- * removed entry by entry, and when it is STILL there the call fails, so a leftover `build-*` can never pass for a clean cache. @param {string} dir @param {typeof rmSync} [rm] the first attempt
+ * removed entry by entry, and when it is STILL there the call fails, so a leftover `build-*` can never pass for a clean cache. @param {string} dir @param {(p: string, o?: import('node:fs').RmOptions) => void} [rm] the first attempt
  */
 export function discard(dir, rm = rmSync) {
   try { rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }); } catch { /* the check below decides */ }
