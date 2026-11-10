@@ -51,7 +51,7 @@ function statusLists(ctx) {
 export function trackedPaths(ctx) {
   const base = ctx.ctpBase;
   if (base === '') return statusLists(ctx).tracked;
-  return sortUnique(nonEmpty(git(ctx, ['diff', '--no-renames', '--name-only', base]).out));
+  return sortUnique(nonEmpty(git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', base]).out));
 }
 
 /** `current_untracked_paths` @param {Context} ctx @returns {string[]} */
@@ -59,7 +59,7 @@ export function untrackedPaths(ctx) { return statusLists(ctx).untracked; }
 
 /** `git diff --no-renames --name-only BASE --` (the task's tracked changes against its base), sorted. @param {Context} ctx @param {string} base */
 export function diffNames(ctx, base) {
-  return sortUnique(nonEmpty(git(ctx, ['diff', '--no-renames', '--name-only', base, '--']).out));
+  return sortUnique(nonEmpty(git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', base, '--']).out));
 }
 
 /** `git branch --show-current`, asked once per invocation (the `branch` command forgets it after its checkout). @param {Context} ctx */
@@ -78,7 +78,7 @@ export function objectExists(ctx, object) { return git(ctx, ['cat-file', '-e', o
 export function isAncestor(ctx, a, b) { return git(ctx, ['merge-base', '--is-ancestor', a, b]).status === 0; }
 
 /** `git show REV:PATH` as bytes, null when it fails. @param {Context} ctx @param {string} spec */
-export function show(ctx, spec) { const r = git(ctx, ['show', spec]); return r.status === 0 ? r.out : null; }
+export function show(ctx, spec) { const r = git(ctx, ['show', '--no-ext-diff', '--no-textconv', spec]); return r.status === 0 ? r.out : null; }
 
 /** `git cat-file -p TREE:PATH`, null when it fails. @param {Context} ctx @param {string} spec */
 export function catFile(ctx, spec) { const r = git(ctx, ['cat-file', '-p', spec]); return r.status === 0 ? r.out : null; }
@@ -90,7 +90,7 @@ export function catFile(ctx, spec) { const r = git(ctx, ['cat-file', '-p', spec]
 export function numstat(ctx, base, paths) {
   /** @type {Map<string, number>} */ const m = new Map();
   if (paths.length === 0) return m;
-  const r = git(ctx, ['diff', '--numstat', '--no-renames', '-z', base, '--', ...paths]);
+  const r = git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--numstat', '--no-renames', '-z', base, '--', ...paths]);
   for (const rec of r.out.split('\0')) {
     if (rec === '') continue;
     const mm = /^([0-9]+|-)\t([0-9]+|-)\t([^]*)$/.exec(rec);
@@ -153,7 +153,7 @@ export function addedLines(ctx, base, paths) {
 /** @param {Context} ctx @param {string} base @param {string[]} paths @returns {Map<string, string[]>} */
 function addedLinesNow(ctx, base, paths) {
   /** @type {Map<string, string[]>} */ const out = new Map();
-  const r = git(ctx, ['diff', '--no-renames', '-U0', base, '--', ...paths]);
+  const r = git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '-U0', base, '--', ...paths]);
   /** @type {string[] | null} */ let cur = null;
   let hunk = false;
   for (const l of r.out.split('\n')) {

@@ -1,7 +1,7 @@
 // @ts-check
 // Stage 4, package 4B: the end of a run: `terminate`, `cleanup` (with the removal of the run's worktree and the archive of its records) and
 // `archive_run`. File formats, messages and the order of the checks are those of agent.sh 0.0.47.
-import { hgit } from './hgit.mjs';
+import { hgit, populatedGitlinks } from './hgit.mjs';
 import { frictionReport } from './friction.mjs';
 import { rulesCommand } from './rules.mjs';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -185,7 +185,7 @@ export function sbBlockOnly(ctx, tree, p, id) {
   const run = (/** @type {string[]} */ a) => hgit(ctx, tree, a);
   if (run(['ls-files', '--error-unmatch', '--', p]).status !== 0) return false;
   if (!isFile(`${tree}/${p}`)) return false;
-  const head = run(['show', `HEAD:${p}`]);
+  const head = run(['show', '--no-ext-diff', '--no-textconv', `HEAD:${p}`]);
   const cur = readFileSync(`${tree}/${p}`, 'latin1');
   return sbStrip(id, cur) === sbStrip(id, head.stdout.toString('latin1'));
 }
@@ -223,14 +223,17 @@ function cleanupWorktree(ctx, id, terminal, mergeProved = false) {
   let list = [];
   const copied = fileText(ctx, `${p}/.agents/local/worktree-copied`);
   if (copied !== null) list = textLines(copied);
-  const st = hgit(ctx, p, ['status', '--porcelain', '--ignored', '--untracked-files=all']);
+  const st = hgit(ctx, p, ['status', '--porcelain', '--ignore-submodules=all', '--ignored', '--untracked-files=all']);
   if (st.status !== 0) { ctx.out(`note: the worktree ${p} is kept: git status failed\n`); return; }
+  // A248: status runs with submodules ignored (it would start git in each one, which reads the submodule's own configuration and runs its filter drivers), so a checked out submodule keeps the worktree
+  const sm = populatedGitlinks(ctx, p);
+  if (sm.length > 0) { ctx.out(`note: the worktree ${p} is kept: it holds a checked out submodule (${sm[0]}), which is not inspected here\n`); return; }
   let extra = textLines(st.stdout.toString('latin1')).map((l) => l.slice(3)).filter((l) => !l.startsWith('.agents/runs/') && !l.startsWith('.agents/local/') && !list.includes(l));
   if (extra.length > 0) extra = extra.filter((q) => !sbBlockOnly(ctx, p, q, id));
   for (const f of worktreeDepFolders(ctx)) extra = extra.filter((x) => !x.startsWith(`${f}/`) && x !== f);
   if (extra.length > 0) { ctx.out(`note: the worktree ${p} is kept: it holds files git does not track (not removed): ${extra.slice(0, 3).map((x) => `${x} `).join('')}\n`); return; }
-  const rm = proc.run('git', ['-C', main, 'worktree', 'remove', '--force', p], { cwd: main, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
-  const pr = rm.status === 0 ? proc.run('git', ['-C', main, 'worktree', 'prune'], { cwd: main, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] }) : null;
+  const rm = hgit(ctx, main, ['worktree', 'remove', '--force', p], { cwd: main, stdio: ['ignore', 'ignore', 'ignore'] });
+  const pr = rm.status === 0 ? hgit(ctx, main, ['worktree', 'prune'], { cwd: main, stdio: ['ignore', 'pipe', 'pipe'] }) : null;
   if (rm.status === 0 && pr && pr.status === 0) ctx.out(`worktree removed: ${id}\n`);
   else ctx.out(`note: the worktree ${p} could not be removed; agent.sh worktree-remove ${id} in the main working tree does it\n`);
 }

@@ -42,7 +42,7 @@ function untrackedLines(ctx, rel) {
 /** `git diff --numstat -z` of the tracked changes against HEAD (or a delivered run's base): path -> [added, deleted] (null for a binary file). @param {Context} ctx @returns {Map<string, [number, number] | null>} */
 function trackedLines(ctx) {
   /** @type {Map<string, [number, number] | null>} */ const m = new Map();
-  const r = git(ctx, ['diff', '--no-ext-diff', '--numstat', '--no-renames', '-z', ctx.ctpBase === '' ? 'HEAD' : ctx.ctpBase, '--']);
+  const r = git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--numstat', '--no-renames', '-z', ctx.ctpBase === '' ? 'HEAD' : ctx.ctpBase, '--']);
   if (r.status !== 0) return m;
   for (const e of r.out.split('\0')) {
     const t = e.split('\t');

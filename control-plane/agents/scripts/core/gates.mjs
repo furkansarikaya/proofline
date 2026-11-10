@@ -362,7 +362,7 @@ function gateInputsUnchanged(ctx, dir, rec, gate, mode, now) {
   if (!objectExists(ctx, `${recFp}^{tree}`) || !objectExists(ctx, `${cur}^{tree}`)) return false;
   const words = new RegExp(SECURITY_TEST_WORDS, 'i');
   if (delta.some((p) => words.test(p))) return false;
-  const d = git(ctx, ['diff', '--no-color', '--no-ext-diff', '-U0', recFp, cur, '--', ...delta]);
+  const d = git(ctx, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U0', recFp, cur, '--', ...delta]);
   if (d.status !== 0 || d.out === '') return false;
   if (d.out.split('\n').some((l) => /^[+-][^+-]/.test(l) && words.test(l))) return false;
   return true;
@@ -487,7 +487,7 @@ function treeLineBefore(ctx, oldTree, newTree, loc) {
   if (!/^[0-9]+$/.test(n0) || p === loc || !(Number(n0) > 0)) return null;
   if (!objectExists(ctx, `${oldTree}:${p}`)) return null;
   const n = Number(n0);
-  const d = git(ctx, ['diff', '--no-color', '--no-ext-diff', '-U0', oldTree, newTree, '--', p]);
+  const d = git(ctx, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U0', oldTree, newTree, '--', p]);
   let off = 0; let bad = false;
   for (const l of d.out.split('\n')) {
     if (!l.startsWith('@@ ')) continue;

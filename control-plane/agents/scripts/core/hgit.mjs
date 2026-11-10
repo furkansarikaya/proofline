@@ -3,6 +3,7 @@
 // repository config defines is code git runs on every file it reads or writes. deliver-merged looks for such drivers, and every git call on a checkout it
 // touches (the main tree, the run's worktree) carries the blanking: the file system monitor off and each driver's three commands set empty, through the
 // ENVIRONMENT (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, GIT_CONFIG_VALUE_n), where a name is a key and not a `-c name=value` text that an `=` in the name would cut.
+import { existsSync } from 'node:fs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -56,12 +57,14 @@ export function repoDrivers(gitBin, trees, where) {
  */
 export function hermeticEnv(base, names) {
   /** @type {Record<string, string>} */ const out = {};
-  for (const [k, v] of Object.entries(base)) if (v !== undefined) out[k] = v;
-  const have = Number(out['GIT_CONFIG_COUNT']);
-  let n = Number.isInteger(have) && have > 0 && have < 10000 ? have : 0;
+  // GIT_CONFIG_PARAMETERS (the `-c` carrier) is applied by git AFTER GIT_CONFIG_COUNT, so a caller's value could undo the blanking: it is dropped
+  for (const [k, v] of Object.entries(base)) if (v !== undefined && k !== 'GIT_CONFIG_PARAMETERS') out[k] = v;
+  const cnt = out['GIT_CONFIG_COUNT'];
+  let n = cnt !== undefined && /^\d+$/.test(cnt) && Number(cnt) < 10000 ? Number(cnt) : 0;
   /** @param {string} k @param {string} v */
   const put = (k, v) => { out[`GIT_CONFIG_KEY_${n}`] = k; out[`GIT_CONFIG_VALUE_${n}`] = v; n += 1; };
   put('core.fsmonitor', 'false');
+  put('core.hooksPath', process.platform === 'win32' ? 'NUL' : '/dev/null'); // a hook (post-checkout, reference-transaction ...) is repository code too
   for (const name of names) for (const v of ['clean', 'smudge', 'process']) put(`filter.${name}.${v}`, '');
   out['GIT_CONFIG_COUNT'] = String(n);
   return out;
@@ -73,7 +76,24 @@ export function hermeticEnv(base, names) {
  * @param {{ bin?: string, env?: Record<string, string | undefined>, cwd?: string, input?: string | Buffer, stdio?: Array<'pipe' | 'ignore' | 'inherit'> }} [opt]
  */
 export function hgit(ctx, tree, args, opt = {}) {
-  return proc.run(opt.bin ?? 'git', ['-C', tree, ...args], {
-    cwd: opt.cwd ?? ctx.cwd, env: hermeticEnv(opt.env ?? ctx.childEnv(), ctx.gitBlank), input: opt.input, stdio: opt.stdio ?? ['ignore', 'pipe', 'ignore'],
+  // `git status` starts a git in each checked out submodule, and that reads the SUBMODULE's own configuration (its filter drivers): submodules are never entered (S2)
+  const a = args[0] === 'status' && !args.some((x) => x.startsWith('--ignore-submodules')) ? ['status', '--ignore-submodules=all', ...args.slice(1)] : args;
+  return proc.run(opt.bin ?? 'git', ['-C', tree, ...a], {
+    cwd: opt.cwd ?? ctx.cwd, env: hermeticEnv(opt.env ?? ctx.childEnv(), ctx.gitBlank), input: opt.input, stdio: opt.stdio ?? [opt.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
   });
+}
+
+/**
+ * The checked out submodules of TREE (a gitlink whose folder has its own `.git`): git starts its own `status` in each of them and that reads the SUBMODULE's
+ * configuration, which `repoDrivers` does not see. Callers run status with `--ignore-submodules=all` and treat a populated one as something they do not inspect.
+ * @param {Context} ctx @param {string} tree @returns {string[]}
+ */
+export function populatedGitlinks(ctx, tree) {
+  const r = hgit(ctx, tree, ['ls-files', '--stage', '-z']);
+  /** @type {string[]} */ const out = [];
+  for (const rec of r.stdout.toString('latin1').split('\0')) {
+    const m = /^160000 [0-9a-f]+ [0-3]\t([^]*)$/.exec(rec);
+    if (m && existsSync(`${tree}/${m[1]}/.git`)) out.push(m[1]);
+  }
+  return out;
 }

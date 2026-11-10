@@ -31,7 +31,7 @@ function kiUntouched(ctx, dir, place) {
   for (const e of scope.split(',').filter((x) => x !== '')) if (scopeEntryCovers(lower(e), lower(place))) return false;
   const base = sectionValue(ctx, dir, 'repository', 'base_sha');
   if (base === '') return false;
-  const d = git(ctx, ['diff', '--no-renames', '--name-only', base]);
+  const d = git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', base]);
   if (d.status !== 0) return false;
   const all = sortUnique([...d.out.split('\n').filter((l) => l !== ''), ...trackedPaths(ctx), ...untrackedPaths(ctx)]).map(lower);
   const want = lower(normRelPath(place));

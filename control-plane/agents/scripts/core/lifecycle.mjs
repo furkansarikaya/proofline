@@ -215,7 +215,7 @@ function mapsOf(ctx, dir) { const sc = planScope(ctx, dir); return sc.ok ? sc.ro
 
 /** `git diff --no-renames --name-only BASE HEAD`: the lines, or null when it fails. @param {Context} ctx @param {string} base */
 function rangeNames(ctx, base) {
-  const r = git(ctx, ['diff', '--no-renames', '--name-only', base, 'HEAD']);
+  const r = git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', base, 'HEAD']);
   return r.status === 0 ? r.out.split('\n').filter((x) => x !== '') : null;
 }
 
