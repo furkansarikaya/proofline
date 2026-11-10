@@ -52,8 +52,8 @@ export function allowed(label, out) { assert.ok(!out.includes('"permissionDecisi
 
 /** The recipe of the suites' `fixture`: an orchestrated run at IMPLEMENTING with the git hooks and (hook: true) the runtime hook installed. @param {{ klass?: string, auto?: string, extra?: string, hook?: boolean }} [o] */
 export function fixtureRecipe(o = {}) {
-  const hook = o.hook === false ? '' : `; cp -R "$tl_agents/../../adapters/claude/hooks/." .agents/hooks/; cp "$tl_agents/scripts/proofline-core.mjs" .agents/scripts/; cp -R "$tl_agents/scripts/core" .agents/scripts/core; printf '.agents/scripts/proofline-core.mjs\\n.agents/scripts/core/\\n' >> .git/info/exclude`;
-  return `scaffold orchestrated no ${o.klass ?? 'COMPLEX'} "${o.auto ?? ''}"; node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks src${hook}; `
+  const hook = o.hook === false ? '' : `; cp -R "$tl_agents/../../adapters/claude/hooks/." .agents/hooks/`;   // the core is installed beside agent.sh by the harness
+  return `scaffold orchestrated no ${o.klass ?? 'COMPLEX'} "${o.auto ?? ''}"; install_githooks; mkdir -p .agents/hooks src${hook}; `
     + "printf '.agents/githooks/\\n.agents/hooks/\\n' >> .git/info/exclude; git config core.hooksPath .agents/githooks; git config commit.gpgsign false" + (o.extra ? `; ${o.extra}` : '');
 }
 /** A fresh fixture project (a copy of the cached template). @param {Parameters<typeof fixtureRecipe>[0]} [o] */

@@ -208,7 +208,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.77"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.78"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -455,8 +455,7 @@ test("dispatch: the lead keeps its turn alive until its background D has finishe
   assert.match(dispatch, /`n=0; while kill -0 N 2>\/dev\/null && \[ "\$n" -lt 110 \]; do sleep 5;/);
   assert.match(dispatch, /run the same wait call again, as many times as it takes/);
   assert.match(dispatch, /Only when the process is gone, read the exit code/);
-  const agent = readFileSync(join(repoRoot, "control-plane/agents/scripts/agent.sh"), "utf8");
-  assert.match(agent, /never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it \(DISPATCH\.md, A227\)/);
+  // the `wait:` line of the live `next` carries the A227 sentence: asserted against the core's output in tests/core/lifecycle-s2.test.mjs (A244 restored it in core/next.mjs)
   // the wait uses only a tool the lead has: Bash; no Monitor tool is named as the way to wait
   assert.match(lead, /tools: Read Grep Glob Bash Write Edit/);
   // known bad: the old "wait for its notice" with no turn rule, and a wait that needs a tool the lead lacks

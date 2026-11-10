@@ -211,7 +211,7 @@ test('ci-fix (batch): the batch delivery cover carries two CI-fix rounds to the 
   const pushApproval = readdirSync(`${d}/.agents/runs/LC/approvals`).filter((n) => n.endsWith('-push.yaml') && !n.includes('request')).sort().pop() ?? '';
   assert.match(read(d, `.agents/runs/LC/approvals/${pushApproval}`), /^source: "batch"/m);
   assert.match(read(d, `.agents/runs/LC/approvals/${pushApproval}`), /^ref: "refs\/heads\/proofline\/LC-lookup"/m);
-  run(d, 'rm', ['-f', ...readdirSync(`${d}/.agents/local/prompts`).map((n) => `${d}/.agents/local/prompts/${n}`)]); // no user reply exists from here on
+  run(d, 'rm', ['-rf', ...readdirSync(`${d}/.agents/local/prompts`).map((n) => `${d}/.agents/local/prompts/${n}`)]); // no user reply exists from here on
   accepted(S(d, gh, 'commit'), 'commit');
   commitDelivery(d);
   accepted(S(d, gh, 'push'), 'push');

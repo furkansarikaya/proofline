@@ -74,10 +74,8 @@ function project(o) {
 const agent = (root, args, env = {}) => spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' });
 
 describe('agent.sh without the core', () => {
-  test('a folder that is not an installed project (no manifest) runs the shell code', () => {
-    const root = project({});
-    try { const r = agent(root, ['role']); assert.equal(r.status, 0); assert.equal(r.stdout, 'role=lead\n'); } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  // A244: the test 'a folder that is not an installed project (no manifest) runs the shell code' is gone: that fallback is the shell arm of agent.sh, which no fixture reaches any more (every
+  // fixture is a project with the core beside agent.sh) and which 176-E2 deletes. What agent.sh does in a folder with neither core nor manifest is decided there.
   test('an installed project fails closed with exit 127 and a message naming Node 22.13 and the missing file', () => {
     for (const o of [{ manifest: true }, { manifest: true, core: true }, { manifest: true, coreDir: true }]) {
       const root = project(o);

@@ -6,8 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, accepted, cleanEnv, newRepo, repo, scripts, useLiveCore } from '../lib/harness.mjs';
-useLiveCore();
+import { A, accepted, cleanEnv, newRepo, repo, scripts } from '../lib/harness.mjs';
 
 const w = (/** @type {string} */ d, /** @type {string} */ f, /** @type {string} */ t) => { mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); writeFileSync(path.join(d, f), t); };
 

@@ -12,8 +12,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, accepted, gpass, must, pipe, repo, scaffold, tmp, useLiveCore, worker } from '../lib/harness.mjs';
-useLiveCore();
+import { A, accepted, gpass, must, pipe, repo, scaffold, tmp, worker } from '../lib/harness.mjs';
 
 // The budgets: tests/bench/next-digest-budgets.tsv (the shell test allowed 260 and 340 on the same fixture; the Node core is measured at 9, A243).
 /** @type {Record<string, number>} */ const BUDGET = {};

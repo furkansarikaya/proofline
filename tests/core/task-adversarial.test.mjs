@@ -6,8 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, accepted, expectFail, expectMsg, project, useLiveCore, worker } from '../lib/harness.mjs';
-useLiveCore();
+import { A, accepted, expectFail, expectMsg, project, worker } from '../lib/harness.mjs';
 
 const TASK = '.agents/runs/LC/TASK.md'; const PLAN = '.agents/runs/LC/PLAN.md';
 const rd = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(path.join(d, f), 'utf8');

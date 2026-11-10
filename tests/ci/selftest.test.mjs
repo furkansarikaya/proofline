@@ -55,7 +55,8 @@ describe('the unit split', () => {
 describe('every unit of the repository runs exactly once', () => {
   test('the 16 CI shards together list every unit of every legacy suite once, none twice (a hidden unit is a test that never runs)', () => {
     const suites = allSuites(root);
-    assert.ok(suites.length > 0, `${suites.length} suites`);
+    // since A244 the repository holds no legacy shell suite (the last one became tests/lib/cache.test.mjs): the invariants below hold vacuously, and stay for any suite that is added
+    assert.deepEqual(suites, [], 'a new shell suite is a unit of the legacy runner: say so in the decision log');
     const units = unitsOf(suites, '');
     const weights = existsSync(path.join(root, 'tests/selftest-weights.txt')) ? readFileSync(path.join(root, 'tests/selftest-weights.txt'), 'utf8') : '';
     /** @type {Map<number, number>} */ const seen = new Map();
@@ -83,6 +84,22 @@ describe('every unit of the repository runs exactly once', () => {
     const w = await run(r, { SELFTEST_LIST: 'weights', SELFTEST_WEIGHTS: path.join(r, 'tests/selftest-weights.txt') });
     assert.ok(w.out.trim().split('\n').includes('30 tests/a/a-test.sh|one'));
     assert.ok(w.out.trim().split('\n').includes('30 tests/a/a-test.sh|two'), 'an unlisted unit weighs the median of the listed');
+  });
+});
+
+describe('a repository without shell suites (A244)', () => {
+  test('is an empty pass, in every shard, with a note; a name that matches no suite is still an error', async () => {
+    const r = fake({});
+    for (const shard of ['1/1', '3/16']) {
+      const res = await run(r, { SELFTEST_SHARD: shard });
+      assert.equal(res.status, 0, res.out);
+      assert.match(res.out, /no shell suites left/);
+    }
+    assert.equal((await run(r, { SELFTEST_ONLY: 'lifecycle-test' })).status, 2, 'a suite that was asked for by name and does not exist fails');
+    // the CI shard uploads its timing file with if-no-files-found: error: an empty run writes an empty one
+    const times = path.join(work, `times-${n}.txt`);
+    assert.equal((await run(r, { SELFTEST_TIMES_FILE: times })).status, 0);
+    assert.equal(readFileSync(times, 'utf8'), '');
   });
 });
 

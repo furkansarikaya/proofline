@@ -287,7 +287,7 @@ export function nextStep(ctx, id, emit) {
   const fly = inflightDispatch(ctx, d);
   if (fly) {
     const fp = inflightParts(fly);
-    o(`wait: dispatch.sh ${id} ${fp.role} in flight (pid ${fp.pid}; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns`);
+    o(`wait: dispatch.sh ${id} ${fp.role} in flight (pid ${fp.pid}; others may be too, see dispatch/*.running); do not start other work on this step and do not read its log or result until the command returns; never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it (DISPATCH.md, A227)`);
     r('a dispatch is running (A124)');
     emit(budgetNote(ctx, d));
     removeMarkers(d, stale);

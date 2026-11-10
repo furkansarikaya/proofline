@@ -3,22 +3,11 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { accepted, cached, cleanEnv, codeKey, copyOf, gateOwner, qaBind, say, scaffold, tmp, tsha } from '../lib/harness.mjs';
+import { A, accepted, cached, cleanEnv, codeKey, copyOf, gateOwner, qaBind, say, scaffold, tmp, tsha } from '../lib/harness.mjs';
 
 /** @typedef {import('../lib/harness.mjs').Result} Result */
 
-/**
- * One call of the control plane, ALWAYS in the Node core. The harness fixture's agent.sh prologue sends only the commands moved by stages 4A-4C to the core;
- * every other command (pipeline, next, window-open, request-approval, approve, approve-pending, digest, validate, ...) would run the shell arm of agent.sh there,
- * which the installed product never reaches (agent.sh execs the core for every command). This asserts the live path: the core, with the argv0 the prologue hands over.
- * @param {string} dir @param {string[]} args @param {{ role?: string, input?: string, env?: Record<string, string>, timeout?: number, bind?: boolean }} [o] @returns {Result}
- */
-export function A(dir, args, o = {}) {
-  if (o.bind && (args[0] === 'freeze' || args[0] === 'refreeze')) qaBind(dir, args[1] ?? '');
-  const env = cleanEnv({ ...(o.role ? { AGENT_ROLE: o.role } : {}), ...(o.env ?? {}) });
-  const r = spawnSync('node', ['.agents/core4a/proofline-core.mjs', '--pl-argv0', '.agents/scripts/agent.sh', ...args], { cwd: dir, env, input: o.input ?? '', encoding: 'utf8', timeout: o.timeout ?? 300000 });
-  return { status: r.status, out: r.stdout ?? '', err: r.stderr ?? '', text: (r.stdout ?? '') + (r.stderr ?? '') };
-}
+export { A };
 /** A as a role. @param {string} dir @param {string} role @param {string[]} args @param {{ input?: string, env?: Record<string, string> }} [o] */
 export const AS = (dir, role, args, o = {}) => A(dir, args, { ...o, role });
 /** A that throws when refused. @param {string} dir @param {string[]} args @param {Parameters<typeof A>[2]} [o] */

@@ -6,7 +6,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpat
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
-import { A, AS, accepted, approveAsUser, capture, expectFail, gateStatus, must, pipe, project, refused, rv, tmp, tsha, worker, wopen, wev, wclose, solo, gpass, gfail, rec, resultFor } from '../lib/harness.mjs';
+import { A, AS, accepted, approveAsUser, expectFail, gateStatus, must, pipe, project, refused, rv, say, tmp, tsha, worker, wopen, wev, wclose, solo, gpass, gfail, rec, resultFor } from '../lib/harness.mjs';
 import { Aasync, chmodTree, gateText, implemented, linesWith, lsDir, nGates, recTry } from './gates-s1-lib.mjs';
 
 const RUN = '.agents/runs/LC';
@@ -319,22 +319,21 @@ test('sc_parallel_lock: parallel decide, ledger-note and record; stale and live 
 
 test('sc_lock_break_race: a holder that appears after the stale-pid read keeps the lock', () => {
   const d = orch();
-  // a fake `cat` plays the holder: after the waiter's first read of the lock's pid it writes a live pid into the file
-  const bin = tmp('fakebin'); const flag = path.join(tmp('flag'), 'fake-cat.flag');
-  writeFileSync(path.join(bin, 'cat'), [
-    '#!/usr/bin/env node',
-    "const fs = require('node:fs'); const { spawnSync } = require('node:child_process');",
-    'const a = process.argv.slice(2);',
-    "if (a[0] && a[0].endsWith('/.lock/pid') && fs.existsSync(process.env.FAKE_CAT_FLAG)) {",
-    "  fs.rmSync(process.env.FAKE_CAT_FLAG); process.stdout.write(fs.readFileSync(a[0])); fs.writeFileSync(a[0], process.env.FAKE_CAT_LIVE + '\\n'); process.exit(0);",
-    '}',
-    "process.exit(spawnSync('/bin/cat', a, { stdio: 'inherit' }).status ?? 1);", ''].join('\n'));
-  chmodSync(path.join(bin, 'cat'), 0o755);
+  // The shell lock read the pid file with `cat`, and this test put a fake `cat` on PATH that, after the waiter's first read of the pid, wrote a live pid into the file. The core reads
+  // it with fs, so the same moment is made by a preload (NODE_OPTIONS=--import) that wraps fs.renameSync: just before the waiter takes the pid file by rename (after its read and its
+  // liveness check said "stale"), the holder writes its own pid into it. The waiter must find another pid in what it took, put it back and go on waiting.
+  const pre = path.join(tmp('preload'), 'holder.mjs'); const flag = path.join(tmp('flag'), 'holder.flag');
+  writeFileSync(pre, [
+    "import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';",
+    'const rename = fs.renameSync;',
+    'fs.renameSync = (from, to) => {',
+    "  if (String(from).endsWith('/.lock/pid') && fs.existsSync(process.env.FAKE_HOLDER_FLAG)) { fs.rmSync(process.env.FAKE_HOLDER_FLAG); fs.writeFileSync(from, `${process.env.FAKE_HOLDER_PID}\\n`); }",
+    '  return rename(from, to);', '};', 'syncBuiltinESMExports();', ''].join('\n'));
   mkdirSync(path.join(d, `${RUN}/.lock`)); writeFileSync(path.join(d, `${RUN}/.lock/pid`), '99999999\n');
   writeFileSync(flag, '');
   const h = holder();
   try {
-    refused(A(d, ['hook-time', 'LC'], { env: { PATH: `${bin}:${process.env.PATH}`, FAKE_CAT_FLAG: flag, FAKE_CAT_LIVE: String(h.pid), PROOFLINE_LOCK_TIMEOUT: '1' } }),
+    refused(A(d, ['hook-time', 'LC'], { env: { NODE_OPTIONS: `--import ${pre}`, FAKE_HOLDER_FLAG: flag, FAKE_HOLDER_PID: String(h.pid), PROOFLINE_LOCK_TIMEOUT: '1' } }),
       'a lock taken by a live holder after the stale read was broken', 'lock timeout after 1s');
     assert.ok(!existsSync(flag), 'the fake holder never took the lock (the race was not exercised)');
     assert.equal(rd(d, `${RUN}/.lock/pid`).replace(/\n+$/, ''), String(h.pid), 'the live holder lost its pid');
@@ -434,17 +433,17 @@ test('sc_waiver: approval naming the finding, lead only, SECRETS and SECURITY ne
   refused(A(d, ['waive', 'LC', 'REVIEW_SMALL-1', '--reason', REASON]), 'a waiver without approval', 'needs the user');
   refused(A(d, ['waive', 'LC', 'REVIEW_SMALL-1']), 'a waiver without a reason', 'reason');
   must(d, ['request-approval', 'LC', 'waive:REVIEW_SMALL-1']);
-  capture(d, 'approved, go ahead');
+  say(d, 'approved, go ahead');
   refused(A(d, ['approve', 'LC', 'waive:REVIEW_SMALL-1']), 'an approval text not naming the finding', 'no approval phrase');
   // A134: the full sentence names the finding; a bare 'the waiver', another id or another kind's object is ambiguous
   for (const t of ['I approve the waiver', 'I approve the waiver of REVIEW_SMALL-2', 'I approve the plan', 'I approve the waiver of REVIEW_SMALL-1 but not the rest']) {
-    capture(d, t); expectFail(A(d, ['approve', 'LC', 'waive:REVIEW_SMALL-1']), `a waiver sentence approved: '${t}'`);
+    say(d, t); expectFail(A(d, ['approve', 'LC', 'waive:REVIEW_SMALL-1']), `a waiver sentence approved: '${t}'`);
   }
-  capture(d, 'REVIEW_SMALL-1 feragatini onaylıyorum');
+  say(d, 'REVIEW_SMALL-1 feragatini onaylıyorum');
   accepted(A(d, ['approve', 'LC', 'waive:REVIEW_SMALL-1']), 'the Turkish waiver sentence');
   for (const n of lsDir(d, `${RUN}/approvals`)) if (/^\d{3}-waive-REVIEW_SMALL-1\.yaml$/.test(n)) rmSync(path.join(d, RUN, 'approvals', n), { force: true });
   must(d, ['request-approval', 'LC', 'waive:REVIEW_SMALL-1']);
-  capture(d, 'I approve the waiver of REVIEW_SMALL-1.');
+  say(d, 'I approve the waiver of REVIEW_SMALL-1.');
   accepted(A(d, ['approve', 'LC', 'waive:REVIEW_SMALL-1']), 'the English waiver sentence');
   refused(AS(d, 'reviewer', ['waive', 'LC', 'REVIEW_SMALL-1', '--reason', REASON]), 'a reviewer waived', 'command denied for reviewer');   // the shell asserted only the refusal; the reason is added
   accepted(A(d, ['waive', 'LC', 'REVIEW_SMALL-1', '--reason', REASON]), 'waive');

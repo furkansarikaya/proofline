@@ -34,6 +34,8 @@ test('scenario_terminal: FAILED only after the fix rounds, BLOCKED, dispatch mar
     wr(d, mk, `pid=${pid}\nrole=verifier\ndispatch in flight\n`);
     const nx = nextOf().out;
     assert.ok(lines(nx).some((l) => l.startsWith(`next=wait: dispatch.sh LC verifier in flight (pid ${pid};`)), `next did not tell the lead to wait for a live dispatch (A124): ${nx}`);
+    // A227: the live line also tells the lead to keep its turn alive (the sentence the shell next_step printed)
+    assert.ok(lines(nx).some((l) => l.startsWith('next=wait: dispatch.sh LC verifier in flight (pid') && l.endsWith('; never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it (DISPATCH.md, A227)')), `the wait line lacks the A227 sentence: ${nx}`);
     assert.ok(!lines(nextOf().out).some((l) => l.startsWith('next=dispatch.sh')), 'next printed a dispatch instruction while one is in flight (A124)');
     assert.ok(lines(A(d, ['pipeline', 'LC']).out).some((l) => l.startsWith(`in_flight=dispatch.sh LC verifier (pid ${pid})`)), 'pipeline did not report the dispatch in flight (A124)');
   } finally { stopSleeper(pid); }
@@ -428,7 +430,7 @@ test('scenario_approval_fail_closed: only an allowlisted phrase approves, every 
   }
   must(d, ['request-approval', 'LC', 'plan']);
   for (const t of ['', longq, 'I approve the plan I approve the plan']) { sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan']), `an empty or quoted answer approved: '${t}'`); }
-  // The grammar is locale independent (test-lib runs under LC_ALL=C): the same refusals and a positive under UTF-8.
+  // The grammar is locale independent (the harness runs under LC_ALL=C): the same refusals and a positive under UTF-8.
   for (const t of ["I shouldn't approve the plan", 'PLAN ONAYLIYORUM DEĞİL', 'plan onay yok', 'yes the plan is wrong']) {
     sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan'], { env: { LC_ALL: 'en_US.UTF-8' } }), `an ambiguous answer approved under UTF-8: '${t}'`);
   }

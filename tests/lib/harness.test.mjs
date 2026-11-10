@@ -1,6 +1,6 @@
 // @ts-check
 // Tests of the Node harness (tests/lib/harness.mjs): the environment hardening, the expectation helpers, and that the Node scaffold builds the SAME state
-// as the shell library it replaces (the committed baseline tree is byte-identical, the run reaches the same handoff and gate states).
+// (since A244 without the shell library it replaced: the scaffold's state is asserted directly, and the recipe form (tests/lib/recipe.mjs over tests/lib/verbs.mjs) builds the same state as the functions).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -10,15 +10,8 @@ import { describe, test } from 'node:test';
 import {
   A, AS, accepted, cleanEnv, expectFail, expectMsg, git, gateStatus, gfail, gpass, solo, newRepo, passAll, pipe, project, qaBind, refused, rv, scaffold, scripts, sha256, toCodeDone, tsha, tmp, expectState,
 } from './harness.mjs';
+import { buildRecipe, runIn } from './recipe.mjs';
 
-/** The shell library builds a scaffold and prints its directory. @param {string} recipe @param {Record<string, string>} [env] */
-function shellScaffold(recipe, env = {}) {
-  const out = tmp('shell');
-  const r = spawnSync('sh', ['-c', `. "$LIB"; ${recipe}; cp -R "$PWD/." "$OUT/"`, path.join(scripts, 'x.sh')],
-    { env: cleanEnv({ LIB: path.join(scripts, 'test-lib.sh'), OUT: out, ...env }), encoding: 'utf8', timeout: 600000 });
-  assert.equal(r.status, 0, `${recipe}: ${r.stderr}${r.stdout}`);
-  return out;
-}
 /** @param {string} dir @returns {string[]} */
 function runFiles(dir) {
   /** @type {string[]} */ const out = [];
@@ -96,51 +89,67 @@ describe('a new repository', () => {
   test('has the control plane installed, git initialised on main, nothing committed, and is independent of its copies', () => {
     const a = newRepo(); const b = newRepo();
     assert.notEqual(a, b);
-    for (const f of ['.agents/scripts/agent.sh', '.agents/scripts/secret-scan.sh', '.agents/scripts/exec-policy.sh', '.agents/task-integrations/markdown.sh', '.agents/config.yaml', '.agents/core4a/proofline-core.mjs']) assert.ok(existsSync(path.join(a, f)), f);
+    for (const f of ['.agents/scripts/agent.sh', '.agents/scripts/secret-scan.sh', '.agents/scripts/exec-policy.sh', '.agents/task-integrations/markdown.sh', '.agents/config.yaml', '.agents/scripts/proofline-core.mjs']) assert.ok(existsSync(path.join(a, f)), f);
     assert.equal(git(a, ['symbolic-ref', '--short', 'HEAD']), 'main');
     assert.equal(spawnSync('git', ['rev-parse', '--verify', '-q', 'HEAD'], { cwd: a, env: cleanEnv() }).status, 1, 'no commit');
-    assert.match(readFileSync(path.join(a, '.agents/scripts/agent.sh'), 'utf8'), /^#!\/bin\/sh\ncase "\$0" in/);
+    // a real install (A244): agent.sh as shipped, the core beside it (proofline-core.mjs and core/), so agent.sh hands every command to the core
+    assert.ok(readFileSync(path.join(a, '.agents/scripts/agent.sh')).equals(readFileSync(path.join(scripts, 'agent.sh'))), 'agent.sh is the shipped file, without a prologue');
+    assert.ok(existsSync(path.join(a, '.agents/scripts/core/dispatch.mjs')) || readdirSync(path.join(a, '.agents/scripts/core')).length > 50, 'core/ is installed');
+    assert.match(git(a, ['status', '--short', '--ignored']), /proofline-core\.mjs/, 'the core is excluded from the history');
     spawnSync('sh', ['-c', 'echo x > marker'], { cwd: a });
     assert.ok(!existsSync(path.join(b, 'marker')));
   });
 });
 
-describe('the Node scaffold builds the state of the shell scaffold', () => {
-  /** @type {Array<[string, string, import('./harness.mjs').ScaffoldOptions]>} */
+describe('the scaffold builds the documented state, and the recipe form builds the same one', () => {
+  /** @type {Array<[string, string, import('./harness.mjs').ScaffoldOptions, Record<string, string>]>} */
   const variants = [
-    ['orchestrated no COMPLEX', 'scaffold orchestrated no COMPLEX', {}],
-    ['standalone layout yes STANDARD', 'scaffold standalone yes STANDARD', { topology: 'standalone', layout: 'yes', cls: 'STANDARD' }],
-    ['TRIVIAL manual', 'scaffold standalone no TRIVIAL manual', { topology: 'standalone', cls: 'TRIVIAL', autonomy: 'manual' }],
-    ['SC_BRANCH + extra scope + agents.md', 'scaffold orchestrated no COMPLEX', { branch: true, scopeExtra: 'AC-1', scopeAgents: true, agentsMd: 2 }],
+    ['orchestrated no COMPLEX', 'scaffold orchestrated no COMPLEX', {}, {}],
+    ['standalone layout yes STANDARD', 'scaffold standalone yes STANDARD', { topology: 'standalone', layout: 'yes', cls: 'STANDARD' }, {}],
+    ['TRIVIAL manual', 'scaffold standalone no TRIVIAL manual', { topology: 'standalone', cls: 'TRIVIAL', autonomy: 'manual' }, {}],
+    ['SC_BRANCH + extra scope + agents.md', 'SC_BRANCH=1 SC_SCOPE_EXTRA=AC-1 SC_SCOPE_AGENTS=1 SC_AGENTS_MD=2 scaffold orchestrated no COMPLEX', { branch: true, scopeExtra: 'AC-1', scopeAgents: true, agentsMd: 2 }, {}],
   ];
   for (const [name, recipe, opts] of variants) {
     test(name, () => {
-      const env = {};
-      if (opts.branch) Object.assign(env, { SC_BRANCH: '1' });
-      if (opts.scopeExtra) Object.assign(env, { SC_SCOPE_EXTRA: opts.scopeExtra });
-      if (opts.scopeAgents) Object.assign(env, { SC_SCOPE_AGENTS: '1' });
-      if (opts.agentsMd) Object.assign(env, { SC_AGENTS_MD: String(opts.agentsMd) });
-      const sh = shellScaffold(recipe, env);
       const js = scaffold(opts);
-      assert.equal(git(js, ['rev-parse', 'HEAD^{tree}']), git(sh, ['rev-parse', 'HEAD^{tree}']), 'the baseline tree is byte-identical');
-      assert.deepEqual(runFiles(js), runFiles(sh), 'the run folder holds the same files');
-      for (const f of ['.agents/scripts/agent.sh', '.agents/scripts/secret-scan.sh', '.agents/scripts/exec-policy.sh', '.agents/task-integrations/markdown.sh', '.agents/scripts/proofline-core.mjs', '.agents/core4a/proofline-core.mjs', '.agents/config.yaml', '.git/info/exclude', '.gitignore'])
-        assert.ok(readFileSync(path.join(js, f)).equals(readFileSync(path.join(sh, f))), `${f} is byte-identical to the shell library's`);
-      for (const [sec, key] of [['handoff', 'state'], ['execution', 'state'], ['execution', 'topology'], ['execution', 'autonomy'], ['pipeline', 'tier'], ['pipeline', 'classification']])
-        assert.equal(rv(js, sec, key), rv(sh, sec, key), `${sec}.${key}`);
-      assert.equal(readFileSync(path.join(js, '.agents/runs/LC/PLAN.md'), 'utf8'), readFileSync(path.join(sh, '.agents/runs/LC/PLAN.md'), 'utf8'));
-      assert.equal(existsSync(path.join(js, '.agents/runs/LC/QA_PLAN.md')), existsSync(path.join(sh, '.agents/runs/LC/QA_PLAN.md')));   // a TRIVIAL run has no QA plan
-      if (existsSync(path.join(js, '.agents/runs/LC/QA_PLAN.md'))) assert.equal(readFileSync(path.join(js, '.agents/runs/LC/QA_PLAN.md'), 'utf8'), readFileSync(path.join(sh, '.agents/runs/LC/QA_PLAN.md'), 'utf8'));
+      const out = tmp('recipe'); buildRecipe(recipe, out);
+      const manual = opts.autonomy === 'manual';
+      expectState(js, 'handoff', 'state', manual ? 'PLANNED' : 'IMPLEMENTING');
+      expectState(js, 'execution', 'topology', opts.topology ?? 'orchestrated');
+      assert.equal(rv(js, 'pipeline', 'classification'), opts.cls ?? 'COMPLEX');
+      assert.equal(existsSync(path.join(js, '.agents/runs/LC/QA_PLAN.md')), opts.cls !== 'TRIVIAL', 'a TRIVIAL run has no QA plan');
+      assert.equal(existsSync(path.join(js, 'tasks/in-progress/LC.md')), opts.layout === 'yes');
+      assert.equal(opts.branch ? rv(js, 'repository', 'task_branch') !== 'PENDING' : true, true);
+      assert.match(git(js, ['log', '--format=%s', '-1']), /^baseline$/);
+      // the recipe form: the same run files, the same state, the same plan
+      assert.deepEqual(runFiles(out), runFiles(js), 'the run folder holds the same files');
+      for (const [sec, key] of [['handoff', 'state'], ['execution', 'state'], ['execution', 'topology'], ['execution', 'autonomy'], ['pipeline', 'tier'], ['pipeline', 'classification'], ['repository', 'task_branch'], ['repository', 'canonical_branch']])
+        assert.equal(rv(out, sec, key), rv(js, sec, key), `${sec}.${key}`);
+      assert.equal(readFileSync(path.join(out, '.agents/runs/LC/PLAN.md'), 'utf8'), readFileSync(path.join(js, '.agents/runs/LC/PLAN.md'), 'utf8'));
+      assert.equal(git(out, ['rev-parse', 'HEAD^{tree}']), git(js, ['rev-parse', 'HEAD^{tree}']), 'the baseline tree is byte-identical');
     });
   }
-  test('to-code-done reaches CODE_DONE with the same gate states as the shell library', () => {
-    const sh = shellScaffold('scaffold orchestrated no COMPLEX; to_code_done orchestrated');
+  test('the scaffold of a plan with extra scope paths lists them in PLAN.md and creates the files', () => {
+    const js = scaffold({ scopeExtra: 'AC-1', scopeOther: 'AC-1', scopeAgents: true });
+    const plan = readFileSync(path.join(js, '.agents/runs/LC/PLAN.md'), 'utf8');
+    for (const p of ['impl.txt', 'impl_test.txt', 'other.txt', 'far.txt', '.agents/impl.txt']) assert.ok(plan.includes(`  - path: ${p}\n`), p);
+    for (const f of ['other.txt', 'far.txt', '.agents/impl.txt']) assert.ok(existsSync(path.join(js, f)), f);
+  });
+  test('the recipe form reaches CODE_DONE with the same gate states as the functions', () => {
+    const out = tmp('recipe'); buildRecipe('scaffold orchestrated no COMPLEX; to_code_done orchestrated', out);
     const js = scaffold({ topology: 'orchestrated' });
     toCodeDone(js, 'orchestrated');
     expectState(js, 'handoff', 'state', 'CODE_DONE');
-    assert.equal(rv(sh, 'handoff', 'state'), 'CODE_DONE');
-    assert.equal(gates(js), gates(sh));
-    assert.deepEqual(readdirSync(path.join(js, '.agents/runs/LC/gates')).sort(), readdirSync(path.join(sh, '.agents/runs/LC/gates')).sort());
+    expectState(out, 'handoff', 'state', 'CODE_DONE');
+    assert.equal(gates(js), gates(out));
+    assert.deepEqual(readdirSync(path.join(js, '.agents/runs/LC/gates')).sort(), readdirSync(path.join(out, '.agents/runs/LC/gates')).sort());
+  });
+  test('a recipe that fails fails the build with the control plane\'s message (set -e), and a verb works in a project', () => {
+    assert.throws(() => buildRecipe('scaffold orchestrated; A handoff LC CODE_DONE', tmp('recipe')), /recipe failed/);
+    const p = project({ topology: 'standalone' });
+    const r = runIn(p, "solo RED fail impl_test.txt 'test: x'; solo GREEN pass impl.txt 'impl: x'; A handoff LC IMPLEMENTED; gpass REVIEW_SMALL; echo done");
+    assert.equal(r.status, 0, r.text);
+    assert.match(gateStatus(p, 'REVIEW_SMALL'), /pass/i);
   });
   test('the standalone path (the lead records its own evidence) reaches CODE_DONE too', () => {
     const js = scaffold({ topology: 'standalone' });

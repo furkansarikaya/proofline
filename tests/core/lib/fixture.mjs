@@ -1,9 +1,10 @@
 // @ts-check
-// Fixtures for the equivalence rig: an installed control plane (no test stubs), a test-lib scaffold (frozen run), snapshots of a tree.
+// Fixtures for the equivalence rig: an installed control plane (no test stubs), a scaffold of the fixture verbs (frozen run), snapshots of a tree.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync, copyFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { buildRecipe } from '../../lib/recipe.mjs';
 
 export const repoRoot = resolve(import.meta.dirname, '../../..');
 export const agentsSrc = join(repoRoot, 'control-plane/agents');
@@ -58,13 +59,11 @@ export function installedFixture() {
 }
 
 /** @type {Map<string, Fixture>} */ const scaffolds = new Map();
-/** A frozen lifecycle run built by test-lib.sh `scaffold` (fixture stubs included, as in the self-tests), copied out of its temp base. */
+/** A frozen lifecycle run built by the fixture verbs (`scaffold`, tests/lib/recipe.mjs; fixture stubs included, the Node core installed beside agent.sh). */
 export function scaffoldFixture(topology = 'orchestrated', cls = 'COMPLEX', extra = '') {
   const key = `${topology}/${cls}/${extra}`; const hit = scaffolds.get(key); if (hit) return hit;
   const out = mkdtempSync(join(tmpdir(), 'eq-scaffold.')); const builtAt = Math.floor(Date.now() / 1000);
-  const r = run('sh', ['-c', `. "$EQ_LIB"; ${extra}scaffold ${topology} no ${cls} autonomous && cp -R "$PWD/." "$EQ_OUT/"`, join(scriptsSrc, 'x.sh')], { env: { ...baseEnv(out), EQ_OUT: out, EQ_LIB: join(scriptsSrc, 'test-lib.sh') } });
-  if (r.code !== 0) throw new Error(`scaffold failed (${r.code}): ${r.stderr}${r.stdout}`);
-  // test-lib fixtures hold only agent.sh: without the core beside it agent.sh runs the shell, so the Node engine would not be under test
+  buildRecipe(`${extra}scaffold ${topology} no ${cls} autonomous`, out, { errexit: false });
   addCore(out);
   run('git', ['config', 'gc.auto', '0'], { cwd: out, env: baseEnv(out) }); run('git', ['config', 'maintenance.auto', 'false'], { cwd: out, env: baseEnv(out) });
   const f = { dir: out, builtAt }; scaffolds.set(key, f); return f;

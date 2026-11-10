@@ -3,7 +3,7 @@
 //   node tests/ci/ci-steps.mjs classify [--event NAME] [--base SHA --head SHA]   (defaults: $GITHUB_EVENT_NAME, $BASE_SHA, $GITHUB_SHA)
 //       writes `code=true|false` to $GITHUB_OUTPUT and prints it: false for a pull request that changes only plain documentation (tests/ci/classify.mjs)
 //   node tests/ci/ci-steps.mjs windows-timing
-//       the hook benchmark (tests/bench/hook-procs.sh, `sh` of Git Bash) with its table fenced in the job summary ($GITHUB_STEP_SUMMARY); the fence is closed
+//       the hook benchmark (tests/bench/hook-procs.mjs) with its table fenced in the job summary ($GITHUB_STEP_SUMMARY); the fence is closed
 //       whatever the benchmark does, and its exit status is the step's
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
@@ -45,8 +45,8 @@ export function main(argv, io = {}) {
     if (cmd === 'windows-timing') {
       const sum = env.GITHUB_STEP_SUMMARY;
       const out = (/** @type {string} */ s) => { if (sum) appendFileSync(sum, s); else write(s); };
-      out('### Node hook per event (Windows, Git Bash fixtures)\n```\n');
-      const [bcmd, bargs] = io.bench ?? ['sh', ['tests/bench/hook-procs.sh', 'adapters/claude/hooks/proofline-hook.mjs']];
+      out('### Node hook per event (Windows, Node harness fixtures)\n```\n');
+      const [bcmd, bargs] = io.bench ?? ['node', ['tests/bench/hook-procs.mjs', 'adapters/claude/hooks/proofline-hook.mjs']];
       const r = spawnSync(bcmd, bargs, { cwd: root, env: { ...env, REPEAT: '5' }, encoding: 'utf8', maxBuffer: 1 << 26 });
       out(r.stdout ?? '');
       if (r.error) out(`${r.error.message}\n`);

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
 import { scriptsDir } from './helpers.mjs';
+import { buildRecipe } from '../lib/recipe.mjs';
 
 const ENV = {
   PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'fixture',
@@ -19,11 +20,7 @@ after(() => { for (const d of made) rmSync(d, { recursive: true, force: true });
 export function build(snippet) {
   const out = mkdtempSync(path.join(tmpdir(), 'pl-vfeq-'));
   made.push(out);
-  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; ${snippet}\ncp -R "$PWD/." "$EQ_OUT/"`, path.join(scriptsDir, 'x.sh')],
-    { env: { ...ENV, EQ_LIB: path.join(scriptsDir, 'test-lib.sh'), EQ_OUT: out }, encoding: 'utf8', timeout: 600000 });
-  if (r.status !== 0) throw new Error(`fixture failed: ${snippet}\n${r.stderr}${r.stdout}`);
-  cpSync(path.join(scriptsDir, 'proofline-core.mjs'), path.join(out, '.agents/scripts/proofline-core.mjs'));
-  cpSync(path.join(scriptsDir, 'core'), path.join(out, '.agents/scripts/core'), { recursive: true });
+  buildRecipe(snippet, out, { errexit: false });   // the Node core is installed beside agent.sh by the harness
   spawnSync('git', ['-C', out, 'config', 'gc.auto', '0']);
   appendFileSync(path.join(out, '.git/info/exclude'), '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n');
   return out;

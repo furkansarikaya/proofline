@@ -1,6 +1,6 @@
 // @ts-check
-// The mkdir lock protocol, against the shell functions of agent.sh themselves: an old-engine and a new-engine process exclude each other,
-// and a stale lock is broken with the same `lock-break` ledger event.
+// The mkdir lock protocol of the core: processes exclude each other, and a stale lock is broken with the `lock-break` ledger event (its line, and the line `ledger_append` writes, are the ones the
+// shell functions of agent.sh wrote: recorded from them in tests/golden/shell-equivalence.json, A244; until then the tests also ran those functions and compared).
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,26 +9,12 @@ import { describe, test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { LockSet, ledgerAppend, runSections } from '../../control-plane/agents/scripts/core/lock.mjs';
-import { extractFunctions, makeProject, memoryIo, scriptsDir } from './helpers.mjs';
+import { makeProject, memoryIo, scriptsDir } from './helpers.mjs';
 
 const lockModule = pathToFileURL(path.join(scriptsDir, 'core', 'lock.mjs')).href;
 const contextModule = pathToFileURL(path.join(scriptsDir, 'core', 'context.mjs')).href;
 
-const SH_FUNCTIONS = extractFunctions([
-  'release_locks', 'take_old_lock', 'acquire_lock', 'gates_enforced', 'ledger_file', 'one_line', 'run_dir', 'now_epoch', 'now_iso', 'lifecycle_digest', '_lv', 'sv_reset', 'sv_load',
-  'section_value', 'section_key_present', 'local_task_source_run', 'ledger_append',
-]);
-
-/** A script that runs shell code against a project root with the real functions of agent.sh. @param {string} root @param {string} body */
-function shScript(root, body) {
-  return `set -eu; LC_ALL=C; export LC_ALL
-root='${root}'; agents=$root/.agents; execution_role=lead; held_locks=''; record_tmp=''; sv_dir='' sv_cache=''
-fail() { echo "$*" >&2; return 1; }
-tm_scaled() { echo 120; }
-sha256() { sh_o=$(shasum -a 256) || :; [ -z "$sh_o" ] || printf '%s\\n' "\${sh_o%% *}"; }
-${SH_FUNCTIONS}
-${body}`;
-}
+const GOLD = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'golden', 'shell-equivalence.json'), 'utf8'));
 
 /** @param {string} root */
 function ctxOf(root) {
@@ -62,7 +48,7 @@ function seedStale(lockDir, pid) {
 /** @param {string} line */
 const maskTime = (line) => line.replace(/ ts=\S+ epoch=\d+ /, ' ts=T epoch=E ');
 
-describe('lock protocol (new engine alone)', () => {
+describe('lock protocol', () => {
   test('mkdir, a pid file with the holder\'s pid, release removes both', () => {
     const root = makeProject();
     try {
@@ -117,117 +103,79 @@ describe('lock protocol (new engine alone)', () => {
   });
 });
 
-describe('stale lock: both engines break it and record the same event', () => {
+describe('stale lock: the core breaks it and records the lock-break event (the line is the one the shell wrote, recorded in tests/golden/shell-equivalence.json)', () => {
   test('a run lock of a run with lifecycle gates: lock-break in the ledger', () => {
-    const results = [];
-    for (const engine of ['sh', 'node']) {
-      const root = makeProject();
-      try {
-        const run = seedRun(root);
-        const pid = deadPid();
-        seedStale(path.join(run, '.lock'), pid);
-        if (engine === 'sh') {
-          const r = spawnSync('sh', ['-c', shScript(root, 'acquire_lock "$agents/runs/T-1/.lock"; release_locks')], { encoding: 'utf8' });
-          assert.equal(r.status, 0, r.stderr);
-        } else {
-          const locks = new LockSet(ctxOf(root));
-          locks.acquire(path.join(run, '.lock'));
-          locks.releaseAll();
-        }
-        assert.equal(existsSync(path.join(run, '.lock')), false, `${engine}: lock released`);
-        const lines = readFileSync(path.join(run, 'LEDGER.log'), 'utf8').trim().split('\n');
-        assert.equal(lines.length, 2, `${engine}: one event appended`);
-        results.push(maskTime(lines[1]).replace(String(pid), 'PID'));
-        assert.match(lines[1], new RegExp(`^seq=2 prev=[0-9a-f]{64} event=lock-break role=lead from=- to=- digest=[0-9a-f]{64} ts=\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ epoch=\\d+ detail=stale lock holder pid=${pid}$`));
-      } finally { rmSync(root, { recursive: true, force: true }); }
-    }
-    assert.equal(results[0], results[1], 'the two engines wrote the same line (prev and digest included)');
+    const root = makeProject();
+    try {
+      const run = seedRun(root);
+      const pid = deadPid();
+      seedStale(path.join(run, '.lock'), pid);
+      const locks = new LockSet(ctxOf(root));
+      locks.acquire(path.join(run, '.lock'));
+      locks.releaseAll();
+      assert.equal(existsSync(path.join(run, '.lock')), false, 'lock released');
+      const lines = readFileSync(path.join(run, 'LEDGER.log'), 'utf8').trim().split('\n');
+      assert.equal(lines.length, 2, 'one event appended');
+      assert.equal(maskTime(lines[1]).replace(String(pid), 'PID'), GOLD.lockBreakLine, 'the line the shell wrote (prev and digest included)');
+      assert.match(lines[1], new RegExp(`^seq=2 prev=[0-9a-f]{64} event=lock-break role=lead from=- to=- digest=[0-9a-f]{64} ts=\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ epoch=\\d+ detail=stale lock holder pid=${pid}$`));
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   test('without lifecycle gates, and for a lock that is not a run lock, nothing is written', () => {
-    for (const engine of ['sh', 'node']) {
-      const root = makeProject();
-      try {
-        const run = seedRun(root, { gates: false });
-        seedStale(path.join(run, '.lock'), deadPid());
-        const shared = path.join(root, '.agents', 'local', 'locks', 'shared.lock');
-        seedStale(shared, deadPid());
-        if (engine === 'sh') {
-          const r = spawnSync('sh', ['-c', shScript(root, 'acquire_lock "$agents/runs/T-1/.lock"; acquire_lock "$agents/local/locks/shared.lock"; release_locks')], { encoding: 'utf8' });
-          assert.equal(r.status, 0, r.stderr);
-        } else {
-          const locks = new LockSet(ctxOf(root));
-          locks.acquire(path.join(run, '.lock'));
-          locks.acquire(shared);
-          locks.releaseAll();
-        }
-        assert.equal(readFileSync(path.join(run, 'LEDGER.log'), 'utf8'), LEDGER_1, engine);
-        assert.equal(existsSync(shared), false);
-      } finally { rmSync(root, { recursive: true, force: true }); }
-    }
+    const root = makeProject();
+    try {
+      const run = seedRun(root, { gates: false });
+      seedStale(path.join(run, '.lock'), deadPid());
+      const shared = path.join(root, '.agents', 'local', 'locks', 'shared.lock');
+      seedStale(shared, deadPid());
+      const locks = new LockSet(ctxOf(root));
+      locks.acquire(path.join(run, '.lock'));
+      locks.acquire(shared);
+      locks.releaseAll();
+      assert.equal(readFileSync(path.join(run, 'LEDGER.log'), 'utf8'), LEDGER_1);
+      assert.equal(existsSync(shared), false);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  test('ledgerAppend equals ledger_append on a ledger of several lines, with a tab and a newline in the detail', () => {
-    const out = [];
-    for (const engine of ['sh', 'node']) {
-      const root = makeProject();
-      try {
-        const run = seedRun(root);
-        appendFileSync(path.join(run, 'LEDGER.log'), 'seq=2 prev=0000 event=x role=lead from=- to=- digest=d ts=t epoch=1 detail=last line\n');
-        if (engine === 'sh') {
-          const r = spawnSync('sh', ['-c', shScript(root, "ledger_append T-1 note A '' \"a\tb\nc\"")], { encoding: 'utf8' });
-          assert.equal(r.status, 0, r.stderr);
-        } else {
-          ledgerAppend(run, 'lead', 'note', 'A', '', 'a\tb\nc');
-        }
-        const text = readFileSync(path.join(run, 'LEDGER.log'), 'utf8');
-        out.push(maskTime(text.split('\n').slice(-2)[0]));
-      } finally { rmSync(root, { recursive: true, force: true }); }
-    }
-    assert.equal(out[0], out[1]);
-    assert.match(out[0], /^seq=3 prev=[0-9a-f]{64} event=note role=lead from=A to=- /);
+  test('ledgerAppend appends the line the shell ledger_append wrote on a ledger of several lines, with a tab and a newline in the detail', () => {
+    const root = makeProject();
+    try {
+      const run = seedRun(root);
+      appendFileSync(path.join(run, 'LEDGER.log'), 'seq=2 prev=0000 event=x role=lead from=- to=- digest=d ts=t epoch=1 detail=last line\n');
+      ledgerAppend(run, 'lead', 'note', 'A', '', 'a\tb\nc');
+      const text = readFileSync(path.join(run, 'LEDGER.log'), 'utf8');
+      const line = maskTime(text.split('\n').slice(-2)[0]);
+      assert.equal(line, GOLD.ledgerAppend);
+      assert.match(line, /^seq=3 prev=[0-9a-f]{64} event=note role=lead from=A to=- /);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
 
-describe('mutual exclusion between the engines', () => {
-  test('a new-engine holder keeps an old-engine waiter out, and the waiter gets in after the release', async () => {
+describe('mutual exclusion between processes of the core', () => {
+  test('a holder in another process keeps a waiter out, and the waiter gets in after the release', async () => {
     const root = makeProject();
     try {
       const l = path.join(root, '.agents', 'local', 'locks', 'shared.lock');
       mkdirSync(path.dirname(l), { recursive: true });
+      // the holder releases when it reads a line on stdin: no clock decides how long it holds
       const holder = spawn(process.execPath, ['--input-type=module', '-e', `
         import { LockSet } from ${JSON.stringify(lockModule)}; import { Context } from ${JSON.stringify(contextModule)};
         const io = { env: process.env, cwd: ${JSON.stringify(root)}, stdout: { write() {} }, stderr: { write() {} } };
         const locks = new LockSet(new Context(io, ${JSON.stringify(path.join(root, '.agents', 'scripts', 'agent.sh'))}));
         locks.acquire(${JSON.stringify(l)}); process.stdout.write('held\\n');
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2500); locks.releaseAll();`]);
-      await new Promise((resolve) => holder.stdout.once('data', resolve));
-      const waiter = spawnSync('sh', ['-c', shScript(root, `PROOFLINE_LOCK_TIMEOUT=1; acquire_lock "${l}"; echo got`)], { encoding: 'utf8' });
-      assert.notEqual(waiter.status, 0);
-      assert.match(waiter.stderr, /lock timeout after 1s/);
-      assert.doesNotMatch(waiter.stdout, /got/);
-      const second = spawnSync('sh', ['-c', shScript(root, `PROOFLINE_LOCK_TIMEOUT=10; acquire_lock "${l}"; echo got; release_locks`)], { encoding: 'utf8' });
-      assert.equal(second.status, 0, second.stderr);
-      assert.match(second.stdout, /got/);
-      await new Promise((resolve) => holder.on('close', resolve));
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
-
-  test('an old-engine holder keeps a new-engine waiter out, and the waiter gets in after the release', async () => {
-    const root = makeProject();
-    try {
-      const l = path.join(root, '.agents', 'local', 'locks', 'shared.lock');
-      mkdirSync(path.dirname(l), { recursive: true });
-      const holder = spawn('sh', ['-c', shScript(root, `acquire_lock "${l}"; echo held; sleep 3; release_locks`)]);
+        process.stdin.once('data', () => { locks.releaseAll(); process.exit(0); });`]);
       await new Promise((resolve) => holder.stdout.once('data', resolve));
       const short = new Context(memoryIo(root, { PROOFLINE_LOCK_TIMEOUT: '1' }).io, path.join(root, '.agents', 'scripts', 'agent.sh'));
       assert.throws(() => new LockSet(short).acquire(l), /lock timeout after 1s/);
+      assert.equal(existsSync(l), true, 'the holder still has the lock');
+      const closed = new Promise((resolve) => holder.on('close', resolve));
+      holder.stdin.write('release\n');
+      await closed;
       const long = new Context(memoryIo(root, { PROOFLINE_LOCK_TIMEOUT: '15' }).io, path.join(root, '.agents', 'scripts', 'agent.sh'));
       const locks = new LockSet(long);
       locks.acquire(l);
       assert.equal(readFileSync(path.join(l, 'pid'), 'latin1'), `${process.pid}\n`);
       locks.releaseAll();
-      await new Promise((resolve) => holder.on('close', resolve));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

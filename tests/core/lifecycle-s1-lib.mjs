@@ -2,8 +2,7 @@
 // Helpers of tests/core/lifecycle-s1.test.mjs (lifecycle-test.sh scenarios standalone .. amendment_fresh_budget). Only what harness.mjs does not have.
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { A, AS, gateOwner, resultFor, useLiveCore } from '../lib/harness.mjs';
-useLiveCore();   // every command of these tests runs in the Node core, as in an installed project (A242)
+import { A, AS, gateOwner, resultFor } from '../lib/harness.mjs';
 
 /** @typedef {import('../lib/harness.mjs').Result} Result */
 

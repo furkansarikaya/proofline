@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { qaBind as qaBindHarness, A, AS, accepted, approveAsUser, cleanEnv, commitAll, expectFail, expectState, gateStatus, gfail, gpass, must, newRepo, project, refused, resultFor, sha256, tmp, toCodeDone, tsha, worker, writeReport } from '../lib/harness.mjs';
+import { installGithooks, qaBind as qaBindHarness, A, AS, accepted, approveAsUser, cleanEnv, commitAll, expectFail, expectState, gateStatus, gfail, gpass, must, newRepo, project, refused, resultFor, sha256, tmp, toCodeDone, tsha, worker, writeReport } from '../lib/harness.mjs';
 import { passAll as passAllHarness, appendFileSync, implementedProject, installSkill, installWikiLint, nGates, gateFocus, recEnv, repo, reportPath, required } from './gates-s3-lib.mjs';
 
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(path.join(d, f), 'utf8');
@@ -372,8 +372,7 @@ test('sc_report_facts: A143 the completion report numbers must be the recorded o
 test('sc_open_runs: git hooks - every open run counts (ACTIVE_RUN emptied), terminated runs do not', () => {
   const d = project({ cls: 'STANDARD' });
   const run = (/** @type {string[]} */ a, /** @type {string} */ [input] = ['']) => spawnSync('git', a, { cwd: d, env: cleanEnv({ PROOFLINE_NO_TTY: '1' }), encoding: 'utf8', input });
-  const inst = spawnSync(process.execPath, [path.join(repo, 'tests/legacy-githooks/install.mjs'), '.agents/githooks'], { cwd: d, encoding: 'utf8' });
-  assert.equal(inst.status, 0, `install.mjs: ${inst.stderr}`);
+  installGithooks(d);
   assert.equal(run(['config', 'core.hooksPath', '.agents/githooks']).status, 0);
   writeFileSync(path.join(d, '.agents/local/ACTIVE_RUN'), '');
   assert.equal(A(d, ['open-runs']).out.replace(/\n+$/, ''), 'LC -', `open-runs: ${A(d, ['open-runs']).out}`);

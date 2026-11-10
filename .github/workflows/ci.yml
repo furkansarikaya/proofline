@@ -194,7 +194,7 @@ jobs:
   # A188, stage 3: the Node hook on Windows. It runs the hook tests (node:test) and the hook benchmark in its Node form (processes and time per event, the
   # table goes to the job summary). It replaces the Git Bash timing job for the hook: the hook no longer needs an `sh` of its own. Nightly and manual runs
   # only (A164, A204), a measurement and not a gate: it is not in `checks` and continue-on-error keeps a runner-image problem from failing the workflow.
-  # The benchmark still builds its fixture with the shell test library (Git Bash `sh`, started by the Node step); no step needs bash as its shell, so the job runs the runner's default shell.
+  # The benchmark builds its fixture with the Node harness (tests/bench/hook-procs.mjs, the PATH shim files are small sh scripts that Git Bash runs); no step needs bash as its shell, so the job runs the runner's default shell.
   hook-windows:
     needs: [changes]
     if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'

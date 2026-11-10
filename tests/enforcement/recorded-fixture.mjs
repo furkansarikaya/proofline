@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 // The project fixtures of the recorded enforcement corpora: the scaffold of the legacy enforcement suite (an orchestrated COMPLEX run with the git hooks
 // installed), in the run states the scenarios need. Built by the self-test library's verbs once per process (see tests/core/legacy-lib.mjs).
-const BASE = 'scaffold orchestrated no COMPLEX "${AUTO}"; node "$tl_agents/../../tests/legacy-githooks/install.mjs" .agents/githooks; mkdir -p .agents/hooks src; '
+const BASE = 'scaffold orchestrated no COMPLEX "${AUTO}"; install_githooks; mkdir -p .agents/hooks src; '
   + "printf '.agents/githooks/\\n.agents/hooks/\\n' >> .git/info/exclude; git config core.hooksPath .agents/githooks; git config commit.gpgsign false";
 
 /**

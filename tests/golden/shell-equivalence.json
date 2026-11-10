@@ -1,0 +1,1312 @@
+{
+ "captureField": {
+  "plain|session": "golden-session",
+  "plain|time": "1700000000",
+  "plain|sha256": "c273984a96b590c857185e54867a0473580536e309bfa2134f13973ef6c2745e",
+  "plain|text": "looks fine, thanks",
+  "plain|missing": null,
+  "approval|session": "golden-session",
+  "approval|time": "1700000000",
+  "approval|sha256": "f6fc11c8b7cf37e9b9b576773724dead6baf56ee8cbee4f3d66a229f64159a86",
+  "approval|text": "approve the plan",
+  "approval|missing": null,
+  "unicode|session": "golden-session",
+  "unicode|time": "1700000000",
+  "unicode|sha256": "e0b7a206a2c4f88a31b35bf4dfd56ccd450ac463cde88d5927561a2edd1c19bf",
+  "unicode|text": "cafÃ© â ð ä¸­æ Ð´Ð°",
+  "unicode|missing": null,
+  "turkish|session": "golden-session",
+  "turkish|time": "1700000000",
+  "turkish|sha256": "3a3fac1418ae5d237f671c849c42fac6fb145048e82209115ddcd39c48d53d79",
+  "turkish|text": "OnaylÄ±yorum: Ã§alÄ±Åma aÄacÄ±nÄ±, ÅÃ¼ÄÃ¶Ä°ÃÅÄÃÃ tamam",
+  "turkish|missing": null,
+  "quotes|session": "golden-session",
+  "quotes|time": "1700000000",
+  "quotes|sha256": "2d1ded0b9fc69bbbf32ad83c54cd548675ec9bac353f3b15f2f5e07a96a99369",
+  "quotes|text": "she said \"approve\" and 'ok' and `tick`",
+  "quotes|missing": null,
+  "backslashes|session": "golden-session",
+  "backslashes|time": "1700000000",
+  "backslashes|sha256": "877a3f65de010459177ca988787ccdb51f063eab744f32a50b6da4bf0d92d70a",
+  "backslashes|text": "C:\\Users\\me\\file.txt and \\n is not a newline and \\u00e9 is not an escape \\\\",
+  "backslashes|missing": null,
+  "carriage-return|session": "golden-session",
+  "carriage-return|time": "1700000000",
+  "carriage-return|sha256": "597f2e9e54ccdcf81c4d40d6fd5874e577e5bea7c646c58d66acd2e475a3d486",
+  "carriage-return|text": "line one\r\nline two\rline three\r\n",
+  "carriage-return|missing": null,
+  "tabs|session": "golden-session",
+  "tabs|time": "1700000000",
+  "tabs|sha256": "1e9f1a54b275f58e0d87fcc8c7baf51083b5afd97f4909b4813ec90ebdf98605",
+  "tabs|text": "a\tb\t\tc\t",
+  "tabs|missing": null,
+  "control-bytes|session": "golden-session",
+  "control-bytes|time": "1700000000",
+  "control-bytes|sha256": "77c30af10ddb00c806c97ad2670182f89c81e660a0c4e2a5edc749db2ced7b76",
+  "control-bytes|text": "bell\u0007 esc\u001b[0m soh\u0001 us\u001f del ff\f vt\u000b",
+  "control-bytes|missing": null,
+  "nul-byte|session": "golden-session",
+  "nul-byte|time": "1700000000",
+  "nul-byte|sha256": "31c2400e49aa9f4e10264dc2a73542ad7ce327c1ee55b29af1164b2acbc01b42",
+  "nul-byte|text": "beforeafter",
+  "nul-byte|missing": null,
+  "newlines|session": "golden-session",
+  "newlines|time": "1700000000",
+  "newlines|sha256": "e6e27bc4709081b8463e86bf1b0d3a285b48e69575f51e47229cc8d55886329d",
+  "newlines|text": "\n\nleading and trailing newlines\n\n\n",
+  "newlines|missing": null,
+  "multiline|session": "golden-session",
+  "multiline|time": "1700000000",
+  "multiline|sha256": "0910e17373e95403f46c862018c0b61ea788dde4b5bf9f63fee49b0a6c718b13",
+  "multiline|text": "approve plan,\napprove commit\n\n> quoted line\n```\nfenced\n```",
+  "multiline|missing": null,
+  "json-looking|session": "golden-session",
+  "json-looking|time": "1700000000",
+  "json-looking|sha256": "d1783ffdbbbef7598a31c42ec4e8e4029eb9f939aef59415a82995f61b389af9",
+  "json-looking|text": "{\"session\":\"x\",\"time\":1,\"sha256\":\"y\",\"text\":\"z\"}",
+  "json-looking|missing": null,
+  "long|session": "golden-session",
+  "long|time": "1700000000",
+  "long|sha256": "b6f6d43a046b4cbbb96e31f042f7e883c3ea0f046ab73a75bf1d578512ddf6d6",
+  "long|text": "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. approve",
+  "long|missing": null,
+  "empty-ish|session": "golden-session",
+  "empty-ish|time": "1700000000",
+  "empty-ish|sha256": "36a9e7f1c95b82ffb99743e0c5c4ce95d83c9a430aac59f84ef3cbfab6145068",
+  "empty-ish|text": " ",
+  "empty-ish|missing": null
+ },
+ "configLines": [
+  [
+   "a=1",
+   "b=",
+   "b.c=2"
+  ],
+  [],
+  [],
+  [],
+  [
+   "k=v",
+   "q='w'",
+   "z=\"a",
+   "y=a",
+   "x=\""
+  ],
+  [
+   "commands=",
+   "commands.build=",
+   "commands.build.0=a",
+   "commands.build.1=b",
+   "commands.build.2=c",
+   "commands.build.3=",
+   "commands.test=t"
+  ],
+  [
+   "a=",
+   "a...z=1",
+   "\ttab=2",
+   "\ttab.odd=3"
+  ],
+  [
+   "a=1",
+   "b=",
+   "b.0=x"
+  ],
+  [
+   "u=http://h:80/p",
+   "q=\"",
+   "last=v"
+  ],
+  [
+   "k=",
+   "k..deep=1"
+  ],
+  [
+   "k =v",
+   "k2=v2",
+   "k2.k3 =v3"
+  ],
+  [
+   "a=x",
+   "b=x\"y",
+   "c=",
+   "d=\"",
+   "f=''"
+  ],
+  [
+   "l=",
+   "l.0=a",
+   "l.1=b",
+   "m=1"
+  ],
+  [
+   "l=",
+   "l.0=a",
+   "l.1=b",
+   "l.2=\"q"
+  ],
+  [
+   "a=",
+   "a.b=",
+   "a.b.c=1",
+   "a.d=2",
+   "e=3"
+  ],
+  [
+   "x=",
+   "y=1"
+  ],
+  [
+   "n=08",
+   "n2=0x1",
+   "n3=1.5.2"
+  ],
+  [
+   "a=b: c: d"
+  ],
+  [
+   "=v"
+  ],
+  [
+   ".=v"
+  ],
+  [
+   "k=v",
+   "k2=v2"
+  ],
+  [
+   "a=Ã©",
+   "Ã©=v"
+  ],
+  [
+   "a=",
+   "b=x"
+  ],
+  [
+   "tab=v"
+  ]
+ ],
+ "configGet": {
+  "a": [
+   0,
+   "1\n"
+  ],
+  "b": [
+   0,
+   "\n"
+  ],
+  "b.c": [
+   0,
+   "2\n"
+  ],
+  "b.d": [
+   0,
+   "x\ny\n"
+  ],
+  "e": [
+   0,
+   "v\n"
+  ],
+  "f": [
+   0,
+   "1\n"
+  ],
+  "g": [
+   0,
+   "\n"
+  ],
+  "g2": [
+   0,
+   "x\n"
+  ],
+  "h": [
+   1,
+   ""
+  ],
+  "h.i": [
+   0,
+   "dotted\n"
+  ],
+  "zz": [
+   1,
+   ""
+  ],
+  "b.d.0": [
+   0,
+   "x\n"
+  ],
+  "b.d.1": [
+   0,
+   "y\n"
+  ],
+  "a.": [
+   1,
+   ""
+  ],
+  "": [
+   1,
+   ""
+  ],
+  "b.": [
+   1,
+   ""
+  ]
+ },
+ "sectionValue": {
+  "a.k": "v\npresent\n",
+  "a.n": "1\npresent\n",
+  "a.deep": "",
+  "b.z": "q\npresent\n",
+  "c.y": "\npresent\n",
+  "c.w": "a b\npresent\n",
+  "c.lost": "",
+  "nope.x": ""
+ },
+ "scopeMappings": {
+  "good": "src/a.js|AC-1, AC-2\nb|c|AC-3\nrc=0\n",
+  "badNoCriteria": "b|AC-1\nrc=1\n",
+  "badTrailing": "a|AC-1\nrc=1\n",
+  "emptyCriteria": "rc=1\n"
+ },
+ "planDestructive": {
+  "\"## Data\\ndestructive: yes\\n\"": "yes\nsec\n",
+  "\"## Data\\n\\n  \\ndestructive: no  \\n\"": "no\nsec\n",
+  "\"## Data\\nfoo\\n\"": "invalid\nsec\n",
+  "\"## Data\\n\"": "invalid\nsec\n",
+  "\"# x\\n\"": "absent\n",
+  "\"## Data \\ndestructive: maybe\\n\"": "invalid\nsec\n",
+  "\"## Database\\ndestructive: yes\\n\"": "absent\n"
+ },
+ "pathMatches": {
+  "a.md\t*.md": "y",
+  "a.md\t**/test/**": "n",
+  "a.md\tsrc/*.js": "n",
+  "a.md\ta?c": "n",
+  "a.md\tdocs/": "n",
+  "a.md\t**": "y",
+  "a.md\t*": "y",
+  "a.md\tx/**/y.ts": "n",
+  "a.md\ta.b": "n",
+  "a.md\t(x)": "n",
+  "a.md\t[a]*": "n",
+  "a.md\tsrc/**/": "n",
+  "a.md\t.agents/**": "n",
+  "a.md\t*.test.* *.spec.*": "n",
+  "x/a.md\t*.md": "y",
+  "x/a.md\t**/test/**": "n",
+  "x/a.md\tsrc/*.js": "n",
+  "x/a.md\ta?c": "n",
+  "x/a.md\tdocs/": "n",
+  "x/a.md\t**": "y",
+  "x/a.md\t*": "y",
+  "x/a.md\tx/**/y.ts": "n",
+  "x/a.md\ta.b": "n",
+  "x/a.md\t(x)": "n",
+  "x/a.md\t[a]*": "n",
+  "x/a.md\tsrc/**/": "n",
+  "x/a.md\t.agents/**": "n",
+  "x/a.md\t*.test.* *.spec.*": "n",
+  "src/a.js\t*.md": "n",
+  "src/a.js\t**/test/**": "n",
+  "src/a.js\tsrc/*.js": "y",
+  "src/a.js\ta?c": "n",
+  "src/a.js\tdocs/": "n",
+  "src/a.js\t**": "y",
+  "src/a.js\t*": "y",
+  "src/a.js\tx/**/y.ts": "n",
+  "src/a.js\ta.b": "n",
+  "src/a.js\t(x)": "n",
+  "src/a.js\t[a]*": "n",
+  "src/a.js\tsrc/**/": "n",
+  "src/a.js\t.agents/**": "n",
+  "src/a.js\t*.test.* *.spec.*": "n",
+  "src/b/a.js\t*.md": "n",
+  "src/b/a.js\t**/test/**": "n",
+  "src/b/a.js\tsrc/*.js": "n",
+  "src/b/a.js\ta?c": "n",
+  "src/b/a.js\tdocs/": "n",
+  "src/b/a.js\t**": "y",
+  "src/b/a.js\t*": "y",
+  "src/b/a.js\tx/**/y.ts": "n",
+  "src/b/a.js\ta.b": "n",
+  "src/b/a.js\t(x)": "n",
+  "src/b/a.js\t[a]*": "n",
+  "src/b/a.js\tsrc/**/": "n",
+  "src/b/a.js\t.agents/**": "n",
+  "src/b/a.js\t*.test.* *.spec.*": "n",
+  "abc\t*.md": "n",
+  "abc\t**/test/**": "n",
+  "abc\tsrc/*.js": "n",
+  "abc\ta?c": "y",
+  "abc\tdocs/": "n",
+  "abc\t**": "y",
+  "abc\t*": "y",
+  "abc\tx/**/y.ts": "n",
+  "abc\ta.b": "n",
+  "abc\t(x)": "n",
+  "abc\t[a]*": "n",
+  "abc\tsrc/**/": "n",
+  "abc\t.agents/**": "n",
+  "abc\t*.test.* *.spec.*": "n",
+  "a/c\t*.md": "n",
+  "a/c\t**/test/**": "n",
+  "a/c\tsrc/*.js": "n",
+  "a/c\ta?c": "n",
+  "a/c\tdocs/": "n",
+  "a/c\t**": "y",
+  "a/c\t*": "y",
+  "a/c\tx/**/y.ts": "n",
+  "a/c\ta.b": "n",
+  "a/c\t(x)": "n",
+  "a/c\t[a]*": "n",
+  "a/c\tsrc/**/": "n",
+  "a/c\t.agents/**": "n",
+  "a/c\t*.test.* *.spec.*": "n",
+  "docs/\t*.md": "n",
+  "docs/\t**/test/**": "n",
+  "docs/\tsrc/*.js": "n",
+  "docs/\ta?c": "n",
+  "docs/\tdocs/": "y",
+  "docs/\t**": "y",
+  "docs/\t*": "y",
+  "docs/\tx/**/y.ts": "n",
+  "docs/\ta.b": "n",
+  "docs/\t(x)": "n",
+  "docs/\t[a]*": "n",
+  "docs/\tsrc/**/": "n",
+  "docs/\t.agents/**": "n",
+  "docs/\t*.test.* *.spec.*": "n",
+  "docs/a\t*.md": "n",
+  "docs/a\t**/test/**": "n",
+  "docs/a\tsrc/*.js": "n",
+  "docs/a\ta?c": "n",
+  "docs/a\tdocs/": "n",
+  "docs/a\t**": "y",
+  "docs/a\t*": "y",
+  "docs/a\tx/**/y.ts": "n",
+  "docs/a\ta.b": "n",
+  "docs/a\t(x)": "n",
+  "docs/a\t[a]*": "n",
+  "docs/a\tsrc/**/": "n",
+  "docs/a\t.agents/**": "n",
+  "docs/a\t*.test.* *.spec.*": "n",
+  "x/y.ts\t*.md": "n",
+  "x/y.ts\t**/test/**": "n",
+  "x/y.ts\tsrc/*.js": "n",
+  "x/y.ts\ta?c": "n",
+  "x/y.ts\tdocs/": "n",
+  "x/y.ts\t**": "y",
+  "x/y.ts\t*": "y",
+  "x/y.ts\tx/**/y.ts": "y",
+  "x/y.ts\ta.b": "n",
+  "x/y.ts\t(x)": "n",
+  "x/y.ts\t[a]*": "n",
+  "x/y.ts\tsrc/**/": "n",
+  "x/y.ts\t.agents/**": "n",
+  "x/y.ts\t*.test.* *.spec.*": "n",
+  "x/z/y.ts\t*.md": "n",
+  "x/z/y.ts\t**/test/**": "n",
+  "x/z/y.ts\tsrc/*.js": "n",
+  "x/z/y.ts\ta?c": "n",
+  "x/z/y.ts\tdocs/": "n",
+  "x/z/y.ts\t**": "y",
+  "x/z/y.ts\t*": "y",
+  "x/z/y.ts\tx/**/y.ts": "y",
+  "x/z/y.ts\ta.b": "n",
+  "x/z/y.ts\t(x)": "n",
+  "x/z/y.ts\t[a]*": "n",
+  "x/z/y.ts\tsrc/**/": "n",
+  "x/z/y.ts\t.agents/**": "n",
+  "x/z/y.ts\t*.test.* *.spec.*": "n",
+  "a.b\t*.md": "n",
+  "a.b\t**/test/**": "n",
+  "a.b\tsrc/*.js": "n",
+  "a.b\ta?c": "n",
+  "a.b\tdocs/": "n",
+  "a.b\t**": "y",
+  "a.b\t*": "y",
+  "a.b\tx/**/y.ts": "n",
+  "a.b\ta.b": "y",
+  "a.b\t(x)": "n",
+  "a.b\t[a]*": "n",
+  "a.b\tsrc/**/": "n",
+  "a.b\t.agents/**": "n",
+  "a.b\t*.test.* *.spec.*": "n",
+  "axb\t*.md": "n",
+  "axb\t**/test/**": "n",
+  "axb\tsrc/*.js": "n",
+  "axb\ta?c": "n",
+  "axb\tdocs/": "n",
+  "axb\t**": "y",
+  "axb\t*": "y",
+  "axb\tx/**/y.ts": "n",
+  "axb\ta.b": "n",
+  "axb\t(x)": "n",
+  "axb\t[a]*": "n",
+  "axb\tsrc/**/": "n",
+  "axb\t.agents/**": "n",
+  "axb\t*.test.* *.spec.*": "n",
+  "(x)\t*.md": "n",
+  "(x)\t**/test/**": "n",
+  "(x)\tsrc/*.js": "n",
+  "(x)\ta?c": "n",
+  "(x)\tdocs/": "n",
+  "(x)\t**": "y",
+  "(x)\t*": "y",
+  "(x)\tx/**/y.ts": "n",
+  "(x)\ta.b": "n",
+  "(x)\t(x)": "y",
+  "(x)\t[a]*": "n",
+  "(x)\tsrc/**/": "n",
+  "(x)\t.agents/**": "n",
+  "(x)\t*.test.* *.spec.*": "n",
+  "a\t*.md": "n",
+  "a\t**/test/**": "n",
+  "a\tsrc/*.js": "n",
+  "a\ta?c": "n",
+  "a\tdocs/": "n",
+  "a\t**": "y",
+  "a\t*": "y",
+  "a\tx/**/y.ts": "n",
+  "a\ta.b": "n",
+  "a\t(x)": "n",
+  "a\t[a]*": "n",
+  "a\tsrc/**/": "n",
+  "a\t.agents/**": "n",
+  "a\t*.test.* *.spec.*": "n",
+  ".agents/runs/x\t*.md": "n",
+  ".agents/runs/x\t**/test/**": "n",
+  ".agents/runs/x\tsrc/*.js": "n",
+  ".agents/runs/x\ta?c": "n",
+  ".agents/runs/x\tdocs/": "n",
+  ".agents/runs/x\t**": "y",
+  ".agents/runs/x\t*": "y",
+  ".agents/runs/x\tx/**/y.ts": "n",
+  ".agents/runs/x\ta.b": "n",
+  ".agents/runs/x\t(x)": "n",
+  ".agents/runs/x\t[a]*": "n",
+  ".agents/runs/x\tsrc/**/": "n",
+  ".agents/runs/x\t.agents/**": "y",
+  ".agents/runs/x\t*.test.* *.spec.*": "n",
+  "a.test.js\t*.md": "n",
+  "a.test.js\t**/test/**": "n",
+  "a.test.js\tsrc/*.js": "n",
+  "a.test.js\ta?c": "n",
+  "a.test.js\tdocs/": "n",
+  "a.test.js\t**": "y",
+  "a.test.js\t*": "y",
+  "a.test.js\tx/**/y.ts": "n",
+  "a.test.js\ta.b": "n",
+  "a.test.js\t(x)": "n",
+  "a.test.js\t[a]*": "n",
+  "a.test.js\tsrc/**/": "n",
+  "a.test.js\t.agents/**": "n",
+  "a.test.js\t*.test.* *.spec.*": "y",
+  "src/\t*.md": "n",
+  "src/\t**/test/**": "n",
+  "src/\tsrc/*.js": "n",
+  "src/\ta?c": "n",
+  "src/\tdocs/": "n",
+  "src/\t**": "y",
+  "src/\t*": "y",
+  "src/\tx/**/y.ts": "n",
+  "src/\ta.b": "n",
+  "src/\t(x)": "n",
+  "src/\t[a]*": "n",
+  "src/\tsrc/**/": "y",
+  "src/\t.agents/**": "n",
+  "src/\t*.test.* *.spec.*": "n",
+  "test/a\t*.md": "n",
+  "test/a\t**/test/**": "y",
+  "test/a\tsrc/*.js": "n",
+  "test/a\ta?c": "n",
+  "test/a\tdocs/": "n",
+  "test/a\t**": "y",
+  "test/a\t*": "y",
+  "test/a\tx/**/y.ts": "n",
+  "test/a\ta.b": "n",
+  "test/a\t(x)": "n",
+  "test/a\t[a]*": "n",
+  "test/a\tsrc/**/": "n",
+  "test/a\t.agents/**": "n",
+  "test/a\t*.test.* *.spec.*": "n",
+  "p/test/q/r\t*.md": "n",
+  "p/test/q/r\t**/test/**": "y",
+  "p/test/q/r\tsrc/*.js": "n",
+  "p/test/q/r\ta?c": "n",
+  "p/test/q/r\tdocs/": "n",
+  "p/test/q/r\t**": "y",
+  "p/test/q/r\t*": "y",
+  "p/test/q/r\tx/**/y.ts": "n",
+  "p/test/q/r\ta.b": "n",
+  "p/test/q/r\t(x)": "n",
+  "p/test/q/r\t[a]*": "n",
+  "p/test/q/r\tsrc/**/": "n",
+  "p/test/q/r\t.agents/**": "n",
+  "p/test/q/r\t*.test.* *.spec.*": "n"
+ },
+ "installedControlPath": {
+  "docs/a/x": "n",
+  "docs/b.md": "n",
+  "docs/b.mdx": "n",
+  "docs/arch.md": "n",
+  "docs/decisions/1.md": "n",
+  "docs/shared.md": "n",
+  "docs/web.md": "n",
+  "src/x": "n",
+  "docs/a": "n",
+  ".claude/agents/proofline-qa.md": "y",
+  "docs/installed.md": "y",
+  ".agents/inner": "y",
+  ".codex/agents/proofline-x.toml": "y",
+  ".codex/agents/proofline-.md": "n"
+ },
+ "stripBlock": [
+  {
+   "out": "a\nc\n",
+   "only": false
+  },
+  {
+   "out": "",
+   "only": true
+  },
+  {
+   "out": "x",
+   "only": false
+  },
+  {
+   "out": "x\n<!-- proofline:begin -->\n",
+   "only": false
+  },
+  {
+   "out": "<!-- proofline:begin -->\nz\n<!-- proofline:end -->\n",
+   "only": false
+  },
+  {
+   "out": "  \n \n",
+   "only": true
+  },
+  {
+   "out": "<!-- proofline:end -->\n",
+   "only": false
+  }
+ ],
+ "timeouts": [
+  {
+   "variant": "",
+   "out": "scale=1\nwarn_percent=80\ndispatch.default=5400\ndispatch.TRIVIAL=5400\ndispatch.STANDARD=5400\ndispatch.COMPLEX=5400\ndispatch.CRITICAL=5400\nverification.command=1800\nlock=120\nstatus_block=20\nbatch.ci_wait_minutes=30\nbatch.ci_appear_minutes=10\nhook.approve_budget=20 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=30\nhook.timeout.prompt=30\nhook.timeout.pretool=30\nhook.timeout.posttool=30\nhook.timeout.subagent-start=60\nhook.timeout.subagent-stop=120\nhook.timeout.stop=30\n---\nsession=30\nprompt=30\npretool=30\nposttool=30\nsubagent-start=60\nsubagent-stop=120\nstop=30\n---\n1800\n"
+  },
+  {
+   "variant": "timeouts:\n  scale: 2.5\n  warn_percent: 90\n",
+   "out": "scale=2.5\nwarn_percent=90\ndispatch.default=13500\ndispatch.TRIVIAL=13500\ndispatch.STANDARD=13500\ndispatch.COMPLEX=13500\ndispatch.CRITICAL=13500\nverification.command=4500\nlock=300\nstatus_block=50\nbatch.ci_wait_minutes=75\nbatch.ci_appear_minutes=25\nhook.approve_budget=20 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=75\nhook.timeout.prompt=75\nhook.timeout.pretool=75\nhook.timeout.posttool=75\nhook.timeout.subagent-start=150\nhook.timeout.subagent-stop=300\nhook.timeout.stop=75\n---\nsession=75\nprompt=75\npretool=75\nposttool=75\nsubagent-start=150\nsubagent-stop=300\nstop=75\n---\n4500\n"
+  },
+  {
+   "variant": "timeouts:\n  scale: 08\n",
+   "out": "scale=8\nwarn_percent=80\ndispatch.default=28800\ndispatch.TRIVIAL=28800\ndispatch.STANDARD=28800\ndispatch.COMPLEX=28800\ndispatch.CRITICAL=28800\nverification.command=14400\nlock=960\nstatus_block=160\nbatch.ci_wait_minutes=240\nbatch.ci_appear_minutes=80\nhook.approve_budget=20 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=240\nhook.timeout.prompt=240\nhook.timeout.pretool=240\nhook.timeout.posttool=240\nhook.timeout.subagent-start=480\nhook.timeout.subagent-stop=600\nhook.timeout.stop=240\n---\nsession=240\nprompt=240\npretool=240\nposttool=240\nsubagent-start=480\nsubagent-stop=600\nstop=240\n---\n14400\n"
+  },
+  {
+   "variant": "hook:\n  approve_budget_seconds: 25\n  prompt_timeout_seconds: 11\n  stop_timeout_seconds: 700\n  session_timeout_seconds: 3\n",
+   "out": "scale=1\nwarn_percent=80\ndispatch.default=5400\ndispatch.TRIVIAL=5400\ndispatch.STANDARD=5400\ndispatch.COMPLEX=5400\ndispatch.CRITICAL=5400\nverification.command=1800\nlock=120\nstatus_block=20\nbatch.ci_wait_minutes=30\nbatch.ci_appear_minutes=10\nhook.approve_budget=25 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=10\nhook.timeout.prompt=30\nhook.timeout.pretool=30\nhook.timeout.posttool=30\nhook.timeout.subagent-start=60\nhook.timeout.subagent-stop=120\nhook.timeout.stop=600\n---\nsession=10\nprompt=30\npretool=30\nposttool=30\nsubagent-start=60\nsubagent-stop=120\nstop=600\n---\n1800\n"
+  },
+  {
+   "variant": "dispatch:\n  timeout_seconds: 0100\npipelines:\n  STANDARD:\n    dispatch_timeout_seconds: 77\n  CRITICAL:\n    dispatch_timeout_seconds: x\n",
+   "out": "scale=1\nwarn_percent=80\ndispatch.default=100\ndispatch.TRIVIAL=100\ndispatch.STANDARD=77\ndispatch.COMPLEX=100\ndispatch.CRITICAL=100\nverification.command=1800\nlock=120\nstatus_block=20\nbatch.ci_wait_minutes=30\nbatch.ci_appear_minutes=10\nhook.approve_budget=20 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=30\nhook.timeout.prompt=30\nhook.timeout.pretool=30\nhook.timeout.posttool=30\nhook.timeout.subagent-start=60\nhook.timeout.subagent-stop=120\nhook.timeout.stop=30\n---\nsession=30\nprompt=30\npretool=30\nposttool=30\nsubagent-start=60\nsubagent-stop=120\nstop=30\n---\n1800\n"
+  },
+  {
+   "variant": "batch:\n  ci_wait_minutes: 999\n  ci_appear_minutes: 0\ntasks:\n  status_block_seconds: 2000\n",
+   "out": "scale=1\nwarn_percent=80\ndispatch.default=5400\ndispatch.TRIVIAL=5400\ndispatch.STANDARD=5400\ndispatch.COMPLEX=5400\ndispatch.CRITICAL=5400\nverification.command=1800\nlock=120\nstatus_block=900\nbatch.ci_wait_minutes=720\nbatch.ci_appear_minutes=1\nhook.approve_budget=20 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=30\nhook.timeout.prompt=30\nhook.timeout.pretool=30\nhook.timeout.posttool=30\nhook.timeout.subagent-start=60\nhook.timeout.subagent-stop=120\nhook.timeout.stop=30\n---\nsession=30\nprompt=30\npretool=30\nposttool=30\nsubagent-start=60\nsubagent-stop=120\nstop=30\n---\n1800\n"
+  },
+  {
+   "variant": "timeouts:\n  scale: 10\nverification:\n  command_timeout_seconds: 28800\n",
+   "out": "scale=10\nwarn_percent=80\ndispatch.default=28800\ndispatch.TRIVIAL=28800\ndispatch.STANDARD=28800\ndispatch.COMPLEX=28800\ndispatch.CRITICAL=28800\nverification.command=28800\nlock=1200\nstatus_block=200\nbatch.ci_wait_minutes=300\nbatch.ci_appear_minutes=100\nhook.approve_budget=20 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=300\nhook.timeout.prompt=300\nhook.timeout.pretool=300\nhook.timeout.posttool=300\nhook.timeout.subagent-start=600\nhook.timeout.subagent-stop=600\nhook.timeout.stop=300\n---\nsession=300\nprompt=300\npretool=300\nposttool=300\nsubagent-start=600\nsubagent-stop=600\nstop=300\n---\n28800\n"
+  },
+  {
+   "variant": "timeouts:\n  scale: 0.5\nverification:\n  command_timeout_seconds: 61\n",
+   "out": "scale=0.5\nwarn_percent=80\ndispatch.default=2700\ndispatch.TRIVIAL=2700\ndispatch.STANDARD=2700\ndispatch.COMPLEX=2700\ndispatch.CRITICAL=2700\nverification.command=60\nlock=60\nstatus_block=10\nbatch.ci_wait_minutes=15\nbatch.ci_appear_minutes=5\nhook.approve_budget=20 (never scaled)\nhook.next_budget=10\nhook.lock_wait=8\nhook.timeout.session=15\nhook.timeout.prompt=25\nhook.timeout.pretool=15\nhook.timeout.posttool=15\nhook.timeout.subagent-start=30\nhook.timeout.subagent-stop=60\nhook.timeout.stop=15\n---\nsession=15\nprompt=25\npretool=15\nposttool=15\nsubagent-start=30\nsubagent-stop=60\nstop=15\n---\n60\n"
+  }
+ ],
+ "table": {
+  "commands": [
+   "role",
+   "status",
+   "open-runs",
+   "effective",
+   "fingerprint",
+   "config-get",
+   "config-check",
+   "baseline",
+   "discard-stray",
+   "branch",
+   "start",
+   "classify",
+   "pipeline",
+   "tier",
+   "next",
+   "summary",
+   "plan-section",
+   "digest",
+   "diff-digest",
+   "friction",
+   "calibrate",
+   "debt",
+   "build-record",
+   "lessons",
+   "rules",
+   "next-user",
+   "design-surface",
+   "worktree-root",
+   "in-knowledge-scope",
+   "report-facts",
+   "report-execution",
+   "repro-normalize",
+   "design-rationales",
+   "report-tokens",
+   "decide",
+   "freeze",
+   "refreeze",
+   "verify-freeze",
+   "verify-scope",
+   "verify-knowledge-scope",
+   "freshness",
+   "handoff",
+   "verify-handoff",
+   "delivery-check",
+   "worker-evidence",
+   "entry-tier",
+   "verify-assumptions",
+   "verify-qa-plan",
+   "verify-worker-evidence",
+   "submit",
+   "record",
+   "gate",
+   "secret-scan",
+   "request-approval",
+   "approve",
+   "hook-time",
+   "language-check",
+   "run-language",
+   "approve-pending",
+   "approval-consume",
+   "raise-budget",
+   "waive",
+   "questions",
+   "metrics-dispatch",
+   "friction-note",
+   "wait-line",
+   "ledger-note",
+   "ask",
+   "answer",
+   "terminate",
+   "cleanup",
+   "deliver-merged",
+   "status-block",
+   "worktree-add",
+   "worktree-path",
+   "worktree-remove",
+   "batch-plan",
+   "batch-cover",
+   "batch-status",
+   "batch-check",
+   "commands-check",
+   "scale-check",
+   "timeouts",
+   "hook-timeouts",
+   "verify-timeout",
+   "tm-scaled",
+   "batch-answer",
+   "batch-answers",
+   "test-path",
+   "task-scope-entries",
+   "scope-covers",
+   "task-rename-plan",
+   "task-rename-apply",
+   "known-issue-propose",
+   "known-issue-apply",
+   "known-issue-list",
+   "known-issue-candidates",
+   "task-type",
+   "human-checks",
+   "scope-kinds",
+   "path-kind",
+   "pr-state",
+   "batch-next",
+   "batch-ci",
+   "batch-awake",
+   "batch-park",
+   "deliver-plan",
+   "deliver-step",
+   "amend",
+   "reopen",
+   "patch-fingerprint",
+   "window-open",
+   "tree-inspect",
+   "tree-accept",
+   "window-close",
+   "verify-gates",
+   "verify-seal",
+   "platform",
+   "platform-warn",
+   "ci-check",
+   "ci-task-command",
+   "task-source-done",
+   "task-source-status",
+   "task-source-relocate",
+   "knowledge-done",
+   "publish-completion-report",
+   "verify-completion-report",
+   "validate",
+   "db-config",
+   "hook-config",
+   "db-check",
+   "test",
+   "help"
+  ],
+  "readOnly": [
+   "report-execution",
+   "tree-inspect",
+   "timeouts",
+   "hook-timeouts",
+   "verify-timeout",
+   "tm-scaled",
+   "scale-check",
+   "human-checks",
+   "repro-normalize",
+   "design-rationales",
+   "platform",
+   "platform-warn",
+   "language-check",
+   "next-user",
+   "in-knowledge-scope",
+   "worktree-root",
+   "design-surface",
+   "report-facts",
+   "build-record",
+   "lessons",
+   "rules",
+   "calibrate",
+   "debt",
+   "role",
+   "status",
+   "open-runs",
+   "effective",
+   "pipeline",
+   "tier",
+   "next",
+   "questions",
+   "fingerprint",
+   "config-get",
+   "config-check",
+   "verify-freeze",
+   "verify-scope",
+   "verify-knowledge-scope",
+   "verify-handoff",
+   "verify-worker-evidence",
+   "verify-gates",
+   "verify-seal",
+   "verify-completion-report",
+   "freshness",
+   "validate",
+   "patch-fingerprint",
+   "summary",
+   "plan-section",
+   "digest",
+   "help",
+   "verify-qa-plan",
+   "report-tokens",
+   "verify-assumptions",
+   "entry-tier",
+   "ci-check",
+   "ci-task-command",
+   "path-kind",
+   "scope-kinds",
+   "task-scope-entries",
+   "scope-covers",
+   "test-path",
+   "batch-answers",
+   "commands-check",
+   "task-type",
+   "known-issue-list",
+   "known-issue-candidates"
+  ],
+  "dbPaths": "*.db *.sqlite *.sqlite3 *.db3 *.s3db *.sdb *.mdb *.accdb *.ldb *.mv.db *.duckdb *.rdb *.db-wal *.db-shm *.db-journal *.sqlite-wal *.sqlite-shm *.sqlite-journal",
+  "dbClients": "sqlite3 sqlite duckdb litecli psql pgcli pg_dump pg_dumpall pg_restore createdb dropdb mysql mysqldump mysqlsh mycli mariadb mongosh mongo mongodump mongorestore redis-cli sqlcmd sqlplus sqlite-utils usql clickhouse-client cockroach cqlsh",
+  "dbMigrate": "(npm|pnpm|yarn|bun)( run)? (migrate|migration|migrations|seed|seeds|db[:-])[A-Za-z0-9:_-]*( |$), (^| )(npx|pnpm exec|bunx|yarn dlx) (prisma|drizzle-kit|knex|sequelize|sequelize-cli|typeorm|mikro-orm|db-migrate|node-pg-migrate)( |$), (^| )prisma (migrate|db) , (^| )drizzle-kit (push|migrate|drop), (^| )(knex|sequelize|sequelize-cli|typeorm|mikro-orm|umzug|db-migrate|node-pg-migrate) .*(migrat|seed|db:|schema:), (^| )alembic (upgrade|downgrade|stamp), (^| )flask( .*)? db (upgrade|downgrade|stamp|migrate), (manage\\.py|django-admin)( .*)? (migrate|flush|sqlflush|loaddata|dbshell), (^| )(rails|rake|bin/rails)( .*)? db:, (^| )artisan (migrate|db:), (^| )(flyway|liquibase|dbmate|goose|atlas|sqitch|tern|phinx|diesel|sqlx|sea-orm-cli)( .*)? (migrate|up|down|apply|deploy|update|run|push|revert|redo|reset|drop|seed), (^| )dotnet ef (database|migrations) , (^| )mix ecto\\.(migrate|rollback|reset|drop|setup|load), (^| )migrate( .*)? (up|down|goto|drop|force), (^| )db(:| )(seed|migrate|reset|drop|push|setup)",
+  "usage": "usage: agent.sh <command> [args]   (AGENT_ROLE selects the role; default lead)\n  role | status | effective [ID] | fingerprint [ID] | config-get <dotted.key> | config-check [FILE]\n  start <ID> [--title TITLE] [--task-file PATH]\n  classify <ID> <TRIVIAL|STANDARD|COMPLEX|CRITICAL> [review] | pipeline <ID> | tier <ID> | next [ID] | summary [ID] | digest <ID> | plan-section <ID> <section>\n  diff-digest <ID>   (A235: gate roles and the lead; the task's changed paths by class and line count in a short summary, the full list in runs/<ID>/reports/diff-digest-<n>/raw.txt with the command line and the input hashes beside it; it reports, it is no gate)\n  branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>\n  handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>\n  tree-inspect <ID> | tree-accept <ID>   (recovery: a change entered the working tree outside every worker window; tree-inspect shows it read-only, tree-accept (lead) asks for the user's approval of exactly that tree (kind tree), attests it, sends the handoff back to IMPLEMENTING and so makes every gate run again; the run is not discarded)\n  window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)\n  status-block <ID> [EVENT [PR]]   (lead, A202: rebuild the task's one status block from the records and place it through the task adapter; best effort, never fails a run)\n  worktree-add <ID> | worktree-path <ID> | worktree-remove <ID> [--force]   (A169, lead, main working tree: one worktree per run under .agents/local/worktrees/<ID>; night mode uses it for every task)\n  open-runs | discard-stray <ID> <FILE-NAME|evidence/FILE-NAME>   (lead: remove one stray, non-artifact regular file of the run directory or of its evidence/ folder, A219)\n  submit <ID> [--result R] --confidence C [--focus F] [--artifact P] [--findings FILE|-] [--report FILE|-] [--reason T] [--questions F] [--agent TOKEN]\n  record <ID> [--file F] | gate <ID> <GATE> <pass|fail> [ARTIFACT] | secret-scan <ID>\n  decide <ID> <ROLE> --dry|--agent-path [--focus F] [--runtime RT] [--model M] [--effort E] [--context-bytes N] | ledger-note <ID> <TEXT>\n  hook-time <ID> (runtime hooks: move the hook timings spooled in .agents/local/hook-times into the ledger) | language-check [FILE|-] (the write-time language check; exit 1 on non-English text outside a '> ' quote block)\n  friction-note <ID> <user-command|user-shell|proofline_bug> | wait-line <ID> [WHAT] [--done]   (A171: record that the user was asked to run a command, a proofline bug; the one-line wait status)\n  metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)\n  request-approval <ID> <KIND> | approve <ID> <KIND>... | approval-consume <ID> <KIND> [FINGERPRINT]\n  waive <ID> <FINDING-ID> --reason TEXT [--group] (--group: the one approval of FINDING-ID waives every open blocking finding of the same gate record with the same rule, e.g. 93 lines of one visual rule; a waiver follows the finding across gate re-runs) | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)\n  terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable \"<reason>\"]\n  publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>\n  batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)\n  path-kind <path>...   (A200: content or code, for the scope bound)\n  human-checks <ID>   (A202: QA_REPORT.md's list of what the user should look at, as the summary and the status block copy it)\n  scope-kinds <ID>   (A202: per scope path: claimed kind, derived kind, effective kind, exemption; a claim never lowers the derived one)\n  task-scope-entries <task-file> <heading> | scope-covers <entry> <path>   (A202: read a task's scope sections; does an entry cover a path)\n  task-type <TASK.md>   (A202: the task type; a task without one is a feature)\n  known-issue-propose <RUN> <FINDING-ID> --followup <TASK> | known-issue-apply | known-issue-list | known-issue-candidates   (A202: the user-approved known-issues list; apply only after the user's 'approve known issue')\n  task-rename-plan | task-rename-apply   (A202: <ID>-<slug>.md names for queued tasks; apply only after the user's 'approve rename')\n  test-path <path>...   (A200: `test` or `product` per path: whether selective repetition may treat it as a test)\n  batch-plan [--replace] <ID...|all> | batch-cover <ID> <plan|delivery|mutation_budget|rationale:PATTERN> | batch-next [--tsv] | batch-status | batch-check | batch-ci <ID> | batch-awake | batch-park <ID> <reason>|--clear   (A157: night mode in the same session; lead only for plan, cover, awake, park)\n  deliver-plan <ID> [--message MSG] | deliver-step <ID> <commit|push|pr|merge|cleanup|ci-fix|ci-commit|ci-push|ci-merge> [PR]   (one summary, one \"approve delivery\", one approval per step; A169: a red CI opens a CI-fix round, at most 2, pushed to the same PR branch)\n  task-source-status <ID> | task-source-relocate <ID> <NEW-PATH> | task-source-done <ID>\n  platform   (A180: the hosting platform of the origin remote, the installed tool and who merges: platform, cli, merge, owner, web)\n  ci-check | ci-task-command   (A163: is there a pull_request workflow; the task line that adds one)\n  verify-freeze|verify-scope|verify-knowledge-scope|verify-handoff|verify-worker-evidence|verify-gates|verify-seal|freshness|validate|patch-fingerprint <ID>\n  entry-tier <BULLET TEXT>   (read-only: mandatory, information or none for one PLAN.md ## Contracts bullet, A162)\n  verify-assumptions <ID>   (read-only: the assumption register; lists every unverified or accepted-by-user assumption)\n  rules list|report|tally   (A202: the Project rules budget and proposals to merge, ask about or remove rules; it never edits a rule; `tally` is lead only)\n  lessons derive|write|validate|count|bound|text|promote   (lesson candidates from run evidence, repeat count, promotion to AGENTS.md only with a rule:<ID> approval; `write` and `promote` are lead-only)\n  friction <report ID|show|issue-cmd|send>   (A149: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)\n  calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)\n  debt [list|page]   (A153: the project's `shortcut: <limit>, <when to improve>` code comments with file:line; read-only, needs no run; `page` is lead-only and rewrites the one wiki page)\n  build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)\n  next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in core/nextuser.mjs, A159)\n  design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)\n  worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)\n  in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)\n  repro-normalize   (read-only filter: stdin to stdout, the listed volatile fields of a recorded output line normalized, A200)\n  design-rationales <ID> [--json] [PATH]   (read-only: the DESIGN.md pattern justifications and whether the user approved each; --json prints the object lint-source takes as --approved-rationales, A200)\n  report-execution <ID>   (read-only: the `## Execution` table publish-completion-report writes into the report, from the decision records)\n  report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)\n  test\n",
+  "roleGate": {
+   "lead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "task_author": "aaaaaaadddddaaaaaaddaaaaaaaaaaaaaadddaaaadaddaaaaaadddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "explorer": "aaaaaaadddddaaaaaaddaaaaaaaaaaaaaadddaaaadaddaaaaaadddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "architect": "aaaaaaadddddaaaaaaddaaaaaaaaaaaaaadddaaaadaddaaaaaadddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "data_architect": "aaaaaaadddddaaaaaaddaaaaaaaaaaaaaadddaaaadaddaaaaaadddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "designer": "aaaaaaadddddaaaaaaddaaaaaaaaaaaaaadddaaaadaddaaaaaadddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "qa": "aaaaaaadddddaaaaaaadaaaaaaaaaaaaaadddaaaadaddaaaaaaaddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "implementer": "aaaaaaadddddaaaaaaddaaaaaaaaaaaaaadddaaaaaadaaaaaaadddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "reviewer": "aaaaaaadddddaaaaaaadaaaaaaaaaaaaaadddaaaadaddaaaaaaaddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "security_reviewer": "aaaaaaadddddaaaaaaadaaaaaaaaaaaaaadddaaaadaddaaaaaaaddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd",
+   "verifier": "aaaaaaadddddaaaaaaadaaaaaaaaaaaaaadddaaaadaddaaaaaaaddddadddddadddddddddddddddddaaaaaadaaaaddddaaaaaadddddddddadaddaaaaaadddddaaddddadd"
+  },
+  "locks": {
+   "lead||": "nnnnnnnyyyyynynnnnynnnnnnnnnnnnnnnyyynnnnynyynnnnnyyyyyynynyyynyyyyyyyyyyyyyyyyynnnnnnynnnnyyyynnnnnnyyyyyyyyynynyynnnnnnyyyyynnnnyyny",
+   "lead|T-1|--check": "nnnnnnnyyyyynynnnnynnnnnnnnnnnnnnnyyynnnnynyynnnnnyyyyyynynyyynyyyyyyyyyyyyyyyyynnnnnnynnnnyyyynnnnnnyyyyyyyyynynyynnnnnnyyyyynnnnyyny",
+   "lead|T-1|x": "nnnnnnnyyyyynynnnnynnnnnnnnnnnnnnnyyynnnnynyynnnnnyyyyyynynyyynyyyyyyyyyyyyyyyyynnnnnnynnnnyyyynnnnnnyyyyyyyyynynyynnnnnnyyyyynnnnyyny",
+   "reviewer||": "nnnnnnnyyyyynnnnnnynnnnnnnnnnnnnnnyyynnnnynyynnnnnyyyyyynynyyynyyyyyyyyyyyyyyyyynnnnnnynnnnyyyynnnnnnyyyyyyyyynynyynnnnnnyyyyynnnnyyny",
+   "reviewer|T-1|--check": "nnnnnnnyyyyynnnnnnynnnnnnnnnnnnnnnyyynnnnynyynnnnnyyyyyynynyyynyyyyyyyyyyyyyyyyynnnnnnynnnnyyyynnnnnnyyyyyyyyynynyynnnnnnyyyyynnnnyyny",
+   "reviewer|T-1|x": "nnnnnnnyyyyynnnnnnynnnnnnnnnnnnnnnyyynnnnynyynnnnnyyyyyynynyyynyyyyyyyyyyyyyyyyynnnnnnynnnnyyyynnnnnnyyyyyyyyynynyynnnnnnyyyyynnnnyyny"
+  }
+ },
+ "ledgerAppend": "seq=3 prev=bff285b2222e717524e8ddf522b2e565dd19f6378b882efe19affce837865b71 event=note role=lead from=A to=- digest=8d59e839f49ced104c27180fdab5b77c0dfd36ca4a9af330a6ec712f0586b17a ts=T epoch=E detail=a b c",
+ "riskWordsBackref": false,
+ "riskWords": [
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(userPassword)"
+   ],
+   "match": true
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(userPassword)"
+   ],
+   "match": true
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(user_password)"
+   ],
+   "match": true
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(user_password)"
+   ],
+   "match": true
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(passwords)"
+   ],
+   "match": true
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(passwords)"
+   ],
+   "match": true
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(PASSWORD)"
+   ],
+   "match": true
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(PASSWORD)"
+   ],
+   "match": true
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(card)"
+   ],
+   "match": true
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(card)"
+   ],
+   "match": true
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(ssn)"
+   ],
+   "match": true
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(ssn)"
+   ],
+   "match": true
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(user.Email)"
+   ],
+   "match": true
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(user.Email)"
+   ],
+   "match": true
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(discard)"
+   ],
+   "match": false
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(discard)"
+   ],
+   "match": false
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(classname)"
+   ],
+   "match": false
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(classname)"
+   ],
+   "match": false
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(scardy)"
+   ],
+   "match": false
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(scardy)"
+   ],
+   "match": false
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(started)"
+   ],
+   "match": false
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "log(started)"
+   ],
+   "match": false
+  },
+  {
+   "re": "log",
+   "words": "password card ssn email",
+   "lines": [
+    "print(password)"
+   ],
+   "match": false
+  },
+  {
+   "re": "^log",
+   "words": "password card ssn email",
+   "lines": [
+    "print(password)"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "Console.WriteLine(password)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "Debug.WriteLine(token)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "Trace.WriteLine(secret)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "fmt.Fprintf(w, \"%s\", password)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "fmt.Fprint(os.Stderr, token)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "fmt.Fprintln(w, secret)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "FMT.FPRINTF(w, password)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "print \"password\""
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "puts \"token\""
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "var_dump($password)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "dump($password)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "logger.info(\"started\")"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "x = discard"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "classname = 1"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "cardinality = 2"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "phoneme = 3"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "scorecard = 4"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "cardholder = 5"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "wildcard = 6"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "tokenizer = 7"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "secretary = 8"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "logger.warn(token)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "slog.Info(\"x\", \"card\", c)"
+   ],
+   "match": true
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "a.print password"
+   ],
+   "match": false
+  },
+  {
+   "re": "(^|[^A-Za-z0-9])(log|Log|LOG|logger|Logger|LOGGER|logging|console|Console|Debug|Trace|slog|logrus|zap|Timber|NSLog|error_log|var_dump|dump|[Pp]rint|[Pp]rintf|[Pp]rintln|puts|[Ff][Pp][Rr][Ii][Nn][Tt]([Ff]|[Ll][Nn])?|eprintln)(\\.|\\(|->|::)|(^|[^A-Za-z0-9])(info|warn|debug|error|trace|println|print|eprintln|eprint|dbg)!|(^|[^A-Za-z0-9_.])(print|puts|Print)[[:space:]]+[^[:space:]=]",
+   "words": "password token secret card phone",
+   "lines": [
+    "eprintln!(secret)"
+   ],
+   "match": true
+  }
+ ],
+ "lockBreakLine": "seq=2 prev=cfbd41ff24aadb27c3218a1367aac89a0d1d5813a2b8fc95a4132a25bfb0460d event=lock-break role=lead from=- to=- digest=8d59e839f49ced104c27180fdab5b77c0dfd36ca4a9af330a6ec712f0586b17a ts=T epoch=E detail=stale lock holder pid=PID",
+ "sbScrub": [
+  {
+   "in": "see /etc/passwd and C:\\x or ~/a",
+   "out": "see [path] and C [path] or [path]"
+  },
+  {
+   "in": "ip 10.1.2.3 and fe80::1 and 2001:db8:0:0:0:0:0:1",
+   "out": "ip [redacted] and [redacted] and [redacted]"
+  },
+  {
+   "in": "key=value a@b.c",
+   "out": "[redacted] [redacted]"
+  },
+  {
+   "in": "ghp_abc sk-xyz AKIAXXXX eyJhbGci xoxb-1 BEGIN",
+   "out": "[redacted] [redacted] [redacted] [redacted] [redacted] [redacted]"
+  },
+  {
+   "in": "password: hunter2 bearer abc token xyz",
+   "out": "password [redacted] bearer [redacted] token [redacted]"
+  },
+  {
+   "in": "a1b2c3d4e5f6a1b2c3d4e5f6",
+   "out": "[redacted]"
+  },
+  {
+   "in": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ok",
+   "out": "[redacted] ok"
+  },
+  {
+   "in": "line \"two\" (three); {four}",
+   "out": "line two three four"
+  },
+  {
+   "in": "non-ascii ça va ✓ ok",
+   "out": "non-ascii a va ok"
+  },
+  {
+   "in": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "out": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+  },
+  {
+   "in": "",
+   "out": ""
+  },
+  {
+   "in": "   ",
+   "out": ""
+  },
+  {
+   "in": "sk_live_abc and pk_test_x",
+   "out": "[redacted] and [redacted]"
+  },
+  {
+   "in": "ref #12 100% done! a&b a+b a.b_c-d?",
+   "out": "ref #12 100% done! a&b a+b a.b_c-d?"
+  }
+ ]
+}

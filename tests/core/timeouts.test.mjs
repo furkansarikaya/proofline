@@ -1,11 +1,13 @@
 // @ts-check
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, test } from 'node:test';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
 import { ProoflineError } from '../../control-plane/agents/scripts/core/errors.mjs';
 import { hookKnob, hookTimeouts, timeoutsInfo, tmScale, tmScaleMilli, tmScaled, tmWarnPercent, verifyCommandTimeout } from '../../control-plane/agents/scripts/core/timeouts.mjs';
-import { extractFunctions } from './helpers.mjs';
+
+const GOLD = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'golden', 'shell-equivalence.json'), 'utf8'));   // recorded from the shell functions of agent.sh 0.0.77 (A244)
 
 /** @param {string} text */
 const cfgOf = (text) => new Config('x', configLines(text));
@@ -54,24 +56,13 @@ describe('knobs', () => {
   });
 });
 
-describe('differential test against the shell functions', () => {
-  test('timeouts_info, hook_timeouts, verify_command_timeout over config variants', () => {
-    const fns = extractFunctions(['dec0', 'config_lines', 'tm_scale_milli', 'tm_scale', 'tm_scaled', 'tm_warn_percent', 'verify_command_timeout', 'hook_timeouts', 'timeouts_info', 'batch_minutes', 'tm_dispatch_seconds', 'hook_knob'])
-      + '\ncfg() { cfg_v=$(config_lines "$CFGFILE" | awk -F= -v k="$1" \'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }\'); [ -n "$cfg_v" ] || cfg_v=${2:-}; printf \'%s\\n\' "$cfg_v"; }';
-    const variants = [
-      '', 'timeouts:\n  scale: 2.5\n  warn_percent: 90\n', 'timeouts:\n  scale: 08\n', 'hook:\n  approve_budget_seconds: 25\n  prompt_timeout_seconds: 11\n  stop_timeout_seconds: 700\n  session_timeout_seconds: 3\n',
-      'dispatch:\n  timeout_seconds: 0100\npipelines:\n  STANDARD:\n    dispatch_timeout_seconds: 77\n  CRITICAL:\n    dispatch_timeout_seconds: x\n', 'batch:\n  ci_wait_minutes: 999\n  ci_appear_minutes: 0\ntasks:\n  status_block_seconds: 2000\n',
-      'timeouts:\n  scale: 10\nverification:\n  command_timeout_seconds: 28800\n', 'timeouts:\n  scale: 0.5\nverification:\n  command_timeout_seconds: 61\n',
-    ];
-    for (const v of variants) {
-      const script = `LC_ALL=C; set -eu\n${fns}\ntm_milli=''\ntimeouts_info; echo ---; hook_timeouts; echo ---; verify_command_timeout`;
-      const f = `/tmp/pl-timeouts-${process.pid}.yaml`;
-      spawnSync('sh', ['-c', `printf '%s' "$1" > ${f}`, 'sh', v]);
-      const r = spawnSync('sh', ['-c', script], { encoding: 'latin1', env: { ...process.env, CFGFILE: f } });
-      assert.equal(r.status, 0, r.stderr);
+describe('the shell functions, as recorded (A244)', () => {
+  test('timeouts_info, hook_timeouts, verify_command_timeout over config variants give what the shell functions of agent.sh gave', () => {
+    assert.equal(GOLD.timeouts.length, 8);
+    for (const { variant: v, out } of GOLD.timeouts) {
       const c = cfgOf(v);
       const expected = `${timeoutsInfo(c).join('\n')}\n---\n${hookTimeouts(c).join('\n')}\n---\n${verifyCommandTimeout(c)}\n`;
-      assert.equal(r.stdout, expected, JSON.stringify(v));
+      assert.equal(expected, out, JSON.stringify(v));
     }
   });
 });

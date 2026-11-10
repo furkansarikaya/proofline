@@ -1,13 +1,12 @@
 // @ts-check
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
-import { extractFunctions } from './helpers.mjs';
 import { Config, bytes, configGetFrom, configItems, configLines, dec0, smallInt } from '../../control-plane/agents/scripts/core/config.mjs';
 import { ProoflineError } from '../../control-plane/agents/scripts/core/errors.mjs';
+
+const GOLD = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'golden', 'shell-equivalence.json'), 'utf8'));   // recorded from the shell functions of agent.sh 0.0.77 (A244)
 
 describe('configLines (the awk program of config_lines)', () => {
   test('nested keys, comments, blanks, quotes', () => {
@@ -78,42 +77,26 @@ describe('numbers', () => {
   });
 });
 
-describe('differential test against the awk program of agent.sh', () => {
+describe('the awk program of agent.sh, as recorded (A244)', () => {
   const corpus = [
     'a: 1\nb:\n  c: 2\n', '# only a comment\n', '', '\n\n', 'k: "v"\nq: \'w\'\nz: "a # b"\ny: a # b\nx: "\n', 'commands:\n  build:\n    - a\n    - "b"\n    - \'c\' # d\n    -\n  test: t\n',
     'a:\n      z: 1\n\ttab: 2\n   odd: 3\n', 'a: 1\r\nb:\r\n  - x\r\n', 'u: http://h:80/p\nnocolon\nq: "\nlast: v', '- a\nk:\n    deep: 1\n  - x\n', 'k : v\n k2: v2\n  k3 :   v3   \n',
     'a: "x" # c\nb: "x"y"\nc: ""\nd: "\nf: \'\'\n', 'l:\n- a\n- b\nm: 1\n', 'l:\n  - a\n  - b # c\n  - "q # r"\n', 'a:\n  b:\n    c: 1\n  d: 2\ne: 3\n', 'x:   \n   \ny: 1\n',
     'n: 08\nn2: 0x1\nn3: 1.5.2\n', 'a: b: c: d\n', ': v\n', '  : v\n', 'k:v\nk2:\tv2\n', 'a: \xc3\xa9\n\xc3\xa9: v\n', 'a: #c\nb: x\t#c\n', 'tab:\tv\n',
   ];
-  test('configLines equals config_lines on a corpus', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-awk-'));
-    try {
-      const fns = extractFunctions(['config_lines']);
-      corpus.forEach((text, i) => {
-        const f = path.join(dir, `c${i}.yaml`);
-        writeFileSync(f, text, 'latin1');
-        const r = spawnSync('sh', ['-c', `LC_ALL=C; config=/nonexistent; ${fns}\nconfig_lines "$1"`, 'sh', f], { encoding: 'latin1' });
-        assert.equal(r.status, 0, `awk failed for corpus ${i}`);
-        const expected = r.stdout === '' ? [] : r.stdout.replace(/\n$/, '').split('\n');
-        assert.deepEqual(configLines(text), expected, `corpus ${i}: ${JSON.stringify(text)}`);
-      });
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+  test('configLines gives the lines the awk program of agent.sh gave on a corpus (answers recorded from the shell, A244)', () => {
+    assert.equal(GOLD.configLines.length, corpus.length);
+    corpus.forEach((text, i) => assert.deepEqual(configLines(text), GOLD.configLines[i], `corpus ${i}: ${JSON.stringify(text)}`));
   });
 
-  test('configGetFrom equals config_get (value, items, absent, exit status)', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-awk-'));
-    try {
-      const fns = extractFunctions(['config_lines', 'config_get']);
-      const text = 'a: 1\nb:\n  c: 2\n  d:\n    - x\n    - y\ne: v\n  - ignored\nf:\n  - 1\ng: ""\ng2: x\nh.i: dotted\n';
-      const f = path.join(dir, 'c.yaml');
-      writeFileSync(f, text);
-      const lines = configLines(text);
-      for (const key of ['a', 'b', 'b.c', 'b.d', 'e', 'f', 'g', 'g2', 'h', 'h.i', 'zz', 'b.d.0', 'b.d.1', 'a.', '', 'b.']) {
-        const r = spawnSync('sh', ['-c', `LC_ALL=C; config=/nonexistent; ${fns}\nconfig_get "$1" "$2"`, 'sh', key, f], { encoding: 'latin1' });
-        const got = configGetFrom(lines, key);
-        assert.equal(got === null ? 1 : 0, r.status, `exit status for ${key}`);
-        if (got !== null) assert.equal(`${got}\n`, r.stdout, `value for ${key}`);
-      }
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+  test('configGetFrom gives what config_get gave (value, items, absent, exit status; answers recorded from the shell, A244)', () => {
+    const text = 'a: 1\nb:\n  c: 2\n  d:\n    - x\n    - y\ne: v\n  - ignored\nf:\n  - 1\ng: ""\ng2: x\nh.i: dotted\n';
+    const lines = configLines(text);
+    for (const key of ['a', 'b', 'b.c', 'b.d', 'e', 'f', 'g', 'g2', 'h', 'h.i', 'zz', 'b.d.0', 'b.d.1', 'a.', '', 'b.']) {
+      const [status, stdout] = GOLD.configGet[key];
+      const got = configGetFrom(lines, key);
+      assert.equal(got === null ? 1 : 0, status, `exit status for ${key}`);
+      if (got !== null) assert.equal(`${got}\n`, stdout, `value for ${key}`);
+    }
   });
 });

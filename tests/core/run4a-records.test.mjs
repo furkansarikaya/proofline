@@ -490,15 +490,10 @@ test('scrub: known answers (addresses, paths, key prefixes, credential words, le
   assert.equal(scrub(''), '');
 });
 
-test('scrub: equals the sb_scrub of agent.sh on a corpus (the shell copy stays until its last caller, `terminate` and `handoff`, moves)', () => {
-  const sh = readFileSync(path.join(repo, 'control-plane/agents/scripts/agent.sh'), 'utf8');
-  const a = sh.indexOf('sb_scrub() {');
-  const fn = sh.slice(a, sh.indexOf('\n}\n', a) + 3);
-  const corpus = ['see /etc/passwd and C:\\x or ~/a', 'ip 10.1.2.3 and fe80::1 and 2001:db8:0:0:0:0:0:1', 'key=value a@b.c', 'ghp_abc sk-xyz AKIAXXXX eyJhbGci xoxb-1 BEGIN', 'password: hunter2 bearer abc token xyz', 'a1b2c3d4e5f6a1b2c3d4e5f6', `${'x'.repeat(41)} ok`, 'line "two" (three); {four}', 'non-ascii \u00e7a va \u2713 ok', 'word '.repeat(60), '', '   ', 'sk_live_abc and pk_test_x', 'ref #12 100% done! a&b a+b a.b_c-d?'];
-  for (const t of corpus) {
-    const r = spawnSync('sh', ['-c', `${fn}\nprintf '%s' "$1" | sb_scrub`, 'sh', t], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
-    assert.equal(scrub(Buffer.from(t, 'utf8').toString('latin1')), r.stdout.replace(/\n$/, ''), `scrub of ${JSON.stringify(t)}`);
-  }
+test('scrub: gives what the sb_scrub of agent.sh gave on a corpus (answers recorded from the shell function in tests/golden/shell-equivalence.json, A244)', () => {
+  const rec = JSON.parse(readFileSync(path.join(repo, 'tests/golden/shell-equivalence.json'), 'utf8')).sbScrub;
+  assert.ok(rec.length >= 10);
+  for (const c of rec) assert.equal(scrub(Buffer.from(c.in, 'utf8').toString('latin1')), c.out, `scrub of ${JSON.stringify(c.in)}`);
 });
 
 // ---- the slug of the branch name ---------------------------------------------------------------------------------------------------------

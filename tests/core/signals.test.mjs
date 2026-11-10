@@ -1,6 +1,7 @@
 // @ts-check
-// signals.mjs and ere.mjs against the shell: risk_words_match (the golden cases of risk-test.sh, 830 and 867, and more), the ERE translator
-// against grep -E, entry_tier against agent.sh entry-tier, and the risk freeze hashes.
+// signals.mjs and ere.mjs against the shell's answers: risk_words_match (the golden cases of risk-test.sh, 830 and 867, and more; recorded in tests/core/golden/risk-words-match.json, the lines
+// of the widened log pattern and the back-reference case look their answer up in tests/golden/shell-equivalence.json, A244), the ERE translator against grep -E, entry_tier against
+// agent.sh entry-tier, and the risk freeze hashes.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { describe, test, after } from 'node:test';
 import { rmSync } from 'node:fs';
 import { ereToRegExp } from '../../control-plane/agents/scripts/core/ere.mjs';
 import { entryTier, riskWordsMatch, tierMax, tierRank } from '../../control-plane/agents/scripts/core/signals.mjs';
-import { extractFunctions, repo } from './helpers.mjs';
+import { repo } from './helpers.mjs';
 import { makeFixture } from './fixture.mjs';
 
 const fx = makeFixture();
@@ -17,14 +18,15 @@ after(() => rmSync(fx.root, { recursive: true, force: true }));
 const config = readFileSync(path.join(repo, 'control-plane/agents/config.yaml'), 'latin1');
 const logRe = (/^ {4}content: ((?:\(\^\|\[\^A-Za-z0-9\]\)).*)$/m.exec(config) ?? [])[1] ?? '';
 
-/** @param {string} re @param {string} words @param {string[]} lines */
+const GOLD = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'golden', 'shell-equivalence.json'), 'utf8'));
+/** The answer the shell function gave on this case (recorded in tests/golden/shell-equivalence.json, A244). @param {string} re @param {string} words @param {string[]} lines */
 function shellWords(re, words, lines) {
-  const fns = extractFunctions(['risk_words_match']);
-  const r = spawnSync('sh', ['-c', `${fns}\nrisk_words_match "$1" "$2"`, 'x', re, words], { input: `${lines.join('\n')}\n`, encoding: 'latin1', env: { ...process.env, LC_ALL: 'C' } });
-  return r.status === 0;
+  const hit = GOLD.riskWords.find((/** @type {{ re: string, words: string, lines: string[] }} */ c) => c.re === re && c.words === words && JSON.stringify(c.lines) === JSON.stringify(lines));
+  assert.ok(hit, `no recorded answer for ${JSON.stringify({ re: re.slice(0, 30), words, lines })}`);
+  return hit.match;
 }
 
-describe('risk_words_match equals the shell', () => {
+describe('risk_words_match gives what the shell gave (recorded)', () => {
   const match = ['log(userPassword)', 'log(user_password)', 'log(passwords)', 'log(PASSWORD)', 'log(card)', 'log(ssn)', 'log(user.Email)'];
   const noMatch = ['log(discard)', 'log(classname)', 'log(scardy)', 'log(started)', 'print(password)'];
   test('boundaries', () => {
@@ -50,7 +52,7 @@ describe('risk_words_match equals the shell', () => {
   test('a pattern the translator does not cover goes to the platform awk', () => {
     const ctx = fx.ctx();
     assert.equal(ereToRegExp('(a)\\1'), null);
-    assert.equal(riskWordsMatch(ctx, '(l)\\1', 'x', ['llx']), shellWords('(l)\\1', 'x', ['llx']));
+    assert.equal(riskWordsMatch(ctx, '(l)\\1', 'x', ['llx']), GOLD.riskWordsBackref);
   });
 });
 

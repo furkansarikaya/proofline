@@ -1,14 +1,13 @@
 // @ts-check
-// The Node test harness (issue #176, package A): the Node form of the helpers of control-plane/agents/scripts/test-lib.sh for the Node suites
-// that replace the legacy shell suites. One implementation of: the hardened environment of every child (no real HOME, gh, git configuration or
-// network, fixed identity), `A`/`AS` (a call of the control plane), the expectation helpers, a throwaway project with the control plane
-// installed (built once per content hash and COPIED per test), and the fixture verbs (scaffold, worker/solo evidence, gate results, to-code-done,
-// the user's approval). The shell library stays until the legacy suites are ported; tests/lib/harness.test.mjs proves the two build the same state.
+// The Node test harness (issue #176, package A; the only fixture library since package E1, A244): one implementation of: the hardened environment of every child (no real HOME,
+// gh, git configuration or network, fixed identity), `A`/`AS` (a call of the control plane), the expectation helpers, a throwaway project with the control plane installed like a
+// real install (agent.sh as shipped, the Node core beside it: every command runs in the core; built once per content hash and COPIED per test), and the fixture verbs (scaffold,
+// worker/solo evidence, gate results, to-code-done, the user's approval). The test recipes written as a few lines of sh text are tests/lib/recipe.mjs over tests/lib/verbs.mjs.
 // A helper that builds STATE throws when the control plane refuses (the shell suites ran under `set -e`); the asserted action is the caller's:
 // call `A` and look at the Result.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
@@ -55,7 +54,9 @@ export const tsha = (f) => sha256(readFileSync(f));
 /** @type {string | undefined} */ let baseDir;
 let counter = 0;
 export function base() {
-  if (!baseDir) {
+  // PL_HARNESS_BASE: a recipe runner (tests/lib/recipe.mjs) hands its own folder to the verb processes it starts; it removes the folder, the verb does not
+  if (!baseDir && process.env.PL_HARNESS_BASE) baseDir = process.env.PL_HARNESS_BASE;
+  else if (!baseDir) {
     baseDir = mkdtempSync(path.join(tmpdir(), 'proofline-h-'));
     const dir = baseDir;
     process.on('exit', () => { try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* the assertions decided the result */ } });
@@ -63,7 +64,7 @@ export function base() {
   return baseDir;
 }
 /** A fresh empty directory under the base. @param {string} [prefix] */
-export function tmp(prefix = 't') { const d = path.join(base(), `${prefix}${++counter}`); mkdirSync(d, { recursive: true }); return d; }
+export function tmp(prefix = 't') { return mkdtempSync(path.join(base(), `${prefix}${++counter}-`)); }
 
 // ---- calling the control plane --------------------------------------------------------------------------------------------------------------
 /**
@@ -164,45 +165,32 @@ const SHEBANG = '#!/bin/sh\n';
 const putStub = (to, fromStub) => { writeFileSync(to, Buffer.concat([Buffer.from(SHEBANG), readFileSync(path.join(stubs, fromStub))])); chmodSync(to, 0o755); };
 
 /**
- * The control plane as `proofline init` lays it out in DIR, plus test stubs for the scripts other workers own (secret-scan.sh, exec-policy.sh) and
- * the markdown task adapter. agent.sh is the real one with the prologue that sends the Node core's commands to .agents/core4a.
+ * The control plane as `proofline init` lays it out in DIR (A244): agent.sh as shipped, the Node core beside it (`.agents/scripts/proofline-core.mjs` and `core/`, so agent.sh
+ * hands EVERY command to the core, as in a real install), plus test stubs for the scripts other workers own (secret-scan.sh, exec-policy.sh) and the markdown task adapter.
  * @param {string} dir
  */
 export function installControlPlane(dir) {
-  for (const d of ['.agents/scripts', '.agents/task-integrations', '.agents/local', '.agents/core4a']) mkdirSync(path.join(dir, d), { recursive: true });
+  for (const d of ['.agents/scripts', '.agents/task-integrations', '.agents/local']) mkdirSync(path.join(dir, d), { recursive: true });
   cpSync(path.join(agentsSrc, 'config.yaml'), path.join(dir, '.agents/config.yaml'));
   for (const d of ['modes', 'templates']) cpSync(path.join(agentsSrc, d), path.join(dir, '.agents', d), { recursive: true });
-  cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(dir, '.agents/core4a/proofline-core.mjs'));
-  cpSync(path.join(scripts, 'core'), path.join(dir, '.agents/core4a/core'), { recursive: true });
-  writeFileSync(path.join(dir, '.agents/core4a/agent.sh'), '');   // the core looks for the agent.sh beside it when a run worktree names itself with --pl-argv0
-  writeFileSync(path.join(dir, '.agents/scripts/agent.sh'), Buffer.concat([Buffer.from(SHEBANG), readFileSync(path.join(stubs, 'agent-prologue.txt')), readFileSync(path.join(scripts, 'agent.sh'))]));
-  if (existsSync(path.join(agentsSrc, 'ecosystems.tsv'))) {
+  cpSync(path.join(scripts, 'agent.sh'), path.join(dir, '.agents/scripts/agent.sh'));
+  cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(dir, '.agents/scripts/proofline-core.mjs'));
+  cpSync(path.join(scripts, 'core'), path.join(dir, '.agents/scripts/core'), { recursive: true });
+  if (existsSync(path.join(agentsSrc, 'ecosystems.tsv'))) {   // the core's risk sets read the flat ecosystem definition and check for its reader (production: probes/signals/pathkind)
     cpSync(path.join(agentsSrc, 'ecosystems.tsv'), path.join(dir, '.agents/ecosystems.tsv'));
     cpSync(path.join(scripts, 'ecosystems.sh'), path.join(dir, '.agents/scripts/ecosystems.sh'));
   }
-  if (existsSync(path.join(scripts, 'next-user.sh'))) cpSync(path.join(scripts, 'next-user.sh'), path.join(dir, '.agents/scripts/next-user.sh'));
   putStub(path.join(dir, '.agents/scripts/secret-scan.sh'), 'secret-scan.txt');
   putStub(path.join(dir, '.agents/scripts/exec-policy.sh'), 'exec-policy.txt');
   putStub(path.join(dir, '.agents/task-integrations/markdown.sh'), 'markdown-adapter.txt');
-  // the shell code that is left asks the core for a slug: a three-line stub beside agent.sh hands `cli slug` and `dispatch` over to it
-  writeFileSync(path.join(dir, '.agents/scripts/proofline-core.mjs'), "import { main } from '../core4a/proofline-core.mjs';\nprocess.exitCode = await main(new URL(import.meta.url).pathname);\n");
   for (const f of readdirSync(path.join(dir, '.agents/scripts'))) if (f.endsWith('.sh')) chmodSync(path.join(dir, '.agents/scripts', f), 0o755);
 }
-
-let liveCore = false;
-/**
- * Make every project of this process an installed project: `.agents/scripts/core` is linked beside `proofline-core.mjs`, so agent.sh hands EVERY command to the
- * Node core, as in a real install. Without it the fixture prologue sends only the verbs it lists there and the rest (pipeline, next, verify-*, freshness,
- * approvals ...) would run the shell arm of agent.sh, which the product never reaches (A242). Call it at the top of a test file, before the first project().
- */
-export function useLiveCore() { liveCore = true; }
 
 /** The template repository: the control plane installed, git initialised, nothing committed. @param {string} dir */
 function buildTemplate(dir) {
   installControlPlane(dir);
-  if (liveCore) symlinkSync('../core4a/core', path.join(dir, '.agents/scripts/core'));
   git(dir, ['init', '-q', '-b', 'main']);
-  appendFileSync(path.join(dir, '.git/info/exclude'), `.agents/core4a/\n.agents/scripts/proofline-core.mjs\n${liveCore ? '.agents/scripts/core\n' : ''}`);   // the Node core is installed, not part of the fixture's history
+  appendFileSync(path.join(dir, '.git/info/exclude'), '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n');   // the Node core is installed, not part of the fixture's history
   writeFileSync(path.join(dir, '.gitignore'), '.agents/runs/\n.agents/local/\n');
 }
 
@@ -218,7 +206,7 @@ function hashTree(p, h) {
 export function codeKey() {
   if (codeKeyCache) return codeKeyCache;
   const h = createHash('sha256');
-  for (const p of [path.join(agentsSrc, 'config.yaml'), path.join(agentsSrc, 'modes'), path.join(agentsSrc, 'templates'), path.join(agentsSrc, 'ecosystems.tsv'), scripts, stubs, import.meta.filename]) hashTree(p, h);
+  for (const p of [path.join(agentsSrc, 'config.yaml'), path.join(agentsSrc, 'modes'), path.join(agentsSrc, 'templates'), path.join(agentsSrc, 'ecosystems.tsv'), scripts, stubs, import.meta.filename, path.join(import.meta.dirname, 'verbs.mjs'), path.join(import.meta.dirname, 'recipe.mjs')]) hashTree(p, h);
   return (codeKeyCache = h.digest('hex').slice(0, 20));
 }
 const cacheRoot = () => path.join(tmpdir(), `proofline-harness-${process.getuid?.() ?? 0}`);
@@ -233,10 +221,10 @@ function safeCacheRoot() {
 }
 /**
  * A directory built once per key, kept under the temp folder and shared by every process (the builder fills a private directory that is renamed into
- * place; the loser of a race discards its copy). @param {string} key @param {(dir: string) => void} build @returns {string}
+ * place; the loser of a race discards its copy). @param {string} key @param {(dir: string) => void} build @param {string} [root] the cache folder (default: the user's private one) @returns {string}
  */
-export function cached(key, build) {
-  const root = safeCacheRoot();
+export function cached(key, build, root = safeCacheRoot()) {
+  mkdirSync(root, { recursive: true });
   const final = path.join(root, key);
   if (existsSync(path.join(final, '.built'))) return final;
   const work = mkdtempSync(path.join(root, `build-${key.slice(0, 12)}-`));
@@ -253,7 +241,26 @@ export function copyOf(template) {
 }
 
 /** A fresh repository with the control plane installed (nothing committed): `new_repo` of the shell library. */
-export function newRepo() { return copyOf(cached(`ctl-${codeKey()}${liveCore ? '-live' : ''}`, buildTemplate)); }
+export function newRepo() { return copyOf(defaultTemplate()); }
+/** The template repository of this code state (built once, shared by every process). */
+export function defaultTemplate() { return cached(`ctl-${codeKey()}`, buildTemplate); }
+
+/**
+ * Git hooks for a fixture: `pre-commit` and `pre-push` that run the project's core as the shipped launchers do (`cli pre-commit|pre-push`), but name the agent.sh of the repository the
+ * hook runs in (`--pl-argv0`, which tells the core its root), so that ONE folder of hooks serves the main tree and every run worktree: a fixture's `.agents/scripts` is untracked, so a
+ * worktree has no core of its own. The shipped launchers under real git are tested in tests/core/githooks-run.test.mjs.
+ * @param {string} dir the project whose core runs @param {string} [to] the hooks folder (default DIR/.agents/githooks); returns it
+ */
+export function installGithooks(dir, to = path.join(dir, '.agents/githooks')) {
+  mkdirSync(to, { recursive: true });
+  // inside the project the core is found beside the hooks folder (the project may be a copy of a template); outside it, by the project's absolute path
+  const core = path.relative(dir, to).startsWith('..') ? `'${path.join(dir, '.agents/scripts/proofline-core.mjs')}'` : '"$(dirname "$0")/../scripts/proofline-core.mjs"';
+  for (const n of ['pre-commit', 'pre-push']) {
+    writeFileSync(path.join(to, n), `#!/bin/sh\nexec node ${core} --pl-argv0 "$(git rev-parse --show-toplevel)/.agents/scripts/agent.sh" cli ${n}\n`);
+    chmodSync(path.join(to, n), 0o755);
+  }
+  return to;
+}
 
 // ---- gate results through the D12 protocol --------------------------------------------------------------------------------------------------
 export const gateOwner = (/** @type {string} */ g) => (g.startsWith('REVIEW_') ? 'reviewer' : ({ SECURITY: 'security_reviewer', QA: 'qa', VERIFY: 'verifier' })[g] ?? '');
@@ -307,14 +314,14 @@ export function gfail(dir, gate, fixPath) {
   const ev = gate === 'REVIEW_RULES' || gate === 'REVIEW_SMALL' ? `traced: empty key -> nil; scan: grep -n lookup ${fixPath}; instances: single` : 'traced: empty key -> nil';
   return rec(dir, gate, 'FAIL', [`${gate}-1|blocking|${fixPath}:1|lookup returns the wrong value for an empty key|${ev}`], { confidence: 'high' });
 }
-/** Pass every gate the pipeline requires, then every risk focus, then VERIFY. @param {string} dir */
-export function passAll(dir) {
+/** Pass every gate the pipeline requires, then every risk focus, then VERIFY. @param {string} dir @param {{ extra?: string }} [opt] extra: more report text in every gate's report */
+export function passAll(dir, opt = {}) {
   for (const g of pipe(dir, 'gates').split(/\s+/).filter(Boolean)) {
     if (g === 'VERIFY') continue;   // A171: VERIFY runs after the gates it depends on
-    if (g === 'SECRETS') must(dir, ['secret-scan', 'LC']); else gpass(dir, g);
+    if (g === 'SECRETS') must(dir, ['secret-scan', 'LC']); else gpass(dir, g, opt);
   }
-  for (const m of A(dir, ['pipeline', 'LC']).out.matchAll(/^focus\.([A-Z_]*)\.([a-z]*)=.*$/gm)) gpass(dir, m[1], { focus: m[2] });
-  gpass(dir, 'VERIFY');
+  for (const m of A(dir, ['pipeline', 'LC']).out.matchAll(/^focus\.([A-Z_]*)\.([a-z]*)=.*$/gm)) gpass(dir, m[1], { ...opt, focus: m[2] });
+  gpass(dir, 'VERIFY', opt);
 }
 
 // ---- implementation helpers -----------------------------------------------------------------------------------------------------------------
@@ -357,7 +364,7 @@ export function tcStatus(file, status) { writeFileSync(file, readFileSync(file, 
 // ---- a scaffolded run -----------------------------------------------------------------------------------------------------------------------
 /**
  * @typedef {{ topology?: string, layout?: 'yes' | 'no', cls?: string, autonomy?: string, branch?: boolean, taskFm?: string, taskExtra?: string, testCrit?: string,
- *   scopeOther?: string, scopeExtra?: string, scopeAgents?: boolean, scopeNamed?: string, exempt?: boolean, qaExtra?: string, planExtra?: string, kindClaim?: string, agentsMd?: 1 | 2 }} ScaffoldOptions
+ *   scopeOther?: string, scopeExtra?: string, scopeAgents?: boolean, scopeNamed?: string, exempt?: boolean, qaExtra?: string, planExtra?: string, kindClaim?: string, agentsMd?: 1 | 2, template?: string }} ScaffoldOptions
  */
 const EXEMPT = '    tdd_exemption: fixture file without executable behaviour to test here';
 
@@ -368,7 +375,7 @@ const EXEMPT = '    tdd_exemption: fixture file without executable behaviour to 
  */
 export function scaffold(o = {}) {
   const topo = o.topology ?? 'orchestrated'; const layout = o.layout ?? 'no'; const cls = o.cls ?? 'COMPLEX'; const auto = o.autonomy ?? 'autonomous';
-  const dir = newRepo();
+  const dir = o.template ? copyOf(o.template) : newRepo();
   const w = (/** @type {string} */ f, /** @type {string} */ t) => { mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); writeFileSync(path.join(dir, f), t); };
   const ap = (/** @type {string} */ f, /** @type {string} */ t) => appendFileSync(path.join(dir, f), t);
   const d = '.agents/runs/LC';
@@ -418,17 +425,17 @@ export function scaffold(o = {}) {
   if (auto === 'autonomous') { must(dir, ['freeze', 'LC'], { bind: true }); must(dir, ['handoff', 'LC', 'IMPLEMENTING']); }
   return dir;
 }
-/** Drive a scaffolded run (frozen, IMPLEMENTING) to CODE_DONE. @param {string} dir @param {string} [topology] */
-export function toCodeDone(dir, topology = 'orchestrated') {
+/** Drive a scaffolded run (frozen, IMPLEMENTING) to CODE_DONE. @param {string} dir @param {string} [topology] @param {{ extra?: string }} [opt] more report text in every gate's report */
+export function toCodeDone(dir, topology = 'orchestrated', opt = {}) {
   const step = topology === 'orchestrated' ? worker : solo;
   step(dir, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value');
   step(dir, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value');
-  must(dir, ['handoff', 'LC', 'IMPLEMENTED']); passAll(dir); must(dir, ['handoff', 'LC', 'CODE_DONE']);
+  must(dir, ['handoff', 'LC', 'IMPLEMENTED']); passAll(dir, opt); must(dir, ['handoff', 'LC', 'CODE_DONE']);
 }
 
 /** A scaffolded project built once per option set and copied per call (kept on disk, keyed by the code and the options). @param {ScaffoldOptions} [o] */
 export function project(o = {}) {
-  const key = `sc-${codeKey()}${liveCore ? '-live' : ''}-${sha256(JSON.stringify(Object.entries(o).sort())).slice(0, 12)}`;
+  const key = `sc-${codeKey()}-${sha256(JSON.stringify(Object.entries(o).sort())).slice(0, 12)}`;
   return copyOf(cached(key, (work) => {
     const built = scaffold(o);
     cpSync(built, work, { recursive: true });

@@ -14,6 +14,7 @@ import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs
 import { run as runCore } from '../../control-plane/agents/scripts/proofline-core.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 import { repo } from './helpers.mjs';
+import { buildRecipe } from '../lib/recipe.mjs';
 
 const scripts = path.join(repo, 'control-plane/agents/scripts');
 const NARROW = `awk '/^  STANDARD:/ { s = 1 } s && /max_scope_paths:/ { sub(/[0-9]+/, "3"); s = 0 } { print }' .agents/config.yaml > "$base/cfg.tmp" && cp "$base/cfg.tmp" .agents/config.yaml`;
@@ -24,12 +25,8 @@ let counter = 0;
 /** A scaffolded project (the self-test library builds it, the Node core is put beside agent.sh). @param {string} script */
 function build(script) {
   const out = mkdtempSync(path.join(tmpdir(), 'ans-fx-'));
-  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; ${script}; cp -R "$PWD/." "$EQ_OUT/"`, path.join(scripts, 'x.sh')],
-    { env: cleanEnv({ EQ_LIB: path.join(scripts, 'test-lib.sh'), EQ_OUT: out }), encoding: 'utf8', timeout: 600000 });
-  assert.equal(r.status, 0, `fixture: ${r.stderr}${r.stdout}`);
-  cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(out, '.agents/scripts/proofline-core.mjs'));
-  cpSync(path.join(scripts, 'core'), path.join(out, '.agents/scripts/core'), { recursive: true });
-  appendFileSync(path.join(out, '.git/info/exclude'), '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n.agents/local/\n');
+  buildRecipe(script, out, { errexit: false });
+  appendFileSync(path.join(out, '.git/info/exclude'), '.agents/local/\n');
   return out;
 }
 before(() => {
@@ -46,7 +43,7 @@ function agent(dir, args, input = '', env = {}) {
   const r = spawnSync('sh', ['.agents/scripts/agent.sh', ...args], { cwd: dir, env: cleanEnv({ CLAUDE_CODE_SESSION_ID: 's1', ...env }), input, encoding: 'utf8', timeout: 60000 });
   return { status: r.status, out: r.stdout, err: r.stderr, text: r.stdout + r.stderr };
 }
-/** `freeze` as the self-tests run it: the QA plan cites the sha256 of the current PLAN.md first (test-lib qa_bind). @param {string} dir */
+/** `freeze` as the self-tests run it: the QA plan cites the sha256 of the current PLAN.md first (qa_bind of the harness). @param {string} dir */
 function freeze(dir) {
   const plan = readFileSync(`${dir}/.agents/runs/LC/PLAN.md`);
   const qa = `${dir}/.agents/runs/LC/QA_PLAN.md`;

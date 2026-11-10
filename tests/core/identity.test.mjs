@@ -6,8 +6,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { AS, accepted, scaffold, tmp, useLiveCore } from '../lib/harness.mjs';
-useLiveCore();
+import { AS, accepted, scaffold, tmp } from '../lib/harness.mjs';
 
 test('sc_qa_plan_submit: a QA plan step with rows is recorded (no "invalid finding id QA-1 (want qa-<n>)")', () => {
   const d = scaffold({ topology: 'orchestrated' });

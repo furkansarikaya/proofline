@@ -101,7 +101,7 @@ processes one run starts is the cost that matters, most of all in Git Bash on Wi
 `node` run, answers path, name and number work with shell builtins and parameter expansion (`dirname`, `basename`, `tr`, `sed`, `awk`, `sha`
 helpers are used only when the text needs them), asks `agent.sh hook-config` once per event for every config value it needs, and takes the clock
 once per measurement. The approval step (recording an approval from your reply) normalises all allowed phrases in one pass instead of one
-pipeline per phrase. Behaviour is unchanged; `tests/bench/hook-procs.sh` (not run by CI) counts external processes per event with a PATH shim, and
+pipeline per phrase. Behaviour is unchanged; `tests/bench/hook-procs.mjs` (run by the process-budget test) counts external processes per event with a PATH shim, and
 the numbers are in decision A188.
 
 A200 bounds the time: the SessionStart `next` runs for at most `PROOFLINE_HOOK_NEXT_BUDGET` seconds (default 10 of the runtime's 30) and a hook waits for a

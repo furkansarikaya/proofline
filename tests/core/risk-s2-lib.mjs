@@ -2,7 +2,7 @@
 // Helpers of tests/core/risk-s2.test.mjs (risk-test.sh scenarios sc_frozen .. sc_gate_deps, lines 517-996). Only what harness.mjs does not have: the
 // shell suite's own helpers (snap/pv/has/hasnt, rrun, frozen, implement) and a sed for the config edits.
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { A, approveAsUser, commitAll, git, must, project, rv, solo } from '../lib/harness.mjs';
 
@@ -37,21 +37,8 @@ export function hasnt(po, s) { assert.ok(!po.includes(s), `pipeline has '${s}'`)
 /** The pipeline value of focus/gate after one fresh snapshot. @param {string} d @param {string} key */
 export const stOf = (d, key) => pv(snap(d), key);
 
-/**
- * The harness fixture installs the Node core in .agents/core4a and a prologue that sends only the verbs it lists there; every other verb (pipeline, tier, next,
- * verify-freeze, config-check, fingerprint ...) would fall to the SHELL arm of agent.sh, because agent.sh finds no `core/` folder beside itself. A real install
- * has that folder, and then every verb execs the Node core. This makes the fixture the live path: `.agents/scripts/core` -> the core (excluded from git).
- * @param {string} d
- */
-export function live(d) {
-  const link = path.join(d, '.agents/scripts/core');
-  if (!existsSync(link)) symlinkSync('../core4a/core', link);
-  const ex = path.join(d, '.git/info/exclude');
-  if (!readFileSync(ex, 'utf8').split('\n').includes('.agents/scripts/core')) appendFileSync(ex, '.agents/scripts/core\n');
-  return d;
-}
 /** A scaffolded standalone run on the live path. @param {Parameters<typeof project>[0]} o */
-export const proj = (o) => live(project({ topology: 'standalone', layout: 'no', autonomy: 'manual', ...o }));
+export const proj = (o) => (project({ topology: 'standalone', layout: 'no', autonomy: 'manual', ...o }));
 
 /**
  * rrun CLASS "NEW-PATH...": an unfrozen standalone run (manual autonomy) whose scope adds new paths; the optional text is appended to PLAN.md.

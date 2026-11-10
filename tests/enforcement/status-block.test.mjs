@@ -11,7 +11,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, project, verbs } from '../core/legacy-lib.mjs';
-import { cleanEnv, repo, rv } from '../lib/harness.mjs';
+import { scrub as scrubNode } from '../../control-plane/agents/scripts/core/statusblock.mjs';
+import { repo, rv } from '../lib/harness.mjs';
 
 const haveJq = spawnSync('jq', ['--version']).status === 0;
 const opts = { skip: haveJq ? false : 'jq is required' };
@@ -21,8 +22,8 @@ const PLANT_PATH = '/Users/planted/secret-dir/notes.txt';
 const PLANT_KEY = 'ghp_PLANTEDSECRET1234567890abcdef';
 const PLANT_MAIL = 'planted.person@example.invalid';
 
-// the suite's own new_repo: the fixture repository with the REAL adapters (the shared fixture carries a markdown stub)
-const NEW_REPO = 'new_repo() { fx=$(mktemp -d "$base/fx.XXXXXX"); install_control_plane "$fx"; rm -f "$fx/.agents/task-integrations/markdown.sh"; cd "$fx" || exit 1; git init -q -b main; printf \'.agents/runs/\\n.agents/local/\\n\' > .gitignore; }';
+// the suite's own template: the fixture repository with the REAL adapters (the shared fixture carries a markdown stub, removed here)
+const NEW_REPO = 'tl_ensure_template; sb_p=$(mktemp -d "$base/tpl.XXXXXX"); cp -R "$tl_template/." "$sb_p/"; rm -f "$sb_p/.agents/task-integrations/markdown.sh"; tl_template=$sb_p';
 const SCAFFOLD = `${NEW_REPO}; scaffold standalone yes`;
 const CODE_DONE = `${SCAFFOLD}; to_code_done standalone`;
 
@@ -60,9 +61,8 @@ test('ask: the block shows the park, the question and how to answer; planted val
 });
 
 test('scrubber: keys wrapped in quotes, brackets or after a colon are redacted; a plain question and non-ASCII or shell symbols are handled', opts, () => {
-  const agentSh = path.join(repo, 'control-plane/agents/scripts/agent.sh');
-  /** @param {string} input */
-  const scrub = (input) => spawnSync('sh', ['-c', 'eval "$(awk \'/^sb_scrub\\(\\)/ { p = 1 } p { print } p && /^}/ { exit }\' "$AGENT_SH")"; printf "%s" "$IN" | sb_scrub'], { env: cleanEnv({ AGENT_SH: agentSh, IN: input }), encoding: 'utf8' }).stdout;
+  // the scrubber the status block uses is the core's (statusblock.mjs); until A244 this test extracted the shell function `sb_scrub` of agent.sh and ran it
+  const scrub = (/** @type {string} */ input) => scrubNode(input);
   for (const wrapped of ['(AKIAABCDEFGHIJKLMNOP)', '"sk-abc123def"', "'ghp_abcd1234'", 'key:ghp_abcd1234', '[xoxb-123]', 'token:abc', 'see C:foo', 'sk_live_abcdef012345', 'sk_test_abc', 'token:abc123def456',
     '10.0.0.12', '192.168.1.1:8080', '2001:db8:85a3:0:0:8a2e:370:7334', 'x.y.z.w1234567890abcdefghijklmnopqrstuvwxyzzzzz']) {
     const o = scrub(`use ${wrapped} now`);
@@ -112,11 +112,12 @@ test('contract hash: the status block is excluded, everything else stays hashed,
   fresh(d, 'an allowed status line staled the plan');
   ok(d, ['status-block', 'LC', 'update']); hasnt(d, 'tampered');
   // EVERY key the generator can emit is an allowed key: one list (SB_KEYS) serves the generator and the hash, and the hash does not move for any of them
-  const agent = readFileSync(path.join(d, '.agents/scripts/agent.sh'), 'utf8');
-  const sbk = /^SB_KEYS='(.*)'$/m.exec(agent)?.[1] ?? '';
-  assert.notEqual(sbk, '', 'no SB_KEYS in agent.sh');
+  // until A244 the lists were read from the shell text of agent.sh (SB_KEYS and the sbb_kv calls); the core has the same two lists: SB_KEYS of the contract hash (lifecycle.mjs) and the kv() calls of the generator
+  const coreDir = path.join(repo, 'control-plane/agents/scripts/core');
+  const sbk = /^const SB_KEYS = '(.*)'\.split/m.exec(readFileSync(path.join(coreDir, 'lifecycle.mjs'), 'utf8'))?.[1] ?? '';
+  assert.notEqual(sbk, '', 'no SB_KEYS in lifecycle.mjs');
   const keys = sbk.split(' ').filter(Boolean);
-  const gen = [...new Set([...agent.matchAll(/sbb_kv ([a-z_]+) "/g)].map((m) => m[1] ?? ''))];
+  const gen = [...new Set([...readFileSync(path.join(coreDir, 'statusblock.mjs'), 'utf8').matchAll(/\bkv\('([a-z_]+)'/g)].map((m) => m[1] ?? ''))];
   assert.ok(gen.length > 0, 'no generator keys found');
   for (const gk of gen) assert.ok(keys.includes(gk), `the generator emits '${gk}' which is not in SB_KEYS`);
   fresh(d, 'not fresh before the every-key block');
