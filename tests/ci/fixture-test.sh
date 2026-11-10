@@ -56,13 +56,29 @@ git -C "\$1" init -q -b main && git -C "\$1" add a.txt && git -C "\$1" commit -q
 EOF
 chmod +x "$T/slow-builder.sh"
 contend() { # KEY OUT ERR
-  sh -c '. "$1"; fx_template "$2" "$3"' contender "$here/../shared/fixture-lib.sh" "$1" "$T/slow-builder.sh" > "$2" 2> "$3" &
+  sh -c '. "$1"; fx_template "$2" "$3"; echo $? > "$4"' contender "$here/../shared/fixture-lib.sh" "$1" "$T/slow-builder.sh" "$3.rc" > "$2" 2> "$3" &
+}
+# What a race has to leave behind, whoever built and however many did (the publish is atomic, so a second build is wasted work, not a wrong result): OUT_PREFIX N KEY EXPECTED.
+# Every contender succeeded and got the same path, the final directory; it is the only thing left under the key (no private build directory, no lock); it is complete and valid
+# (the builder's file with the expected content, a clean repository of one commit) and holds no nested copy of a build directory.
+outcome() {
+  oc_dirs=$(for oc_i in $(seq 1 "$2"); do cat "$1.$oc_i"; done | sort -u)
+  oc_bad=$(for oc_i in $(seq 1 "$2"); do [ "$(cat "$1.err.$oc_i.rc" 2>/dev/null)" = 0 ] || echo "contender $oc_i status '$(cat "$1.err.$oc_i.rc" 2>/dev/null)': $(cat "$1.err.$oc_i" 2>/dev/null)"; done)
+  [ -z "$oc_bad" ] || die "$3: $oc_bad"
+  [ "$oc_dirs" = "$SELFTEST_TEMPLATE_DIR/$3" ] || die "$3: the contenders got '$oc_dirs'"
+  oc_left=$(cd "$SELFTEST_TEMPLATE_DIR" && ls -d "$3"* 2>/dev/null | tr '\n' ' ')
+  [ "$oc_left" = "$3 " ] || die "$3: left under the key: $oc_left"
+  [ "$(cat "$SELFTEST_TEMPLATE_DIR/$3/a.txt" 2>/dev/null)" = "$4" ] || die "$3: the template is incomplete"
+  [ "$(git -C "$SELFTEST_TEMPLATE_DIR/$3" rev-list --count HEAD 2>/dev/null)" = 1 ] && [ -z "$(git -C "$SELFTEST_TEMPLATE_DIR/$3" status --porcelain)" ] || die "$3: the template is not a clean repository of one commit"
+  [ -z "$(find "$SELFTEST_TEMPLATE_DIR/$3" -mindepth 1 -maxdepth 1 -name '*.tmp.*')" ] || die "$3: a build directory is nested in the template"
+  oc_n=$(($(builds) - before))
+  [ "$oc_n" -ge 1 ] && [ "$oc_n" -le "$2" ] || die "$3: $oc_n builds for $2 contenders"
 }
 printf 'v3\n' > "$src/control-plane/a.txt"; k3=$(fx_key "$src" control-plane bin)
 before=$(builds)
 for i in 1 2 3 4; do contend "$k3" "$T/par.$i" "$T/par.err.$i"; done
 wait
-[ "$(builds)" = $((before + 1))  ] && [ "$(sort -u "$T"/par.? | wc -l | tr -d ' ')" = 1 ] && [ -f "$(cat "$T/par.1")/a.txt" ] && ok "four concurrent callers build the template once and get the same directory" || die "race: builds=$(( $(builds) - before )) dirs=$(cat "$T"/par.?)"
+outcome "$T/par" 4 "$k3" v3; ok "four concurrent callers get one complete template at the final path, with nothing left behind"
 
 # a template that appears between the last test and the move (a second builder, a taken-over lock): `mv` would nest this build's private directory inside it
 # shellcheck disable=SC2154 # ft_final is the library's variable
@@ -71,12 +87,12 @@ t5=$(fx_template nestkey build) || die "a template that appeared before the move
 unset -f mv
 [ -d "$t5" ] && [ -z "$(find "$t5" -mindepth 1 -maxdepth 1 -name '*.tmp.*')" ] && ok "a directory that appeared before the move is not nested into: no private build directory is left inside the template" || die "nested template: $(ls "$t5")"
 
-# 8 contenders on a lock left by a dead process: exactly one takes it over and builds, nobody writes to stderr
+# 8 contenders on a lock left by a dead process: the outcome is right whoever builds (the number of builds is not asserted beyond 1 to 8)
 dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/k8.lock"; echo "$dead" > "$SELFTEST_TEMPLATE_DIR/k8.lock/pid"
 before=$(builds)
 for i in 1 2 3 4 5 6 7 8; do contend k8 "$T/c8.$i" "$T/c8.err.$i"; done
 wait
-[ "$(builds)" = $((before + 1)) ] && [ "$(sort -u "$T"/c8.? | wc -l | tr -d ' ')" = 1 ] && [ ! -s "$T/c8.err.1" ] && [ -z "$(cat "$T"/c8.err.*)" ] && ok "eight contenders on a dead lock: one takes it over, one build, no stderr" || die "dead-lock race: builds=$(( $(builds) - before )) err=$(cat "$T"/c8.err.*)"
+outcome "$T/c8" 8 k8 v3; ok "eight contenders on a dead lock: one complete template at the final path, nothing left behind"
 
 dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/stale.lock"; echo "$dead" > "$SELFTEST_TEMPLATE_DIR/stale.lock/pid"
 t4=$(fx_template stale build) || die "a stale lock blocked the build"
