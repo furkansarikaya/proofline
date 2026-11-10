@@ -3,6 +3,7 @@
 // repository config defines is code git runs on every file it reads or writes. deliver-merged looks for such drivers, and every git call on a checkout it
 // touches (the main tree, the run's worktree) carries the blanking: the file system monitor off and each driver's three commands set empty, through the
 // ENVIRONMENT (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, GIT_CONFIG_VALUE_n), where a name is a key and not a `-c name=value` text that an `=` in the name would cut.
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import * as proc from './proc.mjs';
@@ -42,10 +43,10 @@ export function parseDrivers(raw) {
  * A folder is visited once, by its real path (a gitlink that is a symlink to `.` or to a parent would otherwise multiply the visits exponentially), at most `MAX_TREES` folders in
  * all and 8 levels deep; when a bound is hit `includes` is set (the caller then treats the checkout like one with a driver: it fails closed) and `capped` is true. The folder a
  * `gitdir:` file or a symlink points to IS followed (git reads it too); only these bounds stop the search.
- * @param {number} [max] the folder bound (tests lower it)
+ * @param {number} [max] the folder bound (tests lower it) @param {boolean} [subs] also search the populated submodules (default true; false reads the trees' own configuration only)
  * @returns {{ names: string[], includes: boolean, submodules: string[], capped: boolean }}
  */
-export function repoDrivers(gitBin, trees, where, max = MAX_TREES) {
+export function repoDrivers(gitBin, trees, where, max = MAX_TREES, subs = true) {
   /** @type {Set<string>} */ const names = new Set();
   /** @type {Set<string>} */ const seen = new Set();
   /** @type {string[]} */ const submodules = [];
@@ -63,7 +64,7 @@ export function repoDrivers(gitBin, trees, where, max = MAX_TREES) {
     const d = parseDrivers(q(['config', '--show-scope', '--name-only', '-z', '--get-regexp', DRIVER_KEYS]).stdout.toString('latin1'));
     for (const n of d.names) names.add(n);
     if (d.includes) includes = true;
-    for (const rel of gitlinkNames((a) => q(a).stdout, tree)) {
+    if (subs) for (const rel of gitlinkNames((a) => q(a).stdout, tree)) {
       const sub = Buffer.concat([Buffer.from(`${tree}/`), rel]).toString('utf8');
       submodules.push(sub);
       visit(sub, depth + 1);
@@ -127,69 +128,117 @@ export function hermeticEnv(base, names) {
 }
 
 /**
- * Does the index of TREE hold a gitlink (mode 160000)? Answered by reading the index file itself (versions 2 and 3, no split index), so a repository WITHOUT submodules costs no process.
- * Anything not understood answers `null` (the caller then asks git). @param {string} tree @returns {boolean | null}
+ * The git directory of TREE and the common one (a linked worktree keeps `commondir`), or null when `.git` is not understood. @param {string} tree @returns {{ gitDir: string, common: string } | null}
  */
-export function indexHasGitlinks(tree) {
+function gitDirs(tree) {
   try {
     let gitDir = `${tree}/.git`;
-    const st = statSync(gitDir);
-    if (st.isFile()) {
+    if (statSync(gitDir).isFile()) {
       const m = /^gitdir: (.*)\r?\n?$/.exec(readFileSync(gitDir, 'utf8'));
       if (m === null) return null;
       gitDir = path.resolve(tree, m[1]);
     }
-    const b = readFileSync(`${gitDir}/index`);
+    let common = gitDir;
+    try { common = path.resolve(gitDir, readFileSync(`${gitDir}/commondir`, 'utf8').trim()); } catch { /* an ordinary git directory has no commondir */ }
+    return { gitDir, common };
+  } catch { return null; }
+}
+
+/**
+ * Does the index of TREE hold a gitlink (mode 160000)? Answered by reading the index file itself (versions 2 and 3, no split index, SHA-1 or SHA-256 object ids), so a repository WITHOUT
+ * submodules costs no process. The trailing checksum must verify (SHA-1 over everything but the last 20 bytes, else SHA-256 over everything but the last 32): that tells the object id
+ * width, and a file that is cut, rewritten halfway or not understood (version 4, an extension that does not fit, `index.skipHash`) answers `null`, NEVER `false` (the caller then asks git).
+ * @param {string} tree @returns {boolean | null}
+ */
+export function indexHasGitlinks(tree) {
+  try {
+    const d = gitDirs(tree);
+    if (d === null) return null;
+    const b = readFileSync(`${d.gitDir}/index`);
     if (b.length < 32 || b.toString('latin1', 0, 4) !== 'DIRC') return null;
     const version = b.readUInt32BE(4);
     if (version !== 2 && version !== 3) return null;
+    // the width of an object id, from the checksum that closes the file
+    let hl = 0;
+    for (const [alg, w] of /** @type {const} */ ([['sha1', 20], ['sha256', 32]])) {
+      if (b.length >= 12 + w && createHash(alg).update(b.subarray(0, b.length - w)).digest().equals(b.subarray(b.length - w))) { hl = w; break; }
+    }
+    if (hl === 0) return null;
+    const end = b.length - hl;
     const n = b.readUInt32BE(8);
     let p = 12;
     for (let i = 0; i < n; i++) {
-      if (p + 62 > b.length) return null;
+      if (p + 42 + hl > end) return null;
       if ((b.readUInt32BE(p + 24) >>> 12) === 0xe) return true;
-      const flags = b.readUInt16BE(p + 60);
-      let fixed = 62;
-      if (flags & 0x4000) { if (version < 3) return null; fixed = 64; }
+      const flags = b.readUInt16BE(p + 40 + hl);
+      let fixed = 42 + hl;
+      if (flags & 0x4000) { if (version < 3) return null; fixed += 2; }
       const nul = b.indexOf(0, p + fixed);
-      if (nul < 0) return null;
+      if (nul < 0 || nul >= end) return null;
       p += Math.ceil((nul + 1 - p) / 8) * 8; // the entry is padded with NULs to a multiple of 8 bytes (at least one)
     }
-    // extensions: a split index (`link`) keeps entries in another file
-    while (p + 8 <= b.length - 20) {
+    // extensions (4 byte name, 4 byte size, data): a split index (`link`) keeps entries in another file; one that does not fit is not understood
+    while (p < end) {
+      if (p + 8 > end) return null;
       if (b.toString('latin1', p, p + 4) === 'link') return null;
       p += 8 + b.readUInt32BE(p + 4);
+      if (p > end) return null;
     }
     return false;
   } catch { return null; }
+}
+
+/**
+ * May the repository configuration of TREE hold a filter driver or an include (local or worktree scope), or does the call carry configuration in its environment? Answered by reading
+ * the two files (`config`, `config.worktree`), no process: a text without a `[filter` or `[include` section has neither. Anything not understood answers true (the caller asks git).
+ * @param {string} tree @param {Record<string, string>} env @returns {boolean}
+ */
+function ownConfigMayHaveDrivers(tree, env) {
+  for (const k of Object.keys(env)) if (/^GIT_(CONFIG_(COUNT|PARAMETERS|KEY_|VALUE_)|DIR$|COMMON_DIR$|WORK_TREE$|CONFIG$)/.test(k)) return true;
+  const d = gitDirs(tree);
+  if (d === null || existsSync(`${d.gitDir}/config.worktree`)) return true;
+  try { return /\[\s*(filter|include)/i.test(readFileSync(`${d.common}/config`, 'latin1')); } catch { return true; }
+}
+
+/** A signature of the files that decide the drivers (the index, the config, HEAD, config.worktree): the cache of `blankNames` is keyed by it, so a git call that changes any of them (a switch that brings a gitlink) is seen. @param {string} tree */
+function stateSig(tree) {
+  const d = gitDirs(tree);
+  if (d === null) return 'none';
+  const f = (/** @type {string} */ x) => { try { const t = statSync(x); return `${t.size}.${t.mtimeMs}.${t.ino}`; } catch { return '-'; } };
+  return [f(`${d.gitDir}/index`), f(`${d.common}/config`), f(`${d.gitDir}/HEAD`), f(`${d.gitDir}/config.worktree`)].join('|');
 }
 
 /** The names found for a context that has no `once` (a stand-in in a test), per context and tree. @type {WeakMap<object, Map<string, string[]>>} */
 const lazyFallback = new WeakMap();
 
 /**
- * The driver names to blank for a git call on TREE: `ctx.gitBlank` (what deliver-merged found in both its trees) plus the repository drivers of TREE and of all its populated
- * submodules, found HERE, lazily, once per context and tree (`ctx.once`, dropped by `ctx.forget('')` or `ctx.forget('git:blank')`, which is how a command that changes the set of
- * checked out submodules invalidates it). So no call of `git()` or `hgit()` can start a child in a submodule before its drivers are blanked, whichever command made it (A248 round 3/4).
+ * The driver names to blank for a git call on TREE: `ctx.gitBlank` (what deliver-merged found in both its trees) plus the repository drivers of TREE ITSELF (always, round 5) and of all its populated
+ * submodules (when its index holds a gitlink), found HERE, lazily, once per context, tree and STATE of the tree (`ctx.once` keyed by the stat signature of the index, the config, HEAD and config.worktree, so a git call that brings a gitlink or a driver is seen by the next one; `ctx.forget('')` or `ctx.forget('git:blank')` drop it too). So no call of `git()` or `hgit()` can start a child in a submodule before its drivers are blanked, whichever command made it (A248 round 3/4).
  * The search reads configuration and the index only through its own raw `git config` and `ls-files --stage` (never through `git()` or `hgit()`: no recursion, no status, no filter).
  * @param {Context} ctx @param {string} tree @param {string} bin @param {Record<string, string | undefined>} env the environment of the call, for the search too
  * @returns {string[]}
  */
 export function blankNames(ctx, tree, bin, env) {
+  /** @type {Record<string, string>} */ const e = {};
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && k !== 'GIT_INDEX_FILE') e[k] = v;
   const make = () => {
-    // no gitlink in the index: no submodule to enter, nothing to search and no process started (the drivers of the tree itself are deliver-merged's `ctx.gitBlank`)
-    if (indexHasGitlinks(tree) === false) return [];
-    /** @type {Record<string, string>} */ const e = {};
-    for (const [k, v] of Object.entries(env)) if (v !== undefined && k !== 'GIT_INDEX_FILE') e[k] = v;
-    return repoDrivers(bin, [tree], () => ({ cwd: ctx.cwd, env: e })).names;
+    const gl = indexHasGitlinks(tree);
+    // the tree's OWN drivers are always searched (round 5): a local `filter.<n>.clean` runs on every file git reads whether or not a submodule exists. A text read of the two config files
+    // says when there is nothing to find, so a repository without drivers, includes and gitlinks still starts no process
+    if (gl === false && !ownConfigMayHaveDrivers(tree, e)) return [];
+    /** @type {string[]} */ let trees = [tree];
+    // an `includeIf onbranch:` include is judged by the branch of the tree git runs in: the main tree and the run's worktree can see different drivers
+    if (ownConfigMayHaveDrivers(tree, e) && tree === ctx.root && typeof ctx.sharedMain === 'function') trees = [...new Set([tree, ctx.sharedMain()])];
+    return repoDrivers(bin, trees, () => ({ cwd: ctx.cwd, env: e }), MAX_TREES, gl !== false).names;
   };
+  const key = `git:blank:${tree}:${stateSig(tree)}`;
   /** @type {string[]} */ let lazy;
-  if (typeof ctx.once === 'function') lazy = ctx.once(`git:blank:${tree}`, make);
+  if (typeof ctx.once === 'function') lazy = ctx.once(key, make);
   else {
     let m = lazyFallback.get(ctx);
     if (m === undefined) { m = new Map(); lazyFallback.set(ctx, m); }
-    let v = m.get(tree);
-    if (v === undefined) { v = make(); m.set(tree, v); }
+    let v = m.get(key);
+    if (v === undefined) { v = make(); m.set(key, v); }
     lazy = v;
   }
   const base = ctx.gitBlank ?? [];

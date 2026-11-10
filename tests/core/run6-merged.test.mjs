@@ -902,7 +902,7 @@ void [DONE, run];
 const FIXED = new Date(Date.UTC(2031, 0, 2, 3, 4, 5)); // a fixed instant: every tracked file of TREE is re-stat'ed, so git must read (and so filter) it to answer a status
 /** Make git re-read every tracked file of a tree. @param {string} tree */
 function touchAll(tree) {
-  for (const f of g(tree, 'ls-files').split('\n').filter((x) => x !== '')) utimesSync(`${tree}/${f}`, FIXED, FIXED);
+  for (const f of g(tree, 'ls-files').split('\n').filter((x) => x !== '' && existsSync(`${tree}/${x}`))) utimesSync(`${tree}/${f}`, FIXED, FIXED);
 }
 test('A248 (wiring): a driver found only through an includeIf onbranch include that applies in the run\'s worktree is blanked for the cleanup\'s calls there', () => {
   const d = project(RECIPE);
@@ -964,4 +964,55 @@ test('A248 round 4 (wiring): deliver-plan in a worktree with a populated submodu
   utimesSync(`${sub}/x`, FIX, FIX);
   const out = A(wt, ['deliver-plan', 'LC']).text;
   assert.ok(!existsSync(mark), `deliver-plan ran the submodule's clean filter: ${out}`);
+});
+
+// ---- A248 round 5: the tree's OWN drivers are blanked whether or not a submodule exists (S1) --------------------------------------------------
+/** A local clean filter on the project (the config the run's worktree shares) that matches every file; returns the marker. Nothing in the tree is a gitlink. @param {string} d @param {string} wt */
+function plantOwnFilter(d, wt) {
+  const mark = `${d}-OWNFILTER`; const sh = `${d}-ownfilter.sh`;
+  wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(sh, 0o755);
+  gOk(d, 'config', 'filter.ck.clean', sh);
+  wf(`${d}/.git/info/attributes`, '* filter=ck\n');
+  touchAll(wt);
+  g(wt, 'status', '--porcelain');
+  assert.ok(existsSync(mark), 'test premise: a plain status in the worktree runs the tree\'s own clean filter');
+  rmSync(mark);
+  touchAll(wt);
+  return mark;
+}
+
+test('A248 round 5 (S1, wiring): `deliver-step cleanup` in a tree with NO gitlink and a local clean filter runs that filter nowhere (no prior discovery in the command)', () => {
+  const gh = fakeGh();
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  gOk(d, 'remote', 'set-url', 'origin', 'https://github.com/acme/app.git');
+  gOk(d, 'init', '-q', '--bare', `${d}-bare.git`);
+  gOk(d, 'remote', 'add', 'bare', `${d}-bare.git`);
+  wtDeliver(d, wt, 'gh');
+  const h = g(wt, 'rev-parse', 'HEAD');
+  gh.says('OPEN', h);
+  accepted(A(wt, ['deliver-step', 'LC', 'merge', '7'], { env: gh.env }), 'merge step in the worktree');
+  gh.says('MERGED', h);
+  const mark = plantOwnFilter(d, wt);
+  const out = accepted(A(wt, ['deliver-step', 'LC', 'cleanup', '7'], { env: gh.env }), 'cleanup step in the worktree').out;
+  assert.ok(!existsSync(mark), `the cleanup ran the tree's own clean filter: ${out}`);
+  assert.ok(wtGone(d, wt), 'the worktree survived deliver-step cleanup');
+});
+
+test('A248 round 5 (S1, wiring): `deliver-plan` in a tree with NO gitlink and a local clean filter run that filter nowhere', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  bareOrigin(d);
+  const mark = plantOwnFilter(d, wt);
+  const out = A(wt, ['deliver-plan', 'LC']).text;
+  assert.ok(!existsSync(mark), `deliver-plan ran the tree's own clean filter: ${out}`);
+});
+
+test('A248 round 5 (S1, wiring): the content fingerprint (git add -A) in a tree with NO gitlink and a local clean filter runs that filter nowhere', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const mark = plantOwnFilter(d, wt);
+  A(wt, ['fingerprint', 'LC', 'full']);
+  assert.ok(!existsSync(mark), 'the content fingerprint (git add -A) ran the tree\'s own clean filter');
 });

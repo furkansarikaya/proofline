@@ -3,10 +3,12 @@
 // hook, difftool, submodule configuration, url rewrite and ssh command touch a marker. Nothing waits, nothing reads the clock; every repository is unique and removed.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { hermeticFetch, importProvenTip, sbMainPark } from '../../control-plane/agents/scripts/core/deliver.mjs';
 import { blankNames, hermeticEnv, hgit, indexHasGitlinks, parseDrivers, populatedGitlinks, repoDrivers } from '../../control-plane/agents/scripts/core/hgit.mjs';
 import { addedLines, diffNames, git, numstat, trackedPaths, untrackedPaths } from '../../control-plane/agents/scripts/core/git.mjs';
@@ -330,7 +332,7 @@ for (const [how, setIgnore] of IGNORE_NONE) {
 for (const [how, setIgnore] of IGNORE_NONE) {
   for (const withOnce of [true, false]) {
     if (!withOnce && how !== 'config') continue; // the stand-in context without once is one variant, not two
-    test(`R4: NO prior discovery (gitBlank empty${withOnce ? '' : ', a context without once'}), ignore=none (${how}): git(), hgit(), trackedPaths, untrackedPaths, addedLines, numstat and diffNames run no submodule driver`, () => {
+    test(`R4: NO prior discovery (gitBlank empty${withOnce ? '' : ', a context without once'}), ignore=none (${how}): git() status and add -A, hgit status, trackedPaths with a base and addedLines run no submodule driver`, () => {
       const s = scratch();
       try {
         const { t, sub, cnt } = withSubmodule(s);
@@ -342,18 +344,14 @@ for (const [how, setIgnore] of IGNORE_NONE) {
           rmSync(cnt, { force: true });
           return c;
         };
-        touch(sub, 'x');
-        git(ctxOf(s, t), ['status', '--porcelain']);
-        assert.ok(!existsSync(cnt), 'git() found the drivers itself');
         touch(sub, 'x'); s.git(t, 'status', '--porcelain');
         assert.ok(existsSync(cnt), 'test premise: a plain status runs the submodule\'s driver (ignore=none)');
         for (const [label, call] of /** @type {Array<[string, (c: any) => unknown]>} */ ([
           ['git() status', (c) => git(c, ['status', '--porcelain', '--untracked-files=all'])],
           ['git() add -A', (c) => git(c, ['add', '-A'])],
-          ['hgit diff HEAD', (c) => hgit(c, t, ['diff', '--name-only', 'HEAD'])],
           ['hgit status', (c) => hgit(c, t, ['status', '--porcelain=v1'])],
-          ['trackedPaths', (c) => trackedPaths(c)], ['trackedPaths(base)', (c) => { c.ctpBase = 'HEAD'; return trackedPaths(c); }], ['untrackedPaths', (c) => untrackedPaths(c)],
-          ['addedLines', (c) => addedLines(c, 'HEAD', ['sub'])], ['numstat', (c) => numstat(c, 'HEAD', ['sub'])], ['diffNames', (c) => diffNames(c, 'HEAD')],
+          // the module functions all reach git through the same door: one with a base (the diff path) and one that reads lines
+          ['trackedPaths(base)', (c) => { c.ctpBase = 'HEAD'; return trackedPaths(c); }], ['addedLines', (c) => addedLines(c, 'HEAD', ['sub'])],
         ]).filter(([l]) => withOnce || /^(git|hgit)/.test(l))) {
           call(fresh());
           assert.ok(!existsSync(cnt), `${label} ran the submodule's driver before any discovery`);
@@ -404,18 +402,23 @@ test('R4: indexHasGitlinks reads the index itself: entries of every padding leng
   } finally { s.done(); }
 });
 
-test('R4: the lazy discovery is made once per context and tree (cached), and ctx.forget drops it', () => {
+test('R4/R5: the lazy discovery is made once per context, tree and state (cached), a changed config is seen without a forget, and ctx.forget drops it', () => {
   const s = scratch();
   try {
     const { t } = withSubmodule(s);
     const memo = new Map();
+    let made = 0;
     const c = ctxOf(s, t);
-    c.once = (/** @type {string} */ k, /** @type {() => unknown} */ f) => { if (!memo.has(k)) memo.set(k, f()); return memo.get(k); };
+    c.once = (/** @type {string} */ k, /** @type {() => unknown} */ f) => { if (!memo.has(k)) { made += 1; memo.set(k, f()); } return memo.get(k); };
     assert.deepEqual(blankNames(c, t, 'git', s.env), ['ev']);
+    assert.deepEqual(blankNames(c, t, 'git', s.env), ['ev']);
+    assert.equal(made, 1, 'unchanged state: searched once');
     s.git(t, 'config', 'filter.late.clean', 'cat');
-    assert.deepEqual(blankNames(c, t, 'git', s.env), ['ev'], 'cached: not searched again');
+    assert.deepEqual(blankNames(c, t, 'git', s.env).sort(), ['ev', 'late'], 'the config changed: the signature differs, searched again (R5-1)');
+    assert.equal(made, 2);
     memo.clear();
     assert.deepEqual(blankNames(c, t, 'git', s.env).sort(), ['ev', 'late'], 'forgotten: searched again');
+    assert.equal(made, 3);
     assert.deepEqual(blankNames({ ...c, gitBlank: ['mine'] }, t, 'git', s.env).sort(), ['ev', 'late', 'mine'], 'the names deliver-merged found are kept');
   } finally { s.done(); }
 });
@@ -591,5 +594,217 @@ test('B2: submodule.recurse=true in the repository makes a plain switch write th
     rmSync(smu);
     assert.equal(hgit(ctxOf(s, t), t, ['switch', '-q', '--no-overwrite-ignore', 'other']).status, 0);
     assert.ok(!existsSync(smu), 'the switch through hgit ran the submodule\'s smudge driver');
+  } finally { s.done(); }
+});
+
+// ---- A248 round 5 ------------------------------------------------------------------------------------------------------------------------------
+/** A repository (no gitlink anywhere) whose OWN config has a clean filter that matches every file; returns the tree and the marker. @param {ReturnType<typeof scratch>} s */
+function ownFilterRepo(s) {
+  const t = repo(s);
+  const cnt = `${s.dir}/COUNT`;
+  s.git(t, 'config', 'filter.ck.clean', `echo c >> ${cnt}; cat`);
+  writeFileSync(`${t}/.git/info/attributes`, '* filter=ck\n');
+  touch(t);
+  return { t, cnt };
+}
+
+test('S1: a tree with NO gitlink and its own clean filter, no prior discovery (gitBlank empty): git(), hgit(), trackedPaths and add -A run that filter nowhere', () => {
+  const s = scratch();
+  try {
+    const { t, cnt } = ownFilterRepo(s);
+    s.git(t, 'status', '--porcelain');
+    assert.ok(existsSync(cnt), 'test premise: a plain status runs the tree\'s own clean filter');
+    assert.equal(indexHasGitlinks(t), false, 'test premise: the tree has no gitlink');
+    assert.deepEqual(blankNames(ctxOf(s, t), t, 'git', s.env), ['ck'], 'the tree\'s own driver is found although no gitlink exists');
+    for (const [label, call] of /** @type {Array<[string, (c: any) => unknown]>} */ ([
+      ['git() status', (c) => git(c, ['status', '--porcelain', '--untracked-files=all'])], ['git() add -A', (c) => git(c, ['add', '-A', '--', '.', ':(exclude).agents'])],
+      ['hgit status', (c) => hgit(c, t, ['status', '--porcelain=v1'])], ['trackedPaths', (c) => trackedPaths(c)], ['trackedPaths(base)', (c) => { c.ctpBase = 'HEAD'; return trackedPaths(c); }],
+    ])) {
+      rmSync(cnt, { force: true });
+      touch(t);
+      call(ctxOf(s, t));
+      assert.ok(!existsSync(cnt), `${label} ran the tree's own clean filter`);
+    }
+  } finally { s.done(); }
+});
+
+test('S1: a linked worktree sees a driver of an includeIf onbranch include that the main tree does not; blankNames asks both trees', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    const cnt = `${s.dir}/COUNT`;
+    writeFileSync(`${s.dir}/inc.cfg`, `[filter "wk"]\n\tclean = echo c >> ${cnt}; cat\n`);
+    s.git(t, 'config', 'includeIf.onbranch:topic.path', `${s.dir}/inc.cfg`);
+    writeFileSync(`${s.dir}/inc2.cfg`, '[filter "mn"]\n\tclean = cat\n'); // active in the MAIN tree only (branch main)
+    s.git(t, 'config', 'includeIf.onbranch:main.path', `${s.dir}/inc2.cfg`);
+    const wt = `${s.dir}/wt`;
+    s.git(t, 'worktree', 'add', '-q', '-b', 'topic', wt);
+    writeFileSync(`${t}/.git/info/attributes`, '* filter=wk\n');
+    const c = ctxOf(s, wt);
+    c.sharedMain = () => t;
+    assert.equal(indexHasGitlinks(wt), false);
+    assert.deepEqual(blankNames(c, wt, 'git', s.env).sort(), ['mn', 'wk'], 'the include of the worktree\'s branch and the one of the main tree (the union of both trees)');
+    touch(wt);
+    s.git(wt, 'status', '--porcelain');
+    assert.ok(existsSync(cnt), 'test premise: a plain status in the worktree runs the include\'s driver');
+    rmSync(cnt);
+    touch(wt);
+    git(c, ['status', '--porcelain']);
+    assert.ok(!existsSync(cnt), 'git() ran the include\'s driver in the worktree');
+  } finally { s.done(); }
+});
+
+test('S1 budget: a tree without drivers, includes and gitlinks starts NO process to find its blanking; a `[filter` or `[include` section, a config.worktree or config in the environment makes it ask git', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    proc.resetSpawnCounts();
+    assert.deepEqual(blankNames(ctxOf(s, t), t, 'git', s.env), []);
+    assert.equal(proc.spawnLog().length, 0, 'a plain repository: the two config files and the index are read, nothing is spawned');
+    s.git(t, 'config', 'user.name', 'someone');
+    assert.deepEqual(blankNames(ctxOf(s, t), t, 'git', s.env), []);
+    assert.equal(proc.spawnLog().length, 0, 'other configuration does not matter');
+    for (const [label, key, drop] of [['a filter section', 'filter.q.clean', 'filter.q'], ['an include section', 'include.path', 'include']]) {
+      s.git(t, 'config', key, 'cat');
+      proc.resetSpawnCounts();
+      blankNames(ctxOf(s, t), t, 'git', s.env);
+      assert.ok(proc.spawnLog().length > 0, `${label}: git is asked`);
+      s.git(t, 'config', '--remove-section', drop);
+    }
+    proc.resetSpawnCounts();
+    blankNames(ctxOf(s, t), t, 'git', { ...s.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'filter.e.clean', GIT_CONFIG_VALUE_0: 'cat' });
+    assert.ok(proc.spawnLog().length > 0, 'configuration in the environment (command scope): git is asked');
+    writeFileSync(`${t}/.git/config.worktree`, '');
+    proc.resetSpawnCounts();
+    blankNames(ctxOf(s, t), t, 'git', s.env);
+    assert.ok(proc.spawnLog().length > 0, 'a config.worktree: git is asked');
+  } finally { s.done(); }
+});
+
+test('R5-1: a gitlink that arrives through a switch (cache filled while there was none) is seen by the next call: hgit add -A runs the nested driver nowhere', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    const v = `${t}/vendor`;
+    mkdirSync(v);
+    s.git(v, 'init', '-q', '-b', 'main');
+    writeFileSync(`${v}/x`, 'x\n');
+    s.git(v, 'add', 'x');
+    s.git(v, 'commit', '-qm', 'x');
+    const cnt = `${s.dir}/COUNT`;
+    s.git(v, 'config', 'filter.ev.clean', `echo c >> ${cnt}; cat`);
+    writeFileSync(`${v}/.git/info/attributes`, 'x filter=ev\n');
+    // branch o carries the gitlink and a .gitmodules with ignore=none; main has an untracked nested repository there
+    s.git(t, 'checkout', '-q', '-b', 'o');
+    writeFileSync(`${t}/.gitmodules`, '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = none\n');
+    s.git(t, 'add', 'vendor', '.gitmodules');
+    s.git(t, 'commit', '-qm', 'vendor');
+    s.git(t, 'checkout', '-q', 'main');
+    assert.equal(indexHasGitlinks(t), false, 'test premise: no gitlink on main');
+    const c = ctxOf(s, t);
+    const memo = new Map();
+    c.once = (/** @type {string} */ k, /** @type {() => unknown} */ f) => { if (!memo.has(k)) memo.set(k, f()); return memo.get(k); }; // one context for the whole sequence: no forget anywhere
+    hgit(c, t, ['status', '--porcelain']);
+    assert.deepEqual(blankNames(c, t, 'git', s.env), [], 'cached while there is no gitlink');
+    assert.equal(hgit(c, t, ['switch', '-q', 'o']).status, 0);
+    assert.equal(indexHasGitlinks(t), true);
+    touch(v, 'x');
+    rmSync(cnt, { force: true });
+    hgit(c, t, ['add', '-A']);
+    assert.ok(!existsSync(cnt), 'the nested repository\'s driver ran after the switch brought the gitlink');
+    touch(v, 'x');
+    s.git(t, 'add', '-A');
+    assert.ok(existsSync(cnt), 'test premise: the same add -A, unblanked, runs the nested driver');
+  } finally { s.done(); }
+});
+
+test('S2: a SHA-256 repository: the gitlink is found whatever the entry count before it (it used to answer false), the nested driver is blanked, no gitlink answers false', () => {
+  const s = scratch();
+  try {
+    const t = path.join(s.dir, 'r256');
+    mkdirSync(t);
+    s.git(t, 'init', '-q', '--object-format=sha256', '-b', 'main');
+    writeFileSync(`${t}/f.txt`, 'one\n');
+    s.git(t, 'add', 'f.txt');
+    s.git(t, 'commit', '-qm', 'one');
+    assert.equal(indexHasGitlinks(t), false, 'one plain file');
+    const blob = s.git(t, 'hash-object', '-w', 'f.txt').trim();
+    assert.equal(blob.length, 64, 'test premise: the repository is SHA-256');
+    const fake = 'a'.repeat(64);
+    const load = (/** @type {string} */ info) => {
+      s.git(t, 'read-tree', '--empty');
+      execFileSync('git', ['-C', t, 'update-index', '--add', '--index-info'], { env: s.env, input: info });
+    };
+    for (const k of [1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 21, 40]) {
+      let info = '';
+      for (let i = 0; i < k; i++) info += `100644 ${blob} 0\tf${'x'.repeat(i % 9)}${i}\n`;
+      load(`${info}160000 ${fake} 0\tzz-gitlink\n`);
+      assert.equal(indexHasGitlinks(t), true, `${k} entries before the gitlink`);
+      load(info);
+      assert.equal(indexHasGitlinks(t), false, `${k} entries, no gitlink`);
+    }
+    // a nested repository with a clean filter: blanked
+    s.git(t, 'read-tree', 'HEAD');
+    const v = `${t}/vendor`;
+    mkdirSync(v);
+    s.git(v, 'init', '-q', '--object-format=sha256', '-b', 'main');
+    writeFileSync(`${v}/x`, 'x\n');
+    s.git(v, 'add', 'x');
+    s.git(v, 'commit', '-qm', 'x');
+    s.git(t, 'add', 'vendor');
+    const cnt = `${s.dir}/COUNT`;
+    s.git(v, 'config', 'filter.ev.clean', `echo c >> ${cnt}; cat`);
+    writeFileSync(`${v}/.git/info/attributes`, 'x filter=ev\n');
+    s.git(t, 'config', 'submodule.vendor.ignore', 'none');
+    assert.equal(indexHasGitlinks(t), true);
+    touch(v, 'x');
+    s.git(t, 'status', '--porcelain');
+    assert.ok(existsSync(cnt), 'test premise: a plain status runs the nested driver');
+    rmSync(cnt);
+    touch(v, 'x');
+    git(ctxOf(s, t), ['status', '--porcelain']);
+    assert.ok(!existsSync(cnt), 'git() ran the nested driver of a SHA-256 repository');
+  } finally { s.done(); }
+});
+
+test('S2/R5-5: an index that is cut, damaged, with an extension that does not fit, a split index or version 4 answers null (ask git), never false', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    for (let i = 0; i < 12; i++) writeFileSync(`${t}/p${i}.txt`, `${i}\n`);
+    s.git(t, 'add', '.');
+    const idx = `${t}/.git/index`;
+    const good = readFileSync(idx);
+    assert.equal(indexHasGitlinks(t), false);
+    // cut at any point, one byte changed in the entries
+    for (const n of [good.length - 1, good.length - 20, good.length - 21, Math.floor(good.length / 2), 40]) {
+      writeFileSync(idx, good.subarray(0, n));
+      assert.equal(indexHasGitlinks(t), null, `cut to ${n} bytes`);
+    }
+    const bent = Buffer.from(good); bent[70] ^= 0xff;
+    writeFileSync(idx, bent);
+    assert.equal(indexHasGitlinks(t), null, 'a damaged entry: the checksum does not verify');
+    // an extension whose size runs past the file, with a CORRECT checksum
+    const seal = (/** @type {Buffer} */ body) => Buffer.concat([body, createHash('sha1').update(body).digest()]);
+    const body = good.subarray(0, good.length - 20);
+    const ext = Buffer.alloc(8); ext.write('TEST', 0, 'latin1'); ext.writeUInt32BE(0x7fffff00, 4);
+    writeFileSync(idx, seal(Buffer.concat([body, ext])));
+    assert.equal(indexHasGitlinks(t), null, 'an extension size past the end of the file');
+    const ok = Buffer.alloc(8); ok.write('TEST', 0, 'latin1');
+    writeFileSync(idx, seal(Buffer.concat([body, ok])));
+    assert.equal(indexHasGitlinks(t), false, 'a well formed unknown extension is skipped (control: the verdict is not always null)');
+    // a version this reader does not know
+    const v5 = Buffer.from(body); v5.writeUInt32BE(5, 4);
+    writeFileSync(idx, seal(v5));
+    assert.equal(indexHasGitlinks(t), null, 'unknown version');
+    writeFileSync(idx, good);
+    // a split index keeps its entries in another file
+    s.git(t, 'update-index', '--split-index');
+    assert.equal(indexHasGitlinks(t), null, 'split index (link extension)');
+    s.git(t, 'update-index', '--no-split-index');
+    assert.equal(indexHasGitlinks(t), false);
+    // version 4 compresses the names
+    s.git(t, 'update-index', '--index-version', '4');
+    assert.equal(indexHasGitlinks(t), null, 'index version 4');
   } finally { s.done(); }
 });

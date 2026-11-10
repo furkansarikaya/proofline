@@ -16,6 +16,7 @@ import { fail } from './errors.mjs';
 import { wtLinked } from './commands/runcmds.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
+import { hgit } from './hgit.mjs';
 import { archiveRun } from './runend.mjs';
 import { pathMatches } from './scope.mjs';
 import { requireLead } from './approve.mjs';
@@ -249,7 +250,7 @@ export function worktreeAdd(ctx, args) {
   const sha = git(ctx, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`]);
   if (sha.status !== 0) fail(`canonical branch not found locally: ${branch}`);
   mkdirSync(path.dirname(d), { recursive: true });
-  const add = proc.run('git', ['-C', ctx.root, 'worktree', 'add', '-q', '--detach', d, sha.stdout.toString('latin1').replace(/\n+$/, '')], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'pipe'] });
+  const add = hgit(ctx, ctx.root, ['worktree', 'add', '-q', '--detach', d, sha.stdout.toString('latin1').replace(/\n+$/, '')], { stdio: ['ignore', 'ignore', 'pipe'] }); // writes a checkout: the smudge filters are blanked (A248 round 5)
   if (add.stderr.length > 0) ctx.err(add.stderr.toString('latin1'));
   if (add.status !== 0) fail(`could not add the worktree ${bytes(d)}`);
   rwPrepare(ctx, d);
@@ -289,7 +290,7 @@ export function worktreeRemove(ctx, args) {
   try { runs = readdirSync(runsDir).filter((n) => !n.startsWith('.') && isDir(`${runsDir}/${n}`)).sort(); } catch { runs = []; }
   if (runs.length > 0 && !force) fail(`the worktree of ${id} still holds the run: ${runs.join(' ')} (its evidence goes with it). Finish or clean up the run first, or: agent.sh worktree-remove ${id} --force`);
   for (const r of runs) archiveRun(ctx, r, `${runsDir}/${r}`);
-  const rm = proc.run('git', ['-C', ctx.root, 'worktree', 'remove', '--force', d], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+  const rm = hgit(ctx, ctx.root, ['worktree', 'remove', '--force', d], { stdio: ['ignore', 'ignore', 'ignore'] });
   if (rm.status !== 0) fail(`could not remove the worktree ${bytes(d)}`);
   git(ctx, ['worktree', 'prune']);
   try { rmdirSync(path.dirname(d)); } catch { /* not empty */ }

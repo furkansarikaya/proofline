@@ -5,6 +5,7 @@ import { mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path';
 import { ProoflineError } from './errors.mjs';
 import * as proc from './proc.mjs';
+import { hgit } from './hgit.mjs';
 import { trimSpace } from './shellglob.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -24,8 +25,8 @@ const byteCmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  * @returns {Array<[string, number, string, string]>}
  */
 function rows(ctx, top) {
-  const r = proc.run('git', ['-C', top, 'grep', '-n', '-I', '-E', '--untracked', '--exclude-standard', '-e', GREP_RE, '--', '.',
-    ':(exclude)*.md', ':(exclude).agents', ':(exclude).claude', ':(exclude)docs/wiki'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = hgit(ctx, top, ['grep', '-n', '-I', '-E', '--untracked', '--exclude-standard', '-e', GREP_RE, '--', '.',
+    ':(exclude)*.md', ':(exclude).agents', ':(exclude).claude', ':(exclude)docs/wiki']);
   const text = r.stdout.toString('latin1');
   /** @type {Array<{ f: string, ln: string, lim: string, imp: string, key: string }>} */ const out = [];
   for (const line of text.split('\n')) {

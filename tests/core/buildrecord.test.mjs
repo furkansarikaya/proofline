@@ -321,3 +321,21 @@ test('a command stopped by the time limit (exit 124) is a failure and leaves no 
 /** The pid of a process that has exited. */
 function spawnDead() { return Number(spawnSync('sh', ['-c', 'echo $$'], { encoding: 'utf8' }).stdout.trim()); }
 const rmDir = (/** @type {string} */ p) => rmSync(p, { recursive: true, force: true });
+
+test('A248 round 5 (R5-4): the snapshot (add -A) and the export (read-tree, checkout-index) run no clean or smudge filter of the repository', () => {
+  const { d } = counted();
+  const sh = `${d}/../filter-${path.basename(d)}.sh`; const mark = `${d}/../mark-${path.basename(d)}`;
+  writeFileSync(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(sh, 0o755);
+  git(d, ['config', 'filter.ck.clean', sh]);
+  git(d, ['config', 'filter.ck.smudge', sh]);
+  writeFileSync(`${d}/.git/info/attributes`, '* filter=ck\n');
+  writeFileSync(`${d}/f.txt`, 'two\n'); // a changed file: the snapshot hashes it (clean), the export writes it (smudge)
+  git(d, ['add', '-A']);
+  assert.ok(existsSync(mark), 'test premise: a plain add runs the clean filter');
+  rmSync(mark);
+  writeFileSync(`${d}/f.txt`, 'three\n');
+  const r = A(d, ['build-record', 'LC', 'run']);
+  assert.equal(r.status, 0, r.err);
+  assert.ok(!existsSync(mark), 'build-record ran a filter driver of the repository');
+});

@@ -40,6 +40,7 @@ import { dispatcherIo } from './decide.mjs';
 import * as dt from './dispatchtext.mjs';
 import { gitState } from './gitstate.mjs';
 import { cksum } from './hash.mjs';
+import { hgit } from './hgit.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
 import { commandV, runtimeDetect } from './runtimedetect.mjs';
@@ -724,7 +725,7 @@ class Dispatcher {
     else if (why === 'signal') t += `interrupted_at: ${iso} (${signal.slice(3)} to the dispatch after attempt ${this.attempts}, runtime ${this.rt}: stopped from outside; no timeout)\n`;
     else t += `timed_out_at: ${iso} (after ${this.timeoutS}s, attempt ${this.attempts}, runtime ${this.rt})\n`;
     t += `log: ${this.rel(this.log)}\nproduct_tree_changes (git status --short):\n`;
-    const st = proc.run('git', ['-C', this.root, 'status', '--short', '--untracked-files=all'], { env: this.env, stdio: ['ignore', 'pipe', 'ignore'] });
+    const st = hgit(this.ctx(), this.root, ['status', '--short', '--untracked-files=all'], { env: this.env });
     const changes = st.stdout.toString('latin1').split('\n').filter((l) => l !== '' && !/ \.agents\/(runs|local)\//.test(l)).slice(0, 60);
     for (const l of changes) t += `  ${l}\n`;
     t += 'run_artifacts_present:\n';
