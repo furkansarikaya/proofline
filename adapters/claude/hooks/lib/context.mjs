@@ -15,7 +15,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Agents } from './agent.mjs';
 import { append, isDir, isFile, mkdirp, put, readText, rmf } from './fsx.mjs';
-import { canon, cmdSubst, jget, safe, sha256, validRole } from './text.mjs';
+import { canon, cmdSubst, jget, posix, safe, sha256, validRole } from './text.mjs';
 
 export const EVENTS = ['pretool', 'posttool', 'subagent-start', 'subagent-stop', 'prompt', 'stop', 'session'];
 
@@ -227,7 +227,7 @@ export async function buildContext(ev, rt, raw, env) {
   c.cwd = cwd;
   let rootIn = env.CLAUDE_PROJECT_DIR ? inputPath(env.CLAUDE_PROJECT_DIR) : '';
   if (rootIn === '') rootIn = gitToplevel(realOr(cwd)) ?? cwd;
-  try { c.root = realpathSync(rootIn); } catch { return null; }
+  try { c.root = posix(realpathSync.native(rootIn)); } catch { return null; }   // physical (a Windows 8.3 short name expanded), forward slashes (A246)
   intakeWrite(c, c.root);
   c.agentPath = `${c.root}/.agents/scripts/agent.sh`;
   c.installed = isFile(`${c.root}/.agents/config.yaml`) && isFile(c.agentPath);
@@ -236,7 +236,7 @@ export async function buildContext(ev, rt, raw, env) {
     // read from the .git file (`gitdir: <main>/.git/worktrees/<name>`), without a git process and without starting any code of the worktree
     const m = /^gitdir:[ \t]*(.+)\/\.git\/worktrees\/[^/]+[ \t]*$/m.exec(readText(`${c.root}/.git`));
     let main = '';
-    try { main = m ? realpathSync(m[1]) : ''; } catch { main = ''; }
+    try { main = m ? posix(realpathSync.native(m[1])) : ''; } catch { main = ''; }
     if (main !== '' && c.root.startsWith(`${main}/.agents/local/worktrees/`)) c.mainRoot = main;
   }
   c.agents = new Agents({ root: c.root, mainRoot: c.mainRoot, agentPath: c.agentPath, env, lockWait: c.lockWait, cwd: process.cwd() });

@@ -1,7 +1,7 @@
 // @ts-check
 // Selects, and by default runs, the self-test units affected by a change (A164).
 // Usage: node tests/affected.mjs [--list] [--all] [FILE...]   (no FILE: git changes vs the base branch; "-": paths on stdin)
-// Units are suites (control-plane/agents/scripts/*-test.sh, tests/*/*-test.sh) and node files (tests/*/*.test.mjs).
+// Units are the Node test files (tests/*/*.test.mjs); no shell suite is left (A246).
 // The mapping (tests/affected-map.txt) only decides what can be safely skipped: a changed file that is not
 // mapped, or is shared, selects every unit. Documentation-only changes (tests/ci/classify.mjs) select only
 // the front matter and link test. --list prints the units, one per line; otherwise they run quietly.
@@ -24,9 +24,8 @@ export function allUnits(root) {
     const dir = path.join(root, rel);
     if (existsSync(dir)) for (const n of readdirSync(dir)) if (ok(n)) out.push(`${rel}/${n}`);
   };
-  take('control-plane/agents/scripts', (n) => n.endsWith('-test.sh'));
   const t = path.join(root, 'tests');
-  for (const d of readdirSync(t, { withFileTypes: true }).filter((e) => e.isDirectory())) take(`tests/${d.name}`, (n) => n.endsWith('-test.sh') || n.endsWith('.test.mjs'));
+  for (const d of readdirSync(t, { withFileTypes: true }).filter((e) => e.isDirectory())) take(`tests/${d.name}`, (n) => n.endsWith('.test.mjs'));
   return out.sort(byBytes);
 }
 
@@ -49,7 +48,7 @@ export function globToRegExp(g) {
  * @returns {string[]} sorted, unique
  */
 export function select({ files, all = false, units, mapText, exists = () => false }) {
-  const nameOf = (/** @type {string} */ u) => path.basename(u, '.sh');
+  const nameOf = (/** @type {string} */ u) => path.basename(u);
   /** @type {Array<{ re: RegExp, names: string[] }>} */
   const map = [];
   for (const line of mapText.split('\n')) {
@@ -63,7 +62,7 @@ export function select({ files, all = false, units, mapText, exists = () => fals
   if (list.length > 0 && classify(list) === 'code=false') return ['tests/skills/frontmatter.test.mjs'];
   const unitSet = new Set(units);
   for (const f of list) {
-    if (f.endsWith('-test.sh') || f.endsWith('.test.mjs')) {
+    if (f.endsWith('.test.mjs')) {
       if (unitSet.has(f)) selected.add(f); else if (exists(f)) return [...units].sort(byBytes);
       continue;
     }
@@ -127,8 +126,7 @@ export function main(argv, o = {}) {
   const nice = !env.CI && process.platform !== 'win32' && spawnSync('nice', ['true'], { stdio: 'ignore' }).status === 0;   // local runs stay low priority
   let failed = 0;
   for (const u of selected) {
-    const [cmd, args] = u.endsWith('.mjs') ? ['node', ['--test', u]] : ['node', [path.join(here, 'selftest.mjs')]];
-    const r = nice ? spawnSync('nice', ['-n', '10', cmd, ...args], runOpts(root, u, env)) : spawnSync(cmd, args, runOpts(root, u, env));
+    const r = nice ? spawnSync('nice', ['-n', '10', 'node', '--test', u], runOpts(root, env)) : spawnSync('node', ['--test', u], runOpts(root, env));
     if (r.status !== 0) {
       failed++; write(`FAIL ${u}\n`);
       const lines = `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n'); if (lines.at(-1) === '') lines.pop();
@@ -138,7 +136,7 @@ export function main(argv, o = {}) {
   write(failed === 0 ? `affected: ${selected.length} units passed\n` : `affected: ${failed} of ${selected.length} units failed\n`);
   return failed === 0 ? 0 : 1;
 }
-/** @param {string} root @param {string} u @param {NodeJS.ProcessEnv} env */
-const runOpts = (root, u, env) => ({ cwd: root, encoding: /** @type {const} */ ('utf8'), maxBuffer: 1 << 28, env: u.endsWith('.mjs') ? env : { ...env, SELFTEST_ONLY: path.basename(u, '.sh') } });
+/** @param {string} root @param {NodeJS.ProcessEnv} env */
+const runOpts = (root, env) => ({ cwd: root, encoding: /** @type {const} */ ('utf8'), maxBuffer: 1 << 28, env });
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main(process.argv.slice(2));

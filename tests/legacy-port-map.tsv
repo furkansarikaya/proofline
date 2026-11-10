@@ -1668,18 +1668,18 @@ bump-version-test	new: regex-literal sites, front matter range, refusal	new: the
 sync-design-library-test	--check passes against an identical mirror	--check passes against a mirror built from the library copies	tests/ci/sync-design-library.test.mjs::passes against an identical mirror and says how many files
 sync-design-library-test	--check fails when a copy differs	--check fails when a copy differs from its pin	tests/ci/sync-design-library.test.mjs::fails when a copy differs from its pin, and names the file
 sync-design-library-test	new: sync, --update, licence, usage	new: licence mismatch, stale hash, missing copy, sync/--update rewrite from the mirror, bad arguments exit 2	tests/ci/sync-design-library.test.mjs::sync and --update
-weights-test	median rule	an unlisted unit weighs the median of the listed ones (10 30 100 gives 30), not 15	tests/ci/selftest.test.mjs::an unlisted unit weighs the median of the listed ones (10 30 100 gives 30), not 15
-weights-test	median even	an even count takes the middle pair (10 20 30 100 gives 25)	tests/ci/selftest.test.mjs::an even count takes the middle pair (10 20 30 100 gives 25); no weights at all weigh 15
-weights-test	no weights	with no weights at all every unit weighs 15	tests/ci/selftest.test.mjs::an even count takes the middle pair (10 20 30 100 gives 25); no weights at all weigh 15
-weights-test	SELFTEST_TIMES_FILE	SELFTEST_TIMES_FILE gets one line per unit in the weights file format	tests/ci/selftest.test.mjs::SELFTEST_TIMES_FILE gets one line per unit that ran, in the weights file format
-weights-test	directory merged	a directory of times files is merged (same unit averaged), longest first	tests/ci/selftest-weights.test.mjs::a directory of times files is merged (same unit averaged), longest first
-weights-test	header	the header states its source and carries the note	tests/ci/selftest-weights.test.mjs::the header states its source and carries the note
-weights-test	single file	one times file works as well	tests/ci/selftest-weights.test.mjs::one times file works as well
-weights-test	malformed line	a malformed line is refused with file and line, and nothing is written	tests/ci/selftest-weights.test.mjs::a malformed line is refused with file and line, and nothing is written
-weights-test	missing input	a missing input path is refused	tests/ci/selftest-weights.test.mjs::a missing input path, an unknown option, a missing argument and no input are refused
-load-limits-test	CI uses every core, no nice note	CI=true uses all cores and does not nice	tests/ci/selftest.test.mjs::the summary names the jobs, and only a local run says its units were niced
-load-limits-test	local default is half the cores	a local run uses half the cores (min 1) and nices	tests/ci/selftest.test.mjs::CI uses every core; a local run half of them (at least 1); SELFTEST_JOBS overrides both; junk gives 4
-load-limits-test	SELFTEST_JOBS override	SELFTEST_JOBS overrides in both modes	tests/ci/selftest.test.mjs::CI uses every core; a local run half of them (at least 1); SELFTEST_JOBS overrides both; junk gives 4
+weights-test	median rule	an unlisted unit weighs the median of the listed ones (10 30 100 gives 30), not 15	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	median even	an even count takes the middle pair (10 20 30 100 gives 25)	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	no weights	with no weights at all every unit weighs 15	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	SELFTEST_TIMES_FILE	SELFTEST_TIMES_FILE gets one line per unit in the weights file format	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	directory merged	a directory of times files is merged (same unit averaged), longest first	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	header	the header states its source and carries the note	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	single file	one times file works as well	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	malformed line	a malformed line is refused with file and line, and nothing is written	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+weights-test	missing input	a missing input path is refused	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+load-limits-test	CI uses every core, no nice note	CI=true uses all cores and does not nice	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+load-limits-test	local default is half the cores	a local run uses half the cores (min 1) and nices	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
+load-limits-test	SELFTEST_JOBS override	SELFTEST_JOBS overrides in both modes	dropped: the self-test runner and its weights file are deleted with the last shell suite (A246)
 static-test	clean repository passes	a clean scratch repository passes	tests/ci/static.test.mjs::a clean scratch repository passes
 static-test	foreign label in comments fails	a foreign label in # // -- /* comments fails (exit 1)	tests/ci/static.test.mjs::a foreign label in a code comment fails, naming the rule and the file; each comment style is caught
 static-test	markdown and tests/ may quote	markdown and tests/ may quote the label	tests/ci/static.test.mjs::markdown and tests/ may quote the label

@@ -1,6 +1,14 @@
 // @ts-check
 // Text helpers of the Node hook: the exact byte behaviour of the shell hook's small functions (jesc, safe, sha, command substitution, jget).
 import { createHash } from 'node:crypto';
+import path from 'node:path';
+
+/**
+ * A native path in the forward-slash spelling every guard compares in (`C:\\Users\\x` is `C:/Users/x`). Only where the separator is a backslash: on
+ * every other platform a backslash is a file name character and the path is returned as it is.
+ * @param {string} p @param {string} [sep]
+ */
+export function posix(p, sep = path.sep) { return sep === '\\' ? p.replaceAll('\\', '/') : p; }
 
 /**
  * `jesc TEXT`: the JSON string body the shell hook builds: only the backslash, the quote, tab, carriage return and newline are escaped (other

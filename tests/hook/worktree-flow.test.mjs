@@ -63,7 +63,8 @@ test('a rewritten worktree core, queue module or script never runs; the commands
     const r = run(['next', 'T-2']);
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /^task=T-2/m);
-    assert.equal(run(['config-check']).status, 0);
+    const cc = run(['config-check']);
+    assert.equal(cc.status, 0, `${cc.stderr}${cc.stdout}`);
   }
   for (const m of marks) assert.ok(!existsSync(m), `${m} ran`);
 });

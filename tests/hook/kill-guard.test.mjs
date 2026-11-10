@@ -8,13 +8,13 @@ import { join, resolve } from 'node:path';
 import { scanCommand } from '../../adapters/claude/hooks/command-scan.mjs';
 import { killGuard } from '../../adapters/claude/hooks/guards/kill.mjs';
 import { Deny } from '../../adapters/claude/hooks/guards/kit.mjs';
-import { jesc } from '../../adapters/claude/hooks/lib/text.mjs';
+import { jesc, posix } from '../../adapters/claude/hooks/lib/text.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 let base = ''; let proj = ''; let td = '';
 
 before(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), 'kg-node-')));
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'kg-node-')));   // long form: a Windows runner's tmpdir() is the 8.3 short path (A246)
   proj = join(base, 'proj');
   for (const d of ['scripts', 'node_modules/x', 'bench', 'd', '.git']) mkdirSync(join(proj, d), { recursive: true });
   const w = (/** @type {string} */ f, /** @type {string} */ t) => writeFileSync(join(proj, f), t);
@@ -70,17 +70,19 @@ A('fuser 3000/tcp', 'kill -l', 'pgrep node', 'ps aux | grep node', 'echo hi | xa
 
 /** @param {string} cmd @param {Record<string, string>} [env] @returns {Promise<string | null>} the reason, or null when allowed */
 async function nodeVerdict(cmd, env = {}) {
-  const ctx = /** @type {any} */ ({ cwd: proj, root: proj, env: { TMPDIR: base, ...env }, t0: Date.now(), act: '', ev: 'pretool' });
+  const ctx = /** @type {any} */ ({ cwd: posix(proj), root: posix(proj), env: { TMPDIR: posix(base), ...env }, t0: Date.now(), act: '', ev: 'pretool' });
   try { await killGuard(ctx, cmd, scanCommand(cmd)); return null; } catch (e) { if (e instanceof Deny) return e.reason; throw e; }
 }
 
 test('the table: every command has the verdict the shell suite expects', async () => {
+  /** @type {string[]} */ const wrong = [];   // every wrong verdict in one failure message, not the first only
   for (const [cmd, denied] of T) {
     const r = await nodeVerdict(cmd);
-    assert.equal(r !== null, denied, `${denied ? 'not denied' : 'denied'}: ${JSON.stringify(cmd)} -> ${r}`);
+    if ((r !== null) !== denied) wrong.push(`${denied ? 'not denied' : 'denied'}: ${JSON.stringify(cmd)} -> ${r}`);
   }
+  assert.deepEqual(wrong, []);
 });
 
 test('the temp-dir script of the shell suite is read', async () => {
-  assert.notEqual(await nodeVerdict(`sh ${join(td, 't.sh')}`), null);
+  assert.notEqual(await nodeVerdict(`sh ${posix(join(td, 't.sh'))}`), null);
 });

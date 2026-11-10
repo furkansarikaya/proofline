@@ -8,13 +8,12 @@ on whether it keeps that property.
 Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests). The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed). Nothing is installed into
 the project; there is no build step.
 
-Run locally (the `CI` variable unset), `node tests/selftest.mjs` and `node tests/affected.mjs` use half of the cores (at least one) and run under `nice`, so the machine stays usable; `SELFTEST_JOBS=N` sets the job count. With `CI` set (GitHub Actions does) they use every core at normal priority.
+Run locally (the `CI` variable unset), `node tests/affected.mjs` runs its test files under `nice`, so the machine stays usable; with `CI` set (GitHub Actions does) it runs at normal priority.
 
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 cd proofline
-node tests/affected.mjs                       # runs only the self-test units your changes can affect (--list prints them, --all selects everything)
-node tests/selftest.mjs                       # control-plane, enforcement, generator, CLI, task and e2e-harness suites (16 suites, over 145 units; a few minutes)
+node tests/affected.mjs                       # runs only the Node test files your changes can affect (--list prints them, --all selects everything)
 node --test tests/skills/                    # skill validators and fixtures' known answers (about 740 tests)
 node tests/fixtures/check-fixtures.mjs        # builds every fixtures/*/setup.mjs and runs its selfcheck.mjs (42 passed, 1 skipped without vitest)
 node --test tests/benchmark/benchmark.test.mjs            # benchmark report known-answer test (seconds)
@@ -26,13 +25,10 @@ node tests/ci/sync-design-library.mjs --check # design library copies are byte-i
 node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Markdown links (also run alone by CI)
 ```
 
-`SELFTEST_ONLY=<suite>` runs one self-test suite; `LC_ONLY=<substring>` runs matching scenarios inside a suite.
-The self-tests split every suite into scenario units and run them on all cores; `SELFTEST_JOBS=<n>` sets the
-core count and `SELFTEST_SHARD=<i>/<n>` runs one slice (CI uses sixteen).
 CI additionally runs `shellcheck -s sh` over every shell script. A pull request that changes only plain
 documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png` and `.svg` files under `docs/` except `docs/reference/`) skips the
 test jobs but still runs shellcheck, the sync checks and the core-invariant tests (`node --test tests/invariants-node`, see Core invariants); Markdown under `skills/`, `roles/`, `control-plane/`
-and `adapters/` counts as code. Pushes to `main` and pull requests run Linux only (about 8 minutes of wall time, A109); macOS runs nightly and on manual runs (A164).
+and `adapters/` counts as code. Pushes to `main` and pull requests run the same Linux jobs, the fixtures and the skill tests included (A246: there is no fast mode any more; wall time in A246); macOS and Windows run nightly and on manual runs (A164).
 A pull request that changes hooks, skills, roles or the control plane also runs the real-session smoke test (A195) and pastes its table:
 `node tests/real-session/smoke.mjs` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
 `batch` in a throwaway repository and prints a PASS/FAIL table (a few minutes of model time; it is not part of CI). Do not merge on a table
@@ -143,19 +139,15 @@ How the lead works with sub-agents. Later releases cite this section.
 
 ## Test policy
 
-- Agents run only `node tests/affected.mjs` locally. The full self-test is CI's job, and a pull request is merged
+- Agents run only `node tests/affected.mjs` locally. The full test run is CI's job, and a pull request is merged
   when CI is green.
-- The Core invariants suite, the Node tests and the static checks are never skipped, not even by the CI fast mode below.
+- The Core invariants suite, the Node tests and the static checks are never skipped. There is no CI fast mode any more (A246): a pull request runs what a push runs, the legacy shell self-test shards that made it necessary are gone.
 - A new test is a Node test (`node --test`). Its helpers are in `tests/lib/harness.mjs` (A236, issue #176): the hardened environment of every child (no real HOME, gh, git configuration or network, fixed identity), `A`/`AS` (a call of `agent.sh`), `expectFail`/`expectMsg`/`refused`, `newRepo` (the control plane installed in a throwaway repository, built once per content hash and copied), `scaffold`/`project`/`toCodeDone` and the gate and evidence verbs (`rec`, `gpass`, `gfail`, `passAll`, `worker`, `solo`, `approveAsUser`); do not write a second helper. The project is a real install (A244): agent.sh as shipped (a launcher since A245: it only finds the project's core and starts it; there is no shell body) with the Node core beside it, so every command runs in the core. A project built from a few lines of sh text over the fixture verbs (`scaffold orchestrated no COMPLEX; worker RED fail ...`) is `project(recipe)` of `tests/core/legacy-lib.mjs` (`tests/lib/recipe.mjs` over `tests/lib/verbs.mjs`). No shell suite is left (`node tests/selftest.mjs` is an empty pass until one is added; a unit would run in its own process group, `SELFTEST_UNIT_TIMEOUT` seconds, default 1800).
 - The Node hook has a process-count budget per event (`tests/bench/hook-budgets.tsv`); raise one only with a decision that says why. The dispatcher and the execution decision have a process budget too (`tests/bench/dispatch-budgets.tsv`, A226), checked by `tests/bench/dispatch-budgets.test.mjs`. The helper commands (`build-record`, `friction report`, `calibrate`, `lessons`, `rules`) have one too (`tests/bench/helper-budgets.tsv`, A229), checked by `tests/bench/helper-budgets.test.mjs`. `next` and `digest` have one too (`tests/bench/next-digest-budgets.tsv`, A243), checked by `tests/core/perf.test.mjs`. The commands of the Node core are tested by absolute golden recordings (`tests/fixtures/port-t3`, `tests/core/golden`), not by comparison with a shell engine (A210).
 - Tests run quiet: they print failures and one summary line.
 - A new validator gets one valid example and one or two invalid examples.
 - No test calls a model and there is no end-to-end test in CI.
 - The number of tests is not a goal.
-
-### Temporary CI fast mode (Node migration)
-
-What: while `tests/ci/fast-mode.txt` exists, a pull request skips the legacy self-test shards, the fixtures job and the skill tests step. Why: a user decision of 2026-10-31, so that the Node migration stage 1 pull requests are not held by the hour-long legacy self-test. Safeguards: the decision is taken from the base (the base-sha rule: a pull request runs the base's reader and the base's `tests/ci/fast-mode.txt`); the pull request that introduces the mechanism has no reader on its base, so its own reader and `tests/ci/fast-mode.txt` decide and it runs FAST (bootstrap rule; this one-time self-enable is covered by CODEOWNERS and review); a pull request that changes `tests/ci/fast-mode.*` runs the full suite; the invariants (context budget included), equivalence, Node tests, type check and static checks always run; pushes to main, the nightly run and manual runs run everything; `tests/ci/fast-mode.mjs` validates the file. It has no expiry date (decision A210): it ends in the stage in which the last legacy shell test is deleted (the last stage of epic #165), and the nightly run keeps the full suite until then. Removal: delete `tests/ci/fast-mode.txt`.
 
 ## Commits and pull requests
 
@@ -167,7 +159,7 @@ What: while `tests/ci/fast-mode.txt` exists, a pull request skips the legacy sel
 
 Pull request checklist:
 
-- [ ] CI is green (the full self-test, skill tests and fixtures are CI's job; locally run `node tests/affected.mjs`)
+- [ ] CI is green (the full test run, skill tests and fixtures are CI's job; locally run `node tests/affected.mjs`)
 - [ ] generated files are in sync (`--check` commands above)
 - [ ] a decision entry in `docs/decisions.md` for every behaviour change
 - [ ] a test that fails without the change
