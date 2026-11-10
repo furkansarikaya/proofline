@@ -330,9 +330,8 @@ function verifyIntentProvenance(ctx, id) {
   if (!isFile(f)) f = `${ctx.root}/${ctx.config().get('tasks.dir', '.agents/tasks')}/${id}/design/INTENT.md`;
   const hist = `${sharedDirOf(ctx, 'prompts')}/history`;
   if (!isFile(f)) return [];
-  let all = '';
-  for (const n of sortedNames(hist, /^/)) all += fileText(ctx, `${hist}/${n}`) ?? '';
-  all = all.replace(/[ \t\n]+/g, ' ');
+  // one entry per history file (a message): the files carry no line end (capture.mjs), so an answer must lie inside ONE message, never across two (A247)
+  const messages = sortedNames(hist, /^/).map((n) => (fileText(ctx, `${hist}/${n}`) ?? '').replace(/[ \t\n]+/g, ' '));
   const trim = (/** @type {string} */ s) => s.replace(/^[ \t]+|[ \t]+$/g, '');
   /** @type {Array<[string, string]>} */ const scope = [];
   /** @type {Array<[string, string]>} */ const rounds = [];
@@ -354,7 +353,7 @@ function verifyIntentProvenance(ctx, id) {
     const u = asciiLower(intentScopeAnswers(ctx, dir, a).replace(/[ \t\n]+/g, ' '));
     const l = asciiLower(n);
     if (u.includes(l)) continue;
-    if (!all.includes(n)) bad.push(a);
+    if (!messages.some((m) => m.includes(n))) bad.push(a);
   }
   return bad;
 }

@@ -6,10 +6,10 @@
 // processes that meet at a file barrier inside the builder (no sleep, no time window): all of them are inside the build when the first one publishes, so the loser path always runs.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
-import { cached, cleanEnv, copyOf, git, tmp } from './harness.mjs';
+import { cached, cleanEnv, copyOf, discard, git, tmp } from './harness.mjs';
 
 const harnessUrl = new URL('./harness.mjs', import.meta.url).href;
 
@@ -146,4 +146,17 @@ test('a loser that finds the complete template discards its copy, and the copy i
   assert.equal(second, first);
   assert.deepEqual(readdirSync(root).sort(), ['k']);
   assert.equal(readFileSync(path.join(first, 'a.txt'), 'utf8'), 'v1', 'the winner is untouched');
+});
+
+test('discard does not trust the first removal: a directory the platform call leaves behind is removed entry by entry, links are not followed', () => {
+  const root = tmp('cache'); const outside = path.join(tmp('outside'), 'keep.txt');
+  writeFileSync(outside, 'mine');
+  const dir = path.join(root, 'build-x-1');
+  mkdirSync(path.join(dir, '.git/objects/ab'), { recursive: true });
+  writeFileSync(path.join(dir, '.git/objects/ab/cd'), 'x', { mode: 0o444 }); writeFileSync(path.join(dir, '.built'), '');
+  symlinkSync(path.dirname(outside), path.join(dir, 'link'));
+  discard(dir, () => { /* a removal that reports success and removes nothing */ });
+  assert.deepEqual(readdirSync(root), [], 'the directory is gone');
+  assert.equal(readFileSync(outside, 'utf8'), 'mine', 'a link inside it was removed, not followed');
+  discard(dir, () => { throw new Error('busy'); });   // already gone, whatever the first attempt did
 });
