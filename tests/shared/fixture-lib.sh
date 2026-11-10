@@ -45,11 +45,12 @@ fx_template() { # KEY BUILDER -> template directory on stdout
     # a lock whose holder is gone (killed) is stale: take it over
     ft_holder=$(cat "$ft_lock/pid" 2>/dev/null || true)
     if [ -n "$ft_holder" ] && ! kill -0 "$ft_holder" 2>/dev/null; then
-      # Atomic: only the contender whose rename succeeds takes the lock over (a plain rm -rf let several of them, or one of them and a new holder, remove each other's lock).
-      ft_dead=$ft_lock.dead.$$
-      if mv "$ft_lock" "$ft_dead" 2>/dev/null; then
-        if [ "$(cat "$ft_dead/pid" 2>/dev/null || true)" = "$ft_holder" ]; then rm -rf "$ft_dead"
-        else [ -e "$ft_lock" ] || mv "$ft_dead" "$ft_lock" 2>/dev/null || rm -rf "$ft_dead"; [ ! -d "$ft_dead" ] || rm -rf "$ft_dead"; fi   # it was a new, live lock: put it back
+      # Take the pid file by rename (atomic: one contender wins) and check whose it was, as lock.mjs does: the lock itself is never removed by name, so a contender with an
+      # outdated reading cannot remove the NEW holder's lock. A pid file that turns out to be a new holder's is put back untouched.
+      ft_brk=$ft_lock/pid.brk.$$
+      if mv "$ft_lock/pid" "$ft_brk" 2>/dev/null; then
+        if [ "$(cat "$ft_brk" 2>/dev/null || true)" = "$ft_holder" ]; then rm -f "$ft_brk"; rmdir "$ft_lock" 2>/dev/null || :
+        else mv "$ft_brk" "$ft_lock/pid" 2>/dev/null || rm -f "$ft_brk"; fi
       fi
       continue
     fi
