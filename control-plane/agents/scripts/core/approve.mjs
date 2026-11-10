@@ -8,7 +8,7 @@ import { appendFileSync, mkdirSync, readSync, readdirSync, renameSync, writeFile
 import { isatty } from 'node:tty';
 import { now, sleepSync } from './clock.mjs';
 import { captureField } from './capture.mjs';
-import { BridgeToShell, ProoflineError, fail, unsupported } from './errors.mjs';
+import { ProoflineError, fail, unsupported } from './errors.mjs';
 import { contentFingerprint } from './fingerprint.mjs';
 import {
   approvalExample, approvalFiles, approvalNorm, approvalPendingPairs, approvalPhrases, approvalSay, approvalSentences, approvalWords, approvalsDirOf, captureFieldOf,
@@ -738,12 +738,6 @@ export function approveInChild(parent, target, kinds) {
     rc = approveKinds(child, target, kinds);
     child.flush();
   } catch (e) {
-    if (e instanceof BridgeToShell) {
-      child.discard();
-      locks.releaseAll();
-      const r = proc.run('sh', [`${parent.scripts}/agent.sh`, 'approve', target, ...kinds], { cwd: parent.cwd, env: { ...parent.env, PROOFLINE_BRIDGED: '1' }, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
-      return { rc: r.status, output: Buffer.concat([r.stdout, r.stderr]).toString('latin1') };
-    }
     if (e instanceof ProoflineError) { child.flush(); sink.push(Buffer.from(`${e.message}\n`, 'latin1')); rc = e.exitCode; } else throw e;
   } finally {
     locks.releaseAll();

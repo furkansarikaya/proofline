@@ -8,7 +8,7 @@
 //   - it writes nothing but those three files, in a folder it creates itself inside the run (a link planted as `reports/` or as the next folder is never followed);
 //   - the raw file holds no time, pid or path of the machine: the same tree gives the same bytes. Not a gate: it reports, it never fails a scope check.
 import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeSync } from 'node:fs';
-import { fail, unsupported } from './errors.mjs';
+import { fail } from './errors.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { git, headSha } from './git.mjs';
 import { taskPatchFingerprint } from './gates.mjs';
@@ -91,11 +91,7 @@ function diffDigest(ctx, args) {
   const sc = planScope(ctx, dir);
   if (!sc.ok || sc.rows.length === 0) fail('invalid scope mapping: fix PLAN.md ## Scope entries (see agent.sh verify-scope)');
   if (sectionValue(ctx, dir, 'baseline', 'status') !== 'captured') fail(`baseline required before a digest: ${id}`);
-  let changes;
-  try { changes = classifyChanges(ctx, bytes(id), dir, sc.rows, scopeAllow(ctx, dir, false)); } catch (e) {
-    if (e instanceof Error && e.name === 'BridgeToShell') throw unsupported(`a changed path git would c-quote; run agent.sh verify-scope ${id}`);
-    throw e;
-  }
+  const changes = classifyChanges(ctx, bytes(id), dir, sc.rows, scopeAllow(ctx, dir, false));
   const tracked = trackedLines(ctx);
   /** @type {Array<{ cls: string, add: number | null, del: number | null, path: string, fp: string, type: string }>} */
   const rows = changes.map((c) => {

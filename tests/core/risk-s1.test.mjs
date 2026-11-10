@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { flattenDefinition } from '../../control-plane/agents/scripts/core/ecodata.mjs';
 import { A, AS, accepted, agentsSrc, commitAll, expectMsg, git, gpass, must, passAll, rv, scripts, writeReport } from '../lib/harness.mjs';
 import { NO_BROWSER_SKIP, RUN, SKD, Z, approve, focusSt, frozen, gateSt, has, hasnt, implement, lastFile, lastGate, lines, node, probeBin, pv, rd, rebase, rrun, scratch, snap, ueMove, ueRun, ueSubmit, unsReport, unsRun, unsVisual, wr } from './risk-s1-lib.mjs';
 
@@ -355,7 +356,9 @@ test('sc_unsupported_browser_data: unsupported probes: browser_test is read from
   wr(d, 'zig.json', '{"deps":["zigdrive"]}\n'); mkdirSync(path.join(d, 'zigdeps/zigdrive'), { recursive: true });
   let out = unsVisual(d, r);
   assert.ok(out.status === 0 && out.out.includes('submitted: LC qa UNSUPPORTED'), `an unknown manifest was probed without data: ${out.text}`);
-  appendFileSync(path.join(d, '.agents/ecosystems.tsv'), 'zig\tid\tzig\nzig\tbrowser_test.manifest\tzig.json\nzig\tbrowser_test.deps_dir\tzigdeps\nzig\tbrowser_test.names\tzigdrive\n');
+  const defn = JSON.parse(readFileSync(path.join(d, '.agents/ecosystems.json'), 'utf8'));
+  defn.ecosystems.push({ id: 'zig', browser_test: { manifest: 'zig.json', deps_dir: 'zigdeps', names: ['zigdrive'] } });
+  writeFileSync(path.join(d, '.agents/ecosystems.json'), JSON.stringify(defn, null, 2));
   expectMsg('a custom browser_test entry in the data', 'project browser-test dependency zigdrive (zig.json, zigdeps)', unsVisual(d, r));
   rmSync(path.join(d, 'zigdeps/zigdrive'), { recursive: true, force: true });
   out = unsVisual(d, r);
@@ -435,7 +438,7 @@ test('sc_probe_benchmark_dotnet: BenchmarkDotNet in project 55 of 60 and in an f
 test("sc_probe_drift: visual probe lists equal measure.mjs's", { skip: SKD && existsSync(path.join(SKD, 'visual-proof/scripts/measure.mjs')) ? false : 'skill source not present' }, () => {
   const m = readFileSync(path.join(SKD, 'visual-proof/scripts/measure.mjs'), 'utf8');
   const probes = readFileSync(path.join(scripts, 'core/probes.mjs'), 'utf8');
-  const eco = readFileSync(path.join(agentsSrc, 'ecosystems.tsv'), 'utf8').split('\n').map((l) => l.split('\t'));
+  const eco = flattenDefinition(JSON.parse(readFileSync(path.join(agentsSrc, 'ecosystems.json'), 'utf8')));
   const names = [];
   for (const re of [/^const BROWSER_NAMES = \[(.*)\];$/m, /^const PROJECT_TOOLS = \[(.*)\];$/m]) {
     const got = re.exec(m)?.[1];

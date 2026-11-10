@@ -19,17 +19,17 @@
 //    is and how it builds, tests, lints and lists workspace members is data in control-plane/agents/ecosystems.json. A line of
 //    bin/, control-plane/agents/ (scripts, githooks, task-integrations), adapters/ or skills/*/scripts shell scripts that
 //    branches on an ecosystem id (a case label such as `go)` or `npm|pnpm)`, or a comparison such as `[ "$x" = dotnet ]`) fails.
-//    The ids are read from ecosystems.tsv, never hardcoded here. Excluded: ecosystems.sh (the
-//    reader of the data), the self-tests (*-test.sh, test-lib.sh, tests/) and comment lines. A line that names an interpreter or
+//    The ids are read from ecosystems.json, never hardcoded here. Excluded: the self-tests (*-test.sh, tests/) and comment lines. A line that names an interpreter or
 //    a tool and not an ecosystem (a process-group method, an interpreter whose inline code a safety hook reads) may be marked
 //    by a comment line directly above it: `# eco-ok: <why this is not ecosystem knowledge>`. A line that names a plain manifest, project
-//    or lock file of an ecosystem (`package.json`, `go.mod`, `Cargo.lock`, ... read from ecosystems.tsv) is the same kind of knowledge and fails too.
+//    or lock file of an ecosystem (`package.json`, `go.mod`, `Cargo.lock`, ... read from ecosystems.json) is the same kind of knowledge and fails too.
 //
 // Prints PASS or FAIL per rule. Exit 0 when every rule passes, 1 on a failure, 2 on a usage error.
 import { execFileSync } from 'node:child_process';
 import { existsSync, openSync, readFileSync, readSync, closeSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { flatten } from '../../control-plane/agents/ecosystems.mjs';
 
 export const FOREIGN_TAGS = 'ponytail';
 export const README_MAX_LINES = 158;
@@ -76,7 +76,7 @@ const clip = (/** @type {string[]} */ hits) => hits.map((h) => `  ${h.slice(0, 2
 
 /** A glob like the shell `case` patterns used by rule 5's exclusions. @param {string} f */
 function excludedFromRule5(f) {
-  return /\/fixtures\//.test(f) || /\/templates\//.test(f) || /\/library\//.test(f) || /-test\.sh$/.test(f) || /\/test-lib\.sh$/.test(f) || /\/ecosystems\.sh$/.test(f)
+  return /\/fixtures\//.test(f) || /\/templates\//.test(f) || /\/library\//.test(f) || /-test\.sh$/.test(f)
     || /\.(md|json|toml|tsv|mjs|yaml|yml|conf)$/.test(f);
 }
 const firstLine = (/** @type {string} */ file) => {
@@ -147,12 +147,13 @@ export function check(root, o = {}) {
   }
 
   // 5. ecosystem branching in shared shell scripts
-  const etsv = path.join(root, 'control-plane/agents/ecosystems.tsv');
-  const rows = existsSync(etsv) ? readFileSync(etsv, 'utf8').split('\n').map((l) => l.split('\t')) : [];
+  const ejson = path.join(root, 'control-plane/agents/ecosystems.json');
+  /** @type {string[][]} */ let rows = [];
+  try { rows = flatten(JSON.parse(readFileSync(ejson, 'utf8'))); } catch { rows = []; }
   const ids = rows.filter((r) => r[0] !== '*' && r[1] === 'id' && r[2] !== undefined).map((r) => r[2]).join('|');
   if (!ids) {
     // the rule needs the ecosystem definition to know the ids: a missing or empty table is a failure, never a pass
-    out.push('FAIL ecosystem branching: no ecosystem ids (control-plane/agents/ecosystems.tsv is missing or lists none), so the rule can not run');
+    out.push('FAIL ecosystem branching: no ecosystem ids (control-plane/agents/ecosystems.json is missing, invalid or lists none), so the rule can not run');
     status = 1;
   } else {
     // a case arm: the line, `;;` or ` in ` starts a pattern list (no spaces inside) in which one pattern is exactly an id

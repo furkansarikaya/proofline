@@ -1,6 +1,6 @@
 // @ts-check
 // debt-test.sh (A153, A162; 176-D3) as Node tests: the shortcut comment list, the one wiki page, who may run what, and the converted shortcuts of this
-// repository. The command runs on the live Node core (core/debt.mjs, as in an installed project); `debt.sh` stays until 176-E. Every assertion kept.
+// repository. The command runs on the live Node core (core/debt.mjs, as in an installed project). Every assertion kept.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';

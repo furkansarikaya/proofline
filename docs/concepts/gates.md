@@ -17,7 +17,7 @@ computed from the diff by `agent.sh tier`, never from the lead's claim.
 
 Risky paths (migrations, auth, security, payment, crypto, CI and deploy, dependency manifests, infrastructure)
 come from `review.risky_paths` plus, at read time, the manifests, lock files, package-source settings and
-build-changing files of every ecosystem in `.agents/ecosystems.tsv` ([ecosystems](ecosystems.md), A174). Code-like Markdown (`.agents/**`, `skills/**`, `roles/**`, agent definitions,
+build-changing files of every ecosystem in `.agents/ecosystems.json` ([ecosystems](ecosystems.md), A174). Code-like Markdown (`.agents/**`, `skills/**`, `roles/**`, agent definitions,
 `AGENTS.md`, `CLAUDE.md`, prompt files) is never docs. The tier never decreases within a run.
 
 ## Gate set

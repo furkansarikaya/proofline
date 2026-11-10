@@ -6,6 +6,7 @@ import { rulesCommand } from './rules.mjs';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { now } from './clock.mjs';
+import { ecosystemRows } from './ecodata.mjs';
 import { fail } from './errors.mjs';
 import { fixRoundsUsed, maxFixRounds, taskOwnedPaths } from './gates.mjs';
 import { git, isAncestor, headSha } from './git.mjs';
@@ -188,12 +189,10 @@ export function sbBlockOnly(ctx, tree, p, id) {
   return sbStrip(id, cur) === sbStrip(id, head.stdout.toString('latin1'));
 }
 
-/** `eco_union worktree_deps.folders` over ecosystems.tsv. @param {Context} ctx */
+/** `eco_union worktree_deps.folders` over ecosystems.json. @param {Context} ctx */
 function worktreeDepFolders(ctx) {
-  const t = fileText(ctx, `${ctx.agents}/ecosystems.tsv`);
-  if (t === null || t === '' || !isFile(`${ctx.scripts}/ecosystems.sh`)) return [];
   /** @type {string[]} */ const out = [];
-  for (const l of textLines(t)) { const f = l.split('\t'); if (f[0] !== '*' && f[1] === 'worktree_deps.folders' && f[2] !== undefined && !out.includes(f[2])) out.push(f[2]); }
+  for (const f of ecosystemRows(ctx) ?? []) if (f[0] !== '*' && f[1] === 'worktree_deps.folders' && f[2] !== undefined && !out.includes(f[2])) out.push(f[2]);
   return out;
 }
 

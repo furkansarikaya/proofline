@@ -29,8 +29,8 @@ export function build(target) {
   f.cp(`${CP}/agents/scripts/proofline-core.mjs`, '.agents/scripts/proofline-core.mjs');
   f.cp(`${CP}/agents/scripts/core`, '.agents/scripts/core');   // the Node core runs the moved commands (classify, branch, baseline, pipeline)
   // as `proofline init` installs them (A174): the manifests of the languages come from the definition
-  f.cp(`${CP}/agents/ecosystems.tsv`, '.agents/ecosystems.tsv');
-  f.cp(`${CP}/agents/scripts/ecosystems.sh`, '.agents/scripts/ecosystems.sh');
+  f.cp(`${CP}/agents/ecosystems.json`, '.agents/ecosystems.json');
+  f.cp(`${CP}/agents/ecosystems.mjs`, '.agents/ecosystems.mjs');
   f.w('.gitignore', '.agents/runs/\n.agents/local/\n');
   f.w('package.json', '{ "name": "settings-fixture", "private": true, "dependencies": {} }\n');
   f.w('api/openapi.yaml', 'openapi: 3.0.0\npaths:\n  /settings:\n    get:\n      responses:\n        "200":\n          description: ok\n');

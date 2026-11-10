@@ -1,6 +1,6 @@
 // @ts-check
 // The Stage 1/2 tripwires (ADR 0001 sections 5.3 and 7): a model Bash command that starts Node on the control plane in a spelling the hook can see,
-// or names the internal seams PROOFLINE_BRIDGED / PROOFLINE_TEST* (and the retired PROOFLINE_ENGINE*), or sets NODE_OPTIONS with a preload. Tripwires, not the boundary (approve records only from a
+// or names the internal seams PROOFLINE_TEST* and the retired PROOFLINE_BRIDGED / PROOFLINE_ENGINE* (no code reads them since A245; the names stay refused so that no future use can be set by a model), or sets NODE_OPTIONS with a preload. Tripwires, not the boundary (approve records only from a
 // captured user message). Port of tw_core_node, tw_lit and tw_node_operand of proofline-hook.sh.
 //   twCoreNode(text)      the text starts Node on the control plane (inline code, stdin code, a script under .agents/scripts, process.execPath)
 //   twNodeOperand(text)   a node word whose script operand is not a plain literal path (a variable, substitution, glob, xargs / find -exec / stdin feed ...)

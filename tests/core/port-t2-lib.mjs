@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { flatten } from '../../control-plane/agents/ecosystems.mjs';
 import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
 
 export const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -62,6 +63,18 @@ export function restoreNew(name) {
     if (existsSync(y) && snap.baseSha) writeFileSync(y, readFileSync(y, 'latin1').split(snap.baseSha).join(sha), 'latin1');
   }
   return root;
+}
+
+
+const ECO_NEW = ['.agents/ecosystems.json', '.agents/ecosystems.mjs'];
+/**
+ * A recording's `deleted` list names what the shell-era fixture lacked of the shipped control plane. The core reads `.agents/ecosystems.json` now (A245), where the
+ * shell read `.agents/ecosystems.tsv` with its sh reader: the definition is absent from a replayed state exactly when the recording lacked the tsv or the reader.
+ * @param {string[] | undefined} list
+ */
+function eraDeleted(list) {
+  const l = (list ?? []).filter((x) => !ECO_NEW.includes(x));
+  return list?.includes('.agents/ecosystems.tsv') || list?.includes('.agents/scripts/ecosystems.sh') ? [...l, ...ECO_NEW] : l;
 }
 
 /** @type {Map<string, string>} */ const cache = new Map();
@@ -135,7 +148,7 @@ export function replayer(tr) {
     const st = tr.states[key];
     const id0 = (/** @type {typeof st} */ x) => JSON.stringify([Object.entries(x.base).sort(), x.late ?? [], x.exclude ?? []]);
     // what the legacy fixture never had of the shipped control plane is absent from the base commit too when it is absent in every state that shares this base
-    const lists = Object.values(tr.states).filter((x) => id0(x) === id0(st)).map((x) => x.deleted ?? []);
+    const lists = Object.values(tr.states).filter((x) => id0(x) === id0(st)).map((x) => eraDeleted(x.deleted));
     const common = lists.length ? lists[0].filter((d) => lists.every((l) => l.includes(d))) : [];
     const id = JSON.stringify([id0(st), common]);
     let m = masters.get(id);
@@ -173,8 +186,24 @@ export function replayer(tr) {
         const shipped = rel.startsWith('.agents/') ? path.join(agentsSrc, rel.slice(8)) : '';
         if (shipped && existsSync(shipped)) cpSync(shipped, path.join(root, rel)); else rmSync(path.join(root, rel), { force: true });
       }
-      for (const rel of /** @type {string[]} */ (st.deleted ?? [])) rmSync(path.join(root, rel), { recursive: true, force: true });
+      for (const rel of eraDeleted(st.deleted)) rmSync(path.join(root, rel), { recursive: true, force: true });
       for (const [rel, k] of Object.entries(st.files)) put(path.join(root, rel), tr.blobs[k]);
+      { // a recording that EDITED the tsv (appended rows) edits the json the same way: extra `id TAB key TAB value` rows are pushed onto that ecosystem's array
+        const tk = st.files['.agents/ecosystems.tsv'];
+        const jp = path.join(root, '.agents/ecosystems.json');
+        if (tk !== undefined && existsSync(jp)) {
+          const defn = JSON.parse(readFileSync(jp, 'utf8'));
+          const have = new Set(flatten(defn).map((r) => r.join('\t')));
+          for (const line of (tr.blobs[tk].text ?? '').split('\n')) {
+            const [id, key, val] = line.split('\t');
+            if (!line || have.has(line) || val === undefined || key.includes('.')) continue;
+            const e = defn.ecosystems.find((/** @type {{ id: string }} */ x) => x.id === id);
+            if (e) { (e[key] ??= []).push(val); }
+          }
+          writeFileSync(jp, JSON.stringify(defn, null, 2));
+        }
+      }
+      { const tk = st.files['.agents/ecosystems.tsv']; if (tk !== undefined && (tr.blobs[tk].text ?? 'x') === '') for (const rel of ECO_NEW) rmSync(path.join(root, rel), { force: true }); }   // an empty tsv was no definition
       for (const rel of st.late ?? []) if (!existsSync(path.join(root, rel))) cpSync(path.join(agentsSrc, rel.slice(8)), path.join(root, rel));
       if (st.branch) git(root, ['checkout', '-q', '-b', st.branch]);
       for (const [rn, url] of Object.entries(/** @type {Record<string, string>} */ (st.remotes ?? {}))) spawnSync('git', ['-C', root, 'remote', 'add', rn, url], { env: GIT_ENV });

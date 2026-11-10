@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Loader of the ecosystem definition (A173): ecosystems.json is the single source; this file reads it for node
-// scripts and generates ecosystems.tsv, the flat copy that sh scripts read (scripts/ecosystems.sh) without node.
+// scripts (A245: the flat copy ecosystems.tsv and its sh reader are gone; flatten() gives the same rows to the core).
 // Skills are installable alone, so a skill that uses this carries byte-identical copies of ecosystems.mjs and
 // ecosystems.json (references/ or scripts/); tests/shared/check-shared.mjs compares them with the control plane's.
 //
@@ -15,15 +15,14 @@
 //   manifestGlobs()               every manifest glob of all ecosystems
 //   classifyPath(path)            [{ecosystem, role}] roles: manifest, lock, settings, project, solution, workspace, risky
 //   toRegExp(spec)                "/source/flags" -> RegExp; a bare string is a source
-//   flatten(data)                 the rows [id, path, value] of ecosystems.tsv
+//   flatten(data)                 the flat rows [id, path, value] (the core reads the definition through them)
 // Workspace members (A187): workspace_roots[].members says how a workspace file's member list is read, commands.*[].workspace and
 // at_workspace are command templates with {members}; core/discover.mjs (members, rule) builds the command from them.
-// CLI: node ecosystems.mjs write|sync|check|validate|get <id|*> <path>|ids|risky|dependency
-//   write     regenerates ecosystems.tsv next to ecosystems.json
-//   sync      write, then refreshes the byte-identical copies in every skills/*/ that carries one (the control plane only)
-//   check     validate + the tsv equals what write would produce (exit 1 otherwise)
+// CLI: node ecosystems.mjs sync|check|validate|get <id|*> <path>|ids|risky|dependency
+//   sync      validate, then refreshes the byte-identical copies in every skills/*/ that carries one (the control plane only)
+//   check     the same as validate (kept for the doctor and the CI step that call it)
 //   validate  the schema (every key every consumer relies on exists)
-import { readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync, realpathSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, copyFileSync, realpathSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -144,7 +143,6 @@ export function flatten(data) {
   }
   return rows;
 }
-export const toTsv = (data) => flatten(data).map((r) => r.join("\t")).join("\n") + "\n";
 
 // --- schema: the keys every consumer may rely on
 const ECO_ARRAYS = ["prune", "project_files", "manifests", "locks", "settings", "workspace_roots", "solution_files", "version_files", "risky_paths", "native_ui"];
@@ -222,24 +220,17 @@ const main = () => {
   const [cmd, a, b] = process.argv.slice(2);
   const json = findDefinition();
   if (!json) { console.error("ecosystems: ecosystems.json not found"); process.exit(2); }
-  const tsv = join(dirname(json), "ecosystems.tsv");
   const data = loadEcosystems(json);
-  if (cmd === "write") { const e = validate(data); if (e.length) { console.error(e.join("\n")); process.exit(1); } writeFileSync(tsv, toTsv(data)); return; }
   if (cmd === "validate" || cmd === "check") {
     const e = validate(data);
-    if (cmd === "check") {
-      if (!existsSync(tsv)) e.push(`${basename(tsv)} is missing; run: node ecosystems.mjs write`);
-      else if (readFileSync(tsv, "utf8") !== toTsv(data)) e.push(`${basename(tsv)} differs from ${basename(json)}; run: node ecosystems.mjs write`);
-    }
     if (e.length) { console.error(e.join("\n")); process.exit(1); }
     return;
   }
   if (cmd === "sync") {
     const e = validate(data); if (e.length) { console.error(e.join("\n")); process.exit(1); }
-    writeFileSync(tsv, toTsv(data));
     // only in the repository layout (control-plane/agents next to skills/); an installed .agents/ has no skills/ to refresh
     const here = dirname(json), skills = basename(here) === "agents" && basename(dirname(here)) === "control-plane" ? join(here, "..", "..", "skills") : null;
-    const pairs = [["scripts/ecosystems.sh", "scripts/ecosystems.sh"], ["scripts/ecosystems.mjs", "ecosystems.mjs"], ["references/ecosystems.json", "ecosystems.json"], ["references/ecosystems.tsv", "ecosystems.tsv"]];
+    const pairs = [["scripts/ecosystems.mjs", "ecosystems.mjs"], ["references/ecosystems.json", "ecosystems.json"]];
     if (skills && existsSync(skills)) for (const d of readdirSync(skills)) for (const [rel, src] of pairs) {
       const to = join(skills, d, rel), from = join(dirname(json), src);
       if (existsSync(to)) { if (readFileSync(to, "utf8") !== readFileSync(from, "utf8")) { copyFileSync(from, to); console.log(`synced skills/${d}/${rel}`); } }
@@ -250,7 +241,7 @@ const main = () => {
   if (cmd === "ids") { console.log(ecosystemIds(data).join("\n")); return; }
   if (cmd === "risky") { console.log(riskyPaths(data).join("\n")); return; }
   if (cmd === "get" && a && b) { for (const [id, p, v] of flatten(data)) if (id === a && p === b) console.log(v); return; }
-  console.error("usage: ecosystems.mjs write|sync|check|validate|ids|risky|dependency|get <id|*> <path>");
+  console.error("usage: ecosystems.mjs sync|check|validate|ids|risky|dependency|get <id|*> <path>");
   process.exit(2);
 };
 if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) main();

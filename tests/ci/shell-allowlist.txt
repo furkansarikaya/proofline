@@ -1,7 +1,4 @@
 control-plane/agents/githooks/pre-commit
 control-plane/agents/githooks/pre-push
 control-plane/agents/scripts/agent.sh
-control-plane/agents/scripts/debt.sh
 control-plane/agents/scripts/dispatch.sh
-control-plane/agents/scripts/ecosystems.sh
-control-plane/agents/scripts/test-lib.sh

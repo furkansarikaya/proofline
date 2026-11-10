@@ -1,6 +1,6 @@
 // @ts-check
-// `debt` (A153, scripts/debt.sh): the `shortcut: <limit>, <when to improve>` comments of the code with file and line, found by git grep.
-// debt.sh stays as the legacy launcher until stage 10; the command runs here. Text is a byte string.
+// `debt` (A153; the former scripts/debt.sh is deleted, A245): the `shortcut: <limit>, <when to improve>` comments of the code with file and line, found by git grep.
+// Text is a byte string.
 import { mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ProoflineError } from './errors.mjs';
@@ -75,7 +75,7 @@ export function debt(ctx, op) {
       return writePage(ctx, top, page, rows(ctx, top));
     }
     default:
-      ctx.err('usage: debt.sh [list|page]\n');
+      ctx.err('usage: agent.sh debt [list|page]\n');
       return 2;
   }
 }

@@ -1,6 +1,6 @@
 // @ts-check
 // One worktree per run (A169, A185, A225): `worktree-add`, `worktree-path`, `worktree-remove` and the preparation of a run worktree (the former
-// worktree-prep.sh). The preparation knows no ecosystem: what to prepare is data (worktree_deps.folders and prune of ecosystems.tsv, the config
+// worktree-prep.sh). The preparation knows no ecosystem: what to prepare is data (worktree_deps.folders and prune of ecosystems.json, the config
 // worktree.copy_files).
 //   1 Dependency folders: each git-ignored folder a package manager fills (node_modules) that exists in the main tree is COPIED into the worktree
 //     (a copy-on-write clone where the file system has one), so a task that changes dependencies changes only its own worktree. A link into the main
@@ -11,6 +11,7 @@
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync, appendFileSync, chmodSync, constants } from 'node:fs';
 import path from 'node:path';
 import { bytes } from './config.mjs';
+import { ecosystemRowsAt } from './ecodata.mjs';
 import { fail } from './errors.mjs';
 import { wtLinked } from './commands/runcmds.mjs';
 import { isDir, isFile } from './paths.mjs';
@@ -51,16 +52,10 @@ function plainRel(f) {
 }
 
 /**
- * The flat ecosystem definition of the project (ecosystems.tsv; the control plane's own when the project has none): rows `<id> TAB <path> TAB <value>`.
+ * The flat ecosystem definition of the project (ecosystems.json; the control plane's own when the project has none): rows `<id> TAB <path> TAB <value>`.
  * @param {Context} ctx @param {string} main @returns {string[][] | null}
  */
-function ecoRows(ctx, main) {
-  let tsv = `${main}/.agents/ecosystems.tsv`;
-  const size = (/** @type {string} */ f) => { try { return statSync(f).size; } catch { return 0; } };
-  if (size(tsv) === 0) tsv = path.join(ctx.trustedScripts, '..', 'ecosystems.tsv');
-  if (size(tsv) === 0) return null;
-  try { return textLines(readFileSync(tsv, 'utf8')).map((l) => l.split('\t')); } catch { return null; }
-}
+function ecoRows(ctx, main) { return ecosystemRowsAt(`${main}/.agents`, path.join(ctx.trustedScripts, '..')); }
 
 /** A copy of SRC at DST: copy-on-write where the file system has one, a plain copy otherwise; symbolic links stay links. @param {string} src @param {string} dst */
 function cloneTree(src, dst) {

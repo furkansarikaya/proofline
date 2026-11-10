@@ -74,8 +74,41 @@ function project(o) {
 const agent = (root, args, env = {}) => spawnSync('sh', ['./.agents/scripts/agent.sh', ...args], { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' });
 
 describe('agent.sh without the core', () => {
-  // A244: the test 'a folder that is not an installed project (no manifest) runs the shell code' is gone: that fallback is the shell arm of agent.sh, which no fixture reaches any more (every
-  // fixture is a project with the core beside agent.sh) and which 176-E2 deletes. What agent.sh does in a folder with neither core nor manifest is decided there.
+  // A245: agent.sh is a launcher; there is no shell arm, so a folder with neither core nor manifest gets a message and a non-zero status, not a second engine.
+  test('a folder with neither core nor manifest prints that it is not an installed project and exits 127, with nothing on standard output', () => {
+    const root = project({});
+    try {
+      for (const args of [['status'], ['role'], []]) {
+        const r = agent(root, args);
+        assert.equal(r.status, 127, args.join(' ')); assert.equal(r.stdout, '');
+        assert.match(r.stderr, /^proofline: no control-plane core beside .*agent\.sh and no \.agents\/\.proofline-manifest: this is not an installed project \(run: proofline init\)\n$/);
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  test('a run worktree starts the PROJECT\'s core, never the copy in the worktree (A207, security round 3)', () => {
+    const root = project({ manifest: true, core: true, coreDir: true });
+    try {
+      const g = (/** @type {string[]} */ a) => spawnSync('git', ['-C', root, '-c', 'user.email=a@b', '-c', 'user.name=t', ...a], { encoding: 'utf8' });
+      g(['init', '-q', '-b', 'main']);
+      writeFileSync(path.join(root, '.gitignore'), '.agents/local/\n.agents/runs/\n');
+      g(['add', '-A']); g(['commit', '-q', '-m', 'i']);
+      const wt = path.join(root, '.agents', 'local', 'worktrees', 'T-1');
+      assert.equal(g(['worktree', 'add', '-q', '-b', 'task/T-1', wt]).status, 0);
+      const mark = path.join(root, 'ran-from-worktree');
+      writeFileSync(path.join(wt, '.agents', 'scripts', 'proofline-core.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(mark)}, 'x');\n`);
+      const r = spawnSync('sh', ['./.agents/scripts/agent.sh', 'role'], { cwd: wt, env: process.env, encoding: 'utf8' });
+      assert.equal(r.stdout, 'role=lead\n', r.stderr); assert.equal(existsSync(mark), false, 'the worktree\'s own core ran');
+      // the project's core is missing: the worktree does not fall back to its own copy, it fails closed
+      rmSync(path.join(root, '.agents', 'scripts', 'core'), { recursive: true });
+      const c = spawnSync('sh', ['./.agents/scripts/agent.sh', 'role'], { cwd: wt, env: process.env, encoding: 'utf8' });
+      assert.equal(c.status, 127); assert.equal(existsSync(mark), false);
+      assert.match(c.stderr, /run: proofline upgrade/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  test('an installed project called with no argument names "this command", not an empty command', () => {
+    const root = project({ manifest: true });
+    try { const r = agent(root, []); assert.equal(r.status, 127); assert.match(r.stderr, /is missing: this command runs in Node 22\.13/); } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   test('an installed project fails closed with exit 127 and a message naming Node 22.13 and the missing file', () => {
     for (const o of [{ manifest: true }, { manifest: true, core: true }, { manifest: true, coreDir: true }]) {
       const root = project(o);

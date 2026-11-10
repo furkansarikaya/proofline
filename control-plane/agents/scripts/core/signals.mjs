@@ -3,12 +3,13 @@
 // signals its diff, its plan scope and its plan flags raise, and the focuses and gates they add. Read-only. Values that depend on the
 // working tree (changed paths, tier, signals) are computed once per invocation (ctx.once keys `changed:`, `tier:`, `risk:`); a command
 // that changes the tree or RUN.yaml calls ctx.forget('changed:'), ctx.forget('tier:'), ctx.forget('risk:') first.
-import { accessSync, constants, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
 import { unsupported } from './errors.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
+import { ecosystemRows } from './ecodata.mjs';
 import { sha256 } from './hash.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -17,7 +18,7 @@ import { blockOnlyText, firstGlob, inKnowledgeScope, installedControlPath, isBlo
 
 /** @typedef {import('./context.mjs').Context} Context */
 
-// ---- ecosystem data (A173): the risky and dependency globs, read from ecosystems.tsv as data ----------------------------------------
+// ---- ecosystem data (A173): the risky and dependency globs, read from ecosystems.json as data ----------------------------------------
 
 /**
  * `eco_sets`: the risky set and the dependency set, space-joined, from the flat ecosystem definition. `loaded` is false when the
@@ -26,21 +27,11 @@ import { blockOnlyText, firstGlob, inKnowledgeScope, installedControlPath, isBlo
  */
 export function ecosystemSets(ctx) {
   return ctx.once('eco-sets', () => {
-    let tsv = `${ctx.agents}/ecosystems.tsv`;
-    let sh = `${ctx.scripts}/ecosystems.sh`;
-    const nonEmptyFile = (/** @type {string} */ f) => { try { return statSync(f).size > 0; } catch { return false; } };
-    if (!nonEmptyFile(tsv) || !isFile(sh)) {
-      const ship = path.dirname(ctx.scriptDir);
-      if (ship !== ctx.agents && nonEmptyFile(`${ship}/ecosystems.tsv`) && isFile(`${ship}/scripts/ecosystems.sh`)) { tsv = `${ship}/ecosystems.tsv`; sh = `${ship}/scripts/ecosystems.sh`; }
-    }
-    if (!isFile(sh) || !nonEmptyFile(tsv)) return { loaded: false, risky: '', dependency: '' };
-    let text;
-    try { text = readFileSync(tsv, 'latin1'); } catch { return { loaded: false, risky: '', dependency: '' }; }
+    const rows = ecosystemRows(ctx);
+    if (!rows) return { loaded: false, risky: '', dependency: '' };
     const r = new Set(); const d = new Set();
     /** @type {string[]} */ const rl = []; /** @type {string[]} */ const dl = [];
-    for (const line of textLines(text)) {
-      const f = line.split('\t');
-      const [id, key, val] = [f[0], f[1], f[2]];
+    for (const [id, key, val] of rows) {
       if ((id === '*' && key === 'risky_paths') || (id !== '*' && (key === 'risky_paths' || key === 'manifests' || key === 'locks' || key === 'settings'))) { if (!r.has(val)) { r.add(val); rl.push(val); } }
       if (id !== '*' && (key === 'manifests' || key === 'locks' || key === 'settings')) { if (!d.has(val)) { d.add(val); dl.push(val); } }
     }
@@ -49,7 +40,7 @@ export function ecosystemSets(ctx) {
 }
 
 /** `eco_warning`: the line `pipeline` prints without the "warning: " head. */
-export const ECO_WARNING = '.agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty and only the config.yaml globs apply: run proofline upgrade (proofline doctor shows it)';
+export const ECO_WARNING = '.agents/ecosystems.json is missing or empty, so the risky-path and dependency sets are empty and only the config.yaml globs apply: run proofline upgrade (proofline doctor shows it)';
 
 // ---- pipeline -------------------------------------------------------------------------------------------------------------------
 

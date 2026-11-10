@@ -24,7 +24,7 @@ mktask() {
 }
 install_scripts() {
   for is_s in "$tl_agents"/scripts/*.sh; do
-    case "$(basename "$is_s")" in *-test.sh|test-lib.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
+    case "$(basename "$is_s")" in *-test.sh|agent.sh|exec-policy.sh|secret-scan.sh) continue ;; esac
     cp "$is_s" "$1/"
   done
   rm -f "$1/../task-integrations/markdown.sh"
@@ -127,7 +127,7 @@ export function mkprio(dir, id, prio, deps = '') {
 export function binstall(dir, o = {}) {
   const dst = path.join(dir, '.agents/scripts');
   for (const n of readdirSync(scripts)) {
-    if (!n.endsWith('.sh') || n.endsWith('-test.sh') || ['test-lib.sh', 'agent.sh', 'exec-policy.sh', 'secret-scan.sh'].includes(n)) continue;
+    if (!n.endsWith('.sh') || n.endsWith('-test.sh') || ['agent.sh', 'exec-policy.sh', 'secret-scan.sh'].includes(n)) continue;
     copyFileSync(path.join(scripts, n), path.join(dst, n));
   }
   rmSync(path.join(dir, '.agents/task-integrations/markdown.sh'), { force: true });

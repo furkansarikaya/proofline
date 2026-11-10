@@ -27,7 +27,7 @@ test('a fresh install passes: every check line, the 7 events of both runtimes, t
   has('PASS config: config valid: .agents/config.yaml\n');
   has(/^PASS approval path: [0-9]+ ms \(hook budget 20000 ms\)$/m);
   has('PASS time limits: timeouts.scale 1.0, a dispatched step may take up to 7200 s (CRITICAL); the approval budget is never scaled. This machine\'s speed: proofline doctor --scale\n');
-  has('PASS ecosystems: .agents/ecosystems.tsv is what .agents/ecosystems.json generates\n');
+  has('PASS ecosystems: .agents/ecosystems.json is a valid definition\n');
   has('PASS runtime claude: 9.9.9 (Claude Code, fake) (');
   has('PASS runtime codex: codex-cli 9.9.9 (fake) (');
   has('PASS hooks: .agents/hooks/proofline-hook.mjs present\n');
@@ -90,14 +90,19 @@ test('a missing hook file is a FAIL; a missing events/ folder is a FAIL naming t
   assert.match(n.out, /^WARN version: plugin [0-9.]+, project install 99\.0\.0; the project is newer than the plugin\. Next step: update the plugin$/m);
 });
 
-test('the ecosystem definition: a missing or stale .agents/ecosystems.tsv is a FAIL with a non-zero exit', async () => {
-  const miss = sb.copy('dec'); rmSync(`${miss}/.agents/ecosystems.tsv`);
-  const stale = sb.copy('dec2'); writeFileSync(`${stale}/.agents/ecosystems.tsv`, `${readFileSync(`${stale}/.agents/ecosystems.tsv`, 'utf8')}npm\tmanifests\tstale.lock\n`);
-  const [a, b] = await Promise.all([sb.plAsync(miss, ['doctor']), sb.plAsync(stale, ['doctor'])]);
-  assert.ok(a.out.includes('FAIL ecosystems: .agents/ecosystems.tsv is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)\n'), a.out);
+test('the ecosystem definition: a missing, invalid or unreadable .agents/ecosystems.json is a FAIL with a non-zero exit; the shell reader and the tsv are not needed (A245)', async () => {
+  const miss = sb.copy('dec'); rmSync(`${miss}/.agents/ecosystems.json`);
+  const bad = sb.copy('dec2'); writeFileSync(`${bad}/.agents/ecosystems.json`, '{"global":{},"ecosystems":[]}\n');
+  const nomjs = sb.copy('dec3'); rmSync(`${nomjs}/.agents/ecosystems.mjs`);
+  const corrupt = sb.copy('dec4'); writeFileSync(`${corrupt}/.agents/ecosystems.json`, '{"global": [');
+  const [a, b, c, d] = await Promise.all([sb.plAsync(miss, ['doctor']), sb.plAsync(bad, ['doctor']), sb.plAsync(nomjs, ['doctor']), sb.plAsync(corrupt, ['doctor'])]);
+  assert.ok(d.out.includes('FAIL ecosystems: .agents/ecosystems.json is not valid JSON (run: proofline upgrade)\n'), d.out); assert.notEqual(d.status, 0);
+  assert.ok(a.out.includes('FAIL ecosystems: .agents/ecosystems.json is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)\n'), a.out);
   assert.notEqual(a.status, 0);
-  assert.match(b.out, /^FAIL ecosystems: .* \(fix: node \.agents\/ecosystems\.mjs write, or proofline upgrade\)$/m);
+  assert.match(b.out, /^FAIL ecosystems: .* \(run: proofline upgrade\)$/m);
   assert.notEqual(b.status, 0);
+  assert.ok(c.out.includes('FAIL ecosystems: .agents/ecosystems.mjs is missing, so the definition cannot be read (run: proofline upgrade)\n'), c.out);
+  assert.notEqual(c.status, 0);
 });
 
 test('the CI line: a GitHub project without a pull_request workflow warns with the exact fix line, with one it passes', () => {

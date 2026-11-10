@@ -176,10 +176,7 @@ export function installControlPlane(dir) {
   cpSync(path.join(scripts, 'agent.sh'), path.join(dir, '.agents/scripts/agent.sh'));
   cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(dir, '.agents/scripts/proofline-core.mjs'));
   cpSync(path.join(scripts, 'core'), path.join(dir, '.agents/scripts/core'), { recursive: true });
-  if (existsSync(path.join(agentsSrc, 'ecosystems.tsv'))) {   // the core's risk sets read the flat ecosystem definition and check for its reader (production: probes/signals/pathkind)
-    cpSync(path.join(agentsSrc, 'ecosystems.tsv'), path.join(dir, '.agents/ecosystems.tsv'));
-    cpSync(path.join(scripts, 'ecosystems.sh'), path.join(dir, '.agents/scripts/ecosystems.sh'));
-  }
+  for (const f of ['ecosystems.json', 'ecosystems.mjs']) cpSync(path.join(agentsSrc, f), path.join(dir, '.agents', f));   // the core's risk sets and discovery read the definition (production: ecodata.mjs, discover.mjs)
   putStub(path.join(dir, '.agents/scripts/secret-scan.sh'), 'secret-scan.txt');
   putStub(path.join(dir, '.agents/scripts/exec-policy.sh'), 'exec-policy.txt');
   putStub(path.join(dir, '.agents/task-integrations/markdown.sh'), 'markdown-adapter.txt');
@@ -206,7 +203,7 @@ function hashTree(p, h) {
 export function codeKey() {
   if (codeKeyCache) return codeKeyCache;
   const h = createHash('sha256');
-  for (const p of [path.join(agentsSrc, 'config.yaml'), path.join(agentsSrc, 'modes'), path.join(agentsSrc, 'templates'), path.join(agentsSrc, 'ecosystems.tsv'), scripts, stubs, import.meta.filename, path.join(import.meta.dirname, 'verbs.mjs'), path.join(import.meta.dirname, 'recipe.mjs')]) hashTree(p, h);
+  for (const p of [path.join(agentsSrc, 'config.yaml'), path.join(agentsSrc, 'modes'), path.join(agentsSrc, 'templates'), path.join(agentsSrc, 'ecosystems.json'), path.join(agentsSrc, 'ecosystems.mjs'), scripts, stubs, import.meta.filename, path.join(import.meta.dirname, 'verbs.mjs'), path.join(import.meta.dirname, 'recipe.mjs')]) hashTree(p, h);
   return (codeKeyCache = h.digest('hex').slice(0, 20));
 }
 const cacheRoot = () => path.join(tmpdir(), `proofline-harness-${process.getuid?.() ?? 0}`);
