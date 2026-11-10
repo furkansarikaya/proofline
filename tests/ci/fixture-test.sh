@@ -53,6 +53,20 @@ for i in 1 2 3 4; do ( fx_template "$k3" slow > "$T/par.$i" ) & done
 wait
 [ "$(builds)" = $((before + 1))  ] && [ "$(sort -u "$T"/par.? | wc -l | tr -d ' ')" = 1 ] && [ -f "$(cat "$T/par.1")/a.txt" ] && ok "four concurrent callers build the template once and get the same directory" || die "race: builds=$(( $(builds) - before )) dirs=$(cat "$T"/par.?)"
 
+# a template that appears between the last test and the move (a second builder, a taken-over lock): `mv` would nest this build's private directory inside it
+# shellcheck disable=SC2154 # ft_final is the library's variable
+mv() { mkdir -p "$ft_final"; command mv "$@"; }   # the other template appears just before the move
+t5=$(fx_template nestkey build) || die "a template that appeared before the move failed the build"
+unset -f mv
+[ -d "$t5" ] && [ -z "$(find "$t5" -mindepth 1 -maxdepth 1 -name '*.tmp.*')" ] && ok "a directory that appeared before the move is not nested into: no private build directory is left inside the template" || die "nested template: $(ls "$t5")"
+
+# 8 contenders on a lock left by a dead process: exactly one takes it over and builds, nobody writes to stderr
+dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/k8.lock"; echo "$dead" > "$SELFTEST_TEMPLATE_DIR/k8.lock/pid"
+before=$(builds)
+for i in 1 2 3 4 5 6 7 8; do ( fx_template k8 slow > "$T/c8.$i" 2> "$T/c8.err.$i" ) & done
+wait
+[ "$(builds)" = $((before + 1)) ] && [ "$(sort -u "$T"/c8.? | wc -l | tr -d ' ')" = 1 ] && [ ! -s "$T/c8.err.1" ] && [ -z "$(cat "$T"/c8.err.*)" ] && ok "eight contenders on a dead lock: one takes it over, one build, no stderr" || die "dead-lock race: builds=$(( $(builds) - before )) err=$(cat "$T"/c8.err.*)"
+
 dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/stale.lock"; echo "$dead" > "$SELFTEST_TEMPLATE_DIR/stale.lock/pid"
 t4=$(fx_template stale build) || die "a stale lock blocked the build"
 [ -d "$t4" ] && ok "a lock left by a dead process is taken over" || die "stale lock"

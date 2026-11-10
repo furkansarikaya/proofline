@@ -43,9 +43,9 @@ case "\${FAKE_CODEX:-ok}" in
   fail) echo "error: tests failed in src/x" >&2; exit 1 ;;
   sleep) exec sleep 20 ;;
   hang) echo $$ > "$loc/codex.pid"; exec sleep 30 ;;
-  ignoreterm) trap '' TERM; echo $$ > "$loc/codex.pid"; while :; do sleep 0.2; done ;;
-  grandchildren) echo $$ > "$loc/codex.pid"; sh -c 'trap "" TERM; echo $$ >> "'"$loc"'/grandchildren.pids"; while :; do sleep 0.2; done' & sh -c 'echo $$ >> "'"$loc"'/grandchildren.pids"; exec sleep 30' & wait ;;
-  recordsig) echo $$ > "$loc/codex.pid"; for s in HUP INT TERM; do trap "echo $s > \\"$loc/got.sig\\"; exit 0" $s; done; while :; do sleep 0.1; done ;;
+  ignoreterm) trap 'echo $$ >> "$loc/term.log"' TERM; echo $$ > "$loc/codex.pid"; while :; do sleep 0.2; done ;;   # ignores TERM, but says it got one (term.log): the pid file means the trap is set
+  grandchildren) echo $$ > "$loc/codex.pid"; sh -c 'trap "echo \\$\\$ >> \\"\\$FAKE_LOC/term.log\\"" TERM; echo $$ >> "$FAKE_LOC/grandchildren.pids"; while :; do sleep 0.2; done' & sh -c 'echo $$ >> "'"$loc"'/grandchildren.pids"; exec sleep 30' & wait ;;
+  recordsig) echo $$ > "$loc/codex.pid"; for s in HUP INT TERM; do trap "echo $s > \\"$loc/got.sig\\"; exit 0" $s; done; echo ready > "$loc/codex.ready"; while :; do sleep 0.1; done ;;   # codex.ready: the traps are set
   setsidchild) echo $$ > "$loc/codex.pid"; node -e "const c=require('child_process').spawn('sleep',['30'],{detached:true,stdio:'ignore'});require('fs').appendFileSync(process.argv[1],c.pid+'\\n');setTimeout(function(){},30000)" "$loc/grandchildren.pids" & wait ;;
   early) echo "stopped before reading the prompt" >&2; exit 3 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\\n' > "$o"; sub PASS ;;
@@ -158,7 +158,7 @@ export function fixture(o = {}) {
     ledger: () => readFileSync(path.join(a, 'runs/LC/LEDGER.log'), 'utf8'),
     setConfig: (c) => writeConfig(dir, c),
     reset: () => {
-      for (const f of readdirSync(loc)) if (['submissions', 'fake'].includes(f) || /\.(argv|stdin|role|home|codex_home|pid|pids|sig)$/.test(f) || ['attempts', 'release'].includes(f)) rmSync(path.join(loc, f), { recursive: true, force: true });
+      for (const f of readdirSync(loc)) if (['submissions', 'fake'].includes(f) || /\.(argv|stdin|role|home|codex_home|pid|pids|sig|ready)$/.test(f) || ['attempts', 'release', 'term.log'].includes(f)) rmSync(path.join(loc, f), { recursive: true, force: true });
       rmSync(path.join(a, 'runs/LC/dispatch'), { recursive: true, force: true }); rmSync(path.join(a, 'runs/LC/results'), { recursive: true, force: true });
     },
     start: (args, extraEnv = {}, opts = {}) => {

@@ -42,7 +42,9 @@ export function template(recipe) {
   if (existsSync(`${keep}.built`)) { cache.set(recipe, keep); return keep; }
   mkdirSync(diskCache, { recursive: true });
   const out = mkdtempSync(path.join(diskCache, `build-${key}-`));
-  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; ${recipe}\ncp -R "$PWD/." "$EQ_OUT/"`, EQ_LIB], { env: cleanEnv({ EQ_LIB, EQ_OUT: out }), encoding: 'utf8', timeout: 900000 });
+  // set -e: a step of the recipe that fails (a commit, a classify, a freeze ...) fails the build with its own message; without it the scaffold went on and the template
+  // was kept at whatever state it had reached (a run that never got to IMPLEMENTING), for every test file of the run
+  const r = spawnSync('sh', ['-c', `set -e; . "$EQ_LIB"; ${recipe}\ncp -R "$PWD/." "$EQ_OUT/"`, EQ_LIB], { env: cleanEnv({ EQ_LIB, EQ_OUT: out }), encoding: 'utf8', timeout: 900000 });
   if (r.status !== 0) throw new Error(`recipe failed (${r.status}): ${recipe}\n${r.stderr}${r.stdout}`);
   cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(out, '.agents/scripts/proofline-core.mjs'));
   cpSync(path.join(scripts, 'core'), path.join(out, '.agents/scripts/core'), { recursive: true });
