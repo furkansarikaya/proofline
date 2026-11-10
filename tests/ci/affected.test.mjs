@@ -21,10 +21,10 @@ test('a change not in the mapping selects every unit', () => {
 });
 test('a shared file selects every unit', () => assert.equal(list(['tests/selftest.mjs']).lines.length, total));
 test('--all selects everything even with a mapped file', () => assert.equal(list(['--all', 'tests/ci/classify.mjs']).lines.length, total));
-test('--all includes the node test files outside tests/skills, and the shell suites', () => {
+test('--all includes the node test files outside tests/skills (and the shell suites, while there are any)', () => {
   const all = list(['--all']).lines;
   assert.ok(all.includes('tests/benchmark/benchmark.test.mjs'));
-  assert.ok(all.some((u) => u.endsWith('-test.sh')));
+  // A244: no shell suite is left; one that is added joins the list by itself
   assert.deepEqual(all, allUnits(root), 'sorted in byte order, once each');
 });
 test('a mapped unit that does not exist selects every unit (fail safe)', () => {

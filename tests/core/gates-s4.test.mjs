@@ -8,7 +8,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFile
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
-import { A, AS, accepted, approveAsUser, capture, expectMsg, gateStatus, git, must, passAll, refused, rec, repo, scaffold, solo, wclose, wev, wopen, writeReport } from '../lib/harness.mjs';
+import { A, AS, accepted, approveAsUser, expectMsg, gateStatus, git, must, passAll, refused, rec, repo, say, scaffold, solo, wclose, wev, wopen, writeReport } from '../lib/harness.mjs';
 import { gatesOf, implemented, kindClaim, passAllExtra, unfrozen, worker2 } from './gates-s4-lib.mjs';
 
 const GL = 'test: lookup returns the stored value';
@@ -445,12 +445,13 @@ test('sc_folded_defect: a COMPLEX task declares a folded defect fix; only the us
   const BL = 'Use your recommended option for every open question.';
   wr(d, '.agents/q.md', 'QUESTIONS:\n1. Fix the paging defect in this change?\n   options: fix | report\n   recommended: report\n   why: not requested\n');
   must(d, ['ask', 'LC', '--file', path.join(d, '.agents/q.md')]);
-  capture(d, BL);
+  say(d, BL);
   must(d, ['answer', 'LC', '1'], { input: `${BL}\n` });
-  assert.ok(/^answered_by: user/m.test(rd(d, '.agents/runs/LC/questions/001.answer.md')), "the blanket answer was not recorded as the user's");
+  // the Node core (A207, A210): typed text is the lead's answer, whatever was captured; only the prompt hook records an answer as the user's
+  assert.ok(/^answered_by: lead/m.test(rd(d, '.agents/runs/LC/questions/001.answer.md')), "a typed blanket answer was recorded as the user's");
   expectMsg('a blanket answer as a scope approval', 'scope approval for this PLAN.md', A(d, ['freeze', 'LC'], { bind: true }));
   must(d, ['request-approval', 'LC', 'scope']);
-  capture(d, BL);
+  say(d, BL);
   expectMsg('a blanket prompt as a scope approval', 'no approval phrase', A(d, ['approve', 'LC', 'scope']));
   approveAsUser(d, 'scope', 'approve the scope');
   accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze refused with the scope approval');

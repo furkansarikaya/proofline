@@ -428,7 +428,7 @@ test('scenario_approval_fail_closed: only an allowlisted phrase approves, every 
   }
   must(d, ['request-approval', 'LC', 'plan']);
   for (const t of ['', longq, 'I approve the plan I approve the plan']) { sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan']), `an empty or quoted answer approved: '${t}'`); }
-  // The grammar is locale independent (test-lib runs under LC_ALL=C): the same refusals and a positive under UTF-8.
+  // The grammar is locale independent (the harness runs under LC_ALL=C): the same refusals and a positive under UTF-8.
   for (const t of ["I shouldn't approve the plan", 'PLAN ONAYLIYORUM DEĞİL', 'plan onay yok', 'yes the plan is wrong']) {
     sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan'], { env: { LC_ALL: 'en_US.UTF-8' } }), `an ambiguous answer approved under UTF-8: '${t}'`);
   }

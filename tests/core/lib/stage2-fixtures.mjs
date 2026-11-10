@@ -1,11 +1,12 @@
 // @ts-check
 // Fixture states of the Stage 2 scenario cases (issue #167): every gate state of the gates-test fixtures, the risk-test fixtures and the scaling
-// fixture (0/20/60 changed files). Each state is a shell snippet run after test-lib.sh `scaffold`; a state is built once per process, on first
+// fixture (0/20/60 changed files). Each state is a recipe (tests/lib/recipe.mjs) run after the fixture verbs' `scaffold`; a state is built once per process, on first
 // use (building one takes seconds, and a pull request replays only the touched commands), and copied into every case that names it.
 import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addCore, agentsSrc, baseEnv, installedFixture, run, scriptsSrc } from './fixture.mjs';
+import { buildRecipe } from '../../lib/recipe.mjs';
 
 /** @typedef {import('./fixture.mjs').Fixture} Fixture */
 
@@ -116,7 +117,7 @@ function ledgerStraddles(/** @type {string} */ dir) {
   return false;
 }
 
-/** What an installed project has beside agent.sh (what `proofline init` copies): every non-test script, the data files; test-lib fixtures hold only a few of them. */
+/** What an installed project has beside agent.sh (what `proofline init` copies): every non-test script, the data files; the harness fixtures hold only a few of them. */
 function installLikeProject(/** @type {string} */ out) {
   const a = join(out, '.agents');
   for (const f of readdirSync(scriptsSrc)) {
@@ -133,9 +134,7 @@ function installLikeProject(/** @type {string} */ out) {
 
 function buildState(/** @type {string} */ name, /** @type {string} */ script) {
   const out = mkdtempSync(join(tmpdir(), `eq-s2-${name}.`)); const builtAt = Math.floor(Date.now() / 1000);
-  const r = run('sh', ['-c', `. "$EQ_LIB"; . "$EQ_PRELUDE"; ${script}\ncp -R "$PWD/." "$EQ_OUT/"`, join(scriptsSrc, 'x.sh')],
-    { env: { ...baseEnv(out), EQ_OUT: out, EQ_LIB: join(scriptsSrc, 'test-lib.sh'), EQ_PRELUDE: join(import.meta.dirname, 'stage2-prelude.txt') } });
-  if (r.code !== 0) throw new Error(`fixture state ${name} failed (${r.code}): ${r.stderr}${r.stdout}`);
+  try { buildRecipe(script, out, { errexit: false, prelude: readFileSync(join(import.meta.dirname, 'stage2-prelude.txt'), 'utf8') }); } catch (e) { throw new Error(`fixture state ${name} failed: ${/** @type {Error} */ (e).message}`); }
   return { out, builtAt };
 }
 

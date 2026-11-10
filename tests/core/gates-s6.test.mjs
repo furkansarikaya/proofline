@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, AS, capture, cleanEnv, commitAll, expectFail, expectMsg, must, newRepo, passAll, read, rv, scaffold, solo, toCodeDone, tsha, worker } from '../lib/harness.mjs';
+import { A, AS, cleanEnv, commitAll, expectFail, expectMsg, must, newRepo, passAll, read, rv, say, scaffold, solo, toCodeDone, tsha, worker } from '../lib/harness.mjs';
 
 /** @param {string} s */
 const lines = (s) => s.split('\n');
@@ -116,8 +116,8 @@ test('sc_mutation_budget: freeze asks once, per-run raise needs the user\'s appr
   A(d, ['freeze', 'LC'], { bind: true });
   const asked = readdirSync(path.join(d, '.agents/runs/LC/approvals')).filter((n) => n.endsWith('-request-mutation_budget.yaml'));
   assert.equal(asked.length, 1, 'the user was not asked exactly once');
-  expectFail(A(d, ['raise-budget', 'LC', '33']), "raise-budget without the user's approval");
-  capture(d, 'approve the mutation budget'); must(d, ['approve', 'LC', 'mutation_budget']);
+  expectMsg("raise-budget without the user's approval", "needs the user's approval", A(d, ['raise-budget', 'LC', '33']));
+  say(d, 'approve the mutation budget'); must(d, ['approve', 'LC', 'mutation_budget']);
   expectFail(A(d, ['raise-budget', 'LC', '30']), 'a raise below the criteria count');
   must(d, ['raise-budget', 'LC', '33']);
   assert.equal(read(d, '.agents/runs/LC/mutation_budget').trim(), '33', 'the run override was not recorded');
@@ -189,7 +189,7 @@ test('sc_legacy_fingerprint_new_rule: gates recorded on the current rule are sta
 // A171: the build record is made before the review gate wave (at handoff IMPLEMENTED) and, when it is missing, `next` names it as a missing step.
 test('sc_build_record_auto: made at handoff IMPLEMENTED; next shows a missing record as the first missing step and drops it once made', () => {
   /** `next` of the Node core, as the shell scenario ran it. @param {string} dir */
-  const nxt = (dir) => spawnSync('node', ['.agents/core4a/proofline-core.mjs', '--pl-argv0', path.join(dir, '.agents/scripts/agent.sh'), 'next', 'LC'], { cwd: dir, env: cleanEnv(), encoding: 'utf8' }).stdout;
+  const nxt = (dir) => A(dir, ['next', 'LC']).out;
   const d = scaffold({ topology: 'standalone', cls: 'STANDARD', autonomy: 'manual' });
   const cfg = path.join(d, '.agents/config.yaml');
   writeFileSync(cfg, lines(readFileSync(cfg, 'utf8')).map((l) => (l.startsWith('  build:') ? '  build: echo built-line' : l.startsWith('  test:') ? '  test: echo tested-line' : l)).join('\n'));

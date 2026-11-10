@@ -142,11 +142,11 @@ describe('ci-steps windows-timing', () => {
     const sum = path.join(T, 'summary.md'); writeFileSync(sum, '');
     const env = { GITHUB_STEP_SUMMARY: sum, PATH: process.env.PATH };
     assert.equal(steps(['windows-timing'], { env, write: () => {}, bench: ['sh', ['-c', 'echo "pretool-read execs=3 ms=40"']] }), 0);
-    assert.equal(readFileSync(sum, 'utf8'), '### Node hook per event (Windows, Git Bash fixtures)\n```\npretool-read execs=3 ms=40\n```\n');
+    assert.equal(readFileSync(sum, 'utf8'), '### Node hook per event (Windows, Node harness fixtures)\n```\npretool-read execs=3 ms=40\n```\n');
     writeFileSync(sum, '');
     const origErr = process.stderr.write; process.stderr.write = () => true;
     try { assert.equal(steps(['windows-timing'], { env, write: () => {}, bench: ['sh', ['-c', 'echo partial; echo broken >&2; exit 3']] }), 1); } finally { process.stderr.write = origErr; }
-    assert.equal(readFileSync(sum, 'utf8'), '### Node hook per event (Windows, Git Bash fixtures)\n```\npartial\n```\n', 'the table is closed after a failure');
+    assert.equal(readFileSync(sum, 'utf8'), '### Node hook per event (Windows, Node harness fixtures)\n```\npartial\n```\n', 'the table is closed after a failure');
     writeFileSync(sum, '');
     assert.equal(steps(['windows-timing'], { env, write: () => {}, bench: ['no-such-command-176', []] }), 1, 'a missing interpreter fails and still closes the fence');
     assert.match(readFileSync(sum, 'utf8'), /```\n$/);

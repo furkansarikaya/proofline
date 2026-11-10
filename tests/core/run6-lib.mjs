@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
 import { cleanEnv } from '../hook/harness.mjs';
+import { installGithooks } from '../lib/harness.mjs';
 import { A, accepted, refused, say, verbs } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
 
@@ -73,12 +74,10 @@ export function approveDelivery(d, text = 'approve delivery', at = d) {
   return accepted(A(at, ['approve-pending', 'LC']), 'approve-pending');
 }
 
-/** origin (never fetched or pushed) and the legacy git hooks for the commit and push gates. @param {string} d */
+/** origin (never fetched or pushed) and the shipped git hooks (the core's `cli pre-commit|pre-push`, one folder outside the project that serves the main tree and every run worktree) for the commit and push gates. @param {string} d */
 export function hooks(d) {
   if (g(d, 'remote') === '') gOk(d, 'remote', 'add', 'origin', 'https://github.com/acme/app.git');
-  const hd = `${d}-hooks`;
-  mkdirSync(hd, { recursive: true });
-  accepted({ ...run(d, 'node', [path.join(repo, 'tests/legacy-githooks/install.mjs'), hd]), out: '', err: '', text: '' }, 'hooks');
+  const hd = installGithooks(d, `${d}-hooks`);
   gOk(d, 'config', 'core.hooksPath', hd);
 }
 

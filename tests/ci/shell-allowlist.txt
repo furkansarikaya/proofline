@@ -5,8 +5,3 @@ control-plane/agents/scripts/debt.sh
 control-plane/agents/scripts/dispatch.sh
 control-plane/agents/scripts/ecosystems.sh
 control-plane/agents/scripts/test-lib.sh
-tests/bench/hook-procs.sh
-tests/bench/run-doc-size.sh
-tests/ci/fixture-test.sh
-tests/fixtures/entry-points/run-corpus.sh
-tests/shared/fixture-lib.sh

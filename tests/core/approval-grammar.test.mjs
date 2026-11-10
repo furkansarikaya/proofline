@@ -1,12 +1,12 @@
 // @ts-check
-// The approval grammar against the golden text recorded from the old engine (tests/golden/approvals/record.mjs), beside the extraction of
+// The approval grammar against the golden text recorded from the old engine (the shell functions of agent.sh; the inputs are tests/golden/approvals/cases.mjs), beside the extraction of
 // approval_phrases in tests/e2e/reply-loop.test.mjs (which keeps testing the old code until stage 10).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { APPROVAL_FILLERS, APPROVAL_PHRASES_DEFAULT, approvalNorm, approvalSentences, kindWords } from '../../control-plane/agents/scripts/core/approvals.mjs';
-import { KINDS, REPLIES, RUNS } from '../golden/approvals/record.mjs';
+import { KINDS, REPLIES, RUNS } from '../golden/approvals/cases.mjs';
 
 const golden = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'golden', 'approvals', 'grammar.json'), 'utf8'));
 const bytes = (/** @type {string} */ s) => Buffer.from(s, 'utf8').toString('latin1');

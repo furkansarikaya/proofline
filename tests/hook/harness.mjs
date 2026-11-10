@@ -6,6 +6,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, stat
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cleanEnv } from '../lib/harness.mjs';
+import { buildRecipe } from '../lib/recipe.mjs';
 
 export const repo = resolve(import.meta.dirname, '../..');
 /** The hook under test: HOOK_UNDER_TEST=<path of proofline-hook.mjs> (a harness choice for mutation checks, as the former shell suites read it); the shipped hook by default. */
@@ -21,12 +22,8 @@ export { cleanEnv };
  */
 export function buildTemplate(opt = {}) {
   const out = mkdtempSync(join(tmpdir(), 'hook-fx-'));
-  const r = spawnSync('sh', ['-c', `. "$EQ_LIB"; scaffold orchestrated no COMPLEX; cp -R "$PWD/." "$EQ_OUT/"`, join(scripts, 'x.sh')],
-    { env: cleanEnv({ EQ_LIB: join(scripts, 'test-lib.sh'), EQ_OUT: out }), encoding: 'utf8', timeout: 120000 });
-  if (r.status !== 0) throw new Error(`fixture failed: ${r.stderr}${r.stdout}`);
-  cpSync(join(scripts, 'proofline-core.mjs'), join(out, '.agents/scripts/proofline-core.mjs'));
-  cpSync(join(scripts, 'core'), join(out, '.agents/scripts/core'), { recursive: true });
-  appendFileSync(join(out, '.git/info/exclude'), '.agents/scripts/proofline-core.mjs\n.agents/scripts/core/\n.agents/local/\n');
+  buildRecipe('scaffold orchestrated no COMPLEX', out, { timeout: 120000, errexit: false });
+  appendFileSync(join(out, '.git/info/exclude'), '.agents/local/\n');
   if (opt.run === false) rmSync(join(out, '.agents/local/ACTIVE_RUN'), { force: true });
   return out;
 }

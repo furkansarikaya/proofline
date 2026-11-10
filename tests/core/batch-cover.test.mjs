@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, AB, appendFileSync, batchApprove, coverProject, fakes, gOk, read, readIf, sh, verbs, path, repo, has } from './batch-lib.mjs';
+import { installGithooks } from '../lib/harness.mjs';
 
 /** @param {{ status: number|null, text: string }} r @param {string} what @param {string} [msg] */
 function refused(r, what, msg) {
@@ -96,8 +97,7 @@ test('batch-cover delivery: one approval per pending delivery step, the same del
   const r = verbs(dir, 'to_code_done orchestrated');
   assert.equal(r.status, 0, r.text);
   gOk(dir, ['remote', 'add', 'origin', 'https://github.com/acme/app.git']);
-  const hd = `${dir}-hooks`;
-  assert.equal(sh(dir, 'node', [path.join(repo, 'tests/legacy-githooks/install.mjs'), hd, 'pre-commit', 'human.sh']).status, 0);
+  const hd = installGithooks(dir);
   gOk(dir, ['config', 'core.hooksPath', hd]);
   assert.equal(verbs(dir, 'finish_done').status, 0);
   const dp = A(dir, ['deliver-plan', 'LC']);

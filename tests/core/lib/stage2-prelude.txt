@@ -1,4 +1,4 @@
-# Shell helpers of the extra Stage 2 fixture states (sourced after test-lib.sh by stage2-fixtures.mjs; copied from known-issues-test.sh and gates-test.sh,
+# Shell helpers of the extra Stage 2 fixture states (defined after the fixture verbs by stage2-fixtures.mjs; copied from known-issues-test.sh and gates-test.sh,
 # which are suites and not libraries). Not a script: nothing runs it by itself.
 TXT='the legacy ignore list drops a documented entry'
 PLACE='.gitignore:1'

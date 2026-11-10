@@ -2,10 +2,8 @@
 // Golden tests recorded from the OLD engine (the shell code of agent.sh), beside the extraction tests (issue #167):
 //   risk_words_match (risk-test.sh sc_log_words_match and sc_log_pattern_wide)  tests/core/golden/risk-words-match.json
 //   the order of `agent.sh next` along the lifecycle (proofline-lead.test.mjs: classify, branch, baseline)  tests/core/golden/next-order.txt
-// Both engines must produce the recorded text. Until the Node engine has a risk_words_match the golden runs against the shell only; as soon as a
-// core module exports `riskWordsMatch(re, words, stdinText)` (true when the shell function would exit 0) that function is held to the same file.
-// `next` goes through agent.sh, which runs the Node core (A210: there is no engine switch).
-// Re-record with `node tests/core/golden/record.mjs` only for a reviewed change of the shell specification (stage 10 removes the shell leg).
+// The core must produce the recorded text: `riskWordsMatch` (true when the shell function would exit 0) is held to the cases of the file, `next` goes through agent.sh, which runs the Node core
+// (A210: there is no engine switch). The files were recorded from the shell of agent.sh by a recorder that A244 retired with the shell (E2 deletes the shell).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -16,7 +14,7 @@ import { baseEnv } from './lib/fixture.mjs';
 import { stateFixture } from './lib/stage2-fixtures.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { makeProject, memoryIo, repo, scriptsDir } from './helpers.mjs';
-import { NEXT_STATES, shellRiskWordsMatch } from './golden/record.mjs';
+import { NEXT_STATES } from './golden/states.mjs';
 
 const golden = (/** @type {string} */ n) => path.join(import.meta.dirname, 'golden', n);
 
@@ -59,10 +57,6 @@ describe('risk_words_match golden', () => {
     assert.ok(cases.length >= 60);
   });
 
-  test('the shell function gives the recorded answer for every case', () => {
-    for (const c of cases) assert.equal(shellRiskWordsMatch(c.re, c.words, c.lines), c.match, `${JSON.stringify(c.lines)} against ${c.words} / ${c.re.slice(0, 30)}`);
-  });
-
   test('the Node function (once a core module exports riskWordsMatch) gives the recorded answer for every case', async (t) => {
     const fn = await nodeRiskWordsMatch();
     if (!fn) { t.skip('no core module exports riskWordsMatch yet: the golden runs against the shell only'); return; }
@@ -87,14 +81,12 @@ describe('next output order golden', () => {
     assert.match(lead, /intake follows the order agent\.sh next prints/);
   });
 
-  for (const engine of ['sh', 'default']) {
-    test(`agent.sh next prints the recorded text in every state (${engine} engine)`, () => {
-      for (const [state, g] of sections) {
-        const dir = (state === 'no run' ? stateFixture('empty') : stateFixture(state)).dir;
-        const r = spawnSync('sh', ['./.agents/scripts/agent.sh', ...g.cmd], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, {}) });
-        assert.equal(r.status, g.exit, `${state}: exit code`);
-        assert.equal(r.stdout, g.out, `${state}: stdout`);
-      }
-    });
-  }
+  test('agent.sh next prints the recorded text in every state', () => {
+    for (const [state, g] of sections) {
+      const dir = (state === 'no run' ? stateFixture('empty') : stateFixture(state)).dir;
+      const r = spawnSync('sh', ['./.agents/scripts/agent.sh', ...g.cmd], { cwd: dir, encoding: 'latin1', env: baseEnv(dir, {}) });
+      assert.equal(r.status, g.exit, `${state}: exit code`);
+      assert.equal(r.stdout, g.out, `${state}: stdout`);
+    }
+  });
 });

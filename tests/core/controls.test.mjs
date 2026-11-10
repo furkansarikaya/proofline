@@ -7,8 +7,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, AS, accepted, expectFail, expectMsg, git, must, newRepo, commitAll, useLiveCore } from '../lib/harness.mjs';
-useLiveCore();
+import { A, AS, accepted, expectFail, expectMsg, git, must, newRepo, commitAll } from '../lib/harness.mjs';
 
 const POLICY_KEYS = ['worker_evidence:', '  required: true', 'tdd:', '  required: true', 'completion_report:', '  required: true', '  adapter: PENDING', '  published: false', '  receipt: PENDING'];
 

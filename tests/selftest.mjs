@@ -190,6 +190,8 @@ export async function main(env, o = {}) {
   if (!(shardI >= 1 && shardI <= shardN)) return fail('selftest: SELFTEST_SHARD must be I/N with 1 <= I <= N');
 
   const suites = selectSuites(allSuites(rootDir), only);
+  // A244: no shell suite is left (the last one, tests/ci/fixture-test.sh, is the Node test tests/lib/cache.test.mjs): an empty run is a pass, a name that matches nothing is still an error
+  if (suites.length === 0 && only === '' && allSuites(rootDir).length === 0) { write('selftest: no shell suites left; the Node tests run in the node-tests job\n'); if (env.SELFTEST_TIMES_FILE) writeFileSync(env.SELFTEST_TIMES_FILE, ''); return 0; }   // the CI shard uploads its (empty) timing file and fails when there is none
   if (suites.length === 0) return fail(`selftest: no suite matches '${only}'`);
   const units = unitsOf(suites, lcOnly, rootDir);
   let wfile = env.SELFTEST_WEIGHTS ?? path.join(rootDir, 'tests/selftest-weights.txt');

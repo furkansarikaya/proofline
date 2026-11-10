@@ -105,7 +105,7 @@ export function normaliseSide(side, label, opts = {}) {
     const g = (/** @type {string} */ k) => f.get(k);
     const ap = g('approved_at'); const ca = g('consumed_at'); const cap = g('capture_time');
     if (ap !== undefined && ca !== undefined && ca < ap) bad(`${p}: consumed_at ${ca} is before approved_at ${ap}`);
-    // a capture dated after the case (test-lib writes now+3600 so that it is newer than its request) is not an event of the case
+    // a capture dated after the case (the fixture verb `capture` of the shell library wrote now+3600 so that it was newer than its request) is not an event of the case
     if (ap !== undefined && cap !== undefined && cap <= hi && cap > ap) bad(`${p}: capture_time ${cap} is after approved_at ${ap}`);
     const rq = /^\s*request:\s*"?([^"\s]+)"?\s*$/m.exec(text.get(p) ?? '')?.[1];
     if (rq && ap !== undefined) {

@@ -1,12 +1,11 @@
 // @ts-check
-// fingerprint.mjs against the shell: the content fingerprint (gate, full, legacy), path fingerprints and the cache key, on fixture trees.
+// fingerprint.mjs against the control plane's own `fingerprint` command (the Node core since A210; until A244 also against the shell functions fp_cache_key and fp_cache_put: the cache key is now checked against fs.stat, and the two shell twins of the cache-link cases are gone, their Node tests stay): the content fingerprint (gate, full, legacy), path fingerprints and the cache key, on fixture trees.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { describe, test, after } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { cacheKey, contentFingerprint, gateFingerprint, hashFile, pathFingerprint, baselineMap, baselineFingerprint } from '../../control-plane/agents/scripts/core/fingerprint.mjs';
-import { extractFunctions } from './helpers.mjs';
 import { git, makeFixture } from './fixture.mjs';
 
 const fx = makeFixture();
@@ -63,19 +62,17 @@ describe('path fingerprints and cache key', () => {
     assert.throws(() => pathFingerprint(ctx, 'lnk'), /cannot baseline symlink: lnk/);
     assert.throws(() => pathFingerprint(ctx, 'src'), /cannot baseline non-regular file: src/);
   });
-  test('the cache key is the shell fp_cache_key', () => {
+  test('the cache key is path|size|mtime|inode|ctime of the file (what the shell fp_cache_key printed)', () => {
     put('big.bin', 'x'.repeat(300000));
-    const fns = extractFunctions(['fp_cache_key']);
-    const r = spawnSync('sh', ['-c', `cfg() { printf '%s\\n' "\${2:-}"; }\n${fns}\nfp_cache_key "$1" big.bin`, 'x', `${fx.root}/big.bin`], { encoding: 'latin1' });
-    // Path, size and inode must match exactly. The two file times are compared to 1 microsecond: a stat that prints seconds through a double (uutils, or
-    // awk/printf) rounds the last digits of the nanoseconds, and the ctime of a fresh file cannot be pinned, so exact digits flake on such a runner.
-    const fields = (/** @type {string} */ key) => key.split('|');
+    // Path, size and inode must match exactly. The two file times are compared to 1 microsecond: a stat that prints seconds through a double (uutils, or awk/printf) rounds the
+    // last digits of the nanoseconds, and the ctime of a fresh file cannot be pinned, so exact digits flake on such a runner. The expected values come from fs.stat, not from a shell.
     const ns = (/** @type {string} */ t) => { const [sec = '0', frac = ''] = t.split('.'); return BigInt(sec) * 1000000000n + BigInt(frac.padEnd(9, '0').slice(0, 9)); };
-    const node = fields(/** @type {string} */ (cacheKey(fx.ctx(), `${fx.root}/big.bin`, 'big.bin')));
-    const shell = fields(r.stdout.trim());
+    const node = /** @type {string} */ (cacheKey(fx.ctx(), `${fx.root}/big.bin`, 'big.bin')).split('|');
+    const st = statSync(`${fx.root}/big.bin`, { bigint: true });
     assert.equal(node.length, 5);
-    assert.deepEqual([node[0], node[1], node[3]], [shell[0], shell[1], shell[3]]);
-    for (const i of [2, 4]) assert.ok(ns(/** @type {string} */ (node[i])) - ns(/** @type {string} */ (shell[i])) < 1000n && ns(/** @type {string} */ (shell[i])) - ns(/** @type {string} */ (node[i])) < 1000n, `time field ${i}: ${node[i]} vs ${shell[i]}`);
+    assert.deepEqual([node[0], node[1], node[3]], ['big.bin', '300000', String(st.ino)]);
+    assert.ok(ns(/** @type {string} */ (node[2])) - st.mtimeNs < 1000n && st.mtimeNs - ns(/** @type {string} */ (node[2])) < 1000n, `mtime field: ${node[2]} vs ${st.mtimeNs}`);
+    assert.ok(ns(/** @type {string} */ (node[4])) - st.ctimeNs < 1000n && st.ctimeNs - ns(/** @type {string} */ (node[4])) < 1000n, `ctime field: ${node[4]} vs ${st.ctimeNs}`);
     assert.equal(cacheKey(fx.ctx(), `${fx.root}/f.txt`, 'f.txt'), null);
   });
   test('cache modes: yes reads, refresh stores, no hashes', () => {
@@ -131,24 +128,6 @@ describe('the cache is never written through a link or with a control character 
       assert.ok(text.startsWith(`${big}|300000|`));
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
-  test('shell: the same two cases', () => {
-    const f = makeFixture();
-    try {
-      put2(f.root, big, 'x'.repeat(300000));
-      const victim = path.join(f.root, 'victim'); writeFileSync(victim, 'keep\n');
-      mkdirSync(path.join(f.root, '.agents/local'), { recursive: true });
-      symlinkSync(victim, path.join(f.root, '.agents/local/fp-cache'));
-      const fns = extractFunctions(['fp_cache_file', 'fp_cache_usable', 'fp_cache_put']);
-      const run = () => spawnSync('sh', ['-c', `sr_main="${f.root}"\n${fns}\nfp_cache_put "$1" "$2"`, 'x', `${big}|1|2|3|4`, 'a'.repeat(64)], { encoding: 'utf8' });
-      run();
-      assert.equal(readFileSync(victim, 'utf8'), 'keep\n');
-      rmSync(path.join(f.root, '.agents/local/fp-cache'));
-      run();
-      assert.ok(readFileSync(path.join(f.root, '.agents/local/fp-cache'), 'latin1').startsWith(`${big}|1|2|3|4\t`));
-      spawnSync('sh', ['-c', `sr_main="${f.root}"\n${fns}\nfp_cache_put "$1" "$2"`, 'x', 'bad\tkey', 'b'.repeat(64)]);
-      assert.ok(!readFileSync(path.join(f.root, '.agents/local/fp-cache'), 'latin1').includes('bad'));
-    } finally { rmSync(f.root, { recursive: true, force: true }); }
-  });
 });
 
 /** @param {string} root @param {string} rel @param {string} text */
@@ -174,18 +153,6 @@ describe('the cache cut never writes through a planted temp link (S2-3b)', () =>
       assert.equal(readFileSync(victim, 'utf8'), 'keep\n');
       const lines = readFileSync(cache, 'latin1').split('\n').filter(Boolean);
       assert.ok(lines.length <= 1001 && lines.length > 900, String(lines.length));
-    } finally { rmSync(f.root, { recursive: true, force: true }); }
-  });
-  test('shell', () => {
-    const f = makeFixture();
-    try {
-      const { victim, cache } = plant(f.root);
-      const fns = extractFunctions(['fp_cache_file', 'fp_cache_usable', 'fp_cache_put']);
-      spawnSync('sh', ['-c', `sr_main="${f.root}"\n${fns}\nfp_cache_put "$1" "$2"`, 'x', 'new|1|2|3|4', 'd'.repeat(64)]);
-      assert.equal(readFileSync(victim, 'utf8'), 'keep\n');
-      const lines = readFileSync(cache, 'latin1').split('\n').filter(Boolean);
-      assert.ok(lines.length <= 1001 && lines.length > 900, String(lines.length));
-      assert.ok(lines[lines.length - 1].startsWith('new|1|2|3|4\t'));
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 });

@@ -82,7 +82,7 @@ function main() {
       const wt = realpathSync(path.join(main, '.agents/local/worktrees/RW-1'));
       mk(wt, '.agents/runs', '.agents/local/locks', '.agents/local/submissions', '.agents/local/windows', '.agents/local/approvals', '.agents/local/prompts', '.agents/local/batch');
       cpSync(path.join(main, '.agents/runs/LC'), path.join(wt, '.agents/runs/LC'), { recursive: true });
-      for (const e of ['scripts', 'hooks', 'core4a']) if (existsSync(path.join(main, '.agents', e))) { rmSync(path.join(wt, '.agents', e), { recursive: true, force: true }); cpSync(path.join(main, '.agents', e), path.join(wt, '.agents', e), { recursive: true }); }
+      for (const e of ['scripts', 'hooks']) if (existsSync(path.join(main, '.agents', e))) { rmSync(path.join(wt, '.agents', e), { recursive: true, force: true }); cpSync(path.join(main, '.agents', e), path.join(wt, '.agents', e), { recursive: true }); }
       copyFileSync(path.join(main, '.agents/config.yaml'), path.join(wt, '.agents/config.yaml'));
       runRoot = wt;
     }

@@ -66,10 +66,9 @@ test('question-file: the question reply is chosen per scenario (CRITICAL file, o
   writeFileSync(stub, `${SH_HEAD}printf '%s\\n' '{"type":"system","subtype":"init","session_id":"s1"}' '{"type":"result","result":"Which option do you prefer?"}'\n`);
   chmodSync(stub, 0o755);
   // A131: the question reply comes from replies/question.<SCENARIO>.txt when it exists, else line 1 of the generic file; no approval phrase of the
-  // shared allowlist (agent.sh approval_phrases) may be in it.
-  const agentSh = readFileSync(path.join(repo, 'control-plane/agents/scripts/agent.sh'), 'utf8');
-  const phrases = (/^approval_phrases\(\) \{.*'(.*)'.*/m.exec(agentSh) ?? [])[1];
-  assert.ok(phrases, 'approval phrases not found in agent.sh');
+  // shared allowlist (the approval allowlist, tests/golden/approvals/grammar.json) may be in it.
+  const phrases = JSON.parse(readFileSync(path.join(repo, 'tests/golden/approvals/grammar.json'), 'utf8')).phrases.split('\n').filter(Boolean).join(',');   // the allowlist the shell function approval_phrases printed (A244)
+  assert.ok(phrases, 'approval phrases not found in the recorded grammar');
   for (const scn of ['CRITICAL', 'COMPLEX']) {
     const r = path.join(root, `q-${scn}`);
     const res = runE2e([scn, 'claude'], { E2E_MAX_REPLIES: '1', E2E_ROOT: r, PATH: PATHENV });

@@ -3,8 +3,7 @@
 // Only what harness.mjs does not have.
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { A, accepted, approveAsUser, cached, codeKey, copyOf, git, gfail, gpass, scaffold, scripts, sha256, toCodeDone, worker, useLiveCore } from '../lib/harness.mjs';
-useLiveCore();   // every command of these tests runs in the Node core, as in an installed project (A242)
+import { A, accepted, approveAsUser, cached, codeKey, copyOf, git, gfail, gpass, scaffold, scripts, sha256, toCodeDone, worker } from '../lib/harness.mjs';
 
 /** @typedef {import('../lib/harness.mjs').Result} Result */
 

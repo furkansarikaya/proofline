@@ -10,6 +10,7 @@ import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { leftoverWorktrees, shQuote } from '../../control-plane/agents/scripts/core/leftover.mjs';
 import { A, AB, batchApprove, bnew, binstall, fakes, g, gOk, has, lines, mktask, path, put, read, readIf, real, repo, say, scripts, sh, wtp } from './batch-lib.mjs';
 import { makeFixture, git } from './fixture.mjs';
+import { installGithooks } from '../lib/harness.mjs';
 
 const wbody = (/** @type {string} */ title) => `## Goal\n\n${title}.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n`;
 /** @param {{ status: number|null, text: string }} r @param {string} what @param {string} [msg] */
@@ -114,9 +115,9 @@ test('worktree-add: a dependency folder is the worktree\'s own copy, .env* is co
   assert.ok(!g(wt, ['status', '--porcelain']).includes('.env'), 'git status shows the copied .env');
   gOk(wt, ['add', '-A']);
   assert.ok(!g(wt, ['diff', '--cached', '--name-only']).includes('.env'), 'git add -A staged the copied .env');
-  assert.equal(sh(wt, 'node', [path.join(repo, 'tests/legacy-githooks/install.mjs'), `${wt}/.agents/githooks`]).status, 0, 'no githooks to copy');
+  const hd = installGithooks(main, `${main}-hooks`);   // the hooks run the main tree's core with the worktree as root (the worktree carries no core: .agents/scripts is not tracked in the fixture)
   gOk(wt, ['add', '-f', '.env']);
-  const pc = sh(wt, 'git', ['-c', 'core.hooksPath=.agents/githooks', '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'env']);
+  const pc = sh(wt, 'git', ['-c', `core.hooksPath=${hd}`, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'env']);
   assert.notEqual(pc.status, 0, 'the pre-commit hook let a copied .env into a commit');
   assert.ok(pc.text.includes('worktree.copy_files'), `the refusal does not say why: ${pc.text}`);
   // a file git does not ignore is reported, never copied
