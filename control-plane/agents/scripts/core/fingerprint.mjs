@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { fail } from './errors.mjs';
-import { git, gitPaths } from './git.mjs';
+import { ensureBlank, git, gitPaths } from './git.mjs';
 import { isFile } from './paths.mjs';
 import { fileLines, fileText, planScope, scopePaths } from './records.mjs';
 import { blockOnlyText, hasBlockMarkers, inKnowledgeScope, installedControlPath, installedControlPaths, knowledgeScopeEntries, stripProoflineBlock, words } from './scope.mjs';
@@ -249,6 +249,7 @@ function chunks(a, n) { /** @type {string[][]} */ const out = []; for (let i = 0
 export function contentFingerprint(ctx, mode = '') {
   const tmp = mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'proofline-fp.'));
   try {
+    ensureBlank(ctx);
     const { index, objects } = plainGitPaths(ctx) ?? gitPaths(ctx);
     const { named, keep, td } = namedPaths(ctx);
     const kn = mode === 'gate' ? knowledgeScopeEntries(ctx) : [];

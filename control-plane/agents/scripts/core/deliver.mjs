@@ -432,6 +432,7 @@ export function deliverPlan(ctx, id, rest) {
   }
   const byCli = info.merge === 'cli';
   if (!byCli) steps = 'commit push pr';
+  discoverBlankNow(ctx);
   const paths = sub(git(ctx, ['status', '--porcelain', '--untracked-files=all']).out).split('\n').filter((l) => l !== '' && !/^.. \.agents\/(runs|local)\//.test(l));
   if (paths.length === 0) steps = (steps ?? '').replace(/^commit /, '');
   let kn = '';
@@ -593,6 +594,28 @@ export function importProvenTip(ctx, gitBin, hf, base) {
   return hgit(ctx, ctx.root, ['update-ref', ref, hf.tip], { bin: gitBin, env }).status === 0;
 }
 
+/**
+ * Find the repository-controlled code git would run on a checkout and blank it for every later git call of this command (`ctx.gitBlank`, applied by `hermeticEnv`).
+ * A238: a filter driver (smudge, process, clean) defined by the repository or the command line is code git runs on every file it reads or writes (status, add, checkout, merge); an
+ * `includeIf` counts as a driver too (its `onbranch` condition is judged by the branch checked out where git runs). System and global drivers are the administrator's or the user's own.
+ * A248: the names come from NUL separated keys (never from a value) and reach git as environment keys (a name with `=` is blanked too); they are collected in the main tree AND the tree
+ * this command runs in (the run's worktree). Round 3: the populated submodules of both trees, and theirs recursively, are searched too and their drivers join the names: git starts a child
+ * in a checked out submodule for a status, a diff, an add or a switch, that child reads the submodule's own configuration and inherits the blanking of the environment, so no per-submodule
+ * `ignore` setting matters. It runs BEFORE the first git call that could enter a submodule, and again before the cleanup (the set of checked out submodules may have changed); it only
+ * reads configuration. @param {Context} ctx @param {string} gitBin @returns {{ names: string[], includes: boolean, submodules: string[] }}
+ */
+export function discoverBlank(ctx, gitBin) {
+  const found = repoDrivers(gitBin, [...new Set([ctx.sharedMain(), ctx.root])], () => ({ cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }) }));
+  ctx.gitBlank = found.names;
+  return found;
+}
+
+/** discoverBlank with the trusted git when there is one. @param {Context} ctx */
+function discoverBlankNow(ctx) {
+  const gt = resolveGit(ctx);
+  return discoverBlank(ctx, 'unreadable' in gt ? 'git' : gt.path);
+}
+
 // ---- deliver-merged ----------------------------------------------------------------------------------------------------------------------
 
 /**
@@ -613,6 +636,7 @@ export function deliverMerged(ctx, id, flag) {
   const gt = resolveGit(ctx);
   if ('unreadable' in gt) fail(`deliver-merged: no trusted git to prove the merge with (${gt.unreadable}); nothing is recorded`);
   const gitBin = gt.path;
+  const found = discoverBlank(ctx, gitBin);
   const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => hgit(ctx, cwdTree, a, { bin: gitBin, env: cleanToolEnv(ctx, { remote: true }) });
   const gs = (/** @type {string[]} */ a, tree = ctx.root) => sub(g(a, tree).stdout.toString('latin1'));
   const mergeHead = `${ddir}/MERGE_HEAD`;
@@ -690,18 +714,10 @@ export function deliverMerged(ctx, id, flag) {
   const fin = sbFinalPrepare(ctx, id);
   const main = ctx.sharedMain();
   const adapter = ctx.config().get('tasks.adapter', 'markdown');
-  // A238 (user decision of 2026-11-08, fix rounds 1 and 3): a filter driver (smudge, process, clean) defined by the repository or the command line is repository-controlled code that
-  // git runs on every file it reads or writes in the checkout (status, checkout, merge). It is looked for BEFORE the first such call, and when it exists the user's checkout is
-  // not switched or fast-forwarded and no status block is parked; the cleanup's own tree reads (diff, status) run with every such driver blanked (-c filter.<n>.clean= ...), so
-  // none of them runs. An `includeIf` in the local config counts as a driver too: its condition (onbranch) is judged by the branch checked out when git runs, so a driver that
-  // is invisible on the task branch becomes active on the base after the switch. A system or global driver (git-lfs on a CI image) is the administrator's or the user's own.
-  // A248: the names come from NUL separated keys (never from a value), are handed to git as environment keys (a name with `=` is blanked too), and are collected in the main tree AND
-  // in the tree this command runs in (the run's worktree), because an `includeIf onbranch:` include is judged by the branch checked out where git runs.
-  const found = repoDrivers(gitBin, [main, ctx.root], () => ({ cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }) }));
+  // `found` (discoverBlank, at the start of this command): when a driver or an include exists the user's checkout is not switched or fast-forwarded and no status block is parked (A238)
   // a checked out submodule has a configuration of its own that git reads when it runs status or switches in the checkout (A248)
   const subm = populatedGitlinks(ctx, main);
   const filters = found.names.length > 0 || found.includes || subm.length > 0;
-  ctx.gitBlank = found.names;
   const parked = filters ? [] : sbMainPark(ctx, main);
   const tip2 = `refs/remotes/origin/${dmBase}`;
   const later = `update it from origin/${dmBase} before the next task starts`;
@@ -785,6 +801,7 @@ export function deliverMerged(ctx, id, flag) {
 
 /** The cleanup that follows a merge this process proved: in process, with the proof as a parameter (A215). @param {Context} ctx @param {string} id */
 function inProcessCleanup(ctx, id) {
+  discoverBlankNow(ctx);
   ctx.forget('');
   ctx.ctpBase = '';
   must(cleanupRun(ctx, id, true));

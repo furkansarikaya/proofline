@@ -33,21 +33,56 @@ export function parseDrivers(raw) {
 
 /**
  * The repository-controlled drivers visible from each of TREES (the main tree AND the run's worktree: an `includeIf onbranch:` include is judged by the branch checked out in
- * the tree git runs in, so one tree sees a driver the other does not). Names are the union, `includes` is true when any tree has an include.
+ * the tree git runs in, so one tree sees a driver the other does not) AND of every populated submodule below them, recursively (A248 round 3): git starts a git in a checked out
+ * submodule for a status, a diff, an add or a switch; that child reads the SUBMODULE's own configuration and inherits our environment, so the submodule's drivers are blanked by
+ * name too, and no `submodule.<n>.ignore`, `diff.ignoreSubmodules` or `status.ignoreSubmodules` (a config or a `.gitmodules` can set the first per submodule) can matter.
+ * Names are the union, `includes` is true when any tree or submodule has an include. Only configuration is read (`git config`, `ls-files --stage`): no work tree file, so no filter.
  * @param {string} gitBin @param {string[]} trees @param {(tree: string) => { cwd?: string, env: Record<string, string> }} where
- * @returns {{ names: string[], includes: boolean }}
+ * @returns {{ names: string[], includes: boolean, submodules: string[] }}
  */
 export function repoDrivers(gitBin, trees, where) {
   /** @type {Set<string>} */ const names = new Set();
+  /** @type {Set<string>} */ const seen = new Set();
+  /** @type {string[]} */ const submodules = [];
   let includes = false;
-  for (const tree of new Set(trees)) {
+  /** @param {string} tree @param {number} depth */
+  const visit = (tree, depth) => {
+    if (seen.has(tree) || depth > 8) return;
+    seen.add(tree);
     const w = where(tree);
-    const r = proc.run(gitBin, ['-C', tree, '-c', 'core.fsmonitor=false', 'config', '--show-scope', '--name-only', '-z', '--get-regexp', DRIVER_KEYS], { cwd: w.cwd, env: w.env, stdio: ['ignore', 'pipe', 'ignore'] });
-    const d = parseDrivers(r.stdout.toString('latin1'));
+    const q = (/** @type {string[]} */ a) => proc.run(gitBin, ['-C', tree, '-c', 'core.fsmonitor=false', ...a], { cwd: w.cwd, env: w.env, stdio: ['ignore', 'pipe', 'ignore'] });
+    const d = parseDrivers(q(['config', '--show-scope', '--name-only', '-z', '--get-regexp', DRIVER_KEYS]).stdout.toString('latin1'));
     for (const n of d.names) names.add(n);
     if (d.includes) includes = true;
+    for (const rel of gitlinkNames((a) => q(a).stdout, tree)) {
+      const sub = Buffer.concat([Buffer.from(`${tree}/`), rel]).toString('utf8');
+      submodules.push(sub);
+      visit(sub, depth + 1);
+    }
+  };
+  for (const tree of trees) visit(tree, 0);
+  return { names: [...names], includes, submodules };
+}
+
+/**
+ * The checked out submodules of TREE (a gitlink whose folder has its own `.git`), from the index alone (`ls-files --stage -z` reads no work tree file). The paths are bytes: a
+ * non-ASCII name must reach the file system as the bytes git printed (a latin1 or utf8 round trip would name another file and the guard would fail open).
+ * @param {(args: string[]) => Buffer} run git in TREE, its stdout @param {string} tree @returns {Buffer[]} the names, relative to TREE
+ */
+function gitlinkNames(run, tree) {
+  const buf = run(['ls-files', '--stage', '-z']);
+  /** @type {Buffer[]} */ const out = [];
+  let start = 0;
+  for (let i = 0; i <= buf.length; i++) {
+    if (i < buf.length && buf[i] !== 0) continue;
+    const rec = buf.subarray(start, i);
+    start = i + 1;
+    const tab = rec.indexOf(9);
+    if (tab < 0 || !/^160000 [0-9a-f]+ [0-3]$/.test(rec.subarray(0, tab).toString('latin1'))) continue;
+    const name = rec.subarray(tab + 1);
+    if (existsSync(Buffer.concat([Buffer.from(`${tree}/`), name, Buffer.from('/.git')]))) out.push(Buffer.from(name));
   }
-  return { names: [...names], includes };
+  return out;
 }
 
 /**
@@ -64,10 +99,15 @@ export function hermeticEnv(base, names) {
   /** @param {string} k @param {string} v */
   const put = (k, v) => { out[`GIT_CONFIG_KEY_${n}`] = k; out[`GIT_CONFIG_VALUE_${n}`] = v; n += 1; };
   put('core.fsmonitor', 'false');
-  // submodules are never entered (B1): git starts a git in each checked out submodule for a diff or status of the working tree, and that reads the SUBMODULE's own
-  // configuration (its filter drivers, diff programs). `dirty` still reports a moved submodule commit, but never looks into the submodule's work tree; a `diff.submodule=diff`
-  // or `submodule.recurse=true` of the repository (a child diff, a recursive checkout) is overridden
-  put('diff.ignoreSubmodules', 'dirty'); put('status.ignoreSubmodules', 'dirty'); put('diff.submodule', 'short'); put('submodule.recurse', 'false');
+  // A checked out submodule is entered by git for a status, a diff, an add or a switch, and the child reads the SUBMODULE's own configuration. That is met by blanking the
+  // submodule's drivers by name (repoDrivers; the child inherits this environment), NOT by an ignore setting: `submodule.<n>.ignore=none` (config or `.gitmodules`) overrides
+  // `diff.ignoreSubmodules` and `status.ignoreSubmodules`. `short` and `recurse=false` keep git from starting a child DIFF in a submodule (diff.submodule=diff: its diff program
+  // is not a driver we can blank) and from writing a submodule on a switch.
+  put('diff.submodule', 'short'); put('submodule.recurse', 'false');
+  // a signature is checked by a PROGRAM (gpg.program, gpg.ssh.program, gpg.x509.program): a merge with verifySignatures or a log with showSignature runs the one the config names,
+  // and a hosting service signs its merge commits. Verification is off, signing is off, and the programs are empty (git then cannot start a program called "", never the config's)
+  put('merge.verifySignatures', 'false'); put('log.showSignature', 'false'); put('commit.gpgSign', 'false'); put('tag.gpgSign', 'false');
+  for (const k of ['gpg.program', 'gpg.openpgp.program', 'gpg.ssh.program', 'gpg.x509.program', 'gpg.ssh.defaultKeyCommand']) put(k, '');
   put('core.hooksPath', process.platform === 'win32' ? 'NUL' : '/dev/null'); // a hook (post-checkout, reference-transaction ...) is repository code too
   for (const name of names) for (const v of ['clean', 'smudge', 'process']) put(`filter.${name}.${v}`, '');
   out['GIT_CONFIG_COUNT'] = String(n);
@@ -93,19 +133,5 @@ export function hgit(ctx, tree, args, opt = {}) {
  * @param {Context} ctx @param {string} tree @returns {string[]}
  */
 export function populatedGitlinks(ctx, tree) {
-  const r = hgit(ctx, tree, ['ls-files', '--stage', '-z']);
-  /** @type {string[]} */ const out = [];
-  // the paths are bytes: a non-ASCII name must reach the file system as the bytes git printed (a latin1 or utf8 round trip would name another file and the guard would fail open)
-  const buf = r.stdout;
-  let start = 0;
-  for (let i = 0; i <= buf.length; i++) {
-    if (i < buf.length && buf[i] !== 0) continue;
-    const rec = buf.subarray(start, i);
-    start = i + 1;
-    const tab = rec.indexOf(9);
-    if (tab < 0 || !/^160000 [0-9a-f]+ [0-3]$/.test(rec.subarray(0, tab).toString('latin1'))) continue;
-    const name = rec.subarray(tab + 1);
-    if (existsSync(Buffer.concat([Buffer.from(`${tree}/`), name, Buffer.from('/.git')]))) out.push(name.toString('utf8'));
-  }
-  return out;
+  return gitlinkNames((a) => hgit(ctx, tree, a).stdout, tree).map((n) => n.toString('utf8'));
 }

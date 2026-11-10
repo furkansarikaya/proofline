@@ -9,7 +9,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { hermeticFetch, importProvenTip, sbMainPark } from '../../control-plane/agents/scripts/core/deliver.mjs';
 import { hermeticEnv, hgit, parseDrivers, populatedGitlinks, repoDrivers } from '../../control-plane/agents/scripts/core/hgit.mjs';
-import { addedLines, diffNames, numstat, trackedPaths } from '../../control-plane/agents/scripts/core/git.mjs';
+import { addedLines, diffNames, ensureBlank, git, numstat, trackedPaths } from '../../control-plane/agents/scripts/core/git.mjs';
 
 const FIXED = new Date(Date.UTC(2031, 0, 2, 3, 4, 5));
 const nul = (/** @type {string[]} */ ...f) => `${f.join('\0')}\0`;
@@ -32,7 +32,7 @@ function repo(s, name = 'r') {
   s.git(t, 'commit', '-qm', 'one');
   return t;
 }
-const ctxOf = (/** @type {ReturnType<typeof scratch>} */ s, /** @type {string} */ root, /** @type {string[]} */ blank = []) => /** @type {any} */ ({ cwd: root, root, env: s.env, gitBlank: blank, childEnv: () => s.env, once: (/** @type {string} */ _k, /** @type {() => unknown} */ f) => f(), sharedMain: () => root });
+const ctxOf = (/** @type {ReturnType<typeof scratch>} */ s, /** @type {string} */ root, /** @type {string[]} */ blank = []) => /** @type {any} */ ({ cwd: root, root, env: s.env, gitBlank: blank, ctpBase: '', childEnv: () => s.env, once: (/** @type {string} */ _k, /** @type {() => unknown} */ f) => f(), sharedMain: () => root });
 /** Make git re-read f.txt (a changed stat is what makes status run the clean filter). @param {string} t @param {string} f */
 const touch = (t, f = 'f.txt') => utimesSync(`${t}/${f}`, FIXED, FIXED);
 
@@ -69,7 +69,7 @@ test('repoDrivers: an includeIf onbranch include is judged in each tree given: t
     s.git(t, 'config', 'includeIf.onbranch:task/**.path', `${s.dir}/inc.cfg`);
     const where = () => ({ cwd: s.dir, env: s.env });
     assert.deepEqual(repoDrivers('git', [t], where).names, [], 'invisible from the main tree');
-    assert.deepEqual(repoDrivers('git', [t, wt], where), { names: ['inc'], includes: true });
+    assert.deepEqual(repoDrivers('git', [t, wt], where), { names: ['inc'], includes: true, submodules: [] });
   } finally { s.done(); }
 });
 
@@ -80,9 +80,12 @@ test('hermeticEnv: blanks each name as a key (so `=` is fine), keeps a count the
   assert.equal(e['GIT_CONFIG_KEY_1'], 'c.d');
   /** @type {Record<string, string>} */ const kv = {};
   for (let k = 0; k < Number(e['GIT_CONFIG_COUNT']); k++) kv[/** @type {string} */ (e[`GIT_CONFIG_KEY_${k}`])] = /** @type {string} */ (e[`GIT_CONFIG_VALUE_${k}`]);
-  assert.equal(e['GIT_CONFIG_COUNT'], '11');
-  assert.deepEqual(kv, { 'a.b': '1', 'c.d': '2', 'core.fsmonitor': 'false', 'diff.ignoreSubmodules': 'dirty', 'status.ignoreSubmodules': 'dirty', 'diff.submodule': 'short', 'submodule.recurse': 'false',
-    'core.hooksPath': '/dev/null', 'filter.a=b.clean': '', 'filter.a=b.smudge': '', 'filter.a=b.process': '' });
+  assert.equal(e['GIT_CONFIG_COUNT'], '18');
+  assert.deepEqual(kv, { 'a.b': '1', 'c.d': '2', 'core.fsmonitor': 'false', 'diff.submodule': 'short', 'submodule.recurse': 'false',
+    'merge.verifySignatures': 'false', 'log.showSignature': 'false', 'commit.gpgSign': 'false', 'tag.gpgSign': 'false', 'gpg.program': '', 'gpg.openpgp.program': '', 'gpg.ssh.program': '', 'gpg.x509.program': '',
+    'gpg.ssh.defaultKeyCommand': '', 'core.hooksPath': '/dev/null', 'filter.a=b.clean': '', 'filter.a=b.smudge': '', 'filter.a=b.process': '' });
+  // R3-1: no ignore setting is relied on (a per-submodule ignore=none overrides every one of them), so none is set
+  assert.ok(!Object.keys(kv).some((k) => /ignoreSubmodules/i.test(k)), 'the environment must not rely on an ignore setting');
   assert.equal(e['GIT_CONFIG_KEY_0'], 'a.b', 'the existing entries keep their places');
   assert.equal(e['GIT_CONFIG_KEY_2'], 'core.fsmonitor', 'ours start after the existing count');
   for (const bad of ['1e1', '-1', '', ' 2', '0x2', 'abc']) assert.equal(hermeticEnv({ GIT_CONFIG_COUNT: bad }, [])['GIT_CONFIG_KEY_0'], 'core.fsmonitor', `count ${JSON.stringify(bad)} is not a count`);
@@ -277,29 +280,166 @@ function withSubmodule(s, name = 'sub') {
   return { t, sub, cnt, ext };
 }
 
-test('B1: git() and hgit never enter a checked out submodule: trackedPaths, the status lists, addedLines, numstat and diffNames run none of its drivers', () => {
+/** The context of a tree with the drivers of its submodules found, the way deliver-merged does it. @param {ReturnType<typeof scratch>} s @param {string} t @param {string} base */
+function blankedCtx(s, t, base = '') {
+  const c = ctxOf(s, t, repoDrivers('git', [t], () => ({ cwd: t, env: s.env })).names);
+  c.ctpBase = base;
+  return c;
+}
+
+/** How a per-submodule `ignore=none` is set: in the config, and in an UNTRACKED `.gitmodules` (the key is read from there too). */
+const IGNORE_NONE = /** @type {const} */ ([
+  ['config', (/** @type {ReturnType<typeof scratch>} */ s, /** @type {string} */ t) => s.git(t, 'config', 'submodule.sub.ignore', 'none')],
+  ['.gitmodules', (/** @type {ReturnType<typeof scratch>} */ _s, /** @type {string} */ t) => writeFileSync(`${t}/.gitmodules`, '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n\tignore = none\n')],
+]);
+
+for (const [how, setIgnore] of IGNORE_NONE) {
+  test(`R3-1: with submodule.sub.ignore=none (${how}) no git() or hgit call runs the submodule's clean driver: trackedPaths (no base and a base), addedLines, numstat, diffNames, status, add -A`, () => {
+    const s = scratch();
+    try {
+      const { t, sub, cnt } = withSubmodule(s);
+      setIgnore(s, t);
+      // the premise, git() itself (R3-3: the status path of trackedPaths with an empty base) with no driver found: the driver of the submodule runs, so every call below is a real test
+      touch(sub, 'x');
+      trackedPaths(ctxOf(s, t));
+      assert.ok(existsSync(cnt), 'test premise: trackedPaths without the blanking starts the submodule\'s driver (ignore=none beats any ignore setting)');
+      for (const base of ['', 'HEAD']) {
+        rmSync(cnt, { force: true });
+        touch(sub, 'x');
+        trackedPaths(blankedCtx(s, t, base));
+        assert.ok(!existsSync(cnt), `trackedPaths(base=${JSON.stringify(base)}) ran the driver`);
+      }
+      const c = blankedCtx(s, t);
+      assert.ok(c.gitBlank.includes('ev'), 'the submodule\'s driver name is found');
+      for (const [label, call] of /** @type {Array<[string, () => unknown]>} */ ([
+        ['addedLines', () => addedLines(c, 'HEAD', ['sub'])], ['numstat', () => numstat(c, 'HEAD', ['sub'])], ['diffNames', () => diffNames(c, 'HEAD')],
+        ['status', () => hgit(c, t, ['--no-optional-locks', '-c', 'status.renames=false', 'status', '--porcelain=v1'])],
+        ['git() status', () => git(c, ['status', '--porcelain', '--untracked-files=all'])],
+        ['hgit diff HEAD', () => hgit(c, t, ['diff', '--name-only', 'HEAD'])],
+        ['git() add -A', () => git(c, ['add', '-A', '--', '.', ':(exclude).agents'])],
+      ])) {
+        rmSync(cnt, { force: true });
+        touch(sub, 'x');
+        call();
+        assert.ok(!existsSync(cnt), `${label} ran the submodule's driver`);
+      }
+    } finally { s.done(); }
+  });
+}
+
+test('R3-1: git add -A (the content fingerprint) enters a populated submodule even when every ignore key is set; the blanking stops its driver', () => {
   const s = scratch();
   try {
     const { t, sub, cnt } = withSubmodule(s);
+    s.git(t, 'config', 'diff.ignoreSubmodules', 'dirty'); s.git(t, 'config', 'status.ignoreSubmodules', 'dirty');
     touch(sub, 'x');
-    s.git(t, 'diff', '--name-only', 'HEAD');
-    assert.ok(existsSync(cnt), 'test premise: a plain diff of the working tree runs the submodule\'s driver');
-    for (const base of ['', 'HEAD']) {
-      rmSync(cnt, { force: true });
-      touch(sub, 'x');
-      const c = ctxOf(s, t);
-      c.ctpBase = base;
-      trackedPaths(c);
-      assert.ok(!existsSync(cnt), `trackedPaths(base=${JSON.stringify(base)}) ran the driver`);
-    }
+    git(ctxOf(s, t), ['add', '-A']);
+    assert.ok(existsSync(cnt), 'test premise: git add -A starts the submodule\'s driver whatever the ignore keys say');
+    rmSync(cnt);
     touch(sub, 'x');
     const c = ctxOf(s, t);
-    addedLines(c, 'HEAD', ['sub']); numstat(c, 'HEAD', ['sub']); diffNames(c, 'HEAD');
-    hgit(c, t, ['--no-optional-locks', '-c', 'status.renames=false', 'status', '--porcelain=v1']);
-    hgit(c, t, ['diff', '--name-only', 'HEAD']);
-    assert.ok(!existsSync(cnt), 'a git() or hgit call ran the submodule\'s driver');
+    ensureBlank(c);
+    git(c, ['add', '-A']);
+    assert.ok(!existsSync(cnt), 'git add -A after ensureBlank ran the driver');
   } finally { s.done(); }
 });
+
+test('R3-1: a submodule of a submodule is searched too (recursively): its driver, and the folders found', () => {
+  const s = scratch();
+  try {
+    const { t, sub, cnt } = withSubmodule(s);
+    const inner = `${sub}/inner`;
+    mkdirSync(inner);
+    s.git(inner, 'init', '-q', '-b', 'main');
+    writeFileSync(`${inner}/y`, 'y\n');
+    s.git(inner, 'add', 'y');
+    s.git(inner, 'commit', '-qm', 'y');
+    const cnt2 = `${s.dir}/COUNT2`;
+    s.git(inner, 'config', 'filter.deep.clean', `echo c >> ${cnt2}; cat`);
+    writeFileSync(`${inner}/.gitattributes`, 'y filter=deep\n');
+    rmSync(`${sub}/.gitattributes`);
+    s.git(sub, 'add', 'inner');
+    s.git(sub, 'commit', '-qm', 'inner');
+    s.git(t, 'add', 'sub');
+    s.git(t, 'commit', '-qm', 'sub with inner');
+    s.git(t, 'config', 'submodule.sub.ignore', 'none'); s.git(sub, 'config', 'submodule.inner.ignore', 'none');
+    touch(inner, 'y');
+    trackedPaths(ctxOf(s, t));
+    assert.ok(existsSync(cnt2), 'test premise: the nested submodule\'s driver runs without the blanking');
+    rmSync(cnt2);
+    touch(inner, 'y');
+    const found = repoDrivers('git', [t], () => ({ cwd: t, env: s.env }));
+    assert.deepEqual(found.names.sort(), ['deep', 'ev']);
+    assert.deepEqual(found.submodules, [`${t}/sub`, `${t}/sub/inner`]);
+    trackedPaths(blankedCtx(s, t));
+    assert.ok(!existsSync(cnt2), 'the nested submodule\'s driver ran');
+    assert.ok(!existsSync(cnt));
+    // the same tree given twice (main tree and worktree are one) is searched once
+    assert.equal(repoDrivers('git', [t, t], () => ({ cwd: t, env: s.env })).submodules.length, 2);
+  } finally { s.done(); }
+});
+
+test('R3-1: the submodule\'s own core.fsmonitor program never runs (the blanking in the environment reaches the child git)', () => {
+  const s = scratch();
+  try {
+    const { t, sub } = withSubmodule(s);
+    const mark = `${s.dir}/FSM`;
+    writeFileSync(`${s.dir}/fsm.sh`, `#!/bin/sh\ntouch ${mark}\n`);
+    chmodSync(`${s.dir}/fsm.sh`, 0o755);
+    s.git(sub, 'config', 'core.fsmonitor', `${s.dir}/fsm.sh`);
+    s.git(t, 'config', 'submodule.sub.ignore', 'none');
+    s.git(t, 'status', '--porcelain');
+    assert.ok(existsSync(mark), 'test premise: a plain status starts the submodule\'s file system monitor');
+    rmSync(mark);
+    trackedPaths(blankedCtx(s, t));
+    git(blankedCtx(s, t), ['add', '-A']);
+    assert.ok(!existsSync(mark), 'the submodule\'s monitor ran');
+  } finally { s.done(); }
+});
+
+/** A signed tip as a hosting service makes it (a commit with a `gpgsig` header written by hand), one ahead of HEAD, with the signature programs of the repository planted. @param {ReturnType<typeof scratch>} s @param {string} fmt */
+function withSignedTip(s, fmt) {
+  const t = repo(s);
+  const tree = s.git(t, 'rev-parse', 'HEAD^{tree}').trim();
+  const parent = s.git(t, 'rev-parse', 'HEAD').trim();
+  const sig = fmt === 'ssh' ? '-----BEGIN SSH SIGNATURE-----\n U1NIU0lH\n -----END SSH SIGNATURE-----' : fmt === 'x509' ? '-----BEGIN SIGNED MESSAGE-----\n AAAA\n -----END SIGNED MESSAGE-----' : '-----BEGIN PGP SIGNATURE-----\n \n iQEz\n -----END PGP SIGNATURE-----';
+  const obj = `tree ${tree}\nparent ${parent}\nauthor t <t@t> 1 +0000\ncommitter GitHub <noreply@github.com> 1 +0000\ngpgsig ${sig}\n\nMerge pull request #1\n`;
+  const tip = execFileSync('git', ['-C', t, 'hash-object', '-t', 'commit', '-w', '--stdin'], { env: s.env, input: obj }).toString().trim();
+  s.git(t, 'update-ref', 'refs/remotes/origin/main', tip);
+  const mark = `${s.dir}/MARK`;
+  writeFileSync(`${s.dir}/p.sh`, `#!/bin/sh\necho "$0 $*" >> ${mark}\nexit 1\n`);
+  chmodSync(`${s.dir}/p.sh`, 0o755);
+  s.git(t, 'config', 'merge.verifySignatures', 'true'); s.git(t, 'config', 'log.showSignature', 'true'); s.git(t, 'config', 'gpg.format', fmt);
+  for (const k of ['gpg.program', 'gpg.openpgp.program', 'gpg.ssh.program', 'gpg.x509.program']) s.git(t, 'config', k, `${s.dir}/p.sh`);
+  writeFileSync(`${s.dir}/allowed`, 't@t ssh-ed25519 AAAA\n');
+  s.git(t, 'config', 'gpg.ssh.allowedSignersFile', `${s.dir}/allowed`);
+  return { t, tip, mark, parent };
+}
+
+for (const fmt of ['openpgp', 'ssh', 'x509']) {
+  test(`R3-2: a signed tip (gpg.format=${fmt}) with merge.verifySignatures=true and a signature program in the repository: the ff-only merge succeeds and the program never runs; so do log and an explicit --show-signature`, () => {
+    const s = scratch();
+    try {
+      const { t, tip, mark, parent } = withSignedTip(s, fmt);
+      assert.throws(() => s.git(t, 'merge', '--ff-only', '-q', 'refs/remotes/origin/main'));
+      assert.ok(existsSync(mark), 'test premise: a plain ff-only merge verifies the signature with the program of the repository');
+      rmSync(mark);
+      assert.equal(s.git(t, 'rev-parse', 'HEAD').trim(), parent, 'the control did not move HEAD');
+      s.git(t, 'log', '-1', 'refs/remotes/origin/main');
+      assert.ok(existsSync(mark), 'test premise: a plain log of a signed commit runs the program (log.showSignature)');
+      rmSync(mark);
+      const c = ctxOf(s, t);
+      assert.equal(hgit(c, t, ['-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', '-q', '--no-overwrite-ignore', 'refs/remotes/origin/main']).status, 0, 'the signed tip is fast-forwarded');
+      assert.equal(s.git(t, 'rev-parse', 'HEAD').trim(), tip);
+      assert.ok(!existsSync(mark), 'the signature program ran in the merge');
+      git(c, ['log', '-1', 'refs/remotes/origin/main']); // the default format is the one log.showSignature changes
+      assert.ok(!existsSync(mark), 'the signature program ran in log (log.showSignature)');
+      hgit(c, t, ['log', '-1', '--show-signature', 'refs/remotes/origin/main']);
+      hgit(c, t, ['verify-commit', 'refs/remotes/origin/main']);
+      assert.ok(!existsSync(mark), 'the signature program ran when a signature was asked for explicitly');
+    } finally { s.done(); }
+  });
+}
 
 test('B1: diff.submodule=diff in the repository (a child diff in the submodule) runs no program of the submodule', () => {
   const s = scratch();
