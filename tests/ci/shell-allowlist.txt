@@ -1,15 +1,9 @@
 control-plane/agents/githooks/pre-commit
 control-plane/agents/githooks/pre-push
 control-plane/agents/scripts/agent.sh
-control-plane/agents/scripts/controls-test.sh
-control-plane/agents/scripts/debt-test.sh
 control-plane/agents/scripts/debt.sh
 control-plane/agents/scripts/dispatch.sh
 control-plane/agents/scripts/ecosystems.sh
-control-plane/agents/scripts/githooks-test.sh
-control-plane/agents/scripts/identity-test.sh
-control-plane/agents/scripts/perf-test.sh
-control-plane/agents/scripts/task-adversarial-test.sh
 control-plane/agents/scripts/test-lib.sh
 tests/bench/hook-procs.sh
 tests/bench/run-doc-size.sh

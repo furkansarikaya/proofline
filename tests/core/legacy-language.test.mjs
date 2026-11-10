@@ -4,7 +4,7 @@
 // file at all: the "forged cache" attack of the shell version has nothing to forge.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, accepted, project, refused } from './legacy-lib.mjs';
 
@@ -80,6 +80,7 @@ test('language: the question block stored by ask is exempt (A178); the same text
   const trq = '1. Plan 46 kapsam yolu içeriyor; görev bölünsün mü? Önerim: her biri en fazla 15 yol içeren görevlere bölmek.\n   seçenekler: "böl" | "bölmeden devam"\n   önerilen: böl\n   neden: büyük kapsam gözden geçirmeyi ve geri almayı zorlaştırır';
   writeFileSync(`${d}/.agents/local/trq.md`, `${trq}\n`);
   accepted(A(d, ['ask', 'LC', '--file', `${d}/.agents/local/trq.md`]), 'ask refused the Turkish question block');
+  assert.ok(existsSync(`${run}/questions/001.md`) && readFileSync(`${run}/questions/001.md`, 'utf8').includes('görev bölünsün mü'), 'the question was not stored as written');
   accepted(A(d, ['language-check', `${run}/questions/001.md`]), 'the script\'s own Turkish question file is refused by the language check');
   mkdirSync(`${run}/results`, { recursive: true });
   writeFileSync(`${run}/results/001-implementer.result.md`, `${trq}\n`);
