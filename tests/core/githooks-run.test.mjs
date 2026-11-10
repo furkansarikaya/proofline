@@ -158,18 +158,27 @@ test('git hooks: identity guard, protected branches, push approval, open runs, h
   assert.equal(rc, 0, `a file not in the copied list commits as before (${out})`);
 });
 
-// The shipped launchers (control-plane/agents/githooks) in front of the real core: the identity guard blocks, an allowed identity commits.
-test('git hooks: the shipped launchers run the core (a forbidden identity is blocked, another one commits)', () => {
-  const r = tmp('gl');
-  git(r, ['init', '-q', '-b', 'work']);
+// The shipped launchers (control-plane/agents/githooks) in front of the real core, under real `git commit` and `git push`.
+test('git hooks: the shipped launchers run the core (identity guard, author alone, protected push)', () => {
+  const root = tmp('gl'); const r = path.join(root, 'repo'); const remote = path.join(root, 'remote.git');
+  mkdirSync(r, { recursive: true }); git(r, ['init', '-q', '-b', 'work']); git(root, ['init', '-q', '--bare', remote]);
   mkdirSync(path.join(r, '.agents/scripts'), { recursive: true });
   cpSync(path.join(repo, 'control-plane/agents/githooks'), path.join(r, '.agents/githooks'), { recursive: true });
   cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(r, '.agents/scripts/proofline-core.mjs')); cpSync(path.join(scripts, 'core'), path.join(r, '.agents/scripts/core'), { recursive: true });
-  writeFileSync(path.join(r, '.agents/config.yaml'), 'git:\n  forbidden_identities: *@example-corp.com\n');
+  writeFileSync(path.join(r, '.agents/config.yaml'), 'git:\n  forbidden_identities: *@example-corp.com\n  protected_branches: main\n');
   writeFileSync(path.join(r, 'f.txt'), 'x\n'); git(r, ['add', 'f.txt']);
-  const c = (/** @type {string} */ mail) => git(r, ['-c', 'core.hooksPath=.agents/githooks', '-c', 'user.name=T', '-c', `user.email=${mail}`, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'x']);
+  const c = (/** @type {string} */ mail, /** @type {Record<string, string>} */ env = BASE_ENV) => git(r, ['-c', 'core.hooksPath=.agents/githooks', '-c', 'user.name=T', '-c', `user.email=${mail}`, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'x'], env);
   const bad = c('dev@example-corp.com');
   assert.notEqual(bad.status, 0, 'the shipped pre-commit let a forbidden identity commit'); assert.ok(bad.stderr.includes('git.forbidden_identities'), bad.stderr);
+  // only the author is forbidden (author != committer), through the launcher
+  const au = c('alice@example.org', { ...BASE_ENV, GIT_AUTHOR_EMAIL: 'dev@example-corp.com' });
+  assert.notEqual(au.status, 0, 'the shipped pre-commit let a forbidden author commit'); assert.ok(au.stderr.includes('author email'), au.stderr);
   const good = c('alice@example.org');
   assert.equal(good.status, 0, `the shipped pre-commit blocked an allowed identity: ${good.stderr}`);
+  // the shipped pre-push: an agent never pushes a protected branch
+  git(r, ['remote', 'add', 'origin', remote]);
+  const push = (/** @type {string} */ ref) => git(r, ['-c', 'core.hooksPath=.agents/githooks', 'push', '-q', 'origin', ref]);
+  const p = push('work:main');
+  assert.notEqual(p.status, 0, 'the shipped pre-push let an agent push a protected branch'); assert.ok(p.stderr.includes('protected_branches'), p.stderr);
+  assert.notEqual(git(remote, ['rev-parse', '--verify', '-q', 'refs/heads/main']).status, 0, 'the protected branch exists on the remote');
 });

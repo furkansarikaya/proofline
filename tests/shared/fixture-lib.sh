@@ -26,7 +26,9 @@ fx_template() { # KEY BUILDER -> template directory on stdout
   ft_final=$ft_dir/$ft_key; ft_lock=$ft_dir/$ft_key.lock; ft_wait=0
   while [ ! -d "$ft_final" ]; do
     if mkdir "$ft_lock" 2>/dev/null; then
-      echo "$$" > "$ft_lock/pid" || return 1
+      # The pid file is written under another name and renamed: a contender that reads the lock sees no pid file or the whole pid, never a part of it
+      # (a part of a pid names another process, which may be gone: the live holder would be judged dead and its lock taken over).
+      { echo "$$" > "$ft_lock/pid.new.$$" && mv "$ft_lock/pid.new.$$" "$ft_lock/pid"; } || { rm -rf "$ft_lock"; return 1; }
       if [ ! -d "$ft_final" ]; then   # another process may have finished between the test and the lock
         ft_tmp=$ft_dir/$ft_key.tmp.$$; rm -rf "$ft_tmp"; mkdir "$ft_tmp"
         if ( "$ft_build" "$ft_tmp" ); then   # a subshell: a builder that dies must not leave the lock behind
@@ -44,6 +46,7 @@ fx_template() { # KEY BUILDER -> template directory on stdout
     fi
     # a lock whose holder is gone (killed) is stale: take it over
     ft_holder=$(cat "$ft_lock/pid" 2>/dev/null || true)
+    case "$ft_holder" in ''|*[!0-9]*) ft_holder='' ;; esac   # only a whole pid is judged
     if [ -n "$ft_holder" ] && ! kill -0 "$ft_holder" 2>/dev/null; then
       # Take the pid file by rename (atomic: one contender wins) and check whose it was, as lock.mjs does: the lock itself is never removed by name, so a contender with an
       # outdated reading cannot remove the NEW holder's lock. A pid file that turns out to be a new holder's is put back untouched.

@@ -82,6 +82,14 @@ dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/stale.lock"; echo "$de
 t4=$(fx_template stale build) || die "a stale lock blocked the build"
 [ -d "$t4" ] && ok "a lock left by a dead process is taken over" || die "stale lock"
 
+# a caller that finds the final directory never builds, even when a dead holder's lock is still there
+mkdir -p "$SELFTEST_TEMPLATE_DIR/done9" "$SELFTEST_TEMPLATE_DIR/done9.lock"; echo "$(sh -c 'echo $$')" > "$SELFTEST_TEMPLATE_DIR/done9.lock/pid"
+before=$(builds)
+t9=$(fx_template done9 failing) || die "a present template was built again or refused"
+[ "$t9" = "$SELFTEST_TEMPLATE_DIR/done9" ] && [ "$(builds)" = "$before" ] && ok "a template that is already there is returned without a build, whatever lock is left" || die "built over a present template: builds=$(( $(builds) - before ))"
+# the pid file of a lock is complete or absent: the holder writes it under another name and renames it
+grep -q 'pid.new' "$here/../shared/fixture-lib.sh" && ok "the lock's pid file is written atomically (temp name, then rename)" || die "the pid file is not written atomically"
+
 failing() { return 1; }
 if fx_template failkey failing >/dev/null 2>&1; then die "a failing builder reported success"; fi
 [ ! -d "$SELFTEST_TEMPLATE_DIR/failkey.lock" ] && [ ! -d "$SELFTEST_TEMPLATE_DIR/failkey" ] && ok "a failing builder leaves neither a template nor a lock" || die "failed build left state"
