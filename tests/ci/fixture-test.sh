@@ -46,10 +46,21 @@ printf 'changed in c1\n' > "$T/c1/a.txt"; git -C "$T/c1" commit -q -am c1only; p
 [ "$(cat "$t2/a.txt")" = v2 ] && [ "$(git -C "$t2" rev-list --count HEAD)" = 1 ] && [ -z "$(git -C "$t2" status --porcelain)" ] && ok "a copy never changes the template" || die "the template was modified through a copy"
 [ "$(git -C "$T/c2" rev-parse --git-dir)" = .git ] && [ -z "$(git -C "$T/c2" status --porcelain)" ] && ok "a copy is a working repository of its own (clean, own .git)" || die "copy is not a clean repository"
 
-slow() { sleep 2; build "$1"; }
+# Contenders are separate processes, as they are in a run: in a ( ... ) & subshell `$$` is the parent's pid in every shell (dash included), so all of them would share one
+# lock holder pid and one private directory name.
+cat > "$T/slow-builder.sh" <<EOF
+#!/bin/sh
+sleep 2
+cp "$src/control-plane/a.txt" "\$1/a.txt"
+git -C "\$1" init -q -b main && git -C "\$1" add a.txt && git -C "\$1" commit -q -m base
+EOF
+chmod +x "$T/slow-builder.sh"
+contend() { # KEY OUT ERR
+  sh -c '. "$1"; fx_template "$2" "$3"' contender "$here/../shared/fixture-lib.sh" "$1" "$T/slow-builder.sh" > "$2" 2> "$3" &
+}
 printf 'v3\n' > "$src/control-plane/a.txt"; k3=$(fx_key "$src" control-plane bin)
 before=$(builds)
-for i in 1 2 3 4; do ( fx_template "$k3" slow > "$T/par.$i" ) & done
+for i in 1 2 3 4; do contend "$k3" "$T/par.$i" "$T/par.err.$i"; done
 wait
 [ "$(builds)" = $((before + 1))  ] && [ "$(sort -u "$T"/par.? | wc -l | tr -d ' ')" = 1 ] && [ -f "$(cat "$T/par.1")/a.txt" ] && ok "four concurrent callers build the template once and get the same directory" || die "race: builds=$(( $(builds) - before )) dirs=$(cat "$T"/par.?)"
 
@@ -63,7 +74,7 @@ unset -f mv
 # 8 contenders on a lock left by a dead process: exactly one takes it over and builds, nobody writes to stderr
 dead=$(sh -c 'echo $$'); mkdir -p "$SELFTEST_TEMPLATE_DIR/k8.lock"; echo "$dead" > "$SELFTEST_TEMPLATE_DIR/k8.lock/pid"
 before=$(builds)
-for i in 1 2 3 4 5 6 7 8; do ( fx_template k8 slow > "$T/c8.$i" 2> "$T/c8.err.$i" ) & done
+for i in 1 2 3 4 5 6 7 8; do contend k8 "$T/c8.$i" "$T/c8.err.$i"; done
 wait
 [ "$(builds)" = $((before + 1)) ] && [ "$(sort -u "$T"/c8.? | wc -l | tr -d ' ')" = 1 ] && [ ! -s "$T/c8.err.1" ] && [ -z "$(cat "$T"/c8.err.*)" ] && ok "eight contenders on a dead lock: one takes it over, one build, no stderr" || die "dead-lock race: builds=$(( $(builds) - before )) err=$(cat "$T"/c8.err.*)"
 
