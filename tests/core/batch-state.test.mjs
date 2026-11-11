@@ -4,7 +4,7 @@
 // sleep inhibitor, the one-session owner and the recovery from the platform. The exact texts are held by batch-golden.test.mjs.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, readFileSync, readdirSync, statSync, unlinkSync, openSync, closeSync } from 'node:fs';
+import { chmodSync, readFileSync, readdirSync, statSync, unlinkSync, openSync, closeSync, writeSync } from 'node:fs';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { after, test } from 'node:test';
@@ -218,7 +218,7 @@ test('the sleep inhibitor belongs to the session: caffeinate -i -w <pid> once an
     assert.match(AB(F, dir, ['batch-status']).out, new RegExp(`^sleep inhibitor: caffeinate -i -w ${pid}`, 'm'));
     const cpid = Number(read(`${F.FAKE}/caffeinate.pid`).trim());
     process.kill(cpid, 0); // the inhibitor is alive while its session is
-    await s.stop(); // the session dies; the fake sees its pipe close and ends by itself
+    await s.stop(); // the session dies; the fake stays up until this test lets go of its own read-write hold on the pipe (`finally`), which is the last writer left
     // the status line for an inhibitor that is gone: the recorded pid is one that has exited and been reaped (a child that already returned), not a polled wait
     put(`${bdir(dir)}/awake.pid`, `${spawnSync('true').pid}\n`);
     assert.match(AB(F, dir, ['batch-status']).out, /^awake: the sleep inhibitor ended/m);
@@ -246,8 +246,10 @@ test('the sleep inhibitor belongs to the session: caffeinate -i -w <pid> once an
     await s.stop();
     assert.ok(!plain.text.includes(`-w ${s.pid}`), `the session pid seam acted without PROOFLINE_TEST: ${plain.text}`);
   } finally {
-    // Whatever way the test ended: take the session pipe away first (a fake that has not reached it yet then finds none and ends), end the readers, and let go of the
-    // holds (a fake that already blocks on the session pipe then sees the end of the file once its session is gone, which `after` makes sure of).
+    // Whatever way the test ended: first stop and await every stand-in session (its `3>"$1"` redirect would otherwise create a regular session.fifo after the unlink below, which
+    // left a folder behind), then take the session pipe away (a fake that has not reached it yet then finds none and ends), end the readers, and let go of the holds
+    // (a fake that already blocks on the session pipe then sees the end of the file once the last writer is gone).
+    await Promise.all([...sessions].map((x) => x.stop()));
     try { unlinkSync(`${F.FAKE}/session.fifo`); } catch { /* not made */ }
     stop.abort();
     for (const fd of holds) closeSync(fd);
@@ -260,10 +262,15 @@ test('awaitPipe: a writer that never comes cannot hold the test: the abort ends 
   const waiting = awaitPipe(fifo, stop.signal); // nothing will ever write to this pipe
   stop.abort();
   await assert.rejects(waiting, /abort/i);
-  // and a writer that does come is read
-  const ok = awaitPipe(fifo, new AbortController().signal);
-  writeFileSync(fifo, 'up\n');
-  assert.equal((await ok).trim(), 'up');
+  // and a writer that does come is read. The writer is this test through a read-write descriptor (opening it never blocks on a pipe, so a `head` that failed to start cannot
+  // hang the run on a synchronous open), and the second reader ends with the test whatever way it ends.
+  const again = new AbortController();
+  const fd = openSync(fifo, 'r+');
+  try {
+    const ok = awaitPipe(fifo, again.signal);
+    writeSync(fd, 'up\n');
+    assert.equal((await ok).trim(), 'up');
+  } finally { again.abort(); closeSync(fd); }
 });
 
 test('one session works a batch: a live owner makes the others wait with its pid, a dead one is taken over, only the lead claims (sc_owner_guard)', async () => {

@@ -66,7 +66,7 @@ let counter = 0;
  */
 export function fakes() {
   const id = ++counter;
-  const FAKE = mkdtempSync(path.join(tmpdir(), 'bt-fake-'));
+  const FAKE = mkdtempSync(path.join(tmpdir(), 'proofline-bt-fake-'));
   const ghbin = path.join(toolRoot, String(id), 'bin');
   mkdirSync(ghbin, { recursive: true });
   for (const d of ['bin', 'behave', 'ci']) mkdirSync(path.join(FAKE, d), { recursive: true });
@@ -138,7 +138,7 @@ export function binstall(dir, o = {}) {
   gOk(dir, ['add', '-A']);
   gOk(dir, ['commit', '-qm', 'fixture', '--allow-empty']);
   if (o.remote !== false) {
-    const origin = mkdtempSync(path.join(tmpdir(), 'bt-origin-'));
+    const origin = mkdtempSync(path.join(tmpdir(), 'proofline-bt-origin-'));
     gOk(dir, ['init', '-q', '--bare', origin]);
     gOk(dir, ['remote', 'add', 'origin', origin]);
     sh(dir, 'git', ['push', '-q', '-u', 'origin', 'main']);

@@ -2,12 +2,13 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
+import { tmp } from '../lib/harness.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
@@ -190,7 +191,7 @@ test('SECURITY (A215 round 4): the merge-proof fetch is hermetic: a repository c
 
 test('SECURITY (A215 round 4): hermeticFetch reads the pinned url with no repository config (core.sshCommand, http.proxy and the like never apply) and leaves the project refs alone', async () => {
   const { hermeticFetch } = await import('../../control-plane/agents/scripts/core/deliver.mjs');
-  const base = mkdtempSync(path.join(tmpdir(), 'hf-'));
+  const base = tmp('hf-');
   const w = `${base}/w`; const real = `${base}/real.git`; const fake = `${base}/fake.git`;
   gOk(base, 'init', '-q', '-b', 'main', w);
   gOk(w, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
@@ -214,7 +215,7 @@ test('SECURITY (A215 round 4): hermeticFetch reads the pinned url with no reposi
 
 test('SECURITY (A215 round 5): the hermetic repository fails closed when anything of it changed (a refs/replace planted by a same-user process), and its folder is not in the shared temporary folder', async () => {
   const { hermeticFetch } = await import('../../control-plane/agents/scripts/core/deliver.mjs');
-  const base = mkdtempSync(path.join(tmpdir(), 'hf5-'));
+  const base = tmp('hf5-');
   const w = `${base}/w`; const real = `${base}/real.git`;
   gOk(base, 'init', '-q', '-b', 'main', w);
   gOk(w, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
@@ -242,7 +243,7 @@ test('SECURITY (A215 round 5): the hermetic repository fails closed when anythin
 test('SECURITY (A215 round 5): a loose object of the project store rewritten in place (git does not hash-check an object it reads) is caught: the history is walked with every commit re-hashed', async () => {
   const { hermeticFetch } = await import('../../control-plane/agents/scripts/core/deliver.mjs');
   const { deflateSync } = await import('node:zlib');
-  const base = mkdtempSync(path.join(tmpdir(), 'hf5b-'));
+  const base = tmp('hf5b-');
   const w = `${base}/w`; const real = `${base}/real.git`;
   const id = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
   gOk(base, 'init', '-q', '-b', 'main', w);

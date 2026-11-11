@@ -35,7 +35,7 @@ export const PRELUDE = [
  * @param {string} recipe sh text @param {string} out an existing empty folder @param {{ prelude?: string, timeout?: number, errexit?: boolean }} [o] prelude: more sh text defined before the recipe; errexit: false lets a failing step go on (the former fixture builders of the equivalence rigs ran without `set -e`, and some recipes end in a step the control plane refuses on purpose)
  */
 export function buildRecipe(recipe, out, o = {}) {
-  const work = mkdtempSync(path.join(tmpdir(), 'recipe-'));
+  const work = mkdtempSync(path.join(tmpdir(), 'proofline-recipe-'));
   try {
     const start = path.join(work, 'start'); mkdirSync(start);
     const script = path.join(work, 'recipe.sh');
@@ -50,7 +50,7 @@ export function buildRecipe(recipe, out, o = {}) {
  * @param {string} dir @param {string} snippet @param {{ prelude?: string, timeout?: number }} [o] @returns {{ status: number | null, out: string, err: string, text: string }}
  */
 export function runIn(dir, snippet, o = {}) {
-  const work = mkdtempSync(path.join(tmpdir(), 'recipe-'));
+  const work = mkdtempSync(path.join(tmpdir(), 'proofline-recipe-'));
   try {
     const script = path.join(work, 'snippet.sh');
     writeFileSync(script, `${PRELUDE}\n${o.prelude ?? ''}\ncd "$PL_DIR"\n${snippet}\n`);
