@@ -45,16 +45,19 @@ export function suggestScale(approvalMs, startMs) {
 
 /**
  * `ts_measure`: [approval ms, start ms] for this machine, best of two runs each (a single cold run measures the disk cache, not the machine). The runs are real starts of the
- * project's `agent.sh` (launcher and Node included): that is what the time limits have to cover.
- * @param {Context} ctx @returns {[number, number]}
+ * project's `agent.sh` (launcher and Node included): that is what the time limits have to cover. The clock and the runner are parameters (default: the wall clock and a real
+ * start of agent.sh), so a test supplies both and measures nothing.
+ * @param {Context} ctx @param {{ now?: () => number, run?: (argv: string[]) => unknown }} [o] @returns {[number, number]}
  */
-export function measureMachine(ctx) {
+export function measureMachine(ctx, o = {}) {
+  const now = o.now ?? Date.now;
   const a = `${ctx.root}/.agents/scripts/agent.sh`;
+  const run = o.run ?? ((/** @type {string[]} */ argv) => proc.runScript(argv, { cwd: ctx.root, env: ctx.env, stdio: 'ignore' }));
   /** @param {string[][]} steps */
   const timed = (steps) => {
-    const t0 = Date.now();
-    for (const s of steps) proc.runScript([a, ...s], { cwd: ctx.root, env: ctx.env, stdio: 'ignore' });
-    return Date.now() - t0;
+    const t0 = now();
+    for (const s of steps) run([a, ...s]);
+    return now() - t0;
   };
   let bestA = -1; let bestS = -1;
   for (let i = 0; i < 2; i++) {
@@ -66,9 +69,9 @@ export function measureMachine(ctx) {
   return [bestA, bestS];
 }
 
-/** `ts_propose`: measure, write the proposal and ask the one question. @param {Context} ctx @returns {number} */
-export function proposeScale(ctx) {
-  const [a, s] = measureMachine(ctx);
+/** `ts_propose`: measure, write the proposal and ask the one question. `measure` replaces the real measurement (tests). @param {Context} ctx @param {{ measure?: (ctx: Context) => [number, number] }} [o] @returns {number} */
+export function proposeScale(ctx, o = {}) {
+  const [a, s] = (o.measure ?? measureMachine)(ctx);
   const cur = Config.load(`${ctx.root}/.agents/config.yaml`).get('timeouts.scale', '1.0');
   const v = suggestScale(a, s);
   const dir = dirOf(ctx);

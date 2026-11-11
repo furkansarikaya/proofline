@@ -19,8 +19,9 @@ function folder(dir, name, ageH) {
 describe('the names it may touch', () => {
   test('the harness\' own names and the legacy ones of the leaking tests match; nothing else does', () => {
     for (const n of ['proofline-h-AbC123', 'proofline-fp.x1y2z3', 'proofline-approve.Qw12er', 'proofline-doctor.abcdef', 'proofline-bt-fake-abcdef', 'proofline-recipe-abcdef', 'proofline-guards-abcdef', 'proofline-submit.abcdef',
-      'proofline-t-api-AbCd12', 'proofline-t-pl-t2s-AbCd12', 'wiki-abcdef', 'ds-abcdef', 'probe-bin-abcdef', 'pl-lib-abcdef', 'pl-t2s-abcdef', 'pl-t2-name-abcdef', 'adp-abcdef', 'rv-bin-abcdef', 'rv-proj-abcdef', 'pl-core-abcdef', 'hf5-abcdef', 'hf5b-abcdef', 'br-out-abcdef', 'br-timeout-abcdef', 'bt-fake-abcdef', 'bt-origin-abcdef', 'plr-abcdef', 'recipe-abcdef']) assert.ok(isTestTemp(n), n);
+      'proofline-t-api-AbCd12', 'proofline-t-pl-t2s-AbCd12', 'wiki-abcdef', 'ds-abcdef', 'probe-bin-abcdef', 'pl-lib-abcdef', 'pl-t2s-abcdef', 'pl-t2-name-abcdef', 'dispatch.AbC123', 'agent-status-block.xY9zQ1', 'adp-abcdef', 'rv-bin-abcdef', 'rv-proj-abcdef', 'pl-core-abcdef', 'hf5-abcdef', 'hf5b-abcdef', 'br-out-abcdef', 'br-timeout-abcdef', 'bt-fake-abcdef', 'bt-origin-abcdef', 'plr-abcdef', 'recipe-abcdef']) assert.ok(isTestTemp(n), n);
     for (const n of ['dispatch-abcdef', 'knowweave-query-abcdef', 'TemporaryDirectory.abcdef', 'proofline-review-9', 'proofline-review-244', 'proofline-worktree', 'proofline-x-abcdef', 'proofline-h-abc', 'pl-lib-abc', 'pl-lib-abcdefg', 'adp', 'rv-bin-', 'proofline-harness-501', 'proofline-e2e', 'proofline-smoke.abcdef', 'proofline', 'prooflines', 'hf5-', 'hf5-abc', 'hf5-abcdefg', 'br-out-abcde!', 'br-abcdef', 'bt-fake-abcdef/..', 'com.apple.x', 'TemporaryItems', '.proofline-h-abcdef', 'x-proofline-h-abcdef', 'ProofLine-h-abcdef', 'recipe', 'plr-abc']) assert.ok(!isTestTemp(n), n);
+    for (const n of ['dispatch.abcde', 'dispatch.abcdefg', 'dispatch.', 'agent-status-block.abcde', 'agent-status-block.abcdefg', 'agent-status-block-abcdef', 'xdispatch.abcdef', 'dispatch.abc/..']) assert.ok(!isTestTemp(n), n);
     assert.ok(PREFIXES.length > 0);
   });
 });
@@ -33,6 +34,24 @@ describe('what it removes', () => {
     const ours = folder(dir, 'proofline-t-api-OURS01', 9); mkdirSync(path.join(ours, '.git')); utimesSync(ours, clean(9), clean(9));
     assert.deepEqual(cleanTemp(dir, { now: NOW }).map((x) => path.basename(x.path)), ['proofline-t-api-OURS01']);
     assert.deepEqual(readdirSync(dir).sort(), ['pl-lib-REPO01', 'pl-lib-WTREE3', 'proofline-fp.REPO02']);
+  });
+
+  test('the product\'s own leftovers (dispatch., agent-status-block.) go when old, unowned and without a .git, and stay otherwise', () => {
+    const dir = tmp('tmp');
+    folder(dir, 'dispatch.OLD123', 5); folder(dir, 'agent-status-block.OLD123', 5); folder(dir, 'dispatch.YOUNG1', 1);
+    const repo = folder(dir, 'dispatch.REPO01', 9); mkdirSync(path.join(repo, '.git')); utimesSync(repo, clean(9), clean(9));
+    const owned = folder(dir, 'agent-status-block.OWNED1', 9); writeFileSync(path.join(owned, '.pid'), '4242'); utimesSync(owned, clean(9), clean(9));
+    assert.deepEqual(cleanTemp(dir, { now: NOW, isAlive: (pid) => pid === 4242 }).map((x) => path.basename(x.path)).sort(), ['agent-status-block.OLD123', 'dispatch.OLD123']);
+    assert.deepEqual(readdirSync(dir).sort(), ['agent-status-block.OWNED1', 'dispatch.REPO01', 'dispatch.YOUNG1']);
+  });
+
+  test('the product\'s own leftovers (dispatch., agent-status-block.) go when old, unowned and without a .git, and stay otherwise', () => {
+    const dir = tmp('tmp');
+    folder(dir, 'dispatch.OLD123', 5); folder(dir, 'agent-status-block.OLD123', 5); folder(dir, 'dispatch.YOUNG1', 1);
+    const repo = folder(dir, 'dispatch.REPO01', 9); mkdirSync(path.join(repo, '.git')); utimesSync(repo, clean(9), clean(9));
+    const owned = folder(dir, 'agent-status-block.OWNED1', 9); writeFileSync(path.join(owned, '.pid'), '4242'); utimesSync(owned, clean(9), clean(9));
+    assert.deepEqual(cleanTemp(dir, { now: NOW, isAlive: (pid) => pid === 4242 }).map((x) => path.basename(x.path)).sort(), ['agent-status-block.OLD123', 'dispatch.OLD123']);
+    assert.deepEqual(readdirSync(dir).sort(), ['agent-status-block.OWNED1', 'dispatch.REPO01', 'dispatch.YOUNG1']);
   });
 
   test('a person\'s folder named proofline-<anything> is not on the list, whatever is in it', () => {

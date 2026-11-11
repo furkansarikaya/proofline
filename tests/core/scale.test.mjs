@@ -8,7 +8,8 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { cleanEnv } from '../hook/harness.mjs';
-import { applyHookTimeouts, suggestScale } from '../../control-plane/agents/scripts/core/scale.mjs';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { applyHookTimeouts, measureMachine, proposeScale, suggestScale } from '../../control-plane/agents/scripts/core/scale.mjs';
 import { A, project, say } from './legacy-lib.mjs';
 import { RECIPE } from './helper-lib.mjs';
 
@@ -48,24 +49,58 @@ test('suggestScale: nothing below 1.5 times the reference, rounded up to a half,
   assert.equal(suggestScale(0, 0), '');
 });
 
+/** The propose step in this process with a measurement given by the test (A253): nothing is timed. @param {string} d @param {[number, number]} ms @returns {{ status: number, out: string }} */
+function propose(d, ms) {
+  /** @type {Buffer[]} */ const out = [];
+  const io = { env: cleanEnv({}), cwd: d, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => out.push(b) } };
+  const ctx = new Context(io, agentSh(d));
+  const status = proposeScale(ctx, { measure: () => ms });
+  ctx.flush();
+  return { status, out: Buffer.concat(out).toString('latin1') };
+}
+
+test('measureMachine: the steps it starts, and the smaller of two measurements for each of the two quantities, by the clock it is given', () => {
+  const calls = /** @type {string[]} */ ([]);
+  let t = 0;
+  // cost of each start of agent.sh, in order: fingerprint, approve-pending, config-check, fingerprint, approve-pending, config-check
+  const steps = [100, 300, 250, 50, 150, 400];   // approval path: 400 then 200; start: 250 then 400
+  const r = measureMachine(/** @type {any} */ ({ root: '/p', env: {} }), { now: () => t, run: (argv) => { calls.push(argv.slice(1).join(' ')); t += steps[calls.length - 1]; } });
+  assert.deepEqual(calls, ['fingerprint', 'approve-pending -', 'config-check', 'fingerprint', 'approve-pending -', 'config-check']);
+  assert.deepEqual(r, [200, 250]);
+});
+
 test('a machine that is not slow: no proposal, the old one is removed, and nothing is asked', () => {
+  const d = project(RECIPE);
+  mkdirOf(proposal(d)); writeFileSync(proposal(d), 'scale\t3\n');
+  const r = propose(d, [400, 200]);
+  assert.equal(r.status, 0, r.out);
+  assert.equal(r.out, 'timing: approval path 400 ms (reference 500), agent.sh start 200 ms (reference 250); timeouts.scale is 1.0 now\nscale: this machine is not slow (within 1.5 times the reference); timeouts.scale 1.0 fits, nothing to change\n');
+  assert.equal(existsSync(proposal(d)), false);
+});
+
+test('the boundary of "not slow" is the sum of the two references; one millisecond more proposes 1.5', () => {
+  const d = project(RECIPE);
+  assert.match(propose(d, [500, 250]).out, /not slow/);
+  assert.equal(existsSync(proposal(d)), false);
+  assert.match(propose(d, [500, 251]).out, /timeouts\.scale 1\.0 -> 1\.5 /);
+  assert.equal(readFileSync(proposal(d), 'utf8'), 'scale\t1.5\n');
+});
+
+test('the real command prints the timing line in the documented shape (the numbers are the machine\'s and are not asserted)', () => {
   const d = project(RECIPE);
   const r = cli(d, ['doctor-scale', 'propose']);
   assert.equal(r.status, 0, r.text);
-  assert.match(r.out, /^timing: approval path \d+ ms \(reference 500\), agent\.sh start \d+ ms \(reference 250\); timeouts\.scale is 1\.0 now\nscale: this machine is not slow \(within 1\.5 times the reference\); timeouts\.scale 1\.0 fits, nothing to change\n$/);
-  assert.equal(existsSync(proposal(d)), false);
+  assert.match(r.out, /^timing: approval path \d+ ms \(reference 500\), agent\.sh start \d+ ms \(reference 250\); timeouts\.scale is 1\.0 now\n/);
 });
 
 test('a slow machine: one proposal bound to the value alone, one question, the approval request recorded; the config is untouched until the reply', () => {
   const d = project(RECIPE);
-  const real = readFileSync(agentSh(d), 'utf8');
-  writeFileSync(agentSh(d), '#!/bin/sh\nsleep 0.6\n');   // a start of agent.sh that takes 0.6 s: the approval path 1.2 s, the start 0.6 s
-  let r;
-  try { r = cli(d, ['doctor-scale', 'propose']); } finally { writeFileSync(agentSh(d), real); }
-  assert.equal(r.status, 0, r.text);
-  assert.match(r.out, /^timing: approval path 1[0-9]{3} ms \(reference 500\), agent\.sh start [5-9][0-9]{2} ms \(reference 250\); timeouts\.scale is 1\.0 now\n\nscale proposal [0-9a-f]{12}: timeouts\.scale 1\.0 -> ([0-9]+(?:\.5)?) \(every step time, build and test limit, lock wait and hook limit grows by that factor; the approval budget does not\)\nQUESTION \(one\): write timeouts\.scale: ([0-9]+(?:\.5)?) into \.agents\/config\.yaml\? Reply "approve scale"\. Nothing is written without your reply\./);
+  const r = propose(d, [1200, 600]);
+  assert.equal(r.status, 0, r.out);
+  // (1200 + 600) / 750 = 2.4, rounded up to the half 2.5
+  assert.match(r.out, /^timing: approval path 1200 ms \(reference 500\), agent\.sh start 600 ms \(reference 250\); timeouts\.scale is 1\.0 now\n\nscale proposal [0-9a-f]{12}: timeouts\.scale 1\.0 -> 2\.5 \(every step time, build and test limit, lock wait and hook limit grows by that factor; the approval budget does not\)\nQUESTION \(one\): write timeouts\.scale: 2\.5 into \.agents\/config\.yaml\? Reply "approve scale"\. Nothing is written without your reply\./);
   assert.match(r.out, /\n {2}after your reply: proofline doctor --apply-scale\n$/);
-  assert.match(readFileSync(proposal(d), 'utf8'), /^scale\t([0-9]+(?:\.5)?)\n$/);
+  assert.equal(readFileSync(proposal(d), 'utf8'), 'scale\t2.5\n');
   assert.equal(scaleOf(d), '1.0');
   // no reply yet
   const early = cli(d, ['doctor-scale', 'apply']);
@@ -76,12 +111,11 @@ test('a slow machine: one proposal bound to the value alone, one question, the a
 
 test('the user\'s own "approve scale" writes the value once and puts the new limits into the settings files, and nothing else in them changes', () => {
   const d = project(RECIPE);
-  const real = readFileSync(agentSh(d), 'utf8');
   settings(d, '.claude/settings.json', HOOKS);
   settings(d, '.codex/hooks.json', { hooks: { Stop: [{ hooks: [{ command: 'node .agents/hooks/proofline-hook.mjs stop', timeout: 1 }] }] } });
-  writeFileSync(agentSh(d), '#!/bin/sh\nsleep 0.6\n');
-  try { assert.equal(cli(d, ['doctor-scale', 'propose']).status, 0); } finally { writeFileSync(agentSh(d), real); }
+  assert.equal(propose(d, [1200, 600]).status, 0);
   const want = (/^scale\t(.*)$/m.exec(readFileSync(proposal(d), 'utf8')) ?? [])[1];
+  assert.equal(want, '2.5');
   say(d, 'approve scale');
   assert.equal(A(d, ['approve-pending']).status, 0);
   const done = cli(d, ['doctor-scale', 'apply']);
@@ -106,22 +140,21 @@ test('the user\'s own "approve scale" writes the value once and puts the new lim
 test('a proposal that holds no valid scale is refused even with the reply, and the value already set is not proposed again', () => {
   const d = project(RECIPE);
   writeFileSync(path.join(d, '.agents/config.yaml'), readFileSync(path.join(d, '.agents/config.yaml'), 'utf8').replace(/^ {2}scale: .*$/m, '  scale: 2'));
-  const real = readFileSync(agentSh(d), 'utf8');
-  writeFileSync(agentSh(d), '#!/bin/sh\nsleep 0.6\n');
-  let r;
-  try { r = cli(d, ['doctor-scale', 'propose']); } finally { writeFileSync(agentSh(d), real); }
-  assert.match(r.out, /timeouts\.scale is 2 now\n/);
-  // measured 2 (or a neighbour): when it is the one set the user is told so; otherwise a proposal exists, which the next lines turn into garbage
-  if (existsSync(proposal(d))) {
-    writeFileSync(proposal(d), 'scale\t2x\n');
-    assert.equal(A(d, ['request-approval', '-', 'scale']).status, 0);
-    say(d, 'approve scale');
-    assert.equal(A(d, ['approve-pending']).status, 0);
-    const bad = cli(d, ['doctor-scale', 'apply']);
-    assert.equal(bad.status, 1);
-    assert.match(bad.err, /proofline: doctor --apply-scale: the proposal holds no valid scale\n$/);
-    assert.equal(scaleOf(d), '2');
-  } else assert.match(r.out, /scale: the measured value 2 is the one set already\n$/);
+  // measured 2.0 exactly: the value set already
+  const same = propose(d, [1000, 500]);
+  assert.match(same.out, /timeouts\.scale is 2 now\n/);
+  assert.match(same.out, /scale: the measured value 2 is the one set already\n$/);
+  assert.equal(existsSync(proposal(d)), false);
+  // measured 2.5: a proposal, which the next lines turn into garbage
+  assert.match(propose(d, [1200, 600]).out, /timeouts\.scale 2 -> 2\.5 /);
+  writeFileSync(proposal(d), 'scale\t2x\n');
+  assert.equal(A(d, ['request-approval', '-', 'scale']).status, 0);
+  say(d, 'approve scale');
+  assert.equal(A(d, ['approve-pending']).status, 0);
+  const bad = cli(d, ['doctor-scale', 'apply']);
+  assert.equal(bad.status, 1);
+  assert.match(bad.err, /proofline: doctor --apply-scale: the proposal holds no valid scale\n$/);
+  assert.equal(scaleOf(d), '2');
   assert.equal(cli(d, ['doctor-scale']).status, 2);
   assert.equal(cli(d, ['doctor-scale', 'bogus']).status, 2);
 });

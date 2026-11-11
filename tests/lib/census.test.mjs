@@ -9,10 +9,10 @@ import { test } from 'node:test';
 import { tempDir } from './tempdir.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');   // tests/
-/** File (relative to tests/) -> the number of `mkdtemp*` calls it may have, and why they are safe. */
-const EXCEPT = /** @type {Record<string, [number, string]>} */ ({
+/** File (relative to tests/) -> the number of `mkdtemp*` calls it may have, and why they are safe (optional 3rd/4th: bare uses of the name allowed, a hand-named tmpdir folder allowed). */
+const EXCEPT = /** @type {Record<string, [number, string, number?, boolean?]>} */ ({
   'lib/tempdir.mjs': [1, 'the helper itself'],
-  'lib/census.test.mjs': [2, 'the text of the regular expression and of the sample file of this test'],
+  'lib/census.test.mjs': [2, 'the text of the regular expression and of the sample files of this test', 6, true],
   'lib/harness.mjs': [3, 'the base folder of tmp() (removed at exit and on signals), tmp() under it, and the private build folder of the cache'],
   'core/githooks-trust.test.mjs': [1, 'inside the sandbox folder of the test, which the test removes'],
   'core/frontend-lib.mjs': [1, 'inside the test folder T'],
@@ -39,14 +39,23 @@ function files(d) {
   });
 }
 
-/** The problems of a tree: files with more `mkdtemp*` calls than `except` allows. @param {string} dir @param {Record<string, [number, string]>} except */
+/** The problems of a tree: files with more `mkdtemp*` calls than `except` allows. @param {string} dir @param {Record<string, [number, string, number?, boolean?]>} except */
 function census(dir, except) {
   /** @type {string[]} */ const problems = [];
   for (const f of files(dir)) {
     const rel = path.relative(dir, f).split(path.sep).join('/');
-    const calls = (readFileSync(f, 'utf8').match(/\bmkdtemp(?:Sync)?\(/g) ?? []).length;
+    const text = readFileSync(f, 'utf8');
+    const calls = (text.match(/\bmkdtemp(?:Sync)?\(/g) ?? []).length;
     const allowed = except[rel]?.[0] ?? 0;
     if (calls > allowed) problems.push(`${rel}: ${calls} mkdtemp call(s), ${allowed} allowed: use tempDir() of tests/lib/tempdir.mjs (or tmp() of the harness)`);
+    // an alias (`const e = mkdtempSync; e(...)`) is a call the count above cannot see: the name is allowed in an import, a re-export, a destructuring of a dynamic import and a comment, nowhere else without a call
+    const code = text.replace(/\bimport\s[^;]*?\bfrom\s*['"][^'"]+['"]/gs, '').replace(/\bexport\s*\{[^}]*\}/g, '').replace(/\{[^}]*\}\s*=\s*await\s+import\([^)]*\)/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+    const bare = (code.match(/\bmkdtemp(?:Sync)?\b(?!\s*\()/g) ?? []).length;
+    if (bare > (except[rel]?.[2] ?? 0)) problems.push(`${rel}: mkdtemp used as a value (an alias?), not as a call: use tempDir() of tests/lib/tempdir.mjs`);
+    // a folder named by hand under the temp folder is never found again after a kill
+    if (/\bmkdirSync\(\s*(?:`\$\{\s*(?:os\.)?tmpdir\(\)|(?:os\.)?tmpdir\(\)\s*\+|(?:path\.)?(?:join|resolve)\(\s*(?:os\.)?tmpdir\(\)[^)]*(?:Date\.now|Math\.random|process\.pid))/.test(code) && !except[rel]?.[3]) {
+      problems.push(`${rel}: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs`);
+    }
   }
   for (const rel of Object.keys(except)) if (!existsSync(path.join(dir, rel))) problems.push(`${rel} is listed but does not exist`);
   return problems;
@@ -62,6 +71,19 @@ test('the census finds a new leaker (also under skills/), a listed file that is 
   writeFileSync(path.join(d, 'skills/new.test.mjs'), "import { mkdtempSync } from 'node:fs';\nconst x = mkdtempSync(join(tmpdir(), 'wiki-'));\n");
   writeFileSync(path.join(d, 'ok.mjs'), 'const y = mkdtempSync(a);\n');
   assert.deepEqual(census(d, { 'ok.mjs': [1, 'inside a base'], 'gone.mjs': [1, 'x'] }), ['skills/new.test.mjs: 1 mkdtemp call(s), 0 allowed: use tempDir() of tests/lib/tempdir.mjs (or tmp() of the harness)', 'gone.mjs is listed but does not exist']);
+});
+
+test('the census finds an alias of mkdtemp and a folder named by hand under tmpdir(), and leaves imports, comments and calls alone', () => {
+  const d = tempDir('census-alias-');
+  writeFileSync(path.join(d, 'alias.mjs'), "import {\n  mkdtempSync,\n} from 'node:fs';\nconst e = mkdtempSync;\n");
+  writeFileSync(path.join(d, 'rolled.mjs'), "import { mkdirSync } from 'node:fs';\nmkdirSync(tmpdir() + '/x' + Date.now());\n");
+  writeFileSync(path.join(d, 'rolled2.mjs'), 'mkdirSync(`${tmpdir()}/x-${process.pid}`);\n');
+  writeFileSync(path.join(d, 'fine.mjs'), "import { mkdtempSync as m } from 'node:fs';\n// mkdtemp is not used here\n/* mkdtempSync */\nconst x = 'http://a';\n");
+  assert.deepEqual(census(d, {}), [
+    'alias.mjs: mkdtemp used as a value (an alias?), not as a call: use tempDir() of tests/lib/tempdir.mjs',
+    'rolled.mjs: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs',
+    'rolled2.mjs: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs',
+  ]);
 });
 
 test('tempDir makes an empty folder in the proofline-t- family', () => {
