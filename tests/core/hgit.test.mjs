@@ -502,7 +502,8 @@ function withSignedTip(s, fmt) {
   const tip = execFileSync('git', ['-C', t, 'hash-object', '-t', 'commit', '-w', '--stdin'], { env: s.env, input: obj }).toString().trim();
   s.git(t, 'update-ref', 'refs/remotes/origin/main', tip);
   const mark = `${s.dir}/MARK`;
-  writeFileSync(`${s.dir}/p.sh`, `#!/bin/sh\necho "$0 $*" >> ${mark}\nexit 1\n`);
+  // The program drains its stdin first: git writes the signed payload to it, and a program that exits unread kills `git log` with SIGPIPE under load (dispatch run 42980221236, gpg.format=ssh).
+  writeFileSync(`${s.dir}/p.sh`, `#!/bin/sh\ncat >/dev/null\necho "$0 $*" >> ${mark}\nexit 1\n`);
   chmodSync(`${s.dir}/p.sh`, 0o755);
   s.git(t, 'config', 'merge.verifySignatures', 'true'); s.git(t, 'config', 'log.showSignature', 'true'); s.git(t, 'config', 'gpg.format', fmt);
   for (const k of ['gpg.program', 'gpg.openpgp.program', 'gpg.ssh.program', 'gpg.x509.program']) s.git(t, 'config', k, `${s.dir}/p.sh`);
