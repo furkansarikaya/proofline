@@ -22,7 +22,7 @@ not a FAIL. The verifier never edits the implementation; failure follows the fix
 .agents/scripts/agent.sh pipeline <ID> | next <ID> | summary <ID>
 .agents/scripts/agent.sh verify-freeze|freshness|verify-scope|verify-knowledge-scope|verify-worker-evidence|verify-handoff|verify-gates|verify-seal|validate <ID>
 .agents/scripts/agent.sh delivery-check <ID>
-.agents/scripts/agent.sh test        # every .agents/scripts/*-test.sh in throwaway repositories
+.agents/scripts/agent.sh test        # a project's own .agents/scripts/*-test.sh (none ships)
 ```
 
 ## Implementation evidence

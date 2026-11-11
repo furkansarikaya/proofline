@@ -4,7 +4,7 @@ description: Implements a change test-first with recorded proof. For every non-e
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.85"
+  version: "0.0.86"
 ---
 
 # tdd-proof

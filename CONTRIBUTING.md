@@ -36,7 +36,7 @@ and `adapters/` counts as code. Pushes to `main` and pull requests run the same 
 A pull request that changes hooks, skills, roles or the control plane also runs the real-session smoke test (A195) and pastes its table:
 `node tests/real-session/smoke.mjs` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
 `batch` in a throwaway repository and prints a PASS/FAIL table (a few minutes of model time; it is not part of CI). Do not merge on a table
-that is not all PASS. The table counts for the LAST commit that will be merged: if a commit that changes product code (hooks, skills, roles, control plane, adapters) arrives after the smoke, re-run the affected smoke steps and write the result in the pull request description. A change to the Codex sandbox profile also runs `sh tests/real-session/codex-sandbox.sh` (no model; needs the Codex CLI) and `SMOKE_ONLY=codex sh tests/real-session/smoke.sh`.
+that is not all PASS. The table counts for the LAST commit that will be merged: if a commit that changes product code (hooks, skills, roles, control plane, adapters) arrives after the smoke, re-run the affected smoke steps and write the result in the pull request description. A change to the Codex sandbox profile also runs `node tests/real-session/codex-sandbox.mjs` (no model; needs the Codex CLI) and `SMOKE_ONLY=codex node tests/real-session/smoke.mjs`.
 End-to-end team runs are described in
 [tests/e2e/README.md](tests/e2e/README.md); they use real agents and are not required for a pull request.
 The benchmark report (`node tests/benchmark/benchmark.mjs`, see [tests/benchmark/README.md](tests/benchmark/README.md))
@@ -83,7 +83,7 @@ exception does not make it: it stops and asks the maintainer.
 Each rule has at least one test in [tests/invariants-node/](tests/invariants-node/) (Node, since A239; the shell suite `tests/invariants/invariants-test.sh` is gone) that really attempts the forbidden action against the real
 `agent.sh`. CI runs the suite on every pull request, documentation-only ones included. A rule that cannot yet be tested mechanically is
 named in the header of the matching `tests/invariants-node/` test file (its "Not yet mechanical" notes, copied from the former shell header) instead of being faked.
-A patch that changes anything under `tests/invariants/` or `tests/invariants-node/` must say why in the pull request description, on a line that starts with
+A patch that changes anything under `tests/invariants-node/` must say why in the pull request description, on a line that starts with
 `Invariant-test-change:`, and the review approves that change separately from the rest of the patch. `node tests/ci/change-reason.mjs invariants`
 fails the pull request otherwise. Locally: `node --test "tests/invariants-node/*.test.mjs"`, and `PR_BODY="..." node tests/ci/change-reason.mjs invariants < changed-paths.txt`.
 

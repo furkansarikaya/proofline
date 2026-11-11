@@ -234,6 +234,36 @@ describe('strict mode: the clean state and a planted violation of every rule', (
   test('rule 2 (round 1): a launcher that lost its executable bit in the index is refused', () => {
     refuses((d) => chmodSync(join(d, 'control-plane/agents/githooks/pre-commit'), 0o644), /pre-commit: a launcher must be executable in the index \(mode 100755, found 100644\)/, 'chmod -x');
   });
+  test('A252: the accepted limit is pinned: a line-leading unclosed opener inside a template literal hides code up to the next closer, and the header says so', () => {
+    const open = '/' + '*';
+    const close = '*' + '/';
+    const src = `const t = \`\n${open} not a comment, template text\n\`;\nexecSync('hidden');\nconst u = 1; ${close} execSync('visible');\n`;
+    const out = stripComments(src);
+    assert.equal(out.split('\n').length, src.split('\n').length, 'line breaks kept');
+    assert.ok(!out.includes("execSync('hidden')"), 'the documented limit: the code inside the unclosed block is blanked');
+    assert.ok(out.includes("execSync('visible')"), 'code after the closer stays visible');
+    // the block never swallows code that follows a closer on a later line: the hidden stretch ends at the first closer
+    assert.equal(stripComments(`${open}\n${close}\nexecSync('x');\n`).includes("execSync('x')"), true);
+    // the header carries the limit text (A252)
+    const header = readFileSync(new URL('./no-shell-logic.mjs', import.meta.url), 'utf8').split('\nimport ')[0];
+    assert.match(header, /ACCEPTED LIMIT[^]*line-leading unclosed block-comment opener inside a multi-line template literal or string continuation/);
+    assert.match(header, /zero hidden code characters/);
+    assert.match(header, /false-positive direction is preferred/);
+    assert.match(header, /TypeScript-scanner differential run is the check/);
+    // and the tree has no such file: no tracked source file hides a code line from the scan
+    const files = trackedFiles(repo).filter(nodeSourceFile);
+    for (const f of files) {
+      const text = readFileSync(join(repo, f), 'utf8');
+      const lines = text.split('\n');
+      const stripped = stripComments(text).split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (stripped[i] === lines[i] || lines[i].trimStart().startsWith('//')) continue;
+        const t = lines[i].trimStart();
+        if (t.startsWith(open) || /^\*/.test(t) || /\*\//.test(lines[i])) continue;
+        assert.fail(`${f}:${i + 1}: a code line is blanked by the comment stripper`);
+      }
+    }
+  });
   test('round 3: stripComments blanks only whole-line comments; everything else stays visible (the gate errs toward visibility)', () => {
     const keep = (/** @type {string} */ src) => assert.equal(stripComments(src), src, src);
     // real code after a regex literal that follows =>, return, else, + : each of these hid the rest of the line before

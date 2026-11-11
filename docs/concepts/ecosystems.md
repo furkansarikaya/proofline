@@ -254,7 +254,7 @@ The other ecosystems keep the earlier mechanism: a workspace root (`workspace_ro
 
 ### No ecosystem code
 
-Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapters' hooks, `skills/*/scripts`) never branch on an ecosystem id. `tests/shared/check-static.mjs` reads the ids from `ecosystems.json` and fails on a case arm or a comparison that names one; `platform.sh` is excluded. A line that names an interpreter or a tool and not an ecosystem carries a comment line `# eco-ok: <why>` directly above it.
+Shared scripts (`bin/`, `control-plane/agents/scripts`, the git hooks, the adapters' hooks, `skills/*/scripts`) never branch on an ecosystem id. `tests/shared/check-static.mjs` reads the ids from `ecosystems.json` and fails on a case arm or a comparison that names one. A line that names an interpreter or a tool and not an ecosystem carries a comment line `# eco-ok: <why>` directly above it.
 
 ## The definition file
 

@@ -187,6 +187,22 @@ export function runMerged(program, args, options = {}) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** The `taskkill` argument list that ends the process PID and its whole tree (`/T`); `/F` forces it. Pure (A252). @param {number} pid @param {boolean} force */
+export function taskkillArgs(pid, force) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new RangeError(`taskkill: not a process id: ${pid}`);
+  return ['/pid', String(pid), '/T', ...(force ? ['/F'] : [])];
+}
+
+/**
+ * Windows process-tree kill (A226): `taskkill /pid N /T [/F]`, an argument array, no shell. SPAWN is injectable so the command is tested without a Windows host;
+ * the real run on Windows is not tried (denenmedi).
+ * @param {number} pid @param {boolean} force @param {typeof spawnSync} [spawn]
+ */
+export function killWindowsTree(pid, force, spawn = spawnSync) {
+  count('taskkill');
+  return spawn('taskkill', taskkillArgs(pid, force), { stdio: 'ignore', windowsHide: true });
+}
+
 /** @type {WeakSet<import('node:child_process').ChildProcess>} */
 const groupLeaders = new WeakSet();
 const KILL_GRACE_MS = 2000;
@@ -200,8 +216,7 @@ export function killTree(child) {
   if (child.pid === undefined) return;
   const pid = child.pid;
   if (process.platform === 'win32') {
-    count('taskkill');
-    spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+    killWindowsTree(pid, true);
     return;
   }
   const target = groupLeaders.has(child) ? -pid : pid;
@@ -380,8 +395,7 @@ export function startLeader(program, args, options) {
   const signalGroup = (sig) => {
     if (pid === undefined) return;
     if (win) {
-      count('taskkill');
-      spawnSync('taskkill', ['/pid', String(pid), '/T', ...(sig === 'SIGKILL' ? ['/F'] : [])], { stdio: 'ignore', windowsHide: true });
+      killWindowsTree(pid, sig === 'SIGKILL');
       return;
     }
     try { process.kill(-pid, sig); } catch { /* none left */ }
