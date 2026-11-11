@@ -645,17 +645,17 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
 
 ### Stage 15: exit criteria record (A251)
 
-Shell and awk before and after (`node tests/ci/shell-census.mjs af2b1a4b HEAD`, 0.0.40 is `af2b1a4b`, `chore(release): 0.0.40`):
+Shell and awk before and after (`node tests/ci/shell-census.mjs af2b1a4b <ref>`; 0.0.40 is `af2b1a4b`, `chore(release): 0.0.40`; the second column is the last code commit of this change, later commits are documentation only):
 
-| count | af2b1a4b (af2b1a4b) | HEAD (20241c80) |
+| count | 0.0.40 (af2b1a4b) | A251 code, 815a5c56 |
 |---|---:|---:|
 | shell files | 175 | 4 |
 | shell lines (all) | 44842 | 42 |
 | shell lines (code: no blank, no comment) | 37559 | 27 |
 | `.awk` files | 0 | 0 |
 | `.awk` lines | 0 | 0 |
-| shell lines mentioning awk or sed (upper bound of invocations; a reviewer's invocation-shaped count at 0.0.40: 1,210) | 1392 | 0 |
-| CI `run:` steps | 20 | 35 |
+| shell lines mentioning awk or sed | 1392 | 0 |
+| CI `run:` steps | 20 | 36 |
 | CI steps of more than one command line | 12 | 0 |
 | hook command strings | 21 | 21 |
 | Node files (control-plane, adapters, bin) | 1 | 155 |
