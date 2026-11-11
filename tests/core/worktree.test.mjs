@@ -4,7 +4,7 @@
 // and the hint of the refusal at `start` inside a batch. These are the scenarios of the former batch-test.sh (sc_worktree_*, sc_prompt_*) and worktree-prep.sh.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { leftoverWorktrees, shQuote } from '../../control-plane/agents/scripts/core/leftover.mjs';
@@ -339,3 +339,38 @@ test('shQuote returns a word a POSIX shell reads back unchanged, whatever it hol
   assert.equal(shQuote('L-1'), 'L-1');
   assert.equal(shQuote('-rf'), "'-rf'");
 });
+
+// ---- A248 round 6: worktree-add runs no program of the repository's configuration, and still works with a `required` driver (git-lfs) -------------------------------
+/** A project whose config holds a driver `x` on every file; `how` shapes it. Returns the main tree, the marker and the canonical tip. @param {'include' | 'required'} how */
+function filtered(how) {
+  const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  const mark = `${main}-FILTER`; const prog = `${main}-filter.sh`;
+  writeFileSync(prog, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(prog, 0o755);
+  if (how === 'include') {
+    // the driver is defined by a file that only a worktree's git directory includes (`gitdir:**/worktrees/**`): the main tree sees no driver at all
+    writeFileSync(`${main}-inc.cfg`, `[filter "x"]\n\tsmudge = ${prog}\n`);
+    gOk(main, ['config', 'includeIf.gitdir:**/worktrees/**.path', `${main}-inc.cfg`]);
+  } else {
+    for (const k of ['clean', 'smudge', 'process']) gOk(main, ['config', `filter.x.${k}`, prog]);
+    gOk(main, ['config', 'filter.x.required', 'true']);
+  }
+  writeFileSync(`${main}/.git/info/attributes`, '* filter=x\n');
+  return { dir, main, mark, prog };
+}
+for (const how of /** @type {const} */ (['include', 'required'])) {
+  test(`A248 round 6 (${how}): worktree-add ${how === 'include' ? 'runs no smudge filter that only the new worktree\'s git directory includes' : 'works with a required driver and runs none of its programs'}`, () => {
+    const F = fakes();
+    const { dir, main, mark } = filtered(how);
+    const plain = spawnSync('git', ['-C', main, 'worktree', 'add', '-q', '--detach', `${main}-plain`, 'HEAD'], { encoding: 'utf8' });
+    if (how === 'include') assert.ok(existsSync(mark), `test premise: a plain worktree add runs the smudge filter (${plain.stderr})`);
+    else assert.notEqual(plain.status, 0, 'test premise: a plain worktree add fails on a required driver');
+    rmSync(mark, { force: true });
+    const add = AB(F, dir, ['worktree-add', 'W-2']);
+    assert.equal(add.status, 0, add.text);
+    assert.ok(!existsSync(mark), 'worktree-add ran a program of the repository configuration');
+    assert.ok(has(`${add.out.trim()}/.agents/scripts`), 'the worktree is checked out');
+  });
+}

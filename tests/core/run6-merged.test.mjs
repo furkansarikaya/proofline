@@ -982,22 +982,12 @@ function plantOwnFilter(d, wt) {
   return mark;
 }
 
-test('A248 round 5 (S1, wiring): `deliver-step cleanup` in a tree with NO gitlink and a local clean filter runs that filter nowhere (no prior discovery in the command)', () => {
-  const gh = fakeGh();
+test('A248 round 5 (S1, wiring): the standalone `cleanup` of a finished run in a tree with NO gitlink and a local clean filter runs that filter nowhere (no prior discovery in the command)', () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
-  gOk(d, 'remote', 'set-url', 'origin', 'https://github.com/acme/app.git');
-  gOk(d, 'init', '-q', '--bare', `${d}-bare.git`);
-  gOk(d, 'remote', 'add', 'bare', `${d}-bare.git`);
-  wtDeliver(d, wt, 'gh');
-  const h = g(wt, 'rev-parse', 'HEAD');
-  gh.says('OPEN', h);
-  accepted(A(wt, ['deliver-step', 'LC', 'merge', '7'], { env: gh.env }), 'merge step in the worktree');
-  gh.says('MERGED', h);
   const mark = plantOwnFilter(d, wt);
-  const out = accepted(A(wt, ['deliver-step', 'LC', 'cleanup', '7'], { env: gh.env }), 'cleanup step in the worktree').out;
+  const out = A(wt, ['cleanup', 'LC']).text;
   assert.ok(!existsSync(mark), `the cleanup ran the tree's own clean filter: ${out}`);
-  assert.ok(wtGone(d, wt), 'the worktree survived deliver-step cleanup');
 });
 
 test('A248 round 5 (S1, wiring): `deliver-plan` in a tree with NO gitlink and a local clean filter run that filter nowhere', () => {

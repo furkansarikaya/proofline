@@ -82,10 +82,11 @@ test('hermeticEnv: blanks each name as a key (so `=` is fine), keeps a count the
   assert.equal(e['GIT_CONFIG_KEY_1'], 'c.d');
   /** @type {Record<string, string>} */ const kv = {};
   for (let k = 0; k < Number(e['GIT_CONFIG_COUNT']); k++) kv[/** @type {string} */ (e[`GIT_CONFIG_KEY_${k}`])] = /** @type {string} */ (e[`GIT_CONFIG_VALUE_${k}`]);
-  assert.equal(e['GIT_CONFIG_COUNT'], '18');
+  assert.equal(e['GIT_CONFIG_COUNT'], '23');
   assert.deepEqual(kv, { 'a.b': '1', 'c.d': '2', 'core.fsmonitor': 'false', 'diff.submodule': 'short', 'submodule.recurse': 'false',
     'merge.verifySignatures': 'false', 'log.showSignature': 'false', 'commit.gpgSign': 'false', 'tag.gpgSign': 'false', 'gpg.program': '', 'gpg.openpgp.program': '', 'gpg.ssh.program': '', 'gpg.x509.program': '',
-    'gpg.ssh.defaultKeyCommand': '', 'core.hooksPath': '/dev/null', 'filter.a=b.clean': '', 'filter.a=b.smudge': '', 'filter.a=b.process': '' });
+    'gpg.ssh.defaultKeyCommand': '', 'core.hooksPath': '/dev/null', 'gc.auto': '0', 'maintenance.auto': 'false', 'receive.autogc': 'false', 'gc.recentObjectsHook': '',
+    'filter.a=b.clean': '', 'filter.a=b.smudge': '', 'filter.a=b.process': '', 'filter.a=b.required': 'false' });
   // R3-1: no ignore setting is relied on (a per-submodule ignore=none overrides every one of them), so none is set
   assert.ok(!Object.keys(kv).some((k) => /ignoreSubmodules/i.test(k)), 'the environment must not rely on an ignore setting');
   assert.equal(e['GIT_CONFIG_KEY_0'], 'a.b', 'the existing entries keep their places');
@@ -803,8 +804,55 @@ test('S2/R5-5: an index that is cut, damaged, with an extension that does not fi
     assert.equal(indexHasGitlinks(t), null, 'split index (link extension)');
     s.git(t, 'update-index', '--no-split-index');
     assert.equal(indexHasGitlinks(t), false);
+    // a sparse index folds whole directories into one entry: a gitlink may be inside one
+    mkdirSync(`${t}/d1`); writeFileSync(`${t}/d1/a.txt`, 'a\n'); s.git(t, 'add', 'd1'); s.git(t, 'commit', '-qm', 'd1');
+    s.git(t, 'sparse-checkout', 'init', '--cone', '--sparse-index');
+    s.git(t, 'sparse-checkout', 'set', 'nothing');
+    assert.ok(readFileSync(idx).includes('sdir'), 'test premise: the index is sparse');
+    assert.equal(indexHasGitlinks(t), null, 'sparse index (sdir extension)');
+    s.git(t, 'sparse-checkout', 'disable');
+    s.git(t, 'update-index', '--no-split-index');
     // version 4 compresses the names
     s.git(t, 'update-index', '--index-version', '4');
     assert.equal(indexHasGitlinks(t), null, 'index version 4');
+  } finally { s.done(); }
+});
+
+test('R6-1: a `required` driver (git-lfs sets it) does not fail a blanked call: add -A, a worktree checkout and checkout-index succeed and run no program; plain git fails', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    const mark = `${s.dir}/MARK`; const prog = `${s.dir}/lfs.sh`;
+    writeFileSync(prog, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+    chmodSync(prog, 0o755);
+    for (const k of ['clean', 'smudge', 'process']) s.git(t, 'config', `filter.lfs.${k}`, prog);
+    s.git(t, 'config', 'filter.lfs.required', 'true');
+    writeFileSync(`${t}/.git/info/attributes`, '* filter=lfs\n');
+    touch(t);
+    assert.throws(() => s.git(t, 'add', '-A'), /clean filter|filter/i, 'test premise: plain git fails on a required driver that cannot run');
+    touch(t);
+    rmSync(mark, { force: true });
+    const c = ctxOf(s, t);
+    assert.equal(hgit(c, t, ['add', '-A']).status, 0, 'add -A');
+    assert.equal(hgit(c, t, ['worktree', 'add', '-q', '--detach', `${s.dir}/wt`, 'HEAD']).status, 0, 'worktree add (checkout)');
+    assert.equal(hgit(c, t, ['checkout-index', '-a', '-f', `--prefix=${s.dir}/out/`]).status, 0, 'checkout-index');
+    assert.ok(existsSync(`${s.dir}/wt/f.txt`) && existsSync(`${s.dir}/out/f.txt`), 'the files are written');
+    assert.ok(!existsSync(mark), 'a program of the driver ran');
+  } finally { s.done(); }
+});
+
+test('R6-S2: what git sees through hgit has auto-maintenance off and no gc.recentObjectsHook, whatever the repository sets', () => {
+  const s = scratch();
+  try {
+    const t = repo(s);
+    // the hook cannot be made to fire in a tiny repository (it needs a cruft pack past its expiry), so the effective configuration git reads is what is pinned
+    for (const [k, v] of [['gc.recentObjectsHook', '/bin/echo'], ['gc.auto', '6700'], ['maintenance.auto', 'true'], ['receive.autogc', 'true']]) s.git(t, 'config', k, v);
+    const c = ctxOf(s, t);
+    const seen = (/** @type {string} */ k) => hgit(c, t, ['config', '--get', k]).stdout.toString().trim();
+    assert.equal(s.git(t, 'config', '--get', 'gc.recentObjectsHook').trim(), '/bin/echo', 'test premise: plain git sees the repository\'s hook');
+    assert.equal(seen('gc.recentObjectsHook'), '');
+    assert.equal(seen('gc.auto'), '0');
+    assert.equal(seen('maintenance.auto'), 'false');
+    assert.equal(seen('receive.autogc'), 'false');
   } finally { s.done(); }
 });

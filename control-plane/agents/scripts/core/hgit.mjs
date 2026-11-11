@@ -122,7 +122,10 @@ export function hermeticEnv(base, names) {
   put('merge.verifySignatures', 'false'); put('log.showSignature', 'false'); put('commit.gpgSign', 'false'); put('tag.gpgSign', 'false');
   for (const k of ['gpg.program', 'gpg.openpgp.program', 'gpg.ssh.program', 'gpg.x509.program', 'gpg.ssh.defaultKeyCommand']) put(k, '');
   put('core.hooksPath', process.platform === 'win32' ? 'NUL' : '/dev/null'); // a hook (post-checkout, reference-transaction ...) is repository code too
-  for (const name of names) for (const v of ['clean', 'smudge', 'process']) put(`filter.${name}.${v}`, '');
+  // auto-maintenance runs after a merge, a commit or a fetch (`maintenance run --auto`, `gc --auto`) and `gc.recentObjectsHook` is a program the repack runs
+  put('gc.auto', '0'); put('maintenance.auto', 'false'); put('receive.autogc', 'false'); put('gc.recentObjectsHook', '');
+  // an EMPTY command does not disable a driver that is `required` (git-lfs sets it): git then fails the whole call. `required=false` makes the blanked driver a no-op
+  for (const name of names) { for (const v of ['clean', 'smudge', 'process']) put(`filter.${name}.${v}`, ''); put(`filter.${name}.required`, 'false'); }
   out['GIT_CONFIG_COUNT'] = String(n);
   return out;
 }
@@ -145,7 +148,7 @@ function gitDirs(tree) {
 }
 
 /**
- * Does the index of TREE hold a gitlink (mode 160000)? Answered by reading the index file itself (versions 2 and 3, no split index, SHA-1 or SHA-256 object ids), so a repository WITHOUT
+ * Does the index of TREE hold a gitlink (mode 160000)? Answered by reading the index file itself (versions 2 and 3, no split or sparse index, SHA-1 or SHA-256 object ids), so a repository WITHOUT
  * submodules costs no process. The trailing checksum must verify (SHA-1 over everything but the last 20 bytes, else SHA-256 over everything but the last 32): that tells the object id
  * width, and a file that is cut, rewritten halfway or not understood (version 4, an extension that does not fit, `index.skipHash`) answers `null`, NEVER `false` (the caller then asks git).
  * @param {string} tree @returns {boolean | null}
@@ -180,7 +183,8 @@ export function indexHasGitlinks(tree) {
     // extensions (4 byte name, 4 byte size, data): a split index (`link`) keeps entries in another file; one that does not fit is not understood
     while (p < end) {
       if (p + 8 > end) return null;
-      if (b.toString('latin1', p, p + 4) === 'link') return null;
+      const ext = b.toString('latin1', p, p + 4);
+      if (ext === 'link' || ext === 'sdir') return null; // a split index keeps entries in another file, a sparse index folds whole directories (a gitlink may be inside one)
       p += 8 + b.readUInt32BE(p + 4);
       if (p > end) return null;
     }

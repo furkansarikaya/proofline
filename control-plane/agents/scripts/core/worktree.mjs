@@ -250,9 +250,13 @@ export function worktreeAdd(ctx, args) {
   const sha = git(ctx, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`]);
   if (sha.status !== 0) fail(`canonical branch not found locally: ${branch}`);
   mkdirSync(path.dirname(d), { recursive: true });
-  const add = hgit(ctx, ctx.root, ['worktree', 'add', '-q', '--detach', d, sha.stdout.toString('latin1').replace(/\n+$/, '')], { stdio: ['ignore', 'ignore', 'pipe'] }); // writes a checkout: the smudge filters are blanked (A248 round 5)
+  // A248 round 6: `worktree add` checks out through a child git whose GIT_DIR is the NEW worktree's, where a `gitdir:` conditioned include can apply that the main tree does not
+  // see. So the worktree is made WITHOUT a checkout, its drivers are found in the new worktree itself (hgit does it for the tree of the call), and the checkout runs through hgit there
+  const add = hgit(ctx, ctx.root, ['worktree', 'add', '-q', '--no-checkout', '--detach', d, sha.stdout.toString('latin1').replace(/\n+$/, '')], { stdio: ['ignore', 'ignore', 'pipe'] });
   if (add.stderr.length > 0) ctx.err(add.stderr.toString('latin1'));
   if (add.status !== 0) fail(`could not add the worktree ${bytes(d)}`);
+  const co = hgit(ctx, d, ['reset', '--hard', '-q', '--no-recurse-submodules'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  if (co.status !== 0) { ctx.err(co.stderr.toString('latin1')); hgit(ctx, ctx.root, ['worktree', 'remove', '--force', d]); fail(`could not check out the worktree ${bytes(d)}`); }
   rwPrepare(ctx, d);
   ctx.out(`${bytes(d)}\n`);
   return 0;
