@@ -9,7 +9,7 @@ import path from 'node:path';
 import { agentCall } from './batch.mjs';
 import { ciCheckResult, ciTaskCommandText } from './commands/checks.mjs';
 import { Config } from './config.mjs';
-import { SHIPPED_GITHOOKS, codeAudit, githooksFolder, problemText, shippedCode } from './codetrust.mjs';
+import { SHIPPED_GITHOOKS, clean as cleanText, codeAudit, githooksFolder, problemText, shippedCode } from './codetrust.mjs';
 import { cfgSet } from './configset.mjs';
 import { contextRows, reportText } from './contextsize.mjs';
 import { applyCommands, emptyKinds, proposeCommands } from './commandsprop.mjs';
@@ -340,7 +340,7 @@ class Doctor {
   doctorProbes() {
     const env = this.ctx.env;
     if (env.PROOFLINE_DOCTOR_PROBES === '0') { this.warn('probes: skipped (PROOFLINE_DOCTOR_PROBES=0)'); return; }
-    const bad = this.untrustedCode();
+    const bad = this.untrustedCode(true);
     if (bad === null) { this.warn('probes: skipped, the shipped hooks and scripts could not be read from the proofline plugin'); return; }
     if (bad.length > 0) {
       this.warn(`probes: skipped, because the project's own hooks or scripts are not proofline's shipped copy (${bad.slice(0, 3).map((p) => problemText(p)).join('; ')}${bad.length > 3 ? '; and more' : ''}); the probes would test or run code from the repository. Review them; if you did not edit them, run: proofline upgrade`);
@@ -360,11 +360,14 @@ class Doctor {
     const clean = probeEnv(env, PD);
     const init = (/** @type {string[]} */ a) => proc.run('git', a, { env: clean, stdio: 'ignore' }).status === 0;
     if (!(init(['init', '-q', '--bare', remote]) && init(['init', '-q', repo]))) { this.warn('probes: git init failed'); return; }
-    // the project's data (config, roles, owns.conf ...) is copied; the CODE (scripts, git hooks, Node hooks) is the shipped copy from the plugin, never the project's
-    const skip = new Set(['runs', 'local', 'skills', 'scripts', 'githooks', 'hooks'].map((n) => `${this.root}/.agents/${n}`));
-    try { cpSync(`${this.root}/.agents`, `${repo}/.agents`, { recursive: true, verbatimSymlinks: true, filter: (src) => !skip.has(src) }); } catch { /* the probes below report what is missing */ }
+    // the throwaway repository is built from SHIPPED files only (the plugin's control-plane folder: scripts, git hooks, roles, owns.conf, the default config.yaml, templates; and the
+    // Node hook tree), never from the project's `.agents`: a committed symbolic link (a config.yaml that points at a file outside the project) would otherwise let the probe's
+    // config edits write through it. Nothing is dereferenced and nothing of the project is copied.
+    const shippedAgents = `${this.plHome}/control-plane/agents`;
+    try { cpSync(shippedAgents, `${repo}/.agents`, { recursive: true, filter: (src) => !/\/(skills|runs|local)$/.test(src) }); } catch { this.warn('probes: skipped, the shipped control-plane files could not be copied'); return; }
     for (const [rel, abs] of shippedCode(this.plHome)) {
-      try { mkdirSync(path.dirname(`${repo}/${rel}`), { recursive: true }); cpSync(abs, `${repo}/${rel}`); } catch { this.warn(`probes: could not place the shipped ${rel}`); return; }
+      if (!rel.startsWith('.agents/hooks/')) continue;
+      try { mkdirSync(path.dirname(`${repo}/${rel}`), { recursive: true }); cpSync(abs, `${repo}/${rel}`); } catch { this.warn(`probes: could not place the shipped ${cleanText(rel)}`); return; }
     }
     const pc = `${repo}/.agents/config.yaml`;
     const pe = clean;
@@ -559,11 +562,12 @@ class Doctor {
   /**
    * A249: the problems that make the project's code something doctor must not RUN: a link, a file that differs from the shipped one, a file proofline does not ship in a
    * code folder. (A staged or committed difference does not change what is on disk now; it is reported, not a reason to skip.) An unreadable shipped tree is untrusted too.
+   * @param {boolean} [withGitHooks] also the git hooks (the probes: they test the project's lock; the sections never start a git hook)
    * @returns {import('./codetrust.mjs').CodeProblem[] | null} null when the shipped tree could not be read
    */
-  untrustedCode() {
+  untrustedCode(withGitHooks = false) {
     if (this.code === undefined || this.code.unreadable) return null;
-    return this.code.problems.filter((p) => p.kind === 'link' || p.kind === 'differs' || (p.kind === 'extra' && !p.rel.startsWith('.agents/githooks')));
+    return this.code.problems.filter((p) => (withGitHooks || !p.rel.startsWith('.agents/githooks')) && (p.kind === 'link' || p.kind === 'differs' || (p.kind === 'extra' && !p.rel.startsWith('.agents/githooks'))));
   }
 
   /** @param {string} what the sections that need the project's scripts @returns {boolean} true when the project's scripts may be run; otherwise says once why not */
@@ -599,7 +603,7 @@ class Doctor {
         }
         for (const e of folder.entries) {
           if (SHIPPED_GITHOOKS.includes(e.name)) continue;
-          this.fail(`git hooks: .agents/githooks/${e.name} is not a file proofline ships; git may run it (a hook name) and proofline did not review it. Review it or remove it`); ok = false;
+          this.fail(`git hooks: .agents/githooks/${cleanText(e.name)} is not a file proofline ships; git may run it (a hook name) and proofline did not review it. Review it or remove it`); ok = false;
         }
       }
       // a staged or committed hook that is not the shipped one is reported by doctorCode; the PASS is not printed over it
@@ -622,8 +626,9 @@ class Doctor {
       return;
     }
     const hooksReported = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => this.hooksSame && p.rel.startsWith('.agents/githooks') && p.kind !== 'index' && p.kind !== 'head';
-    const rest = this.code.problems.filter((p) => !hooksReported(p));
-    for (const p of rest.filter((x) => x.rel.startsWith('.agents/githooks'))) this.fail(`code: ${problemText(p)}; ${p.kind === 'index' || p.kind === 'head' ? 'review it and run: git checkout -- ' + p.rel + ' only after you know what it is' : 'review it'}`);
+    // a MISSING file is reported by the engine and manifest checks (and an absent skill script is no code to run); only present, different code is reported here
+    const rest = this.code.problems.filter((p) => p.kind !== 'missing' && !hooksReported(p));
+    for (const p of rest.filter((x) => x.rel.startsWith('.agents/githooks'))) this.fail(`code: ${problemText(p)}; ${p.kind === 'index' || p.kind === 'head' ? 'review it and run: git checkout -- ' + cleanText(p.rel) + ' only after you know what it is' : 'review it'}`);
     const other = rest.filter((x) => !x.rel.startsWith('.agents/githooks'));
     if (other.length > 0) {
       const names = other.slice(0, 4).map((p) => problemText(p)).join('; ');

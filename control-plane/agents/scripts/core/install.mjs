@@ -519,7 +519,7 @@ class Install {
       if (why !== '') this.plog('warn', `core.hooksPath already points at .agents/githooks, but the code it runs is not proofline's shipped copy: ${why}. Review it before you commit; if you did not edit these files, ${GITHOOKS_FIX}. A tracked file that is committed with other content comes back with git restore or git checkout, so commit proofline's copy`);
     } else if (st.state === 'unset') {
       // A249: git runs every executable file of the folder it is pointed to, and those hooks start the project's own scripts: the path is set only when all of that code is proofline's
-      if (why !== '') this.plog('warn', `core.hooksPath was NOT set to .agents/githooks (proofline's commit and push locks are NOT active): ${why}. Review the file(s); to use proofline's hooks, ${GITHOOKS_FIX}, or after reviewing run: git config --local core.hooksPath .agents/githooks`);
+      if (why !== '') this.plog('warn', `core.hooksPath was NOT set to .agents/githooks (proofline's commit and push locks are NOT active): ${why}. Review the file(s); to use proofline's hooks, ${GITHOOKS_FIX}, or after reviewing run: git config --local core.hooksPath .agents/githooks${/\.agents\/(scripts|hooks|skills)\//.test(why) ? '. Note: the proofline hook of Claude Code loads .agents/scripts/proofline-core.mjs and the skill scripts too, so a script kept as yours runs there even without core.hooksPath' : ''}`);
       else {
         this.plog('merged', 'git config --local core.hooksPath .agents/githooks');
         if (!this.p.dry) this.git(['config', '--local', 'core.hooksPath', '.agents/githooks']);

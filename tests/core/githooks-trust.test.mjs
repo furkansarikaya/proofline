@@ -10,6 +10,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { shippedCode } from '../../control-plane/agents/scripts/core/codetrust.mjs';
 import { probeEnv } from '../../control-plane/agents/scripts/core/doctor.mjs';
 import { repo } from './helpers.mjs';
 import { sandbox } from './frontend-lib.mjs';
@@ -172,6 +173,7 @@ test('A249 init (R1): identical hooks but a committed proofline-core.mjs that di
   assert.equal(hp(d), '');
   assert.match(r.out, NOT_SET, r.out);
   assert.match(r.out, /\.agents\/scripts\/proofline-core\.mjs differs from proofline's copy and was kept as your own file/, r.out);
+  assert.match(r.out, /Note: the proofline hook of Claude Code loads \.agents\/scripts\/proofline-core\.mjs and the skill scripts too, so a script kept as yours runs there even without core\.hooksPath/, r.out);
   assert.equal(readFileSync(`${d}/.agents/scripts/proofline-core.mjs`, 'utf8'), coreWriting(m));
   // control: this is what the refusal prevents
   git(d, ['config', '--local', 'core.hooksPath', '.agents/githooks']);
@@ -274,6 +276,14 @@ test('A249 doctor (SECURITY-1): hostile committed hooks AND a hostile proofline-
   const re = sb.pl(e, ['doctor']);
   assert.equal(existsSync(m), false, `doctor ran the project's core:\n${re.out}`);
   assert.match(re.out, /^WARN probes: skipped/m, re.out);
+  // SEC-1: a committed config.yaml that is a symbolic link to a file outside the project: the probes write nowhere but their own folder
+  const g = installed('doc-cfglink');
+  const outside = `${sb.T}/outside-config.yaml`;
+  writeFileSync(outside, 'outside: untouched\n');
+  rmSync(`${g}/.agents/config.yaml`); symlinkSync(outside, `${g}/.agents/config.yaml`);
+  const rg = sb.pl(g, ['doctor']);
+  assert.equal(readFileSync(outside, 'utf8'), 'outside: untouched\n', `a probe wrote through the symlinked config:\n${rg.out}`);
+  assert.match(rg.out, /^PASS probe: pre-commit blocks a forbidden identity/m, rg.out);
   // a clean install: the probes run the shipped hooks and pass, with a minimal environment
   const c = installed('doc-clean');
   const rc = sb.pl(c, ['doctor'], { SSH_AUTH_SOCK: '/nonexistent/agent', GITHUB_TOKEN: 'secret-token' });
@@ -338,4 +348,51 @@ test('A249 settings (R2): disableAllHooks in the user\'s ~/.claude/settings.json
   writeFileSync(managed, '{"disableAllHooks": true}\n');
   const rm = doctor(d, { HOME: home, PROOFLINE_CLAUDE_MANAGED_SETTINGS: managed });
   assert.match(rm.out, /^FAIL claude hooks: disableAllHooks is true in the managed settings/m, rm.out);
+});
+
+// ---- round 2: tracked extras, skill scripts, terminal control characters ------------------------------------------------------------------------------------
+
+test('A249 init and doctor (SEC-2): a TRACKED extra file in .agents/scripts keeps the path unset after the user deleted it from the working tree; doctor FAILs', () => {
+  const d = cloned('tracked-extra', shippedHooks());
+  writeExec(`${d}/.agents/scripts/secret-scan.sh`, HOSTILE);
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'scanner']);
+  rmSync(`${d}/.agents/scripts/secret-scan.sh`);
+  const r = sb.pl(d, INIT);
+  assert.equal(r.status, 0, r.text);
+  assert.equal(hp(d), '', 'the path was set although HEAD tracks a script that proofline does not ship');
+  assert.match(r.out, /\.agents\/scripts\/secret-scan\.sh is not a file proofline ships/, r.out);
+  git(d, ['checkout', '--', '.agents/scripts/secret-scan.sh']);
+  assert.equal(readFileSync(`${d}/.agents/scripts/secret-scan.sh`, 'utf8'), HOSTILE, 'what the attack relies on: a restore brings it back');
+  const i = installed('doc-tracked-extra');
+  git(i, ['add', '-A']); git(i, ['commit', '-q', '-m', 'install']);
+  writeExec(`${i}/.agents/hooks/zz.mjs`, 'export {};\n');
+  git(i, ['add', '-A']); git(i, ['commit', '-q', '-m', 'extra']);
+  rmSync(`${i}/.agents/hooks/zz.mjs`);
+  const rd = doctor(i);
+  assert.match(rd.out, /^FAIL code: .*\.agents\/hooks\/zz\.mjs is not a file proofline ships/m, rd.out);
+});
+
+test('A249 doctor: a modified skill script that the core starts FAILs and is not run', () => {
+  const rel = [...shippedCode(repo).keys()].find((k) => /^\.agents\/skills\/[^/]+\/scripts\/[^/]+\.mjs$/.test(k));
+  assert.ok(rel, 'no shipped skill script found');
+  const d = installed('doc-skill-script');
+  const m = marker();
+  writeExec(`${d}/${rel}`, coreWriting(m));
+  const r = doctor(d);
+  assert.match(r.out, new RegExp(`^FAIL code: .*${rel.replace(/[.]/g, '\\.')} differs from proofline's copy`, 'm'), r.out);
+  assert.equal(existsSync(m), false);
+});
+
+test('A249 messages (SEC-3): a repository-controlled file name with control characters never reaches the terminal as such, in init and in doctor', () => {
+  const evil = 'post-\x1b[31mcheckout';
+  const d = cloned('esc', { ...shippedHooks(), [evil]: HOSTILE });
+  const r = sb.pl(d, INIT);
+  assert.equal(r.status, 0, r.text);
+  assert.ok(!r.text.includes('\x1b'), JSON.stringify(r.text.split('\n').filter((l) => l.includes('post-'))));
+  assert.match(r.out, /post-\?\[31mcheckout is not a file proofline ships/, r.out);
+  const i = installed('doc-esc');
+  writeExec(`${i}/.agents/githooks/${evil}`, HOSTILE);
+  const rd = doctor(i);
+  assert.ok(!rd.text.includes('\x1b'), 'doctor printed the escape character');
+  assert.match(rd.out, /^FAIL git hooks: \.agents\/githooks\/post-\?\[31mcheckout is not a file proofline ships/m, rd.out);
 });

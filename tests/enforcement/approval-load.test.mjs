@@ -8,7 +8,7 @@
 //  - next and digest stay close to their small-run time with a large run folder (performance, relative).
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, cleanEnv, newRepo, sha256, tmp } from '../lib/harness.mjs';
@@ -167,6 +167,11 @@ test('big_run_perf: next and digest do not grow with the run folder (300 files, 
 
 test('doctor_budget: doctor measures the approval path and warns when it nears the hook budget', () => {
   const d = fixture();
+  // A249: doctor runs the project's scripts only when they are proofline's shipped files. The harness fixture carries test stubs (the git hook launchers that name the agent.sh of the
+  // worktree they run in, secret-scan.sh, exec-policy.sh) and the wiring source hooks.json; this test needs a project that carries the shipped hooks, as a real install does.
+  for (const f of ['.agents/scripts/secret-scan.sh', '.agents/scripts/exec-policy.sh', '.agents/hooks/hooks.json']) rmSync(path.join(d, f), { force: true });
+  for (const h of ['pre-commit', 'pre-push']) { cpSync(path.join(repo, 'control-plane/agents/githooks', h), path.join(d, '.agents/githooks', h)); chmodSync(path.join(d, '.agents/githooks', h), 0o755); }
+  { const g = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', d, '-c', 'core.hooksPath=/dev/null', ...a], { env: cleanEnv({}), encoding: 'utf8' }); g('add', '-A'); g('commit', '-q', '--allow-empty', '-m', 'ship the stubs out'); }   // the stubs were committed: HEAD must not hold them either
   editConfig(d, (t) => t.replace('approve_budget_seconds: 20', 'approve_budget_seconds: 5'));
   const PATH = shim(path.join(tmp('shim'), 'bin'), 'git', slowAdd(3));
   const doctor = (/** @type {Record<string, string>} */ env) => { const r = spawnSync(process.execPath, [path.join(repo, 'bin/proofline'), 'doctor'], { cwd: d, env: cleanEnv(env), encoding: 'utf8', timeout: 300000 }); return (r.stdout ?? '') + (r.stderr ?? ''); };

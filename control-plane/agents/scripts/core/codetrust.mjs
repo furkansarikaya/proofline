@@ -12,7 +12,13 @@ import { sha256File } from './hash.mjs';
 export const SHIPPED_GITHOOKS = ['pre-commit', 'pre-push'];
 
 /** The folders of the project whose files are loaded by a git hook or a runtime hook. */
-export const CODE_DIRS = ['.agents/scripts', '.agents/githooks', '.agents/hooks', '.agents/ecosystems.mjs'];
+export const CODE_DIRS = ['.agents/scripts', '.agents/githooks', '.agents/hooks', '.agents/ecosystems.mjs', '.agents/skills'];
+
+/** The folders in which a file that proofline does not ship is itself a problem (a skill folder may hold the user's own skills). */
+const EXTRA_DIRS = ['.agents/scripts/', '.agents/githooks/', '.agents/hooks/'];
+
+/** Repository-controlled names reach a terminal: no control character (ESC, CR, BEL ...) passes. @param {string} t */
+export function clean(t) { return t.replace(/[\x00-\x1f\x7f-\x9f]/g, '?'); }
 
 /** @param {string} dir @param {boolean} [all] also links and other non-folders @returns {string[]} the files below DIR, as relative paths */
 function listFiles(dir, all = false) {
@@ -43,6 +49,13 @@ export function shippedCode(plHome) {
   add('.agents/githooks', `${plHome}/control-plane/agents/githooks`);
   // the Node hook tree: the same selection as the installer's (hooks.json is the wiring source and is not installed)
   add('.agents/hooks', `${plHome}/adapters/claude/hooks`, (f) => f !== 'hooks.json');
+  // the scripts of the skills that the core starts (submit, freeze, knowledge-done, record, delivery-check -> design-sync ...): `skills/<name>/scripts/**`
+  try {
+    for (const e of readdirSync(`${plHome}/skills`, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      for (const f of listFiles(`${plHome}/skills/${e.name}/scripts`)) m.set(`.agents/skills/${e.name}/scripts/${f}`, `${plHome}/skills/${e.name}/scripts/${f}`);
+    }
+  } catch { /* no skills folder: the check below reports an unreadable tree */ }
   // doctor starts it (`ecosystems.mjs check`)
   m.set('.agents/ecosystems.mjs', `${plHome}/control-plane/agents/ecosystems.mjs`);
   return m;
@@ -127,7 +140,8 @@ export function codeAudit(root, plHome, env) {
     const tab = rest.indexOf('\t'); const blob = rest.slice(0, tab); const rel = Buffer.from(rest.slice(tab + 1), 'latin1').toString('utf8');
     const src = shipped.get(rel);
     if (src === undefined) {
-      if (rel.startsWith('.agents/githooks/') && !problems.some((p) => p.rel === rel && p.kind === 'extra')) problems.push({ rel, kind: 'extra' });
+      // a TRACKED file that proofline does not ship is as untrusted as one on disk: deleting it from the working tree does not remove it from the index or HEAD (`git restore` brings it back)
+      if (EXTRA_DIRS.some((d) => rel.startsWith(d)) && !problems.some((p) => p.rel === rel && p.kind === 'extra')) problems.push({ rel, kind: 'extra' });
       continue;
     }
     let want = bytes.get(src); if (want === undefined) { want = readFileSync(src); bytes.set(src, want); }
@@ -143,14 +157,15 @@ export function codeAudit(root, plHome, env) {
  * @param {CodeProblem} p @param {string} [act]
  */
 export function problemText(p, act = '') {
+  const r = clean(p.rel);
   switch (p.kind) {
-    case 'link': return `${p.rel} is a symbolic link, sits under one, or is not a regular file`;
-    case 'missing': return `${p.rel} is missing`;
-    case 'differs': return act === 'keep' || act === 'mine' ? `${p.rel} differs from proofline's copy and was kept as your own file`
-      : act === 'conflict' ? `${p.rel} differs from proofline's copy (an edited file; proofline's copy was written beside it as ${p.rel}.proofline-new)`
-        : `${p.rel} differs from proofline's copy`;
-    case 'extra': return `${p.rel} is not a file proofline ships (git may run it)`;
-    case 'index': return `${p.rel} is staged with content that is not proofline's copy`;
-    default: return `${p.rel} is committed (HEAD) with content that is not proofline's copy, so a checkout, restore or reset would bring it back`;
+    case 'link': return `${r} is a symbolic link, sits under one, or is not a regular file`;
+    case 'missing': return `${r} is missing`;
+    case 'differs': return act === 'keep' || act === 'mine' ? `${r} differs from proofline's copy and was kept as your own file`
+      : act === 'conflict' ? `${r} differs from proofline's copy (an edited file; proofline's copy was written beside it as ${r}.proofline-new)`
+        : `${r} differs from proofline's copy`;
+    case 'extra': return `${r} is not a file proofline ships (git may run it)`;
+    case 'index': return `${r} is staged with content that is not proofline's copy`;
+    default: return `${r} is committed (HEAD) with content that is not proofline's copy, so a checkout, restore or reset would bring it back`;
   }
 }
