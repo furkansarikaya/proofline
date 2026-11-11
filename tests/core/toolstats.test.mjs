@@ -54,7 +54,7 @@ describe('readToolStats', () => {
   });
   test('an unreadable log, a missing file and a malformed line give a visible failure, never zero', () => {
     const dir = makeProject();
-    assert.deepEqual({ ...readToolStats(path.join(dir, 'nope.jsonl')) }, { log: 'unreadable', calls: null, resultBytes: null, denied: null, byTool: null });
+    assert.deepEqual({ ...readToolStats(path.join(dir, 'nope.jsonl')) }, { log: 'unreadable', calls: null, resultBytes: null, denied: null, byTool: null, reason: 'read-error' });
     const f = path.join(dir, 'bad.jsonl');
     writeFileSync(f, `${JSON.stringify(use('a', 'Bash'))}\n{not json}\n${JSON.stringify(res('a', 'x'))}\n`);
     assert.equal(readToolStats(f).log, 'malformed');
@@ -85,7 +85,7 @@ describe('tools.jsonl record', () => {
     const text = readFileSync(fileOf(root), 'utf8');
     assert.ok(!text.includes('SECRET'));
     const o = JSON.parse(text);
-    assert.deepEqual(Object.keys(o), ['schema', 'kind', 'time', 'task', 'role', 'focus', 'gate', 'runtime', 'log', 'calls', 'result_bytes', 'denied', 'by_tool']);
+    assert.deepEqual(Object.keys(o), ['schema', 'kind', 'time', 'task', 'role', 'focus', 'gate', 'runtime', 'log', 'calls', 'result_bytes', 'denied', 'by_tool', 'reason']);
     assert.equal(o.schema, 'proofline.tools/1'); assert.equal(o.kind, 'step');
     assert.match(o.time, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$/);
     assert.deepEqual([o.task, o.role, o.focus, o.gate, o.runtime, o.log, o.calls, o.result_bytes, o.denied], ['T-1', 'reviewer', 'rules+tests', 'REVIEW_SMALL', 'claude', 'ok', 2, 15, 0]);
@@ -96,7 +96,7 @@ describe('tools.jsonl record', () => {
   });
   test('a runtime without a readable log writes a record whose counts are null and whose log field says why', () => {
     const { root, ctx } = ctxOf();
-    toolsRecord(ctx, { task: 'T-1', role: 'qa', focus: '', gate: 'QA', runtime: 'codex', log: '' });
+    toolsRecord(ctx, { task: 'T-1', role: 'qa', focus: '', gate: 'QA', runtime: 'other', log: '' });
     toolsRecord(ctx, { task: 'T-1', role: 'qa', focus: '', gate: 'QA', runtime: 'claude', log: path.join(root, 'missing.jsonl') });
     const [a, b] = readFileSync(fileOf(root), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     assert.deepEqual([a.log, a.calls, a.result_bytes, a.denied, a.by_tool], ['no-log', null, null, null, null]);
@@ -145,7 +145,7 @@ describe('fix round 1 (A235)', () => {
     const dir = makeProject();
     const f = path.join(dir, 'big.jsonl');
     const fd = openSync(f, 'w'); ftruncateSync(fd, 128 * 1024 * 1024 + 1); closeSync(fd);
-    assert.deepEqual({ ...readToolStats(f) }, { log: 'unreadable', calls: null, resultBytes: null, denied: null, byTool: null });
+    assert.deepEqual({ ...readToolStats(f) }, { log: 'unreadable', calls: null, resultBytes: null, denied: null, byTool: null, reason: 'too-large' });
   });
   test('T4: a non-string tool name does not throw; a reader that throws gives an unreadable record', () => {
     const { root, ctx } = (() => { const r = makeProject(); const { io } = memoryIo(r); return { root: r, ctx: new Context(io, io.scriptPath ?? '') }; })();

@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+## 0.0.88 — 2026-11-11
+
 - Decision (A254, Part of #180, Refs #165; user decisions, no release): the #180 criterion for the core's Node tests and invariants on `windows-latest` leaves that stage; the Windows port is scheduled as the last package of epic #165. Until it lands proofline is supported on macOS and Linux; on Windows only the hook tests run in CI and the rest is not tried (denenmedi). The measured state and the four-step road map are in A254; `.out-of-scope/deferred.md` holds one temporary pointer row. Documentation only.
+
+## 0.0.88 — 2026-11-11
+
+- Change (A255, Part of #181): `proofline insights` has a TOOL CALLS section from `tools.jsonl` (per role, per run and overall: jobs, calls and result bytes per job, hook refusals, top tools; unreadable and malformed logs counted apart, unknown counts shown as `n/a`; the file is read in chunks and bounded: 200000 lines, 64 KiB per line). `tools.jsonl` is now written for Codex workers too: `submit` finds the rollout log by `CODEX_THREAD_ID` (`readCodexToolStats`, same record shape and reductions), and every record has a last key `reason` that says why a log was not read. Test helpers: the census catches a fixed-name or variable-based `mkdirSync` under `tmpdir()`, a duplicate clean-temp test is gone, a child that exits early no longer hangs a tempdir test. Limits: Codex tool names are mostly `exec`; a Codex session older than 3 days at `submit` or without a session id is `unreadable` with a reason.
 
 ## 0.0.87 — 2026-11-11
 

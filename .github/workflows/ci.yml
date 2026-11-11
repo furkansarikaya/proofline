@@ -323,7 +323,7 @@ jobs:
           - name: tool-economy
             mode: files
             pattern: 'none'
-            files: tests/core/toolstats.test.mjs tests/core/diffdigest.test.mjs
+            files: tests/core/toolstats.test.mjs tests/core/toolstats-codex.test.mjs tests/core/tools-insights.test.mjs tests/core/diffdigest.test.mjs
           - name: run6-deliver
             mode: files
             pattern: 'none'

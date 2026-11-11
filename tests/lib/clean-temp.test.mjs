@@ -45,15 +45,6 @@ describe('what it removes', () => {
     assert.deepEqual(readdirSync(dir).sort(), ['agent-status-block.OWNED1', 'dispatch.REPO01', 'dispatch.YOUNG1']);
   });
 
-  test('the product\'s own leftovers (dispatch., agent-status-block.) go when old, unowned and without a .git, and stay otherwise', () => {
-    const dir = tmp('tmp');
-    folder(dir, 'dispatch.OLD123', 5); folder(dir, 'agent-status-block.OLD123', 5); folder(dir, 'dispatch.YOUNG1', 1);
-    const repo = folder(dir, 'dispatch.REPO01', 9); mkdirSync(path.join(repo, '.git')); utimesSync(repo, clean(9), clean(9));
-    const owned = folder(dir, 'agent-status-block.OWNED1', 9); writeFileSync(path.join(owned, '.pid'), '4242'); utimesSync(owned, clean(9), clean(9));
-    assert.deepEqual(cleanTemp(dir, { now: NOW, isAlive: (pid) => pid === 4242 }).map((x) => path.basename(x.path)).sort(), ['agent-status-block.OLD123', 'dispatch.OLD123']);
-    assert.deepEqual(readdirSync(dir).sort(), ['agent-status-block.OWNED1', 'dispatch.REPO01', 'dispatch.YOUNG1']);
-  });
-
   test('a person\'s folder named proofline-<anything> is not on the list, whatever is in it', () => {
     const dir = tmp('tmp'); folder(dir, 'proofline-review-9', 99); folder(dir, 'proofline-review-244', 99);
     assert.deepEqual(cleanTemp(dir, { now: NOW }), []);

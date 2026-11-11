@@ -21,7 +21,7 @@ import { riskSignals } from './signals.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 import { listNames } from './ledger.mjs';
 import { metricsJson, metricsLine } from './runend.mjs';
-import { toolsRecord } from './toolstats.mjs';
+import { findCodexRollout, toolsRecord } from './toolstats.mjs';
 import { now } from './clock.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -594,7 +594,9 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
   }
   metricsJson(ctx, ['step', id, role, focus, gateOf(ctx, role, focus, id), rt === '' ? '-' : rt, model === '' ? '-' : model, dur, tin, tout, ttot, '-', '-', '-', '-', outcome]);
   // A235: the tool calls and result bytes of the same session log, in a file of their own (records.jsonl keeps its format)
-  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: /^\/.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '' });
+  // A255: a Codex worker has no `.started` file; its rollout log is found by the session id in its environment
+  const cx = rt === 'codex' ? findCodexRollout(ctx.env, now().epoch) : { file: '', reason: null };
+  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: rt === 'codex' ? cx.file : /^\/.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '', reason: cx.reason });
 }
 
 /** @param {string} f */

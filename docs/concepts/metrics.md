@@ -87,7 +87,7 @@ record carries cost, the `step` record carries the gate verdict.
 `records.jsonl` has no tool data and its format does not change (ADR D3). The control plane writes one more file,
 `.agents/local/metrics/tools.jsonl`, with one `kind: step` record per recorded specialist result (the same moment as the
 `step` record of `records.jsonl`: `submit` / `record`). It is built from the runtime's own session log, the transcript whose path is
-line 1 of `.agents/local/submissions/<token>.started` (the file the token counts already come from); no model-written text is copied.
+line 1 of `.agents/local/submissions/<token>.started` (the file the token counts already come from); for a Codex worker, its rollout log (see "Codex" below). No model-written text is copied.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -95,16 +95,28 @@ line 1 of `.agents/local/submissions/<token>.started` (the file the token counts
 | `kind` | string | always `step` |
 | `time` | string | UTC ISO-8601 time the record was written |
 | `task`, `role`, `focus`, `gate`, `runtime` | string or null | as in `records.jsonl` (reduced to `[A-Za-z0-9._+:-]`) |
-| `log` | string | `ok`, or why the counts are null: `no-log` (the runtime keeps no log the control plane reads: Codex, a command-template runtime, a path that is not a `.jsonl` file), `unreadable`, `malformed` (a line that is not JSON) |
+| `log` | string | `ok`, or why the counts are null: `no-log` (the runtime keeps no log the control plane reads: a command-template runtime, a path that is not a `.jsonl` file), `unreadable`, `malformed` (a line that is not JSON) |
 | `calls` | integer or null | tool calls in the log at the time of the record (a `tool_use` of an assistant entry; a repeated id counts once) |
 | `result_bytes` | integer or null | UTF-8 bytes of the text of the tool results that came back (images and other non-text blocks count 0) |
 | `denied` | integer or null | calls whose result is the hook's refusal (`PreToolUse:<Tool> hook error ...`): a call spent and answered with a rule, so a wasted round trip |
 | `by_tool` | object or null | per tool name (reduced; at most 40 names, the rest summed as `other`; keys in byte order): `{"calls": n, "bytes": n}` |
+| `reason` | string or null | last key (A255); null when `log` is `ok` or `no-log`. Why a log is `unreadable` or `malformed`: `read-error`, `too-large`, `not-a-file`, `line-too-long`, `bad-line`, `no-events`; for Codex also `no-session-id`, `no-codex-home`, `no-rollout` (the log was not found) |
 
 Read the limits before using it: the log is read while the session still runs, so the record counts up to the call that submitted (that call's own result
 is not in it), a last half-written line is ignored, and a worker that submits twice (the first was rejected) is counted at its recorded submission only.
 A Claude subagent's log holds that subagent only; the lead's own session log is not recorded by proofline. Counts are never estimated: a log that
 cannot be read gives `null` and a `log` value that says so, never `0`; a log over 128 MiB is not read (`unreadable`), and `submit` still succeeds. Every string is cut to 64 characters after the reduction (a tool name included), so one line stays under about 5 KB. `metrics: off` writes nothing.
+
+### Codex (A255)
+
+A Codex worker has no hook that writes a `.started` file, and the dispatcher does not record the rollout path, but the command a Codex model runs (`agent.sh submit`) has `CODEX_THREAD_ID`
+(the session id, A211). `submit` therefore looks for `rollout-<local time>-<session id>.jsonl` under `$CODEX_HOME/sessions` (else `$HOME/.codex/sessions`, which is where the dispatcher puts a Codex worker's
+home), in the day folders of today and the 3 days before (local and UTC day). The id must be a UUID and the name is matched exactly in a listing, so nothing from a file or an
+argument is ever used as a path; a symbolic link is not followed. The log is read line by line (a line over 32 MiB or a log over 128 MiB is `unreadable`). Counted: a `response_item` of type
+`function_call`, `custom_tool_call`, `local_shell_call` or `tool_search_call` with a `call_id` is a call (once per id); the first `*_output` item with that id is its result, in UTF-8 bytes of its text. A result that
+holds `blocked by PreToolUse hook` in its first 300 characters is a refused call. Limits: Codex runs nearly every command as the tool `exec` (or `wait`), so `by_tool` says little about what the commands were; a
+call of another kind without a `call_id` (a web search) is not counted; a session older than 3 days at `submit`, a missing session id (a Codex lead started some other way) or a moved `CODEX_HOME`
+gives `unreadable` with the `reason`, never a count; the format was checked on codex-cli 0.163 to 0.167 logs (163 logs on the maintainer's machine, all read, none malformed).
 
 ## Reading it: `proofline insights`
 
@@ -140,6 +152,11 @@ only when a ledger row binds them, as in the control plane itself. `metrics: off
 part reports "no metrics recorded"; the failure part still reads the ledgers.
 
 `--json` prints the same data as one object, `proofline.insights/1`.
+
+**Tool calls (A255).** The TOOL CALLS section reads `.agents/local/metrics/tools.jsonl` (only what the control plane wrote; no model text) and shows, per role, per run and overall: jobs, calls per job,
+result bytes per job, the sums, calls refused by a hook, and the top tools (the role table is the measurement table of A235). Jobs whose log was not readable are counted apart and their counts
+are `n/a` (`12 (2/3)` = two of three jobs had a log); a record of another schema, a corrupt line, a line over 64 KiB and a file over 200000 lines are counted and named, never fatal, and the file is read in chunks
+(memory is bounded by the longest line and the number of distinct roles, runs and tools). `--run` limits it to one run; `--json` has the same rows under `tools` (`null` when there is no file).
 
 **Estimate calibration (A202).** `proofline insights` ends with a CALIBRATION section: for each size S/M/L with at least 3 finished tasks, the median minutes,
 tokens and scope paths from the metrics records (which now carry `size` and `scope_paths`). It is a suggestion for the task-author's size estimate and changes nothing.
