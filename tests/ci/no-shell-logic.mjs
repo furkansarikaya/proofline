@@ -31,7 +31,7 @@ export const LAUNCHER_TEMPLATES = 'tests/ci/launcher-templates.txt';
 export const HOOK_TEMPLATES = 'tests/ci/hook-templates.txt';
 export const WIRING_FILES = ['adapters/claude/hooks/hooks.json', 'adapters/claude/settings.fragment.json', 'adapters/codex/hooks.json'];   // the three files of 0.0.40 (the census reads old refs with it)
 /** Every tracked hooks*.json or settings*.json is a hook wiring file, whatever its folder (a fourth file cannot hide a string). @param {string} rel */
-export const isWiringFile = (rel) => /(^|\/)(hooks|settings)[^/]*\.json$/.test(rel);
+export const isWiringFile = (rel) => /(^|\/)(hooks|settings)[^/]*\.json$/i.test(rel);
 // The launcher list of ADR section 9. bin/proofline is a Node program since A233 (`#!/usr/bin/env node`), not a shell launcher.
 export const LAUNCHERS = new Set([
   'control-plane/agents/scripts/agent.sh',
@@ -255,11 +255,40 @@ export const PROC_MODULE = 'control-plane/agents/scripts/core/proc.mjs';
 /** Hook guards and the command scanner read command TEXT and name awk, sed and the shells as data (lists of words to recognise); only the text-tool rule skips them, a spawn of a shell is refused there too. */
 export const TEXT_ONLY = (/** @type {string} */ f) => f === 'adapters/claude/hooks/command-scan.mjs' || f.startsWith('adapters/claude/hooks/guards/');
 /** Node sources the rule covers: product code, not the tests, not the docs. */
-export const nodeSourceFile = (/** @type {string} */ f) => /\.(mjs|js|cjs|mts|cts|ts)$/.test(f) && !/^(tests|docs|fixtures)\//.test(f) && f !== PROC_MODULE;
+export const nodeSourceFile = (/** @type {string} */ f) => (/\.(mjs|js|cjs|mts|cts|ts)$/.test(f) || f === 'bin/proofline') && !/^(tests|docs|fixtures)\//.test(f) && f !== PROC_MODULE;
 
-/** The source with comments blanked (line breaks kept, so offsets still give the line). A `//` after a quote character is a URL, not a comment. @param {string} text */
+/**
+ * The source with comments blanked (every character but the line breaks becomes a space, so offsets and line numbers hold). A small scanner, not a regex: a `/*` inside a
+ * string, a template literal, a regular expression literal or after a `//` comment does not open a block comment (a `// ... <slug>/*.md` comment hid 100 lines from the first
+ * version); strings, templates and regex literals are kept as they are, because the program names the scan looks for are string literals. A `/` starts a regex literal only
+ * after one of `( , = : [ ! & | ? { } ;` or at the start (a heuristic: a division is not a regex); an unterminated string ends at the line end.
+ * @param {string} text
+ */
 export function stripComments(text) {
-  return text.replace(/\/\*[^]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/(^|[\s;{}(),])\/\/[^\n]*/g, (m, pre) => pre + ' '.repeat(m.length - pre.length));
+  let out = '';
+  let i = 0;
+  let prev = '';   // the last significant (non-space, non-comment) character
+  const blank = (/** @type {string} */ t) => t.replace(/[^\n]/g, ' ');
+  while (i < text.length) {
+    const c = text[i];
+    const two = text.slice(i, i + 2);
+    if (two === '//') { const e = text.indexOf('\n', i); const end = e < 0 ? text.length : e; out += blank(text.slice(i, end)); i = end; continue; }
+    if (two === '/*') { const e = text.indexOf('*/', i + 2); const end = e < 0 ? text.length : e + 2; out += blank(text.slice(i, end)); i = end; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== c && (c === '`' || text[j] !== '\n')) j += text[j] === '\\' ? 2 : 1;
+      j = Math.min(j + 1, text.length);
+      out += text.slice(i, j); i = j; prev = c; continue;
+    }
+    if (c === '/' && (prev === '' || '(,=:[!&|?{};'.includes(prev))) {
+      let j = i + 1; let cls = false;
+      while (j < text.length && text[j] !== '\n' && (cls || text[j] !== '/')) { if (text[j] === '\\') j++; else if (text[j] === '[') cls = true; else if (text[j] === ']') cls = false; j++; }
+      if (text[j] === '/') { j++; while (j < text.length && /[a-z]/.test(text[j])) j++; out += text.slice(i, j); i = j; prev = '/'; continue; }
+    }
+    out += c; i++;
+    if (!/\s/.test(c)) prev = c;
+  }
+  return out;
 }
 
 /** @param {string} root @returns {string[]} */
@@ -292,7 +321,7 @@ export function workflowTextProblems(file, text) {
     const at = `${file}:${i + 1}`;
     if (/^steps:\s*\[/.test(l)) out.push(`${at}: a flow-style steps list is not read by the check; write the steps as a block`);
     else if (/[{,]\s*["']?run["']?\s*:/.test(l) && !/^\s*-?\s*run\s*:/.test(raw)) out.push(`${at}: a run: inside a flow mapping is not read by the check; write it as a block key`);
-    if (/^-?\s*script\s*:/.test(l)) out.push(`${at}: a script: key (JS of github-script) is logic in a workflow; move it to a Node script under tests/ci`);
+    if (/^-?\s*["']?script["']?\s*:/.test(l)) out.push(`${at}: a script: key (JS of github-script) is logic in a workflow; move it to a Node script under tests/ci`);
     const sh = /^-?\s*shell\s*:\s*(.*)$/.exec(l);
     if (sh && !/^(bash|sh|pwsh|powershell|cmd|python)$/.test(sh[1].trim().replace(/\s+#.*$/, ''))) out.push(`${at}: a shell: template runs a command line the check does not read`);
   }

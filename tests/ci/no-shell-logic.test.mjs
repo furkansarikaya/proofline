@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { check, stepStrictProblem, runSteps, launcherOk, hookStrictProblem, parseLauncherTemplates, LAUNCHERS, nodeSpawnProblems } from './no-shell-logic.mjs';
+import { check, stepStrictProblem, runSteps, launcherOk, hookStrictProblem, parseLauncherTemplates, LAUNCHERS, nodeSpawnProblems, stripComments } from './no-shell-logic.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 const script = join(repo, 'tests/ci/no-shell-logic.mjs');
@@ -219,6 +219,40 @@ describe('strict mode: the clean state and a planted violation of every rule', (
   });
   test('rule 2 (round 1): a launcher that lost its executable bit in the index is refused', () => {
     refuses((d) => chmodSync(join(d, 'control-plane/agents/githooks/pre-commit'), 0o644), /pre-commit: a launcher must be executable in the index \(mode 100755, found 100644\)/, 'chmod -x');
+  });
+  test('round 2: stripComments knows strings, templates, regex literals and line comments (a `/*` there opens no block comment)', () => {
+    const keep = (/** @type {string} */ src) => assert.equal(stripComments(src), src, src);
+    keep("const a = 'x/*y'; execSync('z');\n");
+    keep('const a = "p/*"; const b = `t/*${x}`;\n');
+    keep('const re = /a\\/*b/g; const c = x / y;\n');
+    keep('const re = [/[/*]/, 1];\n');
+    // a line comment that holds `/*` hides nothing after its own line
+    assert.equal(stripComments('// <slug>/*.md\nexecSync(a);\n'), '              \nexecSync(a);\n');
+    // real comments are blanked, line breaks kept
+    assert.equal(stripComments('a /* b\nc */ d // e\nf'), 'a     \n     d     \nf');
+    // an unterminated string ends at the line end, an unterminated block comment at the end of the file
+    assert.equal(stripComments("'abc\n// c\nx"), "'abc\n    \nx");
+    assert.equal(stripComments('x /* open'), 'x        ');
+  });
+  test('round 2: a line comment with `/*` no longer hides the lines below it (the product-assess validator samples), and a real spawn there is seen', () => {
+    refuses((d) => put(d, 'skills/x/scripts/v.mjs', "// matches <slug>/*.md files\nconst a = 1;\nimport { execSync } from 'node:child_process';\nexecSync('ls | wc');\n"), /skills\/x\/scripts\/v\.mjs:4: exec \/ execSync/, 'hidden region');
+    for (const f of ['skills/product-assess/scripts/validate-product-claims.mjs', 'skills/product-discovery/scripts/validate-product-claims.mjs', 'skills/product-spec/scripts/validate-product-claims.mjs', 'skills/task-author/scripts/validate-task.mjs']) {
+      const text = readFileSync(join(repo, f), 'utf8');
+      const code = stripComments(text);
+      assert.equal(code.length, text.length, f);
+      const lines = code.split('\n');
+      // the sample region: more than ten code lines in the 100 lines after the first line that holds a `/*` inside a // comment
+      const at = text.split('\n').findIndex((l) => /\/\/.*\/\*/.test(l));
+      if (at >= 0) assert.ok(lines.slice(at + 1, at + 100).filter((l) => l.trim() !== '').length > 10, `${f}: the region after line ${at + 1} is blank`);
+    }
+  });
+  test('round 2: a quoted script: key, a Hooks.json (case), and bin/proofline (no extension) are not evasions', () => {
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - uses: actions/github-script@v7\n        with:\n          'script': |\n            if (x) { y(); }\n`), /script: key/, "'script'");
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - uses: actions/github-script@v7\n        with:\n          "script": x\n`), /script: key/, '"script"');
+    const wire = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'stop codex; id' }] }] } });
+    refuses((d) => put(d, 'adapters/codex/Hooks.json', wire), /Hooks\.json::Stop::0/, 'Hooks.json');
+    refuses((d) => put(d, 'extra/SETTINGS.json', wire), /SETTINGS\.json::Stop::0/, 'SETTINGS.json');
+    refuses((d) => put(d, 'bin/proofline', "#!/usr/bin/env node\nimport { execSync } from 'node:child_process';\nexecSync('ls | wc');\n"), /bin\/proofline:\d+: exec/, 'bin/proofline');
   });
   test('rule 5 on this checkout: no Node source starts a shell or a text tool outside core/proc.mjs', () => assert.deepEqual(nodeSpawnProblems(repo), []));
 });
