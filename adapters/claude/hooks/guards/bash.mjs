@@ -18,7 +18,7 @@ import { dbGuardCmd } from './db.mjs';
 import { killGuard } from './kill.mjs';
 import { mergeGuard } from './merge.mjs';
 import { stashGuard } from './stash.mjs';
-import { leadTmpCheck, scratchGuard, strayTmpPath, tmpIsScratchRoot } from './scratch.mjs';
+import { leadTmpCheck, scratchDir, scratchGuard, strayTmpPath, tmpIsScratchRoot } from './scratch.mjs';
 import { NODE_OPTIONS_PRELOAD, PROOFLINE_ASSIGN, twCoreNode, twNodeOperand } from './tripwires.mjs';
 
 /** @param {unknown} input @param {import('../lib/context.mjs').HookContext} ctx @returns {Promise<{ decision: 'deny', reason: string } | null>} */
@@ -74,7 +74,7 @@ async function check(ctx, cmd) {
   }
   const dnHit = norm.includes('PROOFLINE') && norm.includes('DISPATCH');
   if (dnHit || (cmd.includes('.agents') && grepq(DISPATCH_GLOB, cmd))) {
-    deny("PROOFLINE_DISPATCH and the dispatch nonce are dispatch.sh's alone (A171); list .agents/local by a literal path, no glob or find over .agents or .agents/local");
+    deny("PROOFLINE_DISPATCH and the dispatch nonce are dispatch.sh's alone (A171); a glob or find over .agents or .agents/local is refused. Name the folder or file literally: ls .agents/skills, ls .agents/local, cat .agents/skills/<name>/SKILL.md");
   }
   // A102: the capability probes' self-test switches are never set by a model
   if (cmd.includes('PROOFLINE_PROBE_ROOT') || cmd.includes('PROOFLINE_SELFTEST')) {
@@ -87,7 +87,7 @@ async function check(ctx, cmd) {
   // ADR 0001 sections 5.3 and 7 (tripwires, not the boundary): this model Bash command text in an installed project with an open run
   if (act !== '') {
     for (const t of [cmd, norm]) {
-      if (twCoreNode(t)) deny('a model command never starts Node on the control plane (the core under .agents/scripts, proofline-core.mjs): run it only through sh .agents/scripts/agent.sh <command>, which applies the role gate, the locks and the ledger');
+      if (twCoreNode(t)) deny('a model command never starts Node on the control plane (the core under .agents/scripts, proofline-core.mjs): run it only through sh .agents/scripts/agent.sh <command>, which applies the role gate, the locks and the ledger. The whole command text is read, so a heredoc or --report body that names node and .agents/scripts together is refused too: write that text to a file under the scratch folder with the Write tool and pass the path (agent.sh submit ... --report <file>)');
       if (grepq(NODE_OPTIONS_PRELOAD, t)) deny('a model command never sets NODE_OPTIONS with --require, --import, -r or --loader: it would run a file before any node script, outside what the hook can read');
       if (twNodeOperand(t)) deny('a model command runs node only on a script path written out literally (no variable, substitution, glob, tilde, brace or quote splicing, and no script fed by xargs, find -exec or stdin): the hook cannot read the file such a command starts, and the control plane is reached only through sh .agents/scripts/agent.sh <command>');
     }
@@ -108,7 +108,7 @@ async function check(ctx, cmd) {
   }
   if (act !== '' && specialist && !tmpIsScratchRoot(ctx)) {
     const stray = strayTmpPath(ctx, cmd, scan);
-    if (stray !== '') deny(`${stray} is outside the project. Allowed: reading the runtime's own background task output (/tmp/claude-*/**/tasks/<id>.output). Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under $TMPDIR (${ctx.env.TMPDIR || 'unset'})`);
+    if (stray !== '') deny(`${stray} is outside the project. Allowed: reading the runtime's own background task output (/tmp/claude-*/**/tasks/<id>.output). Scratch files go under ${scratchDir(ctx)} (mkdir -p it first); only git worktrees go under $TMPDIR (${ctx.env.TMPDIR || 'unset'})`);
   }
   // A111: every `git stash` subcommand is refused in the project tree for a specialist (evidence worktrees are free).
   if (act !== '' && specialist) await stashGuard(ctx, cmd, scan);
@@ -151,7 +151,7 @@ async function check(ctx, cmd) {
     const k = rec.kind;
     const v = cmdSubst(rec.value);
     switch (k) {
-      case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and shell commands literally (only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh next $ID)`); break;
+      case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and the command word literally; only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh next $ID (not A=.agents/scripts/agent.sh; $A next))`); break;
       case 'R': if (canon(v) !== role) deny(`AGENT_ROLE=${v} does not match the caller's role (${role}); a role never acts as another`); break;
       case 'N': deny(`specialists run through dispatch.sh (window, decision and recording), never as a nested runtime started by hand (${v})`); break;
       case 'L': {
@@ -198,9 +198,9 @@ function agentRule(ctx, cmd, v, hasRole) {
     return;
   }
   if (role === 'implementer' && sc === 'worker-evidence') { if (!hasRole) deny('agent.sh worker-evidence runs only as the implementer: prefix AGENT_ROLE=implementer'); return; }
-  if (role === 'implementer') deny(`the implementer runs only agent.sh worker-evidence status pipeline fingerprint verify-* (not ${sc})`);
+  if (role === 'implementer') deny(`the implementer runs only agent.sh worker-evidence status pipeline fingerprint build-record plan-section config-get verify-* (not ${sc})`);
   if (sc === 'next') return;
-  deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint next verify-* (not ${sc}); state changes belong to the lead`);
+  deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint build-record plan-section config-get diff-digest next verify-* and submit (not ${sc}); state changes belong to the lead`);
 }
 
 /** A shell write (W record) while a run is open. @param {import('../lib/context.mjs').HookContext} ctx @param {string} v @param {string[]} lineOf */
@@ -214,7 +214,7 @@ async function writeRule(ctx, v, lineOf) {
       if (v.includes('.agents') || v.includes('.claude/settings') || v.includes('.codex/') || v.includes('.git/')) deny(`the command writes '${v}', which may be protected run state`);
       return;
     }
-    deny(`the command writes '${v}', which cannot be resolved; while run ${ctx.act} is active the lead and read-only roles write only their run artifacts (shell write detection is a heuristic; use the Write tool on an allowed path)${roTail(ctx)}`);
+    deny(`the command writes '${v}', which cannot be resolved; while run ${ctx.act} is active the lead and read-only roles write only their run artifacts (shell write detection is a heuristic; write the target literally, for example > .agents/runs/${ctx.act}/scratch/out.txt, not through a variable or glob, or use the Write tool on an allowed path)${roTail(ctx)}`);
   }
   // A file the run created (untracked, or a link in scratch/) may be deleted by `rm`/`unlink` when that is the only write to it.
   const why = await targetOk(ctx, v);
@@ -233,7 +233,7 @@ async function nrBashGuard(ctx, scan) {
     if (v === '' || v.startsWith('/dev/')) continue;
     if (/[$*?[]/.test(v)) {
       if (v.startsWith('/tmp/') || v.startsWith('/private/tmp/') || v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR')) continue;
-      deny(`the command writes '${v}', which cannot be resolved, and no run is active (A169): the lead edits no product file itself. Propose a light run with '/proofline run <text>', or write an allowed path literally`);
+      deny(`the command writes '${v}', which cannot be resolved, and no run is active (A169): the lead edits no product file itself. Propose a light run with '/proofline run <text>', or write an allowed path literally (not through a variable or glob), for example > .agents/local/scratch/out.txt`);
     }
     const why = await nrPathOk(ctx, await relpath(ctx, v));
     if (why !== null) deny(`the command writes '${v}': ${why}`);

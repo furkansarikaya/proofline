@@ -9,6 +9,11 @@ export function tmpIsScratchRoot(ctx) {
   return t === '' || t === '/tmp' || t.startsWith('/tmp/') || t === '/private/tmp' || t.startsWith('/private/tmp/');
 }
 
+/** The scratch folder named with the run id, so the next call can use it as written (A257). @param {import('../lib/context.mjs').HookContext} ctx */
+export function scratchDir(ctx) {
+  return ctx.act !== '' ? `.agents/runs/${ctx.act}/scratch/` : '.agents/local/scratch/';
+}
+
 const TASK_OUT = /^(\/private)?\/tmp\/claude-[0-9]+\/[^/]+\/[^/]+\/tasks\/[^/]+\.output$/;
 
 /** The first /tmp (or /private/tmp) path in TEXT that is not inside the project root. @param {import('../lib/context.mjs').HookContext} ctx @param {string} text @param {import('../command-scan.mjs').ScanResult} scan */
@@ -66,12 +71,12 @@ export async function scratchGuard(ctx, scan) {
         if (wn === rootN) continue;
         if (n.startsWith(`${wn}/`)) inWt = true;
       }
-      if (!inWt) deny(`the command writes '${v}', outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); $TMPDIR is only for git worktrees. Create the folder there and write inside it`);
+      if (!inWt) deny(`the command writes '${v}', outside the project. Scratch files go under ${scratchDir(ctx)} (mkdir -p it, then write inside it, for example > ${scratchDir(ctx)}out.txt); $TMPDIR is only for git worktrees`);
     } else if (rec.kind === 'C') {
       const { cw, rest } = cParts(rec);
       if (cw === 'mktemp') {
         const a = rest.replace(/\x03/g, ' ');
-        if (!a.includes('scratch/')) deny('mktemp would create its file or folder under $TMPDIR. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); $TMPDIR is only for git worktrees: mkdir there and name the path');
+        if (!a.includes('scratch/')) deny(`mktemp would create its file or folder under $TMPDIR. Scratch files go under ${scratchDir(ctx)} ($TMPDIR is only for git worktrees): mkdir -p ${scratchDir(ctx)} && mktemp ${scratchDir(ctx)}XXXXXX`);
       }
     }
   }
@@ -81,5 +86,5 @@ export async function scratchGuard(ctx, scan) {
 export function leadTmpCheck(ctx, cmd, scan) {
   if (tmpIsScratchRoot(ctx)) return;
   const p = strayTmpPath(ctx, cmd, scan);
-  if (p !== '') deny(`${p} is outside the project. Scratch files go under .agents/runs/<ID>/scratch/ (before a run exists: .agents/local/scratch/); only git worktrees go under $TMPDIR (${ctx.env.TMPDIR || 'unset'})`);
+  if (p !== '') deny(`${p} is outside the project. Scratch files go under ${scratchDir(ctx)} (mkdir -p it first); only git worktrees go under $TMPDIR (${ctx.env.TMPDIR || 'unset'})`);
 }

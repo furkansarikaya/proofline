@@ -116,7 +116,7 @@ test('verdicts: lead-authored verdicts, role-bound submits, worktree and scratch
   for (const c of ['cat > /tmp/x', 'npm test > /tmp/x 2>&1; rm -f /tmp/x', 'echo x > $TMPDIR/foo', 'echo x >> "$TMPDIR/foo"',
     'printf x | tee /tmp/t1-findings.txt', 'cp impl.txt /tmp/copy.txt', `echo x > ${base}/outside.txt`,
     "cat > /var/folders/zz/T/qa-t1.mjs <<'EOF'\nx\nEOF"]) {
-    denied(`A97 a specialist runs: ${c}`, B(c, 'proofline-qa', 'q1'), '.agents/runs/<ID>/scratch/');
+    denied(`A97 a specialist runs: ${c}`, B(c, 'proofline-qa', 'q1'), '.agents/runs/LC/scratch/');
   }
   for (const c of ['echo x > ~/x', 'echo x > $HOME/x', 'mv impl.txt ~/impl.txt']) denied(`A97 a specialist runs: ${c}`, B(c, 'proofline-qa', 'q1'));
   denied('A97 mktemp without a template', B('mktemp', 'proofline-qa', 'q1'), 'mktemp would create');
