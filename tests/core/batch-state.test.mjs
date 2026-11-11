@@ -4,8 +4,7 @@
 // sleep inhibitor, the one-session owner and the recovery from the platform. The exact texts are held by batch-golden.test.mjs.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { chmodSync, readFileSync, readdirSync, statSync, unlinkSync, openSync, closeSync } from 'node:fs';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { after, test } from 'node:test';
@@ -33,6 +32,20 @@ function session(fifo) {
 /** Every stand-in session of this file: a test that fails half way still ends them (and with them the fake inhibitors tied to them). */
 const sessions = new Set();
 after(async () => { await Promise.all([...sessions].map((x) => x.stop())); });
+/**
+ * Wait until something writes to a named pipe. The read happens in a CHILD (`head -n 1`), never in this process: a reader opened here blocks on a libuv worker thread
+ * for as long as no writer comes, and that thread keeps node alive after the test is gone. The child dies with `signal`, so a test that fails first still ends.
+ * @param {string} fifo @param {AbortSignal} signal
+ */
+function awaitPipe(fifo, signal) {
+  const child = spawn('head', ['-n', '1', fifo], { stdio: ['ignore', 'pipe', 'ignore'], signal });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  return new Promise((resolve, reject) => {
+    child.on('error', reject); // an abort arrives here
+    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`reading ${fifo} ended with ${code}`))));
+  });
+}
 /** A named pipe in the fake folder. @param {ReturnType<typeof fakes>} F @param {string} name */
 function mkfifo(F, name) {
   const f = `${F.FAKE}/${name}`;
@@ -178,53 +191,79 @@ test('the CI that gates the next task is the one of the merge commit: red, runni
   assert.equal(first2(nextline(F, dir)), 'run T-2', 'after a green CI the next task is T-2');
 });
 
-test('the sleep inhibitor belongs to the session: caffeinate -i -w <pid> once and gone with the session; systemd-inhibit; none said plainly (sc_awake)', async () => {
+test('the sleep inhibitor belongs to the session: caffeinate -i -w <pid> once and gone with the session; systemd-inhibit; none said plainly (sc_awake)', { timeout: 60000 }, async () => {
   const F = fakes(); const dir = bnew();
-  mktask(dir, 'T-1', 'COMPLEX'); binstall(dir, { remote: false });
-  BP(F, dir, ['all']); batchApprove(dir);
-  const awake = (/** @type {number} */ pid, /** @type {Record<string, string>} */ env) => AB(F, dir, ['batch-awake'], { env: { PROOFLINE_SESSION_PID: String(pid), ...env } });
-  const caff = `${F.FAKE}/caffeinate.argv`;
-  const ready = mkfifo(F, 'ready.fifo'); // the fake inhibitors say "up" here once they have written their files (an event, not a guess)
-  let s = session(mkfifo(F, 'session.fifo'));
-  const pid = s.pid;
-  const up = readFile(ready, 'utf8'); // opened before the call: the fake's write meets this reader
-  const a = awake(pid, { PROOFLINE_UNAME: 'Darwin' });
-  assert.equal(a.status, 0, a.text);
-  assert.ok(a.text.includes(`caffeinate -i -w ${pid}`) && a.text.includes('Keep the computer awake'), a.text);
-  await up;
-  assert.equal(read(caff).trim(), `-i -w ${pid}`);
-  awake(pid, { PROOFLINE_UNAME: 'Darwin' });
-  assert.equal(lines(caff).length, 1, 'a second batch-awake started a second inhibitor');
-  assert.match(AB(F, dir, ['batch-status']).out, new RegExp(`^sleep inhibitor: caffeinate -i -w ${pid}`, 'm'));
-  const cpid = Number(read(`${F.FAKE}/caffeinate.pid`).trim());
-  process.kill(cpid, 0); // the inhibitor is alive while its session is
-  await s.stop(); // the session dies; the fake sees its pipe close and ends by itself
-  // the status line for an inhibitor that is gone: the recorded pid is one that has exited and been reaped (a child that already returned), not a polled wait
-  put(`${bdir(dir)}/awake.pid`, `${spawnSync('true').pid}\n`);
-  assert.match(AB(F, dir, ['batch-status']).out, /^awake: the sleep inhibitor ended/m);
-  s = session();
-  const upL = readFile(ready, 'utf8');
-  const l = awake(s.pid, { PROOFLINE_UNAME: 'Linux' });
-  assert.equal(l.status, 0, l.text);
-  await upL;
-  assert.ok(read(`${F.FAKE}/inhibit.argv`).includes('--what=idle:sleep'));
-  await s.stop();
-  rmSync(caff, { force: true }); rmSync(`${F.FAKE}/inhibit.argv`, { force: true });
-  s = session();
-  const n = awake(s.pid, { PROOFLINE_UNAME: 'Linux', PROOFLINE_BATCH_INHIBIT: 'none' });
-  await s.stop();
-  assert.equal(n.status, 0, n.text);
-  assert.match(n.out, /sleep inhibitor: none available.*the machine may sleep/);
-  assert.ok(!has(caff) && !has(`${F.FAKE}/inhibit.argv`), 'an inhibitor was started although none is available');
-  // the seams act only with PROOFLINE_TEST=1: a session pid typed by a caller is ignored without it. The PATH holds only stubs that end at once and write nothing, so
-  // even when this run has a real claude or codex ancestor (the process walk then finds it) no inhibitor outlives the call and none watches the real session.
-  const stubs = `${F.FAKE}/stubs`;
-  mkdirSync(stubs, { recursive: true });
-  for (const tool of ['caffeinate', 'systemd-inhibit']) { writeFileSync(`${stubs}/${tool}`, '#!/bin/sh\nexit 0\n'); chmodSync(`${stubs}/${tool}`, 0o755); }
-  s = session();
-  const plain = A(dir, ['batch-awake'], { env: { PROOFLINE_SESSION_PID: String(s.pid), PROOFLINE_UNAME: 'Darwin', PATH: `${stubs}:${process.env.PATH}` } });
-  await s.stop();
-  assert.ok(!plain.text.includes(`-w ${s.pid}`), `the session pid seam acted without PROOFLINE_TEST: ${plain.text}`);
+  /** @type {number[]} */ const holds = [];
+  const stop = new AbortController(); // ends the pipe readers of this test, whatever way it ends
+  try {
+    mktask(dir, 'T-1', 'COMPLEX'); binstall(dir, { remote: false });
+    BP(F, dir, ['all']); batchApprove(dir);
+    const awake = (/** @type {number} */ pid, /** @type {Record<string, string>} */ env) => AB(F, dir, ['batch-awake'], { env: { PROOFLINE_SESSION_PID: String(pid), ...env } });
+    const caff = `${F.FAKE}/caffeinate.argv`;
+    const ready = mkfifo(F, 'ready.fifo'); // the fake inhibitors say "up" here once they have written their files (an event, not a guess)
+    const sfifo = mkfifo(F, 'session.fifo');
+    // This test holds both pipes open itself (read-write never blocks on a pipe): the fake's "up" write and its open of the session pipe then cannot block on a missing
+    // peer, even when this test has already failed and gone. The hold on the session pipe is let go in `finally`.
+    holds.push(openSync(ready, 'r+'), openSync(sfifo, 'r+'));
+    let s = session(sfifo);
+    const pid = s.pid;
+    const up = awaitPipe(ready, stop.signal); up.catch(() => {}); // the fake's write meets this reader; a failure before the await below ends it through `stop`
+    const a = awake(pid, { PROOFLINE_UNAME: 'Darwin' });
+    assert.equal(a.status, 0, a.text);
+    assert.ok(a.text.includes(`caffeinate -i -w ${pid}`) && a.text.includes('Keep the computer awake'), a.text);
+    await up;
+    assert.equal(read(caff).trim(), `-i -w ${pid}`);
+    awake(pid, { PROOFLINE_UNAME: 'Darwin' });
+    assert.equal(lines(caff).length, 1, 'a second batch-awake started a second inhibitor');
+    assert.match(AB(F, dir, ['batch-status']).out, new RegExp(`^sleep inhibitor: caffeinate -i -w ${pid}`, 'm'));
+    const cpid = Number(read(`${F.FAKE}/caffeinate.pid`).trim());
+    process.kill(cpid, 0); // the inhibitor is alive while its session is
+    await s.stop(); // the session dies; the fake sees its pipe close and ends by itself
+    // the status line for an inhibitor that is gone: the recorded pid is one that has exited and been reaped (a child that already returned), not a polled wait
+    put(`${bdir(dir)}/awake.pid`, `${spawnSync('true').pid}\n`);
+    assert.match(AB(F, dir, ['batch-status']).out, /^awake: the sleep inhibitor ended/m);
+    s = session();
+    const upL = awaitPipe(ready, stop.signal); upL.catch(() => {});
+    const l = awake(s.pid, { PROOFLINE_UNAME: 'Linux' });
+    assert.equal(l.status, 0, l.text);
+    await upL;
+    assert.ok(read(`${F.FAKE}/inhibit.argv`).includes('--what=idle:sleep'));
+    await s.stop();
+    rmSync(caff, { force: true }); rmSync(`${F.FAKE}/inhibit.argv`, { force: true });
+    s = session();
+    const n = awake(s.pid, { PROOFLINE_UNAME: 'Linux', PROOFLINE_BATCH_INHIBIT: 'none' });
+    await s.stop();
+    assert.equal(n.status, 0, n.text);
+    assert.match(n.out, /sleep inhibitor: none available.*the machine may sleep/);
+    assert.ok(!has(caff) && !has(`${F.FAKE}/inhibit.argv`), 'an inhibitor was started although none is available');
+    // the seams act only with PROOFLINE_TEST=1: a session pid typed by a caller is ignored without it. The PATH holds only stubs that end at once and write nothing, so
+    // even when this run has a real claude or codex ancestor (the process walk then finds it) no inhibitor outlives the call and none watches the real session.
+    const stubs = `${F.FAKE}/stubs`;
+    mkdirSync(stubs, { recursive: true });
+    for (const tool of ['caffeinate', 'systemd-inhibit']) { writeFileSync(`${stubs}/${tool}`, '#!/bin/sh\nexit 0\n'); chmodSync(`${stubs}/${tool}`, 0o755); }
+    s = session();
+    const plain = A(dir, ['batch-awake'], { env: { PROOFLINE_SESSION_PID: String(s.pid), PROOFLINE_UNAME: 'Darwin', PATH: `${stubs}:${process.env.PATH}` } });
+    await s.stop();
+    assert.ok(!plain.text.includes(`-w ${s.pid}`), `the session pid seam acted without PROOFLINE_TEST: ${plain.text}`);
+  } finally {
+    // Whatever way the test ended: take the session pipe away first (a fake that has not reached it yet then finds none and ends), end the readers, and let go of the
+    // holds (a fake that already blocks on the session pipe then sees the end of the file once its session is gone, which `after` makes sure of).
+    try { unlinkSync(`${F.FAKE}/session.fifo`); } catch { /* not made */ }
+    stop.abort();
+    for (const fd of holds) closeSync(fd);
+  }
+});
+
+test('awaitPipe: a writer that never comes cannot hold the test: the abort ends the reader child (no hang)', { timeout: 60000 }, async () => {
+  const F = fakes(); const fifo = mkfifo(F, 'never.fifo');
+  const stop = new AbortController();
+  const waiting = awaitPipe(fifo, stop.signal); // nothing will ever write to this pipe
+  stop.abort();
+  await assert.rejects(waiting, /abort/i);
+  // and a writer that does come is read
+  const ok = awaitPipe(fifo, new AbortController().signal);
+  writeFileSync(fifo, 'up\n');
+  assert.equal((await ok).trim(), 'up');
 });
 
 test('one session works a batch: a live owner makes the others wait with its pid, a dead one is taken over, only the lead claims (sc_owner_guard)', async () => {
