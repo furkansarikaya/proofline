@@ -15,7 +15,7 @@ import { cfgMergeNew } from './cfgcli.mjs';
 import { cfgCmds, cfgSet } from './configset.mjs';
 import { CliDie } from './cliio.mjs';
 import { KINDS, ambigNotes, discoverCommands, joinCommands, verifyCommands } from './discover.mjs';
-import { codeAudit, problemText } from './codetrust.mjs';
+import { codeAudit, problemText, shaTolerant } from './codetrust.mjs';
 import { MANIFEST_REL, globalHookspathMessage, hooksPathState, matcherCovers } from './doctor.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import * as proc from './proc.mjs';
@@ -124,12 +124,17 @@ function detectBranchIn(dir) {
  *   adapter: string, push: string, roles: string[], dBuild: string, dTest: string, dLint: string, ui: Ui }} Params */
 
 const GITHOOKS_FIX = 'delete the file(s) that differ and run proofline init again (or run proofline upgrade) and commit the result';
+/** R3: the file on disk is proofline's and only the index or HEAD holds older content (the state right after an upgrade): committing is the remedy, deleting the file is not. */
+const GITHOOKS_COMMIT = "commit proofline's copy of the file(s) (git add .agents, then git commit)";
+/** R2: CRLF line ends (core.autocrlf=true) are the cause; deleting does not help, the checkout has to stop converting. */
+const GITHOOKS_EOL = 'the line endings are CRLF (usually core.autocrlf=true on Windows, which breaks shell scripts and hooks): run `git config core.autocrlf false` and check the file(s) out again (git checkout -- <file>), or `git add --renormalize .`';
 
 class Install {
   /** @param {Params} p */
   constructor(p) {
     /** @type {Map<string, string>} the outcome of each code file placed (.agents/scripts, .agents/githooks, and '.agents/hooks' as a whole) (A249) */ this.codeActs = new Map();
     this.p = p;
+    /** @type {string} the remedy for the problems githooksUntrusted found last */ this.fixText = GITHOOKS_FIX;
     this.root = p.root;
     /** @type {Array<[string, string]>} */ this.plan = [];
     /** @type {Array<[string, string]>} */ this.blocks = [];
@@ -201,10 +206,11 @@ class Install {
     const dst = `${this.root}/${rel}`;
     const n = sha256File(src);
     let act; let keep = '';
+    // a Windows checkout with core.autocrlf=true holds JS, JSON and Markdown with CRLF: that is the same file (Node and JSON read it alike); shell scripts and hooks are compared exactly
     const m = this.old.rows.find((r) => r[1] === rel)?.[0] ?? '';
     if (!existsSync(dst)) act = 'new';
     else {
-      const d = sha256File(dst);
+      const d = shaTolerant(dst, rel);
       if (d === n) act = 'same';
       else if (m !== '' && d === m) act = 'update';
       else if (m !== '' && m === n) { act = 'mine'; keep = m; } // you edited it, upstream did not change
@@ -502,6 +508,9 @@ class Install {
     const all = [...audit.problems].sort((a, b) => rank.indexOf(a.kind) - rank.indexOf(b.kind)).filter((p) => !(this.p.dry && (p.kind === 'missing' || p.kind === 'differs') && ['new', 'update'].includes(actOf(p.rel))));
     // one entry per file (the first problem found), the committed-differently case kept when it is the only one
     const bad = all.filter((p, i) => all.findIndex((q) => q.rel === p.rel) === i);
+    // which remedy fits: the kinds of problem that were found
+    const lagOnly = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => (p.kind === 'index' || p.kind === 'head') && !audit.problems.some((q) => q.rel === p.rel && q.kind !== 'index' && q.kind !== 'head');
+    this.fixText = [...(bad.some((p) => p.eol) ? [GITHOOKS_EOL] : []), ...(bad.some((p) => !p.eol && !lagOnly(p)) ? [GITHOOKS_FIX] : []), ...(bad.some(lagOnly) ? [GITHOOKS_COMMIT] : [])].join('; or ');
     if (bad.length === 0) return '';
     return `${bad.slice(0, 3).map((p) => problemText(p, actOf(p.rel))).join('; ')}${bad.length > 3 ? `; and ${bad.length - 3} more` : ''}`;
   }
@@ -516,10 +525,10 @@ class Install {
     if (st.state === 'same') {
       this.plog('same', 'git config core.hooksPath');
       // already active (a local value the user or an earlier run set): never unset here (a normal upgrade has the new files uncommitted), but say so when the code is not the shipped one
-      if (why !== '') this.plog('warn', `core.hooksPath already points at .agents/githooks, but the code it runs is not proofline's shipped copy: ${why}. Review it before you commit; if you did not edit these files, ${GITHOOKS_FIX}. A tracked file that is committed with other content comes back with git restore or git checkout, so commit proofline's copy`);
+      if (why !== '') this.plog('warn', `core.hooksPath already points at .agents/githooks, but the code it runs is not proofline's shipped copy: ${why}. Review it before you commit; if you did not edit these files, ${this.fixText}. A tracked file that is committed with other content comes back with git restore or git checkout, so commit proofline's copy`);
     } else if (st.state === 'unset') {
       // A249: git runs every executable file of the folder it is pointed to, and those hooks start the project's own scripts: the path is set only when all of that code is proofline's
-      if (why !== '') this.plog('warn', `core.hooksPath was NOT set to .agents/githooks (proofline's commit and push locks are NOT active): ${why}. Review the file(s); to use proofline's hooks, ${GITHOOKS_FIX}, or after reviewing run: git config --local core.hooksPath .agents/githooks${/\.agents\/(scripts|hooks|skills)\//.test(why) ? '. Note: the proofline hook of Claude Code loads .agents/scripts/proofline-core.mjs and the skill scripts too, so a script kept as yours runs there even without core.hooksPath' : ''}`);
+      if (why !== '') this.plog('warn', `core.hooksPath was NOT set to .agents/githooks (proofline's commit and push locks are NOT active): ${why}. Review the file(s); to use proofline's hooks, ${this.fixText}, or after reviewing run: git config --local core.hooksPath .agents/githooks${/\.agents\/(scripts|hooks|skills)\//.test(why) ? '. Note: the proofline hook of Claude Code loads .agents/scripts/proofline-core.mjs and the skill scripts too, so a script kept as yours runs there even without core.hooksPath' : ''}`);
       else {
         this.plog('merged', 'git config --local core.hooksPath .agents/githooks');
         if (!this.p.dry) this.git(['config', '--local', 'core.hooksPath', '.agents/githooks']);
@@ -546,6 +555,7 @@ class Install {
     /** @type {string[]} */ const lines = [this.p.dry ? `proofline ${this.p.mode} (dry run, nothing written):` : `proofline ${this.p.mode}:`];
     /** @type {Map<string, number>} */ const grp = new Map();
     /** @type {string[]} */ const order = [];
+    /** @type {string[]} */ const keeps = [];
     for (const [a, t] of this.plan) {
       if (a === 'new') {
         const c = t.split('/');
@@ -555,11 +565,14 @@ class Install {
       } else if (a === 'update') lines.push(`  ~ updated   ${t}`);
       else if (a === 'removed') lines.push(`  - removed   ${t}`);
       else if (a === 'merged') lines.push(`  + merged    ${t}`);
-      else if (a === 'keep') lines.push(`  = kept      ${t} (differs from proofline's version; yours is untouched)`);
+      else if (a === 'keep') keeps.push(t);
       else if (a === 'conflict') lines.push(`  ! CONFLICT  ${t} (modified by you; new version beside it as ${t}.proofline-new)`);
       else if (a === 'orphan') lines.push(`  ? ${t}`);
       else if (a === 'warn') lines.push(`  ! WARN      ${t}`);
     }
+    // a few kept files are named one by one; hundreds (a checkout that changed every file's line ends) collapse into one line
+    if (keeps.length <= 5) for (const t of keeps) lines.push(`  = kept      ${t} (differs from proofline's version; yours is untouched)`);
+    else lines.push(`  = kept      ${keeps.length} files differ from proofline's version and are untouched (first 5: ${keeps.slice(0, 5).join(', ')})`);
     const seen = new Set();
     for (const k of order) {
       if (seen.has(k)) continue;

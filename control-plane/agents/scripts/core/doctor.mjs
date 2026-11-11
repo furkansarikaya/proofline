@@ -9,7 +9,7 @@ import path from 'node:path';
 import { agentCall } from './batch.mjs';
 import { ciCheckResult, ciTaskCommandText } from './commands/checks.mjs';
 import { Config } from './config.mjs';
-import { SHIPPED_GITHOOKS, clean as cleanText, codeAudit, githooksFolder, problemText, shippedCode } from './codetrust.mjs';
+import { SHIPPED_GITHOOKS, clean as cleanText, cleanLines, codeAudit, githooksFolder, problemText, shaTolerant, shippedCode } from './codetrust.mjs';
 import { cfgSet } from './configset.mjs';
 import { contextRows, reportText } from './contextsize.mjs';
 import { applyCommands, emptyKinds, proposeCommands } from './commandsprop.mjs';
@@ -260,7 +260,7 @@ class Doctor {
   }
 
   /** @param {string} line */
-  write(line) { this.ctx.io.stdout.write(Buffer.from(`${line}\n`, 'utf8')); }
+  write(line) { this.ctx.io.stdout.write(Buffer.from(`${cleanLines(line)}\n`, 'utf8')); } // every line: repository text (a hook command, a folder name, a JSON error, a relayed core line) never reaches the terminal as an escape sequence
   /** @param {string} m */ pass(m) { this.write(`PASS ${m}`); }
   /** @param {string} m */ warn(m) { this.write(`WARN ${m}`); this.warns++; }
   /** @param {string} m */ fail(m) { this.write(`FAIL ${m}`); this.fails++; }
@@ -412,7 +412,7 @@ class Doctor {
     const he = { ...pe }; delete he.AGENT_ROLE; he.CLAUDE_PROJECT_DIR = repo; he.PROOFLINE_NO_TTY = '1';
     /** @param {string} rt @param {string} json */
     const hookDenies = (rt, json) => {
-      const o = proc.run('node', [hook, 'pretool', rt], { cwd: this.ctx.cwd, env: he, input: json, stdio: ['pipe', 'pipe', 'ignore'] });
+      const o = proc.run('node', [hook, 'pretool', rt], { cwd: repo, env: he, input: json, stdio: ['pipe', 'pipe', 'ignore'] });
       return o.stdout.toString('utf8').includes('"permissionDecision":"deny"');
     };
     const tool = (/** @type {string} */ name, /** @type {object} */ input) => JSON.stringify({ hook_event_name: 'PreToolUse', cwd: repo, tool_name: name, tool_input: input });
@@ -531,7 +531,14 @@ class Doctor {
       this.fail('engine: .agents/scripts/proofline-core.mjs or .agents/scripts/core/ is missing, so the moved commands cannot run in Node 22.13 or newer and exit 127 (run: proofline upgrade)');
       return;
     }
-    this.pass('engine: the commands run in Node');
+    // a shipped code file that is gone is no hostile code (nothing to run) but a broken install, and a manifest that does not list it (a committed one can omit the row) would show only
+    // 'differ': name it here. The git hooks are reported by doctorGitHooks. A missing skill script is a WARN (a skill the project removed is its choice), the rest a FAIL.
+    const gone = (this.code?.problems ?? []).filter((p) => p.kind === 'missing' && !p.rel.startsWith('.agents/githooks'));
+    const core = gone.filter((p) => !p.rel.startsWith('.agents/skills/')); const skills = gone.filter((p) => p.rel.startsWith('.agents/skills/'));
+    const names = (/** @type {import('./codetrust.mjs').CodeProblem[]} */ l) => `${l.slice(0, 4).map((p) => cleanText(p.rel)).join(', ')}${l.length > 4 ? ` and ${l.length - 4} more` : ''}`;
+    if (core.length > 0) this.fail(`engine: ${core.length} file(s) proofline ships are missing from .agents (${names(core)}); the commands that need them fail (run: proofline upgrade)`);
+    if (skills.length > 0) this.warn(`engine: ${skills.length} skill script(s) proofline ships are missing (${names(skills)}); the skill steps that start them fail (run: proofline upgrade)`);
+    if (core.length === 0) this.pass('engine: the commands run in Node');
   }
 
   doctorManifest() {
@@ -546,7 +553,7 @@ class Doctor {
       const sum = m?.[1] ?? ''; const rel = m?.[2] ?? '';
       if (!existsSync(`${this.root}/${rel}`)) {
         if (critical(rel)) crit.push(rel); else gone++;
-      } else if (sha256File(`${this.root}/${rel}`) !== sum) bad++;
+      } else if (shaTolerant(`${this.root}/${rel}`, rel) !== sum) bad++;
     }
     // A249: a code file the manifest does not list was kept as the user's (the installer records only what it installed); it cannot pass as matching
     {
@@ -584,8 +591,8 @@ class Doctor {
   doctorGitHooks() {
     const st = hooksPathState((a) => this.git(a), this.root);
     this.hooksSame = st.state === 'same';
-    // A249: the code the hooks load, compared with the SHIPPED copies (working file sha256, index and HEAD blobs); never with the manifest, which a cloned repository writes
-    this.code = codeAudit(this.root, this.plHome, this.ctx.env);
+    // A249: the code the hooks load, compared with the SHIPPED copies (working file sha256, index and HEAD blobs); never with the manifest, which a cloned repository writes (audited once, in report())
+    if (this.code === undefined) this.code = codeAudit(this.root, this.plHome, this.ctx.env);
     if (st.state === 'same') {
       let ok = true;
       const folder = githooksFolder(this.root);
@@ -597,7 +604,9 @@ class Doctor {
           if (e === undefined || !isExecutable(f)) { this.fail(`git hooks: .agents/githooks/${h} is missing or not executable`); ok = false; continue; }
           if (e.kind !== 'file') { this.fail(`git hooks: .agents/githooks/${h} is ${e.kind === 'symlink' ? 'a symbolic link' : 'not a regular file'}; git would run its target. Replace it with proofline's copy: delete it and run proofline init`); ok = false; continue; }
           if (this.code.unreadable) { this.warn(`git hooks: the shipped ${h} could not be read, so .agents/githooks/${h} was not compared`); continue; }
-          if (this.code.problems.some((p) => p.rel === `.agents/githooks/${h}` && p.kind === 'differs')) {
+          const eolOnly = this.code.problems.some((p) => p.rel === `.agents/githooks/${h}` && p.kind === 'differs' && p.eol === true);
+          if (eolOnly) { this.fail(`git hooks: .agents/githooks/${h} is proofline's copy except for its line endings (CRLF, usually core.autocrlf=true on Windows): sh fails on the CR, so the hook does not work. Run: git config core.autocrlf false, then check the file out again (git checkout -- .agents/githooks/${h})`); ok = false; }
+          else if (this.code.problems.some((p) => p.rel === `.agents/githooks/${h}` && p.kind === 'differs')) {
             this.fail(`git hooks: .agents/githooks/${h} differs from the copy proofline ships (sha256 mismatch): git runs this file at every ${h === 'pre-push' ? 'push' : 'commit'}, so it may be code from the repository and not proofline's lock. If you did not edit it (an older proofline left it), run: proofline upgrade; otherwise review it, and to go back to proofline's copy delete it and run: proofline init`); ok = false;
           }
         }
@@ -626,13 +635,24 @@ class Doctor {
       return;
     }
     const hooksReported = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => this.hooksSame && p.rel.startsWith('.agents/githooks') && p.kind !== 'index' && p.kind !== 'head';
-    // a MISSING file is reported by the engine and manifest checks (and an absent skill script is no code to run); only present, different code is reported here
+    // a MISSING file is no hostile code (nothing to run): doctorEngine reports it as a broken install; only present, different code is reported here
     const rest = this.code.problems.filter((p) => p.kind !== 'missing' && !hooksReported(p));
-    for (const p of rest.filter((x) => x.rel.startsWith('.agents/githooks'))) this.fail(`code: ${problemText(p)}; ${p.kind === 'index' || p.kind === 'head' ? 'review it and run: git checkout -- ' + cleanText(p.rel) + ' only after you know what it is' : 'review it'}`);
-    const other = rest.filter((x) => !x.rel.startsWith('.agents/githooks'));
+    // R3: the working file IS proofline's copy and only the index or HEAD lags behind: the normal state right after `upgrade` (it writes the new files, nobody committed them yet). A WARN, no
+    // PASS over it; a working file that differs, links or is extra stays a FAIL, and so does a lagging blob of a file that also differs on disk.
+    const lag = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => (p.kind === 'index' || p.kind === 'head') && !this.code?.problems.some((q) => q.rel === p.rel && q.kind !== 'index' && q.kind !== 'head');
+    const laggards = rest.filter(lag);
+    const failing = rest.filter((p) => !lag(p));
+    for (const p of failing.filter((x) => x.rel.startsWith('.agents/githooks'))) this.fail(`code: ${problemText(p)}; ${p.kind === 'index' || p.kind === 'head' ? 'review it and run: git checkout -- ' + cleanText(p.rel) + ' only after you know what it is' : 'review it'}`);
+    // one entry per file (the first problem found; the audit lists a difference on disk before a staged or committed one)
+    const other = failing.filter((x) => !x.rel.startsWith('.agents/githooks')).filter((x, i, all) => all.findIndex((y) => y.rel === x.rel) === i);
     if (other.length > 0) {
       const names = other.slice(0, 4).map((p) => problemText(p)).join('; ');
       this.fail(`code: ${other.length} script or hook file(s) of .agents are not proofline's shipped copy (${names}${other.length > 4 ? '; and more' : ''}); the git hooks and the runtime hooks run them. If you did not edit them (an older proofline left them), run: proofline upgrade; otherwise review them before you commit or run anything here`);
+    }
+    if (laggards.length > 0) {
+      const paths = [...new Set(laggards.map((p) => cleanText(p.rel)))];
+      const where = [...new Set(laggards.map((p) => (p.kind === 'index' ? 'staged' : 'committed (HEAD)')))].join(' and ');
+      this.warn(`code: ${paths.length} file(s) are ${where} with content that is not proofline's copy, while the file on disk is proofline's (${paths.slice(0, 4).join(', ')}${paths.length > 4 ? ', and more' : ''}). Right after \`proofline upgrade\` that is expected: commit proofline's copy (git add .agents && git commit). If you did not just upgrade, review the old content first (git diff HEAD -- <file>): a checkout, restore or reset brings it back`);
     }
   }
 
@@ -821,6 +841,7 @@ class Doctor {
       this.runtimes = [...new Set(words)].sort().join(' ');
     }
     this.pass(`installed: proofline ${this.val('proofline_version', '?')} in ${this.root} (runtimes: ${this.runtimes}, profile ${this.val('profile', 'balanced')})`);
+    this.code = codeAudit(this.root, this.plHome, this.ctx.env);
     this.doctorNode();
     this.doctorEngine();
     this.doctorManifest();

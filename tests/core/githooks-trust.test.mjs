@@ -10,8 +10,8 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { shippedCode } from '../../control-plane/agents/scripts/core/codetrust.mjs';
-import { probeEnv } from '../../control-plane/agents/scripts/core/doctor.mjs';
+import { codeAudit, problemText, shippedCode } from '../../control-plane/agents/scripts/core/codetrust.mjs';
+import { matcherCovers, probeEnv } from '../../control-plane/agents/scripts/core/doctor.mjs';
 import { repo } from './helpers.mjs';
 import { sandbox } from './frontend-lib.mjs';
 
@@ -139,26 +139,26 @@ test('A249 init (route a): a committed manifest row that names the hostile hook\
   assert.equal(readFileSync(`${d}/.agents/githooks/pre-commit`, 'utf8'), HOSTILE);
 });
 
-test('A249 init and doctor (route b): hooks that are proofline\'s in the working tree but staged or committed differently are flagged; upgrade says so while the path is active', () => {
+test('A249 init (route b, R3): hooks that are proofline\'s on disk but staged or committed differently are found; upgrade keeps an active path and says to COMMIT proofline\'s copy', () => {
   const d = sb.copy('route-b');
   git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'install']);
-  assert.match(doctor(d).out, /^PASS git hooks: .*identical to the shipped copies/m);
+  assert.deepEqual(audit(d), []);
   // HEAD holds a hostile blob, the working copy is back to proofline's
   const hook = `${d}/.agents/githooks/pre-commit`;
   const good = readFileSync(hook, 'utf8');
   writeExec(hook, HOSTILE); git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'hostile']);
   writeExec(hook, good);
-  const r = doctor(d);
-  assert.match(r.out, /^FAIL code: \.agents\/githooks\/pre-commit is committed \(HEAD\) with content that is not proofline's copy/m, r.out);
-  assert.doesNotMatch(r.out, /^PASS git hooks:/m, r.out);
-  assert.notEqual(r.status, 0);
+  assert.deepEqual(audit(d), ['head .agents/githooks/pre-commit', 'index .agents/githooks/pre-commit']); // the hostile commit also made the index hostile
   const up = sb.pl(d, ['upgrade', '--yes']);
   assert.match(up.out, /core\.hooksPath already points at \.agents\/githooks, but the code it runs is not proofline's shipped copy: .*pre-commit is committed \(HEAD\)/, up.out);
+  // R3: the file on disk is already proofline's: deleting it (the old advice) is not the remedy, committing it is
+  assert.match(up.out, /commit proofline's copy of the file\(s\) \(git add \.agents, then git commit\)/, up.out);
+  assert.doesNotMatch(up.out, /delete the file\(s\) that differ/, up.out);
   assert.equal(hp(d), '.agents/githooks', 'upgrade must not unset a path that is active (a normal upgrade has the new files uncommitted)');
   // staged only
   git(d, ['checkout', '-q', 'HEAD~1', '--', '.agents/githooks/pre-commit']);
   writeExec(hook, HOSTILE); git(d, ['add', hook]); writeExec(hook, good);
-  assert.match(doctor(d).out, /^FAIL code: \.agents\/githooks\/pre-commit is staged with content that is not proofline's copy/m);
+  assert.ok(audit(d).includes('index .agents/githooks/pre-commit'), String(audit(d)));
 });
 
 // ---- R1: the scripts the hooks start --------------------------------------------------------------------------------------------------------------------
@@ -198,64 +198,124 @@ test('A249 init (R1): an extra module in the Node hook folder and a linked scrip
   assert.match(rb.out, /\.agents\/scripts\/proofline-core\.mjs is a symbolic link/, rb.out);
 });
 
-// ---- doctor ---------------------------------------------------------------------------------------------------------------------------------------------
+// ---- round 2: tracked extras and terminal control characters in init ----------------------------------------------------------------------------------------
 
-/** An installed project (the hooks path set) with the hooks and scripts committed. */
+test('A249 init (SEC-2): a TRACKED extra file in .agents/scripts keeps the path unset after the user deleted it from the working tree', () => {
+  const d = cloned('tracked-extra', shippedHooks());
+  writeExec(`${d}/.agents/scripts/secret-scan.sh`, HOSTILE);
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'scanner']);
+  rmSync(`${d}/.agents/scripts/secret-scan.sh`);
+  const r = sb.pl(d, INIT);
+  assert.equal(r.status, 0, r.text);
+  assert.equal(hp(d), '', 'the path was set although HEAD tracks a script that proofline does not ship');
+  assert.match(r.out, /\.agents\/scripts\/secret-scan\.sh is not a file proofline ships/, r.out);
+  git(d, ['checkout', '--', '.agents/scripts/secret-scan.sh']);
+  assert.equal(readFileSync(`${d}/.agents/scripts/secret-scan.sh`, 'utf8'), HOSTILE, 'what the attack relies on: a restore brings it back');
+});
+
+test('A249 init (SEC-3): a repository-controlled file name with control characters never reaches the terminal as such', () => {
+  const evil = 'post-\x1b[31mcheckout';
+  const d = cloned('esc', { ...shippedHooks(), [evil]: HOSTILE });
+  const r = sb.pl(d, INIT);
+  assert.equal(r.status, 0, r.text);
+  assert.ok(!r.text.includes('\x1b'), JSON.stringify(r.text.split('\n').filter((l) => l.includes('post-'))));
+  assert.match(r.out, /post-\?\[31mcheckout is not a file proofline ships/, r.out);
+});
+
+// ---- the decisions, in process (R5: codeAudit is what init and doctor both ask; only a few runs below go through the real doctor) ---------------------------------
+
+/** An installed project (the hooks path set) with the hooks and scripts on disk. */
 const installed = (/** @type {string} */ name) => { const d = sb.copy(name); assert.equal(hp(d), '.agents/githooks'); return d; };
-const hooksLines = (/** @type {string} */ out) => out.split('\n').filter((l) => /^(PASS|WARN|FAIL) git hooks:/.test(l));
+/** The audit of a project as `kind path` strings. */
+const audit = (/** @type {string} */ d) => { const a = codeAudit(d, repo, sb.env); assert.equal(a.unreadable, false); return a.problems.map((p) => `${p.kind} ${p.rel}`).sort(); };
+const SKILL_SCRIPT = [...shippedCode(repo).keys()].find((k) => /^\.agents\/skills\/[^/]+\/scripts\/[^/]+\.mjs$/.test(k)) ?? '';
+const crlfOf = (/** @type {string} */ f) => writeFileSync(f, Buffer.from(readFileSync(f, 'latin1').replace(/\r?\n/g, '\r\n'), 'latin1'));
 
-test('A249 doctor: a hook that differs from the shipped sha256 FAILs (and names proofline upgrade for the stale case); a restored copy passes again', () => {
-  const d = installed('doc-mod');
-  assert.match(hooksLines(doctor(d).out).join('\n'), /^PASS git hooks: .*identical to the shipped copies/);
-  writeExec(`${d}/.agents/githooks/pre-push`, HOSTILE);
-  const r = doctor(d);
-  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/pre-push differs from the copy proofline ships \(sha256 mismatch\)[^\n]*If you did not edit it \(an older proofline left it\), run: proofline upgrade; otherwise review it/m, r.out);
-  assert.notEqual(r.status, 0);
-  copyFileSync(`${SHIPPED}/pre-push`, `${d}/.agents/githooks/pre-push`); chmodSync(`${d}/.agents/githooks/pre-push`, 0o755);
-  assert.match(doctor(d).out, /^PASS git hooks: /m);
+test('A249 codeAudit: a modified hook, script, Node hook or skill script, a link, an extra file, a linked folder and a tracked extra are found; a clean install has no problem', () => {
+  assert.ok(SKILL_SCRIPT !== '', 'no shipped skill script found');
+  assert.deepEqual(audit(installed('au-clean')), []);
+  /** @type {Array<[string, (d: string) => void, string]>} */
+  const cases = [
+    ['au-hook', (d) => writeExec(`${d}/.agents/githooks/pre-push`, HOSTILE), 'differs .agents/githooks/pre-push'],
+    ['au-link', (d) => { copyFileSync(`${SHIPPED}/pre-commit`, `${d}/real-copy`); rmSync(`${d}/.agents/githooks/pre-commit`); symlinkSync(`${d}/real-copy`, `${d}/.agents/githooks/pre-commit`); }, 'link .agents/githooks/pre-commit'],
+    ['au-extra', (d) => writeExec(`${d}/.agents/githooks/post-merge`, HOSTILE), 'extra .agents/githooks/post-merge'],
+    ['au-dirlink', (d) => { spawnSync('mv', [`${d}/.agents/githooks`, `${d}/hooks-real`]); symlinkSync(`${d}/hooks-real`, `${d}/.agents/githooks`); }, 'link .agents/githooks'],
+    ['au-core', (d) => writeExec(`${d}/.agents/scripts/proofline-core.mjs`, coreWriting(marker())), 'differs .agents/scripts/proofline-core.mjs'],
+    ['au-nodehook', (d) => writeFileSync(`${d}/.agents/hooks/lib/zz-extra.mjs`, 'export {};\n'), 'extra .agents/hooks/lib/zz-extra.mjs'],
+    ['au-skill', (d) => writeExec(`${d}/${SKILL_SCRIPT}`, coreWriting(marker())), `differs ${SKILL_SCRIPT}`],
+    ['au-missing', (d) => rmSync(`${d}/${SKILL_SCRIPT}`), `missing ${SKILL_SCRIPT}`],
+  ];
+  for (const [name, mutate, want] of cases) {
+    const d = installed(name); mutate(d);
+    const got = audit(d);
+    assert.ok(got.includes(want), `${name}: ${want} not in ${JSON.stringify(got)}`);
+  }
+  // tracked: a file that proofline does not ship, committed, then deleted from the working tree (git restore brings it back)
+  const t = installed('au-tracked');
+  writeExec(`${t}/.agents/hooks/zz.mjs`, 'export {};\n'); git(t, ['add', '-A']); git(t, ['commit', '-q', '-m', 'extra']);
+  rmSync(`${t}/.agents/hooks/zz.mjs`);
+  assert.ok(audit(t).includes('extra .agents/hooks/zz.mjs'), String(audit(t)));
 });
 
-test('A249 doctor: a hook that is a symbolic link FAILs even when its target has the shipped content; so does an extra file and a linked folder', () => {
-  const d = installed('doc-link');
-  copyFileSync(`${SHIPPED}/pre-commit`, `${d}/real-copy`); chmodSync(`${d}/real-copy`, 0o755);
-  spawnSync('rm', [`${d}/.agents/githooks/pre-commit`]);
-  symlinkSync(`${d}/real-copy`, `${d}/.agents/githooks/pre-commit`);
-  const r = doctor(d);
-  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/pre-commit is a symbolic link; git would run its target/m, r.out);
-  assert.doesNotMatch(r.out, /^PASS git hooks:/m);
-  const e = installed('doc-extra');
-  writeExec(`${e}/.agents/githooks/post-merge`, HOSTILE);
-  const re = doctor(e);
-  assert.match(re.out, /^FAIL git hooks: \.agents\/githooks\/post-merge is not a file proofline ships/m, re.out);
-  assert.doesNotMatch(re.out, /^PASS git hooks:/m);
-  const f = installed('doc-dirlink');
-  spawnSync('mv', [`${f}/.agents/githooks`, `${f}/hooks-real`]);
-  symlinkSync(`${f}/hooks-real`, `${f}/.agents/githooks`);
-  assert.match(doctor(f).out, /^FAIL git hooks: \.agents\/githooks is a symbolic link or not a folder/m);
+test('A249 codeAudit (R2): CRLF line ends (core.autocrlf=true) are the same file for JS, JSON and Markdown, in the working tree and in a CRLF blob; a shell script and a git hook stay exact and say line endings', () => {
+  const d = installed('au-crlf');
+  const rows = readFileSync(`${d}/.agents/.proofline-manifest`, 'utf8').split('\n').filter((l) => l !== '' && !l.startsWith('#')).map((l) => l.replace(/^\S+\s+/, ''));
+  for (const rel of new Set([...rows, ...shippedCode(repo).keys()])) if (existsSync(`${d}/${rel}`)) crlfOf(`${d}/${rel}`);
+  const a = codeAudit(d, repo, sb.env);
+  assert.deepEqual(a.problems.filter((p) => /\.(mjs|js|json|md)$/.test(p.rel)), [], 'a CRLF JS file counted as different');
+  const hook = a.problems.find((p) => p.rel === '.agents/githooks/pre-commit');
+  assert.equal(hook?.kind, 'differs', 'a shell hook with CR line ends must stay different');
+  assert.equal(hook?.eol, true);
+  assert.match(problemText(/** @type {any} */ (hook)), /except for its line endings \(CRLF/);
+  // the same, committed as CRLF (autocrlf=false at add time): the blobs of JS files are proofline's copy too
+  git(d, ['-c', 'core.autocrlf=false', 'add', '-A']); git(d, ['commit', '-q', '-m', 'crlf']);
+  assert.deepEqual(audit(d).filter((p) => /\.(mjs|js|json|md)$/.test(p)), []);
+  // doctor: the hook says line endings, and the manifest counts only the files that really differ (the shell scripts, configs ...)
+  const rd = doctor(d);
+  assert.match(rd.out, /^FAIL git hooks: \.agents\/githooks\/pre-commit is proofline's copy except for its line endings/m, rd.out);
+  const expected = rows.filter((rel) => !/\.(mjs|js|cjs|json|md)$/.test(rel) && existsSync(`${d}/${rel}`) && readFileSync(`${d}/${rel}`, 'latin1').includes('\r\n')).length;
+  assert.match(rd.out, new RegExp(`^WARN manifest: ${expected} installed file\\(s\\) differ`, 'm'), `${expected}: ${rd.out}`);
+  // init on that checkout: one summary line instead of one per file, and the cause named with the one-line fix
+  rmSync(`${d}/.agents/.proofline-manifest`); // a fresh clone that has no manifest: every differing file counts as the user's
+  const r = sb.pl(d, ['init', '--yes', '--runtimes', 'claude,codex']);
+  assert.equal(r.status, 0, r.text);
+  const kept = r.out.split('\n').filter((l) => /^ {2}= kept/.test(l));
+  assert.equal(kept.length, 1, kept.join('\n'));
+  assert.match(kept[0], /^ {2}= kept {6}\d+ files differ from proofline's version and are untouched \(first 5: /);
+  // exactly the files that cannot be read alike with CRLF (shell scripts, configs ...) are kept; no JS, JSON or Markdown file is among them
+  assert.equal(Number(/= kept {6}(\d+) files/.exec(kept[0])?.[1]), expected, kept[0]);
+  assert.match(r.out, /git config core\.autocrlf false/, r.out);
+  assert.match(r.out, /proofline's copy except for its line endings/, r.out);
 });
 
-test('A249 doctor (R1): a modified script or Node hook, and a kept file the manifest does not list, FAIL; "manifest: every installed file matches" cannot pass over them', () => {
-  const d = installed('doc-core');
-  const core = `${d}/.agents/scripts/proofline-core.mjs`;
-  writeExec(core, coreWriting(marker()));
-  const r = doctor(d);
-  assert.match(r.out, /^FAIL code: 1 script or hook file\(s\) of \.agents are not proofline's shipped copy \(\.agents\/scripts\/proofline-core\.mjs differs from proofline's copy\)/m, r.out);
-  assert.doesNotMatch(r.out, /^PASS manifest: every installed file matches/m);
-  assert.notEqual(r.status, 0);
-  // the manifest does not list it (a kept file is never recorded): the manifest line must not pass either
-  const e = installed('doc-unlisted');
-  const mf = `${e}/.agents/.proofline-manifest`;
-  writeFileSync(mf, readFileSync(mf, 'utf8').split('\n').filter((l) => !l.endsWith('  .agents/scripts/proofline-core.mjs')).join('\n'));
-  assert.doesNotMatch(doctor(e).out, /^PASS manifest: every installed file matches/m);
-  // a Node hook file
-  const f = installed('doc-nodehook');
-  writeFileSync(`${f}/.agents/hooks/lib/zz-extra.mjs`, 'export {};\n');
-  assert.match(doctor(f).out, /^FAIL code: .*\.agents\/hooks\/lib\/zz-extra\.mjs is not a file proofline ships/m);
+test('A249 codeAudit: the case-insensitive file system (core.ignorecase=true): a tracked ".agents/Scripts/..." that collides with a shipped path is found even after it was deleted from the working tree', (t) => {
+  const d = sb.mkrepo('icase');
+  writeFileSync(`${d}/probe-Case`, ''); const folds = existsSync(`${d}/probe-case`);
+  if (!folds) { t.skip('this file system is case-sensitive'); return; }
+  assert.equal(git(d, ['config', '--get', 'core.ignorecase']).stdout.trim(), 'true');
+  writeExec(`${d}/.agents/Scripts/agent.sh`, HOSTILE); writeExec(`${d}/.agents/Scripts/zz-evil.sh`, HOSTILE);
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'collide']);
+  rmSync(`${d}/.agents/Scripts`, { recursive: true });
+  const got = audit(d);
+  assert.ok(got.includes('extra .agents/Scripts/agent.sh'), `the colliding shipped name was not found: ${JSON.stringify(got)}`);
+  assert.ok(got.includes('extra .agents/Scripts/zz-evil.sh'), `the extra file was not found: ${JSON.stringify(got)}`);
+  // init does not set the path over it
+  const r = sb.pl(d, INIT);
+  assert.equal(r.status, 0, r.text);
+  assert.equal(hp(d), '');
+  assert.match(r.out, NOT_SET, r.out);
 });
 
-// ---- SECURITY-1: doctor runs no project code that differs ----------------------------------------------------------------------------------------------
+test('A249 matchers: a tool that never fires, a list missing a tool and a regular-expression lookalike are narrower than the shipped matcher; empty, * and the shipped list are wide enough', () => {
+  const shortList = SHIPPED_PRE.split('|').slice(0, -1).join('|');
+  for (const [have, ok] of /** @type {Array<[string, boolean]>} */ ([['NoSuchTool', false], [shortList, false], [`(?!)(|${SHIPPED_PRE})`, false], ['', true], ['*', true], [SHIPPED_PRE, true]])) {
+    assert.equal(matcherCovers(have, SHIPPED_PRE, 'PreToolUse'), ok, `'${have}'`);
+  }
+});
 
-test('A249 doctor (SECURITY-1): hostile committed hooks AND a hostile proofline-core.mjs are not run by doctor, probes included; a clean install\'s probes still pass (the one test with probes)', () => {
+// ---- the real doctor: a few end-to-end runs ---------------------------------------------------------------------------------------------------------
+
+test('A249 doctor (SECURITY-1): hostile committed hooks AND a hostile proofline-core.mjs are not run by doctor; a clean install\'s probes pass with a minimal environment (the one test with probes)', () => {
   const m = marker();
   const d = installed('doc-hostile');
   writeExec(`${d}/.agents/githooks/pre-commit`, hookWriting(m));
@@ -276,21 +336,19 @@ test('A249 doctor (SECURITY-1): hostile committed hooks AND a hostile proofline-
   const re = sb.pl(e, ['doctor']);
   assert.equal(existsSync(m), false, `doctor ran the project's core:\n${re.out}`);
   assert.match(re.out, /^WARN probes: skipped/m, re.out);
-  // SEC-1: a committed config.yaml that is a symbolic link to a file outside the project: the probes write nowhere but their own folder
+  assert.match(re.out, /^FAIL code: 1 script or hook file\(s\) of \.agents are not proofline's shipped copy \(\.agents\/scripts\/proofline-core\.mjs differs from proofline's copy\)/m, re.out);
+  assert.notEqual(re.status, 0);
+  // SEC-1: a committed config.yaml that is a symbolic link to a file outside the project: the probes write nowhere but their own folder; the probes of a clean install pass with
+  // SSH_AUTH_SOCK and a token set (neither reaches them)
   const g = installed('doc-cfglink');
   const outside = `${sb.T}/outside-config.yaml`;
   writeFileSync(outside, 'outside: untouched\n');
   rmSync(`${g}/.agents/config.yaml`); symlinkSync(outside, `${g}/.agents/config.yaml`);
-  const rg = sb.pl(g, ['doctor']);
+  const rg = sb.pl(g, ['doctor'], { SSH_AUTH_SOCK: '/nonexistent/agent', GITHUB_TOKEN: 'secret-token' });
   assert.equal(readFileSync(outside, 'utf8'), 'outside: untouched\n', `a probe wrote through the symlinked config:\n${rg.out}`);
   assert.match(rg.out, /^PASS probe: pre-commit blocks a forbidden identity/m, rg.out);
-  // a clean install: the probes run the shipped hooks and pass, with a minimal environment
-  const c = installed('doc-clean');
-  const rc = sb.pl(c, ['doctor'], { SSH_AUTH_SOCK: '/nonexistent/agent', GITHUB_TOKEN: 'secret-token' });
-  assert.match(rc.out, /^PASS probe: pre-commit blocks a forbidden identity/m, rc.out);
-  assert.match(rc.out, /^PASS probe: pre-push blocks a push without approval/m, rc.out);
-  assert.match(rc.out, /^PASS probe: the Claude PreToolUse hook denies a lead edit of product code during a run/m, rc.out);
-  assert.doesNotMatch(rc.out, /^FAIL /m, rc.out);
+  assert.match(rg.out, /^PASS probe: pre-push blocks a push without approval/m, rg.out);
+  assert.match(rg.out, /^PASS probe: the Claude PreToolUse hook denies a lead edit of product code during a run/m, rg.out);
 });
 
 test('A249 doctor (SECURITY-1): the probe environment is an allowlist, HOME is the throwaway folder, no credential or agent socket reaches it', () => {
@@ -300,99 +358,124 @@ test('A249 doctor (SECURITY-1): the probe environment is an allowlist, HOME is t
   assert.equal(env.GIT_CONFIG_GLOBAL, '/dev/null');
 });
 
+test('A249 doctor (R1): a modified git hook alone does not make doctor skip the config check and the approval timing (it never starts a git hook); the hook itself FAILs', () => {
+  const d = installed('doc-hook-only');
+  writeExec(`${d}/.agents/githooks/pre-push`, HOSTILE);
+  // and, in the same run, a hook that is a link to a file with the shipped content, and an extra hook name
+  copyFileSync(`${SHIPPED}/pre-commit`, `${d}/real-copy`); chmodSync(`${d}/real-copy`, 0o755);
+  rmSync(`${d}/.agents/githooks/pre-commit`); symlinkSync(`${d}/real-copy`, `${d}/.agents/githooks/pre-commit`);
+  writeExec(`${d}/.agents/githooks/post-merge`, HOSTILE);
+  const r = doctor(d);
+  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/pre-commit is a symbolic link; git would run its target/m, r.out);
+  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/post-merge is not a file proofline ships/m, r.out);
+  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/pre-push differs from the copy proofline ships \(sha256 mismatch\)[^\n]*If you did not edit it \(an older proofline left it\), run: proofline upgrade; otherwise review it/m, r.out);
+  assert.match(r.out, /^PASS config: /m, r.out);
+  assert.match(r.out, /^PASS approval path: /m, r.out);
+  assert.doesNotMatch(r.out, /^WARN doctor: the config check/m, r.out);
+  assert.doesNotMatch(r.out, /^PASS git hooks:/m, r.out);
+  assert.notEqual(r.status, 0);
+});
+
+test('A249 doctor (R1): a missing shipped file is a broken install (FAIL engine, or WARN for a skill script), never "code"; a hostile manifest that omits its row still shows it; doctor does not crash', () => {
+  const d = installed('doc-missing');
+  const gone = '.agents/scripts/core/leftover.mjs';
+  rmSync(`${d}/${gone}`); rmSync(`${d}/${SKILL_SCRIPT}`);
+  const mf = `${d}/.agents/.proofline-manifest`;
+  writeFileSync(mf, readFileSync(mf, 'utf8').split('\n').filter((l) => !l.endsWith(`  ${gone}`) && !l.endsWith(`  ${SKILL_SCRIPT}`)).join('\n'));
+  const r = doctor(d);
+  assert.match(r.out, new RegExp(`^FAIL engine: 1 file\\(s\\) proofline ships are missing from \\.agents \\(${gone.replace(/[.]/g, '\\.')}\\)`, 'm'), r.out);
+  assert.match(r.out, new RegExp(`^WARN engine: 1 skill script\\(s\\) proofline ships are missing \\(${SKILL_SCRIPT.replace(/[.]/g, '\\.')}\\)`, 'm'), r.out);
+  assert.doesNotMatch(r.out, /^FAIL code:/m, r.out);
+  assert.doesNotMatch(r.out, /^PASS engine:/m, r.out);
+  assert.match(r.out, /^doctor: \d+ FAIL, \d+ WARN$/m, 'doctor did not finish');
+  assert.notEqual(r.status, 0);
+});
+
+test('A249 doctor (R3): proofline\'s file on disk over an older staged or committed blob (the state right after an upgrade) is a WARN that says to commit; a file that also differs on disk stays a FAIL', () => {
+  const d = installed('doc-lag');
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'install']);
+  const core = `${d}/.agents/scripts/proofline-core.mjs`; const hook = `${d}/.agents/githooks/pre-commit`; const nodeHook = `${d}/.agents/hooks/proofline-hook.mjs`;
+  const goodCore = readFileSync(core, 'utf8'); const goodHook = readFileSync(hook, 'utf8'); const goodNode = readFileSync(nodeHook, 'utf8');
+  // the old release: a committed older core and hook, and a committed older Node hook
+  writeExec(core, `// older\n${goodCore}`); writeExec(hook, `${goodHook}# older\n`); writeExec(nodeHook, `// older\n${goodNode}`);
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'old release']);
+  writeExec(core, goodCore); writeExec(hook, goodHook);        // `upgrade` wrote proofline's new files, nobody committed them
+  writeExec(nodeHook, `// edited on disk too\n${goodNode}`);     // this one differs on disk as well
+  const r = doctor(d);
+  assert.match(r.out, /^WARN code: 2 file\(s\) are staged and committed \(HEAD\) with content that is not proofline's copy, while the file on disk is proofline's \(.*proofline-core\.mjs.*\)\. Right after `proofline upgrade` that is expected: commit proofline's copy \(git add \.agents && git commit\)/m, r.out);
+  assert.match(r.out, /pre-commit/, r.out);
+  assert.doesNotMatch(r.out, /^PASS git hooks:/m, 'the PASS is not printed over a lagging hook');
+  const fails = r.out.split('\n').filter((l) => l.startsWith('FAIL code:'));
+  assert.equal(fails.length, 1, fails.join('\n'));
+  assert.match(fails[0], /1 script or hook file\(s\) of \.agents are not proofline's shipped copy \(\.agents\/hooks\/proofline-hook\.mjs differs/, fails[0]);
+  // only the lag: exit status 0
+  writeExec(nodeHook, goodNode);
+  const ok = doctor(d);
+  assert.match(ok.out, /^WARN code: 3 file\(s\) are staged and committed/m, ok.out);
+  assert.doesNotMatch(ok.out, /^FAIL /m, ok.out);
+  assert.equal(ok.status, 0, ok.out);
+});
+
+test('A249 doctor and init (SEC-3, round 3): repository text reaches the terminal without control characters on EVERY route: a foreign hook command, a skill folder name, a JSON error, a line relayed from the core, and init\'s own output', () => {
+  const esc = '\x1b[2K\x1b[1A\x1b[8m';
+  const d = installed('doc-esc-all');
+  const sf = `${d}/.claude/settings.json`;
+  const j = JSON.parse(readFileSync(sf, 'utf8'));
+  j.hooks.SessionStart.push({ hooks: [{ type: 'command', command: `echo ${esc}hidden` }] });
+  writeFileSync(sf, JSON.stringify(j, null, 2));
+  mkdirSync(`${d}/.claude/skills/tdd-${esc}`, { recursive: true });
+  writeFileSync(`${d}/.claude/settings.local.json`, `[${esc}]`);
+  const cfg = `${d}/.agents/config.yaml`;
+  writeFileSync(cfg, `${readFileSync(cfg, 'utf8')}\nrules:\n  budget_bytes: 1${esc}x\n`);
+  const r = doctor(d);
+  assert.doesNotMatch(r.out, /[\x00-\x09\x0b-\x1f\x7f-\x9f]/, JSON.stringify(r.out.split('\n').filter((l) => /[\x00-\x09\x0b-\x1f\x7f-\x9f]/.test(l))));
+  assert.match(r.out, /^WARN foreign hook: SessionStart in \S*\.claude\/settings\.json may add context to the prompt: echo \?\[2K\?\[1A\?\[8mhidden/m, r.out);
+  assert.match(r.out, /^WARN overlapping skill: tdd-\?\[2K\?\[1A\?\[8m /m, r.out);
+  assert.match(r.out, /^FAIL claude hooks: \.claude\/settings\.local\.json is not a valid JSON object \(.*\?\[2K/m, r.out);
+  assert.match(r.out, /^FAIL config: agent\.sh config-check failed: .*invalid number for rules\.budget_bytes: 1\?\[2K/m, r.out); // a line relayed from the core
+  // the final verdict line cannot be hidden: it is the last line and plain
+  assert.match(r.out.trimEnd().split('\n').pop() ?? '', /^doctor: \d+ FAIL, \d+ WARN$/);
+  // init and upgrade: a path named by the manifest (the repository's) in the orphan list
+  const mf = `${d}/.agents/.proofline-manifest`;
+  const rel = `.agents/old${esc}file.txt`;
+  writeFileSync(`${d}/${rel}`, 'mine');
+  writeFileSync(mf, `${readFileSync(mf, 'utf8')}${'0'.repeat(64)}  ${rel}\n`);
+  const up = sb.pl(d, ['upgrade', '--yes']);
+  assert.doesNotMatch(up.text, /[\x00-\x09\x0b-\x1f\x7f]/, JSON.stringify(up.text.split('\n').filter((l) => /\x1b/.test(l))));
+  assert.match(up.out, /\? \.agents\/old\?\[2K\?\[1A\?\[8mfile\.txt \(modified, no longer shipped; kept\)/, up.out);
+});
+
 // ---- settings (item 2 of the review; A238 closed it for the project files, R2 adds the user's and the managed ones) ---------------------------------------------
 
-/** Rewrite the project's settings.json with FN and run doctor. */
-function withSettings(/** @type {string} */ name, /** @type {(j: any) => void} */ fn, /** @type {string} */ file = 'settings.json', /** @type {NodeJS.ProcessEnv} */ extra = {}) {
-  const d = installed(name);
-  const f = `${d}/.claude/${file}`;
-  /** @type {any} */ let j = {};
-  try { j = JSON.parse(readFileSync(f, 'utf8')); } catch { /* a new file */ }
-  fn(j);
-  writeFileSync(f, `${JSON.stringify(j, null, 2)}\n`);
-  return doctor(d, extra);
-}
 const SHIPPED_PRE = JSON.parse(readFileSync(path.join(repo, 'adapters', 'claude', 'settings.fragment.json'), 'utf8')).hooks.PreToolUse[0].matcher;
-const everyMatcher = (/** @type {any} */ j, /** @type {string} */ m) => { for (const groups of Object.values(/** @type {Record<string, any[]>} */ (j.hooks))) for (const g of groups) if (g.matcher !== undefined) g.matcher = m; };
 
-test('A249 settings (item 2): a matcher that names a tool that never fires, a list missing a tool, a regular-expression lookalike and disableAllHooks FAIL; empty and * matchers are wide enough', () => {
-  const never = withSettings('set-never', (j) => { everyMatcher(j, 'NoSuchTool'); j.disableAllHooks = true; });
-  assert.doesNotMatch(never.out, /^PASS claude hooks: .*wires all 7/m, never.out);
-  assert.match(never.out, /^FAIL claude hooks: .*narrower matcher.*PreToolUse/m, never.out);
-  assert.match(never.out, /^FAIL claude hooks: disableAllHooks is true in \.claude\/settings\.json/m, never.out);
-  assert.notEqual(never.status, 0);
-  const missing = withSettings('set-missing', (j) => { j.hooks.PreToolUse[0].matcher = SHIPPED_PRE.split('|').slice(0, -1).join('|'); });
-  assert.match(missing.out, /^FAIL claude hooks: .*narrower matcher.*PreToolUse/m, missing.out);
-  const regex = withSettings('set-regex', (j) => { j.hooks.PreToolUse[0].matcher = `(?!)(|${SHIPPED_PRE})`; });
-  assert.match(regex.out, /^FAIL claude hooks: .*narrower matcher.*PreToolUse/m, regex.out);
-  for (const wide of ['', '*']) {
-    const ok = withSettings(`set-wide-${wide === '' ? 'empty' : 'star'}`, (j) => { j.hooks.PreToolUse[0].matcher = wide; });
-    assert.doesNotMatch(ok.out, /narrower matcher/, `'${wide}': ${ok.out}`);
-    assert.match(ok.out, /^PASS claude hooks: .*wires all 7/m, `'${wide}': ${ok.out}`);
-  }
-  const local = withSettings('set-local', (j) => { j.disableAllHooks = true; }, 'settings.local.json');
-  assert.match(local.out, /^FAIL claude hooks: disableAllHooks is true in \.claude\/settings\.local\.json/m, local.out);
+test('A249 settings (item 2): a never-firing matcher and disableAllHooks in the project or local settings FAIL', () => {
+  const d = installed('set-never');
+  const f = `${d}/.claude/settings.json`;
+  const j = JSON.parse(readFileSync(f, 'utf8'));
+  for (const groups of Object.values(/** @type {Record<string, any[]>} */ (j.hooks))) for (const g of groups) if (g.matcher !== undefined) g.matcher = 'NoSuchTool';
+  j.disableAllHooks = true;
+  writeFileSync(f, `${JSON.stringify(j, null, 2)}\n`);
+  writeFileSync(`${d}/.claude/settings.local.json`, '{"disableAllHooks": true}\n');
+  const r = doctor(d);
+  assert.doesNotMatch(r.out, /^PASS claude hooks: .*wires all 7/m, r.out);
+  assert.match(r.out, /^FAIL claude hooks: .*narrower matcher.*PreToolUse/m, r.out);
+  assert.match(r.out, /^FAIL claude hooks: disableAllHooks is true in \.claude\/settings\.json/m, r.out);
+  assert.match(r.out, /^FAIL claude hooks: disableAllHooks is true in \.claude\/settings\.local\.json/m, r.out);
+  assert.notEqual(r.status, 0);
 });
 
 test('A249 settings (R2): disableAllHooks in the user\'s ~/.claude/settings.json or in the managed settings FAILs; false and absent do not', () => {
   const home = mkdtempSync(`${sb.T}/uhome-`);
   mkdirSync(`${home}/.claude`);
   const d = installed('set-user');
+  const managed = `${sb.T}/managed-settings.json`;
   writeFileSync(`${home}/.claude/settings.json`, '{"disableAllHooks": true}\n');
-  const r = doctor(d, { HOME: home });
+  writeFileSync(managed, '{"disableAllHooks": true}\n');
+  const r = doctor(d, { HOME: home, PROOFLINE_CLAUDE_MANAGED_SETTINGS: managed });
   assert.match(r.out, /^FAIL claude hooks: disableAllHooks is true in ~\/\.claude\/settings\.json/m, r.out);
+  assert.match(r.out, /^FAIL claude hooks: disableAllHooks is true in the managed settings/m, r.out);
   assert.doesNotMatch(r.out, /^PASS claude hooks: .*wires all 7/m, r.out);
   writeFileSync(`${home}/.claude/settings.json`, '{"disableAllHooks": false}\n');
   assert.doesNotMatch(doctor(d, { HOME: home }).out, /disableAllHooks is/);
-  const managed = `${sb.T}/managed-settings.json`;
-  writeFileSync(managed, '{"disableAllHooks": true}\n');
-  const rm = doctor(d, { HOME: home, PROOFLINE_CLAUDE_MANAGED_SETTINGS: managed });
-  assert.match(rm.out, /^FAIL claude hooks: disableAllHooks is true in the managed settings/m, rm.out);
-});
-
-// ---- round 2: tracked extras, skill scripts, terminal control characters ------------------------------------------------------------------------------------
-
-test('A249 init and doctor (SEC-2): a TRACKED extra file in .agents/scripts keeps the path unset after the user deleted it from the working tree; doctor FAILs', () => {
-  const d = cloned('tracked-extra', shippedHooks());
-  writeExec(`${d}/.agents/scripts/secret-scan.sh`, HOSTILE);
-  git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'scanner']);
-  rmSync(`${d}/.agents/scripts/secret-scan.sh`);
-  const r = sb.pl(d, INIT);
-  assert.equal(r.status, 0, r.text);
-  assert.equal(hp(d), '', 'the path was set although HEAD tracks a script that proofline does not ship');
-  assert.match(r.out, /\.agents\/scripts\/secret-scan\.sh is not a file proofline ships/, r.out);
-  git(d, ['checkout', '--', '.agents/scripts/secret-scan.sh']);
-  assert.equal(readFileSync(`${d}/.agents/scripts/secret-scan.sh`, 'utf8'), HOSTILE, 'what the attack relies on: a restore brings it back');
-  const i = installed('doc-tracked-extra');
-  git(i, ['add', '-A']); git(i, ['commit', '-q', '-m', 'install']);
-  writeExec(`${i}/.agents/hooks/zz.mjs`, 'export {};\n');
-  git(i, ['add', '-A']); git(i, ['commit', '-q', '-m', 'extra']);
-  rmSync(`${i}/.agents/hooks/zz.mjs`);
-  const rd = doctor(i);
-  assert.match(rd.out, /^FAIL code: .*\.agents\/hooks\/zz\.mjs is not a file proofline ships/m, rd.out);
-});
-
-test('A249 doctor: a modified skill script that the core starts FAILs and is not run', () => {
-  const rel = [...shippedCode(repo).keys()].find((k) => /^\.agents\/skills\/[^/]+\/scripts\/[^/]+\.mjs$/.test(k));
-  assert.ok(rel, 'no shipped skill script found');
-  const d = installed('doc-skill-script');
-  const m = marker();
-  writeExec(`${d}/${rel}`, coreWriting(m));
-  const r = doctor(d);
-  assert.match(r.out, new RegExp(`^FAIL code: .*${rel.replace(/[.]/g, '\\.')} differs from proofline's copy`, 'm'), r.out);
-  assert.equal(existsSync(m), false);
-});
-
-test('A249 messages (SEC-3): a repository-controlled file name with control characters never reaches the terminal as such, in init and in doctor', () => {
-  const evil = 'post-\x1b[31mcheckout';
-  const d = cloned('esc', { ...shippedHooks(), [evil]: HOSTILE });
-  const r = sb.pl(d, INIT);
-  assert.equal(r.status, 0, r.text);
-  assert.ok(!r.text.includes('\x1b'), JSON.stringify(r.text.split('\n').filter((l) => l.includes('post-'))));
-  assert.match(r.out, /post-\?\[31mcheckout is not a file proofline ships/, r.out);
-  const i = installed('doc-esc');
-  writeExec(`${i}/.agents/githooks/${evil}`, HOSTILE);
-  const rd = doctor(i);
-  assert.ok(!rd.text.includes('\x1b'), 'doctor printed the escape character');
-  assert.match(rd.out, /^FAIL git hooks: \.agents\/githooks\/post-\?\[31mcheckout is not a file proofline ships/m, rd.out);
 });

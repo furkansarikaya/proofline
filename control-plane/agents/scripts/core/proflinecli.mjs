@@ -16,6 +16,7 @@ import { Context } from './context.mjs';
 import { CliDie, fdWriter, readLine } from './cliio.mjs';
 import { ProoflineError } from './errors.mjs';
 import { doctorCommand } from './doctor.mjs';
+import { cleanBytes } from './codetrust.mjs';
 import { hgit } from './hgit.mjs';
 import { insightsFront } from './insightsfront.mjs';
 import { cmdInit, cmdUpgrade, u } from './install.mjs';
@@ -415,7 +416,8 @@ class Cli {
   /** @returns {{ root: string, plHome: string, version: string, env: NodeJS.ProcessEnv, ui: import('./install.mjs').Ui }} */
   installCtx() {
     const ui = {
-      say: (/** @type {string} */ l) => this.say(l), warn: (/** @type {string} */ l) => this.warn(l), interactive: this.interactive || this.env.PROOFLINE_PROMPT === '1',
+      // init and upgrade print names that come from the repository (a file name, a path): no control character reaches the terminal (A249 SEC-3)
+      say: (/** @type {string} */ l) => this.say(cleanBytes(l)), warn: (/** @type {string} */ l) => this.warn(cleanBytes(l)), interactive: this.interactive || this.env.PROOFLINE_PROMPT === '1',
       ask: (/** @type {string} */ prompt, /** @type {string} */ def) => { this.errRaw(`${prompt} [${def}]: `); const a = readLine(); return a === null || a === '' ? def : a; },
     };
     return { root: this.root, plHome: this.plHome, version: PROOFLINE_VERSION, env: this.env, ui };
