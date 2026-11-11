@@ -37,6 +37,13 @@ test('checks needs every job except the nightly-only measurement hook-windows, a
   assert.deepEqual(jobNames.filter((n) => !listed.includes(n) && n !== 'checks'), ['hook-windows']);
 });
 
+test('A250: the Windows hook leg is a gate of the nightly and manual runs: no continue-on-error, not run on a pull request', () => {
+  const j = job('hook-windows');
+  assert.ok(j !== '');
+  assert.ok(!/continue-on-error/.test(j), 'hook-windows must not be a measurement any more');
+  assert.match(j, /github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
+});
+
 test('node --test gets globs, never a bare directory, in node-tests and types', () => {
   for (const n of ['node-tests', 'types']) assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(job(n)), n);
 });

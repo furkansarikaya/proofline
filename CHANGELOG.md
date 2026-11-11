@@ -4,7 +4,7 @@
 
 ## 0.0.84 — 2026-11-11
 
-- Change (A250, Part of #165): patterns from config.yaml and from user text no longer travel as an argument of grep or git grep (the MSYS tools of Windows drop the backslashes of an argument): `core/grepfile.mjs` passes them by file (`signals` grepEq, the forbidden-identity check) or stdin (`language` git grep `-f -`), `debt` has a pattern without a backslash, and the ERE translator declines an empty alternation branch (the platform answers). Windows items are marked untested (denenmedi). Carry-over from A249: tracked hook entries in a subfolder are not called missing from disk, an 8.3 short-name hit says to rename the file, and more Default_Ignorable_Code_Point characters are ignorable in a name.
+- Change (A250, Part of #165): patterns from config.yaml and from user text no longer travel as an argument of grep or git grep (the MSYS tools of Windows drop the backslashes of an argument): `core/grepfile.mjs` passes them by file (`signals` grepEq, the forbidden-identity check) or stdin (`language` git grep `-f -`), `debt` has a pattern without a backslash, and the ERE translator declines an empty alternation branch (the platform answers). The launcher spells the main tree as the shell does and `splitArgv0` compares paths in the / spelling on Windows: before, a run worktree's rewritten core could run there (found by the hook-windows dispatch run). The hook-windows CI leg is a gate of the nightly and manual runs. Windows items are marked untested (denenmedi). Carry-over from A249: tracked hook entries in a subfolder are not called missing from disk, an 8.3 short-name hit says to rename the file, and more Default_Ignorable_Code_Point characters are ignorable in a name.
 
 ## 0.0.83 — 2026-11-11
 
