@@ -274,6 +274,7 @@ const helpText = () => {
 export function compactSchema(schema) {
   const defs = schema.$defs ?? {};
   const J = (v) => JSON.stringify(v);
+  const JR = (v) => JSON.stringify(v, (k, x) => (x && x.$ref ? res(x) : x));
   const res = (n) => {
     n = n && n.$ref ? defs[n.$ref.split("/").pop()] : n === true || n === undefined ? {} : n;
     const parts = (n.allOf ?? []).filter((c) => !c.if).map(res);
@@ -291,7 +292,7 @@ export function compactSchema(schema) {
   const extraKeys = (n) => Object.keys(n).filter((k) => !KNOWN.has(k));
   const isObj = (n) => n.properties !== undefined;
   const arrOf = (n) => (n.type === "array" && n.items ? res(n.items) : null);
-  const simple = (n) => { n = res(n); const a = arrOf(n); return a ? simple(a) : n.oneOf ? n.oneOf.every(simple) : !isObj(n) || (!n.allOf && !extraKeys(n).length && Object.values(n.properties).every(simple)); };
+  const simple = (n) => { n = res(n); const a = arrOf(n); return a ? simple(a) : n.oneOf ? n.oneOf.every(simple) : !isObj(n) || (!n.allOf && !n.if && !extraKeys(n).length && Object.values(n.properties).every(simple)); };
   const leaf = (n) => {
     if ("const" in n) return `=${J(n.const)}`;
     if (n.enum) return n.enum.map((v) => (typeof v === "string" ? v : J(v))).join("|");
@@ -312,7 +313,7 @@ export function compactSchema(schema) {
   const inline = (n) => {
     n = res(n);
     const a = arrOf(n);
-    if (a) return `[${inline(a)}]`;
+    if (a) return `[${inline(a)}]${n.minItems ? ` min${n.minItems}` : ""}`;
     if (isObj(n)) return `{${members(n)}}${closed(n) ? "" : "+open"}`;
     return n.oneOf ? `(${n.oneOf.map(inline).join(" | ")})` : leaf(n);
   };
@@ -331,19 +332,19 @@ export function compactSchema(schema) {
       if (!simple(a ?? v)) {
         const sub = `${path}.${k}${a ? "[]" : ""}`;
         kids.push(...walk(a ?? v, sub));
-        return `${k}${mark}:${a ? `[see ${sub}]` : `see ${sub}`}`;
+        return `${k}${mark}:${a ? `[see ${sub}]${v.minItems ? ` min${v.minItems}` : ""}` : `see ${sub}`}`;
       }
       return `${k}${mark}:${inline(v)}`;
     });
     const extra = extraKeys(n);
     return [`${path} ${parts.join(" ")}${closed(n) ? "" : " +open"}`,
-      ...(n.allOf ?? []).map((c) => `${path} when ${J(c.if.properties ?? c.if)} then ${J(c.then)}${c.else ? ` else ${J(c.else)}` : ""}`),
+      ...[...(n.allOf ?? []), ...(n.if ? [n] : [])].map((c) => `${path} when ${J(c.if.properties ?? c.if)} then ${JR(c.then)}${c.else ? ` else ${JR(c.else)}` : ""}`),
       ...(extra.length ? [`${path} also ${J(Object.fromEntries(extra.map((k) => [k, n[k]])))}`] : []), ...kids];
   };
   return walk(schema, "$").join("\n") + "\n";
 }
 // compact-schema:end
-const schemaText = () => "# * required, ? optional, text = non-blank string, str+ = non-empty string, +open = other keys allowed, [x] = array of x, a|b = one of; the schema allows no other keys in the other objects (the script refuses most, not all, of them)\n"
+const schemaText = () => "# * required, ? optional, text = non-blank string, str+ = non-empty string, +open = other keys allowed, [x] = array of x, a|b = one of; the script refuses unknown keys in every object that is not marked +open\n"
   + compactSchema(JSON.parse(readFileSync(new URL("../schema/findings.schema.json", import.meta.url), "utf8")));
 
 function main(argv) {

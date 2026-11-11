@@ -19,6 +19,7 @@ const SCRIPTS = {
   "verify-proof": "skills/verify-proof/scripts/validate-verify.mjs",
   "qa-plan": "skills/qa-plan/scripts/validate-qa.mjs",
 };
+const EP_STRICT = ["$", "$.findings[]", "$.findings[].input", "$.findings[].reproduction", "$.suspicions[]"];
 const SCHEMAS = { "proof-review": "skills/proof-review/schema/findings.schema.json", "exploit-proof": "skills/exploit-proof/schema/findings.schema.json" };
 
 // The header comment of a script, read a second way (a regular expression over the text, not the line loop of the script).
@@ -68,6 +69,13 @@ test("--schema: equals the compact projection of the schema file, small, and one
   assert.equal(block(SCRIPTS["proof-review"]), block(SCRIPTS["exploit-proof"]));
 });
 
+test("exploit-proof --schema prints the head rule of target (if/then/else of the node) and the minimum hop counts", () => {
+  const out = run(SCRIPTS["exploit-proof"], "--schema").stdout;
+  assert.match(out, /\n\$\.target when \{"type":\{"const":"working_tree"\}\} then \{"properties":\{"head":\{"type":"null"\}\}\} else \{"properties":\{"head":\{"type":"string","pattern":"\\\\S"\}\}\}\n/);
+  assert.match(out, /path\*:\[\{[^\n]*\}\] min1 /);
+  assert.match(run(SCRIPTS["proof-review"], "--schema").stdout, /generated_at\*:string date-time/);
+});
+
 test("--help is a fraction of the script that holds it", () => {
   for (const skill of ["verify-proof", "qa-plan"]) {
     const h = Buffer.byteLength(run(SCRIPTS[skill], "--help").stdout);
@@ -85,12 +93,19 @@ test("compactSchema: $ref, allOf of refs, oneOf, enum, const, pattern, condition
       rows: { type: "array", items: { type: "object", additionalProperties: false, required: ["k"], properties: { k: { type: "string" }, extra: true },
         allOf: [{ if: { properties: { k: { const: "x" } } }, then: { required: ["extra"] } }] } },
       free: { type: "object", properties: { z: { type: "number" } } },
+      at: { type: "string", format: "date-time" }, n1: { type: "integer", minimum: 0, maximum: 9 }, n2: { type: "number", exclusiveMinimum: 1 },
+      list: { type: "array", minItems: 2, items: { type: "string" } },
+      cond: { type: "object", additionalProperties: false, required: ["t"], properties: { t: { enum: ["x", "y"] }, h: { type: ["string", "null"] } },
+        if: { properties: { t: { const: "x" } } }, then: { properties: { h: { type: "null" } } }, else: { properties: { h: { type: "string" } } } },
     },
   };
   assert.equal(compactPR(schema), [
-    "$ id*:string /^X\\d{3}$/ kind*:a|b note?:str+ loc*:{file*:text line*:integer>=1} alt*:({s*:=\"ran\"} | string) rows?:[see $.rows[]] free?:{z?:number}+open",
+    "$ id*:string /^X\\d{3}$/ kind*:a|b note?:str+ loc*:{file*:text line*:integer>=1} alt*:({s*:=\"ran\"} | string) rows?:[see $.rows[]] free?:{z?:number}+open at?:string date-time n1?:integer>=0<=9 n2?:number>1 list?:[string] min2 cond?:see $.cond",
     "$.rows[] k*:string extra?:any",
     "$.rows[] when {\"k\":{\"const\":\"x\"}} then {\"required\":[\"extra\"]}",
+    "$.cond t*:x|y h?:string|null",
+    // the if/then/else of the node itself (not in allOf): the head rule of exploit-proof's target is one
+    "$.cond when {\"t\":{\"const\":\"x\"}} then {\"properties\":{\"h\":{\"type\":\"null\"}}} else {\"properties\":{\"h\":{\"type\":\"string\"}}}",
     "",
   ].join("\n"));
 });
@@ -121,8 +136,18 @@ const EP_DOC = {
     guards: [{ location: loc("src/routes.js", 8), why_it_fails: "only checks that q is non-empty" }],
     evidence: "traced", why_not_reproduced: "no database in the sandbox", refutation: { verdict: "stands", citations: [loc("src/store.js", 42)] },
   }],
-  suspicions: [],
+  suspicions: [{ id: "S001", location: loc("src/a.js", 3), reason: "odd concat", why_unproven: "input source unclear" }],
 };
+// The same document with a reproduced finding, so that the walk reaches `reproduction`.
+const EP_REPRO = (() => {
+  const d = clone(EP_DOC);
+  const f = d.findings[0];
+  f.evidence = "reproduced";
+  delete f.why_not_reproduced;
+  f.reproduction = { test_file: "tests/ep.test.js", test_name: "ep leaks rows", command: "node --test tests/ep.test.js", exit_code: 0, runs: 3, passes: 3, assertion: "rows of tenant B are returned",
+    control_assertion: "plain value returns own rows", inverted_assertion: "fixed code returns none", output_excerpt: "ok 1 - ep leaks rows", saved_copy: "evidence/ep.test.js" };
+  return d;
+})();
 
 // Walks the schema file along a valid document: every object with `properties` yields its path, its required keys and its property names in order.
 function nodes(schema, doc) {
@@ -144,8 +169,8 @@ function nodes(schema, doc) {
   return out;
 }
 
-for (const [skill, validate, valid] of [["proof-review", validatePR, PR_DOC], ["exploit-proof", validateEP, EP_DOC]]) {
-  test(`${skill}: the validator accepts the fixture; every key --schema marks required is required, every enum value listed is the validator's, unknown keys are refused`, () => {
+for (const [skill, validate, valid] of [["proof-review", validatePR, PR_DOC], ["exploit-proof", validateEP, EP_DOC], ["exploit-proof", validateEP, EP_REPRO]]) {
+  test(`${skill}${valid === EP_REPRO ? " (reproduced)" : ""}: the validator accepts the fixture; every key --schema marks required is required, every enum value listed is the validator's, unknown keys are refused`, () => {
     assert.deepEqual(validate(clone(valid)), []);
     const out = run(SCRIPTS[skill], "--schema").stdout;
     const found = nodes(JSON.parse(text(SCHEMAS[skill])), valid);
@@ -176,16 +201,26 @@ for (const [skill, validate, valid] of [["proof-review", validatePR, PR_DOC], ["
         const errs = validate(d);
         assert.ok(errs.some((m) => m.includes(k)), `the validator does not require ${n.path}.${k}: ${errs.join(" | ")}`);
       }
-      // The hand-written exploit-proof validator refuses unknown keys in five places only (its schema file is stricter); the proof-review validator in all of them (A256 lists the difference).
-      if (n.closed && (skill === "proof-review" || ["$", "$.findings[]", "$.findings[].input", "$.findings[].reproduction", "$.suspicions[]"].includes(n.path))) {
+      // The legends: proof-review refuses an unknown key in every closed object; the hand-written exploit-proof validator in exactly five places (its schema file closes every object).
+      if (n.closed) {
         const d = clone(valid);
         const at = n.path.replace(/^\$\.?/, "").split(/\.|(?=\[\])/).filter(Boolean).reduce((o, p) => (p === "[]" ? o[0] : o[p]), d);
         at.zz_unknown = 1;
-        assert.ok(validate(d).some((m) => m.includes("zz_unknown")), `the validator accepts an unknown key in ${n.path}`);
+        const refused = validate(d).some((m) => m.includes("zz_unknown"));
+        const expected = skill === "proof-review" || EP_STRICT.includes(n.path);
+        assert.equal(refused, expected, `unknown key in ${n.path}: validator ${refused ? "refuses" : "accepts"}, the legend says ${expected ? "refuses" : "accepts"}`);
       }
     }
   });
 }
+
+test("the five places the exploit-proof legend names were all exercised, and the legend names them", () => {
+  const walked = new Set([EP_DOC, EP_REPRO].flatMap((d) => nodes(JSON.parse(text(SCHEMAS["exploit-proof"])), d).filter((n) => n.closed).map((n) => n.path)));
+  for (const p of EP_STRICT) assert.ok(walked.has(p), `${p} is never walked by the fixtures`);
+  const legend = readFileSync(file(SCRIPTS["exploit-proof"]), "utf8").match(/only in ([^`"]*?) \(the other/)[1];
+  assert.equal(legend, "$, each finding, its input, its reproduction and each suspicion");
+  assert.match(readFileSync(file(SCRIPTS["proof-review"]), "utf8"), /the script refuses unknown keys in every object that is not marked \+open/);
+});
 
 test("the skill texts point to --help and --schema instead of the script and the schema file", () => {
   assert.match(text("skills/proof-review/references/REPORTING.md"), /validate-findings\.mjs --schema/);
