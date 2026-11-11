@@ -17,7 +17,7 @@ const EXCEPT = /** @type {Record<string, [number, string]>} */ ({
   'core/githooks-trust.test.mjs': [1, 'inside the sandbox folder of the test, which the test removes'],
   'core/frontend-lib.mjs': [1, 'inside the test folder T'],
   'core/run6-corpnet.test.mjs': [1, 'in the home folder on purpose (a path outside the temp folder), removed in a finally'],
-  'core/run6-platform.test.mjs': [2, 'under tests/core/.fake-tools, which clean-temp prunes (cleanFakeTools)'],
+  'core/run6-platform.test.mjs': [2, 'under tests/core/.fake-tools/<pid>, which clean-temp prunes (cleanFakeTools)'],
   'ci/change-reason.test.mjs': [1, 'inside the test folder T'],
   'ci/sync-design-library.test.mjs': [2, 'inside the test folder T'],
   'fixtures/trees.mjs': [1, 'inside the folder the script removes itself'],

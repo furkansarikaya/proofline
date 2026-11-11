@@ -98,16 +98,38 @@ describe('what it removes', () => {
 });
 
 describe('the fake-tool folders of the checkout (A180)', () => {
-  test('<pid> and batch-<pid> folders of a dead process, and old ln-/cx- folders, go; a live pid, a young folder and other names stay', () => {
+  test('<pid> and batch-<pid> folders of a dead process go; a live pid, a young folder and other names (also ln-/cx-, which live inside a <pid> folder) stay', () => {
     const dir = tmp('ft');
-    folder(dir, '4242', 9); folder(dir, 'batch-4343', 9); folder(dir, '4444', 9); folder(dir, 'batch-4545', 1); folder(dir, 'ln-ABCDEF', 9); folder(dir, 'cx-ABCDEF', 1); folder(dir, 'notes', 99);
+    folder(dir, '4242', 9); folder(dir, 'batch-4343', 9); folder(dir, '4444', 9); folder(dir, 'batch-4545', 1); folder(dir, 'ln-ABCDEF', 9); folder(dir, 'notes', 99);
     const r = cleanFakeTools(dir, { now: NOW, isAlive: (/** @type {number} */ pid) => pid === 4444 });
-    assert.deepEqual(r.map((x) => path.basename(x.path)).sort(), ['4242', 'batch-4343', 'ln-ABCDEF']);
-    assert.deepEqual(readdirSync(dir).sort(), ['4444', 'batch-4545', 'cx-ABCDEF', 'notes']);
+    assert.deepEqual(r.map((x) => path.basename(x.path)).sort(), ['4242', 'batch-4343']);
+    assert.deepEqual(readdirSync(dir).sort(), ['4444', 'batch-4545', 'ln-ABCDEF', 'notes']);
+  });
+
+  test('a fake-tool root that is a link (a branch can commit one) is never entered, and nor is a plain file', () => {
+    const target = tmp('target'); folder(target, '2024', 99); folder(target, 'batch-7', 99);
+    const holder = tmp('holder'); const link = path.join(holder, '.fake-tools'); symlinkSync(target, link);
+    assert.deepEqual(cleanFakeTools(link, { now: NOW }), []);
+    assert.deepEqual(readdirSync(target).sort(), ['2024', 'batch-7']);
+    const file = path.join(holder, 'file'); writeFileSync(file, 'x'); assert.deepEqual(cleanFakeTools(file, { now: NOW }), []);
   });
 });
 
 describe('the command', () => {
+  test('the folder it works in is refused however it was given: --tmpdir or TMPDIR, any letter case of the home folder (compared by device and inode)', () => {
+    const script = path.join(import.meta.dirname, 'clean-temp.mjs');
+    const home = path.join(tmp('h'), 'Home'); mkdirSync(home); folder(home, 'pl-lib-AbC123', 9);
+    const run = (/** @type {string[]} */ args, /** @type {Record<string, string>} */ env) => spawnSync(process.execPath, [script, '--dry-run', ...args], { env: cleanEnv({ HOME: home, ...env }), encoding: 'utf8' });
+    for (const [args, env] of /** @type {Array<[string[], Record<string, string>]>} */ ([[['--tmpdir', home], {}], [[], { TMPDIR: home }], [[], { TMPDIR: path.dirname(home) }]])) {
+      const r = run(args, env);
+      assert.equal(r.status, 2, `${args} ${JSON.stringify(env)}: ${r.stdout}${r.stderr}`); assert.match(r.stderr, /refusing/); assert.equal(r.stdout, '');
+    }
+    const other = path.join(path.dirname(home), 'HOME');   // the same folder under another spelling on a case-insensitive file system; elsewhere it is not there and nothing is scanned
+    const r = run(['--tmpdir', other], {});
+    assert.ok(!r.stdout.includes('pl-lib-AbC123'), `the home folder was scanned through another spelling: ${r.stdout}`);
+    if (existsSync(other)) assert.equal(r.status, 2);
+  });
+
   test('without --tmpdir it also prunes the fake-tool folders of the checkout (and only those of a dead pid)', () => {
     const dir = tmp('tmp'); const ft = tmp('ft'); folder(ft, '999999999', 9); folder(ft, `${process.pid}`, 9);
     /** @type {string[]} */ const out = [];
@@ -122,7 +144,7 @@ describe('the command', () => {
     const home = tmp('home');
     for (const d of ['/', home, path.resolve(import.meta.dirname, '..', '..'), '', path.dirname(home)]) {
       const r = spawnSync(process.execPath, [script, '--dry-run', '--tmpdir', d], { env: cleanEnv({ HOME: home }), encoding: 'utf8' });
-      assert.equal(r.status, 2, `--tmpdir ${JSON.stringify(d)}: ${r.stdout}`); assert.match(r.stderr, /refusing --tmpdir|usage/);
+      assert.equal(r.status, 2, `--tmpdir ${JSON.stringify(d)}: ${r.stdout}`); assert.match(r.stderr, /refusing|usage/);
     }
     for (const h of ['0', '0.5', '-1', 'x']) assert.equal(spawnSync(process.execPath, [script, '--dry-run', '--hours', h, '--tmpdir', tmp('t')], { env: cleanEnv({}), encoding: 'utf8' }).status, 2, `--hours ${h}`);
     assert.equal(spawnSync(process.execPath, [script, '--dry-run', '--hours', '1', '--tmpdir', tmp('t')], { env: cleanEnv({}), encoding: 'utf8' }).status, 0);

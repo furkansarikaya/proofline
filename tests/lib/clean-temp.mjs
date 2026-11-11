@@ -67,17 +67,18 @@ export function cleanTemp(dir, o) {
 
 const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 /**
- * The stale folders under the fake-tool root of the checkout: `<pid>` and `batch-<pid>` whose process is gone, and the `ln-`/`cx-` folders of the platform tests, older than the threshold.
+ * The stale folders under the fake-tool root of the checkout: `<pid>` and `batch-<pid>` whose process is gone, older than the threshold (the `ln-`/`cx-` folders of the platform tests live inside a `<pid>` folder).
  * @param {string} dir @param {{ now: number, dryRun?: boolean, hours?: number, fsx?: typeof nodeFs, isAlive?: (pid: number) => boolean }} o
  */
 export function cleanFakeTools(dir, o) {
   const fsx = o.fsx ?? nodeFs; const isAlive = o.isAlive ?? alive; const uid = process.getuid?.();
+  try { const rs = fsx.lstatSync(dir); if (!rs.isDirectory() || (uid !== undefined && rs.uid !== uid)) return []; } catch { return []; }   // the root itself is judged like the cache root: a link (a branch can commit one) or another user's folder is never entered
   const maxAge = (o.hours ?? POLICY.tempMs / 3600e3) * 3600e3;
   /** @type {Array<{ path: string, bytes: number, reason: string }>} */ const out = [];
   let names; try { names = fsx.readdirSync(dir).map(String); } catch { return out; }
   for (const name of names) {
     const m = /^(?:batch-)?(\d+)$/.exec(name);
-    if (!m && !/^(?:ln|cx)-[A-Za-z0-9]{6}$/.test(name)) continue;
+    if (!m) continue;
     const p = path.join(dir, name);
     let st; try { st = fsx.lstatSync(p); } catch { continue; }
     if (!st.isDirectory() || (uid !== undefined && st.uid !== uid) || o.now - st.mtimeMs <= maxAge) continue;
@@ -102,14 +103,14 @@ export function main(argv, env) {
     else if (a === '--tmpdir' && argv[i + 1]) given = path.resolve(argv[++i]);
     else { process.stderr.write('usage: node tests/lib/clean-temp.mjs [--dry-run] [--hours N (at least 1)] [--tmpdir DIR]\n'); return 2; }
   }
-  if (given !== undefined) {   // a folder that is not a temp folder is refused: the name list is the only thing between this command and somebody's files
-    const real = (/** @type {string} */ d) => { try { return nodeFs.realpathSync(d); } catch { return path.resolve(d); } };
-    const refused = ['/', os.homedir(), os.homedir() && path.dirname(os.homedir()), repoRoot, path.dirname(repoRoot)].filter(Boolean).map(real);
-    if (given === '' || refused.includes(real(given))) { process.stderr.write(`clean-temp: refusing --tmpdir ${given}: it is the root, the home folder, or the checkout (or the folder above one); name a temp folder\n`); return 2; }
-  }
   const verb = dryRun ? 'would remove' : 'removed';
   const uid = process.getuid?.() ?? 0;
   const dirs = [...new Set((given ? [given] : (env.dirs ?? [tmpdir(), '/tmp'])).flatMap((d) => { try { return [nodeFs.realpathSync(d)]; } catch { return []; } }))];   // /tmp too: a run without TMPDIR uses it
+  // A folder that is not a temp folder is refused, however it was given (--tmpdir, TMPDIR): the name list is the only thing between this command and somebody's files. Compared by
+  // device and inode, so the letter case of a case-insensitive file system and a link make no difference.
+  const id = (/** @type {string} */ d) => { try { const st = nodeFs.statSync(d); return `${st.dev}:${st.ino}`; } catch { return undefined; } };
+  const refused = new Set(['/', os.homedir(), path.dirname(os.homedir()), repoRoot, path.dirname(repoRoot)].filter(Boolean).map(id).filter(Boolean));
+  for (const d of dirs) if (refused.has(/** @type {string} */ (id(d)))) { process.stderr.write(`clean-temp: refusing ${d}: it is the root, the home folder, or the checkout (or the folder directly above one); name a temp folder (--tmpdir) or fix TMPDIR\n`); return 2; }
   let total = 0; let count = 0;
   for (const dir of dirs) {
     for (const r of cleanTemp(dir, { now: env.now, dryRun, hours })) { say(`${verb} ${r.path} (${mb(r.bytes)}, ${r.reason})`); total += r.bytes; count++; }
