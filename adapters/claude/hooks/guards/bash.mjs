@@ -151,7 +151,7 @@ async function check(ctx, cmd) {
     const k = rec.kind;
     const v = cmdSubst(rec.value);
     switch (k) {
-      case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and the command word literally; only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh next $ID (not A=.agents/scripts/agent.sh; $A next))`); break;
+      case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and the command word literally; only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh status $ID (not A=.agents/scripts/agent.sh; $A status)`); break;
       case 'R': if (canon(v) !== role) deny(`AGENT_ROLE=${v} does not match the caller's role (${role}); a role never acts as another`); break;
       case 'N': deny(`specialists run through dispatch.sh (window, decision and recording), never as a nested runtime started by hand (${v})`); break;
       case 'L': {
@@ -200,7 +200,7 @@ function agentRule(ctx, cmd, v, hasRole) {
   if (role === 'implementer' && sc === 'worker-evidence') { if (!hasRole) deny('agent.sh worker-evidence runs only as the implementer: prefix AGENT_ROLE=implementer'); return; }
   if (role === 'implementer') deny(`the implementer runs only agent.sh worker-evidence status pipeline fingerprint build-record plan-section config-get verify-* (not ${sc})`);
   if (sc === 'next') return;
-  deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint build-record plan-section config-get diff-digest next verify-* and submit (not ${sc}); state changes belong to the lead`);
+  deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint build-record plan-section config-get diff-digest next verify-*${role === 'lead' ? '' : ' and submit'} (not ${sc}); state changes belong to the lead`);
 }
 
 /** A shell write (W record) while a run is open. @param {import('../lib/context.mjs').HookContext} ctx @param {string} v @param {string[]} lineOf */

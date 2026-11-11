@@ -12,9 +12,11 @@ let base = '';
 before(() => { withRun = buildTemplate(); base = tempDir('hook-refmsg-'); });
 after(() => { rmSync(withRun, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
-/** @param {string} dir @param {string} command @param {Record<string, string>} who */
-async function pre(dir, command, who) {
-  const r = await runHook('node', dir, 'pretool', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, ...who }, {});
+// The wording depends on whether $TMPDIR is under /tmp (then /tmp is the scratch space and the stray-path check is off), so the environment is pinned, never the outer one.
+const PINNED_TMPDIR = '/var/proofline-refmsg-tmp';
+/** @param {string} dir @param {string} command @param {Record<string, string>} who @param {string} [tmp] */
+async function pre(dir, command, who, tmp = PINNED_TMPDIR) {
+  const r = await runHook('node', dir, 'pretool', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, ...who }, { env: { TMPDIR: tmp } });
   if (r.stdout === '') return null;
   return /** @type {string} */ (JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason);
 }
@@ -28,6 +30,15 @@ test('a write outside the project names the run scratch folder with the run id, 
   assert.ok(why, 'refused');
   assert.match(why, /Scratch files go under \.agents\/runs\/LC\/scratch\/ \(mkdir -p it first\)/);
   assert.equal(await pre(d, 'mkdir -p .agents/runs/LC/scratch/ && echo hi > .agents/runs/LC/scratch/out.txt', QA), null);
+});
+
+test('with $TMPDIR under /tmp the write guard speaks instead, and names the same folder', async () => {
+  const d = copyProject(withRun, base);
+  for (const tmp of ['/tmp', '/tmp/x', '']) {
+    const why = await pre(d, 'echo hi > /tmp/x', QA, tmp);
+    assert.ok(why, `refused with TMPDIR=${tmp}`);
+    assert.match(why, /outside the project\. Scratch files go under \.agents\/runs\/LC\/scratch\/ \(mkdir -p it, then write inside it, for example > \.agents\/runs\/LC\/scratch\/out\.txt\)/);
+  }
 });
 
 test('mktemp names the exact command that passes', async () => {
@@ -71,6 +82,12 @@ test('the role message lists only agent.sh commands the hook lets that role run;
   for (const n of names) assert.equal(await pre(d, `sh .agents/scripts/agent.sh ${n} LC`, REVIEWER), null, `${n} is listed but refused`);
   assert.equal(await pre(d, 'sh .agents/scripts/agent.sh verify-scope LC', REVIEWER), null);
   assert.ok(await pre(d, 'sh .agents/scripts/agent.sh approve LC', REVIEWER), 'approve stays refused');
+  assert.ok(why.includes('verify-* and submit (not classify); state changes belong to the lead'), `a specialist role may submit: ${why}`);
+  // a subagent that is the lead (no specialist role) never submits: the list does not offer it
+  const lead = await pre(d, 'sh .agents/scripts/agent.sh classify LC COMPLEX', { agent_type: 'general-purpose', agent_id: 'a1' });
+  assert.ok(lead && /role lead runs only the read-only/.test(lead), String(lead));
+  assert.ok(!/ and submit/.test(lead), lead);
+  assert.ok(await pre(d, 'AGENT_ROLE=lead sh .agents/scripts/agent.sh submit LC --agent a1', { agent_type: 'general-purpose', agent_id: 'a1' }), 'submit refused to the lead subagent');
 });
 
 test('the implementer message lists only commands the hook lets the implementer run', async () => {
@@ -98,7 +115,11 @@ test('a variable command word is refused; the message shows the argument form th
   const d = copyProject(withRun, base);
   const why = await pre(d, 'A=.agents/scripts/agent.sh; $A next LC', {});
   assert.ok(why, 'refused');
-  const alt = /plain literal: (ID=T-1; sh \.agents\/scripts\/agent\.sh next \$ID) \(not/.exec(why)?.[1];
-  assert.equal(alt, 'ID=T-1; sh .agents/scripts/agent.sh next $ID');
-  assert.equal(await pre(d, 'ID=LC; sh .agents/scripts/agent.sh next $ID', {}), null);
+  assert.ok(why.includes('$A status)') && !why.includes('$A status))'), 'balanced parentheses');
+  const alt = /plain literal: (ID=T-1; sh \.agents\/scripts\/agent\.sh status \$ID) \(not/.exec(why)?.[1];
+  assert.equal(alt, 'ID=T-1; sh .agents/scripts/agent.sh status $ID');
+  const run = alt.replace('T-1', 'LC');
+  assert.equal(await pre(d, run, {}), null);
+  for (const who of [QA, REVIEWER, IMPL]) assert.equal(await pre(d, run, who), null, `${who.agent_type} may run the example`);
+  assert.ok(await pre(d, 'A=.agents/scripts/agent.sh; $A status LC', IMPL), 'the variable command word stays refused');
 });
