@@ -5,7 +5,7 @@
 // process; `delivery-check` is not a Node command yet and is reached through the shell (the bridge) until stage 4.
 
 import { ereToRegExp } from './ere.mjs';
-import { grepLineCi } from './grepfile.mjs';
+import { GLOB_ONLY, grepLineCiStatus } from './grepfile.mjs';
 
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -102,7 +102,11 @@ export function forbidden(ctx, config, email) {
     if (caseMatch(p.replace(/[A-Z]/g, (c) => c.toLowerCase()), low)) return true;
     const re = ereToRegExp(p, true);
     if (re !== null) { if (re.test(email)) return true; continue; }
-    if (grepLineCi(ctx.env, p, `${email}\n`)) return true; // the pattern goes in a file, never as an argument (A250)
+    // the pattern goes in a file, never as an argument (A250). A deny list that cannot be evaluated FAILS CLOSED: exit 2 (an invalid or untranslatable pattern) counts as a match, so the commit is refused with a notice
+    const st = grepLineCiStatus(ctx.env, p, `${email}\n`);
+    if (st >= 2 && GLOB_ONLY.test(p)) continue; // an entry like *@example-corp.com is a glob, caseMatch decided it above; BSD grep rejects its leading star, which must not block everyone
+    if (st >= 2) { ctx.err('proofline: a git.forbidden_identities pattern is not a valid extended regular expression for this platform\'s grep; refusing as if it matched (fix .agents/config.yaml, then agent.sh config-check)\n'); return true; }
+    if (st === 0) return true;
   }
   return false;
 }

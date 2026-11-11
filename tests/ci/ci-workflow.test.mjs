@@ -29,7 +29,7 @@ test('the self-test shard job (16 shards of no unit) is gone', () => {
   assert.ok(!/selftest/.test(ci), 'no step runs or uploads self-test output');
 });
 
-test('checks needs every job except the nightly-only measurement hook-windows, and keeps the stable names', () => {
+test('checks needs every job except the nightly and manual gate hook-windows, and keeps the stable names', () => {
   const needs = /needs: \[([^\]]*)\]/.exec(job('checks'));
   assert.ok(needs);
   const listed = needs[1].split(',').map((s) => s.trim());

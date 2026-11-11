@@ -42,6 +42,7 @@ function hasEmptyBranch(ere) {
  * @returns {RegExp | null}
  */
 export function ereToRegExp(ere, ignoreCase = false) {
+  if (ere.includes('\n')) return null; // a line end separates several patterns for grep; the platform answers (A250)
   if (hasEmptyBranch(ere)) return null;
   let out = '';
   let i = 0;
