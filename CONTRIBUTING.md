@@ -29,7 +29,7 @@ node tests/ci/sync-design-library.mjs --check # design library copies are byte-i
 node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Markdown links (also run alone by CI)
 ```
 
-CI runs the strict no-shell-logic check (there is no shellcheck any more: only the four launchers are shell, and the check pins their text). A pull request that changes only plain
+CI runs the strict no-shell-logic check (there is no shellcheck any more: only the four launchers are shell, and the check pins their text). The check is a tripwire against honest mistakes with named gaps (header of `tests/ci/no-shell-logic.mjs`: a one-line `bash -c '...'` step, a program name built at run time, a script without shebang and extension); a change of a launcher or of `tests/ci/launcher-templates.txt` needs a `Launcher-change:` line in the pull request description and the owner's review (CODEOWNERS). A pull request that changes only plain
 documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png` and `.svg` files under `docs/` except `docs/reference/`) skips the
 test jobs but still runs the strict no-shell-logic check, the sync checks and the core-invariant tests (`node --test "tests/invariants-node/*.test.mjs"`, see Core invariants); Markdown under `skills/`, `roles/`, `control-plane/`
 and `adapters/` counts as code. Pushes to `main` and pull requests run the same Linux jobs, the fixtures and the skill tests included (A246: there is no fast mode any more; wall time in A246); macOS and Windows run nightly and on manual runs (A164).

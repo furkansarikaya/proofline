@@ -38,7 +38,7 @@ Other Codex roles are not yet verified in real use; failover from Codex to Claud
 /plugin install proofline@proofline
 ```
 
-Then, in your project (a git repository): `proofline init` (or `/proofline init` inside Claude Code). Requirements: Git and Node.js 22.13 or newer.
+Then, in your project (a git repository): `proofline init` (or `/proofline init` inside Claude Code). Requirements: Git, Node.js 22.13 or newer, POSIX `sh`.
 
 **Codex / terminal**
 
@@ -54,7 +54,7 @@ cd your-project && proofline init
 npx skills add furkansarikaya/proofline --skill <name>
 ```
 
-Windows: use WSL or Git Bash; CI proves only the hook there so far (ADR 0001 section 11).
+Windows: use WSL or Git Bash; CI proves only the hook there (ADR 0001 s.11).
 
 ## Quick start (5 minutes)
 

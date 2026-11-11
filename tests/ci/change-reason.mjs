@@ -2,6 +2,9 @@
 // A pull request that changes certain files must say why (CI step "changed only with a reason").
 //   node tests/ci/change-reason.mjs invariants       a file under tests/invariants/ or tests/invariants-node/ changed: the description needs a line
 //                                                    `Invariant-test-change: <reason, at least 12 characters>` (CONTRIBUTING.md, Core invariants)
+//   node tests/ci/change-reason.mjs launchers        a launcher (agent.sh, dispatch.sh, the git hooks) or tests/ci/launcher-templates.txt changed: the description needs a line
+//                                                    `Launcher-change: <reason, at least 12 characters>` (A251: the strict check pins launchers to their template, so a change of both
+//                                                    together is only visible to review)
 //   node tests/ci/change-reason.mjs context-budget   tests/context/budget.tsv changed: the description needs a line
 //                                                    `Context-budget-change: <reason, at least 12 characters>` (A202)
 // The changed paths come from stdin (one per line), or from `git diff --name-only --no-renames BASE HEAD` with --base BASE --head HEAD.
@@ -21,6 +24,13 @@ export const RULES = {
     help: ['invariants: this pull request changes files under tests/invariants/, so its description must contain a line',
       '  Invariant-test-change: <why the invariant test changed, at least 12 characters>',
       '  and the review must approve that change separately (CONTRIBUTING.md, Core invariants). Changed:'],
+  },
+  launchers: {
+    name: 'launchers', guarded: /^(control-plane\/agents\/scripts\/(agent|dispatch)\.sh|control-plane\/agents\/githooks\/[^/]+|tests\/ci\/launcher-templates\.txt)$/, line: 'Launcher-change',
+    what: 'no launcher and no launcher template changed',
+    help: ['launchers: this pull request changes a launcher or tests/ci/launcher-templates.txt, so its description must contain a line',
+      '  Launcher-change: <why the launcher changed and why its A207/A245 guarantees still hold, at least 12 characters>',
+      '  and the review must approve that change separately (A251). Changed:'],
   },
   'context-budget': {
     name: 'context budget', guarded: /^tests\/context\/budget\.tsv$/, line: 'Context-budget-change',
@@ -44,13 +54,13 @@ export function hasReasonLine(line, body) {
 export function evaluate(rule, changed, { env, liveBody }) {
   const r = RULES[rule];
   const guarded = changed.filter((p) => r.guarded.test(p));
-  if (guarded.length === 0) return { status: 0, out: [`${r.name === 'invariants' ? 'invariants' : 'context budget'}: ${r.what}`], err: [] };
+  if (guarded.length === 0) return { status: 0, out: [`${r.name}: ${r.what}`], err: [] };
   const ev = env.GITHUB_EVENT_NAME ?? 'pull_request';
-  if (ev !== 'pull_request' && ev !== 'pull_request_target') return { status: 0, out: [`${r.name === 'invariants' ? 'invariants' : 'context budget'}: ${ev} is not a pull request; nothing to check`], err: [] };
+  if (ev !== 'pull_request' && ev !== 'pull_request_target') return { status: 0, out: [`${r.name}: ${ev} is not a pull request; nothing to check`], err: [] };
   let body = '';
   if (env.PR_BODY !== undefined) body = env.PR_BODY;
   else if (env.PR_BODY_FILE) {
-    if (!existsSync(env.PR_BODY_FILE)) return { status: 2, out: [], err: [`${r.name === 'invariants' ? 'invariants' : 'context budget'}: PR_BODY_FILE does not exist: ${env.PR_BODY_FILE}`] };
+    if (!existsSync(env.PR_BODY_FILE)) return { status: 2, out: [], err: [`${r.name}: PR_BODY_FILE does not exist: ${env.PR_BODY_FILE}`] };
     body = readFileSync(env.PR_BODY_FILE, 'utf8');
   } else {
     const live = liveBody?.() ?? null;
@@ -60,9 +70,9 @@ export function evaluate(rule, changed, { env, liveBody }) {
     }
   }
   if (hasReasonLine(r.line, body)) {
-    return { status: 0, out: [rule === 'invariants' ? 'invariants: the pull request explains the change of tests/invariants/ (a reviewer approves it separately)' : 'context budget: the pull request explains the change of the budget'], err: [] };
+    return { status: 0, out: [rule === 'invariants' ? 'invariants: the pull request explains the change of tests/invariants/ (a reviewer approves it separately)' : rule === 'launchers' ? 'launchers: the pull request explains the change of a launcher or its template (a reviewer approves it separately)' : 'context budget: the pull request explains the change of the budget'], err: [] };
   }
-  return { status: 1, out: [], err: [...r.help, ...(rule === 'invariants' ? guarded.map((g) => `    ${g}`) : [])] };
+  return { status: 1, out: [], err: [...r.help, ...(rule !== 'context-budget' ? guarded.map((g) => `    ${g}`) : [])] };
 }
 
 /** @param {string[]} argv @param {{ env?: NodeJS.ProcessEnv, stdin?: () => string, write?: (s: string) => void }} [o] @returns {number} */
@@ -70,7 +80,7 @@ export function main(argv, o = {}) {
   const env = o.env ?? process.env;
   const write = o.write ?? ((s) => process.stdout.write(s));
   const rule = argv[0];
-  if (!rule || !(rule in RULES)) { console.error('usage: change-reason.mjs invariants|context-budget [--base SHA --head SHA] [--repo OWNER/NAME --pr N]'); return 2; }
+  if (!rule || !(rule in RULES)) { console.error('usage: change-reason.mjs invariants|launchers|context-budget [--base SHA --head SHA] [--repo OWNER/NAME --pr N]'); return 2; }
   /** @type {Record<string, string>} */ const opt = {};
   for (let i = 1; i < argv.length; i += 2) {
     if (!['--base', '--head', '--repo', '--pr'].includes(argv[i]) || argv[i + 1] === undefined) { console.error(`change-reason: bad argument: ${argv[i]}`); return 2; }

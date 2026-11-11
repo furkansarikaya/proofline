@@ -92,7 +92,6 @@ while [ $# -gt 0 ]; do
   case "$1" in --role) role=$2 ;; --class|--tier|--profile|--signal|--escalations-used) ;; *) args="$args $1 $2" ;; esac
   shift 2
 done
-# shellcheck disable=SC2086
 exec node "$d/proofline-core.mjs" cli exec-policy --config "$d/../config.yaml" --roles "$d/../roles.conf" resolve --role "$role" --class STANDARD --tier full $args
 `;
 

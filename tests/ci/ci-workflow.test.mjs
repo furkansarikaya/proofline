@@ -71,6 +71,7 @@ test('CODEOWNERS puts .github/, tests/ci/ and tests/invariants-node/ under the r
   assert.match(co, /^\/\.github\/ @furkansarikaya$/m);
   assert.match(co, /^\/tests\/ci\/ @furkansarikaya$/m);
   assert.match(co, /^\/tests\/invariants-node\/ @furkansarikaya$/m);
+  for (const f of ['control-plane/agents/scripts/agent.sh', 'control-plane/agents/scripts/dispatch.sh', 'control-plane/agents/githooks/']) assert.ok(co.includes(`/${f} @furkansarikaya`), f);   // A251: the launchers are owned too
   assert.ok(!/fast mode/.test(co));
 });
 
@@ -114,4 +115,8 @@ test('the pin goes red for each way of skipping a gate on a pull request', () =>
   assert.notDeepEqual(ifProblems(ci.replaceAll(NIGHTLY, "github.event_name != 'pull_request'")), [], 'nightly jobs: other condition');
   assert.notDeepEqual(ifProblems(ci.replace('  checks:\n    if: always()', '  checks:\n    if: false')), [], 'checks');
   assert.notDeepEqual(ifProblems(`${ci}\n  extra:\n    runs-on: ubuntu-latest\n`), [], 'a job nobody pinned');
+});
+
+test('A251: the invariants job asks for a Launcher-change: line when a launcher or its template changes', () => {
+  assert.match(job('invariants'), /node tests\/ci\/change-reason\.mjs launchers --base /);
 });

@@ -13,17 +13,25 @@
 //   4. Every `run:` step of .github/workflows/*.yml, composite actions included, is one command line (no `if`, loops, `&&`, `||`, pipes, `;`, `$(...)`).
 //   5. No `sh`, `bash`, `awk`, `sed` (or a sibling) program is started from Node outside core/proc.mjs (runUserCommand, userShellArgv, runScript): see nodeSpawnProblems.
 //
-// Known gaps (a tripwire, not the boundary): YAML is read by a line scanner (flow-style `steps: [...]`, anchors and `run:` values built by an expression are not seen);
-// a shell file with an unusual shebang interpreter outside the list above, or a script without shebang and extension outside the hook folders, is not recognised;
-// the Node scan reads source text (a program name built at run time, or started through a variable, is not seen); the template and the launcher change together in one
-// pull request, so review (and the A entry) is the gate for a change of a launcher, never this script alone.
+// Known gaps (a tripwire against honest mistakes, not a boundary; A251 lists them so nobody reads more into a green run than it says):
+//   - YAML is read by a line scanner: anchors and `run:` values built by an expression are not seen; flow-style `steps: [...]` and a `run:` inside braces are refused (not read);
+//     JS inside a workflow (`actions/github-script`) is refused (`script:` key), a custom `shell:` template is refused.
+//   - A one-line step that hands a shell program to a program (`run: bash -c 'if x; then y; fi'`) is one command line and passes.
+//   - A shell file with an unusual shebang interpreter outside the list above, or a script without shebang and extension outside the hook folders, is not recognised.
+//   - The Node scan reads source text of .mjs .js .cjs .ts .mts .cts files outside tests/, docs/ and fixtures/: a program name built at run time or started through a variable
+//     or a destructured alias, and `sh tools/x` where the script has no shebang and no extension, are not seen; a call head is joined across lines, but only up to the first
+//     parenthesis; `execSync`, `exec` (imported from child_process), `{ shell: true }` and powershell/cmd are refused.
+//   - The template and the launcher change together in one pull request: review is the gate for a launcher change (CODEOWNERS, the `Launcher-change:` line that
+//     tests/ci/change-reason.mjs asks for, and the A entry), never this script alone. The mode (100755) of the launchers and hooks is checked.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 
 export const LAUNCHER_TEMPLATES = 'tests/ci/launcher-templates.txt';
 export const HOOK_TEMPLATES = 'tests/ci/hook-templates.txt';
-export const WIRING_FILES = ['adapters/claude/hooks/hooks.json', 'adapters/claude/settings.fragment.json', 'adapters/codex/hooks.json'];
+export const WIRING_FILES = ['adapters/claude/hooks/hooks.json', 'adapters/claude/settings.fragment.json', 'adapters/codex/hooks.json'];   // the three files of 0.0.40 (the census reads old refs with it)
+/** Every tracked hooks*.json or settings*.json is a hook wiring file, whatever its folder (a fourth file cannot hide a string). @param {string} rel */
+export const isWiringFile = (rel) => /(^|\/)(hooks|settings)[^/]*\.json$/.test(rel);
 // The launcher list of ADR section 9. bin/proofline is a Node program since A233 (`#!/usr/bin/env node`), not a shell launcher.
 export const LAUNCHERS = new Set([
   'control-plane/agents/scripts/agent.sh',
@@ -73,7 +81,7 @@ export function launcherOk(text) {
 
 // ---- workflow `run:` steps: a line scanner, because Node ships no YAML parser -----------------------------------------------------------
 export function runSteps(file, text) {
-  const lines = text.split('\n');
+  const lines = text.replace(/\r/g, '').split('\n');   // CRLF files: a trailing CR would make the step regexes miss
   /** @type {Item[]} */
   const out = [];
   const workflow = /^\.github\/workflows\//.test(file);
@@ -120,7 +128,9 @@ export function runSteps(file, text) {
       i = j - 1;
     } else {
       body = body.trim();
-      if ((body.startsWith('"') && body.endsWith('"') && body.length > 1) || (body.startsWith("'") && body.endsWith("'") && body.length > 1)) body = body.slice(1, -1);
+      const dq = body.startsWith('"') && body.endsWith('"') && body.length > 1;
+      if (dq || (body.startsWith("'") && body.endsWith("'") && body.length > 1)) body = body.slice(1, -1);
+      if (dq) body = body.replace(/\\n/g, '\n');   // a double-quoted YAML scalar: \n is a line end
       text1 = body;
     }
     out.push({ kind: 'run', file, job, index: stepNo, line: startLine, text: text1, location: `${file}::${job}::step${stepNo}`, group: `${file}::${job}` });
@@ -211,31 +221,46 @@ export function launcherProblems(root) {
   try { templates = parseLauncherTemplates(readFileSync(f, 'utf8')); } catch (e) { return [/** @type {Error} */ (e).message]; }
   for (const t of templates.keys()) if (!LAUNCHERS.has(t)) problems.push(`${LAUNCHER_TEMPLATES}: a template for ${t}, which is not in the launcher list`);
   const tracked = new Set(trackedFiles(root));
+  /** @type {Map<string, string>} */ const modes = new Map();
+  for (const rec of execFileSync('git', ['-C', root, 'ls-files', '-s', '-z'], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\0').filter(Boolean)) {
+    const m = /^(\d+) [0-9a-f]+ \d\t([^]*)$/.exec(rec);
+    if (m) modes.set(m[2], m[1]);
+  }
   for (const l of [...LAUNCHERS].sort()) {
     const t = templates.get(l);
     if (t === undefined) { problems.push(`${l}: no template in ${LAUNCHER_TEMPLATES}`); continue; }
     if (!LOGIC_LAUNCHERS.has(l) && !launcherOk(t)) problems.push(`${LAUNCHER_TEMPLATES}: the template of ${l} is not a shebang and one exec node line`);
     if (!tracked.has(l) || !existsSync(join(root, l))) { problems.push(`${l}: the launcher is missing`); continue; }
     if (readFileSync(join(root, l), 'utf8') !== t) problems.push(`${l}: a launcher must be byte-equal to its template in ${LAUNCHER_TEMPLATES}`);
+    if (modes.get(l) !== '100755') problems.push(`${l}: a launcher must be executable in the index (mode 100755, found ${modes.get(l) ?? 'none'}); git skips a git hook that is not executable`);
   }
   return problems;
 }
 
 // ---- programs started from Node ----------------------------------------------------------------------------------------------------------
-const SHELL_PROGRAMS = 'sh|bash|dash|zsh|ksh|mksh|ash|busybox';
+const SHELL_PROGRAMS = 'sh|bash|dash|zsh|ksh|mksh|ash|busybox|powershell(?:\\.exe)?|pwsh(?:\\.exe)?|cmd(?:\\.exe)?';
 const TEXT_PROGRAMS = 'awk|gawk|mawk|nawk|sed|gsed';
 const Q = '([\'"`])(?:/(?:usr/)?bin/)?';
 // a text tool named as a string anywhere in code; a shell named as the program of a spawn-like call (its first or second argument, alone or first in an array),
 // or as the head of a `[sh, '-c', ...]` vector
 const TEXT_TOOL = new RegExp(`${Q}(?:${TEXT_PROGRAMS})\\1`);
-const SHELL_SPAWN = new RegExp(`\\b[A-Za-z_.]*(?:spawn|exec|run|fork)[A-Za-z]*\\(\\s*(?:[^()\\n]*?,\\s*)?\\[?\\s*${Q}(?:${SHELL_PROGRAMS})\\1\\s*[,)\\]]`, 'i');
+const SHELL_SPAWN = new RegExp(`\\b[A-Za-z_.]*(?:spawn|exec|run|fork)[A-Za-z]*\\(\\s*(?:[^()]*?,\\s*)?\\[?\\s*${Q}(?:${SHELL_PROGRAMS})\\1\\s*[,)\\]]`, 'i');   // [^()]: the head may span lines, never a parenthesis
+/** Implicit shells: execSync and exec (when imported from child_process) take a command STRING, and `shell: true` or a shell name makes any spawn one. */
+const SHELL_OPTION = /\bshell\s*:\s*(?:true\b|['"`])/;
+const EXEC_CALL = /(?:\bexecSync|\b(?:cp|child_process|childProcess)\.exec)\s*\(/;
+const EXEC_IMPORT = /import\s*\{[^}]*(?<!as\s)\bexec\b(?!\s+as)[^}]*\}\s*from\s*['"](?:node:)?child_process['"]/;
 const SHELL_VECTOR = new RegExp(`\\[\\s*${Q}(?:${SHELL_PROGRAMS})\\1\\s*,\\s*(['"\`])-c\\2`);
 /** The only module that may name a shell or text tool as a program (runUserCommand, userShellArgv, runScript). */
 export const PROC_MODULE = 'control-plane/agents/scripts/core/proc.mjs';
 /** Hook guards and the command scanner read command TEXT and name awk, sed and the shells as data (lists of words to recognise); only the text-tool rule skips them, a spawn of a shell is refused there too. */
 export const TEXT_ONLY = (/** @type {string} */ f) => f === 'adapters/claude/hooks/command-scan.mjs' || f.startsWith('adapters/claude/hooks/guards/');
 /** Node sources the rule covers: product code, not the tests, not the docs. */
-export const nodeSourceFile = (/** @type {string} */ f) => /\.(mjs|js|cjs)$/.test(f) && !/^(tests|docs|fixtures)\//.test(f) && f !== PROC_MODULE;
+export const nodeSourceFile = (/** @type {string} */ f) => /\.(mjs|js|cjs|mts|cts|ts)$/.test(f) && !/^(tests|docs|fixtures)\//.test(f) && f !== PROC_MODULE;
+
+/** The source with comments blanked (line breaks kept, so offsets still give the line). A `//` after a quote character is a URL, not a comment. @param {string} text */
+export function stripComments(text) {
+  return text.replace(/\/\*[^]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/(^|[\s;{}(),])\/\/[^\n]*/g, (m, pre) => pre + ' '.repeat(m.length - pre.length));
+}
 
 /** @param {string} root @returns {string[]} */
 export function nodeSpawnProblems(root) {
@@ -243,16 +268,35 @@ export function nodeSpawnProblems(root) {
   for (const f of trackedFiles(root).filter(nodeSourceFile)) {
     let text;
     try { text = readFileSync(join(root, f), 'utf8'); } catch { continue; }
-    const lines = text.split('\n');
-    for (const [i, raw] of lines.entries()) {
-      const l = raw.trim();
-      if (l.startsWith('//') || l.startsWith('*') || l.startsWith('/*')) continue;
-      const where = `${f}:${i + 1}`;
-      if (!TEXT_ONLY(f) && TEXT_TOOL.test(l)) problems.push(`${where}: a text tool (awk or sed) is named as a string; its work is Node code`);
-      if (SHELL_SPAWN.test(l) || SHELL_VECTOR.test(l)) problems.push(`${where}: a shell is started from Node outside core/proc.mjs (use runUserCommand for a user's command string, runScript for a script file)`);
-    }
+    const code = stripComments(text);
+    const lineOf = (/** @type {number} */ at) => code.slice(0, at).split('\n').length;
+    /** @param {RegExp} re @param {string} msg */
+    const flag = (re, msg) => { for (const m of code.matchAll(new RegExp(re.source, `${re.flags.replace('g', '')}g`))) problems.push(`${f}:${lineOf(m.index ?? 0)}: ${msg}`); };
+    if (!TEXT_ONLY(f)) flag(TEXT_TOOL, 'a text tool (awk or sed) is named as a string; its work is Node code');
+    flag(SHELL_SPAWN, "a shell is started from Node outside core/proc.mjs (use runUserCommand for a user's command string, runScript for a script file)");
+    flag(SHELL_VECTOR, "a shell is started from Node outside core/proc.mjs (use runUserCommand for a user's command string, runScript for a script file)");
+    flag(SHELL_OPTION, 'an option `shell:` hands a command string to a shell; use runUserCommand (core/proc.mjs) for a user command');
+    flag(EXEC_CALL, 'exec / execSync hand a command string to a shell; use runUserCommand (core/proc.mjs) for a user command');
+    if (EXEC_IMPORT.test(code)) flag(/(?<![.\w])exec\s*\(/, 'exec (child_process) hands a command string to a shell; use runUserCommand (core/proc.mjs) for a user command');
   }
   return problems;
+}
+
+// ---- workflow constructs the line scanner cannot read: refused, not guessed ----------------------------------------------------------------
+/** @param {string} file @param {string} text @returns {string[]} */
+export function workflowTextProblems(file, text) {
+  /** @type {string[]} */ const out = [];
+  for (const [i, raw] of text.replace(/\r/g, '').split('\n').entries()) {
+    const l = raw.trim();
+    if (l.startsWith('#')) continue;
+    const at = `${file}:${i + 1}`;
+    if (/^steps:\s*\[/.test(l)) out.push(`${at}: a flow-style steps list is not read by the check; write the steps as a block`);
+    else if (/[{,]\s*["']?run["']?\s*:/.test(l) && !/^\s*-?\s*run\s*:/.test(raw)) out.push(`${at}: a run: inside a flow mapping is not read by the check; write it as a block key`);
+    if (/^-?\s*script\s*:/.test(l)) out.push(`${at}: a script: key (JS of github-script) is logic in a workflow; move it to a Node script under tests/ci`);
+    const sh = /^-?\s*shell\s*:\s*(.*)$/.exec(l);
+    if (sh && !/^(bash|sh|pwsh|powershell|cmd|python)$/.test(sh[1].trim().replace(/\s+#.*$/, ''))) out.push(`${at}: a shell: template runs a command line the check does not read`);
+  }
+  return out;
 }
 
 // ---- inline items and shell files -------------------------------------------------------------------------------------------------------
@@ -261,7 +305,9 @@ export function currentInline(root) {
   const items = [];
   const files = trackedFiles(root);
   for (const rel of files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f) || /^\.github\/actions\/.+\.ya?ml$/.test(f) || /(^|\/)action\.ya?ml$/.test(f))) items.push(...runSteps(rel, readFileSync(join(root, rel), 'utf8')));
-  for (const rel of WIRING_FILES) if (files.includes(rel)) items.push(...hookStrings(rel, readFileSync(join(root, rel), 'utf8')));
+  for (const rel of files.filter(isWiringFile)) {
+    try { items.push(...hookStrings(rel, readFileSync(join(root, rel), 'utf8'))); } catch { items.push({ kind: 'hook', file: rel, job: 'file', index: 0, text: '(not JSON)', location: `${rel}::file::0`, group: `${rel}::file` }); }
+  }
   return items;
 }
 export function currentShellFiles(root) {
@@ -276,6 +322,7 @@ export function check(root) {
   for (const f of trackedFiles(root)) if (f.endsWith('.awk')) problems.push(`${f}: an .awk file (no awk anywhere)`);
   for (const f of currentShellFiles(root)) if (!LAUNCHERS.has(f)) problems.push(`${f}: a shell file that is not in the launcher list`);
   problems.push(...launcherProblems(root));
+  for (const rel of trackedFiles(root).filter((f) => /^\.github\/(workflows|actions)\/.+\.ya?ml$/.test(f) || /(^|\/)action\.ya?ml$/.test(f))) problems.push(...workflowTextProblems(rel, readFileSync(join(root, rel), 'utf8')));
   for (const it of currentInline(root)) {
     const p = it.kind === 'run' ? stepStrictProblem(it.text) : hookStrictProblem(it.text, templates);
     if (p) problems.push(`${it.location}${it.line ? ` (line ${it.line})` : ''}: ${p}`);

@@ -585,6 +585,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node tests/ci/change-reason.mjs invariants --base ${{ github.event.pull_request.base.sha }} --head ${{ github.sha }} --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
+      - name: launchers changed only with a reason (A251)
+        if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tests/ci/change-reason.mjs launchers --base ${{ github.event.pull_request.base.sha }} --head ${{ github.sha }} --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }}
       - name: context budget changed only with a reason (A202)
         if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
         env:

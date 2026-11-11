@@ -171,7 +171,7 @@ describe('strict mode: the clean state and a planted violation of every rule', (
   test('rule 5: what is allowed: proc.mjs itself, runScript / runUserCommand callers, comments, plain word lists, tests and docs, and hook guards that name awk as data', () => {
     const d = fixture();
     put(d, 'control-plane/agents/scripts/core/proc.mjs', "export const SCRIPT_SHELL = 'sh';\nexport function userShellArgv(t) { return ['/bin/sh', '-c', t]; }\nrun('awk', []);\n");
-    put(d, 'control-plane/agents/scripts/core/ok.mjs', "// proc.run('sh', ['-c', x]) is how the shell did it; awk and sed are gone\n/* spawnSync('awk') */\n * proc.run('bash', [a])\nproc.runScript([agent, 'next']);\nproc.runUserCommand(text);\nconst names = ['sh', 'bash', 'zsh'].includes(w);\nconst n = shellName.endsWith('zsh');\n");
+    put(d, 'control-plane/agents/scripts/core/ok.mjs', "// proc.run('sh', ['-c', x]) is how the shell did it; awk and sed are gone\n/**\n * proc.run('bash', [a])\n */\nproc.runScript([agent, 'next']);\nproc.runUserCommand(text);\nconst names = ['sh', 'bash', 'zsh'].includes(w);\nconst n = shellName.endsWith('zsh');\n");
     put(d, 'adapters/claude/hooks/guards/kill.mjs', "const L = ['awk', 'gawk', 'sed'];\nruns.push(['sh', path]);\n");
     put(d, 'tests/core/x.test.mjs', "spawnSync('awk', ['1']); spawnSync('sh', ['-c', 'x']);\n");
     put(d, 'docs/x.mjs', "spawnSync('awk', []);\n");
@@ -181,6 +181,45 @@ describe('strict mode: the clean state and a planted violation of every rule', (
     cleanup(d);
   });
   test('rule 5: a guard module does not get to start a shell either', () => refuses((d) => put(d, 'adapters/claude/hooks/guards/x.mjs', "proc.run('sh', ['-c', 'x']);\n"), /guards\/x\.mjs:1: a shell is started from Node/, 'guard'));
+  test('rule 5 (round 1): implicit shells and lines the first version missed: execSync, exec, shell option, a call head over several lines, powershell, cmd.exe, .ts files', () => {
+    for (const [file, code] of /** @type {[string, string][]} */ ([
+      ['lib/a.mjs', "import { execSync } from 'node:child_process';\nexecSync('ls | wc');\n"],
+      ['lib/a.mjs', "import { exec } from 'node:child_process';\nexec('ls | wc', cb);\n"],
+      ['lib/a.mjs', "import cp from 'node:child_process';\ncp.exec('ls | wc');\n"],
+      ['lib/a.mjs', "spawn('ls', [], { shell: true });\n"],
+      ['lib/a.mjs', "spawnSync('ls', [], { shell: '/bin/zsh' });\n"],
+      ['lib/a.mjs', "spawnSync(\n  'sh',\n  ['x.sh']\n);\n"],
+      ['lib/a.mjs', "proc.run(\n  cwd,\n  'bash', ['-c', c]);\n"],
+      ['lib/a.mjs', "spawnSync('powershell', ['-Command', c]);\n"],
+      ['lib/a.mjs', "spawnSync('cmd.exe', ['/c', c]);\n"],
+      ['lib/a.ts', "spawnSync('sh', ['x']);\n"],
+      ['lib/a.mts', "spawnSync('awk', ['1']);\n"],
+    ])) refuses((d) => put(d, file, code), /lib\/a\.m?ts?:\d+|lib\/a\.mjs:\d+/, `${file}: ${code}`);
+  });
+  test('rule 5 (round 1): what stays allowed: RegExp exec, an exec alias of execFile, shell: false, a URL in a string, a commented spawn', () => {
+    const d = fixture();
+    put(d, 'lib/ok.mjs', "const m = /a/.exec(s);\nimport { execFile as exec } from 'node:child_process';\nexec(bin, args, { shell: false });\nconst u = 'https://example.com/x'; // spawnSync('awk')\n/* execSync('x') */\n");
+    git(d, 'add', '-A');
+    assert.deepEqual(check(d), []);
+    cleanup(d);
+  });
+  test('rule 3 (round 1): a fourth hooks file or a settings file is scanned, not only the three of 0.0.40', () => {
+    const wire = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'stop codex; id' }] }] } });
+    refuses((d) => put(d, 'adapters/codex/hooks2.json', wire), /hooks2\.json::Stop::0: does not equal a pinned hook template/, 'hooks2');
+    refuses((d) => put(d, 'extra/settings.local.json', wire), /settings\.local\.json::Stop::0/, 'settings');
+    refuses((d) => put(d, 'extra/hooks.json', '{ not json'), /hooks\.json::file::0: does not equal a pinned hook template/, 'not json');
+  });
+  test('rule 4 (round 1): CRLF, flow style, double-quoted \\n, github-script and shell templates are refused, not passed', () => {
+    refuses((d) => put(d, '.github/workflows/ci.yml', CLEAN_CI.replace(/\n/g, '\r\n') + '      - run: |\r\n          echo one\r\n          echo two\r\n'), /2 command lines/, 'CRLF');
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - run: "echo a\\necho b"\n`), /2 command lines/, 'quoted newline');
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - {name: a, run: "a && b"}\n`), /run: inside a flow mapping/, 'flow item');
+    refuses((d) => put(d, '.github/workflows/ci.yml', CLEAN_CI.replace('    steps:\n', '    steps: [{run: "a && b"}]\n')), /flow-style steps list/, 'flow steps');
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - uses: actions/github-script@v7\n        with:\n          script: |\n            if (x) { y(); }\n`), /script: key/, 'github-script');
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - run: x\n        shell: bash -e {0}\n`), /shell: template/, 'shell template');
+  });
+  test('rule 2 (round 1): a launcher that lost its executable bit in the index is refused', () => {
+    refuses((d) => chmodSync(join(d, 'control-plane/agents/githooks/pre-commit'), 0o644), /pre-commit: a launcher must be executable in the index \(mode 100755, found 100644\)/, 'chmod -x');
+  });
   test('rule 5 on this checkout: no Node source starts a shell or a text tool outside core/proc.mjs', () => assert.deepEqual(nodeSpawnProblems(repo), []));
 });
 

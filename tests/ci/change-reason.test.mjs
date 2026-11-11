@@ -180,3 +180,18 @@ describe('non-ASCII paths (git quotes them unless told not to)', () => {
     assert.equal(out2, 'code=false\n');
   });
 });
+
+describe('launchers (A251)', () => {
+  const guarded = ['control-plane/agents/scripts/agent.sh', 'control-plane/agents/scripts/dispatch.sh', 'control-plane/agents/githooks/pre-commit', 'control-plane/agents/githooks/pre-push', 'control-plane/agents/githooks/post-merge', 'tests/ci/launcher-templates.txt'];
+  for (const p of guarded) {
+    test(`${p}: refused without the line, accepted with it, a short reason refused`, () => {
+      assert.equal(run('launchers', [p], { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: 'nothing' }).status, 1);
+      assert.equal(run('launchers', [p], { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: 'Launcher-change: the redirect keeps its guarantee, see A251' }).status, 0);
+      assert.equal(run('launchers', [p], { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: 'Launcher-change: x' }).status, 1);
+    });
+  }
+  test('other files, and the Node core next to the launchers, do not need the line; a push needs nothing', () => {
+    for (const p of ['control-plane/agents/scripts/proofline-core.mjs', 'control-plane/agents/scripts/core/proc.mjs', 'tests/ci/no-shell-logic.mjs', 'README.md']) assert.equal(run('launchers', [p], { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: '' }).status, 0, p);
+    assert.equal(run('launchers', [guarded[0]], { GITHUB_EVENT_NAME: 'push' }).status, 0);
+  });
+});

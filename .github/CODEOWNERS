@@ -2,3 +2,6 @@
 /.github/ @furkansarikaya
 /tests/ci/ @furkansarikaya
 /tests/invariants-node/ @furkansarikaya
+/control-plane/agents/scripts/agent.sh @furkansarikaya
+/control-plane/agents/scripts/dispatch.sh @furkansarikaya
+/control-plane/agents/githooks/ @furkansarikaya

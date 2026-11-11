@@ -5,8 +5,7 @@
 //   node tests/ci/shell-census.mjs [--json] [--root DIR] REF [REF...]     (a ref is a tag, a commit or HEAD; 0.0.40 is the commit af2b1a4b, `chore(release): 0.0.40`)
 //
 // Per ref: tracked shell files (the definition of tests/ci/no-shell-logic.mjs: .sh/.bash, a shell shebang, a githooks folder) and their lines (all, and code lines: not blank,
-// not a comment), `.awk` files, lines of shell files that start `awk` or `sed` (a count of invocation lines, an awk PROGRAM spread over many lines counts once per line it
-// is written on only when it is in an .awk file), `run:` steps of the workflows (and how many have more than one command line), hook command strings of the wiring files,
+// not a comment), `.awk` files, non-comment lines of shell files that MENTION the word awk, gawk or sed (an upper bound of invocations: a reviewer counting invocation-shaped lines got 1,210 of the 1,392 at 0.0.40), `run:` steps of the workflows (and how many have more than one command line), hook command strings of the wiring files,
 // and the lines of the Node control plane (control-plane/, adapters/, bin/, `*.mjs` files).
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -75,10 +74,10 @@ export function census(root, ref) {
 export function table(rows) {
   const defs = /** @type {[string, keyof ReturnType<typeof census>][]} */ ([
     ['shell files', 'shellFiles'], ['shell lines (all)', 'shellLines'], ['shell lines (code: no blank, no comment)', 'shellCodeLines'], ['`.awk` files', 'awkFiles'], ['`.awk` lines', 'awkLines'],
-    ['shell lines that run awk or sed', 'awkSedLines'], ['CI `run:` steps', 'ciSteps'], ['CI steps of more than one command line', 'ciMultiLineSteps'], ['hook command strings', 'hookStrings'],
+    ['shell lines mentioning awk or sed', 'awkSedLines'], ['CI `run:` steps', 'ciSteps'], ['CI steps of more than one command line', 'ciMultiLineSteps'], ['hook command strings', 'hookStrings'],
     ['Node files (control-plane, adapters, bin)', 'nodeFiles'], ['Node lines (control-plane, adapters, bin)', 'nodeLines'],
   ]);
-  const head = `| count | ${rows.map((r) => `${r.ref} (${r.commit})`).join(' | ')} |\n|---|${rows.map(() => '---:').join('|')}|`;
+  const head = `| count | ${rows.map((r) => (r.ref === r.commit ? r.ref : `${r.ref} (${r.commit})`)).join(' | ')} |\n|---|${rows.map(() => '---:').join('|')}|`;
   return `${head}\n${defs.map(([label, k]) => `| ${label} | ${rows.map((r) => String(r[k])).join(' | ')} |`).join('\n')}\n`;
 }
 

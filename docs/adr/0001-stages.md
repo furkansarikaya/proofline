@@ -654,7 +654,7 @@ Shell and awk before and after (`node tests/ci/shell-census.mjs af2b1a4b HEAD`, 
 | shell lines (code: no blank, no comment) | 37559 | 27 |
 | `.awk` files | 0 | 0 |
 | `.awk` lines | 0 | 0 |
-| shell lines that run awk or sed | 1392 | 0 |
+| shell lines mentioning awk or sed (upper bound of invocations; a reviewer's invocation-shaped count at 0.0.40: 1,210) | 1392 | 0 |
 | CI `run:` steps | 20 | 35 |
 | CI steps of more than one command line | 12 | 0 |
 | hook command strings | 21 | 21 |

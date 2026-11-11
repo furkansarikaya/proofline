@@ -415,6 +415,41 @@ From stage 1 to stage 14 the same script ran as a **ratchet** over two snapshots
 the strict rule above, plus the rule that no `sh`, `bash`, `awk` or `sed` is started from Node outside `core/proc.mjs` (`runUserCommand`, `userShellArgv`,
 `runScript`). `shellcheck` left CI with them: four launchers remain and the check pins their text.
 
+## 10. How the black-box tests keep working
+
+> **Superseded by A210.** This section describes a mechanism that no longer exists (two engines, the equivalence rig or a shell rollback). Read it as history.
+
+About 2,587 test calls run `sh ./.agents/scripts/agent.sh` and assert exit codes and message text (574 `expect_msg`, 774 `grep -q`).
+They keep working unchanged because the entry file stays at its path, the message text is compared by the rig, and file formats do
+not change. Places that need care, in the stage where their target moves:
+
+- **`test-lib.sh` stays untouched until stage 15.** The shell invariant suite sources it (`invariants-test.sh` line 20), so it is
+  treated as part of the suite; a change to it would need the `Invariant-test-change:` rule, and the plan needs none.
+- **Stubs stay files inside the fixture (D14).** `test-lib.sh` writes shell stubs of `secret-scan.sh`, `exec-policy.sh` and
+  `markdown.sh` into the fixture's `.agents/`. When those move (stages 5, 6, 7) the core keeps today's rule: if that sibling file exists
+  in the project, it is run, exactly as `agent.sh` runs it today. The installer stops shipping those files, so only a fixture that writes
+  one gets it; the exposure equals today's (an installed file under `.agents/`, covered by the hook's path policy and the manifest). No
+  environment seam is added. This file override is **temporary**: it exists only because `test-lib.sh` (shell, child processes) cannot
+  reach the core any other way, and it is deleted in stage 15 with `test-lib.sh`, leaving no override path in shipped code. The Node
+  harness (stage 11 on) does not write stub files: it calls `run(argv, io)` in process and passes stubs in `io.stubs`; the CLI and hook
+  entry points never set `io.stubs`, so it is not reachable from a command line, a file or the environment.
+- **Text extractions get golden tests before their code goes.** The seven extractions (`sb_scrub`, `sb_strip`, `SB_KEYS=`,
+  `risk_words_match` twice, `blocking_rule_version=`, `approval_phrases`), the awk-parser comparison in `check-shared.sh` and the three
+  `.test.mjs` files that read `agent.sh` text keep testing the old code while it exists. In the stage where the related command moves,
+  a golden test is added whose expected outputs are recorded from the old engine: `risk_words_match` and the `next` order
+  (`proofline-lead.test.mjs`) in stage 2; `approval_phrases` in stage 3; `sb_scrub`, `sb_strip`, `SB_KEYS` and the freeze messages
+  (`plan-contract.test.mjs`) in stage 4; `blocking_rule_version` in stage 5; `frontmatter.test.mjs` reads the core's command table
+  (all 132 entries, moved or bridged) from stage 1. Stage 10 only deletes the extraction tests together with the code they read; no test
+  is rewritten in the stage that deletes its code. The config-parser comparison goes in stage 9 with `bin/lib/config.sh`.
+- **The ecosystem-branching rule keeps its teeth.** `tests/shared/check-static.sh` rule 5 (lines 122-125) reads the ecosystem ids from
+  `ecosystems.tsv`, passes when the file is missing, and scans shell only. Stage 2 adds a Node check over the core, hook and CLI `.mjs`
+  that reads `ecosystems.json` and fails when it is missing, and makes rule 5 fail, not pass, when its data file is missing; stage 10
+  moves rule 5's remaining scan to the Node check in the same pull request that deletes the TSV.
+- A test and the code it tests never move in the same stage: product stages 1-10 run the unchanged shell suites as their proof;
+  suites move in stages 11-14, after the product.
+- Timing-sensitive suites (`kill-guard-test`, `gates-test`, `batch-test`, `dispatch-test`) get their timing seams honoured by the core
+  before the related command moves.
+
 ## 11. Windows
 
 | after stage | what a Windows user needs | what still needs an `sh` |
