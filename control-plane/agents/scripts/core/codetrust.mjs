@@ -137,7 +137,7 @@ export function githooksFolder(root) {
 const CODE_NAMES = ['scripts', 'githooks', 'hooks', 'ecosystems.mjs', 'skills'];
 
 /** Characters a file system ignores when it compares names (HFS+: zero width and direction marks, soft hyphen, word joiner, BOM): they may be dropped. */
-const IGNORABLE_RE = /[\u00ad\u034f\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufe00-\ufe0f\ufeff]/g;
+const IGNORABLE_RE = /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufff8\u{1bca0}-\u{1bca3}\u{1d173}-\u{1d17a}\u{e0000}-\u{e0fff}]/gu;
 
 /**
  * A name as a folding file system compares it, reduced to ASCII lower case where that is possible: ignorable characters dropped, compatibility forms unfolded (U+017F long s -> s, U+212A
@@ -281,7 +281,8 @@ export function problemText(p, act = '') {
     case 'differs': return p.eol === true ? `${r} is proofline's copy except for its line endings (CRLF, usually core.autocrlf=true on Windows); a shell script or git hook with CR line ends does not run` : act === 'keep' || act === 'mine' ? `${r} differs from proofline's copy and was kept as your own file`
       : act === 'conflict' ? `${r} differs from proofline's copy (an edited file; proofline's copy was written beside it as ${r}.proofline-new)`
         : `${r} differs from proofline's copy`;
-    case 'extra': return p.alias === true ? `${r} is a tracked name that a case-insensitive or Unicode-folding file system can resolve to a file proofline ships, so a checkout, restore or reset could write it there` : `${r} is not a file proofline ships (git may run it)`;
+    case 'extra': if (p.alias === true && p.rel.split('/').some((c) => shortNameOf(c))) return `${r} looks like an NTFS 8.3 short name; rename it (for example notes-1.md) and run proofline init`;
+      return p.alias === true ? `${r} is a tracked name that a case-insensitive or Unicode-folding file system can resolve to a file proofline ships, so a checkout, restore or reset could write it there` : `${r} is not a file proofline ships (git may run it)`;
     case 'index': return `${r} is staged with content that is not proofline's copy`;
     default: return `${r} is committed (HEAD) with content that is not proofline's copy, so a checkout, restore or reset would bring it back`;
   }

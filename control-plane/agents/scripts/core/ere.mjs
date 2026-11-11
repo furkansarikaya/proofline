@@ -13,11 +13,36 @@ const CLASSES = {
 function inBracket(c) { return c === '\\' || c === '[' || c === ']' || c === '^' ? `\\${c}` : c; }
 
 /**
+ * An empty branch (`a|`, `(|a)`, `()`, `|a`) is undefined in POSIX: GNU grep takes it, BSD grep rejects it. The platform answers, never a guess (A250).
+ * Escapes and bracket expressions are skipped. @param {string} ere
+ */
+function hasEmptyBranch(ere) {
+  let empty = true; // nothing yet in this branch
+  for (let i = 0; i < ere.length; i++) {
+    const c = ere[i];
+    if (c === '\\') { i++; empty = false; continue; }
+    if (c === '[') {
+      let j = i + 1;
+      if (ere[j] === '^') j++;
+      if (ere[j] === ']') j++;
+      while (j < ere.length && ere[j] !== ']') { if (ere[j] === '[' && ':.='.includes(ere[j + 1] ?? '')) { const end = ere.indexOf(ere[j + 1] + ']', j + 2); j = end < 0 ? ere.length : end + 2; } else j++; }
+      i = j; empty = false; continue;
+    }
+    if (c === '(') { empty = true; continue; }
+    if (c === '|') { if (empty) return true; empty = true; continue; }
+    if (c === ')') { if (empty) return true; empty = false; continue; }
+    empty = false;
+  }
+  return empty && ere.endsWith('|');
+}
+
+/**
  * Translate an ERE to a JavaScript RegExp that tests one line; null when a construct is not covered.
  * @param {string} ere @param {boolean} [ignoreCase]
  * @returns {RegExp | null}
  */
 export function ereToRegExp(ere, ignoreCase = false) {
+  if (hasEmptyBranch(ere)) return null;
   let out = '';
   let i = 0;
   const n = ere.length;

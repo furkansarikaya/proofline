@@ -10,7 +10,8 @@ import { trimSpace } from './shellglob.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
-const GREP_RE = '(#|//|--|/\\*|<!--|;|\\*)[[:space:]]*shortcut:';
+// no backslash in the pattern: the MSYS git grep of Windows drops the backslashes of an argument (A250); `[*]` is the same literal star
+const GREP_RE = '(#|//|--|/[*]|<!--|;|[*])[[:space:]]*shortcut:';
 const MATCH_RE = /(#|\/\/|--|\/\*|<!--|;|\*)[ \t]*shortcut:/;
 
 /** @param {string} m @returns {never} */

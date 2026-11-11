@@ -5,6 +5,7 @@
 // process; `delivery-check` is not a Node command yet and is reached through the shell (the bridge) until stage 4.
 
 import { ereToRegExp } from './ere.mjs';
+import { grepLineCi } from './grepfile.mjs';
 
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -101,7 +102,7 @@ export function forbidden(ctx, config, email) {
     if (caseMatch(p.replace(/[A-Z]/g, (c) => c.toLowerCase()), low)) return true;
     const re = ereToRegExp(p, true);
     if (re !== null) { if (re.test(email)) return true; continue; }
-    if (proc.run('grep', ['-Eiq', '-e', p], { input: `${email}\n`, env: ctx.env, stdio: ['pipe', 'ignore', 'ignore'] }).status === 0) return true;
+    if (grepLineCi(ctx.env, p, `${email}\n`)) return true; // the pattern goes in a file, never as an argument (A250)
   }
   return false;
 }

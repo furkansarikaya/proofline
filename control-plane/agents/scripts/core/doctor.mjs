@@ -633,7 +633,7 @@ class Doctor {
       for (const p of this.code.problems) {
         if (p.kind !== 'extra' || !p.rel.startsWith('.agents/githooks/') || said.has(p.rel) || said.has('*')) continue;
         said.add(p.rel);
-        this.fail(`git hooks: ${problemText(p)}; it is tracked${folder.entries.some((x) => `.agents/githooks/${x.name}` === p.rel) ? '' : ' (staged or committed) but not on disk'}, so a restore, stash or reset brings it back and git runs it. Remove it from the index (git rm --cached -- <name>) and commit before you rely on the hooks`);
+        this.fail(`git hooks: ${problemText(p)}; it is tracked${folder.entries.some((x) => `.agents/githooks/${x.name}` === p.rel || p.rel.startsWith(`.agents/githooks/${x.name}/`)) || existsSync(`${this.root}/${p.rel}`) ? '' : ' (staged or committed) but not on disk'}, so a restore, stash or reset brings it back and git runs it. Remove it from the index (git rm --cached -- <name>) and commit before you rely on the hooks`);
         ok = false;
       }
       // a staged or committed hook that is not the shipped one is reported by doctorCode; the PASS is not printed over it

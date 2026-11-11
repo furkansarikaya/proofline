@@ -6,6 +6,7 @@
 import { accessSync, constants, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
+import { grepText } from './grepfile.mjs';
 import { unsupported } from './errors.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
@@ -412,8 +413,7 @@ export function riskWordsMatch(ctx, content, wordList, lines) {
 export function grepEq(ctx, pattern, text, ci = false) {
   const re = ereToRegExp(pattern, ci);
   if (re !== null) return text.split('\n').some((l) => re.test(l));
-  const r = proc.run('grep', [ci ? '-Eiq' : '-Eq', '--', Buffer.from(pattern, 'latin1').toString('utf8')], { env: ctx.childEnv(), input: Buffer.from(text, 'latin1'), stdio: ['pipe', 'ignore', 'ignore'] });
-  return r.status === 0;
+  return grepText(ctx.childEnv(), pattern, text, ci); // the pattern goes in a file, never as an argument (A250)
 }
 
 /**

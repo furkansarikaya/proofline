@@ -7,8 +7,8 @@
 // file that something forged can vouch for nothing. An English write costs no process.
 import { readFileSync } from 'node:fs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
+import { patternBytes } from './grepfile.mjs';
 import { isFile } from './paths.mjs';
-import * as proc from './proc.mjs';
 import { hgit } from './hgit.mjs';
 import { readBytes, textLines } from './records.mjs';
 
@@ -135,7 +135,7 @@ export function languageHit(ctx, file, text, hint, history) {
   const ok = new Set();
   for (const piece of pieces) {
     if (corpora.some((c) => inCorpus(c, piece))) { ok.add(piece); continue; }
-    const r = hgit(ctx, ctx.root, ['grep', '-q', '-I', '-E', '-e', Buffer.from(confirmPattern(piece), 'latin1').toString('utf8'), 'HEAD', '--', '.', ':(exclude).agents'], { stdio: ['ignore', 'ignore', 'ignore'] });
+    const r = hgit(ctx, ctx.root, ['grep', '-q', '-I', '-E', '-f', '-', 'HEAD', '--', '.', ':(exclude).agents'], { input: patternBytes(confirmPattern(piece)), stdio: ['pipe', 'ignore', 'ignore'] }); // the pattern goes in on stdin, never as an argument (A250)
     if (r.status === 0) ok.add(piece);
   }
   return scanLine(text, file, hint, history, ok, null);
