@@ -9,6 +9,8 @@ root=$(CDPATH='' cd "$self_dir/../.." && pwd)
 core_dir=$self_dir
 if [ -f "$root/.git" ]; then
   main=$(git -C "$root" worktree list --porcelain 2>/dev/null | head -n 1); main=${main#worktree }
+  # Git for Windows prints "D:/a/x" where this shell's pwd says "/d/a/x": spell main the way pwd does, or the prefix test below never matches and the worktree's own core runs (A250)
+  main_pwd=$(cd "$main" 2>/dev/null && pwd -P) && main=$main_pwd
   here=$(cd "$root" && pwd -P)
   case "$here" in "$main"/.agents/local/worktrees/*) [ -z "$main" ] || { root=$main; core_dir=$main/.agents/scripts; } ;; esac
 fi
