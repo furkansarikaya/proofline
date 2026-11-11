@@ -97,7 +97,42 @@ test('A250: when git cannot list the worktrees the launcher never runs a core ch
     mkdirSync(join(decoy, '.agents/scripts/core'), { recursive: true });
     const mark = join(decoy, 'MARK-decoy');
     writeFileSync(join(decoy, '.agents/scripts/proofline-core.mjs'), `import { writeFileSync as w } from 'node:fs';\nw(${JSON.stringify(mark)}, 'x');\n`);
-    const r = spawnSync('sh', [join(wtd, '.agents/scripts/agent.sh'), 'status'], { cwd: decoy, env: { ...cleanEnv(), PATH: `${shim}:${cleanEnv().PATH}` }, encoding: 'utf8' });
+    // A251: and the worktree's OWN core (a task could have rewritten it) does not run either: the launcher fails closed
+    const own = join(wtd, '.agents/scripts/proofline-core.mjs');
+    const ownMark = join(decoy, 'MARK-own');
+    writeFileSync(own, `import { writeFileSync as w } from 'node:fs';\nw(${JSON.stringify(ownMark)}, 'x');\n${readFileSync(own, 'utf8')}`);
+    const r = spawnSync('sh', [join(wtd, '.agents/scripts/agent.sh').replaceAll('\\', '/'), 'status'], { cwd: decoy, env: { ...cleanEnv(), PATH: `${shim}:${cleanEnv().PATH}` }, encoding: 'utf8' });
     assert.ok(!existsSync(mark), `a core chosen from the caller's directory ran: ${r.stderr}`);
+    assert.ok(!existsSync(ownMark), `the worktree's own core ran: ${r.stderr}`);
+    assert.equal(r.status, 127, r.stderr);
+    assert.match(r.stderr, /is in a run worktree and the main tree could not be confirmed/);
   } finally { git('worktree', 'remove', '--force', join(decoy, '.agents/local/worktrees/T-9')); git('branch', '-D', 'decoy-9'); rmSync(decoy, { recursive: true, force: true }); }
+});
+
+test('A251: a run worktree whose .git file was deleted or rewritten never runs its own core: exit 127 with the message (no redirect is possible)', () => {
+  const wtd = join(d, '.agents/local/worktrees/T-8');
+  const add = git('worktree', 'add', '-q', '-b', 'nogit-8', wtd);
+  assert.equal(add.status, 0, add.stderr);
+  try {
+    const mark = join(d, 'MARK-nogit');
+    const own = join(wtd, '.agents/scripts/proofline-core.mjs');
+    writeFileSync(own, `import { writeFileSync as w } from 'node:fs';\nw(${JSON.stringify(mark)}, 'x');\n${readFileSync(own, 'utf8')}`);
+    const call = () => spawnSync('sh', [join(wtd, '.agents/scripts/agent.sh').replaceAll('\\', '/'), 'status'], { cwd: d, env: cleanEnv(), encoding: 'utf8' });
+    rmSync(join(wtd, '.git'));
+    const r = call();
+    assert.equal(r.status, 127, r.stderr);
+    assert.match(r.stderr, /is in a run worktree and the main tree could not be confirmed/);
+    writeFileSync(join(wtd, '.git'), 'gitdir: /nonexistent\n');
+    const r2 = call();
+    assert.equal(r2.status, 127, r2.stderr);
+    assert.ok(!existsSync(mark), 'the rewritten worktree core ran');
+  } finally { git('worktree', 'remove', '--force', wtd); git('branch', '-D', 'nogit-8'); }
+});
+
+test('A251: the normal redirect is unchanged: from a worktree the project core answers (exit 0), a project outside any worktree folder runs its own core', () => {
+  const r = fromWorktree(['status']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /could not be confirmed/);
+  const m = fromMain(['status']);
+  assert.equal(m.status, 0, m.stderr);
 });

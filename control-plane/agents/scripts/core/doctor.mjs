@@ -224,14 +224,8 @@ function nonEmpty(p) { try { return statSync(p).size > 0; } catch { return false
 
 /** Run a program with its standard output and error in one string (the shell's `2>&1`); the status is the program's. @param {string} program @param {string[]} args @param {import('./proc.mjs').ProcOptions} opt */
 function runMerged(program, args, opt) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'proofline-dm-'));
-  const f = path.join(dir, 'out');
-  const fd = openSync(f, 'w');
-  try {
-    const r = proc.run(program, args, { ...opt, stdio: ['ignore', fd, fd] });
-    closeSync(fd);
-    return { status: r.status, text: readFileSync(f, 'utf8') };
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  const r = proc.runMerged(program, args, opt);
+  return { status: r.status, text: Buffer.from(r.text, 'latin1').toString('utf8') };
 }
 
 /**
@@ -679,7 +673,7 @@ class Doctor {
 
   doctorConfigAndApproval() {
     if (!this.mayRunProjectCode('the config check, the approval timing, the rules report, the time limits and the lead model check were')) return;
-    const c = runMerged('sh', [this.agent, 'config-check'], { cwd: this.root, env: this.ctx.env });
+    const c = runMerged(proc.SCRIPT_SHELL, [this.agent, 'config-check'], { cwd: this.root, env: this.ctx.env });
     if (c.status === 0) this.pass(`config: ${c.text.replace(/\n+$/, '').split('\n')[0]}`);
     else this.fail(`config: agent.sh config-check failed: ${headJoined(c.text, 2)}`);
     // A202 item 28: how long the approval path takes on THIS machine against the hook's approval budget
@@ -687,7 +681,7 @@ class Doctor {
     b = /^[0-9]+$/.test(b) ? b : '20';
     let budget = Number(b); if (budget < 5) budget = 5; if (budget > 25) budget = 25;
     const t0 = Date.now();
-    for (const a of [['fingerprint'], ['approve-pending', '-']]) proc.run('sh', [this.agent, ...a], { cwd: this.root, env: this.ctx.env, stdio: 'ignore' });
+    for (const a of [['fingerprint'], ['approve-pending', '-']]) proc.runScript([this.agent, ...a], { cwd: this.root, env: this.ctx.env, stdio: 'ignore' });
     const ms = Date.now() - t0;
     if (ms >= budget * 500) this.warn(`approval path: ${ms} ms on this machine, ${budget * 1000} ms hook budget (hook.approve_budget_seconds); close to or over half of it. A slow machine can raise hook.approve_budget_seconds in .agents/config.yaml (5 to 25); the cause is usually a large unignored folder or a loaded machine`);
     else this.pass(`approval path: ${ms} ms (hook budget ${budget * 1000} ms)`);

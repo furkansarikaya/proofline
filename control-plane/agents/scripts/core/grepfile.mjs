@@ -30,6 +30,23 @@ export function grepTextStatus(env, pattern, text, ci = false) {
 }
 
 /**
+ * The lines of a text that `grep -E -e PATTERN` selects (none when the platform grep cannot use the pattern). Same private folder and relative names as grepTextStatus.
+ * @param {Record<string, string | undefined>} env @param {string} pattern byte string @param {string} text byte string @returns {string[]}
+ */
+export function grepTextLines(env, pattern, text) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'proofline-grep-'));
+  try {
+    writeFileSync(path.join(dir, 'pat'), patternBytes(pattern));
+    writeFileSync(path.join(dir, 'txt'), Buffer.from(text, 'latin1'));
+    const r = proc.run('grep', ['-E', '-f', 'pat', '--', 'txt'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (r.status !== 0) return [];
+    const ls = r.stdout.toString('latin1').split('\n');
+    if (ls[ls.length - 1] === '') ls.pop();
+    return ls;
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/**
  * `grep -Eiq -e PATTERN` over a line on stdin: the pattern is a file of a private folder.
  * @param {Record<string, string | undefined>} env @param {string} pattern byte string @param {string} line
  */

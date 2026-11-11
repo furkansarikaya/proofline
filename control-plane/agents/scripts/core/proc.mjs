@@ -3,7 +3,8 @@
 // Every child is counted per program and timed, in process: spawnCounts() and spawnLog() are read by the caller (tests, the benchmark). No
 // environment value and no file switches this on or sends it anywhere (an env-named log file would be an arbitrary-file append for any role).
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, constants, writeSync } from 'node:fs';
+import { accessSync, closeSync, constants, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { env as ownEnv } from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -144,7 +145,46 @@ export function runAsync(program, args, options = {}) {
  * @param {string} text @param {ProcOptions} [options] @returns {ProcResult}
  */
 export function runUserCommand(text, options = {}) {
-  return run(process.platform === 'win32' ? 'sh' : '/bin/sh', ['-c', text], options);
+  const [program, ...args] = userShellArgv(text);
+  return run(program, args, options);
+}
+
+/** The program that starts a shell script FILE (a launcher, or a script the user or the project wrote). Never given a command string: see runScript. */
+export const SCRIPT_SHELL = 'sh';
+
+/**
+ * Start a shell script file: `sh <script> [args]`. The first word must be a file, never an option (`-c` would hand a string to a shell; that is runUserCommand's job alone).
+ * The no-shell-logic check refuses the program names sh, bash, awk and sed anywhere else in the Node sources.
+ * @param {string[]} argv the script, then its arguments @param {ProcOptions} [options] @returns {ProcResult}
+ */
+export function runScript(argv, options = {}) {
+  if (argv.length === 0 || argv[0] === '' || argv[0].startsWith('-')) throw new Error('runScript starts a script file, not a command string');
+  return run(SCRIPT_SHELL, argv, options);
+}
+
+/**
+ * The argument vector that hands a user's command string to a shell (`/bin/sh -c` on POSIX). For a caller that has to put a wrapper (`timeout`) or its own
+ * spawn function in front of the shell; like runUserCommand it is the only place a string meets a shell (the no-shell-logic check refuses any other `sh -c`).
+ * @param {string} text @returns {string[]}
+ */
+export function userShellArgv(text) {
+  return [process.platform === 'win32' ? 'sh' : '/bin/sh', '-c', text];
+}
+
+/**
+ * Run a program with its standard output and error in one string (the shell's `2>&1`, without a shell); the status is the program's. Standard input is
+ * `options.stdin` (default 'ignore'); the other `options` are those of run().
+ * @param {string} program @param {string[]} args @param {ProcOptions & { stdin?: 'ignore'|'inherit'|'pipe' }} [options] @returns {{ status: number, text: string }}
+ */
+export function runMerged(program, args, options = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'proofline-dm-'));
+  const f = path.join(dir, 'out');
+  const fd = openSync(f, 'w');
+  try {
+    const r = run(program, args, { ...options, stdio: [options.stdin ?? 'ignore', fd, fd] });
+    closeSync(fd);
+    return { status: r.status, text: readFileSync(f, 'latin1') };
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 /** @type {WeakSet<import('node:child_process').ChildProcess>} */

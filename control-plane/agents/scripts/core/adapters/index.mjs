@@ -43,7 +43,7 @@ export function runTaskAdapter(ctx, name, args, opt = {}) {
   if (!adapterNameOk(name)) return null;
   const script = userScript(root, name);
   if (script !== '') {
-    const r = proc.run('sh', [script, ...args], { cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: opt.timeoutMs });
+    const r = proc.runScript([script, ...args], { cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: opt.timeoutMs });
     return { status: r.status, stdout: r.stdout, stderr: r.stderr };
   }
   if (!BUILTIN.includes(name)) return null;

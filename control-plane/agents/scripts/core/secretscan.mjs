@@ -95,7 +95,8 @@ export function builtinScan(ctx, root, paths) {
   if (!rootOk) return { status: 2, stdout: '', stderr: `secret-scan: no such directory: ${root}\n` };
   const cmd = configuredCommand(root);
   if (cmd !== '') {
-    const r = proc.run('/bin/sh', ['-c', `${cmd} "$@"`, 'secret-scan', ...paths], { cwd: root, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    // the configured command is the user's own string (runUserCommand); the paths follow it as quoted words, what `"$@"` expanded to
+    const r = proc.runUserCommand(`${cmd}${paths.map((p) => ` '${p.replace(/'/g, "'\\''")}'`).join('')}`, { cwd: root, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     if (r.status === 0 || r.status === 1) return { status: r.status, stdout: r.stdout.toString('latin1'), stderr: r.stderr.toString('latin1') };
     return { status: 2, stdout: '', stderr: `${r.stderr.toString('latin1')}secret-scan: commands.secret_scan failed (exit ${r.status})\n` };
   }
@@ -143,7 +144,7 @@ export function builtinScan(ctx, root, paths) {
 export function runSecretScan(ctx, paths) {
   const script = `${ctx.trustedScripts}/secret-scan.sh`;
   if (isFile(script)) {
-    const r = proc.run('sh', [script, '--root', ctx.root, ...paths], { cwd: ctx.root, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    const r = proc.runScript([script, '--root', ctx.root, ...paths], { cwd: ctx.root, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     return { status: r.status, stdout: r.stdout, stderr: r.stderr };
   }
   const r = builtinScan(ctx, ctx.root, paths);

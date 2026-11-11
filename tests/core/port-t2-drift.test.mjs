@@ -40,4 +40,15 @@ describe('risk-test: log_sensitive and the not-a-contract list', () => {
     const m = await import(path.join(repo, 'skills/contract-proof/scripts/diff-contract.mjs'));
     assert.equal(RISK_NOT_CONTRACT, m.NOT_A_CONTRACT.source);
   });
+  test('A251: a content pattern the translator does not cover (a word boundary) is matched by the platform grep, then the word test: no awk is started', () => {
+    const ctx = ctxFor();
+    // `\\<log` is not covered by ereToRegExp, so the platform grep selects the lines and the word test decides
+    assert.equal(riskWordsMatch(ctx, '\\<log', 'password card', ['log(userPassword)']), true);
+    assert.equal(riskWordsMatch(ctx, '\\<log', 'password card', ['blog(userPassword)']), false);
+    assert.equal(riskWordsMatch(ctx, '\\<log', 'password card', ['log(discard)']), false);
+    assert.equal(riskWordsMatch(ctx, '\\<log', 'password card', ['x', 'y(log(passwords))']), true);
+    assert.equal(riskWordsMatch(ctx, '\\<log', 'password card', []), false);
+    // a pattern the platform grep cannot use matches nothing (the awk exit status 2 was no match either)
+    assert.equal(riskWordsMatch(ctx, '(unclosed\\<', 'password', ['log(password)']), false);
+  });
 });

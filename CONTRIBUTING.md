@@ -5,7 +5,7 @@ on whether it keeps that property.
 
 ## Set up
 
-Requirements: a POSIX `sh`, Git, and Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests). The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed). Nothing is installed into
+Requirements: Git, Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests) and a POSIX `sh` that does nothing but start Node (the four launchers: `agent.sh`, `dispatch.sh` and the two git hooks; no other shell file exists, A251). The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed). Nothing is installed into
 the project; there is no build step.
 
 Run locally (the `CI` variable unset), `node tests/affected.mjs` runs its test files under `nice`, so the machine stays usable; with `CI` set (GitHub Actions does) it runs at normal priority.
@@ -17,6 +17,10 @@ node tests/affected.mjs                       # runs only the Node test files yo
 node --test tests/skills/                    # skill validators and fixtures' known answers (about 740 tests)
 node tests/fixtures/check-fixtures.mjs        # builds every fixtures/*/setup.mjs and runs its selfcheck.mjs (42 passed, 1 skipped without vitest)
 node --test tests/benchmark/benchmark.test.mjs            # benchmark report known-answer test (seconds)
+node --test "tests/core/*.test.mjs"            # the Node tests of the control plane core (slow: CI runs them as parallel legs, see the node-tests job)
+node --test "tests/invariants-node/*.test.mjs" # the Core invariant suite (see Core invariants)
+node tests/ci/no-shell-logic.mjs              # the strict no-shell-logic check (A251): shell files are the four launchers, byte-equal to tests/ci/launcher-templates.txt; hook strings equal their templates; one-line CI steps; no sh or awk started from Node outside core/proc.mjs
+node tests/ci/shell-census.mjs REF [REF...]    # shell and awk counts of a git ref (the before/after table of the migration, A251)
 node adapters/generate.mjs --check            # generated agent files match roles/
 node docs/reference/generate-skills.mjs --check # docs/reference/skills.md matches the skills
 node tests/shared/check-shared.mjs            # shared skill sections have not drifted
@@ -25,9 +29,9 @@ node tests/ci/sync-design-library.mjs --check # design library copies are byte-i
 node --test tests/skills/frontmatter.test.mjs # front matter, YAML/TOML and Markdown links (also run alone by CI)
 ```
 
-CI additionally runs `shellcheck -s sh` over every shell script. A pull request that changes only plain
+CI runs the strict no-shell-logic check (there is no shellcheck any more: only the four launchers are shell, and the check pins their text). A pull request that changes only plain
 documentation (the root README, CHANGELOG, CONTRIBUTING, SECURITY; `.md`, `.png` and `.svg` files under `docs/` except `docs/reference/`) skips the
-test jobs but still runs shellcheck, the sync checks and the core-invariant tests (`node --test tests/invariants-node`, see Core invariants); Markdown under `skills/`, `roles/`, `control-plane/`
+test jobs but still runs the strict no-shell-logic check, the sync checks and the core-invariant tests (`node --test "tests/invariants-node/*.test.mjs"`, see Core invariants); Markdown under `skills/`, `roles/`, `control-plane/`
 and `adapters/` counts as code. Pushes to `main` and pull requests run the same Linux jobs, the fixtures and the skill tests included (A246: there is no fast mode any more; wall time in A246); macOS and Windows run nightly and on manual runs (A164).
 A pull request that changes hooks, skills, roles or the control plane also runs the real-session smoke test (A195) and pastes its table:
 `node tests/real-session/smoke.mjs` drives a real Claude Code session with a cheap model through `/proofline run`, `deliver` and a two-task
@@ -81,7 +85,7 @@ Each rule has at least one test in [tests/invariants-node/](tests/invariants-nod
 named in the header of the matching `tests/invariants-node/` test file (its "Not yet mechanical" notes, copied from the former shell header) instead of being faked.
 A patch that changes anything under `tests/invariants/` or `tests/invariants-node/` must say why in the pull request description, on a line that starts with
 `Invariant-test-change:`, and the review approves that change separately from the rest of the patch. `node tests/ci/change-reason.mjs invariants`
-fails the pull request otherwise. Locally: `node --test tests/invariants-node`, and `PR_BODY="..." node tests/ci/change-reason.mjs invariants < changed-paths.txt`.
+fails the pull request otherwise. Locally: `node --test "tests/invariants-node/*.test.mjs"`, and `PR_BODY="..." node tests/ci/change-reason.mjs invariants < changed-paths.txt`.
 
 The text proofline loads into every session (the AGENTS.md and CLAUDE.md blocks, the SessionStart text, the entry skill, each role's agent
 file and first skill) has a size budget (A202): `node control-plane/agents/scripts/proofline-core.mjs cli context-size repo .` measures it, `tests/context/budget.tsv` holds the limits and

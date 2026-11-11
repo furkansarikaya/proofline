@@ -21,13 +21,15 @@ function byteOrder(ctx) {
  * @param {Context} ctx @param {string} dir @param {string} pattern `*.md` or `*` @returns {string[]}
  */
 function globNames(ctx, dir, pattern) {
-  if (byteOrder(ctx)) {
-    let names = [];
-    try { names = readdirSync(dir, { encoding: 'latin1' }); } catch { return []; }
-    return names.filter((n) => !n.startsWith('.') && (pattern === '*' || n.endsWith('.md'))).sort();
-  }
-  const r = proc.run('sh', ['-c', `for f in "$1"/${pattern}; do [ -e "$f" ] || [ -L "$f" ] || continue; printf '%s\\0' "\${f##*/}"; done`, 'x', dir], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
-  return r.stdout.toString('latin1').split('\0').filter((x) => x !== '');
+  let names = [];
+  try { names = readdirSync(dir, { encoding: 'latin1' }); } catch { return []; }
+  names = names.filter((n) => !n.startsWith('.') && (pattern === '*' || n.endsWith('.md')));
+  // A251: no shell is started for the listing any more. Under another locale the order is the ICU collation of Node, which for task file names (ASCII ids) is the order the C library gave; a name outside that is the accepted limit.
+  if (byteOrder(ctx)) return names.sort();
+  const tag = (ctx.env.LC_ALL || ctx.env.LC_COLLATE || ctx.env.LANG || '').replace(/[.@].*$/, '').replace(/_/g, '-');
+  let collator;
+  try { collator = new Intl.Collator(tag === '' ? undefined : tag); } catch { collator = new Intl.Collator(); }
+  return names.sort((a, b) => collator.compare(Buffer.from(a, 'latin1').toString('utf8'), Buffer.from(b, 'latin1').toString('utf8')));
 }
 
 /** `"$dir"/*.md` that are files, in glob order. @param {Context} ctx @param {string} dir */
@@ -51,7 +53,7 @@ function agentOut(ctx, argv) {
     ctx.runner(argv, { env: ctx.env, cwd: ctx.root, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: () => true }, scriptPath: ctx.scriptPath, isProcess: false });
     return Buffer.concat(out).toString('latin1');
   }
-  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
+  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
   return r.stdout.toString('latin1');
 }
 

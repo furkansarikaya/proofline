@@ -53,7 +53,7 @@ export function measureMachine(ctx) {
   /** @param {string[][]} steps */
   const timed = (steps) => {
     const t0 = Date.now();
-    for (const s of steps) proc.run('sh', [a, ...s], { cwd: ctx.root, env: ctx.env, stdio: 'ignore' });
+    for (const s of steps) proc.runScript([a, ...s], { cwd: ctx.root, env: ctx.env, stdio: 'ignore' });
     return Date.now() - t0;
   };
   let bestA = -1; let bestS = -1;

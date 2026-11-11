@@ -1,35 +1,30 @@
-// The no-shell-logic rule (ADR 0001 section 9). Node built-ins only.
+// The no-shell-logic rule (ADR 0001 section 9), strict since stage 15 (A251). Node built-ins only. There is one mode; the ratchet of stages 1-14 (two snapshots of
+// 0.0.40) is gone.
 //
-//   node tests/ci/no-shell-logic.mjs                  ratchet mode (stages 1-14): the repository against two snapshots of 0.0.40
-//   node tests/ci/no-shell-logic.mjs --base REF       also: no snapshot entry may exist that REF's snapshot did not have (entries only disappear)
-//   node tests/ci/no-shell-logic.mjs --strict         strict mode (stage 15): no snapshot, every shell file a launcher, every step and hook string strict
-//   --root DIR                                        the repository to check (default: the one this file lives in); the files are `git ls-files` of it
-//   --print-allowlist | --print-snapshot              print the current state in snapshot form (used once to record 0.0.40, and by the tests)
+//   node tests/ci/no-shell-logic.mjs [--root DIR]     the repository (default: the one this file lives in); the files are `git ls-files` of it
 //
-// Snapshots (both in tests/ci/):
-//   shell-allowlist.txt        one tracked shell file per line (path). Shell file: .sh or .bash extension, a shell shebang
-//                              (sh bash dash ash zsh), or any file under a `githooks` folder.
-//   inline-shell-snapshot.txt  one line per `run:` step of .github/workflows/*.yml and per hook command string of the three wiring files:
-//                              <sha256> <location>. Location: <file>::<job>::step<N> for a step, <file>::<event>::<N> for a hook string.
+// The rules (every one has a planted-violation test in tests/ci/no-shell-logic.test.mjs):
+//   1. A *shell file* is a tracked file with a .sh or .bash extension, a shell shebang (sh bash dash ash zsh ksh mksh csh tcsh fish busybox), or any file under a
+//      `githooks`, `.githooks` or `.husky` folder. Every shell file must be in LAUNCHERS, and no .awk file may exist.
+//   2. Every launcher is BYTE-EQUAL to its section of tests/ci/launcher-templates.txt (the epic criterion "launchers equal to their templates"). Nothing is loosened:
+//      the three plain launchers must also be a shebang and one `exec node "$(dirname "$0")/..."` line (launcherOk); agent.sh, whose A207/A245 redirect needs an
+//      `if`/`case` and `git`, is the one launcher whose template carries logic, and the template is what pins it.
+//   3. Every `command` of the three hook wiring files equals a pinned template of tests/ci/hook-templates.txt.
+//   4. Every `run:` step of .github/workflows/*.yml, composite actions included, is one command line (no `if`, loops, `&&`, `||`, pipes, `;`, `$(...)`).
+//   5. No `sh`, `bash`, `awk`, `sed` (or a sibling) program is started from Node outside core/proc.mjs (runUserCommand, userShellArgv, runScript): see nodeSpawnProblems.
 //
-// Known gaps (a tripwire, not the boundary; the security review F4 rest): content is not hashed, so a command appended to an allowlisted shell
-// file passes (stages 2-14 move such files by review); YAML is read by a line scanner (flow-style `steps: [...]`, anchors and `run:` values built
-// by an expression are not seen); a shell file with an unusual shebang interpreter outside the list above, or a script without shebang and
-// extension outside githooks/.githooks/.husky, is not recognised. Covered: any `run:` key at any indentation, composite actions, workflows.
-//
-// Ratchet rules: a shell file that is not in the allowlist fails; an allowlist entry whose file is gone or no longer a shell file fails (remove
-// it); a step or hook string whose SHA-256 is not in the snapshot (same file and job/event) is new or changed and must already meet the
-// strict rule; a snapshot entry that no step or string matches fails (remove it). The ratchet never accepts an addition.
+// Known gaps (a tripwire, not the boundary): YAML is read by a line scanner (flow-style `steps: [...]`, anchors and `run:` values built by an expression are not seen);
+// a shell file with an unusual shebang interpreter outside the list above, or a script without shebang and extension outside the hook folders, is not recognised;
+// the Node scan reads source text (a program name built at run time, or started through a variable, is not seen); the template and the launcher change together in one
+// pull request, so review (and the A entry) is the gate for a change of a launcher, never this script alone.
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 
-export const ALLOWLIST = 'tests/ci/shell-allowlist.txt';
-export const SNAPSHOT = 'tests/ci/inline-shell-snapshot.txt';
+export const LAUNCHER_TEMPLATES = 'tests/ci/launcher-templates.txt';
 export const HOOK_TEMPLATES = 'tests/ci/hook-templates.txt';
 export const WIRING_FILES = ['adapters/claude/hooks/hooks.json', 'adapters/claude/settings.fragment.json', 'adapters/codex/hooks.json'];
-// The launcher list of ADR section 9 (strict mode only; in ratchet mode every shell file of 0.0.40 is allowlisted). bin/proofline is a Node program since A233 (`#!/usr/bin/env node`), not a shell launcher.
+// The launcher list of ADR section 9. bin/proofline is a Node program since A233 (`#!/usr/bin/env node`), not a shell launcher.
 export const LAUNCHERS = new Set([
   'control-plane/agents/scripts/agent.sh',
   'control-plane/agents/scripts/dispatch.sh',
@@ -38,7 +33,6 @@ export const LAUNCHERS = new Set([
 ]);
 
 /** @typedef {{ kind: string, file: string, job: string, index: number, text: string, location: string, group: string, sha?: string, line?: number }} Item */
-const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 
 export function trackedFiles(root) {
   const out = execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 1 << 28 });
@@ -55,7 +49,7 @@ function firstLine(file) {
   } catch { return ''; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
-const SHEBANG = /^#!\s*(?:\S*\/)?(?:env\s+(?:-S\s+)?)?(?:[a-z]*sh|busybox)(?:\s|$)/;   // sh bash dash ash zsh ksh mksh csh tcsh fish busybox
+export const SHEBANG = /^#!\s*(?:\S*\/)?(?:env\s+(?:-S\s+)?)?(?:[a-z]*sh|busybox)(?:\s|$)/;   // sh bash dash ash zsh ksh mksh csh tcsh fish busybox
 export function isShellFile(root, rel) {
   if (/\.(sh|bash)$/.test(rel)) return true;
   if (rel.split('/').some((d) => d === 'githooks' || d === '.githooks' || d === '.husky')) return true;
@@ -193,113 +187,114 @@ export function hookStrictProblem(text, templates) {
   return templates.length ? 'does not equal a pinned hook template' : `no pinned hook template exists yet (${HOOK_TEMPLATES}); a new or changed hook string cannot pass`;
 }
 
-// ---- snapshots -------------------------------------------------------------------------------------------------------------------------
-const readLines = (text) => text.split('\n').filter((l) => l !== '' && !l.startsWith('#'));
-export function parseSnapshot(text) {
-  return readLines(text).map((l) => {
-    const m = /^([0-9a-f]{64}) (\S+)$/.exec(l);
-    if (!m) throw new Error(`snapshot line is not "<sha256> <location>": ${l}`);
-    const loc = m[2].split('::');
-    return { sha: m[1], location: m[2], group: loc.slice(0, 2).join('::') };
-  });
+// ---- launcher templates ----------------------------------------------------------------------------------------------------------------
+/** The sections of tests/ci/launcher-templates.txt: `@@ <path>` starts one, its text runs to the next `@@ ` line (the lines before the first section are comments). @param {string} text @returns {Map<string, string>} */
+export function parseLauncherTemplates(text) {
+  /** @type {Map<string, string>} */ const out = new Map();
+  const parts = text.split(/^@@ (.+)\n/m);   // [comments, path1, text1, path2, text2, ...]
+  for (let i = 1; i < parts.length; i += 2) {
+    if (out.has(parts[i])) throw new Error(`${LAUNCHER_TEMPLATES}: two sections for ${parts[i]}`);
+    out.set(parts[i], parts[i + 1]);
+  }
+  return out;
 }
 
+/** The launchers whose template may carry logic (the A207/A245 redirect: which core runs is decided there). The others must also pass launcherOk. */
+export const LOGIC_LAUNCHERS = new Set(['control-plane/agents/scripts/agent.sh']);
+
+/** @param {string} root @returns {string[]} */
+export function launcherProblems(root) {
+  /** @type {string[]} */ const problems = [];
+  const f = join(root, LAUNCHER_TEMPLATES);
+  if (!existsSync(f)) return [`${LAUNCHER_TEMPLATES} is missing`];
+  /** @type {Map<string, string>} */ let templates;
+  try { templates = parseLauncherTemplates(readFileSync(f, 'utf8')); } catch (e) { return [/** @type {Error} */ (e).message]; }
+  for (const t of templates.keys()) if (!LAUNCHERS.has(t)) problems.push(`${LAUNCHER_TEMPLATES}: a template for ${t}, which is not in the launcher list`);
+  const tracked = new Set(trackedFiles(root));
+  for (const l of [...LAUNCHERS].sort()) {
+    const t = templates.get(l);
+    if (t === undefined) { problems.push(`${l}: no template in ${LAUNCHER_TEMPLATES}`); continue; }
+    if (!LOGIC_LAUNCHERS.has(l) && !launcherOk(t)) problems.push(`${LAUNCHER_TEMPLATES}: the template of ${l} is not a shebang and one exec node line`);
+    if (!tracked.has(l) || !existsSync(join(root, l))) { problems.push(`${l}: the launcher is missing`); continue; }
+    if (readFileSync(join(root, l), 'utf8') !== t) problems.push(`${l}: a launcher must be byte-equal to its template in ${LAUNCHER_TEMPLATES}`);
+  }
+  return problems;
+}
+
+// ---- programs started from Node ----------------------------------------------------------------------------------------------------------
+const SHELL_PROGRAMS = 'sh|bash|dash|zsh|ksh|mksh|ash|busybox';
+const TEXT_PROGRAMS = 'awk|gawk|mawk|nawk|sed|gsed';
+const Q = '([\'"`])(?:/(?:usr/)?bin/)?';
+// a text tool named as a string anywhere in code; a shell named as the program of a spawn-like call (its first or second argument, alone or first in an array),
+// or as the head of a `[sh, '-c', ...]` vector
+const TEXT_TOOL = new RegExp(`${Q}(?:${TEXT_PROGRAMS})\\1`);
+const SHELL_SPAWN = new RegExp(`\\b[A-Za-z_.]*(?:spawn|exec|run|fork)[A-Za-z]*\\(\\s*(?:[^()\\n]*?,\\s*)?\\[?\\s*${Q}(?:${SHELL_PROGRAMS})\\1\\s*[,)\\]]`, 'i');
+const SHELL_VECTOR = new RegExp(`\\[\\s*${Q}(?:${SHELL_PROGRAMS})\\1\\s*,\\s*(['"\`])-c\\2`);
+/** The only module that may name a shell or text tool as a program (runUserCommand, userShellArgv, runScript). */
+export const PROC_MODULE = 'control-plane/agents/scripts/core/proc.mjs';
+/** Hook guards and the command scanner read command TEXT and name awk, sed and the shells as data (lists of words to recognise); only the text-tool rule skips them, a spawn of a shell is refused there too. */
+export const TEXT_ONLY = (/** @type {string} */ f) => f === 'adapters/claude/hooks/command-scan.mjs' || f.startsWith('adapters/claude/hooks/guards/');
+/** Node sources the rule covers: product code, not the tests, not the docs. */
+export const nodeSourceFile = (/** @type {string} */ f) => /\.(mjs|js|cjs)$/.test(f) && !/^(tests|docs|fixtures)\//.test(f) && f !== PROC_MODULE;
+
+/** @param {string} root @returns {string[]} */
+export function nodeSpawnProblems(root) {
+  /** @type {string[]} */ const problems = [];
+  for (const f of trackedFiles(root).filter(nodeSourceFile)) {
+    let text;
+    try { text = readFileSync(join(root, f), 'utf8'); } catch { continue; }
+    const lines = text.split('\n');
+    for (const [i, raw] of lines.entries()) {
+      const l = raw.trim();
+      if (l.startsWith('//') || l.startsWith('*') || l.startsWith('/*')) continue;
+      const where = `${f}:${i + 1}`;
+      if (!TEXT_ONLY(f) && TEXT_TOOL.test(l)) problems.push(`${where}: a text tool (awk or sed) is named as a string; its work is Node code`);
+      if (SHELL_SPAWN.test(l) || SHELL_VECTOR.test(l)) problems.push(`${where}: a shell is started from Node outside core/proc.mjs (use runUserCommand for a user's command string, runScript for a script file)`);
+    }
+  }
+  return problems;
+}
+
+// ---- inline items and shell files -------------------------------------------------------------------------------------------------------
 export function currentInline(root) {
   /** @type {Item[]} */
   const items = [];
   const files = trackedFiles(root);
   for (const rel of files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f) || /^\.github\/actions\/.+\.ya?ml$/.test(f) || /(^|\/)action\.ya?ml$/.test(f))) items.push(...runSteps(rel, readFileSync(join(root, rel), 'utf8')));
   for (const rel of WIRING_FILES) if (files.includes(rel)) items.push(...hookStrings(rel, readFileSync(join(root, rel), 'utf8')));
-  for (const it of items) it.sha = sha256(it.kind === 'run' ? it.text.replace(/\s+$/, '') : it.text);
   return items;
 }
 export function currentShellFiles(root) {
   return trackedFiles(root).filter((f) => isShellFile(root, f)).sort();
 }
-export const formatSnapshot = (items) => items.map((i) => `${i.sha} ${i.location}`).join('\n') + '\n';
 
 // ---- the check -------------------------------------------------------------------------------------------------------------------------
-export function check(root, { strict = false, base = '' } = {}) {
-  const problems = [];
-  const shell = currentShellFiles(root);
-  const items = currentInline(root);
+/** @param {string} root @returns {string[]} the problems; none means the repository is clean */
+export function check(root) {
+  /** @type {string[]} */ const problems = [];
   const templates = hookTemplates(root);
-  /** @param {Item} it */
-  const strictProblem = (it) => (it.kind === 'run' ? stepStrictProblem(it.text) : hookStrictProblem(it.text, templates));
-
-  if (strict) {
-    for (const f of shell) {
-      if (!LAUNCHERS.has(f)) problems.push(`${f}: a shell file that is not in the launcher list`);
-      else if (!launcherOk(readFileSync(join(root, f), 'utf8'))) problems.push(`${f}: a launcher must be a shebang and one exec node line only`);
-    }
-    for (const it of items) { const p = strictProblem(it); if (p) problems.push(`${it.location}: ${p}`); }
-    return problems;
+  for (const f of trackedFiles(root)) if (f.endsWith('.awk')) problems.push(`${f}: an .awk file (no awk anywhere)`);
+  for (const f of currentShellFiles(root)) if (!LAUNCHERS.has(f)) problems.push(`${f}: a shell file that is not in the launcher list`);
+  problems.push(...launcherProblems(root));
+  for (const it of currentInline(root)) {
+    const p = it.kind === 'run' ? stepStrictProblem(it.text) : hookStrictProblem(it.text, templates);
+    if (p) problems.push(`${it.location}${it.line ? ` (line ${it.line})` : ''}: ${p}`);
   }
-
-  const readSnap = (rel) => { const f = join(root, rel); return existsSync(f) ? readFileSync(f, 'utf8') : null; };
-  const allowText = readSnap(ALLOWLIST);
-  const snapText = readSnap(SNAPSHOT);
-  if (allowText === null) problems.push(`${ALLOWLIST} is missing`);
-  if (snapText === null) problems.push(`${SNAPSHOT} is missing`);
-  if (allowText === null || snapText === null) return problems;
-
-  const allow = new Set(readLines(allowText));
-  const shellSet = new Set(shell);
-  for (const f of shell) if (!allow.has(f)) problems.push(`${f}: a new shell file (the ratchet never accepts one; write it in Node, or if it is a launcher it belongs to stage 15)`);
-  for (const f of allow) if (!shellSet.has(f)) problems.push(`${ALLOWLIST}: "${f}" is no longer a shell file; remove the entry`);
-
-  // inline snapshot: match by (group, sha) as a multiset, so moving a step inside its job or event is not a change
-  const snap = parseSnapshot(snapText);
-  const pool = new Map();
-  for (const e of snap) pool.set(`${e.group}\0${e.sha}`, (pool.get(`${e.group}\0${e.sha}`) ?? 0) + 1);
-  for (const it of items) {
-    const k = `${it.group}\0${it.sha}`;
-    const n = pool.get(k) ?? 0;
-    if (n > 0) { pool.set(k, n - 1); continue; }
-    const p = strictProblem(it);
-    if (p) problems.push(`${it.location}${it.line ? ` (line ${it.line})` : ''}: a new or changed ${it.kind === 'run' ? 'run: step' : 'hook command string'} must meet the strict rule: ${p}`);
-  }
-  for (const e of snap) {
-    const k = `${e.group}\0${e.sha}`;
-    const n = pool.get(k) ?? 0;
-    if (n > 0) { pool.set(k, n - 1); problems.push(`${SNAPSHOT}: "${e.location}" matches no step or string any more; remove the entry`); }
-  }
-
-  if (base) {
-    const show = (rel) => { try { return execFileSync('git', ['-C', root, 'show', `${base}:${rel}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 28 }); } catch { return null; } };
-    const baseAllow = show(ALLOWLIST);
-    if (baseAllow !== null) {
-      const b = new Set(readLines(baseAllow));
-      for (const f of allow) if (!b.has(f)) problems.push(`${ALLOWLIST}: "${f}" was added since ${base}; entries may only disappear`);
-    }
-    const baseSnap = show(SNAPSHOT);
-    if (baseSnap !== null) {
-      const b = new Set(parseSnapshot(baseSnap).map((e) => `${e.sha} ${e.group}`));
-      for (const e of snap) if (!b.has(`${e.sha} ${e.group}`)) problems.push(`${SNAPSHOT}: "${e.location}" was added or changed since ${base}; entries may only disappear`);
-    }
-  }
+  problems.push(...nodeSpawnProblems(root));
   return problems;
 }
 
 function main(argv) {
   let root = resolve(import.meta.dirname, '../..');
-  let strict = false;
-  let base = '';
-  let mode = 'check';
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--strict') strict = true;
-    else if (a === '--root') root = resolve(argv[++i]);
-    else if (a === '--base') base = argv[++i] ?? '';
-    else if (a === '--print-allowlist') mode = 'allow';
-    else if (a === '--print-snapshot') mode = 'snap';
+    if (a === '--root') root = resolve(argv[++i]);
+    else if (a === '--strict') continue;   // the one mode; the flag of stages 1-14 is still accepted
     else { process.stderr.write(`no-shell-logic: unknown argument ${a}\n`); return 2; }
   }
-  if (mode === 'allow') { process.stdout.write(currentShellFiles(root).join('\n') + '\n'); return 0; }
-  if (mode === 'snap') { process.stdout.write(formatSnapshot(currentInline(root))); return 0; }
-  const problems = check(root, { strict, base });
+  const problems = check(root);
   if (problems.length === 0) {
-    process.stdout.write(`no-shell-logic: ok (${strict ? 'strict' : 'ratchet'})\n`);
+    process.stdout.write('no-shell-logic: ok (strict)\n');
     return 0;
   }
   for (const p of problems) process.stderr.write(`no-shell-logic: ${p}\n`);

@@ -171,7 +171,7 @@ function testSuites(ctx) {
     ctx.out(`== ${n}\n`);
     ctx.flush();
     const own = ctx.io.isProcess === true;
-    const r = proc.run('sh', [`${dir}/${n}`], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+    const r = proc.runScript([`${dir}/${n}`], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: own ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
     if (!own) { ctx.out(r.stdout.toString('latin1')); ctx.err(r.stderr.toString('latin1')); }
     if (r.status !== 0) return r.status;
   }

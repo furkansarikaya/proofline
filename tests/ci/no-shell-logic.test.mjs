@@ -1,14 +1,16 @@
-// Tests of tests/ci/no-shell-logic.mjs (ratchet mode and the strict rule) on small throwaway git repositories.
+// Tests of tests/ci/no-shell-logic.mjs (the strict check, A251) on small throwaway git repositories: a clean repository passes, every rule fails on its planted violation.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { stepStrictProblem, runSteps, launcherOk, hookStrictProblem } from './no-shell-logic.mjs';
+import { check, stepStrictProblem, runSteps, launcherOk, hookStrictProblem, parseLauncherTemplates, LAUNCHERS, nodeSpawnProblems } from './no-shell-logic.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 const script = join(repo, 'tests/ci/no-shell-logic.mjs');
+const TEMPLATES = readFileSync(join(repo, 'tests/ci/launcher-templates.txt'), 'utf8');
+const HOOK_TEMPLATES = readFileSync(join(repo, 'tests/ci/hook-templates.txt'), 'utf8');
 
 const CI = `name: t
 on: [push]
@@ -28,240 +30,158 @@ jobs:
         run: node tests/ci/no-shell-logic.mjs
       - run: echo "\${{ github.sha }}"
 `;
-const WIRING = JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: "sh -c 'exec sh \"$h\" pretool claude'", timeout: 30 }] }] } }, null, 2);
+const CLEAN_CI = CI.replace(/ {6}- name: legacy\n {8}run: \|\n {10}if \[ -f x \]; then echo a; fi\n {10}echo b\n/, '');
+const HOOK = 'node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" pretool claude || test ! -f "$CLAUDE_PROJECT_DIR/.agents/config.yaml" || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }';
+const WIRING = JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: HOOK, timeout: 30 }] }] } }, null, 2);
 
 function git(dir, ...a) { return spawnSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }); }
 function put(dir, rel, text, mode) { mkdirSync(dirname(join(dir, rel)), { recursive: true }); writeFileSync(join(dir, rel), text); if (mode) chmodSync(join(dir, rel), mode); }
 function run(dir, ...args) { return spawnSync('node', [script, '--root', dir, ...args], { encoding: 'utf8' }); }
+const cleanup = (d) => rmSync(d, { recursive: true, force: true });
 
-// A repository in the state of "0.0.40": two shell files, a legacy multi-line step, a hook string, and both snapshots recorded.
+// A clean repository: the four launchers and their templates (the real ones), a hook wiring file with a pinned string, one-command CI steps, a Node file.
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'nsl-'));
   git(dir, 'init', '-q', '-b', 'main');
-  put(dir, 'scripts/a.sh', '#!/bin/sh\necho a\n');
-  put(dir, 'bin/tool', '#!/usr/bin/env bash\necho tool\n', 0o755);
-  put(dir, 'githooks/pre-commit', '#!/bin/sh\nexit 0\n');
+  for (const [f, text] of parseLauncherTemplates(TEMPLATES)) put(dir, f, text, 0o755);
+  put(dir, 'tests/ci/launcher-templates.txt', TEMPLATES);
+  put(dir, 'tests/ci/hook-templates.txt', HOOK_TEMPLATES);
   put(dir, 'README.md', '```sh\nif true; then echo md; fi\n```\n');
-  put(dir, 'lib/x.mjs', 'export default 1;\n');
-  put(dir, '.github/workflows/ci.yml', CI);
+  put(dir, 'lib/x.mjs', "import { spawnSync } from 'node:child_process';\nexport const v = () => spawnSync('git', ['--version']);\n");
+  put(dir, '.github/workflows/ci.yml', CLEAN_CI);
   put(dir, 'adapters/claude/hooks/hooks.json', WIRING);
   git(dir, 'add', '-A');
-  const allow = run(dir, '--print-allowlist').stdout;
-  const snap = run(dir, '--print-snapshot').stdout;
-  put(dir, 'tests/ci/shell-allowlist.txt', allow);
-  put(dir, 'tests/ci/inline-shell-snapshot.txt', snap);
-  git(dir, 'add', '-A');
-  git(dir, 'commit', '-q', '-m', 'base');
   return dir;
 }
-const cleanup = (d) => rmSync(d, { recursive: true, force: true });
+/** Plant a violation, check it is refused with a message matching RE, and that the clean fixture was clean (in process: the CLI itself is tested apart). */
+function refuses(plant, re, label) {
+  const d = fixture();
+  try {
+    assert.deepEqual(check(d), [], `${label}: the fixture is clean`);
+    plant(d);
+    git(d, 'add', '-A');
+    const problems = check(d);
+    assert.notEqual(problems.length, 0, `${label}: nothing was refused`);
+    assert.match(problems.join('\n'), re, label);
+  } finally { cleanup(d); }
+}
 
-describe('ratchet mode', () => {
-  test('passes on the recorded state, ignoring Markdown snippets and non-shell files', () => {
+describe('strict mode: the clean state and a planted violation of every rule', () => {
+  test('a clean repository passes (Markdown snippets are not code); --strict is still accepted', () => {
     const d = fixture();
     const r = run(d);
     assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /ok \(strict\)/);
+    assert.equal(run(d, '--strict').status, 0);
+    cleanup(d);
+  });
+  test('an unknown argument is refused, the ratchet flags are gone', () => {
+    const d = fixture();
+    for (const a of ['--base', '--print-snapshot', '--print-allowlist']) assert.equal(run(d, a, 'HEAD').status, 2, a);
     cleanup(d);
   });
 
-  test('the recorded state lists the shell files by extension, shebang and githooks folder', () => {
-    const d = fixture();
-    assert.equal(readFileSync(join(d, 'tests/ci/shell-allowlist.txt'), 'utf8'), 'bin/tool\ngithooks/pre-commit\nscripts/a.sh\n');
-    cleanup(d);
+  test('rule 1: a new .sh file', () => refuses((d) => put(d, 'scripts/new.sh', '#!/bin/sh\necho new\n'), /scripts\/new\.sh: a shell file that is not in the launcher list/, 'new .sh'));
+  test('rule 1: a new file with a shell shebang and no extension (also ksh, csh, fish)', () => {
+    for (const sb of ['#!/usr/bin/env zsh', '#!/bin/ksh', '#!/bin/csh -f', '#!/usr/bin/env -S fish']) refuses((d) => put(d, 'bin/other', `${sb}\necho z\n`, 0o755), /bin\/other: a shell file that is not in the launcher list/, sb);
+  });
+  test('rule 1: any file under a githooks, .githooks or .husky folder', () => {
+    for (const f of ['control/githooks/post-merge', '.husky/pre-commit', '.githooks/pre-push', '.husky/_/helper']) refuses((d) => put(d, f, 'npm test\n'), /a shell file that is not in the launcher list/, f);
+  });
+  test('rule 1: an .awk file', () => refuses((d) => put(d, 'lib/prog.awk', '{ print }\n'), /lib\/prog\.awk: an \.awk file/, 'awk file'));
+
+  test('rule 2: an `if` in a plain launcher (dispatch.sh and a git hook)', () => {
+    refuses((d) => { const f = join(d, 'control-plane/agents/scripts/dispatch.sh'); writeFileSync(f, readFileSync(f, 'utf8').replace('exec node', 'if true; then :; fi\nexec node')); },
+      /dispatch\.sh: a launcher must be byte-equal to its template/, 'if in dispatch.sh');
+    refuses((d) => writeFileSync(join(d, 'control-plane/agents/githooks/pre-push'), '#!/bin/sh\n[ -n "$X" ] || exit 0\nexec node "$(dirname "$0")/../scripts/proofline-core.mjs" cli pre-push\n'),
+      /pre-push: a launcher must be byte-equal/, 'logic in pre-push');
+  });
+  test('rule 2: any change of agent.sh, even one that keeps the redirect (an added command, the exit-127 tightening dropped, the redirect loosened, a trailing newline)', () => {
+    const f = 'control-plane/agents/scripts/agent.sh';
+    const text = parseLauncherTemplates(TEMPLATES).get(f) ?? '';
+    const tighten = /^case \$\(cd "\$root" && pwd -P\) in .*\n/m;
+    assert.match(text, tighten, 'the template carries the tightening');
+    assert.ok(text.includes(' [ -z "$main" ] ||'));
+    refuses((d) => writeFileSync(join(d, f), text.replace('exec node', 'rm -rf /tmp/x\nexec node')), /agent\.sh: a launcher must be byte-equal/, 'added command');
+    refuses((d) => writeFileSync(join(d, f), text.replace(tighten, '')), /agent\.sh: a launcher must be byte-equal/, 'the exit-127 tightening dropped');
+    refuses((d) => writeFileSync(join(d, f), text.replace(' [ -z "$main" ] ||', '')), /agent\.sh: a launcher must be byte-equal/, 'the redirect loosened');
+    refuses((d) => writeFileSync(join(d, f), `${text}\n`), /agent\.sh: a launcher must be byte-equal/, 'a trailing newline');
+  });
+  test('rule 2: the template is the pin: a launcher without a template, a template for a stranger, a plain launcher template with logic, a missing launcher, no template file, a duplicate section', () => {
+    refuses((d) => put(d, 'tests/ci/launcher-templates.txt', TEMPLATES.replace(/^@@ control-plane\/agents\/scripts\/dispatch\.sh\n[^@]*/m, '')), /dispatch\.sh: no template in/, 'no template');
+    refuses((d) => put(d, 'tests/ci/launcher-templates.txt', `${TEMPLATES}@@ lib/other.sh\n#!/bin/sh\necho x\n`), /a template for lib\/other\.sh, which is not in the launcher list/, 'stranger');
+    refuses((d) => {
+      const bad = '#!/bin/sh\nif true; then :; fi\nexec node "$(dirname "$0")/proofline-core.mjs" dispatch "$@"\n';
+      put(d, 'tests/ci/launcher-templates.txt', TEMPLATES.replace(/(^@@ control-plane\/agents\/scripts\/dispatch\.sh\n)[^@]*/m, `$1${bad}`));
+      put(d, 'control-plane/agents/scripts/dispatch.sh', bad);
+    }, /the template of control-plane\/agents\/scripts\/dispatch\.sh is not a shebang and one exec node line/, 'a plain launcher cannot be given logic by editing its template');
+    refuses((d) => rmSync(join(d, 'control-plane/agents/githooks/pre-commit')), /pre-commit: the launcher is missing/, 'missing launcher');
+    refuses((d) => rmSync(join(d, 'tests/ci/launcher-templates.txt')), /launcher-templates\.txt is missing/, 'no template file');
+    refuses((d) => put(d, 'tests/ci/launcher-templates.txt', `${TEMPLATES}${TEMPLATES.slice(TEMPLATES.indexOf('@@ control-plane/agents/githooks/pre-push'))}`), /two sections for/, 'duplicate section');
   });
 
-  test('fails on a planted new shell file (extension)', () => {
-    const d = fixture();
-    put(d, 'scripts/new.sh', '#!/bin/sh\necho new\n'); git(d, 'add', '-A');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /scripts\/new\.sh: a new shell file/);
-    cleanup(d);
+  test('rule 3: a changed hook string, a string with a prefix, a new unpinned event string, no templates', () => {
+    refuses((d) => put(d, 'adapters/claude/hooks/hooks.json', WIRING.replace('pretool claude ||', 'pretool claude; echo extra ||')), /PreToolUse::0: does not equal a pinned hook template/, 'changed');
+    refuses((d) => put(d, 'adapters/claude/hooks/hooks.json', WIRING.replace('"command": "node', '"command": "sh -c \'exec sh x\'; node')), /does not equal a pinned hook template/, 'prefix');
+    refuses((d) => put(d, 'adapters/codex/hooks.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'curl x | sh' }] }] } })), /hooks\.json::Stop::0: does not equal a pinned hook template/, 'new');
+    refuses((d) => rmSync(join(d, 'tests/ci/hook-templates.txt')), /no pinned hook template exists yet/, 'no templates');
   });
-  test('fails on a planted new shell file (shebang only, no extension)', () => {
-    const d = fixture();
-    put(d, 'bin/other', '#!/usr/bin/env zsh\necho z\n', 0o755); git(d, 'add', '-A');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /bin\/other: a new shell file/);
-    cleanup(d);
+
+  test('rule 4: a two-line CI step, a step with logic, an `if` step, and a composite action step', () => {
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - name: planted\n        run: |\n          echo one\n          echo two\n`), /build::step\d+ \(line \d+\): 2 command lines/, 'two lines');
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - run: test -f x && echo yes\n`), /&& at column/, 'logic');
+    refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - run: |\n          if [ -f x ]; then echo a; fi\n`), /starts with shell syntax \(if\)/, 'if');
+    refuses((d) => put(d, '.github/actions/a/action.yml', 'name: a\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: curl x | sh\n'), /actions\/a\/action\.yml::composite::step1 \(line 6\): pipe at column/, 'composite');
   });
-  test('fails on a planted new file under a githooks folder', () => {
+  test('rule 4: a one-command step passes, defaults: run: is not a step, 4-space workflows are read', () => {
     const d = fixture();
-    put(d, 'control/githooks/post-merge', 'anything\n'); git(d, 'add', '-A');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /githooks\/post-merge: a new shell file/);
-    cleanup(d);
-  });
-  test('an allowlist entry whose file is gone must be removed', () => {
-    const d = fixture();
-    git(d, 'rm', '-q', '-f', 'scripts/a.sh');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /"scripts\/a\.sh" is no longer a shell file; remove the entry/);
-    writeFileSync(join(d, 'tests/ci/shell-allowlist.txt'), 'bin/tool\ngithooks/pre-commit\n');
+    put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - run: node --test tests/ci/\n`);
     assert.equal(run(d).status, 0);
-    cleanup(d);
-  });
-
-  test('fails on a planted new multi-line run: step', () => {
-    const d = fixture();
-    put(d, '.github/workflows/ci.yml', CI + '      - name: planted\n        run: |\n          echo one\n          echo two\n');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /build::step\d+ \(line \d+\): a new or changed run: step must meet the strict rule: 2 command lines/);
-    cleanup(d);
-  });
-  test('fails on a planted new single-line step that has logic in it', () => {
-    const d = fixture();
-    put(d, '.github/workflows/ci.yml', CI + '      - run: test -f x && echo yes\n');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /&& at column/);
-    cleanup(d);
-  });
-  test('a new single-command step passes, and defaults: run: is not a step', () => {
-    const d = fixture();
-    put(d, '.github/workflows/ci.yml', CI + '      - run: node --test tests/ci/\n');
-    const r = run(d);
-    assert.equal(r.status, 0, r.stderr);
-    cleanup(d);
-  });
-  test('a changed legacy step fails twice: its new text is not strict, its old entry matches nothing', () => {
-    const d = fixture();
-    put(d, '.github/workflows/ci.yml', CI.replace('echo b', 'echo c'));
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /must meet the strict rule: 2 command lines/);
-    assert.match(r.stderr, /matches no step or string any more; remove the entry/);
-    cleanup(d);
-  });
-  test('a legacy step made strict passes once its snapshot line is removed', () => {
-    const d = fixture();
-    put(d, '.github/workflows/ci.yml', CI.replace(/ {8}run: \|\n {10}if \[ -f x \]; then echo a; fi\n {10}echo b\n/, '        run: sh tests/legacy.sh\n'));
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /remove the entry/);
-    const kept = readFileSync(join(d, 'tests/ci/inline-shell-snapshot.txt'), 'utf8').split('\n').filter((l) => l && !l.includes('::step2'));
-    writeFileSync(join(d, 'tests/ci/inline-shell-snapshot.txt'), kept.join('\n') + '\n');
-    const r2 = run(d);
-    assert.equal(r2.status, 0, r2.stderr);
-    cleanup(d);
-  });
-  test('moving a recorded step inside its job is not a change', () => {
-    const d = fixture();
-    const moved = CI.replace('      - uses: actions/checkout@v4\n', '      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n');
-    put(d, '.github/workflows/ci.yml', moved);
-    const r = run(d);
-    assert.equal(r.status, 0, r.stderr);
-    cleanup(d);
-  });
-
-  test('fails on a planted changed hook string', () => {
-    const d = fixture();
-    put(d, 'adapters/claude/hooks/hooks.json', WIRING.replace('pretool claude', 'pretool claude; echo extra'));
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /PreToolUse::0: a new or changed hook command string must meet the strict rule: no pinned hook template exists yet/);
-    cleanup(d);
-  });
-  test('a hook string that equals a pinned template passes and its old entry is then removed', () => {
-    const d = fixture();
-    const next = `node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" pretool claude`;
-    put(d, 'adapters/claude/hooks/hooks.json', WIRING.replace(/"command": "[^\n]*",/, `"command": ${JSON.stringify(next)},`));
-    put(d, 'tests/ci/hook-templates.txt', '# pinned by stage 3\nnode "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" <event> <runtime>\n');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.doesNotMatch(r.stderr, /strict rule/);
-    assert.match(r.stderr, /remove the entry/);
-    writeFileSync(join(d, 'tests/ci/inline-shell-snapshot.txt'), readFileSync(join(d, 'tests/ci/inline-shell-snapshot.txt'), 'utf8').split('\n').filter((l) => l && !l.includes('hooks.json')).join('\n') + '\n');
-    assert.equal(run(d).status, 0);
-    cleanup(d);
-  });
-  test('a deleted hook string leaves a stale entry', () => {
-    const d = fixture();
-    put(d, 'adapters/claude/hooks/hooks.json', JSON.stringify({ hooks: {} }));
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /hooks\.json::PreToolUse::0" matches no step or string any more/);
-    cleanup(d);
-  });
-
-  test('F4: a new shell file with a ksh, csh or fish shebang is refused', () => {
-    for (const sb of ['#!/bin/ksh', '#!/usr/bin/env ksh', '#!/bin/csh -f', '#!/usr/bin/env -S fish']) {
-      const d = fixture();
-      put(d, 'bin/odd', `${sb}\necho x\n`, 0o755); git(d, 'add', '-A');
-      const r = run(d);
-      assert.equal(r.status, 1, sb);
-      assert.match(r.stderr, /bin\/odd: a new shell file/, sb);
-      cleanup(d);
-    }
-  });
-  test('F4: .husky and .githooks files are shell files even without a shebang', () => {
-    for (const f of ['.husky/pre-commit', '.githooks/pre-push', '.husky/_/helper']) {
-      const d = fixture();
-      put(d, f, 'npm test\n'); git(d, 'add', '-A');
-      const r = run(d);
-      assert.equal(r.status, 1, f);
-      assert.match(r.stderr, new RegExp(`${f.replace(/[.\/]/g, '\\$&')}: a new shell file`), f);
-      cleanup(d);
-    }
-  });
-  test('F4: a composite action run: step is scanned (indented by 4)', () => {
-    const d = fixture();
-    put(d, '.github/actions/a/action.yml', 'name: a\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: curl x | sh\n'); git(d, 'add', '-A');
-    const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /actions\/a\/action\.yml::composite::step1 \(line 6\): .*pipe at column/);
-    put(d, '.github/actions/a/action.yml', 'name: a\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: node tests/ci/x.mjs\n');
-    assert.equal(run(d).status, 0);
-    cleanup(d);
-  });
-  test('F4: run: keys are found at any indentation (4-space workflow)', () => {
-    const d = fixture();
     const wf = 'name: w\non: [push]\njobs:\n    job1:\n        runs-on: x\n        defaults:\n            run:\n                shell: bash\n        steps:\n            - name: bad\n              run: |\n                  a\n                  b\n            - run: c && d\n';
-    put(d, '.github/workflows/w.yml', wf); git(d, 'add', '-A');
+    put(d, '.github/workflows/w.yml', wf);
+    git(d, 'add', '-A');
     const r = run(d);
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /w\.yml::job1::step1 \(line 11\): .*2 command lines/);
-    assert.match(r.stderr, /w\.yml::job1::step2 \(line 14\): .*&& at column/);
+    assert.match(r.stderr, /w\.yml::job1::step1 \(line 11\): 2 command lines/);
+    assert.match(r.stderr, /w\.yml::job1::step2 \(line 14\): && at column/);
     assert.doesNotMatch(r.stderr, /defaults/);
     cleanup(d);
   });
 
-  test('--base: an entry added to a snapshot since the base is refused', () => {
-    const d = fixture();
-    put(d, 'scripts/new.sh', '#!/bin/sh\necho new\n');
-    writeFileSync(join(d, 'tests/ci/shell-allowlist.txt'), readFileSync(join(d, 'tests/ci/shell-allowlist.txt'), 'utf8') + 'scripts/new.sh\n');
-    git(d, 'add', '-A');
-    assert.equal(run(d).status, 0);
-    const r = run(d, '--base', 'HEAD');
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /"scripts\/new\.sh" was added since HEAD; entries may only disappear/);
-    cleanup(d);
+  test('rule 5: an awk call from Node (spawnSync, run, runMerged, a bare execFile, a bare name)', () => {
+    for (const code of [
+      "import { spawnSync } from 'node:child_process';\nspawnSync('awk', ['{print}'], {});\n",
+      "proc.run('awk', ['BEGIN { x }'], {});\n",
+      'const r = proc.runMerged("sed", ["-n", "1p"]);\n',
+      "execFileSync('/usr/bin/awk', ['1']);\n",
+      "const tool = 'gawk';\n",
+    ]) refuses((d) => put(d, 'lib/bad.mjs', code), /lib\/bad\.mjs:\d+: a text tool \(awk or sed\) is named as a string/, code);
   });
-  test('--base: a snapshot line that was changed since the base is refused, a removal is fine', () => {
-    const d = fixture();
-    const f = join(d, 'tests/ci/inline-shell-snapshot.txt');
-    const lines = readFileSync(f, 'utf8').split('\n').filter(Boolean);
-    writeFileSync(f, ['0'.repeat(64) + ' .github/workflows/ci.yml::build::step9', ...lines].join('\n') + '\n');
-    const r = run(d, '--base', 'HEAD');
-    assert.match(r.stderr, /was added or changed since HEAD/);
-    writeFileSync(f, lines.slice(0, 1).join('\n') + '\n');
-    const r2 = run(d, '--base', 'HEAD');
-    assert.doesNotMatch(r2.stderr, /since HEAD/);
-    cleanup(d);
+  test('rule 5: sh or bash started from Node outside proc.mjs (a script file, a -c string, a vector, a wrapper with a first argument)', () => {
+    for (const code of [
+      "proc.run('sh', [script, ...args], {});\n",
+      "spawnSync('bash', ['-c', cmd]);\n",
+      "const argv = ['sh', '-c', text];\n",
+      "runWithTimeout(5, ['/bin/sh', '-c', c], {});\n",
+      "budget.runWithBudget(1, 'sh', args, {});\n",
+      'execFile("dash", [file]);\n',
+      "proc.spawnDetached(`zsh`, ['x']);\n",
+    ]) refuses((d) => put(d, 'control-plane/agents/scripts/core/bad.mjs', code), /bad\.mjs:\d+: a shell is started from Node outside core\/proc\.mjs/, code);
   });
-  test('a missing snapshot file fails', () => {
+  test('rule 5: what is allowed: proc.mjs itself, runScript / runUserCommand callers, comments, plain word lists, tests and docs, and hook guards that name awk as data', () => {
     const d = fixture();
-    rmSync(join(d, 'tests/ci/inline-shell-snapshot.txt'));
+    put(d, 'control-plane/agents/scripts/core/proc.mjs', "export const SCRIPT_SHELL = 'sh';\nexport function userShellArgv(t) { return ['/bin/sh', '-c', t]; }\nrun('awk', []);\n");
+    put(d, 'control-plane/agents/scripts/core/ok.mjs', "// proc.run('sh', ['-c', x]) is how the shell did it; awk and sed are gone\n/* spawnSync('awk') */\n * proc.run('bash', [a])\nproc.runScript([agent, 'next']);\nproc.runUserCommand(text);\nconst names = ['sh', 'bash', 'zsh'].includes(w);\nconst n = shellName.endsWith('zsh');\n");
+    put(d, 'adapters/claude/hooks/guards/kill.mjs', "const L = ['awk', 'gawk', 'sed'];\nruns.push(['sh', path]);\n");
+    put(d, 'tests/core/x.test.mjs', "spawnSync('awk', ['1']); spawnSync('sh', ['-c', 'x']);\n");
+    put(d, 'docs/x.mjs', "spawnSync('awk', []);\n");
     git(d, 'add', '-A');
     const r = run(d);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /inline-shell-snapshot\.txt is missing/);
+    assert.equal(r.status, 0, r.stderr);
     cleanup(d);
   });
+  test('rule 5: a guard module does not get to start a shell either', () => refuses((d) => put(d, 'adapters/claude/hooks/guards/x.mjs', "proc.run('sh', ['-c', 'x']);\n"), /guards\/x\.mjs:1: a shell is started from Node/, 'guard'));
+  test('rule 5 on this checkout: no Node source starts a shell or a text tool outside core/proc.mjs', () => assert.deepEqual(nodeSpawnProblems(repo), []));
 });
 
 describe('the strict rule', () => {
@@ -320,24 +240,24 @@ describe('the strict rule', () => {
     assert.equal(steps[1].text, 'node tests/ci/no-shell-logic.mjs');
     assert.equal(steps[2].text, 'echo "${{ github.sha }}"');
   });
-  test('strict mode: every shell file outside the launcher list fails, a clean tree passes', () => {
-    const d = fixture();
-    const r = run(d, '--strict');
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /scripts\/a\.sh: a shell file that is not in the launcher list/);
-    assert.match(r.stderr, /step\d+ \(?.*|step\d+: 2 command lines/);
-    cleanup(d);
-  });
 });
 
 describe('the repository itself', () => {
-  test('the ratchet passes on this checkout', () => {
+  test('the strict check passes on this checkout, and there is no ratchet file left', () => {
     const r = spawnSync('node', [script], { cwd: repo, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
+    for (const f of ['tests/ci/shell-allowlist.txt', 'tests/ci/inline-shell-snapshot.txt', 'tests/ci/shellcheck.mjs']) assert.ok(!existsSync(join(repo, f)), f);
   });
-  test('the committed allowlist names only tracked shell files and the 0.0.40 launchers are in it', () => {
-    const t = readFileSync(join(repo, 'tests/ci/shell-allowlist.txt'), 'utf8').split('\n').filter(Boolean);
-    for (const f of ['control-plane/agents/scripts/agent.sh', 'control-plane/agents/scripts/dispatch.sh', 'control-plane/agents/githooks/pre-commit', 'control-plane/agents/githooks/pre-push']) assert.ok(t.includes(f), f);
-    assert.ok(!t.includes('bin/proofline'), 'bin/proofline is a Node launcher since A233, not a shell file');
+  test('the launcher list is the four launchers and each has exactly one template section', () => {
+    const sections = [...parseLauncherTemplates(TEMPLATES).keys()].sort();
+    assert.deepEqual(sections, [...LAUNCHERS].sort());
+    assert.equal(LAUNCHERS.size, 4);
+    assert.ok(!LAUNCHERS.has('bin/proofline'), 'bin/proofline is a Node program since A233');
+  });
+  test('the templates equal the launchers byte for byte, and the three plain ones are a shebang and one exec line', () => {
+    for (const [f, t] of parseLauncherTemplates(TEMPLATES)) {
+      assert.equal(readFileSync(join(repo, f), 'utf8'), t, f);
+      if (!f.endsWith('/agent.sh')) assert.ok(launcherOk(t), f);
+    }
   });
 });

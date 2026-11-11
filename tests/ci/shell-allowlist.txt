@@ -1,4 +1,0 @@
-control-plane/agents/githooks/pre-commit
-control-plane/agents/githooks/pre-push
-control-plane/agents/scripts/agent.sh
-control-plane/agents/scripts/dispatch.sh

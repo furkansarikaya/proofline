@@ -504,7 +504,7 @@ class Dispatcher {
     if (this.tmpl !== '') {
       let t = this.tmpl;
       for (const [name, value] of [['prompt_file', fFull], ['output_file', this.out], ['root', this.root], ['model', this.model], ['effort', this.effort]]) t = dt.subst(t, name, dt.shellQuote(bytes(value)));
-      argv = ['sh', '-c', asArg(t)];
+      argv = proc.userShellArgv(asArg(t));
     } else if (rt === 'codex') {
       argv = [this.env.PROOFLINE_CODEX_BIN || 'codex', 'exec', '-C', this.root, '-m', this.model, '-c', `model_reasoning_effort=${this.effort}`, '-c', 'approval_policy="never"', '--dangerously-bypass-hook-trust', '-o', this.out];
       // The specialist runs `agent.sh submit` itself. Its write access is the profile of codexProfileArgs (A199), which lists every path one by one; what a role may
