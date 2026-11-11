@@ -1,5 +1,6 @@
 // @ts-check
 // An input the Node core does not handle fails in Node (A210: no fallback to the shell): exit 1 and a message that names the reason. One table.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,7 @@ import { after, test } from 'node:test';
 import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
 import { memoryIo, scriptsDir } from './helpers.mjs';
 
-const root = mkdtempSync(path.join(tmpdir(), 'pl-unsup-'));
+const root = tempDir('pl-unsup-');
 mkdirSync(path.join(root, '.agents'), { recursive: true });
 cpSync(path.join(scriptsDir, '..', 'config.yaml'), path.join(root, '.agents', 'config.yaml'));
 after(() => rmSync(root, { recursive: true, force: true }));

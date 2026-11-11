@@ -5,6 +5,7 @@
 // the measured command itself included.
 //   node tests/bench/helper-procs.mjs        prints `path  procs=N  ms=N  top commands`; REPEAT=<n> (default 3, the median is shown)
 // The same file measures the shell form of 0.0.62 (copy it into a checkout of that commit's tests/bench/): it installs the helper scripts when they exist.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,7 +37,7 @@ const RULES = '# Project\n\n## Project rules\n\n- Always validate the request bo
 /** @param {{ repeat?: number }} [o] @returns {Row[]} */
 export function measureAll(o = {}) {
   const repeat = o.repeat ?? 3;
-  const work = mkdtempSync(path.join(tmpdir(), 'helper-procs-'));
+  const work = tempDir('helper-procs-');
   try {
     const d = project('scaffold standalone no STANDARD manual');
     const a = path.join(d, '.agents');

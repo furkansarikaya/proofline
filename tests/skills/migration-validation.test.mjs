@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -164,7 +165,7 @@ test("report: judged fails only with a cited criterion; any fail makes FAIL; na 
 });
 
 test("A102: an UNSUPPORTED report prints RESULT and one FILE line per cited migration", () => {
-  const d = mkdtempSync(join(tmpdir(), "mv-a102-"));
+  const d = tempDir("mv-a102-");
   dirs.push(d);
   mkdirSync(join(d, "migrations"));
   writeFileSync(join(d, "migrations/003_x.sql"), "ALTER TABLE t ADD COLUMN x integer;\n");
@@ -176,7 +177,7 @@ test("A102: an UNSUPPORTED report prints RESULT and one FILE line per cited migr
 });
 
 test("cli: validator exit codes", () => {
-  const d = mkdtempSync(join(tmpdir(), "mv-test-"));
+  const d = tempDir("mv-test-");
   dirs.push(d);
   const ok = join(d, "ok.md");
   const bad = join(d, "bad.md");
@@ -192,7 +193,7 @@ test("cli: validator exit codes", () => {
 // ---------- fixture ----------
 
 test("fixture: builds with and without the harness, planted facts hold (selfcheck)", () => {
-  const d = mkdtempSync(join(tmpdir(), "mv-fix-"));
+  const d = tempDir("mv-fix-");
   dirs.push(d);
   const s = spawnSync(process.execPath, [SETUP, join(d, "acc")], { encoding: "utf8" });
   assert.equal(s.status, 0, s.stderr);

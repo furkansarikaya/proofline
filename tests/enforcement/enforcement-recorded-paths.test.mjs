@@ -1,6 +1,7 @@
 // @ts-check
 // Absolute Node tests for the enforcement scenarios database_guard (hook half), owned_paths, skill_detour (A193), rtk_bypass (A194) and link_writes:
 // the recorded corpora (tests/enforcement/recorded/) replayed against the Node hook. The verdicts and the reason texts are literals recorded once from the shell hook.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { repo } from '../core/helpers.mjs';
 import { corpus, replay } from './recorded.mjs';
 import { fixtureRecipe } from './recorded-fixture.mjs';
 
-const base = mkdtempSync(join(tmpdir(), 'enf-rec-'));
+const base = tempDir('enf-rec-');
 after(() => rmSync(base, { recursive: true, force: true }));
 
 /** @param {string} recipe */

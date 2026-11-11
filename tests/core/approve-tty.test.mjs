@@ -2,6 +2,7 @@
 // `approve` at a terminal (Node puts fd 0 in non-blocking mode on a terminal; the read must wait for the typed line, not fail with EAGAIN):
 // the same run through a real pseudo-terminal with the shell engine and the Node engine: a phrase accepted, a wrong phrase refused, end of
 // input, and a user who has not typed yet (both engines still wait). Skipped when python3 is missing.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -54,7 +55,7 @@ let template = ''; let base = ''; let script = '';
 before(() => {
   if (!havePython) return;
   template = buildTemplate();
-  base = mkdtempSync(path.join(tmpdir(), 'pl-tty-'));
+  base = tempDir('pl-tty-');
   script = path.join(base, 'drive-tty.py');
   writeFileSync(script, PTY);
 });

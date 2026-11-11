@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 6 (A215): the hosting platform (detection, config, local origins, the failed-log readers), pr-state and batch-ci, in Node. They replace
 // scripts/platform.sh and its part of platform-test.sh (detection, A186 config, round 6 local origins, the ci-failed readers) and the `ci` part of the former batch.sh (batch-ci).
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir, userInfo } from 'node:os';
@@ -16,9 +17,9 @@ function ctxOf(cwd, env = {}) {
   const e = { PATH: '/usr/bin:/bin', ...env };
   return /** @type {any} */ ({ env: e, cwd, root: cwd, childEnv: () => ({ ...e, LC_ALL: 'C' }), sharedMain: () => cwd });
 }
-const stubs = mkdtempSync(path.join(tmpdir(), 'pf-stubs-'));
+const stubs = tempDir('pf-stubs-');
 for (const t of ['glab', 'az']) { wf(path.join(stubs, t), '#!/bin/sh\nexit 0\n'); chmodSync(path.join(stubs, t), 0o755); }
-const empty = mkdtempSync(path.join(tmpdir(), 'pf-empty-'));
+const empty = tempDir('pf-empty-');
 const det = (/** @type {string} */ url, /** @type {Record<string, string>} */ env = { PATH: `${stubs}:/usr/bin:/bin` }) => detectPlatform(ctxOf(empty, env), { url, dir: empty });
 
 test('GitHub, GitLab, Azure DevOps, Bitbucket and other remotes are recognized; a missing tool or Bitbucket means the manual rule', () => {
@@ -44,7 +45,7 @@ test('GitHub, GitLab, Azure DevOps, Bitbucket and other remotes are recognized; 
 });
 
 test('git.platform and git.platform_host: whole-host equality, look-alikes stay other, config beats env beats auto, warn and the host variable', () => {
-  const p = mkdtempSync(path.join(tmpdir(), 'pf-proj-'));
+  const p = tempDir('pf-proj-');
   gOk(p, 'init', '-q', '-b', 'main');
   mkdirSync(`${p}/.agents`);
   const cfg = (/** @type {string} */ platform, host = '') => wf(`${p}/.agents/config.yaml`, `git:\n  protected_branches: main\n  platform: ${platform}\n${host ? `  platform_host: ${host}\n` : ''}`);
@@ -129,7 +130,7 @@ exit 0
 });
 
 test('a platform tool that resolves into the project, the working directory or a temporary folder is refused (A180); a symlink does not hide it', () => {
-  const shadow = mkdtempSync(path.join(tmpdir(), 'pf-shadow-'));
+  const shadow = tempDir('pf-shadow-');
   wf(`${shadow}/gh`, '#!/bin/sh\nexit 0\n'); chmodSync(`${shadow}/gh`, 0o755);
   const safe = fakeGh();
   const ok = resolveTool(ctxOf(empty, { PATH: `${safe.bin}:/usr/bin:/bin` }), 'gh');
@@ -159,7 +160,7 @@ test('A180: a tool in the project, the working directory or a temporary folder i
   const cases = /** @type {Array<[string, string, string, string]>} */ ([
     ['the project', gh(`${proj}/.agents/runs/T-1/scratch/bin`), proj, other],
     ['the working directory', gh(`${cwd}/bin`), other, cwd],
-    ['a temporary folder', gh(mkdtempSync(path.join(tmpdir(), 'a180-tmp-'))), other, other],
+    ['a temporary folder', gh(tempDir('a180-tmp-')), other, other],
   ]);
   for (const [what, bin, root, cwdDir] of cases) {
     const c = (/** @type {string} */ dirOnPath) => ctxOf(cwdDir, { PATH: `${dirOnPath}:/usr/bin:/bin`, TMPDIR: tmpdir() });
@@ -248,7 +249,7 @@ test('SECURITY: a platform tool starts with an allowlisted environment: config, 
   assert.equal(seen.get('LANG'), 'C.UTF-8');
   assert.ok((seen.get('PATH') ?? '').startsWith(bin));
   // the private-host variable of A186 is still set from git.platform_host of the config (A220), not from the caller
-  const cp = mkdtempSync(path.join(tmpdir(), 'pf-envproj-'));
+  const cp = tempDir('pf-envproj-');
   gOk(cp, 'init', '-q', '-b', 'main');
   mkdirSync(`${cp}/.agents`);
   wf(`${cp}/.agents/config.yaml`, 'git:\n  platform: github\n  platform_host: git.corp.example\n');

@@ -1,5 +1,6 @@
 // @ts-check
 // Fixtures for the equivalence rig: an installed control plane (no test stubs), a scaffold of the fixture verbs (frozen run), snapshots of a tree.
+import { tempDir } from '../../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync, copyFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,7 +53,7 @@ export function installMinimal(/** @type {string} */ dir) {
 /** An installed fixture, built once per process; builtAt is the epoch second from which the case window starts. */
 export function installedFixture() {
   if (installed) return installed;
-  const dir = mkdtempSync(join(tmpdir(), 'eq-installed.'));
+  const dir = tempDir('eq-installed.');
   const builtAt = Math.floor(Date.now() / 1000);
   installMinimal(dir);
   return (installed = { dir, builtAt });
@@ -62,7 +63,7 @@ export function installedFixture() {
 /** A frozen lifecycle run built by the fixture verbs (`scaffold`, tests/lib/recipe.mjs; fixture stubs included, the Node core installed beside agent.sh). */
 export function scaffoldFixture(topology = 'orchestrated', cls = 'COMPLEX', extra = '') {
   const key = `${topology}/${cls}/${extra}`; const hit = scaffolds.get(key); if (hit) return hit;
-  const out = mkdtempSync(join(tmpdir(), 'eq-scaffold.')); const builtAt = Math.floor(Date.now() / 1000);
+  const out = tempDir('eq-scaffold.'); const builtAt = Math.floor(Date.now() / 1000);
   buildRecipe(`${extra}scaffold ${topology} no ${cls} autonomous`, out, { errexit: false });
   addCore(out);
   run('git', ['config', 'gc.auto', '0'], { cwd: out, env: baseEnv(out) }); run('git', ['config', 'maintenance.auto', 'false'], { cwd: out, env: baseEnv(out) });
@@ -83,7 +84,7 @@ export function copyTree(/** @type {string} */ src, /** @type {string} */ dst) {
 
 /** A PATH in which `node` (and the names that start it) cannot be found: every PATH directory that holds node is replaced by a directory of symlinks to the rest. */
 export function pathWithoutNode() {
-  const shadow = mkdtempSync(join(tmpdir(), 'eq-nonode.')); const dirs = [];
+  const shadow = tempDir('eq-nonode.'); const dirs = [];
   for (const [i, d] of (process.env.PATH ?? '').split(':').filter(Boolean).entries()) {
     if (!existsSync(join(d, 'node')) && !existsSync(join(d, 'nodejs'))) { dirs.push(d); continue; }
     const s = join(shadow, String(i)); mkdirSync(s);

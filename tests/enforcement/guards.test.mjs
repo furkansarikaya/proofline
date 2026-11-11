@@ -14,6 +14,7 @@
 // writes to .agents/local/ are refused to models. The tripwires here only close the spellings the hook can see.
 //
 // This is a Node test on purpose: tests/ci/no-shell-logic.mjs (strict) refuses new shell files.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -29,7 +30,7 @@ const hookRun = (event) => (hook.endsWith('.mjs') ? [process.execPath, [hook, ev
 const haveJq = spawnSync('jq', ['--version']).status === 0;
 const haveGit = spawnSync('git', ['--version']).status === 0;
 
-const root = mkdtempSync(join(tmpdir(), 'proofline-guards-'));
+const root = tempDir('proofline-guards-');
 let template = '';
 let counter = 0;
 

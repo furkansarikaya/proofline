@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
@@ -9,7 +10,7 @@ import { validate, gate, tableRows } from "../../skills/proof-review/scripts/val
 import { FORBIDDEN_BY_FOCUS, FOCUSES, RUN_DIR } from "../../skills/proof-review/scripts/gate.mjs";
 
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "cfg-test-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("cfg-test-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 test("env var reads are matched per ecosystem; ambient names are not", () => {

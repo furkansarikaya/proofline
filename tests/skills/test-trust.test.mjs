@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
@@ -53,7 +54,7 @@ test("confirmed needs evidence; hollow needs a survivor", () => {
 });
 
 test("CLI checks evidence files exist", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tt-"));
+  const dir = tempDir("tt-");
   const file = join(dir, "findings.json");
   writeFileSync(file, JSON.stringify(doc(hollow())));
   assert.equal(missingEvidence(doc(hollow()), dir).length, 2);
@@ -65,7 +66,7 @@ test("CLI checks evidence files exist", () => {
 });
 
 test("absolute and parent-relative evidence paths escape the output folder", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tt-"));
+  const dir = tempDir("tt-");
   const f = hollow();
   f.evidence = [{ path: "/etc/hosts" }, { path: "../../etc/hosts" }];
   f.observed.surviving_mutants = [{ diff_path: "/etc/hosts" }, { diff_path: "../../etc/hosts" }];
@@ -175,7 +176,7 @@ test("thresholds: defaults without a config, values from the test_trust block, i
 });
 
 test("gate.mjs CLI: thresholds from a file, gate exit codes, usage error", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tt-gate-"));
+  const dir = tempDir("tt-gate-");
   const cfg = join(dir, "config.yaml");
   writeFileSync(cfg, "test_trust:\n  repeat: 7\n");
   assert.equal(execFileSync("node", [GATE, "thresholds", cfg]).toString(), "repeat=7\nmutation_budget=20\nslow_ratio=3\n");
@@ -189,7 +190,7 @@ test("gate.mjs CLI: thresholds from a file, gate exit codes, usage error", () =>
 });
 
 test("evidence_pruned skips the existence check but still rejects escaping paths", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tt-"));
+  const dir = tempDir("tt-");
   const d = { ...doc(hollow()), evidence_pruned: true };
   assert.deepEqual(missingEvidence(d, dir), []);
   const f = hollow(); f.evidence = [{ path: "../../etc/hosts", command: "x" }];
@@ -198,14 +199,14 @@ test("evidence_pruned skips the existence check but still rejects escaping paths
 });
 
 test("validator CLI rejects a diff document whose gate was edited, and runs through a symlinked skill folder", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tt-"));
+  const dir = tempDir("tt-");
   const file = join(dir, "findings.json");
   writeFileSync(file, JSON.stringify(diffDoc({ result: "PASS", failing: [] }, flaky())));
   const r = spawnSync("node", [SCRIPT, file], { encoding: "utf8" });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /gate\.result is PASS but the rule computes FAIL/);
   writeFileSync(file, JSON.stringify(diffDoc({ result: "FAIL", failing: ["F002"] }, flaky())));
-  const link = join(mkdtempSync(join(tmpdir(), "tt-link-")), "skill");
+  const link = join(tempDir("tt-link-"), "skill");
   symlinkSync(new URL("../../skills/test-trust", import.meta.url).pathname, link);
   const ok = spawnSync("node", [join(link, "scripts", "validate-findings.mjs"), file], { encoding: "utf8" });
   assert.equal(ok.status, 0, ok.stderr);
@@ -238,7 +239,7 @@ test("thresholds: quoted numbers in config are parsed (repeat: \"7\", 'mutation_
 });
 
 test("gate.mjs CLI prints quoted thresholds", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tt-q-"));
+  const dir = tempDir("tt-q-");
   const cfg = join(dir, "config.yaml");
   writeFileSync(cfg, 'test_trust:\n  repeat: "7"\n');
   const gate = new URL("../../skills/test-trust/scripts/gate.mjs", import.meta.url).pathname;
@@ -298,7 +299,7 @@ test("mutation_budget: never below one mutant per criterion (validator and thres
   assert.equal(minMutants(plan), 33);
   const d = withClaims(Array.from({ length: 33 }, (_, i) => claim(`AC-${i + 1}`)));
   assert.match(checkClaims(d, plan).join("\n"), /mutation_budget 20 is below the 33 criteria/);
-  const run = mkdtempSync(join(tmpdir(), "tt-run-"));
+  const run = tempDir("tt-run-");
   writeFileSync(join(run, "PLAN.md"), plan);
   const out = (...a) => execFileSync("node", [GATE, "thresholds", join(run, "none.yaml"), ...a], { stdio: ["ignore", "pipe", "ignore"] }).toString();
   assert.match(out(run), /mutation_budget=33\n/);
@@ -314,7 +315,7 @@ test("mutation_budget: never below one mutant per criterion (validator and thres
 // Reviewers ran 22 to 59 mutants against a budget of 20: the budget is a cap enforced by a counter, not a sentence in the prose.
 const GATE_PATH = new URL("../../skills/test-trust/scripts/gate.mjs", import.meta.url).pathname;
 test("mutant: the counter allows exactly mutation_budget mutants and refuses the rest", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tt-mut-"));
+  const dir = tempDir("tt-mut-");
   const cfg = join(dir, "config.yaml"); writeFileSync(cfg, "test_trust:\n  mutation_budget: 3\n");
   const count = join(dir, "reviews", "mutants.count");
   const ask = () => spawnSync("node", [GATE_PATH, "mutant", count, cfg], { encoding: "utf8" });
@@ -327,7 +328,7 @@ test("mutant: the counter allows exactly mutation_budget mutants and refuses the
   assert.equal(readFileSync(count, "utf8").trim(), "3", "a refused call does not move the count");
 });
 test("mutant: the cap follows the run's floor (one mutant per criterion) when a run directory is given", () => {
-  const run = mkdtempSync(join(tmpdir(), "tt-mutrun-"));
+  const run = tempDir("tt-mutrun-");
   const acs = Array.from({ length: 25 }, (_, i) => `- AC-${i + 1}: \`t.test.js\` "t${i + 1}"`).join("\n");
   writeFileSync(join(run, "PLAN.md"), `## Tests\n\n${acs}\n\n## Verification commands\n\n- npm test\n`);
   const count = join(run, "mutants.count");

@@ -6,6 +6,7 @@
 //
 //   node tests/benchmark/benchmark.mjs [--fixtures DIR] [--verdicts FILE] [--e2e-dir DIR]...
 //                                      [--run-validators] [--out DIR]
+import { tempDir } from '../lib/tempdir.mjs';
 import { readFileSync, readdirSync, existsSync, statSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,7 +119,7 @@ function runValidators(fixturesDir, name) {
   const res = { selfcheck: "none", skill_tests: "none" };
   const setup = join(dir, "setup.mjs");
   if (existsSync(setup)) {
-    const work = mkdtempSync(join(tmpdir(), "benchmark-"));
+    const work = tempDir("benchmark-");
     const target = join(work, name);
     let r = spawnSync(process.execPath, [setup, target], { encoding: "utf8", timeout: 600000 });
     if (r.status !== 0) res.selfcheck = "setup-failed";

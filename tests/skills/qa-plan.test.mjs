@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -127,7 +128,7 @@ test("report: result for a scenario not in the plan", () => {
 });
 
 test("CLI", () => {
-  const d = mkdtempSync(join(tmpdir(), "qa-"));
+  const d = tempDir("qa-");
   writeFileSync(join(d, "task.md"), TASK);
   writeFileSync(join(d, "plan.md"), PLAN);
   writeFileSync(join(d, "rep.md"), report(PLAN));
@@ -157,7 +158,7 @@ test("plan: an acceptance scenario may not carry an adversarial category", () =>
 test("report without --plan rejects zero scenario results (and a Scenarios section of prose)", () => {
   const empty = "# QA report: T-1\n\nVerdict: PASS\nPlan sha256: " + "a".repeat(64) + "\n\n## Scenarios\n\nnothing to report\n\n## Failures\n\nNone.\n";
   assert.match(validateReport(empty).errors.join("\n"), /no scenario results/);
-  const file = join(mkdtempSync(join(tmpdir(), "qa-empty-")), "QA_REPORT.md");
+  const file = join(tempDir("qa-empty-"), "QA_REPORT.md");
   writeFileSync(file, empty);
   assert.equal(spawnSync(process.execPath, [SCRIPT, "report", file]).status, 1);
   assert.equal(validateReport(report(PLAN)).valid, true);
@@ -255,14 +256,14 @@ test("the default entry word list equals the config value and validate-plan's (A
   assert.deepEqual(m.entryPoints(EP_MD), ["POST /orders"]);
 });
 test("CLI: validate-qa plan --plan refuses a missing invalid-input scenario (A162)", () => {
-  const d = mkdtempSync(join(tmpdir(), "qaep-")); writeFileSync(join(d, "P.md"), EP_MD); writeFileSync(join(d, "Q.md"), bound(EP_MD, BODY));
+  const d = tempDir("qaep-"); writeFileSync(join(d, "P.md"), EP_MD); writeFileSync(join(d, "Q.md"), bound(EP_MD, BODY));
   const run = (...a) => spawnSync(process.execPath, [SCRIPT, "plan", join(d, "Q.md"), "--plan", join(d, "P.md"), ...a], { encoding: "utf8" });
   assert.equal(run().status, 1); assert.match(run().stderr, /invalid-input scenario for the entry point POST \/orders/);
   assert.equal(run("--entry-words", "nomatch").status, 0);
 });
 // A162: the validator reads validation.* from the project's config (three directories up from --plan, then cwd).
 test("CLI: a project-tuned validation.entry_words is honoured without a flag; --entry-words overrides it (A162)", () => {
-  const d = mkdtempSync(join(tmpdir(), "qatune-")); const rd = join(d, ".agents/runs/T-1"); mkdirSync(rd, { recursive: true });
+  const d = tempDir("qatune-"); const rd = join(d, ".agents/runs/T-1"); mkdirSync(rd, { recursive: true });
   writeFileSync(join(d, ".agents/config.yaml"), 'validation:\n  entry_words: "nightly +runner"\n');
   const plan = EP_MD.replace("`POST /orders` creates an order", "`nightly runner` accepts a payload");
   writeFileSync(join(rd, "P.md"), plan); writeFileSync(join(rd, "Q.md"), bound(plan, BODY));

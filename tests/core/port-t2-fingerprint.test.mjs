@@ -2,6 +2,7 @@
 // T2 port of lifecycle-test.sh (fingerprint, upgrade, block and base-moved scenarios) and gates-test.sh (legacy fingerprint, read-only object database):
 // what is content and what is control plane for the gate fingerprint, and when a moved base keeps the plan fresh. States are snapshots recorded
 // once from the legacy fixtures; the assertions are the ones the shell scenarios made. Nothing here runs or compares with the shell.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -55,7 +56,7 @@ describe('what is content for the gate fingerprint (lifecycle-test)', () => {
     assert.notEqual(fp(r), fp0);
     const fp1 = fp(r);
     for (let i = 0; i < 500; i++) h.write(`docs/design/bulk/d${i}.md`, `doc ${i}\n`);
-    const shim = mkdtempSync(path.join(tmpdir(), 'pl-t2-shim-')); const log = path.join(shim, 'rm.log'); writeFileSync(log, '');
+    const shim = tempDir('pl-t2-shim-'); const log = path.join(shim, 'rm.log'); writeFileSync(log, '');
     const real = process.env.PATH ?? '';
     writeFileSync(path.join(shim, 'git'), `#!/bin/sh\ncase " $* " in *" rm "*) echo x >> "${log}" ;; esac\nexec "$(PATH="${real}" command -v git)" "$@"\n`); chmodSync(path.join(shim, 'git'), 0o755);
     const x = node(r, ['fingerprint', 'LC'], { env: { PATH: `${shim}:${real}` } });

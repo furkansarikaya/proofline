@@ -1,6 +1,7 @@
 // @ts-check
 // Self-test (A95) of the e2e harness: a dry run records the global git config and creates the collected files, with no runtime call.
 // E2E_RUNNER (e.g. `node tests/e2e/run.mjs`) runs the same assertions against another runner.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
@@ -9,7 +10,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { here, repo, runE2e } from './runner.mjs';
 
-const root = mkdtempSync(path.join(tmpdir(), 'e2e-cap-'));
+const root = tempDir('e2e-cap-');
 after(() => rmSync(root, { recursive: true, force: true }));
 /** @param {string} dir @param {string} name @returns {string} the first directory called name under dir, or '' */
 function findDir(dir, name) {

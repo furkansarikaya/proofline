@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -125,7 +126,7 @@ test("check-export reports empty template sections", () => {
 });
 
 test("project template wins over bundled", () => {
-  const root = mkdtempSync(join(tmpdir(), "ta-"));
+  const root = tempDir("ta-");
   assert.match(resolveTemplate("jira", root), /assets[/\\]templates[/\\]jira\.md$/);
   mkdirSync(join(root, ".agents/templates/tasks"), { recursive: true });
   writeFileSync(join(root, ".agents/templates/tasks/jira.md"), "## Goal\n{{goal}}\n");
@@ -133,7 +134,7 @@ test("project template wins over bundled", () => {
 });
 
 test("CLI exit codes", () => {
-  const d = mkdtempSync(join(tmpdir(), "ta-"));
+  const d = tempDir("ta-");
   writeFileSync(join(d, "ok.md"), GOOD);
   writeFileSync(join(d, "bad.md"), GOOD.replace("AC-2", "AC-5"));
   assert.equal(spawnSync("node", [SCRIPT, join(d, "ok.md")]).status, 0);
@@ -188,7 +189,7 @@ test("the CRITICAL question reply stays user intent only and unchanged by A137",
 });
 
 test("front matter: accepts size/sprint/assignee/depends_on, rejects unknown size and unknown dependency", () => {
-  const dir = mkdtempSync(join(tmpdir(), "fm-"));
+  const dir = tempDir("fm-");
   mkdirSync(join(dir, "T-0"));
   writeFileSync(join(dir, "T-0", "TASK.md"), GOOD.replace("T-1", "T-0"));
   const fm = (extra) => GOOD.replace(/^(# Task:.*\n)/, `$1\n---\n${extra}\n---\n`);
@@ -207,7 +208,7 @@ test("front matter: accepts size/sprint/assignee/depends_on, rejects unknown siz
 });
 
 test("front matter with a Status line after the H1 is still validated", () => {
-  const dir = mkdtempSync(join(tmpdir(), "fms-"));
+  const dir = tempDir("fms-");
   const f = join(dir, "x.md.txt");
   const run = (extra) => {
     writeFileSync(f, GOOD.replace(/^(# Task:.*\n)/, `$1\n**Status:** in-progress\n\n---\n${extra}\n---\n`));
@@ -222,7 +223,7 @@ test("front matter with a Status line after the H1 is still validated", () => {
 });
 
 test("depends_on resolves ids across lifecycle folders (done/ -> todo/), unknown id still rejected", () => {
-  const dir = mkdtempSync(join(tmpdir(), "lc-"));
+  const dir = tempDir("lc-");
   mkdirSync(join(dir, "done")); mkdirSync(join(dir, "todo"));
   writeFileSync(join(dir, "done", "T-1-a.md"), GOOD);
   const run = (dep, withDir) => {
@@ -238,7 +239,7 @@ test("depends_on resolves ids across lifecycle folders (done/ -> todo/), unknown
 });
 
 test("depends_on matches a lifecycle-folder file by name (T-1-*.md) even when its H1 id differs", () => {
-  const dir = mkdtempSync(join(tmpdir(), "lcn-"));
+  const dir = tempDir("lcn-");
   mkdirSync(join(dir, "todo"));
   writeFileSync(join(dir, "todo", "T-1-something.md"), GOOD.replace("T-1", "X-9"));
   const f = join(dir, "todo", "T-2-x.md");
@@ -297,7 +298,7 @@ test("A202 priority, origin and the scope sections are checked, absent fields ch
   assert.equal(validate(GOOD + "\n## Forbidden scope (do not touch)\n\n- `src/a.js`, `src/b.js`\n").valid, true);
 });
 test("A202 link-origin writes the origin and the way back, once, and leaves the source alone", () => {
-  const d = mkdtempSync(join(tmpdir(), "origin-"));
+  const d = tempDir("origin-");
   const src = GOOD, srcPath = join(d, "T-1.md"); writeFileSync(srcPath, src);
   const f = join(d, "T-1-FU1.md"); writeFileSync(f, GOOD.replace("T-1 —", "T-1-FU1 —"));
   linkOrigin(f, { from: "T-1", tasksDir: d }); linkOrigin(f, { from: "T-1", tasksDir: d });
@@ -313,7 +314,7 @@ test("A202 link-origin writes the origin and the way back, once, and leaves the 
   assert.equal(validate(readFileSync(g, "utf8")).valid, true);
 });
 test("A202: a finished task is identified by its title only; its completion report is never read", () => {
-  const dir = mkdtempSync(join(tmpdir(), "rep-"));
+  const dir = tempDir("rep-");
   mkdirSync(join(dir, "done"));
   // the report (far below the title) holds a sentinel that looks like a task title; it must not register an id
   writeFileSync(join(dir, "done", "T-1-a.md"), GOOD + "\n" + "x\n".repeat(2000) + "\n## Completion Report\n\n# Task: SENTINEL-9 - from a report\n");

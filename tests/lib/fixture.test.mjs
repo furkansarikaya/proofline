@@ -1,6 +1,7 @@
 // @ts-check
 // The fixture helpers (tests/lib/fixture.mjs, tests/lib/tree.mjs): a builder writes only inside its target, the CLI contract of a builder
 // (usage 2, non-empty target 1), and the tree digest sees content, mode and git state but not the directory it was built in.
+import { tempDir } from './tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { Fx } from './fixture.mjs';
 import { digest, manifest } from './tree.mjs';
 
-const tmp = () => mkdtempSync(path.join(tmpdir(), 'fixture-lib-'));
+const tmp = () => tempDir('fixture-lib-');
 
 test('Fx refuses a path that leaves the target', () => {
   const t = tmp();

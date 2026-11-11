@@ -1,6 +1,7 @@
 // @ts-check
 // CLI-only core subcommands (`proofline-core.mjs cli insights|queue`): the front ends of bin/proofline on a fixture with metrics, ledgers, gate records and results.
 // The set is closed: nothing else runs under `cli`, and no name is a command of agent.sh.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { awkStr } from '../../control-plane/agents/scripts/core/insights.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const proofline = path.join(repo, 'bin', 'proofline');
-const fx = mkdtempSync(path.join(tmpdir(), 'pl-cli-'));
+const fx = tempDir('pl-cli-');
 mkdirSync(path.join(fx, '.agents'), { recursive: true });
 cpSync(path.join(repo, 'control-plane', 'agents'), path.join(fx, '.agents'), { recursive: true });
 spawnSync('git', ['init', '-q', fx]);

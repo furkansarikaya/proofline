@@ -2,6 +2,7 @@
 // A220, user decision of 2026-11-07: (1) REQUESTS_CA_BUNDLE and GIT_SSL_CAINFO pass the allowlist with the SAME check as the other certificate variables, for
 // gh, glab, az and the merge-proof git; every other proxy or certificate variable stays dropped; (2) `proofline doctor` lists the variables that were dropped,
 // NAME and reason only, never a value (a proxy address may hold credentials).
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
@@ -16,7 +17,7 @@ function ctxOf(cwd, env = {}) {
   const e = { PATH: '/usr/bin:/bin', ...env };
   return /** @type {any} */ ({ env: e, cwd, root: cwd, childEnv: () => ({ ...e, LC_ALL: 'C' }), sharedMain: () => cwd });
 }
-const work = mkdtempSync(path.join(tmpdir(), 'pf-netdrop-'));
+const work = tempDir('pf-netdrop-');
 const CA = '/etc/passwd'; // a regular file outside every folder a model can write
 const NEW_NAMES = ['REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO'];
 
@@ -67,7 +68,7 @@ test('droppedNetVars: the names that were dropped and a reason, never a value; w
 });
 
 test('proofline doctor lists the dropped variables (names and reasons) and never a value; it is silent when nothing was dropped', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'pl-doc-net-'));
+  const root = tempDir('pl-doc-net-');
   try {
     spawnSync('git', ['init', '-q', root]);
     spawnSync('git', ['-C', root, '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'i']);

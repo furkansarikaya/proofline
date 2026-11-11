@@ -1,5 +1,6 @@
 // visual-proof design group (A170): pure evaluators, ledger, source lint and the report validator need no browser;
 // one browser test measures the fixture sites and SKIPS when measure.mjs --detect finds no browser.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -18,7 +19,7 @@ import { lintText, applyJustifications, parseJustifications, lintProject, valida
 const FIX = fileURLToPath(new URL("../../fixtures/visual-proof-design/", import.meta.url));
 const MEASURE = fileURLToPath(new URL("../../skills/visual-proof/scripts/measure.mjs", import.meta.url));
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "vp-design-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("vp-design-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 const status = (items, check) => items.filter((i) => i.check === check).map((i) => i.status);
 

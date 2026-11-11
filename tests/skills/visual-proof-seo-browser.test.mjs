@@ -2,6 +2,7 @@
 // rule and the first-party site_url run in a real Chrome here, against fixture pages served by a localhost static server started
 // by the test (http on 127.0.0.1, random port; "third party" is the same server under the host name `localhost`, which the
 // request guard blocks, so no network is used). The tests SKIP when `measure.mjs --detect` finds no browser (CI without one).
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -53,7 +54,7 @@ before(async () => {
 after(() => { server?.close(); for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 async function run(seoExtra = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "vp-seo-br-")); dirs.push(dir);
+  const dir = tempDir("vp-seo-br-"); dirs.push(dir);
   const out = join(dir, "out");
   const state = [{ name: "default", ready: "#m" }];
   const pages = ["/inert.html", "/tag.html", "/init.html", "/stats/sheet.html"].map((p) => p.slice(1));

@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync } from "node:fs";
@@ -16,7 +17,7 @@ const rules = (src) => check(src).map((f) => f.rule);
 const run = (script, args, cwd = repo) => spawnSync("node", [script, ...args], { encoding: "utf8", cwd });
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "docs-writer-"));
+  const dir = tempDir("docs-writer-");
   const r = spawnSync(process.execPath, [join(repo, "fixtures/docs-writer/setup.mjs"), join(dir, "p")], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   return join(dir, "p");
@@ -70,7 +71,7 @@ test("abbreviations and code spans do not split sentences", () => {
 });
 
 test("strictness: flag > config > relaxed; exit codes", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dw-cfg-"));
+  const dir = tempDir("dw-cfg-");
   mkdirSync(join(dir, ".agents"));
   const doc = join(dir, "d.md");
   writeFileSync(doc, `The ${Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ")}.\n`);
@@ -134,7 +135,7 @@ test("evidence: clean doc exits 0; anchors, fences, absolute and external links"
 });
 
 test("evidence: file names are not config keys; a bare name found anywhere is not a missing path", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dw-fp-"));
+  const dir = tempDir("dw-fp-");
   mkdirSync(join(dir, "scripts/deep"), { recursive: true });
   writeFileSync(join(dir, "config.yaml"), "dispatch:\n  timeout: 1\n");
   writeFileSync(join(dir, "scripts/deep/dispatch.sh"), "#!/bin/sh\n");
@@ -145,7 +146,7 @@ test("evidence: file names are not config keys; a bare name found anywhere is no
 });
 
 test("evidence: proofline subcommands come from bin and the skill text", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dw-pl-"));
+  const dir = tempDir("dw-pl-");
   mkdirSync(join(dir, "bin"), { recursive: true });
   mkdirSync(join(dir, "skills/proofline"), { recursive: true });
   writeFileSync(join(dir, "bin/proofline"), "case $1 in doctor) ;; esac\n");
@@ -165,7 +166,7 @@ test("config: writing keys are valid, bad values and unknown keys are refused", 
   const agent = join(repo, "control-plane/agents/scripts/agent.sh");
   const cfg = readFileSync(join(repo, "control-plane/agents/config.yaml"), "utf8");
   assert.match(cfg, /^writing:\n  profile: auto\n  strictness: relaxed$/m);
-  const dir = mkdtempSync(join(tmpdir(), "dw-conf-"));
+  const dir = tempDir("dw-conf-");
   const check = (text) => { const f = join(dir, "c.yaml"); writeFileSync(f, text); return spawnSync("sh", [agent, "config-check", f], { encoding: "utf8", cwd: repo }); };
   assert.equal(check(cfg).status, 0);
   for (const p of ["auto", "ste", "plain"]) assert.equal(check(cfg.replace(/^  profile: auto$/m, `  profile: ${p}`)).status, 0);

@@ -2,6 +2,7 @@
 // `agent.sh friction report|show|issue-cmd|send` and `agent.sh calibrate` (A229, the former scripts/friction.sh and friction-test.sh; tests/legacy-port-map.tsv names
 // the rows): the anonymous report from a run's records with absolute counts, the scrub, one file per run, the approval before a send (gh is a shim on PATH and is
 // never started without it), and the read-only calibration suggestions.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -155,7 +156,7 @@ test('report: a character outside the allowed set (a path, an address) refuses t
 
 /** A `gh` on PATH that records its arguments and the working directory. */
 function ghShim() {
-  const dir = mkdtempSync(path.join(tmpdir(), 'fr-gh-'));
+  const dir = tempDir('fr-gh-');
   writeFileSync(`${dir}/gh`, `#!/bin/sh\nprintf '%s|' "$@" > "${dir}/args"; pwd > "${dir}/cwd"; echo created\n`);
   chmodSync(`${dir}/gh`, 0o755);
   return { dir, env: { PATH: `${dir}:${process.env.PATH}` } };

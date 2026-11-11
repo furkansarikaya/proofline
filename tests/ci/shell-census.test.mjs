@@ -1,5 +1,6 @@
 // @ts-check
 // tests/ci/shell-census.mjs on a throwaway repository with two commits: the numbers are those of the ref named, not of the working tree, and the output is deterministic.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -14,7 +15,7 @@ const git = (dir, a) => spawnSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 
 const put = (dir, rel, text) => { mkdirSync(dirname(join(dir, rel)), { recursive: true }); writeFileSync(join(dir, rel), text); };
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'census-'));
+  const dir = tempDir('census-');
   git(dir, ['init', '-q', '-b', 'main']);
   put(dir, 'a.sh', '#!/bin/sh\n# a comment\n\nawk \'{print}\' f\necho x | sed s/a/b/\n');
   put(dir, 'bin/tool', '#!/usr/bin/env bash\necho tool\n');

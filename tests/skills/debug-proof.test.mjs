@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, readFileSync, mkdtempSync } from "node:fs";
@@ -104,7 +105,7 @@ test("unknown keys rejected", () => {
   const d = good(); d.extra = 1; has(errs(d), "unexpected");
 });
 test("CLI: reads .json and the fenced block of a .md result, exit codes", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+  const dir = tempDir("dbg-");
   const j = join(dir, "d.json"), m = join(dir, "r.md");
   writeFileSync(j, JSON.stringify(good()));
   writeFileSync(m, `ROLE: implementer\n\n| id |\n\n\`\`\`json\n${JSON.stringify(good())}\n\`\`\`\n`);

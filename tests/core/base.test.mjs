@@ -1,5 +1,6 @@
 // @ts-check
 // proc.mjs (the only child_process importer, counted), errors, clock, hash, paths, context.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,7 +16,7 @@ import { scriptsDir } from './helpers.mjs';
 
 describe('proc.mjs', () => {
   test('counts and times every child per program, in process; no environment value or file switches a log on', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-proc-'));
+    const dir = tempDir('pl-proc-');
     try {
       proc.resetSpawnCounts();
       const log = path.join(dir, 'spawn.log');
@@ -67,7 +68,7 @@ describe('small modules', () => {
     assert.equal(sha256(''), 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
     assert.equal(sha256('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
     assert.equal(sha256('\u00c3\u00a9'), sha256(Buffer.from('\u00e9', 'utf8')));
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-hash-'));
+    const dir = tempDir('pl-hash-');
     try {
       writeFileSync(path.join(dir, 'f'), 'abc');
       assert.equal(sha256File(path.join(dir, 'f')), sha256('abc'));
@@ -90,7 +91,7 @@ describe('paths.mjs', () => {
     assert.equal(toPosix('a\\b\\c'), 'a/b/c');
   });
   test('the project root is two folders above the script, in the working directory\'s own spelling', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-root-'));
+    const dir = tempDir('pl-root-');
     try {
       mkdirSync(path.join(dir, 'real', '.agents', 'scripts'), { recursive: true });
       symlinkSync(path.join(dir, 'real'), path.join(dir, 'link'));
@@ -105,7 +106,7 @@ describe('paths.mjs', () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
   test('sharedRoot is the root outside a linked worktree', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-shared-'));
+    const dir = tempDir('pl-shared-');
     try { assert.equal(sharedRoot(dir, process.env), dir); } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
@@ -132,7 +133,7 @@ describe('context.mjs', () => {
 describe('fail closed', () => {
   test('an unexpected exception in a moved command prints the error and exits 70; it is not answered by the shell code', async () => {
     const { run } = await import('../../control-plane/agents/scripts/proofline-core.mjs');
-    const root = mkdtempSync(path.join(tmpdir(), 'pl-fc-'));
+    const root = tempDir('pl-fc-');
     try {
       mkdirSync(path.join(root, '.agents', 'scripts'), { recursive: true });
       /** @type {Buffer[]} */ const err = [];

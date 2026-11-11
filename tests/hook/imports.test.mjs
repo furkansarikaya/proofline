@@ -1,6 +1,7 @@
 // @ts-check
 // Every module of the Node hook imports cleanly, in the plugin layout (adapters/claude/hooks) and in the layout `proofline init` installs
 // (.agents/hooks beside .agents/scripts): a missing import fails here, at once, not when a hook event first runs.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,7 @@ import { after, test } from 'node:test';
 import { installMinimal } from '../core/lib/fixture.mjs';
 
 const hooks = resolve(import.meta.dirname, '../../adapters/claude/hooks');
-const base = mkdtempSync(join(tmpdir(), 'hook-imports.'));
+const base = tempDir('hook-imports.');
 after(() => rmSync(base, { recursive: true, force: true }));
 
 /** @param {string} dir @returns {string[]} every .mjs under dir, relative */

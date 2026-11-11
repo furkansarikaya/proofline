@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
@@ -15,7 +16,7 @@ const SCHEMA = JSON.parse(readFileSync(join(skill, "schema/evidence.schema.json"
 let base;
 let repo;
 before(() => {
-  base = mkdtempSync(join(tmpdir(), "emfx-"));
+  base = tempDir("emfx-");
   repo = join(base, "repo");
   const r = spawnSync(process.execPath, [join(here, "../../fixtures/evidence-map/setup.mjs"), repo], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);

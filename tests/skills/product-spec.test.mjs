@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, cpSync, rmSync } from "node:fs";
@@ -16,7 +17,7 @@ const PRD = readFileSync(join(FIX, "PRD.md"), "utf8");
 
 // a project root with docs/product/orders-export/{PRD,REVIEW}.md and one task covering FR-1 and NFR-1
 function project({ prd = PRD } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "product-spec-"));
+  const root = tempDir("product-spec-");
   const dir = join(root, "docs/product/orders-export");
   mkdirSync(dir, { recursive: true });
   cpSync(join(FIX, "REVIEW.md"), join(dir, "REVIEW.md"));

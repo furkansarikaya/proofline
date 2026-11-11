@@ -5,6 +5,7 @@
 // itself included (`sh agent.sh ...` is one).
 //   node tests/bench/exec-procs.mjs        prints `path  procs=N  ms=N  bytes=N  top commands`; REPEAT=<n> (default 3, the median is shown)
 // The fixture is a frozen STANDARD run with a failed QA gate, built by the self-test library (tests/core/legacy-lib.mjs) with the Node core beside agent.sh.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,7 +45,7 @@ function makeShims(dir, log) {
  */
 export function measureAll(o = {}) {
   const repeat = o.repeat ?? 3;
-  const work = mkdtempSync(path.join(tmpdir(), 'exec-procs-'));
+  const work = tempDir('exec-procs-');
   try {
     const d = project(RECIPE);
     copyFileSync(path.join(repo, 'control-plane/agents/roles.conf'), path.join(d, '.agents/roles.conf'));

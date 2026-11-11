@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 6 (A215): deliver-plan, deliver-step and task-source-done in Node, as absolute tests written with the area. They replace the scenarios of
 // deliver-test.sh (tests/legacy-port-map.tsv names each). The platform tool is a fake `gh` outside every temporary folder (run6-lib.mjs).
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { A, CODE_DONE, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, path, pushed, readFileSync, refused, run, say, verbs, writeFileSync } from './run6-lib.mjs';
@@ -72,7 +73,7 @@ import { tmpdir } from 'node:os';
 
 /** A directory under the temporary folder holding a gh that would answer anything. */
 function fakeBinUnderTmp() {
-  const b = fsModule.mkdtempSync(path.join(tmpdir(), 'shadow-gh-'));
+  const b = tempDir('shadow-gh-');
   fsModule.writeFileSync(path.join(b, 'gh'), '#!/bin/sh\necho "OPEN false x x x x"\n');
   fsModule.chmodSync(path.join(b, 'gh'), 0o755);
   return b;

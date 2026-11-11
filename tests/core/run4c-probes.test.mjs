@@ -2,6 +2,7 @@
 // Stage 4, package 4C: the capability probes that refuse an UNSUPPORTED result (A102, A173) as absolute Node tests (A214). The shell suite had a test seam
 // (PROOFLINE_PROBE_ROOT) that replaced PATH and the application folders; there is none any more (D14): a test builds a real folder of executables and
 // gives it as the PATH, and the macOS application folder is the host's own, so the cases that need "no browser" are host-aware.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ const HOST_BROWSER = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromiu
 
 /** @param {string} d @param {string} path */
 const ctxOf = (d, path) => new Context({ env: cleanEnv({ PATH: path }), cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, `${d}/.agents/scripts/agent.sh`);
-const bin = () => mkdtempSync(`${tmpdir()}/probe-bin-`);
+const bin = () => tempDir('probe-bin-');
 /** A PATH with git and the system tools but no browser. */
 const sys = () => `${bin()}:/usr/bin:/bin`;
 /** @param {string} dir @param {string} name @param {number} mode */

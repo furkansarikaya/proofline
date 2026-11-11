@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
@@ -15,7 +16,7 @@ const { checkDecision } = await import(join(SKILL, "scripts/check-decision.mjs")
 const { checkOutcome, meets } = await import(join(SKILL, "scripts/check-outcome.mjs"));
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 const rules = (r) => r.findings.map((f) => f.rule);
-const tmp = () => mkdtempSync(join(tmpdir(), "product-assess-"));
+const tmp = () => tempDir("product-assess-");
 const run = (script, ...args) => spawnSync("node", [join(SKILL, "scripts", script), ...args], { encoding: "utf8" });
 
 // n assumptions or risks the agent proposed and the user accepted

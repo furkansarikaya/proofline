@@ -1,5 +1,6 @@
 // @ts-check
 // Tests tests/ci/bump-version.mjs (A168): a bump rewrites only version sites, never history comments; --check; bad input.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,7 +9,7 @@ import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
 
 const repo = path.resolve(import.meta.dirname, '../..');
-const T = mkdtempSync(path.join(tmpdir(), 'bump-test-'));
+const T = tempDir('bump-test-');
 after(() => rmSync(T, { recursive: true, force: true }));
 const git = (/** @type {string[]} */ args) => execFileSync('git', args, { cwd: T, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 const bump = (/** @type {string[]} */ args, env = {}) => spawnSync(process.execPath, ['tests/ci/bump-version.mjs', ...args], { cwd: T, encoding: 'utf8', env: { ...process.env, ...env } });

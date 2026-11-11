@@ -1,6 +1,7 @@
 // @ts-check
 // The Codex sandbox check (codex-sandbox.mjs) needs the Codex CLI and is not CI; what CI covers without it: the script's no-Codex behaviour, and the
 // permission profile `dispatch.sh codex-profile` prints (the facts the real sandbox probe relies on: which record paths are writable, which are read-only).
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { project, scripts } from '../lib/harness.mjs';
 import { profileArgs } from './codex-sandbox.mjs';
 
 test('without the Codex CLI the script says so and exits 0', () => {
-  const r = spawnSync(process.execPath, [path.join(import.meta.dirname, 'codex-sandbox.mjs')], { encoding: 'utf8', env: { PATH: mkdtempSync(path.join(tmpdir(), 'no-codex-')), HOME: '/nonexistent' } });   // node by absolute path; its own folder may hold a codex
+  const r = spawnSync(process.execPath, [path.join(import.meta.dirname, 'codex-sandbox.mjs')], { encoding: 'utf8', env: { PATH: tempDir('no-codex-'), HOME: '/nonexistent' } });   // node by absolute path; its own folder may hold a codex
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, 'codex-sandbox: the Codex CLI is not installed; nothing checked\n');
 });

@@ -4,8 +4,7 @@
 // copies, command lists, env files, the time limit. Absolute expectations; the real control plane in a throwaway project.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { runCommand } from '../../control-plane/agents/scripts/core/buildrecord.mjs';
@@ -13,6 +12,7 @@ import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 import { commitAll, git, newProject, setCmd, setEnvFiles, setLists } from './helper-lib.mjs';
 import { A } from './legacy-lib.mjs';
+import { tmp } from '../lib/harness.mjs';
 
 const keyOf = (/** @type {string} */ out) => (/^key: (.*)$/m.exec(out) ?? [])[1] ?? '';
 const builds = (/** @type {string} */ d) => `${d}/.agents/local/builds`;
@@ -229,7 +229,7 @@ test('a secret in a listed env file rejects the record (exit 2), names the file 
 
 test('a listed file under a symbolic link out of the project or under .git is rejected; a missing one is a note', () => {
   const { d, n } = counted();
-  const outside = mkdtempSync(path.join(tmpdir(), 'br-out-'));
+  const outside = tmp('br-out-');
   writeFileSync(`${outside}/.env.test`, 'MODE=test\n');
   symlinkSync(outside, `${d}/linkdir`);
   writeFileSync(`${d}/.gitignore`, 'linkdir\n');
@@ -305,7 +305,7 @@ test('commands.build and commands.test not configured exits 2', () => {
 
 test('a command stopped by the time limit (exit 124) is a failure and leaves no sealed record; the next run starts again', () => {
   const { d, n } = counted();
-  const shim = mkdtempSync(path.join(tmpdir(), 'br-timeout-'));
+  const shim = tmp('br-timeout-');
   writeFileSync(`${shim}/timeout`, '#!/bin/sh\nexit 124\n'); chmodSync(`${shim}/timeout`, 0o755);
   const slow = A(d, ['build-record', 'LC', 'run'], { env: { PATH: `${shim}:${process.env.PATH}` } });
   assert.equal(slow.status, 1);

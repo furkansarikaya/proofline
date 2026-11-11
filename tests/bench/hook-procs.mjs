@@ -5,6 +5,7 @@
 //   node tests/bench/hook-procs.mjs [HOOK-SCRIPT]    prints `event  execs  ms  top commands`; set REPEAT=<n> (default 3, the median is shown)
 //   HP_TRACE=1 prints the log of every measured run to stderr; HP_LIMIT_MS=<ms> fails when the slowest event is slower (a gate for a quiet machine, not for CI).
 // The fixture is a COMPLEX orchestrated run frozen at IMPLEMENTING (the harness scaffold, the Node core beside agent.sh); the shipped git hook launchers and the hook folder are installed in it.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,7 +37,7 @@ function makeShims(dir, log, trace) {
 export function measureAll(o = {}) {
   const hook = o.hook ?? path.join(repo, 'adapters/claude/hooks/proofline-hook.mjs');
   const repeat = o.repeat ?? 3;
-  const work = mkdtempSync(path.join(tmpdir(), 'hook-procs-'));
+  const work = tempDir('hook-procs-');
   try {
     const d = project({ topology: 'orchestrated' });
     mkdirSync(path.join(d, '.agents/githooks'), { recursive: true }); mkdirSync(path.join(d, '.agents/hooks'), { recursive: true }); mkdirSync(path.join(d, 'src'), { recursive: true });

@@ -7,6 +7,7 @@
 // The fixture is an approved batch of four tasks after a partial run: T-1 merged, T-2 parked on a question, T-3 merged, T-4 skipped (it depends on T-2),
 // with the pre-flight answers of a plan that asked three questions. Built with the helpers of tests/core/batch-lib.mjs (the project of the self-test library with
 // the control-plane scripts beside it).
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,7 +35,7 @@ function makeShims(dir, log) {
 /** @param {{ repeat?: number }} [o] @returns {Row[]} */
 export function measureAll(o = {}) {
   const repeat = o.repeat ?? 3;
-  const work = mkdtempSync(path.join(tmpdir(), 'batch-procs-'));
+  const work = tempDir('batch-procs-');
   try {
     const F = fakes();
     const d = bnew();

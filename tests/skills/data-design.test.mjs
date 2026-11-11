@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -14,7 +15,7 @@ const FIXTURE = new URL("../../fixtures/data-design/setup.mjs", import.meta.url)
 const SCHEMA = JSON.parse(readFileSync(join(SKILL, "schema/classification.schema.json"), "utf8"));
 
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "dd-test-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("dd-test-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 const sql = (text, context = "") => {
   const files = { "m.sql": text, "ctx.sql": context };
@@ -351,7 +352,7 @@ test("skill files: shared rules block present, SKILL.md under 500 lines, frontma
   const shared = readFileSync(new URL("../shared/shared-rules.md", import.meta.url), "utf8").trim();
   assert.ok(skill.includes(shared), "shared rules block drifted");
   assert.ok(skill.split("\n").length < 500);
-  assert.match(skill, /^---\nname: data-design\ndescription: .{1,900}\nlicense: MIT\ndisable-model-invocation: true\nmetadata:\n  version: "0\.0\.86"\n---\n/);
+  assert.match(skill, /^---\nname: data-design\ndescription: .{1,900}\nlicense: MIT\ndisable-model-invocation: true\nmetadata:\n  version: "0\.0\.87"\n---\n/);
   for (const ref of skill.matchAll(/\]\(((?:references|assets|schema|scripts)\/[^)#]+)/g))
     assert.ok(readFileSync(join(SKILL, ref[1])), ref[1]);
 });

@@ -2,6 +2,7 @@
 // The capture contract through the REAL Node hook: every golden event of tests/golden/capture is replayed (a throwaway project, the hook as the
 // runtime starts it) and the capture, intake and history bytes are compared with the bytes recorded from the old shell hook. Then the hardening of
 // stage 3: a planted capture file never approves, and a run worktree's own core never runs in the hook.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { CORPUS, SECONDS, SESSION } from '../golden/capture/corpus.mjs';
 const GOLDEN = join(repo, 'tests/golden/capture');
 const golden = (/** @type {string} */ name, /** @type {string} */ file) => readFileSync(join(GOLDEN, name, file));
 let base = '';
-before(() => { base = mkdtempSync(join(tmpdir(), 'hook-cap-')); });
+before(() => { base = tempDir('hook-cap-'); });
 after(() => { rmSync(base, { recursive: true, force: true }); });
 
 /** The smallest installed project the prompt event needs: config, agent.sh, the capture module of the core. */

@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { run, readDocConfig, resolveSurface, designDocList, globMatch, checkSurf
 const SCRIPT = fileURLToPath(new URL("../../skills/design-sync/scripts/design-sync.mjs", import.meta.url));
 
 function project(files) {
-  const root = mkdtempSync(join(tmpdir(), "ds-"));
+  const root = tempDir("ds-");
   for (const [p, c] of Object.entries(files)) { mkdirSync(dirname(join(root, p)), { recursive: true }); writeFileSync(join(root, p), c); }
   return root;
 }

@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, chmodSync, symlinkSync, existsSync } from "node:fs";
@@ -11,7 +12,7 @@ const scripts = join(root, "skills/performance-proof/scripts");
 const samples = join(root, "fixtures/performance-proof/samples");
 const { compare, stats, thresholds, readSamples, readEnv, worst } = await import(join(scripts, "compare-bench.mjs"));
 const { validate, loadDoc } = await import(join(scripts, "validate-performance.mjs"));
-const tmp = mkdtempSync(join(tmpdir(), "perf-proof-"));
+const tmp = tempDir("perf-proof-");
 process.on("exit", () => rmSync(tmp, { recursive: true, force: true }));
 
 const cli = (...args) => spawnSync(process.execPath, [join(scripts, "compare-bench.mjs"), ...args], { encoding: "utf8" });

@@ -1,6 +1,7 @@
 // @ts-check
 // Absolute Node tests for the enforcement scenarios read_roles_tree (A143) and knowledge_stage (A159): the recorded corpora (tests/enforcement/recorded/)
 // replayed against the Node hook. Verdicts and reason texts are literals recorded once from the shell hook.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { project } from '../core/legacy-lib.mjs';
 import { corpus, replay } from './recorded.mjs';
 import { fixtureRecipe, setState } from './recorded-fixture.mjs';
 
-const base = mkdtempSync(join(tmpdir(), 'enf-rec-'));
+const base = tempDir('enf-rec-');
 after(() => rmSync(base, { recursive: true, force: true }));
 
 test('read_roles_tree (A143): the read-only roles (qa, reviewer, security-reviewer, verifier) never change the project working tree; the evidence worktree and scratch stay writable', async () => {

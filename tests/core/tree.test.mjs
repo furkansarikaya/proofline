@@ -2,6 +2,7 @@
 // proc.mjs starts no shell script of a run worktree (stage 3 security rounds 2 and 3): a copy compared and then run leaves a window for a rewrite
 // in between, so the core runs the project's own code for a worktree's run instead. Only `allowEqualTree` (the hook's rollback mode) runs one, while
 // its whole tree equals the project's.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,7 +13,7 @@ import { refuseUntrustedScript, sameTree } from '../../control-plane/agents/scri
 
 /** A project with a worktree whose scripts are copies; MARK is the file every script creates when it runs. */
 function fixture() {
-  const root = mkdtempSync(path.join(tmpdir(), 'pl-tree-'));
+  const root = tempDir('pl-tree-');
   const wt = path.join(root, '.agents/local/worktrees/T-1');
   const mark = path.join(root, 'MARK');
   for (const dir of [path.join(root, '.agents/scripts'), path.join(wt, '.agents/scripts/core')]) mkdirSync(dir, { recursive: true });

@@ -1,4 +1,5 @@
 // docs/reference/generate-skills.mjs (A234; it was generate-skills.sh): skills.md from the SKILL.md frontmatter of skills/*/.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { render, row } from '../../docs/reference/generate-skills.mjs';
 
 const repo = fileURLToPath(new URL('../..', import.meta.url));
 const GEN = join(repo, 'docs/reference/generate-skills.mjs');
-const T = mkdtempSync(join(tmpdir(), 'skills-doc-'));
+const T = tempDir('skills-doc-');
 process.on('exit', () => rmSync(T, { recursive: true, force: true }));
 const run = (...a) => spawnSync(process.execPath, [GEN, ...a], { encoding: 'utf8' });
 const skill = (root, name, front) => { mkdirSync(join(root, 'skills', name), { recursive: true }); writeFileSync(join(root, 'skills', name, 'SKILL.md'), `---\n${front}\n---\n# body\nname: not me\n`); };

@@ -2,6 +2,7 @@
 // Stage 4, package 4C: `secret-scan` (the scanner moved into the core), `worker-evidence`, `raise-budget`, `waive`, `knowledge-done` and `run-language` as
 // absolute Node tests (A214). They replace secret-scan-test.sh and the scenarios of gates-test.sh / lifecycle-test.sh named in tests/legacy-port-map.tsv; the
 // shell scenarios that remain run against the Node commands as black-box tests through the fixture prologue.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,7 +25,7 @@ const al = 'q8Zr2Lm9Xc4Vb7Nk1Pw6Ty3Hs5Jd0FgE';
 
 /** @param {Record<string, string>} files @returns {string} */
 function tree(files) {
-  const d = mkdtempSync(join(tmpdir(), 'ss4c-'));
+  const d = tempDir('ss4c-');
   for (const [f, text] of Object.entries(files)) { mkdirSync(join(d, f, '..'), { recursive: true }); writeFileSync(join(d, f), text); }
   return d;
 }

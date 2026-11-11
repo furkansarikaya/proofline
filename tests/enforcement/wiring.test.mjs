@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 3 wiring (ADR 0001 sections 5.3, 5.4, 9; issue #168): the REAL command strings of the three wiring files run through `sh -c`, as the runtimes
 // run them. Node absent (C2): PreToolUse blocks with exit 2 in all three forms. The shipped git hook launchers: a commit is blocked when node is absent, the allowed path is unchanged, the push guard holds.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { appendFileSync, symlinkSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +12,7 @@ import { hookStrictProblem, hookTemplates } from '../ci/no-shell-logic.mjs';
 
 const EVENTS = ['session', 'prompt', 'pretool', 'posttool', 'subagent-start', 'subagent-stop', 'stop'];
 const HOOKS = join(repoRoot, 'adapters/claude/hooks');
-const base = mkdtempSync(join(tmpdir(), 'wiring.'));
+const base = tempDir('wiring.');
 const noNode = pathWithoutNode();
 after(() => { rmSync(base, { recursive: true, force: true }); noNode.cleanup(); });
 

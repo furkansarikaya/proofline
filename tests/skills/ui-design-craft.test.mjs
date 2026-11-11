@@ -1,4 +1,5 @@
 // ui-design craft rules (A170): visitor mode, argument, the library deal and its replay in the validator.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
@@ -13,7 +14,7 @@ const { deal, dealIds, loadLibrary } = await import(join(skill, "scripts/deal.mj
 const DEAL = join(skill, "scripts/deal.mjs");
 const lib = loadLibrary();
 
-const repo = mkdtempSync(join(tmpdir(), "ui-craft-"));
+const repo = tempDir("ui-craft-");
 for (const d of ["docs/product", "docs/design", "src"]) mkdirSync(join(repo, d), { recursive: true });
 writeFileSync(join(repo, "docs/product/PRODUCT.md"), "# Product\n## Menu\nThe menu changes every day.\n");
 writeFileSync(join(repo, "src/menu.js"), "");
@@ -125,7 +126,7 @@ test("deal --redraw with a valid reason changes exactly one slot; a comfort reas
 
 // scope-check: a focused fix mode (bolder) may change its target only.
 test("scope-check: an edit inside the target is ok; a change outside, an untracked file and a move out of the target are flagged", () => {
-  const r = mkdtempSync(join(tmpdir(), "ui-scope-"));
+  const r = tempDir("ui-scope-");
   const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" };
   const git = (...a) => { const o = spawnSync("git", ["-C", r, ...a], { encoding: "utf8", env }); assert.equal(o.status, 0, o.stderr); };
   mkdirSync(join(r, "src/hero"), { recursive: true });

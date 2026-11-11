@@ -11,6 +11,8 @@ import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mk
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
+import { copyTree, pruneThrottled, removeTree, touchUse } from './prune.mjs';
+import { removeAtExit } from './tempdir.mjs';
 
 export const repo = path.resolve(import.meta.dirname, '..', '..');
 export const scripts = path.join(repo, 'control-plane', 'agents', 'scripts');
@@ -59,10 +61,12 @@ export function base() {
   else if (!baseDir) {
     baseDir = mkdtempSync(path.join(tmpdir(), 'proofline-h-'));
     const dir = baseDir;
-    process.on('exit', () => { try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* the assertions decided the result */ } });
+    try { writeFileSync(path.join(dir, '.pid'), `${process.pid}\n`); } catch { /* clean-temp then judges by age alone */ }   // tests/lib/clean-temp.mjs leaves a folder whose process is alive
+    removeAtExit(dir);
   }
   return baseDir;
 }
+export { removeAtExit };
 /** A fresh empty directory under the base. @param {string} [prefix] */
 export function tmp(prefix = 't') { return mkdtempSync(path.join(base(), `${prefix}${++counter}-`)); }
 
@@ -216,16 +220,27 @@ function safeCacheRoot() {
   if ((st.mode & 0o077) !== 0) chmodSync(dir, 0o700);
   return dir;
 }
+/** How to make a template again, by its path: `copyOf` uses it when the template was evicted between `cached()` and the copy (an entry idle for a long time, in another process's prune). @type {Map<string, () => string>} */
+const rebuilders = new Map();
+/** The clock of the cache pruning (milliseconds); the only place the harness reads the wall clock for it. Tests of the pruning inject their own. */
+const wallClock = () => Date.now();
 /**
  * A directory built once per key, kept under the temp folder and shared by every process (the builder fills a private directory that is renamed into
- * place; the loser of a race discards its copy). @param {string} key @param {(dir: string) => void} build @param {string} [root] the cache folder (default: the user's private one) @returns {string}
+ * place; the loser of a race discards its copy). Every use touches the template's `.built` marker, and the default cache is pruned (at most every few minutes, see
+ * tests/lib/prune.mjs: idle entries by age and total size, leftovers of killed builds; never the key asked for or an entry used lately).
+ * @param {string} key @param {(dir: string) => void} build @param {string} [root] the cache folder (default: the user's private one, which is pruned; another folder is not unless `prune` says so)
+ * @param {{ clock?: () => number, prune?: boolean, policy?: Partial<typeof import('./prune.mjs').POLICY> }} [opts] @returns {string}
  */
-export function cached(key, build, root = safeCacheRoot()) {
-  mkdirSync(root, { recursive: true });
-  const final = path.join(root, key);
-  if (existsSync(path.join(final, '.built'))) return final;
-  const work = mkdtempSync(path.join(root, `build-${key.slice(0, 12)}-`));
-  try { build(work); writeFileSync(path.join(work, '.built'), ''); } catch (e) { try { discard(work); } catch { /* the build error is the one to report */ } throw e; }
+export function cached(key, build, root, opts = {}) {
+  const pruneIt = opts.prune ?? root === undefined; const clock = opts.clock ?? wallClock;
+  const dir = root ?? safeCacheRoot();
+  mkdirSync(dir, { recursive: true });
+  if (pruneIt) { try { pruneThrottled(dir, { now: clock(), keep: [key], policy: opts.policy }); } catch { /* disk hygiene never fails a test */ } }
+  const final = path.join(dir, key);
+  rebuilders.set(final, () => cached(key, build, root, opts));
+  if (existsSync(path.join(final, '.built'))) { touchUse(final, clock()); return final; }
+  const work = mkdtempSync(path.join(dir, `build-${key.slice(0, 12)}-`));
+  try { build(work); writeFileSync(path.join(work, '.built'), ''); touchUse(work, clock()); } catch (e) { try { discard(work); } catch { /* the build error is the one to report */ } throw e; }
   try { renameSync(work, final); } catch (e) {
     // The private copy is always removed, and removed before this returns (a leftover `build-*` beside the template is what the race test of A246 saw).
     // Losing the race is only the case where the template is complete at the final path; any other failure is a real error and is thrown.
@@ -244,20 +259,30 @@ export function discard(dir, rm = rmSync) {
   if (existsSync(dir)) removeTree(dir);
   if (existsSync(dir)) throw new Error(`harness: cannot remove the private build directory ${dir}`);
 }
-/** unlink/rmdir by hand, links never followed; a path that is already gone is done. @param {string} p */
-function removeTree(p) {
-  let st;
-  try { st = lstatSync(p); } catch (e) { if (/** @type {any} */ (e).code === 'ENOENT') return; throw e; }
-  try {
-    if (st.isDirectory()) { chmodSync(p, 0o700); for (const n of readdirSync(p)) removeTree(path.join(p, n)); rmdirSync(p); } else unlinkSync(p);   // lstat above: p is no link, so chmod never follows one; a read-only directory could not be emptied
-  } catch (e) { if (/** @type {any} */ (e).code !== 'ENOENT') throw e; }
-}
-/** A copy of a template into a fresh directory. @param {string} template */
-export function copyOf(template) {
-  const dir = tmp('p');
-  cpSync(template, dir, { recursive: true });
-  rmSync(path.join(dir, '.built'), { force: true });
-  return dir;
+/**
+ * A copy of a template into a fresh directory. The use is recorded first (the pruning leaves a used template alone), and the copy is verified: when the template was evicted
+ * or moved while the copy ran (the pruning renames before it deletes, and renames back when it sees a use) the partial copy is removed and the copy is made again, after a rebuild
+ * of the template when it is gone for good and this process knows its builder.
+ * @param {string} template @param {{ clock?: () => number, cp?: typeof import('./prune.mjs').copyTree }} [opts]
+ */
+export function copyOf(template, opts = {}) {
+  const cp = opts.cp ?? copyTree; const clock = opts.clock ?? wallClock;
+  // Only a finished template (a `.built` marker, or a builder this process knows) can be evicted under the copy; any other folder is copied as it is and nothing is verified.
+  const template0 = existsSync(path.join(template, '.built')) || rebuilders.has(template);
+  for (let attempt = 1; ; attempt++) {
+    if (template0) touchUse(template, clock());
+    const dir = tmp('p');
+    try {
+      cp(template, dir);
+      if (template0 && !existsSync(path.join(template, '.built'))) throw new Error(`harness: the template ${template} was removed while it was copied`);
+      rmSync(path.join(dir, '.built'), { force: true });
+      return dir;
+    } catch (e) {
+      try { discard(dir); } catch { /* the copy error is the one to report */ }
+      if (attempt >= 3) throw e;
+      if (template0 && !existsSync(path.join(template, '.built'))) rebuilders.get(template)?.();   // evicted meanwhile: build it again under the same key
+    }
+  }
 }
 
 /** A fresh repository with the control plane installed (nothing committed): `new_repo` of the shell library. */

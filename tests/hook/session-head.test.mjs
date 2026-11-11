@@ -1,6 +1,7 @@
 // @ts-check
 // The SessionStart text (A230): the hook fills the template file lib/session-head.txt. A missing or empty file (an old install, a partial upgrade) must not blank the
 // message: the same text is embedded in the hook, so the output is byte-identical with and without the file.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { buildTemplate, cleanEnv, repo } from './harness.mjs';
 
-const base = mkdtempSync(join(tmpdir(), 'hook-head-'));
+const base = tempDir('hook-head-');
 const tpl = buildTemplate({ run: false });
 after(() => { rmSync(base, { recursive: true, force: true }); rmSync(tpl, { recursive: true, force: true }); });
 

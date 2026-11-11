@@ -2,6 +2,7 @@
 // Helpers of the Node tests that replace batch-test.sh (A225, #172): a project with task files, the control-plane scripts, a bare origin, a fake platform tool,
 // fake sleep inhibitors, and the lead played by the test (fake_run, fake_deliver, drive). Every asserted action is a plain call of the real control plane
 // (`sh .agents/scripts/agent.sh`, the Node core); the fixture STATE of a scaffolded run is built by the self-test library's own verbs (legacy-lib.mjs).
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -66,7 +67,7 @@ let counter = 0;
  */
 export function fakes() {
   const id = ++counter;
-  const FAKE = mkdtempSync(path.join(tmpdir(), 'bt-fake-'));
+  const FAKE = tempDir('proofline-bt-fake-');
   const ghbin = path.join(toolRoot, String(id), 'bin');
   mkdirSync(ghbin, { recursive: true });
   for (const d of ['bin', 'behave', 'ci']) mkdirSync(path.join(FAKE, d), { recursive: true });
@@ -138,7 +139,7 @@ export function binstall(dir, o = {}) {
   gOk(dir, ['add', '-A']);
   gOk(dir, ['commit', '-qm', 'fixture', '--allow-empty']);
   if (o.remote !== false) {
-    const origin = mkdtempSync(path.join(tmpdir(), 'bt-origin-'));
+    const origin = tempDir('proofline-bt-origin-');
     gOk(dir, ['init', '-q', '--bare', origin]);
     gOk(dir, ['remote', 'add', 'origin', origin]);
     sh(dir, 'git', ['push', '-q', '-u', 'origin', 'main']);

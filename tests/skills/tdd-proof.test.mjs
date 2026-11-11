@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, readFileSync, mkdtempSync } from "node:fs";
@@ -68,7 +69,7 @@ test("classify: empty and unrecognised output is unknown, not RED", () => {
 test("classify CLI: exit 0 for assertion, 1 otherwise, 2 on bad usage; stdin and --file", () => {
   assert.equal(spawnSync("node", [cScript], { input: SAMPLES.assertion.jest }).status, 0);
   assert.equal(spawnSync("node", [cScript], { input: SAMPLES.import.python }).status, 1);
-  const f = join(mkdtempSync(join(tmpdir(), "tdd-")), "o.txt");
+  const f = join(tempDir("tdd-"), "o.txt");
   writeFileSync(f, SAMPLES.assertion.go);
   const r = spawnSync("node", [cScript, "--file", f]);
   assert.equal(r.status, 0);
@@ -147,7 +148,7 @@ test("validate: unknown keys rejected", () => {
   const d = good(); d.x = 1; has(errs(d), "unexpected");
 });
 test("validate CLI exit codes", () => {
-  const f = join(mkdtempSync(join(tmpdir(), "tdd-")), "tdd.json");
+  const f = join(tempDir("tdd-"), "tdd.json");
   writeFileSync(f, JSON.stringify(good()));
   assert.equal(spawnSync("node", [vScript, f, "--scope", "src/parse.js,docs/guide.md"]).status, 0);
   assert.equal(spawnSync("node", [vScript, f, "--scope", "src/parse.js,src/new.js"]).status, 1);
@@ -160,7 +161,7 @@ test("SKILL.md frontmatter and schema", () => {
   JSON.parse(readFileSync(join(skill, "schema/tdd.schema.json"), "utf8"));
 });
 test("validate CLI reads the fenced json block of a .md result", () => {
-  const dir = mkdtempSync(join(tmpdir(), "tdd-"));
+  const dir = tempDir("tdd-");
   const m = join(dir, "r.md");
   writeFileSync(m, `ROLE: implementer\n\n\`\`\`json\n${JSON.stringify(good())}\n\`\`\`\n`);
   assert.equal(spawnSync("node", [vScript, m]).status, 0);
@@ -178,7 +179,7 @@ test("validate: one cycle per criterion; a path may have several cycles, one for
   const dupe = structuredClone(d); dupe.cycles[1].criterion = "AC-1"; has(errs(dupe), "one cycle per criterion");
 });
 test("validate: --scope path:AC-1+AC-2 needs a cycle for every listed criterion", () => {
-  const f = join(mkdtempSync(join(tmpdir(), "tddc-")), "tdd.json");
+  const f = join(tempDir("tddc-"), "tdd.json");
   writeFileSync(f, JSON.stringify(good()));
   assert.equal(spawnSync("node", [vScript, f, "--scope", "src/parse.js:AC-1,docs/guide.md"]).status, 0);
   const r = spawnSync("node", [vScript, f, "--scope", "src/parse.js:AC-1+AC-2,docs/guide.md"], { encoding: "utf8" });

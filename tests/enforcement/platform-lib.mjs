@@ -1,6 +1,7 @@
 // @ts-check
 // Helpers shared by tests/enforcement/{platform,merge-guard}.test.mjs (176-C): fake platform tools that live in the checkout (never under a temporary
 // folder: a tool that resolves there is refused, A180), `proofline merge` runs, and the real hook run asynchronously so a table of commands is fast.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,7 +17,7 @@ let counter = 0;
 
 /** A scratch folder (removed when the test file ends). @param {string} [prefix] */
 export function scratch(prefix = 'enf-') {
-  const d = mkdtempSync(path.join(tmpdir(), prefix));
+  const d = tempDir(prefix);
   after(() => { rmSync(d, { recursive: true, force: true }); });
   return d;
 }

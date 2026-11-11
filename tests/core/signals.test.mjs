@@ -2,6 +2,7 @@
 // signals.mjs and ere.mjs against the shell's answers: risk_words_match (the golden cases of risk-test.sh, 830 and 867, and more; recorded in tests/core/golden/risk-words-match.json, the lines
 // of the widened log pattern and the back-reference case look their answer up in tests/golden/shell-equivalence.json, A244), the ERE translator against grep -E, entry_tier against
 // agent.sh entry-tier, and the risk freeze hashes.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -146,7 +147,7 @@ describe('the ecosystem definition as flat rows (A245: no tsv, no sh reader)', (
     const { tmpdir } = await import('node:os');
     const { ecosystemRowsAt } = await import('../../control-plane/agents/scripts/core/ecodata.mjs');
     const ship = path.join(repo, 'control-plane/agents');
-    const d = mkdtempSync(path.join(tmpdir(), 'pl-eco-'));
+    const d = tempDir('pl-eco-');
     try {
       const agents = path.join(d, '.agents'); mkdirSync(agents);
       assert.ok((ecosystemRowsAt(agents, ship) ?? []).length > 100, 'no fallback to the shipped definition');

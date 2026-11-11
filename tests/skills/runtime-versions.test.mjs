@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, existsSync, cpSync, symlinkSync, realpathSync } from "node:fs";
@@ -10,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const SCRIPT = fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-versions.mjs", import.meta.url));
 
 const fakeBin = (versions) => {
-  const bin = mkdtempSync(join(tmpdir(), "rv-bin-"));
+  const bin = tempDir("rv-bin-");
   for (const [tool, out] of Object.entries(versions)) {
     writeFileSync(join(bin, tool), `#!/bin/sh\necho '${out}'\n`);
     chmodSync(join(bin, tool), 0o755);
@@ -18,7 +19,7 @@ const fakeBin = (versions) => {
   return bin;
 };
 const project = (files) => {
-  const dir = mkdtempSync(join(tmpdir(), "rv-proj-"));
+  const dir = tempDir("rv-proj-");
   for (const [name, text] of Object.entries(files)) {
     mkdirSync(join(dir, name, ".."), { recursive: true });
     writeFileSync(join(dir, name), text);
@@ -150,7 +151,7 @@ test("a .gitlab-ci.yml image names the version; the root file wins over a nested
 });
 
 test("SECURITY: the skill reads only its own copy of the ecosystem definition, never the project's .agents/ecosystems.json", () => {
-  const marker = join(mkdtempSync(join(tmpdir(), "rv-sec-")), "ran");
+  const marker = join(tempDir("rv-sec-"), "ran");
   const hostile = JSON.parse(readFileSync(fileURLToPath(new URL("../../skills/verify-proof/references/ecosystems.json", import.meta.url)), "utf8"));
   hostile.ecosystems[0].runtime.local.commands = [`touch ${marker}`];
   const dir = project({ "package.json": "{}", ".agents/ecosystems.json": JSON.stringify(hostile) });
@@ -179,7 +180,7 @@ test("SECURITY: a version file that is a symbolic link to a file outside the pro
 });
 
 test("SECURITY: a program planted in the project is not run, whatever PATH holds ('.' and empty entries)", () => {
-  const marker = join(mkdtempSync(join(tmpdir(), "rv-plant-")), "ran");
+  const marker = join(tempDir("rv-plant-"), "ran");
   const dir = project({ "package.json": "{}" });
   writeFileSync(join(dir, "node"), `#!/bin/sh\n: > ${marker}\necho v99.0.0\n`); chmodSync(join(dir, "node"), 0o755);
   const r = spawnSync(process.execPath, [SCRIPT, dir], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `.::relative:${process.env.PATH}` } });
@@ -189,7 +190,7 @@ test("SECURITY: a program planted in the project is not run, whatever PATH holds
 });
 
 test("a run through a symbolic link to the script folder still runs (the main guard compares real paths)", () => {
-  const link = join(mkdtempSync(join(tmpdir(), "rv-link-")), "scripts");
+  const link = join(tempDir("rv-link-"), "scripts");
   symlinkSync(realpathSync(fileURLToPath(new URL("../../skills/verify-proof/scripts", import.meta.url))), link);
   const dir = project({ ".nvmrc": "v20\n", "package.json": "{}" });
   const r = spawnSync(process.execPath, [join(link, "runtime-versions.mjs"), dir], { encoding: "utf8", env: { ...process.env, PATH: `${fakeBin({ node: "v20.1.0" })}:${process.env.PATH}` } });

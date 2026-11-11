@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync, rmSync } from "node:fs";
@@ -13,7 +14,7 @@ const SCHEMA = JSON.parse(readFileSync(new URL("../../skills/proof-review/schema
 const loc = { file: "src/shop.ts", line: 12 };
 // structuredClone: tests mutate documents, and `loc` must not be shared between them.
 const doc = () => structuredClone({
-  schema_version: 1, skill_version: "0.0.86", generated_at: "2026-10-08T12:00:00Z",
+  schema_version: 1, skill_version: "0.0.87", generated_at: "2026-10-08T12:00:00Z",
   target: { type: "branch", name: "feature/discount", slug: "feature-discount", base: "aaa111", head: "bbb222" },
   scope: { changed_files: 2, changed_lines: 40, excluded: ["package-lock.json"], not_reviewed: [{ path: "docs/", reason: "docs only" }], rule_files_read: ["CLAUDE.md"], rule_files_not_read: [] },
   claims: [
@@ -36,7 +37,7 @@ const doc = () => structuredClone({
 });
 
 const tmpDirs = [];
-const mktmp = (prefix) => { const d = mkdtempSync(join(tmpdir(), prefix)); tmpDirs.push(d); return d; };
+const mktmp = (prefix) => { const d = tempDir(prefix); tmpDirs.push(d); return d; };
 after(() => { for (const d of tmpDirs) rmSync(d, { recursive: true, force: true }); });
 
 function fixture(d = doc(), { files = ["evidence/F001/repro.test.ts", "evidence/F001/output.txt"] } = {}) {
@@ -466,7 +467,7 @@ test("docs: no exclude pathspec in any tree-id or fingerprint command", () => {
 });
 
 test("fingerprint command works where .agents/local/ exists and is ignored, and ignores its content", () => {
-  const repo = mkdtempSync(join(tmpdir(), "pr-fp-"));
+  const repo = tempDir("pr-fp-");
   const sh = (cmd) => spawnSync("sh", ["-c", cmd], { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
   sh("git init -q -b main && git config user.email t@example.invalid && git config user.name t");
   mkdirSync(join(repo, ".agents/local"), { recursive: true }); mkdirSync(join(repo, ".agents/runs/T-1"), { recursive: true });

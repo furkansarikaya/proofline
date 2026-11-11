@@ -1,5 +1,6 @@
 // @ts-check
 // The Node kill guard (adapters/claude/hooks/guards/kill.mjs) against the table of tests/enforcement/kill-guard-test.sh,.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
@@ -14,7 +15,7 @@ const repo = resolve(import.meta.dirname, '../..');
 let base = ''; let proj = ''; let td = '';
 
 before(() => {
-  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'kg-node-')));   // long form: a Windows runner's tmpdir() is the 8.3 short path (A246)
+  base = realpathSync.native(tempDir('kg-node-'));   // long form: a Windows runner's tmpdir() is the 8.3 short path (A246)
   proj = join(base, 'proj');
   for (const d of ['scripts', 'node_modules/x', 'bench', 'd', '.git']) mkdirSync(join(proj, d), { recursive: true });
   const w = (/** @type {string} */ f, /** @type {string} */ t) => writeFileSync(join(proj, f), t);

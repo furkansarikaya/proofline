@@ -1,6 +1,7 @@
 // @ts-check
 // UserPromptSubmit: the capture contract (Invariant 3) of the Node hook against the shell hook on a corpus of prompts: the intake copy, the capture
 // file, the history copy, and the approval step. The committed golden bytes of the capture live in tests/golden/capture (package CMDS).
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { buildTemplate, haveJq, runHook, copyProject, snapshot, mkdirSync, write
 const skip = haveJq ? false : 'jq is required for the shell hook';
 let template = '';
 let base = '';
-before(() => { template = buildTemplate(); base = mkdtempSync(join(tmpdir(), 'hook-pr-')); });
+before(() => { template = buildTemplate(); base = tempDir('hook-pr-'); });
 after(() => { rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
 /** @param {{ node: any, sh: any }} r @param {string} what */

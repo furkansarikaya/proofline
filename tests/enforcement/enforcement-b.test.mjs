@@ -2,6 +2,7 @@
 // Enforcement scenarios (B) of the legacy tests/enforcement/enforcement-test.sh, in Node (176-C1): questions, git_bypass, agent_sh_forms, hook_wiring,
 // not_installed, live_claude, worktree_state, explorer_prose_note, version_skew. Every case feeds the REAL hook (adapters/claude/hooks/proofline-hook.mjs, or
 // HOOK_UNDER_TEST) the hook JSON in the shapes Claude Code and Codex send, in a throwaway installed project; none of the attack cases was dropped.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync, copyFileSync, cpSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { A, cleanEnv, commitAll, newRepo, tsha } from '../lib/harness.mjs';
 import { repo } from '../hook/harness.mjs';
 import { H, allowed, denied, fixture, preBash, preEdit, prompt, subStop } from './lib.mjs';
 
-const base = mkdtempSync(path.join(tmpdir(), 'enf-b-'));
+const base = tempDir('enf-b-');
 after(() => rmSync(base, { recursive: true, force: true }));
 let n = 0;
 /** A scratch folder outside the projects (the shell suite's $base/...). @param {string} prefix */

@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -10,7 +11,7 @@ const skill = join(dirname(fileURLToPath(import.meta.url)), "../../skills/ui-des
 const script = join(skill, "scripts/validate-ui.mjs");
 const { validate, validateDesignMd } = await import(script);
 
-const repo = mkdtempSync(join(tmpdir(), "ui-"));
+const repo = tempDir("ui-");
 mkdirSync(join(repo, "src/ui"), { recursive: true });
 writeFileSync(join(repo, "DESIGN.md"), "# d\n");
 writeFileSync(join(repo, "src/ui/Button.tsx"), "");
@@ -172,7 +173,7 @@ test("direction alternatives: required for new, refused for conform", () => {
   const c = strong(); Object.assign(c.creative_direction, alts()); has(errs(c), "no direction alternatives");
 });
 test("redesign of UI code without DESIGN.md: user's sentence, inventory and avoided (no approval needed)", () => {
-  const app = mkdtempSync(join(tmpdir(), "ui-code-"));
+  const app = tempDir("ui-code-");
   mkdirSync(join(app, "src/ui"), { recursive: true });
   writeFileSync(join(app, "src/ui/Button.tsx"), ""); writeFileSync(join(app, "src/ui/tokens.css"), "");
   const o = { root: app };

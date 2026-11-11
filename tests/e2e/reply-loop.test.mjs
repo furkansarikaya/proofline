@@ -1,6 +1,7 @@
 // @ts-check
 // Self-test (A128): the harness reply loop of run.mjs against a stub `claude` that leaves an unanswered approval request in the run's approvals/
 // directory after every call. No real runtime is called. One test per scenario (E2E_RUNNER runs the same assertions against another runner).
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { here, repo, runE2e } from './runner.mjs';
 
-const root = mkdtempSync(path.join(tmpdir(), 'e2e-loop-'));
+const root = tempDir('e2e-loop-');
 after(() => rmSync(root, { recursive: true, force: true }));
 const bin = path.join(root, 'bin');
 mkdirSync(bin);
