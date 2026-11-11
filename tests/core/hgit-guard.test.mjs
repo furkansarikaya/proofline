@@ -62,6 +62,8 @@ export const EXCEPT_SUBS = /** @type {Record<string, Record<string, string>>} */
   },
   'proflinecli.mjs': { status: 'the local `git` wrapper sends `status` to hgit (the `a[0] === \'status\'` branch); the other subcommands are refs only' },
 });
+/** Single subcommands whose exception holds only for calls through these wrappers (the private proof repository's `gp`/`gps`): a raw `proc.run('git', [..., 'diff'])` in the same file is not covered. */
+export const EXCEPT_VIA = /** @type {Record<string, Record<string, string[]>>} */ ({ 'deliver.mjs': { diff: ['gp', 'gps'], log: ['gp', 'gps'] } });
 /** The local functions (per file) that forward their argument list to a raw git spawn: their calls are checked too. Regular expression sources. */
 export const WRAPPERS = /** @type {Record<string, string[]>} */ ({
   'merge.mjs': ['gitOut'],
@@ -123,7 +125,7 @@ export const NAMED_IMPORTS = /** @type {Record<string, Record<string, string>>} 
 });
 /** The members of `proc` that start nothing. */
 const PROC_NO_SPAWN = new Set(['spawnLog', 'spawnCounts', 'resetSpawnCounts', 'killTree']);
-const TABLES = { WRAPPERS, EXCEPT_SUBS, EXCEPT_FILES, DYN_SPAWNS, BIN_ALLOW, DYN_BIN, SPAWN_REG, NAMED_IMPORTS };
+const TABLES = { EXCEPT_VIA, WRAPPERS, EXCEPT_SUBS, EXCEPT_FILES, DYN_SPAWNS, BIN_ALLOW, DYN_BIN, SPAWN_REG, NAMED_IMPORTS };
 
 /** Index of the end of the string, template or comment-free literal that starts at I (a quote), or -1. @param {string} s @param {number} i */
 function skipString(s, i) {
@@ -249,7 +251,7 @@ export function problem(file, c, T = TABLES) {
     const hits = denyHits(c.scan);
     return hits.length > 0 ? `raw git call that cannot be read (${c.via}) holds ${hits.map((h) => `'${h}'`).join(', ')}` : '';
   }
-  if (T.EXCEPT_SUBS[file]?.[c.sub] !== undefined) return '';
+  if (T.EXCEPT_SUBS[file]?.[c.sub] !== undefined && (T.EXCEPT_VIA?.[file]?.[c.sub] ?? [c.via]).includes(c.via)) return '';
   if (!ALLOWED.has(c.sub)) return `raw git ${c.sub} (${c.via})`;
   if (c.sub === 'worktree' && lit(c.rest[0] ?? '') !== 'list') return `raw git worktree ${lit(c.rest[0] ?? '') ?? '<not literal>'} (${c.via}): only \`worktree list\` may be raw`;
   if (c.sub === 'diff-tree' && c.rest.some((e) => { const l = lit(e); return l !== null && l.startsWith('-') && !DIFF_TREE_OK.test(l); })) return `raw git diff-tree with an option that is not on the whitelist (${c.via})`;
@@ -375,7 +377,7 @@ const IMPORT = "import * as proc from './proc.mjs';\n";
 /** The forwarding function a file with one registered wrapper has. */
 const FWD = "const g = (a) => proc.run('git', ['-C', r, ...a], {});\n";
 /** Tables of the fixture file x.mjs: one wrapper `g`, one dynamic spawn, `sh` and a binary variable allowed. */
-const T0 = { WRAPPERS: { 'x.mjs': ['g'] }, DYN_SPAWNS: { 'x.mjs': 1 }, BIN_ALLOW: { 'x.mjs': { sh: 'r' } }, DYN_BIN: { 'x.mjs': 'r' }, EXCEPT_SUBS: {}, EXCEPT_FILES: {}, SPAWN_REG: {}, NAMED_IMPORTS: {} };
+const T0 = { EXCEPT_VIA: {}, WRAPPERS: { 'x.mjs': ['g'] }, DYN_SPAWNS: { 'x.mjs': 1 }, BIN_ALLOW: { 'x.mjs': { sh: 'r' } }, DYN_BIN: { 'x.mjs': 'r' }, EXCEPT_SUBS: {}, EXCEPT_FILES: {}, SPAWN_REG: {}, NAMED_IMPORTS: {} };
 /** @param {string} src @param {Partial<typeof T0>} [over] @param {string} [head] */
 const scan = (src, over = {}, head = IMPORT + FWD) => scanSource('x.mjs', head + src, { ...T0, ...over }).bad;
 
@@ -413,6 +415,15 @@ test('A248 guard (scanner): an unreadable git call is never accepted for what it
   ]);
   for (const [name, src, over, re] of cases) assert.ok(scan(src, over).some((b) => re.test(b)), `${name}: not caught: ${JSON.stringify(scan(src, over))}`);
   assert.deepEqual(scan(''), [], 'the baseline has no problem');
+  // every denied subcommand is caught, in a spread list and in a variable list
+  /** Written out here on purpose: a name dropped from DENY must turn this test red, so the loop does not read DENY. */
+  const EVERY = ['ls-files', 'check-ignore', 'status', 'diff', 'diff-index', 'diff-files', 'add', 'update-index', 'read-tree', 'checkout', 'checkout-index', 'reset', 'stash', 'rm', 'mv', 'clean', 'grep', 'merge', 'switch', 'restore', 'commit', 'apply', 'write-tree', 'submodule', 'log', 'show', 'blame', 'archive', 'bisect', 'cherry-pick', 'rebase', 'revert', 'pull', 'sparse-checkout', 'maintenance', 'gc', 'fsck', 'repack', 'am', 'format-patch', 'describe', 'range-diff', 'whatchanged', 'difftool', 'mergetool', 'shortlog'];
+  assert.deepEqual([...EVERY].sort(), [...DENY].sort(), 'DENY and the pinned list differ');
+  for (const d of EVERY) {
+    assert.ok(scan(`proc.run('git', ['-C', d, ...o, '${d}'], {});`, { DYN_SPAWNS: { 'x.mjs': 2 } }).some((b) => b.includes(`'${d}'`)), `${d}: not caught in a spread list`);
+    assert.ok(scan(`const a = ['${d}']; g(a);`).some((b) => b.includes(`'${d}'`)), `${d}: not caught in a variable list`);
+    assert.ok(scan(`g(['${d}']);`).some((b) => b.includes(d)), `${d}: not caught as a literal call`);
+  }
 });
 
 test('A248 guard (scanner): spawn shapes the first guard could not see (finding 2)', () => {
@@ -479,6 +490,12 @@ test('A248 guard (scanner): the exceptions are matched per file and per subcomma
   assert.deepEqual(scanSource('x.mjs', IMPORT + FWD + "g(['log', '-1']);", T1).bad, []);
   assert.ok(scanSource('y.mjs', IMPORT + "const g = (a) => proc.run('git', a, {}); g(['log', '-1']);", { ...T1, WRAPPERS: { 'y.mjs': ['g'] }, DYN_SPAWNS: { 'y.mjs': 1 } }).bad.some((b) => /raw git log/.test(b)), 'an exception of another file does not apply');
   assert.ok(EXCEPT_SUBS['deliver.mjs'].log !== undefined && !ALLOWED.has('log'));
+  // the deliver.mjs diff and log exceptions cover the proof repository wrappers only, not a raw spawn in the same file
+  const T2 = { ...T0, EXCEPT_SUBS: { 'x.mjs': { diff: 'r', log: 'r' } }, EXCEPT_VIA: { 'x.mjs': { diff: ['g'], log: ['g'] } } };
+  assert.deepEqual(scanSource('x.mjs', IMPORT + FWD + "g(['diff', '--name-only']); g(['log', '-1']);", T2).bad, []);
+  assert.ok(scanSource('x.mjs', IMPORT + FWD + "proc.run('git', ['-C', root, 'diff', '--cached'], {});", T2).bad.some((b) => /raw git diff \(proc\.run\)/.test(b)));
+  assert.ok(scanSource('x.mjs', IMPORT + FWD + "proc.run('git', ['-C', root, 'log'], {});", T2).bad.some((b) => /raw git log \(proc\.run\)/.test(b)));
+  assert.deepEqual(EXCEPT_VIA['deliver.mjs'], { diff: ['gp', 'gps'], log: ['gp', 'gps'] });
 });
 
 test('A248 round 7: a known-issue place check (kirules listable, ls-files --error-unmatch) never runs the repository\'s core.fsmonitor program', () => {
