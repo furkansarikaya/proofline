@@ -449,7 +449,9 @@ test('A248 round 7: dropHalfWorktree unlocks, deletes the folder and prunes when
   assert.ok(listed(a), 'premise: registered');
   assert.equal(dropHalfWorktree(ctx, a), true);
   assert.ok(!existsSync(a) && !listed(a), 'the locked half-made worktree is gone and unregistered');
-  // a folder nothing can delete (a read-only folder holding a file): the answer is false and the registration stays, so the message can tell the user what to do
+  // a folder nothing can delete (a read-only folder holding a file): the answer is false and the registration stays, so the message can tell the user what to do. The super user
+  // can delete into a read-only folder, so there is no such folder for it
+  if (process.getuid?.() === 0) return;
   const b = `${root}-stuck`;
   git(root, ['worktree', 'add', '-q', '--detach', b, 'HEAD']);
   mkdirSync(`${b}/ro`); writeFileSync(`${b}/ro/f`, 'x');
@@ -458,4 +460,51 @@ test('A248 round 7: dropHalfWorktree unlocks, deletes the folder and prunes when
     assert.equal(dropHalfWorktree(ctx, b), false);
     assert.ok(existsSync(b), 'the folder that nothing can delete is still there (the message then names it)');
   } finally { chmodSync(`${b}/ro`, 0o700); rmSync(b, { recursive: true, force: true }); rmSync(a, { recursive: true, force: true }); }
+});
+
+/**
+ * A `git` in front of the real one on PATH: a `reset` of a worktree (the checkout of `worktree-add`) fails the way the test asks, after ACTION ran in that worktree's folder
+ * ($d). Every other call goes to the real git. @param {{ FAKE: string, env: Record<string, string> }} F @param {string} action shell commands
+ */
+function failingReset(F, action) {
+  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  const bin = `${F.FAKE}/failreset`; put(`${bin}/git`, `#!/bin/sh
+d=''; prev=''; rs=''
+for a in "$@"; do [ "$prev" != -C ] || d=$a; [ "$a" != reset ] || rs=1; prev=$a; done
+if [ -n "$rs" ] && [ -n "$d" ]; then
+  ${action.replace(/REAL/g, shQuote(real))}
+  echo 'fatal: simulated checkout failure' >&2
+  exit 1
+fi
+exec ${shQuote(real)} "$@"
+`);
+  chmodSync(`${bin}/git`, 0o755);
+  return { PATH: `${bin}:${F.env.PATH}` };
+}
+
+test('A248 round 8: worktree-add after a failed checkout removes a LOCKED half-made worktree (a plain `worktree remove --force` would leave it registered)', () => {
+  const F = fakes(); const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  const d = `${main}/.agents/local/worktrees/W-6`;
+  const env = failingReset(F, 'REAL -C "$d" worktree lock "$d"');
+  const bad = AB(F, dir, ['worktree-add', 'W-6'], { env });
+  assert.notEqual(bad.status, 0, bad.text);
+  assert.ok(bad.text.includes(`could not check out the worktree ${d}; the half-made worktree was removed`), bad.text);
+  assert.ok(!g(main, ['worktree', 'list', '--porcelain']).split('\n').includes(`worktree ${d}`), 'the locked half-made worktree is still registered');
+  assert.ok(!existsSync(d), 'the locked half-made folder is still on disk');
+});
+
+test('A248 round 8: worktree-add after a failed checkout that nothing can clean up says so and names the folder and the command to run', { skip: process.getuid?.() === 0 ? 'the super user can delete into a read-only folder' : false }, () => {
+  const F = fakes(); const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  const d = `${main}/.agents/local/worktrees/W-7`;
+  const env = failingReset(F, 'mkdir "$d/ro" && echo x > "$d/ro/f" && chmod 500 "$d/ro"');
+  try {
+    const bad = AB(F, dir, ['worktree-add', 'W-7'], { env });
+    assert.notEqual(bad.status, 0, bad.text);
+    assert.ok(bad.text.includes(`could not check out the worktree ${d}; it could NOT be removed: delete the folder ${d} and run git worktree prune before the next worktree-add`), bad.text);
+    assert.ok(existsSync(d), 'the folder that nothing can delete is still there');
+  } finally { try { chmodSync(`${d}/ro`, 0o700); } catch { /* not made */ } rmSync(d, { recursive: true, force: true }); }
 });

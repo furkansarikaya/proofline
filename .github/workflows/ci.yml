@@ -358,7 +358,7 @@ jobs:
           - name: helper-commands
             mode: files
             pattern: 'none'
-            files: tests/core/buildrecord.test.mjs tests/core/friction.test.mjs tests/core/lessons.test.mjs tests/core/rules.test.mjs tests/core/helpercmds.test.mjs
+            files: tests/core/buildrecord.test.mjs tests/core/friction.test.mjs tests/core/lessons.test.mjs tests/core/rules.test.mjs tests/core/helpercmds.test.mjs tests/core/hgit-guard.test.mjs tests/core/hgit.test.mjs
           - name: discovery
             mode: files
             pattern: 'none'
