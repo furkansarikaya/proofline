@@ -123,7 +123,7 @@ function rowTrusted(ctx, row) {
   const seen = `${ctx.root}/.agents/local/lessons-sources`;
   const h = sha256(normRow(row));
   if (readText(seen).split('\n').includes(h)) return true;
-  const r = proc.run('git', ['-C', ctx.root, 'show', 'HEAD:docs/wiki/lessons/observations.md'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const r = proc.run('git', ['-C', ctx.root, 'cat-file', 'blob', 'HEAD:docs/wiki/lessons/observations.md'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
   if (r.status !== 0) return false;
   return r.stdout.toString('latin1').split('\n').some((l) => normRow(l) === normRow(row));
 }

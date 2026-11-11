@@ -17,7 +17,7 @@
 import { appendFileSync, lstatSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { sha256 } from './hash.mjs';
 import { isFile } from './paths.mjs';
-import * as proc from './proc.mjs';
+import { hgit } from './hgit.mjs';
 import { fileText, readBytes, textLines } from './records.mjs';
 import { asciiLower, asciiUpper, caseMatch } from './shellglob.mjs';
 
@@ -86,7 +86,7 @@ export function canon(ctx, rec, fid) {
 export function listable(ctx, gate, place) {
   if (gateRefused(gate)) return `${gate} findings are never listed as known issues (SECRETS and SECURITY always stop the task)`;
   if (!placeOk(place)) return `the place '${place}' is not a repository path (path or path:line of a tracked file): a finding whose place cannot be computed stays blocking`;
-  const r = proc.run('git', ['-C', kiPlaces(ctx).main, 'ls-files', '--error-unmatch', '--', placePath(place)], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+  const r = hgit(ctx, kiPlaces(ctx).main, ['ls-files', '--error-unmatch', '--', placePath(place)]); // reads the index: hermetic (A248 round 7)
   return r.status === 0 ? null : `the place ${placePath(place)} is not a tracked file of the project`;
 }
 

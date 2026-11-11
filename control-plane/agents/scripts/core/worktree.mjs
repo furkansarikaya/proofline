@@ -40,10 +40,12 @@ export function rwRegistered(ctx, dir) {
   const r = proc.run('git', ['-C', ctx.root, 'worktree', 'list', '--porcelain'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
   return r.stdout.toString('utf8').split('\n').some((l) => l === `worktree ${dir}`);
 }
-/** @param {Context} ctx @param {string[]} args @param {string} [cwd] */
+/** Raw git for the readers of refs and worktree administration only (`worktree list`, `rev-parse`): the static guard (tests/core/hgit-guard.test.mjs) rejects any other subcommand here. @param {Context} ctx @param {string[]} args @param {string} [cwd] */
 function git(ctx, args, cwd = ctx.root) {
   return proc.run('git', ['-C', cwd, ...args], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
 }
+/** A git call that reads the INDEX or the work tree (`ls-files`, `check-ignore`): it can start a configured `core.fsmonitor` program or a filter, so it goes through the hermetic helper of the tree it reads (A248 round 7). @param {Context} ctx @param {string[]} args @param {string} cwd */
+function igit(ctx, args, cwd) { return hgit(ctx, cwd, args); }
 
 // ---- the preparation (worktree-prep.sh) --------------------------------------------------------------------------------------------------------
 
@@ -103,8 +105,8 @@ function prepDeps(ctx, main, wt, eco) {
     let st;
     try { st = lstatSync(`${main}/${f}`); } catch { continue; }
     if (!st.isDirectory()) continue; // not a folder, or a link: `-d && ! -L`
-    if (git(ctx, ['ls-files', '--error-unmatch', '--', f], main).status === 0) continue; // tracked: the checkout has it
-    if (git(ctx, ['check-ignore', '-q', '--', `${f}/`], main).status !== 0 && git(ctx, ['check-ignore', '-q', '--', f], main).status !== 0) continue;
+    if (igit(ctx, ['ls-files', '--error-unmatch', '--', f], main).status === 0) continue; // tracked: the checkout has it
+    if (igit(ctx, ['check-ignore', '-q', '--', `${f}/`], main).status !== 0 && igit(ctx, ['check-ignore', '-q', '--', f], main).status !== 0) continue;
     try { if (lstatSync(`${wt}/${f}`).isSymbolicLink()) unlinkSync(`${wt}/${f}`); } catch { /* none */ } // a link of an earlier version: never kept
     if (existsSync(`${wt}/${f}`)) continue;
     try {
@@ -160,8 +162,8 @@ function prepFiles(ctx, main, wt, globs, eco) {
   const manifest = `${wt}/.agents/local/worktree-copied`;
   for (const p of cands) {
     if (existsSync(`${wt}/${p}`)) continue;
-    if (git(ctx, ['ls-files', '--error-unmatch', '--', p], main).status === 0) continue; // tracked: the checkout has it
-    if (git(ctx, ['check-ignore', '-q', '--', p], main).status !== 0) {
+    if (igit(ctx, ['ls-files', '--error-unmatch', '--', p], main).status === 0) continue; // tracked: the checkout has it
+    if (igit(ctx, ['check-ignore', '-q', '--', p], main).status !== 0) {
       ctx.err(`worktree-prep: ${bytes(p)} is not copied: git does not ignore it in the main tree (add it to .gitignore first; a copy could be committed)\n`);
       continue;
     }
@@ -176,7 +178,7 @@ function prepFiles(ctx, main, wt, globs, eco) {
       rc = 1;
       continue;
     }
-    if (git(ctx, ['check-ignore', '-q', '--', p], wt).status !== 0) {
+    if (igit(ctx, ['check-ignore', '-q', '--', p], wt).status !== 0) {
       rmSync(`${wt}/${p}`, { force: true });
       ctx.err(`worktree-prep: ${bytes(p)} is not copied: git does not ignore it in the worktree\n`);
       continue;
@@ -231,6 +233,24 @@ function rwPrepare(ctx, wt) {
   if (rc !== 0) ctx.err('warning: worktree preparation reported a problem (the worktree is usable; dependencies or env files may be missing)\n');
 }
 
+/** Whether something (a folder, a file, a link, even a dangling one) is at PATH. @param {string} d */
+function present(d) { try { lstatSync(d); return true; } catch { return false; } }
+
+/**
+ * Take a worktree whose checkout failed out again, so a later `worktree-add` cannot reuse a registered folder with a half checkout: `worktree remove --force`; when that fails
+ * (a locked worktree, a file git cannot remove) or leaves the folder, unlock it, delete D itself (only D; `rmSync` removes a link and does not follow it) and `worktree prune`.
+ * @param {Context} ctx @param {string} d the worktree folder @returns {boolean} true when the folder is gone and git no longer lists it
+ */
+export function dropHalfWorktree(ctx, d) {
+  const rm = hgit(ctx, ctx.root, ['worktree', 'remove', '--force', d], { stdio: ['ignore', 'ignore', 'ignore'] });
+  if (rm.status !== 0 || present(d)) {
+    hgit(ctx, ctx.root, ['worktree', 'unlock', d]); // made a moment ago by this very call, so a lock on it is not anyone's; prune skips a locked entry
+    try { rmSync(d, { recursive: true, force: true }); } catch { /* reported by the check below */ }
+    hgit(ctx, ctx.root, ['worktree', 'prune']);
+  }
+  return !present(d) && !rwRegistered(ctx, d);
+}
+
 // ---- the commands ---------------------------------------------------------------------------------------------------------------------------
 
 /** `worktree-add ID`: a detached worktree at the canonical branch's local tip, prepared; prints its folder. An existing one is reused. @param {Context} ctx @param {string[]} args */
@@ -256,7 +276,11 @@ export function worktreeAdd(ctx, args) {
   if (add.stderr.length > 0) ctx.err(add.stderr.toString('latin1'));
   if (add.status !== 0) fail(`could not add the worktree ${bytes(d)}`);
   const co = hgit(ctx, d, ['reset', '--hard', '-q', '--no-recurse-submodules'], { stdio: ['ignore', 'ignore', 'pipe'] });
-  if (co.status !== 0) { ctx.err(co.stderr.toString('latin1')); hgit(ctx, ctx.root, ['worktree', 'remove', '--force', d]); fail(`could not check out the worktree ${bytes(d)}`); }
+  if (co.status !== 0) {
+    ctx.err(co.stderr.toString('latin1'));
+    const gone = dropHalfWorktree(ctx, d);
+    fail(`could not check out the worktree ${bytes(d)}; ${gone ? 'the half-made worktree was removed' : `it could NOT be removed: delete the folder ${bytes(d)} and run git worktree prune before the next worktree-add`}`);
+  }
   rwPrepare(ctx, d);
   ctx.out(`${bytes(d)}\n`);
   return 0;
@@ -288,7 +312,7 @@ export function worktreeRemove(ctx, args) {
   if (opt !== '' && opt !== '--force') fail(usage);
   const force = opt === '--force';
   const d = rwDir(ctx, id);
-  if (!rwRegistered(ctx, d)) { git(ctx, ['worktree', 'prune']); ctx.out(`no worktree for ${id}\n`); return 0; }
+  if (!rwRegistered(ctx, d)) { hgit(ctx, ctx.root, ['worktree', 'prune']); ctx.out(`no worktree for ${id}\n`); return 0; }
   const runsDir = `${d}/.agents/runs`;
   /** @type {string[]} */ let runs = [];
   try { runs = readdirSync(runsDir).filter((n) => !n.startsWith('.') && isDir(`${runsDir}/${n}`)).sort(); } catch { runs = []; }
@@ -296,7 +320,7 @@ export function worktreeRemove(ctx, args) {
   for (const r of runs) archiveRun(ctx, r, `${runsDir}/${r}`);
   const rm = hgit(ctx, ctx.root, ['worktree', 'remove', '--force', d], { stdio: ['ignore', 'ignore', 'ignore'] });
   if (rm.status !== 0) fail(`could not remove the worktree ${bytes(d)}`);
-  git(ctx, ['worktree', 'prune']);
+  hgit(ctx, ctx.root, ['worktree', 'prune']);
   try { rmdirSync(path.dirname(d)); } catch { /* not empty */ }
   ctx.out(`worktree removed: ${id}\n`);
   return 0;

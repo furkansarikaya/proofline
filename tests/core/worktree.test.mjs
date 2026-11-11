@@ -8,6 +8,7 @@ import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSy
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { leftoverWorktrees, shQuote } from '../../control-plane/agents/scripts/core/leftover.mjs';
+import { dropHalfWorktree } from '../../control-plane/agents/scripts/core/worktree.mjs';
 import { A, AB, batchApprove, bnew, binstall, fakes, g, gOk, has, lines, mktask, path, put, read, readIf, real, repo, say, scripts, sh, wtp } from './batch-lib.mjs';
 import { makeFixture, git } from './fixture.mjs';
 import { installGithooks } from '../lib/harness.mjs';
@@ -374,3 +375,87 @@ for (const how of /** @type {const} */ (['include', 'required'])) {
     assert.ok(has(`${add.out.trim()}/.agents/scripts`), 'the worktree is checked out');
   });
 }
+
+// ---- A248 round 7 (SEC-1): the preparation of a new worktree reads the index and the work tree of both trees, and no `core.fsmonitor` program of the repository runs there --
+/** A project whose configuration names a file system monitor program (`local`: in the repository config; `include`: only a `gitdir:**\/worktrees/**` include, so only the NEW worktree sees it) and an ignored `.env`. @param {'local' | 'include'} how */
+function monitored(how) {
+  const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  const mark = `${main}-FSM`; const prog = `${main}-fsm.sh`;
+  writeFileSync(prog, `#!/bin/sh\ntouch ${mark}\nprintf '\\0'\n`);
+  chmodSync(prog, 0o755);
+  if (how === 'local') gOk(main, ['config', 'core.fsmonitor', prog]);
+  else {
+    writeFileSync(`${main}-inc.cfg`, `[core]\n\tfsmonitor = ${prog}\n`);
+    gOk(main, ['config', 'includeIf.gitdir:**/worktrees/**.path', `${main}-inc.cfg`]);
+  }
+  appendFileSync(`${main}/.git/info/exclude`, '.env\n'); // ignored in every worktree of the repository
+  writeFileSync(`${main}/.env`, 'SECRET=1\n');
+  return { dir, main, mark };
+}
+for (const how of /** @type {const} */ (['local', 'include'])) {
+  test(`A248 round 7 (SEC-1, ${how}): worktree-add prepares the worktree (copies .env, asks ls-files and check-ignore in both trees) and never runs the repository's core.fsmonitor program`, () => {
+    const F = fakes();
+    const { dir, main, mark } = monitored(how);
+    // premise: plain git runs the program on the very commands the preparation uses
+    if (how === 'local') sh(main, 'git', ['ls-files', '--error-unmatch', '--', '.gitignore']);
+    else {
+      const plain = `${main}-plain`;
+      gOk(main, ['worktree', 'add', '-q', '--detach', plain, 'HEAD']);
+      sh(plain, 'git', ['check-ignore', '-q', '--', '.env']);
+    }
+    assert.ok(existsSync(mark), 'test premise: plain ls-files / check-ignore runs the core.fsmonitor program');
+    rmSync(mark, { force: true });
+    const add = AB(F, dir, ['worktree-add', 'W-3']);
+    assert.equal(add.status, 0, add.text);
+    assert.ok(!existsSync(mark), 'worktree-add ran the core.fsmonitor program of the repository configuration');
+    assert.equal(read(`${add.out.trim()}/.env`), 'SECRET=1\n', 'the preparation ran (the ignored .env was copied)');
+  });
+}
+
+// ---- A248 round 7: a worktree whose checkout failed is taken out again, and the message says so ------------------------------------------------------------------------------
+test('A248 round 7: a failed checkout (a blob is missing) leaves no registered folder behind, the message says so, and the next worktree-add works once the blob is back', () => {
+  const F = fakes();
+  const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  const blob = g(main, ['rev-parse', 'HEAD:.gitignore']);
+  const obj = `${main}/.git/objects/${blob.slice(0, 2)}/${blob.slice(2)}`;
+  assert.ok(existsSync(obj), 'test premise: the blob is a loose object');
+  const bytes = readFileSync(obj);
+  rmSync(obj);
+  const d = `${main}/.agents/local/worktrees/W-4`;
+  const bad = AB(F, dir, ['worktree-add', 'W-4']);
+  assert.notEqual(bad.status, 0, 'the checkout of a missing blob succeeded');
+  assert.ok(bad.text.includes(`could not check out the worktree ${d}; the half-made worktree was removed`), bad.text);
+  assert.ok(!g(main, ['worktree', 'list', '--porcelain']).split('\n').includes(`worktree ${d}`), 'the failed worktree is still registered');
+  assert.ok(!existsSync(d), 'the half checkout is still on disk');
+  writeFileSync(obj, bytes);
+  const ok = AB(F, dir, ['worktree-add', 'W-4']);
+  assert.equal(ok.status, 0, ok.text);
+  assert.ok(has(`${d}/.agents/scripts`), 'the second worktree-add made a whole checkout');
+});
+
+test('A248 round 7: dropHalfWorktree unlocks, deletes the folder and prunes when git cannot remove it; when nothing can remove it, it answers false (the message then names the folder)', () => {
+  const fx = makeFixture();
+  const ctx = fx.ctx();
+  const root = real(fx.root);
+  const listed = (/** @type {string} */ d) => git(root, ['worktree', 'list', '--porcelain']).split('\n').includes(`worktree ${d}`);
+  // a locked worktree: `worktree remove --force` refuses it, the fallback does not
+  const a = `${root}-locked`;
+  git(root, ['worktree', 'add', '-q', '--detach', a, 'HEAD']);
+  git(root, ['worktree', 'lock', a]);
+  assert.ok(listed(a), 'premise: registered');
+  assert.equal(dropHalfWorktree(ctx, a), true);
+  assert.ok(!existsSync(a) && !listed(a), 'the locked half-made worktree is gone and unregistered');
+  // a folder nothing can delete (a read-only folder holding a file): the answer is false and the registration stays, so the message can tell the user what to do
+  const b = `${root}-stuck`;
+  git(root, ['worktree', 'add', '-q', '--detach', b, 'HEAD']);
+  mkdirSync(`${b}/ro`); writeFileSync(`${b}/ro/f`, 'x');
+  chmodSync(`${b}/ro`, 0o500);
+  try {
+    assert.equal(dropHalfWorktree(ctx, b), false);
+    assert.ok(existsSync(b), 'the folder that nothing can delete is still there (the message then names it)');
+  } finally { chmodSync(`${b}/ro`, 0o700); rmSync(b, { recursive: true, force: true }); rmSync(a, { recursive: true, force: true }); }
+});

@@ -142,7 +142,7 @@ function renameApply(ctx) {
   }
   consumeApproval(ctx, '-', app);
   for (const [o = '', n = ''] of rows) {
-    const tracked = proc.run('git', ['-C', ctx.root, 'ls-files', '--error-unmatch', '--', o], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] }).status === 0;
+    const tracked = hgit(ctx, ctx.root, ['ls-files', '--error-unmatch', '--', o]).status === 0; // reads the index: hermetic (A248 round 7)
     if (tracked) {
       const r = hgit(ctx, ctx.root, ['mv', '--', o, n], { stdio: ['ignore', 'pipe', 'pipe'] });
       if (r.status !== 0) { ctx.err(r.stderr.toString('latin1')); return r.status; }
