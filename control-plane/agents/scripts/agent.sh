@@ -3,6 +3,7 @@
 # Installed as <project>/.agents/scripts/agent.sh; the project root is two directories above this file. Normative description: .agents/WORKFLOW.md.
 # A run worktree's scripts are tracked content a task could have rewritten (security round 3, A207): from a linked worktree that proofline made under
 # <main>/.agents/local/worktrees/ the PROJECT's (main tree's) core runs; --pl-argv0 hands this file's own $0 over, which tells the core which folder is the root.
+# A run worktree whose main tree cannot be confirmed (a failing git, an odd path, a deleted .git file) never runs its own core either: exit 127 (A251).
 # No core beside this file in an installed project fails closed (exit 127, a guard that needs this command must deny). There is no shell fallback.
 case "$0" in */*) self_dir=${0%/*}; [ -n "$self_dir" ] || self_dir=/ ;; *) self_dir=. ;; esac
 root=$(CDPATH='' cd "$self_dir/../.." && pwd)
@@ -14,6 +15,7 @@ if [ -f "$root/.git" ]; then
   here=$(cd "$root" && pwd -P)
   case "$here" in "$main"/.agents/local/worktrees/*) [ -z "$main" ] || { root=$main; core_dir=$main/.agents/scripts; } ;; esac
 fi
+case $(cd "$root" && pwd -P) in */.agents/local/worktrees/*) echo "proofline: $0 is in a run worktree and the main tree could not be confirmed (git worktree list failed or the path is unusual): run it as <project>/.agents/scripts/agent.sh" >&2; exit 127 ;; esac
 if [ ! -f "$core_dir/proofline-core.mjs" ] || [ ! -d "$core_dir/core" ]; then
   what="the command ${1:-}"; [ -n "${1:-}" ] || what="this command"
   if [ -f "$root/.agents/.proofline-manifest" ]; then

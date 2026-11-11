@@ -643,6 +643,45 @@ Every `agent.sh` command and the stage that moves it (132 in total). Commands in
 - **Rollback:** revert.
 - **Estimate:** 1-2 agent-days (estimate). Basis: one script switch, deletions and documentation.
 
+### Stage 15: exit criteria record (A251)
+
+Shell and awk before and after (`node tests/ci/shell-census.mjs af2b1a4b <ref>`; 0.0.40 is `af2b1a4b`, `chore(release): 0.0.40`; the second column is the last code commit of this change, later commits are documentation only):
+
+| count | 0.0.40 (af2b1a4b) | A251 code, 815a5c56 |
+|---|---:|---:|
+| shell files | 175 | 4 |
+| shell lines (all) | 44842 | 42 |
+| shell lines (code: no blank, no comment) | 37559 | 27 |
+| `.awk` files | 0 | 0 |
+| `.awk` lines | 0 | 0 |
+| shell lines mentioning awk or sed | 1392 | 0 |
+| CI `run:` steps | 20 | 36 |
+| CI steps of more than one command line | 12 | 0 |
+| hook command strings | 21 | 21 |
+| Node files (control-plane, adapters, bin) | 1 | 155 |
+| Node lines (control-plane, adapters, bin) | 256 | 35273 |
+
+Processes and wall time, as recorded by the stage that measured them (baseline: the 0.0.40 measurement of A204 where there is one; 'now': the budget file the CI test enforces):
+
+| path (what is measured) | 0.0.40 baseline | now | source |
+|---|---|---|---|
+| hook, PreToolUse Write (implementer, window open), processes | 61 | 1 (budget 3) | A188 (61 -> 11 on the shell hook), `tests/bench/hook-budgets.tsv` (Node, measured) |
+| hook, PreToolUse Read | 42 | 1 (budget 3) | A188, `hook-budgets.tsv` |
+| hook, PreToolUse Bash `git status` (read as the epic's '101-call scenario': 101 processes in the shell hook per Bash call) | 101 | 1 (budget 3) | A188 (101 -> 33), `hook-budgets.tsv` |
+| hook, PostToolUse / prompt without approval / stop | 20 / 28 / 56 | 1 / 1 / 1 | A188, `hook-budgets.tsv` |
+| hook, prompt that records an approval | 500 (A204: 544) | 3 (budget 5) | A188, A204, `hook-budgets.tsv` |
+| hook, session start / subagent start / subagent stop | 165 / 135 / 29 | 3 / 2 / 1 | A188, `hook-budgets.tsv` |
+| `next`, 2 to 60 changed files | 68 to 1,930 processes (18.3 s at 60 files) | 9 processes (budget 12); 1 Node process plus the launcher, 61 ms at 60 files (A206) | A204, A206, `tests/bench/next-digest-budgets.tsv` (A206 measured 2 to 60 changed files; a point at exactly 0 or 20 files was not recorded; the budget fixture is the COMPLEX run of A203) |
+| `publish-completion-report` | 1,754 processes, 34 s (A204); 1,729 / 31.44 s (A214 baseline) | 22 / 0.33 s | A204, A214 |
+| `record` | 448 processes, 7.56 s (measured on 0.0.48, the shell form just before the move; 0.0.40 was not measured separately) | 10 / 0.21 s | A214 |
+| `digest` | 150 (0.0.39 after A203) | 9 | `next-digest-budgets.tsv` |
+| `build-record run` | 56 (0.0.62 shell) | 10 / 247 ms | A229, `helper-budgets.tsv` |
+| self-test wall time per shard | 16 Linux shards: 9 min 35 s (slowest) to 1 min 8 s (A236, run 42479562040) | 61 Node legs per Node version, slowest `port-replays` 3 min 26 s, then `cli-install` 2 min 55 s, median 33 s (Linux, run 42992991891) | A236, this pull request's CI run |
+
+Not recorded and therefore not claimed: the 0.0.40 `record` count itself, and the time of a `next` at exactly 20 files.
+
+The exit criteria of the epic that this package does not close: the Node Core-invariant suite is NOT green on Windows (A251, item 6: it fails on `windows-latest`, 7 of 8 tests), so 'green on Linux, macOS and Windows' is open and the README claims only the hook there.
+
 ## Follow-up: tool-call economy
 
 A separate issue, outside the 15 stages and listed in the epic table. It applies the principle of ADR section 8.3 to the roles.

@@ -6,7 +6,7 @@
 import { accessSync, constants, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
-import { grepTextStatus } from './grepfile.mjs';
+import { grepTextLines, grepTextStatus } from './grepfile.mjs';
 import { unsupported } from './errors.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
@@ -380,33 +380,15 @@ function lineNamesWord(line, ws) {
 
 /**
  * `risk_words_match CONTENT WORDS` over lines: some line matches CONTENT (an extended regular expression) and names one of WORDS.
- * A pattern the translator does not cover is matched by the platform's awk, as the shell did.
+ * A pattern the translator does not cover is matched by the platform's grep -E (the lines), then the word test (A251; the shell used awk).
  * @param {Context} ctx @param {string} content @param {string} wordList @param {string[]} lines
  */
 export function riskWordsMatch(ctx, content, wordList, lines) {
   const ws = words(lower(wordList));
   const re = ereToRegExp(content);
   if (re !== null) return lines.some((l) => re.test(l) && lineNamesWord(l, ws));
-  const prog = `
-    BEGIN { re = ENVIRON["RISK_RE"]; n = split(tolower(ENVIRON["RISK_WORDS"]), w, " ") }
-    $0 ~ re {
-      l = tolower($0)
-      for (i = 1; i <= n && !found; i++) {
-        s = 1
-        while ((j = index(substr(l, s), w[i])) > 0) {
-          pos = s + j - 1; e = pos + length(w[i])
-          pc = (pos > 1) ? substr($0, pos - 1, 1) : ""; c = substr($0, pos, 1)
-          okb = (pc == "" || pc !~ /[A-Za-z]/ || (c ~ /[A-Z]/ && pc ~ /[a-z]/))
-          n1 = substr($0, e, 1); n2 = (n1 ~ /[sS]/) ? substr($0, e + 1, 1) : "x"
-          oka = (n1 !~ /[a-z]/ || (n1 ~ /[sS]/ && n2 !~ /[a-z]/))
-          if (okb && oka) { found = 1; break }
-          s = pos + 1
-        }
-      }
-    }
-    END { exit found ? 0 : 1 }`;
-  const r = proc.run('awk', [prog], { env: { ...ctx.childEnv(), RISK_RE: Buffer.from(content, 'latin1').toString('utf8'), RISK_WORDS: wordList }, input: Buffer.from(`${lines.join('\n')}\n`, 'latin1'), stdio: ['pipe', 'ignore', 'ignore'] });
-  return r.status === 0;
+  // a pattern the translator does not cover: the platform's grep selects the lines (no awk is started, A251), the word test is the one above
+  return grepTextLines(ctx.childEnv(), content, `${lines.join('\n')}\n`).some((l) => lineNamesWord(l, ws));
 }
 
 /**

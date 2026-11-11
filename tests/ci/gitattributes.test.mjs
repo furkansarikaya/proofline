@@ -33,7 +33,7 @@ test('the other byte-compared data directories are exempt too', () => {
   }
 });
 test('scripts, tables, JSON and Markdown are written with LF whatever core.autocrlf says', () => {
-  const sample = ['tests/bench/hook-budgets.tsv', 'tests/ci/shell-allowlist.txt', 'adapters/claude/hooks/hooks.json', 'tests/hook/harness.mjs', 'README.md', '.github/workflows/ci.yml'];
+  const sample = ['tests/bench/hook-budgets.tsv', 'tests/ci/launcher-templates.txt', 'adapters/claude/hooks/hooks.json', 'tests/hook/harness.mjs', 'README.md', '.github/workflows/ci.yml'];
   for (const [f, v] of attrs(sample, 'eol')) assert.equal(v, 'lf', f);
   for (const [f, v] of attrs(sample, 'text')) assert.equal(v, 'auto', f);
 });

@@ -80,28 +80,17 @@ export const WRAPPERS = /** @type {Record<string, string[]>} */ ({
 export const DYN_SPAWNS = /** @type {Record<string, number>} */ ({
   'deliver.mjs': 1, 'dispatcher.mjs': 1, 'doctor.mjs': 3, 'gitstate.mjs': 1, 'install.mjs': 2, 'merge.mjs': 1, 'platform.mjs': 1, 'proflinecli.mjs': 1, 'worktree.mjs': 1,
 });
-/** Programs other than git that a file may start by name (`proc.run('sh', ...)`), with the reason. A call that names git inside its text is refused whatever the program. */
+/** Programs other than git that a file may start by name (`proc.run('ps', ...)`), with the reason. No shell or awk is listed: since A251 only core/proc.mjs names them (tests/ci/no-shell-logic.mjs). A call that names git inside its text is refused whatever the program. */
 export const BIN_ALLOW = /** @type {Record<string, Record<string, string>>} */ ({
-  'adapters/index.mjs': { sh: 'an adapter script of the checkout, started with a cleaned environment' },
   'batch.mjs': { ps: 'the state of a process id' },
   'buildrecord.mjs': { timeout: 'the time limit around the configured build command (`/bin/sh -c command`, the owner\'s command in the owner\'s run, round 6)' },
-  'commands/helpercmds.mjs': { sh: 'the project\'s own helper script (`.agents/` helpers)' },
   'grepfile.mjs': { grep: 'the pattern match, the pattern in a file (A250)' },
-  'commands/moved.mjs': { grep: 'the risk pattern match', awk: 'the risk pattern match' },
+  'commands/moved.mjs': { grep: 'the risk pattern match' },
   'decide.mjs': { ps: 'the parent of a process id' },
-  'doctor.mjs': { node: 'the node version probe and the hook probe', ps: 'the process list probe', sh: 'agent.sh, started in the doctor\'s probe' },
-  'execpolicy.mjs': { sh: 'the stub of the exec-policy check (a script of the control plane)' },
+  'doctor.mjs': { node: 'the node version probe and the hook probe', ps: 'the process list probe' },
   'friction.mjs': { gh: 'the issue creation of the friction report' },
-  'githooks.mjs': { sh: 'agent.sh from inside the user\'s own hook' },
-  'lifeutil.mjs': { sh: 'agent.sh, the lifecycle commands' },
-  'nextuser.mjs': { sh: 'agent.sh batch-next' },
-  'proflinecli.mjs': { sh: 'agent.sh, the dispatch of the CLI', find: 'the listing of the local folder' },
-  'queue.mjs': { sh: 'agent.sh and the queue folder listing' },
-  'resultutil.mjs': { sh: 'the `command -v timeout` probe and the owner\'s own rerun command (`sh -c "$1"`)' },
+  'proflinecli.mjs': { find: 'the listing of the local folder' },
   'runend.mjs': { tar: 'the evidence archive of a run' },
-  'scale.mjs': { sh: 'agent.sh steps' },
-  'secretscan.mjs': { '/bin/sh': 'the configured secret scanner command', sh: 'the secret scan script of the checkout' },
-  'signals.mjs': { awk: 'the risk pattern match' },
 });
 /** Files that start a program held in a variable (not git), with the reason. The text of every such call is searched for a denied git subcommand. */
 export const DYN_BIN = /** @type {Record<string, string>} */ ({
@@ -117,6 +106,10 @@ export const DYN_BIN = /** @type {Record<string, string>} */ ({
 export const SPAWN_REG = /** @type {Record<string, Record<string, string>>} */ ({
   'batch.mjs': { spawnDetached: 'caffeinate / systemd-inhibit, named in the source' },
   'dispatcher.mjs': { startLeader: 'the dispatched worker (an agent command line)' },
+  'doctor.mjs': { runMerged: 'the doctor probes (node, the launcher) with standard error merged into the output' },
+  'proflinecli.mjs': { runMerged: 'the launcher of the project, standard error merged into the output (`all`)' },
+  'resultutil.mjs': { runUserCommand: 'the owner\'s own recorded command, re-run to compare (the reproduced-evidence check)' },
+  'secretscan.mjs': { runUserCommand: 'the configured secret scanner command, the owner\'s own command' },
   'buildrecord.mjs': { runUserCommand: 'the configured build command, the owner\'s own command (round 6)' },
 });
 /** Files that import something other than the namespace from proc.mjs, per name, with the reason. */
@@ -125,7 +118,7 @@ export const NAMED_IMPORTS = /** @type {Record<string, Record<string, string>>} 
   'guardian.mjs': { runCloser: 'the guardian of a dispatched worker (A226)', runGuardian: 'the guardian of a dispatched worker (A226)' },
 });
 /** The members of `proc` that start nothing. */
-const PROC_NO_SPAWN = new Set(['spawnLog', 'spawnCounts', 'resetSpawnCounts', 'killTree']);
+const PROC_NO_SPAWN = new Set(['spawnLog', 'spawnCounts', 'resetSpawnCounts', 'killTree', 'runScript', 'userShellArgv']);   // runScript starts `sh <script file>` and userShellArgv only builds an argument vector (A251): neither names git
 const TABLES = { EXCEPT_VIA, WRAPPERS, EXCEPT_SUBS, EXCEPT_FILES, DYN_SPAWNS, BIN_ALLOW, DYN_BIN, SPAWN_REG, NAMED_IMPORTS };
 
 /** Index of the end of the string, template or comment-free literal that starts at I (a quote), or -1. @param {string} s @param {number} i */

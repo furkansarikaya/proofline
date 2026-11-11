@@ -99,10 +99,7 @@ function configCheck(ctx, args) {
       const key = `risk.${n}.content`;
       const re = (configGetFrom(lines, key) ?? '').replace(/\n+$/, '');
       if (re === '') continue;
-      if (n === 'log_sensitive' || (configGetFrom(lines, `risk.${n}.words`) ?? '') !== '') {
-        const r = proc.run('awk', ['BEGIN { "" ~ ENVIRON["RISK_RE"] }'], { cwd: ctx.cwd, env: { ...ctx.childEnv(), RISK_RE: toArg(re) }, stdio: ['ignore', 'ignore', 'ignore'] });
-        if (r.status !== 0) messages.push(`invalid regular expression for ${key}`);
-      } else grepBad(key, re, false);
+      grepBad(key, re, false);   // the same POSIX ERE for a signal with words (matched by Node code since A251, no awk is started) as without
     }
   }
   if (messages.length === 0) {

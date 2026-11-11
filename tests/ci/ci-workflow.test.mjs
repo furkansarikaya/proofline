@@ -34,7 +34,7 @@ test('checks needs every job except the nightly and manual gate hook-windows, an
   assert.ok(needs);
   const listed = needs[1].split(',').map((s) => s.trim());
   for (const n of ['changes', 'static', 'fixtures', 'visual-browser', 'invariants', 'node-tests', 'hook-node', 'types']) assert.ok(listed.includes(n), n);
-  assert.deepEqual(jobNames.filter((n) => !listed.includes(n) && n !== 'checks'), ['hook-windows']);
+  assert.deepEqual(jobNames.filter((n) => !listed.includes(n) && n !== 'checks'), ['hook-windows', 'windows-core-probe']);
 });
 
 test('A250: the Windows hook leg is a gate of the nightly and manual runs: no continue-on-error, not run on a pull request', () => {
@@ -42,6 +42,24 @@ test('A250: the Windows hook leg is a gate of the nightly and manual runs: no co
   assert.ok(j !== '');
   assert.ok(!/continue-on-error/.test(j), 'hook-windows must not be a measurement any more');
   assert.match(j, /github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
+});
+
+test('A251: the Windows core and invariant tests are a manual, non-gating measurement until they pass there (README makes no claim; this pin goes with the claim)', () => {
+  const j = job('windows-core-probe');
+  assert.match(j, /runs-on: windows-latest/);
+  assert.match(j, /^    if: github\.event_name == 'workflow_dispatch' && needs\.changes\.outputs\.code == 'true'$/m);
+  assert.match(j, /^    continue-on-error: true$/m);
+  assert.match(j, /--test-shard=1\/4 "tests\/core\/\*\.test\.mjs"/);
+  assert.match(j, /--test-shard=4\/4 "tests\/core\/\*\.test\.mjs"/);
+  assert.match(j, /"tests\/invariants-node\/\*\.test\.mjs"/);
+  assert.match(j, /run: node --test \$\{\{ matrix\.args \}\}/);
+});
+
+test('A251: shellcheck is gone from CI (only the four launchers remain, and the strict check pins their text); the strict check is a step, there is no ratchet', () => {
+  assert.ok(!/shellcheck/i.test(ci.replace(/^.*A251.*$/gm, '')), 'ci.yml still mentions shellcheck');
+  assert.ok(!existsSync(join(repo, 'tests/ci/shellcheck.mjs')) && !existsSync(join(repo, 'tests/ci/shell-allowlist.txt')) && !existsSync(join(repo, 'tests/ci/inline-shell-snapshot.txt')));
+  assert.match(job('static'), /run: node tests\/ci\/no-shell-logic\.mjs\n/);
+  assert.ok(!/--base|ratchet/.test(job('static').replace(/^\s*#.*$/gm, '')), 'a ratchet step is left');
 });
 
 test('node --test gets globs, never a bare directory, in node-tests and types', () => {
@@ -53,6 +71,7 @@ test('CODEOWNERS puts .github/, tests/ci/ and tests/invariants-node/ under the r
   assert.match(co, /^\/\.github\/ @furkansarikaya$/m);
   assert.match(co, /^\/tests\/ci\/ @furkansarikaya$/m);
   assert.match(co, /^\/tests\/invariants-node\/ @furkansarikaya$/m);
+  for (const f of ['control-plane/agents/scripts/agent.sh', 'control-plane/agents/scripts/dispatch.sh', 'control-plane/agents/githooks/']) assert.ok(co.includes(`/${f} @furkansarikaya`), f);   // A251: the launchers are owned too
   assert.ok(!/fast mode/.test(co));
 });
 
@@ -60,7 +79,7 @@ test('CODEOWNERS puts .github/, tests/ci/ and tests/invariants-node/ under the r
 const NIGHTLY = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'";
 /** @type {Record<string, string | null>} job -> the one job-level condition it may have (null: none) */
 const ALLOWED_IF = {
-  changes: null, static: null, 'node-tests': null, 'hook-node': null, types: null, invariants: null,
+  changes: null, static: null, 'node-tests': null, 'hook-node': null, types: null, invariants: null, 'windows-core-probe': "github.event_name == 'workflow_dispatch' && needs.changes.outputs.code == 'true'",
   fixtures: "needs.changes.outputs.code == 'true'", 'visual-browser': NIGHTLY, 'hook-windows': NIGHTLY, checks: 'always()',
 };
 /** The problems of a workflow text: a job with a condition it may not have, an unknown job, a step that can never run. @param {string} text @returns {string[]} */
@@ -96,4 +115,8 @@ test('the pin goes red for each way of skipping a gate on a pull request', () =>
   assert.notDeepEqual(ifProblems(ci.replaceAll(NIGHTLY, "github.event_name != 'pull_request'")), [], 'nightly jobs: other condition');
   assert.notDeepEqual(ifProblems(ci.replace('  checks:\n    if: always()', '  checks:\n    if: false')), [], 'checks');
   assert.notDeepEqual(ifProblems(`${ci}\n  extra:\n    runs-on: ubuntu-latest\n`), [], 'a job nobody pinned');
+});
+
+test('A251: the invariants job asks for a Launcher-change: line when a launcher or its template changes', () => {
+  assert.match(job('invariants'), /node tests\/ci\/change-reason\.mjs launchers --base /);
 });

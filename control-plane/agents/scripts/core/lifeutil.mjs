@@ -67,7 +67,7 @@ export function quietly(ctx, fn) {
  */
 export function shellChild(ctx, argv, o = {}) {
   ctx.flush();
-  const r = proc.run('sh', [`${ctx.scripts}/agent.sh`, ...argv], {
+  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...argv], {
     cwd: ctx.cwd, env: ctx.childEnv(), input: o.input ?? '', stdio: ['pipe', 'pipe', 'pipe'], allowEqualTree: true,
   });
   return { status: r.status, out: r.stdout.toString('latin1'), err: r.stderr.toString('latin1') };

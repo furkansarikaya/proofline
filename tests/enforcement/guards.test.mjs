@@ -13,7 +13,7 @@
 // the one the ADR names: the core serves the role it is told by the environment, `approve` records only from a captured user message, and
 // writes to .agents/local/ are refused to models. The tripwires here only close the spellings the hook can see.
 //
-// This is a Node test on purpose: tests/ci/no-shell-logic.mjs (ratchet) refuses new shell files.
+// This is a Node test on purpose: tests/ci/no-shell-logic.mjs (strict) refuses new shell files.
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

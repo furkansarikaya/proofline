@@ -4,7 +4,9 @@
 // evidence checks, the skill validators, the reproduced-evidence re-run, the evidence of an UNSUPPORTED result, the classification flip and the
 // per-step metrics.
 import { asciiLower, asciiUpper } from './shellglob.mjs';
-import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { hashFile } from './fingerprint.mjs';
 import { NORMALIZE } from './commands/tools.mjs';
 import { findingKey, gateNames, lastReopenSeq, requiredGates } from './gates.mjs';
@@ -381,7 +383,6 @@ export function reproduceRecheck(ctx, id, role, reportFile, evlines, required) {
   let n = 0; let x = 0; let pb = 0;
   /** @type {string[]} */ const problems = [];
   const secs = verifyCommandTimeout(ctx.config());
-  const useTimeout = proc.run('sh', ['-c', 'command -v timeout >/dev/null 2>&1'], { cwd: ctx.root, env: ctx.childEnv() }).status === 0;
   for (const it of [...new Set(items)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const [c, e, o0, a] = it.split(US);
     const cd = c.replace(/\|/g, '/');
@@ -398,9 +399,14 @@ export function reproduceRecheck(ctx, id, role, reportFile, evlines, required) {
       continue;
     }
     n++;
-    const r = proc.run('sh', ['-c', `${useTimeout ? `timeout ${secs} ` : ''}sh -c "$1" 2>&1`, 'rerun', c], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
-    const rc = r.status;
-    const outText = r.stdout.toString('latin1');
+    // the recorded command is the user's own string (runUserCommand), standard error merged into the output, stopped by Node's timer at the limit (124, as `timeout` said; its group is killed whole)
+    const dir = mkdtempSync(path.join(tmpdir(), 'proofline-rerun-'));
+    const fd = openSync(`${dir}/out`, 'w');
+    /** @type {{ status: number, timedOut?: boolean }} */ let r;
+    try { r = proc.runUserCommand(c, { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', fd, fd], timeoutMs: secs * 1000, group: true }); } finally { closeSync(fd); }
+    const outText = readFileSync(`${dir}/out`, 'latin1');
+    rmSync(dir, { recursive: true, force: true });
+    const rc = r.timedOut === true ? 124 : r.status;
     if (String(rc) !== e) {
       pb++;
       problems.push(`re-running \`${cd}\` gave exit=${rc}, the report records exit=${e} (reproduced evidence does not reproduce)${rc === 124 ? `; it hit the time limit of ${secs} s (verification.command_timeout_seconds times timeouts.scale), which is a failure, never a pass: raise the limit or run proofline doctor --scale` : ''}`);

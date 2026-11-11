@@ -484,7 +484,7 @@ export function policyCommand(ctx, argv, stdin = '') {
   if (config === '' && roles === '') {
     const stub = `${ctx.trustedScripts}/exec-policy.sh`;
     if (isFile(stub)) {
-      const r = proc.run('sh', [stub, ...args.map((a) => Buffer.from(a, 'latin1').toString('utf8'))], { cwd: ctx.cwd, env: ctx.childEnv(), input: stdin, stdio: ['pipe', 'pipe', 'pipe'] });
+      const r = proc.runScript([stub, ...args.map((a) => Buffer.from(a, 'latin1').toString('utf8'))], { cwd: ctx.cwd, env: ctx.childEnv(), input: stdin, stdio: ['pipe', 'pipe', 'pipe'] });
       return { status: r.status, out: r.stdout.toString('latin1'), err: r.stderr.toString('latin1') };
     }
   }

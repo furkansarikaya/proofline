@@ -449,7 +449,7 @@ export function verifyCommands(root, cmds, say, o = {}) {
     for (const c of cmds[k]) {
       if (c === '') continue;
       if (!isSafeCommand(c)) { say(`  commands.${k} has shell operators, not trial-run and left empty: ${c}`); continue; }
-      const r = runWithTimeout(o.seconds ?? TRIAL_SECONDS, ['/bin/sh', '-c', c], { cwd: root, env: o.env });
+      const r = runWithTimeout(o.seconds ?? TRIAL_SECONDS, proc.userShellArgv(c), { cwd: root, env: o.env });
       if (r.status === 0) { say(`  verified commands.${k}: ${c}`); kept[k].push(c); } else say(`  commands.${k} trial failed, left empty: ${c}`);
     }
   }

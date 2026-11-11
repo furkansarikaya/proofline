@@ -29,6 +29,9 @@ import { gateField, readBytes, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pipelineClass, pipelineClassValid } from './signals.mjs';
 import { CHECK_HANDLERS } from './commands/checks.mjs';
+
+/** The program systemd-inhibit holds the lock for: it ends when the session pid is gone (signal 0 says ESRCH). Node code, so no shell is started (A251). */
+const INHIBIT_WATCH = "const p = Number(process.argv[1]); setInterval(() => { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') process.exit(0); } }, 5000);";
 import { batchAnswerRow } from './knownissues.mjs';
 import { now } from './clock.mjs';
 import { afterFrontMatter } from './taskfile.mjs';
@@ -634,7 +637,7 @@ export function batchAwake(ctx) {
     pid = proc.spawnDetached('caffeinate', ['-i', '-w', sess], ctx.env);
     txt = `sleep inhibitor: caffeinate -i -w ${sess} (session pid ${sess}): the Mac does not idle-sleep while this session lives`;
   } else {
-    pid = proc.spawnDetached('systemd-inhibit', ['--what=idle:sleep', '--who=proofline', '--why=night batch is running', 'sh', '-c', 'while kill -0 "$1" 2>/dev/null; do sleep 5; done', '_', sess], ctx.env);
+    pid = proc.spawnDetached('systemd-inhibit', ['--what=idle:sleep', '--who=proofline', '--why=night batch is running', process.execPath, '-e', INHIBIT_WATCH, sess], ctx.env);
     txt = `sleep inhibitor: systemd-inhibit --what=idle:sleep (session pid ${sess}): held while this session lives`;
   }
   writeFileSync(`${bd}/awake.pid`, `${pid}\n`);

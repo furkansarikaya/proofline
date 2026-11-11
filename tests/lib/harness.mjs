@@ -160,7 +160,7 @@ export function approveAsUser(dir, kind, text) {
 
 // ---- the installed control plane ------------------------------------------------------------------------------------------------------------
 /** @param {string} to @param {string} fromStub */
-// The stub files hold the script text WITHOUT its `#!/bin/sh` line (the no-shell-logic ratchet counts a file with a shell shebang as a shell file); the line is put back here.
+// The stub files hold the script text WITHOUT its `#!/bin/sh` line (the strict no-shell-logic check counts a file with a shell shebang as a shell file); the line is put back here.
 const SHEBANG = '#!/bin/sh\n';
 const putStub = (to, fromStub) => { writeFileSync(to, Buffer.concat([Buffer.from(SHEBANG), readFileSync(path.join(stubs, fromStub))])); chmodSync(to, 0o755); };
 

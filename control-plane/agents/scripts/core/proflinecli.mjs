@@ -27,7 +27,7 @@ import { queue } from './queue.mjs';
 import { run as coreRun } from '../proofline-core.mjs';
 import { USAGE_LINES } from './cliusage.mjs';
 
-export const PROOFLINE_VERSION = '0.0.84';
+export const PROOFLINE_VERSION = '0.0.85';
 
 /** @typedef {{ write(chunk: Buffer): unknown }} Sink */
 /** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean }} Over */
@@ -102,12 +102,12 @@ class Cli {
    */
   agent(args, o = {}) {
     const a = args.map(raw);
-    if (o.inherit === true) { const r = proc.run('sh', [this.agentSh, ...a], { cwd: this.root, env: this.env, stdio: 'inherit' }); return { status: r.status, out: '' }; }
+    if (o.inherit === true) { const r = proc.runScript([this.agentSh, ...a], { cwd: this.root, env: this.env, stdio: 'inherit' }); return { status: r.status, out: '' }; }
     if (o.all === true) {
-      const r = proc.run('sh', ['-c', 'exec sh "$@" 2>&1', 'sh', this.agentSh, ...a], { cwd: this.root, env: this.env, stdio: ['inherit', 'pipe', 'inherit'] });
-      return { status: r.status, out: r.stdout.toString('latin1') };
+      const r = proc.runMerged(proc.SCRIPT_SHELL, [this.agentSh, ...a], { cwd: this.root, env: this.env, stdin: 'inherit' });
+      return { status: r.status, out: r.text };
     }
-    const r = proc.run('sh', [this.agentSh, ...a], { cwd: this.root, env: this.env, stdio: ['inherit', 'pipe', o.quiet === true ? 'ignore' : 'inherit'] });
+    const r = proc.runScript([this.agentSh, ...a], { cwd: this.root, env: this.env, stdio: ['inherit', 'pipe', o.quiet === true ? 'ignore' : 'inherit'] });
     return { status: r.status, out: r.stdout.toString('latin1') };
   }
 
