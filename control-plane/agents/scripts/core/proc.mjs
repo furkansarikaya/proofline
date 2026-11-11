@@ -248,6 +248,15 @@ export function killWindowsTree(pid, force, spawn = spawnSync, env = ownEnv, war
   return r;
 }
 
+/**
+ * The Leader of a program that was refused (A252, review round 2): it never started, `exited` is status 127, and the reason is told once (the dispatcher otherwise
+ * returns 127 with no explanation). @param {string} text @param {(text: string) => void} [warn] @returns {Leader}
+ */
+export function refusedLeader(text, warn = warnLine) {
+  warn(text);
+  return { pid: undefined, exited: Promise.resolve({ status: 127, signal: null }), stop() {} };
+}
+
 /** @param {string} text */
 function warnLine(text) { try { writeSync(2, text); } catch { /* no stderr */ } }
 
@@ -421,7 +430,7 @@ export function startLeader(program, args, options) {
   const win = process.platform === 'win32';
   const guardian = fileURLToPath(new URL('./guardian.mjs', import.meta.url));
   const rp = win ? resolveProgram(program, options.env, options.cwd) : { program };
-  if ('refused' in rp) return { pid: undefined, exited: Promise.resolve({ status: 127, signal: null }), stop() {} };
+  if ('refused' in rp) return refusedLeader(rp.refused);
   const spawned = win ? program : (options.env !== undefined && nodeOnPath(options.env) ? 'node' : process.execPath);
   count(spawned);
   const t0 = Date.now();

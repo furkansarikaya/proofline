@@ -4,7 +4,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveWindowsTool, candidates, plainToolName, isDriveAbsolute, shimMessage, makeRefusedDir } from '../../control-plane/agents/scripts/core/wintool.mjs';
 import { resolveToolWindows } from '../../control-plane/agents/scripts/core/platform.mjs';
-import { taskkillArgs, killWindowsTree, systemTaskkill, resolveProgram } from '../../control-plane/agents/scripts/core/proc.mjs';
+import { refusedLeader, taskkillArgs, killWindowsTree, systemTaskkill, resolveProgram } from '../../control-plane/agents/scripts/core/proc.mjs';
 
 /** A fake Windows file system: FILES is the set of existing files (lower-case, backslashes); REFUSED the writable folders. */
 function fake(files, refused = [], links = {}) {
@@ -172,5 +172,17 @@ describe('A252 review round 1', () => {
     assert.match(warned[0], /^proofline: taskkill \/pid 5 did not end the process tree \(status 1\); it may still be running\n$/);
     assert.match(warned[1], /\/pid 6 .*spawn ENOENT/);
     assert.deepEqual(killWindowsTree(5, true, mk({ status: 0 }), {}, () => {}), { status: 0 });
+  });
+});
+
+describe('A252 review round 2', () => {
+  test('R1: a refused leader never starts, exits 127 and tells the reason once (the dispatcher no longer returns 127 without a word)', async () => {
+    const told = [];
+    const l = refusedLeader('unreadable (gh is only a .cmd/.bat shim at C:\\t\\gh.cmd; ...)\n', (t) => told.push(t));
+    assert.deepEqual(told, ['unreadable (gh is only a .cmd/.bat shim at C:\\t\\gh.cmd; ...)\n']);
+    assert.equal(l.pid, undefined);
+    assert.deepEqual(await l.exited, { status: 127, signal: null });
+    l.stop();
+    assert.equal(told.length, 1, 'stop says nothing more');
   });
 });
