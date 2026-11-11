@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Decision (A254, Part of #180, Refs #165; user decision, no release): Windows support is deferred. proofline is supported on macOS and Linux; on Windows only the hook tests run in CI and the rest is not tried (denenmedi). The #180 criterion for the core's Node tests and invariants on `windows-latest` leaves the stage; the four-step road map and the 16 skill scripts behind the Windows program resolver (A252) are one row in `.out-of-scope/deferred.md`. Documentation only.
+- Decision (A254, Part of #180, Refs #165; user decisions, no release): the #180 criterion for the core's Node tests and invariants on `windows-latest` leaves that stage; the Windows port is scheduled as the last package of epic #165. Until it lands proofline is supported on macOS and Linux; on Windows only the hook tests run in CI and the rest is not tried (denenmedi). The measured state and the four-step road map are in A254; `.out-of-scope/deferred.md` holds one temporary pointer row. Documentation only.
 
 ## 0.0.87 — 2026-11-11
 
