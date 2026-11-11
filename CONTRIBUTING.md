@@ -5,7 +5,7 @@ on whether it keeps that property.
 
 ## Set up
 
-Requirements: Git, Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests) and a POSIX `sh` that does nothing but start Node (the four launchers: `agent.sh`, `dispatch.sh` and the two git hooks; no other shell file exists, A251). The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed). Nothing is installed into
+Requirements: Git, Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests) and a POSIX `sh` for the four launchers (`agent.sh`, `dispatch.sh` and the two git hooks; no other shell file exists, A251). `agent.sh` also asks `git` where the main tree is, to choose the core it starts; the rest is Node. The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed). Nothing is installed into
 the project; there is no build step.
 
 Run locally (the `CI` variable unset), `node tests/affected.mjs` runs its test files under `nice`, so the machine stays usable; with `CI` set (GitHub Actions does) it runs at normal priority.

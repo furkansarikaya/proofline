@@ -2,7 +2,7 @@
 // Finding a platform tool (gh, glab, az) on Windows (A252, package 180-B). Pure: the file system is passed in, so the rules run (and are tested) on any host.
 // Decision: a `.cmd` or `.bat` shim is REFUSED, never run. Node cannot start one without `cmd.exe`, and `cmd.exe` re-parses its command line (`& | ^ % " <` act
 // again, the cause of CVE-2024-27980); no escaping is verified here, and a pull-request title or branch name reaches the arguments. Only a real `.exe` or `.com`
-// found through PATHEXT, as an absolute drive path in a folder a model cannot write, is run, with an argument array and no shell. Unsure means refused (fail
+// found through PATHEXT, as an absolute drive path that is not in the project, the working folder or a temporary folder (a refusal list: there is no ACL check), is run, with an argument array and no shell. Unsure means refused (fail
 // closed), with a text that says how to point PATH at the real program. Not tried on a Windows host (denenmedi).
 import path from 'node:path';
 import { asciiLower } from './shellglob.mjs';
@@ -28,7 +28,7 @@ export function isDriveAbsolute(p) { return /^[A-Za-z]:[\\/]/.test(p) && win.isA
 export function plainToolName(name) { return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes('..'); }
 
 /**
- * The candidate file names of NAME for a PATHEXT value: runnable extensions first, then the shims (found only to be refused). A name with an extension of its
+ * The candidate file names of NAME for a PATHEXT value: the runnable extensions in PATHEXT order, then the shims (found only to be refused). A name with an extension of its
  * own is taken as spelled. Extensions are compared case-insensitively; an unknown PATHEXT entry is ignored; an unset PATHEXT means the Windows default.
  * @param {string} name @param {string | undefined} pathext @returns {Array<{ file: string, ext: string }>}
  */
@@ -36,7 +36,9 @@ export function candidates(name, pathext) {
   const own = asciiLower(win.extname(name));
   if (RUNNABLE.includes(own) || SHIMS.includes(own)) return [{ file: name, ext: own }];
   const listed = (pathext ?? '.COM;.EXE;.BAT;.CMD').split(';').map((e) => asciiLower(e.trim()));
-  return [...RUNNABLE, ...SHIMS].filter((e) => listed.includes(e)).map((e) => ({ file: `${name}${e}`, ext: e }));
+  const ours = [...new Set(listed)].filter((e) => RUNNABLE.includes(e) || SHIMS.includes(e));
+  // PATHEXT order for the runnable extensions (Windows tries them in that order); the shims come last and are only reported
+  return [...ours.filter((e) => RUNNABLE.includes(e)), ...ours.filter((e) => SHIMS.includes(e))].map((e) => ({ file: `${name}${e}`, ext: e }));
 }
 
 /**
@@ -52,7 +54,7 @@ export function shimMessage(name, shim) {
 
 /**
  * The tool NAME on the Windows PATH of ENV: `{ path }` (absolute, real, runnable), `{ shim }` when the first folder that holds it holds only a `.cmd`/`.bat`,
- * `{ shadowed }` when it is inside a folder a model can write, `{ unreadable }` for none, a relative PATH entry only, or anything unsure.
+ * `{ shadowed }` when it is inside the project, the working directory or a temporary folder (a refusal list), `{ unreadable }` for none, a relative PATH entry only, or anything unsure.
  * @param {NodeJS.ProcessEnv} env @param {string} name @param {WinFs} fs
  * @returns {{ path: string } | { shim: string } | { shadowed: string } | { unreadable: string }}
  */
@@ -77,4 +79,16 @@ export function resolveWindowsTool(env, name, fs) {
     if (shim !== null) return { shim };                         // the first folder holding any form decides, as Windows does: a shim here is refused, an .exe further on is not used
   }
   return { unreadable: 'unreadable' };
+}
+
+/**
+ * A `refusedDir` predicate: true when a folder is, or is under, one of DIRS. Folders compare case-insensitively with `\` and `/` alike, in the spelling given and in
+ * the form EXPAND returns (the real long path: `realpathSync.native` expands 8.3 short names such as `RUNNER~1`, so a TEMP given short and a PATH entry given long
+ * still meet; security round 1, SEC-2). @param {string[]} dirs @param {(p: string) => string} expand @returns {(d: string) => boolean}
+ */
+export function makeRefusedDir(dirs, expand) {
+  const norm = (/** @type {string} */ x) => asciiLower(x.replace(/\//g, '\\').replace(/\\+$/, ''));
+  const safe = (/** @type {string} */ x) => { try { return expand(x); } catch { return x; } };
+  const roots = [...new Set(dirs.filter((d) => d !== '').flatMap((d) => [norm(d), norm(safe(d))]))];
+  return (d) => [norm(d), norm(safe(d))].some((n) => roots.some((r) => n === r || n.startsWith(`${r}\\`)));
 }

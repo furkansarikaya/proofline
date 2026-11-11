@@ -37,7 +37,7 @@ Other Codex roles are not yet verified in real use; failover from Codex to Claud
 /plugin install proofline@proofline
 ```
 
-Then, in your project (a git repository): `proofline init` (or `/proofline init` inside Claude Code). Requirements: Git, Node.js 22.13 or newer; a POSIX `sh` only starts Node.
+Then, in your project (a git repository): `proofline init` (or `/proofline init` inside Claude Code). Requirements: Git, Node.js 22.13 or newer; POSIX `sh` for the 4 launchers.
 
 **Codex / terminal**
 

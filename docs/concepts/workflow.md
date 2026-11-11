@@ -212,7 +212,7 @@ When a pull request has **no checks** (or the project has no CI), it is not refu
 
 Written against fakes only, never against the real thing (A252):
 
-- **Windows `.cmd` shims.** `gh`, `glab` and `az` run only as a real `.exe`/`.com` found through `PATHEXT` in a folder no model can write. A `.cmd` or `.bat` shim is refused, never run through `cmd.exe` (it re-parses `& | ^ % " <`, CVE-2024-27980); the message names the shim and says to put the real `.exe` first on `PATH` (`az` ships only `az.cmd`: merge in Azure DevOps yourself). Rules tested with a fake file system; not tried on Windows.
+- **Windows `.cmd` shims.** `gh`, `glab` and `az` run only as a real `.exe`/`.com` found through `PATHEXT`, outside the project, the working directory and temporary folders (a refusal list, no ACL check). A `.cmd` or `.bat` shim is refused, never run through `cmd.exe` (it re-parses `& | ^ % " <`, CVE-2024-27980); the message names the shim and says to put the real `.exe` first on `PATH` (`az` ships only `az.cmd`: merge in Azure DevOps yourself). Rules tested with a fake file system; not tried on Windows.
 - **`taskkill /T`** (the process-tree kill of the dispatcher, A226): the command is tested with an injected spawn; not tried on Windows.
 - **Not tried against a real service:** the Jira adapter, the Linear adapter, `glab` and `az` (fake servers and fake tools only).
 
