@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Validates VERIFY.md and recomputes the mechanical verdict. No dependencies.
 //   node validate-verify.mjs VERIFY.md [--task TASK.md] [--plan PLAN.md] [--json]
+//   node validate-verify.mjs --help     (prints this header: usage and format)
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error.
 //
 // Format:
@@ -152,10 +153,18 @@ export function validateVerify(text, taskText, planText) {
   return { valid: errors.length === 0, errors, verdict: vm?.[1], computed, reasons };
 }
 
+// --help (A256): the header comment of this script, so the usage and the format never differ from the code that checks them.
+const helpText = () => {
+  const out = [];
+  for (const l of readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1)) { if (!l.startsWith("//")) break; out.push(l.replace(/^\/\/ ?/, "")); }
+  return out.join("\n") + "\n";
+};
+
 function main(argv) {
+  if (argv.length === 1 && argv[0] === "--help") { process.stdout.write(helpText()); return 0; }
   const file = argv.find((a) => !a.startsWith("--") && argv[argv.indexOf(a) - 1] !== "--task");
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
-  if (!file) { console.error("usage: validate-verify.mjs VERIFY.md [--task TASK.md] [--plan PLAN.md] [--json]"); return 2; }
+  if (!file) { console.error("usage: validate-verify.mjs VERIFY.md [--task TASK.md] [--plan PLAN.md] [--json] | --help"); return 2; }
   const ti = argv.indexOf("--task");
   const pi = argv.indexOf("--plan");
   const r = validateVerify(read(file), ti >= 0 ? read(argv[ti + 1]) : undefined, pi >= 0 ? read(argv[pi + 1]) : undefined);

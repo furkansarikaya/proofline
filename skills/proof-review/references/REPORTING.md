@@ -4,12 +4,12 @@ All files below live in the output folder ([TARGET.md](TARGET.md#2-output-folder
 
 ## findings.json
 
-Must conform to [the schema](../schema/findings.schema.json). Written in English, enum values never translated. Fill every field from evidence, not from memory.
+Must conform to `schema/findings.schema.json`; `node <skill-dir>/scripts/validate-findings.mjs --schema` prints that shape compactly (open neither the schema nor the script). Written in English, enum values never translated. Fill every field from evidence, not from memory.
 
 ```json
 {
   "schema_version": 1,
-  "skill_version": "0.0.88",
+  "skill_version": "0.0.89",
   "generated_at": "2026-10-08T12:00:00Z",
   "target": { "type": "branch", "name": "feature/discount", "slug": "feature-discount", "base": "3f2a9c1...", "head": "9be41d0..." },
   "scope": { "changed_files": 4, "changed_lines": 120, "excluded": ["package-lock.json"], "not_reviewed": [], "rule_files_read": ["CLAUDE.md"], "rule_files_not_read": [] },

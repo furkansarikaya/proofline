@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.89 — 2026-11-11
+
+- Change (A256, Part of #181): skill orientation costs less. The validators the reviewer, security reviewer, verifier and QA roles run have `--help` (the script's own header comment: usage, options, exit codes, and for `validate-verify.mjs` the VERIFY.md format) and the two `findings.json` validators (`proof-review`, `exploit-proof`) have `--schema` (the shape of `findings.json`: required and optional keys, enums, patterns, conditional rules, generated from `schema/findings.schema.json`). The skill texts name them where they used to link the schema file, so an agent need not open the schema (8-15 KB) or the script (11-19 KB). Per role, what the old text sent an agent to open vs. what the new commands print (an upper bound, not a measured saving): reviewer 29,699 to 2,896 bytes, security reviewer 20,815 to 3,091, verifier 11,593 to 1,139, QA 20,049 to 841 (command in A256). No rule, gate or budget changed (`tests/context/budget.tsv` is untouched). Limits: the hand-written exploit-proof validator refuses unknown keys in five places while its schema file closes every object; `test-trust`, `validate-config`, `validate-dependencies` and the other validators have no `--help` yet; the saving in a real session is not measured (no model run).
+
 ## 0.0.88 — 2026-11-11
 
 - Decision (A254, Part of #180, Refs #165; user decisions, no release): the #180 criterion for the core's Node tests and invariants on `windows-latest` leaves that stage; the Windows port is scheduled as the last package of epic #165. Until it lands proofline is supported on macOS and Linux; on Windows only the hook tests run in CI and the rest is not tried (denenmedi). The measured state and the four-step road map are in A254; `.out-of-scope/deferred.md` holds one temporary pointer row. Documentation only.
