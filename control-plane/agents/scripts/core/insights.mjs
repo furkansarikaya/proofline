@@ -130,16 +130,17 @@ function toolsJson(t) {
 /** The TOOL CALLS section (A255). @param {import('./toolsinsights.mjs').ToolsSummary | null} t @returns {string[]} */
 function toolsText(t) {
   const head = 'TOOL CALLS (tools.jsonl, from the runtime session log at submit; n/a = no readable log, never zero; (k/n) = k of n jobs had a readable log)\n';
+  if (t?.present && t.unreadableFile && t.records === 0) return [head, '  .agents/local/metrics/tools.jsonl is not a regular file or could not be read; nothing was counted\n'];
   if (!t || !t.present || t.records === 0) return [head, `  no tool records${t?.present ? ' for this filter' : ''} (.agents/local/metrics/tools.jsonl)\n`];
   /** @type {string[]} */ const o = [head];
-  const sum = (/** @type {import('./toolsinsights.mjs').Group} */ g, /** @type {number} */ v) => (g.read === 0 ? 'n/a' : g.read < g.jobs ? `${v} (${g.read}/${g.jobs})` : String(v));
+  const sum = (/** @type {import('./toolsinsights.mjs').Group} */ g, /** @type {number} */ v, k = g.read) => (k === 0 ? 'n/a' : k < g.jobs ? `${v} (${k}/${g.jobs})` : String(v));
   const per = (/** @type {import('./toolsinsights.mjs').Group} */ g, /** @type {number} */ v, /** @type {boolean} */ dec) => (g.read === 0 ? 'n/a' : dec ? (Math.round((v / g.read) * 10) / 10).toFixed(1) : String(Math.round(v / g.read)));
   const topS = (/** @type {import('./toolsinsights.mjs').Group} */ g) => topTools(g, 3).map((x) => `${x.tool}:${x.calls}`).join(',') || '-';
   const table = (/** @type {string} */ title, /** @type {Map<string, import('./toolsinsights.mjs').Group>} */ m) => {
     o.push(printf('  %-22s %5s %10s %12s %-16s %-16s %6s %s\n', title, 'JOBS', 'CALLS/JOB', 'BYTES/JOB', 'CALLS', 'RESULT_BYTES', 'DENIED', 'TOP TOOLS'));
     for (const k of isortStr([...m.keys()])) {
       const g = /** @type {import('./toolsinsights.mjs').Group} */ (m.get(k));
-      o.push(printf('  %-22s %5d %10s %12s %-16s %-16s %6s %s\n', k, g.jobs, per(g, g.calls, true), per(g, g.bytes, false), sum(g, g.calls), sum(g, g.bytes), sum(g, g.denied), topS(g)));
+      o.push(printf('  %-22s %5d %10s %12s %-16s %-16s %6s %s\n', k, g.jobs, per(g, g.calls, true), per(g, g.bytes, false), sum(g, g.calls), sum(g, g.bytes), sum(g, g.denied, g.deniedKnown), topS(g)));
     }
   };
   table('ROLE', t.roles);
@@ -147,7 +148,7 @@ function toolsText(t) {
   table('RUN', t.runs);
   const a = t.all;
   o.push(printf('  total over %d job(s), %d with a readable log: calls %s, result bytes %s, refused by a hook %s; %s calls and %s bytes per job\n',
-    a.jobs, a.read, sum(a, a.calls), sum(a, a.bytes), sum(a, a.denied), per(a, a.calls, true), per(a, a.bytes, false)));
+    a.jobs, a.read, sum(a, a.calls), sum(a, a.bytes), sum(a, a.denied, a.deniedKnown), per(a, a.calls, true), per(a, a.bytes, false)));
   const top = topTools(a, 5);
   if (top.length > 0) o.push(`  top tools: ${top.map((x) => `${x.tool} ${x.calls} calls ${x.bytes} bytes`).join('; ')}\n`);
   const notes = [];

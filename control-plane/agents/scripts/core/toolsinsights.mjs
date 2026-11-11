@@ -3,7 +3,7 @@
 // and numbers only, but the file is still parsed as untrusted text: it is read in 64 KiB chunks (memory is the longest line, at most 64 KiB, plus the totals), at most
 // MAX_LINES lines are read, a line that is too long or not JSON is counted as corrupt and skipped, every identifier is reduced again, and tool names are map keys of a `Map`
 // (a tool named `__proto__` is an ordinary name). Nothing is written.
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'node:fs';
 
 export const MAX_LINES = 200000;
 const MAX_LINE = 64 * 1024;
@@ -11,10 +11,10 @@ const MAX_TOOLS_PER_GROUP = 100;     // more distinct names than this in one gro
 const MAX_TOOLS_PER_RECORD = 50;
 const SCHEMA = 'proofline.tools/1';
 
-/** @typedef {{ jobs: number, read: number, unreadable: number, malformed: number, calls: number, bytes: number, denied: number, tools: Map<string, { calls: number, bytes: number }> }} Group */
+/** @typedef {{ jobs: number, read: number, unreadable: number, malformed: number, calls: number, bytes: number, denied: number, deniedKnown: number, tools: Map<string, { calls: number, bytes: number }> }} Group */
 /** @typedef {{ present: boolean, records: number, skipped: number, corrupt: number, capped: boolean, unreadableFile: boolean, all: Group, roles: Map<string, Group>, runs: Map<string, Group> }} ToolsSummary */
 
-const group = () => /** @type {Group} */ ({ jobs: 0, read: 0, unreadable: 0, malformed: 0, calls: 0, bytes: 0, denied: 0, tools: new Map() });
+const group = () => /** @type {Group} */ ({ jobs: 0, read: 0, unreadable: 0, malformed: 0, calls: 0, bytes: 0, denied: 0, deniedKnown: 0, tools: new Map() });
 /** @param {unknown} v */
 const count = (v) => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null);
 /** @param {unknown} v @param {string} dflt */
@@ -23,8 +23,10 @@ const ident = (v, dflt) => (typeof v === 'string' ? v.replace(/[^A-Za-z0-9._+:-]
 /** @param {Group} g @param {Record<string, unknown>} d */
 function addTo(g, d, calls, bytes, denied, tools) {
   g.jobs++;
-  if (d.log === 'ok' && calls !== null && bytes !== null) {
-    g.read++; g.calls += calls; g.bytes += bytes; g.denied += denied ?? 0;
+  if (d.log === 'ok' && (calls === null || bytes === null)) g.malformed++;     // a record that says ok but has no valid counts is damaged, not "unreadable"
+  else if (d.log === 'ok' && calls !== null && bytes !== null) {
+    g.read++; g.calls += calls; g.bytes += bytes;
+    if (denied !== null) { g.denied += denied; g.deniedKnown++; }               // an unknown `denied` stays unknown, never 0
     for (const [name, e] of tools) {
       const k = g.tools.has(name) || g.tools.size < MAX_TOOLS_PER_GROUP ? name : 'other';
       const cur = g.tools.get(k) ?? { calls: 0, bytes: 0 };
@@ -42,8 +44,10 @@ function addTo(g, d, calls, bytes, denied, tools) {
 export function toolsSummary(file, only) {
   /** @type {ToolsSummary} */
   const s = { present: false, records: 0, skipped: 0, corrupt: 0, capped: false, unreadableFile: false, all: group(), roles: new Map(), runs: new Map() };
+  // checked BEFORE opening: opening a FIFO would block `insights` for good
+  try { const st = statSync(file); if (!st.isFile()) { s.present = true; s.unreadableFile = true; return s; } } catch { return s; }
   let fd = -1;
-  try { fd = openSync(file, 'r'); if (!fstatSync(fd).isFile()) return s; } catch { if (fd >= 0) closeSync(fd); return s; }
+  try { fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK); if (!fstatSync(fd).isFile()) { closeSync(fd); s.present = true; s.unreadableFile = true; return s; } } catch { if (fd >= 0) closeSync(fd); s.present = true; s.unreadableFile = true; return s; }
   s.present = true;
   let lines = 0;
   /** @param {string} line */
@@ -119,6 +123,6 @@ export function toolsRow(name, g) {
     name, jobs: g.jobs, jobs_read: k, unreadable: g.unreadable, malformed: g.malformed,
     calls: k === 0 ? null : g.calls, calls_per_job: k === 0 ? null : Math.round((g.calls / k) * 10) / 10,
     result_bytes: k === 0 ? null : g.bytes, bytes_per_job: k === 0 ? null : Math.round(g.bytes / k),
-    denied: k === 0 ? null : g.denied, top: topTools(g, 3),
+    denied: g.deniedKnown === 0 ? null : g.denied, denied_jobs: g.deniedKnown, top: topTools(g, 3),
   };
 }

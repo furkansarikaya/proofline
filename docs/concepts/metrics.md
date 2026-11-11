@@ -156,7 +156,7 @@ part reports "no metrics recorded"; the failure part still reads the ledgers.
 **Tool calls (A255).** The TOOL CALLS section reads `.agents/local/metrics/tools.jsonl` (only what the control plane wrote; no model text) and shows, per role, per run and overall: jobs, calls per job,
 result bytes per job, the sums, calls refused by a hook, and the top tools (the role table is the measurement table of A235). Jobs whose log was not readable are counted apart and their counts
 are `n/a` (`12 (2/3)` = two of three jobs had a log); a record of another schema, a corrupt line, a line over 64 KiB and a file over 200000 lines are counted and named, never fatal, and the file is read in chunks
-(memory is bounded by the longest line and the number of distinct roles, runs and tools). `--run` limits it to one run; `--json` has the same rows under `tools` (`null` when there is no file).
+(line count and line size are bounded; the report itself grows with the number of distinct roles, runs and tools, and a file that is not a regular file is not opened). `--run` limits it to one run; `--json` has the same rows under `tools` (`null` when there is no file).
 
 **Estimate calibration (A202).** `proofline insights` ends with a CALIBRATION section: for each size S/M/L with at least 3 finished tasks, the median minutes,
 tokens and scope paths from the metrics records (which now carry `size` and `scope_paths`). It is a suggestion for the task-author's size estimate and changes nothing.

@@ -93,12 +93,23 @@ describe('insights: TOOL CALLS', () => {
     assert.equal(/** @type {any} */ ({}).calls, undefined);
     assert.equal(/** @type {any} */ (Object.prototype).tool, undefined);
   });
-  test('numbers that are not counts (negative, fractional, huge, string) make the job unknown, not zero or a sum', () => {
+  test('numbers that are not counts (negative, fractional, huge, string) make the job damaged (malformed), not zero or a sum; an unknown denied stays unknown, never 0', () => {
     const root = makeProject();
     plant(root, [rec({ calls: -1 }), rec({ calls: 1.5 }), rec({ calls: 2 ** 60 }), rec({ calls: '7' }), rec({ calls: 3, result_bytes: 4, by_tool: { A: { calls: -5, bytes: 1 }, B: { calls: 1, bytes: 1 } } })]);
     const tl = JSON.parse(report(root, '', true)).tools;
-    assert.deepEqual([tl.totals.jobs, tl.totals.jobs_read, tl.totals.unreadable, tl.totals.calls], [5, 1, 4, 3]);
+    assert.deepEqual([tl.totals.jobs, tl.totals.jobs_read, tl.totals.unreadable, tl.totals.malformed, tl.totals.calls], [5, 1, 0, 4, 3]);
     assert.deepEqual(tl.top_tools, [{ tool: 'B', calls: 1, bytes: 1 }]);
+  });
+  test('denied null, negative or missing on a readable job is unknown: n/a when no job knows it, "(k/n)" when some do, never 0', () => {
+    const root = makeProject();
+    plant(root, [rec({ calls: 1, denied: null }), rec({ calls: 1, denied: -1 })]);
+    let tl = JSON.parse(report(root, '', true)).tools;
+    assert.deepEqual([tl.totals.jobs_read, tl.totals.calls, tl.totals.denied, tl.totals.denied_jobs], [2, 2, null, 0]);
+    assert.match(section(report(root)), /^ {2}reviewer +2 +1\.0 +0 +2 +0 +n\/a /m);
+    plant(root, [rec({ calls: 1, denied: null }), rec({ calls: 1, denied: 2 }), rec({ calls: 1, denied: 1 })]);
+    tl = JSON.parse(report(root, '', true)).tools;
+    assert.deepEqual([tl.totals.denied, tl.totals.denied_jobs], [3, 2]);
+    assert.match(section(report(root)), /refused by a hook 3 \(2\/3\)/);
   });
   test('at most 100 distinct tool names per row are kept, the rest is "other"; at most 50 per record are read', () => {
     const root = makeProject();
@@ -147,10 +158,16 @@ describe('toolsSummary: bounded reading', () => {
     plant(root, `${rec({ calls: 1 })}\n${rec({ calls: 5 })}`);
     assert.equal(toolsSummary(file(root), '').all.calls, 6);
   });
-  test('a missing file, a directory and a symbolic-link-free regular file: absent is "not present", never an error', () => {
+  test('a missing file is "not present", never an error', () => {
     const root = makeProject();
     assert.equal(toolsSummary(file(root), '').present, false);
+  });
+  test('a path that is not a regular file (a directory here; a FIFO is refused the same way, before open) is reported as unreadable and never opened', () => {
+    const root = makeProject();
     mkdirSync(file(root), { recursive: true });
-    assert.equal(toolsSummary(file(root), '').present, false);
+    const s = toolsSummary(file(root), '');
+    assert.deepEqual([s.present, s.unreadableFile, s.records], [true, true, 0]);
+    assert.match(section(report(root)), /not a regular file or could not be read; nothing was counted/);
+    assert.equal(JSON.parse(report(root, '', true)).tools.file_unreadable, true);
   });
 });
