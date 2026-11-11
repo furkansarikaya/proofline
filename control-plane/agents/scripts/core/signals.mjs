@@ -6,6 +6,7 @@
 import { accessSync, constants, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
+import { grepTextStatus } from './grepfile.mjs';
 import { unsupported } from './errors.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
@@ -408,12 +409,16 @@ export function riskWordsMatch(ctx, content, wordList, lines) {
   return r.status === 0;
 }
 
-/** `grep -Eq PATTERN` over a text (some line matches). @param {Context} ctx @param {string} pattern @param {string} text @param {boolean} [ci] */
+/**
+ * `grep -Eq PATTERN` over a text (some line matches). A pattern the platform grep cannot use (exit 2 or more) is reported on stderr and counts as
+ * "no match": the callers are detections (risk signals, entry points, probes), and `config-check` / `doctor` reject such a pattern up front; the
+ * deny-style pattern (git.forbidden_identities) fails closed in githooks.mjs instead (A250). @param {Context} ctx @param {string} pattern @param {string} text @param {boolean} [ci] */
 export function grepEq(ctx, pattern, text, ci = false) {
   const re = ereToRegExp(pattern, ci);
-  if (re !== null) return text.split('\n').some((l) => re.test(l));
-  const r = proc.run('grep', [ci ? '-Eiq' : '-Eq', '--', Buffer.from(pattern, 'latin1').toString('utf8')], { env: ctx.childEnv(), input: Buffer.from(text, 'latin1'), stdio: ['pipe', 'ignore', 'ignore'] });
-  return r.status === 0;
+  if (re !== null) { const ls = text.split('\n'); if (ls[ls.length - 1] === '') ls.pop(); return ls.some((l) => re.test(l)); } // grep has no line after a final line end
+  const st = grepTextStatus(ctx.childEnv(), pattern, text, ci); // the pattern goes in a file, never as an argument (A250)
+  if (st >= 2) ctx.err('proofline: a configured pattern is not a valid extended regular expression for this platform\'s grep and matches nothing; run: agent.sh config-check\n');
+  return st === 0;
 }
 
 /**

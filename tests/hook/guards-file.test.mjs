@@ -201,7 +201,7 @@ const corpus = [
   fp('unicode nfd name', 'Write', '.agents/runs/LC/scratch/e\u0301.txt', { expect: 'allow' }),
   fp('long path', 'Write', `.agents/runs/LC/scratch/${'a'.repeat(200)}/${'b'.repeat(200)}/c.txt`, { expect: 'allow' }),
   fp('newline in path', 'Write', 'src/x.js\n.agents/runs/LC/scratch/y.txt', { stricter: false }),
-  // not closed by the shell (a textual `..` after a link): the Node guard resolves physically (on POSIX hosts)
+  // A250 (denenmedi): not proven on a real Windows host; Win32 folds `link/..` textually before it follows the link, for the guard and the tool alike, so the guard is unchanged and this case is POSIX only. Not closed by the shell (a textual `..` after a link): the Node guard resolves physically (on POSIX hosts)
   fp('link to outside then .. (the shell folds it textually and allows)', 'Edit', 'escdeep/../impl.txt', { who: 'proofline-implementer a7', stricter: true, posixOnly: true }),   // Win32 folds `link/..` textually before it follows the link, for the guard and for the tool alike: no escape there
 ];
 

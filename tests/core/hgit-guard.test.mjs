@@ -86,12 +86,13 @@ export const BIN_ALLOW = /** @type {Record<string, Record<string, string>>} */ (
   'batch.mjs': { ps: 'the state of a process id' },
   'buildrecord.mjs': { timeout: 'the time limit around the configured build command (`/bin/sh -c command`, the owner\'s command in the owner\'s run, round 6)' },
   'commands/helpercmds.mjs': { sh: 'the project\'s own helper script (`.agents/` helpers)' },
+  'grepfile.mjs': { grep: 'the pattern match, the pattern in a file (A250)' },
   'commands/moved.mjs': { grep: 'the risk pattern match', awk: 'the risk pattern match' },
   'decide.mjs': { ps: 'the parent of a process id' },
   'doctor.mjs': { node: 'the node version probe and the hook probe', ps: 'the process list probe', sh: 'agent.sh, started in the doctor\'s probe' },
   'execpolicy.mjs': { sh: 'the stub of the exec-policy check (a script of the control plane)' },
   'friction.mjs': { gh: 'the issue creation of the friction report' },
-  'githooks.mjs': { sh: 'agent.sh from inside the user\'s own hook', grep: 'the e-mail pattern match' },
+  'githooks.mjs': { sh: 'agent.sh from inside the user\'s own hook' },
   'lifeutil.mjs': { sh: 'agent.sh, the lifecycle commands' },
   'nextuser.mjs': { sh: 'agent.sh batch-next' },
   'proflinecli.mjs': { sh: 'agent.sh, the dispatch of the CLI', find: 'the listing of the local folder' },
@@ -100,7 +101,7 @@ export const BIN_ALLOW = /** @type {Record<string, Record<string, string>>} */ (
   'runend.mjs': { tar: 'the evidence archive of a run' },
   'scale.mjs': { sh: 'agent.sh steps' },
   'secretscan.mjs': { '/bin/sh': 'the configured secret scanner command', sh: 'the secret scan script of the checkout' },
-  'signals.mjs': { awk: 'the risk pattern match', grep: 'the risk pattern match' },
+  'signals.mjs': { awk: 'the risk pattern match' },
 });
 /** Files that start a program held in a variable (not git), with the reason. The text of every such call is searched for a denied git subcommand. */
 export const DYN_BIN = /** @type {Record<string, string>} */ ({

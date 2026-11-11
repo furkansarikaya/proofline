@@ -4,7 +4,7 @@
 // (security round 3: a task can rewrite the worktree's tracked scripts).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { buildTemplate, copyProject, cleanEnv, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join } from './harness.mjs';
 
@@ -67,4 +67,37 @@ test('a rewritten worktree core, queue module or script never runs; the commands
     assert.equal(cc.status, 0, `${cc.stderr}${cc.stdout}`);
   }
   for (const m of marks) assert.ok(!existsSync(m), `${m} ran`);
+});
+
+test('A250: a main tree that the VCS spells another way than the shell (Windows "D:/a/x" against "/d/a/x"; here a symlink spelling) is still recognised, so the worktree core never runs', () => {
+  const link = join(base, 'main-link');
+  symlinkSync(d, link);
+  const shim = join(base, 'shim'); mkdirSync(shim);
+  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  writeFileSync(join(shim, 'git'), `#!/bin/sh\nif [ "$3" = worktree ] && [ "$4" = list ]; then printf 'worktree %s\\n\\n' ${JSON.stringify(link)}; exit 0; fi\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
+  const mark = join(d, 'MARK-spelling');
+  const file = join(wt, '.agents/scripts/proofline-core.mjs');
+  writeFileSync(file, `import { writeFileSync as w } from 'node:fs';\nw(${JSON.stringify(mark)}, 'x');\n${readFileSync(file, 'utf8')}`);
+  const r = spawnSync('sh', ['./.agents/scripts/agent.sh', 'next', 'T-2'], { cwd: wt, env: { ...cleanEnv(), PATH: `${shim}:${cleanEnv().PATH}` }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!existsSync(mark), 'the worktree core ran');
+});
+
+test('A250: when git cannot list the worktrees the launcher never runs a core chosen from the caller\'s working directory (dash: cd "" succeeds)', () => {
+  const shim = join(base, 'shim-fail'); mkdirSync(shim);
+  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  writeFileSync(join(shim, 'git'), `#!/bin/sh\nif [ "$3" = worktree ] && [ "$4" = list ]; then exit 1; fi\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
+  // a decoy "main" core in the caller's directory: the worktree sits under $PWD/.agents/local/worktrees/
+  const decoy = mkdtempSync(join(tmpdir(), 'hook-wf-decoy-'));
+  try {
+    const wtd = join(decoy, '.agents/local/worktrees/T-9');
+    mkdirSync(join(decoy, '.agents/local/worktrees'), { recursive: true });
+    const add = git('worktree', 'add', '-q', '-b', 'decoy-9', wtd);
+    assert.equal(add.status, 0, add.stderr);
+    mkdirSync(join(decoy, '.agents/scripts/core'), { recursive: true });
+    const mark = join(decoy, 'MARK-decoy');
+    writeFileSync(join(decoy, '.agents/scripts/proofline-core.mjs'), `import { writeFileSync as w } from 'node:fs';\nw(${JSON.stringify(mark)}, 'x');\n`);
+    const r = spawnSync('sh', [join(wtd, '.agents/scripts/agent.sh'), 'status'], { cwd: decoy, env: { ...cleanEnv(), PATH: `${shim}:${cleanEnv().PATH}` }, encoding: 'utf8' });
+    assert.ok(!existsSync(mark), `a core chosen from the caller's directory ran: ${r.stderr}`);
+  } finally { git('worktree', 'remove', '--force', join(decoy, '.agents/local/worktrees/T-9')); git('branch', '-D', 'decoy-9'); rmSync(decoy, { recursive: true, force: true }); }
 });

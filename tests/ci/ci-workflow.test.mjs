@@ -29,12 +29,19 @@ test('the self-test shard job (16 shards of no unit) is gone', () => {
   assert.ok(!/selftest/.test(ci), 'no step runs or uploads self-test output');
 });
 
-test('checks needs every job except the nightly-only measurement hook-windows, and keeps the stable names', () => {
+test('checks needs every job except the nightly and manual gate hook-windows, and keeps the stable names', () => {
   const needs = /needs: \[([^\]]*)\]/.exec(job('checks'));
   assert.ok(needs);
   const listed = needs[1].split(',').map((s) => s.trim());
   for (const n of ['changes', 'static', 'fixtures', 'visual-browser', 'invariants', 'node-tests', 'hook-node', 'types']) assert.ok(listed.includes(n), n);
   assert.deepEqual(jobNames.filter((n) => !listed.includes(n) && n !== 'checks'), ['hook-windows']);
+});
+
+test('A250: the Windows hook leg is a gate of the nightly and manual runs: no continue-on-error, not run on a pull request', () => {
+  const j = job('hook-windows');
+  assert.ok(j !== '');
+  assert.ok(!/continue-on-error/.test(j), 'hook-windows must not be a measurement any more');
+  assert.match(j, /github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
 });
 
 test('node --test gets globs, never a bare directory, in node-tests and types', () => {

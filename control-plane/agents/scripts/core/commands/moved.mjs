@@ -31,6 +31,7 @@ import { BATCHPLAN_HANDLERS } from '../batchplan.mjs';
 import { WORKTREE_HANDLERS } from '../worktree.mjs';
 import { DECIDE_HANDLERS } from '../decide.mjs';
 import { DIFFDIGEST_HANDLERS } from '../diffdigest.mjs';
+import { ereTypo, forbiddenTokens, globShaped } from '../grepfile.mjs';
 import { detectPlatform, warnText } from '../platform.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
@@ -85,11 +86,23 @@ function configCheck(ctx, args) {
       const r = proc.run('grep', ['-Eq', '-f', '-'], { cwd: ctx.cwd, env: ctx.childEnv(), input: `${toArg(v)}\n`, stdio: ['pipe', 'ignore', 'ignore'] });
       if (r.status >= 2) messages.push(`invalid regular expression for ${key}`);
     }
-    // A162: risk.log_sensitive.content is matched by awk (risk_words_match), so awk is the one that must accept it
-    const re = (configGetFrom(lines, 'risk.log_sensitive.content') ?? '').replace(/\n+$/, '');
-    if (re !== '') {
-      const r = proc.run('awk', ['BEGIN { "" ~ ENVIRON["RISK_RE"] }'], { cwd: ctx.cwd, env: { ...ctx.childEnv(), RISK_RE: toArg(re) }, stdio: ['ignore', 'ignore', 'ignore'] });
-      if (r.status !== 0) messages.push('invalid regular expression for risk.log_sensitive.content');
+    // Every other key that holds a pattern for grep (A250): git.forbidden_identities (a deny list: an invalid entry would match nothing, so it is rejected here)
+    // and every risk.<name>.content (grep -E for a signal without words, awk with words). risk.log_sensitive.content is matched by awk (risk_words_match, A162).
+    /** @param {string} key @param {string} v @param {boolean} ci */
+    const grepBad = (key, v, ci) => {
+      const r = proc.run('grep', [ci ? '-Eiq' : '-Eq', '-f', '-'], { cwd: ctx.cwd, env: ctx.childEnv(), input: `${toArg(v)}\n`, stdio: ['pipe', 'ignore', 'ignore'] });
+      if (r.status >= 2) messages.push(`invalid regular expression for ${key}`);
+    };
+    for (const tok of forbiddenTokens(configGetFrom(lines, 'git.forbidden_identities')).filter((x) => !globShaped(x) && ereTypo(x))) grepBad('git.forbidden_identities', tok, true);
+    const names = [...new Set(lines.map((l) => /^risk\.([a-z_]+)\.content=/.exec(l)?.[1]).filter((x) => x !== undefined))];
+    for (const n of names) {
+      const key = `risk.${n}.content`;
+      const re = (configGetFrom(lines, key) ?? '').replace(/\n+$/, '');
+      if (re === '') continue;
+      if (n === 'log_sensitive' || (configGetFrom(lines, `risk.${n}.words`) ?? '') !== '') {
+        const r = proc.run('awk', ['BEGIN { "" ~ ENVIRON["RISK_RE"] }'], { cwd: ctx.cwd, env: { ...ctx.childEnv(), RISK_RE: toArg(re) }, stdio: ['ignore', 'ignore', 'ignore'] });
+        if (r.status !== 0) messages.push(`invalid regular expression for ${key}`);
+      } else grepBad(key, re, false);
     }
   }
   if (messages.length === 0) {

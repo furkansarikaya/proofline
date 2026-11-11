@@ -668,3 +668,28 @@ test('A249 settings (R2): disableAllHooks in the user\'s ~/.claude/settings.json
   writeFileSync(`${home}/.claude/settings.json`, '{"disableAllHooks": false}\n');
   assert.doesNotMatch(doctor(d, { HOME: home }).out, /disableAllHooks is/);
 });
+
+test('A250 doctor (SEC-E carry-over): a tracked hook-folder entry in a SUBFOLDER that is also on disk is not called "not on disk"', () => {
+  const d = installed('doc-subfolder-entry');
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '--no-verify', '-m', 'install']);
+  writeExec(`${d}/.agents/githooks/sub/x`, HOSTILE);
+  git(d, ['add', '-f', '.agents/githooks/sub/x']); git(d, ['commit', '-q', '--no-verify', '-m', 'sub']);
+  const r = doctor(d);
+  const line = r.out.split('\n').find((l) => l.includes('.agents/githooks/sub/x') && l.includes('tracked')) ?? '';
+  assert.ok(line !== '', r.out);
+  assert.doesNotMatch(line, /not on disk/, line);
+});
+
+test('A250 codetrust (carry-over): an 8.3 short-name hit says to rename it; a folding alias keeps its own wording', () => {
+  const short = problemText({ rel: '.agents/GITHOO~1/pre-commit', kind: 'extra', alias: true });
+  assert.match(short, /looks like an NTFS 8\.3 short name; rename it \(for example notes-1\.md\) and run proofline init/);
+  assert.doesNotMatch(short, /delete the file/);
+  assert.match(problemText({ rel: '.agents/ſcripts/x', kind: 'extra', alias: true }), /Unicode-folding file system can resolve/);
+});
+
+test('A250 codetrust (carry-over): Default_Ignorable_Code_Point characters that casefold kernels before Linux 6.14 drop are ignorable in a name', () => {
+  for (const c of ['؜', 'ᅟ', 'ᅠ', '឴', '឵', '᠏', '⁥', 'ㅤ', 'ﾠ', '￰', '￸', '\u{1bca0}', '\u{1bca3}', '\u{1d173}', '\u{1d17a}', '\u{e0000}', '\u{e0fff}']) {
+    assert.equal(foldName(`scr${c}ipts`), 'scripts', `U+${c.codePointAt(0)?.toString(16)}`);
+  }
+  assert.notEqual(foldName('scrกipts'), 'scripts');
+});
