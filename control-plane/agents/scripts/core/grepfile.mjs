@@ -54,3 +54,32 @@ export function globShaped(p) {
   const bare = p.replace(/\\[^]/g, '');
   return /[*?]/.test(bare) || /\[[^\]]+\]/.test(bare);
 }
+
+/**
+ * Does an entry that is not glob-shaped look like an ERE with a typo (an unbalanced `(`, `)`, `[` or `{`)? Only such an entry fails closed when grep rejects it. Every other string
+ * is a valid literal for caseMatch (`+x@y.com`, `{dev}@x.com` are exact addresses that BSD grep or ugrep refuse as an ERE), so it blocks exactly that identity and never everyone (A250).
+ * @param {string} p
+ */
+export function ereTypo(p) {
+  const bare = p.replace(/\\[^]/g, '');
+  let depth = 0;
+  for (const c of bare) { if (c === '(') depth++; else if (c === ')' && --depth < 0) return true; }
+  if (depth !== 0) return true;
+  const open = bare.indexOf('[');
+  if (open >= 0 && bare.indexOf(']', open + 1) < 0) return true;
+  const brace = bare.indexOf('{');
+  return brace >= 0 && bare.indexOf('}', brace + 1) < 0;
+}
+
+/**
+ * The entries of git.forbidden_identities from the value the one config reader returns (the hooks, config-check and doctor all use this): split on white space; one
+ * surrounding `"` or `'` is dropped from EACH token (the reader only drops a pair around the whole value, so `"a" "b"` arrives as `a" "b`); an inline list `[a, "b"]` is split on
+ * commas and white space. @param {string | null} value @returns {string[]}
+ */
+export function forbiddenTokens(value) {
+  let v = value ?? '';
+  const inner = /^\[([^]*)\]$/.exec(v.trim());
+  const split = inner !== null && /[,\s"']/.test(inner[1]);
+  if (split && inner !== null) v = inner[1];
+  return v.split(split ? /[,\s]+/ : /[ \t\n]+/).map((x) => x.replace(/^["']/, '').replace(/["']$/, '')).filter((x) => x !== '');
+}

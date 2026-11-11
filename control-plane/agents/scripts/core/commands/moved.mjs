@@ -31,7 +31,7 @@ import { BATCHPLAN_HANDLERS } from '../batchplan.mjs';
 import { WORKTREE_HANDLERS } from '../worktree.mjs';
 import { DECIDE_HANDLERS } from '../decide.mjs';
 import { DIFFDIGEST_HANDLERS } from '../diffdigest.mjs';
-import { globShaped } from '../grepfile.mjs';
+import { ereTypo, forbiddenTokens, globShaped } from '../grepfile.mjs';
 import { detectPlatform, warnText } from '../platform.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
 
@@ -93,7 +93,7 @@ function configCheck(ctx, args) {
       const r = proc.run('grep', [ci ? '-Eiq' : '-Eq', '-f', '-'], { cwd: ctx.cwd, env: ctx.childEnv(), input: `${toArg(v)}\n`, stdio: ['pipe', 'ignore', 'ignore'] });
       if (r.status >= 2) messages.push(`invalid regular expression for ${key}`);
     };
-    for (const tok of (configGetFrom(lines, 'git.forbidden_identities') ?? '').split(/[ \t\n]+/).filter((x) => x !== '' && !globShaped(x))) grepBad('git.forbidden_identities', tok, true);
+    for (const tok of forbiddenTokens(configGetFrom(lines, 'git.forbidden_identities')).filter((x) => !globShaped(x) && ereTypo(x))) grepBad('git.forbidden_identities', tok, true);
     const names = [...new Set(lines.map((l) => /^risk\.([a-z_]+)\.content=/.exec(l)?.[1]).filter((x) => x !== undefined))];
     for (const n of names) {
       const key = `risk.${n}.content`;

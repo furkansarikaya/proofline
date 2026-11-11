@@ -8,7 +8,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { ereToRegExp } from '../../control-plane/agents/scripts/core/ere.mjs';
 import { caseMatch, cfg2, forbidden } from '../../control-plane/agents/scripts/core/githooks.mjs';
-import { grepLineCi } from '../../control-plane/agents/scripts/core/grepfile.mjs';
+import { ereTypo, forbiddenTokens, grepLineCi } from '../../control-plane/agents/scripts/core/grepfile.mjs';
 import { grepEq } from '../../control-plane/agents/scripts/core/signals.mjs';
 import { A, newRepo } from '../lib/harness.mjs';
 import { makeFixture } from './fixture.mjs';
@@ -105,4 +105,53 @@ test('the hooks read git.forbidden_identities like every other command: inline, 
   assert.equal(cfg2('git:\n  forbidden_identities:\n', 'git', 'forbidden_identities'), '');
   assert.equal(forbidden(fx.ctx(), 'git:\n  forbidden_identities:\n', 'dev@corp.com'), false);
   assert.equal(forbidden(fx.ctx(), 'git:\n  forbidden_identities: # none\n', 'dev@corp.com'), false);
+});
+
+test('forbidden: each token loses its own surrounding quotes (double, single, mixed, inline list, block list); every form that worked on main still answers the same', () => {
+  const emails = ['x@a.com', 'x@b.com', 'x@c.com', 'a', 'b'];
+  const cases = /** @type {Array<[string, string[]]>} */ ([
+    ['"x@a.com" "x@b.com"', ['x@a.com', 'x@b.com']],
+    ["'x@a.com' 'x@b.com'", ['x@a.com', 'x@b.com']],
+    ['"x@a.com" \'x@b.com\'', ['x@a.com', 'x@b.com']],
+    ['["x@a.com","x@b.com"]', ['x@a.com', 'x@b.com']],
+    ['[x@a.com, "x@b.com"]', ['x@a.com', 'x@b.com']],
+    ['["*@a.com" "*@b.com"]', ['x@a.com', 'x@b.com']],
+    ['"x@a.com"', ['x@a.com']],
+    ['x@a.com x@b.com', ['x@a.com', 'x@b.com']],
+  ]);
+  for (const [v, hit] of cases) for (const m of emails) assert.equal(forbidden(fx.ctx(), cfgWith(v), m), hit.includes(m), `${v} on ${m}`);
+  const block = 'git:\n  forbidden_identities:\n    - "x@a.com"\n    - \'x@b.com\'\n';
+  assert.equal(forbidden(fx.ctx(), block, 'x@b.com'), true);
+  assert.equal(forbidden(fx.ctx(), block, 'x@c.com'), false);
+  assert.deepEqual(forbiddenTokens('[a-z]@x.com'), ['[a-z]@x.com']); // a bracket class is not an inline list
+  assert.deepEqual(forbiddenTokens(null), []);
+});
+
+test('config-check validates the quoted tokens like the hooks read them', () => {
+  const dir = newRepo();
+  const cfg = path.join(dir, '.agents/config.yaml');
+  const orig = readFileSync(cfg, 'utf8');
+  const run = (/** @type {string} */ v) => { writeFileSync(cfg, orig.replace(/^(\s*forbidden_identities:).*$/m, `$1 ${v}`)); return A(dir, ['config-check']); };
+  assert.equal(run('"x@a.com" "x@b.com"').status, 0);
+  assert.notEqual(run('["a(b", "x@b.com"]').status, 0);
+  assert.notEqual(run('"a(b" "x@b.com"').status, 0);
+  assert.equal(run('+x@y.com {dev}@x.com').status, 0);
+});
+
+test('forbidden: a literal that grep refuses as an ERE blocks that identity only; an unbalanced ERE still fails closed', () => {
+  for (const lit of ['+x@y.com', '{dev}@x.com', '*+bot@y.com']) {
+    for (const [m, want] of /** @type {Array<[string, boolean]>} */ ([['+x@y.com', lit === '+x@y.com'], ['{dev}@x.com', lit === '{dev}@x.com'], ['q@x.com', false], ['dev@x.com', false], ['1+bot@y.com', lit === '*+bot@y.com']])) {
+      const ctx = fx.ctx();
+      assert.equal(forbidden(ctx, cfgWith(lit), m), want, `${lit} on ${m}`);
+      assert.equal(errOf(ctx), '', `${lit} on ${m}: no notice`);
+    }
+  }
+  for (const bad of ['a(b', 'x[', 'a(b|c']) {
+    const ctx = fx.ctx();
+    assert.equal(forbidden(ctx, cfgWith(bad), 'q@x.com'), true, bad);
+    assert.match(errOf(ctx), /not a valid extended regular expression/);
+  }
+  assert.equal(ereTypo('+x@y.com'), false);
+  assert.equal(ereTypo('{dev}@x.com'), false);
+  assert.equal(ereTypo('a\\(b'), false);
 });

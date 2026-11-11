@@ -6,7 +6,7 @@
 
 import { configGetFrom, configLines } from './config.mjs';
 import { ereToRegExp } from './ere.mjs';
-import { globShaped, grepLineCiStatus } from './grepfile.mjs';
+import { ereTypo, forbiddenTokens, globShaped, grepLineCiStatus } from './grepfile.mjs';
 
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -96,13 +96,14 @@ export function emailOf(ctx, which) {
 /** `forbidden EMAIL` @param {Context} ctx @param {string} config @param {string} email */
 export function forbidden(ctx, config, email) {
   const low = email.replace(/[A-Z]/g, (c) => c.toLowerCase());
-  for (const p of cfg2(config, 'git', 'forbidden_identities').split(/[ \t\n]+/).filter((x) => x !== '')) {
+  for (const p of forbiddenTokens(configGetFrom(configLines(config), 'git.forbidden_identities'))) {
     if (caseMatch(p.replace(/[A-Z]/g, (c) => c.toLowerCase()), low)) return true;
     const re = ereToRegExp(p, true);
     if (re !== null) { if (re.test(email)) return true; continue; }
     // the pattern goes in a file, never as an argument (A250). A deny list that cannot be evaluated FAILS CLOSED: exit 2 (an invalid or untranslatable pattern) counts as a match, so the commit is refused with a notice
     const st = grepLineCiStatus(ctx.env, p, `${email}\n`);
     if (st >= 2 && globShaped(p)) continue; // a glob (*@x.com, *+bot@x.com, *[a-z]@x.com): caseMatch decided it above, BSD grep rejects the leading star, and that must not block everyone
+    if (st >= 2 && !ereTypo(p)) continue; // a plain literal (+x@y.com, {dev}@x.com) that this grep refuses as an ERE: caseMatch decided it above, only that identity is blocked
     if (st >= 2) { ctx.err('proofline: a git.forbidden_identities pattern is not a valid extended regular expression for this platform\'s grep; refusing as if it matched (fix .agents/config.yaml, then agent.sh config-check)\n'); return true; }
     if (st === 0) return true;
   }
