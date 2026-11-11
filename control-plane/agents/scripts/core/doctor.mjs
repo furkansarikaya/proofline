@@ -260,6 +260,7 @@ class Doctor {
     this.fails = 0; this.warns = 0;
     this.runtimes = '';
     /** @type {boolean} */ this.hooksSame = false; this.skipNoted = false;
+    /** @type {Set<string> | undefined} */ this.hookSaid = undefined;
     /** @type {{ problems: import('./codetrust.mjs').CodeProblem[], unreadable: boolean } | undefined} */ this.code = undefined;
     /** @type {Config} */ this.cfg = ctx.config();
   }
@@ -599,29 +600,41 @@ class Doctor {
   doctorGitHooks() {
     const st = hooksPathState((a) => this.git(a), this.root);
     this.hooksSame = st.state === 'same';
+    /** the git hook problems this section prints itself: doctorCode leaves out exactly these and never anything else (a problem nobody prints would be hidden) @type {Set<string>} */
+    const said = this.hookSaid = new Set();
     // A249: the code the hooks load, compared with the SHIPPED copies (working file sha256, index and HEAD blobs); never with the manifest, which a cloned repository writes (audited once, in report())
     if (this.code === undefined) this.code = codeAudit(this.root, this.plHome, this.ctx.env);
     if (st.state === 'same') {
       let ok = true;
       const folder = githooksFolder(this.root);
-      if (folder.unsafe !== '') { this.fail(`git hooks: ${folder.unsafe} is a symbolic link or not a folder; git would run whatever it points to. Replace it with the real folder: proofline init`); ok = false; }
+      if (folder.unsafe !== '') { this.hookSaid.add('*'); this.fail(`git hooks: ${folder.unsafe} is a symbolic link or not a folder; git would run whatever it points to. Replace it with the real folder: proofline init`); ok = false; }
       else {
         for (const h of SHIPPED_GITHOOKS) {
           const f = `${this.root}/.agents/githooks/${h}`;
           const e = folder.entries.find((x) => x.name === h);
-          if (e === undefined || !isExecutable(f)) { this.fail(`git hooks: .agents/githooks/${h} is missing or not executable`); ok = false; continue; }
-          if (e.kind !== 'file') { this.fail(`git hooks: .agents/githooks/${h} is ${e.kind === 'symlink' ? 'a symbolic link' : 'not a regular file'}; git would run its target. Replace it with proofline's copy: delete it and run proofline init`); ok = false; continue; }
+          if (e === undefined || !isExecutable(f)) { said.add(`.agents/githooks/${h}`); this.fail(`git hooks: .agents/githooks/${h} is missing or not executable`); ok = false; continue; }
+          if (e.kind !== 'file') { said.add(`.agents/githooks/${h}`); this.fail(`git hooks: .agents/githooks/${h} is ${e.kind === 'symlink' ? 'a symbolic link' : 'not a regular file'}; git would run its target. Replace it with proofline's copy: delete it and run proofline init`); ok = false; continue; }
           if (this.code.unreadable) { this.warn(`git hooks: the shipped ${h} could not be read, so .agents/githooks/${h} was not compared`); continue; }
           const eolOnly = this.code.problems.some((p) => p.rel === `.agents/githooks/${h}` && p.kind === 'differs' && p.eol === true);
-          if (eolOnly) { this.fail(`git hooks: .agents/githooks/${h} is proofline's copy except for its line endings (CRLF, usually core.autocrlf=true on Windows): sh fails on the CR, so the hook does not work. Run: git config core.autocrlf false, then check the file out again (git checkout -- .agents/githooks/${h})`); ok = false; }
+          if (eolOnly) { said.add(`.agents/githooks/${h}`); this.fail(`git hooks: .agents/githooks/${h} is proofline's copy except for its line endings (CRLF, usually core.autocrlf=true on Windows): sh fails on the CR, so the hook does not work. Run: git config core.autocrlf false, then check the file out again (git checkout -- .agents/githooks/${h})`); ok = false; }
           else if (this.code.problems.some((p) => p.rel === `.agents/githooks/${h}` && p.kind === 'differs')) {
+            said.add(`.agents/githooks/${h}`);
             this.fail(`git hooks: .agents/githooks/${h} differs from the copy proofline ships (sha256 mismatch): git runs this file at every ${h === 'pre-push' ? 'push' : 'commit'}, so it may be code from the repository and not proofline's lock. If you did not edit it (an older proofline left it), run: proofline upgrade; otherwise review it, and to go back to proofline's copy delete it and run: proofline init`); ok = false;
           }
         }
         for (const e of folder.entries) {
           if (SHIPPED_GITHOOKS.includes(e.name)) continue;
+          said.add(`.agents/githooks/${e.name}`);
           this.fail(`git hooks: .agents/githooks/${cleanText(e.name)} is not a file proofline ships; git may run it (a hook name) and proofline did not review it. Review it or remove it`); ok = false;
         }
+      }
+      // SEC-E: a hook-named entry that is only TRACKED (the index or HEAD holds it, the disk does not: a case-only rename, a deleted file) is on no disk listing and would be reported by nobody; git
+      // writes it back with `restore`, `stash` or `reset --hard` and runs it at the next commit
+      for (const p of this.code.problems) {
+        if (p.kind !== 'extra' || !p.rel.startsWith('.agents/githooks/') || said.has(p.rel) || said.has('*')) continue;
+        said.add(p.rel);
+        this.fail(`git hooks: ${problemText(p)}; it is tracked${folder.entries.some((x) => `.agents/githooks/${x.name}` === p.rel) ? '' : ' (staged or committed) but not on disk'}, so a restore, stash or reset brings it back and git runs it. Remove it from the index (git rm --cached -- <name>) and commit before you rely on the hooks`);
+        ok = false;
       }
       // a staged or committed hook that is not the shipped one is reported by doctorCode; the PASS is not printed over it
       if (this.code.problems.some((p) => p.rel.startsWith('.agents/githooks') && (p.kind === 'index' || p.kind === 'head'))) ok = false;
@@ -642,7 +655,7 @@ class Doctor {
       this.warn('code: the shipped files could not be read from the proofline plugin, so the scripts and hooks of the project were not compared');
       return;
     }
-    const hooksReported = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => this.hooksSame && p.rel.startsWith('.agents/githooks') && p.kind !== 'index' && p.kind !== 'head';
+    const hooksReported = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => this.hooksSame && p.rel.startsWith('.agents/githooks') && p.kind !== 'index' && p.kind !== 'head' && this.hookSaid !== undefined && (this.hookSaid.has('*') || this.hookSaid.has(p.rel));
     // a MISSING file is no hostile code (nothing to run): doctorEngine reports it as a broken install; only present, different code is reported here
     const rest = this.code.problems.filter((p) => p.kind !== 'missing' && !hooksReported(p));
     // R3: the working file IS proofline's copy and only the index or HEAD lags behind: the normal state right after `upgrade` (it writes the new files, nobody committed them yet). A WARN, no

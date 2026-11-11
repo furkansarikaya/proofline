@@ -2,6 +2,7 @@
 // Descriptor output and input of the CLI front end (A233) and the error that ends a `proofline` command with its message and the user's next step.
 import { readSync, writeSync } from 'node:fs';
 import { ProoflineError } from './errors.mjs';
+import { cleanOut } from './codetrust.mjs';
 
 /**
  * A synchronous writer for a descriptor of this process: output keeps its order with a child that inherits the descriptor. @param {number} fd
@@ -27,7 +28,7 @@ export function fdWriter(fd) {
 export class CliDie extends ProoflineError {
   /** @param {string} message a byte string @param {string} [kind] the next-step kind (`usage`) */
   constructor(message, kind = '') {
-    super(`proofline: ${message}`, 1, 'CLI_DIE');
+    super(`proofline: ${cleanOut(message)}`, 1, 'CLI_DIE'); // the message may carry configuration or repository text: it reaches a terminal
     this.kind = kind;
   }
 }

@@ -44,6 +44,12 @@ export function cleanBytes(t) {
   return Buffer.from(clean(text).replace(/�/g, '?'), 'utf8').toString('latin1');
 }
 
+/**
+ * Terminal output (a byte string, possibly many lines): every line and every tab-separated part is cleaned as `cleanBytes` does, the line feed and the tab stay (an error message, a usage
+ * text and a relayed report keep their layout; no byte of repository or configuration text can start an escape sequence). @param {string} t
+ */
+export function cleanOut(t) { return t.split('\n').map((l) => l.split('\t').map(cleanBytes).join('\t')).join('\n'); }
+
 /** Files whose meaning does not change when a checkout turned LF into CRLF (Node reads CR LF as one line end; JSON and Markdown likewise). Shell scripts and git hooks are NOT here: sh breaks on the CR. */
 const EOL_TOLERANT = /\.(mjs|js|cjs|json|md)$/;
 /** @param {string} rel */
@@ -130,25 +136,30 @@ export function githooksFolder(root) {
 /** The names under `.agents` whose files are code (the first two components of every shipped path). */
 const CODE_NAMES = ['scripts', 'githooks', 'hooks', 'ecosystems.mjs', 'skills'];
 
+/** Characters a file system ignores when it compares names (HFS+: zero width and direction marks, soft hyphen, word joiner, BOM): they may be dropped. */
+const IGNORABLE_RE = /[\u00ad\u034f\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufe00-\ufe0f\ufeff]/g;
+
 /**
- * Could the tracked name CAND land on the shipped ASCII path REF on a file system that folds names? Every shipped path is ASCII, so the test needs no table of Unicode folds: ASCII letters
- * match in any case, and each non-ASCII character of CAND (U+017F LATIN SMALL LETTER LONG S opens as `s` on APFS, U+212A KELVIN SIGN as `k`, ligatures and the like) may stand for up to
- * four ASCII characters other than `/`. @param {string} cand @param {string} ref
+ * A name as a folding file system compares it, reduced to ASCII lower case where that is possible: ignorable characters dropped, compatibility forms unfolded (U+017F long s -> s, U+212A
+ * Kelvin -> k, the ligatures ﬃ ﬁ ﬂ ﬆ, full width letters), sharp s -> ss, the Turkish dotted and dotless i -> i; any other non-ASCII character stays (it matches no ASCII name).
+ * Real evidence only: a non-ASCII character is never a wildcard. @param {string} n
  */
-export function couldAlias(cand, ref) {
-  const a = Array.from(cand); const n = a.length; const m = ref.length;
-  /** @type {Map<number, boolean>} */ const memo = new Map();
-  /** @param {number} i @param {number} j @returns {boolean} */
-  const go = (i, j) => {
-    if (i === n) return j === m;
-    const key = i * (m + 1) + j; const c = memo.get(key); if (c !== undefined) return c;
-    const ch = /** @type {string} */ (a[i]);
-    let ok = false;
-    if (ch.charCodeAt(0) < 128) ok = j < m && asciiLower(ch) === asciiLower(/** @type {string} */ (ref[j])) && go(i + 1, j + 1);
-    else for (let k = 0; k <= 4 && j + k <= m && !ok; k++) { if (k > 0 && ref[j + k - 1] === '/') break; ok = go(i + 1, j + k); }
-    memo.set(key, ok); return ok;
-  };
-  return go(0, 0);
+export function foldName(n) {
+  const t = n.replace(IGNORABLE_RE, '').replace(/[ßẞ]/g, 'ss').replace(/[İı]/g, 'i').normalize('NFKD').replace(IGNORABLE_RE, '');
+  return asciiLower(t);
+}
+
+/** Could the tracked name component CAND resolve to the ASCII name REF on a file system that folds names (and is it not REF itself)? @param {string} cand @param {string} ref */
+export function couldAlias(cand, ref) { return foldName(cand) === asciiLower(ref); }
+
+/** An NTFS 8.3 short name (`AGENTS~1`, `SCRIPT~1`, `GITHOO~1`, `ECOSYS~1.MJS`): `<=6 characters ~ digits`, optional three-character extension. */
+const SHORT_NAME_RE = /^[^.~\s]{1,6}~\d+(\.[^.\s]{0,3})?$/;
+/** Does the component look like the 8.3 short name of an entry whose long name starts with one of PREFIXES (dots removed, lower case)? @param {string} c @param {string[]} [prefixes] omitted: any short name */
+export function shortNameOf(c, prefixes) {
+  if (!SHORT_NAME_RE.test(c)) return false;
+  if (prefixes === undefined) return true;
+  const base = foldName(c.slice(0, c.indexOf('~')));
+  return prefixes.some((p) => p.startsWith(base));
 }
 
 /**
@@ -205,14 +216,25 @@ export function codeAudit(root, plHome, env) {
   // name that COULD resolve to a code path without being that exact path is a problem (couldAlias: all shipped paths are ASCII, no table of folds is needed).
   const fold = git(['config', '--type=bool', '--get', 'core.ignorecase']).stdout.toString('utf8').trim() === 'true';
   const shippedKeys = [...shipped.keys()];
+  // NTFS gives folders 8.3 short names (`.agents` -> `AGENTS~1`) that a checkout resolves; true on Windows and on any checkout that folds names
+  const foldShort = fold || process.platform === 'win32';
+  const codeNames = CODE_NAMES.map((n) => n.replace(/\./g, ''));
   /** @param {string} rel the tracked path */
   const aliased = (rel) => {
     const parts = rel.split('/');
-    if (!couldAlias(/** @type {string} */ (parts[0]), '.agents')) return false;
-    if (parts.length === 1) return parts[0] !== '.agents';
-    if (!CODE_NAMES.some((n) => couldAlias(/** @type {string} */ (parts[1]), n))) return false;
-    if (parts[0] === '.agents' && CODE_NAMES.includes(/** @type {string} */ (parts[1]))) return !shipped.has(rel) && shippedKeys.some((k) => couldAlias(rel, k));
-    return true;
+    const first = /** @type {string} */ (parts[0]);
+    // evidence is a name that equals `.agents` after folding (case, compatibility forms, ignorable characters) or an 8.3 short name that starts like it; a name with unrelated non-ASCII letters is no alias
+    if (first !== '.agents') {
+      // an alias of the folder itself: whatever sits below it is written inside the real `.agents`
+      return couldAlias(first, '.agents') || (foldShort && shortNameOf(first, ['agents']));
+    }
+    if (parts.length === 1) return false;
+    const second = /** @type {string} */ (parts[1]);
+    if (!CODE_NAMES.includes(second)) return CODE_NAMES.some((n) => couldAlias(second, n)) || (foldShort && shortNameOf(second, codeNames));
+    // below a code folder: a short-name component at any depth (an 8.3 name of a folder lands in it), or the whole path equal to a shipped one after folding
+    if (foldShort && parts.slice(2).some((c) => shortNameOf(c))) return true;
+    if (shipped.has(rel)) return false;
+    return shippedKeys.some((k) => { const kp = k.split('/'); return kp.length === parts.length && kp.every((c, i) => couldAlias(/** @type {string} */ (parts[i]), c)); });
   };
   /** @param {string} rel */
   const inCode = (rel) => CODE_DIRS.some((d) => rel === d || rel.startsWith(`${d}/`));

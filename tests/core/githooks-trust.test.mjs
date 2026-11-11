@@ -10,7 +10,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { clean, cleanBytes, cleanLines, codeAudit, couldAlias, problemText, shippedCode } from '../../control-plane/agents/scripts/core/codetrust.mjs';
+import { clean, cleanBytes, cleanLines, cleanOut, codeAudit, couldAlias, foldName, problemText, shippedCode, shortNameOf } from '../../control-plane/agents/scripts/core/codetrust.mjs';
 import { matcherCovers, probeEnv, recordText } from '../../control-plane/agents/scripts/core/doctor.mjs';
 import { repo } from './helpers.mjs';
 import { sandbox } from './frontend-lib.mjs';
@@ -437,7 +437,99 @@ test('A249 doctor (SEC-C, in process): a record never carries a line that starts
 test('A249 codeAudit (SEC-B, in process): a name that a folding file system can resolve to a code path is found by shape, not by a table of folds', () => {
   assert.ok(couldAlias('.agents', '.agents') && couldAlias('.Agents', '.agents') && couldAlias('.agentſ', '.agents') && couldAlias('ſcripts', 'scripts') && couldAlias('Ka', 'ka'));
   assert.ok(!couldAlias('scripts', 'githooks') && !couldAlias('script', 'scripts') && !couldAlias('aſb', 'a/b'), 'a non-ASCII letter must not stand for a slash');
+  // R5-1: a non-ASCII character is no wildcard; only known foldings (long s, Kelvin, ligatures, sharp s, Turkish i) and ignorable characters count
+  assert.ok(!couldAlias('文档', '.agents') && !couldAlias('şş', 'scripts') && !couldAlias('şş', '.agents') && !couldAlias('Привет', 'githooks') && !couldAlias('é', 'e'));
+  assert.ok(couldAlias('sKills', 'skills') && couldAlias('ﬁle', 'file') && couldAlias('stra\u00dfe', 'strasse') && couldAlias('scr\u200bipts', 'scripts') && couldAlias('\u0130', 'i') && couldAlias('ｓｃｒｉｐｔｓ', 'scripts'));
+  assert.equal(foldName('\u017fcripts'), 'scripts');
+  // SEC-D: NTFS 8.3 short names (a folder gets one; a single file does not matter)
+  assert.ok(shortNameOf('AGENTS~1', ['agents']) && shortNameOf('SCRIPT~1', ['scripts']) && shortNameOf('GITHOO~1', ['githooks']) && shortNameOf('ECOSYS~1.MJS', ['ecosystemsmjs']) && shortNameOf('design~1'));
+  assert.ok(!shortNameOf('AGENTS~1', ['scripts']) && !shortNameOf('agents') && !shortNameOf('knowledge~') && !shortNameOf('toolongname~1'));
   assert.ok(couldAlias('.agents/scripts/core/codetruſt.mjs', '.agents/scripts/core/codetrust.mjs'));
+});
+
+/** Track PATHS (name -> text) in the index and HEAD of D without writing them to the working tree (an alias would collide on a folding disk). */
+function trackOnly(/** @type {string} */ d, /** @type {string[]} */ paths, /** @type {string} */ text = HOSTILE) {
+  const blob = spawnSync('git', ['-C', d, 'hash-object', '-w', '--stdin'], { env: sb.env, encoding: 'utf8', input: text }).stdout.trim();
+  for (const f of paths) assert.equal(git(d, ['update-index', '--add', '--cacheinfo', `100755,${blob},${f}`]).status, 0, f);
+  assert.equal(git(d, ['commit', '-q', '--no-verify', '-m', 'track']).status, 0);
+}
+const extras = (/** @type {string} */ d) => audit(d).filter((x) => x.startsWith('extra ')).map((x) => x.slice(6));
+
+test('A249 codeAudit (R5-1, in process): under core.ignorecase=true a tree of all-non-ASCII names (CJK, Turkish, Cyrillic, also below .agents/knowledge and skills) is NOT blocked; the long s, Kelvin sign, ligature, zero width and sharp s attacks still are', () => {
+  const ok = sb.mkrepo('alias-ok'); git(ok, ['config', 'core.ignorecase', 'true']);
+  trackOnly(ok, ['文档/说明/x.md', 'şş', 'ş/ş/ş.md', 'Привет/мир/f.txt', '日本語/ファイル', '.agents/knowledge/文档.md', '.agents/knowledge/şş.md', '.agents/skills/mine/说明.md', '.agents/skills/ş/ş.md', 'résumé.txt', '.Agents-notes.txt'], 'data\n');
+  assert.deepEqual(extras(ok), [], 'a name with no evidence of an alias was blocked');
+  const bad = sb.mkrepo('alias-bad'); git(bad, ['config', 'core.ignorecase', 'true']);
+  const attacks = ['.agents/\u017fcripts/proofline-core.mjs', '.agent\u017f/githooks/pre-commit', '.agents/s\u212aills/x/scripts/y.mjs', '.agents/scr\u200bipts/agent.sh', '.agents/\ufb01x/z', '.agents/hooks/Proofline-Hook.mjs',
+    '.Agents/knowledge/x', '.agents/Skills/mine/x', 'AGENTS~1/githooks/pre-commit', '.agents/SCRIPT~1/agent.sh', '.agents/GITHOO~1/pre-commit', '.agents/skills/design~1/scripts/x.mjs', '.agents/ECOSYS~1.MJS', '.agents/scripts/\u0131nstall.sh'];
+  trackOnly(bad, attacks);
+  const got = extras(bad);
+  for (const a of attacks.filter((x) => !x.endsWith('\u0131nstall.sh') && !x.includes('\ufb01x'))) assert.ok(got.includes(a), `${a} was not found: ${JSON.stringify(got)}`);
+  // without folding (a case-sensitive checkout) the same names are only judged when they sit in a code folder
+  const plain = sb.mkrepo('alias-plain'); git(plain, ['config', 'core.ignorecase', 'false']);
+  trackOnly(plain, ['.agents/\u017fcripts/proofline-core.mjs', '.agents/knowledge/x']);
+  assert.deepEqual(extras(plain), []);
+});
+
+test('A249 init (R5-1): a repository with a tracked "文档/说明/x.md" and a "şş" on a folding checkout still gets core.hooksPath; the long s attack does not', () => {
+  const d = sb.mkrepo('alias-init'); git(d, ['config', 'core.ignorecase', 'true']);
+  trackOnly(d, ['文档/说明/x.md', 'şş'], 'data\n');
+  const r = sb.pl(d, INIT);
+  assert.equal(r.status, 0, r.text);
+  assert.equal(hp(d), '.agents/githooks', r.text);
+  const e = sb.mkrepo('alias-init-bad'); git(e, ['config', 'core.ignorecase', 'true']);
+  trackOnly(e, ['.agents/\u017fcripts/proofline-core.mjs']);
+  assert.equal(hp(e), '');
+  assert.match(sb.pl(e, INIT).out, NOT_SET);
+  assert.equal(hp(e), '');
+});
+
+test('A249 doctor (SEC-E): a hook-named alias that is only TRACKED (HEAD holds .agents/githooks/pre-commiT, the disk does not list it) is reported while core.hooksPath is active, and the PASS for git hooks is withheld', () => {
+  const d = installed('doc-tracked-alias'); git(d, ['config', 'core.ignorecase', 'true']);
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '--no-verify', '-m', 'install']);
+  trackOnly(d, ['.agents/githooks/pre-commiT', '.agents/githooks/post-checkout']);
+  rmSync(`${d}/.agents/githooks/post-checkout`, { force: true });
+  const r = doctor(d);
+  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/pre-commiT .*tracked/m, r.out);
+  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/post-checkout .*tracked/m, r.out);
+  assert.doesNotMatch(r.out, /^PASS git hooks/m, r.out);
+  assert.notEqual(r.status, 0);
+});
+
+test('A249 output (SEC-F, in process): cleanOut keeps the line feed and the tab and cleans everything else; CliDie cleans at construction', async () => {
+  assert.equal(cleanOut('a\x1b]0;x\x07b\n\tc\x9bd\ne'), 'a?]0;x?b\n\tc?d\ne');
+  const { CliDie } = await import('../../control-plane/agents/scripts/core/cliio.mjs');
+  assert.equal(new CliDie('bad \x1b[2K value').message, 'proofline: bad ?[2K value');
+});
+
+test('A249 init (SEC-F): configuration text, the manifest runtimes line and a prompt default never reach stderr as control bytes (CliDie, errLine, errRaw)', () => {
+  const ESC = '\x1b]0;pwned\x07';
+  const run = (/** @type {string} */ d, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}, /** @type {string} */ input = '') => {
+    const r = spawnSync(path.join(repo, 'bin', 'proofline'), args, { cwd: d, env: { ...sb.env, ...extra }, encoding: 'latin1', input });
+    return { status: r.status, text: r.stdout + r.stderr };
+  };
+  const ctl = /[\x00-\x09\x0b-\x1f\x7f-\x9f]/;
+  const a = sb.mkrepo('esc-cfg'); mkdirSync(`${a}/.agents`, { recursive: true });
+  writeFileSync(`${a}/.agents/config.yaml`, `runtime:\n  lead: ${ESC}\n`);
+  const ra = run(a, INIT);
+  assert.notEqual(ra.status, 0, ra.text); assert.match(ra.text, /invalid value for Lead runtime: \?\]0;pwned\?/, ra.text); assert.doesNotMatch(ra.text, ctl, JSON.stringify(ra.text));
+  const b = sb.mkrepo('esc-manifest'); mkdirSync(`${b}/.agents`, { recursive: true });
+  writeFileSync(`${b}/.agents/.proofline-manifest`, `# runtimes: claude ${ESC}\n`);
+  const rb = run(b, ['init', '--yes']);
+  assert.notEqual(rb.status, 0, rb.text); assert.match(rb.text, /unknown runtime: \?\]0;pwned\?/, rb.text); assert.doesNotMatch(rb.text, ctl, JSON.stringify(rb.text));
+  const c = sb.mkrepo('esc-prompt'); mkdirSync(`${c}/.agents`, { recursive: true });
+  writeFileSync(`${c}/.agents/config.yaml`, `runtime:\n  lead: ${ESC}\n`);
+  const rc = run(c, ['init', '--runtimes', 'claude'], { PROOFLINE_PROMPT: '1' }, '\n\n\n');
+  assert.match(rc.text, /Lead runtime \[\?\]0;pwned\?\]/, rc.text); assert.doesNotMatch(rc.text, ctl, JSON.stringify(rc.text));
+});
+
+test('A249 output (SEC-F): the installer sources hold no character above 0xFF in a string literal (the byte-string writer would lose its high byte)', () => {
+  for (const f of ['install.mjs', 'proflinecli.mjs', 'doctor.mjs']) {
+    const src = readFileSync(path.join(repo, 'control-plane', 'agents', 'scripts', 'core', f), 'utf8');
+    const bad = src.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => !/^\s*(\/\/|\*|\/\*)/.test(String(l)) && /[^\x00-\xff]/.test(String(l)) && /['"`]/.test(String(l)));
+    // doctor.mjs prints text through its own UTF-8 writer; the byte-string writers are install.mjs and proflinecli.mjs
+    if (f !== 'doctor.mjs') assert.deepEqual(bad, [], `${f} has a wide character in code`);
+  }
 });
 
 test('A249 codeAudit (SEC-B): on a Unicode-folding file system a tracked ".agents/ſcripts/proofline-core.mjs" and ".agentſ/..." are found in the index and HEAD, and init (with the manifest row of the attack) leaves core.hooksPath unset', (t) => {

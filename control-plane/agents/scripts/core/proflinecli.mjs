@@ -16,7 +16,7 @@ import { Context } from './context.mjs';
 import { CliDie, fdWriter, readLine } from './cliio.mjs';
 import { ProoflineError } from './errors.mjs';
 import { doctorCommand } from './doctor.mjs';
-import { cleanBytes } from './codetrust.mjs';
+import { cleanBytes, cleanOut } from './codetrust.mjs';
 import { hgit } from './hgit.mjs';
 import { insightsFront } from './insightsfront.mjs';
 import { cmdInit, cmdUpgrade, u } from './install.mjs';
@@ -60,11 +60,11 @@ class Cli {
   /** @param {string} s a byte string */
   say(s) { this.out.write(Buffer.from(`${s}\n`, 'latin1')); }
   /** `proofline: MSG` on standard error. @param {string} s */
-  warn(s) { this.errw.write(Buffer.from(`proofline: ${s}\n`, 'latin1')); }
+  warn(s) { this.errw.write(Buffer.from(cleanOut(`proofline: ${s}\n`), 'latin1')); }
   /** @param {string} s */
-  errLine(s) { this.errw.write(Buffer.from(`${s}\n`, 'latin1')); }
+  errLine(s) { this.errw.write(Buffer.from(cleanOut(`${s}\n`), 'latin1')); }
   /** @param {string} s a byte string, no newline added */
-  errRaw(s) { this.errw.write(Buffer.from(s, 'latin1')); }
+  errRaw(s) { this.errw.write(Buffer.from(cleanOut(s), 'latin1')); }
 
   /** A context of the project, for the modules of the core that print through one. @param {boolean} [toErr] its standard output goes to standard error @returns {Context} */
   ctx(toErr = false) {
