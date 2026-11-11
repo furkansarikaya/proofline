@@ -15,7 +15,8 @@ import { cfgMergeNew } from './cfgcli.mjs';
 import { cfgCmds, cfgSet } from './configset.mjs';
 import { CliDie } from './cliio.mjs';
 import { KINDS, ambigNotes, discoverCommands, joinCommands, verifyCommands } from './discover.mjs';
-import { MANIFEST_REL, SHIPPED_GITHOOKS, githooksFolder, globalHookspathMessage, hooksPathState, matcherCovers } from './doctor.mjs';
+import { codeAudit, problemText } from './codetrust.mjs';
+import { MANIFEST_REL, globalHookspathMessage, hooksPathState, matcherCovers } from './doctor.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import * as proc from './proc.mjs';
 import { commandV } from './runtimedetect.mjs';
@@ -122,10 +123,12 @@ function detectBranchIn(dir) {
  *   opt: Record<string, string>, haveProtected: boolean, canon: string, protectedBranches: string, forbidden: string, lead: string, worker: string, reviewers: string,
  *   adapter: string, push: string, roles: string[], dBuild: string, dTest: string, dLint: string, ui: Ui }} Params */
 
+const GITHOOKS_FIX = 'delete the file(s) that differ and run proofline init again (or run proofline upgrade) and commit the result';
+
 class Install {
   /** @param {Params} p */
   constructor(p) {
-    /** @type {Map<string, string>} the outcome of each file placed under .agents/githooks (A249) */ this.githookActs = new Map();
+    /** @type {Map<string, string>} the outcome of each code file placed (.agents/scripts, .agents/githooks, and '.agents/hooks' as a whole) (A249) */ this.codeActs = new Map();
     this.p = p;
     this.root = p.root;
     /** @type {Array<[string, string]>} */ this.plan = [];
@@ -220,7 +223,7 @@ class Install {
     } else if (act === 'conflict') {
       if (!this.p.dry) this.copySafe(`${rel}.proofline-new`, src);
     }
-    if (rel.startsWith('.agents/githooks/')) this.githookActs.set(rel, wrote ? act : 'unsafe');
+    if (rel.startsWith('.agents/githooks/') || rel.startsWith('.agents/scripts/')) this.codeActs.set(rel, wrote ? act : 'unsafe');
     if (!wrote) return; // already reported: not in the plan as new, not in the manifest
     if (act === 'new' || act === 'update' || act === 'same') this.manifestNew.push([n, rel]);
     else if (keep !== '') this.manifestNew.push([keep, rel]);
@@ -268,8 +271,9 @@ class Install {
         if (have === null || !have.equals(readFileSync(abs))) act = 'update';
       }
     }
+    this.codeActs.set(dir, act);
     if (!this.p.dry && act !== 'same') {
-      if (!pathSafe(this.root, dir)) { this.unsafe(dir); return; }
+      if (!pathSafe(this.root, dir)) { this.codeActs.set(dir, 'unsafe'); this.unsafe(dir); return; }
       mkdirSync(`${this.root}/${dir}`, { recursive: true });
       for (const d of ['events', 'guards', 'lib']) rmSync(`${this.root}/${dir}/${d}`, { recursive: true, force: true });
       for (const [rel, abs] of tree) if (!this.copySafe(`${dir}/${rel}`, abs)) return;
@@ -485,22 +489,21 @@ class Install {
   git(a) { return proc.run('git', ['-C', this.root, ...a], { stdio: ['ignore', 'pipe', 'ignore'] }); }
 
   /**
-   * A249: why `.agents/githooks` cannot be trusted as the hook folder, or '' when every file in it was installed by proofline or found identical in this run and none is a link.
+   * A249: why the code git will run cannot be trusted, or '' when every script, git hook and Node hook file of `.agents` is the SHIPPED file (sha256, not the manifest, which a
+   * cloned repository writes), none is a link, nothing else sits in those folders, and every tracked one is also staged and committed as the shipped bytes (a clean working copy over
+   * a hostile blob comes back with `git restore .`). In a dry run the files are not written yet: a missing or different working file that this run would write is fine.
    * @returns {string}
    */
   githooksUntrusted() {
-    for (const h of SHIPPED_GITHOOKS) {
-      const rel = `.agents/githooks/${h}`; const act = this.githookActs.get(rel);
-      if (act === undefined) return `${rel} is not part of this install`;
-      if (!['new', 'update', 'same'].includes(act)) return `${rel} differs from proofline's and was ${act === 'unsafe' ? 'not written (a link)' : 'kept as your own file'}`;
-    }
-    const folder = githooksFolder(this.root);
-    if (folder.unsafe !== '') return `${folder.unsafe} is a symbolic link or not a folder`;
-    for (const e of folder.entries) {
-      if (e.kind !== 'file') return `.agents/githooks/${e.name} is ${e.kind === 'symlink' ? 'a symbolic link' : 'not a regular file'}`;
-      if (!SHIPPED_GITHOOKS.includes(e.name)) return `.agents/githooks/${e.name} is not a file proofline ships`;
-    }
-    return '';
+    const audit = codeAudit(this.root, this.p.plHome, this.p.env);
+    if (audit.unreadable) return 'the shipped hooks and scripts could not be read from the proofline plugin, so nothing could be compared';
+    const actOf = (/** @type {string} */ rel) => this.codeActs.get(rel) ?? (rel.startsWith('.agents/hooks/') ? this.codeActs.get('.agents/hooks') : undefined) ?? '';
+    const rank = ['link', 'differs', 'extra', 'missing', 'head', 'index'];
+    const all = [...audit.problems].sort((a, b) => rank.indexOf(a.kind) - rank.indexOf(b.kind)).filter((p) => !(this.p.dry && (p.kind === 'missing' || p.kind === 'differs') && ['new', 'update'].includes(actOf(p.rel))));
+    // one entry per file (the first problem found), the committed-differently case kept when it is the only one
+    const bad = all.filter((p, i) => all.findIndex((q) => q.rel === p.rel) === i);
+    if (bad.length === 0) return '';
+    return `${bad.slice(0, 3).map((p) => problemText(p, actOf(p.rel))).join('; ')}${bad.length > 3 ? `; and ${bad.length - 3} more` : ''}`;
   }
 
   /**
@@ -509,11 +512,14 @@ class Install {
    */
   doGithooksPath() {
     const st = hooksPathState((a) => this.git(a), this.root);
-    if (st.state === 'same') this.plog('same', 'git config core.hooksPath');
-    else if (st.state === 'unset') {
-      // A249: git runs every executable file of the folder it is pointed to, so the path is set only when each of them is proofline's, installed or confirmed in this run
-      const why = this.githooksUntrusted();
-      if (why !== '') this.plog('warn', `core.hooksPath was NOT set to .agents/githooks (proofline's commit and push locks are NOT active): ${why}. Review the file(s); to use proofline's hooks, delete them and run proofline init again, or after reviewing run: git config --local core.hooksPath .agents/githooks`);
+    const why = st.state === 'other' ? '' : this.githooksUntrusted();
+    if (st.state === 'same') {
+      this.plog('same', 'git config core.hooksPath');
+      // already active (a local value the user or an earlier run set): never unset here (a normal upgrade has the new files uncommitted), but say so when the code is not the shipped one
+      if (why !== '') this.plog('warn', `core.hooksPath already points at .agents/githooks, but the code it runs is not proofline's shipped copy: ${why}. Review it before you commit; if you did not edit these files, ${GITHOOKS_FIX}. A tracked file that is committed with other content comes back with git restore or git checkout, so commit proofline's copy`);
+    } else if (st.state === 'unset') {
+      // A249: git runs every executable file of the folder it is pointed to, and those hooks start the project's own scripts: the path is set only when all of that code is proofline's
+      if (why !== '') this.plog('warn', `core.hooksPath was NOT set to .agents/githooks (proofline's commit and push locks are NOT active): ${why}. Review the file(s); to use proofline's hooks, ${GITHOOKS_FIX}, or after reviewing run: git config --local core.hooksPath .agents/githooks`);
       else {
         this.plog('merged', 'git config --local core.hooksPath .agents/githooks');
         if (!this.p.dry) this.git(['config', '--local', 'core.hooksPath', '.agents/githooks']);

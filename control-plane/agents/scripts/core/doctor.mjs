@@ -3,12 +3,13 @@
 // repository (the project's own installed hooks and scripts are copied there). Prints PASS / WARN / FAIL lines and exits non-zero on any FAIL. It runs from the plugin's core
 // (bin/proofline calls it in process, A233) for the project it was started in: a project whose own engine is broken or missing is still diagnosed. PL_HOME names the
 // plugin checkout and PROOFLINE_VERSION its version. Text here is JavaScript text; the byte strings of the core (config values, command outputs) are decoded with `u`.
-import { accessSync, closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { loadavg, availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { agentCall } from './batch.mjs';
 import { ciCheckResult, ciTaskCommandText } from './commands/checks.mjs';
 import { Config } from './config.mjs';
+import { SHIPPED_GITHOOKS, codeAudit, githooksFolder, problemText, shippedCode } from './codetrust.mjs';
 import { cfgSet } from './configset.mjs';
 import { contextRows, reportText } from './contextsize.mjs';
 import { applyCommands, emptyKinds, proposeCommands } from './commandsprop.mjs';
@@ -209,26 +210,7 @@ export function globalHookspathMessage(value, scope = 'global', origin = '') {
 }
 
 
-/** The two git hooks proofline ships (control-plane/agents/githooks/). */
-export const SHIPPED_GITHOOKS = ['pre-commit', 'pre-push'];
-
-/**
- * A249 (independent security review of 173-C2): what sits in the project's `.agents/githooks`, read with lstat, so a link is seen as a link. A cloned repository can
- * commit its own hook files there; git runs every executable file in the folder `core.hooksPath` names.
- * @param {string} root @returns {{ unsafe: string, entries: Array<{ name: string, kind: 'file' | 'symlink' | 'other' }> }} `unsafe` names the part of the path that is a link ('' when none); a folder that does not exist has no entries
- */
-export function githooksFolder(root) {
-  for (const rel of ['.agents', '.agents/githooks']) {
-    let st; try { st = lstatSync(`${root}/${rel}`); } catch { return { unsafe: '', entries: [] }; }
-    if (st.isSymbolicLink() || !st.isDirectory()) return { unsafe: rel, entries: [] };
-  }
-  /** @type {Array<{ name: string, kind: 'file' | 'symlink' | 'other' }>} */ const entries = [];
-  for (const name of readdirSync(`${root}/.agents/githooks`).sort()) {
-    const st = lstatSync(`${root}/.agents/githooks/${name}`);
-    entries.push({ name, kind: st.isSymbolicLink() ? 'symlink' : st.isFile() ? 'file' : 'other' });
-  }
-  return { unsafe: '', entries };
-}
+export { SHIPPED_GITHOOKS, githooksFolder };
 
 /** @param {string} p */
 function isExecutable(p) { try { accessSync(p, constants.X_OK); return true; } catch { return false; } }
@@ -247,10 +229,15 @@ function runMerged(program, args, opt) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** The environment of a probe command: no git location, no identity override, no terminal. @param {NodeJS.ProcessEnv} env */
-function probeEnv(env) {
-  const e = { ...env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_EMAIL', 'AGENT_ROLE']) delete e[k];
+/**
+ * The environment of a probe command (A249): an allowlist of what git and node need, HOME in the throwaway folder, no global or system git configuration, and nothing else:
+ * no SSH_AUTH_SOCK, no tokens, no proxy or credential variable of the user, and no PROOFLINE_* switch.
+ * @param {NodeJS.ProcessEnv} env @param {string} home
+ */
+export function probeEnv(env, home) {
+  /** @type {NodeJS.ProcessEnv} */ const e = {};
+  for (const [k, v] of Object.entries(env)) if (/^(PATH|LANG|LANGUAGE|LC_[A-Z]+|TZ|TMPDIR|SYSTEMROOT|COMSPEC|PATHEXT|USER|LOGNAME)$/.test(k)) e[k] = v;
+  e.HOME = home; e.GIT_CONFIG_GLOBAL = '/dev/null'; e.GIT_CONFIG_NOSYSTEM = '1'; e.GIT_TERMINAL_PROMPT = '0';
   e.PROOFLINE_NO_TTY = '1';
   return e;
 }
@@ -267,6 +254,8 @@ class Doctor {
     this.home = ctx.env.HOME ?? '';
     this.fails = 0; this.warns = 0;
     this.runtimes = '';
+    /** @type {boolean} */ this.hooksSame = false; this.skipNoted = false;
+    /** @type {{ problems: import('./codetrust.mjs').CodeProblem[], unreadable: boolean } | undefined} */ this.code = undefined;
     /** @type {Config} */ this.cfg = ctx.config();
   }
 
@@ -322,7 +311,7 @@ class Doctor {
   }
 
   doctorRules() {
-    if (!isFile(this.agent)) return;
+    if (!isFile(this.agent) || !this.mayRunProjectCode('the config check, the approval timing, the rules report, the time limits and the lead model check were')) return;
     const r = agentCall(this.ctx, ['rules', 'report']);
     if (r.status !== 0) return;
     const out = u(r.out).replace(/\n+$/, '');
@@ -344,9 +333,19 @@ class Doctor {
     else this.pass(`identity: commits use ${this.gitOut(['var', 'GIT_AUTHOR_IDENT']).split('\n')[0].replace(/ [0-9]* [-+][0-9]*$/, '')} from ${src}; no git.forbidden_identities match`);
   }
 
-  /** Live probes in a throwaway repository: the project's own hooks and scripts are copied there. */
+  /**
+   * Live probes in a throwaway repository. They run the SHIPPED hooks and scripts (copied from the plugin), never the project's own: a cloned repository controls its
+   * `.agents` code, and the probe would run it as the user (A249). When the project's code is not the shipped copy the probes are skipped, with the reason.
+   */
   doctorProbes() {
     const env = this.ctx.env;
+    if (env.PROOFLINE_DOCTOR_PROBES === '0') { this.warn('probes: skipped (PROOFLINE_DOCTOR_PROBES=0)'); return; }
+    const bad = this.untrustedCode();
+    if (bad === null) { this.warn('probes: skipped, the shipped hooks and scripts could not be read from the proofline plugin'); return; }
+    if (bad.length > 0) {
+      this.warn(`probes: skipped, because the project's own hooks or scripts are not proofline's shipped copy (${bad.slice(0, 3).map((p) => problemText(p)).join('; ')}${bad.length > 3 ? '; and more' : ''}); the probes would test or run code from the repository. Review them; if you did not edit them, run: proofline upgrade`);
+      return;
+    }
     let PD;
     try { PD = mkdtempSync(path.join(tmpdir(), 'proofline-doctor.')); } catch { this.warn('probes: cannot create a temp directory'); return; }
     const cleanup = () => { try { rmSync(PD, { recursive: true, force: true }); } catch { /* gone */ } };
@@ -358,13 +357,17 @@ class Doctor {
   probes(PD, env) {
     const repo = `${PD}/repo`; const remote = `${PD}/remote.git`;
     mkdirSync(repo, { recursive: true }); mkdirSync(remote, { recursive: true });
-    const clean = { ...env }; for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete clean[k];
+    const clean = probeEnv(env, PD);
     const init = (/** @type {string[]} */ a) => proc.run('git', a, { env: clean, stdio: 'ignore' }).status === 0;
     if (!(init(['init', '-q', '--bare', remote]) && init(['init', '-q', repo]))) { this.warn('probes: git init failed'); return; }
-    const skip = new Set(['runs', 'local', 'skills'].map((n) => `${this.root}/.agents/${n}`));
+    // the project's data (config, roles, owns.conf ...) is copied; the CODE (scripts, git hooks, Node hooks) is the shipped copy from the plugin, never the project's
+    const skip = new Set(['runs', 'local', 'skills', 'scripts', 'githooks', 'hooks'].map((n) => `${this.root}/.agents/${n}`));
     try { cpSync(`${this.root}/.agents`, `${repo}/.agents`, { recursive: true, verbatimSymlinks: true, filter: (src) => !skip.has(src) }); } catch { /* the probes below report what is missing */ }
+    for (const [rel, abs] of shippedCode(this.plHome)) {
+      try { mkdirSync(path.dirname(`${repo}/${rel}`), { recursive: true }); cpSync(abs, `${repo}/${rel}`); } catch { this.warn(`probes: could not place the shipped ${rel}`); return; }
+    }
     const pc = `${repo}/.agents/config.yaml`;
-    const pe = probeEnv(env);
+    const pe = clean;
     /** @param {string[]} a @param {NodeJS.ProcessEnv} [e] */
     const pg = (a, e = pe) => proc.run('git', a, { cwd: repo, env: e, stdio: ['ignore', 'ignore', 'pipe'] });
     /** @param {Buffer} b */
@@ -393,9 +396,9 @@ class Doctor {
     if (push('probe-other')) this.fail('probe: pre-push let an agent push without approval');
     else this.pass('probe: pre-push blocks a push without approval');
     // human detection: agent session markers decide, not a terminal (no TTY here; the markers are cleared or set)
-    const human = { ...env };
+    const human = { ...pe };
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'AGENT_ROLE', 'PROOFLINE_NO_TTY', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID', 'CODEX_CI', 'CODEX_SANDBOX', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID']) delete human[k];
-    const agent = { ...env }; for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'AGENT_ROLE', 'PROOFLINE_NO_TTY']) delete agent[k];
+    const agent = { ...pe }; for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'AGENT_ROLE', 'PROOFLINE_NO_TTY']) delete agent[k];
     agent.CLAUDECODE = '1';
     if (push('probe-human', human) && !push('probe-agent', agent)) this.pass('probe: a push without a terminal or agent markers passes as a human; one with agent markers is blocked');
     else this.fail('probe: human detection is wrong (a push without agent markers must pass, one with CLAUDECODE set must be blocked)');
@@ -403,7 +406,7 @@ class Doctor {
     if (commandV('node', env) === null) { this.warn('probe: runtime hooks not probed (the hook needs node)'); return; }
     const hook = `${repo}/.agents/hooks/proofline-hook.mjs`;
     mkdirSync(`${repo}/.agents/local`, { recursive: true }); mkdirSync(`${repo}/src`, { recursive: true });
-    const he = { ...env }; delete he.AGENT_ROLE; he.CLAUDE_PROJECT_DIR = repo; he.PROOFLINE_NO_TTY = '1';
+    const he = { ...pe }; delete he.AGENT_ROLE; he.CLAUDE_PROJECT_DIR = repo; he.PROOFLINE_NO_TTY = '1';
     /** @param {string} rt @param {string} json */
     const hookDenies = (rt, json) => {
       const o = proc.run('node', [hook, 'pretool', rt], { cwd: this.ctx.cwd, env: he, input: json, stdio: ['pipe', 'pipe', 'ignore'] });
@@ -491,6 +494,7 @@ class Doctor {
     if (!nonEmpty(j)) { this.fail('ecosystems: .agents/ecosystems.json is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)'); return; }
     try { JSON.parse(readFileSync(j, 'utf8')); } catch { this.fail('ecosystems: .agents/ecosystems.json is not valid JSON (run: proofline upgrade)'); return; }
     if (!isFile(m)) { this.fail('ecosystems: .agents/ecosystems.mjs is missing, so the definition cannot be read (run: proofline upgrade)'); return; }
+    if (!this.mayRunProjectCode('the config check, the approval timing, the rules report, the time limits and the lead model check were')) return;
     const o = runMerged(process.execPath, [m, 'check'], { cwd: this.ctx.cwd, env: this.ctx.env });
     if (o.status === 0) this.pass('ecosystems: .agents/ecosystems.json is a valid definition');
     else this.fail(`ecosystems: ${headJoined(o.text, 2)} (run: proofline upgrade)`);
@@ -541,14 +545,43 @@ class Doctor {
         if (critical(rel)) crit.push(rel); else gone++;
       } else if (sha256File(`${this.root}/${rel}`) !== sum) bad++;
     }
+    // A249: a code file the manifest does not list was kept as the user's (the installer records only what it installed); it cannot pass as matching
+    {
+      const listed = new Set(readFileSync(mf, 'utf8').split('\n').filter((l) => !l.startsWith('#') && l.trim() !== '').map((l) => (/^[ \t]*[^ \t]*[ \t]*(.*?)[ \t]*$/.exec(l)?.[1] ?? '')));
+      for (const rel of shippedCode(this.plHome).keys()) if (!rel.startsWith('.agents/hooks/') && !listed.has(rel)) bad++;
+    }
     for (const c of crit) this.fail(`manifest: required control-plane file missing: ${c} (run: proofline upgrade)`);
     if (gone > 0) this.warn(`manifest: ${gone} installed file(s) are missing (proofline upgrade restores them)`);
     if (bad > 0) this.warn(`manifest: ${bad} installed file(s) differ from the installed version (modified by you; upgrade keeps them)`);
     if (gone === 0 && bad === 0 && crit.length === 0) this.pass('manifest: every installed file matches');
   }
 
+  /**
+   * A249: the problems that make the project's code something doctor must not RUN: a link, a file that differs from the shipped one, a file proofline does not ship in a
+   * code folder. (A staged or committed difference does not change what is on disk now; it is reported, not a reason to skip.) An unreadable shipped tree is untrusted too.
+   * @returns {import('./codetrust.mjs').CodeProblem[] | null} null when the shipped tree could not be read
+   */
+  untrustedCode() {
+    if (this.code === undefined || this.code.unreadable) return null;
+    return this.code.problems.filter((p) => p.kind === 'link' || p.kind === 'differs' || (p.kind === 'extra' && !p.rel.startsWith('.agents/githooks')));
+  }
+
+  /** @param {string} what the sections that need the project's scripts @returns {boolean} true when the project's scripts may be run; otherwise says once why not */
+  mayRunProjectCode(what) {
+    const bad = this.untrustedCode();
+    if (bad !== null && bad.length === 0) return true;
+    if (!this.skipNoted) {
+      this.skipNoted = true;
+      this.warn(`doctor: ${what} not run, because the project's own scripts and hooks under .agents are ${bad === null ? 'not comparable with the shipped copies (the proofline plugin could not be read)' : `not proofline's shipped copy (${bad.slice(0, 3).map((p) => problemText(p)).join('; ')}${bad.length > 3 ? '; and more' : ''})`}, and running them would run code from the repository. Review them; if you did not edit them, run: proofline upgrade`);
+    }
+    return false;
+  }
+
   doctorGitHooks() {
     const st = hooksPathState((a) => this.git(a), this.root);
+    this.hooksSame = st.state === 'same';
+    // A249: the code the hooks load, compared with the SHIPPED copies (working file sha256, index and HEAD blobs); never with the manifest, which a cloned repository writes
+    this.code = codeAudit(this.root, this.plHome, this.ctx.env);
     if (st.state === 'same') {
       let ok = true;
       const folder = githooksFolder(this.root);
@@ -559,15 +592,18 @@ class Doctor {
           const e = folder.entries.find((x) => x.name === h);
           if (e === undefined || !isExecutable(f)) { this.fail(`git hooks: .agents/githooks/${h} is missing or not executable`); ok = false; continue; }
           if (e.kind !== 'file') { this.fail(`git hooks: .agents/githooks/${h} is ${e.kind === 'symlink' ? 'a symbolic link' : 'not a regular file'}; git would run its target. Replace it with proofline's copy: delete it and run proofline init`); ok = false; continue; }
-          const shipped = `${this.plHome}/control-plane/agents/githooks/${h}`;
-          if (this.plHome === '' || !isFile(shipped)) { this.warn(`git hooks: the shipped ${h} could not be read, so .agents/githooks/${h} was not compared`); continue; }
-          if (sha256File(f) !== sha256File(shipped)) { this.fail(`git hooks: .agents/githooks/${h} differs from the copy proofline ships (sha256 mismatch): git runs this file at every ${h === 'pre-push' ? 'push' : 'commit'}, so it may be code from the repository and not proofline's lock. Review it; to restore proofline's copy delete it and run: proofline init`); ok = false; }
+          if (this.code.unreadable) { this.warn(`git hooks: the shipped ${h} could not be read, so .agents/githooks/${h} was not compared`); continue; }
+          if (this.code.problems.some((p) => p.rel === `.agents/githooks/${h}` && p.kind === 'differs')) {
+            this.fail(`git hooks: .agents/githooks/${h} differs from the copy proofline ships (sha256 mismatch): git runs this file at every ${h === 'pre-push' ? 'push' : 'commit'}, so it may be code from the repository and not proofline's lock. If you did not edit it (an older proofline left it), run: proofline upgrade; otherwise review it, and to go back to proofline's copy delete it and run: proofline init`); ok = false;
+          }
         }
         for (const e of folder.entries) {
           if (SHIPPED_GITHOOKS.includes(e.name)) continue;
           this.fail(`git hooks: .agents/githooks/${e.name} is not a file proofline ships; git may run it (a hook name) and proofline did not review it. Review it or remove it`); ok = false;
         }
       }
+      // a staged or committed hook that is not the shipped one is reported by doctorCode; the PASS is not printed over it
+      if (this.code.problems.some((p) => p.rel.startsWith('.agents/githooks') && (p.kind === 'index' || p.kind === 'head'))) ok = false;
       if (ok) this.pass('git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable and identical to the shipped copies');
     } else if (st.state === 'unset') this.fail('git hooks: core.hooksPath is not set; the commit and push locks are inactive. Fix: git config --local core.hooksPath .agents/githooks');
     else {
@@ -576,7 +612,27 @@ class Doctor {
     }
   }
 
+  /**
+   * A249: the scripts the git hooks start (`.agents/scripts/proofline-core.mjs`, `core/**`), the Node hook tree and the git hooks themselves are CODE; each must be the shipped
+   * file (sha256), not a link, and, when tracked, staged and committed as the shipped bytes (a clean working copy over a hostile blob comes back with `git restore .`).
+   */
+  doctorCode() {
+    if (this.code === undefined || this.code.unreadable) {
+      this.warn('code: the shipped files could not be read from the proofline plugin, so the scripts and hooks of the project were not compared');
+      return;
+    }
+    const hooksReported = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => this.hooksSame && p.rel.startsWith('.agents/githooks') && p.kind !== 'index' && p.kind !== 'head';
+    const rest = this.code.problems.filter((p) => !hooksReported(p));
+    for (const p of rest.filter((x) => x.rel.startsWith('.agents/githooks'))) this.fail(`code: ${problemText(p)}; ${p.kind === 'index' || p.kind === 'head' ? 'review it and run: git checkout -- ' + p.rel + ' only after you know what it is' : 'review it'}`);
+    const other = rest.filter((x) => !x.rel.startsWith('.agents/githooks'));
+    if (other.length > 0) {
+      const names = other.slice(0, 4).map((p) => problemText(p)).join('; ');
+      this.fail(`code: ${other.length} script or hook file(s) of .agents are not proofline's shipped copy (${names}${other.length > 4 ? '; and more' : ''}); the git hooks and the runtime hooks run them. If you did not edit them (an older proofline left them), run: proofline upgrade; otherwise review them before you commit or run anything here`);
+    }
+  }
+
   doctorConfigAndApproval() {
+    if (!this.mayRunProjectCode('the config check, the approval timing, the rules report, the time limits and the lead model check were')) return;
     const c = runMerged('sh', [this.agent, 'config-check'], { cwd: this.root, env: this.ctx.env });
     if (c.status === 0) this.pass(`config: ${c.text.replace(/\n+$/, '').split('\n')[0]}`);
     else this.fail(`config: agent.sh config-check failed: ${headJoined(c.text, 2)}`);
@@ -592,6 +648,7 @@ class Doctor {
   }
 
   doctorTimeouts() {
+    if (!this.mayRunProjectCode('the config check, the approval timing, the rules report, the time limits and the lead model check were')) return;
     const sc = this.val('timeouts.scale', '1.0');
     const info = u(agentCall(this.ctx, ['timeouts']).out);
     const mx = /^dispatch\.CRITICAL=(.*)$/m.exec(info)?.[1] ?? '';
@@ -600,7 +657,7 @@ class Doctor {
 
   doctorLeadModel() {
     const core = `${this.root}/.agents/scripts/proofline-core.mjs`;
-    if (this.val('runtime.lead', 'claude') !== 'codex' || !isFile(core)) return;
+    if (this.val('runtime.lead', 'claude') !== 'codex' || !isFile(core) || !this.mayRunProjectCode('the config check, the approval timing, the rules report, the time limits and the lead model check were')) return;
     if (!/^ {2}lead_base_model:/m.test(readFileSync(this.cfgFile, 'latin1'))) this.warn('lead model: .agents/config.yaml has no execution_policy.lead_base_model (the built-in base is used; run: proofline upgrade)');
     const run = (/** @type {string[]} */ a) => { const r = agentCall(this.ctx, ['cli', 'exec-policy', ...a]); return r; };
     const res = run(['resolve', '--role', 'lead', '--class', 'STANDARD', '--tier', 'full']);
@@ -646,7 +703,7 @@ class Doctor {
   doctorClaudeSettings() {
     const files = ['.claude/settings.json', '.claude/settings.local.json'];
     /** @type {Array<{ rel: string, json: any }>} */ const parsed = [];
-    let projectBroken = false;
+    let projectBroken = false; let outerOff = false;
     for (const rel of files) {
       const f = `${this.root}/${rel}`;
       if (!existsSync(f)) continue;
@@ -660,6 +717,18 @@ class Doctor {
       }
       parsed.push({ rel, json: j });
       if (j.disableAllHooks !== undefined && j.disableAllHooks !== false) this.fail(`claude hooks: disableAllHooks is ${JSON.stringify(j.disableAllHooks)} in ${rel} (only absent or false leaves the hooks on); Claude Code runs no hook at all, so every proofline guard is off. Remove the key or set it to false`);
+    }
+    // R2 (A249): Claude Code honours `disableAllHooks` in the user's settings and in the managed (administrator) settings too; a file there that is not JSON is not ours to judge
+    const outer = [[`${this.home}/.claude/settings.json`, '~/.claude/settings.json'], [this.ctx.env.PROOFLINE_CLAUDE_MANAGED_SETTINGS ?? (process.platform === 'darwin' ? '/Library/Application Support/ClaudeCode/managed-settings.json' : '/etc/claude-code/managed-settings.json'), 'the managed settings']];
+    for (const [f, label] of outer) {
+      if (this.home === '' && label.startsWith('~')) continue;
+      try {
+        const j = JSON.parse(readFileSync(f, 'utf8'));
+        if (j !== null && typeof j === 'object' && !Array.isArray(j) && j.disableAllHooks !== undefined && j.disableAllHooks !== false) {
+          this.fail(`claude hooks: disableAllHooks is ${JSON.stringify(j.disableAllHooks)} in ${label} (only absent or false leaves the hooks on); Claude Code runs no hook at all in any project, so every proofline guard is off. Remove the key or set it to false`);
+          outerOff = true;
+        }
+      } catch { /* absent or not JSON */ }
     }
     if (projectBroken) return;
     /** @type {any} */ let frag = null;
@@ -677,7 +746,7 @@ class Doctor {
       if (frag !== null && !mine.some((g) => matcherCovers(g.matcher, want, ev))) narrow.push(ev);
     }
     if (missing.length === 0 && narrow.length === 0) {
-      if (!parsed.some((x) => x.json.disableAllHooks !== undefined && x.json.disableAllHooks !== false)) this.pass('claude hooks: .claude/settings.json wires all 7 proofline events');
+      if (!outerOff && !parsed.some((x) => x.json.disableAllHooks !== undefined && x.json.disableAllHooks !== false)) this.pass('claude hooks: .claude/settings.json wires all 7 proofline events');
     } else if (this.pluginListsProofline()) this.pass('claude hooks: provided by the proofline plugin (project settings do not need them)');
     else {
       if (missing.length > 0) this.fail(`claude hooks: .claude/settings.json lacks proofline hooks for:${missing.map((e) => ` ${e}`).join('')} (run: proofline init)`);
@@ -751,6 +820,7 @@ class Doctor {
     this.doctorEngine();
     this.doctorManifest();
     this.doctorGitHooks();
+    this.doctorCode();
     this.doctorConfigAndApproval();
     this.doctorTimeouts();
     this.doctorEcosystems();
