@@ -53,7 +53,7 @@ cd your-project && proofline init
 npx skills add furkansarikaya/proofline --skill <name>
 ```
 
-Windows: WSL or Git Bash; CI proves only the hook. Not tried (denenmedi): `.cmd` shims of `gh`/`az` (refused; use the `.exe`), `taskkill /T`, and `glab`, `az`, Jira, Linear on a real service ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
+Supported on macOS and Linux. On Windows only the hook tests run in CI; not tried (denenmedi): `.cmd` shims of `gh`/`az` (refused; use the `.exe`), `taskkill /T`, and `glab`, `az`, Jira, Linear on a real service ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
 
 ## Quick start (5 minutes)
 

@@ -214,6 +214,7 @@ Written against fakes only, never against the real thing (A252):
 
 - **Windows `.cmd` shims.** `gh`, `glab` and `az` run only as a real `.exe`/`.com` found through `PATHEXT`, outside the project, the working directory and temporary folders (a refusal list, no ACL check). A `.cmd` or `.bat` shim is refused, never run through `cmd.exe` (it re-parses `& | ^ % " <`, CVE-2024-27980); the message names the shim and says to put the real `.exe` first on `PATH` (`az` ships only `az.cmd`: merge in Azure DevOps yourself). Rules tested with a fake file system; not tried on Windows.
 - **Bare program names (Windows).** The core, the hook and the CLI start a bare program name (`git`, `gh`) only as an absolute `.exe` found on `PATH`, never one inside the working folder; a tool under the current folder tree (running from a home folder, or a project at a drive root) is refused too. The skill scripts that start programs themselves are not covered (A252). Not tried on Windows.
+- **WSL and Git Bash.** WSL counts as Linux; Git Bash and native Windows are not tried.
 - **`taskkill /T`** (the process-tree kill of the dispatcher, A226): the command is tested with an injected spawn; not tried on Windows.
 - **Not tried against a real service:** the Jira adapter, the Linear adapter, `glab` and `az` (fake servers and fake tools only).
 
