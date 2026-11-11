@@ -3,7 +3,10 @@
 //   node validate-qa.mjs plan   QA_PLAN.md   [--task TASK.md] [--plan PLAN.md] [--entry-words REGEX]
 //   node validate-qa.mjs report QA_REPORT.md [--plan QA_PLAN.md]
 //   node validate-qa.mjs hash   QA_PLAN.md   (prints the sha256 the report must cite)
+//   node validate-qa.mjs --help               (prints this header; the file formats are assets/QA_PLAN.template.md and assets/QA_REPORT.template.md)
 // Exit codes: 0 valid, 1 invalid, 2 usage or read error. --json prints the parsed result.
+// Plan scenario: `- QA-n (AC-k[, AC-j])[ [category]]: title`, then indented lines `input:` `expected:` `execution: auto|manual` `run:` (and `reason:` `human-check:`).
+// Categories (adversarial scenarios): boundaries, invalid-input, concurrency, idempotency, permissions, persistence, ui-states, error-paths.
 
 import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -249,11 +252,19 @@ export function validateReport(text, planText) {
   return { valid: errors.length === 0, errors, verdict: verdicts[0], computed };
 }
 
+// --help (A256): the header comment of this script, so the usage and the format never differ from the code that checks them.
+const helpText = () => {
+  const out = [];
+  for (const l of readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1)) { if (!l.startsWith("//")) break; out.push(l.replace(/^\/\/ ?/, "")); }
+  return out.join("\n") + "\n";
+};
+
 function main(argv) {
+  if (argv.length === 1 && argv[0] === "--help") { process.stdout.write(helpText()); return 0; }
   const [mode, file] = argv;
   const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
   const read = (p) => { try { return readFileSync(p, "utf8"); } catch (e) { console.error(`cannot read ${p}: ${e.message}`); process.exit(2); } };
-  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F] [--plan F] [--entry-words REGEX] [--json]"); return 2; }
+  if (!["plan", "report", "hash"].includes(mode) || !file) { console.error("usage: validate-qa.mjs plan|report|hash FILE [--task F] [--plan F] [--entry-words REGEX] [--json] | --help"); return 2; }
   if (mode === "hash") { console.log(sha256(read(file))); return 0; }
   const r = mode === "plan" ? validatePlan(read(file), opt("--task") ? read(opt("--task")) : undefined, opt("--plan") ? read(opt("--plan")) : undefined, entryConfig(opt("--plan") ? [resolve(dirname(opt("--plan")), "../../.."), process.cwd()] : [process.cwd()], opt("--entry-words"))) : validateReport(read(file), opt("--plan") ? read(opt("--plan")) : undefined);
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2)); else r.errors.forEach((e) => console.error(`error: ${e}`));

@@ -4,7 +4,7 @@ description: Mechanical proof that a frozen plan was implemented - every accepta
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.88"
+  version: "0.0.89"
 ---
 
 # verify-proof
@@ -50,7 +50,7 @@ One rule: **only what a command or a trace shows counts.** The verifier answers 
 
 ## Output
 
-`VERIFY.md` (sections: Commands, AC coverage, Scope, Design sync, Runtime, Pre-existing failures, Failures, then the Verdict line). Validation schema: [schema/verify-validation.schema.json](schema/verify-validation.schema.json). Ledger: [assets/ledger-template.md](assets/ledger-template.md).
+`VERIFY.md` (sections: Commands, AC coverage, Scope, Design sync, Runtime, Pre-existing failures, Failures, then the Verdict line). Format and usage: `validate-verify.mjs --help`; `--json` summary: `schema/verify-validation.schema.json`. Ledger: [assets/ledger-template.md](assets/ledger-template.md).
 
 Standalone final message in the user's language: the output path, verdict, the failing rows (command, exit, key output line), AC table, and the question "fix the failures, or accept and waive?".
 

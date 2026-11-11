@@ -4,7 +4,7 @@ description: "Reviews a code change (uncommitted work, a branch, or a PR) and re
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.88"
+  version: "0.0.89"
 ---
 
 # proof-review
@@ -81,7 +81,7 @@ Computed from the findings, never from judgement:
 - an `unrequested` record marked `"blocking": true` (inside a run only: a hunk in the plan scope that changes behaviour and ties to no acceptance criterion, [PLAN-CHECK.md](references/PLAN-CHECK.md#2-unrequested-changes-in-a-run)) -> `FAIL`;
 - otherwise `PASS`. Suspicions, other unrequested changes and `done` claims never fail the gate.
 
-`findings.json` carries `gate: {result, failing}`; `node <skill-dir>/scripts/validate-findings.mjs` recomputes it and rejects a mismatch or a focus that reports another focus's series. `node <skill-dir>/scripts/gate.mjs <findings.json>` prints the result.
+`findings.json` carries `gate: {result, failing}`; `validate-findings.mjs` (`--schema` prints the shape, `--help` the usage) recomputes it and rejects a mismatch or a focus that reports another focus's series. `node <skill-dir>/scripts/gate.mjs <findings.json>` prints the result.
 
 <!-- proofline:shared-rules:begin v1 -->
 ## Shared rules (proofline)
