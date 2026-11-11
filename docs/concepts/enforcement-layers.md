@@ -98,8 +98,8 @@ registered, a crafted folder) the old project-relative path applies, which is de
 ## Hook cost (A188)
 
 Every tool call starts the runtime hook (PreToolUse for Edit, Write, Bash, Read, Grep and Glob; PostToolUse for every tool), so the number of
-processes one run starts is the cost that matters, most of all in Git Bash on Windows, where starting a process takes tens of milliseconds
-(there is no Windows runner in CI: that figure is an estimate, not a measurement). The hook is one Node process per event, so it reads the event's JSON and answers path, name and number work in process, asks `agent.sh hook-config` once per event for every config value it needs, and takes the clock
+processes one run starts is the cost that matters, most of all on Windows, where starting a process takes tens of milliseconds
+(the `hook-windows` leg runs the hook tests on a Windows runner; everything else on Windows is not tried (denenmedi), so that figure is an estimate). The hook is one Node process per event, so it reads the event's JSON and answers path, name and number work in process, asks `agent.sh hook-config` once per event for every config value it needs, and takes the clock
 once per measurement. The approval step (recording an approval from your reply) normalises all allowed phrases in one pass instead of one
 pipeline per phrase. Behaviour is unchanged; `tests/bench/hook-procs.mjs` (run by the process-budget test) counts external processes per event with a PATH shim, and
 the numbers are in decision A188.

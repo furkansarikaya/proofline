@@ -12,4 +12,4 @@ side effect of other work. Each has a condition for revisiting.
 | Measuring hook cost on Windows runners | A Windows user reports slowness or a Windows runner is available |
 | Linux sandbox profile verification for Codex workers | A Linux user runs Codex workers |
 | Renaming the product because of a name clash | Before investing in SEO or a public launch |
-| Windows support beyond the hook tests: the core's Node tests and invariants on windows-latest (road map in A254), and the 16 skill scripts behind the Windows program resolver (A252) | The last Windows package of epic #165 lands (A254 road map); then remove this row |
+| Windows support beyond the hook tests: the core's Node tests and invariants on windows-latest (road map in A254), and the 16 skill scripts that do not go through the Windows program resolver (A252) | The last Windows package of epic #165 lands (A254 road map); then remove this row |

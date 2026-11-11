@@ -157,7 +157,7 @@ jobs:
 
   # A251, stage 15: a MEASUREMENT of the core's Node tests and the Node Core-invariant suite on Windows. It is not a gate and not a claim: on the first run (A251) most core tests and 7 of the 8
   # invariant tests failed on windows-latest, so the README does not say they pass there. Manual runs only (workflow_dispatch), `continue-on-error`, so the nightly workflow does not go red for known work;
-  # when a run of it is all green, remove `continue-on-error`, widen the condition to the nightly schedule and let README.md claim Windows.
+  # it stays a manual, non-gating measurement until the LAST Windows package of epic #165 lands (A254); then the Windows hook and core jobs become gates of the nightly run.
   windows-core-probe:
     needs: [changes]
     if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.code == 'true'
