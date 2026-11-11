@@ -44,5 +44,13 @@ export function grepLineCiStatus(env, pattern, line) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** A forbidden_identities entry with no ERE-only metacharacter: a glob (`*@x.com`), not a regular expression. */
-export const GLOB_ONLY = /^[^^$()|[\]{}+\\]*$/;
+/**
+ * Is a git.forbidden_identities entry shaped like a shell glob (caseMatch)? An entry is a glob OR an ERE; BSD grep rejects an ERE that starts with a repetition
+ * operator (`*@x.com`, `*+bot@x.com`, `*[a-z]@x.com`), so "grep cannot use it" is a failure only for an entry that is not glob-shaped: one with an unescaped `*` or `?`
+ * or a bracket class. Accepted limit: an ERE typo that also holds a star (`(a.*`) is read as a glob and matches nothing.
+ * @param {string} p
+ */
+export function globShaped(p) {
+  const bare = p.replace(/\\[^]/g, '');
+  return /[*?]/.test(bare) || /\[[^\]]+\]/.test(bare);
+}

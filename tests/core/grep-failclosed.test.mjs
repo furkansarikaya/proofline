@@ -7,7 +7,8 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, test } from 'node:test';
 import { ereToRegExp } from '../../control-plane/agents/scripts/core/ere.mjs';
-import { forbidden } from '../../control-plane/agents/scripts/core/githooks.mjs';
+import { caseMatch, cfg2, forbidden } from '../../control-plane/agents/scripts/core/githooks.mjs';
+import { grepLineCi } from '../../control-plane/agents/scripts/core/grepfile.mjs';
 import { grepEq } from '../../control-plane/agents/scripts/core/signals.mjs';
 import { A, newRepo } from '../lib/harness.mjs';
 import { makeFixture } from './fixture.mjs';
@@ -54,10 +55,54 @@ test('config-check rejects an invalid pattern in git.forbidden_identities and in
   const fi = run(orig.replace(/^(\s*forbidden_identities:).*$/m, '$1 ^(unclosed'));
   assert.notEqual(fi.status, 0);
   assert.match(fi.text, /invalid regular expression for git\.forbidden_identities/);
-  assert.equal(run(orig.replace(/^(\s*forbidden_identities:).*$/m, '$1 *@example-corp.com ^ops@x\\.example$')).status, 0);
+  assert.equal(run(orig.replace(/^(\s*forbidden_identities:).*$/m, '$1 *@example-corp.com *+bot@x.example *[a-z]@x.com *@(a|b).com *.{dev} ^ops@x\\.example$')).status, 0);
+  assert.notEqual(run(orig.replace(/^(\s*forbidden_identities:).*$/m, '$1 a(b')).status, 0);
   const risk = (/** @type {string} */ body) => run(orig.replace(/^risk:\n/m, `risk:\n  mine_extra:\n    check: config\n    paths: "*.cfg"\n${body}`));
   const noWords = risk('    content: "(unclosed"\n');
   assert.notEqual(noWords.status, 0);
   assert.match(noWords.text, /invalid regular expression for risk\.mine_extra\.content/);
   assert.equal(risk('    content: "(closed)"\n').status, 0);
+});
+
+test('forbidden: every glob entry that worked before keeps working (same answer as the code before the change, no notice); only an entry that is neither a glob nor an ERE fails closed', () => {
+  const env = { PATH: process.env.PATH ?? '', LC_ALL: 'C' };
+  /** the code before the change: the glob, then the ERE; grep exit 2 meant no match */
+  const legacy = (/** @type {string} */ p, /** @type {string} */ email) => {
+    if (caseMatch(p.toLowerCase(), email.toLowerCase())) return true;
+    const re = ereToRegExp(p, true);
+    return re !== null ? re.test(email) : grepLineCi(env, p, `${email}\n`);
+  };
+  const entries = ['*@example-corp.com', '*+bot@x.example', '*[a-z]@x.com', '*@(a|b).com', '*.{dev}', '?x@x.com', '*@x.com', '^ops@legacy\\.example$', 'bot[0-9]@x\\.com'];
+  const emails = ['dev@example.test', 'Dev@Example-Corp.com', '123+bot@x.example', 'q@x.com', 'q@a.com', 'q@b.com', 'a.dev', 'ax@x.com', 'ops@legacy.example', 'bot1@x.com'];
+  for (const e of entries) for (const m of emails) {
+    const ctx = fx.ctx();
+    assert.equal(forbidden(ctx, cfgWith(e), m), legacy(e, m), `${e} on ${m}`);
+    assert.equal(errOf(ctx), '', `a notice for the valid entry ${e}`);
+  }
+  assert.equal(forbidden(fx.ctx(), cfgWith('*+bot@x.example'), '123+bot@x.example'), true);
+  assert.equal(forbidden(fx.ctx(), cfgWith('*[a-z]@x.com'), 'q@x.com'), true);
+  for (const bad of ['a(b', '^(unclosed', 'x[']) {
+    const ctx = fx.ctx();
+    assert.equal(forbidden(ctx, cfgWith(bad), 'dev@example.test'), true, bad);
+    assert.match(errOf(ctx), /not a valid extended regular expression/);
+  }
+});
+
+test('the hooks read git.forbidden_identities like every other command: inline, block list, double or single quoted, comment after the value, empty', () => {
+  const forms = {
+    inline: 'git:\n  forbidden_identities: *@corp.com\n',
+    inlineTwo: 'git:\n  forbidden_identities: x@y.example *@corp.com\n',
+    block: 'git:\n  forbidden_identities:\n    - "*@corp.com"\n    - \'z@z.example\'\n',
+    double: 'git:\n  forbidden_identities: "*@corp.com"\n',
+    single: "git:\n  forbidden_identities: '*@corp.com'\n",
+    comment: 'git:\n  forbidden_identities: *@corp.com   # the corp mail\n',
+  };
+  for (const [name, cfg] of Object.entries(forms)) {
+    assert.equal(forbidden(fx.ctx(), cfg, 'dev@corp.com'), true, `${name}: matching identity`);
+    assert.equal(forbidden(fx.ctx(), cfg, 'dev@example.test'), false, `${name}: other identity`);
+  }
+  assert.equal(forbidden(fx.ctx(), forms.block, 'z@z.example'), true);
+  assert.equal(cfg2('git:\n  forbidden_identities:\n', 'git', 'forbidden_identities'), '');
+  assert.equal(forbidden(fx.ctx(), 'git:\n  forbidden_identities:\n', 'dev@corp.com'), false);
+  assert.equal(forbidden(fx.ctx(), 'git:\n  forbidden_identities: # none\n', 'dev@corp.com'), false);
 });

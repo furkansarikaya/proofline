@@ -4,8 +4,9 @@
 // exit codes (0 pass, 1 blocked, all text on stderr). The run commands the hooks ask (`open-runs`, `fingerprint`, `approval-consume`) run in
 // process; `delivery-check` is not a Node command yet and is reached through the shell (the bridge) until stage 4.
 
+import { configGetFrom, configLines } from './config.mjs';
 import { ereToRegExp } from './ere.mjs';
-import { GLOB_ONLY, grepLineCiStatus } from './grepfile.mjs';
+import { globShaped, grepLineCiStatus } from './grepfile.mjs';
 
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
@@ -47,17 +48,14 @@ export function human(env) {
   return ['AGENT_ROLE', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID', 'CODEX_CI', 'CODEX_SANDBOX', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID'].every((k) => (env[k] ?? '') === '');
 }
 
-/** `cfg SECTION KEY` of the hooks: a two-level key, first match. @param {string} config the file text @param {string} section @param {string} key */
+/**
+ * `cfg SECTION KEY` of the hooks: a two-level key, read by the SAME reader as every other command (configLines / configGetFrom: block lists, double quotes,
+ * a comment after the value); a surrounding pair of single quotes is dropped as well, so a quoted deny entry is not silently a different pattern (A250).
+ * Items of a block list come one per line. @param {string} config the file text @param {string} section @param {string} key
+ */
 export function cfg2(config, section, key) {
-  let inside = false;
-  for (const line of textLines(config)) {
-    if (line.startsWith(`${section}:`)) { inside = true; continue; }
-    if (/^[^ #]/.test(line)) inside = false;
-    if (inside && line.startsWith(`  ${key}:`)) {
-      return line.replace(/^[^:]*:[ \t\n\v\f\r]*/, '').replace(/[ \t\n\v\f\r]+#.*$/, '').replace(/"/g, '');
-    }
-  }
-  return '';
+  const v = configGetFrom(configLines(config), `${section}.${key}`) ?? '';
+  return v.split('\n').map((x) => x.replace(/^'(.*)'$/s, '$1')).join('\n');
 }
 
 class Blocked extends Error {
@@ -104,7 +102,7 @@ export function forbidden(ctx, config, email) {
     if (re !== null) { if (re.test(email)) return true; continue; }
     // the pattern goes in a file, never as an argument (A250). A deny list that cannot be evaluated FAILS CLOSED: exit 2 (an invalid or untranslatable pattern) counts as a match, so the commit is refused with a notice
     const st = grepLineCiStatus(ctx.env, p, `${email}\n`);
-    if (st >= 2 && GLOB_ONLY.test(p)) continue; // an entry like *@example-corp.com is a glob, caseMatch decided it above; BSD grep rejects its leading star, which must not block everyone
+    if (st >= 2 && globShaped(p)) continue; // a glob (*@x.com, *+bot@x.com, *[a-z]@x.com): caseMatch decided it above, BSD grep rejects the leading star, and that must not block everyone
     if (st >= 2) { ctx.err('proofline: a git.forbidden_identities pattern is not a valid extended regular expression for this platform\'s grep; refusing as if it matched (fix .agents/config.yaml, then agent.sh config-check)\n'); return true; }
     if (st === 0) return true;
   }
