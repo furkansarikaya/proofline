@@ -1,11 +1,11 @@
 // Tests of tests/ci/no-shell-logic.mjs (the strict check, A251) on small throwaway git repositories: a clean repository passes, every rule fails on its planted violation.
-import { test, describe } from 'node:test';
+import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { check, stepStrictProblem, runSteps, launcherOk, hookStrictProblem, parseLauncherTemplates, LAUNCHERS, nodeSpawnProblems, stripComments } from './no-shell-logic.mjs';
+import { check, stepStrictProblem, runSteps, launcherOk, hookStrictProblem, parseLauncherTemplates, LAUNCHERS, nodeSpawnProblems, stripComments, trackedFiles, nodeSourceFile } from './no-shell-logic.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 const script = join(repo, 'tests/ci/no-shell-logic.mjs');
@@ -37,6 +37,11 @@ const WIRING = JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command
 function git(dir, ...a) { return spawnSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }); }
 function put(dir, rel, text, mode) { mkdirSync(dirname(join(dir, rel)), { recursive: true }); writeFileSync(join(dir, rel), text); if (mode) chmodSync(join(dir, rel), mode); }
 function run(dir, ...args) { return spawnSync('node', [script, '--root', dir, ...args], { encoding: 'utf8' }); }
+/** The Node-scan problems of one file (a throwaway repository would cost a git init per case; the scan reads tracked files, so it is run on a one-file stand-in). */
+function nodeSpawnProblemsOf(code) {
+  const d = sharedFixture();
+  try { put(d, 'lib/probe.mjs', code); git(d, 'add', '-A'); return nodeSpawnProblems(d); } finally { reset(d); }
+}
 const cleanup = (d) => rmSync(d, { recursive: true, force: true });
 
 // A clean repository: the four launchers and their templates (the real ones), a hook wiring file with a pinned string, one-command CI steps, a Node file.
@@ -53,20 +58,29 @@ function fixture() {
   git(dir, 'add', '-A');
   return dir;
 }
-/** Plant a violation, check it is refused with a message matching RE, and that the clean fixture was clean (in process: the CLI itself is tested apart). */
+// One committed clean fixture for the planted-violation cases of this file (they run one after the other); every case plants into it and resets it afterwards, so the
+// `git init`, the file writes and the first `git add` are paid once, not once per case (A251 round 3).
+/** @type {string | undefined} */ let shared;
+function sharedFixture() {
+  if (!shared) { shared = fixture(); git(shared, 'commit', '-q', '-m', 'clean'); }
+  return shared;
+}
+after(() => { if (shared) cleanup(shared); });
+const reset = (d) => { git(d, 'reset', '-q', '--hard', 'HEAD'); git(d, 'clean', '-q', '-fdx'); };
+/** Plant a violation in the shared clean fixture, check it is refused with a message matching RE, and reset the fixture. */
 function refuses(plant, re, label) {
-  const d = fixture();
+  const d = sharedFixture();
   try {
-    assert.deepEqual(check(d), [], `${label}: the fixture is clean`);
     plant(d);
     git(d, 'add', '-A');
     const problems = check(d);
     assert.notEqual(problems.length, 0, `${label}: nothing was refused`);
     assert.match(problems.join('\n'), re, label);
-  } finally { cleanup(d); }
+  } finally { reset(d); }
 }
 
 describe('strict mode: the clean state and a planted violation of every rule', () => {
+  test('the shared fixture is clean (checked once; every planted case starts from it)', () => assert.deepEqual(check(sharedFixture()), []));
   test('a clean repository passes (Markdown snippets are not code); --strict is still accepted', () => {
     const d = fixture();
     const r = run(d);
@@ -196,9 +210,9 @@ describe('strict mode: the clean state and a planted violation of every rule', (
       ['lib/a.mts', "spawnSync('awk', ['1']);\n"],
     ])) refuses((d) => put(d, file, code), /lib\/a\.m?ts?:\d+|lib\/a\.mjs:\d+/, `${file}: ${code}`);
   });
-  test('rule 5 (round 1): what stays allowed: RegExp exec, an exec alias of execFile, shell: false, a URL in a string, a commented spawn', () => {
+  test('rule 5 (round 1): what stays allowed: RegExp exec, an exec alias of execFile, shell: false, a URL in a string, a spawn named in a whole-line comment', () => {
     const d = fixture();
-    put(d, 'lib/ok.mjs', "const m = /a/.exec(s);\nimport { execFile as exec } from 'node:child_process';\nexec(bin, args, { shell: false });\nconst u = 'https://example.com/x'; // spawnSync('awk')\n/* execSync('x') */\n");
+    put(d, 'lib/ok.mjs', "const m = /a/.exec(s);\nimport { execFile as exec } from 'node:child_process';\nexec(bin, args, { shell: false });\nconst u = 'https://example.com/x';\n// spawnSync('awk')\n/* execSync('x') */\n");
     git(d, 'add', '-A');
     assert.deepEqual(check(d), []);
     cleanup(d);
@@ -220,31 +234,63 @@ describe('strict mode: the clean state and a planted violation of every rule', (
   test('rule 2 (round 1): a launcher that lost its executable bit in the index is refused', () => {
     refuses((d) => chmodSync(join(d, 'control-plane/agents/githooks/pre-commit'), 0o644), /pre-commit: a launcher must be executable in the index \(mode 100755, found 100644\)/, 'chmod -x');
   });
-  test('round 2: stripComments knows strings, templates, regex literals and line comments (a `/*` there opens no block comment)', () => {
+  test('round 3: stripComments blanks only whole-line comments; everything else stays visible (the gate errs toward visibility)', () => {
     const keep = (/** @type {string} */ src) => assert.equal(stripComments(src), src, src);
+    // real code after a regex literal that follows =>, return, else, + : each of these hid the rest of the line before
+    keep("const t = (p) => /a\\//.test(p); execSync('ls | wc');\n");
+    keep("function f(p) { return /a\\//.test(p) || execSync('x'); }\n");
+    keep("const n = 1 + /x\\//.source; execSync('x');\n");
+    keep("if (a) b(); else /x\\//.test(c); execSync('x');\n");
+    // an odd quote or backtick inside a regex, nested templates, a template that holds //
+    keep("const r = (p) => /it's/.test(p); execSync('x');\n");
+    keep("const r = (p) => /`/.test(p); // note\nexecSync('x');\n");
+    keep("const s = `a${`b${1}//`}c`; execSync('r');\n");
+    keep("const u = 'http://x'; execSync('r');\n");
+    // trailing comments and a mid-line block comment are not blanked (false-positive direction, documented)
+    keep("x = 1; // execSync('x')\n");
+    keep("x = 1; /* execSync('x') */\n");
     keep("const a = 'x/*y'; execSync('z');\n");
-    keep('const a = "p/*"; const b = `t/*${x}`;\n');
-    keep('const re = /a\\/*b/g; const c = x / y;\n');
-    keep('const re = [/[/*]/, 1];\n');
-    // a line comment that holds `/*` hides nothing after its own line
+    // whole-line comments are blanked, line breaks kept
     assert.equal(stripComments('// <slug>/*.md\nexecSync(a);\n'), '              \nexecSync(a);\n');
-    // real comments are blanked, line breaks kept
-    assert.equal(stripComments('a /* b\nc */ d // e\nf'), 'a     \n     d     \nf');
-    // an unterminated string ends at the line end, an unterminated block comment at the end of the file
-    assert.equal(stripComments("'abc\n// c\nx"), "'abc\n    \nx");
-    assert.equal(stripComments('x /* open'), 'x        ');
+    assert.equal(stripComments("  // execSync('x')\ny"), "                  \ny");
+    assert.equal(stripComments("/* execSync('x') */\ny"), "                   \ny");
+    assert.equal(stripComments("/*\n * execSync('x')\n */\ny"), "  \n" + " ".repeat(16) + "\n   \ny");
+    assert.equal(stripComments("/* a */ execSync('x');"), "        execSync('x');");
+    assert.equal(stripComments("/*\n x\n*/ execSync('x');"), "  \n  \n   execSync('x');");
+    assert.equal(stripComments('x /* open\nmore'), 'x /* open\nmore');
+    assert.equal(stripComments('/* open'), '       ');
   });
-  test('round 2: a line comment with `/*` no longer hides the lines below it (the product-assess validator samples), and a real spawn there is seen', () => {
-    refuses((d) => put(d, 'skills/x/scripts/v.mjs', "// matches <slug>/*.md files\nconst a = 1;\nimport { execSync } from 'node:child_process';\nexecSync('ls | wc');\n"), /skills\/x\/scripts\/v\.mjs:4: exec \/ execSync/, 'hidden region');
-    for (const f of ['skills/product-assess/scripts/validate-product-claims.mjs', 'skills/product-discovery/scripts/validate-product-claims.mjs', 'skills/product-spec/scripts/validate-product-claims.mjs', 'skills/task-author/scripts/validate-task.mjs']) {
-      const text = readFileSync(join(repo, f), 'utf8');
-      const code = stripComments(text);
-      assert.equal(code.length, text.length, f);
-      const lines = code.split('\n');
-      // the sample region: more than ten code lines in the 100 lines after the first line that holds a `/*` inside a // comment
-      const at = text.split('\n').findIndex((l) => /\/\/.*\/\*/.test(l));
-      if (at >= 0) assert.ok(lines.slice(at + 1, at + 100).filter((l) => l.trim() !== '').length > 10, `${f}: the region after line ${at + 1} is blank`);
+  test('round 3: a block comment alone on its lines hides its text, a mid-line one does not; hidden real code is never the result', () => {
+    const tail = "import { execSync } from 'node:child_process';\n";
+    assert.deepEqual(nodeSpawnProblemsOf(`${tail}/* execSync('x') */\n// execSync('y')\n`), []);
+    assert.match(nodeSpawnProblemsOf(`${tail}x = 1; /* execSync('x') */\n`).join(), /exec \/ execSync/);
+    assert.match(nodeSpawnProblemsOf(`${tail}x = 1; // execSync('x')\n`).join(), /exec \/ execSync/);
+    for (const code of ["const t = (p) => /a\\//.test(p); execSync('ls | wc');", "const f = (p) => { return /a\\//.test(p) || execSync('x'); };", "const s = `a${`b${1}//`}c`; execSync('r');", "const r = (p) => /`/.test(p); execSync('x');", "const r = (p) => /it's/.test(p);\nexecSync('x');"]) {
+      assert.match(nodeSpawnProblemsOf(`${tail}${code}\n`).join(), /exec \/ execSync/, code);
     }
+  });
+  test('round 3: differential: for every file the scan covers, stripping removes only whole comment lines or blocks that open a line (every other line is kept as it is)', () => {
+    let seen = 0;
+    for (const f of trackedFiles(repo).filter(nodeSourceFile)) {
+      let text;
+      try { text = readFileSync(join(repo, f), 'utf8'); } catch { continue; }
+      const orig = text.split('\n');
+      const code = stripComments(text).split('\n');
+      assert.equal(code.length, orig.length, f);
+      // the lines an independent pass calls comment: a line starting with // , and the lines of a block comment that opens a line (through its closing line)
+      const comment = new Set();
+      for (let i = 0; i < orig.length; i++) {
+        const t = orig[i].trimStart();
+        if (t.startsWith('//')) comment.add(i);
+        else if (t.startsWith('/*')) { let j = i; while (j < orig.length && !(j === i ? orig[j].indexOf('*/', orig[j].length - t.length + 2) >= 0 : orig[j].includes('*/'))) j++; for (let k = i; k <= Math.min(j, orig.length - 1); k++) comment.add(k); i = j; }
+      }
+      for (let i = 0; i < orig.length; i++) {
+        if (!comment.has(i)) assert.equal(code[i], orig[i], `${f}:${i + 1}: a non-comment line changed`);
+        else assert.equal(code[i].length, orig[i].length, `${f}:${i + 1}`);
+      }
+      seen++;
+    }
+    assert.ok(seen > 100, `only ${seen} files seen`);
   });
   test('round 2: a quoted script: key, a Hooks.json (case), and bin/proofline (no extension) are not evasions', () => {
     refuses((d) => put(d, '.github/workflows/ci.yml', `${CLEAN_CI}      - uses: actions/github-script@v7\n        with:\n          'script': |\n            if (x) { y(); }\n`), /script: key/, "'script'");

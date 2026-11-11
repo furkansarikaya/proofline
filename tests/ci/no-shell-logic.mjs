@@ -18,6 +18,7 @@
 //     JS inside a workflow (`actions/github-script`) is refused (`script:` key), a custom `shell:` template is refused.
 //   - A one-line step that hands a shell program to a program (`run: bash -c 'if x; then y; fi'`) is one command line and passes.
 //   - A shell file with an unusual shebang interpreter outside the list above, or a script without shebang and extension outside the hook folders, is not recognised.
+//   - Comments are blanked only when they are a whole line (`//`, or a block comment opening a line); a trailing comment stays visible and may be a false positive (reword it).
 //   - The Node scan reads source text of .mjs .js .cjs .ts .mts .cts files outside tests/, docs/ and fixtures/: a program name built at run time or started through a variable
 //     or a destructured alias, and `sh tools/x` where the script has no shebang and no extension, are not seen; a call head is joined across lines, but only up to the first
 //     parenthesis; `execSync`, `exec` (imported from child_process), `{ shell: true }` and powershell/cmd are refused.
@@ -213,14 +214,14 @@ export function parseLauncherTemplates(text) {
 export const LOGIC_LAUNCHERS = new Set(['control-plane/agents/scripts/agent.sh']);
 
 /** @param {string} root @returns {string[]} */
-export function launcherProblems(root) {
+export function launcherProblems(root, files = trackedFiles(root)) {
   /** @type {string[]} */ const problems = [];
   const f = join(root, LAUNCHER_TEMPLATES);
   if (!existsSync(f)) return [`${LAUNCHER_TEMPLATES} is missing`];
   /** @type {Map<string, string>} */ let templates;
   try { templates = parseLauncherTemplates(readFileSync(f, 'utf8')); } catch (e) { return [/** @type {Error} */ (e).message]; }
   for (const t of templates.keys()) if (!LAUNCHERS.has(t)) problems.push(`${LAUNCHER_TEMPLATES}: a template for ${t}, which is not in the launcher list`);
-  const tracked = new Set(trackedFiles(root));
+  const tracked = new Set(files);
   /** @type {Map<string, string>} */ const modes = new Map();
   for (const rec of execFileSync('git', ['-C', root, 'ls-files', '-s', '-z'], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\0').filter(Boolean)) {
     const m = /^(\d+) [0-9a-f]+ \d\t([^]*)$/.exec(rec);
@@ -258,43 +259,38 @@ export const TEXT_ONLY = (/** @type {string} */ f) => f === 'adapters/claude/hoo
 export const nodeSourceFile = (/** @type {string} */ f) => (/\.(mjs|js|cjs|mts|cts|ts)$/.test(f) || f === 'bin/proofline') && !/^(tests|docs|fixtures)\//.test(f) && f !== PROC_MODULE;
 
 /**
- * The source with comments blanked (every character but the line breaks becomes a space, so offsets and line numbers hold). A small scanner, not a regex: a `/*` inside a
- * string, a template literal, a regular expression literal or after a `//` comment does not open a block comment (a `// ... <slug>/*.md` comment hid 100 lines from the first
- * version); strings, templates and regex literals are kept as they are, because the program names the scan looks for are string literals. A `/` starts a regex literal only
- * after one of `( , = : [ ! & | ? { } ;` or at the start (a heuristic: a division is not a regex); an unterminated string ends at the line end.
+ * The source with the UNAMBIGUOUS comments blanked (every character but the line breaks becomes a space, so offsets and line numbers hold). The gate errs toward
+ * visibility: a false positive (a comment that mentions execSync) is fixed by rewording the comment, hidden real code is the failure. A JS tokenizer written by hand
+ * is wrong somewhere (a regex after `=>`, `return` or `+`, a nested template, a backtick in a regex each hid real code from the scan), so none is attempted. Only two
+ * things are blanked: (a) a line whose first non-space characters are `//`; (b) a block comment whose `/*` is the first non-space token of a line, through its `*` + `/`
+ * (code after the closing `*` + `/` on the same line stays visible). A trailing `//` comment and a `/*` in mid-line stay visible: that is the documented false-positive direction.
  * @param {string} text
  */
 export function stripComments(text) {
-  let out = '';
-  let i = 0;
-  let prev = '';   // the last significant (non-space, non-comment) character
-  const blank = (/** @type {string} */ t) => t.replace(/[^\n]/g, ' ');
-  while (i < text.length) {
-    const c = text[i];
-    const two = text.slice(i, i + 2);
-    if (two === '//') { const e = text.indexOf('\n', i); const end = e < 0 ? text.length : e; out += blank(text.slice(i, end)); i = end; continue; }
-    if (two === '/*') { const e = text.indexOf('*/', i + 2); const end = e < 0 ? text.length : e + 2; out += blank(text.slice(i, end)); i = end; continue; }
-    if (c === '"' || c === "'" || c === '`') {
-      let j = i + 1;
-      while (j < text.length && text[j] !== c && (c === '`' || text[j] !== '\n')) j += text[j] === '\\' ? 2 : 1;
-      j = Math.min(j + 1, text.length);
-      out += text.slice(i, j); i = j; prev = c; continue;
+  let inBlock = false;
+  return text.split('\n').map((line) => {
+    if (inBlock) {
+      const e = line.indexOf('*/');
+      if (e < 0) return line.replace(/[^\r]/g, ' ');
+      inBlock = false;
+      return line.slice(0, e + 2).replace(/[^\r]/g, ' ') + line.slice(e + 2);
     }
-    if (c === '/' && (prev === '' || '(,=:[!&|?{};'.includes(prev))) {
-      let j = i + 1; let cls = false;
-      while (j < text.length && text[j] !== '\n' && (cls || text[j] !== '/')) { if (text[j] === '\\') j++; else if (text[j] === '[') cls = true; else if (text[j] === ']') cls = false; j++; }
-      if (text[j] === '/') { j++; while (j < text.length && /[a-z]/.test(text[j])) j++; out += text.slice(i, j); i = j; prev = '/'; continue; }
+    const t = line.trimStart();
+    if (t.startsWith('//')) return line.replace(/[^\r]/g, ' ');
+    if (t.startsWith('/*')) {
+      const from = line.length - t.length;
+      const e = line.indexOf('*/', from + 2);
+      if (e < 0) { inBlock = true; return line.replace(/[^\r]/g, ' '); }
+      return line.slice(0, e + 2).replace(/[^\r]/g, ' ') + line.slice(e + 2);
     }
-    out += c; i++;
-    if (!/\s/.test(c)) prev = c;
-  }
-  return out;
+    return line;
+  }).join('\n');
 }
 
 /** @param {string} root @returns {string[]} */
-export function nodeSpawnProblems(root) {
+export function nodeSpawnProblems(root, files = trackedFiles(root)) {
   /** @type {string[]} */ const problems = [];
-  for (const f of trackedFiles(root).filter(nodeSourceFile)) {
+  for (const f of files.filter(nodeSourceFile)) {
     let text;
     try { text = readFileSync(join(root, f), 'utf8'); } catch { continue; }
     const code = stripComments(text);
@@ -329,18 +325,17 @@ export function workflowTextProblems(file, text) {
 }
 
 // ---- inline items and shell files -------------------------------------------------------------------------------------------------------
-export function currentInline(root) {
+export function currentInline(root, files = trackedFiles(root)) {
   /** @type {Item[]} */
   const items = [];
-  const files = trackedFiles(root);
   for (const rel of files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f) || /^\.github\/actions\/.+\.ya?ml$/.test(f) || /(^|\/)action\.ya?ml$/.test(f))) items.push(...runSteps(rel, readFileSync(join(root, rel), 'utf8')));
   for (const rel of files.filter(isWiringFile)) {
     try { items.push(...hookStrings(rel, readFileSync(join(root, rel), 'utf8'))); } catch { items.push({ kind: 'hook', file: rel, job: 'file', index: 0, text: '(not JSON)', location: `${rel}::file::0`, group: `${rel}::file` }); }
   }
   return items;
 }
-export function currentShellFiles(root) {
-  return trackedFiles(root).filter((f) => isShellFile(root, f)).sort();
+export function currentShellFiles(root, files = trackedFiles(root)) {
+  return files.filter((f) => isShellFile(root, f)).sort();
 }
 
 // ---- the check -------------------------------------------------------------------------------------------------------------------------
@@ -348,15 +343,16 @@ export function currentShellFiles(root) {
 export function check(root) {
   /** @type {string[]} */ const problems = [];
   const templates = hookTemplates(root);
-  for (const f of trackedFiles(root)) if (f.endsWith('.awk')) problems.push(`${f}: an .awk file (no awk anywhere)`);
-  for (const f of currentShellFiles(root)) if (!LAUNCHERS.has(f)) problems.push(`${f}: a shell file that is not in the launcher list`);
-  problems.push(...launcherProblems(root));
-  for (const rel of trackedFiles(root).filter((f) => /^\.github\/(workflows|actions)\/.+\.ya?ml$/.test(f) || /(^|\/)action\.ya?ml$/.test(f))) problems.push(...workflowTextProblems(rel, readFileSync(join(root, rel), 'utf8')));
-  for (const it of currentInline(root)) {
+  const files = trackedFiles(root);   // listed once: every git start costs a few ms and check() runs once per planted case in the tests
+  for (const f of files) if (f.endsWith('.awk')) problems.push(`${f}: an .awk file (no awk anywhere)`);
+  for (const f of currentShellFiles(root, files)) if (!LAUNCHERS.has(f)) problems.push(`${f}: a shell file that is not in the launcher list`);
+  problems.push(...launcherProblems(root, files));
+  for (const rel of files.filter((f) => /^\.github\/(workflows|actions)\/.+\.ya?ml$/.test(f) || /(^|\/)action\.ya?ml$/.test(f))) problems.push(...workflowTextProblems(rel, readFileSync(join(root, rel), 'utf8')));
+  for (const it of currentInline(root, files)) {
     const p = it.kind === 'run' ? stepStrictProblem(it.text) : hookStrictProblem(it.text, templates);
     if (p) problems.push(`${it.location}${it.line ? ` (line ${it.line})` : ''}: ${p}`);
   }
-  problems.push(...nodeSpawnProblems(root));
+  problems.push(...nodeSpawnProblems(root, files));
   return problems;
 }
 
