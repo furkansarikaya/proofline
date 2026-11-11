@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.90"
+  version: "0.0.91"
 ---
 
 # proofline-lead
@@ -27,7 +27,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 
 ## Hard rules
 
-1. **`next` is the program.** Before every step run `A next <ID>` and do exactly what its `next=` lines say,
+1. **`next` is the program.** Before every step run `A next <ID>` (or `A advance <ID>`, [LIFECYCLE.md](references/LIFECYCLE.md#advance)) and do exactly what its `next=` lines say,
    translated by the table in "Flow". Never skip, reorder or invent a transition. When `next` and this
    skill disagree, `next` wins and the disagreement is reported. A `dispatch.sh` command that has not returned
    (`next=wait:`) means: start no other work on that step and read none of its files until it returns.
@@ -120,7 +120,7 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    language by the script (A99), relay those unchanged; any other English block is shown with its translation
    in the user's language, keeping `approve`, `reject`, `accept AS-n`, kinds, ids and hashes exactly;
    assignments, files and stored questions are English.
-3. **State.** `A digest <ID>` is the one short read of a run (stage, gates, open questions, next step, from the records);
+3. **State.** `A digest <ID>` is the one short read of a run (stage, gates, questions, next step);
    use it instead of large outputs, and `A plan-section <ID> <section>` instead of reading all of PLAN.md. `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the
    effective policy). An active run: `A next <ID>` and continue in "Flow"; on `resume` or after another
    runtime held the run, first `A freshness <ID>` and `A verify-handoff <ID>` ([FAILOVER.md](references/FAILOVER.md)).
@@ -166,7 +166,7 @@ exactly this: propose the run.
 | `dispatch.sh <ID> architect` / `qa` | Dispatch that role; paste a returned section into PLAN.md unchanged. |
 | `agent.sh request-approval <ID> <kind>` | Run it, relay its question (the prose in the user's language; the kind, ids, hashes and options exactly as printed), STOP. |
 | `wait for the user's answer` | Never run `approve` (the hook denies it): the runtime records the approval from the user's reply. After the reply run `A next <ID>`; no approval recorded means a refusal or a change request: back to the plan. |
-| `agent.sh freeze` | `A freeze <ID>`, then `A freshness <ID>` (freshness checks a freeze that must exist). |
+| `agent.sh freeze` | `A freeze <ID>`, then `A freshness <ID>`. |
 | `agent.sh handoff <ID> IMPLEMENTING` (no fix round) | Run it. |
 | `dispatch.sh <ID> implementer` | IMPLEMENT: one implementer, tdd-proof evidence; then `A handoff <ID> IMPLEMENTED`, `A tier <ID>`, `A pipeline <ID>`. |
 | `agent.sh secret-scan` / `dispatch.sh <ID> <gate role>` | GATES: `A secret-scan <ID>`; dispatch every listed gate role in parallel ([GATES-AND-FIXES.md](references/GATES-AND-FIXES.md)). |

@@ -409,7 +409,7 @@ export function tcStatus(file, status) { writeFileSync(file, readFileSync(file, 
 // ---- a scaffolded run -----------------------------------------------------------------------------------------------------------------------
 /**
  * @typedef {{ topology?: string, layout?: 'yes' | 'no', cls?: string, autonomy?: string, branch?: boolean, taskFm?: string, taskExtra?: string, testCrit?: string,
- *   scopeOther?: string, scopeExtra?: string, scopeAgents?: boolean, scopeNamed?: string, exempt?: boolean, qaExtra?: string, planExtra?: string, kindClaim?: string, agentsMd?: 1 | 2, template?: string }} ScaffoldOptions
+ *   scopeOther?: string, scopeExtra?: string, scopeAgents?: boolean, scopeNamed?: string, exempt?: boolean, qaExtra?: string, planExtra?: string, kindClaim?: string, agentsMd?: 1 | 2, template?: string, fresh?: boolean }} ScaffoldOptions
  */
 const EXEMPT = '    tdd_exemption: fixture file without executable behaviour to test here';
 
@@ -462,6 +462,7 @@ export function scaffold(o = {}) {
   if (o.scopeNamed) w(o.scopeNamed, '');
   commitAll(dir, 'baseline');
   if (layout === 'yes') { mkdirSync(path.join(dir, 'tasks/in-progress'), { recursive: true }); git(dir, ['mv', 'tasks/todo/LC.md', 'tasks/in-progress/LC.md']); tcStatus(path.join(dir, 'tasks/in-progress/LC.md'), 'in-progress'); }
+  if (o.fresh) return dir;   // A258: the run as `start` leaves it (not classified, no branch, no baseline, not frozen), for tests that drive these steps themselves
   must(dir, ['classify', 'LC', cls]);
   if (o.branch) must(dir, ['branch', 'LC']);
   must(dir, ['baseline', 'LC']);

@@ -91,7 +91,7 @@ function summarize(tool, bytesOf, denied) {
 // A Codex session writes `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<local time>-<session id>.jsonl`. Nothing in the dispatcher records that path (the `.started` file is a
 // Claude hook's), but a command the model runs (`agent.sh submit`) has `CODEX_THREAD_ID` (= the session id, checked live in A211), so the file is found by that id.
 const MAX_LINE = 32 * 1024 * 1024;       // a longer line is not buffered: the log is unreadable
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODEX_CALLS = new Set(['function_call', 'custom_tool_call', 'local_shell_call', 'tool_search_call']);
 const CODEX_RESULTS = new Set(['function_call_output', 'custom_tool_call_output', 'tool_search_output']);
 
@@ -212,7 +212,9 @@ export function readCodexToolStats(file) {
 /**
  * Append the record of one recorded step. `log` is the session log path ('' when none was found). For `codex` an empty `log` is `unreadable` with the `reason` of the search
  * (`no-session-id`, `no-codex-home`, `no-rollout`); for any other runtime it is `no-log`. Best effort; `metrics: off` writes nothing.
- * @param {Context} ctx @param {{ task: string, role: string, focus: string, gate: string, runtime: string, log: string, reason?: string | null }} f
+ * A181-D (A258): `kind: 'lead'` is the snapshot of the lead's own session (role `lead`); it has a last key `session` (the session id, reduced) so that `insights` counts one
+ * session once; a lead whose log was not found is `unreadable` with the reason, for every runtime.
+ * @param {Context} ctx @param {{ task: string, role: string, focus: string, gate: string, runtime: string, log: string, reason?: string | null, kind?: 'step' | 'lead', session?: string }} f
  */
 export function toolsRecord(ctx, f) {
   if (ctx.config().get('metrics', 'on') === 'off') return;
@@ -220,11 +222,12 @@ export function toolsRecord(ctx, f) {
   const n = (/** @type {number | null} */ v) => (v === null ? 'null' : String(v));
   const none = (/** @type {'unreadable' | 'no-log'} */ log, /** @type {string | null} */ reason) => ({ log, calls: null, resultBytes: null, denied: null, byTool: null, reason });
   const codex = f.runtime === 'codex';
+  const lead = f.kind === 'lead';
   /** @type {ToolStats | ReturnType<typeof none>} */
-  const st = f.log === '' ? (codex ? none('unreadable', f.reason ?? 'no-rollout') : none('no-log', null))
+  const st = f.log === '' ? (codex || lead ? none('unreadable', f.reason ?? (codex ? 'no-rollout' : 'no-transcript')) : none('no-log', null))
     : (() => { try { return codex ? readCodexToolStats(f.log) : readToolStats(f.log); } catch { return none('unreadable', 'read-error'); } })();
   const by = st.byTool === null ? 'null' : `{${Object.entries(st.byTool).map(([k, e]) => `"${k}":{"calls":${e.calls},"bytes":${e.bytes}}`).join(',')}}`;
-  const line = `{"schema":"proofline.tools/1","kind":"step","time":"${now().iso}","task":${s(f.task)},"role":${s(f.role)},"focus":${s(f.focus)},"gate":${s(f.gate)},"runtime":${s(f.runtime)},"log":"${st.log}","calls":${n(st.calls)},"result_bytes":${n(st.resultBytes)},"denied":${n(st.denied)},"by_tool":${by},"reason":${st.reason ? `"${reduce(st.reason)}"` : 'null'}}\n`;
+  const line = `{"schema":"proofline.tools/1","kind":"${lead ? 'lead' : 'step'}","time":"${now().iso}","task":${s(f.task)},"role":${s(f.role)},"focus":${s(f.focus)},"gate":${s(f.gate)},"runtime":${s(f.runtime)},"log":"${st.log}","calls":${n(st.calls)},"result_bytes":${n(st.resultBytes)},"denied":${n(st.denied)},"by_tool":${by},"reason":${st.reason ? `"${reduce(st.reason)}"` : 'null'}${lead ? `,"session":${s(f.session ?? '')}` : ''}}\n`;
   const file = `${ctx.sharedMain()}/.agents/local/metrics/tools.jsonl`;
   try { mkdirSync(path.dirname(file), { recursive: true }); appendFileSync(file, line, { encoding: 'utf8' }); } catch { /* best effort */ }
 }

@@ -1,5 +1,6 @@
 {
  "commands": [
+  "advance",
   "amend",
   "answer",
   "approval-consume",
@@ -137,6 +138,7 @@
  "denied": {
   "lead": [],
   "task_author": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -205,6 +207,7 @@
    "worktree-remove"
   ],
   "explorer": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -273,6 +276,7 @@
    "worktree-remove"
   ],
   "architect": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -341,6 +345,7 @@
    "worktree-remove"
   ],
   "data_architect": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -409,6 +414,7 @@
    "worktree-remove"
   ],
   "designer": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -477,6 +483,7 @@
    "worktree-remove"
   ],
   "qa": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -543,6 +550,7 @@
    "worktree-remove"
   ],
   "implementer": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -609,6 +617,7 @@
    "worktree-remove"
   ],
   "reviewer": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -675,6 +684,7 @@
    "worktree-remove"
   ],
   "security_reviewer": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",
@@ -741,6 +751,7 @@
    "worktree-remove"
   ],
   "verifier": [
+   "advance",
    "amend",
    "answer",
    "approval-consume",

@@ -31,6 +31,7 @@ import { BATCHPLAN_HANDLERS } from '../batchplan.mjs';
 import { WORKTREE_HANDLERS } from '../worktree.mjs';
 import { DECIDE_HANDLERS } from '../decide.mjs';
 import { DIFFDIGEST_HANDLERS } from '../diffdigest.mjs';
+import { ADVANCE_HANDLERS } from '../advance.mjs';
 import { ereTypo, forbiddenTokens, globShaped } from '../grepfile.mjs';
 import { detectPlatform, warnText } from '../platform.mjs';
 import { DB_CLIENTS_DEFAULT, DB_MIGRATE_DEFAULT, DB_PATHS_DEFAULT, USAGE_LINES } from './data.mjs';
@@ -213,6 +214,7 @@ export const HANDLERS = {
   // --- stage 7, package 172-D (A226) ---
   ...DECIDE_HANDLERS,
   ...DIFFDIGEST_HANDLERS,
+  ...ADVANCE_HANDLERS,
   // --- stage 7, package 173-A (A229): the last commands that ran as shell code ---
   ...HELPER_HANDLERS,
 };

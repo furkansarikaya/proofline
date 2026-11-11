@@ -92,7 +92,7 @@ line 1 of `.agents/local/submissions/<token>.started` (the file the token counts
 | Key | Type | Meaning |
 |---|---|---|
 | `schema` | string | always `proofline.tools/1` |
-| `kind` | string | always `step` |
+| `kind` | string | `step`, or `lead` (the lead's own session, A258, below) |
 | `time` | string | UTC ISO-8601 time the record was written |
 | `task`, `role`, `focus`, `gate`, `runtime` | string or null | as in `records.jsonl` (reduced to `[A-Za-z0-9._+:-]`) |
 | `log` | string | `ok`, or why the counts are null: `no-log` (the runtime keeps no log the control plane reads: a command-template runtime, a path that is not a `.jsonl` file), `unreadable`, `malformed` (a line that is not JSON) |
@@ -104,7 +104,7 @@ line 1 of `.agents/local/submissions/<token>.started` (the file the token counts
 
 Read the limits before using it: the log is read while the session still runs, so the record counts up to the call that submitted (that call's own result
 is not in it), a last half-written line is ignored, and a worker that submits twice (the first was rejected) is counted at its recorded submission only.
-A Claude subagent's log holds that subagent only; the lead's own session log is not recorded by proofline. Counts are never estimated: a log that
+A Claude subagent's log holds that subagent only; the lead's own session is a record of its own (below, A258). Counts are never estimated: a log that
 cannot be read gives `null` and a `log` value that says so, never `0`; a log over 128 MiB is not read (`unreadable`), and `submit` still succeeds. Every string is cut to 64 characters after the reduction (a tool name included), so one line stays under about 5 KB. `metrics: off` writes nothing.
 
 ### Codex (A255)
@@ -117,6 +117,10 @@ argument is ever used as a path; a symbolic link is not followed. The log is rea
 holds `blocked by PreToolUse hook` in its first 300 characters is a refused call. Limits: Codex runs nearly every command as the tool `exec` (or `wait`), so `by_tool` says little about what the commands were; a
 call of another kind without a `call_id` (a web search) is not counted; a session older than 3 days at `submit`, a missing session id (a Codex lead started some other way) or a moved `CODEX_HOME`
 gives `unreadable` with the `reason`, never a count; the format was checked on codex-cli 0.163 to 0.167 logs (163 logs on the maintainer's machine, all read, none malformed).
+
+### The lead's own session (A258)
+
+When a run ends (`handoff <ID> DONE`, `terminate`), the control plane appends ONE more record to `tools.jsonl`: `kind: lead`, `role: lead`, the same keys as a step record plus a last key `session` (the session id, a UUID or null). It is a snapshot of the lead's own session log taken at that moment: for Claude, `<CLAUDE_CONFIG_DIR or $HOME/.claude>/projects/<project folder>/<CLAUDE_CODE_SESSION_ID>.jsonl` (the project folder is the working directory with every character outside `[A-Za-z0-9]` replaced by `-`; this tree, the main tree and the working directory are tried); for Codex, the rollout found by `CODEX_THREAD_ID` as above. The session id must be a UUID (so it cannot carry a path), a symbolic link or a non-regular file is refused, nothing outside the runtime's own folder is read, a log over 128 MiB is not read, and nothing of the log is copied. If the log cannot be found or read the record says `unreadable` (or `malformed`) with a `reason` (`no-session-id`, `no-claude-home`, `no-transcript`, `not-a-file`, `too-large`, `bad-line`, ...) and null counts, never zero. `proofline insights` counts one session once (its best snapshot, under the task of that snapshot) and shows it as the role `lead`. Limits: calls after `handoff DONE` (delivery, CI) are in no snapshot; a session that runs several tasks (night mode) is counted once, under the task of its last snapshot; a lead session that started in another working directory than this tree or the main tree is not found (`no-transcript`).
 
 ## Reading it: `proofline insights`
 
