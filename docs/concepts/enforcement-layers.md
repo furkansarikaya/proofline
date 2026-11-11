@@ -82,7 +82,7 @@ The guard is a tripwire against an honest mistake, not a sandbox against a hosti
 
 ## Codex worker write access (A196, A199)
 
-A Codex worker runs under the permission profile `proofline-worker` (built by the dispatcher, `core/dispatcher.mjs`; `dispatch.sh codex-profile <ID>` prints it): the product tree is writable, `.agents` is read-only, and only these `.agents` paths are writable: the run's own folder `.agents/runs/<ID>` (its `approvals/` and `waivers/` stay read-only), `.agents/local/locks`, `.agents/local/submissions`, in a worktree also the main tree's `.agents/local/locks`, and the git `worktrees` folder for mutation evidence. `windows/`, `approvals/`, `prompts/` and `batch/` are read-only in the main tree and in a worktree, so a worker cannot forge a write window, an approval or a captured user message. Every lock lives in `.agents/local/locks/` for that reason; the old `.agents/local/.lock` is still honoured. `tests/real-session/codex-sandbox.sh` shows it in a real Codex sandbox (no model). `agent.sh friction-note <ID> proofline_bug` records any proofline failure the lead worked around.
+A Codex worker runs under the permission profile `proofline-worker` (built by the dispatcher, `core/dispatcher.mjs`; `dispatch.sh codex-profile <ID>` prints it): the product tree is writable, `.agents` is read-only, and only these `.agents` paths are writable: the run's own folder `.agents/runs/<ID>` (its `approvals/` and `waivers/` stay read-only), `.agents/local/locks`, `.agents/local/submissions`, in a worktree also the main tree's `.agents/local/locks`, and the git `worktrees` folder for mutation evidence. `windows/`, `approvals/`, `prompts/` and `batch/` are read-only in the main tree and in a worktree, so a worker cannot forge a write window, an approval or a captured user message. Every lock lives in `.agents/local/locks/` for that reason; the old `.agents/local/.lock` is still honoured. `tests/real-session/codex-sandbox.mjs` shows it in a real Codex sandbox (no model). `agent.sh friction-note <ID> proofline_bug` records any proofline failure the lead worked around.
 
 ## Paths inside a run worktree (A184, A185)
 
@@ -99,9 +99,7 @@ registered, a crafted folder) the old project-relative path applies, which is de
 
 Every tool call starts the runtime hook (PreToolUse for Edit, Write, Bash, Read, Grep and Glob; PostToolUse for every tool), so the number of
 processes one run starts is the cost that matters, most of all in Git Bash on Windows, where starting a process takes tens of milliseconds
-(there is no Windows runner in CI: that figure is an estimate, not a measurement). The hook therefore reads the event's JSON in one `jq` or
-`node` run, answers path, name and number work with shell builtins and parameter expansion (`dirname`, `basename`, `tr`, `sed`, `awk`, `sha`
-helpers are used only when the text needs them), asks `agent.sh hook-config` once per event for every config value it needs, and takes the clock
+(there is no Windows runner in CI: that figure is an estimate, not a measurement). The hook is one Node process per event, so it reads the event's JSON and answers path, name and number work in process, asks `agent.sh hook-config` once per event for every config value it needs, and takes the clock
 once per measurement. The approval step (recording an approval from your reply) normalises all allowed phrases in one pass instead of one
 pipeline per phrase. Behaviour is unchanged; `tests/bench/hook-procs.mjs` (run by the process-budget test) counts external processes per event with a PATH shim, and
 the numbers are in decision A188.

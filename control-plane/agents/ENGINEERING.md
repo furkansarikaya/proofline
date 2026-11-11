@@ -26,5 +26,4 @@ never adds a fact the data lacks. Repository files are English; reports to the u
 
 ## Control-plane portability
 
-The control plane MUST NOT impose an application toolchain on a project. Minimum platform: POSIX `sh`, `git`,
-POSIX `awk`, `sed`, `shasum` or `sha256sum`, `mktemp`, `find`, `grep`, on macOS and Linux userlands.
+The control plane MUST NOT impose an application toolchain on a project. Minimum platform: Node.js 22.13 and `git`; only the four launchers need a POSIX `sh`.

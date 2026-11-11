@@ -19,6 +19,9 @@
 //   - A one-line step that hands a shell program to a program (`run: bash -c 'if x; then y; fi'`) is one command line and passes.
 //   - A shell file with an unusual shebang interpreter outside the list above, or a script without shebang and extension outside the hook folders, is not recognised.
 //   - Comments are blanked only when they are a whole line (`//`, or a block comment opening a line); a trailing comment stays visible and may be a false positive (reword it).
+//   - ACCEPTED LIMIT (A251, A252): a line-leading unclosed block-comment opener inside a multi-line template literal or string continuation opens a block that runs to the
+//     next block-comment closer anywhere and can hide later real code. No such file is in the tree (a differential check over 249 files shows zero hidden code characters);
+//     the false-positive direction is preferred; the independent TypeScript-scanner differential run is the check.
 //   - The Node scan reads source text of .mjs .js .cjs .ts .mts .cts files outside tests/, docs/ and fixtures/: a program name built at run time or started through a variable
 //     or a destructured alias, and `sh tools/x` where the script has no shebang and no extension, are not seen; a call head is joined across lines, but only up to the first
 //     parenthesis; `execSync`, `exec` (imported from child_process), `{ shell: true }` and powershell/cmd are refused.

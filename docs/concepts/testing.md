@@ -61,7 +61,7 @@ Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|de
 | UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121) | tested (self-tests) |
 | Command discovery, several commands per key, runtime versions, risky paths and dependency manifests per ecosystem (A173, A174, A176) | tested on hand-written project layouts and file samples (`tests/core/discover.test.mjs`, `tests/core/cli-cmdlists.test.mjs`, skill tests, self-tests); the real tool of most ecosystems was not run for them; the per-ecosystem table is the [ecosystem matrix](ecosystems.md#ecosystem-matrix) |
 | tdd-proof test-output classes (A175) | tested against 94 recorded runner outputs (`tests/skills/fixtures/tdd-proof-output`); `captured` ones are real runs with tool, version, command and exit code, `docs` ones come from the tool's documentation |
-| A suite fails when a scenario dies (A177) | the only suite with a scenario runner of its own (`tests/cli/cli-test.sh`) is Node tests since A233, where a test that throws fails its file and the CI leg; `node --test` fails a file on any non-zero exit |
+| A suite fails when a scenario dies (A177) | every suite is Node tests (A233, A252): a test that throws fails its file and the CI leg; `node --test` fails a file on any non-zero exit |
 | Benchmark report (`tests/benchmark`) | tested (its own known-answer test on every code pull request; full report on main/nightly CI) |
 
 Skills and roles are counted from `skills/` (twenty-four method skills plus the `/proofline` entry skill) and `roles/` (eleven roles). `node adapters/generate.mjs --check` and `node docs/reference/generate-skills.mjs --check` keep the generated references in step with them.

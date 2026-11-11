@@ -15,6 +15,7 @@ import path from 'node:path';
 import { git } from './git.mjs';
 import { asciiLower } from './shellglob.mjs';
 import * as proc from './proc.mjs';
+import { makeRefusedDir, resolveWindowsTool, shimMessage } from './wintool.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -111,8 +112,25 @@ function insideFolder(file, dir) {
  * @param {Context} ctx @param {string} name @returns {{ path: string } | { unreadable: string }}
  */
 export function resolveTool(ctx, name) {
+  if (process.platform === 'win32') return resolveToolWindows(ctx, name);
   const r = resolveToolIn(ctx.env, name, refusedDirs(ctx));
   if ('path' in r) return r;
+  return 'shadowed' in r ? { unreadable: `unreadable (${name} at ${r.shadowed} may be shadowed)` } : r;
+}
+
+/**
+ * Windows (A252): a real `.exe`/`.com` found through PATHEXT outside the project, the working directory and temporary folders; a `.cmd`/`.bat` shim is refused with a text that says what to do.
+ * Not tried on a Windows host (denenmedi); the rules are tested with a fake file system (tests/core/wintool.test.mjs).
+ * @param {Context} ctx @param {string} name @param {{ isFile: (p: string) => boolean, real: (p: string) => string }} [fsx] injectable for the tests @returns {{ path: string } | { unreadable: string }}
+ */
+export function resolveToolWindows(ctx, name, fsx = { isFile: (/** @type {string} */ p) => statSync(p).isFile(), real: (/** @type {string} */ p) => realpathSync.native(p) }) {
+  const r = resolveWindowsTool(ctx.env, name, {
+    isFile: fsx.isFile,
+    real: fsx.real,
+    refusedDir: makeRefusedDir([ctx.root, ctx.cwd, ctx.env.TEMP ?? '', ctx.env.TMP ?? '', ctx.env.TMPDIR ?? ''], fsx.real),
+  });
+  if ('path' in r) return r;
+  if ('shim' in r) return { unreadable: shimMessage(name, r.shim) };
   return 'shadowed' in r ? { unreadable: `unreadable (${name} at ${r.shadowed} may be shadowed)` } : r;
 }
 

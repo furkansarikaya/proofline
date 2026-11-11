@@ -3,12 +3,13 @@
 // Every child is counted per program and timed, in process: spawnCounts() and spawnLog() are read by the caller (tests, the benchmark). No
 // environment value and no file switches this on or sends it anywhere (an env-named log file would be an arbitrary-file append for any role).
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, closeSync, constants, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { accessSync, closeSync, constants, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { env as ownEnv } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { refuseUntrustedScript } from './tree.mjs';
+import { makeRefusedDir, resolveWindowsTool, shimMessage } from './wintool.mjs';
 
 /** @type {Map<string, number>} */
 const counts = new Map();
@@ -64,9 +65,11 @@ export function run(program, args, options = {}) {
     if (options.stdio === 'inherit') { try { writeSync(2, refused); } catch { /* no stderr */ } }
     return { status: 126, stdout: Buffer.alloc(0), stderr: Buffer.from(refused), started: false };
   }
+  const rp = resolveProgram(program, options.env, options.cwd);
+  if ('refused' in rp) return { status: 127, stdout: Buffer.alloc(0), stderr: Buffer.from(rp.refused), started: false };
   count(program);
   const t0 = Date.now();
-  const r = spawnSync(program, args, /** @type {import('node:child_process').SpawnSyncOptionsWithBufferEncoding & { detached?: boolean }} */ ({
+  const r = spawnSync(rp.program, args, /** @type {import('node:child_process').SpawnSyncOptionsWithBufferEncoding & { detached?: boolean }} */ ({
     cwd: options.cwd,
     env: options.env,
     input: options.input,
@@ -93,8 +96,10 @@ export function run(program, args, options = {}) {
  * @param {string} program @param {string[]} args @param {NodeJS.ProcessEnv} [env] @returns {number}
  */
 export function spawnDetached(program, args, env) {
+  const rp = resolveProgram(program, env, undefined);
+  if ('refused' in rp) return 0;
   count(program);
-  const child = spawn(program, args, { env, stdio: 'ignore', detached: true, windowsHide: true });
+  const child = spawn(rp.program, args, { env, stdio: 'ignore', detached: true, windowsHide: true });
   child.on('error', () => {});
   child.unref();
   return child.pid ?? 0;
@@ -107,11 +112,13 @@ export function spawnDetached(program, args, env) {
 export function runAsync(program, args, options = {}) {
   const refused = refuseUntrustedScript(program, args, options.cwd, options.allowEqualTree === true);
   if (refused !== null) return Promise.resolve({ status: 126, stdout: Buffer.alloc(0), stderr: Buffer.from(refused), started: false });
+  const rp = resolveProgram(program, options.env, options.cwd);
+  if ('refused' in rp) return Promise.resolve({ status: 127, stdout: Buffer.alloc(0), stderr: Buffer.from(rp.refused), started: false });
   count(program);
   const t0 = Date.now();
   return new Promise((resolve) => {
     const grouped = options.group === true && process.platform !== 'win32';
-    const child = spawn(program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe', windowsHide: true, detached: grouped });
+    const child = spawn(rp.program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio ?? 'pipe', windowsHide: true, detached: grouped });
     if (grouped) groupLeaders.add(child);
     const stop = () => killTree(child);
     if (options.signal) { if (options.signal.aborted) stop(); else options.signal.addEventListener('abort', stop, { once: true }); }
@@ -187,6 +194,74 @@ export function runMerged(program, args, options = {}) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/**
+ * The system `taskkill.exe` by absolute path (A252, security round 1): libuv on Windows searches the working folder before PATH for a bare name, so a `taskkill.exe`
+ * planted in a cloned project would run. The folder is %SystemRoot%, else %windir%, else C:\Windows; a value that is not a plain drive-absolute path (UNC, relative,
+ * `..`, a metacharacter) is skipped. Pure; not tried on a Windows host (denenmedi). @param {NodeJS.ProcessEnv} env
+ */
+export function systemTaskkill(env) {
+  for (const v of [env.SystemRoot, env.SYSTEMROOT, env.windir, env.WINDIR]) {
+    if (typeof v === 'string' && /^[A-Za-z]:\\[A-Za-z0-9 _.()\\-]*$/.test(v) && !v.includes('..')) return `${v.replace(/\\+$/, '')}\\System32\\taskkill.exe`;
+  }
+  return 'C:\\Windows\\System32\\taskkill.exe';
+}
+
+/**
+ * The program a child is started as. POSIX: unchanged. Windows (A252, security round 1): libuv searches the working folder before PATH for a bare name, so a `git.exe`
+ * planted at the root of a cloned project would run. A bare name is resolved here through PATH and PATHEXT (drive-absolute entries only, a real `.exe`/`.com`, not
+ * inside the child's working folder or the current one); a `.cmd` shim, a name that is not found, or anything unsure is refused (fail closed). A name that already
+ * has a path in it is the caller's choice and is left alone. Not tried on a Windows host (denenmedi). `fsx` and `platform` are injectable for the tests.
+ * @param {string} program @param {NodeJS.ProcessEnv | undefined} env @param {string | undefined} cwd
+ * @param {string} [platform] @param {import('./wintool.mjs').WinFs} [fsx]
+ * @returns {{ program: string } | { refused: string }}
+ */
+export function resolveProgram(program, env, cwd, platform = process.platform, fsx) {
+  if (platform !== 'win32' || /[\\/:]/.test(program)) return { program };
+  const here = [cwd, process.cwd()].filter((x) => typeof x === 'string' && x !== '');
+  const real = fsx ?? {
+    isFile: (/** @type {string} */ f) => statSync(f).isFile(),
+    real: (/** @type {string} */ f) => realpathSync.native(f),
+    refusedDir: makeRefusedDir(/** @type {string[]} */ (here), (/** @type {string} */ f) => realpathSync.native(f)),
+  };
+  const r = resolveWindowsTool(env ?? ownEnv, program, real);
+  if ('path' in r) return { program: r.path };
+  if ('shim' in r) return { refused: `${shimMessage(program, r.shim)}\n` };
+  return { refused: `proofline: ${program} was not found on PATH outside the working folder; not started\n` };
+}
+
+/** The `taskkill` argument list that ends the process PID and its whole tree (`/T`); `/F` forces it. Pure (A252). @param {number} pid @param {boolean} force */
+export function taskkillArgs(pid, force) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new RangeError(`taskkill: not a process id: ${pid}`);
+  return ['/pid', String(pid), '/T', ...(force ? ['/F'] : [])];
+}
+
+/**
+ * Windows process-tree kill (A226): `taskkill /pid N /T [/F]`, an argument array, no shell. SPAWN is injectable so the command is tested without a Windows host;
+ * the real run on Windows is not tried (denenmedi).
+ * @param {number} pid @param {boolean} force @param {typeof spawnSync} [spawn] @param {NodeJS.ProcessEnv} [env] @param {(text: string) => void} [warn]
+ */
+export function killWindowsTree(pid, force, spawn = spawnSync, env = ownEnv, warn = warnLine) {
+  count('taskkill');
+  const r = spawn(systemTaskkill(env), taskkillArgs(pid, force), { stdio: 'ignore', windowsHide: true });
+  // 0: killed; 128: the process was already gone (the normal end of a stop). Anything else, or a taskkill that did not start, is told (a warn line, no throw)
+  if (r.error || (r.status !== 0 && r.status !== 128)) warn(`proofline: taskkill /pid ${pid} did not end the process tree (${r.error ? r.error.message : `status ${r.status}`}); it may still be running\n`);
+  return r;
+}
+
+/**
+ * The Leader of a program that was refused (A252, review round 2): it never started, `exited` is status 127, and the reason is told once (the dispatcher otherwise
+ * returns 127 with no explanation). The text goes to stderr and, when LOG is a file descriptor, into the worker's log too (the run log otherwise stays empty).
+ * @param {string} text @param {(text: string) => void} [warn] @param {number | string} [log] @returns {Leader}
+ */
+export function refusedLeader(text, warn = warnLine, log = 'ignore') {
+  warn(text);
+  if (typeof log === 'number') { try { writeSync(log, text); } catch { /* the log is gone */ } }
+  return { pid: undefined, exited: Promise.resolve({ status: 127, signal: null }), stop() {} };
+}
+
+/** @param {string} text */
+function warnLine(text) { try { writeSync(2, text); } catch { /* no stderr */ } }
+
 /** @type {WeakSet<import('node:child_process').ChildProcess>} */
 const groupLeaders = new WeakSet();
 const KILL_GRACE_MS = 2000;
@@ -200,8 +275,7 @@ export function killTree(child) {
   if (child.pid === undefined) return;
   const pid = child.pid;
   if (process.platform === 'win32') {
-    count('taskkill');
-    spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
+    killWindowsTree(pid, true);
     return;
   }
   const target = groupLeaders.has(child) ? -pid : pid;
@@ -351,17 +425,21 @@ function groupLive(pgid) {
  * and every descendant found by a `ps` listing (a grandchild that started a session of its own is not in the group), waits `graceMs` and then kills what is
  * still there with SIGKILL; `exited` resolves once the leader is gone and the group is empty or killed. A child that ends by itself leaves its group alone.
  * `onOrphan` (POSIX only): the guardian's orphan spec, see runCloser.
- * @param {string} program @param {string[]} args @param {{ cwd?: string, env?: NodeJS.ProcessEnv, stdio: Array<'ignore'|number>, graceMs?: number, onOrphan?: OrphanSpec }} options @returns {Leader}
+ * @param {string} program @param {string[]} args @param {{ cwd?: string, env?: NodeJS.ProcessEnv, stdio: Array<'ignore'|number>, graceMs?: number, onOrphan?: OrphanSpec, platform?: string, warn?: (text: string) => void }} options
+ * (`platform` is process.platform unless a test simulates another; `warn` takes the refusal text, default stderr) @returns {Leader}
  */
 export function startLeader(program, args, options) {
   const graceMs = options.graceMs ?? 5000;
-  const win = process.platform === 'win32';
+  const platform = options.platform ?? process.platform;
+  const win = platform === 'win32';
   const guardian = fileURLToPath(new URL('./guardian.mjs', import.meta.url));
+  const rp = win ? resolveProgram(program, options.env, options.cwd, platform) : { program };
+  if ('refused' in rp) return refusedLeader(rp.refused, options.warn, options.stdio[2] ?? options.stdio[1]);
   const spawned = win ? program : (options.env !== undefined && nodeOnPath(options.env) ? 'node' : process.execPath);
   count(spawned);
   const t0 = Date.now();
   const child = win
-    ? spawn(program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio, windowsHide: true })
+    ? spawn(rp.program, args, { cwd: options.cwd, env: options.env, stdio: options.stdio, windowsHide: true })
     : spawn(spawned, [guardian, String(process.pid), options.onOrphan === undefined ? '-' : JSON.stringify(options.onOrphan), program, ...args], { cwd: options.cwd, env: options.env, stdio: options.stdio, windowsHide: true, detached: true });
   const pid = child.pid;
   let leaderGone = false;
@@ -380,8 +458,7 @@ export function startLeader(program, args, options) {
   const signalGroup = (sig) => {
     if (pid === undefined) return;
     if (win) {
-      count('taskkill');
-      spawnSync('taskkill', ['/pid', String(pid), '/T', ...(sig === 'SIGKILL' ? ['/F'] : [])], { stdio: 'ignore', windowsHide: true });
+      killWindowsTree(pid, sig === 'SIGKILL');
       return;
     }
     try { process.kill(-pid, sig); } catch { /* none left */ }

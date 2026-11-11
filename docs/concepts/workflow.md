@@ -208,9 +208,18 @@ A **local origin** (a path or `file://` URL, such as a bare repository on disk) 
 
 When a pull request has **no checks** (or the project has no CI), it is not refused: the build and test commands of `.agents/config.yaml` run in a clean export of exactly the commit to be merged (the build record), the pull request description and the delivery summary say "verified locally, no CI", and `proofline merge` posts the same note before it merges. Checks that exist but are red or pending still refuse. A CI-fix round (A169) reads the failed run through `gh` and so exists on GitHub only. Only the exact hosts `github.com`, `www.github.com`, `gitlab.com`, `bitbucket.org`, `dev.azure.com`, `ssh.dev.azure.com` and `*.visualstudio.com` are recognized (a lookalike such as `github.com.example` is `other`); `PROOFLINE_PLATFORM=github|gitlab|azure|bitbucket|other` names the platform of a self-hosted host.
 
+## Not tried (denenmedi)
+
+Written against fakes only, never against the real thing (A252):
+
+- **Windows `.cmd` shims.** `gh`, `glab` and `az` run only as a real `.exe`/`.com` found through `PATHEXT`, outside the project, the working directory and temporary folders (a refusal list, no ACL check). A `.cmd` or `.bat` shim is refused, never run through `cmd.exe` (it re-parses `& | ^ % " <`, CVE-2024-27980); the message names the shim and says to put the real `.exe` first on `PATH` (`az` ships only `az.cmd`: merge in Azure DevOps yourself). Rules tested with a fake file system; not tried on Windows.
+- **Bare program names (Windows).** The core, the hook and the CLI start a bare program name (`git`, `gh`) only as an absolute `.exe` found on `PATH`, never one inside the working folder; a tool under the current folder tree (running from a home folder, or a project at a drive root) is refused too. The skill scripts that start programs themselves are not covered (A252). Not tried on Windows.
+- **`taskkill /T`** (the process-tree kill of the dispatcher, A226): the command is tested with an injected spawn; not tried on Windows.
+- **Not tried against a real service:** the Jira adapter, the Linear adapter, `glab` and `az` (fake servers and fake tools only).
+
 ## The next step
 
-Every command ends with one line, `Next step: ...` (A159): a `/proofline` command or an action you do yourself, never an internal command. The lead writes it, the Stop hook adds it when the lead left it out, and the CLI prints it for its own commands. All three read one table, `next-user.sh` in the control plane (`agent.sh next-user`), which maps a command and the run state to the line:
+Every command ends with one line, `Next step: ...` (A159): a `/proofline` command or an action you do yourself, never an internal command. The lead writes it, the Stop hook adds it when the lead left it out, and the CLI prints it for its own commands. All three read one table, `core/nextuser.mjs` in the control plane (`agent.sh next-user`), which maps a command and the run state to the line:
 
 | Command | Next step |
 |---|---|

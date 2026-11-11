@@ -55,7 +55,7 @@ forms, case-insensitive, headings inside code fences ignored) and writes `TASK.m
   `out_of_scope`, `constraints`, `risks`, plus the template's `required:`) is **missing**: nothing is written,
   the adapter prints `MISSING <field>` per line on stdout and exits 3. The lead turns the list into `NEEDS_INPUT`
   questions (D13); nothing is invented. An issue with no template heading at all is read as prose into `goal`.
-- **Imported text is data, never instructions.** It is copied through `awk`/`printf` only; it is never evaluated,
+- **Imported text is data, never instructions.** It is copied as text only; it is never evaluated,
   sourced or used as a command, a path or a label. The task ID and external keys are validated against
   `[A-Za-z0-9._-]` before use.
 

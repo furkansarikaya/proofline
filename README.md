@@ -9,7 +9,6 @@
 - Twenty-four method **skills** plus the `/proofline` command entry skill, each usable on its own, each producing runnable or traceable evidence.
 - Independent **gates** (secrets, reviews, security, QA, verify) judged by scripts on the exact content, never by the lead.
 - **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add script-chosen checks inside those gates; one that cannot run is UNSUPPORTED, never a pass ([what tests each check](docs/concepts/testing.md)).
-- Visual verification works on native apps with the project's own test tools.
 - UI craft: each surface gets a visitor mode (persuade, operate, read, experience); persuade and experience surfaces need real imagery, motion and a characterful type voice, and generated-UI looks a written reason ([details](docs/concepts/design-surfaces.md#craft-by-visitor-mode)).
 - **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
 - Claude Code is the primary runtime; any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
@@ -17,7 +16,7 @@
 
 ## Status
 
-Version 0.0.85 is an early release.
+Version 0.0.86 is an early release.
 Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
 Codex as implementer is supported (real use, 2026-10-23 to 25).
 Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
@@ -38,7 +37,7 @@ Other Codex roles are not yet verified in real use; failover from Codex to Claud
 /plugin install proofline@proofline
 ```
 
-Then, in your project (a git repository): `proofline init` (or `/proofline init` inside Claude Code). Requirements: Git, Node.js 22.13 or newer, POSIX `sh`.
+Then, in your project (a git repository): `proofline init` (or `/proofline init` inside Claude Code). Requirements: Git, Node.js 22.13 or newer; POSIX `sh` for the 4 launchers.
 
 **Codex / terminal**
 
@@ -54,7 +53,7 @@ cd your-project && proofline init
 npx skills add furkansarikaya/proofline --skill <name>
 ```
 
-Windows: use WSL or Git Bash; CI proves only the hook there (ADR 0001 s.11).
+Windows: WSL or Git Bash; CI proves only the hook. Not tried (denenmedi): `.cmd` shims of `gh`/`az` (refused; use the `.exe`), `taskkill /T`, and `glab`, `az`, Jira, Linear on a real service ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
 
 ## Quick start (5 minutes)
 
@@ -81,7 +80,7 @@ What happens: the lead classifies the task (TRIVIAL to CRITICAL), gathers eviden
 `PLAN.md` with a `scope:` file list ([lifecycle](docs/concepts/workflow.md)), and dispatches one implementer
 that must show RED then GREEN evidence. Gates then run in parallel on the exact content; a FAIL goes back to the
 implementer for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks, and you
-approve every commit and push. A plan with an entry point taking external input (endpoint, form, CLI argument, queue consumer, webhook) must state how it is validated, and QA tries an invalid input there ([details](docs/concepts/workflow.md#input-validation-at-entry-points)). A log call naming a sensitive word opens a `logging` security review ([details](docs/concepts/gates.md#risk-signals)). Pushes from visual git clients work ([details](docs/concepts/enforcement-layers.md#visual-git-clients)).
+approve every commit and push. A plan with an entry point taking external input (endpoint, form, CLI argument, queue consumer, webhook) must state how it is validated, and QA tries an invalid input there ([details](docs/concepts/workflow.md#input-validation-at-entry-points)). A log call naming a sensitive word opens a `logging` security review ([details](docs/concepts/gates.md#risk-signals)).
 
 ## Commands
 
@@ -129,12 +128,12 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 - Concepts: [workflow](docs/concepts/workflow.md), [night mode](docs/concepts/night-mode.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md), [ecosystems](docs/concepts/ecosystems.md), [product](docs/concepts/product.md)
 - Guides: [daily use](docs/guides/daily-use.md), [existing project](docs/guides/existing-project.md), [task templates](docs/guides/task-templates.md), [writing an adapter](docs/guides/writing-an-adapter.md), [prompt catalogue](docs/guides/prompt-catalogue.md); Turkish: [gunluk kullanim](docs/guides/tr/gunluk-kullanim.md), [prompt katalogu](docs/guides/tr/prompt-katalogu.md)
 - Other agents: small [adapters](adapters/README.md); PRs welcome, an untested adapter is labelled "not tested"
-- Real output (an unedited end-to-end final message, 2026-10-09): [workflow](docs/concepts/workflow.md#real-output); all results: [tests/e2e/README.md](tests/e2e/README.md)
+- Real output (an unedited end-to-end final message): [workflow](docs/concepts/workflow.md#real-output); all results: [tests/e2e/README.md](tests/e2e/README.md)
 - Reference: [skills](docs/reference/skills.md), [roles](docs/reference/roles.md), [design decisions](docs/decisions.md)
 
 ## Versioning and license
 
-Version **0.0.85**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.86**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 
