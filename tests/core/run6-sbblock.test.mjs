@@ -17,7 +17,7 @@ test('block-only: exactly the task\'s own first block, nothing else', () => {
   gOk(bo, 'init', '-q', '-b', 'main');
   gOk(bo, 'config', 'user.email', 't@t.invalid');
   gOk(bo, 'config', 'user.name', 't');
-  const ctx = /** @type {any} */ ({ cwd: bo, childEnv: () => cleanEnv() });
+  const ctx = /** @type {any} */ ({ cwd: bo, gitBlank: [], childEnv: () => cleanEnv() });
   const f = `${bo}/t.md`;
   const set = (/** @type {string} */ text) => writeFileSync(f, text);
   const only = (/** @type {string} */ id = 'Z-1') => sbBlockOnly(ctx, bo, 't.md', id);

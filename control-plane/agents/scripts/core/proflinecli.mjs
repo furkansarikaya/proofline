@@ -16,6 +16,7 @@ import { Context } from './context.mjs';
 import { CliDie, fdWriter, readLine } from './cliio.mjs';
 import { ProoflineError } from './errors.mjs';
 import { doctorCommand } from './doctor.mjs';
+import { hgit } from './hgit.mjs';
 import { insightsFront } from './insightsfront.mjs';
 import { cmdInit, cmdUpgrade, u } from './install.mjs';
 import { mergeCommand } from './merge.mjs';
@@ -25,7 +26,7 @@ import { queue } from './queue.mjs';
 import { run as coreRun } from '../proofline-core.mjs';
 import { USAGE_LINES } from './cliusage.mjs';
 
-export const PROOFLINE_VERSION = '0.0.81';
+export const PROOFLINE_VERSION = '0.0.82';
 
 /** @typedef {{ write(chunk: Buffer): unknown }} Sink */
 /** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean }} Over */
@@ -207,7 +208,7 @@ class Cli {
     }
     this.say(out);
     /** @param {string[]} a */
-    const git = (a) => proc.run('git', ['-C', this.root, ...a], { env: this.env, stdio: ['ignore', 'pipe', 'ignore'] }).stdout.toString('latin1');
+    const git = (a) => (a[0] === 'status' ? hgit(this.ctx(), this.root, ['status', '--ignore-submodules=dirty', ...a.slice(1)], { env: this.env }) : proc.run('git', ['-C', this.root, ...a], { env: this.env, stdio: ['ignore', 'pipe', 'ignore'] })).stdout.toString('latin1');
     const br = chomp(git(['branch', '--show-current']));
     const n = linesOf(git(['status', '--porcelain', '--untracked-files=all'])).filter((l) => !/ \.agents\/(runs|local)\//.test(l)).length;
     const ident = chomp(git(['var', 'GIT_AUTHOR_IDENT'])).replace(/ [0-9]* [-+][0-9]*$/, '');

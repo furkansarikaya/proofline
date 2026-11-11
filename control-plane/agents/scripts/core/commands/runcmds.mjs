@@ -369,7 +369,7 @@ function inspect(ctx, id) {
   ctx.out(`task-owned paths that differ from the run's base (${b !== '' ? b : 'no base recorded'}); a path the worker windows already attested is among them, the full diff is 'git diff ${b !== '' ? b : '<base>'}':\n`);
   for (const [p] of taskOwnedPaths(ctx, dir)) {
     if (p === '') continue;
-    if (b !== '') ctx.out(git(ctx, ['diff', '--no-color', '--stat', b, '--', p]).out);
+    if (b !== '') ctx.out(git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--stat', b, '--', p]).out);
     for (const l of git(ctx, ['status', '--short', '--', p]).out.split('\n')) if (l.startsWith('??')) ctx.out(`${l}\n`);
   }
   ctx.out(`to keep the run: agent.sh tree-accept ${id} (asks for your approval of this tree; every gate then runs again)\n`);

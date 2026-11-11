@@ -897,3 +897,112 @@ test('B6 (fix round 1): a task branch whose name starts with a dash is only a st
 function requireNames(d) { return existsSync(`${d}/.agents/runs/LC/approvals`) ? readdir(`${d}/.agents/runs/LC/approvals`) : []; }
 import { readdirSync as readdir } from 'node:fs';
 void [DONE, run];
+
+// ---- A248 (Part of #165): one hermetic git for every call on a checkout -------------------------------------------------------------------
+const FIXED = new Date(Date.UTC(2031, 0, 2, 3, 4, 5)); // a fixed instant: every tracked file of TREE is re-stat'ed, so git must read (and so filter) it to answer a status
+/** Make git re-read every tracked file of a tree. @param {string} tree */
+function touchAll(tree) {
+  for (const f of g(tree, 'ls-files').split('\n').filter((x) => x !== '' && existsSync(`${tree}/${x}`))) utimesSync(`${tree}/${f}`, FIXED, FIXED);
+}
+test('A248 (wiring): a driver found only through an includeIf onbranch include that applies in the run\'s worktree is blanked for the cleanup\'s calls there', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const { lo } = wtDeliver(d, wt, 'local');
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
+  const cnt = `${d}-COUNT`;
+  wf(`${d}-inc.cfg`, `[filter "ck"]\n\tclean = echo c >> ${cnt}; cat\n`);
+  gOk(d, 'config', 'includeIf.onbranch:proofline/**.path', `${d}-inc.cfg`);
+  wf(`${d}/.git/info/attributes`, '* filter=ck\n');
+  assert.ok(!g(d, 'config', '--get-regexp', '^filter\\.').includes('ck'), 'the include must be invisible from the main tree');
+  touchAll(wt);
+  const out = A(wt, ['deliver-merged', 'LC']).text;
+  assert.ok(!existsSync(cnt), `the include's driver ran in the run's worktree: ${out}`);
+});
+
+test('A248 round 4 (wiring): the standalone `cleanup` of a finished run whose worktree holds a populated submodule with a clean filter runs that filter nowhere (no prior discovery in the command)', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const sub = `${wt}/vendor`;
+  mkdirSync(sub);
+  gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
+  gOk(wt, 'add', 'vendor');
+  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(sh, 0o755);
+  gOk(sub, 'config', 'filter.ev.clean', sh);
+  wf(`${sub}/.git/info/attributes`, 'x filter=ev\n');
+  wf(`${wt}/.gitmodules`, '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = none\n'); // an untracked per-submodule ignore=none beats every global ignore key
+  const FIX = new Date(Date.UTC(2031, 0, 2));
+  utimesSync(`${sub}/x`, FIX, FIX);
+  g(wt, 'status', '--porcelain');
+  assert.ok(existsSync(mark), 'test premise: a plain status in the worktree runs the submodule\'s clean filter');
+  rmSync(mark);
+  utimesSync(`${sub}/x`, FIX, FIX);
+  const out = A(wt, ['cleanup', 'LC']).text;
+  assert.ok(!existsSync(mark), `the standalone cleanup ran the submodule's clean filter: ${out}`);
+});
+
+test('A248 round 4 (wiring): deliver-plan in a worktree with a populated submodule that has a clean filter runs that filter nowhere (its status runs before any discovery of the command)', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  bareOrigin(d);
+  const sub = `${wt}/vendor`;
+  mkdirSync(sub);
+  gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
+  gOk(wt, 'add', 'vendor');
+  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(sh, 0o755);
+  gOk(sub, 'config', 'filter.ev.clean', sh);
+  wf(`${sub}/.git/info/attributes`, 'x filter=ev\n');
+  wf(`${wt}/.gitmodules`, '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor\n\tignore = none\n');
+  const FIX = new Date(Date.UTC(2031, 0, 2));
+  utimesSync(`${sub}/x`, FIX, FIX);
+  g(wt, 'status', '--porcelain');
+  assert.ok(existsSync(mark), 'test premise: a plain status in the worktree runs the submodule\'s clean filter');
+  rmSync(mark);
+  utimesSync(`${sub}/x`, FIX, FIX);
+  const out = A(wt, ['deliver-plan', 'LC']).text;
+  assert.ok(!existsSync(mark), `deliver-plan ran the submodule's clean filter: ${out}`);
+});
+
+// ---- A248 round 5: the tree's OWN drivers are blanked whether or not a submodule exists (S1) --------------------------------------------------
+/** A local clean filter on the project (the config the run's worktree shares) that matches every file; returns the marker. Nothing in the tree is a gitlink. @param {string} d @param {string} wt */
+function plantOwnFilter(d, wt) {
+  const mark = `${d}-OWNFILTER`; const sh = `${d}-ownfilter.sh`;
+  wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
+  chmodSync(sh, 0o755);
+  gOk(d, 'config', 'filter.ck.clean', sh);
+  wf(`${d}/.git/info/attributes`, '* filter=ck\n');
+  touchAll(wt);
+  g(wt, 'status', '--porcelain');
+  assert.ok(existsSync(mark), 'test premise: a plain status in the worktree runs the tree\'s own clean filter');
+  rmSync(mark);
+  touchAll(wt);
+  return mark;
+}
+
+test('A248 round 5 (S1, wiring): the standalone `cleanup` of a finished run in a tree with NO gitlink and a local clean filter runs that filter nowhere (no prior discovery in the command)', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const mark = plantOwnFilter(d, wt);
+  const out = A(wt, ['cleanup', 'LC']).text;
+  assert.ok(!existsSync(mark), `the cleanup ran the tree's own clean filter: ${out}`);
+});
+
+test('A248 round 5 (S1, wiring): `deliver-plan` in a tree with NO gitlink and a local clean filter run that filter nowhere', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  bareOrigin(d);
+  const mark = plantOwnFilter(d, wt);
+  const out = A(wt, ['deliver-plan', 'LC']).text;
+  assert.ok(!existsSync(mark), `deliver-plan ran the tree's own clean filter: ${out}`);
+});
+
+test('A248 round 5 (S1, wiring): the content fingerprint (git add -A) in a tree with NO gitlink and a local clean filter runs that filter nowhere', () => {
+  const d = project(RECIPE);
+  const wt = wtDoneRun(d);
+  const mark = plantOwnFilter(d, wt);
+  A(wt, ['fingerprint', 'LC', 'full']);
+  assert.ok(!existsSync(mark), 'the content fingerprint (git add -A) ran the tree\'s own clean filter');
+});

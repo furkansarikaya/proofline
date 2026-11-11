@@ -321,3 +321,20 @@ test('a command stopped by the time limit (exit 124) is a failure and leaves no 
 /** The pid of a process that has exited. */
 function spawnDead() { return Number(spawnSync('sh', ['-c', 'echo $$'], { encoding: 'utf8' }).stdout.trim()); }
 const rmDir = (/** @type {string} */ p) => rmSync(p, { recursive: true, force: true });
+
+test('A248 round 7: the build record keeps the repository\'s own filters but never runs its core.fsmonitor program (key snapshot, read-tree and the export)', () => {
+  const { d } = counted();
+  const mark = `${d}-FSM`; const prog = `${d}-fsm.sh`;
+  writeFileSync(prog, `#!/bin/sh\ntouch ${mark}\nprintf '\\0'\n`);
+  chmodSync(prog, 0o755);
+  git(d, ['config', 'core.fsmonitor', prog]);
+  spawnSync('git', ['-C', d, 'ls-files'], { env: cleanEnv({}) });
+  assert.ok(existsSync(mark), 'test premise: plain git ls-files runs the core.fsmonitor program');
+  rmSync(mark, { force: true });
+  writeFileSync(`${d}/dirty.txt`, 'uncommitted\n'); // an uncommitted file: the key is a snapshot of the tree (add -A), then the export (read-tree, checkout-index)
+  setCmd(d, 'build', 'true');
+  const r = A(d, ['build-record', 'LC', 'run']);
+  assert.equal(r.status, 0, r.text);
+  assert.ok(/^key: tree-/m.test(r.text), `the snapshot path ran: ${r.text}`);
+  assert.ok(!existsSync(mark), 'build-record ran the core.fsmonitor program of the repository configuration');
+});

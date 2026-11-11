@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
+import { hgit } from './hgit.mjs';
 import { readBytes, textLines } from './records.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -134,7 +135,7 @@ export function languageHit(ctx, file, text, hint, history) {
   const ok = new Set();
   for (const piece of pieces) {
     if (corpora.some((c) => inCorpus(c, piece))) { ok.add(piece); continue; }
-    const r = proc.run('git', ['-C', ctx.root, 'grep', '-q', '-I', '-E', '-e', Buffer.from(confirmPattern(piece), 'latin1').toString('utf8'), 'HEAD', '--', '.', ':(exclude).agents'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+    const r = hgit(ctx, ctx.root, ['grep', '-q', '-I', '-E', '-e', Buffer.from(confirmPattern(piece), 'latin1').toString('utf8'), 'HEAD', '--', '.', ':(exclude).agents'], { stdio: ['ignore', 'ignore', 'ignore'] });
     if (r.status === 0) ok.add(piece);
   }
   return scanLine(text, file, hint, history, ok, null);

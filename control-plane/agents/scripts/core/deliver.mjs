@@ -32,6 +32,7 @@ import { runTaskAdapter } from './adapters/index.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
 import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
 import { amendRun } from './reopen.mjs';
+import { MAX_TREES, hgit, populatedGitlinks, repoDrivers } from './hgit.mjs';
 import { cleanupRun, sbBlockOnly } from './runend.mjs';
 import { ciChainOk, ciFixRecs, commitMessageIsApproved, lifecycleFolderStatus, requireRun, runDir } from './runs.mjs';
 import { statusBlockBody, statusBlockUpdate } from './statusblock.mjs';
@@ -96,14 +97,14 @@ export function originEffective(ctx, gitPath = 'git') {
  * refs and grafts; `intact()` fails when anything of the repository (config, hooks, info, refs/replace, alternates) is not what was created; `verify(from)`
  * walks the history itself with the hash of every commit recomputed (`reaches`; git does not hash-check an object it reads), so a rewritten loose object proves nothing.
  * Returns null when the url cannot be read. `done()` removes the folder; `gp(args)` runs git in it.
- * @param {Context} ctx @param {string} gitPath @param {string} url @param {string} base
+ * @param {Context} ctx @param {string} gitPath @param {string} url @param {string} base @param {string} [cacheHome] the folder whose `.cache` holds the proof repositories (the account's home; a test passes its own)
  * @returns {{ tip: string, tmp: string, gp: (args: string[]) => { status: number | null, out: string }, intact: () => boolean, reaches: (target: string, rb: string) => boolean, verify: (rb: string, extra: string[]) => boolean, done: () => void } | null}
  */
-export function hermeticFetch(ctx, gitPath, url, base) {
+export function hermeticFetch(ctx, gitPath, url, base, cacheHome = '') {
   const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
   const env = { ...cleanToolEnv(ctx, { remote: true }), GIT_CONFIG_GLOBAL: nul, GIT_CONFIG_SYSTEM: nul, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: nul };
   /** @type {string} */ let parent = '';
-  try { const home = userInfo().homedir; if (home !== '') { mkdirSync(`${home}/.cache/proofline-proof`, { recursive: true, mode: 0o700 }); parent = `${home}/.cache/proofline-proof`; } } catch { parent = ''; }
+  try { const home = cacheHome !== '' ? cacheHome : userInfo().homedir; if (home !== '') { mkdirSync(`${home}/.cache/proofline-proof`, { recursive: true, mode: 0o700 }); parent = `${home}/.cache/proofline-proof`; } } catch { parent = ''; }
   const tmp = mkdtempSync(path.join(parent !== '' ? parent : tmpdir(), 'pl-proof-'));
   try { chmodSync(tmp, 0o700); } catch { /* not ours to change */ }
   const done = () => { rmSync(tmp, { recursive: true, force: true }); };
@@ -551,10 +552,10 @@ function sbFinalPut(ctx, id, fin) {
 }
 
 /** `sb_main_park TREE DIR`: every block-only modified task file of TREE: its block body is kept and the file reset. @param {Context} ctx @param {string} tree @returns {Array<{ id: string, body: string }>} */
-function sbMainPark(ctx, tree) {
-  const run = (/** @type {string[]} */ a) => proc.run('git', ['-C', tree, '-c', 'core.fsmonitor=false', ...a], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] });
+export function sbMainPark(ctx, tree) {
+  const run = (/** @type {string[]} */ a) => hgit(ctx, tree, a);
   /** @type {Array<{ id: string, body: string }>} */ const parked = [];
-  for (const l of run(['status', '--porcelain', '--untracked-files=no']).stdout.toString('latin1').split('\n')) {
+  for (const l of run(['status', '--porcelain', '--ignore-submodules=all', '--untracked-files=no']).stdout.toString('latin1').split('\n')) {
     if (!l.startsWith(' M ')) continue;
     const p = l.slice(3);
     let text;
@@ -571,6 +572,42 @@ function sbMainPark(ctx, tree) {
     run(['checkout', '-q', '--', p]);
   }
   return parked;
+}
+
+/**
+ * The proven tip becomes the project's tracking ref WITHOUT a transport (A248): a `git fetch` in the project would read the project's whole configuration
+ * (`url.<x>.insteadOf` rewrites the path of the proof repository to a URL, `core.sshCommand` or an `ext::` transport then runs a program). The proof repository
+ * packs what the project lacks (its objects are an alternate, so what the project has is not repeated), the project indexes the pack and moves the ref; both with the hermetic
+ * helper (hooks off, drivers blanked). @param {Context} ctx @param {string} gitBin @param {{ tip: string, tmp: string }} hf @param {string} base @returns {boolean}
+ */
+export function importProvenTip(ctx, gitBin, hf, base) {
+  const env = cleanToolEnv(ctx, { remote: true });
+  const ref = `refs/remotes/origin/${base}`;
+  const have = hgit(ctx, ctx.root, ['rev-parse', '-q', '--verify', ref], { bin: gitBin, env });
+  const known = have.status === 0 ? sub(have.stdout.toString('latin1')) : '';
+  const input = `${hf.tip}\n${/^[0-9a-f]{40,64}$/.test(known) ? `^${known}\n` : ''}`;
+  const pack = proc.run(gitBin, ['--no-replace-objects', '--git-dir', hf.tmp, 'pack-objects', '--revs', '--stdout', '-q'], { cwd: hf.tmp, env: { ...env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, input, stdio: ['pipe', 'pipe', 'ignore'], timeoutMs: 180000 });
+  if (pack.status !== 0) return false;
+  const idx = hgit(ctx, ctx.root, ['index-pack', '--stdin'], { bin: gitBin, env, input: pack.stdout });
+  if (idx.status !== 0) return false;
+  return hgit(ctx, ctx.root, ['update-ref', ref, hf.tip], { bin: gitBin, env }).status === 0;
+}
+
+/**
+ * Find the repository-controlled code git would run on a checkout and blank it for every later git call of this command (`ctx.gitBlank`, applied by `hermeticEnv`).
+ * A238: a filter driver (smudge, process, clean) defined by the repository or the command line is code git runs on every file it reads or writes (status, add, checkout, merge); an
+ * `includeIf` counts as a driver too (its `onbranch` condition is judged by the branch checked out where git runs). System and global drivers are the administrator's or the user's own.
+ * A248: the names come from NUL separated keys (never from a value) and reach git as environment keys (a name with `=` is blanked too); they are collected in the main tree AND the tree
+ * this command runs in (the run's worktree). Round 3: the populated submodules of both trees, and theirs recursively, are searched too and their drivers join the names: git starts a child
+ * in a checked out submodule for a status, a diff, an add or a switch, that child reads the submodule's own configuration and inherits the blanking of the environment, so no per-submodule
+ * `ignore` setting matters. It runs BEFORE the first git call that could enter a submodule, and again before the cleanup (the set of checked out submodules may have changed); it only
+ * reads configuration. @param {Context} ctx @param {string} gitBin @returns {{ names: string[], includes: boolean, submodules: string[], capped: boolean }}
+ */
+export function discoverBlank(ctx, gitBin) {
+  const found = repoDrivers(gitBin, [...new Set([ctx.sharedMain(), ctx.root])], () => ({ cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }) }));
+  ctx.gitBlank = found.names;
+  ctx.forget('git:blank');
+  return found;
 }
 
 // ---- deliver-merged ----------------------------------------------------------------------------------------------------------------------
@@ -593,7 +630,9 @@ export function deliverMerged(ctx, id, flag) {
   const gt = resolveGit(ctx);
   if ('unreadable' in gt) fail(`deliver-merged: no trusted git to prove the merge with (${gt.unreadable}); nothing is recorded`);
   const gitBin = gt.path;
-  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => proc.run(gitBin, ['-C', cwdTree, '-c', 'core.fsmonitor=false', ...a], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
+  const found = discoverBlank(ctx, gitBin);
+  if (found.capped) ctx.out(`note: more than ${MAX_TREES} folders (submodules, or a nesting deeper than 8) were found in the checkouts, so the search for drivers stopped; they are treated as having one and the user's checkout is left as it is\n`);
+  const g = (/** @type {string[]} */ a, /** @type {string} */ cwdTree = ctx.root) => hgit(ctx, cwdTree, a, { bin: gitBin, env: cleanToolEnv(ctx, { remote: true }) });
   const gs = (/** @type {string[]} */ a, tree = ctx.root) => sub(g(a, tree).stdout.toString('latin1'));
   const mergeHead = `${ddir}/MERGE_HEAD`;
   const mh = fileText(ctx, mergeHead);
@@ -638,7 +677,7 @@ export function deliverMerged(ctx, id, flag) {
     const reaches = () => { try { return hf.reaches(dmHead, rb); } catch (e) { return tampered(e); } };
     if (reaches()) how = `the delivered commit is on origin/${dmBase}`;
     else {
-      const paths = gps(['diff', '--no-renames', '--name-only', rb, dmHead, '--']).split('\n').filter((p) => p !== '' && !/^\.agents\/(runs|local)\//.test(p));
+      const paths = gps(['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', rb, dmHead, '--']).split('\n').filter((p) => p !== '' && !/^\.agents\/(runs|local)\//.test(p));
       let same = false;
       // a squash or rebase proof also needs a real commit on origin's tip that touches those paths after the run's base
       if (paths.length > 0 && gps(['log', '-n', '1', '--format=%H', `${rb}..${tip}`, '--', ...paths]) !== '') {
@@ -658,8 +697,8 @@ export function deliverMerged(ctx, id, flag) {
     if (!hf.intact()) tampered(null);
     if (!chk) {
       // the proven tip becomes the project's tracking ref (hooks off) and must be exactly the proven commit: the later steps read it
-      const imp = proc.run(gitBin, ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', 'fetch', '-q', '--no-tags', '--', hf.tmp, `+refs/remotes/origin/${dmBase}:refs/remotes/origin/${dmBase}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'ignore'] });
-      if (imp.status !== 0 || gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}`]) !== tip) fail(`deliver-merged: origin/${dmBase} could not be brought into this repository as the proven commit; nothing is recorded`);
+      const imp = importProvenTip(ctx, gitBin, hf, dmBase);
+      if (!imp || gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}`]) !== tip) fail(`deliver-merged: origin/${dmBase} could not be brought into this repository as the proven commit; nothing is recorded`);
     }
   } finally { hf.done(); }
   if (chk) { ctx.out(`merged: ${how}\n`); return 0; }
@@ -670,14 +709,10 @@ export function deliverMerged(ctx, id, flag) {
   const fin = sbFinalPrepare(ctx, id);
   const main = ctx.sharedMain();
   const adapter = ctx.config().get('tasks.adapter', 'markdown');
-  // A238 (user decision of 2026-11-08, fix rounds 1 and 3): a filter driver (smudge, process, clean) defined by the repository or the command line is repository-controlled code that
-  // git runs on every file it reads or writes in the checkout (status, checkout, merge). It is looked for BEFORE the first such call, and when it exists the user's checkout is
-  // not switched or fast-forwarded and no status block is parked; the cleanup's own tree reads (diff, status) run with every such driver blanked (-c filter.<n>.clean= ...), so
-  // none of them runs. An `includeIf` in the local config counts as a driver too: its condition (onbranch) is judged by the branch checked out when git runs, so a driver that
-  // is invisible on the task branch becomes active on the base after the switch. A system or global driver (git-lfs on a CI image) is the administrator's or the user's own.
-  const cfgLines = g(['config', '--show-scope', '--get-regexp', '^(filter\\..*\\.(smudge|process|clean)|includeif\\..*\\.path)$'], main).stdout.toString('latin1').split('\n').filter((l) => /^(local|worktree|command)\t/.test(l));
-  const filters = cfgLines.length > 0;
-  ctx.gitBlank = [...new Set(cfgLines.map((l) => /^[a-z]+\tfilter\.(.*)\.(smudge|process|clean)\s/.exec(l)?.[1] ?? ''))].filter((n) => n !== '').flatMap((n) => ['-c', `filter.${n}.clean=`, '-c', `filter.${n}.smudge=`, '-c', `filter.${n}.process=`]);
+  // `found` (discoverBlank, at the start of this command): when a driver or an include exists the user's checkout is not switched or fast-forwarded and no status block is parked (A238)
+  // a checked out submodule has a configuration of its own that git reads when it runs status or switches in the checkout (A248)
+  const subm = populatedGitlinks(ctx, main);
+  const filters = found.names.length > 0 || found.includes || subm.length > 0;
   const parked = filters ? [] : sbMainPark(ctx, main);
   const tip2 = `refs/remotes/origin/${dmBase}`;
   const later = `update it from origin/${dmBase} before the next task starts`;
@@ -689,7 +724,7 @@ export function deliverMerged(ctx, id, flag) {
   // the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
   // A200: the approved commands were written into the main tree's config.yaml (uncommitted) and carried into the delivered commit; once origin has that very
   // content the local edit is redundant, and it is the only thing that would stop the fast-forward: it is dropped, nothing else is touched
-  if (!filters && gs(['status', '--porcelain', '--untracked-files=no'], main) === ' M .agents/config.yaml'
+  if (!filters && gs(['status', '--porcelain', '--ignore-submodules=all', '--untracked-files=no'], main) === ' M .agents/config.yaml'
     && gs(['hash-object', '.agents/config.yaml'], main) === gs(['rev-parse', '-q', '--verify', `refs/remotes/origin/${dmBase}:.agents/config.yaml`], main)) {
     if (g(['checkout', '-q', '--', '.agents/config.yaml'], main).status === 0) ctx.out(`the approved commands are on origin/${dmBase}: the local .agents/config.yaml edit was dropped\n`);
   }
@@ -698,7 +733,7 @@ export function deliverMerged(ctx, id, flag) {
   /** @type {(() => void) | null} */ let switchAfterCleanup = null;
   {
     const cur = gs(['branch', '--show-current'], main);
-    const dirty = !filters && gs(['status', '--porcelain', '--untracked-files=no'], main) !== '';
+    const dirty = !filters && gs(['status', '--porcelain', '--ignore-submodules=all', '--untracked-files=no'], main) !== '';
     // a file git ignores here but the target tracks: named for the message (git refuses it too, but says it in its own words)
     let listFailed = false;
     const lsz = (/** @type {string[]} */ a) => { const r = g(a, main); if (r.status !== 0) listFailed = true; return r.stdout.toString('latin1').split('\0').filter((x) => x !== ''); };
@@ -710,7 +745,7 @@ export function deliverMerged(ctx, id, flag) {
     };
     const clashNote = (/** @type {string} */ f, /** @type {string} */ stays) => `note: the main working tree was left ${stays}: the ignored file ${f.replace(/[\x00-\x1f\x7f]/g, '?')} is tracked in ${dmBase} and the update would overwrite it; ${later}\n`;
     const behind = () => g(['merge-base', '--is-ancestor', `refs/heads/${dmBase}`, tip2], main).status !== 0;
-    if (filters) ctx.out(`note: the main working tree was left as it is: the repository configures a filter driver, which git would run while updating it; ${later}\n`);
+    if (filters) ctx.out(`note: the main working tree was left as it is: ${found.names.length > 0 || found.includes ? 'the repository configures a filter driver, which git would run while updating it' : `it has a checked out submodule (${subm[0]}), whose own configuration git would read while updating it`}; ${later}\n`);
     else if (dirty) ctx.out(`note: the main working tree was left as it is: it has uncommitted changes (it is on ${where(cur)}); ${later}\n`);
     else if (cur === dmBase) {
       const f = clashWith([tip2]);
@@ -761,7 +796,7 @@ export function deliverMerged(ctx, id, flag) {
 
 /** The cleanup that follows a merge this process proved: in process, with the proof as a parameter (A215). @param {Context} ctx @param {string} id */
 function inProcessCleanup(ctx, id) {
-  ctx.forget('');
+  ctx.forget(''); // also drops the lazily found submodule drivers of hgit (`git:blank:`), so the cleanup finds them again
   ctx.ctpBase = '';
   must(cleanupRun(ctx, id, true));
 }
@@ -960,7 +995,7 @@ function ciFixLimit(ctx, s, red, logLines) {
     if (ph === '' || ph === 'PENDING') t += '    no fix was pushed\n';
     else {
       const fh = gateField(ctx, r, 'failing_head');
-      t += `    pushed ${fh.slice(0, 7)} -> ${ph.slice(0, 7)}, files: ${git(ctx, ['diff', '--name-only', fh, ph]).out.split('\n').filter((x) => x !== '').map((x) => `${x} `).join('')}\n`;
+      t += `    pushed ${fh.slice(0, 7)} -> ${ph.slice(0, 7)}, files: ${git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--name-only', fh, ph]).out.split('\n').filter((x) => x !== '').map((x) => `${x} `).join('')}\n`;
     }
   }
   writeFileSync(`${d}/ci-fix/limit.txt`, t, 'latin1');

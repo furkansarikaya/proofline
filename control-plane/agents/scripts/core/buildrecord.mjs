@@ -53,7 +53,7 @@ function alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { ret
  */
 function recordKey(ctx, rev) {
   /** @param {string[]} args @param {Record<string, string>} [env] */
-  const g = (args, env = {}) => proc.run('git', ['-C', ctx.root, ...args], { cwd: ctx.cwd, env: { ...ctx.childEnv(), ...env }, stdio: ['ignore', 'pipe', 'ignore'] });
+  const g = (args, env = {}) => proc.run('git', ['-C', ctx.root, '-c', 'core.fsmonitor=false', ...args], { cwd: ctx.cwd, env: { ...ctx.childEnv(), ...env }, stdio: ['ignore', 'pipe', 'ignore'] }); // plain git on purpose, but the file system monitor is off (A248 round 7) (A248 round 6): the key needs the repository's own clean filters (git-lfs)
   const out = (/** @type {proc.ProcResult} */ r) => r.stdout.toString('latin1').replace(/\n+$/, '');
   let tree; let key;
   if (rev !== '') {
@@ -232,7 +232,7 @@ export function buildRecord(ctx, op, rev = '') {
             rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
             try { wt = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'build-record.')); } catch { throw new Stop(2); }
             const env = { GIT_INDEX_FILE: `${wt}/index` };
-            const g = (/** @type {string[]} */ args) => proc.run('git', ['-C', ctx.root, ...args], { cwd: ctx.cwd, env: { ...ctx.childEnv(), ...env }, stdio: ['ignore', 'ignore', 'ignore'] }).status;
+            const g = (/** @type {string[]} */ args) => proc.run('git', ['-C', ctx.root, '-c', 'core.fsmonitor=false', ...args], { cwd: ctx.cwd, env: { ...ctx.childEnv(), ...env }, stdio: ['ignore', 'ignore', 'ignore'] }).status; // plain git on purpose, monitor off: the export needs the smudged content
             if (g(['read-tree', k.tree]) !== 0 || g(['checkout-index', '-a', '-f', `--prefix=${wt}/src/`]) !== 0) throw stopWith(`build-record: cannot export ${key}\n`, 2);
             mkdirSync(`${wt}/src`, { recursive: true });
             if (k.ic === '') {
