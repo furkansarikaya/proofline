@@ -1,7 +1,7 @@
 # Workflow
 
 One deterministic lifecycle per task. The lead (your main session) classifies, freezes, dispatches bounded
-roles and closes the run. `agent.sh` enforces every transition; `agent.sh next <ID>` prints the next step at any point.
+roles and closes the run. `agent.sh` enforces every transition; `agent.sh next <ID>` prints the next step at any point. `agent.sh advance <ID>` (A258, lead only) is `next` that also runs the steps `next` names alone and that need no decision (`branch`, `baseline`, `freeze` with `freshness`, `handoff IMPLEMENTING`, `handoff IMPLEMENTED` with `tier` and `pipeline`), each as the typed command with its own checks; it stops at the first other step, the first failure, or after 8 steps, and runs no approval, waiver, dispatch, classification, CODE_DONE or DONE.
 
 ```text
 TASK -> CLASSIFY -> BRANCH -> BASELINE -> DISCOVER -> EVIDENCE -> [ARCHITECT/DATA/UI] -> PLAN -> [QA PLAN]

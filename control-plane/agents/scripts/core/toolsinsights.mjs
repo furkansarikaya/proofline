@@ -50,6 +50,7 @@ export function toolsSummary(file, only) {
   try { fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK); if (!fstatSync(fd).isFile()) { closeSync(fd); s.present = true; s.unreadableFile = true; return s; } } catch { if (fd >= 0) closeSync(fd); s.present = true; s.unreadableFile = true; return s; }
   s.present = true;
   let lines = 0;
+  /** @type {Map<string, { rank: number, task: string, d: Record<string, any> }>} */ const leads = new Map();
   /** @param {string} line */
   const take = (line) => {
     if (line === '') return;
@@ -58,9 +59,23 @@ export function toolsSummary(file, only) {
     if (!d || typeof d !== 'object' || Array.isArray(d)) { s.corrupt++; return; }
     if (d.schema !== SCHEMA) { s.skipped++; return; }
     const task = ident(d.task, 'n/a');
+    const role = ident(d.role, 'n/a');
+    if (d.kind === 'lead') {
+      // A258: a lead record is a snapshot of the session's log, taken when a run ended; one session is counted once (the best snapshot), under the task of that snapshot
+      const session = ident(d.session, '');
+      const key = session === '' ? `-\u0000${task}` : session;
+      const calls = count(d.calls);
+      const rank = d.log === 'ok' && calls !== null ? calls + 1 : 0;
+      const cur = leads.get(key);
+      if (!cur || rank > cur.rank || (rank === cur.rank && task < cur.task)) leads.set(key, { rank, task, d });
+      return;
+    }
     if (only !== '' && task !== only) return;
     s.records++;
-    const role = ident(d.role, 'n/a');
+    addRecord(d, task, role);
+  };
+  /** @param {Record<string, any>} d @param {string} task @param {string} role */
+  const addRecord = (d, task, role) => {
     /** @type {Array<[string, { calls: number, bytes: number }]>} */ const tools = [];
     if (d.by_tool && typeof d.by_tool === 'object' && !Array.isArray(d.by_tool)) {
       for (const [k, e] of Object.entries(d.by_tool)) {
@@ -107,6 +122,13 @@ export function toolsSummary(file, only) {
       if (ok && ++lines <= MAX_LINES) take(t);
     }
   } catch { s.unreadableFile = true; } finally { try { closeSync(fd); } catch { /* ignore */ } }
+  // the lead snapshots, in the byte order of their keys (the report does not depend on the order of the file)
+  for (const k of [...leads.keys()].sort()) {
+    const { task, d } = /** @type {{ task: string, d: Record<string, any> }} */ (leads.get(k));
+    if (only !== '' && task !== only) continue;
+    s.records++;
+    addRecord(d, task, 'lead');
+  }
   return s;
 }
 

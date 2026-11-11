@@ -182,7 +182,7 @@ export class LockSet {
  * The commands that take no lock although they are not read-only (agent.sh line 8939): they only read the config, or take the locks in
  * a process of their own.
  */
-const UNLOCKED = new Set(['approve-pending', 'friction', 'batch-status', 'batch-check', 'batch-next', 'pr-state', 'batch-ci', 'batch-awake', 'batch-park', 'db-config', 'hook-config']);
+const UNLOCKED = new Set(['advance', 'approve-pending', 'friction', 'batch-status', 'batch-check', 'batch-next', 'pr-state', 'batch-ci', 'batch-awake', 'batch-park', 'db-config', 'hook-config']);
 
 /**
  * `lock_command`: does this command take the locks (agent.sh lines 8934-8940)?

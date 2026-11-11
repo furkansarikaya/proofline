@@ -10,6 +10,15 @@ intake -> classify -> branch -> baseline -> DISCOVER -> EVIDENCE -> [architect |
   -> CODE_DONE -> knowledge -> COMPLETION_REPORT -> DONE -> delivery-check -> [commit/push approval] -> cleanup
 ```
 
+## advance
+
+**`A advance <ID>` (A258)** is `A next <ID>` that also carries out the steps `next` names ALONE and that need no
+decision: `branch`, `baseline`, `freeze` (then `freshness`), `handoff <ID> IMPLEMENTING` (no fix round) and `handoff <ID> IMPLEMENTED`
+(then `tier`, `pipeline`). Each is the typed command, so every check and refusal is the same; the first failure stops it and
+its output and status are the command's. It never classifies, dispatches, asks, approves, waives, hands off CODE_DONE or DONE, or
+starts a fix round: `next=` lines for those, or several `next=` lines, end it (at most 8 steps). The last block of its output is the
+`next` output; read it as you read `next`. After `classify`, `A advance <ID>` replaces branch, baseline and `next`.
+
 ## 1. Intake
 
 | Input | Lead action |

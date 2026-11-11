@@ -24,6 +24,7 @@ import { asciiLower } from './shellglob.mjs';
 import { hookTime } from './commands/hookcmds.mjs';
 import { freshness, verifyHandoff, verifyKnowledgeScope } from './commands/verify.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
+import { leadToolsRecord } from './leadlog.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -75,6 +76,7 @@ export function metricsRun(ctx, id, outcome) {
   size = size.replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 16).replace(/ /g, '').replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32));
   const sp = sectionValue(ctx, dir, 'freeze', 'scope_paths').split(',').filter((x) => x !== '').length;
   metricsJson(ctx, ['run', id, 'lead', '-', '-', runtime, '-', dur, '-', '-', '-', '-', '-', String(deleg), fr, outcome, size, String(sp)]);
+  leadToolsRecord(ctx, id);   // A258: the lead's own session log, one snapshot (best effort, never throws)
   try { hookTime(ctx, [id]); } catch { /* 2>/dev/null || : */ }
   const mark = ctx.chunks.length;
   try { frictionReport(ctx, id); } catch { /* the report is a courtesy: whatever it says is not the run's result */ }
