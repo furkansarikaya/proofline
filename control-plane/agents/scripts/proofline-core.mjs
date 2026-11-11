@@ -137,6 +137,9 @@ function dispatch(ctx, locks, argv) {
 /** `[ -e PATH ]` @param {string} p */
 function isExisting(p) { try { realpathSync(p); return true; } catch { return false; } }
 
+/** The path in the / spelling the rest of the core compares with (Windows hands back backslashes from realpath; A250). @param {string} p */
+function fwd(p) { return process.platform === 'win32' ? p.replaceAll('\\', '/') : p; }
+
 /**
  * The leading `--pl-argv0 <$0>` that agent.sh's preamble passes: the typed script path, used by the bridge only when it names the core's own
  * sibling agent.sh (same real path); anything else is ignored and the bridge uses the absolute path. It never selects what is executed.
@@ -148,14 +151,14 @@ export function splitArgv0(args, scriptPath, cwd) {
   const typed = args[1];
   const rest = args.slice(2);
   try {
-    const sibling = realpathSync.native(path.join(path.dirname(scriptPath), 'agent.sh'));
+    const sibling = fwd(realpathSync.native(path.join(path.dirname(scriptPath), 'agent.sh')));
     if (typed === '' || typed.startsWith('-')) return { argv: rest };
     // sh resolves `..` physically (after following a symbolic link), so the typed path is resolved the same way: joined to the working
     // directory WITHOUT textual normalisation and handed to the C library's realpath (realpathSync.native), never to path.resolve.
-    const physical = realpathSync.native(path.isAbsolute(typed) ? typed : `${cwd}/${typed}`);
+    const physical = fwd(realpathSync.native(path.isAbsolute(typed) ? typed : `${cwd}/${typed}`));
     if (physical !== sibling) {
       // a run worktree's agent.sh (the project's own core is the one running, see agent.sh): the worktree is the ROOT, nothing of its code is run
-      const main = realpathSync.native(path.resolve(path.dirname(scriptPath), '..', '..'));
+      const main = fwd(realpathSync.native(path.resolve(path.dirname(scriptPath), '..', '..')));
       const prefix = `${main}/.agents/local/worktrees/`;
       if (physical.startsWith(prefix) && /^[^/]+\/\.agents\/scripts\/agent\.sh$/.test(physical.slice(prefix.length))) return { argv: rest, argv0: typed.split('/').includes('..') ? physical : typed, rootScript: physical };
       return { argv: rest };
