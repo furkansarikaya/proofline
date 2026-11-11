@@ -2,6 +2,7 @@
 // Absolute Node tests for the enforcement scenarios lead_no_run (A169), lead_edits, knowledge_surfaces and link_writes (H1, E1, E2): the recorded
 // corpora (tests/enforcement/recorded/) replayed against the Node hook. Verdicts and reason texts are literals recorded once from the shell hook.
 // The recorded calls with PROOFLINE_JSON=node / none (the shell hook's parser switch) are replayed unchanged: the Node hook has one parser and no switch (D14).
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { project } from '../core/legacy-lib.mjs';
 import { corpus, replay } from './recorded.mjs';
 import { fixtureRecipe } from './recorded-fixture.mjs';
 
-const base = mkdtempSync(join(tmpdir(), 'enf-rec-'));
+const base = tempDir('enf-rec-');
 after(() => rmSync(base, { recursive: true, force: true }));
 /** @param {string} dir @param {string[]} a */
 const git = (dir, a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });

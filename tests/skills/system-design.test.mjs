@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -10,7 +11,7 @@ const skill = join(dirname(fileURLToPath(import.meta.url)), "../../skills/system
 const script = join(skill, "scripts/validate-architecture.mjs");
 const { validate } = await import(script);
 
-const repo = mkdtempSync(join(tmpdir(), "sd-"));
+const repo = tempDir("sd-");
 mkdirSync(join(repo, "src/api"), { recursive: true });
 mkdirSync(join(repo, "docs/adr"), { recursive: true });
 writeFileSync(join(repo, "src/api/handler.js"), "");

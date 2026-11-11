@@ -1,5 +1,6 @@
 // @ts-check
 // PreToolUse for a shell command: the fail-closed cases of the Node router. (The corpus of commands per caller is in tests/enforcement/recorded.)
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTemplate, copyProject, haveJq, runHook, snapshot, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join } from './harness.mjs';
@@ -8,7 +9,7 @@ const skip = false;
 let withRun = '';
 let noRun = '';
 let base = '';
-before(() => { withRun = buildTemplate(); noRun = buildTemplate({ run: false }); base = mkdtempSync(join(tmpdir(), 'hook-pre-')); });
+before(() => { withRun = buildTemplate(); noRun = buildTemplate({ run: false }); base = tempDir('hook-pre-'); });
 after(() => { rmSync(withRun, { recursive: true, force: true }); rmSync(noRun, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
 /** @param {'node'} kind @param {string} dir @param {string} command @param {object} who @param {Record<string, string>} env */

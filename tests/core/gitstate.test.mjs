@@ -1,6 +1,7 @@
 // @ts-check
 // The state of .git/config and HEAD the dispatcher compares before and after a step (A226): read from the git folder's files, in a main tree and in a linked
 // worktree, with packed refs, detached, unborn; and equal to what git itself says whenever the plain reading is not possible.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { gitState } from '../../control-plane/agents/scripts/core/gitstate.mjs';
 import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 
-const base = mkdtempSync(path.join(tmpdir(), 'gitstate-'));
+const base = tempDir('gitstate-');
 after(() => rmSync(base, { recursive: true, force: true }));
 const env = cleanEnv({});
 /** @param {string} cwd @param {string[]} args */

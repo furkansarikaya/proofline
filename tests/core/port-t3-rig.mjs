@@ -1,6 +1,7 @@
 // @ts-check
 // The golden port of the equivalence-rig cases (tests/equivalence, to be deleted); see port-t3-core.mjs. One test per recorded case of a group file
 // (tests/fixtures/port-t3/<group>.json.gz): the Node core runs the recorded steps on the restored state and must leave the recorded outputs and delta.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,7 +24,7 @@ export function registerGroup(name, title) {
     for (const c of g.cases) {
       test(c.name, () => {
         const root = realpathSync(rp.state(c.state));
-        const work = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t3-')));
+        const work = realpathSync(tempDir('pl-t3-'));
         try {
           const home = path.join(work, 'home'); const tmp = path.join(work, 'tmp'); mkdirSync(home); mkdirSync(tmp);
           const initial = snapTree(root);

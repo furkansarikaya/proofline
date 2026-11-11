@@ -5,6 +5,7 @@
 // the PLAN check run when the toolchain exists (go, node 22.18+/23.6+, vitest for test-trust ts), else a SKIP line with the reason is printed (SKIP is never
 // counted as a pass and never omitted).
 // Usage: node tests/fixtures/check-fixtures.mjs [fixture-name ...]
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
@@ -25,7 +26,7 @@ export async function main(names, o = {}) {
   const write = o.write ?? ((s) => process.stdout.write(s));
   const timeoutMs = o.timeoutMs ?? 900000;
   let work;
-  try { work = mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'proofline-fixtures-')); } catch { console.error(`TMPDIR must be an existing directory: ${process.env.TMPDIR || os.tmpdir()}`); return 2; }
+  try { work = tempDir('proofline-fixtures-'); } catch { console.error(`TMPDIR must be an existing directory: ${process.env.TMPDIR || os.tmpdir()}`); return 2; }
   try {
     const explicit = names.length > 0;
     if (!explicit) names = readdirSync(path.join(root, 'fixtures')).sort().filter((n) => existsSync(path.join(root, 'fixtures', n, 'setup.mjs')));

@@ -1,4 +1,5 @@
 // A94 follow-up: hyphenated names vs negation words, heredoc and paren-less SQL, up/down path, manual review row.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -12,7 +13,7 @@ import { classifyFiles, unanalyzedReason, scanNonSql } from "../../skills/data-d
 import { scanMigrations } from "../../skills/data-design/scripts/migration-check.mjs";
 
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "a94b-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("a94b-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 // ---- 1. a negation word inside a hyphenated name is not a negation -----------------------------------

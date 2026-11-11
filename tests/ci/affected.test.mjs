@@ -1,5 +1,6 @@
 // @ts-check
 // Tests tests/affected.mjs selection (A164): unmapped changes never skip, mapped changes select only their suites.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,7 +30,7 @@ test('--all includes the node test files outside tests/skills ', () => {
   assert.deepEqual(all, allUnits(root), 'sorted in byte order, once each');
 });
 test('a mapped unit that does not exist selects every unit (fail safe)', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'affected-map-')); after(() => rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir('affected-map-'); after(() => rmSync(dir, { recursive: true, force: true }));
   const map = path.join(dir, 'map.txt'); writeFileSync(map, 'some/path.txt no-such-suite\n');
   assert.equal(list(['some/path.txt'], { AFFECTED_MAP: map }).lines.length, total);
 });

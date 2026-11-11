@@ -1,6 +1,7 @@
 // @ts-check
 // Self-test wiring for tests/shared/check-static.mjs (A162): the repository itself passes the static rules, and each rule breaks on a scratch repository
 // that violates it.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { after, describe, test } from 'node:test';
 import { README_MAX_BYTES, README_MAX_LINES, check, main } from '../shared/check-static.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
-const T = mkdtempSync(path.join(tmpdir(), 'static-test-'));
+const T = tempDir('static-test-');
 after(() => rmSync(T, { recursive: true, force: true }));
 let n = 0;
 const git = (/** @type {string} */ dir, /** @type {string[]} */ ...a) => execFileSync('git', ['-C', dir, ...a], { stdio: 'ignore', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' } });

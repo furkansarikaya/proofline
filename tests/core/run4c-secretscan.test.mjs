@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 4, package 4C security review: the built-in scan fails closed. Only the head of a file decides "binary" (as grep -I did), an unreadable file is an
 // error that names it (never a silent skip), and the delivery check's shell scan reaches the core scanner when the project has no scanner script.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,7 +13,7 @@ const ctx = /** @type {any} */ ({ childEnv: () => ({ ...process.env, LC_ALL: 'C'
 const key = `AKIA${'ABCDEFGHIJKLMNOP'}`;
 
 test('a secret before a late NUL byte is reported; a NUL in the head makes a file binary', () => {
-  const d = mkdtempSync(join(tmpdir(), 'ss4c-'));
+  const d = tempDir('ss4c-');
   try {
     writeFileSync(join(d, 'late.txt'), `k = "${key}"\n${'x'.repeat(200 * 1024)}\n\0tail\n`);
     writeFileSync(join(d, 'head.bin'), `\0 ${key}\n`);
@@ -24,7 +25,7 @@ test('a secret before a late NUL byte is reported; a NUL in the head makes a fil
 });
 
 test('an unreadable file fails the scan closed and names the path', { skip: process.getuid?.() === 0 }, () => {
-  const d = mkdtempSync(join(tmpdir(), 'ss4c-'));
+  const d = tempDir('ss4c-');
   try {
     mkdirSync(join(d, 'src'));
     writeFileSync(join(d, 'src/locked.txt'), `x = "${key}"\n`);

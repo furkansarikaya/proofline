@@ -1,6 +1,7 @@
 // visual-proof (A82): browser-less tests of the report validator, the depth and UNSUPPORTED rules, the config
 // check, detection and the assemble step. The browser measurement itself is fixtures/visual-proof/browser-check.mjs
 // (main/nightly CI).
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
@@ -15,7 +16,7 @@ import { detect, checkConfig, assemble, pageUrl, PROBE } from "../../skills/visu
 const VALIDATE = fileURLToPath(new URL("../../skills/visual-proof/scripts/validate-visual.mjs", import.meta.url));
 const MEASURE = fileURLToPath(new URL("../../skills/visual-proof/scripts/measure.mjs", import.meta.url));
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "vp-test-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("vp-test-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 const clone = (o) => JSON.parse(JSON.stringify(o));
 

@@ -1,6 +1,7 @@
 // @ts-check
 // The merge guard of the Node hook (guards/merge.mjs) against a table of commands (the lists of tests/enforcement/merge-guard-test.sh) and, for the
 // same table, against the shell hook's own merge guard: the verdict and the reason text must be the same.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { mergeGuard } from '../../adapters/claude/hooks/guards/merge.mjs';
 import { Deny } from '../../adapters/claude/hooks/guards/kit.mjs';
 import { runHook } from './harness.mjs';
 
-const base = mkdtempSync(join(tmpdir(), 'merge-guard-'));
+const base = tempDir('merge-guard-');
 process.on('exit', () => { try { rmSync(base, { recursive: true, force: true }); } catch { /* gone */ } });
 
 /** A repository whose HEAD names BRANCH (unborn: the guard reads only HEAD). @param {string} name @param {string} branch */

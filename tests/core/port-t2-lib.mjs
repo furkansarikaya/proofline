@@ -2,6 +2,7 @@
 // T2 of the legacy-test port: run states restored from committed snapshots (recorded ONCE from the legacy shell fixtures, see
 // tests/fixtures/port-t2/record.mjs) and the commands run in-process on the Node core. The expected outputs are golden files recorded once from the
 // shell (tests/fixtures/port-t2/golden.json); nothing compares with the shell at test time.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -45,7 +46,7 @@ function put(p, f) {
 /** The project of a snapshot, rebuilt in a fresh folder: the shipped control plane in .agents, the base commit, then the working tree. @param {string} name */
 export function restoreNew(name) {
   const snap = /** @type {Snapshot} */ (JSON.parse(gunzipSync(readFileSync(path.join(dataDir, `${name}.json.gz`))).toString('utf8')));
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), `pl-t2-${name}-`)));
+  const root = realpathSync(tempDir(`pl-t2-${name}-`));
   cpSync(agentsSrc, path.join(root, '.agents'), { recursive: true });
   spawnSync('git', ['init', '-q', '-b', 'main', root], { env: GIT_ENV });
   git(root, ['config', 'gc.auto', '0']);
@@ -82,7 +83,7 @@ function eraDeleted(list) {
 export function restore(name) {
   let master = cache.get(name);
   if (!master) { master = restoreNew(name); cache.set(name, master); made.push(master); }
-  const copy = realpathSync(mkdtempSync(path.join(tmpdir(), `pl-t2c-${name}-`)));
+  const copy = realpathSync(tempDir(`pl-t2c-${name}-`));
   made.push(copy);
   cpSync(master, copy, { recursive: true, verbatimSymlinks: true });
   return copy;
@@ -153,7 +154,7 @@ export function replayer(tr) {
     const id = JSON.stringify([id0(st), common]);
     let m = masters.get(id);
     if (!m) {
-      const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2t-')));
+      const root = realpathSync(tempDir('pl-t2t-'));
       made.push(root);
       cpSync(agentsSrc, path.join(root, '.agents'), { recursive: true });
       spawnSync('git', ['init', '-q', '-b', 'main', root], { env: GIT_ENV });
@@ -178,7 +179,7 @@ export function replayer(tr) {
     state(key) {
       const st = tr.states[key];
       const { root: master, sha } = masterFor(key);
-      const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-t2s-')));
+      const root = realpathSync(tempDir('pl-t2s-'));
       made.push(root);
       cpSync(master, root, { recursive: true, verbatimSymlinks: true });
       // a tracked .agents file that the working tree does not keep is the shipped one there (it differs from the base commit); any other is removed

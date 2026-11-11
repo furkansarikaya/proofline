@@ -1,6 +1,7 @@
 // @ts-check
 // `proofline-core.mjs cli config ...` (A232; the former bin/lib/config.sh): reading, writing and merging .agents/config.yaml for the CLI front end. Absolute expectations: the
 // merge texts below are what the shell `cfg_merge_new` printed for the same inputs (0.0.65), recorded once.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +12,7 @@ import { cfgMergeNew } from '../../control-plane/agents/scripts/core/cfgcli.mjs'
 import { scriptsDir } from './helpers.mjs';
 
 const core = path.join(scriptsDir, 'proofline-core.mjs');
-const dir = mkdtempSync(path.join(tmpdir(), 'cfgcli-'));
+const dir = tempDir('cfgcli-');
 const cli = (/** @type {string[]} */ ...args) => {
   const r = spawnSync(process.execPath, [core, 'cli', 'config', ...args], { cwd: dir, encoding: 'utf8' });
   return { code: r.status, out: r.stdout, err: r.stderr };

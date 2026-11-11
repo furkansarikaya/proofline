@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -14,7 +15,7 @@ const dirs = [];
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 function root(skills) {
-  const dir = mkdtempSync(join(tmpdir(), "check-shared-"));
+  const dir = tempDir("check-shared-");
   dirs.push(dir);
   mkdirSync(join(dir, "tests/shared"), { recursive: true });
   writeFileSync(join(dir, "tests/shared/shared-rules.md"), CANON);
@@ -80,7 +81,7 @@ test("usage errors exit 2", () => {
   assert.equal(spawnSync("sh", [SCRIPT, "--nope"], { encoding: "utf8" }).status, 2);
   assert.equal(spawnSync("sh", [SCRIPT, "--root"], { encoding: "utf8" }).status, 2);
   assert.equal(run("/nonexistent-dir-for-check-shared").status, 2);
-  const noCanon = mkdtempSync(join(tmpdir(), "check-shared-"));
+  const noCanon = tempDir("check-shared-");
   dirs.push(noCanon);
   assert.equal(run(noCanon).status, 2);
 });

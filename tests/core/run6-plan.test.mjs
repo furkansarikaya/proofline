@@ -2,6 +2,7 @@
 // Stage 6 (A215): deliver-plan, the summary, the platforms, task-source-done, and the real commit and push through the git hooks (deliver-test.sh scenarios
 // content_change_stops, failed_refused, reopened_run_delivers, task_moves_to_done, task_move_skipped, summary_warns_without_ci, platforms, task_done_noop,
 // one_approval_real_chain, partial_reply_recovers, cleanup_crash_keeps_merged).
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync as wf } from 'node:fs';
@@ -276,7 +277,7 @@ const MSG = '.agents/local/deliver/LC/COMMIT_MSG';
 const DEFAULT_MSG = 'fix: the approved line (LC)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n';
 
 test('A224: the default trailer is added by deliver-plan, shown in the summary whole, covered by message_sha256 and the approval, ledgered, and committed as written', () => {
-  const home = mkdtempSync(path.join(tmpdir(), 'attr-home-'));
+  const home = tempDir('attr-home-');
   mkdirSync(`${home}/.claude`, { recursive: true });
   wf(`${home}/.claude/settings.json`, JSON.stringify({ includeCoAuthoredBy: false, attribution: { commit: '' } }));
   wf(`${home}/.claude/CLAUDE.md`, 'Never add a Co-Authored-By trailer to a commit.\n');
@@ -329,7 +330,7 @@ test('A224 KNOWN LIMIT: a commit-msg hook that rewrites the message (a Change-Id
     approveDelivery(d);
     accepted(S(d, gh.env, 'commit'), 'commit');
     // the project's own commit-msg hook appends a line to every message (as a Gerrit Change-Id or a DCO hook does)
-    const hd = mkdtempSync(path.join(tmpdir(), 'msg-hooks-'));
+    const hd = tempDir('msg-hooks-');
     wf(`${hd}/commit-msg`, '#!/bin/sh\nprintf "\\nChange-Id: I0123456789abcdef\\n" >> "$1"\n', { mode: 0o755 });
     A(d, ['task-source-done', 'LC']);
     gOk(d, 'add', '-A');

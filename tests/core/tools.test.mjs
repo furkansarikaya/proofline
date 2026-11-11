@@ -1,5 +1,6 @@
 // @ts-check
 // Package TOOLS (stage 2): the string rules of the leaf commands against the real shell `case`, and the list of the commands the Node core owns.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,7 +34,7 @@ describe('package TOOLS: the string rules', () => {
   });
 
   test('expandWords expands only in the working folder and leaves unmatched words', () => {
-    const d = mkdtempSync(path.join(tmpdir(), 'pl-tools-glob-'));
+    const d = tempDir('pl-tools-glob-');
     try {
       writeFileSync(path.join(d, 'b.md'), ''); writeFileSync(path.join(d, 'a.md'), ''); writeFileSync(path.join(d, '.h.md'), '');
       assert.deepEqual(expandWords('docs/ *.md *.zz x', d), ['docs/', 'a.md', 'b.md', '*.zz', 'x']);

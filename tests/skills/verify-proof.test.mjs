@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -110,7 +111,7 @@ test("malformed command line and missing section", () => {
 });
 
 test("CLI", () => {
-  const d = mkdtempSync(join(tmpdir(), "vp-"));
+  const d = tempDir("vp-");
   writeFileSync(join(d, "v.md"), mk());
   writeFileSync(join(d, "bad.md"), mk({ scope: "verify-scope: exit=2" }));
   writeFileSync(join(d, "t.md"), TASK);

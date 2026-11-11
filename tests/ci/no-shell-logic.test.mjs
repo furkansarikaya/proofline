@@ -1,4 +1,5 @@
 // Tests of tests/ci/no-shell-logic.mjs (the strict check, A251) on small throwaway git repositories: a clean repository passes, every rule fails on its planted violation.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -46,7 +47,7 @@ const cleanup = (d) => rmSync(d, { recursive: true, force: true });
 
 // A clean repository: the four launchers and their templates (the real ones), a hook wiring file with a pinned string, one-command CI steps, a Node file.
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'nsl-'));
+  const dir = tempDir('nsl-');
   git(dir, 'init', '-q', '-b', 'main');
   for (const [f, text] of parseLauncherTemplates(TEMPLATES)) put(dir, f, text, 0o755);
   put(dir, 'tests/ci/launcher-templates.txt', TEMPLATES);

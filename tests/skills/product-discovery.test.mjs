@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
@@ -24,7 +25,7 @@ const RAW = "Interviewer: how do you export?\nFinance:   I copy around\n400 rows
 
 // a project with docs/product/x/INTERVIEWS.md and the raw text of INT-1 under .agents/local
 function project(files = {}) {
-  const root = mkdtempSync(join(tmpdir(), "product-discovery-"));
+  const root = tempDir("product-discovery-");
   const dir = join(root, "docs/product/x");
   mkdirSync(dir, { recursive: true });
   for (const [n, t] of Object.entries({ "INTERVIEWS.md": INTERVIEWS, ...files })) writeFileSync(join(dir, n), t);

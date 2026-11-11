@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from "node:fs";
@@ -13,7 +14,7 @@ const VALIDATE = join(SKILL, "scripts/validate-concurrency.mjs");
 const FIND = join(SKILL, "scripts/find-shared-state.mjs");
 const SETUP = new URL("../../fixtures/concurrency-proof/setup.mjs", import.meta.url).pathname;
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "cp-test-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("cp-test-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 // The known answer for the fixture, written from its planted facts (fixtures/concurrency-proof/EXPECTED.md).

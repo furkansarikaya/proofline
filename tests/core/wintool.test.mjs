@@ -1,5 +1,6 @@
 // A252: Windows tool resolution (a .cmd/.bat shim is refused, only an .exe/.com in a safe folder runs) and the taskkill command of the process-tree kill (A226).
 // Both run on any host with a fake file system and an injected spawn: no Windows machine, no waits, no clock. On Windows itself: not tried (denenmedi).
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
@@ -189,7 +190,7 @@ describe('A252 review round 2', () => {
     assert.equal(told.length, 1, 'stop says nothing more');
   });
   test('R2: startLeader returns the refused leader on a simulated win32 refusal, and the reason reaches the worker log as well as the warning', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'wt-leader-'));
+    const dir = tempDir('wt-leader-');
     const fd = openSync(path.join(dir, 'worker.log'), 'w');
     try {
       const told = [];

@@ -4,6 +4,7 @@
 // working directory, the project or a temporary folder is refused (no environment value lifts that). gh is a fake outside every temporary folder answering from
 // files. The front end (bin/proofline merge, the launcher of it) and the hook's denial of every other merge path stay covered by the shell suites
 // tests/enforcement/merge-guard-test.sh and platform-test.sh until the front end moves.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,11 +31,11 @@ const sha = '1'.repeat(40);
 
 /** A project (a git repository with a GitHub origin) and a fake gh that answers from the files of its state folder. */
 function setup() {
-  const proj = mkdtempSync(path.join(tmpdir(), 'mg-proj-'));
+  const proj = tempDir('mg-proj-');
   run(proj, 'git', ['init', '-q', '-b', 'main']);
   run(proj, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base']);
   run(proj, 'git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git']);
-  const st = mkdtempSync(path.join(tmpdir(), 'mg-state-'));
+  const st = tempDir('mg-state-');
   const bin = path.join(toolRoot, `mg-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
   wf(`${bin}/gh`, `#!/bin/sh\n[ ! -f "${st}/fail" ] || { echo "gh: HTTP 502" >&2; exit 1; }\ncase "$*" in\n  *"pr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"pr checks"*) [ ! -f "${st}/proxyerr" ] || { cat "${st}/proxyerr" >&2; exit 1; }; cat "${st}/required.json" 2>/dev/null || { echo "no required checks reported on the 'feat/x' branch" >&2; exit 1; } ;;\n  *"pr comment"*) echo "$*" >> "${st}/comment.log"; exit 0 ;;\n  *statusCheckRollup*) cat "${st}/view.json" ;;\n  *headRefOid*) cat "${st}/head.json" ;;\nesac\n`);
@@ -51,11 +52,11 @@ function setup() {
   return { proj, st, bin, view, merge, merged, done: () => { rmSync(proj, { recursive: true, force: true }); rmSync(st, { recursive: true, force: true }); rmSync(path.dirname(bin), { recursive: true, force: true }); } };
 }
 test('merge (GitLab): a draft is refused whether `draft` or the older `work_in_progress` says so (fail closed, jq `//` semantics); a clean merge request goes on', () => {
-  const proj = mkdtempSync(path.join(tmpdir(), 'mg-gl-'));
+  const proj = tempDir('mg-gl-');
   run(proj, 'git', ['init', '-q', '-b', 'main']);
   run(proj, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base']);
   run(proj, 'git', ['remote', 'add', 'origin', 'https://gitlab.com/acme/app.git']);
-  const st = mkdtempSync(path.join(tmpdir(), 'mg-gl-state-'));
+  const st = tempDir('mg-gl-state-');
   const bin = path.join(toolRoot, `mgl-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
   wf(`${bin}/glab`, `#!/bin/sh\ncase "$*" in\n  *"mr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"mr view"*) cat "${st}/view.json" ;;\nesac\n`);
@@ -153,7 +154,7 @@ test('merge: a skipped check passes only when it is not required; a required che
 test('merge: a gh in a temporary folder, in the working directory or behind an empty or relative PATH entry is refused; a missing gh and a platform without a tool say that the user merges', () => {
   const t = setup();
   t.view('OPEN', false, sha, [okRun]);
-  const shadow = mkdtempSync(path.join(tmpdir(), 'mg-shadow-'));
+  const shadow = tempDir('mg-shadow-');
   wf(`${shadow}/gh`, `#!/bin/sh\necho "$*" >> "${t.st}/merge.log"\n`);
   chmodSync(`${shadow}/gh`, 0o755);
   const sys = minimal;

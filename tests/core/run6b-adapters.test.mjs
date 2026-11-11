@@ -2,6 +2,7 @@
 // Stage 6B (A216): the task adapters in Node (markdown, github, jira, linear), as absolute tests written with the area. They replace tests/tasks/tasks-test.sh
 // and the adapter half of status-block-test.sh and the markdown cases of tests/skills/task-planning.test.mjs. github runs against a fake `gh` function (argv is
 // recorded), jira and linear against a fake `fetch`; nothing here touches a network. The credential never appears in a recorded URL or argument list.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,7 +20,7 @@ const CP = path.join(repo, 'control-plane/agents');
 
 /** A project with the templates, and an adapter environment that collects stdout and stderr. @param {Record<string, string>} [env] */
 function setup(env = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), 'adp-'));
+  const root = tempDir('adp-');
   mkdirSync(`${root}/.agents`, { recursive: true });
   cpSync(`${CP}/templates`, `${root}/.agents/templates`, { recursive: true });
   const o = { out: '', err: '' };

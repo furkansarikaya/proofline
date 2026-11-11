@@ -1,6 +1,7 @@
 // @ts-check
 // Tests of tests/ci/ecosystem-branching.mjs: the repository passes, a planted `case` arm (and a comparison) naming an ecosystem id fails and is named,
 // the file it needs missing or empty fails, and eco-ok exempts one line. The shell twin (rule 5, missing ecosystems.json) is tested in tests/ci/static.test.mjs.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, f
 
 /** A scratch root with the real ecosystems.json and the given files. @param {Record<string,string>} files */
 function scratch(files, withJson = true) {
-  const root = mkdtempSync(join(tmpdir(), 'eco-branch-')); dirs.push(root);
+  const root = tempDir('eco-branch-'); dirs.push(root);
   if (withJson) { mkdirSync(join(root, 'control-plane/agents'), { recursive: true }); cpSync(join(repo, 'control-plane/agents/ecosystems.json'), join(root, 'control-plane/agents/ecosystems.json')); }
   for (const [p, t] of Object.entries(files)) { mkdirSync(dirname(join(root, p)), { recursive: true }); writeFileSync(join(root, p), t); }
   return root;

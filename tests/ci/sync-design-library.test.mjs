@@ -2,6 +2,7 @@
 // Tests for tests/ci/sync-design-library.mjs (A170): --check passes against a local mirror built from the repository's own library copies (no network),
 // and fails when one mirrored file or the mirrored licence differs; sync and --update rewrite the copies and the notices from the mirror. Source ids,
 // paths and file names are read from the notices file, never written here.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,7 @@ import { after, describe, test } from 'node:test';
 import { MAX_BYTES, getLimited, main } from './sync-design-library.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
-const T = mkdtempSync(path.join(tmpdir(), 'sync-test-'));
+const T = tempDir('sync-test-');
 after(() => rmSync(T, { recursive: true, force: true }));
 const rel = 'skills/ui-design/library';
 const notices = readFileSync(path.join(repo, rel, 'THIRD_PARTY_NOTICES.md'), 'utf8').split('\n');

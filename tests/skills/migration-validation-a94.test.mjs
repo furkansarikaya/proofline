@@ -1,4 +1,5 @@
 // A94: non-SQL migrations are scanned (never skipped) and validate-migration refuses PASS without measurement.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -63,7 +64,7 @@ test("a judged or warn rollback never gives PASS when a down migration exists", 
 });
 
 test("with --repo, a drop marked non-destructive or applied is refused, an unanalyzed file cannot be PASS", () => {
-  const dir = mkdtempSync(join(tmpdir(), "mv94-"));
+  const dir = tempDir("mv94-");
   try {
     const put = (p, c) => { mkdirSync(dirname(join(dir, p)), { recursive: true }); writeFileSync(join(dir, p), c); };
     put("db/0001.sql", "ALTER TABLE users DROP COLUMN phone;\n");

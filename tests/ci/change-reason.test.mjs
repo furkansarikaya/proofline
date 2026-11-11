@@ -1,6 +1,7 @@
 // @ts-check
 // Tests tests/ci/change-reason.mjs: the pull request description rules for changes of tests/invariants/ and of the context budget, and the
 // classification step of tests/ci/ci-steps.mjs.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { after, describe, test } from 'node:test';
 import { evaluate, hasReasonLine, main } from './change-reason.mjs';
 import { main as steps } from './ci-steps.mjs';
 
-const T = mkdtempSync(path.join(tmpdir(), 'reason-test-'));
+const T = tempDir('reason-test-');
 after(() => rmSync(T, { recursive: true, force: true }));
 /** @param {string} rule @param {string[]} paths @param {NodeJS.ProcessEnv} env */
 const run = (rule, paths, env) => evaluate(rule, paths, { env });

@@ -1,6 +1,7 @@
 // The role generator (adapters/generate.mjs) against the fixture roles in tests/generator/fixtures/roles, and the role-source conformance check.
 // Ported from generator-test.sh (A234): every `check` of the shell suite is a `ck` here, named by the same words (tests/legacy-port-map.tsv).
 // GEN_UNDER_TEST=<path of generate.sh> runs the same expectations against the shell generator (how the port was proven equal).
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, symlinkSync, unlinkSync, lstatSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { parseRole } from '../../adapters/generate.mjs';
 const repo = fileURLToPath(new URL('../..', import.meta.url));
 const FIX = join(repo, 'tests/generator/fixtures/roles');
 const GEN = process.env.GEN_UNDER_TEST || join(repo, 'adapters/generate.mjs');
-const T = mkdtempSync(join(tmpdir(), 'gen-test-'));
+const T = tempDir('gen-test-');
 process.on('exit', () => rmSync(T, { recursive: true, force: true }));
 let n = 0;
 

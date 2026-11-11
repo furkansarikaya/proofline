@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -11,7 +12,7 @@ const script = join(repo, "skills/llm-wiki/scripts/validate-wiki.mjs");
 const { lint } = await import(script);
 
 const build = () => {
-  const dir = join(mkdtempSync(join(tmpdir(), "wiki-")), "x");
+  const dir = join(tempDir("wiki-"), "x");
   const r = spawnSync(process.execPath, [join(repo, "fixtures/llm-wiki/setup.mjs"), dir], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   return dir;

@@ -1,5 +1,6 @@
 // visual-proof for native apps (0.0.24): target detection, project tool discovery, UNSUPPORTED, the uiautomator parser and
 // the touch-target/label checks, and the report validator. Inline temporary fixtures; no model, no emulator, no device.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -12,7 +13,7 @@ import { validateReport } from "../../skills/visual-proof/scripts/validate-visua
 
 const NATIVE = fileURLToPath(new URL("../../skills/visual-proof/scripts/native.mjs", import.meta.url));
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "vp-native-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("vp-native-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 const put = (root, files) => { for (const [f, t] of Object.entries(files)) { const p = join(root, f); mkdirSync(join(p, ".."), { recursive: true }); writeFileSync(p, t); } return root; };
 

@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSync, utimesSync } from "node:fs";
@@ -87,7 +88,7 @@ test("the summary has exactly the schema's properties", () => {
 
 // --- check-result: a dispatch in flight (A124) ------------------------------------------------
 test("check-result on an empty result says the dispatch is in flight while its marker names a live pid", () => {
-  const d = mkdtempSync(join(tmpdir(), "cr-inflight-"));
+  const d = tempDir("cr-inflight-");
   try {
     const md = join(d, "003-verifier-claude.md");
     writeFileSync(md, "");
@@ -257,7 +258,7 @@ const STATES = SLOW ? [...SLOW_STATES, ...FAST_STATES] : FAST_STATES;
 let base;
 const built = {};
 before(async () => {
-  base = mkdtempSync(join(tmpdir(), "plfx-"));
+  base = tempDir("plfx-");
   await Promise.all(STATES.map((s) => new Promise((done) => {
     const p = spawn(process.execPath, [join(fixture, "setup.mjs"), join(base, s), s], { stdio: ["ignore", "ignore", "pipe"] });
     let err = "";

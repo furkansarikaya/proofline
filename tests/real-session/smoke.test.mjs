@@ -1,6 +1,7 @@
 // @ts-check
 // The real-session smoke (tests/real-session/smoke.mjs) calls a model and is never part of CI; what CI can check is its table format, its pure helpers and its
 // exit semantics with a stub `claude` that starts no session: the setup rows are real (init of a fixture project), every model step FAILS, the exit status is 1.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -10,7 +11,7 @@ import { after, test } from 'node:test';
 import { a202BranchRow, a202StatusRow, codexConfigCommit, codexDispatchSeen, doctorRow, expand, fixtureCommands, skillDetourRow, renderTable, sessionIdOf, statusBlock, tableLine, testState } from './smoke.mjs';
 
 const smoke = path.join(import.meta.dirname, 'smoke.mjs');
-const base = mkdtempSync(path.join(tmpdir(), 'smoke-test-'));
+const base = tempDir('smoke-test-');
 after(() => rmSync(base, { recursive: true, force: true }));
 
 test('the table keeps the format of the shell smoke: header, separator, one line per row', () => {

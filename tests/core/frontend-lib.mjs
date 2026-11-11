@@ -1,6 +1,7 @@
 // @ts-check
 // Shared helpers of the CLI front-end tests (A232): a sandbox like the one tests/cli/cli-test.sh builds (private HOME and global git config, fake claude and codex on the
 // PATH), an installed project made by the real `bin/proofline init`, and `proofline` runs against it. Every test file builds its own sandbox (files run in parallel).
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,7 +19,7 @@ export const INIT_FLAGS = ['--yes', '--runtimes', 'claude,codex', '--lead', 'cla
 
 /** A sandbox: a folder, the environment of every run, and the fake runtimes. */
 export function sandbox() {
-  const T = mkdtempSync(path.join(tmpdir(), 'pl-front-'));
+  const T = tempDir('pl-front-');
   after(() => { rmSync(T, { recursive: true, force: true }); });
   mkdirSync(`${T}/fakebin`); mkdirSync(`${T}/home`);
   const fake = (/** @type {string} */ name, /** @type {string} */ version) => { writeFileSync(`${T}/fakebin/${name}`, `#!/bin/sh\ncase "\${1:-}" in --version) echo "${version}" ;; esac\nexit 0\n`); chmodSync(`${T}/fakebin/${name}`, 0o755); };

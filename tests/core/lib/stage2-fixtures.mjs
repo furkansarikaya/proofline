@@ -2,6 +2,7 @@
 // Fixture states of the Stage 2 scenario cases (issue #167): every gate state of the gates-test fixtures, the risk-test fixtures and the scaling
 // fixture (0/20/60 changed files). Each state is a recipe (tests/lib/recipe.mjs) run after the fixture verbs' `scaffold`; a state is built once per process, on first
 // use (building one takes seconds, and a pull request replays only the touched commands), and copied into every case that names it.
+import { tempDir } from '../../lib/tempdir.mjs';
 import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -133,7 +134,7 @@ function installLikeProject(/** @type {string} */ out) {
 }
 
 function buildState(/** @type {string} */ name, /** @type {string} */ script) {
-  const out = mkdtempSync(join(tmpdir(), `eq-s2-${name}.`)); const builtAt = Math.floor(Date.now() / 1000);
+  const out = tempDir(`eq-s2-${name}.`); const builtAt = Math.floor(Date.now() / 1000);
   try { buildRecipe(script, out, { errexit: false, prelude: readFileSync(join(import.meta.dirname, 'stage2-prelude.txt'), 'utf8') }); } catch (e) { throw new Error(`fixture state ${name} failed: ${/** @type {Error} */ (e).message}`); }
   return { out, builtAt };
 }

@@ -1,6 +1,7 @@
 // @ts-check
 // Fixture runs for the equivalence tests of the run commands: built with the fixture verbs (tests/lib/recipe.mjs), the Node core is installed
 // beside the fixture's agent.sh. The same states as library.test.mjs (copied so that file stays the library package's own).
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,7 +20,7 @@ after(() => { for (const d of made) rmSync(d, { recursive: true, force: true });
 
 /** Build a fixture run with the self-test helpers, then put the Node core beside its agent.sh. @param {string} snippet */
 export function build(snippet) {
-  const out = mkdtempSync(path.join(tmpdir(), 'pl-libeq-'));
+  const out = tempDir('pl-libeq-');
   made.push(out);
   buildRecipe(snippet, out, { errexit: false });   // the Node core is installed beside agent.sh by the harness
   spawnSync('git', ['-C', out, 'config', 'gc.auto', '0']);

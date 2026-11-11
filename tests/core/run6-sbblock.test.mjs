@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 6 (A215): the block-only test of a task file (status-block-test.sh): a tracked task file differs from HEAD by exactly the task's own first status block,
 // nothing else. The shell functions sb_strip and sb_block_only are gone; the worktree cleanup and deliver-merged use sbBlockOnly of the core.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +14,7 @@ import { gOk } from './run6-lib.mjs';
 const blk = (/** @type {string} */ id, /** @type {string} */ stage, extra = '') => `\n## Proofline Status\n\n<!-- PROOFLINE-STATUS:BEGIN:${id} -->\n- run: ${id}\n- stage: ${stage}\n${extra}<!-- PROOFLINE-STATUS:END:${id} -->\n`;
 
 test('block-only: exactly the task\'s own first block, nothing else', () => {
-  const bo = mkdtempSync(path.join(tmpdir(), 'bo-'));
+  const bo = tempDir('bo-');
   gOk(bo, 'init', '-q', '-b', 'main');
   gOk(bo, 'config', 'user.email', 't@t.invalid');
   gOk(bo, 'config', 'user.name', 't');

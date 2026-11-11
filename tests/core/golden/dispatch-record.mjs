@@ -6,6 +6,7 @@
 // The layout is the one of the old dispatch-test.sh: a stub agent.sh (its `decide` calls the real resolver of the Node core with class STANDARD and tier full) and fake
 // runtimes. Re-record only for a reviewed change of what a runtime receives (an A entry); tests/core/dispatch-golden.test.mjs holds the Node dispatcher to this file.
 // Paths are written as <ROOT> (the project) and <TMP> (the fixture folder), whatever the machine.
+import { tempDir } from '../../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ const scripts = path.join(repo, 'control-plane/agents/scripts');
 const oldScript = process.argv[2];
 if (!oldScript) { console.error('usage: node dispatch-record.mjs <path of the old dispatch.sh>'); process.exit(2); }
 
-const tmp = realpathSync(mkdtempSync(path.join(tmpdir(), 'dispatch-record-')));
+const tmp = realpathSync(tempDir('dispatch-record-'));
 try {
   const p = path.join(tmp, 'proj'); const a = path.join(p, '.agents'); const loc = path.join(a, 'local'); const bin = path.join(tmp, 'bin');
   mkdirSync(path.join(a, 'scripts'), { recursive: true }); mkdirSync(path.join(a, 'roles'), { recursive: true }); mkdirSync(path.join(a, 'runs/LC'), { recursive: true }); mkdirSync(loc, { recursive: true }); mkdirSync(bin);

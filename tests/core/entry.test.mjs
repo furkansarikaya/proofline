@@ -1,5 +1,6 @@
 // @ts-check
 // The core's entry is not a second front door to agent.sh, and agent.sh fails closed in an installed project that lost the core.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -34,7 +35,7 @@ describe('the core entry accepts only the commands it owns', () => {
   });
   test('a name that is no command, and no command at all, are answered with the usage text (exit 2) and the lock folder, nothing started', () => {
     for (const cmd of ['nonsense', '']) {
-      const dir = mkdtempSync(path.join(tmpdir(), 'pl-usage-'));
+      const dir = tempDir('pl-usage-');
       try {
         proc.resetSpawnCounts();
         const m = memoryIo(dir, {});
@@ -60,7 +61,7 @@ describe('the core entry accepts only the commands it owns', () => {
 
 /** An "installed" folder holding agent.sh and, on request, the core. @param {{ manifest?: boolean, core?: boolean, coreDir?: boolean }} o */
 function project(o) {
-  const root = mkdtempSync(path.join(tmpdir(), 'pl-entry-'));
+  const root = tempDir('pl-entry-');
   const s = path.join(root, '.agents', 'scripts');
   mkdirSync(s, { recursive: true });
   cpSync(path.join(scriptsDir, 'agent.sh'), path.join(s, 'agent.sh'));
@@ -132,7 +133,7 @@ describe('agent.sh without the core', () => {
 
 describe('doctor and a missing core', () => {
   test('FAIL when proofline-core.mjs or core/ is missing, and it does not claim the moved commands run in Node', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'pl-doc-'));
+    const root = tempDir('pl-doc-');
     try {
       spawnSync('git', ['init', '-q', root]);
       spawnSync('git', ['-C', root, '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'i']);

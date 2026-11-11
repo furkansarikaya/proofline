@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
@@ -133,7 +134,7 @@ test("enums agree with the schema", () => {
 });
 
 test("CLI exit codes: 0 valid, 1 invalid, 2 usage", () => {
-  const dir = mkdtempSync(join(tmpdir(), "ig-"));
+  const dir = tempDir("ig-");
   try {
     writeFileSync(join(dir, "good.md"), intent());
     writeFileSync(join(dir, "bad.md"), intent({ status: "done" }));
@@ -162,7 +163,7 @@ test("SKILL.md frontmatter and shared rules block", () => {
 });
 
 test("fixture builds and the planted items exist", () => {
-  const dir = join(mkdtempSync(join(tmpdir(), "igfx-")), "repo");
+  const dir = join(tempDir("igfx-"), "repo");
   try {
     const r = spawnSync(process.execPath, [join(here, "../../fixtures/intent-grill/setup.mjs"), dir], { encoding: "utf8" });
     assert.equal(r.status, 0, r.stderr);

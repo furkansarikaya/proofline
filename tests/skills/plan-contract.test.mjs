@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -17,7 +18,7 @@ const TASK = readFileSync(join(fixture, "TASK.md"), "utf8");
 let base;
 let repo;
 before(() => {
-  base = mkdtempSync(join(tmpdir(), "pcfx-"));
+  base = tempDir("pcfx-");
   repo = join(base, "repo");
   const r = spawnSync(process.execPath, [join(fixture, "setup.mjs"), repo], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
@@ -273,7 +274,7 @@ test("SKILL.md frontmatter and shared rules block", () => {
 });
 
 test("design documents of the config are in scope when the plan changes the data model or the contracts (A64)", () => {
-  const root = mkdtempSync(join(tmpdir(), "pc-docs-"));
+  const root = tempDir("pc-docs-");
   mkdirSync(join(root, ".agents"), { recursive: true }); mkdirSync(join(root, "docs/design"), { recursive: true });
   writeFileSync(join(root, ".agents/config.yaml"), "design_docs:\n  data_model: docs/design/DATA_MODEL.md\n  api: docs/design/API.md\n");
   writeFileSync(join(root, "docs/design/DATA_MODEL.md"), "# data\n"); writeFileSync(join(root, "docs/design/API.md"), "# api\n");

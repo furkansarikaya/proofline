@@ -1,5 +1,6 @@
 // visual-proof technical SEO group (A158): browser-less. Hand-made page facts go through assemble/seoEvaluate and the
 // validator; no browser, no network.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -11,7 +12,7 @@ import * as measure from "../../skills/visual-proof/scripts/measure.mjs";
 const { assemble } = measure;
 const seoEvaluate = (...a) => measure.seoEvaluate(...a); // namespace access: on a build without the group a test fails, not the whole file
 const dirs = [];
-const mktmp = () => { const d = mkdtempSync(join(tmpdir(), "vp-seo-")); dirs.push(d); return d; };
+const mktmp = () => { const d = tempDir("vp-seo-"); dirs.push(d); return d; };
 after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 const OK = { viewport_overflow: [0, "<= 0"], horizontal_scroll: [360, "<= 360"], hidden_interactive: [5, "> 1"], overlapping_interactive: [0, "== 0"],

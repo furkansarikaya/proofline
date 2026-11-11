@@ -1,5 +1,6 @@
 // Read-only probe of the project database (A121): node db-probe.mjs <project-dir>.
 // It copies the file bytes to a temp file and probes the copy, so the live file is never opened by sqlite.
+import { tempDir } from '../lib/tempdir.mjs';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 const file = join(process.argv[2], 'data', 'reading-list.db');
 if (!existsSync(file)) { console.log('no database'); process.exit(0); }
 const sha = (b) => createHash('sha256').update(b).digest('hex');
-const tmp = mkdtempSync(join(tmpdir(), 'dbprobe-'));
+const tmp = tempDir('dbprobe-');
 try {
   const copy = join(tmp, 'copy.db');
   copyFileSync(file, copy);

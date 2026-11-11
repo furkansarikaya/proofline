@@ -169,9 +169,10 @@ describe('the cache of the harness', () => {
     rmSync(t, { recursive: true, force: true });
     assert.equal(readFileSync(path.join(copyOf(t), 'a'), 'utf8'), 'x');
     assert.ok(existsSync(path.join(t, '.built')), 'the rebuilt template is in place');
-    // a template whose builder is not known here cannot be rebuilt: the copy fails and says why
-    const foreign = path.join(root, 'foreign'); mkdirSync(foreign); writeFileSync(path.join(foreign, 'a'), 'x');
-    assert.throws(() => copyOf(foreign), /removed while it was copied/);
+    // a template found by its marker whose builder this process does not know cannot be rebuilt: the copy fails and says why
+    const foreign = path.join(root, 'foreign'); mkdirSync(foreign); writeFileSync(path.join(foreign, 'a'), 'x'); writeFileSync(path.join(foreign, '.built'), '');
+    assert.throws(() => copyOf(foreign, { cp: (/** @type {string} */ src, /** @type {string} */ dst) => { rmSync(src, { recursive: true, force: true }); throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); } }), /ENOENT/);
+    assert.ok(!existsSync(foreign));
   });
 });
 
@@ -194,6 +195,13 @@ test('the default cache (no root given) is pruned by cached(): a stale entry of 
 });
 
 describe('the copy of a template', () => {
+  test('a plain folder (no marker, no builder) is copied as it is and nothing is verified (A253 round 1)', () => {
+    const src = tmp('plain'); mkdirSync(path.join(src, 'd')); writeFileSync(path.join(src, 'd/f'), 'f'); writeFileSync(path.join(src, 'x'), 'x');
+    const c = copyOf(src);
+    assert.deepEqual(readdirSync(c).sort(), ['d', 'x']); assert.equal(readFileSync(path.join(c, 'd/f'), 'utf8'), 'f');
+    assert.ok(!existsSync(path.join(src, '.built')), 'nothing was added to the source');
+  });
+
   test('copyTree copies files with their modes, keeps links as links (the target text is not resolved), leaves the named names out, and does not follow a link', () => {
     const src = tmp('src'); const outside = tmp('outside'); writeFileSync(path.join(outside, 'secret'), 's');
     mkdirSync(path.join(src, 'd/e'), { recursive: true }); writeFileSync(path.join(src, 'd/e/f'), 'f'); writeFileSync(path.join(src, 'x.sh'), '#!/bin/sh\n'); chmodSync(path.join(src, 'x.sh'), 0o755);

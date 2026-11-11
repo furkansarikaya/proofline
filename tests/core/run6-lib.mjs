@@ -1,6 +1,7 @@
 // @ts-check
 // Helpers of the stage 6 tests (delivery in Node, A215): a fake platform tool outside every temporary folder (the A180 rule refuses a tool that resolves into
 // the project, the working directory or a temporary folder; no environment value lifts it), the delivery chain driven step by step, and a git helper.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +26,7 @@ let counter = 0;
 export function fakeGh() {
   const id = `${process.pid}-${++counter}`;
   const bin = path.join(toolRoot, id, 'bin');
-  const state = mkdtempSync(path.join(tmpdir(), 'gh-state-'));
+  const state = tempDir('gh-state-');
   mkdirSync(bin, { recursive: true });
   for (const f of ['gh.runs', 'gh.log', 'gh.checks', 'ghstate', 'gh.merge', 'gh.calls']) writeFileSync(path.join(state, f), '');
   writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> "${state}/gh.calls"\ncase "$1 $2" in\n  "run list") cat "${state}/gh.runs" ;;\n  "run view") cat "${state}/gh.log" ;;\n  "pr checks") cat "${state}/gh.checks" ;;\n  "pr view") case "$*" in *mergeCommit*) cat "${state}/gh.merge" ;; *) cat "${state}/ghstate" ;; esac ;;\n  *) exit 1 ;;\nesac\n`);

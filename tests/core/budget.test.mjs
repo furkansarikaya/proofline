@@ -1,4 +1,5 @@
 // @ts-check
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -48,7 +49,7 @@ describe('runWithBudget', { skip: process.platform === 'win32' ? 'POSIX process 
     const { mkdtempSync, readFileSync, rmSync, existsSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const path = await import('node:path');
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-budget-'));
+    const dir = tempDir('pl-budget-');
     const f = path.join(dir, 'pid');
     try {
       const code = `const { spawn } = require('node:child_process'); const fs = require('node:fs');

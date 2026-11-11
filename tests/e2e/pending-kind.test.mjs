@@ -1,5 +1,6 @@
 // @ts-check
 // Self-test of tests/e2e/lib.mjs (the former pending-kind-test.sh): the harness answers a plan approval and nothing else.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { pendingKind, questionOpen, replyDecision } from './lib.mjs';
 
-const t = mkdtempSync(path.join(tmpdir(), 'qopen-'));
+const t = tempDir('qopen-');
 after(() => rmSync(t, { recursive: true, force: true }));
 
 test('pending-kind: a plan approval and every other kind is read from `next`', () => {

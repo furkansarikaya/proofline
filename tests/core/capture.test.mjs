@@ -2,6 +2,7 @@
 // The capture contract against the golden bytes recorded from the old shell hook (tests/golden/capture, record.mjs): the capture file, the
 // intake copy and the history copy are byte-identical, a task-notification leaves nothing but its intake, and
 // captureField of the core read every golden capture as the shell capture_field did (recorded in tests/golden/shell-equivalence.json, A244).
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,7 +17,7 @@ const golden = (/** @type {string} */ name, /** @type {string} */ file) => readF
 
 for (const c of CORPUS) {
   test(`capture bytes: ${c.name}`, () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'pl-cap-'));
+    const dir = tempDir('pl-cap-');
     try {
       mkdirSync(`${dir}/.agents/local`, { recursive: true });
       const event = golden(c.name, 'event.json');

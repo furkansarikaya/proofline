@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -11,7 +12,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 const sh = (cmd, args, cwd) => spawnSync(cmd, args, { cwd, encoding: "utf8" });
 
 test("task-planning fixture: tasks validate, ADR linked, team.yaml git-ignored", () => {
-  const d = join(mkdtempSync(join(tmpdir(), "tp-")), "repo");
+  const d = join(tempDir("tp-"), "repo");
   assert.equal(sh(process.execPath, [join(root, "fixtures/task-planning/setup.mjs"), d]).status, 0);
   const r = sh(process.execPath, [join(root, "fixtures/task-planning/selfcheck.mjs"), d]);
   assert.equal(r.status, 0, r.stderr);
@@ -36,7 +37,7 @@ test("DESIGN.md default is docs/design/DESIGN.md (config, knowledge scope, CLI f
 });
 
 test("upgrade --dry-run offers the DESIGN.md move and moves nothing", () => {
-  const d = mkdtempSync(join(tmpdir(), "up-"));
+  const d = tempDir("up-");
   sh("git", ["init", "-q"], d);
   writeFileSync(join(d, "DESIGN.md"), "# d\n");
   const pl = join(root, "bin/proofline");
@@ -55,7 +56,7 @@ test("upgrade --dry-run offers the DESIGN.md move and moves nothing", () => {
 
 // markdown.sh in a temp project: the planning block stays under the H1 (behind **Status:**) and out of ## Context.
 const mdProject = () => {
-  const d = mkdtempSync(join(tmpdir(), "mdp-"));
+  const d = tempDir("mdp-");
   mkdirSync(join(d, ".agents"));
   sh("cp", ["-R", join(root, "control-plane/agents/templates"), join(d, ".agents")]);
   // the markdown adapter is built into the Node core (A216): the project's own copy of the core runs it

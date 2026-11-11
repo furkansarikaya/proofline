@@ -1,6 +1,7 @@
 // @ts-check
 // Shared helpers of the core tests: the repository paths, the text of agent.sh, a fixture project. (Until A244 also a text extractor for the shell functions of agent.sh: the tests that ran them compare
 // with answers recorded from them now, tests/golden/shell-equivalence.json.)
+import { tempDir } from '../lib/tempdir.mjs';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -13,7 +14,7 @@ export const agentSh = readFileSync(agentShPath, 'latin1');
 
 /** A fixture project root with the layout of an installed project (no scripts: tests that need them copy them). @param {string} [config] */
 export function makeProject(config = 'canonical_branch: main\ngit:\n  branch_prefix: t/\n') {
-  const root = mkdtempSync(path.join(tmpdir(), 'pl-core-'));
+  const root = tempDir('pl-core-');
   mkdirSync(path.join(root, '.agents', 'scripts'), { recursive: true });
   mkdirSync(path.join(root, '.agents', 'local'), { recursive: true });
   writeFileSync(path.join(root, '.agents', 'config.yaml'), config);

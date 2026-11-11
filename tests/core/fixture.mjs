@@ -1,6 +1,7 @@
 // @ts-check
 // A fixture project for the library tests: a git repository with the shipped control plane installed (so agent.sh runs against it) and a
 // Context over it. Every call makes its own tree (tests run in parallel; no shared mutable fixture).
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,7 @@ export function git(root, args) {
 
 /** A committed repository with the control plane in .agents. @returns {{ root: string, agent: string, ctx: () => Context, sh: (args: string[], env?: Record<string,string>) => { out: string, err: string, code: number | null } }} */
 export function makeFixture() {
-  const root = mkdtempSync(path.join(tmpdir(), 'pl-lib-'));
+  const root = tempDir('pl-lib-');
   mkdirSync(path.join(root, '.agents'), { recursive: true });
   cpSync(path.join(repo, 'control-plane', 'agents'), path.join(root, '.agents'), { recursive: true });
   spawnSync('git', ['init', '-q', '-b', 'main', root], { env: GIT_ENV });

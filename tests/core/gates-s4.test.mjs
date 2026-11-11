@@ -2,6 +2,7 @@
 // gates-test.sh scenarios sc_task_types .. sc_folded_defect (slice S4) as Node tests on the real control plane (tests/legacy-port-map.tsv): task types and the
 // debug-proof result, scratch worktrees, the worktree lock folder, document-scope warnings, selective gate repetition after a fix round or an amend (Core
 // invariants 1, 2, 5: a gate that must run again never carries over), scope kinds, summary and Human checks, visual rows, takeover without RED, defects.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -88,7 +89,7 @@ test('sc_scratch_worktrees: a registered scratch worktree blocks CODE_DONE; the 
   const d = scaffold({ cls: 'STANDARD' });
   redGreen(d); must(d, ['handoff', 'LC', 'IMPLEMENTED']); passAll(d);
   const rw = must(d, ['worktree-add', 'RW-1']).out;   // the worktree of another run (here under $TMPDIR, like the whole fixture) is the project's own, never scratch
-  const wt = mkdtempSync(path.join(tmpdir(), 'scratch-wt-')); rmSync(wt, { recursive: true });
+  const wt = tempDir('scratch-wt-'); rmSync(wt, { recursive: true });
   git(d, ['worktree', 'add', '-q', '--detach', wt, 'HEAD']);
   const r = A(d, ['handoff', 'LC', 'CODE_DONE']);
   expectMsg('a scratch worktree still registered blocks CODE_DONE', 'scratch git worktrees', r);

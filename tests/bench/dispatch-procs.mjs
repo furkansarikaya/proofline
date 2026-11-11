@@ -6,6 +6,7 @@
 //   node tests/bench/dispatch-procs.mjs        prints `path  procs=N  ms=N  top commands`; REPEAT=<n> (default 3, the median is shown)
 // The same file measures the shell dispatcher of 0.0.57 (copy it into a checkout of that commit's tests/bench/): it uses only what both trees have.
 // The fixture is the scaffold of the self-test library (run LC, STANDARD, frozen, IMPLEMENTING, orchestrated) with the Node core beside agent.sh.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,7 +45,7 @@ function makeShims(dir, log) {
 /** @param {{ repeat?: number }} [o] @returns {Row[]} */
 export function measureAll(o = {}) {
   const repeat = o.repeat ?? 3;
-  const work = mkdtempSync(path.join(tmpdir(), 'dispatch-procs-'));
+  const work = tempDir('dispatch-procs-');
   try {
     const d = project('scaffold orchestrated no STANDARD autonomous');
     const a = path.join(d, '.agents');

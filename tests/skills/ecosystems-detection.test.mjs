@@ -1,5 +1,6 @@
 // A173: skills that read the ecosystem definition recognise the .NET project and solution kinds. design-sync (ARCHITECTURE.md
 // paths, reverse system) and visual-proof (native UI detection). The benchmark probe of agent.sh is in risk-test.sh.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -10,7 +11,7 @@ import { detectTarget } from "../../skills/visual-proof/scripts/native.mjs";
 
 const dirs = [];
 const project = (files) => {
-  const root = mkdtempSync(join(tmpdir(), "eco-det-")); dirs.push(root);
+  const root = tempDir("eco-det-"); dirs.push(root);
   for (const [p, c] of Object.entries(files)) { mkdirSync(dirname(join(root, p)), { recursive: true }); writeFileSync(join(root, p), c); }
   return root;
 };

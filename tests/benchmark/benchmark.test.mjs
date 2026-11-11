@@ -1,4 +1,5 @@
 // Known-answer test for the benchmark (A90): planted fixtures with exact expected counts. No model, no network.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { spawnSync } from "node:child_process";
 const script = join(dirname(fileURLToPath(import.meta.url)), "benchmark.mjs");
 const { build, parseExpected, toMarkdown } = await import(script);
 
-const root = mkdtempSync(join(tmpdir(), "bench-"));
+const root = tempDir("bench-");
 const fx = join(root, "fixtures");
 const put = (p, s) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, s); };
 // alpha: 3 expected (numbered), 2 traps (table); beta: prose only (not measurable); gamma: bullets, no verdict.

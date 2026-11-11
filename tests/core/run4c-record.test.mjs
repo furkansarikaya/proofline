@@ -2,6 +2,7 @@
 // Stage 4, package 4C: `record` and `submit` (the result protocol) as absolute Node tests (A214). They replace the behaviour of gates-test.sh sc_record,
 // sc_submit, sc_report_stdin, sc_stdin_contract, sc_report_names, sc_scan_method, sc_classification_stable and the record refusals of the other suites
 // (tests/legacy-port-map.tsv). The fixture state is built by the self-test library; every asserted action is a call of the real Node core.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { test } from 'node:test';
 import { A, IMPLEMENTED, accepted, project, read, refused } from './legacy-lib.mjs';
 
 /** A scratch folder outside every project: a file inside the project would change its content fingerprint. */
-const scratch = mkdtempSync(`${tmpdir()}/run4c-`);
+const scratch = tempDir('run4c-');
 let seq = 0;
 const out = (/** @type {string} */ name) => `${scratch}/${++seq}-${name}`;
 const sha = (/** @type {string} */ t) => createHash('sha256').update(t).digest('hex');

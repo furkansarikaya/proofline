@@ -1,6 +1,7 @@
 // @ts-check
 // Shared helpers of the Node hook tests: a throwaway installed-project fixture (the scaffold of the legacy self-tests, the core beside agent.sh),
 // the two hooks run on the same recorded input, and a normalised view of what they left on disk.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { realpathSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
 import { tmpdir as osTmpdir } from 'node:os';
@@ -24,7 +25,7 @@ export { cleanEnv };
  * @param {{ run?: boolean }} [opt] run: false removes ACTIVE_RUN (no active run)
  */
 export function buildTemplate(opt = {}) {
-  const out = mkdtempSync(join(tmpdir(), 'hook-fx-'));
+  const out = tempDir('hook-fx-');
   buildRecipe('scaffold orchestrated no COMPLEX', out, { timeout: 120000, errexit: false });
   appendFileSync(join(out, '.git/info/exclude'), '.agents/local/\n');
   if (opt.run === false) rmSync(join(out, '.agents/local/ACTIVE_RUN'), { force: true });

@@ -2,6 +2,7 @@
 // Review and security round 1 of stage 2: a changed path that cannot be baselined (symlink, nested git directory, submodule) fails the scope
 // commands as it does in the shell; a path git would c-quote is the shell's; `freshness` decides its bridges before it writes; the core
 // maps case with ASCII rules only. The shell is the specification.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,7 +22,7 @@ const SCOPE = ['verify-scope', 'verify-knowledge-scope', 'verify-handoff', 'vali
 function same(fx, args, prep = (/** @type {string} */ _c) => {}) {
   /** @type {Array<Record<string, unknown>>} */ const res = [];
   for (const engine of /** @type {const} */ (['node', 'sh'])) {
-    const copy = mkdtempSync(path.join(tmpdir(), 'pl-vfix-'));
+    const copy = tempDir('pl-vfix-');
     cpSync(fx, copy, { recursive: true, verbatimSymlinks: true });
     prep(copy);
     const r = exec(copy, args, engine);
@@ -60,7 +61,7 @@ describe('a changed path that cannot be baselined fails the scope commands (S2-1
   });
   test('a submodule', () => {
     const fx = base();
-    const other = mkdtempSync(path.join(tmpdir(), 'pl-sub-'));
+    const other = tempDir('pl-sub-');
     git(other, ['init', '-q', '-b', 'main']); writeFileSync(path.join(other, 'f'), 'x\n'); git(other, ['add', 'f']); git(other, ['commit', '-q', '-m', 'i']);
     git(fx, ['submodule', 'add', '-q', other, 'sub']);
     all(fx);

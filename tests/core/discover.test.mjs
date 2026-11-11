@@ -4,6 +4,7 @@
 // layouts each (project at the root; nested or monorepo), no command when the target is ambiguous or the project sits in a pruned folder, the trial runs, the process-group
 // timeout, and the Core invariant for secrets (a candidate line that carries a secret is never listed). Nothing here runs a project command except the trial-run tests, which
 // run `true`, `false` and `sleep`.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { after, test } from 'node:test';
 import { ambigNotes, discoverCommands, isSafeCommand, joinCommands, runWithTimeout, safePath, verifyCommands } from '../../control-plane/agents/scripts/core/discover.mjs';
 import { repo } from './helpers.mjs';
 
-const base = mkdtempSync(path.join(tmpdir(), 'pl-disc-'));
+const base = tempDir('pl-disc-');
 after(() => { rmSync(base, { recursive: true, force: true }); });
 let n = 0;
 /** A fresh project folder with the given files: [path, content] pairs. @param {Array<[string, string]>} items */

@@ -2,6 +2,7 @@
 // `cli pre-commit` and `cli pre-push` (the shipped hooks of control-plane/agents/githooks are launchers of these): the refusal text, the status and the stdout of each scenario.
 // Until A244 every scenario also ran the pre-stage-3 shell hooks (tests/legacy-githooks) in a second copy and compared the two; the legacy hooks are retired and the text they
 // shared with the core is asserted here as it is.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -19,7 +20,7 @@ function sh(dir, args, env, input = '') {
 
 /** The core's hook subcommand in a copy of the fixture, after the setup. @param {string} hook @param {(dir: string) => void} setup @param {Record<string,string>} env @param {string} [input] */
 function both(hook, setup, env, input = '') {
-  const dir = mkdtempSync(path.join(tmpdir(), 'pl-gh-'));
+  const dir = tempDir('pl-gh-');
   try {
     cpSync(installedFixture().dir, dir, { recursive: true });
     sh(dir, ['git', 'config', 'user.email', 'dev@example.org'], {});

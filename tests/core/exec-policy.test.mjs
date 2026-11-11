@@ -5,6 +5,7 @@
 //  - the rules exec-policy-test.sh stated, as absolute assertions (precedence, floors, caps, escalation, failover label, lead base, runtime table);
 //  - the fixture stub: while .agents/scripts/exec-policy.sh exists the core runs it; without it no environment value changes a decision (D14);
 //  - runtime detection: the two built-in binaries, a command template, the version line.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -243,7 +244,7 @@ describe('runtime detection', () => {
   /** A project with a fake claude on the PATH. */
   function withBin(/** @type {string} */ config = 'canonical_branch: main\n') {
     const root = makeProject(config); made.push(root);
-    const bin = mkdtempSync(path.join(tmpdir(), 'rt-bin-')); made.push(bin);
+    const bin = tempDir('rt-bin-'); made.push(bin);
     const fake = path.join(bin, 'fake-claude');
     writeFileSync(fake, '#!/bin/sh\necho "fake 1.2.3"\necho second\n'); chmodSync(fake, 0o755);
     return { root, bin, fake };

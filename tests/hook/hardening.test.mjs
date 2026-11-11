@@ -1,6 +1,7 @@
 // @ts-check
 // The prompt hook records the user's acceptance of an assumption from the message it is handling, in process (the primary path); the other readers of
 // the captures are tested in tests/core/answer-user.test.mjs. A late worker writes no record.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -11,7 +12,7 @@ import { buildTemplate, copyProject, runHook, cleanEnv, mkdirSync, writeFileSync
 let template = ''; let base = ''; let requested = '';
 before(() => {
   template = buildTemplate();
-  base = mkdtempSync(join(tmpdir(), 'hook-hd-'));
+  base = tempDir('hook-hd-');
   requested = copyProject(template, base);
   const r = spawnSync('sh', ['.agents/scripts/agent.sh', 'request-approval', 'LC', 'plan'], { cwd: requested, env: cleanEnv(), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);

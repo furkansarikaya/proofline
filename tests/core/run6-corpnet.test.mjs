@@ -3,6 +3,7 @@
 // certificate variables (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO; the last two by the user decision of 2026-11-07) reach gh, glab, az and the merge-proof git, but only with a value of a narrow shape; the
 // GitHub Enterprise host comes from git.platform_host of the config and never from the caller's GH_HOST, in check delivery, `merge` and the github adapter.
 // The merge proof stays un-steerable (A136): nothing a model can name inline or export makes the tool talk to another server.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ function ctxOf(cwd, env = {}) {
   const e = { PATH: '/usr/bin:/bin', ...env };
   return /** @type {any} */ ({ env: e, cwd, root: cwd, childEnv: () => ({ ...e, LC_ALL: 'C' }), sharedMain: () => cwd });
 }
-const work = mkdtempSync(path.join(tmpdir(), 'pf-corp-'));
+const work = tempDir('pf-corp-');
 const CA = '/etc/passwd'; // a regular file that exists on every system the tests run on and is outside every folder a model can write
 
 test('a proxy value is a plain http(s) address: user, password, host or address, port; anything else is dropped, never repaired', () => {
@@ -79,7 +80,7 @@ test('gh, glab and az each start with the same coherent set: the proxy and certi
   const seenBy = /** @type {Record<string, Map<string, string>>} */ ({});
   const bin = path.join(toolRoot, `corp-${process.pid}`, 'bin');
   mkdirSync(bin, { recursive: true });
-  const proj = mkdtempSync(path.join(tmpdir(), 'pf-corp-proj-'));
+  const proj = tempDir('pf-corp-proj-');
   gOk(proj, 'init', '-q', '-b', 'main');
   mkdirSync(`${proj}/.agents`);
   const env = {
@@ -112,7 +113,7 @@ test('gh, glab and az each start with the same coherent set: the proxy and certi
 });
 
 test('the host variable comes only from git.platform_host: a platform named by the caller (PROOFLINE_PLATFORM) or a config without the host exports none', () => {
-  const proj = mkdtempSync(path.join(tmpdir(), 'pf-corp-host-'));
+  const proj = tempDir('pf-corp-host-');
   gOk(proj, 'init', '-q', '-b', 'main');
   mkdirSync(`${proj}/.agents`);
   const info = (/** @type {string} */ url, env = {}) => detectPlatform(ctxOf(proj, { GH_HOST: 'evil.example', ...env }), { url, dir: proj });
@@ -173,7 +174,7 @@ test('check delivery (pr-state), `merge` and the github adapter take GH_HOST fro
 });
 
 test('SECURITY (A220): the hook denies a proxy or certificate variable named in the command that runs the merge proof, like PATH=; a plain command and an unrelated use pass; the other limits stay open', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'pf-corp-hook-'));
+  const dir = tempDir('pf-corp-hook-');
   gOk(dir, 'init', '-q', '-b', 'feat/x');
   const verdict = async (/** @type {string} */ cmd) => {
     const ctx = /** @type {any} */ ({ ev: 'pretool', cwd: dir, root: dir, env: { ...process.env }, act: '', installed: false, agent: async () => ({ status: 0, stdout: '', stderr: '' }), agents: { proc: async () => null } });

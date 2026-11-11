@@ -2,6 +2,7 @@
 // The lead's normal flow for a run that lives in a run worktree (.agents/local/worktrees/<ID>): the commands work from the main tree with the run id and
 // from inside the worktree through its own ./.agents/scripts/agent.sh, and the code that runs is the PROJECT's (main tree's), never the worktree's copy
 // (security round 3: a task can rewrite the worktree's tracked scripts).
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
@@ -12,7 +13,7 @@ let template = ''; let base = ''; let d = ''; let wt = '';
 const git = (/** @type {string[]} */ ...a) => spawnSync('git', a, { cwd: d, env: cleanEnv(), encoding: 'utf8' });
 before(() => {
   template = buildTemplate({ run: false });
-  base = mkdtempSync(join(tmpdir(), 'hook-wf-'));
+  base = tempDir('hook-wf-');
   d = copyProject(template, base);
   git('add', '-A', '-f', '.agents/scripts'); git('commit', '-qm', 'scripts');
   const r = spawnSync('sh', ['.agents/scripts/agent.sh', 'worktree-add', 'T-2'], { cwd: d, env: cleanEnv(), encoding: 'utf8' });
@@ -88,7 +89,7 @@ test('A250: when git cannot list the worktrees the launcher never runs a core ch
   const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
   writeFileSync(join(shim, 'git'), `#!/bin/sh\nif [ "$3" = worktree ] && [ "$4" = list ]; then exit 1; fi\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
   // a decoy "main" core in the caller's directory: the worktree sits under $PWD/.agents/local/worktrees/
-  const decoy = mkdtempSync(join(tmpdir(), 'hook-wf-decoy-'));
+  const decoy = tempDir('hook-wf-decoy-');
   try {
     const wtd = join(decoy, '.agents/local/worktrees/T-9');
     mkdirSync(join(decoy, '.agents/local/worktrees'), { recursive: true });

@@ -1,5 +1,6 @@
 // @ts-check
 // Shared by verify.test.mjs and verify-slow.test.mjs: build a fixture run with the self-test helpers and run agent.sh through either engine.
+import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ after(() => { for (const d of made) rmSync(d, { recursive: true, force: true });
 
 /** @param {string} snippet */
 export function build(snippet) {
-  const out = mkdtempSync(path.join(tmpdir(), 'pl-vfeq-'));
+  const out = tempDir('pl-vfeq-');
   made.push(out);
   buildRecipe(snippet, out, { errexit: false });   // the Node core is installed beside agent.sh by the harness
   spawnSync('git', ['-C', out, 'config', 'gc.auto', '0']);

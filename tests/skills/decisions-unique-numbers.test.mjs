@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -25,7 +26,7 @@ test("docs/decisions.md: no A<n>. entry header number appears twice", () => {
 });
 
 test("guard, known-good content (a temp file): distinct numbers, a mention in running text is not a header", () => {
-  const dir = mkdtempSync(join(tmpdir(), "decisions-guard-"));
+  const dir = tempDir("decisions-guard-");
   try {
     const f = join(dir, "decisions.md");
     writeFileSync(f, "- **A1. one (patch).** What: follows A2.\n- **A2. two.** See - **A1. in prose.\n\n- **A3. three.**\n");
@@ -34,7 +35,7 @@ test("guard, known-good content (a temp file): distinct numbers, a mention in ru
 });
 
 test("guard, known-bad content (a temp file): a repeated header number is reported, once per number", () => {
-  const dir = mkdtempSync(join(tmpdir(), "decisions-guard-"));
+  const dir = tempDir("decisions-guard-");
   try {
     const f = join(dir, "decisions.md");
     writeFileSync(f, "- **A219. first.**\n- **A220. a.**\n- **A220. a longer revision.**\n- **A220. and another.**\n- **A219. again.**\n- **A221. ok.**\n");

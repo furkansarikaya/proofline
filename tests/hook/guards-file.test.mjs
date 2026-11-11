@@ -1,6 +1,7 @@
 // @ts-check
 // The file-tool PreToolUse guards (adapters/claude/hooks/guards/{read,write,other}.mjs) on a corpus of recorded and adversarial inputs: the
 // verdict each case expects (A210: the shell hook it was once compared with is deleted). Cases listed as stricter must deny.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildContext, finish } from '../../adapters/claude/hooks/lib/context.mjs';
@@ -44,7 +45,7 @@ function prepare(d) {
 
 before(() => {
   template = buildTemplate();
-  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'hook-gf-'))).replaceAll('\\', '/');   // the spelling the guards compare in: long, forward slashes (A246)
+  base = realpathSync.native(tempDir('hook-gf-')).replaceAll('\\', '/');   // the spelling the guards compare in: long, forward slashes (A246)
   outside = join(base, 'elsewhere');
   mkdirSync(outside);
   runDir = copyProject(template, base);

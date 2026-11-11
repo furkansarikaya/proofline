@@ -3,6 +3,7 @@
 // tests/context/budget.tsv, and no rule left the AGENTS.md block without a new place (tests/context/rule-map.tsv). Growth is proven on scripted temp copies of the
 // repository; nothing in the repository is edited. The SessionStart text is the template file adapters/claude/hooks/lib/session-head.txt: the measurement never reads
 // the hook's source.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { checkBudget, contextRows, reportText, tsvText } from '../../control-pla
 import { repo } from './helpers.mjs';
 
 const BUDGET = path.join(repo, 'tests/context/budget.tsv');
-const T = mkdtempSync(path.join(tmpdir(), 'pl-ctx-'));
+const T = tempDir('pl-ctx-');
 after(() => { rmSync(T, { recursive: true, force: true }); });
 const core = path.join(repo, 'control-plane/agents/scripts/proofline-core.mjs');
 /** @param {string[]} args @param {Record<string, string>} [env] */

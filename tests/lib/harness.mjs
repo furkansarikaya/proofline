@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
 import { copyTree, pruneThrottled, removeTree, touchUse } from './prune.mjs';
+import { removeAtExit } from './tempdir.mjs';
 
 export const repo = path.resolve(import.meta.dirname, '..', '..');
 export const scripts = path.join(repo, 'control-plane', 'agents', 'scripts');
@@ -65,15 +66,7 @@ export function base() {
   }
   return baseDir;
 }
-/**
- * Remove DIR when this process ends: at exit, and on SIGINT/SIGTERM (a killed run left 14 GB of these behind, A253). The signal handler removes synchronously and then sends the
- * signal again with its default action restored, so the exit status is the signal's, as without the handler. @param {string} dir
- */
-export function removeAtExit(dir) {
-  const rm = () => { try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch { /* the assertions decided the result */ } };
-  process.on('exit', rm);
-  for (const sig of /** @type {const} */ (['SIGINT', 'SIGTERM'])) process.once(sig, () => { rm(); process.kill(process.pid, sig); });
-}
+export { removeAtExit };
 /** A fresh empty directory under the base. @param {string} [prefix] */
 export function tmp(prefix = 't') { return mkdtempSync(path.join(base(), `${prefix}${++counter}-`)); }
 
@@ -274,18 +267,20 @@ export function discard(dir, rm = rmSync) {
  */
 export function copyOf(template, opts = {}) {
   const cp = opts.cp ?? copyTree; const clock = opts.clock ?? wallClock;
+  // Only a finished template (a `.built` marker, or a builder this process knows) can be evicted under the copy; any other folder is copied as it is and nothing is verified.
+  const template0 = existsSync(path.join(template, '.built')) || rebuilders.has(template);
   for (let attempt = 1; ; attempt++) {
-    touchUse(template, clock());
+    if (template0) touchUse(template, clock());
     const dir = tmp('p');
     try {
       cp(template, dir);
-      if (!existsSync(path.join(template, '.built'))) throw new Error(`harness: the template ${template} was removed while it was copied`);
+      if (template0 && !existsSync(path.join(template, '.built'))) throw new Error(`harness: the template ${template} was removed while it was copied`);
       rmSync(path.join(dir, '.built'), { force: true });
       return dir;
     } catch (e) {
       try { discard(dir); } catch { /* the copy error is the one to report */ }
       if (attempt >= 3) throw e;
-      if (!existsSync(path.join(template, '.built'))) rebuilders.get(template)?.();   // evicted meanwhile: build it again under the same key
+      if (template0 && !existsSync(path.join(template, '.built'))) rebuilders.get(template)?.();   // evicted meanwhile: build it again under the same key
     }
   }
 }

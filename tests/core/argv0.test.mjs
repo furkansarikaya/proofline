@@ -1,6 +1,7 @@
 // @ts-check
 // agent.sh hands its own $0 to the core (--pl-argv0); the core uses it only when it names the core's own sibling agent.sh (or a run worktree's), and never
 // executes anything it chose.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ const core = path.join(scriptsDir, 'proofline-core.mjs');
 const CONFIG = 'canonical_branch: main\ngit:\n  branch_prefix: t/\ntasks:\n  status_block_seconds: abc\n';
 
 function project() {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'pl-argv0-')));
+  const root = realpathSync(tempDir('pl-argv0-'));
   const s = path.join(root, '.agents', 'scripts');
   mkdirSync(s, { recursive: true });
   cpSync(path.join(scriptsDir, 'agent.sh'), path.join(s, 'agent.sh'));

@@ -1,5 +1,6 @@
 // @ts-check
 // guards/kit.mjs: the worktree list read from the git dirs equals `git worktree list --porcelain`; stash_path and the glob matcher.
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -17,7 +18,7 @@ const slashed = (p) => p.replaceAll('\\', '/');
 const git = (a, cwd) => spawnSync('git', ['-c', 'gc.auto=0', ...a], { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 
 test('worktrees() reads the same list as git, from the main tree and from a linked worktree', async () => {
-  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'kit-wt-')));
+  const base = realpathSync.native(tempDir('kit-wt-'));
   try {
     const main = join(base, 'main');
     mkdirSync(main);
@@ -43,7 +44,7 @@ test('globMatch is a shell case pattern', () => {
 });
 
 test('stashPath resolves a directory that exists and nothing else', () => {
-  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'kit-sp-')));
+  const base = realpathSync.native(tempDir('kit-sp-'));
   try {
     mkdirSync(join(base, 'd'));
     const ctx = /** @type {any} */ ({ env: { TMPDIR: slashed(base), HOME: slashed(base) } });

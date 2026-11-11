@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from "node:fs";
@@ -19,7 +20,7 @@ const RULES_MD = readFileSync(join(skill, "references/RULES.md"), "utf8");
 
 let base, repo;
 before(() => {
-  base = mkdtempSync(join(tmpdir(), "cpfx-"));
+  base = tempDir("cpfx-");
   repo = join(base, "fx");
   const r = spawnSync(process.execPath, [join(fixture, "setup.mjs"), repo], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);

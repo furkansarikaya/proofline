@@ -3,6 +3,7 @@
 // acceptance, a split override or another user-only question with an accepted answer form); the batch pre-flight answers are applied at freeze. What stays
 // refused: a file as the source (planted history or capture), typed text (always the lead's), another session's capture, a message that matches no accepted
 // form, and `next` recording an approval.
+import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -24,13 +25,13 @@ let counter = 0;
 
 /** A scaffolded project (the self-test library builds it, the Node core is put beside agent.sh). @param {string} script */
 function build(script) {
-  const out = mkdtempSync(path.join(tmpdir(), 'ans-fx-'));
+  const out = tempDir('ans-fx-');
   buildRecipe(script, out, { errexit: false });
   appendFileSync(path.join(out, '.git/info/exclude'), '.agents/local/\n');
   return out;
 }
 before(() => {
-  base = mkdtempSync(path.join(tmpdir(), 'ans-'));
+  base = tempDir('ans-');
   templates.plain = build('scaffold standalone no COMPLEX manual');
   templates.split = build(`SC_SCOPE_EXTRA=AC-1 SC_SCOPE_OTHER=AC-1 scaffold standalone no STANDARD manual; ${NARROW}`);
 });

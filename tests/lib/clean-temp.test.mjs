@@ -6,7 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
-import { PREFIXES, cleanTemp, isTestTemp, main } from './clean-temp.mjs';
+import { PREFIXES, cleanFakeTools, cleanTemp, isTestTemp, main } from './clean-temp.mjs';
 import { cleanEnv, tmp } from './harness.mjs';
 
 const NOW = 1_000_000_000_000; const HOUR = 3600e3;
@@ -19,13 +19,27 @@ function folder(dir, name, ageH) {
 describe('the names it may touch', () => {
   test('the harness\' own names and the legacy ones of the leaking tests match; nothing else does', () => {
     for (const n of ['proofline-h-AbC123', 'proofline-fp.x1y2z3', 'proofline-approve.Qw12er', 'proofline-doctor.abcdef', 'proofline-bt-fake-abcdef', 'proofline-recipe-abcdef', 'proofline-guards-abcdef', 'proofline-submit.abcdef',
-      'hf5-abcdef', 'hf5b-abcdef', 'br-out-abcdef', 'br-timeout-abcdef', 'bt-fake-abcdef', 'bt-origin-abcdef', 'plr-abcdef', 'recipe-abcdef']) assert.ok(isTestTemp(n), n);
-    for (const n of ['proofline-harness-501', 'proofline-e2e', 'proofline-smoke.abcdef', 'proofline', 'prooflines', 'hf5-', 'hf5-abc', 'hf5-abcdefg', 'br-out-abcde!', 'br-abcdef', 'bt-fake-abcdef/..', 'com.apple.x', 'TemporaryItems', '.proofline-h-abcdef', 'x-proofline-h-abcdef', 'ProofLine-h-abcdef', 'recipe', 'plr-abc']) assert.ok(!isTestTemp(n), n);
+      'proofline-t-api-AbCd12', 'proofline-t-pl-t2s-AbCd12', 'wiki-abcdef', 'ds-abcdef', 'probe-bin-abcdef', 'pl-lib-abcdef', 'pl-t2s-abcdef', 'pl-t2-name-abcdef', 'adp-abcdef', 'rv-bin-abcdef', 'rv-proj-abcdef', 'pl-core-abcdef', 'hf5-abcdef', 'hf5b-abcdef', 'br-out-abcdef', 'br-timeout-abcdef', 'bt-fake-abcdef', 'bt-origin-abcdef', 'plr-abcdef', 'recipe-abcdef']) assert.ok(isTestTemp(n), n);
+    for (const n of ['dispatch-abcdef', 'knowweave-query-abcdef', 'TemporaryDirectory.abcdef', 'proofline-review-9', 'proofline-review-244', 'proofline-worktree', 'proofline-x-abcdef', 'proofline-h-abc', 'pl-lib-abc', 'pl-lib-abcdefg', 'adp', 'rv-bin-', 'proofline-harness-501', 'proofline-e2e', 'proofline-smoke.abcdef', 'proofline', 'prooflines', 'hf5-', 'hf5-abc', 'hf5-abcdefg', 'br-out-abcde!', 'br-abcdef', 'bt-fake-abcdef/..', 'com.apple.x', 'TemporaryItems', '.proofline-h-abcdef', 'x-proofline-h-abcdef', 'ProofLine-h-abcdef', 'recipe', 'plr-abc']) assert.ok(!isTestTemp(n), n);
     assert.ok(PREFIXES.length > 0);
   });
 });
 
 describe('what it removes', () => {
+  test('a repository that carries a matching name is kept (a .git inside, file or folder); our own proofline-t-/proofline-h- folders are not', () => {
+    const dir = tmp('tmp');
+    for (const n of ['pl-lib-REPO01', 'proofline-fp.REPO02']) { const d = folder(dir, n, 9); mkdirSync(path.join(d, '.git')); utimesSync(d, clean(9), clean(9)); }
+    const wt = folder(dir, 'pl-lib-WTREE3', 9); writeFileSync(path.join(wt, '.git'), 'gitdir: /x\n'); utimesSync(wt, clean(9), clean(9));
+    const ours = folder(dir, 'proofline-t-api-OURS01', 9); mkdirSync(path.join(ours, '.git')); utimesSync(ours, clean(9), clean(9));
+    assert.deepEqual(cleanTemp(dir, { now: NOW }).map((x) => path.basename(x.path)), ['proofline-t-api-OURS01']);
+    assert.deepEqual(readdirSync(dir).sort(), ['pl-lib-REPO01', 'pl-lib-WTREE3', 'proofline-fp.REPO02']);
+  });
+
+  test('a person\'s folder named proofline-<anything> is not on the list, whatever is in it', () => {
+    const dir = tmp('tmp'); folder(dir, 'proofline-review-9', 99); folder(dir, 'proofline-review-244', 99);
+    assert.deepEqual(cleanTemp(dir, { now: NOW }), []);
+  });
+
   const run = (/** @type {string} */ dir, /** @type {object} */ o = {}) => cleanTemp(dir, { now: NOW, ...o });
 
   test('old folders with a harness name go (with their size), younger ones and other names stay', () => {
@@ -83,7 +97,37 @@ describe('what it removes', () => {
   });
 });
 
+describe('the fake-tool folders of the checkout (A180)', () => {
+  test('<pid> and batch-<pid> folders of a dead process, and old ln-/cx- folders, go; a live pid, a young folder and other names stay', () => {
+    const dir = tmp('ft');
+    folder(dir, '4242', 9); folder(dir, 'batch-4343', 9); folder(dir, '4444', 9); folder(dir, 'batch-4545', 1); folder(dir, 'ln-ABCDEF', 9); folder(dir, 'cx-ABCDEF', 1); folder(dir, 'notes', 99);
+    const r = cleanFakeTools(dir, { now: NOW, isAlive: (/** @type {number} */ pid) => pid === 4444 });
+    assert.deepEqual(r.map((x) => path.basename(x.path)).sort(), ['4242', 'batch-4343', 'ln-ABCDEF']);
+    assert.deepEqual(readdirSync(dir).sort(), ['4444', 'batch-4545', 'cx-ABCDEF', 'notes']);
+  });
+});
+
 describe('the command', () => {
+  test('without --tmpdir it also prunes the fake-tool folders of the checkout (and only those of a dead pid)', () => {
+    const dir = tmp('tmp'); const ft = tmp('ft'); folder(ft, '999999999', 9); folder(ft, `${process.pid}`, 9);
+    /** @type {string[]} */ const out = [];
+    assert.equal(main(['--dry-run'], { now: NOW, out: (l) => out.push(l), dirs: [dir], fakeTools: ft }), 0);
+    assert.equal(out.length, 2); assert.match(out[0], /would remove .*999999999 .*fake tools unused for 9h/);
+    assert.equal(main([], { now: NOW, out: () => {}, dirs: [dir], fakeTools: ft }), 0);
+    assert.deepEqual(readdirSync(ft), [`${process.pid}`]);
+  });
+
+  test('--tmpdir refuses the root, the home folder, the checkout, an empty value and the folders above them; --hours below 1 is a usage error', () => {
+    const script = path.join(import.meta.dirname, 'clean-temp.mjs');
+    const home = tmp('home');
+    for (const d of ['/', home, path.resolve(import.meta.dirname, '..', '..'), '', path.dirname(home)]) {
+      const r = spawnSync(process.execPath, [script, '--dry-run', '--tmpdir', d], { env: cleanEnv({ HOME: home }), encoding: 'utf8' });
+      assert.equal(r.status, 2, `--tmpdir ${JSON.stringify(d)}: ${r.stdout}`); assert.match(r.stderr, /refusing --tmpdir|usage/);
+    }
+    for (const h of ['0', '0.5', '-1', 'x']) assert.equal(spawnSync(process.execPath, [script, '--dry-run', '--hours', h, '--tmpdir', tmp('t')], { env: cleanEnv({}), encoding: 'utf8' }).status, 2, `--hours ${h}`);
+    assert.equal(spawnSync(process.execPath, [script, '--dry-run', '--hours', '1', '--tmpdir', tmp('t')], { env: cleanEnv({}), encoding: 'utf8' }).status, 0);
+  });
+
   /** @param {string[]} argv @param {string} dir */
   const cmd = (argv, dir) => { /** @type {string[]} */ const out = []; const status = main([...argv, '--tmpdir', dir], { now: NOW, out: (l) => out.push(l) }); return { status, out }; };
 

@@ -1,3 +1,4 @@
+import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -10,7 +11,7 @@ const skill = join(dirname(fileURLToPath(import.meta.url)), "../../skills/api-de
 const script = join(skill, "scripts/validate-api.mjs");
 const { validate } = await import(script);
 
-const repo = mkdtempSync(join(tmpdir(), "api-"));
+const repo = tempDir("api-");
 mkdirSync(join(repo, "src"), { recursive: true });
 writeFileSync(join(repo, "openapi.yaml"), "openapi: 3.0.0\n");
 writeFileSync(join(repo, "src/orders.js"), "");
