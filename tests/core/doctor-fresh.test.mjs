@@ -23,7 +23,7 @@ test('a fresh install passes: every check line, the 7 events of both runtimes, t
   has(/^PASS node: v[0-9.]+ \(Node 22\.13 or newer is a runtime requirement\)$/m);
   has('PASS engine: the commands run in Node\n');
   has('PASS manifest: every installed file matches\n');
-  has('PASS git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable\n');
+  has('PASS git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable and identical to the shipped copies\n');
   has('PASS config: config valid: .agents/config.yaml\n');
   has(/^PASS approval path: [0-9]+ ms \(hook budget 20000 ms\)$/m);
   has('PASS time limits: timeouts.scale 1.0, a dispatched step may take up to 7200 s (CRITICAL); the approval budget is never scaled. This machine\'s speed: proofline doctor --scale\n');

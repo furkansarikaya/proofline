@@ -3,7 +3,7 @@
 // repository (the project's own installed hooks and scripts are copied there). Prints PASS / WARN / FAIL lines and exits non-zero on any FAIL. It runs from the plugin's core
 // (bin/proofline calls it in process, A233) for the project it was started in: a project whose own engine is broken or missing is still diagnosed. PL_HOME names the
 // plugin checkout and PROOFLINE_VERSION its version. Text here is JavaScript text; the byte strings of the core (config values, command outputs) are decoded with `u`.
-import { accessSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { loadavg, availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { agentCall } from './batch.mjs';
@@ -206,6 +206,28 @@ export function globalHookspathMessage(value, scope = 'global', origin = '') {
   const wide = scope === 'global' || scope === 'system';
   const lead = wide ? `a global/system git core.hooksPath ('${value}') exists (${from}) and is NOT overwritten` : `core.hooksPath is '${value}' (${from}) and is NOT overwritten`;
   return `${lead}; the proofline git hooks (.agents/githooks) are NOT active. To use them, run: git config --local core.hooksPath .agents/githooks${wide ? ' (this repository only; the global value stays and applies to your other repositories)' : ' (this replaces the value above), or chain them from that hook folder'}`;
+}
+
+
+/** The two git hooks proofline ships (control-plane/agents/githooks/). */
+export const SHIPPED_GITHOOKS = ['pre-commit', 'pre-push'];
+
+/**
+ * A249 (independent security review of 173-C2): what sits in the project's `.agents/githooks`, read with lstat, so a link is seen as a link. A cloned repository can
+ * commit its own hook files there; git runs every executable file in the folder `core.hooksPath` names.
+ * @param {string} root @returns {{ unsafe: string, entries: Array<{ name: string, kind: 'file' | 'symlink' | 'other' }> }} `unsafe` names the part of the path that is a link ('' when none); a folder that does not exist has no entries
+ */
+export function githooksFolder(root) {
+  for (const rel of ['.agents', '.agents/githooks']) {
+    let st; try { st = lstatSync(`${root}/${rel}`); } catch { return { unsafe: '', entries: [] }; }
+    if (st.isSymbolicLink() || !st.isDirectory()) return { unsafe: rel, entries: [] };
+  }
+  /** @type {Array<{ name: string, kind: 'file' | 'symlink' | 'other' }>} */ const entries = [];
+  for (const name of readdirSync(`${root}/.agents/githooks`).sort()) {
+    const st = lstatSync(`${root}/.agents/githooks/${name}`);
+    entries.push({ name, kind: st.isSymbolicLink() ? 'symlink' : st.isFile() ? 'file' : 'other' });
+  }
+  return { unsafe: '', entries };
 }
 
 /** @param {string} p */
@@ -529,10 +551,24 @@ class Doctor {
     const st = hooksPathState((a) => this.git(a), this.root);
     if (st.state === 'same') {
       let ok = true;
-      for (const h of ['pre-commit', 'pre-push']) {
-        if (!isExecutable(`${this.root}/.agents/githooks/${h}`)) { this.fail(`git hooks: .agents/githooks/${h} is missing or not executable`); ok = false; }
+      const folder = githooksFolder(this.root);
+      if (folder.unsafe !== '') { this.fail(`git hooks: ${folder.unsafe} is a symbolic link or not a folder; git would run whatever it points to. Replace it with the real folder: proofline init`); ok = false; }
+      else {
+        for (const h of SHIPPED_GITHOOKS) {
+          const f = `${this.root}/.agents/githooks/${h}`;
+          const e = folder.entries.find((x) => x.name === h);
+          if (e === undefined || !isExecutable(f)) { this.fail(`git hooks: .agents/githooks/${h} is missing or not executable`); ok = false; continue; }
+          if (e.kind !== 'file') { this.fail(`git hooks: .agents/githooks/${h} is ${e.kind === 'symlink' ? 'a symbolic link' : 'not a regular file'}; git would run its target. Replace it with proofline's copy: delete it and run proofline init`); ok = false; continue; }
+          const shipped = `${this.plHome}/control-plane/agents/githooks/${h}`;
+          if (this.plHome === '' || !isFile(shipped)) { this.warn(`git hooks: the shipped ${h} could not be read, so .agents/githooks/${h} was not compared`); continue; }
+          if (sha256File(f) !== sha256File(shipped)) { this.fail(`git hooks: .agents/githooks/${h} differs from the copy proofline ships (sha256 mismatch): git runs this file at every ${h === 'pre-push' ? 'push' : 'commit'}, so it may be code from the repository and not proofline's lock. Review it; to restore proofline's copy delete it and run: proofline init`); ok = false; }
+        }
+        for (const e of folder.entries) {
+          if (SHIPPED_GITHOOKS.includes(e.name)) continue;
+          this.fail(`git hooks: .agents/githooks/${e.name} is not a file proofline ships; git may run it (a hook name) and proofline did not review it. Review it or remove it`); ok = false;
+        }
       }
-      if (ok) this.pass('git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable');
+      if (ok) this.pass('git hooks: core.hooksPath = .agents/githooks, pre-commit and pre-push executable and identical to the shipped copies');
     } else if (st.state === 'unset') this.fail('git hooks: core.hooksPath is not set; the commit and push locks are inactive. Fix: git config --local core.hooksPath .agents/githooks');
     else {
       this.fail(`git hooks: core.hooksPath is '${st.value.replace(/[\x00-\x1f\x7f]/g, '?')}', not .agents/githooks; the proofline locks are inactive`);

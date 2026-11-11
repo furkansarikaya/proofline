@@ -15,7 +15,7 @@ import { cfgMergeNew } from './cfgcli.mjs';
 import { cfgCmds, cfgSet } from './configset.mjs';
 import { CliDie } from './cliio.mjs';
 import { KINDS, ambigNotes, discoverCommands, joinCommands, verifyCommands } from './discover.mjs';
-import { MANIFEST_REL, globalHookspathMessage, hooksPathState, matcherCovers } from './doctor.mjs';
+import { MANIFEST_REL, SHIPPED_GITHOOKS, githooksFolder, globalHookspathMessage, hooksPathState, matcherCovers } from './doctor.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import * as proc from './proc.mjs';
 import { commandV } from './runtimedetect.mjs';
@@ -125,6 +125,7 @@ function detectBranchIn(dir) {
 class Install {
   /** @param {Params} p */
   constructor(p) {
+    /** @type {Map<string, string>} the outcome of each file placed under .agents/githooks (A249) */ this.githookActs = new Map();
     this.p = p;
     this.root = p.root;
     /** @type {Array<[string, string]>} */ this.plan = [];
@@ -219,6 +220,7 @@ class Install {
     } else if (act === 'conflict') {
       if (!this.p.dry) this.copySafe(`${rel}.proofline-new`, src);
     }
+    if (rel.startsWith('.agents/githooks/')) this.githookActs.set(rel, wrote ? act : 'unsafe');
     if (!wrote) return; // already reported: not in the plan as new, not in the manifest
     if (act === 'new' || act === 'update' || act === 'same') this.manifestNew.push([n, rel]);
     else if (keep !== '') this.manifestNew.push([keep, rel]);
@@ -483,6 +485,25 @@ class Install {
   git(a) { return proc.run('git', ['-C', this.root, ...a], { stdio: ['ignore', 'pipe', 'ignore'] }); }
 
   /**
+   * A249: why `.agents/githooks` cannot be trusted as the hook folder, or '' when every file in it was installed by proofline or found identical in this run and none is a link.
+   * @returns {string}
+   */
+  githooksUntrusted() {
+    for (const h of SHIPPED_GITHOOKS) {
+      const rel = `.agents/githooks/${h}`; const act = this.githookActs.get(rel);
+      if (act === undefined) return `${rel} is not part of this install`;
+      if (!['new', 'update', 'same'].includes(act)) return `${rel} differs from proofline's and was ${act === 'unsafe' ? 'not written (a link)' : 'kept as your own file'}`;
+    }
+    const folder = githooksFolder(this.root);
+    if (folder.unsafe !== '') return `${folder.unsafe} is a symbolic link or not a folder`;
+    for (const e of folder.entries) {
+      if (e.kind !== 'file') return `.agents/githooks/${e.name} is ${e.kind === 'symlink' ? 'a symbolic link' : 'not a regular file'}`;
+      if (!SHIPPED_GITHOOKS.includes(e.name)) return `.agents/githooks/${e.name} is not a file proofline ships`;
+    }
+    return '';
+  }
+
+  /**
    * A238 (user decision of 2026-11-08, A233): a `core.hooksPath` the user already set (local, global or system: whatever git resolves here) to another folder is never
    * overwritten; the message says which path, from where, and what to do. Unset: set locally. The same folder: nothing, no message.
    */
@@ -490,8 +511,13 @@ class Install {
     const st = hooksPathState((a) => this.git(a), this.root);
     if (st.state === 'same') this.plog('same', 'git config core.hooksPath');
     else if (st.state === 'unset') {
-      this.plog('merged', 'git config --local core.hooksPath .agents/githooks');
-      if (!this.p.dry) this.git(['config', '--local', 'core.hooksPath', '.agents/githooks']);
+      // A249: git runs every executable file of the folder it is pointed to, so the path is set only when each of them is proofline's, installed or confirmed in this run
+      const why = this.githooksUntrusted();
+      if (why !== '') this.plog('warn', `core.hooksPath was NOT set to .agents/githooks (proofline's commit and push locks are NOT active): ${why}. Review the file(s); to use proofline's hooks, delete them and run proofline init again, or after reviewing run: git config --local core.hooksPath .agents/githooks`);
+      else {
+        this.plog('merged', 'git config --local core.hooksPath .agents/githooks');
+        if (!this.p.dry) this.git(['config', '--local', 'core.hooksPath', '.agents/githooks']);
+      }
     } else this.plog('warn', globalHookspathMessage(st.value, st.scope, st.origin));
   }
 
