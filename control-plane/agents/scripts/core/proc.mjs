@@ -250,10 +250,12 @@ export function killWindowsTree(pid, force, spawn = spawnSync, env = ownEnv, war
 
 /**
  * The Leader of a program that was refused (A252, review round 2): it never started, `exited` is status 127, and the reason is told once (the dispatcher otherwise
- * returns 127 with no explanation). @param {string} text @param {(text: string) => void} [warn] @returns {Leader}
+ * returns 127 with no explanation). The text goes to stderr and, when LOG is a file descriptor, into the worker's log too (the run log otherwise stays empty).
+ * @param {string} text @param {(text: string) => void} [warn] @param {number | string} [log] @returns {Leader}
  */
-export function refusedLeader(text, warn = warnLine) {
+export function refusedLeader(text, warn = warnLine, log = 'ignore') {
   warn(text);
+  if (typeof log === 'number') { try { writeSync(log, text); } catch { /* the log is gone */ } }
   return { pid: undefined, exited: Promise.resolve({ status: 127, signal: null }), stop() {} };
 }
 
@@ -423,14 +425,16 @@ function groupLive(pgid) {
  * and every descendant found by a `ps` listing (a grandchild that started a session of its own is not in the group), waits `graceMs` and then kills what is
  * still there with SIGKILL; `exited` resolves once the leader is gone and the group is empty or killed. A child that ends by itself leaves its group alone.
  * `onOrphan` (POSIX only): the guardian's orphan spec, see runCloser.
- * @param {string} program @param {string[]} args @param {{ cwd?: string, env?: NodeJS.ProcessEnv, stdio: Array<'ignore'|number>, graceMs?: number, onOrphan?: OrphanSpec }} options @returns {Leader}
+ * @param {string} program @param {string[]} args @param {{ cwd?: string, env?: NodeJS.ProcessEnv, stdio: Array<'ignore'|number>, graceMs?: number, onOrphan?: OrphanSpec, platform?: string, warn?: (text: string) => void }} options
+ * (`platform` is process.platform unless a test simulates another; `warn` takes the refusal text, default stderr) @returns {Leader}
  */
 export function startLeader(program, args, options) {
   const graceMs = options.graceMs ?? 5000;
-  const win = process.platform === 'win32';
+  const platform = options.platform ?? process.platform;
+  const win = platform === 'win32';
   const guardian = fileURLToPath(new URL('./guardian.mjs', import.meta.url));
-  const rp = win ? resolveProgram(program, options.env, options.cwd) : { program };
-  if ('refused' in rp) return refusedLeader(rp.refused);
+  const rp = win ? resolveProgram(program, options.env, options.cwd, platform) : { program };
+  if ('refused' in rp) return refusedLeader(rp.refused, options.warn, options.stdio[2] ?? options.stdio[1]);
   const spawned = win ? program : (options.env !== undefined && nodeOnPath(options.env) ? 'node' : process.execPath);
   count(spawned);
   const t0 = Date.now();

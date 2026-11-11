@@ -2,9 +2,12 @@
 // Both run on any host with a fake file system and an injected spawn: no Windows machine, no waits, no clock. On Windows itself: not tried (denenmedi).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { resolveWindowsTool, candidates, plainToolName, isDriveAbsolute, shimMessage, makeRefusedDir } from '../../control-plane/agents/scripts/core/wintool.mjs';
 import { resolveToolWindows } from '../../control-plane/agents/scripts/core/platform.mjs';
-import { refusedLeader, taskkillArgs, killWindowsTree, systemTaskkill, resolveProgram } from '../../control-plane/agents/scripts/core/proc.mjs';
+import { refusedLeader, startLeader, taskkillArgs, killWindowsTree, systemTaskkill, resolveProgram } from '../../control-plane/agents/scripts/core/proc.mjs';
 
 /** A fake Windows file system: FILES is the set of existing files (lower-case, backslashes); REFUSED the writable folders. */
 function fake(files, refused = [], links = {}) {
@@ -184,5 +187,21 @@ describe('A252 review round 2', () => {
     assert.deepEqual(await l.exited, { status: 127, signal: null });
     l.stop();
     assert.equal(told.length, 1, 'stop says nothing more');
+  });
+  test('R2: startLeader returns the refused leader on a simulated win32 refusal, and the reason reaches the worker log as well as the warning', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'wt-leader-'));
+    const fd = openSync(path.join(dir, 'worker.log'), 'w');
+    try {
+      const told = [];
+      // a drive-absolute PATH entry that holds nothing: the resolver refuses ("not found"), no program is started on any host
+      const l = startLeader('proofline-no-such-tool', [], { cwd: dir, env: { PATH: 'C:\\none', PATHEXT: '.EXE' }, stdio: ['ignore', fd, fd], platform: 'win32', warn: (t) => told.push(t) });
+      assert.equal(l.pid, undefined, 'a refused program has no pid');
+      assert.deepEqual(await l.exited, { status: 127, signal: null });
+      l.stop();
+      assert.equal(told.length, 1, 'the reason is told once');
+      assert.match(told[0], /^proofline: proofline-no-such-tool was not found on PATH outside the working folder; not started\n$/);
+      closeSync(fd);
+      assert.equal(readFileSync(path.join(dir, 'worker.log'), 'utf8'), told[0], 'the worker log holds the reason (once, although stdout and stderr are the same file)');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

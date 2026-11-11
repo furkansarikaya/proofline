@@ -85,16 +85,18 @@ case "$*" in
 esac
 exit 0
 `);
+  // The fake inhibitors never poll and never outlive what a test lets them. caffeinate writes its pid, then its arguments, then (only when the test made the pipe
+  // FAKE/ready.fifo) tells the test it is up; it stays alive only while the test holds FAKE/session.fifo open for writing (the stand-in session does) and ends when
+  // that pipe closes, which is how the death of the session reaches it. Without session.fifo it ends at once. systemd-inhibit records its arguments and ends.
   writeFileSync(path.join(FAKE, 'bin/caffeinate'), `#!/bin/sh
-printf '%s\\n' "$*" >> "${FAKE}/caffeinate.argv"; echo $$ > "${FAKE}/caffeinate.pid"
-w=''; while [ $# -gt 0 ]; do [ "$1" != -w ] || w=$2; shift; done
-[ -n "$w" ] || exit 0
-while kill -0 "$w" 2>/dev/null; do sleep 0.2; done
+echo $$ > "${FAKE}/caffeinate.pid"; printf '%s\\n' "$*" >> "${FAKE}/caffeinate.argv"
+[ ! -p "${FAKE}/ready.fifo" ] || echo up > "${FAKE}/ready.fifo"
+[ -p "${FAKE}/session.fifo" ] || exit 0
+cat < "${FAKE}/session.fifo" > /dev/null
 `);
   writeFileSync(path.join(FAKE, 'bin/systemd-inhibit'), `#!/bin/sh
 printf '%s\\n' "$*" >> "${FAKE}/inhibit.argv"
-while :; do case "\${1:-}" in --*) shift ;; *) break ;; esac; done
-exec "$@"
+[ ! -p "${FAKE}/ready.fifo" ] || echo up > "${FAKE}/ready.fifo"
 `);
   for (const f of [path.join(ghbin, 'gh'), path.join(FAKE, 'bin/caffeinate'), path.join(FAKE, 'bin/systemd-inhibit')]) chmodSync(f, 0o755);
   after(() => { rmSync(FAKE, { recursive: true, force: true }); });

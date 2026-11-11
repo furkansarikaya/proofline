@@ -2,6 +2,9 @@
 // program given by bare name, so such a script (`git`, `sh`, `python3`, ...) would run a planted `git.exe` of a cloned project. core/proc.mjs resolves bare names
 // (`resolveProgram`); the skill scripts are standalone installs and do not use it. They are NOT covered: not tried (denenmedi), kararını bekliyor (A252 has the
 // alternatives). This test fixes the list, so a new script that starts a program is noticed: it fails when the tree and LIST differ, and says what to do.
+// The census reads `git ls-files`, so it needs a git checkout (.git) and sees only tracked files: a NEW importer is invisible until it is staged (`git add`).
+// Two of the listed scripts start a path, not a bare name: `verify-proof/scripts/runtime-versions.mjs` spawns the absolute path its own PATH search found (absolute
+// entries only) and `visual-proof/scripts/measure.mjs` spawns the browser path it was given; they are listed because they import the module, not because they are exposed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
