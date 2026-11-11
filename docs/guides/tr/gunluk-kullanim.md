@@ -27,7 +27,7 @@ Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` 
 | `proofline debt` | koddaki `shortcut: <sınır>, <ne zaman iyileştirilir>` yorumlarını `dosya:satır` ile listele; salt okunur, run gerekmez |
 | `proofline deliver <TASK>` | teslim kontrolü; asla commit atmaz (oturumda `/proofline deliver` tek bir `approve delivery` ile teslim eder) |
 | `proofline clean [--yes]` | `.agents/local` durumunu ve biten run'ları sil |
-| `proofline insights [--run ID] [--json]` | salt okunur rapor: run, rol ve model bazında maliyet (token sadece runtime bildirdiyse) ve tekrar eden başarısızlıklar, öneriler; hiçbir şeyi değiştirmez |
+| `proofline insights [--run ID] [--json]` | salt okunur rapor: run, rol ve model bazında maliyet (token sadece runtime bildirdiyse), rol ve run bazında tool çağrıları ve tekrar eden başarısızlıklar, öneriler; hiçbir şeyi değiştirmez |
 
 ## İyi alışkanlıklar
 

@@ -37,7 +37,7 @@ export const USAGE_LINES = Object.freeze([
   "                            missing tool: nothing is merged here, the link and steps are printed, YOU merge",
   "  insights [--run ID] [--json]",
   "                          read-only report: cost per run, role and model (tokens only where the runtime",
-  "                            reported them) and recurring failures with suggestions; changes nothing",
+  "                            reported them), tool calls per role and run, recurring failures; changes nothing",
   "",
   "agent session (prints the exact instruction for your runtime)",
   "  task [--grill] <text>   write a task file (grill the intent first with --grill)",

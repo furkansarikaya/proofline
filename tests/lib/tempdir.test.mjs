@@ -20,10 +20,15 @@ function start(script) {
   const child = spawn(process.execPath, ['--input-type=module', '-e', `import { tempDir } from ${MODULE};\n${script}`], { stdio: ['ignore', 'pipe', 'inherit'] });
   children.add(child);
   const ended = new Promise((res) => child.on('exit', (code, signal) => res({ code, signal })));
-  return new Promise((res) => { let s = ''; child.stdout?.on('data', (d) => { s += d; if (s.includes('\n')) res({ dir: s.trim(), ended: /** @type {any} */ (ended), child }); }); });
+  // a child that exits before its first line rejects (the test fails at once instead of hanging)
+  return new Promise((res, rej) => {
+    let s = '';
+    child.stdout?.on('data', (d) => { s += d; if (s.includes('\n')) res({ dir: s.trim(), ended: /** @type {any} */ (ended), child }); });
+    child.on('close', () => rej(new Error('the child exited before it printed its first line')));
+  });
 }
 
-test('a tree with a read-only subfolder is removed at a normal exit', async () => {
+test('a tree with a read-only subfolder is removed at a normal exit', { timeout: 20000 }, async () => {
   const { dir, ended, child } = await start(`
     import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
     const d = tempDir('ro-'); mkdirSync(d + '/sub'); writeFileSync(d + '/sub/f', 'x'); chmodSync(d + '/sub', 0o500);

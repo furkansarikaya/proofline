@@ -52,8 +52,10 @@ function census(dir, except) {
     const code = text.replace(/\bimport\s[^;]*?\bfrom\s*['"][^'"]+['"]/gs, '').replace(/\bexport\s*\{[^}]*\}/g, '').replace(/\{[^}]*\}\s*=\s*await\s+import\([^)]*\)/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
     const bare = (code.match(/\bmkdtemp(?:Sync)?\b(?!\s*\()/g) ?? []).length;
     if (bare > (except[rel]?.[2] ?? 0)) problems.push(`${rel}: mkdtemp used as a value (an alias?), not as a call: use tempDir() of tests/lib/tempdir.mjs`);
-    // a folder named by hand under the temp folder is never found again after a kill
-    if (/\bmkdirSync\(\s*(?:`\$\{\s*(?:os\.)?tmpdir\(\)|(?:os\.)?tmpdir\(\)\s*\+|(?:path\.)?(?:join|resolve)\(\s*(?:os\.)?tmpdir\(\)[^)]*(?:Date\.now|Math\.random|process\.pid))/.test(code) && !except[rel]?.[3]) {
+    // a folder named by hand under the temp folder is never found again after a kill: any mkdirSync whose path starts at tmpdir(), directly or through a variable that holds it
+    const names = [...code.matchAll(/\b(?:const|let|var)\s+(\w+)\s*=\s*(?:os\.)?tmpdir\(\)/g)].map((m) => m[1]);
+    const start = ['(?:os\\.)?tmpdir\\(\\)', ...names.map((n) => `\\b${n}\\b`)].join('|');
+    if (new RegExp(`\\bmkdirSync\\(\\s*(?:[\\w.]*(?:join|resolve)\\(\\s*)?(?:\`\\$\\{\\s*)?(?:${start})`).test(code) && !except[rel]?.[3]) {
       problems.push(`${rel}: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs`);
     }
   }
@@ -78,11 +80,17 @@ test('the census finds an alias of mkdtemp and a folder named by hand under tmpd
   writeFileSync(path.join(d, 'alias.mjs'), "import {\n  mkdtempSync,\n} from 'node:fs';\nconst e = mkdtempSync;\n");
   writeFileSync(path.join(d, 'rolled.mjs'), "import { mkdirSync } from 'node:fs';\nmkdirSync(tmpdir() + '/x' + Date.now());\n");
   writeFileSync(path.join(d, 'rolled2.mjs'), 'mkdirSync(`${tmpdir()}/x-${process.pid}`);\n');
+  writeFileSync(path.join(d, 'fixed.mjs'), "mkdirSync(join(tmpdir(), 'foo'));\n");
+  writeFileSync(path.join(d, 'viavar.mjs'), "const t = tmpdir();\nmkdirSync(t + '/x');\n");
+  writeFileSync(path.join(d, 'viavar2.mjs'), "const base = os.tmpdir();\nmkdirSync(path.join(base, 'y'));\n");
   writeFileSync(path.join(d, 'fine.mjs'), "import { mkdtempSync as m } from 'node:fs';\n// mkdtemp is not used here\n/* mkdtempSync */\nconst x = 'http://a';\n");
   assert.deepEqual(census(d, {}), [
     'alias.mjs: mkdtemp used as a value (an alias?), not as a call: use tempDir() of tests/lib/tempdir.mjs',
+    'fixed.mjs: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs',
     'rolled.mjs: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs',
     'rolled2.mjs: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs',
+    'viavar.mjs: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs',
+    'viavar2.mjs: a folder named by hand under tmpdir() (mkdirSync): use tempDir() of tests/lib/tempdir.mjs',
   ]);
 });
 

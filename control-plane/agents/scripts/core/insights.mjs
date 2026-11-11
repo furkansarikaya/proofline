@@ -3,6 +3,7 @@
 // front end read it, rule by rule. Read-only: it opens nothing for writing. Text is a byte string (LC_ALL=C: lengths are bytes).
 import { readdirSync, readFileSync, lstatSync, statSync } from 'node:fs';
 import { trimSpace } from './shellglob.mjs';
+import { toolsRow, toolsSummary, topTools, MAX_LINES } from './toolsinsights.mjs';
 
 const isnum = (/** @type {string} */ v) => /^[0-9]+$/.test(v);
 
@@ -69,7 +70,8 @@ function gsugg(g) {
 
 /**
  * @typedef {{ kind: 'M', text: string } | { kind: 'R', run: string } | { kind: 'L', run: string, row: string }
- *   | { kind: 'G', run: string, fn: string, line: string } | { kind: 'U', run: string, fn: string, line: string }} Ev
+ *   | { kind: 'G', run: string, fn: string, line: string } | { kind: 'U', run: string, fn: string, line: string }
+ *   | { kind: 'T', sum: import('./toolsinsights.mjs').ToolsSummary }} Ev
  */
 
 /** The records of a file as awk reads them. @param {string} text */
@@ -90,6 +92,7 @@ export function insightsStream(root, only) {
   /** @type {Ev[]} */ const ev = [];
   const mf = `${root}/.agents/local/metrics/records.jsonl`;
   try { if (statSync(mf).isFile()) for (const l of recs(readFileSync(mf, 'latin1'))) ev.push({ kind: 'M', text: l }); } catch { /* none */ }
+  ev.push({ kind: 'T', sum: toolsSummary(`${root}/.agents/local/metrics/tools.jsonl`, only) });
   const runs = `${root}/.agents/runs`;
   for (const id of listDir(runs, (n) => !n.startsWith('.'))) {
     const rd = `${runs}/${id}`;
@@ -112,6 +115,51 @@ export function insightsStream(root, only) {
     }
   }
   return ev;
+}
+
+/** @param {import('./toolsinsights.mjs').ToolsSummary | null} t */
+function toolsJson(t) {
+  if (!t || !t.present) return null;
+  const rows = (/** @type {Map<string, import('./toolsinsights.mjs').Group>} */ m) => isortStr([...m.keys()]).map((k) => toolsRow(k, /** @type {any} */ (m.get(k))));
+  return {
+    records: t.records, skipped_unknown_schema: t.skipped, corrupt_lines: t.corrupt, capped: t.capped, file_unreadable: t.unreadableFile,
+    totals: toolsRow('all', t.all), top_tools: topTools(t.all, 5), by_role: rows(t.roles), by_run: rows(t.runs),
+  };
+}
+
+/** The TOOL CALLS section (A255). @param {import('./toolsinsights.mjs').ToolsSummary | null} t @returns {string[]} */
+function toolsText(t) {
+  const head = 'TOOL CALLS (tools.jsonl, from the runtime session log at submit; n/a = no readable log, never zero; (k/n) = k of n jobs had a readable log)\n';
+  if (t?.present && t.unreadableFile && t.records === 0) return [head, '  .agents/local/metrics/tools.jsonl is not a regular file or could not be read; nothing was counted\n'];
+  if (!t || !t.present || t.records === 0) return [head, `  no tool records${t?.present ? ' for this filter' : ''} (.agents/local/metrics/tools.jsonl)\n`];
+  /** @type {string[]} */ const o = [head];
+  const sum = (/** @type {import('./toolsinsights.mjs').Group} */ g, /** @type {number} */ v, k = g.read) => (k === 0 ? 'n/a' : k < g.jobs ? `${v} (${k}/${g.jobs})` : String(v));
+  const per = (/** @type {import('./toolsinsights.mjs').Group} */ g, /** @type {number} */ v, /** @type {boolean} */ dec) => (g.read === 0 ? 'n/a' : dec ? (Math.round((v / g.read) * 10) / 10).toFixed(1) : String(Math.round(v / g.read)));
+  const topS = (/** @type {import('./toolsinsights.mjs').Group} */ g) => topTools(g, 3).map((x) => `${x.tool}:${x.calls}`).join(',') || '-';
+  const table = (/** @type {string} */ title, /** @type {Map<string, import('./toolsinsights.mjs').Group>} */ m) => {
+    o.push(printf('  %-22s %5s %10s %12s %-16s %-16s %6s %s\n', title, 'JOBS', 'CALLS/JOB', 'BYTES/JOB', 'CALLS', 'RESULT_BYTES', 'DENIED', 'TOP TOOLS'));
+    for (const k of isortStr([...m.keys()])) {
+      const g = /** @type {import('./toolsinsights.mjs').Group} */ (m.get(k));
+      o.push(printf('  %-22s %5d %10s %12s %-16s %-16s %6s %s\n', k, g.jobs, per(g, g.calls, true), per(g, g.bytes, false), sum(g, g.calls), sum(g, g.bytes), sum(g, g.denied, g.deniedKnown), topS(g)));
+    }
+  };
+  table('ROLE', t.roles);
+  o.push('\n');
+  table('RUN', t.runs);
+  const a = t.all;
+  o.push(printf('  total over %d job(s), %d with a readable log: calls %s, result bytes %s, refused by a hook %s; %s calls and %s bytes per job\n',
+    a.jobs, a.read, sum(a, a.calls), sum(a, a.bytes), sum(a, a.denied, a.deniedKnown), per(a, a.calls, true), per(a, a.bytes, false)));
+  const top = topTools(a, 5);
+  if (top.length > 0) o.push(`  top tools: ${top.map((x) => `${x.tool} ${x.calls} calls ${x.bytes} bytes`).join('; ')}\n`);
+  const notes = [];
+  if (a.unreadable > 0) notes.push(`${a.unreadable} job(s) without a readable log (counts unknown)`);
+  if (a.malformed > 0) notes.push(`${a.malformed} job(s) with a malformed log`);
+  if (t.skipped > 0) notes.push(`${t.skipped} record(s) with an unknown schema skipped`);
+  if (t.corrupt > 0) notes.push(`${t.corrupt} corrupt line(s) ignored`);
+  if (t.capped) notes.push(`only the first ${MAX_LINES} lines were read`);
+  if (t.unreadableFile) notes.push('the file could not be read to its end');
+  if (notes.length > 0) o.push(`  ${notes.join('; ')}\n`);
+  return o;
 }
 
 /**
@@ -160,7 +208,9 @@ export function insightsReport(events, opt) {
   /** @type {Map<string, [string, string]>} */ const akind = new Map();
   /** @type {Set<string>} */ const fseen = new Set();
 
+  /** @type {import('./toolsinsights.mjs').ToolsSummary | null} */ let tools = null;
   for (const e of events) {
+    if (e.kind === 'T') { tools = e.sum; continue; }
     if (e.kind === 'M') {
       const j = e.text;
       if (!/^[ \t]*\{/.test(j)) { if (/[^ \t]/.test(j)) nonjson++; continue; }
@@ -344,6 +394,7 @@ export function insightsReport(events, opt) {
     cal.forEach((c, i) => P(printf('%s{"size":"%s","tasks":%d,"median_min":%s,"median_tokens":%s,"median_paths":%s,"suggestion":"%s"}', i > 0 ? ',' : '', c.z, c.n,
       c.md === 'n/a' ? 'null' : c.md, c.mt === 'n/a' ? 'null' : c.mt, c.mp === 'n/a' ? 'null' : c.mp, jesc(c.sg))));
     P('],\n');
+    P(` "tools":${JSON.stringify(toolsJson(tools))},\n`);
     P(' "patterns":[');
     for (let i = 0; i < po; i++) {
       const x = pat(i);
@@ -396,6 +447,8 @@ export function insightsReport(events, opt) {
     if (c.sg !== '') P(printf('     suggestion: %s\n', c.sg));
   }
   P('\n');
+  for (const l of toolsText(tools)) P(l);
+  P('\n');
   P('RECURRING FAILURES (2 or more occurrences; suggestions are not applied)\n');
   if (po === 0) P('  none found\n');
   for (let i = 0; i < po; i++) {
@@ -403,7 +456,7 @@ export function insightsReport(events, opt) {
     P(printf('  %d. %s x%d: %s\n     runs: %s\n     suggestion: %s\n', i + 1, x.kind, x.cnt, x.subj, x.runs, x.sugg));
   }
   P('\n');
-  P('Sources: the metrics records, each run LEDGER.log and the gate records and results it binds. Control-plane refusals\n');
+  P('Sources: the metrics records, tools.jsonl, each run LEDGER.log and the gate records and results it binds. Control-plane refusals\n');
   P('(a blocked scope check, a refused approval phrase) leave no record, so only what a ledger or finding states is counted.\n');
   return out.join('');
 }
