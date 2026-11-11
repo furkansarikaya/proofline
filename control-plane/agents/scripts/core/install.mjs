@@ -509,10 +509,10 @@ class Install {
     // one entry per file (the first problem found), the committed-differently case kept when it is the only one
     const bad = all.filter((p, i) => all.findIndex((q) => q.rel === p.rel) === i);
     // which remedy fits: the kinds of problem that were found
-    const lagOnly = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => (p.kind === 'index' || p.kind === 'head') && !audit.problems.some((q) => q.rel === p.rel && q.kind !== 'index' && q.kind !== 'head');
+    const lagOnly = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => (p.kind === 'index' || p.kind === 'head') && p.symlink !== true && !audit.problems.some((q) => q.rel === p.rel && q.kind !== 'index' && q.kind !== 'head');
     this.fixText = [...(bad.some((p) => p.eol) ? [GITHOOKS_EOL] : []), ...(bad.some((p) => !p.eol && !lagOnly(p)) ? [GITHOOKS_FIX] : []), ...(bad.some(lagOnly) ? [GITHOOKS_COMMIT] : [])].join('; or ');
     if (bad.length === 0) return '';
-    return `${bad.slice(0, 3).map((p) => problemText(p, actOf(p.rel))).join('; ')}${bad.length > 3 ? `; and ${bad.length - 3} more` : ''}`;
+    return `${bad.slice(0, 3).map((p) => Buffer.from(problemText(p, actOf(p.rel)), 'utf8').toString('latin1')).join('; ')}${bad.length > 3 ? `; and ${bad.length - 3} more` : ''}`;
   }
 
   /**

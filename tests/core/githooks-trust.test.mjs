@@ -10,8 +10,8 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { codeAudit, problemText, shippedCode } from '../../control-plane/agents/scripts/core/codetrust.mjs';
-import { matcherCovers, probeEnv } from '../../control-plane/agents/scripts/core/doctor.mjs';
+import { clean, cleanBytes, cleanLines, codeAudit, couldAlias, problemText, shippedCode } from '../../control-plane/agents/scripts/core/codetrust.mjs';
+import { matcherCovers, probeEnv, recordText } from '../../control-plane/agents/scripts/core/doctor.mjs';
 import { repo } from './helpers.mjs';
 import { sandbox } from './frontend-lib.mjs';
 
@@ -222,6 +222,24 @@ test('A249 init (SEC-3): a repository-controlled file name with control characte
   assert.match(r.out, /post-\?\[31mcheckout is not a file proofline ships/, r.out);
 });
 
+test('A249 init and upgrade (SEC-A): a name made of letters whose LOW BYTE is a control byte (U+011B = ESC, U+010A = LF, U+010D = CR, U+019B = CSI) cannot erase or forge the NOT set warning; Turkish letters stay readable', () => {
+  // written as latin1 these were ESC [1A ESC [2K, a line feed and a carriage return: the sanitiser had run on the text, the writer then cut each letter to its low byte
+  const evil = 'x\u011b[1A\u011b[2K\u010aPASS\u010dnothing\u019bK-\u0131\u015f\u011f\u0130\u00fc\u202e\u2066\ufeff\u2028';
+  const d = cloned('lowbyte', { ...shippedHooks(), [evil]: HOSTILE });
+  for (const args of [INIT, ['upgrade', '--yes']]) {
+    const r = sb.pl(d, args);
+    assert.equal(r.status, 0, r.text);
+    const raw = Buffer.from(r.text, 'utf8');
+    assert.doesNotMatch(r.text, /[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069\u200b-\u200f\u2028\u2029\ufeff]/, JSON.stringify(r.text.split('\n').filter((l) => l.includes('x'))));
+    assert.ok(!raw.includes(0x1b), 'an ESC byte reached the output');
+    assert.match(r.out, /NOT set to \.agents\/githooks/, r.out);
+    assert.match(r.out, /x\u011b\[1A\u011b\[2K\u010aPASS\u010dnothing\u019bK-/, 'the letters are shown as the letters they are (UTF-8), not cut to a byte');
+    assert.match(r.out, /\?\?\?\?/, 'the direction and separator characters were not replaced');
+    assert.ok(!r.out.split('\n').some((l) => l.startsWith('PASS')), 'a forged line');
+    assert.match(r.out, /\u0131\u015f\u011f\u0130\u00fc/, 'Turkish letters were mangled');
+  }
+});
+
 // ---- the decisions, in process (R5: codeAudit is what init and doctor both ask; only a few runs below go through the real doctor) ---------------------------------
 
 /** An installed project (the hooks path set) with the hooks and scripts on disk. */
@@ -391,6 +409,69 @@ test('A249 doctor (R1): a missing shipped file is a broken install (FAIL engine,
   assert.notEqual(r.status, 0);
 });
 
+test('A249 sanitiser (SEC-A, L1, in process): clean, cleanLines and cleanBytes replace C0, DEL, C1, bidi and format characters and the line breaks; Turkish letters pass; a text with a letter above 0xFF is encoded as UTF-8 before it is cleaned', () => {
+  const bad = ['\x1b', '\n', '\r', '\x7f', '\x9b', '\u0085', '؜', '​', '‏', ' ', ' ', '‪', '‮', '⁠', '⁦', '⁩', '﻿'];
+  for (const c of bad) {
+    assert.equal(clean(`a${c}b`), 'a?b', JSON.stringify(c));
+    assert.equal(cleanLines(`a${c}b`), 'a?b', JSON.stringify(c));
+    assert.equal(cleanBytes(`a${Buffer.from(c, 'utf8').toString('latin1')}b`), 'a?b', `bytes of ${JSON.stringify(c)}`);
+    assert.equal(cleanBytes(`a${c}b`), 'a?b', `text ${JSON.stringify(c)}`);
+  }
+  const tr = 'ışğİüöç';
+  assert.equal(clean(tr), tr); assert.equal(cleanLines(tr), tr);
+  assert.equal(cleanBytes(Buffer.from(tr, 'utf8').toString('latin1')), Buffer.from(tr, 'utf8').toString('latin1'));
+  // U+011B U+010A U+010D U+019B: low bytes ESC LF CR CSI. They are letters: kept as letters, and the bytes that are written contain no control byte
+  const letters = 'xě[1AĊčƛ';
+  const out = Buffer.from(cleanBytes(letters), 'latin1');
+  assert.equal(out.toString('utf8'), letters);
+  assert.ok(![...out].some((b) => b < 0x20 || b === 0x7f), 'a control byte was written');
+});
+
+test('A249 doctor (SEC-C, in process): a record never carries a line that starts at the left margin except its first; a relayed multi-line report keeps its indentation', () => {
+  const forged = "PASS code: every script and hook is proofline's copy";
+  assert.equal(recordText(`WARN x: a\n${forged}\r ${forged}\x1b[2K`), `WARN x: a\n    ${forged}??${forged}?[2K`, 'forged lines are indented and cleaned');
+  assert.equal(recordText('PASS context:\n      AGENTS.md  12 bytes\n  tail'), 'PASS context:\n      AGENTS.md  12 bytes\n      tail');
+  for (const l of recordText(`WARN a\n${forged}\n${forged}`).split('\n').slice(1)) assert.match(l, /^ {4}/);
+});
+
+test('A249 codeAudit (SEC-B, in process): a name that a folding file system can resolve to a code path is found by shape, not by a table of folds', () => {
+  assert.ok(couldAlias('.agents', '.agents') && couldAlias('.Agents', '.agents') && couldAlias('.agentſ', '.agents') && couldAlias('ſcripts', 'scripts') && couldAlias('Ka', 'ka'));
+  assert.ok(!couldAlias('scripts', 'githooks') && !couldAlias('script', 'scripts') && !couldAlias('aſb', 'a/b'), 'a non-ASCII letter must not stand for a slash');
+  assert.ok(couldAlias('.agents/scripts/core/codetruſt.mjs', '.agents/scripts/core/codetrust.mjs'));
+});
+
+test('A249 codeAudit (SEC-B): on a Unicode-folding file system a tracked ".agents/ſcripts/proofline-core.mjs" and ".agentſ/..." are found in the index and HEAD, and init (with the manifest row of the attack) leaves core.hooksPath unset', (t) => {
+  const d = sb.mkrepo('longs');
+  mkdirSync(`${d}/probe-ſ`); writeFileSync(`${d}/probe-ſ/f`, '');
+  if (!existsSync(`${d}/probe-s/f`)) { t.skip('this file system does not fold U+017F'); return; }
+  rmSync(`${d}/probe-ſ`, { recursive: true });
+  assert.equal(git(d, ['config', '--get', 'core.ignorecase']).stdout.trim(), 'true');
+  const hostile = coreWriting(marker());
+  writeExec(`${d}/.agents/ſcripts/proofline-core.mjs`, hostile);
+  writeFileSync(`${d}/.agents/.proofline-manifest`, `${sha(hostile)}  .agents/scripts/proofline-core.mjs\n`);
+  git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'alias']);
+  const got = audit(d);
+  assert.ok(got.includes('extra .agents/ſcripts/proofline-core.mjs'), `the aliased script was not found: ${JSON.stringify(got)}`);
+  assert.match(problemText(/** @type {any} */ ({ rel: '.agents/ſcripts/x', kind: 'extra', alias: true })), /resolve to a file proofline ships/);
+  const r = sb.pl(d, INIT);
+  assert.equal(r.status, 0, r.text);
+  assert.equal(hp(d), '', 'the path was set although HEAD tracks aliased code');
+  assert.match(r.out, NOT_SET, r.out);
+  // the whole code set under an aliased ".agents" (the folder is named with the long s from the start)
+  const f = sb.mkrepo('longs-dir');
+  writeExec(`${f}/.agentſ/githooks/pre-commit`, HOSTILE); writeExec(`${f}/.agents/scripts/agent.sh`, HOSTILE);
+  git(f, ['add', '-A']); git(f, ['commit', '-q', '-m', 'alias dir']);
+  const gotF = audit(f).filter((x) => /^extra/.test(x));
+  assert.ok(gotF.includes('extra .agentſ/githooks/pre-commit') && gotF.includes('extra .agentſ/scripts/agent.sh'), JSON.stringify(gotF));
+  const rf = sb.pl(f, INIT);
+  assert.equal(hp(f), '', rf.text);
+  // the control: a data file beside ".agents", a user's own skill and an accented name are not code
+  const e = sb.mkrepo('longs-ok');
+  writeFileSync(`${e}/.Agents-notes.txt`, 'x'); mkdirSync(`${e}/.agents/skills/mine`, { recursive: true }); writeFileSync(`${e}/.agents/skills/mine/SKILL.md`, 'x'); writeFileSync(`${e}/résumé.txt`, 'x');
+  git(e, ['add', '-A']); git(e, ['commit', '-q', '-m', 'ok']);
+  assert.deepEqual(audit(e).filter((x) => /extra/.test(x)), []);
+});
+
 test('A249 doctor (R3): proofline\'s file on disk over an older staged or committed blob (the state right after an upgrade) is a WARN that says to commit; a file that also differs on disk stays a FAIL', () => {
   const d = installed('doc-lag');
   git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'install']);
@@ -414,6 +495,15 @@ test('A249 doctor (R3): proofline\'s file on disk over an older staged or commit
   assert.match(ok.out, /^WARN code: 3 file\(s\) are staged and committed/m, ok.out);
   assert.doesNotMatch(ok.out, /^FAIL /m, ok.out);
   assert.equal(ok.status, 0, ok.out);
+  assert.match(ok.out, /with core\.hooksPath active, the staged or committed content[^.]*runs at the next commit/, ok.out);
+  // L2: a SYMBOLIC LINK blob (mode 120000) in HEAD is no lag: a restore would write a link to anywhere. FAIL
+  const agent = `${d}/.agents/scripts/agent.sh`; const goodAgent = readFileSync(agent, 'utf8');
+  rmSync(agent); symlinkSync('/etc/hosts', agent); git(d, ['add', '-A']); git(d, ['commit', '-q', '-m', 'link']);
+  rmSync(agent); writeExec(agent, goodAgent);
+  const lk = audit(d);
+  assert.ok(lk.includes('head .agents/scripts/agent.sh'), JSON.stringify(lk));
+  const rl = doctor(d);
+  assert.match(rl.out, /^FAIL code: \d+ script or hook file\(s\) of \.agents are not proofline's shipped copy \(.*\.agents\/scripts\/agent\.sh is (staged|committed)/m, rl.out);
 });
 
 test('A249 doctor and init (SEC-3, round 3): repository text reaches the terminal without control characters on EVERY route: a foreign hook command, a skill folder name, a JSON error, a line relayed from the core, and init\'s own output', () => {
@@ -421,14 +511,21 @@ test('A249 doctor and init (SEC-3, round 3): repository text reaches the termina
   const d = installed('doc-esc-all');
   const sf = `${d}/.claude/settings.json`;
   const j = JSON.parse(readFileSync(sf, 'utf8'));
-  j.hooks.SessionStart.push({ hooks: [{ type: 'command', command: `echo ${esc}hidden` }] });
+  const forged = "PASS code: every script and hook is proofline's copy";
+  j.hooks.SessionStart.push({ hooks: [{ type: 'command', command: `echo ${esc}hidden` }] }, { hooks: [{ type: 'command', command: `x\n${forged}\r${forged}\u2028${forged}` }] });
+  writeExec(`${d}/.agents/githooks/post-\u011b[2K\u202e`, HOSTILE);
   writeFileSync(sf, JSON.stringify(j, null, 2));
   mkdirSync(`${d}/.claude/skills/tdd-${esc}`, { recursive: true });
+  mkdirSync(`${d}/.claude/skills/\n${forged}-review`, { recursive: true });
   writeFileSync(`${d}/.claude/settings.local.json`, `[${esc}]`);
   const cfg = `${d}/.agents/config.yaml`;
   writeFileSync(cfg, `${readFileSync(cfg, 'utf8')}\nrules:\n  budget_bytes: 1${esc}x\n`);
   const r = doctor(d);
   assert.doesNotMatch(r.out, /[\x00-\x09\x0b-\x1f\x7f-\x9f]/, JSON.stringify(r.out.split('\n').filter((l) => /[\x00-\x09\x0b-\x1f\x7f-\x9f]/.test(l))));
+  assert.doesNotMatch(r.out, /^PASS code: every script/m, 'a forged PASS line stands alone in the output');
+  assert.match(r.out, /^WARN foreign hook: SessionStart in \S*\.claude\/settings\.json may add context to the prompt: x\?PASS code: every script and hook is proofline's copy\?PASS code:/m, r.out);
+  assert.match(r.out, /^WARN overlapping skill: \?PASS code: every script and hook is proofline's copy-review /m, r.out);
+  assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/post-\u011b\[2K\? is not a file proofline ships/m, r.out);
   assert.match(r.out, /^WARN foreign hook: SessionStart in \S*\.claude\/settings\.json may add context to the prompt: echo \?\[2K\?\[1A\?\[8mhidden/m, r.out);
   assert.match(r.out, /^WARN overlapping skill: tdd-\?\[2K\?\[1A\?\[8m /m, r.out);
   assert.match(r.out, /^FAIL claude hooks: \.claude\/settings\.local\.json is not a valid JSON object \(.*\?\[2K/m, r.out);

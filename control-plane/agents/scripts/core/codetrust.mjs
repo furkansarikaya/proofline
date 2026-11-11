@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { hgit } from './hgit.mjs';
 import { sha256, sha256File } from './hash.mjs';
+import { asciiLower } from './shellglob.mjs';
 
 /** The two git hooks proofline ships (control-plane/agents/githooks/). */
 export const SHIPPED_GITHOOKS = ['pre-commit', 'pre-push'];
@@ -17,14 +18,31 @@ export const CODE_DIRS = ['.agents/scripts', '.agents/githooks', '.agents/hooks'
 /** The folders in which a file that proofline does not ship is itself a problem (a skill folder may hold the user's own skills). */
 const EXTRA_DIRS = ['.agents/scripts/', '.agents/githooks/', '.agents/hooks/'];
 
-/** Repository-controlled names reach a terminal: no control character (ESC, CR, BEL ...) passes. @param {string} t */
-export function clean(t) { return t.replace(/[\x00-\x1f\x7f-\x9f]/g, '?'); }
+/**
+ * Control and format characters that must never reach a terminal from repository text: C0, DEL, C1, and the invisible or direction-changing ones (zero width and direction marks
+ * U+200B-200F, line and paragraph separators U+2028/2029, bidi embeddings and isolates U+202A-202E and U+2066-2069, word joiner and invisible operators U+2060-2064, U+061C, U+FEFF).
+ */
+const UNSAFE = '\\x00-\\x1f\\x7f-\\x9f\\u061c\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff';
+const UNSAFE_RE = new RegExp(`[${UNSAFE}]`, 'g');
+/** Repository-controlled names reach a terminal: no control, format or direction character (ESC, CR, LF, BEL, bidi ...) passes. @param {string} t */
+export function clean(t) { return t.replace(UNSAFE_RE, '?'); }
 
-/** A whole output line (or several, joined by the writer's newline) with every control character replaced by `?`, the newline excepted: the one place a writer sanitises (A249 SEC-3 round 3). @param {string} t */
-export function cleanLines(t) { return t.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '?'); }
+/**
+ * One output LINE with every control and format character replaced by `?`, the line feed included: a row can never carry a line break of its own (repository text such as a hook
+ * command or a folder name must not forge a second line); the writer adds the only newline. @param {string} t
+ */
+export function cleanLines(t) { return clean(t); }
 
-/** The same for a byte string (one char per byte, UTF-8 text): C0 and DEL, and the two-byte UTF-8 form of C1 (0xC2 0x80-0x9F); a lone byte of a multi-byte letter is left alone. @param {string} t */
-export function cleanBytes(t) { return t.replace(/[\x00-\x09\x0b-\x1f\x7f]|\xc2[\x80-\x9f]/g, '?'); }
+/**
+ * The same for a byte string (one char per byte, UTF-8 text), applied to the bytes that are written: C0 and DEL, the two-byte UTF-8 form of C1 (0xC2 0x80-0x9F) and the three-byte forms
+ * of the format and direction characters above; a lone byte of a multi-byte letter is left alone. A string that holds a character above 0xFF is not a byte string (it is text: it would
+ * lose its high byte in a latin1 write) and is converted to its UTF-8 bytes first. @param {string} t
+ */
+export function cleanBytes(t) {
+  // the bytes are read as UTF-8 text (a byte that is no valid UTF-8, such as a lone C1 byte, becomes `?`), cleaned as text, and encoded back: what is cleaned is what is written
+  const text = /[^\x00-\xff]/.test(t) ? t : Buffer.from(t, 'latin1').toString('utf8');
+  return Buffer.from(clean(text).replace(/�/g, '?'), 'utf8').toString('latin1');
+}
 
 /** Files whose meaning does not change when a checkout turned LF into CRLF (Node reads CR LF as one line end; JSON and Markdown likewise). Shell scripts and git hooks are NOT here: sh breaks on the CR. */
 const EOL_TOLERANT = /\.(mjs|js|cjs|json|md)$/;
@@ -107,7 +125,31 @@ export function githooksFolder(root) {
   return { unsafe: '', entries };
 }
 
-/** @typedef {{ rel: string, kind: 'link' | 'missing' | 'differs' | 'extra' | 'index' | 'head', eol?: boolean }} CodeProblem  `eol`: a `differs` file that is proofline's copy except for its line endings (CRLF) */
+/** @typedef {{ rel: string, kind: 'link' | 'missing' | 'differs' | 'extra' | 'index' | 'head', eol?: boolean, alias?: boolean, symlink?: boolean }} CodeProblem  `eol`: a `differs` file that is proofline's copy except for its line endings (CRLF); `alias`: an `extra` tracked name that a case-insensitive or Unicode-folding file system can resolve to a code path proofline ships; `symlink`: an index or HEAD entry of mode 120000 */
+
+/** The names under `.agents` whose files are code (the first two components of every shipped path). */
+const CODE_NAMES = ['scripts', 'githooks', 'hooks', 'ecosystems.mjs', 'skills'];
+
+/**
+ * Could the tracked name CAND land on the shipped ASCII path REF on a file system that folds names? Every shipped path is ASCII, so the test needs no table of Unicode folds: ASCII letters
+ * match in any case, and each non-ASCII character of CAND (U+017F LATIN SMALL LETTER LONG S opens as `s` on APFS, U+212A KELVIN SIGN as `k`, ligatures and the like) may stand for up to
+ * four ASCII characters other than `/`. @param {string} cand @param {string} ref
+ */
+export function couldAlias(cand, ref) {
+  const a = Array.from(cand); const n = a.length; const m = ref.length;
+  /** @type {Map<number, boolean>} */ const memo = new Map();
+  /** @param {number} i @param {number} j @returns {boolean} */
+  const go = (i, j) => {
+    if (i === n) return j === m;
+    const key = i * (m + 1) + j; const c = memo.get(key); if (c !== undefined) return c;
+    const ch = /** @type {string} */ (a[i]);
+    let ok = false;
+    if (ch.charCodeAt(0) < 128) ok = j < m && asciiLower(ch) === asciiLower(/** @type {string} */ (ref[j])) && go(i + 1, j + 1);
+    else for (let k = 0; k <= 4 && j + k <= m && !ok; k++) { if (k > 0 && ref[j + k - 1] === '/') break; ok = go(i + 1, j + k); }
+    memo.set(key, ok); return ok;
+  };
+  return go(0, 0);
+}
 
 /**
  * Compare the project's code files with the shipped ones. `link`: the file or a folder above it is a symbolic link (or not a regular file); `missing`; `differs`: the working
@@ -158,39 +200,48 @@ export function codeAudit(root, plHome, env) {
   const git = (a) => hgit(hctx, root, a);
   /** @type {Array<[string, string, string]>} [where, mode, blob + path] */
   const tracked = [];
-  // a case-insensitive checkout (macOS, Windows: core.ignorecase=true) lets `.agents/Scripts/x` stand in for a shipped `.agents/scripts/x` and git's pathspecs are case-sensitive: fold the case
+  // a case-insensitive checkout (macOS, Windows: core.ignorecase=true) lets `.agents/Scripts/x` stand in for a shipped `.agents/scripts/x`, and APFS also folds Unicode (`.agents/ſcripts/x`
+  // opens as `.agents/scripts/x`); git's pathspecs know neither. So with folding on nothing is selected by pathspec: the whole index and the whole HEAD tree are listed, and every tracked
+  // name that COULD resolve to a code path without being that exact path is a problem (couldAlias: all shipped paths are ASCII, no table of folds is needed).
   const fold = git(['config', '--type=bool', '--get', 'core.ignorecase']).stdout.toString('utf8').trim() === 'true';
-  const prefixes = CODE_DIRS.map((d) => (fold ? d.toLowerCase() : d));
+  const shippedKeys = [...shipped.keys()];
+  /** @param {string} rel the tracked path */
+  const aliased = (rel) => {
+    const parts = rel.split('/');
+    if (!couldAlias(/** @type {string} */ (parts[0]), '.agents')) return false;
+    if (parts.length === 1) return parts[0] !== '.agents';
+    if (!CODE_NAMES.some((n) => couldAlias(/** @type {string} */ (parts[1]), n))) return false;
+    if (parts[0] === '.agents' && CODE_NAMES.includes(/** @type {string} */ (parts[1]))) return !shipped.has(rel) && shippedKeys.some((k) => couldAlias(rel, k));
+    return true;
+  };
   /** @param {string} rel */
-  const inCode = (rel) => { const r = fold ? rel.toLowerCase() : rel; return prefixes.some((d) => r === d || r.startsWith(`${d}/`)); };
-  /** @type {Map<string, string>} lower-case shipped path -> shipped path */
-  const folded = new Map(); if (fold) for (const k of shipped.keys()) folded.set(k.toLowerCase(), k);
-  const ls = git(fold ? ['--icase-pathspecs', 'ls-files', '-s', '-z', '--', ...CODE_DIRS] : ['ls-files', '-s', '-z', '--', ...CODE_DIRS]);
+  const inCode = (rel) => CODE_DIRS.some((d) => rel === d || rel.startsWith(`${d}/`));
+  const ls = git(fold ? ['ls-files', '-s', '-z'] : ['ls-files', '-s', '-z', '--', ...CODE_DIRS]);
   if (ls.status === 0) for (const rec of ls.stdout.toString('latin1').split('\0')) {
     const m = /^(\d+) ([0-9a-f]+) \d\t([\s\S]*)$/.exec(rec); if (m) tracked.push(['index', m[1], `${m[2]}\t${m[3]}`]);
   }
-  // ls-tree takes no case-folded pathspec: with a folding checkout the whole tree is listed and filtered here
+  // ls-tree takes no case-folded pathspec: with a folding checkout the whole tree is listed and judged here
   const lt = git(fold ? ['ls-tree', '-r', '-z', 'HEAD'] : ['ls-tree', '-r', '-z', 'HEAD', '--', ...CODE_DIRS]);
   if (lt.status === 0) for (const rec of lt.stdout.toString('latin1').split('\0')) {
     const m = /^(\d+) \w+ ([0-9a-f]+)\t([\s\S]*)$/.exec(rec); if (m) tracked.push(['head', m[1], `${m[2]}\t${m[3]}`]);
   }
   for (const [where, mode, rest] of tracked) {
     const tab = rest.indexOf('\t'); const blob = rest.slice(0, tab); const rel = Buffer.from(rest.slice(tab + 1), 'latin1').toString('utf8');
-    if (fold && !inCode(rel)) continue;
-    const shippedRel = shipped.has(rel) ? rel : fold ? folded.get(rel.toLowerCase()) : undefined;
-    const src = shippedRel === undefined ? undefined : shipped.get(shippedRel);
-    // the same name in another case (`.agents/Scripts/agent.sh`): on a folding file system it lands on proofline's file, and it is not a file proofline ships under that name
-    if (src !== undefined && shippedRel !== rel) { if (!problems.some((p) => p.rel === rel && p.kind === 'extra')) problems.push({ rel, kind: 'extra' }); continue; }
+    if (fold && !shipped.has(rel)) {
+      if (aliased(rel)) { if (!problems.some((p) => p.rel === rel && p.kind === 'extra')) problems.push({ rel, kind: 'extra', alias: true }); continue; }
+      if (!inCode(rel)) continue;
+    }
+    const src = shipped.get(rel);
     if (src === undefined) {
       // a TRACKED file that proofline does not ship is as untrusted as one on disk: deleting it from the working tree does not remove it from the index or HEAD (`git restore` brings it back)
-      if (EXTRA_DIRS.some((d) => (fold ? rel.toLowerCase().startsWith(d) : rel.startsWith(d))) && !problems.some((p) => p.rel === rel && p.kind === 'extra')) problems.push({ rel, kind: 'extra' });
+      if (EXTRA_DIRS.some((d) => rel.startsWith(d)) && !problems.some((p) => p.rel === rel && p.kind === 'extra')) problems.push({ rel, kind: 'extra' });
       continue;
     }
     let want = bytes.get(src); if (want === undefined) { want = readFileSync(src); bytes.set(src, want); }
-    // an LF-or-CRLF blob of an EOL-tolerant file is proofline's copy; a tracked name that differs from the shipped one in case is not (a checkout on a folding file system writes where the other spelling sits)
-    const okBlob = blob === blobId(want) || (eolTolerant(shippedRel ?? rel) && blob === blobId(crlf(want)));
+    // an LF-or-CRLF blob of an EOL-tolerant file is proofline's copy
+    const okBlob = blob === blobId(want) || (eolTolerant(rel) && blob === blobId(crlf(want)));
     if (mode === '120000' || !okBlob) {
-      if (!problems.some((p) => p.rel === rel && p.kind === where)) problems.push({ rel, kind: /** @type {'index' | 'head'} */ (where) });
+      if (!problems.some((p) => p.rel === rel && p.kind === where)) problems.push(mode === '120000' ? { rel, kind: /** @type {'index' | 'head'} */ (where), symlink: true } : { rel, kind: /** @type {'index' | 'head'} */ (where) });
     }
   }
   return { problems, unreadable: false };
@@ -208,7 +259,7 @@ export function problemText(p, act = '') {
     case 'differs': return p.eol === true ? `${r} is proofline's copy except for its line endings (CRLF, usually core.autocrlf=true on Windows); a shell script or git hook with CR line ends does not run` : act === 'keep' || act === 'mine' ? `${r} differs from proofline's copy and was kept as your own file`
       : act === 'conflict' ? `${r} differs from proofline's copy (an edited file; proofline's copy was written beside it as ${r}.proofline-new)`
         : `${r} differs from proofline's copy`;
-    case 'extra': return `${r} is not a file proofline ships (git may run it)`;
+    case 'extra': return p.alias === true ? `${r} is a tracked name that a case-insensitive or Unicode-folding file system can resolve to a file proofline ships, so a checkout, restore or reset could write it there` : `${r} is not a file proofline ships (git may run it)`;
     case 'index': return `${r} is staged with content that is not proofline's copy`;
     default: return `${r} is committed (HEAD) with content that is not proofline's copy, so a checkout, restore or reset would bring it back`;
   }

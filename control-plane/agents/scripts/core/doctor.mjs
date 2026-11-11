@@ -89,6 +89,11 @@ export function hookCommandShape(cmd) {
   return cmd.replace(re, 'node <HOOK>');
 }
 
+/** One doctor record as written: every logical line cleaned on its own, every continuation line indented (so no field can start a verdict line at the left margin). @param {string} line */
+export function recordText(line) {
+  return line.split('\n').map((p, i) => (i === 0 ? cleanLines(p) : /^ {4}/.test(p) ? cleanLines(p) : `    ${cleanLines(p)}`)).join('\n');
+}
+
 /**
  * The foreign context hooks of one settings file (`doctor_foreign`): `[event, command text]` for every SessionStart and UserPromptSubmit command that is not proofline's. A command
  * that is not text makes the whole file count for nothing (the former jq program failed on it).
@@ -110,7 +115,7 @@ export function foreignHooks(file) {
         const c = h && typeof h === 'object' ? h.command : undefined;
         if (c !== undefined && c !== null && c !== false && typeof c !== 'string') return [];
         const cmd = typeof c === 'string' ? c : '';
-        if (!HOOK_NAME.test(cmd)) out.push([e, Array.from(cmd).slice(0, 80).join('')]);
+        if (!HOOK_NAME.test(cmd)) out.push([e, cleanText(Array.from(cmd).slice(0, 80).join(''))]);
       }
     }
   }
@@ -260,7 +265,11 @@ class Doctor {
   }
 
   /** @param {string} line */
-  write(line) { this.ctx.io.stdout.write(Buffer.from(`${cleanLines(line)}\n`, 'utf8')); } // every line: repository text (a hook command, a folder name, a JSON error, a relayed core line) never reaches the terminal as an escape sequence
+  write(line) {
+    // a record is the first line plus the continuation lines the writer's own callers add (an indented report): each logical line is cleaned on its own, and a continuation
+    // is always indented, so no line break inside a field can start a standalone verdict line at the left margin
+    this.ctx.io.stdout.write(Buffer.from(`${recordText(line)}\n`, 'utf8'));
+  } // every line: repository text (a hook command, a folder name, a JSON error, a relayed core line) never reaches the terminal as an escape sequence
   /** @param {string} m */ pass(m) { this.write(`PASS ${m}`); }
   /** @param {string} m */ warn(m) { this.write(`WARN ${m}`); this.warns++; }
   /** @param {string} m */ fail(m) { this.write(`FAIL ${m}`); this.fails++; }
@@ -444,12 +453,11 @@ class Doctor {
     for (const f of files) {
       if (!isFile(f)) continue;
       if (f.includes('/plugins/cache/proofline/')) continue;
-      const label = f.startsWith(`${home}/`) ? f.slice(home.length + 1) : f;
+      const label = cleanText(f.startsWith(`${home}/`) ? f.slice(home.length + 1) : f);
       const rows = foreignHooks(f).map(([e, c]) => `WARN foreign hook: ${e} in ${label} may add context to the prompt: ${c}`);
       if (rows.length === 0) continue;
-      const text = rows.join('\n').replace(/\n+$/, '');
-      this.write(text);
-      this.warns += text.split('\n').length;
+      for (const row of rows) this.write(row);
+      this.warns += rows.length;
     }
     const skillDirs = [...subdirs(`${home}/.claude/skills`), ...subdirs(`${this.root}/.claude/skills`), ...cacheDirs('skills').flatMap((d) => subdirs(d))];
     for (const d of skillDirs) {
@@ -459,7 +467,7 @@ class Doctor {
       if (n.startsWith('proofline')) continue;
       if (isDir(`${this.root}/.agents/skills/${n}`)) continue;
       if (!/(^|-)(tdd|debug|debugging|review|plan|planning|plans|ui-audit)(-|$)|test-driven/.test(n)) continue;
-      this.warn(`overlapping skill: ${n} (${d.split('/').slice(0, -2).join('/')}) overlaps a proofline method skill; during a run proofline's own skill is used`);
+      this.warn(`overlapping skill: ${cleanText(n)} (${cleanText(d.split('/').slice(0, -2).join('/'))}) overlaps a proofline method skill; during a run proofline's own skill is used`);
     }
   }
 
@@ -639,7 +647,7 @@ class Doctor {
     const rest = this.code.problems.filter((p) => p.kind !== 'missing' && !hooksReported(p));
     // R3: the working file IS proofline's copy and only the index or HEAD lags behind: the normal state right after `upgrade` (it writes the new files, nobody committed them yet). A WARN, no
     // PASS over it; a working file that differs, links or is extra stays a FAIL, and so does a lagging blob of a file that also differs on disk.
-    const lag = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => (p.kind === 'index' || p.kind === 'head') && !this.code?.problems.some((q) => q.rel === p.rel && q.kind !== 'index' && q.kind !== 'head');
+    const lag = (/** @type {import('./codetrust.mjs').CodeProblem} */ p) => (p.kind === 'index' || p.kind === 'head') && p.symlink !== true && !this.code?.problems.some((q) => q.rel === p.rel && q.kind !== 'index' && q.kind !== 'head');
     const laggards = rest.filter(lag);
     const failing = rest.filter((p) => !lag(p));
     for (const p of failing.filter((x) => x.rel.startsWith('.agents/githooks'))) this.fail(`code: ${problemText(p)}; ${p.kind === 'index' || p.kind === 'head' ? 'review it and run: git checkout -- ' + cleanText(p.rel) + ' only after you know what it is' : 'review it'}`);
@@ -652,7 +660,7 @@ class Doctor {
     if (laggards.length > 0) {
       const paths = [...new Set(laggards.map((p) => cleanText(p.rel)))];
       const where = [...new Set(laggards.map((p) => (p.kind === 'index' ? 'staged' : 'committed (HEAD)')))].join(' and ');
-      this.warn(`code: ${paths.length} file(s) are ${where} with content that is not proofline's copy, while the file on disk is proofline's (${paths.slice(0, 4).join(', ')}${paths.length > 4 ? ', and more' : ''}). Right after \`proofline upgrade\` that is expected: commit proofline's copy (git add .agents && git commit). If you did not just upgrade, review the old content first (git diff HEAD -- <file>): a checkout, restore or reset brings it back`);
+      this.warn(`code: ${paths.length} file(s) are ${where} with content that is not proofline's copy, while the file on disk is proofline's (${paths.slice(0, 4).join(', ')}${paths.length > 4 ? ', and more' : ''}). Right after \`proofline upgrade\` that is expected: commit proofline's copy (git add .agents && git commit); until then, with core.hooksPath active, the staged or committed content is what a checkout, restore or reset brings back and what runs at the next commit. If you did not just upgrade, review the old content first (git diff HEAD -- <file>): a checkout, restore or reset brings it back`);
     }
   }
 
