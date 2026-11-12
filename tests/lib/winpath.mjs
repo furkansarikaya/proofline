@@ -5,7 +5,7 @@
 //    `node <script>`. Elsewhere the script is started by its own path, as before, so the shebang and the execute bit stay covered.
 //  - `posix(p)`: the form the core stores and prints paths in (forward slashes, upper-case drive letter); temp folders and `path.join` answer `C:\Users\...` on Windows. Use it on the
 //    EXPECTED or the observed side when only the test is biased towards POSIX text; the product's own values are compared as the product gives them.
-import { asciiUpper } from '../../control-plane/agents/scripts/core/shellglob.mjs';
+import { posixForm } from '../../control-plane/agents/scripts/core/pathin.mjs';
 
 /** @param {string} program @param {string[]} args @param {string} [platform] @returns {{ program: string, args: string[] }} */
 export function launch(program, args, platform = process.platform) {
@@ -14,6 +14,5 @@ export function launch(program, args, platform = process.platform) {
 
 /** @param {string} p @param {string} [platform] */
 export function posix(p, platform = process.platform) {
-  if (platform !== 'win32') return p;
-  return p.replace(/^([a-z]):/, (_m, d) => `${asciiUpper(d)}:`).split('\\').join('/');
+  return posixForm(p, platform);
 }

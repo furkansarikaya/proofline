@@ -145,7 +145,7 @@ test('the launcher is a symlink-safe Node program: a link through two folders, a
 test('install.mjs: the questions (PROOFLINE_PROMPT=1 reads them from standard input), a refusal installs nothing, a typed directory is used', () => {
   const h = path.join(sb.T, 'h5'); mkdirSync(h, { recursive: true });
   const no = installer(h, ['--dir', `${h}/bin`], { PROOFLINE_PROMPT: '1' }, '\nn\n');
-  assert.equal(no.status, 1); assert.match(no.stdout, /^Directory for the proofline symlink \[.*\/bin\]: Link .*\/bin\/proofline -> .*\/bin\/proofline \? \[y\/N\]: nothing installed\n$/);
+  assert.equal(no.status, 1); assert.match(no.stdout, /^Directory for the proofline symlink \[.*[\\/]bin\]: Link .*[\\/]bin[\\/]proofline -> .*[\\/]bin[\\/]proofline \? \[y\/N\]: nothing installed\n$/);
   assert.ok(!existsSync(`${h}/bin/proofline`));
   const yes = installer(h, ['--dir', `${h}/bin`], { PROOFLINE_PROMPT: '1' }, `${h}/other\ny\n`);
   assert.equal(yes.status, 0, yes.stderr); assert.ok(lstatSync(`${h}/other/proofline`).isSymbolicLink());

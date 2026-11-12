@@ -9,6 +9,27 @@ import { realpathSync } from 'node:fs';
 import { asciiLower, asciiUpper } from './shellglob.mjs';
 
 /**
+ * A path in the form the core stores and compares: win32 only, the `\\?\` prefix dropped, an upper-case ASCII drive letter and forward slashes; every other platform gets P back
+ * unchanged (a backslash is an ordinary file name character there).
+ * @param {string} p @param {string} [platform]
+ */
+export function posixForm(p, platform = process.platform) {
+  if (platform !== 'win32') return p;
+  return p.replace(/^\\\\[?.]\\(?=[A-Za-z]:[\\/])/, '').replace(/^([a-z]):/, (_m, d) => `${asciiUpper(d)}:`).split('\\').join('/');
+}
+
+/**
+ * Do two paths name the same place by their text? Off Windows exactly `a === b`. On win32 both go through `posixForm`, a trailing slash does not matter and ASCII case is ignored
+ * (the rule of `inside`; NTFS folds case, a non-ASCII difference is a different path).
+ * @param {string} a @param {string} b @param {string} [platform]
+ */
+export function samePath(a, b, platform = process.platform) {
+  if (platform !== 'win32') return a === b;
+  const n = (/** @type {string} */ x) => asciiLower(posixForm(x, platform)).replace(/\/+$/, '');
+  return n(a) === n(b);
+}
+
+/**
  * The real path of P in the form the core stores and compares paths in. Throws when P does not exist, like `realpathSync`.
  * @param {string} p
  * @param {{ platform?: string, real?: (p: string) => string }} [io]
@@ -17,7 +38,7 @@ export function realpathPosix(p, io = {}) {
   const platform = io.platform ?? process.platform;
   if (platform !== 'win32') return (io.real ?? realpathSync)(p);
   const r = (io.real ?? realpathSync.native)(p);
-  return r.replace(/^\\\\[?.]\\(?=[A-Za-z]:[\\/])/, '').replace(/^([a-z]):/, (_m, d) => `${asciiUpper(d)}:`).split('\\').join('/');
+  return posixForm(r, platform);
 }
 
 /**

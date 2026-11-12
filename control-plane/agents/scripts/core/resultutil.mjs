@@ -597,7 +597,7 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
   // A235: the tool calls and result bytes of the same session log, in a file of their own (records.jsonl keeps its format)
   // A255: a Codex worker has no `.started` file; its rollout log is found by the session id in its environment
   const cx = rt === 'codex' ? findCodexRollout(ctx.env, now().epoch) : { file: '', reason: null };
-  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: rt === 'codex' ? cx.file : /^\/.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '', reason: cx.reason });
+  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: rt === 'codex' ? cx.file : isAbsoluteInput(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '', reason: cx.reason });
 }
 
 /** @param {string} f */

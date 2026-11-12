@@ -90,7 +90,7 @@ export function runtimeDetect(ctx, args) {
     const p = commandV(b, ctx.env);
     if (p === null) { out += `${rt} installed=no path=- version=-\n`; continue; }
     const r = proc.run(b, ['--version'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'], timeoutMs: 10000 });
-    const v = r.stdout.toString('latin1').split('\n')[0] ?? '';
+    const v = proc.eolText(r.stdout.toString('latin1')).split('\n')[0] ?? '';
     out += `${rt} installed=yes path=${p} version=${v === '' ? 'unknown' : v}\n`;
   }
   return { status: 0, out, err: '' };

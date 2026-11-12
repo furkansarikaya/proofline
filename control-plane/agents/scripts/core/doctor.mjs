@@ -3,7 +3,7 @@
 // repository (the project's own installed hooks and scripts are copied there). Prints PASS / WARN / FAIL lines and exits non-zero on any FAIL. It runs from the plugin's core
 // (bin/proofline calls it in process, A233) for the project it was started in: a project whose own engine is broken or missing is still diagnosed. PL_HOME names the
 // plugin checkout and PROOFLINE_VERSION its version. Text here is JavaScript text; the byte strings of the core (config values, command outputs) are decoded with `u`.
-import { accessSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { loadavg, availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { agentCall } from './batch.mjs';
@@ -19,6 +19,7 @@ import { emailOf, forbidden } from './githooks.mjs';
 import { sha256File } from './hash.mjs';
 import { leftoverWorktrees } from './leftover.mjs';
 import { isDir, isFile } from './paths.mjs';
+import { realpathPosix, samePath } from './pathin.mjs';
 import { detectPlatform, droppedNetVars, warnText } from './platform.mjs';
 import * as proc from './proc.mjs';
 import { binOf, commandV } from './runtimedetect.mjs';
@@ -135,7 +136,7 @@ function versionCompare(a, b) {
 /** `node_status`: `ok:vX.Y.Z`, `old:vX.Y.Z` or `missing` for the `node` on the PATH. @param {NodeJS.ProcessEnv} env @param {string} cwd */
 function nodeStatus(env, cwd) {
   const r = proc.run('node', ['--version'], { cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
-  const v = r.started && r.status === 0 ? r.stdout.toString('utf8').replace(/\n+$/, '') : '';
+  const v = r.started && r.status === 0 ? proc.eolText(r.stdout.toString('utf8')).replace(/\n+$/, '') : '';
   const n = v.startsWith('v') ? v.slice(1) : v;
   const maj = n.split('.')[0] ?? ''; const rest = n.includes('.') ? n.slice(n.indexOf('.') + 1) : n; const min = rest.split('.')[0] ?? '';
   if (!/^[0-9]+$/.test(`${maj}${min}`)) return 'missing';
@@ -176,7 +177,7 @@ function psTop() {
 
 /** A path as the file system resolves it, also when its last parts do not exist yet (the folder `.agents/githooks` before its files are placed). @param {string} p @returns {string} */
 function realish(p) {
-  try { return realpathSync(p); } catch { /* the part that exists is resolved, the rest is appended */ }
+  try { return realpathPosix(p); } catch { /* the part that exists is resolved, the rest is appended */ }
   const parent = path.dirname(p);
   return parent === p ? p : path.join(realish(parent), path.basename(p));
 }
@@ -196,7 +197,7 @@ export function hooksPathState(git, root) {
   const scope = parts[0]; const value = parts[2];
   const origin = parts[1].startsWith('file:') ? parts[1].slice(5) : parts[1].replace(/:$/, '');
   if (value === '') return { state: 'unset' };
-  const same = realish(path.resolve(root, value)) === realish(path.join(root, '.agents', 'githooks'));
+  const same = samePath(realish(path.resolve(root, value)), realish(path.join(root, '.agents', 'githooks')));
   return { state: same ? 'same' : 'other', value, scope, origin };
 }
 
@@ -716,7 +717,7 @@ class Doctor {
       const found = commandV(bin, this.ctx.env);
       if (found !== null) {
         const v = proc.run(bin, ['--version'], { cwd: this.ctx.cwd, env: this.ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
-        this.pass(`runtime ${rt}: ${v.stdout.toString('utf8').split('\n')[0] ?? ''} (${found})`);
+        this.pass(`runtime ${rt}: ${proc.eolText(v.stdout.toString('utf8')).split('\n')[0] ?? ''} (${found})`);
       } else if (used.includes(` ${rt} `)) this.warn(`runtime ${rt}: not installed, but config.yaml uses it (failover/dispatch to ${rt} will be BLOCKED)`);
       else this.pass(`runtime ${rt}: not installed (not used by config.yaml)`);
     }
