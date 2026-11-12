@@ -7,6 +7,7 @@
 import { appendFileSync, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { now } from './clock.mjs';
+import { isAbsoluteInput } from './pathin.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 /** @typedef {{ log: 'ok' | 'unreadable' | 'malformed', calls: number | null, resultBytes: number | null, denied: number | null, byTool: Record<string, { calls: number, bytes: number }> | null, reason?: string | null }} ToolStats */
@@ -117,7 +118,7 @@ export function findCodexRollout(env, epoch) {
   const sid = env.CODEX_THREAD_ID || env.CODEX_SESSION_ID || '';
   if (!UUID.test(sid)) return { file: '', reason: 'no-session-id' };
   const home = env.CODEX_HOME || (env.HOME ? `${env.HOME}/.codex` : '');
-  if (!home.startsWith('/')) return { file: '', reason: 'no-codex-home' };
+  if (!isAbsoluteInput(home)) return { file: '', reason: 'no-codex-home' };
   const want = new RegExp(`^rollout-[0-9T-]{19}-${sid}\\.jsonl$`, 'i');   // the id passed the UUID test: hex and dashes only
   for (const day of codexDayDirs(epoch)) {
     const dir = `${home}/sessions/${day}`;

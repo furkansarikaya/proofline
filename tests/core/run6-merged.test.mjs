@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
 import { tmp } from '../lib/harness.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
@@ -44,7 +45,7 @@ test('a local path, a relative path or a file:// origin is platform other (commi
   const lo = `${d}-lo.git`; const rel = `${d}-rel.git`;
   gOk(d, 'init', '-q', '--bare', lo); gOk(d, 'init', '-q', '--bare', rel);
   const relName = `../${rel.slice(rel.lastIndexOf('/') + 1)}`;
-  for (const u of [lo, relName, `file://${lo}`]) {
+  for (const u of [lo, relName, `file://${lo.startsWith('/') ? '' : '/'}${posix(lo)}`]) {   // file:///C:/x on Windows
     gOk(d, 'remote', 'set-url', 'origin', u);
     assert.equal(cli(d, ['field', 'local', '-C', d]).out, 'yes\n');
     assert.equal(cli(d, ['field', 'platform', '-C', d]).out, 'other\n');

@@ -7,6 +7,7 @@ import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { inside, isAbsoluteInput, realpathPosix } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 /** The expression every call site had before A260. @param {string} base @param {string} child */
 const before = (base, child) => (child.startsWith(`${base}/`) ? child.slice(base.length + 1) : null);
@@ -70,7 +71,7 @@ test('POSIX: realpathPosix is realpathSync, byte for byte, through a symbolic li
   writeFileSync(path.join(run, 'reports', 'a.md'), 'x'); writeFileSync(path.join(other, 'b.md'), 'y');
   symlinkSync(other, path.join(run, 'reports', 'link'));
   symlinkSync(path.join(run, 'reports'), path.join(t, 'alias'));
-  for (const p of [run, path.join(run, 'reports', 'a.md'), path.join(t, 'alias', 'a.md'), path.join(run, 'reports', 'link', 'b.md')]) assert.equal(realpathPosix(p), realpathSync(p));
+  for (const p of [run, path.join(run, 'reports', 'a.md'), path.join(t, 'alias', 'a.md'), path.join(run, 'reports', 'link', 'b.md')]) assert.equal(realpathPosix(p), process.platform === 'win32' ? posix(realpathSync.native(p)) : realpathSync(p));   // off Windows: realpathSync itself
   const runReal = realpathPosix(run);
   assert.equal(inside(runReal, realpathPosix(path.join(t, 'alias', 'a.md'))), 'reports/a.md');
   assert.equal(inside(runReal, realpathPosix(path.join(run, 'reports', 'link', 'b.md'))), null);

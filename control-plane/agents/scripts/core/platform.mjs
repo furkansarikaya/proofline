@@ -13,6 +13,7 @@ import { accessSync, constants, existsSync, readFileSync, readlinkSync, realpath
 import { userInfo } from 'node:os';
 import path from 'node:path';
 import { git } from './git.mjs';
+import { isAbsoluteInput } from './pathin.mjs';
 import { asciiLower } from './shellglob.mjs';
 import * as proc from './proc.mjs';
 import { makeRefusedDir, resolveWindowsTool, shimMessage } from './wintool.mjs';
@@ -179,8 +180,8 @@ export function detectPlatform(ctx, opt = {}) {
   if (url === '') { const r = g(['remote', 'get-url', 'origin']); url = r.status === 0 ? r.stdout.toString('latin1').replace(/\n+$/, '') : ''; }
   let hp = url.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').replace(/^[^@/]*@/, '').replace(/^([^/:]*):[0-9]+\//, '$1/').replace(/^([^/:]*):/, '$1/').replace(/\/*$/, '').replace(/\.git$/, '');
   let local = false;
-  // a local path starts with / ./ or ../ (or is . or ..), a file URL with file:/// (an empty host); `.evil.example:org/repo` and file://host/path are not local
-  if (/^(\/|\.\/|\.\.\/)/.test(url) || url === '.' || url === '..' || url.startsWith('file:///')) { hp = ''; local = true; }
+  // a local path starts with / ./ or ../ (or is . or ..; on Windows also C:\x, C:/x or a UNC path, A261), a file URL with file:/// (an empty host); `.evil.example:org/repo` and file://host/path are not local
+  if (/^(\/|\.\/|\.\.\/)/.test(url) || isAbsoluteInput(url) || url === '.' || url === '..' || url.startsWith('file:///')) { hp = ''; local = true; }
   if (url !== '' && !local && !/^-|:|@/.test(url)) {
     // a bare name that is a folder next to the main working tree (git accepts it as a path)
     const wl = g(['worktree', 'list', '--porcelain']).stdout.toString('latin1').split('\n')[0] ?? '';

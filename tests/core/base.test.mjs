@@ -35,7 +35,9 @@ describe('proc.mjs', () => {
   test('a program that is not found gives 127, input reaches stdin, a signal gives 128 + n, runUserCommand uses sh -c', async () => {
     assert.equal(proc.run('no-such-program-xyz', []).status, 127);
     assert.equal(proc.run('cat', [], { input: 'hello' }).stdout.toString(), 'hello');
-    assert.equal(proc.run('sh', ['-c', 'kill -TERM $$']).status, 143);
+    const killed = proc.run('sh', ['-c', 'kill -TERM $$']).status;
+    if (process.platform === 'win32') assert.notEqual(killed, 0);   // the MSYS sh of Windows reports a signal as 15 << 8, not 128 + 15; there is no POSIX signal status there
+    else assert.equal(killed, 143);
     assert.equal(proc.runUserCommand('echo x | tr a-z A-Z').stdout.toString(), 'X\n');
     const a = await proc.runAsync('sh', ['-c', 'printf hi; exit 4']);
     assert.equal(a.status, 4); assert.equal(a.stdout.toString(), 'hi');
@@ -116,7 +118,8 @@ describe('context.mjs', () => {
     /** @type {string[]} */ const seen = [];
     const io = { env: {}, cwd: '/x', stdout: { write: (/** @type {Buffer} */ b) => seen.push(`o:${b}`) }, stderr: { write: (/** @type {Buffer} */ b) => seen.push(`e:${b}`) } };
     const ctx = new Context(io, '/x/.agents/scripts/agent.sh');
-    assert.equal(ctx.root, '/x'); assert.equal(ctx.configFile, '/x/.agents/config.yaml'); assert.equal(ctx.role, 'lead');
+    const X = path.resolve('/x');   // '/x' off Windows, 'D:\x' on it: the root is the host's own absolute path
+    assert.equal(ctx.root, X); assert.equal(ctx.configFile, `${X}/.agents/config.yaml`); assert.equal(ctx.role, 'lead');
     ctx.out('a'); ctx.err('b'); ctx.out('c');
     assert.deepEqual(seen, []);
     ctx.flush();

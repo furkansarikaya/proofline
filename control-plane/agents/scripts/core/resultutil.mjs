@@ -16,7 +16,7 @@ import * as proc from './proc.mjs';
 import { probePerformance, probeVisual } from './probes.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
 import { configuredRuntime } from './execpolicy.mjs';
-import { inside, realpathPosix } from './pathin.mjs';
+import { inside, isAbsoluteInput, realpathPosix } from './pathin.mjs';
 import { runDir } from './runs.mjs';
 import { riskSignals } from './signals.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
@@ -580,7 +580,7 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
   metricsLine(ctx, [id, role, rt === '' ? '-' : rt, model === '' ? '-' : model, dur, outcome]);
   let tin = '-'; let tout = '-'; let ttot = '-';
   const tp = started.length >= 1 ? started[0] : '';
-  if (/^\/.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude') {
+  if (isAbsoluteInput(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude') {
     /** @type {Map<string, [number, number]>} */ const per = new Map();
     for (const l of readFileSync(tp, 'latin1').split('\n')) {
       if (!l.includes('"role":"assistant"')) continue;

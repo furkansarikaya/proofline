@@ -10,6 +10,7 @@ import path from 'node:path';
 import { after } from 'node:test';
 import { Config } from '../../control-plane/agents/scripts/core/config.mjs';
 import { repo } from './helpers.mjs';
+import { launch } from '../lib/winpath.mjs';
 
 export const PL = path.join(repo, 'bin', 'proofline');
 /** The version every site holds (.claude-plugin/plugin.json; tests/ci/bump-version.mjs --check keeps the sites equal). */
@@ -40,12 +41,14 @@ export function sandbox() {
   };
   /** `proofline ARGS` in DIR. */
   const pl = (/** @type {string} */ dir, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}, /** @type {string} */ bin = PL) => {
-    const r = spawnSync(bin, args, { cwd: dir, env: { ...env, ...extra }, encoding: 'utf8' });
-    return { status: r.status, out: r.stdout, err: r.stderr, text: r.stdout + r.stderr };
+    const l = launch(bin, args);   // Windows cannot start a `#!/usr/bin/env node` script by its path (A261)
+    const r = spawnSync(l.program, l.args, { cwd: dir, env: { ...env, ...extra }, encoding: 'utf8' });
+    return { status: r.status, out: r.stdout ?? '', err: r.stderr ?? '', text: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? `\n${r.error.message}` : ''}` };
   };
   /** The same, asynchronous, so several runs overlap. */
   const plAsync = (/** @type {string} */ dir, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}, /** @type {string} */ bin = PL) => new Promise((resolve) => {
-    const c = spawn(bin, args, { cwd: dir, env: { ...env, ...extra } });
+    const l = launch(bin, args);
+    const c = spawn(l.program, l.args, { cwd: dir, env: { ...env, ...extra } });
     let out = ''; let err = '';
     c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
     c.on('close', (status) => resolve({ status, out, err, text: out + err }));

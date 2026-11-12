@@ -4,13 +4,14 @@
 // (`sh .agents/scripts/agent.sh`, the Node core); the fixture STATE of a scaffolded run is built by the self-test library's own verbs (legacy-lib.mjs).
 import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync, renameSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync, renameSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
 import { cleanEnv } from '../hook/harness.mjs';
 import { A, project, say, scripts, verbs } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 export { A, say, verbs };
 
@@ -54,7 +55,7 @@ export const read = (/** @type {string} */ f) => readFileSync(f, 'utf8');
 export const readIf = (/** @type {string} */ f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } };
 export const has = (/** @type {string} */ f) => existsSync(f);
 export const lines = (/** @type {string} */ f) => readIf(f).split('\n').filter((l) => l !== '');
-export const real = (/** @type {string} */ p) => spawnSync('sh', ['-c', 'cd "$1" && pwd -P', 'x', p], { encoding: 'utf8' }).stdout.trim();
+export const real = (/** @type {string} */ p) => (process.platform === 'win32' ? posix(realpathSync.native(p)) : spawnSync('sh', ['-c', 'cd "$1" && pwd -P', 'x', p], { encoding: 'utf8' }).stdout.trim());   // the MSYS sh answers /c/Users/..., not the host's form
 
 const toolRoot = path.join(repo, 'tests/core/.fake-tools', `batch-${process.pid}`);
 mkdirSync(toolRoot, { recursive: true });
