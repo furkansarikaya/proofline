@@ -6,6 +6,7 @@
 // On every other platform both are exactly what the code did before: `realpathSync` unchanged, `startsWith(`${base}/`)` with a case-sensitive compare. Pure where it can be: the platform and
 // the realpath function are parameters, so the Windows rules are tested on any host.
 import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { win32 } from 'node:path';
 import { asciiLower, asciiUpper } from './shellglob.mjs';
 
@@ -89,4 +90,13 @@ export function localRemote(u, platform = process.platform, real = realpathPosix
  */
 export function isLocalAbsolute(p, platform = process.platform) {
   return platform === 'win32' ? /^[A-Za-z]:[\\/]/.test(p) : p.startsWith('/');
+}
+
+/**
+ * The folder a private scratch directory is made in (`content_fingerprint`): off Windows exactly what the code did before, `$TMPDIR` or `/tmp`; on win32 the account temporary folder of the
+ * host (`os.tmpdir()`: TEMP, TMP, the user profile), because `/tmp` is no folder there (`\tmp\proofline-fp.XXXXXX` answered ENOENT). The caller still makes the directory with `mkdtemp`
+ * (a unique name; mode 0700 on POSIX, and on Windows the protection is the access list of the parent, the per-user %LOCALAPPDATA%\\Temp, not a mode), so nothing a model names is followed. @param {string | undefined} tmpdirEnv `process.env.TMPDIR` @param {string} [platform] @param {string} [host] `os.tmpdir()`
+ */
+export function scratchRoot(tmpdirEnv, platform = process.platform, host = tmpdir()) {
+  return platform === 'win32' ? host : (tmpdirEnv || '/tmp');
 }
