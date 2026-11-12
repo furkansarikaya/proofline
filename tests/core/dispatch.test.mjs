@@ -7,6 +7,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
+import { skipOnWin32 } from '../lib/winpath.mjs';
+/** A test that starts a shell-script fake runtime (or fake worker) from a temp folder: skipped on Windows, where only a real .exe outside temp folders runs, by design (A252, A262). Tests that only read text or run `dispatch.sh codex-profile` stay on. */
+const fakeTest = skipOnWin32(test, 'starts a shell-script fake runtime from a temp folder; on Windows only a real .exe outside temp folders runs, by design (A252, A262)');
 import { fixture } from './dispatch-lib.mjs';
 
 const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
@@ -29,7 +32,7 @@ const markers = (fx) => { try { return readdirSync(path.join(fx.dir, '.agents/ru
 
 describe('what a dispatch records', () => {
   const fx = fixture();
-  test('a Codex implementer: bracketed by the window, the specialist\'s own status is the record, the log is under dispatch/ and no marker is left', async () => {
+  fakeTest('a Codex implementer: bracketed by the window, the specialist\'s own status is the record, the log is under dispatch/ and no marker is left', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'implementer']);
     assert.equal(r.code, 0, r.err);
@@ -47,7 +50,7 @@ describe('what a dispatch records', () => {
     assert.equal(m.length, 1);
     assert.match(m[0], /"task":"LC","role":"implementer","focus":null,"gate":null,"runtime":"codex","model":"gpt-6-sol","duration_s":\d+,"tokens_in":null,"tokens_out":null,"tokens_total":null,"turns":null,"retries":0,.*"result":"submitted"/);
   });
-  test('a Claude reviewer: no window, the product tree is fingerprinted before and after, the focus reaches the specialist', async () => {
+  fakeTest('a Claude reviewer: no window, the product tree is fingerprinted before and after, the focus reaches the specialist', async () => {
     fx.reset();
     const w = windows(fx).length;
     const r = await fx.dispatch(['LC', 'reviewer', '--focus', 'rules']);
@@ -58,7 +61,7 @@ describe('what a dispatch records', () => {
     assert.equal(readLoc(fx, 'claude.role').trim(), 'reviewer');
     assert.match(readFileSync(path.join(fx.dir, '.agents/runs/LC/dispatch/001-reviewer-claude.md'), 'utf8'), /^said "hi" \\ ok\n$/, 'the final message is the unescaped result of the JSON');
   });
-  test('the permission mode is explicit and ledgered (A114); an invalid one is a config error and nothing is launched', async () => {
+  fakeTest('the permission mode is explicit and ledgered (A114); an invalid one is a config error and nothing is launched', async () => {
     fx.reset();
     assert.equal((await fx.dispatch(['LC', 'reviewer', '--focus', 'rules'])).code, 0);
     assert.match(readLoc(fx, 'claude.argv'), /^--permission-mode\nbypassPermissions$/m);
@@ -76,7 +79,7 @@ describe('what a dispatch records', () => {
     assert.equal(existsSync(loc(fx, 'claude.argv')), false);
     fx.setConfig();
   });
-  test('bypassPermissions needs the PreToolUse hook wired and parseable: BLOCKED naming proofline doctor, no worker launched', async () => {
+  fakeTest('bypassPermissions needs the PreToolUse hook wired and parseable: BLOCKED naming proofline doctor, no worker launched', async () => {
     const settings = path.join(fx.dir, '.claude/settings.json');
     const hook = path.join(fx.dir, '.agents/hooks/proofline-hook.mjs');
     const keepSettings = readFileSync(settings); const keepHook = readFileSync(hook);
@@ -139,7 +142,7 @@ describe('what a dispatch records', () => {
 });
 
 describe('the designer\'s window', () => {
-  test('before IMPLEMENTING a designer has no window and the product tree is fingerprinted; during IMPLEMENTING it is bracketed like the implementer', async () => {
+  fakeTest('before IMPLEMENTING a designer has no window and the product tree is fingerprinted; during IMPLEMENTING it is bracketed like the implementer', async () => {
     const early = fixture({ recipe: 'scaffold orchestrated no STANDARD manual' });
     const r = await early.dispatch(['LC', 'designer', '--runtime', 'claude']);
     assert.equal(r.code, 0, r.err);
@@ -155,7 +158,7 @@ describe('the designer\'s window', () => {
 
 describe('the confinement checks (a step changes neither .git/config nor HEAD, a role that does not write code leaves the tree)', () => {
   const fx = fixture();
-  test('a step that changes .git/config (hooksPath) is BLOCKED and not recorded', async () => {
+  fakeTest('a step that changes .git/config (hooksPath) is BLOCKED and not recorded', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'hooks' });
     assert.equal(r.code, 6);
@@ -173,7 +176,7 @@ describe('the confinement checks (a step changes neither .git/config nor HEAD, a
     assert.equal(windows(fx).length, before + 1, 'the window was closed before the check');
     spawnGit(fx, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
   });
-  test('a role that does not write code and edits the product tree is BLOCKED (policy_violation), not recorded, not reverted', async () => {
+  fakeTest('a role that does not write code and edits the product tree is BLOCKED (policy_violation), not recorded, not reverted', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'edit' });
     assert.equal(r.code, 6);
@@ -189,7 +192,7 @@ function spawnGit(fx, args) { return spawnSync('git', ['-C', fx.dir, ...args], {
 
 describe('failover (D7), network retry (A200) and the answers a dispatch gives', () => {
   const fx = fixture();
-  test('a usage limit on Claude fails over to Codex (auto): recorded, ledgered with the reason, re-decided with its own label (A203)', async () => {
+  fakeTest('a usage limit on Claude fails over to Codex (auto): recorded, ledgered with the reason, re-decided with its own label (A203)', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer'], { FAKE_CLAUDE: 'limit' });
     assert.equal(r.code, 0, r.err);
@@ -203,13 +206,13 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     const first = readFileSync(path.join(fx.dir, '.agents/runs/LC/decisions', decisions[decisions.length - 2]), 'utf8');
     assert.doesNotMatch(first, /runtime_reason=AUTOMATIC_FAILOVER/);
   });
-  test('a missing binary fails over too', async () => {
+  fakeTest('a missing binary fails over too', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer'], { PROOFLINE_CLAUDE_BIN: path.join(fx.bin, 'nope') });
     assert.equal(r.code, 0, r.err);
     assert.match(ledger(fx), /reason=missing_binary/);
   });
-  test('a task failure is exit 1: no failover, nothing recorded', async () => {
+  fakeTest('a task failure is exit 1: no failover, nothing recorded', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'fail' });
     assert.equal(r.code, 1);
@@ -217,7 +220,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.match(r.err, /implementer on codex failed \(exit 1\)/);
     assert.match(fx.runFile('worker-evidence/WINDOW-' + windows(fx).length + '.yaml'), /exit_status: "1"/, 'the window is closed with the status of the worker');
   });
-  test('a sandbox that blocks the network is BLOCKED at once with the guidance, not retried, not failed over', async () => {
+  fakeTest('a sandbox that blocks the network is BLOCKED at once with the guidance, not retried, not failed over', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'network' });
     assert.equal(r.code, 6);
@@ -226,7 +229,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.equal(existsSync(loc(fx, 'claude.argv')), false);
     assert.doesNotMatch(ledger(fx), /network retry/);
   });
-  test('a dropped connection is retried on the same runtime: waits grow, the retry carries the RESUME note, the third attempt submits', async () => {
+  fakeTest('a dropped connection is retried on the same runtime: waits grow, the retry carries the RESUME note, the third attempt submits', async () => {
     fx.setConfig({ backoff: 1 });
     fx.reset();
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'flaky' });
@@ -238,7 +241,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.match(readLoc(fx, 'codex.stdin'), /RESUME:[^]*network error after attempt/);
     fx.setConfig();
   });
-  test('a connection that never comes back stops after the bounded retries (3): BLOCKED with the guidance; a task failure is never retried', async () => {
+  fakeTest('a connection that never comes back stops after the bounded retries (3): BLOCKED with the guidance; a task failure is never retried', async () => {
     fx.setConfig({ backoff: 0 });
     fx.reset();
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'ssl' });
@@ -252,7 +255,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.doesNotMatch(ledger(fx).split('\n').slice(-3).join('\n'), /network retry 1\/3[^\n]*implementer[^\n]*\n[^\n]*\n[^\n]*network retry 1\/3/);
     fx.setConfig();
   });
-  test('failover ask: NEEDS_INPUT (exit 5), the question is stored with the lead\'s command, the other runtime is not run', async () => {
+  fakeTest('failover ask: NEEDS_INPUT (exit 5), the question is stored with the lead\'s command, the other runtime is not run', async () => {
     fx.setConfig({ failover: 'ask' });
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer'], { FAKE_CLAUDE: 'limit' });
@@ -266,7 +269,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.match(ledger(fx), /dispatch needs_input role=reviewer runtime=claude reason=limit/);
     fx.setConfig();
   });
-  test('failover off: BLOCKED; a floor the other runtime cannot meet (security_reviewer on a two-model ladder): BLOCKED, never downgraded', async () => {
+  fakeTest('failover off: BLOCKED; a floor the other runtime cannot meet (security_reviewer on a two-model ladder): BLOCKED, never downgraded', async () => {
     fx.setConfig({ failover: 'off' });
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer'], { FAKE_CLAUDE: 'limit' });
@@ -287,14 +290,14 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.equal(r.code, 6); assert.match(r.out, /over the resolved context budget of 49152/);
     assert.equal(existsSync(loc(fx, 'claude.argv')), false);
   });
-  test('a command-template runtime (D8): the template\'s output file is the log of the step', async () => {
+  fakeTest('a command-template runtime (D8): the template\'s output file is the log of the step', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer', '--runtime', 'mycli']);
     assert.equal(r.code, 0, r.err);
     const md = readFileSync(path.join(fx.dir, '.agents/runs/LC/dispatch/001-reviewer-mycli.md'), 'utf8');
     assert.match(md, /^model=m2\n1\n$/);
   });
-  test('a final message with a header is never recorded: one rerun with the rejection in the prompt, then BLOCKED (two decisions)', async () => {
+  fakeTest('a final message with a header is never recorded: one rerun with the rejection in the prompt, then BLOCKED (two decisions)', async () => {
     fx.reset();
     const n = () => readdirSync(path.join(fx.dir, '.agents/runs/LC/decisions')).length;
     const before = n();
@@ -305,7 +308,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     const rej = await fx.dispatch(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'rejected' });
     assert.equal(rej.code, 6); assert.match(rej.out, /last rejection: --confidence must be high/);
   });
-  test('A127: a rerun for no submission ledgers the token it looked for; the rerun that submits is token d002 and its prompt carries the retry note', async () => {
+  fakeTest('A127: a rerun for no submission ledgers the token it looked for; the rerun that submits is token d002 and its prompt carries the retry note', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'late' });
     assert.equal(r.code, 0, r.err);
@@ -313,7 +316,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.match(readLoc(fx, 'codex.stdin'), /Your previous attempt ended without a recorded result/);
     assert.ok(existsSync(path.join(fx.dir, '.agents/local/submissions/d002-reviewer-codex.status')));
   });
-  test('A124: a worker that writes nothing is BLOCKED with a reason, the log says so, no marker is left', async () => {
+  fakeTest('A124: a worker that writes nothing is BLOCKED with a reason, the log says so, no marker is left', async () => {
     fx.reset();
     const r = await fx.dispatch(['LC', 'reviewer', '--runtime', 'claude'], { FAKE_CLAUDE: 'empty' });
     assert.equal(r.code, 6);
@@ -321,7 +324,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.match(readFileSync(path.join(fx.dir, '.agents/runs/LC/dispatch/001-reviewer-claude.log'), 'utf8'), /wrote nothing/);
     assert.deepEqual(markers(fx), []);
   });
-  test('the implementer prompt states its window and a missing assignment; a reviewer with an assignment gets neither line', async () => {
+  fakeTest('the implementer prompt states its window and a missing assignment; a reviewer with an assignment gets neither line', async () => {
     fx.reset();
     await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'nosubmit' });
     assert.match(readLoc(fx, 'codex.stdin'), /WINDOW: dispatch\.sh opened your write window/);
@@ -330,7 +333,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     await fx.dispatch(['LC', 'reviewer', '--runtime', 'claude', '--prompt-file', path.join(fx.dir, 'product.txt')]);
     assert.doesNotMatch(readLoc(fx, 'claude.stdin'), /WINDOW: dispatch\.sh|ASSIGNMENT: none was given/);
   });
-  test('A132: each explorer dispatch names its own token-derived scratch report', async () => {
+  fakeTest('A132: each explorer dispatch names its own token-derived scratch report', async () => {
     fx.reset();
     await fx.dispatch(['LC', 'explorer', '--runtime', 'claude']);
     assert.match(readLoc(fx, 'claude.stdin'), /scratch\/d001-explorer-claude-report\.md/);
@@ -342,7 +345,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
 
 describe('A124: a running dispatch leaves a marker; parallel dispatches claim distinct sequences (A113)', () => {
   const fx = fixture();
-  test('the marker says the step is in flight and names the limit and the start; it is removed when the step ends', async () => {
+  fakeTest('the marker says the step is in flight and names the limit and the start; it is removed when the step ends', async () => {
     fx.reset();
     const h = fx.start(['LC', 'reviewer', '--runtime', 'claude'], { FAKE_CLAUDE: 'hold' });
     await until(() => markers(fx).length === 1);
@@ -353,7 +356,7 @@ describe('A124: a running dispatch leaves a marker; parallel dispatches claim di
     assert.match(m, /^pid=\d+$/m); assert.match(m, /^timeout=\d+$/m); assert.match(m, /^started_epoch=\d+$/m);
     assert.deepEqual(markers(fx), []);
   });
-  test('four parallel dispatches get four distinct tokens, outputs and logs (d001..d004)', async () => {
+  fakeTest('four parallel dispatches get four distinct tokens, outputs and logs (d001..d004)', async () => {
     fx.reset();
     const rs = await Promise.all(['rules', 'tests', 'plan', 'config'].map((f) => fx.dispatch(['LC', 'reviewer', '--focus', f], { FAKE_CLAUDE: 'ok' })));
     assert.deepEqual(rs.map((r) => r.code), [0, 0, 0, 0], rs.map((r) => r.err).join('\n'));
@@ -367,29 +370,29 @@ describe('metrics (A80): one record per dispatch, from the runtime\'s own output
   const fx = fixture();
   /** @param {string[]} args @param {Record<string, string>} env */
   const rec = async (args, env) => { fx.reset(); rmSync(path.join(fx.dir, '.agents/local/metrics'), { recursive: true, force: true }); await fx.dispatch(args, env); return metrics(fx).slice(-1)[0] ?? ''; };
-  test('claude: usage and turns come from the result JSON (the last usage object), not from model text', async () => {
+  fakeTest('claude: usage and turns come from the result JSON (the last usage object), not from model text', async () => {
     assert.match(await rec(['LC', 'reviewer', '--focus', 'rules'], { FAKE_CLAUDE: 'usage' }), /"role":"reviewer","focus":"rules","gate":"REVIEW_RULES","runtime":"claude","model":"[a-z0-9.-]+","duration_s":\d+,"tokens_in":120,"tokens_out":30,"tokens_total":150,"turns":4,"retries":0/);
   });
-  test('a runtime that reports no usage leaves tokens and turns null', async () => {
+  fakeTest('a runtime that reports no usage leaves tokens and turns null', async () => {
     assert.match(await rec(['LC', 'reviewer', '--focus', 'rules'], { FAKE_CLAUDE: 'ok' }), /"tokens_in":null,"tokens_out":null,"tokens_total":null,"turns":null,"retries":0.*"result":"submitted"/);
   });
-  test('codex: the total comes from the trailer (last occurrence), in/out stay null; a line injected earlier is not read; the local number format (285.242, 96.739) is read', async () => {
+  fakeTest('codex: the total comes from the trailer (last occurrence), in/out stay null; a line injected earlier is not read; the local number format (285.242, 96.739) is read', async () => {
     assert.match(await rec(['LC', 'implementer'], { FAKE_CODEX: 'tokens' }), /"tokens_in":null,"tokens_out":null,"tokens_total":12345,/);
     assert.match(await rec(['LC', 'implementer'], { FAKE_CODEX: 'inject' }), /"tokens_total":null,/);
     assert.match(await rec(['LC', 'implementer'], { FAKE_CODEX: 'trailer' }), /"tokens_total":285242,/);
     assert.match(await rec(['LC', 'implementer'], { FAKE_CODEX: 'trailer3' }), /"tokens_total":96739,/);
   });
-  test('after a Codex to Claude failover the record carries Claude\'s numbers only and one retry', async () => {
+  fakeTest('after a Codex to Claude failover the record carries Claude\'s numbers only and one retry', async () => {
     assert.match(await rec(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'limittok', FAKE_CLAUDE: 'usage' }), /"runtime":"claude".*"tokens_in":120,"tokens_out":30,"tokens_total":150,"turns":4,"retries":1,.*"result":"submitted"/);
   });
-  test('a resubmitted dispatch counts one retry; a failed one is recorded with result failed', async () => {
+  fakeTest('a resubmitted dispatch counts one retry; a failed one is recorded with result failed', async () => {
     assert.match(await rec(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'late' }), /"retries":1,.*"result":"submitted"/);
     assert.match(await rec(['LC', 'implementer'], { FAKE_CODEX: 'fail' }), /"result":"failed"/);
   });
 });
 
 describe('the time limit (A171, A202 item 29)', () => {
-  test('a timeout is exit 124: the window is closed with status 124, nothing is recorded, a resume note holds the partial work', async () => {
+  fakeTest('a timeout is exit 124: the window is closed with status 124, nothing is recorded, a resume note holds the partial work', async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 1 });
     writeFileSync(path.join(fx.dir, 'partial-work.txt'), 'partial\n');
@@ -406,7 +409,7 @@ describe('the time limit (A171, A202 item 29)', () => {
     assert.match(readLoc(fx, 'codex.stdin'), /RESUME: an earlier dispatch of this step timed out[^]*partial-work\.txt/);
     assert.equal(existsSync(path.join(fx.dir, '.agents/runs/LC/dispatch/RESUME-implementer.md')), false, 'the note is spent once the step submits');
   });
-  test('the limit of the run\'s class wins over the global one, and a class with a longer limit does not time out a normal step', async () => {
+  fakeTest('the limit of the run\'s class wins over the global one, and a class with a longer limit does not time out a normal step', async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 60, classTimeout: 1 });
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'sleep' });
@@ -416,7 +419,7 @@ describe('the time limit (A171, A202 item 29)', () => {
     const ok = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'ok' });
     assert.equal(ok.code, 0, ok.err);
   });
-  test('timeouts.scale multiplies the limit (rounded up); a bad scale is read as 1; the step still fails at it', async () => {
+  fakeTest('timeouts.scale multiplies the limit (rounded up); a bad scale is read as 1; the step still fails at it', async () => {
     const fx = fixture();
     for (const [scale, want] of [['2', 2], ['1.5', 2], ['0.5', 1], ['0', 1], ['abc', 1]]) {
       fx.setConfig({ classTimeout: 1, scale });
@@ -425,7 +428,7 @@ describe('the time limit (A171, A202 item 29)', () => {
       assert.ok(ledger(fx).includes(`after=${want}s`), `scale ${scale}: ${want}s`);
     }
   }, { timeout: 60000 });
-  test('the shortest step time is an option of the dispatcher (30 s by default): a 1 s limit becomes 30 s', async () => {
+  fakeTest('the shortest step time is an option of the dispatcher (30 s by default): a 1 s limit becomes 30 s', async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 1 });
     const h = fx.start(['LC', 'reviewer', '--runtime', 'claude'], { FAKE_CLAUDE: 'hold' }, { minTimeoutSeconds: 30 });
@@ -434,7 +437,7 @@ describe('the time limit (A171, A202 item 29)', () => {
     writeFileSync(loc(fx, 'release'), '');
     assert.equal(await h.done, 0);
   });
-  test('two explorers that both time out keep two resume notes; the same assignment finds its own and spends only that one', async () => {
+  fakeTest('two explorers that both time out keep two resume notes; the same assignment finds its own and spends only that one', async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 1 });
     writeFileSync(path.join(fx.loc, 'as1.md'), 'assignment one\n'); writeFileSync(path.join(fx.loc, 'as2.md'), 'assignment two\n');

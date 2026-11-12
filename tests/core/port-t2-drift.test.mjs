@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { RISK_NOT_CONTRACT, riskWordsMatch } from '../../control-plane/agents/scripts/core/signals.mjs';
 import { agentsSrc, repo } from './port-t2-lib.mjs';
 
@@ -37,7 +38,7 @@ describe('risk-test: log_sensitive and the not-a-contract list', () => {
     }
   });
   test('sc_not_contract_drift: the not-a-contract list equals the one of contract-proof', async () => {
-    const m = await import(path.join(repo, 'skills/contract-proof/scripts/diff-contract.mjs'));
+    const m = await import(pathToFileURL(path.join(repo, 'skills/contract-proof/scripts/diff-contract.mjs')).href)   /* a file URL: Windows refuses a bare absolute path (A262) */;
     assert.equal(RISK_NOT_CONTRACT, m.NOT_A_CONTRACT.source);
   });
   test('A251: a content pattern the translator does not cover (a word boundary) is matched by the platform grep, then the word test: no awk is started', () => {

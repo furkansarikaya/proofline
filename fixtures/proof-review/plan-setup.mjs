@@ -9,7 +9,7 @@
 //     acceptance criterion per planted claim) and PLAN.md (scope that leaves some changed
 //     paths out), and .agents/local/ACTIVE_RUN.
 // Expected results are in EXPECTED.md ("Focus plan inside a run"). The agent must not see it.
-import { devNull } from 'node:os';
+import { nullDevice } from '../../tests/lib/winpath.mjs';
 import path from 'node:path';
 import { Fx, cli, real } from '../../tests/lib/fixture.mjs';
 import { build as buildBranch } from './go/setup.mjs';
@@ -49,7 +49,7 @@ paths:
 `);
   const base = f.git(['rev-parse', 'HEAD']).trim();
   f.git(['checkout', '-q', feature]);
-  f.git(['-c', `core.hooksPath=${devNull}`, 'rebase', '-q', 'main']);
+  f.git(['-c', `core.hooksPath=${nullDevice()}`, 'rebase', '-q', 'main']);
   let prop;
   if (lang === 'go') {
     prop = '                  couponCode:';

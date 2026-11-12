@@ -44,7 +44,8 @@ describe('golden: the answers of the shell resolver', () => {
     for (const c of cases) {
       const cfg = c.config === '(missing)' ? path.join(gold, 'no-such-config.yaml') : path.join(gold, `config-${c.config}.yaml`);
       const r = policyCommand(ctx, ['--config', cfg, ...c.args], c.stdin ?? '');
-      const got = { status: r.status, stdout: r.out.split(gold).join('<DIR>'), stderr: r.err.split(gold).join('<DIR>') };
+      const dir = (/** @type {string} */ t) => t.split(gold).join('<DIR>').replace(/<DIR>\\/g, '<DIR>/');   // the error message names the file as the host spells it: a backslash after the folder on Windows (A262)
+      const got = { status: r.status, stdout: dir(r.out), stderr: dir(r.err) };
       try { assert.deepEqual(got, { status: c.status, stdout: c.stdout, stderr: c.stderr }, `${c.config}: ${c.args.join(' ')}`); } catch (e) { if (bad++ < 5) console.error(String(/** @type {Error} */ (e).message).slice(0, 800)); }
     }
     assert.equal(bad, 0, `${bad} calls differ from the recording`);
@@ -240,6 +241,9 @@ describe('the fixture stub and the environment (D14)', () => {
   });
 });
 
+/** A fake runtime here is a `#!/bin/sh` script with the execute bit; Windows has neither, and its resolver runs only a real .exe outside temp folders (A252, A262). */
+const noScriptTool = process.platform === 'win32' ? 'a shell-script fake runtime cannot be an installed runtime on Windows (only a real .exe is run)' : false;
+
 describe('runtime detection', () => {
   /** A project with a fake claude on the PATH. */
   function withBin(/** @type {string} */ config = 'canonical_branch: main\n') {
@@ -251,7 +255,7 @@ describe('runtime detection', () => {
   }
   const ctxOf = (/** @type {string} */ root, /** @type {Record<string, string>} */ env) => { const { io } = memoryIo(root, env); return new Context(io, io.scriptPath); };
 
-  test('has and bin: the default names, PROOFLINE_CLAUDE_BIN / PROOFLINE_CODEX_BIN, a name that is not installed', () => {
+  test('has and bin: the default names, PROOFLINE_CLAUDE_BIN / PROOFLINE_CODEX_BIN, a name that is not installed', { skip: noScriptTool }, () => {
     const { root, bin, fake } = withBin();
     const ctx = ctxOf(root, { PATH: bin, PROOFLINE_CLAUDE_BIN: 'fake-claude' });
     assert.deepEqual(runtimeDetect(ctx, ['bin', 'claude']), { status: 0, out: 'fake-claude\n', err: '' });
@@ -262,7 +266,7 @@ describe('runtime detection', () => {
     assert.equal(runtimeDetect(ctx, ['has']).status, 2);
     assert.equal(runtimeDetect(ctx, ['frob']).status, 2);
   });
-  test('the list: one line per built-in runtime with the path and the first line of --version', () => {
+  test('the list: one line per built-in runtime with the path and the first line of --version', { skip: noScriptTool }, () => {
     const { root, bin, fake } = withBin();
     const r = runtimeDetect(ctxOf(root, { PATH: bin, PROOFLINE_CLAUDE_BIN: 'fake-claude' }), []);
     assert.equal(r.out, `claude installed=yes path=${bin}/fake-claude version=fake 1.2.3\ncodex installed=no path=- version=-\n`);

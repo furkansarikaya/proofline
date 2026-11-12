@@ -4,7 +4,7 @@
 // the `fail`, `grep -q`, `[ -f ]` and `git` idioms of the shell selfchecks.
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { devNull } from 'node:os';
+import { nullDevice } from '../tests/lib/winpath.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fail, run } from '../tests/lib/fixture.mjs';
@@ -20,7 +20,7 @@ export function enter() {
 }
 
 /** git without the user's or the system's configuration. @param {string[]} args @param {import('node:child_process').SpawnSyncOptionsWithStringEncoding} [o] */
-export const git = (args, o = /** @type {any} */ ({})) => run('git', args, { ...o, env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1', ...o.env } });
+export const git = (args, o = /** @type {any} */ ({})) => run('git', args, { ...o, env: { ...process.env, GIT_CONFIG_GLOBAL: nullDevice(), GIT_CONFIG_NOSYSTEM: '1', ...o.env } });
 
 /** Trimmed stdout of a git command. @param {string[]} args */
 export const gitOut = (args) => git(args).out.trim();

@@ -3,9 +3,10 @@
 // The Windows rules run on any host through the platform and realpath parameters; the POSIX rules are compared with the expression the code used before (`real.startsWith(`${base}/`)`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inside, isAbsoluteInput, localRemote, posixForm, realpathPosix, samePath } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inside, isAbsoluteInput, localRemote, posixForm, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
 
@@ -119,4 +120,16 @@ test('localRemote (A261): the address itself off Windows and for anything but a 
   for (const u of ['', '/a/b', '../x.git', 'https://h/o/r', 'git@h:o/r', 'file:///C:/x']) assert.equal(localRemote(u, 'win32', () => { throw new Error('not called'); }), u, u);
   assert.equal(localRemote('C:\\p\\wt\\LC/../p-lo.git', 'win32', (a) => `real:${a}`), 'real:C:\\p\\wt\\p-lo.git');
   assert.equal(localRemote('c:/p/wt/LC/../p-lo.git', 'win32', () => { throw new Error('ENOENT'); }), 'C:/p/wt/LC/p-lo.git'.replace('wt/LC', 'wt'));
+});
+
+test('scratchRoot (A262): off Windows exactly the old `$TMPDIR || /tmp` over a table (unset, empty, set, trailing slash, symlinked macOS-style root); on win32 the host temporary folder, TMPDIR ignored', () => {
+  const old = (/** @type {string | undefined} */ t) => t || '/tmp';
+  const table = [undefined, '', '/tmp', '/tmp/', '/var/folders/zz/T', '/private/var/folders/zz/T/', 'relative/tmp', '/a b/c'];
+  for (const t of table) for (const pl of ['linux', 'darwin', 'freebsd']) assert.equal(scratchRoot(t, pl, '/ignored'), old(t), `${pl} ${JSON.stringify(t)}`);
+  for (const t of table) assert.equal(scratchRoot(t, 'win32', 'C:\\Users\\R\\AppData\\Local\\Temp'), 'C:\\Users\\R\\AppData\\Local\\Temp', `win32 ${JSON.stringify(t)}`);
+});
+
+test('scratchRoot: the win32 folder is os.tmpdir() and the folder it names exists here (a real directory for the scratch folder)', () => {
+  assert.equal(scratchRoot(undefined, 'win32'), tmpdir());
+  assert.ok(statSync(scratchRoot(process.env.TMPDIR)).isDirectory());
 });

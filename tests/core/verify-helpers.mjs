@@ -8,6 +8,7 @@ import path from 'node:path';
 import { after } from 'node:test';
 import { scriptsDir } from './helpers.mjs';
 import { buildRecipe } from '../lib/recipe.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const ENV = {
   PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'fixture',
@@ -29,7 +30,7 @@ export function build(snippet) {
 
 /** @param {string} fx @param {string[]} args @param {'node' | 'sh'} engine @param {Record<string, string>} [env] */
 export function exec(fx, args, engine, env = {}) {
-  const r = spawnSync('sh', [path.join(fx, '.agents/scripts/agent.sh'), ...args], { cwd: fx, env: { ...ENV, ...env }, encoding: 'latin1', input: '' });
+  const r = spawnSync('sh', [posix(path.join(fx, '.agents/scripts/agent.sh')), ...args], { cwd: fx, env: { ...ENV, ...env }, encoding: 'latin1', input: '' });
   return { out: r.stdout, err: r.stderr, code: r.status };
 }
 

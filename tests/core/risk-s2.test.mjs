@@ -11,7 +11,7 @@ import { Aasync } from './gates-s1-lib.mjs';
 import { Af, RUN, ap, appr, proj, freezeStandard, frozen, has, hasnt, implement, pv, rd, rrun, sed, sedFile, setBase, snap, stOf, tierOf, wr, commitHead } from './risk-s2-lib.mjs';
 
 /** A config text written to a scratch file outside the project (the file argument of config-check). @param {string} name @param {string} text */
-const scratch = (name, text) => { const f = path.join(tmp('c'), name); wr('/', f, text); return f; };
+const scratch = (name, text) => { const dir = tmp('c'); wr(dir, name, text); return path.join(dir, name); };   // not wr('/', absolute): path.join('/', 'C:\\x') is 'D:\\C:\\x' on Windows (A262)
 const CFG = '.agents/config.yaml';
 const crit = () => proj({ cls: 'CRITICAL' });
 const R = (/** @type {string} */ d) => `${RUN}/${d}`;

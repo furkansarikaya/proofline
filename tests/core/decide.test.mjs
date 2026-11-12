@@ -155,10 +155,11 @@ describe('decide: explorer slots (A132)', () => {
 describe('the nonce of another process (A171): a live ancestor, one use', () => {
   const fx = fixture();
   const nn = '0123456789abcdef0123456789abcdef';
+  const noAncestor = process.platform === 'win32' ? 'no ancestor can be proven on Windows (no /proc, no ps): the product fails closed, covered by the win32 test below (A171, A262)' : false;
   const file = path.join(fx.dir, '.agents/local/dispatch', `nonce-${nn}`);
   const put = (/** @type {string | number} */ pid) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${pid}\n`); };
   const decide = () => cmd(fx, ['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], { env: { PROOFLINE_DISPATCH: nn } });
-  test('a nonce naming an ancestor (here: this very process) is accepted and consumed; a replay is refused', () => {
+  test('a nonce naming an ancestor (here: this very process) is accepted and consumed; a replay is refused', { skip: noAncestor }, () => {
     put(process.pid);
     const ok = decide();
     assert.equal(ok.code, 0, ok.err);
@@ -189,7 +190,7 @@ describe('the nonce of another process (A171): a live ancestor, one use', () => 
       rmSync(f);
     }
   });
-  test('an ancestor is found through /proc or ps: the parent of this process is its parent, and a child of ours has us as its ancestor', async () => {
+  test('an ancestor is found through /proc or ps: the parent of this process is its parent, and a child of ours has us as its ancestor', { skip: noAncestor }, async () => {
     assert.equal(parentPid(process.pid), process.ppid);
     const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)']);
     try {

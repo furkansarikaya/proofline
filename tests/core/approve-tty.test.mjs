@@ -12,7 +12,7 @@ import { after, before, test } from 'node:test';
 import { buildTemplate, cleanEnv, copyProject } from '../hook/harness.mjs';
 
 const havePython = spawnSync('python3', ['--version']).status === 0;
-const skip = havePython ? false : 'python3 (the pty module) is not installed';
+const skip = process.platform === 'win32' ? 'the pty module (termios) does not exist on Windows: a pseudo-terminal cannot be driven there (A262)' : havePython ? false : 'python3 (the pty module) is not installed';
 
 const PTY = `
 import os, pty, sys, time, select, signal

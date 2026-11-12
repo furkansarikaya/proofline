@@ -8,9 +8,14 @@ import { chmodSync, readFileSync, readdirSync, statSync, unlinkSync, openSync, c
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { after, test } from 'node:test';
+import { pidStat } from '../../control-plane/agents/scripts/core/batch.mjs';
 import {
   A, AB, appendFileSync, batchApprove, behave, bnew, binstall, cfgBatch, drive, fakeDeliver, fakeRun, fakes, g, gOk, has, lines, mktask, nextline, orderIds, put, read, readIf, rmSync, sh, summaryOf, writeFileSync, wtp, mkdirSync, path,
 } from './batch-lib.mjs';
+
+/** Windows has no named pipes made by mkfifo and its platform resolver refuses a shell-script gh in a temp folder by design (A252, A262): those tests cannot run there. */
+const noFifo = process.platform === 'win32' ? 'mkfifo does not exist on Windows' : false;
+const noShim = process.platform === 'win32' ? 'a shell-script gh in a temp folder is refused by design on Windows (only a real gh.exe outside temp folders runs, A252)' : false;
 
 const bdir = (/** @type {string} */ dir) => `${dir}/.agents/local/batch`;
 const BP = (/** @type {ReturnType<typeof fakes>} */ F, /** @type {string} */ dir, /** @type {string[]} */ args) => AB(F, dir, ['batch-plan', ...args]);
@@ -166,7 +171,7 @@ test('the morning report comes from the records only; an answered question un-pa
   assert.match(AB(F, dir, ['batch-park', 'T-4', 'x'], { role: 'reviewer' }).text, /command denied for reviewer/);
 });
 
-test('the CI that gates the next task is the one of the merge commit: red, running, no run yet, green (sc_merge_commit_ci)', () => {
+test('the CI that gates the next task is the one of the merge commit: red, running, no run yet, green (sc_merge_commit_ci)', { skip: noShim }, () => {
   const F = fakes(); const dir = bnew();
   const MSHA = '0123456789abcdef0123456789abcdef01234567';
   mktask(dir, 'T-1', 'COMPLEX'); mktask(dir, 'T-2', 'COMPLEX'); cfgBatch(dir, 40, ['  ci_appear_minutes: 1']); binstall(dir);
@@ -191,7 +196,7 @@ test('the CI that gates the next task is the one of the merge commit: red, runni
   assert.equal(first2(nextline(F, dir)), 'run T-2', 'after a green CI the next task is T-2');
 });
 
-test('the sleep inhibitor belongs to the session: caffeinate -i -w <pid> once and gone with the session; systemd-inhibit; none said plainly (sc_awake)', { timeout: 60000 }, async () => {
+test('the sleep inhibitor belongs to the session: caffeinate -i -w <pid> once and gone with the session; systemd-inhibit; none said plainly (sc_awake)', { timeout: 60000, skip: noFifo }, async () => {
   const F = fakes(); const dir = bnew();
   /** @type {number[]} */ const holds = [];
   const stop = new AbortController(); // ends the pipe readers of this test, whatever way it ends
@@ -256,7 +261,7 @@ test('the sleep inhibitor belongs to the session: caffeinate -i -w <pid> once an
   }
 });
 
-test('awaitPipe: a writer that never comes cannot hold the test: the abort ends the reader child (no hang)', { timeout: 60000 }, async () => {
+test('awaitPipe: a writer that never comes cannot hold the test: the abort ends the reader child (no hang)', { timeout: 60000, skip: noFifo }, async () => {
   const F = fakes(); const fifo = mkfifo(F, 'never.fifo');
   const stop = new AbortController();
   const waiting = awaitPipe(fifo, stop.signal); // nothing will ever write to this pipe
@@ -297,7 +302,7 @@ test('one session works a batch: a live owner makes the others wait with its pid
   } finally { await Promise.all([s1, s2, s3].map((x) => x.stop())); }
 });
 
-test('a pull request file without a merged.tsv record asks the platform: merged -> cleanup step, open -> parked, unreadable -> parked and says so (sc_pr_recovery)', () => {
+test('a pull request file without a merged.tsv record asks the platform: merged -> cleanup step, open -> parked, unreadable -> parked and says so (sc_pr_recovery)', { skip: noShim }, () => {
   const F = fakes(); const dir = bnew();
   mktask(dir, 'T-1', 'COMPLEX'); mktask(dir, 'T-2', 'COMPLEX', 'T-1'); binstall(dir);
   BP(F, dir, ['all']); batchApprove(dir);
@@ -373,3 +378,22 @@ test('a run in a batch whose approvals wait: cover is the next action for a plan
   assert.ok(!/PARKED \| approval request/.test(nx(F, dir)), 'an answered request still parks the task');
 });
 void appendFileSync; void mkdirSync; void path; void sh; void orderIds; void summaryOf; void readIf;
+
+test('pidStat (A262): win32 never asks ps (a live process is S, a gone one \'\'); elsewhere the answer is exactly what ps gave, whatever its letters', () => {
+  /** @type {number[]} */ const asked = [];
+  const ps = (/** @type {string} */ out) => (/** @type {number} */ pid) => { asked.push(pid); return out; };
+  assert.equal(pidStat(process.pid, 'win32', ps('Ss+')), 'S');
+  assert.equal(pidStat(2147483646, 'win32', ps('Ss+')), '');
+  assert.deepEqual(asked, [], 'ps is not asked on win32');
+  for (const pl of ['linux', 'darwin']) {
+    assert.equal(pidStat(process.pid, pl, ps('Ss+')), 'Ss+', pl);
+    assert.equal(pidStat(process.pid, pl, ps('Z')), 'Z', pl);
+    assert.equal(pidStat(2147483646, pl, ps('Ss+')), '', `${pl}: a gone process is '' without asking ps`);
+  }
+  assert.deepEqual(asked, [process.pid, process.pid, process.pid, process.pid], 'ps is asked once per live POSIX call');
+  if (process.platform !== 'win32') {
+    const real = spawnSync('ps', ['-o', 'stat=', '-p', String(process.pid)], { encoding: 'latin1' }).stdout.replace(/ /g, '').replace(/\n/g, '');
+    assert.equal(pidStat(process.pid), real);
+    assert.ok(real !== '' && !real.startsWith('Z'));
+  }
+});

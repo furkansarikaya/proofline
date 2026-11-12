@@ -12,6 +12,7 @@ import { cleanEnv } from '../hook/harness.mjs';
 import { project } from './legacy-lib.mjs';
 import { repo, scriptsDir } from './helpers.mjs';
 import { fixtureRoles } from './golden/dispatch-fakes.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 export const RECIPE = 'scaffold orchestrated no STANDARD autonomous';
 
@@ -172,7 +173,7 @@ export function fixture(o = {}) {
       return { code, out: h.out(), err: h.err() };
     },
     launch: (args, extraEnv = {}) => {
-      const r = spawnSync('sh', [path.join(a, 'scripts/dispatch.sh'), ...args], { cwd: dir, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 120000 });
+      const r = spawnSync('sh', [posix(path.join(a, 'scripts/dispatch.sh')), ...args], { cwd: dir, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 120000 });
       return { status: r.status, out: r.stdout, err: r.stderr };
     },
   });

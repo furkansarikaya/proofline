@@ -105,6 +105,24 @@ test('cleanToolEnv on win32 (the Windows PATH rules are wired): the PATH given t
   assert.equal(cleanToolEnv(winCtx({}), { platform: 'win32', real: fakeReal, isDir: isDirFake, isLink: noLink })['PATH'], undefined);
 });
 
+test('cleanToolEnv on win32 (A215, A220; the run6-platform SECURITY test cannot run there): config, host, repository, other proxy and certificate variables never reach the tool; a credential, the locale and a well-formed proxy do', () => {
+  const hostile = {
+    GH_CONFIG_DIR: 'C:\\evil\\cfg', XDG_CONFIG_HOME: 'C:\\evil\\xdg', GH_HOST: 'evil.example', GH_REPO: 'evil/repo', GLAB_CONFIG_DIR: 'C:\\evil\\glab', AZURE_CONFIG_DIR: 'C:\\evil\\az',
+    ALL_PROXY: 'http://evil:1', all_proxy: 'http://evil:1', SSL_CERT_DIR: 'C:\\evil\\cadir', CURL_CA_BUNDLE: 'C:\\evil\\ca', NODE_OPTIONS: '--require C:\\evil.js', GH_PROMPT_DISABLED: '0', GH_API_URL: 'http://evil',
+    REQUESTS_CA_BUNDLE: 'C:\\evil\\no-such-ca', GIT_SSL_CAINFO: 'relative\\ca', SSL_CERT_FILE: '\\\\evil\\share\\ca', NODE_EXTRA_CA_CERTS: 'C:\\evil\\no-such-ca2',
+  };
+  const kept = { GH_TOKEN: 'tok123', GITLAB_TOKEN: 'glt', LANG: 'C.UTF-8', LC_TIME: 'C', HTTPS_PROXY: 'http://proxy.corp.example:3128', no_proxy: 'localhost,.corp.example', SYSTEMROOT: 'C:\\Windows' };
+  const out = cleanToolEnv(winCtx({ ...hostile, ...kept }), { platform: 'win32', real: fakeReal, isDir: isDirFake, isLink: noLink });
+  for (const k of Object.keys(hostile)) assert.equal(out[k], undefined, `${k} reached the tool`);
+  for (const [k, v] of Object.entries(kept)) assert.equal(out[k], v, k);
+  assert.equal(out['LC_ALL'], 'C');
+  assert.equal(out['RTK_DISABLED'], '1');
+  // a proxy that is not well-formed (a path, a credential-less socks address) is dropped, never repaired
+  const bad = cleanToolEnv(winCtx({ HTTPS_PROXY: 'socks5://p:1', HTTP_PROXY: 'http://p:1/path?x' }), { platform: 'win32', real: fakeReal, isDir: isDirFake, isLink: noLink });
+  assert.equal(bad['HTTPS_PROXY'], undefined);
+  assert.equal(bad['HTTP_PROXY'], undefined);
+});
+
 test('POSIX: cleanToolEnv keeps the former PATH rule (":" separator, absolute entries outside the refused folders)', () => {
   const here = process.cwd();   // an existing folder: the project
   const ctx = /** @type {any} */ ({ root: here, cwd: here, env: { PATH: `/usr/bin:${here}/bin:bin::/bin`, TMPDIR: '/nonexistent-x' } });

@@ -5,13 +5,13 @@
 // Every path a builder writes is joined under the target by `Fx.p`, which refuses a path that leaves the target (no `..`, no absolute path).
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { devNull } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { nullDevice } from './winpath.mjs';
 
 /** The identity and configuration every fixture git command runs with: no user, system or global configuration, a fixed author. */
 export const GIT_ENV = {
-  GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1',
+  GIT_CONFIG_GLOBAL: nullDevice(), GIT_CONFIG_NOSYSTEM: '1',
   GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
 };
 

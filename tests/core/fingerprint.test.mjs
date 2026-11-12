@@ -98,7 +98,9 @@ describe('baseline map', () => {
 });
 
 describe('the cache is never written through a link or with a control character (S2-3)', () => {
-  const big = 'big;echo PWNED>&2;#.txt';
+  // `>` and control characters are not legal in a Windows file name: there the name keeps `;`, `&` and `#` and the control-character file is not made (A262)
+  const win = process.platform === 'win32';
+  const big = win ? 'big;echo PWNED&;#.txt' : 'big;echo PWNED>&2;#.txt';
   test('node: a link at fp-cache or at .agents/local is no cache; the victim stays untouched', () => {
     const f = makeFixture();
     try {
@@ -120,9 +122,9 @@ describe('the cache is never written through a link or with a control character 
   test('node: a regular cache works; a key with a control character is not written', () => {
     const f = makeFixture();
     try {
-      put2(f.root, big, 'x'.repeat(300000)); put2(f.root, 'tab\there.txt', 'y'.repeat(300000));
+      put2(f.root, big, 'x'.repeat(300000)); if (!win) put2(f.root, 'tab\there.txt', 'y'.repeat(300000));
       const ctx = f.ctx(); ctx.fpMode = 'refresh';
-      pathFingerprint(ctx, big); pathFingerprint(ctx, 'tab\there.txt');
+      pathFingerprint(ctx, big); if (!win) pathFingerprint(ctx, 'tab\there.txt');
       const text = readFileSync(path.join(f.root, '.agents/local/fp-cache'), 'latin1');
       assert.equal(text.split('\n').filter(Boolean).length, 1);
       assert.ok(text.startsWith(`${big}|300000|`));
@@ -155,4 +157,14 @@ describe('the cache cut never writes through a planted temp link (S2-3b)', () =>
       assert.ok(lines.length <= 1001 && lines.length > 900, String(lines.length));
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
+});
+
+test('content_fingerprint makes its scratch folder under scratchRoot (A262): TMPDIR names it off Windows (a missing folder is an ENOENT, nothing falls back to /tmp); on Windows TMPDIR is not read', () => {
+  const saved = process.env.TMPDIR;
+  try {
+    process.env.TMPDIR = path.join(fx.root, 'no-such-scratch-root');
+    if (process.platform === 'win32') assert.match(contentFingerprint(fx.ctx()), /^[0-9a-f]{40}$/);
+    else assert.throws(() => contentFingerprint(fx.ctx()), /ENOENT/);
+  } finally { if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved; }
+  assert.match(contentFingerprint(fx.ctx()), /^[0-9a-f]{40}$/);
 });
