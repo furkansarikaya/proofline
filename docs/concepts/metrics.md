@@ -124,7 +124,7 @@ When a run ends (`handoff <ID> DONE`, `terminate`), the control plane appends ON
 
 ### One COMPLEX end-to-end measurement (A259)
 
-The tool-call economy work (A235, A255 to A258) was measured once end to end: the repository's COMPLEX e2e task run with real agents on v0.0.68 and on v0.0.91, the transcripts read with the same `core/toolstats.mjs` for both. It is n = 1 per version with different final states, so it reports numbers and caveats, not a saving; see A259 in `docs/decisions.md`. To repeat it: `node tests/e2e/run.mjs COMPLEX claude --keep` on each checkout, then `proofline insights` in the kept project (AFTER only; a version before 0.0.88 has no `tools.jsonl`).
+The tool-call economy work (A235, A255 to A258) was measured once end to end: the repository's COMPLEX e2e task run with real agents on v0.0.68 and on v0.0.91, the transcripts read with the same `core/toolstats.mjs` for both. It is n = 1 per version with different final states, so it reports numbers and caveats, not a saving; see A259 in `docs/decisions.md`. To repeat it: `node tests/e2e/run.mjs COMPLEX claude --keep` on each checkout, then `proofline insights` in the kept project (AFTER only: `tools.jsonl` exists since 0.0.69 (A235), but `insights` reads it only since 0.0.88 (A255); the before run was read from its transcripts instead).
 
 ## Reading it: `proofline insights`
 
