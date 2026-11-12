@@ -2,6 +2,7 @@
 // Root and worktree resolution (agent.sh lines 13-27), POSIX form for stored paths, Windows input paths.
 import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { inRunWorktrees, posixForm } from './pathin.mjs';
 import * as proc from './proc.mjs';
 
 /** @param {string} p */
@@ -38,8 +39,7 @@ export function sharedRoot(root, env) {
   const r = proc.run('git', ['-C', root, 'worktree', 'list', '--porcelain'], { env, stdio: ['ignore', 'pipe', 'ignore'] });
   const first = r.stdout.toString('latin1').split('\n')[0] ?? '';
   const main = first.startsWith('worktree ') ? first.slice('worktree '.length) : '';
-  const physical = real(root);
-  return main && physical.startsWith(`${main}/.agents/local/worktrees/`) ? main : root;
+  return inRunWorktrees(main, root) ? posixForm(main) : root;
 }
 
 /** The shell's `shared_dir NAME`. @param {string} sr_main @param {string} name */

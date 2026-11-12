@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { env as ownEnv } from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { posixForm } from './pathin.mjs';
 import { refuseUntrustedScript } from './tree.mjs';
 import { makeRefusedDir, resolveWindowsTool, shimMessage } from './wintool.mjs';
 
@@ -166,7 +167,16 @@ export const SCRIPT_SHELL = 'sh';
  */
 export function runScript(argv, options = {}) {
   if (argv.length === 0 || argv[0] === '' || argv[0].startsWith('-')) throw new Error('runScript starts a script file, not a command string');
-  return run(SCRIPT_SHELL, argv, options);
+  return run(SCRIPT_SHELL, scriptArgv(argv), options);
+}
+
+/**
+ * The argument vector `sh` is started with (A263). Off Windows exactly ARGV. On win32 the script path is given in the form `sh` reads: Git for Windows `sh` takes backslashes of an
+ * unquoted path as escapes and finds no file (`C:\Users\...\markdown.sh` -> 127), and the core's own paths are mixed (`C:\Users\...\p1/.agents/...`); the script is `posixForm` (forward
+ * slashes, upper-case drive), the arguments after it are the caller's. @param {string[]} argv @param {string} [platform] @returns {string[]}
+ */
+export function scriptArgv(argv, platform = process.platform) {
+  return platform === 'win32' ? [posixForm(argv[0], platform), ...argv.slice(1)] : argv;
 }
 
 /**

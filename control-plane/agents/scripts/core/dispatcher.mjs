@@ -34,6 +34,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { worktreeGrants } from './codexprofile.mjs';
 import { bytes } from './config.mjs';
 import { Context } from './context.mjs';
 import { dispatcherIo } from './decide.mjs';
@@ -383,31 +384,12 @@ class Dispatcher {
   /** The Codex permission profile (A199, A203): the `-c` arguments, one per element. @param {string} id @param {string} root @returns {string[]} */
   codexProfileArgs(id, root) {
     let rules = `".agents"="read",".agents/runs/${id}"="write",".agents/runs/${id}/approvals"="read",".agents/runs/${id}/waivers"="read",".agents/local/locks"="write",".agents/local/submissions"="write"`;
-    let abs = '';
     const git = (/** @type {string[]} */ args) => {
       const r = proc.run('git', ['-C', root, ...args], { env: this.env, stdio: ['ignore', 'pipe', 'ignore'] });
       return r.status === 0 ? r.stdout.toString('utf8').replace(/\n$/, '') : '';
     };
-    const real = (/** @type {string} */ p) => { try { return realpathSync(p); } catch { return p; } };
-    if (isFile(`${root}/.git`)) {
-      const first = git(['worktree', 'list', '--porcelain']).split('\n')[0] ?? '';
-      const main = first.startsWith('worktree ') ? first.slice('worktree '.length) : '';
-      if (main !== '' && real(root).startsWith(`${main}/.agents/local/worktrees/`)) {
-        mkdirSync(`${main}/.agents/local/locks`, { recursive: true });
-        abs += `,"${main}/.agents/local/locks"="write"`;
-      }
-      let g = git(['rev-parse', '--git-dir']);
-      if (g !== '' && !g.startsWith('/')) g = `${root}/${g}`;
-      if (g !== '' && isDir(g)) {
-        g = real(g);
-        if (/\/worktrees\//.test(g)) {
-          abs += `,"${g}"="write"`;
-          let o = git(['rev-parse', '--git-common-dir']);
-          if (!o.startsWith('/')) o = `${root}/${o}`;
-          if (isDir(`${o}/objects`)) abs += `,"${real(`${o}/objects`)}"="write"`;
-        }
-      }
-    }
+    const real = (/** @type {string} */ p) => { try { return process.platform === 'win32' ? realpathSync.native(p) : realpathSync(p); } catch { return p; } };
+    const abs = worktreeGrants(root, { git, real, isDir, isFile, mkdirp: (p) => { mkdirSync(p, { recursive: true }); } });
     if ((rules + abs).includes('\\')) throw this.die('a path with a backslash cannot be placed in the Codex permission profile');
     return ['-c', 'default_permissions="proofline-worker"', '-c', 'permissions.proofline-worker.extends=":workspace"', '-c', `permissions.proofline-worker.filesystem={":workspace_roots"={${rules}}${abs}}`];
   }
