@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { buildRecord } from './buildrecord.mjs';
 import { Context } from './context.mjs';
 import { ProoflineError } from './errors.mjs';
-import { cleanToolEnv, detectPlatform, linkText, parseJson, pathOf, platformEnv, resolveMergeTool, shadowingEntry } from './platform.mjs';
+import { cleanToolEnv, detectPlatform, linkText, parseJson, mergeToolDecision, platformEnv } from './platform.mjs';
 import * as proc from './proc.mjs';
 
 
@@ -90,12 +90,9 @@ function run(ctx, argv) {
   else manual('proofline has no merge adapter for this host');
 
   // PATH shadowing: an empty or relative PATH entry that could hold a fake is refused
-  const badEntry = shadowingEntry(pathOf(ctx.env) ?? '');
-  if (badEntry !== null) refuse(`PATH holds an empty or relative entry ('${badEntry}'); a gh found there could be a fake`);
-  const t = resolveMergeTool(ctx, cli, top);
-  if ('shadowed' in t) refuse(`${cli} resolves to ${t.shadowed}, a project, working or temp directory; refusing a possibly shadowed ${cli}`);
-  if ('unreadable' in t) refuse(`${cli} is not installed or not on PATH; cannot check the pull request`);
-  const tool = t.path;
+  const decision = mergeToolDecision(ctx, cli, top);
+  if ('refuse' in decision) refuse(decision.refuse);
+  const tool = decision.path;
   say(`proofline merge: using ${cli} at ${tool}`);
 
   /** One call of the tool (stdin closed); `-R REPO` after the arguments for gh and glab (`mg_gh`). @param {string[]} args @param {boolean} [withRepo] */

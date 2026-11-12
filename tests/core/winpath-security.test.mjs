@@ -3,12 +3,11 @@
 // write (refusedDirs, refusedLocation) and in the PATH handed to gh/git/glab/az; the Windows rules run here with the platform and the resolver passed in; off Windows each helper answers
 // exactly what the code it replaced answered (old-versus-new tables).
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { isLocalAbsolute } from '../../control-plane/agents/scripts/core/pathin.mjs';
-import { caFileProblem, cleanToolEnv, pathOf, refusedDirs, refusedLocation, resolveMergeTool, resolveToolIn, shadowingEntry, toolPath, winEntryRefused } from '../../control-plane/agents/scripts/core/platform.mjs';
+import { caFileProblem, cleanToolEnv, mergeToolDecision, pathOf, refusedDirs, refusedLocation, resolveMergeTool, resolveToolIn, resolveToolWindows, shadowingEntry, toolPath, winEntryRefused } from '../../control-plane/agents/scripts/core/platform.mjs';
 
 /** @param {Record<string, string>} env @returns {import('../../control-plane/agents/scripts/core/context.mjs').Context} */
 const ctxOf = (env) => /** @type {any} */ ({ root: 'C:\\proj', cwd: 'C:\\proj\\sub', env });
@@ -82,11 +81,12 @@ function fakeReal(p) {
   return hit;
 }
 const isDirFake = (/** @type {string} */ p) => DIRS.some((d) => d.toLowerCase() === p.replace(/\//g, '\\').toLowerCase());
+const noLink = () => false;
 const SHORT_TEMP = 'C:\\Users\\FURKAN~1\\AppData\\Local\\Temp';
 const winCtx = (/** @type {Record<string, string>} */ extra = {}) => /** @type {any} */ ({ root: 'C:\\proj', cwd: 'C:\\proj', env: { TEMP: SHORT_TEMP, TMP: SHORT_TEMP, ...extra } });
 
 test('winEntryRefused: every spelling of a temp or project folder is refused once the ENTRY is canonical (short, long, other case, `..`, trailing dot, doubled separator, slashes); a missing folder is refused; system folders pass', () => {
-  const refused = winEntryRefused(winCtx(), fakeReal, isDirFake);
+  const refused = winEntryRefused(winCtx(), { real: fakeReal, isDir: isDirFake, isLink: noLink });
   for (const e of [`${SHORT_TEMP}\\f`, `${LONG}\\f`, 'c:/users/furkansarikaya/appdata/local/temp/f', `C:\\Users\\furkansarikaya\\AppData\\Local\\Temp2\\..\\Temp\\f`,
     `${LONG}.\\f`, 'C:\\Users\\\\furkansarikaya\\AppData\\Local\\Temp\\f', SHORT_TEMP, 'C:\\proj\\bin', 'C:\\Nope', 'C:\\Windows\\System32\\missing']) assert.equal(refused(e), true, e);
   for (const e of ['C:\\Windows\\System32', 'C:\\Program Files\\GitHub CLI', 'C:\\Tools', 'c:/windows/system32']) assert.equal(refused(e), false, e);
@@ -98,11 +98,11 @@ test('cleanToolEnv on win32 (the Windows PATH rules are wired): the PATH given t
   const entries = [`${SHORT_TEMP}\\f`, 'C:\\Windows\\System32', `${LONG}\\f`, '\\\\evil\\share', 'bin', '', 'C:\\Nope', 'C:\\proj\\bin', 'C:\\Program Files\\GitHub CLI', `C:\\Users\\furkansarikaya\\AppData\\Local\\Temp2\\..\\Temp\\f`];
   for (const key of ['PATH', 'Path']) {
     const ctx = winCtx({ [key]: entries.join(';') });
-    const out = cleanToolEnv(ctx, { platform: 'win32', real: fakeReal, isDir: isDirFake });
+    const out = cleanToolEnv(ctx, { platform: 'win32', real: fakeReal, isDir: isDirFake, isLink: noLink });
     assert.equal(out['PATH'], 'C:\\Windows\\System32;C:\\Program Files\\GitHub CLI', key);
     assert.equal(out['Path'], undefined);
   }
-  assert.equal(cleanToolEnv(winCtx({}), { platform: 'win32', real: fakeReal, isDir: isDirFake })['PATH'], undefined);
+  assert.equal(cleanToolEnv(winCtx({}), { platform: 'win32', real: fakeReal, isDir: isDirFake, isLink: noLink })['PATH'], undefined);
 });
 
 test('POSIX: cleanToolEnv keeps the former PATH rule (":" separator, absolute entries outside the refused folders)', () => {
@@ -128,9 +128,92 @@ test('the platform argument decides what is absolute where a file is read: resol
   assert.notEqual(caFileProblem(ctx, '/etc/hosts', 'linux'), 'not an absolute path');
 });
 
-test('merge.mjs is wired to the Windows rules: it asks resolveMergeTool and shadowingEntry (with pathOf) and never calls resolveToolIn or splits PATH itself', () => {
-  const src = readFileSync(new URL('../../control-plane/agents/scripts/core/merge.mjs', import.meta.url), 'utf8');
-  assert.match(src, /resolveMergeTool\(ctx, cli, top\)/);
-  assert.match(src, /shadowingEntry\(pathOf\(ctx\.env\) \?\? ''\)/);
-  assert.doesNotMatch(src, /resolveToolIn\(|split\(':'\)/);
+// ---- security round 3: ancestors, links, one snapshot, and the merge decision as a behaviour ------------------------------------------------------------------------------------
+const links = (/** @type {string[]} */ ...ls) => (/** @type {string} */ p) => ls.some((l) => l.toLowerCase() === p.toLowerCase());
+
+test('winEntryRefused: an entry whose typed path crosses a junction or symlink is refused wherever the junction points (and an lstat that fails refuses)', () => {
+  // TEMP\f is a junction to C:\Windows at check time: the canonical form looks harmless, the typed spelling (8.3 here, so the text compare misses it) is under TEMP
+  const real = (/** @type {string} */ p) => (/furkan~1\\appdata\\local\\temp\\f/i.test(p) ? 'C:\\Windows' : fakeReal(p));
+  const isDir = (/** @type {string} */ p) => isDirFake(p) || p === 'C:\\Windows';
+  const spell = ['C:\\Users\\FURKAN~1\\AppData\\Local\\Temp\\f', `${LONG}\\f`, `${LONG}\\Temp2\\..\\f`, `${LONG}.\\f`, 'C:\\Users\\\\furkansarikaya\\AppData\\Local\\Temp\\f'];
+  for (const e of spell) assert.equal(winEntryRefused(winCtx(), { real, isDir, isLink: links(`${LONG}\\f`) })(e), true, e);
+  // a junction ABOVE an allowed-looking entry (C:\Tools is a link): refused, also for the entry below it
+  const r = winEntryRefused(winCtx(), { real: fakeReal, isDir: isDirFake, isLink: links('C:\\Windows') });
+  assert.equal(r('C:\\Windows\\System32'), true);
+  assert.equal(r('C:\\Windows'), true);
+  assert.equal(r('C:\\Tools'), false);
+  // an lstat that cannot answer: fail closed
+  assert.equal(winEntryRefused(winCtx(), { real: fakeReal, isDir: isDirFake, isLink: () => { throw new Error('EPERM'); } })('C:\\Tools'), true);
+});
+
+test('winEntryRefused: one snapshot; a junction re-pointed after the first look (real() answers differently the second time) cannot change the decision', () => {
+  /** @type {Record<string, number>} */ const n = {};
+  const flip = (/** @type {string} */ p) => { n[p] = (n[p] ?? 0) + 1; if (p === 'C:\\Tools' && n[p] > 1) return `${LONG}\\evil`; return fakeReal(p); };
+  const r = winEntryRefused(winCtx(), { real: flip, isDir: () => true, isLink: noLink });
+  assert.equal(r('C:\\Tools'), false);
+  assert.equal(r('C:\\Tools'), false);   // decided once: never asked again
+  assert.equal(n['C:\\Tools'], 1);
+  // the other direction: refused stays refused
+  const m = {}; let k = 0;
+  const flip2 = (/** @type {string} */ p) => (p === 'C:\\Tools' ? (k++ === 0 ? `${LONG}\\evil` : 'C:\\Tools') : fakeReal(p));
+  const r2 = winEntryRefused(winCtx(), { real: flip2, isDir: () => true, isLink: noLink });
+  assert.equal(r2('C:\\Tools'), true); assert.equal(r2('C:\\Tools'), true); assert.deepEqual(m, {});
+});
+
+test('winEntryRefused: an entry that is not a folder is refused (isDir is consulted)', () => {
+  assert.equal(winEntryRefused(winCtx(), { real: fakeReal, isDir: () => false, isLink: noLink })('C:\\Tools'), true);
+  assert.equal(winEntryRefused(winCtx(), { real: fakeReal, isDir: () => true, isLink: noLink })('C:\\Tools'), false);
+});
+
+test('resolveToolWindows refuses the account temporary folder even when TEMP and TMP are unset (tmpdir())', () => {
+  const T = 'C:\\Users\\furkansarikaya\\AppData\\Local\\Temp';
+  const ctx = /** @type {any} */ ({ root: 'C:\\proj', cwd: 'C:\\proj', env: { PATH: `${T}\\f;C:\\Program Files\\GitHub CLI`, PATHEXT: '.EXE' } });
+  const fsx = { isFile: (/** @type {string} */ p) => /\\f\\gh\.exe$/i.test(p), real: (/** @type {string} */ p) => p, tmp: T };
+  const r = resolveToolWindows(ctx, 'gh', fsx);
+  assert.ok('unreadable' in r && /shadowed/.test(r.unreadable), JSON.stringify(r));
+});
+
+test('winEntryRefused: a link that lstat cannot see (real() lies about TEMP\\f) is still refused by the typed spelling and the canonical ancestors, which stand in the temp folder', () => {
+  const real = (/** @type {string} */ p) => (/^C:\\Users\\furkansarikaya\\AppData\\Local\\Temp\\f$/i.test(path.win32.normalize(p)) ? 'C:\\Windows' : fakeReal(p));
+  const r = winEntryRefused(winCtx(), { real, isDir: isDirFake, isLink: noLink });
+  assert.equal(r(`${LONG}\\f`), true);
+  assert.equal(r('C:\\Users\\FURKAN~1\\AppData\\Local\\Temp\\f'), true);
+});
+
+// mergeToolDecision is what `proofline merge` runs (merge.mjs calls nothing else): the Windows rules on an injected file system, the POSIX rules unchanged
+const GH = 'C:\\Program Files\\GitHub CLI\\gh.exe';
+const winFs = (/** @type {string[]} */ files) => ({ isFile: (/** @type {string} */ p) => files.some((f) => f.toLowerCase() === p.toLowerCase()), real: fakeReal2, isDir: isDirFake, tmp: LONG });
+/** @param {string} p */
+function fakeReal2(p) { try { return fakeReal(p); } catch { return `${fakeReal(path.win32.dirname(p))}\\${path.win32.basename(p)}`; } }
+const mctx = (/** @type {Record<string, string>} */ env) => /** @type {any} */ ({ root: 'C:\\proj', cwd: 'C:\\proj', env: { TEMP: SHORT_TEMP, TMP: SHORT_TEMP, PATHEXT: '.COM;.EXE;.BAT;.CMD', ...env } });
+
+test('mergeToolDecision on win32: a real gh.exe outside the refused folders is used; a planted %TEMP%\\f\\gh.exe (also .cmd, 8.3 TEMP) is refused; PATH spelled `Path`; an empty entry is skipped; a relative entry refuses', () => {
+  const fsx = winFs([GH, `${LONG}\\f\\gh.exe`, `${LONG}\\f\\gh.cmd`, `${SHORT_TEMP}\\f\\gh.exe`]);
+  const dec = (/** @type {Record<string, string>} */ env) => mergeToolDecision(mctx(env), 'gh', 'C:\\proj', { platform: 'win32', fs: fsx });
+  assert.deepEqual(dec({ PATH: 'C:\\Program Files\\GitHub CLI' }), { path: GH });
+  assert.deepEqual(dec({ Path: 'C:\\Program Files\\GitHub CLI;' }), { path: GH });
+  for (const key of ['PATH', 'Path']) {
+    for (const bad of [`${LONG}\\f`, `${SHORT_TEMP}\\f`]) {
+      const d = dec({ [key]: `${bad};C:\\Program Files\\GitHub CLI` });
+      assert.ok('refuse' in d, `${key} ${bad} ${JSON.stringify(d)}`);
+    }
+  }
+  const cmdOnly = mergeToolDecision(mctx({ PATH: `${LONG}\\f` }), 'gh', 'C:\\proj', { platform: 'win32', fs: winFs([`${LONG}\\f\\gh.cmd`]) });
+  assert.ok('refuse' in cmdOnly, JSON.stringify(cmdOnly));
+  const rel = dec({ PATH: 'bin;C:\\Program Files\\GitHub CLI' });
+  assert.ok('refuse' in rel && /empty or relative entry \('bin'\)/.test(rel.refuse), JSON.stringify(rel));
+  const unc = dec({ PATH: '\\\\srv\\share;C:\\Program Files\\GitHub CLI' });
+  assert.ok('refuse' in unc);
+  assert.ok('refuse' in dec({ PATH: 'C:\\Windows' }));   // not installed
+});
+
+test('mergeToolDecision off Windows: the former rules (empty/relative PATH entry refused, a tool found by resolveToolIn with the POSIX list), same answers as the old inline code over a table', () => {
+  const ctxP = (/** @type {string} */ p) => /** @type {any} */ ({ root: '/p', cwd: '/p', env: { PATH: p } });
+  for (const p of ['/usr/bin:/bin', '/usr/bin::/bin', '/usr/bin:', '.:/usr/bin', 'bin:/usr/bin', '/nonexistent-a', '']) {
+    const bad = shadowingEntry(p, 'linux');
+    const t = resolveToolIn({ PATH: p }, 'sh', ['/p', '/p', '/nonexistent', '/tmp', '/private/tmp', '/var/folders', '/dev/shm']);
+    const old = bad !== null ? { refuse: `PATH holds an empty or relative entry ('${bad}'); a gh found there could be a fake` }
+      : 'path' in t ? { path: t.path } : { refuse: 'shadowed' in t ? `sh resolves to ${t.shadowed}, a project, working or temp directory; refusing a possibly shadowed sh` : 'sh is not installed or not on PATH; cannot check the pull request' };
+    assert.deepEqual(mergeToolDecision(ctxP(p), 'sh', '/p', { platform: 'linux' }), old, p);
+  }
 });
