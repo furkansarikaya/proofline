@@ -16,7 +16,7 @@ import { gatePreconditions, writeGate } from './gatewrite.mjs';
 import { sha256 } from './hash.mjs';
 import { setRunValue } from './lifecycle.mjs';
 import { led } from './lifeutil.mjs';
-import { inside } from './pathin.mjs';
+import { inside, isAbsoluteInput } from './pathin.mjs';
 import * as proc from './proc.mjs';
 import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import {
@@ -170,7 +170,7 @@ function recordValidate(ctx, id, raw) {
   const asha = art.slice(sp + 1);
   if (sp < 0) reject("ARTIFACT needs '<run-relative path> <sha256>'");
   let candidate;
-  if (ap.startsWith('/')) candidate = ap;
+  if (isAbsoluteInput(ap)) candidate = ap;
   else if (ap.startsWith(`.agents/runs/${id}/`)) candidate = `${ctx.root}/${ap}`;
   else if (ap === '' || ap.includes('..')) reject(`ARTIFACT path must be run-relative: ${ap}`);
   else candidate = `${dir}/${ap}`;

@@ -32,3 +32,11 @@ export function inside(base, child, platform = process.platform) {
   const same = platform === 'win32' ? head.toLowerCase() === prefix.toLowerCase() : head === prefix;
   return same ? child.slice(prefix.length) : null;
 }
+
+/**
+ * Whether a cited path is an absolute path of the host: a leading `/` everywhere; on win32 also `C:\x`, `C:/x` and a UNC path `\\srv\share`. Off Windows `C:\x` is an ordinary relative text, as before.
+ * @param {string} p @param {string} [platform]
+ */
+export function isAbsoluteInput(p, platform = process.platform) {
+  return p.startsWith('/') || (platform === 'win32' && (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\')));
+}

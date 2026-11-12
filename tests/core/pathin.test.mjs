@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { inside, realpathPosix } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inside, isAbsoluteInput, realpathPosix } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
 
 /** The expression every call site had before A260. @param {string} base @param {string} child */
@@ -75,4 +75,10 @@ test('POSIX: realpathPosix is realpathSync, byte for byte, through a symbolic li
   assert.equal(inside(runReal, realpathPosix(path.join(t, 'alias', 'a.md'))), 'reports/a.md');
   assert.equal(inside(runReal, realpathPosix(path.join(run, 'reports', 'link', 'b.md'))), null);
   assert.throws(() => realpathPosix(path.join(run, 'nope')), /ENOENT/);
+});
+
+test('isAbsoluteInput: a leading slash everywhere; drive and UNC forms only on win32 (off Windows they stay relative text, as before)', () => {
+  for (const p of ['/etc/hosts', '/']) for (const pl of ['linux', 'win32']) assert.equal(isAbsoluteInput(p, pl), true);
+  for (const p of ['C:\\x\\y', 'c:/x', '\\\\srv\\share\\x']) { assert.equal(isAbsoluteInput(p, 'win32'), true, p); assert.equal(isAbsoluteInput(p, 'linux'), false, p); }
+  for (const p of ['', 'reports/a.md', 'C:x', 'x/C:/y', '.agents/runs/r/x', '..\\x']) for (const pl of ['linux', 'win32']) assert.equal(isAbsoluteInput(p, pl), false, p);
 });

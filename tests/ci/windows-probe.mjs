@@ -103,7 +103,7 @@ export async function main(env, io = {}) {
   const suite = env.PROBE_SUITE ?? '';
   if (!(suite in DEFAULTS)) { write(`windows-probe: unknown leg '${suite}'\n`); return 2; }
   const sel = selectTests(env.PROBE_TESTS);
-  if (!sel.ok) { write(`windows-probe: ${sel.error}\n`); return 2; }
+  if ('error' in sel) { write(`windows-probe: ${sel.error}\n`); return 2; }
   const args = legArgs(suite, sel.files);
   if (args === null) {
     write(`SKIPPED: no selected test file belongs to the ${suite} leg\n`);
