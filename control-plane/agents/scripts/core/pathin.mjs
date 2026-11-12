@@ -6,6 +6,7 @@
 // On every other platform both are exactly what the code did before: `realpathSync` unchanged, `startsWith(`${base}/`)` with a case-sensitive compare. Pure where it can be: the platform and
 // the realpath function are parameters, so the Windows rules are tested on any host.
 import { realpathSync } from 'node:fs';
+import { asciiLower } from './shellglob.mjs';
 
 /**
  * The real path of P in the form the core stores and compares paths in. Throws when P does not exist, like `realpathSync`.
@@ -22,14 +23,14 @@ export function realpathPosix(p, io = {}) {
 /**
  * The path of CHILD relative to BASE (`a/b` for `<base>/a/b`) when CHILD is strictly inside BASE, else null. Both are real paths in the form of `realpathPosix`. The boundary is a whole path
  * component (`/run2` is not inside `/run`), BASE itself is not inside BASE, and no `..` is interpreted: the callers pass real paths, where symbolic links and `..` are already resolved.
- * Case is ignored only on win32 (a Windows file system is case-insensitive); everywhere else it matters, as before.
+ * Case is ignored only on win32 and only for ASCII letters (`asciiLower`): NTFS folds case with its own table, not Unicode's, so U+212A (Kelvin sign), U+0131 (dotless i) and U+017F (long s) must never match `k`, `i`, `s`; a non-ASCII difference is a different path. Everywhere else case matters, as before.
  * @param {string} base @param {string} child @param {string} [platform] @returns {string | null}
  */
 export function inside(base, child, platform = process.platform) {
   const prefix = platform === 'win32' && base.endsWith('/') ? base : `${base}/`;   // off Windows exactly `${base}/`, as the call sites had it
   if (child.length <= prefix.length) return null;
   const head = child.slice(0, prefix.length);
-  const same = platform === 'win32' ? head.toLowerCase() === prefix.toLowerCase() : head === prefix;
+  const same = platform === 'win32' ? asciiLower(head) === asciiLower(prefix) : head === prefix;
   return same ? child.slice(prefix.length) : null;
 }
 

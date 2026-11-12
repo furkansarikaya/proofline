@@ -119,16 +119,20 @@ export async function main(env, io = {}) {
   });
   const s = parseSummary(kept.join('\n'));
   const empty = sel.files.length > 0 && MUST_FIND.includes(suite) && (s.tests ?? 0) === 0;
-  const note = empty ? 'the selection matched no test' : status === 0 ? '' : `exit ${status}`;
+  const note = empty ? 'the selection matched nothing (no test ran: file not found or no test in it)' : status === 0 ? '' : `exit ${status}`;
   write(`${resultLine(suite, s, note)}\n`);
   sum(`${SUMMARY_HEAD}${summaryRow(suite, s, note)}`);
   return empty && status === 0 ? 1 : status;
 }
 
+/** The options of the one process this script starts: no shell, so the selection is never parsed by one. */
+/** @returns {import('node:child_process').SpawnOptions} */
+export function spawnOptions() { return { cwd: root, stdio: ['ignore', 'pipe', 'inherit'], shell: false }; }
+
 /** @param {string[]} args @param {(line: string) => void} onLine @returns {Promise<number>} */
 function execNode(args, onLine) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'inherit'], shell: false });
+    const child = spawn(process.execPath, args, spawnOptions());
     let rest = '';
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (/** @type {string} */ chunk) => {

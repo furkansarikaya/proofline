@@ -82,3 +82,13 @@ test('isAbsoluteInput: a leading slash everywhere; drive and UNC forms only on w
   for (const p of ['C:\\x\\y', 'c:/x', '\\\\srv\\share\\x']) { assert.equal(isAbsoluteInput(p, 'win32'), true, p); assert.equal(isAbsoluteInput(p, 'linux'), false, p); }
   for (const p of ['', 'reports/a.md', 'C:x', 'x/C:/y', '.agents/runs/r/x', '..\\x']) for (const pl of ['linux', 'win32']) assert.equal(isAbsoluteInput(p, pl), false, p);
 });
+
+test('win32: only ASCII letters fold; Kelvin sign, dotless i and long s never match k, i, s (NTFS folds with its own table)', () => {
+  assert.equal(inside('C:/r/k', 'C:/r/\u212A/x', 'win32'), null);
+  assert.equal(inside('C:/r/i', 'C:/r/\u0131/x', 'win32'), null);
+  assert.equal(inside('C:/r/s', 'C:/r/\u017F/x', 'win32'), null);
+  assert.equal(inside('C:/r/\u212A', 'C:/r/k/x', 'win32'), null);
+  assert.equal(inside('C:/r/K', 'C:/r/k/x', 'win32'), 'x', 'ASCII case still folds');
+  assert.equal(inside('C:/r/\u212A', 'C:/r/\u212A/x', 'win32'), 'x', 'the same spelling matches');
+  assert.equal(inside('C:/r/\u00C9', 'C:/r/\u00E9/x', 'win32'), null, 'no non-ASCII folding at all');
+});

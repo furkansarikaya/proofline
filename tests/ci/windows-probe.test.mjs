@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { DEFAULTS, legArgs, main, parseSummary, resultLine, selectTests } from './windows-probe.mjs';
+import { DEFAULTS, legArgs, main, parseSummary, resultLine, selectTests, spawnOptions } from './windows-probe.mjs';
 
 const repo = resolve(import.meta.dirname, '../..');
 
@@ -121,5 +121,13 @@ test('main: a bad input or an unknown leg starts nothing and fails with status 2
   }
   const none = await run({ PROBE_SUITE: 'core 1/4', PROBE_TESTS: 'tests/core/missing.test.mjs' }, { lines: ['\u2139 tests 0', '\u2139 pass 0', '\u2139 fail 0'] });
   assert.equal(none.status, 1);
-  assert.match(none.out, /the selection matched no test/);
+  assert.match(none.out, /the selection matched nothing/);
+});
+
+test('the one process the script starts runs without a shell, and a missing file (0 tests) fails the leg that must find it', async () => {
+  assert.equal(spawnOptions().shell, false);
+  assert.deepEqual(spawnOptions().stdio, ['ignore', 'pipe', 'inherit']);
+  const r = await run({ PROBE_SUITE: 'invariants', PROBE_TESTS: 'tests/invariants-node/missing.test.mjs' }, { lines: ['\u2139 tests 0'] });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /file not found/);
 });
