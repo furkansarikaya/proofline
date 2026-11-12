@@ -6,6 +6,7 @@
 // On every other platform both are exactly what the code did before: `realpathSync` unchanged, `startsWith(`${base}/`)` with a case-sensitive compare. Pure where it can be: the platform and
 // the realpath function are parameters, so the Windows rules are tested on any host.
 import { realpathSync } from 'node:fs';
+import { win32 } from 'node:path';
 import { asciiLower, asciiUpper } from './shellglob.mjs';
 
 /**
@@ -68,3 +69,15 @@ export function isAbsoluteInput(p, platform = process.platform) {
  * A261). Off Windows the text is returned as it is. @param {string} text @param {string} [platform]
  */
 export function eolText(text, platform = process.platform) { return platform === 'win32' ? text.replace(/\r\n/g, '\n') : text; }
+
+/**
+ * The address of a local remote as the core stores and shows it. Off Windows, and for anything that is not a drive-absolute path (`C:\x`, `C:/x`), exactly U. On win32 git answers a relative
+ * remote resolved against the working folder with its `..` still in it (`C:\proj\.agents\local\worktrees\LC/../proj-lo.git`); that is folded (`path.win32.resolve`) and, when the folder exists,
+ * made the long forward-slash real path, so the same remote has one spelling whatever folder asked (A261).
+ * @param {string} u @param {string} [platform] @param {(p: string) => string} [real]
+ */
+export function localRemote(u, platform = process.platform, real = realpathPosix) {
+  if (platform !== 'win32' || !/^[A-Za-z]:[\\/]/.test(u)) return u;
+  const abs = win32.resolve(u);
+  try { return real(abs); } catch { return posixForm(abs, platform); }
+}

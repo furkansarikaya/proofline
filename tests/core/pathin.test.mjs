@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { inside, isAbsoluteInput, posixForm, realpathPosix, samePath } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inside, isAbsoluteInput, localRemote, posixForm, realpathPosix, samePath } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
 
@@ -112,4 +112,11 @@ test('POSIX: the absolute-path tests A261 swapped in (leadlog, toolstats, metric
     assert.equal(isAbsoluteInput(p, 'linux') && /^.*\.jsonl$/.test(p), /^\/.*\.jsonl$/.test(p), JSON.stringify(p));              // metricsStep: /^\/.*\.jsonl$/
     assert.equal(/^(\/|\.\/|\.\.\/)/.test(p) || isAbsoluteInput(p, 'linux'), /^(\/|\.\/|\.\.\/)/.test(p), JSON.stringify(p));    // platform: the local-origin test
   }
+});
+
+test('localRemote (A261): the address itself off Windows and for anything but a drive path; on win32 the `..` is folded and the real path used when it exists', () => {
+  for (const u of ['', '/a/b/../c.git', '../x.git', 'C:\\x\\..\\y', 'https://h/o/r', 'git@h:o/r']) assert.equal(localRemote(u, 'linux', () => { throw new Error('not called'); }), u, u);
+  for (const u of ['', '/a/b', '../x.git', 'https://h/o/r', 'git@h:o/r', 'file:///C:/x']) assert.equal(localRemote(u, 'win32', () => { throw new Error('not called'); }), u, u);
+  assert.equal(localRemote('C:\\p\\wt\\LC/../p-lo.git', 'win32', (a) => `real:${a}`), 'real:C:\\p\\wt\\p-lo.git');
+  assert.equal(localRemote('c:/p/wt/LC/../p-lo.git', 'win32', () => { throw new Error('ENOENT'); }), 'C:/p/wt/LC/p-lo.git'.replace('wt/LC', 'wt'));
 });

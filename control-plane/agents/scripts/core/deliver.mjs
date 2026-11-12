@@ -4,7 +4,7 @@
 // push; `proofline merge` merges). The pull request is read through the platform tool (core/platform.mjs) BEFORE the locks are taken (a slow tool never
 // holds them). A merge is proved IN PROCESS (a pull request seen merged, or git) and the cleanup that follows is a call of this process: no file, flag or
 // lock says "merged" (A215).
-import { realpathPosix } from './pathin.mjs';
+import { localRemote, realpathPosix } from './pathin.mjs';
 import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir, userInfo } from 'node:os';
@@ -71,7 +71,7 @@ export function originUrl(ctx) {
   if (r.status !== 0) return null;
   const u = sub(r.out);
   if (u.startsWith('-')) return null;
-  if (u === '' || u.startsWith('/') || u.includes('://') || u.includes('@') || u.includes(':')) return u;
+  if (u === '' || u.startsWith('/') || u.includes('://') || u.includes('@') || u.includes(':')) return localRemote(u);   // a drive path on Windows: folded and made the real path (A261)
   const main = ctx.sharedMain();
   try {
     const abs = realpathPosix(path.resolve(main, u));   // Windows: long names and forward slashes (A261); elsewhere realpathSync
