@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { test as realTest } from 'node:test';
+import { skipOnWin32 } from '../lib/winpath.mjs';
+/** Every test here starts a shell-script `gh`, `glab` or `az` stub from a temp folder; on Windows only a real .exe outside temp folders runs, by design (A252). That behaviour is covered by wintool.test.mjs and winpath-security.test.mjs. */
+const test = skipOnWin32(realTest, 'shell-script platform tools in temp folders are refused by design on Windows (A252, A262); the win32 resolver is tested in wintool.test.mjs and winpath-security.test.mjs');
 import { ciFailed, detectPlatform, linkText, platformEnv, resolveTool, runTool, warnText } from '../../control-plane/agents/scripts/core/platform.mjs';
 import { A, DONE, accepted, fakeGh, fakeTool, g, gOk, readFileSync, refused, run, toolRoot } from './run6-lib.mjs';
 import { project } from './legacy-lib.mjs';

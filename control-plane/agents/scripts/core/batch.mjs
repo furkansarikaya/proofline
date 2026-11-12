@@ -346,9 +346,15 @@ function approvedAt(ctx) {
 
 // ---- processes: the session and the sleep inhibitor ------------------------------------------------------------------------------------------
 
-/** The state letters of `ps -o stat=` for a pid: '' when there is no such process. @param {number} pid */
-function pidStat(pid) {
+/** The state letters of `ps -o stat=` for a pid: '' when there is no such process. @param {number} pid @param {string} [platform] @param {(pid: number) => string} [readStat] the `ps` read, injectable for the tests */
+export function pidStat(pid, platform = process.platform, readStat = psStat) {
   try { process.kill(pid, 0); } catch (e) { if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ESRCH') return ''; }
+  // Windows has no `ps`: a process that answers signal 0 is alive (state letter unknown, so never a zombie `Z`), and answering '' here made every live owner look dead (A262)
+  if (platform === 'win32') return 'S';
+  return readStat(pid);
+}
+/** The `ps` read of pidStat. @param {number} pid */
+function psStat(pid) {
   const r = proc.run('ps', ['-o', 'stat=', '-p', String(pid)], { stdio: ['ignore', 'pipe', 'ignore'] });
   return r.stdout.toString('latin1').replace(/ /g, '').replace(/\n/g, '');
 }

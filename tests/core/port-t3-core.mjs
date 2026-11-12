@@ -13,14 +13,16 @@ import { normaliseSide } from './port-t3-normalise.mjs';
 
 /** Every file under root except .git/: path -> mode and bytes (a symlink holds its target; an empty directory is `<dir>/`). @param {string} root @returns {Map<string, { mode: number, data: Buffer }>} */
 export function snapTree(root) {
+  // NTFS has no permission bits: Node reports 0666 for a file and 0777 for a folder. The recorded values are the POSIX ones (0644 / 0755), so on win32 a file is read with umask 022 applied and a folder as 0755; an execute bit cannot be represented (A262)
+  const modeOf = (/** @type {number} */ m, /** @type {boolean} */ dir = false) => (process.platform === 'win32' ? (dir ? 0o755 : ((m & 0o7777) & ~0o022)) : m & 0o7777);
   /** @type {Map<string, { mode: number, data: Buffer }>} */ const m = new Map();
   const walk = (/** @type {string} */ rel) => {
     for (const n of readdirSync(path.join(root, rel)).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
       const r = rel ? `${rel}/${n}` : n; if (r === '.git') continue;
       const st = lstatSync(path.join(root, r));
-      if (st.isDirectory()) { walk(r); if (readdirSync(path.join(root, r)).length === 0) m.set(`${r}/`, { mode: st.mode & 0o7777, data: Buffer.alloc(0) }); }
+      if (st.isDirectory()) { walk(r); if (readdirSync(path.join(root, r)).length === 0) m.set(`${r}/`, { mode: modeOf(st.mode, true), data: Buffer.alloc(0) }); }
       else if (st.isSymbolicLink()) m.set(r, { mode: 0o120000, data: Buffer.from(readlinkSync(path.join(root, r))) });
-      else m.set(r, { mode: st.mode & 0o7777, data: readFileSync(path.join(root, r)) });
+      else m.set(r, { mode: modeOf(st.mode), data: readFileSync(path.join(root, r)) });
     }
   };
   walk(''); return m;

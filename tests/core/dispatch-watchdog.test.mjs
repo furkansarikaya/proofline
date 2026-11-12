@@ -12,6 +12,9 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { fixture } from './dispatch-lib.mjs';
 
+/** POSIX process groups, SIGTERM/SIGKILL/SIGHUP and `trap` in shell-script fake workers do not exist on Windows (the platform kill is taskkill, tested in proc and budget tests); this file hung a Windows leg for 90 minutes (A262). Only the text test of `dispatch.sh` is not skipped. Every POSIX test has a `timeout`, so an await on a child that never closes fails fast. */
+const posixOnly = process.platform === 'win32' ? 'POSIX process groups, signals, `ps` and a shell-script fake worker (A262)' : false;
+
 const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
 /** @param {number} pid */
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -76,8 +79,8 @@ async function finish(clk, h) {
   return code;
 }
 
-describe('TERM at the timeout, KILL after the grace', () => {
-  test('a runtime that ignores TERM is killed after the grace: 124, and the process is gone', async () => {
+describe('TERM at the timeout, KILL after the grace', { skip: posixOnly }, () => {
+  test('a runtime that ignores TERM is killed after the grace: 124, and the process is gone', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: LIMIT_S });
     const clk = heldClock();
@@ -97,7 +100,7 @@ describe('TERM at the timeout, KILL after the grace', () => {
       assert.match(fx.runFile('worker-evidence/WINDOW-1.yaml'), /exit_status: "124"/);
     } finally { clk.restore(); }
   });
-  test('a hanging runtime is stopped at the timeout: 124, no record', async () => {
+  test('a hanging runtime is stopped at the timeout: 124, no record', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: LIMIT_S });
     const clk = heldClock();
@@ -112,7 +115,7 @@ describe('TERM at the timeout, KILL after the grace', () => {
       assert.match(h.err(), new RegExp(`implementer on codex timed out after ${LIMIT_S}s`));
     } finally { clk.restore(); }
   });
-  test('a runtime that exits early is a failure of the step (exit 1, its status in the window), never a timeout; nothing is left to stop', async () => {
+  test('a runtime that exits early is a failure of the step (exit 1, its status in the window), never a timeout; nothing is left to stop', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'early' });
@@ -123,7 +126,7 @@ describe('TERM at the timeout, KILL after the grace', () => {
     assert.equal(existsSync(path.join(fx.dir, '.agents/runs/LC/dispatch/RESUME-implementer.md')), false, 'no resume note without a timeout');
     assert.equal(guardiansHere(), 0, 'nothing is left to stop');
   });
-  test('grandchildren are stopped with it: the whole group gets TERM, and the one that ignores TERM is killed after the grace', async () => {
+  test('grandchildren are stopped with it: the whole group gets TERM, and the one that ignores TERM is killed after the grace', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: LIMIT_S });
     const clk = heldClock();
@@ -143,7 +146,7 @@ describe('TERM at the timeout, KILL after the grace', () => {
       assert.equal(alive(pidOf(fx)), false);
     } finally { clk.restore(); }
   });
-  test('the runtime runs in a process group of its own, led by its guardian (a signal to the dispatcher\'s group does not reach it by itself)', async () => {
+  test('the runtime runs in a process group of its own, led by its guardian (a signal to the dispatcher\'s group does not reach it by itself)', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const h = fx.start(['LC', 'implementer'], { FAKE_CODEX: 'hang' }, {});
@@ -154,7 +157,7 @@ describe('TERM at the timeout, KILL after the grace', () => {
     h.interrupt('SIGTERM');
     assert.equal(await h.done, 143);
   });
-  test('a grandchild that started a session of its own is found by the descendant walk and stopped too', async () => {
+  test('a grandchild that started a session of its own is found by the descendant walk and stopped too', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: LIMIT_S });
     const clk = heldClock();
@@ -171,13 +174,13 @@ describe('TERM at the timeout, KILL after the grace', () => {
   });
 });
 
-describe('a worker never outlives its dispatcher: the whole process group of the dispatcher is killed with SIGKILL (the caller\'s tool timeout, A224)', () => {
+describe('a worker never outlives its dispatcher: the whole process group of the dispatcher is killed with SIGKILL (the caller\'s tool timeout, A224)', { skip: posixOnly }, () => {
   /** The launcher as the caller starts it: leader of its own group, so that one kill reaches the shell and the node of the dispatcher and nothing else. @param {import('./dispatch-lib.mjs').Fixture} fx @param {string[]} args @param {Record<string, string>} env */
   const launcher = (fx, args, env) => spawn('sh', [path.join(fx.dir, '.agents/scripts/dispatch.sh'), ...args], { cwd: fx.dir, env: { ...fx.env, ...env }, detached: true, stdio: 'ignore' });
   /** @param {import('./dispatch-lib.mjs').Fixture} fx */
   const workerPids = (fx) => [pidOf(fx), ...grandPids(fx)];
   for (const mode of ['grandchildren', 'ignoreterm', 'implementhang', 'implementgrand']) {
-    test(`${mode}: the worker and its grandchildren are gone within a few seconds, and the implementer's window is then closed by the guardian (status 137, exactly once)`, async () => {
+    test(`${mode}: the worker and its grandchildren are gone within a few seconds, and the implementer's window is then closed by the guardian (status 137, exactly once)`, { timeout: 100000 }, async () => {
       const fx = fixture();
       fx.setConfig({ timeout: 3600 });
       const child = launcher(fx, ['LC', 'implementer'], { FAKE_CODEX: mode });
@@ -205,7 +208,7 @@ describe('a worker never outlives its dispatcher: the whole process group of the
       assert.match(fx.ledger(), /the dispatcher got SIGKILL \(no handler ran\); the worker group is dead and the write window was closed by the guardian/);
     });
   }
-  test('a role without a write window (a reviewer) killed the same way: the worker is gone, no window is opened or closed, nothing is ledgered by a closer', async () => {
+  test('a role without a write window (a reviewer) killed the same way: the worker is gone, no window is opened or closed, nothing is ledgered by a closer', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const child = launcher(fx, ['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'hang' });
@@ -219,7 +222,7 @@ describe('a worker never outlives its dispatcher: the whole process group of the
     assert.deepEqual(windows(fx), []);
     assert.doesNotMatch(safeLedger(fx), /killed from outside/);
   });
-  test('a window that was already closed is not closed again: a kill after the step ended finds no guardian (the worker has exited)', async () => {
+  test('a window that was already closed is not closed again: a kill after the step ended finds no guardian (the worker has exited)', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'implement' });
@@ -237,9 +240,9 @@ const pgidOf = (pid) => spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { en
 /** @param {number} pid */
 const ppidOf = (pid) => spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
 
-describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker\'s group', () => {
+describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker\'s group', { skip: posixOnly }, () => {
   for (const sig of /** @type {const} */ (['SIGHUP', 'SIGINT', 'SIGTERM'])) {
-    test(`${sig}: the worker receives that signal, the dispatcher waits for it, ledgers the interruption, writes the resume note and exits 143`, async () => {
+    test(`${sig}: the worker receives that signal, the dispatcher waits for it, ledgers the interruption, writes the resume note and exits 143`, { timeout: 100000 }, async () => {
       const fx = fixture();
       fx.setConfig({ timeout: 3600 });
       const h = fx.start(['LC', 'implementer'], { FAKE_CODEX: 'recordsig' }, {});
@@ -257,7 +260,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
     });
   }
   for (const [sig, status] of /** @type {const} */ ([['SIGHUP', 129], ['SIGINT', 130], ['SIGTERM', 143]])) {
-    test(`${sig}: a stopped implementer's window is CLOSED after the worker has exited, with status ${status}; its partial edits are the implementer's and the next dispatch continues the step (user decision of 2026-11-07)`, async () => {
+    test(`${sig}: a stopped implementer's window is CLOSED after the worker has exited, with status ${status}; its partial edits are the implementer's and the next dispatch continues the step (user decision of 2026-11-07)`, { timeout: 100000 }, async () => {
       const fx = fixture();
       fx.setConfig({ timeout: 3600 });
       const h = fx.start(['LC', 'implementer'], { FAKE_CODEX: 'implementhang' });
@@ -277,7 +280,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
       assert.deepEqual(windows(fx), ['WINDOW-1.yaml', 'WINDOW-2.yaml']);
     });
   }
-  test('closing the window attests nothing the gates do not judge: the handoff to IMPLEMENTED is still refused by the scope and evidence checks', async () => {
+  test('closing the window attests nothing the gates do not judge: the handoff to IMPLEMENTED is still refused by the scope and evidence checks', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const h = fx.start(['LC', 'implementer'], { FAKE_CODEX: 'implementhang' });
@@ -289,7 +292,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
     assert.notEqual(r.status, 0, 'the handoff accepted an edit without evidence: ' + r.stdout);
     assert.match(r.stderr + r.stdout, /unexpected or unmapped task-introduced paths|worker evidence|RED|GREEN/i, 'a handoff gate (scope or worker evidence) judged the content');
   });
-  test('a reviewer stopped by TERM has no window: nothing is opened or closed and the text does not mention one', async () => {
+  test('a reviewer stopped by TERM has no window: nothing is opened or closed and the text does not mention one', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const h = fx.start(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'recordsig' });
@@ -299,7 +302,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
     assert.deepEqual(windows(fx), []);
     assert.doesNotMatch(h.err(), /write window/);
   });
-  test('stopping a dispatch also stops the worker of its failover: Claude hits its limit, the Codex worker runs, the dispatch is stopped, the Codex worker is gone', async () => {
+  test('stopping a dispatch also stops the worker of its failover: Claude hits its limit, the Codex worker runs, the dispatch is stopped, the Codex worker is gone', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const h = fx.start(['LC', 'reviewer'], { FAKE_CLAUDE: 'limit', FAKE_CODEX: 'recordsig' }, {});
@@ -310,7 +313,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
     assert.equal(alive(pidOf(fx)), false);
     assert.equal(readLoc(fx, 'got.sig').trim(), 'TERM');
   });
-  test('a signal while the dispatcher waits to retry a dropped connection ends the wait: 143, no further attempt', async () => {
+  test('a signal while the dispatcher waits to retry a dropped connection ends the wait: 143, no further attempt', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ backoff: 3600 });   // a wait that no test machine gets to the end of: if the signal did not end it, this test would hang to its failsafe
     const h = fx.start(['LC', 'implementer'], { FAKE_CODEX: 'flaky' }, {});
@@ -322,7 +325,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
 });
 
 describe('the launcher (dispatch.sh) as a process: real signals, real constants', () => {
-  test('TERM to the process: the worker is stopped, the exit status is 143, the interruption is ledgered', async () => {
+  test('TERM to the process: the worker is stopped, the exit status is 143, the interruption is ledgered', { timeout: 100000, skip: posixOnly }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });
     const child = spawn('sh', [path.join(fx.dir, '.agents/scripts/dispatch.sh'), 'LC', 'implementer'], { cwd: fx.dir, env: { ...fx.env, FAKE_CODEX: 'recordsig' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -337,7 +340,7 @@ describe('the launcher (dispatch.sh) as a process: real signals, real constants'
     assert.equal(alive(pidOf(fx)), false);
     assert.match(fx.ledger(), /dispatch interrupted signal=TERM/);
   });
-  test('a normal dispatch through the launcher: exit 0, the submitted line on stdout', () => {
+  test('a normal dispatch through the launcher: exit 0, the submitted line on stdout', { timeout: 100000, skip: posixOnly }, () => {
     const fx = fixture();
     const r = fx.launch(['LC', 'reviewer', '--runtime', 'claude']);
     assert.equal(r.status, 0, r.err);

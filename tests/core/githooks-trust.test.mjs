@@ -214,7 +214,10 @@ test('A249 init (SEC-2): a TRACKED extra file in .agents/scripts keeps the path 
   assert.equal(readFileSync(`${d}/.agents/scripts/secret-scan.sh`, 'utf8'), HOSTILE, 'what the attack relies on: a restore brings it back');
 });
 
-test('A249 init (SEC-3): a repository-controlled file name with control characters never reaches the terminal as such', () => {
+/** NTFS cannot hold a file name with a control character (ESC, newline): the repository-controlled name of these two tests cannot exist on Windows, so there is nothing to print (A262). */
+const noCtlNames = process.platform === 'win32' ? 'a file name with a control character cannot exist on NTFS' : false;
+
+test('A249 init (SEC-3): a repository-controlled file name with control characters never reaches the terminal as such', { skip: noCtlNames }, () => {
   const evil = 'post-\x1b[31mcheckout';
   const d = cloned('esc', { ...shippedHooks(), [evil]: HOSTILE });
   const r = sb.pl(d, INIT);
@@ -602,6 +605,7 @@ test('A249 doctor (R3): proofline\'s file on disk over an older staged or commit
 
 test('A249 doctor and init (SEC-3, round 3): repository text reaches the terminal without control characters on EVERY route: a foreign hook command, a skill folder name, a JSON error, a line relayed from the core, and init\'s own output', () => {
   const esc = '\x1b[2K\x1b[1A\x1b[8m';
+  const names = process.platform !== 'win32';   // A262: only the routes that need a FILE NAME with ESC or a newline are skipped on Windows (NTFS cannot hold one); the hook name, settings, JSON, config and relayed-core routes run there
   const d = installed('doc-esc-all');
   const sf = `${d}/.claude/settings.json`;
   const j = JSON.parse(readFileSync(sf, 'utf8'));
@@ -609,8 +613,10 @@ test('A249 doctor and init (SEC-3, round 3): repository text reaches the termina
   j.hooks.SessionStart.push({ hooks: [{ type: 'command', command: `echo ${esc}hidden` }] }, { hooks: [{ type: 'command', command: `x\n${forged}\r${forged}\u2028${forged}` }] });
   writeExec(`${d}/.agents/githooks/post-\u011b[2K\u202e`, HOSTILE);
   writeFileSync(sf, JSON.stringify(j, null, 2));
-  mkdirSync(`${d}/.claude/skills/tdd-${esc}`, { recursive: true });
-  mkdirSync(`${d}/.claude/skills/\n${forged}-review`, { recursive: true });
+  if (names) {
+    mkdirSync(`${d}/.claude/skills/tdd-${esc}`, { recursive: true });
+    mkdirSync(`${d}/.claude/skills/\n${forged}-review`, { recursive: true });
+  }
   writeFileSync(`${d}/.claude/settings.local.json`, `[${esc}]`);
   const cfg = `${d}/.agents/config.yaml`;
   writeFileSync(cfg, `${readFileSync(cfg, 'utf8')}\nrules:\n  budget_bytes: 1${esc}x\n`);
@@ -618,22 +624,24 @@ test('A249 doctor and init (SEC-3, round 3): repository text reaches the termina
   assert.doesNotMatch(r.out, /[\x00-\x09\x0b-\x1f\x7f-\x9f]/, JSON.stringify(r.out.split('\n').filter((l) => /[\x00-\x09\x0b-\x1f\x7f-\x9f]/.test(l))));
   assert.doesNotMatch(r.out, /^PASS code: every script/m, 'a forged PASS line stands alone in the output');
   assert.match(r.out, /^WARN foreign hook: SessionStart in \S*\.claude\/settings\.json may add context to the prompt: x\?PASS code: every script and hook is proofline's copy\?PASS code:/m, r.out);
-  assert.match(r.out, /^WARN overlapping skill: \?PASS code: every script and hook is proofline's copy-review /m, r.out);
+  if (names) assert.match(r.out, /^WARN overlapping skill: \?PASS code: every script and hook is proofline's copy-review /m, r.out);
   assert.match(r.out, /^FAIL git hooks: \.agents\/githooks\/post-\u011b\[2K\? is not a file proofline ships/m, r.out);
   assert.match(r.out, /^WARN foreign hook: SessionStart in \S*\.claude\/settings\.json may add context to the prompt: echo \?\[2K\?\[1A\?\[8mhidden/m, r.out);
-  assert.match(r.out, /^WARN overlapping skill: tdd-\?\[2K\?\[1A\?\[8m /m, r.out);
+  if (names) assert.match(r.out, /^WARN overlapping skill: tdd-\?\[2K\?\[1A\?\[8m /m, r.out);
   assert.match(r.out, /^FAIL claude hooks: \.claude\/settings\.local\.json is not a valid JSON object \(.*\?\[2K/m, r.out);
   assert.match(r.out, /^FAIL config: agent\.sh config-check failed: .*invalid number for rules\.budget_bytes: 1\?\[2K/m, r.out); // a line relayed from the core
   // the final verdict line cannot be hidden: it is the last line and plain
   assert.match(r.out.trimEnd().split('\n').pop() ?? '', /^doctor: \d+ FAIL, \d+ WARN$/);
   // init and upgrade: a path named by the manifest (the repository's) in the orphan list
   const mf = `${d}/.agents/.proofline-manifest`;
-  const rel = `.agents/old${esc}file.txt`;
-  writeFileSync(`${d}/${rel}`, 'mine');
-  writeFileSync(mf, `${readFileSync(mf, 'utf8')}${'0'.repeat(64)}  ${rel}\n`);
-  const up = sb.pl(d, ['upgrade', '--yes']);
-  assert.doesNotMatch(up.text, /[\x00-\x09\x0b-\x1f\x7f]/, JSON.stringify(up.text.split('\n').filter((l) => /\x1b/.test(l))));
-  assert.match(up.out, /\? \.agents\/old\?\[2K\?\[1A\?\[8mfile\.txt \(modified, no longer shipped; kept\)/, up.out);
+  if (names) {
+    const rel = `.agents/old${esc}file.txt`;
+    writeFileSync(`${d}/${rel}`, 'mine');
+    writeFileSync(mf, `${readFileSync(mf, 'utf8')}${'0'.repeat(64)}  ${rel}\n`);
+    const up = sb.pl(d, ['upgrade', '--yes']);
+    assert.doesNotMatch(up.text, /[\x00-\x09\x0b-\x1f\x7f]/, JSON.stringify(up.text.split('\n').filter((l) => /\x1b/.test(l))));
+    assert.match(up.out, /\? \.agents\/old\?\[2K\?\[1A\?\[8mfile\.txt \(modified, no longer shipped; kept\)/, up.out);
+  }
 });
 
 // ---- settings (item 2 of the review; A238 closed it for the project files, R2 adds the user's and the managed ones) ---------------------------------------------

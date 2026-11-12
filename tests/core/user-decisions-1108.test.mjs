@@ -257,8 +257,11 @@ test('B2 hooksPath: the value is read expanded by git (%(prefix), ~, ~user); a s
   assert.equal(git(d, ['config', '--local', '--get', 'core.hooksPath']).stdout.trim(), '%(prefix)/githooks');
   assert.match(upf.out, /NOT overwritten/);
   // ~user: the home of another user is another folder
+  // (`~root` is a Unix account name: git on Windows has no passwd database to expand it with, so there is nothing to compare, A262)
+  if (process.platform !== 'win32') {
   git(d, ['config', '--local', 'core.hooksPath', '~root/githooks']);
   assert.match(sb.pl(d, ['doctor']).out, /^WARN git hooks: core\.hooksPath is '[^']*root[^']*\/githooks'/m);
+  }
   // the command line scope names itself
   const cl = sb.pl(d, ['doctor'], { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/somewhere/else' });
   assert.match(cl.out, /^WARN git hooks: core\.hooksPath is '\/somewhere\/else' \((command|the git command) line/m, cl.out);

@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fail } from './errors.mjs';
 import { git, gitPaths } from './git.mjs';
 import { isFile } from './paths.mjs';
+import { scratchRoot } from './pathin.mjs';
 import { fileLines, fileText, planScope, scopePaths } from './records.mjs';
 import { blockOnlyText, hasBlockMarkers, inKnowledgeScope, installedControlPath, installedControlPaths, knowledgeScopeEntries, stripProoflineBlock, words } from './scope.mjs';
 
@@ -247,7 +248,7 @@ function chunks(a, n) { /** @type {string[][]} */ const out = []; for (let i = 0
  * @param {Context} ctx @param {string} [mode]
  */
 export function contentFingerprint(ctx, mode = '') {
-  const tmp = mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'proofline-fp.'));
+  const tmp = mkdtempSync(path.join(scratchRoot(process.env.TMPDIR), 'proofline-fp.'));
   try {
     const { index, objects } = plainGitPaths(ctx) ?? gitPaths(ctx);
     const { named, keep, td } = namedPaths(ctx);

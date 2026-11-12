@@ -154,6 +154,9 @@ test('report: a character outside the allowed set (a path, an address) refuses t
   assert.match(latest(d), /^classification: ab$/m);
 });
 
+/** On Windows the platform resolver runs only a real `.exe` outside every temporary folder and refuses a `.cmd` shim (A252, A262): a shell-script `gh` in a temp folder cannot be the program there. */
+const noShim = process.platform === 'win32' ? 'a shell-script gh in a temp folder is refused by design on Windows (only a real gh.exe outside temp folders runs, A252)' : false;
+
 /** A `gh` on PATH that records its arguments and the working directory. */
 function ghShim() {
   const dir = tempDir('fr-gh-');
@@ -169,7 +172,7 @@ test('issue-cmd prints the one command a send would run and starts nothing', () 
   assert.equal(A(d, ['friction', 'issue-cmd']).out, 'gh issue create --repo furkansarikaya/proofline --title "proofline friction report" --body-file .agents/local/friction/latest.md\n');
 });
 
-test('send: nothing without the user\'s approval (gh is never started); the approval is bound to the report hash and single use; only the lead sends', () => {
+test('send: nothing without the user\'s approval (gh is never started); the approval is bound to the report hash and single use; only the lead sends', { skip: noShim }, () => {
   const d = withRun();
   const gh = ghShim();
   accepted(A(d, ['friction', 'report', 'RUN-001']), 'report');
@@ -200,7 +203,7 @@ test('send: nothing without the user\'s approval (gh is never started); the appr
   assert.ok(!existsSync(`${gh.dir}/args`));
 });
 
-test('send: no environment value picks the program that runs after an approval (the former PROOFLINE_TEST seam is gone)', () => {
+test('send: no environment value picks the program that runs after an approval (the former PROOFLINE_TEST seam is gone)', { skip: noShim }, () => {
   const d = withRun();
   const gh = ghShim();
   accepted(A(d, ['friction', 'report', 'RUN-001']), 'report');

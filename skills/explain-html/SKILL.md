@@ -4,7 +4,7 @@ description: Explains a topic, a task, a review or a completion report as one se
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.94"
+  version: "0.0.95"
 ---
 
 # explain-html

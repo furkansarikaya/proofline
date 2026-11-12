@@ -16,7 +16,7 @@ export function build(target) {
   f.git(['add', 'README.md']);
   f.git(['commit', '-q', '-m', 'init']);
   f.mkdir('.agents/scripts', '.agents/local/metrics');
-  f.w('.agents/config.yaml', 'proofline_version: 0.0.94\nmetrics: on\n');
+  f.w('.agents/config.yaml', 'proofline_version: 0.0.95\nmetrics: on\n');
   f.w('.agents/scripts/agent.sh', '#!/bin/sh\nexit 0\n');
   // the Node core beside it: `proofline insights` and `queue` run in it
   f.cp(path.join(fxScripts, 'proofline-core.mjs'), '.agents/scripts/proofline-core.mjs');

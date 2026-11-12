@@ -12,6 +12,7 @@ import { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { flatten } from '../../control-plane/agents/ecosystems.mjs';
 import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 export const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const dataDir = path.join(repo, 'tests', 'fixtures', 'port-t2');
@@ -123,7 +124,7 @@ export function norm(s, root) { return s.split(root).join('<ROOT>'); }
 
 /** The shell, for the recorder only. @param {string} root @param {string[]} args @param {{ env?: Record<string, string> }} [o] */
 export function shell(root, args, o = {}) {
-  const r = spawnSync('sh', [path.join(root, '.agents/scripts/agent.sh'), ...args], { cwd: root, env: { ...GIT_ENV, ...(o.env ?? {}) }, encoding: 'latin1', input: '' });
+  const r = spawnSync('sh', [posix(path.join(root, '.agents/scripts/agent.sh')), ...args], { cwd: root, env: { ...GIT_ENV, ...(o.env ?? {}) }, encoding: 'latin1', input: '' });
   return { out: norm(r.stdout, root), err: norm(r.stderr, root), code: r.status };
 }
 

@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { repo } from './helpers.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const GIT_ENV = {
   PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
@@ -40,7 +41,7 @@ export function makeFixture() {
       return new Context(io, agent);
     },
     sh: (args, extra = {}) => {
-      const r = spawnSync('sh', [agent, ...args], { cwd: root, env: { ...env(), ...extra }, encoding: 'latin1' });
+      const r = spawnSync('sh', [posix(agent), ...args], { cwd: root, env: { ...env(), ...extra }, encoding: 'latin1' });
       return { out: r.stdout, err: r.stderr, code: r.status };
     },
   };
