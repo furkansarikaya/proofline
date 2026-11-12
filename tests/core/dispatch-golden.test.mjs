@@ -7,7 +7,7 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
-import { skipOnWin32 } from '../lib/winpath.mjs';
+import { posix, skipOnWin32 } from '../lib/winpath.mjs';
 /** A test that starts a shell-script fake runtime (or fake worker) from a temp folder: skipped on Windows, where only a real .exe outside temp folders runs, by design (A252, A262). Tests that only read text or run `dispatch.sh codex-profile` stay on. */
 const fakeTest = skipOnWin32(test, 'starts a shell-script fake runtime from a temp folder; on Windows only a real .exe outside temp folders runs, by design (A252, A262)');
 import { fixture } from './dispatch-lib.mjs';
@@ -24,8 +24,8 @@ function withGoldenFakes(fx) {
 function norm(fx, s) {
   const tmp = path.dirname(fx.dir);
   let t = s.replace(/[^\s'"]*\/dispatch\.[A-Za-z0-9]+\//g, '<WORK>/');
-  for (const root of [...new Set([fx.dir, realpathSync(fx.dir)])].sort((x, y) => y.length - x.length)) t = t.split(root).join('<ROOT>');
-  for (const d of [...new Set([tmp, realpathSync(tmp)])].sort((x, y) => y.length - x.length)) t = t.split(d).join('<TMP>');
+  for (const root of [...new Set([fx.dir, realpathSync(fx.dir), posix(fx.dir), posix(realpathSync(fx.dir)), realpathSync.native(fx.dir), posix(realpathSync.native(fx.dir))])].sort((x, y) => y.length - x.length)) t = t.split(root).join('<ROOT>');
+  for (const d of [...new Set([tmp, realpathSync(tmp), posix(tmp), posix(realpathSync(tmp)), realpathSync.native(tmp), posix(realpathSync.native(tmp))])].sort((x, y) => y.length - x.length)) t = t.split(d).join('<TMP>');
   return t;
 }
 
@@ -120,12 +120,12 @@ describe('the dispatcher hands the runtime exactly what the shell dispatcher han
 
 describe('the Codex permission profile (dispatch codex-profile ID)', () => {
   /** @param {string} cwd @param {string} script @param {ReturnType<typeof fixture>} fx */
-  const profile = (cwd, script, fx) => norm(fx, spawnSync('sh', [script, 'codex-profile', 'LC'], { cwd, env: fx.env, encoding: 'utf8' }).stdout).split('\n').slice(0, -1);
+  const profile = (cwd, script, fx) => norm(fx, spawnSync('sh', [posix(script), 'codex-profile', 'LC'], { cwd, env: fx.env, encoding: 'utf8' }).stdout).split('\n').slice(0, -1);
   test('a run in the main tree: .agents read-only, the run folder, locks and submissions writable, nothing of .git', () => {
     const fx = fixture();
     assert.deepEqual(profile(fx.dir, path.join(fx.dir, '.agents/scripts/dispatch.sh'), fx), golden._profiles.main);
   });
-  test('a run in a worktree: the main tree locks folder, the worktree\'s own git folder and the common objects folder, and nothing else', { skip: process.platform === 'win32' ? 'open product gap on Windows (A262): codexProfileArgs compares real(root) with `${main}/.agents/local/worktrees/` as POSIX text and reads a git dir starting with `/`, so in a worktree the profile misses the main tree locks folder and the worktree git folders; not a test premise' : false }, () => {
+  test('a run in a worktree: the main tree locks folder, the worktree\'s own git folder and the common objects folder, and nothing else', () => {
     const fx = fixture();
     const g = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', fx.dir, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { env: fx.env, encoding: 'utf8' });
     g('commit', '-q', '--allow-empty', '-m', 'init');

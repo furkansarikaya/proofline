@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
-import { refuseUntrustedScript, sameTree } from '../../control-plane/agents/scripts/core/tree.mjs';
+import { refuseUntrustedScript, sameTree, worktreeScriptOf } from '../../control-plane/agents/scripts/core/tree.mjs';
 
 /** A project with a worktree whose scripts are copies; MARK is the file every script creates when it runs. */
 function fixture() {
@@ -73,4 +73,25 @@ test('the same refusal for the asynchronous spawn and for a script added to the 
     assert.equal(r.status, 126);
     assert.ok(!existsSync(f.mark));
   } finally { f.clean(); }
+});
+
+test('A263 worktreeScriptOf: off Windows the test it always was (table); on win32 the mixed backslash spelling of a worktree script is found, a lookalike is not', () => {
+  const old = (/** @type {string} */ file) => {
+    const m = /^(.*)\/\.agents\/local\/worktrees\/[^/]+\/\.agents\/scripts\//.exec(file);
+    return m ? { tree: file.slice(0, file.indexOf('/.agents/scripts/') + '/.agents/scripts'.length), main: `${m[1]}/.agents/scripts` } : null;
+  };
+  const table = ['/p/.agents/local/worktrees/LC/.agents/scripts/agent.sh', '/p/.agents/local/worktrees/LC/.agents/scripts', '/p/.agents/scripts/agent.sh', '/p/.agents/local/worktrees//.agents/scripts/x', '/a b/.agents/local/worktrees/x/.agents/scripts/y/z.sh',
+    '/p/.agents/local/WORKTREES/LC/.agents/scripts/agent.sh', 'C:\\p\\.agents\\local\\worktrees\\LC\\.agents\\scripts\\agent.sh', '/p/.agents/scripts/.agents/local/worktrees/LC/.agents/scripts/a.sh', ''];
+  for (const pl of ['linux', 'darwin', 'freebsd']) for (const f of table) assert.deepEqual(worktreeScriptOf(f, pl), old(f), `${pl} ${f}`);
+  const w = (/** @type {string} */ f) => worktreeScriptOf(f, 'win32');
+  const want = { tree: 'C:/Users/R/proj/.agents/local/worktrees/LC/.agents/scripts', main: 'C:/Users/R/proj/.agents/scripts' };
+  assert.deepEqual(w('C:\\Users\\R\\proj\\.agents\\local\\worktrees\\LC\\.agents\\scripts\\agent.sh'), want);
+  assert.deepEqual(w('c:\\Users\\R\\proj/.agents/local/worktrees/LC/.agents/scripts/agent.sh'), want);
+  assert.deepEqual(w('C:\\Users\\R\\proj\\.AGENTS\\Local\\WorkTrees\\LC\\.Agents\\Scripts\\agent.sh'), { ...want, tree: 'C:/Users/R/proj/.AGENTS/Local/WorkTrees/LC/.Agents/Scripts' });   // the spelling given is kept
+  for (const f of ['C:\\Users\\R\\proj\\.agents\\scripts\\agent.sh', 'C:\\Users\\R\\proj\\.agents\\local\\worktrees\\LC\\.agents\\scriptsX\\a.sh', 'C:\\Users\\R\\proj\\.agents\\local\\worktrees\\.agents\\scripts\\a.sh']) assert.equal(w(f), null, f);
+});
+
+test('A263 scriptArgv: off Windows the vector as given; on win32 the script in forward-slash form (Git sh reads backslashes as escapes), the arguments untouched', () => {
+  for (const pl of ['linux', 'darwin', 'freebsd']) assert.deepEqual(proc.scriptArgv(['C:\\x\\a.sh', 'C:\\y', '-c'], pl), ['C:\\x\\a.sh', 'C:\\y', '-c']);
+  assert.deepEqual(proc.scriptArgv(['C:\\Users\\R~1\\p1/.agents/task-integrations/markdown.sh', 'publish', 'C:\\r\\f'], 'win32'), ['C:/Users/R~1/p1/.agents/task-integrations/markdown.sh', 'publish', 'C:\\r\\f']);
 });

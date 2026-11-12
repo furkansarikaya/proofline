@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inside, isAbsoluteInput, localRemote, posixForm, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inRunWorktrees, inside, isAbsoluteInput, localRemote, posixForm, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
 
@@ -132,4 +132,25 @@ test('scratchRoot (A262): off Windows exactly the old `$TMPDIR || /tmp` over a t
 test('scratchRoot: the win32 folder is os.tmpdir() and the folder it names exists here (a real directory for the scratch folder)', () => {
   assert.equal(scratchRoot(undefined, 'win32'), tmpdir());
   assert.ok(statSync(scratchRoot(process.env.TMPDIR)).isDirectory());
+});
+
+test('inRunWorktrees (A263): off Windows exactly `real(dir).startsWith(main + "/.agents/local/worktrees/")` for a table (a failing real leaves the dir as given)', () => {
+  const mains = ['/p', '/p/', '/a b/p', '', '/var/folders/zz/T/p'];
+  const dirs = ['/p/.agents/local/worktrees/LC', '/p/.agents/local/worktrees/', '/p/.agents/local/worktrees', '/p/.agents/local/WORKTREES/LC', '/p2/.agents/local/worktrees/LC', '/a b/p/.agents/local/worktrees/x/y', '/p', 'C:\\p\\.agents\\local\\worktrees\\LC', '/var/folders/zz/T/p/.agents/local/worktrees/LC', ''];
+  const reals = [(/** @type {string} */ x) => x, (/** @type {string} */ x) => x.replace('/link', ''), () => { throw new Error('gone'); }];
+  for (const pl of ['linux', 'darwin', 'freebsd']) for (const m of mains) for (const d of dirs) for (const real of reals) {
+    let r; try { r = real(d); } catch { r = d; }
+    const old = m !== '' && r.startsWith(`${m}/.agents/local/worktrees/`);
+    assert.equal(inRunWorktrees(m, d, pl, real), old, `${pl} main=${m} dir=${d}`);
+  }
+});
+
+test('inRunWorktrees: win32 meets git\'s `C:/Users/runneradmin/...` with the real path `C:\\Users\\RUNNER~1\\...` (long name, backslashes, ASCII case) and refuses lookalikes, other drives and UNC', () => {
+  const real = (/** @type {string} */ x) => posixForm(x.replace('RUNNER~1', 'runneradmin'), 'win32');
+  const main = 'C:/Users/runneradmin/AppData/Local/Temp/proj';
+  const yes = ['C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\proj\\.agents\\local\\worktrees\\LC', 'c:/users/runneradmin/appdata/local/temp/proj/.agents/local/worktrees/LC/sub', 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\proj/.agents/local/worktrees/x'];
+  const no = ['C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\proj', 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\proj\\.agents\\local\\worktrees', 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\proj2\\.agents\\local\\worktrees\\LC', 'D:\\Users\\runneradmin\\AppData\\Local\\Temp\\proj\\.agents\\local\\worktrees\\LC', '\\\\srv\\share\\Users\\runneradmin\\AppData\\Local\\Temp\\proj\\.agents\\local\\worktrees\\LC'];
+  for (const d of yes) assert.equal(inRunWorktrees(main, d, 'win32', real), true, d);
+  for (const d of no) assert.equal(inRunWorktrees(main, d, 'win32', real), false, d);
+  assert.equal(inRunWorktrees('', 'C:/x/.agents/local/worktrees/LC', 'win32', real), false);
 });

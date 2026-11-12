@@ -8,6 +8,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { scriptAdapterArgs } from '../../control-plane/agents/scripts/core/adapters/index.mjs';
 import { AdapterExit } from '../../control-plane/agents/scripts/core/adapters/lib.mjs';
 import { runGithub } from '../../control-plane/agents/scripts/core/adapters/github.mjs';
 import { runMarkdown } from '../../control-plane/agents/scripts/core/adapters/markdown.mjs';
@@ -464,4 +465,11 @@ test('linear: credential checks (https only), status, publish/verify/followup/st
   assert.equal(comments.length, 1);
   gqlError = true;
   assert.equal((await lin(['status', 'ENG-1', 'done'])).code, 1, 'a GraphQL errors member must fail');
+});
+
+test('A263 scriptAdapterArgs: off Windows the arguments as given; on win32 only an existing drive path becomes forward-slash text (awk -v would read backslashes as escapes), other text is untouched', () => {
+  const args = ['publish', 'LC', 'C:\\Users\\r\\p1/.agents/runs/LC/COMPLETION_REPORT.md', 'C:\\notes: title', 'C:\\gone\\x.md', 'plain\\text', '/abs/p'];
+  for (const pl of ['linux', 'darwin', 'freebsd']) assert.deepEqual(scriptAdapterArgs(args, pl, () => true), args);
+  const exists = (/** @type {string} */ p) => p.startsWith('C:\\Users\\r\\');
+  assert.deepEqual(scriptAdapterArgs(args, 'win32', exists), ['publish', 'LC', 'C:/Users/r/p1/.agents/runs/LC/COMPLETION_REPORT.md', 'C:\\notes: title', 'C:\\gone\\x.md', 'plain\\text', '/abs/p']);
 });

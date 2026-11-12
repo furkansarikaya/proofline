@@ -5,11 +5,11 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, pathWithoutPlatformTools, pushed, readFileSync, refused, run, say, verbs } from './run6-lib.mjs';
+import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, pathWithoutPlatformTools, pushed, readFileSync, refused, run, say, verbs, joinPath } from './run6-lib.mjs';
 import { approveAsUser, project } from './legacy-lib.mjs';
 
 const S = (/** @type {string} */ d, /** @type {Record<string, string>} */ env, /** @type {string[]} */ ...a) => A(d, ['deliver-step', 'LC', ...a], { env });
@@ -163,7 +163,7 @@ test('the platform picks the steps: bitbucket and an unrecognized host have no m
   accepted(A(d, ['deliver-plan', 'LC'], { env: { PATH: pathWithoutPlatformTools() } }), 'gitlab');
   assert.match(sumOf(), /^merge_by: user$/m, 'gitlab without glab on PATH must be manual');
   const glab = fakeTool('glab');
-  accepted(A(d, ['deliver-plan', 'LC'], { env: { PATH: `${glab}:${process.env.PATH}` } }), 'gitlab with glab');
+  accepted(A(d, ['deliver-plan', 'LC'], { env: { PATH: joinPath(glab, process.env.PATH) } }), 'gitlab with glab');
   assert.match(sumOf(), /^tool: glab$/m);
   assert.match(sumOf(), /^steps: commit push pr merge cleanup$/m);
   assert.equal(A(d, ['platform']).out.split('\n')[0], 'platform: gitlab');
@@ -216,7 +216,7 @@ test('one reply is recorded in step order; the real commit and push run through 
   accepted(S(p, gh.env, 'pr'), 'pr step after the repeated reply');
 });
 
-test('the merge is recorded in merged.tsv before the cleanup, so a crash in between leaves the task merged', { skip: process.getuid?.() === 0 }, () => {
+test('the merge is recorded in merged.tsv before the cleanup, so a crash in between leaves the task merged', { skip: process.getuid?.() === 0 ? true : process.platform === 'win32' ? 'a folder made read-only (chmod a-w) still lets Windows remove its entries, so the cleanup cannot be interrupted that way (A263)' : false }, () => {
   const gh = fakeGh();
   const d = project(DONE);
   hooks(d);
@@ -253,10 +253,12 @@ test('knowledge: after CODE_DONE .md pages stay out of the tier; a script, an ex
   wf(`${wiki}/gen.sh`, 'echo 1\n'); wf(`${wiki}/gen2.sh`, 'echo 2\n');
   assert.equal(tier(), 'full', 'unnamed scripts under docs/wiki did not count');
   clear();
-  wf(`${wiki}/x1.md`, '# a\n'); wf(`${wiki}/x2.md`, '# b\n'); run(d, 'chmod', ['+x', `${wiki}/x1.md`, `${wiki}/x2.md`]);
-  assert.equal(tier(), 'full', 'executable docs did not count');
-  clear();
-  run(d, 'ln', ['-s', '../../impl.txt', `${wiki}/l1.md`]); run(d, 'ln', ['-s', '../../impl_test.txt', `${wiki}/l2.md`]);
+  if (process.platform !== 'win32') {   // an execute bit does not exist on NTFS (A263): the executable-doc rule is checked on POSIX only
+    wf(`${wiki}/x1.md`, '# a\n'); wf(`${wiki}/x2.md`, '# b\n'); run(d, 'chmod', ['+x', `${wiki}/x1.md`, `${wiki}/x2.md`]);
+    assert.equal(tier(), 'full', 'executable docs did not count');
+    clear();
+  }
+  symlinkSync('../../impl.txt', `${wiki}/l1.md`); symlinkSync('../../impl_test.txt', `${wiki}/l2.md`);
   assert.equal(tier(), 'full', 'symlinked docs did not count');
   clear();
   wf(`${wiki}/d1.json`, '{}\n'); wf(`${wiki}/d2.json`, '{}\n');

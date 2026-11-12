@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { sbBlockOnly } from '../../control-plane/agents/scripts/core/runend.mjs';
+import { leaveFolder, sbBlockOnly, tarSpec } from '../../control-plane/agents/scripts/core/runend.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 import { gOk } from './run6-lib.mjs';
 
@@ -42,4 +42,23 @@ test('block-only: exactly the task\'s own first block, nothing else', () => {
   assert.equal(only(), false, 'an unterminated block read as block-only');
   set(keep.replace('# Task: Z-1', '# Task: Z-1\nnew heading line'));
   assert.equal(only(), false, 'an edit outside the block read as block-only');
+});
+
+test('A263 tarSpec: off Windows the absolute file and the working folder as before; on win32 a relative name in the archive folder (no drive colon for tar)', () => {
+  const cases = [['/p/.agents/local/archive/LC/LC-1.tar.gz', '/work'], ['/var/folders/ab/T/x y/.agents/local/archive/LC/LC-2.tar.gz', '/'], ['rel/LC-3.tar.gz', '.']];
+  for (const platform of ['linux', 'darwin', 'freebsd']) for (const [file, cwd] of cases) assert.deepEqual(tarSpec(file, cwd, platform), { file, cwd }, `${platform} ${file}`);
+  assert.deepEqual(tarSpec('C:\\Users\\r\\Temp\\p1/.agents/local/archive/LC/LC-1.tar.gz', 'D:/w', 'win32'), { file: 'LC-1.tar.gz', cwd: 'C:\\Users\\r\\Temp\\p1/.agents/local/archive/LC' });
+  assert.deepEqual(tarSpec('C:/a/b/LC-1.tar.gz', 'D:/w', 'win32'), { file: 'LC-1.tar.gz', cwd: 'C:/a/b' });
+});
+
+test('A263 leaveFolder: off Windows never moves; on win32 it moves to the main tree only when the current directory is the worktree or inside it', () => {
+  const calls = /** @type {string[]} */ ([]);
+  const go = (/** @type {string} */ platform, /** @type {string} */ here) => { calls.length = 0; const r = leaveFolder('C:/T/p/.agents/local/worktrees/LC', 'C:/T/p', platform, () => here, (x) => { calls.push(x); }); return [r, calls.slice()]; };
+  for (const pl of ['linux', 'darwin', 'freebsd']) assert.deepEqual(go(pl, 'C:/T/p/.agents/local/worktrees/LC'), [false, []], pl);
+  assert.deepEqual(go('win32', 'C:/T/p/.agents/local/worktrees/LC'), [true, ['C:/T/p']]);
+  assert.deepEqual(go('win32', 'c:\\t\\P\\.agents\\local\\worktrees\\LC\\sub\\deeper'), [true, ['C:/T/p']]);
+  assert.deepEqual(go('win32', 'C:/T/p'), [false, []], 'the main tree itself');
+  assert.deepEqual(go('win32', 'C:/T/p/.agents/local/worktrees/LC2'), [false, []], 'a sibling with the same prefix');
+  assert.deepEqual(go('win32', 'D:/T/p/.agents/local/worktrees/LC'), [false, []], 'another drive');
+  assert.equal(leaveFolder('C:/x', 'C:/y', 'win32', () => 'C:/x', () => { throw new Error('busy'); }), false, 'a failing chdir is not an error');
 });

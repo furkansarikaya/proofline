@@ -4,7 +4,8 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { A, CODE_DONE, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, path, pushed, readFileSync, refused, run, say, verbs, writeFileSync } from './run6-lib.mjs';
+import { A, CODE_DONE, DONE, TASKS_IN_TASKS, accepted, approveDelivery, commitDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, path, pushed, readFileSync, refused, run, say, verbs, writeFileSync, joinPath, toolRoot } from './run6-lib.mjs';
+import { fakeExe } from '../lib/winfake.mjs';
 import { project } from './legacy-lib.mjs';
 
 const head = (/** @type {string} */ d, rev = 'HEAD') => g(d, 'rev-parse', rev);
@@ -51,7 +52,7 @@ test('the chain: one reply approves every step; merge only on a ready pull reque
   refused(S(d, gh.env, 'merge', '7'), "a fork's pull request with the same head, branch and base", "not this delivery's open");
   // the tool must come from PATH outside the project, the working directory and the temporary folders (no environment value lifts that)
   const tmpBin = fakeBinUnderTmp();
-  refused(S(d, { PATH: `${tmpBin}:${process.env.PATH}` }, 'merge', '7'), 'a gh in a temporary folder', 'may be shadowed');
+  refused(S(d, { PATH: joinPath(tmpBin, process.env.PATH) }, 'merge', '7'), 'a gh in a temporary folder', 'may be shadowed');
   gh.says('OPEN', h);
   assert.match(accepted(S(d, gh.env, 'merge', '7'), 'merge').out, /^run: proofline merge 7$/m);
   refused(S(d, gh.env, 'cleanup', '7'), 'cleanup after a refused merge', "not this delivery's merged");
@@ -74,6 +75,12 @@ import { tmpdir } from 'node:os';
 /** A directory under the temporary folder holding a gh that would answer anything. */
 function fakeBinUnderTmp() {
   const b = tempDir('shadow-gh-');
+  if (process.platform === 'win32') {   // only a real .exe is found there at all (A252); the folder under the temporary folder is what makes it refused
+    const script = path.join(b, 'gh.mjs');
+    fsModule.writeFileSync(script, "process.stdout.write('OPEN false x x x x\\n');\n");
+    fakeExe(toolRoot, b, 'gh', script);
+    return b;
+  }
   fsModule.writeFileSync(path.join(b, 'gh'), '#!/bin/sh\necho "OPEN false x x x x"\n');
   fsModule.chmodSync(path.join(b, 'gh'), 0o755);
   return b;

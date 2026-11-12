@@ -11,6 +11,20 @@ import { cleanEnv } from '../hook/harness.mjs';
 import { installGithooks } from '../lib/harness.mjs';
 import { A, accepted, refused, say, verbs } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
+import { fakeExe } from '../lib/winfake.mjs';
+
+/** A PATH value with the folder FIRST and the rest after it, in the host's separator (`:` is the separator of POSIX only; a drive letter holds one on Windows). @param {string} first @param {string | undefined} rest */
+export function joinPath(first, rest) { return `${first}${path.delimiter}${rest ?? ''}`; }
+
+/** The fake `gh` of a Windows host: the same answers as the shell script of fakeGh, from the files of the state folder (STATE is replaced by the folder). */
+const GH_SCRIPT = `import { appendFileSync, readFileSync } from 'node:fs';
+const state = __STATE__; const a = process.argv.slice(2);
+appendFileSync(state + '/gh.calls', a.join(' ') + '\\n');
+const out = (f) => { process.stdout.write(readFileSync(state + '/' + f)); };
+const k = a[0] + ' ' + a[1];
+if (k === 'run list') out('gh.runs'); else if (k === 'run view') out('gh.log'); else if (k === 'pr checks') out('gh.checks');
+else if (k === 'pr view') out(a.join(' ').includes('mergeCommit') ? 'gh.merge' : 'ghstate'); else process.exitCode = 1;
+`;
 
 /** Where the fake platform tools live: inside the checkout, never under a temporary folder. */
 export const toolRoot = path.join(repo, 'tests/core/.fake-tools', String(process.pid));
@@ -29,12 +43,19 @@ export function fakeGh() {
   const state = tempDir('gh-state-');
   mkdirSync(bin, { recursive: true });
   for (const f of ['gh.runs', 'gh.log', 'gh.checks', 'ghstate', 'gh.merge', 'gh.calls']) writeFileSync(path.join(state, f), '');
-  writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> "${state}/gh.calls"\ncase "$1 $2" in\n  "run list") cat "${state}/gh.runs" ;;\n  "run view") cat "${state}/gh.log" ;;\n  "pr checks") cat "${state}/gh.checks" ;;\n  "pr view") case "$*" in *mergeCommit*) cat "${state}/gh.merge" ;; *) cat "${state}/ghstate" ;; esac ;;\n  *) exit 1 ;;\nesac\n`);
-  chmodSync(path.join(bin, 'gh'), 0o755);
+  if (process.platform === 'win32') {
+    // a shell script is no program the Windows resolver runs (A252): a real gh.exe that starts this Node script (tests/lib/winfake.mjs)
+    const script = path.join(bin, 'gh.mjs');
+    writeFileSync(script, GH_SCRIPT.replace('__STATE__', JSON.stringify(state)));
+    fakeExe(toolRoot, bin, 'gh', script);
+  } else {
+    writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> "${state}/gh.calls"\ncase "$1 $2" in\n  "run list") cat "${state}/gh.runs" ;;\n  "run view") cat "${state}/gh.log" ;;\n  "pr checks") cat "${state}/gh.checks" ;;\n  "pr view") case "$*" in *mergeCommit*) cat "${state}/gh.merge" ;; *) cat "${state}/ghstate" ;; esac ;;\n  *) exit 1 ;;\nesac\n`);
+    chmodSync(path.join(bin, 'gh'), 0o755);
+  }
   after(() => { rmSync(state, { recursive: true, force: true }); });
   return {
     bin, state,
-    env: { PATH: `${bin}:${process.env.PATH}` },
+    env: { PATH: joinPath(bin, process.env.PATH) },
     /** The pull request as the platform shows it: STATE (OPEN/MERGED), draft false, HEAD BRANCH BASE OWNER default to this delivery's. @param {string} st @param {string} [head] */
     says(st, head = '') {
       const [h = '', br = 'proofline/LC-lookup', base = 'main', owner = 'acme'] = head.split(' ');
@@ -48,8 +69,14 @@ export function fakeGh() {
 export function fakeTool(name) {
   const bin = path.join(toolRoot, `${process.pid}-${++counter}`, 'bin');
   mkdirSync(bin, { recursive: true });
-  writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 0\n');
-  chmodSync(path.join(bin, name), 0o755);
+  if (process.platform === 'win32') {
+    const script = path.join(bin, `${name}.mjs`);
+    writeFileSync(script, 'process.exit(0);\n');
+    fakeExe(toolRoot, bin, name, script);
+  } else {
+    writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 0\n');
+    chmodSync(path.join(bin, name), 0o755);
+  }
   return bin;
 }
 

@@ -23,12 +23,15 @@ const BROWSER_NAMES = ['chromium', 'chromium-browser', 'google-chrome', 'google-
 export const HOST_BROWSER = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge', 'Brave Browser.app/Contents/MacOS/Brave Browser']
   .some((a) => { try { return (statSync(`/Applications/${a}`).mode & 0o111) !== 0; } catch { return false; } });
 /** The `skip` option of a scenario that needs "no browser" (the probe cannot hide the application folder, A214). */
-export const NO_BROWSER_SKIP = HOST_BROWSER ? 'a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)' : false;
+export const NO_BROWSER_SKIP = process.platform === 'win32'
+  ? 'on Windows the PATH cannot be rebuilt from links without browsers (the separator is ";" and a link needs a privilege), and a hosted runner has Chrome and Edge installed (A263)'
+  : HOST_BROWSER ? 'a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)' : false;
 
 /** The probe folder: symlinks to every executable of the PATH the process started with, minus the browsers. */
 function buildProbeBin() {
   const dir = path.join(base(), 'probe', 'bin');
   mkdirSync(dir, { recursive: true });
+  if (process.platform === 'win32') return dir;
   for (const d of (process.env.PATH ?? '').split(':')) {
     let names;
     try { names = readdirSync(d).sort(); } catch { continue; }
@@ -43,7 +46,8 @@ function buildProbeBin() {
   return dir;
 }
 export const probeBin = buildProbeBin();
-process.env.PATH = probeBin;
+// Windows (A263): the links cannot be made (the list is `;`-separated and `mklink` needs a privilege), so the probe folder is an empty first PATH entry and the rest of the PATH stays
+process.env.PATH = process.platform === 'win32' ? `${probeBin}${path.delimiter}${process.env.PATH ?? ''}` : probeBin;
 
 // ---- the shell helpers ---------------------------------------------------------------------------------------------------------------------
 /** A with the QA plan bound before a freeze (the `A` of the shell library). @param {string} d @param {string[]} args @param {{ role?: string, input?: string, env?: Record<string, string> }} [o] */
