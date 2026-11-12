@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.93 — 2026-11-12
+
+- Change (A260, Part of #165; Windows port W1): (1) the manual `windows-core-probe` takes a `workflow_dispatch` input `tests` (space-separated test files, globs or folders under `tests/`, checked by a strict pattern in `tests/ci/windows-probe.mjs` and passed through the environment, never into a script) that runs only those files on windows-latest (shared by the four core legs, the invariant files in the `invariants` leg; empty = every leg in full as before), and every leg prints a `PROBE-RESULT` line and a job-summary row (pass, fail, duration). (2) New `core/pathin.mjs`: `realpathPosix` (native real path on Windows, forward slashes, upper-case drive, long names for 8.3 short names; `realpathSync` unchanged elsewhere), `inside` (strict whole-component containment, case-insensitive only on win32) and `isAbsoluteInput`; `record` (ARTIFACT), the cited-evidence and UNSUPPORTED_EVIDENCE checks, `diff-digest` and `discard-stray` use them, which removes the Windows failure "ARTIFACT path must be inside the run" (about 170 of the ~990 failures of the first probe). POSIX behaviour is unchanged (tested). Windows is still not claimed: the probe is manual and non-gating.
+
 ## 0.0.92 — 2026-11-12
 
 - Decision (A259, Part of #181; documentation only, no product change): the COMPLEX end-to-end tool-call measurement of #181 item 6, one real run per version (tags-for-books task, `claude` configuration, balanced profile, Opus lead), before = v0.0.68 (`e0f49250`) and after = v0.0.91 (`4eea42ad`), counted from the Claude transcripts with `core/toolstats.mjs` for both. Total tool calls 583 before, 545 after (specialists 486 and 437), result bytes 1,925 KiB and 2,030 KiB (KiB = bytes/1024), calls refused by a hook 68 and 47, wall-clock 3,480 s and 2,636 s. The runs did not end in the same state (before stopped at the second fix round with one review gate stale; after finished with every gate passing), so this is n = 1 with different paths and proves no saving; the figures, the contributing items and the accepted limits are in A259. No transcript or task text is stored.
