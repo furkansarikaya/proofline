@@ -554,9 +554,9 @@ function latestDecision(ctx, id, role, focus) {
 /**
  * `metrics_step ID ROLE FOCUS OUTCOME`: the per-step records (history line and JSON record). `stepAgent` is the dispatch token of this submission
  * (PROOFLINE_STEP_AGENT); the dispatch start and runtime come from the environment dispatch.sh sets.
- * @param {Context} ctx @param {string} id @param {string} role @param {string} focus @param {string} outcome @param {string} stepAgent
+ * @param {Context} ctx @param {string} id @param {string} role @param {string} focus @param {string} outcome @param {string} stepAgent @param {string} [platform] for the tests (which paths count as absolute)
  */
-export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
+export function metricsStep(ctx, id, role, focus, outcome, stepAgent, platform = process.platform) {
   const decision = latestDecision(ctx, id, role, focus);
   let rt = '-'; let model = '-'; let dur = '-';
   if (decision !== '') {
@@ -580,7 +580,7 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
   metricsLine(ctx, [id, role, rt === '' ? '-' : rt, model === '' ? '-' : model, dur, outcome]);
   let tin = '-'; let tout = '-'; let ttot = '-';
   const tp = started.length >= 1 ? started[0] : '';
-  if (isLocalAbsolute(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude') {
+  if (isLocalAbsolute(tp, platform) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude') {
     /** @type {Map<string, [number, number]>} */ const per = new Map();
     for (const l of readFileSync(tp, 'latin1').split('\n')) {
       if (!l.includes('"role":"assistant"')) continue;
@@ -597,7 +597,7 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
   // A235: the tool calls and result bytes of the same session log, in a file of their own (records.jsonl keeps its format)
   // A255: a Codex worker has no `.started` file; its rollout log is found by the session id in its environment
   const cx = rt === 'codex' ? findCodexRollout(ctx.env, now().epoch) : { file: '', reason: null };
-  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: rt === 'codex' ? cx.file : isLocalAbsolute(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '', reason: cx.reason });
+  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: rt === 'codex' ? cx.file : isLocalAbsolute(tp, platform) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '', reason: cx.reason });
 }
 
 /** @param {string} f */

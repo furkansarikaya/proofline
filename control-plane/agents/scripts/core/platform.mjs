@@ -13,7 +13,7 @@ import { accessSync, constants, existsSync, readFileSync, readlinkSync, realpath
 import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import { git } from './git.mjs';
-import { isAbsoluteInput, isLocalAbsolute } from './pathin.mjs';
+import { isAbsoluteInput, isLocalAbsolute, posixForm } from './pathin.mjs';
 import { asciiLower } from './shellglob.mjs';
 import * as proc from './proc.mjs';
 import { makeRefusedDir, resolveWindowsTool, shimMessage } from './wintool.mjs';
@@ -128,7 +128,7 @@ export function resolveToolWindows(ctx, name, fsx = { isFile: (/** @type {string
   const r = resolveWindowsTool(ctx.env, name, {
     isFile: fsx.isFile,
     real: fsx.real,
-    refusedDir: makeRefusedDir([ctx.root, ctx.cwd, ctx.env.TEMP ?? '', ctx.env.TMP ?? '', ctx.env.TMPDIR ?? ''], fsx.real),
+    refusedDir: makeRefusedDir([ctx.root, ctx.cwd, ctx.env.TEMP ?? '', ctx.env.TMP ?? '', ctx.env.TMPDIR ?? '', tmpdir()], fsx.real),
   });
   if ('path' in r) return r;
   if ('shim' in r) return { unreadable: shimMessage(name, r.shim) };
@@ -138,11 +138,11 @@ export function resolveToolWindows(ctx, name, fsx = { isFile: (/** @type {string
 /**
  * The tool NAME found first on the PATH of ENV, as its real absolute path, unless that is inside one of the folders DIRS (compared by folder identity, see
  * insideFolder). `{ shadowed: path }` for a tool inside one of them, `{ unreadable }` for none or a relative match.
- * @param {NodeJS.ProcessEnv} env @param {string} name @param {string[]} dirs @returns {{ path: string } | { shadowed: string } | { unreadable: string }}
+ * @param {NodeJS.ProcessEnv} env @param {string} name @param {string[]} dirs @param {string} [platform] @returns {{ path: string } | { shadowed: string } | { unreadable: string }}
  */
-export function resolveToolIn(env, name, dirs) {
+export function resolveToolIn(env, name, dirs, platform = process.platform) {
   const found = commandV(name, env);
-  if (found === null || !isLocalAbsolute(found)) return { unreadable: 'unreadable' };
+  if (found === null || !isLocalAbsolute(found, platform)) return { unreadable: 'unreadable' };
   let g = found;
   for (let n = 0; n < 20; n++) {
     let l;
@@ -159,7 +159,7 @@ export function resolveToolIn(env, name, dirs) {
  * @param {Context} ctx @param {string} file
  */
 export function refusedLocation(ctx, file, platform = process.platform) {
-  if (platform === 'win32') return makeRefusedDir(refusedDirs(ctx, platform), expandNative)(file);   // case-insensitive, 8.3 names expanded (A261)
+  if (platform === 'win32') return makeRefusedDir(refusedDirs(ctx, platform), expandNative)(path.win32.normalize(file));   // case-insensitive, 8.3 names expanded, `.` and `..` folded (A261)
   return refusedDirs(ctx, platform).some((d) => insideFolder(file, d));
 }
 
@@ -187,12 +187,40 @@ export function toolPath(pathText, refused, platform = process.platform) {
 }
 
 /**
+ * The PATH of an environment. On win32 the variable may be spelled `Path`; the exact `PATH` wins, else the first spelling that differs only in ASCII case. Elsewhere `env.PATH` (A261).
+ * @param {NodeJS.ProcessEnv} env @param {string} [platform] @returns {string | undefined}
+ */
+export function pathOf(env, platform = process.platform) {
+  if (env.PATH !== undefined || platform !== 'win32') return env.PATH;
+  for (const k of Object.keys(env)) if (asciiLower(k) === 'path') return env[k];
+  return undefined;
+}
+
+/**
+ * The refusal test for one PATH ENTRY handed to a platform tool on Windows (A261, security round 2). The ENTRY ITSELF is made canonical first (`real`: the native real path, which
+ * expands 8.3 names, folds `.` and `..`, repairs case and doubled separators); an entry that does not exist, is not a folder or cannot be made canonical is refused (fail closed). The
+ * canonical form must be a local drive path and must not be, or lie under, a canonical project, working, TEMP, TMP, TMPDIR or account temporary folder (`makeRefusedDir` canonicalises
+ * those roots the same way). The typed spelling is tested too. Off Windows nothing here is used: the former rule stays (a folder identity test on a child of the entry).
+ * @param {Context} ctx @param {(p: string) => string} [real] @param {(p: string) => boolean} [isDir] @returns {(entry: string) => boolean}
+ */
+export function winEntryRefused(ctx, real = expandNative, isDir = (p) => { try { return statSync(p).isDirectory(); } catch { return false; } }) {
+  const roots = makeRefusedDir(refusedDirs(ctx, 'win32'), real);
+  return (entry) => {
+    let canon;
+    try { canon = posixForm(real(entry), 'win32'); } catch { return true; }
+    if (!isLocalAbsolute(canon, 'win32') || !isDir(canon)) return true;
+    return roots(canon) || roots(entry);
+  };
+}
+
+/**
  * The first PATH entry of `proofline merge` that could hold a planted tool (an empty, relative or, on Windows, UNC entry; off Windows also an existing directory spelled relative), or null.
  * Off Windows the former check, entry by entry. @param {string} pathText @param {string} [platform] @param {(d: string) => boolean} [isDir] @returns {string | null}
  */
 export function shadowingEntry(pathText, platform = process.platform, isDir = (d) => { try { return statSync(d).isDirectory(); } catch { return false; } }) {
   const sep = platform === 'win32' ? ';' : ':';
   for (const d of pathText.split(sep)) {
+    if (platform === 'win32' && d === '') continue;   // the Windows resolver and toolPath never search an empty entry (fail closed there)
     if (platform === 'win32' ? isLocalAbsolute(d.replace(/^"(.*)"$/, '$1'), platform) : d.startsWith('/')) continue;
     const bad = platform === 'win32' || d === '' || d === '.' || d === '..' || isDir(d);
     if (bad) return d;
@@ -361,9 +389,10 @@ const TOOL_TIMEOUT_MS = 180000;
  * the certificate variables (SSL_CERT_FILE, NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, GIT_SSL_CAINFO) are kept ONLY when the value has the narrow shape of proxyValue / noProxyValue /
  * caFileValue; any other value is dropped, never repaired, and nothing says so. Every other proxy or certificate variable (ALL_PROXY, SSL_CERT_DIR,
  * CURL_CA_BUNDLE, GIT_SSL_* other than GIT_SSL_CAINFO, NODE_OPTIONS) stays dropped. The GitHub Enterprise or GitLab host never comes from the caller (platformEnv).
- * @param {Context} ctx @param {{ remote?: boolean }} [opt] @returns {Record<string, string>}
+ * @param {Context} ctx @param {{ remote?: boolean, platform?: string, real?: (p: string) => string, isDir?: (p: string) => boolean }} [opt] platform, real and isDir are for the tests @returns {Record<string, string>}
  */
 export function cleanToolEnv(ctx, opt = {}) {
+  const platform = opt.platform ?? process.platform;
   const src = { ...ctx.env, LC_ALL: 'C', RTK_DISABLED: '1' }; // not ctx.childEnv(): sharedMain needs a project, merge runs in any repository
   const keep = new Set(['PATH', 'LANG', 'TERM', 'TZ', 'TMPDIR', 'NO_COLOR', 'CLICOLOR', 'CLICOLOR_FORCE', 'CI', 'SYSTEMROOT', 'COMSPEC', 'PATHEXT',
     'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GITLAB_TOKEN', 'GLAB_TOKEN', 'AZURE_DEVOPS_EXT_PAT', 'RTK_DISABLED']);
@@ -372,7 +401,8 @@ export function cleanToolEnv(ctx, opt = {}) {
   const out = {};
   for (const [k, v] of Object.entries(src)) if (v !== undefined && (keep.has(k) || k.startsWith('LC_'))) out[k] = v;
   // the PATH the tool and its own children (gh runs git) search: an entry that is relative or inside the project, the working directory or a temporary folder is dropped
-  if (out['PATH'] !== undefined) out['PATH'] = toolPath(out['PATH'], (e) => refusedLocation(ctx, `${e}/x`));
+  const pv = pathOf(src, platform);
+  if (pv !== undefined) out['PATH'] = toolPath(pv, platform === 'win32' ? winEntryRefused(ctx, opt.real, opt.isDir) : (e) => refusedLocation(ctx, `${e}/x`), platform);
   try { const h = userInfo().homedir; if (h !== '') out['HOME'] = h; } catch { /* no account entry: no HOME */ }
   for (const k of PROXY_VARS) { const v = ctx.env[k]; if (v !== undefined && proxyValue(v)) out[k] = v; }
   for (const k of NO_PROXY_VARS) { const v = ctx.env[k]; if (v !== undefined && noProxyValue(v)) out[k] = v; }
@@ -422,10 +452,10 @@ export function caFileValue(ctx, v) { return caFileProblem(ctx, v) === null; }
 
 /**
  * Why a certificate bundle is refused, as a sentence from a closed set that never repeats the value (the doctor prints it), or null when it is accepted.
- * @param {Context} ctx @param {string} v @returns {string | null}
+ * @param {Context} ctx @param {string} v @param {string} [platform] @returns {string | null}
  */
-export function caFileProblem(ctx, v) {
-  if (!isLocalAbsolute(v)) return 'not an absolute path';
+export function caFileProblem(ctx, v, platform = process.platform) {
+  if (!isLocalAbsolute(v, platform)) return 'not an absolute path';
   if (v.length > 4096 || /[\u0000-\u001f\u007f]/.test(v)) return 'too long or holds a control character';
   try {
     const real = realpathSync.native(v);

@@ -120,6 +120,20 @@ describe('tools.jsonl record', () => {
     assert.equal(step.schema, 'proofline.metrics/1');
     assert.equal(Object.keys(step).length, 20);
   });
+  test('metricsStep (A261, platform win32): a POSIX-looking absolute log path is not a local drive path, so neither the token read nor the tool record opens it; on this host the same log is read', () => {
+    const { root, ctx } = ctxOf();
+    mkdirSync(path.join(root, '.agents/local/submissions'), { recursive: true });
+    const log = writeLog(root, [use('a', 'Bash'), res('a', 'hello'), { type: 'assistant', message: { id: 'msg_01', role: 'assistant', content: [], usage: { input_tokens: 5, output_tokens: 7 } } }]);
+    writeFileSync(path.join(root, '.agents/local/submissions/tok.started'), `${log}\n${Math.floor(Date.now() / 1000)}\n`);
+    ctx.env.PROOFLINE_DISPATCH_RUNTIME = 'claude';
+    metricsStep(ctx, 'T-1', 'verifier', '', 'pass', 'tok', 'win32');
+    const t = JSON.parse(readFileSync(fileOf(root), 'utf8').trim());
+    const step = JSON.parse(readFileSync(path.join(root, '.agents/local/metrics/records.jsonl'), 'utf8').trim());
+    assert.deepEqual([t.log, t.calls, step.tokens_in], ['no-log', null, null], 'win32: not read, by either guard');
+    metricsStep(ctx, 'T-1', 'verifier', '', 'pass', 'tok');
+    const lines = readFileSync(path.join(root, '.agents/local/metrics/records.jsonl'), 'utf8').trim().split('\n');
+    assert.equal(JSON.parse(lines[lines.length - 1]).tokens_in, 5, 'this host: read');
+  });
   test('metricsStep (A261): a session-log path that is not an absolute local path is never read; the tool record says no-log (a relative path, a UNC-looking path)', () => {
     const { root: r0 } = ctxOf();
     const real = writeLog(r0, [use('a', 'Bash'), res('a', 'hello')]);   // a readable log, named by a path RELATIVE to the working directory: it exists, yet must not be read

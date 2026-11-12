@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { buildRecord } from './buildrecord.mjs';
 import { Context } from './context.mjs';
 import { ProoflineError } from './errors.mjs';
-import { cleanToolEnv, detectPlatform, linkText, parseJson, platformEnv, resolveMergeTool, shadowingEntry } from './platform.mjs';
+import { cleanToolEnv, detectPlatform, linkText, parseJson, pathOf, platformEnv, resolveMergeTool, shadowingEntry } from './platform.mjs';
 import * as proc from './proc.mjs';
 
 
@@ -90,7 +90,7 @@ function run(ctx, argv) {
   else manual('proofline has no merge adapter for this host');
 
   // PATH shadowing: an empty or relative PATH entry that could hold a fake is refused
-  const badEntry = shadowingEntry(ctx.env.PATH ?? '');
+  const badEntry = shadowingEntry(pathOf(ctx.env) ?? '');
   if (badEntry !== null) refuse(`PATH holds an empty or relative entry ('${badEntry}'); a gh found there could be a fake`);
   const t = resolveMergeTool(ctx, cli, top);
   if ('shadowed' in t) refuse(`${cli} resolves to ${t.shadowed}, a project, working or temp directory; refusing a possibly shadowed ${cli}`);
