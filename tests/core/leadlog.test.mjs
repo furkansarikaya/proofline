@@ -12,6 +12,7 @@ import { insightsReport, insightsStream } from '../../control-plane/agents/scrip
 import { toolsSummary } from '../../control-plane/agents/scripts/core/toolsinsights.mjs';
 import { A, project } from './legacy-lib.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const SID = '0a1b2c3d-1111-4222-8333-444455556666';
 const SID2 = '0a1b2c3d-1111-4222-8333-444455557777';
@@ -43,8 +44,9 @@ describe('findClaudeLead: the lead\'s Claude session log', () => {
   test('found: a regular file in the runtime\'s own folder, by the session id; CLAUDE_CONFIG_DIR wins when absolute', () => {
     const { home, file } = claudeHome(cwd);
     writeFileSync(file, LOG);
-    assert.deepEqual(findClaudeLead({ HOME: home, CLAUDE_CODE_SESSION_ID: SID }, [cwd]), { file, reason: null });
-    assert.deepEqual(findClaudeLead({ HOME: '/nonexistent', CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CLAUDE_CODE_SESSION_ID: SID }, ['/other', cwd]), { file, reason: null });
+    const px = (/** @type {{ file: string, reason: string | null }} */ r) => ({ ...r, file: posix(r.file) });   // the product joins with '/', path.join with the host's separator
+    assert.deepEqual(px(findClaudeLead({ HOME: home, CLAUDE_CODE_SESSION_ID: SID }, [cwd])), { file: posix(file), reason: null });
+    assert.deepEqual(px(findClaudeLead({ HOME: '/nonexistent', CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CLAUDE_CODE_SESSION_ID: SID }, ['/other', cwd])), { file: posix(file), reason: null });
     assert.equal(findClaudeLead({ HOME: '', CLAUDE_CONFIG_DIR: 'relative/.claude', CLAUDE_CODE_SESSION_ID: SID }, [cwd]).reason, 'no-claude-home');   // a relative config folder is not used
   });
 

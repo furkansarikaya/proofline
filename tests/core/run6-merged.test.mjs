@@ -2,7 +2,7 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, mkdirSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, realpathSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -44,7 +44,7 @@ test('a local path, a relative path or a file:// origin is platform other (commi
   hooks(d);
   const lo = `${d}-lo.git`; const rel = `${d}-rel.git`;
   gOk(d, 'init', '-q', '--bare', lo); gOk(d, 'init', '-q', '--bare', rel);
-  const relName = `../${rel.slice(rel.lastIndexOf('/') + 1)}`;
+  const relName = `../${path.basename(rel)}`;
   for (const u of [lo, relName, `file://${lo.startsWith('/') ? '' : '/'}${posix(lo)}`]) {   // file:///C:/x on Windows
     gOk(d, 'remote', 'set-url', 'origin', u);
     assert.equal(cli(d, ['field', 'local', '-C', d]).out, 'yes\n');
@@ -53,7 +53,7 @@ test('a local path, a relative path or a file:// origin is platform other (commi
     const sum = read(d, '.agents/local/deliver/LC/SUMMARY.md');
     assert.match(sum, /^steps: commit push pr$/m);
     assert.match(sum, /^merge_by: user$/m);
-    const want = u.startsWith('../') ? run(d, 'sh', ['-c', `cd "${rel}" && pwd -P`]).out.trim() : 'origin';
+    const want = u.startsWith('../') ? (process.platform === 'win32' ? posix(realpathSync.native(rel)) : run(d, 'sh', ['-c', `cd "${rel}" && pwd -P`]).out.trim()) : 'origin';
     assert.ok(plan.includes(`git push ${want} proofline/LC-lookup:main`), `${u}: no 'git push ${want}' hand-off`);
   }
   for (const u of ['github.com.evil.example', 'https://github.com.evil.example', 'host.example']) {

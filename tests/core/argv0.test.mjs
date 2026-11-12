@@ -61,7 +61,7 @@ describe('--pl-argv0 is checked, never trusted', () => {
       symlinkSync(path.join(root, '.agents'), path.join(root, 'back'));
       mkdirSync(path.join(root, 'plain'), { recursive: true });
       symlinkSync(path.join(root, 'plain'), path.join(root, 'ok'));
-      const sibling = realpathSync(path.join(root, '.agents/scripts/agent.sh'));
+      const sibling = (process.platform === 'win32' ? realpathSync.native : realpathSync)(path.join(root, '.agents/scripts/agent.sh'));
       assert.deepEqual(splitArgv0(['--pl-argv0', 'ok/../.agents/scripts/agent.sh', 'role'], script, root), { argv: ['role'], argv0: posix(sibling) });
       assert.deepEqual(splitArgv0(['--pl-argv0', 'back/scripts/agent.sh', 'role'], script, root), { argv: ['role'], argv0: 'back/scripts/agent.sh' });
     } finally { rmSync(root, { recursive: true, force: true }); }

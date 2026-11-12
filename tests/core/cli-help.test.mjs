@@ -149,8 +149,8 @@ test('install.mjs: the questions (PROOFLINE_PROMPT=1 reads them from standard in
   assert.ok(!existsSync(`${h}/bin/proofline`));
   const yes = installer(h, ['--dir', `${h}/bin`], { PROOFLINE_PROMPT: '1' }, `${h}/other\ny\n`);
   assert.equal(yes.status, 0, yes.stderr); assert.ok(lstatSync(`${h}/other/proofline`).isSymbolicLink());
-  assert.ok(yes.stdout.includes(`linked ${h}/other/proofline -> ${repo}/bin/proofline`));
-  assert.ok(yes.stdout.includes(`${h}/other is not on your PATH. Add this to your shell rc file (not edited without --yes):\n  export PATH="${h}/other:$PATH"\n`));
+  assert.ok(posix(yes.stdout).includes(posix(`linked ${h}/other/proofline -> ${repo}/bin/proofline`)));
+  assert.ok(posix(yes.stdout).includes(posix(`${h}/other is not on your PATH. Add this to your shell rc file (not edited without --yes):\n  export PATH="${h}/other:$PATH"\n`)));
   assert.ok(!existsSync(`${h}/.zshrc`), 'no rc file is touched without --yes');
 });
 
