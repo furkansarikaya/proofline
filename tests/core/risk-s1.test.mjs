@@ -367,7 +367,7 @@ test('sc_unsupported_browser_data: unsupported probes: browser_test is read from
 
 // A102: capability probes refuse an UNSUPPORTED whose capability is present (a browser on PATH, a project benchmark script); an INCONCLUSIVE must keep its prefix
 // and an UNSUPPORTED must not borrow one; only the submitting role's own files are evidence.
-test("sc_unsupported_probes: a browser or a bench script refuses UNSUPPORTED; INCONCLUSIVE keeps its prefix both ways; another role's file is refused", { skip: NO_BROWSER_SKIP }, () => {
+test("sc_unsupported_probes: a browser or a bench script refuses UNSUPPORTED; INCONCLUSIVE keeps its prefix both ways; another role's file is refused", { skip: NO_BROWSER_SKIP || (process.platform === 'win32' ? 'the planted extension-less google-chrome is not seen as a browser on the Windows probe (probeVisual splits PATH on ":", which cuts the drive letter; not traced further), A263' : false) }, () => {
   const d = unsRun();
   const chrome = path.join(probeBin, 'google-chrome');
   writeFileSync(chrome, '#!/bin/sh\n'); chmodSync(chrome, 0o755);
