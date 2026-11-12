@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 3: worktree-root, in-knowledge-scope, hook-time, friction-note, window-open, window-close, language-check, answer (agent.sh 0.0.42).
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { realpathPosix } from '../pathin.mjs';
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { now } from '../clock.mjs';
 import { answer } from '../answer.mjs';
@@ -24,7 +25,7 @@ import { taskPatchFingerprint } from '../gates.mjs';
 const rwValid = (id) => /^[A-Za-z0-9_-]+$/.test(id) && !/^[^A-Za-z0-9]/.test(id) && !id.includes('..');
 
 /** `cd DIR && pwd -P`, or null. @param {string} d */
-function physical(d) { try { return realpathSync(d); } catch { return null; } }
+function physical(d) { try { return realpathPosix(d); } catch { return null; } }
 
 /** `worktree_root PATH` (A184): the root of the registered run worktree that contains the physical path, else exit 1. @param {Context} ctx @param {string[]} args */
 function worktreeRoot(ctx, args) {

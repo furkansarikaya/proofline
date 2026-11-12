@@ -120,6 +120,19 @@ describe('tools.jsonl record', () => {
     assert.equal(step.schema, 'proofline.metrics/1');
     assert.equal(Object.keys(step).length, 20);
   });
+  test('metricsStep (A261): a session-log path that is not an absolute local path is never read; the tool record says no-log (a relative path, a UNC-looking path)', () => {
+    const { root: r0 } = ctxOf();
+    const real = writeLog(r0, [use('a', 'Bash'), res('a', 'hello')]);   // a readable log, named by a path RELATIVE to the working directory: it exists, yet must not be read
+    for (const tp of [path.relative(process.cwd(), real), '\\\\srv\\share\\session.jsonl']) {
+      const { root, ctx } = ctxOf();
+      mkdirSync(path.join(root, '.agents/local/submissions'), { recursive: true });
+      writeFileSync(path.join(root, '.agents/local/submissions/tok.started'), `${tp}\n${Math.floor(Date.now() / 1000)}\n`);
+      ctx.env.PROOFLINE_DISPATCH_RUNTIME = 'claude';
+      metricsStep(ctx, 'T-1', 'verifier', '', 'pass', 'tok');
+      const t = JSON.parse(readFileSync(fileOf(root), 'utf8').trim());
+      assert.deepEqual([t.log, t.calls], ['no-log', null], tp);
+    }
+  });
 });
 
 describe('fix round 1 (A235)', () => {

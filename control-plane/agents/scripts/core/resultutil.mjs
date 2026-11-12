@@ -16,7 +16,7 @@ import * as proc from './proc.mjs';
 import { probePerformance, probeVisual } from './probes.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
 import { configuredRuntime } from './execpolicy.mjs';
-import { inside, isAbsoluteInput, realpathPosix } from './pathin.mjs';
+import { inside, isLocalAbsolute, realpathPosix } from './pathin.mjs';
 import { runDir } from './runs.mjs';
 import { riskSignals } from './signals.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
@@ -580,7 +580,7 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
   metricsLine(ctx, [id, role, rt === '' ? '-' : rt, model === '' ? '-' : model, dur, outcome]);
   let tin = '-'; let tout = '-'; let ttot = '-';
   const tp = started.length >= 1 ? started[0] : '';
-  if (isAbsoluteInput(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude') {
+  if (isLocalAbsolute(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude') {
     /** @type {Map<string, [number, number]>} */ const per = new Map();
     for (const l of readFileSync(tp, 'latin1').split('\n')) {
       if (!l.includes('"role":"assistant"')) continue;
@@ -597,7 +597,7 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent) {
   // A235: the tool calls and result bytes of the same session log, in a file of their own (records.jsonl keeps its format)
   // A255: a Codex worker has no `.started` file; its rollout log is found by the session id in its environment
   const cx = rt === 'codex' ? findCodexRollout(ctx.env, now().epoch) : { file: '', reason: null };
-  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: rt === 'codex' ? cx.file : isAbsoluteInput(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '', reason: cx.reason });
+  toolsRecord(ctx, { task: id, role, focus, gate: gateOf(ctx, role, focus, id), runtime: rt, log: rt === 'codex' ? cx.file : isLocalAbsolute(tp) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude' ? tp : '', reason: cx.reason });
 }
 
 /** @param {string} f */

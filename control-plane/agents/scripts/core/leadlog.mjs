@@ -9,7 +9,7 @@
 //   codex:  findCodexRollout (A255): CODEX_THREAD_ID, UUID, exact name in the day folders of the last 4 days.
 import { lstatSync, realpathSync } from 'node:fs';
 import { now } from './clock.mjs';
-import { isAbsoluteInput } from './pathin.mjs';
+import { isLocalAbsolute } from './pathin.mjs';
 import { UUID, findCodexRollout, toolsRecord } from './toolstats.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -24,8 +24,8 @@ export const claudeProjectDir = (cwd) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 export function findClaudeLead(env, cwds) {
   const sid = env.CLAUDE_CODE_SESSION_ID ?? '';
   if (!UUID.test(sid)) return { file: '', reason: 'no-session-id' };
-  const cfg = env.CLAUDE_CONFIG_DIR && isAbsoluteInput(env.CLAUDE_CONFIG_DIR) ? env.CLAUDE_CONFIG_DIR : (env.HOME ? `${env.HOME}/.claude` : '');
-  if (!isAbsoluteInput(cfg)) return { file: '', reason: 'no-claude-home' };
+  const cfg = env.CLAUDE_CONFIG_DIR && isLocalAbsolute(env.CLAUDE_CONFIG_DIR) ? env.CLAUDE_CONFIG_DIR : (env.HOME ? `${env.HOME}/.claude` : '');
+  if (!isLocalAbsolute(cfg)) return { file: '', reason: 'no-claude-home' };
   let refused = false;
   for (const cwd of [...new Set(cwds)]) {
     const dir = `${cfg}/projects/${claudeProjectDir(cwd)}`;

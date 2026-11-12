@@ -81,3 +81,12 @@ export function localRemote(u, platform = process.platform, real = realpathPosix
   const abs = win32.resolve(u);
   try { return real(abs); } catch { return posixForm(abs, platform); }
 }
+
+/**
+ * An absolute path on a LOCAL drive, for the places that read a file or search a folder the environment names (the Claude and Codex homes, the session log, PATH entries, certificate files). Off Windows exactly
+ * `startsWith('/')`, as before. On win32 only `C:\x` and `C:/x`: a UNC path (`\\srv\share`, `//srv/share`) would make Windows authenticate to a remote host when it is read, and a rooted `/x` is relative to the current drive (A261).
+ * @param {string} p @param {string} [platform]
+ */
+export function isLocalAbsolute(p, platform = process.platform) {
+  return platform === 'win32' ? /^[A-Za-z]:[\\/]/.test(p) : p.startsWith('/');
+}
