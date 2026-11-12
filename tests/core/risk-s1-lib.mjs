@@ -22,10 +22,9 @@ export const SKD = existsSync(path.join(repoRoot, 'skills')) ? path.join(repoRoo
 const BROWSER_NAMES = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'chrome', 'microsoft-edge', 'microsoft-edge-stable', 'msedge', 'brave-browser'];
 export const HOST_BROWSER = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge', 'Brave Browser.app/Contents/MacOS/Brave Browser']
   .some((a) => { try { return (statSync(`/Applications/${a}`).mode & 0o111) !== 0; } catch { return false; } });
+// Windows (A263): the scenarios run. `probeVisual` looks for the extension-less names (chrome, google-chrome ...) and the hosted runner's browsers are chrome.exe/msedge.exe, so "no browser" holds there.
 /** The `skip` option of a scenario that needs "no browser" (the probe cannot hide the application folder, A214). */
-export const NO_BROWSER_SKIP = process.platform === 'win32'
-  ? 'on Windows the PATH cannot be rebuilt from links without browsers (the separator is ";" and a link needs a privilege), and a hosted runner has Chrome and Edge installed (A263)'
-  : HOST_BROWSER ? 'a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)' : false;
+export const NO_BROWSER_SKIP = HOST_BROWSER ? 'a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)' : false;
 
 /** The probe folder: symlinks to every executable of the PATH the process started with, minus the browsers. */
 function buildProbeBin() {

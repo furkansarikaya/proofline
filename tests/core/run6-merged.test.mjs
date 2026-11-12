@@ -12,7 +12,6 @@ import { tmp } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
-/** `find tasks -name 'LC*.md'` without the host's find (Windows has its own, a different program): the first match in the walk order, as a `tasks/...` path; '' when none. @param {string} tree */
 const WIN = process.platform === 'win32';
 /** Windows (A263): the launcher `sh agent.sh` that the harness starts INSIDE the run's worktree keeps that folder as its current directory while the core runs, and Windows cannot remove a folder that is some process's current directory (`git worktree remove`: "Permission denied", checked on the probe). The core then keeps the worktree and prints the fallback command, the restrictive side. A core started by node alone moves out first (`leaveFolder`, tested in run6-sbblock). */
 const WT_RM = WIN ? 'the sh launcher started inside the worktree holds it as its current directory, so Windows cannot remove the worktree (A263); the core keeps it and says how to remove it' : false;
@@ -24,6 +23,7 @@ function hostGit(cwd) {
   for (const dir of (process.env.PATH ?? '').split(path.delimiter)) { const f = path.join(dir, 'git.exe'); if (existsSync(f)) return f; }
   return 'git';
 }
+/** `find tasks -name 'LC*.md'` without the host's find (Windows has its own, a different program): the first match in the walk order, as a `tasks/...` path; '' when none. @param {string} tree */
 const findTask = (tree) => {
   /** @type {string[]} */ const hit = [];
   const walk = (/** @type {string} */ rel) => {
@@ -640,7 +640,7 @@ function assertMergedBlock(tree, why) {
   assert.ok(!blk.includes(tree) && !blk.includes('.agents/local'), `${why}: the block holds a local path`);
 }
 
-test('A221: a main working tree that cannot be fast-forwarded (a local commit origin lacks) still gets the MERGED block, in the task file it has', { skip: WT_RM }, () => {
+test('A221: a main working tree that cannot be fast-forwarded (a local commit origin lacks) still gets the MERGED block, in the task file it has', () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
   const { lo } = wtDeliver(d, wt, 'local');
@@ -655,11 +655,11 @@ test('A221: a main working tree that cannot be fast-forwarded (a local commit or
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
   assert.match(out, /^note: local main was not fast-forwarded \(it has commits origin lacks\): update it from origin\/main before the next task starts$/m, 'the fixture did not stop the fast-forward');
-  assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
+  if (!WT_RM) assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');   // Windows: the sh launcher holds it (WT_RM); the MERGED block below still runs
   assertMergedBlock(d, 'main not fast-forwarded');
 });
 
-test('A221: a dirty main working tree (a tracked file the user edited) still gets the MERGED block, in the task file it has', { skip: WT_RM }, () => {
+test('A221: a dirty main working tree (a tracked file the user edited) still gets the MERGED block, in the task file it has', () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
   const { lo } = wtDeliver(d, wt, 'local');
@@ -670,7 +670,7 @@ test('A221: a dirty main working tree (a tracked file the user edited) still get
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
   assert.match(out, /^note: the main working tree was left as it is: it has uncommitted changes \(it is on branch main\); update it from origin\/main before the next task starts$/m, 'the fixture did not stop the fast-forward');
   assert.ok(!out.includes('not on a clean'), 'the old wording is gone');
-  assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
+  if (!WT_RM) assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
   assertMergedBlock(d, 'main dirty');
   assert.match(read(d, tracked), /an edit of the user/, 'the user\'s edit was touched');
 });
