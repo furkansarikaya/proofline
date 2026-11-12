@@ -492,7 +492,7 @@ test('a relative local origin: a worktree proves the merge, the shown commands n
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
   const plan = accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan in the worktree').out;
   const loAbs = process.platform === 'win32' ? posix(realpathSync.native(lo)) : run(d, 'sh', ['-c', `cd "${lo}" && pwd -P`]).out.trim();
-  assert.ok(plan.includes(`git push ${loAbs} proofline/LC-lookup`) && plan.includes(`git push ${loAbs} proofline/LC-lookup:main`), 'the plan shows a relative origin');
+  assert.ok(plan.includes(`git push ${loAbs} proofline/LC-lookup`) && plan.includes(`git push ${loAbs} proofline/LC-lookup:main`), `the plan shows a relative origin (${loAbs}): ${plan}`);
   approveDelivery(d, undefined, wt);
   accepted(A(wt, ['deliver-step', 'LC', 'commit']), 'commit');
   A(wt, ['task-source-done', 'LC']);
