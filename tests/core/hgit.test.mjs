@@ -86,7 +86,7 @@ test('hermeticEnv: blanks each name as a key (so `=` is fine), keeps a count the
   assert.equal(e['GIT_CONFIG_COUNT'], '23');
   assert.deepEqual(kv, { 'a.b': '1', 'c.d': '2', 'core.fsmonitor': 'false', 'diff.submodule': 'short', 'submodule.recurse': 'false',
     'merge.verifySignatures': 'false', 'log.showSignature': 'false', 'commit.gpgSign': 'false', 'tag.gpgSign': 'false', 'gpg.program': '', 'gpg.openpgp.program': '', 'gpg.ssh.program': '', 'gpg.x509.program': '',
-    'gpg.ssh.defaultKeyCommand': '', 'core.hooksPath': '/dev/null', 'gc.auto': '0', 'maintenance.auto': 'false', 'receive.autogc': 'false', 'gc.recentObjectsHook': '',
+    'gpg.ssh.defaultKeyCommand': '', 'core.hooksPath': process.platform === 'win32' ? 'NUL' : '/dev/null', 'gc.auto': '0', 'maintenance.auto': 'false', 'receive.autogc': 'false', 'gc.recentObjectsHook': '',
     'filter.a=b.clean': '', 'filter.a=b.smudge': '', 'filter.a=b.process': '', 'filter.a=b.required': 'false' });
   // R3-1: no ignore setting is relied on (a per-submodule ignore=none overrides every one of them), so none is set
   assert.ok(!Object.keys(kv).some((k) => /ignoreSubmodules/i.test(k)), 'the environment must not rely on an ignore setting');

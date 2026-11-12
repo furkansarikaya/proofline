@@ -10,7 +10,8 @@
 // Test seams (PROOFLINE_TEST=1 only): PROOFLINE_UNAME replaces the system name, PROOFLINE_BATCH_INHIBIT=none says no sleep inhibitor is installed,
 // PROOFLINE_SESSION_PID names the session process.
 import { frictionShowText } from './friction.mjs';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { realpathPosix } from './pathin.mjs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { batchApproval, pendingRequest, sharedDirOf } from './approvals.mjs';
@@ -44,7 +45,7 @@ export const PLUG_LINE = 'Keep the computer awake (plugged in, lid open) and thi
 /** The batch folder, in the main tree from any worktree (A185). @param {Context} ctx */
 export const bdOf = (ctx) => `${ctx.sharedMain()}/.agents/local/batch`;
 /** `cd DIR && pwd -P`, or the path itself. @param {string} d */
-function physical(d) { try { return realpathSync(d); } catch { return d; } }
+function physical(d) { try { return realpathPosix(d); } catch { return d; } }
 
 /** `tsv`: tabs and newlines of a text become spaces. @param {string} s */
 export const tsvText = (s) => s.replace(/[\t\n]/g, ' ');

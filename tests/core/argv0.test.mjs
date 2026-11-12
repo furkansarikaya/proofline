@@ -10,6 +10,7 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { splitArgv0 } from '../../control-plane/agents/scripts/proofline-core.mjs';
 import { scriptsDir } from './helpers.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const core = path.join(scriptsDir, 'proofline-core.mjs');
 const CONFIG = 'canonical_branch: main\ngit:\n  branch_prefix: t/\ntasks:\n  status_block_seconds: abc\n';
@@ -50,7 +51,9 @@ describe('--pl-argv0 is checked, never trusted', () => {
       symlinkSync(path.join(other, 'sub'), path.join(root, 'foo'));
       const typed = 'foo/../.agents/scripts/agent.sh';
       assert.equal(realpathSync(path.resolve(root, typed)), realpathSync(path.join(root, '.agents/scripts/agent.sh')), 'the textual fold would name the sibling');
-      assert.deepEqual(splitArgv0(['--pl-argv0', typed, 'role'], script, root), { argv: ['role'] });
+      // Windows folds `..` in the text before it touches the file system (no physical `..`): the typed name IS the project's own script there, so it is accepted, as its real path
+      const own = posix(realpathSync.native(path.join(root, '.agents/scripts/agent.sh')));
+      assert.deepEqual(splitArgv0(['--pl-argv0', typed, 'role'], script, root), process.platform === 'win32' ? { argv: ['role'], argv0: own } : { argv: ['role'] });
       const r = spawnSync(process.execPath, [script, '--pl-argv0', typed, 'timeouts'], { cwd: root, encoding: 'utf8' });
       assert.equal(existsSync(mark), false, 'the other script was executed');
       assert.equal(typeof r.status, 'number');
@@ -58,8 +61,8 @@ describe('--pl-argv0 is checked, never trusted', () => {
       symlinkSync(path.join(root, '.agents'), path.join(root, 'back'));
       mkdirSync(path.join(root, 'plain'), { recursive: true });
       symlinkSync(path.join(root, 'plain'), path.join(root, 'ok'));
-      const sibling = realpathSync(path.join(root, '.agents/scripts/agent.sh'));
-      assert.deepEqual(splitArgv0(['--pl-argv0', 'ok/../.agents/scripts/agent.sh', 'role'], script, root), { argv: ['role'], argv0: sibling });
+      const sibling = (process.platform === 'win32' ? realpathSync.native : realpathSync)(path.join(root, '.agents/scripts/agent.sh'));
+      assert.deepEqual(splitArgv0(['--pl-argv0', 'ok/../.agents/scripts/agent.sh', 'role'], script, root), { argv: ['role'], argv0: posix(sibling) });
       assert.deepEqual(splitArgv0(['--pl-argv0', 'back/scripts/agent.sh', 'role'], script, root), { argv: ['role'], argv0: 'back/scripts/agent.sh' });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

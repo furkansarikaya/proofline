@@ -2,11 +2,12 @@
 // `proofline help` against the other places that list the commands, the plugin files, and the terminal installer (A233; the former scenarios sc_help_lists, sc_plugin and
 // sc_installer of tests/cli/cli-test.sh): the help text, the entry skill, the lead skill table, the README and the next-step table name the same commands.
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { PL, VERSION, sandbox } from './frontend-lib.mjs';
+import { launch, posix } from '../lib/winpath.mjs';
 import { repo } from './helpers.mjs';
 import { USAGE_LINES } from '../../control-plane/agents/scripts/core/cliusage.mjs';
 
@@ -116,7 +117,8 @@ test('install.mjs --yes links bin/proofline, the link runs (node resolves the sy
   const r = installer(h, ['--dir', `${h}/bin`, '--yes']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.ok(lstatSync(`${h}/bin/proofline`).isSymbolicLink());
-  const v = spawnSync(`${h}/bin/proofline`, ['version'], { env: sb.env, encoding: 'utf8' });
+  const lv = launch(`${h}/bin/proofline`, ['version']);
+  const v = spawnSync(lv.program, lv.args, { env: sb.env, encoding: 'utf8' });
   assert.equal(v.stdout, `proofline ${VERSION}\n`, v.stderr);
   assert.ok(r.stdout.includes('proofline init'));
   const count = () => read(`${h}/.zshrc`).split('\n').filter((l) => l.includes(`${h}/bin`)).length;
@@ -131,10 +133,11 @@ test('install.mjs --yes links bin/proofline, the link runs (node resolves the sy
 
 test('the launcher is a symlink-safe Node program: a link through two folders, a relative link and the file itself all run the checkout\'s CLI', () => {
   const dir = path.join(sb.T, 'links'); mkdirSync(`${dir}/a/b`, { recursive: true });
-  spawnSync('ln', ['-s', PL, `${dir}/a/direct`]);
-  spawnSync('ln', ['-s', '../direct', `${dir}/a/b/rel`]);
+  symlinkSync(PL, `${dir}/a/direct`);   // node's own link: the MSYS `ln -s` of Windows makes a copy, which cannot find the checkout
+  symlinkSync('../direct', `${dir}/a/b/rel`);
   for (const f of [PL, `${dir}/a/direct`, `${dir}/a/b/rel`]) {
-    const r = spawnSync(f, ['version'], { cwd: dir, env: sb.env, encoding: 'utf8' });
+    const lf = launch(f, ['version']);
+    const r = spawnSync(lf.program, lf.args, { cwd: dir, env: sb.env, encoding: 'utf8' });
     assert.equal(r.stdout, `proofline ${VERSION}\n`, `${f}: ${r.stderr}`);
   }
 });
@@ -142,20 +145,20 @@ test('the launcher is a symlink-safe Node program: a link through two folders, a
 test('install.mjs: the questions (PROOFLINE_PROMPT=1 reads them from standard input), a refusal installs nothing, a typed directory is used', () => {
   const h = path.join(sb.T, 'h5'); mkdirSync(h, { recursive: true });
   const no = installer(h, ['--dir', `${h}/bin`], { PROOFLINE_PROMPT: '1' }, '\nn\n');
-  assert.equal(no.status, 1); assert.match(no.stdout, /^Directory for the proofline symlink \[.*\/bin\]: Link .*\/bin\/proofline -> .*\/bin\/proofline \? \[y\/N\]: nothing installed\n$/);
+  assert.equal(no.status, 1); assert.match(no.stdout, (process.platform === 'win32' ? /^Directory for the proofline symlink \[.*[\\/]bin\]: Link .*[\\/]bin[\\/]proofline -> .*[\\/]bin[\\/]proofline \? \[y\/N\]: nothing installed\n$/ : /^Directory for the proofline symlink \[.*\/bin\]: Link .*\/bin\/proofline -> .*\/bin\/proofline \? \[y\/N\]: nothing installed\n$/));
   assert.ok(!existsSync(`${h}/bin/proofline`));
   const yes = installer(h, ['--dir', `${h}/bin`], { PROOFLINE_PROMPT: '1' }, `${h}/other\ny\n`);
   assert.equal(yes.status, 0, yes.stderr); assert.ok(lstatSync(`${h}/other/proofline`).isSymbolicLink());
-  assert.ok(yes.stdout.includes(`linked ${h}/other/proofline -> ${repo}/bin/proofline`));
-  assert.ok(yes.stdout.includes(`${h}/other is not on your PATH. Add this to your shell rc file (not edited without --yes):\n  export PATH="${h}/other:$PATH"\n`));
+  assert.ok(posix(yes.stdout).includes(posix(`linked ${h}/other/proofline -> ${repo}/bin/proofline`)));
+  assert.ok(posix(yes.stdout).includes(posix(`${h}/other is not on your PATH. Add this to your shell rc file (not edited without --yes):\n  export PATH="${h}/other:$PATH"\n`)));
   assert.ok(!existsSync(`${h}/.zshrc`), 'no rc file is touched without --yes');
 });
 
 test('install.mjs: a dangling or old link is replaced, a real file is never overwritten, usage errors are exit 2', () => {
   const h = path.join(sb.T, 'h6'); mkdirSync(`${h}/bin`, { recursive: true });
-  spawnSync('ln', ['-s', `${h}/gone`, `${h}/bin/proofline`]);
+  symlinkSync(`${h}/gone`, `${h}/bin/proofline`);
   const r = installer(h, ['--dir', `${h}/bin`, '--yes']);
-  assert.equal(r.status, 0, r.stderr); assert.equal(readlinkSync(`${h}/bin/proofline`), `${repo}/bin/proofline`);
+  assert.equal(r.status, 0, r.stderr); assert.equal(posix(readlinkSync(`${h}/bin/proofline`)), posix(`${repo}/bin/proofline`));
   unlinkSync(`${h}/bin/proofline`); writeFileSync(`${h}/bin/proofline`, 'mine\n');
   const f = installer(h, ['--dir', `${h}/bin`, '--yes']);
   assert.equal(f.status, 1); assert.match(f.stderr, /exists and is not a symlink; remove it first/); assert.equal(read(`${h}/bin/proofline`), 'mine\n');

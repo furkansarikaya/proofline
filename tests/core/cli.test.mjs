@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { CLI_COMMANDS } from '../../control-plane/agents/scripts/core/commands/cli.mjs';
 import { COMMAND_NAMES } from '../../control-plane/agents/scripts/core/commands/names.mjs';
 import { awkStr } from '../../control-plane/agents/scripts/core/insights.mjs';
+import { launch } from '../lib/winpath.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const proofline = path.join(repo, 'bin', 'proofline');
@@ -27,7 +28,8 @@ const w = (/** @type {string} */ rel, /** @type {string} */ text) => { mkdirSync
 function exec(args, env = {}) {
   const e = { ...process.env, ...env };
   delete e.AGENT_ROLE;
-  const r = spawnSync(proofline, args, { cwd: fx, env: e, encoding: 'latin1' });
+  const l = launch(proofline, args);
+  const r = spawnSync(l.program, l.args, { cwd: fx, env: e, encoding: 'latin1' });
   return { out: r.stdout, err: r.stderr, code: r.status };
 }
 /** @param {string[]} args @param {Record<string, string>} [env] */

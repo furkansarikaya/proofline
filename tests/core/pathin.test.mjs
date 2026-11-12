@@ -5,8 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { inside, isAbsoluteInput, realpathPosix } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inside, isAbsoluteInput, localRemote, posixForm, realpathPosix, samePath } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 /** The expression every call site had before A260. @param {string} base @param {string} child */
 const before = (base, child) => (child.startsWith(`${base}/`) ? child.slice(base.length + 1) : null);
@@ -70,7 +71,7 @@ test('POSIX: realpathPosix is realpathSync, byte for byte, through a symbolic li
   writeFileSync(path.join(run, 'reports', 'a.md'), 'x'); writeFileSync(path.join(other, 'b.md'), 'y');
   symlinkSync(other, path.join(run, 'reports', 'link'));
   symlinkSync(path.join(run, 'reports'), path.join(t, 'alias'));
-  for (const p of [run, path.join(run, 'reports', 'a.md'), path.join(t, 'alias', 'a.md'), path.join(run, 'reports', 'link', 'b.md')]) assert.equal(realpathPosix(p), realpathSync(p));
+  for (const p of [run, path.join(run, 'reports', 'a.md'), path.join(t, 'alias', 'a.md'), path.join(run, 'reports', 'link', 'b.md')]) assert.equal(realpathPosix(p), process.platform === 'win32' ? posix(realpathSync.native(p)) : realpathSync(p));   // off Windows: realpathSync itself
   const runReal = realpathPosix(run);
   assert.equal(inside(runReal, realpathPosix(path.join(t, 'alias', 'a.md'))), 'reports/a.md');
   assert.equal(inside(runReal, realpathPosix(path.join(run, 'reports', 'link', 'b.md'))), null);
@@ -91,4 +92,31 @@ test('win32: only ASCII letters fold; Kelvin sign, dotless i and long s never ma
   assert.equal(inside('C:/r/K', 'C:/r/k/x', 'win32'), 'x', 'ASCII case still folds');
   assert.equal(inside('C:/r/\u212A', 'C:/r/\u212A/x', 'win32'), 'x', 'the same spelling matches');
   assert.equal(inside('C:/r/\u00C9', 'C:/r/\u00E9/x', 'win32'), null, 'no non-ASCII folding at all');
+});
+
+test('posixForm and samePath (A261): off Windows they are the identity and ===, a backslash stays a file name character; on win32 the drive, the slashes, the trailing slash and ASCII case are normalised', () => {
+  for (const p of ['/a/b', 'a\\b', 'C:\\x', '/a/b/', '', 'c:/x']) assert.equal(posixForm(p, 'linux'), p, p);
+  for (const [a, b] of [['/a/b', '/a/b'], ['/a/b', '/a/b/'], ['/a/B', '/a/b'], ['a\\b', 'a/b'], ['C:/x', 'c:/x']]) assert.equal(samePath(a, b, 'linux'), a === b, `${a} ${b}`);
+  assert.equal(posixForm('c:\\Users\\x\\y', 'win32'), 'C:/Users/x/y');
+  assert.equal(posixForm('\\\\?\\c:\\x', 'win32'), 'C:/x');
+  assert.equal(samePath('C:\\Users\\X\\githooks\\', 'c:/users/x/githooks', 'win32'), true);
+  assert.equal(samePath('C:/a/b', 'C:/a/bc', 'win32'), false);
+  assert.equal(samePath('C:/a/b', 'D:/a/b', 'win32'), false);
+  assert.equal(samePath('C:/a/\u212A', 'C:/a/k', 'win32'), false, 'the Kelvin sign is not a k');
+});
+
+test('POSIX: the absolute-path tests A261 swapped in (leadlog, toolstats, metricsStep, platform) answer exactly what the old expressions answered over a table', () => {
+  const table = ['', '/', '/a', '/a/b.jsonl', 'a/b.jsonl', './a.jsonl', '../a', 'C:\\x\\a.jsonl', 'C:/x/a.jsonl', '\\\\srv\\share\\a.jsonl', '/a\r.jsonl', '/a\n.jsonl', '/a.jsonl\n', '/x.jsonl', 'file:///x', '-/a', ' /a', '~/a'];
+  for (const p of table) {
+    assert.equal(isAbsoluteInput(p, 'linux'), p.startsWith('/'), JSON.stringify(p));                                              // leadlog, toolstats: startsWith('/')
+    assert.equal(isAbsoluteInput(p, 'linux') && /^.*\.jsonl$/.test(p), /^\/.*\.jsonl$/.test(p), JSON.stringify(p));              // metricsStep: /^\/.*\.jsonl$/
+    assert.equal(/^(\/|\.\/|\.\.\/)/.test(p) || isAbsoluteInput(p, 'linux'), /^(\/|\.\/|\.\.\/)/.test(p), JSON.stringify(p));    // platform: the local-origin test
+  }
+});
+
+test('localRemote (A261): the address itself off Windows and for anything but a drive path; on win32 the `..` is folded and the real path used when it exists', () => {
+  for (const u of ['', '/a/b/../c.git', '../x.git', 'C:\\x\\..\\y', 'https://h/o/r', 'git@h:o/r']) assert.equal(localRemote(u, 'linux', () => { throw new Error('not called'); }), u, u);
+  for (const u of ['', '/a/b', '../x.git', 'https://h/o/r', 'git@h:o/r', 'file:///C:/x']) assert.equal(localRemote(u, 'win32', () => { throw new Error('not called'); }), u, u);
+  assert.equal(localRemote('C:\\p\\wt\\LC/../p-lo.git', 'win32', (a) => `real:${a}`), 'real:C:\\p\\wt\\p-lo.git');
+  assert.equal(localRemote('c:/p/wt/LC/../p-lo.git', 'win32', () => { throw new Error('ENOENT'); }), 'C:/p/wt/LC/p-lo.git'.replace('wt/LC', 'wt'));
 });

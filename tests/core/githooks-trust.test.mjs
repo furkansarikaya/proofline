@@ -14,6 +14,7 @@ import { clean, cleanBytes, cleanLines, cleanOut, codeAudit, couldAlias, foldNam
 import { matcherCovers, probeEnv, recordText } from '../../control-plane/agents/scripts/core/doctor.mjs';
 import { repo } from './helpers.mjs';
 import { sandbox } from './frontend-lib.mjs';
+import { launch } from '../lib/winpath.mjs';
 
 const sb = sandbox();
 const git = (/** @type {string} */ d, /** @type {string[]} */ a) => spawnSync('git', ['-C', d, ...a], { env: sb.env, encoding: 'utf8' });
@@ -505,7 +506,8 @@ test('A249 output (SEC-F, in process): cleanOut keeps the line feed and the tab 
 test('A249 init (SEC-F): configuration text, the manifest runtimes line and a prompt default never reach stderr as control bytes (CliDie, errLine, errRaw)', () => {
   const ESC = '\x1b]0;pwned\x07';
   const run = (/** @type {string} */ d, /** @type {string[]} */ args, /** @type {NodeJS.ProcessEnv} */ extra = {}, /** @type {string} */ input = '') => {
-    const r = spawnSync(path.join(repo, 'bin', 'proofline'), args, { cwd: d, env: { ...sb.env, ...extra }, encoding: 'latin1', input });
+    const l = launch(path.join(repo, 'bin', 'proofline'), args);
+    const r = spawnSync(l.program, l.args, { cwd: d, env: { ...sb.env, ...extra }, encoding: 'latin1', input });
     return { status: r.status, text: r.stdout + r.stderr };
   };
   const ctl = /[\x00-\x09\x0b-\x1f\x7f-\x9f]/;

@@ -7,11 +7,11 @@
 // proofline: the branch is pushed, the link is printed and the USER merges (exit 1). The tool (gh, glab, az) comes from an absolute PATH entry and is refused when
 // it resolves into the working directory, the project or a temporary folder; no environment value lifts that (D14). The tools get argument arrays; their JSON is
 // read in process (no jq).
-import { existsSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { buildRecord } from './buildrecord.mjs';
 import { Context } from './context.mjs';
 import { ProoflineError } from './errors.mjs';
-import { cleanToolEnv, detectPlatform, linkText, parseJson, platformEnv, resolveToolIn } from './platform.mjs';
+import { cleanToolEnv, detectPlatform, linkText, parseJson, mergeToolDecision, platformEnv } from './platform.mjs';
 import * as proc from './proc.mjs';
 
 
@@ -90,15 +90,9 @@ function run(ctx, argv) {
   else manual('proofline has no merge adapter for this host');
 
   // PATH shadowing: an empty or relative PATH entry that could hold a fake is refused
-  for (const d of (ctx.env.PATH ?? '').split(':')) {
-    if (d.startsWith('/')) continue;
-    const bad = d === '' || d === '.' || d === '..' || (() => { try { return statSync(d).isDirectory(); } catch { return false; } })();
-    if (bad) refuse(`PATH holds an empty or relative entry ('${d}'); a gh found there could be a fake`);
-  }
-  const t = resolveToolIn(ctx.env, cli, [ctx.cwd, top, ctx.env.TMPDIR ?? '/nonexistent', '/tmp', '/private/tmp', '/var/folders', '/dev/shm']);
-  if ('shadowed' in t) refuse(`${cli} resolves to ${t.shadowed}, a project, working or temp directory; refusing a possibly shadowed ${cli}`);
-  if ('unreadable' in t) refuse(`${cli} is not installed or not on PATH; cannot check the pull request`);
-  const tool = t.path;
+  const decision = mergeToolDecision(ctx, cli, top);
+  if ('refuse' in decision) refuse(decision.refuse);
+  const tool = decision.path;
   say(`proofline merge: using ${cli} at ${tool}`);
 
   /** One call of the tool (stdin closed); `-R REPO` after the arguments for gh and glab (`mg_gh`). @param {string[]} args @param {boolean} [withRepo] */

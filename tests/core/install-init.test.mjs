@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { INIT_FLAGS, VERSION, cfgv, sandbox, sig } from './frontend-lib.mjs';
 import { repo } from './helpers.mjs';
+import { launch } from '../lib/winpath.mjs';
 
 const sb = sandbox();
 const read = (/** @type {string} */ f) => readFileSync(f, 'utf8');
@@ -51,7 +52,7 @@ test('init --yes with flags exits 0, discovers the build command from package.js
 });
 
 test('the scripts and git hooks are executable, and the control plane, roles, agents, hooks and instruction files are all there', () => {
-  for (const f of ['.agents/scripts/agent.sh', '.agents/scripts/dispatch.sh', '.agents/githooks/pre-commit', '.agents/githooks/pre-push']) assert.ok(statSync(`${base}/${f}`).mode & 0o100, `${f} is not executable`);
+  for (const f of ['.agents/scripts/agent.sh', '.agents/scripts/dispatch.sh', '.agents/githooks/pre-commit', '.agents/githooks/pre-push']) assert.ok(process.platform === 'win32' || statSync(`${base}/${f}`).mode & 0o100, `${f} is not executable`);
   for (const f of ['.agents/WORKFLOW.md', '.agents/GATES.md', '.agents/templates/RUN.yaml', '.agents/modes/deterministic.yaml', '.agents/hooks/proofline-hook.mjs', '.agents/hooks/events/pretool.mjs', '.agents/hooks/lib/yield.mjs',
     '.agents/roles.conf', '.agents/roles/lead.md', '.claude/agents/proofline-reviewer.md', '.codex/agents/proofline-reviewer.toml', 'AGENTS.md', 'CLAUDE.md', '.claude/settings.json', '.codex/hooks.json', '.agents/.proofline-manifest']) {
     assert.ok(existsSync(`${base}/${f}`), `missing after init: ${f}`);
@@ -336,7 +337,8 @@ test('an existing config keeps its values on init: only a flag given explicitly 
 
 test('init asks the questions on the terminal when PROOFLINE_PROMPT=1 and takes the answers from standard input; an empty answer is the default', () => {
   const d = sb.mkrepo('ask');
-  const r = spawnSync(path.join(repo, 'bin', 'proofline'), ['init'], { cwd: d, env: { ...sb.env, PROOFLINE_PROMPT: '1' }, input: 'claude\n\n\n\nmax\n\n\n\n\n', encoding: 'utf8' });
+  const l = launch(path.join(repo, 'bin', 'proofline'), ['init']);
+  const r = spawnSync(l.program, l.args, { cwd: d, env: { ...sb.env, PROOFLINE_PROMPT: '1' }, input: 'claude\n\n\n\nmax\n\n\n\n\n', encoding: 'utf8' });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stderr, /Runtimes to set up \(claude, codex\) \[claude codex\]: /);
   assert.match(r.stderr, /Lead runtime \[claude\]: /);

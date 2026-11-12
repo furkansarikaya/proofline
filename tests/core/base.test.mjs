@@ -11,6 +11,7 @@ import { Context, canonRole, validRole } from '../../control-plane/agents/script
 import { ProoflineError, fail } from '../../control-plane/agents/scripts/core/errors.mjs';
 import { sha256, sha256File } from '../../control-plane/agents/scripts/core/hash.mjs';
 import { normalizeInputPath, projectRoot, sharedRoot, toMsysPath, toNativePath, toPosix } from '../../control-plane/agents/scripts/core/paths.mjs';
+import { eolText } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { scriptsDir } from './helpers.mjs';
 
@@ -35,11 +36,18 @@ describe('proc.mjs', () => {
   test('a program that is not found gives 127, input reaches stdin, a signal gives 128 + n, runUserCommand uses sh -c', async () => {
     assert.equal(proc.run('no-such-program-xyz', []).status, 127);
     assert.equal(proc.run('cat', [], { input: 'hello' }).stdout.toString(), 'hello');
-    assert.equal(proc.run('sh', ['-c', 'kill -TERM $$']).status, 143);
+    const killed = proc.run('sh', ['-c', 'kill -TERM $$']).status;
+    if (process.platform === 'win32') assert.notEqual(killed, 0);   // the MSYS sh of Windows reports a signal as 15 << 8, not 128 + 15; there is no POSIX signal status there
+    else assert.equal(killed, 143);
     assert.equal(proc.runUserCommand('echo x | tr a-z A-Z').stdout.toString(), 'X\n');
     const a = await proc.runAsync('sh', ['-c', 'printf hi; exit 4']);
     assert.equal(a.status, 4); assert.equal(a.stdout.toString(), 'hi');
     assert.equal((await proc.runAsync('no-such-program-xyz', [])).status, 127);
+  });
+  test('eolText (A261): CRLF becomes LF on win32 only; elsewhere the text is untouched, a lone CR included', () => {
+    assert.equal(eolText('v22.13.0\r\nx\r\n', 'win32'), 'v22.13.0\nx\n');
+    assert.equal(eolText('a\rb', 'win32'), 'a\rb');
+    for (const p of ['linux', 'darwin']) assert.equal(eolText('v22.13.0\r\nx\r\n', p), 'v22.13.0\r\nx\r\n');
   });
   test('it is the only module of the core, the commands and the entry that imports node:child_process', () => {
     /** @param {string} dir @returns {string[]} */
@@ -116,7 +124,8 @@ describe('context.mjs', () => {
     /** @type {string[]} */ const seen = [];
     const io = { env: {}, cwd: '/x', stdout: { write: (/** @type {Buffer} */ b) => seen.push(`o:${b}`) }, stderr: { write: (/** @type {Buffer} */ b) => seen.push(`e:${b}`) } };
     const ctx = new Context(io, '/x/.agents/scripts/agent.sh');
-    assert.equal(ctx.root, '/x'); assert.equal(ctx.configFile, '/x/.agents/config.yaml'); assert.equal(ctx.role, 'lead');
+    const X = path.resolve('/x');   // '/x' off Windows, 'D:\x' on it: the root is the host's own absolute path
+    assert.equal(ctx.root, X); assert.equal(ctx.configFile, `${X}/.agents/config.yaml`); assert.equal(ctx.role, 'lead');
     ctx.out('a'); ctx.err('b'); ctx.out('c');
     assert.deepEqual(seen, []);
     ctx.flush();

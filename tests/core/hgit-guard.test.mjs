@@ -21,6 +21,7 @@ import { test } from 'node:test';
 import { listable } from '../../control-plane/agents/scripts/core/kirules.mjs';
 import { git, makeFixture } from './fixture.mjs';
 import { repo } from './helpers.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 /** The files that ARE the hermetic helpers: they start git on purpose and add the blanking. */
 const HELPERS = new Set(['hgit.mjs', 'git.mjs']);
@@ -334,7 +335,7 @@ function sources(dir) {
 /** The key of a file in the tables: its path inside the core folder, or from the repository root for a file outside it. @param {string} f */
 function keyOf(f) {
   const core = path.join(repo, 'control-plane/agents/scripts/core') + path.sep;
-  return f.startsWith(core) ? f.slice(core.length) : path.relative(repo, f);
+  return posix(f.startsWith(core) ? f.slice(core.length) : path.relative(repo, f));   // the tables are keyed with forward slashes (A261)
 }
 /** Every file the guard reads: the sources of control-plane/ and the launcher in bin/. */
 function scanned() {

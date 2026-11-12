@@ -8,13 +8,14 @@
 //     tracks, or does not ignore, is left alone.
 //   2 Local files: the untracked files named by worktree.copy_files (default .env*) are copied only when git IGNORES them in the main tree and in the
 //     worktree; every copied path is listed in <worktree>/.agents/local/worktree-copied, which the pre-commit hook reads and refuses to let into a commit.
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync, appendFileSync, chmodSync, constants } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync, appendFileSync, chmodSync, constants } from 'node:fs';
 import path from 'node:path';
 import { bytes } from './config.mjs';
 import { ecosystemRowsAt } from './ecodata.mjs';
 import { fail } from './errors.mjs';
 import { wtLinked } from './commands/runcmds.mjs';
 import { isDir, isFile } from './paths.mjs';
+import { realpathPosix } from './pathin.mjs';
 import * as proc from './proc.mjs';
 import { hgit } from './hgit.mjs';
 import { archiveRun } from './runend.mjs';
@@ -30,7 +31,7 @@ export const rwValid = (id) => /^[A-Za-z0-9_-]+$/.test(id) && !/^[^A-Za-z0-9]/.t
 const SHARED = ['batch', 'approvals', 'metrics', 'friction', 'prompts'];
 
 /** `cd DIR && pwd -P`, or null. @param {string} d */
-function physical(d) { try { return realpathSync(d); } catch { return null; } }
+function physical(d) { try { return realpathPosix(d); } catch { return null; } }   // Windows: long names, forward slashes (A261); elsewhere realpathSync
 /** `rw_main`: the main working tree's folder. @param {Context} ctx */
 export const rwMain = (ctx) => physical(ctx.root) ?? ctx.root;
 /** `rw_dir ID` @param {Context} ctx @param {string} id */

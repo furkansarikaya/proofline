@@ -9,6 +9,7 @@ import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { metricsStep } from '../../control-plane/agents/scripts/core/resultutil.mjs';
 import { codexDayDirs, findCodexRollout, readCodexToolStats, toolsRecord } from '../../control-plane/agents/scripts/core/toolstats.mjs';
 import { makeProject, memoryIo } from './helpers.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const SID = '01a18804-2a27-7012-97d9-5144592a8a61';
 const NOON = Date.UTC(2026, 10, 11, 12, 0, 0) / 1000;      // 2026-11-11T12:00:00Z
@@ -124,10 +125,11 @@ describe('findCodexRollout', () => {
   test('the rollout is found by the session id: CODEX_THREAD_ID or CODEX_SESSION_ID, HOME/.codex or CODEX_HOME, today or up to 3 days back', () => {
     const home = makeProject();
     const f = put(home, '2026/11/11');
-    assert.deepEqual(findCodexRollout({ CODEX_THREAD_ID: SID, HOME: home }, NOON), { file: f, reason: null });
-    assert.equal(findCodexRollout({ CODEX_SESSION_ID: SID.toUpperCase(), HOME: home }, NOON).file, f);
-    assert.equal(findCodexRollout({ CODEX_THREAD_ID: SID, CODEX_HOME: path.join(home, '.codex'), HOME: '/nonexistent' }, NOON).file, f);
-    assert.equal(findCodexRollout({ CODEX_THREAD_ID: SID, HOME: home }, NOON + 3 * 86400).file, f);
+    const r0 = findCodexRollout({ CODEX_THREAD_ID: SID, HOME: home }, NOON);   // the product joins with '/', path.join with the host's separator
+    assert.deepEqual({ ...r0, file: posix(r0.file) }, { file: posix(f), reason: null });
+    assert.equal(posix(findCodexRollout({ CODEX_SESSION_ID: SID.toUpperCase(), HOME: home }, NOON).file), posix(f));
+    assert.equal(posix(findCodexRollout({ CODEX_THREAD_ID: SID, CODEX_HOME: path.join(home, '.codex'), HOME: '/nonexistent' }, NOON).file), posix(f));
+    assert.equal(posix(findCodexRollout({ CODEX_THREAD_ID: SID, HOME: home }, NOON + 3 * 86400).file), posix(f));
     assert.deepEqual(findCodexRollout({ CODEX_THREAD_ID: SID, HOME: home }, NOON + 5 * 86400), { file: '', reason: 'no-rollout' });
   });
   test('no id, a malformed id, no home and a file of another session each give a reason and no path', () => {

@@ -2,13 +2,14 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, mkdirSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, realpathSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
 import { tmp } from '../lib/harness.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
@@ -43,8 +44,8 @@ test('a local path, a relative path or a file:// origin is platform other (commi
   hooks(d);
   const lo = `${d}-lo.git`; const rel = `${d}-rel.git`;
   gOk(d, 'init', '-q', '--bare', lo); gOk(d, 'init', '-q', '--bare', rel);
-  const relName = `../${rel.slice(rel.lastIndexOf('/') + 1)}`;
-  for (const u of [lo, relName, `file://${lo}`]) {
+  const relName = `../${path.basename(rel)}`;
+  for (const u of [lo, relName, `file://${lo.startsWith('/') ? '' : '/'}${posix(lo)}`]) {   // file:///C:/x on Windows
     gOk(d, 'remote', 'set-url', 'origin', u);
     assert.equal(cli(d, ['field', 'local', '-C', d]).out, 'yes\n');
     assert.equal(cli(d, ['field', 'platform', '-C', d]).out, 'other\n');
@@ -52,7 +53,7 @@ test('a local path, a relative path or a file:// origin is platform other (commi
     const sum = read(d, '.agents/local/deliver/LC/SUMMARY.md');
     assert.match(sum, /^steps: commit push pr$/m);
     assert.match(sum, /^merge_by: user$/m);
-    const want = u.startsWith('../') ? run(d, 'sh', ['-c', `cd "${rel}" && pwd -P`]).out.trim() : 'origin';
+    const want = u.startsWith('../') ? (process.platform === 'win32' ? posix(realpathSync.native(rel)) : run(d, 'sh', ['-c', `cd "${rel}" && pwd -P`]).out.trim()) : 'origin';
     assert.ok(plan.includes(`git push ${want} proofline/LC-lookup:main`), `${u}: no 'git push ${want}' hand-off`);
   }
   for (const u of ['github.com.evil.example', 'https://github.com.evil.example', 'host.example']) {
@@ -487,11 +488,11 @@ test('a relative local origin: a worktree proves the merge, the shown commands n
   const wt = wtDoneRun(d);
   const lo = `${d}-lo.git`;
   gOk(d, 'init', '-q', '--bare', lo);
-  gOk(d, 'remote', 'set-url', 'origin', `../${lo.slice(lo.lastIndexOf('/') + 1)}`);
+  gOk(d, 'remote', 'set-url', 'origin', `../${path.basename(lo)}`);
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
   const plan = accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan in the worktree').out;
-  const loAbs = run(d, 'sh', ['-c', `cd "${lo}" && pwd -P`]).out.trim();
-  assert.ok(plan.includes(`git push ${loAbs} proofline/LC-lookup`) && plan.includes(`git push ${loAbs} proofline/LC-lookup:main`), 'the plan shows a relative origin');
+  const loAbs = process.platform === 'win32' ? posix(realpathSync.native(lo)) : run(d, 'sh', ['-c', `cd "${lo}" && pwd -P`]).out.trim();
+  assert.ok(plan.includes(`git push ${loAbs} proofline/LC-lookup`) && plan.includes(`git push ${loAbs} proofline/LC-lookup:main`), `the plan shows a relative origin (${loAbs}): ${plan}`);
   approveDelivery(d, undefined, wt);
   accepted(A(wt, ['deliver-step', 'LC', 'commit']), 'commit');
   A(wt, ['task-source-done', 'LC']);
@@ -506,7 +507,7 @@ test('a relative local origin: a worktree proves the merge, the shown commands n
   refused(A(wt, ['deliver-merged', 'LC', '--check']), 'before the merge', 'open: ');
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
   assert.match(accepted(A(wt, ['deliver-merged', 'LC', '--check']), 'check').out, /^merged: the delivered commit is on origin\/main/);
-  assert.equal(g(d, 'config', 'remote.origin.url'), `../${lo.slice(lo.lastIndexOf('/') + 1)}`);
+  assert.equal(g(d, 'config', 'remote.origin.url'), `../${path.basename(lo)}`);
 });
 
 test('a relative origin: a changed origin and an option-like origin are refused, nothing is pushed; an empty delivery records no merge', () => {
@@ -514,7 +515,7 @@ test('a relative origin: a changed origin and an option-like origin are refused,
   const wt = wtDoneRun(d);
   const lo = `${d}-lo.git`; const lo2 = `${d}-lo2.git`;
   gOk(d, 'init', '-q', '--bare', lo); gOk(d, 'init', '-q', '--bare', lo2);
-  const rel = (/** @type {string} */ p) => `../${p.slice(p.lastIndexOf('/') + 1)}`;
+  const rel = (/** @type {string} */ p) => `../${path.basename(p)}`;
   gOk(d, 'remote', 'set-url', 'origin', rel(lo));
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
   accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan');
@@ -545,7 +546,7 @@ test('a push git itself refuses (the relative origin rejects the branch) says wh
   const wt = wtDoneRun(d);
   const lo = `${d}-lo.git`;
   gOk(d, 'init', '-q', '--bare', lo);
-  gOk(d, 'remote', 'set-url', 'origin', `../${lo.slice(lo.lastIndexOf('/') + 1)}`);
+  gOk(d, 'remote', 'set-url', 'origin', `../${path.basename(lo)}`);
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
   accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan');
   approveDelivery(d, undefined, wt);
