@@ -49,10 +49,9 @@ test('A251: the Windows core and invariant tests are a manual, non-gating measur
   assert.match(j, /runs-on: windows-latest/);
   assert.match(j, /^    if: github\.event_name == 'workflow_dispatch' && needs\.changes\.outputs\.code == 'true'$/m);
   assert.match(j, /^    continue-on-error: true$/m);
-  assert.match(j, /--test-shard=1\/4 "tests\/core\/\*\.test\.mjs"/);
-  assert.match(j, /--test-shard=4\/4 "tests\/core\/\*\.test\.mjs"/);
-  assert.match(j, /"tests\/invariants-node\/\*\.test\.mjs"/);
-  assert.match(j, /run: node --test \$\{\{ matrix\.args \}\}/);
+  assert.match(j, /suite: \['core 1\/4', 'core 2\/4', 'core 3\/4', 'core 4\/4', 'invariants'\]/);
+  assert.match(j, /run: node tests\/ci\/windows-probe\.mjs\n/);   // A260: the legs' arguments live in tests/ci/windows-probe.mjs (tested in windows-probe.test.mjs)
+  assert.match(j, /PROBE_TESTS: \$\{\{ inputs\.tests \}\}/);
 });
 
 test('A251: shellcheck is gone from CI (only the four launchers remain, and the strict check pins their text); the strict check is a step, there is no ratchet', () => {

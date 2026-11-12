@@ -1,0 +1,43 @@
+// @ts-check
+// Real paths and "is this path inside that folder" for the checks that keep a cited file inside a run (A260, Windows port W1). Stored paths and the containment checks of the core are
+// POSIX text (`<run>/reports/x`, `real.startsWith(`${runReal}/`)`); on Windows `realpathSync` answers `C:\Users\RUNNER~1\...\run`, so every such check refused a file that was inside the run
+// ("ARTIFACT path must be inside the run"). `realpathPosix` is the one place that turns a real path into the POSIX form (forward slashes, upper-case drive letter, the long name of an 8.3
+// short name: `realpathSync.native` expands `RUNNER~1`, so two spellings of one folder compare equal); `inside` is the strict containment test on that form.
+// On every other platform both are exactly what the code did before: `realpathSync` unchanged, `startsWith(`${base}/`)` with a case-sensitive compare. Pure where it can be: the platform and
+// the realpath function are parameters, so the Windows rules are tested on any host.
+import { realpathSync } from 'node:fs';
+import { asciiLower, asciiUpper } from './shellglob.mjs';
+
+/**
+ * The real path of P in the form the core stores and compares paths in. Throws when P does not exist, like `realpathSync`.
+ * @param {string} p
+ * @param {{ platform?: string, real?: (p: string) => string }} [io]
+ */
+export function realpathPosix(p, io = {}) {
+  const platform = io.platform ?? process.platform;
+  if (platform !== 'win32') return (io.real ?? realpathSync)(p);
+  const r = (io.real ?? realpathSync.native)(p);
+  return r.replace(/^\\\\[?.]\\(?=[A-Za-z]:[\\/])/, '').replace(/^([a-z]):/, (_m, d) => `${asciiUpper(d)}:`).split('\\').join('/');
+}
+
+/**
+ * The path of CHILD relative to BASE (`a/b` for `<base>/a/b`) when CHILD is strictly inside BASE, else null. Both are real paths in the form of `realpathPosix`. The boundary is a whole path
+ * component (`/run2` is not inside `/run`), BASE itself is not inside BASE, and no `..` is interpreted: the callers pass real paths, where symbolic links and `..` are already resolved.
+ * Case is ignored only on win32 and only for ASCII letters (`asciiLower`): NTFS folds case with its own table, not Unicode's, so U+212A (Kelvin sign), U+0131 (dotless i) and U+017F (long s) must never match `k`, `i`, `s`; a non-ASCII difference is a different path. Everywhere else case matters, as before.
+ * @param {string} base @param {string} child @param {string} [platform] @returns {string | null}
+ */
+export function inside(base, child, platform = process.platform) {
+  const prefix = platform === 'win32' && base.endsWith('/') ? base : `${base}/`;   // off Windows exactly `${base}/`, as the call sites had it
+  if (child.length <= prefix.length) return null;
+  const head = child.slice(0, prefix.length);
+  const same = platform === 'win32' ? asciiLower(head) === asciiLower(prefix) : head === prefix;
+  return same ? child.slice(prefix.length) : null;
+}
+
+/**
+ * Whether a cited path is an absolute path of the host: a leading `/` everywhere; on win32 also `C:\x`, `C:/x` and a UNC path `\\srv\share`. Off Windows `C:\x` is an ordinary relative text, as before.
+ * @param {string} p @param {string} [platform]
+ */
+export function isAbsoluteInput(p, platform = process.platform) {
+  return p.startsWith('/') || (platform === 'win32' && (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\')));
+}

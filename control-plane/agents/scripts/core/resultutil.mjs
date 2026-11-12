@@ -4,7 +4,7 @@
 // evidence checks, the skill validators, the reproduced-evidence re-run, the evidence of an UNSUPPORTED result, the classification flip and the
 // per-step metrics.
 import { asciiLower, asciiUpper } from './shellglob.mjs';
-import { closeSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { closeSync, lstatSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { hashFile } from './fingerprint.mjs';
@@ -16,6 +16,7 @@ import * as proc from './proc.mjs';
 import { probePerformance, probeVisual } from './probes.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
 import { configuredRuntime } from './execpolicy.mjs';
+import { inside, realpathPosix } from './pathin.mjs';
 import { runDir } from './runs.mjs';
 import { riskSignals } from './signals.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
@@ -152,7 +153,7 @@ export function normalizeArtifact(ctx, id, p0) {
 export function plainFile(f) { try { return lstatSync(f).isFile(); } catch { return false; } }
 
 /** `realpath`, null when the path does not exist. @param {string} p */
-export function realOf(p) { try { return realpathSync(p); } catch { return null; } }
+export function realOf(p) { try { return realpathPosix(p); } catch { return null; } }
 
 // ---- header and findings ---------------------------------------------------------------------------------------------------------
 
@@ -236,7 +237,7 @@ export function evidenceCiteCheck(ctx, id, role, focus, p0, sha) {
   if (p === '' || p.startsWith('/') || p.includes('..')) return { err: `cited evidence path must be run-relative: ${p0} (A107)` };
   if (!plainFile(`${d}/${p}`)) return { err: `cited evidence file not found in the run: ${p} (A107)` };
   const real = realOf(`${d}/${p}`); const runReal = realOf(d);
-  if (real === null || runReal === null || !real.startsWith(`${runReal}/`)) return { err: `cited evidence file must be inside the run: ${p} (A107)` };
+  if (real === null || runReal === null || inside(runReal, real) === null) return { err: `cited evidence file must be inside the run: ${p} (A107)` };
   if (!(p.startsWith('reports/') || p.startsWith('worker-evidence/'))) {
     if (!(artifactAllowed(role, 'gate', focus, p) || artifactAllowed(role, 'task', focus, p))) {
       return { err: `cited evidence file ${p} is outside the folders ${role}${focus !== '' ? ` (FOCUS ${focus})` : ''} reports in: ${artifactPaths(role, 'gate', focus)} reports/ worker-evidence/ (A107)` };
@@ -455,7 +456,7 @@ export function unsupportedEvidenceCheck(ctx, id, role, focus, raw) {
   if (p === '' || p.startsWith('/') || p.includes('..')) return { err: `UNSUPPORTED_EVIDENCE path must be run-relative: ${p}` };
   if (!plainFile(`${d}/${p}`)) return { err: `UNSUPPORTED_EVIDENCE not found in the run: ${p}` };
   const real = realOf(`${d}/${p}`); const runReal = realOf(d);
-  if (real === null || runReal === null || !real.startsWith(`${runReal}/`)) return { err: `UNSUPPORTED_EVIDENCE must be inside the run: ${p}` };
+  if (real === null || runReal === null || inside(runReal, real) === null) return { err: `UNSUPPORTED_EVIDENCE must be inside the run: ${p}` };
   const dir = riskFocusReport(focus);
   const esc = role.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!(p.startsWith(dir) || new RegExp(`^reports/snapshots/.{12}-${esc}-`).test(p) || new RegExp(`^reports/[0-9]{3}-${esc}`).test(p))) {

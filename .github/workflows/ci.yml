@@ -13,6 +13,12 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      tests:
+        description: 'windows-core-probe only (A260): space-separated test files, globs or folders under tests/ (for example tests/core/gates-s1.test.mjs tests/invariants-node); empty runs every leg in full'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   # one group per pull request; every other event gets its own group so queued main runs are never displaced
@@ -157,7 +163,7 @@ jobs:
 
   # A251, stage 15: a MEASUREMENT of the core's Node tests and the Node Core-invariant suite on Windows. It is not a gate and not a claim: on the first run (A251) most core tests and 7 of the 8
   # invariant tests failed on windows-latest, so the README does not say they pass there. Manual runs only (workflow_dispatch), `continue-on-error`, so the nightly workflow does not go red for known work;
-  # it stays a manual, non-gating measurement until the LAST Windows package of epic #165 lands (A254); then the Windows hook and core jobs become gates of the nightly run.
+  # A260: the manual run takes a `tests` input (files, globs or folders under tests/) that limits it to those files, and every leg prints a PROBE-RESULT line and a job summary row (pass, fail, duration); it stays a manual, non-gating measurement until the LAST Windows package of epic #165 lands (A254); then the Windows hook and core jobs become gates of the nightly run.
   windows-core-probe:
     needs: [changes]
     if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.code == 'true'
@@ -168,25 +174,18 @@ jobs:
       fail-fast: false
       matrix:
         suite: ['core 1/4', 'core 2/4', 'core 3/4', 'core 4/4', 'invariants']
-        include:
-          - suite: core 1/4
-            args: --test-shard=1/4 "tests/core/*.test.mjs"
-          - suite: core 2/4
-            args: --test-shard=2/4 "tests/core/*.test.mjs"
-          - suite: core 3/4
-            args: --test-shard=3/4 "tests/core/*.test.mjs"
-          - suite: core 4/4
-            args: --test-shard=4/4 "tests/core/*.test.mjs"
-          - suite: invariants
-            args: '"tests/invariants-node/*.test.mjs"'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22.13.0
+      # A260: the leg's arguments and the optional `tests` selection are decided by tests/ci/windows-probe.mjs; the input reaches it as data through the environment, never in the command line.
       - name: node:test (this part)
-        run: node --test ${{ matrix.args }}
+        run: node tests/ci/windows-probe.mjs
+        env:
+          PROBE_SUITE: ${{ matrix.suite }}
+          PROBE_TESTS: ${{ inputs.tests }}
 
   # The Node tests of this repository's CI and enforcement code, on the minimum runtime (22.13.0) and the current active LTS. Never skipped.
   node-tests:
@@ -207,7 +206,7 @@ jobs:
           - name: core-rest
             mode: files
             pattern: 'none'
-            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/unsupported.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config-check-grep.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/exec-policy.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs tests/core/windows-patterns.test.mjs tests/core/grep-failclosed.test.mjs
+            files: tests/core/approval-grammar.test.mjs tests/core/approve-tty.test.mjs tests/core/argv0.test.mjs tests/core/base.test.mjs tests/core/unsupported.test.mjs tests/core/budget.test.mjs tests/core/capture.test.mjs tests/core/cli.test.mjs tests/core/config-check.test.mjs tests/core/config-check-grep.test.mjs tests/core/config.test.mjs tests/core/entry.test.mjs tests/core/exec-policy.test.mjs tests/core/fingerprint.test.mjs tests/core/githooks.test.mjs tests/core/golden.test.mjs tests/core/inflight-parts.test.mjs tests/core/lock.test.mjs tests/core/preamble.test.mjs tests/core/proc-epipe.test.mjs tests/core/records.test.mjs tests/core/signals.test.mjs tests/core/table.test.mjs tests/core/timeouts.test.mjs tests/core/tools.test.mjs tests/core/tree.test.mjs tests/core/windows-patterns.test.mjs tests/core/grep-failclosed.test.mjs tests/core/pathin.test.mjs
           - name: legacy-approvals
             mode: files
             pattern: 'none'

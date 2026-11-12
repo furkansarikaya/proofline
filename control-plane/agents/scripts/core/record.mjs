@@ -16,6 +16,7 @@ import { gatePreconditions, writeGate } from './gatewrite.mjs';
 import { sha256 } from './hash.mjs';
 import { setRunValue } from './lifecycle.mjs';
 import { led } from './lifeutil.mjs';
+import { inside, isAbsoluteInput } from './pathin.mjs';
 import * as proc from './proc.mjs';
 import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import {
@@ -169,14 +170,15 @@ function recordValidate(ctx, id, raw) {
   const asha = art.slice(sp + 1);
   if (sp < 0) reject("ARTIFACT needs '<run-relative path> <sha256>'");
   let candidate;
-  if (ap.startsWith('/')) candidate = ap;
+  if (isAbsoluteInput(ap)) candidate = ap;
   else if (ap.startsWith(`.agents/runs/${id}/`)) candidate = `${ctx.root}/${ap}`;
   else if (ap === '' || ap.includes('..')) reject(`ARTIFACT path must be run-relative: ${ap}`);
   else candidate = `${dir}/${ap}`;
   const real = realOf(candidate);
   if (real === null) reject(`ARTIFACT not found in the run: ${ap}`);
   const runReal = /** @type {string} */ (realOf(dir));
-  if (real.startsWith(`${runReal}/`)) ap = real.slice(runReal.length + 1);
+  const rel = inside(runReal, real);
+  if (rel !== null) ap = rel;
   else reject(`ARTIFACT path must be inside the run: ${ap}`);
   if (!plainFile(`${dir}/${ap}`)) reject(`ARTIFACT not found in the run: ${ap}`);
   if (role === 'explorer' && ap.startsWith('reports/') && !ap.startsWith('reports/snapshots/')) reject(`an explorer result cites a snapshot made by submit, not a live report path (${ap}): hand the report over with submit --report <file>`);
