@@ -16,7 +16,7 @@
 
 ## Status
 
-Version 0.0.95 is an early release.
+Version 0.0.96 is an early release.
 Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
 Codex as implementer is supported (real use, 2026-10-23 to 25).
 Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
@@ -133,7 +133,7 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 
 ## Versioning and license
 
-Version **0.0.95**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.96**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 
