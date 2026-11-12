@@ -34,7 +34,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { worktreeGrants } from './codexprofile.mjs';
+import { ProfileRefused, worktreeGrants } from './codexprofile.mjs';
 import { bytes } from './config.mjs';
 import { Context } from './context.mjs';
 import { dispatcherIo } from './decide.mjs';
@@ -390,7 +390,11 @@ class Dispatcher {
       return r.status === 0 ? r.stdout.toString('utf8').replace(/\n$/, '') : '';
     };
     const real = (/** @type {string} */ p) => { try { return process.platform === 'win32' ? realpathSync.native(p) : realpathSync(p); } catch { return p; } };
-    const abs = worktreeGrants(root, { git, real, isDir, isFile, mkdirp: (p) => { mkdirSync(p, { recursive: true }); } });
+    /** @type {string} */ let abs;
+    try { abs = worktreeGrants(root, { git, real, isDir, isFile, mkdirp: (p) => { mkdirSync(p, { recursive: true }); } }); } catch (e) {
+      if (e instanceof ProfileRefused) throw (this.role ? this.blocked(e.message) : this.die(e.message));   // a worktree whose git folders are not where its path says (A263): no profile, the dispatch stops
+      throw e;
+    }
     if ((rules + abs).includes('\\')) throw this.die('a path with a backslash cannot be placed in the Codex permission profile');
     return ['-c', 'default_permissions="proofline-worker"', '-c', 'permissions.proofline-worker.extends=":workspace"', '-c', `permissions.proofline-worker.filesystem={":workspace_roots"={${rules}}${abs}}`];
   }

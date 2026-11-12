@@ -150,7 +150,7 @@ export function archiveRun(ctx, id, runPath) {
   let ok = false;
   try {
     const spec = tarSpec(file, ctx.cwd);
-    const a = proc.run('tar', ['-czf', spec.file, '-C', path.dirname(runPath), path.basename(runPath)], { cwd: spec.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+    const a = proc.run('tar', ['-czf', spec.file, '-C', path.dirname(runPath), '--', path.basename(runPath)], { cwd: spec.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
     ok = a.status === 0 && proc.run('tar', ['-tzf', spec.file], { cwd: spec.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] }).status === 0;
   } finally { process.umask(old); }
   if (!ok) { rmSync(file, { force: true }); fail(`could not archive the records of ${id} into ${root}/${id}; the run is kept (set archive.keep: 0 to skip the archive)`); }
