@@ -384,8 +384,9 @@ class Dispatcher {
   /** The Codex permission profile (A199, A203): the `-c` arguments, one per element. @param {string} id @param {string} root @returns {string[]} */
   codexProfileArgs(id, root) {
     let rules = `".agents"="read",".agents/runs/${id}"="write",".agents/runs/${id}/approvals"="read",".agents/runs/${id}/waivers"="read",".agents/local/locks"="write",".agents/local/submissions"="write"`;
+    // A263: the reads go through hgit (the sanctioned wrapper: no repository configuration steers them); the answers are the same refs and paths
     const git = (/** @type {string[]} */ args) => {
-      const r = proc.run('git', ['-C', root, ...args], { env: this.env, stdio: ['ignore', 'pipe', 'ignore'] });
+      const r = hgit(this.ctx(), root, args, { env: this.env });
       return r.status === 0 ? r.stdout.toString('utf8').replace(/\n$/, '') : '';
     };
     const real = (/** @type {string} */ p) => { try { return process.platform === 'win32' ? realpathSync.native(p) : realpathSync(p); } catch { return p; } };
