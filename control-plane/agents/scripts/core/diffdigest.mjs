@@ -7,7 +7,7 @@
 //   - fixed tools only: `git diff --numstat` with a fixed argv (no shell, no model-supplied argument but the run id) and the file's own bytes for untracked files;
 //   - it writes nothing but those three files, in a folder it creates itself inside the run (a link planted as `reports/` or as the next folder is never followed);
 //   - the raw file holds no time, pid or path of the machine: the same tree gives the same bytes. Not a gate: it reports, it never fails a scope check.
-import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeSync } from 'node:fs';
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, statSync, writeSync } from 'node:fs';
 import { fail } from './errors.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { git, headSha } from './git.mjs';
@@ -15,6 +15,7 @@ import { taskPatchFingerprint } from './gates.mjs';
 import { sha256 } from './hash.mjs';
 import { enforceTaskBranch } from './lifecycle.mjs';
 import { planScope, sectionValue } from './records.mjs';
+import { realpathPosix } from './pathin.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { classifyChanges, scopeAllow } from './commands/verify.mjs';
 import { bytes } from './config.mjs';
@@ -66,7 +67,7 @@ function nextFolder(dir) {
     if (e instanceof Error && e.name === 'ProoflineError') throw e;
     mkdirSync(reports, { recursive: true });
   }
-  const real = realpathSync(reports); const runReal = realpathSync(dir);
+  const real = realpathPosix(reports); const runReal = realpathPosix(dir);
   if (real !== `${runReal}/reports`) fail(`diff-digest refused: ${reports} does not resolve inside the run`);
   for (let n = 1; n < 10000; n++) {
     try { mkdirSync(`${reports}/diff-digest-${n}`); return { folder: `${reports}/diff-digest-${n}`, n }; } catch (e) { if (!(e instanceof Error && 'code' in e && e.code === 'EEXIST')) throw e; }

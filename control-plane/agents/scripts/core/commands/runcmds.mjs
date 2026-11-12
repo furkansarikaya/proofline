@@ -17,6 +17,7 @@ import { taskPatchFingerprint, taskOwnedPaths } from '../gates.mjs';
 import { ledgerAppend, verifySeal } from '../ledger.mjs';
 import { enforceTaskBranch, localTaskSource, localTaskSourceRun, setRunValue, taskSourceContractHash } from '../lifecycle.mjs';
 import { isFile } from '../paths.mjs';
+import { realpathPosix } from '../pathin.mjs';
 import * as proc from '../proc.mjs';
 import { askCommand, verifyAssumptions } from '../questions.mjs';
 import { fileText, gateField, gatesEnforced, planDestructive, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
@@ -146,13 +147,13 @@ function discardStray(ctx, args) {
   if (name === '' || /[^A-Za-z0-9._-]/.test(name)) fail(`discard-stray refused: '${rel}' may contain only A-Z a-z 0-9 . _ - in the file name`);
   const lc = name.replace(/[A-Z]/g, (c) => c.toLowerCase());
   let dir;
-  try { dir = realpathSync(d0); } catch { return fail('discard-stray refused: run directory does not resolve'); }
+  try { dir = realpathPosix(d0); } catch { return fail('discard-stray refused: run directory does not resolve'); }
   if (inEvidence) {
     let ed = false;
     try { const st = lstatSync(`${dir}/evidence`); ed = st.isDirectory() && !st.isSymbolicLink(); } catch { /* absent */ }
     if (!ed) fail("discard-stray refused: 'evidence' is not a plain folder of the run directory");
     let real = '';
-    try { real = realpathSync(`${dir}/evidence`); } catch { /* checked below */ }
+    try { real = realpathPosix(`${dir}/evidence`); } catch { /* checked below */ }
     if (real !== `${dir}/evidence`) fail("discard-stray refused: 'evidence' resolves outside the run directory");
   }
   const file = inEvidence ? `${dir}/evidence/${name}` : `${dir}/${name}`;

@@ -2,7 +2,7 @@
 // The step of the `windows-core-probe` job of .github/workflows/ci.yml (A260, Windows port W1): `node tests/ci/windows-probe.mjs`. It reads the leg from $PROBE_SUITE (the matrix value,
 // `core 1/4` ... `invariants`) and the optional selection from $PROBE_TESTS (the `tests` input of the manual run): space-separated test files, globs or folders relative to the repository root.
 // An empty selection runs the leg's default (today's behaviour: its shard of tests/core or tests/invariants-node). A selection runs ONLY those files: the files under tests/invariants-node go to
-// the `invariants` leg, every other file to the `core 1/4` leg, and the other legs print a SKIPPED line. The input is data, never shell: it reaches this script through the environment, is checked
+// the `invariants` leg, every other file is shared by the four `core k/4` legs with their `--test-shard=k/4` (a leg that gets no file prints 0 tests), and an `invariants` leg without invariant files prints a SKIPPED line. The input is data, never shell: it reaches this script through the environment, is checked
 // with a strict pattern (selectTests) and goes to `node --test` as separate arguments (no shell is started). The leg prints one `PROBE-RESULT` line (pass, fail, duration from the test runner's own summary) and
 // adds a row to the job summary ($GITHUB_STEP_SUMMARY), so a round can be read with `gh run view --log`. No clock is read here: the duration is the runner's `duration_ms`.
 import { spawn } from 'node:child_process';
@@ -20,8 +20,8 @@ export const DEFAULTS = /** @type {Record<string, string[]>} */ ({
   'core 4/4': ['--test-shard=4/4', 'tests/core/*.test.mjs'],
   invariants: ['tests/invariants-node/*.test.mjs'],
 });
-/** The leg that runs the selected files that are not invariant tests. */
-export const SELECTION_LEG = 'core 1/4';
+/** The legs that must find a test when a selection is given (shard 1/4 always gets the first selected file; `invariants` gets the invariant files). */
+export const MUST_FIND = ['core 1/4', 'invariants'];
 export const MAX_TOKENS = 64;
 export const MAX_TOKEN_LENGTH = 200;
 
@@ -63,8 +63,9 @@ export function legArgs(suite, files) {
   if (!(suite in DEFAULTS)) throw new Error(`unknown leg: ${suite}`);
   if (files.length === 0) return DEFAULTS[suite];
   const invariant = (/** @type {string} */ f) => f.startsWith('tests/invariants-node/');
-  const mine = suite === 'invariants' ? files.filter(invariant) : suite === SELECTION_LEG ? files.filter((f) => !invariant(f)) : [];
-  return mine.length > 0 ? mine : null;
+  if (suite === 'invariants') { const inv = files.filter(invariant); return inv.length > 0 ? inv : null; }
+  const rest = files.filter((f) => !invariant(f));
+  return rest.length > 0 ? [DEFAULTS[suite][0], ...rest] : null;   // the four core legs share the selected files with the same --test-shard=k/4 as their default
 }
 
 /**
@@ -117,7 +118,7 @@ export async function main(env, io = {}) {
     if (/^[^\s\w]{0,3}\s*(tests|pass|fail|cancelled|skipped|todo|duration_ms) \d/.test(line)) kept.push(line);
   });
   const s = parseSummary(kept.join('\n'));
-  const empty = sel.files.length > 0 && (s.tests ?? 0) === 0;
+  const empty = sel.files.length > 0 && MUST_FIND.includes(suite) && (s.tests ?? 0) === 0;
   const note = empty ? 'the selection matched no test' : status === 0 ? '' : `exit ${status}`;
   write(`${resultLine(suite, s, note)}\n`);
   sum(`${SUMMARY_HEAD}${summaryRow(suite, s, note)}`);

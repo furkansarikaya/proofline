@@ -48,13 +48,13 @@ test('size limits: 64 entries and 200 characters per entry', () => {
   assert.equal(selectTests(`tests/core/${'a'.repeat(150)}.test.mjs`).ok, true);
 });
 
-test('legArgs: no selection gives the defaults of the matrix; a selection goes to core 1/4 (tests) and invariants (tests/invariants-node), the other legs run nothing', () => {
+test('legArgs: no selection gives the defaults of the matrix; a selection is sharded over the four core legs (tests) and goes to invariants (tests/invariants-node)', () => {
   assert.deepEqual(legArgs('core 3/4', []), ['--test-shard=3/4', 'tests/core/*.test.mjs']);
   assert.deepEqual(legArgs('invariants', []), ['tests/invariants-node/*.test.mjs']);
   const files = ['tests/core/a.test.mjs', 'tests/invariants-node/*.test.mjs', 'tests/hook/b.test.mjs'];
-  assert.deepEqual(legArgs('core 1/4', files), ['tests/core/a.test.mjs', 'tests/hook/b.test.mjs']);
+  assert.deepEqual(legArgs('core 1/4', files), ['--test-shard=1/4', 'tests/core/a.test.mjs', 'tests/hook/b.test.mjs']);
+  assert.deepEqual(legArgs('core 4/4', files), ['--test-shard=4/4', 'tests/core/a.test.mjs', 'tests/hook/b.test.mjs']);
   assert.deepEqual(legArgs('invariants', files), ['tests/invariants-node/*.test.mjs']);
-  for (const s of ['core 2/4', 'core 3/4', 'core 4/4']) assert.equal(legArgs(s, files), null);
   assert.equal(legArgs('invariants', ['tests/core/a.test.mjs']), null);
   assert.equal(legArgs('core 1/4', ['tests/invariants-node/*.test.mjs']), null);
   assert.throws(() => legArgs('nope', []), /unknown leg/);
@@ -98,16 +98,19 @@ test('main: an empty selection runs the leg default and reports its counts in th
   assert.match(r.sum, /^\| leg \| pass \| fail .*\n\|---.*\n\| core 2\/4 \| 9 \| 2 \| 1 \| 0 \| 63\.2 \| exit 1 \|\n$/);
 });
 
-test('main: a selection runs only its files in the one leg that owns them; the other legs print SKIPPED and succeed without starting node', async () => {
+test('main: a selection runs only its files in the one leg that owns them; a leg without a file for it prints SKIPPED and starts no node', async () => {
   const env = { PROBE_TESTS: 'tests/core/a.test.mjs tests/invariants-node' };
   const core = await run({ ...env, PROBE_SUITE: 'core 1/4' });
-  assert.deepEqual(core.calls, [['--test', '--test-reporter=spec', 'tests/core/a.test.mjs']]);
+  assert.deepEqual(core.calls, [['--test', '--test-reporter=spec', '--test-shard=1/4', 'tests/core/a.test.mjs']]);
   const inv = await run({ ...env, PROBE_SUITE: 'invariants' });
   assert.deepEqual(inv.calls, [['--test', '--test-reporter=spec', 'tests/invariants-node/*.test.mjs']]);
-  const other = await run({ ...env, PROBE_SUITE: 'core 4/4' });
-  assert.deepEqual(other.calls, []);
-  assert.equal(other.status, 0);
-  assert.match(other.out, /^SKIPPED: no selected test file belongs to the core 4\/4 leg\n$/);
+  const shard = await run({ ...env, PROBE_SUITE: 'core 4/4' }, { lines: ['\u2139 tests 0', '\u2139 pass 0', '\u2139 fail 0'] });
+  assert.deepEqual(shard.calls, [['--test', '--test-reporter=spec', '--test-shard=4/4', 'tests/core/a.test.mjs']]);
+  assert.equal(shard.status, 0, 'a shard without a file is not an error');
+  const only = await run({ PROBE_TESTS: 'tests/core/a.test.mjs', PROBE_SUITE: 'invariants' });
+  assert.deepEqual(only.calls, []);
+  assert.equal(only.status, 0);
+  assert.match(only.out, /^SKIPPED: no selected test file belongs to the invariants leg\n$/);
 });
 
 test('main: a bad input or an unknown leg starts nothing and fails with status 2; a selection that matched no test fails', async () => {
