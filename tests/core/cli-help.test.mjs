@@ -2,7 +2,7 @@
 // `proofline help` against the other places that list the commands, the plugin files, and the terminal installer (A233; the former scenarios sc_help_lists, sc_plugin and
 // sc_installer of tests/cli/cli-test.sh): the help text, the entry skill, the lead skill table, the README and the next-step table name the same commands.
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -133,8 +133,8 @@ test('install.mjs --yes links bin/proofline, the link runs (node resolves the sy
 
 test('the launcher is a symlink-safe Node program: a link through two folders, a relative link and the file itself all run the checkout\'s CLI', () => {
   const dir = path.join(sb.T, 'links'); mkdirSync(`${dir}/a/b`, { recursive: true });
-  spawnSync('ln', ['-s', PL, `${dir}/a/direct`]);
-  spawnSync('ln', ['-s', '../direct', `${dir}/a/b/rel`]);
+  symlinkSync(PL, `${dir}/a/direct`);   // node's own link: the MSYS `ln -s` of Windows makes a copy, which cannot find the checkout
+  symlinkSync('../direct', `${dir}/a/b/rel`);
   for (const f of [PL, `${dir}/a/direct`, `${dir}/a/b/rel`]) {
     const lf = launch(f, ['version']);
     const r = spawnSync(lf.program, lf.args, { cwd: dir, env: sb.env, encoding: 'utf8' });
@@ -156,7 +156,7 @@ test('install.mjs: the questions (PROOFLINE_PROMPT=1 reads them from standard in
 
 test('install.mjs: a dangling or old link is replaced, a real file is never overwritten, usage errors are exit 2', () => {
   const h = path.join(sb.T, 'h6'); mkdirSync(`${h}/bin`, { recursive: true });
-  spawnSync('ln', ['-s', `${h}/gone`, `${h}/bin/proofline`]);
+  symlinkSync(`${h}/gone`, `${h}/bin/proofline`);
   const r = installer(h, ['--dir', `${h}/bin`, '--yes']);
   assert.equal(r.status, 0, r.stderr); assert.equal(posix(readlinkSync(`${h}/bin/proofline`)), posix(`${repo}/bin/proofline`));
   unlinkSync(`${h}/bin/proofline`); writeFileSync(`${h}/bin/proofline`, 'mine\n');

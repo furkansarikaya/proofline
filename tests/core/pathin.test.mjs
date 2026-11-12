@@ -104,3 +104,12 @@ test('posixForm and samePath (A261): off Windows they are the identity and ===, 
   assert.equal(samePath('C:/a/b', 'D:/a/b', 'win32'), false);
   assert.equal(samePath('C:/a/\u212A', 'C:/a/k', 'win32'), false, 'the Kelvin sign is not a k');
 });
+
+test('POSIX: the absolute-path tests A261 swapped in (leadlog, toolstats, metricsStep, platform) answer exactly what the old expressions answered over a table', () => {
+  const table = ['', '/', '/a', '/a/b.jsonl', 'a/b.jsonl', './a.jsonl', '../a', 'C:\\x\\a.jsonl', 'C:/x/a.jsonl', '\\\\srv\\share\\a.jsonl', '/a\r.jsonl', '/a\n.jsonl', '/a.jsonl\n', '/x.jsonl', 'file:///x', '-/a', ' /a', '~/a'];
+  for (const p of table) {
+    assert.equal(isAbsoluteInput(p, 'linux'), p.startsWith('/'), JSON.stringify(p));                                              // leadlog, toolstats: startsWith('/')
+    assert.equal(isAbsoluteInput(p, 'linux') && /^.*\.jsonl$/.test(p), /^\/.*\.jsonl$/.test(p), JSON.stringify(p));              // metricsStep: /^\/.*\.jsonl$/
+    assert.equal(/^(\/|\.\/|\.\.\/)/.test(p) || isAbsoluteInput(p, 'linux'), /^(\/|\.\/|\.\.\/)/.test(p), JSON.stringify(p));    // platform: the local-origin test
+  }
+});

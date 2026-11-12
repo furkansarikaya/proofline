@@ -62,3 +62,9 @@ export function inside(base, child, platform = process.platform) {
 export function isAbsoluteInput(p, platform = process.platform) {
   return p.startsWith('/') || (platform === 'win32' && (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\')));
 }
+
+/**
+ * The text a program printed, with the line ends of the host turned into `\n`: a Windows program ends its lines with CRLF, and a version line read from it kept the CR (it showed as `?`,
+ * A261). Off Windows the text is returned as it is. @param {string} text @param {string} [platform]
+ */
+export function eolText(text, platform = process.platform) { return platform === 'win32' ? text.replace(/\r\n/g, '\n') : text; }

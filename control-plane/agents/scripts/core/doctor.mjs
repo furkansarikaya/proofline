@@ -19,7 +19,7 @@ import { emailOf, forbidden } from './githooks.mjs';
 import { sha256File } from './hash.mjs';
 import { leftoverWorktrees } from './leftover.mjs';
 import { isDir, isFile } from './paths.mjs';
-import { realpathPosix, samePath } from './pathin.mjs';
+import { eolText, realpathPosix, samePath } from './pathin.mjs';
 import { detectPlatform, droppedNetVars, warnText } from './platform.mjs';
 import * as proc from './proc.mjs';
 import { binOf, commandV } from './runtimedetect.mjs';
@@ -136,7 +136,7 @@ function versionCompare(a, b) {
 /** `node_status`: `ok:vX.Y.Z`, `old:vX.Y.Z` or `missing` for the `node` on the PATH. @param {NodeJS.ProcessEnv} env @param {string} cwd */
 function nodeStatus(env, cwd) {
   const r = proc.run('node', ['--version'], { cwd, env, stdio: ['ignore', 'pipe', 'ignore'] });
-  const v = r.started && r.status === 0 ? proc.eolText(r.stdout.toString('utf8')).replace(/\n+$/, '') : '';
+  const v = r.started && r.status === 0 ? eolText(r.stdout.toString('utf8')).replace(/\n+$/, '') : '';
   const n = v.startsWith('v') ? v.slice(1) : v;
   const maj = n.split('.')[0] ?? ''; const rest = n.includes('.') ? n.slice(n.indexOf('.') + 1) : n; const min = rest.split('.')[0] ?? '';
   if (!/^[0-9]+$/.test(`${maj}${min}`)) return 'missing';
@@ -717,7 +717,7 @@ class Doctor {
       const found = commandV(bin, this.ctx.env);
       if (found !== null) {
         const v = proc.run(bin, ['--version'], { cwd: this.ctx.cwd, env: this.ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
-        this.pass(`runtime ${rt}: ${proc.eolText(v.stdout.toString('utf8')).split('\n')[0] ?? ''} (${found})`);
+        this.pass(`runtime ${rt}: ${eolText(v.stdout.toString('utf8')).split('\n')[0] ?? ''} (${found})`);
       } else if (used.includes(` ${rt} `)) this.warn(`runtime ${rt}: not installed, but config.yaml uses it (failover/dispatch to ${rt} will be BLOCKED)`);
       else this.pass(`runtime ${rt}: not installed (not used by config.yaml)`);
     }

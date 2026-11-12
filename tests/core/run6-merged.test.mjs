@@ -488,10 +488,10 @@ test('a relative local origin: a worktree proves the merge, the shown commands n
   const wt = wtDoneRun(d);
   const lo = `${d}-lo.git`;
   gOk(d, 'init', '-q', '--bare', lo);
-  gOk(d, 'remote', 'set-url', 'origin', `../${lo.slice(lo.lastIndexOf('/') + 1)}`);
+  gOk(d, 'remote', 'set-url', 'origin', `../${path.basename(lo)}`);
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
   const plan = accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan in the worktree').out;
-  const loAbs = run(d, 'sh', ['-c', `cd "${lo}" && pwd -P`]).out.trim();
+  const loAbs = process.platform === 'win32' ? posix(realpathSync.native(lo)) : run(d, 'sh', ['-c', `cd "${lo}" && pwd -P`]).out.trim();
   assert.ok(plan.includes(`git push ${loAbs} proofline/LC-lookup`) && plan.includes(`git push ${loAbs} proofline/LC-lookup:main`), 'the plan shows a relative origin');
   approveDelivery(d, undefined, wt);
   accepted(A(wt, ['deliver-step', 'LC', 'commit']), 'commit');
@@ -507,7 +507,7 @@ test('a relative local origin: a worktree proves the merge, the shown commands n
   refused(A(wt, ['deliver-merged', 'LC', '--check']), 'before the merge', 'open: ');
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
   assert.match(accepted(A(wt, ['deliver-merged', 'LC', '--check']), 'check').out, /^merged: the delivered commit is on origin\/main/);
-  assert.equal(g(d, 'config', 'remote.origin.url'), `../${lo.slice(lo.lastIndexOf('/') + 1)}`);
+  assert.equal(g(d, 'config', 'remote.origin.url'), `../${path.basename(lo)}`);
 });
 
 test('a relative origin: a changed origin and an option-like origin are refused, nothing is pushed; an empty delivery records no merge', () => {
@@ -515,7 +515,7 @@ test('a relative origin: a changed origin and an option-like origin are refused,
   const wt = wtDoneRun(d);
   const lo = `${d}-lo.git`; const lo2 = `${d}-lo2.git`;
   gOk(d, 'init', '-q', '--bare', lo); gOk(d, 'init', '-q', '--bare', lo2);
-  const rel = (/** @type {string} */ p) => `../${p.slice(p.lastIndexOf('/') + 1)}`;
+  const rel = (/** @type {string} */ p) => `../${path.basename(p)}`;
   gOk(d, 'remote', 'set-url', 'origin', rel(lo));
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
   accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan');
@@ -546,7 +546,7 @@ test('a push git itself refuses (the relative origin rejects the branch) says wh
   const wt = wtDoneRun(d);
   const lo = `${d}-lo.git`;
   gOk(d, 'init', '-q', '--bare', lo);
-  gOk(d, 'remote', 'set-url', 'origin', `../${lo.slice(lo.lastIndexOf('/') + 1)}`);
+  gOk(d, 'remote', 'set-url', 'origin', `../${path.basename(lo)}`);
   gOk(d, '-c', 'core.hooksPath=/dev/null', 'push', '-q', 'origin', 'main');
   accepted(A(wt, ['deliver-plan', 'LC']), 'deliver-plan');
   approveDelivery(d, undefined, wt);

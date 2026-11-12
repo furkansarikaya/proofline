@@ -229,12 +229,6 @@ export function resolveProgram(program, env, cwd, platform = process.platform, f
   return { refused: `proofline: ${program} was not found on PATH outside the working folder; not started\n` };
 }
 
-/**
- * The text a program printed, with the line ends of the host turned into `\n`: a Windows program ends its lines with CRLF, and a version line read from it kept the CR (it showed as `?`,
- * A261). Off Windows the text is returned as it is. @param {string} text @param {string} [platform]
- */
-export function eolText(text, platform = process.platform) { return platform === 'win32' ? text.replace(/\r\n/g, '\n') : text; }
-
 /** The `taskkill` argument list that ends the process PID and its whole tree (`/T`); `/F` forces it. Pure (A252). @param {number} pid @param {boolean} force */
 export function taskkillArgs(pid, force) {
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new RangeError(`taskkill: not a process id: ${pid}`);
