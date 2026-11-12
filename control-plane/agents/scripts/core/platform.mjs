@@ -142,12 +142,12 @@ export function resolveToolWindows(ctx, name, fsx = { isFile: (/** @type {string
  */
 export function resolveToolIn(env, name, dirs) {
   const found = commandV(name, env);
-  if (found === null || !found.startsWith('/')) return { unreadable: 'unreadable' };
+  if (found === null || !isAbsoluteInput(found)) return { unreadable: 'unreadable' };
   let g = found;
   for (let n = 0; n < 20; n++) {
     let l;
     try { l = readlinkSync(g); } catch { break; }
-    g = l.startsWith('/') ? l : `${path.dirname(g)}/${l}`;
+    g = isAbsoluteInput(l) ? l : `${path.dirname(g)}/${l}`;
   }
   try { g = `${realpathSync.native(path.dirname(g))}/${path.basename(g)}`; } catch { return { unreadable: 'unreadable' }; }
   for (const d of dirs) if (insideFolder(g, d)) return { shadowed: g };
@@ -324,7 +324,7 @@ export function cleanToolEnv(ctx, opt = {}) {
   const out = {};
   for (const [k, v] of Object.entries(src)) if (v !== undefined && (keep.has(k) || k.startsWith('LC_'))) out[k] = v;
   // the PATH the tool and its own children (gh runs git) search: an entry that is relative or inside the project, the working directory or a temporary folder is dropped
-  if (out['PATH'] !== undefined) out['PATH'] = out['PATH'].split(path.delimiter).filter((e) => e.startsWith('/') && !refusedLocation(ctx, `${e}/x`)).join(path.delimiter);
+  if (out['PATH'] !== undefined) out['PATH'] = out['PATH'].split(path.delimiter).filter((e) => isAbsoluteInput(e) && !refusedLocation(ctx, `${e}/x`)).join(path.delimiter);
   try { const h = userInfo().homedir; if (h !== '') out['HOME'] = h; } catch { /* no account entry: no HOME */ }
   for (const k of PROXY_VARS) { const v = ctx.env[k]; if (v !== undefined && proxyValue(v)) out[k] = v; }
   for (const k of NO_PROXY_VARS) { const v = ctx.env[k]; if (v !== undefined && noProxyValue(v)) out[k] = v; }
@@ -377,7 +377,7 @@ export function caFileValue(ctx, v) { return caFileProblem(ctx, v) === null; }
  * @param {Context} ctx @param {string} v @returns {string | null}
  */
 export function caFileProblem(ctx, v) {
-  if (!v.startsWith('/')) return 'not an absolute path';
+  if (!isAbsoluteInput(v)) return 'not an absolute path';
   if (v.length > 4096 || /[\u0000-\u001f\u007f]/.test(v)) return 'too long or holds a control character';
   try {
     const real = realpathSync.native(v);

@@ -196,7 +196,7 @@ export function hermeticFetch(ctx, gitPath, url, base, cacheHome = '') {
 function originPushCmd(ctx, branch, flags = '-u') {
   const u = originUrl(ctx) ?? '';
   const raw = sub(git(ctx, ['remote', 'get-url', 'origin']).out);
-  if (u !== '' && u !== raw) return `git push ${u} ${branch}`;
+  if (u !== '' && u !== raw && u !== localRemote(raw)) return `git push ${u} ${branch}`;   // a drive path stored as typed is the same remote (A261)
   return `git push${flags !== '' ? ` ${flags}` : ''} origin ${branch}`;
 }
 
