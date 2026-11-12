@@ -6,7 +6,7 @@
 // On every other platform both are exactly what the code did before: `realpathSync` unchanged, `startsWith(`${base}/`)` with a case-sensitive compare. Pure where it can be: the platform and
 // the realpath function are parameters, so the Windows rules are tested on any host.
 import { realpathSync } from 'node:fs';
-import { asciiLower } from './shellglob.mjs';
+import { asciiLower, asciiUpper } from './shellglob.mjs';
 
 /**
  * The real path of P in the form the core stores and compares paths in. Throws when P does not exist, like `realpathSync`.
@@ -17,7 +17,7 @@ export function realpathPosix(p, io = {}) {
   const platform = io.platform ?? process.platform;
   if (platform !== 'win32') return (io.real ?? realpathSync)(p);
   const r = (io.real ?? realpathSync.native)(p);
-  return r.replace(/^\\\\[?.]\\(?=[A-Za-z]:[\\/])/, '').replace(/^([a-z]):/, (_m, d) => `${d.toUpperCase()}:`).split('\\').join('/');
+  return r.replace(/^\\\\[?.]\\(?=[A-Za-z]:[\\/])/, '').replace(/^([a-z]):/, (_m, d) => `${asciiUpper(d)}:`).split('\\').join('/');
 }
 
 /**
