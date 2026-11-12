@@ -12,6 +12,7 @@ import { HANDLERS } from '../../control-plane/agents/scripts/core/commands/moved
 import { COMMAND_NAMES, READ_ONLY_COMMANDS } from '../../control-plane/agents/scripts/core/commands/names.mjs';
 import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { memoryIo, repo, scriptsDir } from './helpers.mjs';
+import { launch } from '../lib/winpath.mjs';
 
 const core = path.join(scriptsDir, 'proofline-core.mjs');
 const LEAD_ONLY = ['terminate', 'approve', 'waive', 'handoff', 'classify', 'raise-budget', 'ledger-note', 'freeze', 'reopen', 'cleanup'];
@@ -137,7 +138,7 @@ describe('doctor and a missing core', () => {
     try {
       spawnSync('git', ['init', '-q', root]);
       spawnSync('git', ['-C', root, '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'i']);
-      const pl = (/** @type {string[]} */ a) => spawnSync(path.join(repo, 'bin', 'proofline'), a, { cwd: root, encoding: 'utf8' });
+      const pl = (/** @type {string[]} */ a) => { const l = launch(path.join(repo, 'bin', 'proofline'), a); return spawnSync(l.program, l.args, { cwd: root, encoding: 'utf8' }); };
       assert.equal(pl(['init', '--yes', '--runtimes', 'claude']).status, 0);
       const ok = pl(['doctor']).stdout;
       assert.match(ok, /^PASS engine: the commands run in Node/m);

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { cleanToolEnv, droppedNetVars } from '../../control-plane/agents/scripts/core/platform.mjs';
 import { repo } from './helpers.mjs';
+import { launch } from '../lib/winpath.mjs';
 
 /** A context as far as the platform module reads one. @param {string} cwd @param {Record<string, string>} [env] */
 function ctxOf(cwd, env = {}) {
@@ -67,16 +68,19 @@ test('droppedNetVars: the names that were dropped and a reason, never a value; w
   assert.ok(Object.keys(empty).every((k) => !(k in ec)), 'an empty value still does not reach the tools');
 });
 
+/** `bin/proofline` through `launch` (a Node script cannot be started by its path on Windows, A261). @param {string[]} args @param {import('node:child_process').SpawnSyncOptionsWithStringEncoding} o */
+const plRun = (args, o) => { const l = launch(path.join(repo, 'bin', 'proofline'), args); return spawnSync(l.program, l.args, o); };
+
 test('proofline doctor lists the dropped variables (names and reasons) and never a value; it is silent when nothing was dropped', () => {
   const root = tempDir('pl-doc-net-');
   try {
     spawnSync('git', ['init', '-q', root]);
     spawnSync('git', ['-C', root, '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'i']);
-    assert.equal(spawnSync(path.join(repo, 'bin', 'proofline'), ['init', '--yes', '--runtimes', 'claude'], { cwd: root, encoding: 'utf8' }).status, 0);
+    assert.equal(plRun(['init', '--yes', '--runtimes', 'claude'], { cwd: root, encoding: 'utf8' }).status, 0);
     const SECRET = 'SECRETPASSWORD123';
-    const quiet = spawnSync(path.join(repo, 'bin', 'proofline'), ['doctor'], { cwd: root, encoding: 'utf8', env: withoutNet(process.env) });
+    const quiet = plRun(['doctor'], { cwd: root, encoding: 'utf8', env: withoutNet(process.env) });
     assert.doesNotMatch(quiet.stdout, /^WARN network:/m);
-    const r = spawnSync(path.join(repo, 'bin', 'proofline'), ['doctor'], {
+    const r = plRun(['doctor'], {
       cwd: root, encoding: 'utf8',
       env: { ...withoutNet(process.env), HTTPS_PROXY: `http://user:${SECRET}@proxy.corp.example:3128/a b`, ALL_PROXY: `http://${SECRET}@x:1`, GIT_SSL_NO_VERIFY: '1', GIT_SSL_CAINFO: `/nonexistent/${SECRET}.pem`, REQUESTS_CA_BUNDLE: CA, SSL_CERT_FILE: CA },
     });
