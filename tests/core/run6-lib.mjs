@@ -65,16 +65,16 @@ export function fakeGh() {
   };
 }
 
-/** A tool of the given name that does nothing, in a fresh fake bin. @param {string} name */
-export function fakeTool(name) {
+/** A tool of the given name that does nothing (or exits with CODE), in a fresh fake bin. @param {string} name @param {number} [code] */
+export function fakeTool(name, code = 0) {
   const bin = path.join(toolRoot, `${process.pid}-${++counter}`, 'bin');
   mkdirSync(bin, { recursive: true });
   if (process.platform === 'win32') {
     const script = path.join(bin, `${name}.mjs`);
-    writeFileSync(script, 'process.exit(0);\n');
+    writeFileSync(script, `process.exit(${code});\n`);
     fakeExe(toolRoot, bin, name, script);
   } else {
-    writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 0\n');
+    writeFileSync(path.join(bin, name), `#!/bin/sh\nexit ${code}\n`);
     chmodSync(path.join(bin, name), 0o755);
   }
   return bin;
@@ -151,3 +151,37 @@ export function pathWithoutPlatformTools() {
 }
 
 export { A, accepted, refused, say, verbs, existsSync, readdirSync, readFileSync, writeFileSync, path };
+
+/** A real `NAME.exe` in BIN that runs the Node program SOURCE (Windows only: a shell script is no program the Windows resolver runs, A252). @param {string} bin @param {string} name @param {string} source */
+export function nodeFake(bin, name, source) {
+  mkdirSync(bin, { recursive: true });
+  const script = path.join(toolRoot, `${name}-${process.pid}-${++counter}.mjs`);
+  writeFileSync(script, source);
+  return fakeExe(toolRoot, bin, name, script);
+}
+
+/** The Windows twin of the shell `gh` of the merge tests (run6b-merge, merge-front): same answers from the files of the state folder ST. @param {string} st */
+export function ghMergeSource(st) {
+  return `import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+const st = ${JSON.stringify(st)}; const all = process.argv.slice(2).join(' '); const has = (f) => existsSync(st + '/' + f);
+if (has('fail')) { process.stderr.write('gh: HTTP 502\\n'); process.exit(1); }
+if (all.includes('pr merge')) { appendFileSync(st + '/merge.log', all + '\\n'); process.exit(0); }
+if (all.includes('pr checks')) {
+  if (has('proxyerr')) { process.stderr.write(readFileSync(st + '/proxyerr')); process.exit(1); }
+  if (has('required.json')) { process.stdout.write(readFileSync(st + '/required.json')); process.exit(0); }
+  process.stderr.write("no required checks reported on the 'feat/x' branch\\n"); process.exit(1);
+}
+if (all.includes('pr comment')) { appendFileSync(st + '/comment.log', all + '\\n'); process.exit(0); }
+if (all.includes('statusCheckRollup')) process.stdout.write(readFileSync(st + '/view.json'));
+else if (all.includes('headRefOid')) process.stdout.write(readFileSync(st + '/head.json'));
+`;
+}
+
+/** The Windows twin of the shell `glab` of the GitLab merge test. @param {string} st */
+export function glabMergeSource(st) {
+  return `import { appendFileSync, readFileSync } from 'node:fs';
+const st = ${JSON.stringify(st)}; const all = process.argv.slice(2).join(' ');
+if (all.includes('mr merge')) { appendFileSync(st + '/merge.log', all + '\\n'); process.exit(0); }
+if (all.includes('mr view')) process.stdout.write(readFileSync(st + '/view.json'));
+`;
+}

@@ -14,6 +14,8 @@ import { commitAll, git, newProject, setCmd, setEnvFiles, setLists } from './hel
 import { A } from './legacy-lib.mjs';
 import { tmp } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
+import { commandV } from '../../control-plane/agents/scripts/core/runtimedetect.mjs';
+import { fakeTool } from './run6-lib.mjs';
 
 const keyOf = (/** @type {string} */ out) => (/^key: (.*)$/m.exec(out) ?? [])[1] ?? '';
 const builds = (/** @type {string} */ d) => `${d}/.agents/local/builds`;
@@ -22,8 +24,9 @@ function counted() {
   const d = newProject();
   const cnt = `${d}/../count-${path.basename(d)}`;
   writeFileSync(cnt, '');
-  const build = `echo build-ok >> ${cnt}; echo built-line`;
-  const tst = `echo test-ok >> ${cnt}; echo tested-line`;
+  // the command text is read by `sh`: a Windows backslash path would be taken as escapes (A265), so the counter is named in the forward-slash form
+  const build = `echo build-ok >> ${posix(cnt)}; echo built-line`;
+  const tst = `echo test-ok >> ${posix(cnt)}; echo tested-line`;
   setCmd(d, 'build', build);
   setCmd(d, 'test', tst);
   commitAll(d, 'one');
@@ -73,7 +76,7 @@ test('a changed tree gets its own record keyed tree-<hash>; a changed command st
   assert.equal(n('build-ok'), 2);
   commitAll(d, 'two');
   const before = readdirSync(builds(d)).length;
-  setCmd(d, 'build', `echo build-ok >> ${d}/../count-${path.basename(d)}; echo built-line-2`);
+  setCmd(d, 'build', `echo build-ok >> ${posix(d)}/../count-${path.basename(d)}; echo built-line-2`);
   const r2 = A(d, ['build-record', 'LC', 'run']);
   assert.match(r2.out, /built-line-2/);
   assert.equal(readdirSync(builds(d)).length, before + 1, 'a record per key');
@@ -188,7 +191,7 @@ test('an ignored dependency folder is a COPY in the export: the build sees it, a
   mkdirSync(`${d}/node_modules`); writeFileSync(`${d}/node_modules/m`, 'dep\n');
   commitAll(d, 'ignore');
   writeFileSync(`${d}/dep-build.sh`, 'test -f node_modules/m && test ! -L node_modules && echo x > node_modules/written && echo y >> node_modules/m\n');
-  setCmd(d, 'build', `sh ${d}/dep-build.sh`);
+  setCmd(d, 'build', `sh ${posix(d)}/dep-build.sh`);
   const r = A(d, ['build-record', 'LC', 'run']);
   assert.equal(r.status, 0, r.text);
   assert.ok(!existsSync(`${d}/node_modules/written`));
@@ -200,7 +203,7 @@ test('verification.env_files: a listed secret-free file enters the export, an un
   writeFileSync(`${d}/.gitignore`, '.env\n.env.test\n');
   writeFileSync(`${d}/.env.test`, 'MODE=test\n'); writeFileSync(`${d}/.env`, 'MODE=dev\n');
   writeFileSync(`${d}/chk-in.sh`, 'set -e\ntest -f .env.test\ntest ! -f .env\n');
-  setCmd(d, 'build', `sh ${d}/chk-in.sh`);
+  setCmd(d, 'build', `sh ${posix(d)}/chk-in.sh`);
   setEnvFiles(d, '.env.test');
   commitAll(d, 'envs');
   const r = A(d, ['build-record', 'LC', 'run']);
@@ -208,7 +211,7 @@ test('verification.env_files: a listed secret-free file enters the export, an un
   // without the list no .env* enters the export
   writeFileSync(`${d}/chk-out.sh`, 'set -e\ntest ! -f .env.test\ntest ! -f .env\n');
   setEnvFiles(d, '');
-  setCmd(d, 'build', `sh ${d}/chk-out.sh`);
+  setCmd(d, 'build', `sh ${posix(d)}/chk-out.sh`);
   const r2 = A(d, ['build-record', 'LC', 'run']);
   assert.equal(r2.status, 0, r2.text);
 });
@@ -259,9 +262,27 @@ test('verification.env_files must be plain project-relative names: a path with .
   }
 });
 
-test('without a `timeout` command the limit still holds: Node\'s timer stops the command and the status is 124; a command that ends in time keeps its own status', () => {
+/**
+ * A PATH that finds `sh` and no `timeout` command, so the Node timer path of runCommand is the one under test. POSIX: a folder with nothing in it (`sh` is then found by the program
+ * name resolver's own rules, as before). Windows: the first PATH folder that holds `sh.exe` and no `timeout` (Git for Windows keeps GNU `timeout` next to `sh` in usr/bin, and
+ * System32 holds a different `timeout.exe`, a pause command); null when this host has none.
+ * @returns {string | null}
+ */
+function pathWithoutTimeout() {
+  if (process.platform !== 'win32') return '/nonexistent';
+  for (const dir of (process.env.PATH ?? process.env.Path ?? '').split(path.delimiter)) {
+    if (dir === '' || !existsSync(`${dir}/sh.exe`)) continue;
+    if (commandV('timeout', { PATH: dir }) === null) return dir;
+  }
+  return null;
+}
+const NO_TIMEOUT_PATH = pathWithoutTimeout();
+const noTimeoutSkip = NO_TIMEOUT_PATH === null ? 'this host has no folder with sh.exe and without a timeout command' : false;
+
+test('without a `timeout` command the limit still holds: Node\'s timer stops the command and the status is 124; a command that ends in time keeps its own status', { skip: noTimeoutSkip }, () => {
   const d = newProject();
-  const ctx = new Context({ env: { PATH: '/nonexistent' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+  assert.equal(commandV('timeout', { PATH: NO_TIMEOUT_PATH ?? '' }), null, 'test premise: no timeout command on this PATH');
+  const ctx = new Context({ env: { PATH: NO_TIMEOUT_PATH ?? '' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
   const out = `${d}/limit.out`;
   const t0 = Date.now();
   assert.equal(runCommand(ctx, d, 'echo started; exec /bin/sleep 10', out, 1), 124);
@@ -271,13 +292,20 @@ test('without a `timeout` command the limit still holds: Node\'s timer stops the
   assert.equal(readFileSync(out, 'utf8'), 'quick\n');
 });
 
-test('the timer fallback: a command that traps TERM and exits 0 is still 124, and a grandchild is gone after the stop', () => {
+test('the timer fallback: a command that traps TERM and exits 0 is still 124', { skip: noTimeoutSkip }, () => {
   const d = newProject();
-  const ctx = new Context({ env: { PATH: '/nonexistent' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+  const ctx = new Context({ env: { PATH: NO_TIMEOUT_PATH ?? '' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
   const out = `${d}/trap.out`;
   const t0 = Date.now();
   assert.equal(runCommand(ctx, d, "trap 'exit 0' TERM; /bin/sleep 10 & wait", out, 2), 124, 'an expired limit is 124 whatever status the command reports');
   assert.ok(Date.now() - t0 < 8000);
+});
+
+// Windows has no process groups and `sh` reports MSYS process ids that `process.kill` cannot address, so the grandchild is neither killed by the product nor observable here (accepted limit, A265).
+test('the timer fallback: a grandchild is gone after the stop, and a background process does not outlive a command that ends in time', { skip: process.platform === 'win32' ? 'no process groups and MSYS pids on Windows (A265)' : false }, () => {
+  const d = newProject();
+  const ctx = new Context({ env: { PATH: '/nonexistent' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+  const out = `${d}/trap.out`;
   const pidFile = `${d}/gc.pid`;
   assert.equal(runCommand(ctx, d, `/bin/sleep 60 & echo $! > ${pidFile}; /bin/sleep 60`, out, 1), 124);
   const pid = Number(readFileSync(pidFile, 'utf8').trim());
@@ -304,11 +332,11 @@ test('commands.build and commands.test not configured exits 2', () => {
   assert.match(r.err, /^build-record: commands\.build and commands\.test are not configured$/m);
 });
 
-test('a command stopped by the time limit (exit 124) is a failure and leaves no sealed record; the next run starts again', () => {
+// Windows never runs a `timeout` command (System32 holds a different program of that name, A265), so a fake one is never started there; the Node timer path is covered above.
+test('a command stopped by the time limit (exit 124) is a failure and leaves no sealed record; the next run starts again', { skip: process.platform === 'win32' ? 'Windows uses the Node timer, never a timeout command (A265)' : false }, () => {
   const { d, n } = counted();
-  const shim = tmp('br-timeout-');
-  writeFileSync(`${shim}/timeout`, '#!/bin/sh\nexit 124\n'); chmodSync(`${shim}/timeout`, 0o755);
-  const slow = A(d, ['build-record', 'LC', 'run'], { env: { PATH: `${shim}:${process.env.PATH}` } });
+  const shim = fakeTool('timeout', 124);   // outside every temporary folder (a Windows host runs only a real .exe from there, A252)
+  const slow = A(d, ['build-record', 'LC', 'run'], { env: { PATH: `${shim}${path.delimiter}${process.env.PATH}` } });
   assert.equal(slow.status, 1);
   assert.match(slow.err, /^build-record: build stopped after 1800s \(verification\.command_timeout_seconds times timeouts\.scale\); this is a failure, not a pass, and no record is kept: run it again, or raise the limit \(proofline doctor --scale\)$/m);
   const key = readdirSync(builds(d)).find((x) => !x.includes('.lock'));

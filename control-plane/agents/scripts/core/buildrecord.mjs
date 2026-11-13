@@ -181,7 +181,8 @@ export function runCommand(ctx, cwd, command, file, limit) {
   const fd = openSync(file, 'w');
   try {
     const stdio = /** @type {Array<'ignore' | number>} */ (['ignore', fd, fd]);
-    const timeoutBin = commandV('timeout', ctx.env);
+    // Windows never uses a `timeout` command: System32 holds timeout.exe, a pause command with other arguments (A265); the Node timer below is the limit there
+    const timeoutBin = process.platform === 'win32' ? null : commandV('timeout', ctx.env);
     if (timeoutBin) return proc.run('timeout', [String(limit), ...proc.userShellArgv(command)], { cwd, env: ctx.childEnv(), stdio }).status;
     // no `timeout` on this machine (macOS): the limit still holds, with Node's own timer. The command leads a process group that is killed whole when it ends or
     // is stopped (no grandchild writes on after the record is sealed), and an expired limit is 124 whatever status the command then reports (a command that traps
