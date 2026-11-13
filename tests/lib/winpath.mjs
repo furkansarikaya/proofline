@@ -6,8 +6,10 @@
 //  - `posix(p)`: the form the core stores and prints paths in (forward slashes, upper-case drive letter); temp folders and `path.join` answer `C:\Users\...` on Windows. Use it on the
 //    EXPECTED or the observed side when only the test is biased towards POSIX text; the product's own values are compared as the product gives them.
 import { spawnSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
+import path from 'node:path';
+import { tempDir } from './tempdir.mjs';
 import { posixForm } from '../../control-plane/agents/scripts/core/pathin.mjs';
 
 /** @param {string} program @param {string[]} args @param {string} [platform] @returns {{ program: string, args: string[] }} */
@@ -47,4 +49,20 @@ export function shellMakes(command, file) {
   const made = existsSync(file);
   rmSync(file, { force: true });
   return made;
+}
+
+/**
+ * The platform `grep` as the REFERENCE of a pattern test: `grep FLAGS -e RE` fed INPUT. On Windows the MSYS `grep` re-parses a command-line pattern (`a{2,3}b` arrives as `a3b`, A250) and,
+ * in text mode, drops the carriage return of a CRLF line (so `x.$` would not match `x\r`, which POSIX grep matches). There the pattern goes in a file (`-f`, as the core does) and `-U`
+ * keeps the bytes as they are. Elsewhere exactly `grep FLAGS -e RE`.
+ * @param {string[]} flags @param {string} re @param {string | Buffer} input @param {import('node:child_process').SpawnSyncOptions} [opts]
+ */
+export function refGrep(flags, re, input, opts = {}) {
+  if (process.platform !== 'win32') return spawnSync('grep', [...flags, '-e', re], { ...opts, input });
+  const dir = tempDir('refgrep-');
+  try {
+    const file = path.join(dir, 'pat');
+    writeFileSync(file, `${re}\n`);
+    return spawnSync('grep', [...flags, '-U', '-f', posix(file)], { ...opts, input });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }

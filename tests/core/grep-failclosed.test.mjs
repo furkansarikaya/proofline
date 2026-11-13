@@ -2,7 +2,7 @@
 // A250: what grep says about a pattern it cannot use is never silently "no match" for a DENY pattern; every config key that holds a grep pattern is
 // checked by config-check; `^$` and a pattern with a line end answer like grep -E (no phantom empty line, a line end is several patterns).
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { refGrep } from '../lib/winpath.mjs';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, test } from 'node:test';
@@ -16,7 +16,7 @@ import { makeFixture } from './fixture.mjs';
 const fx = makeFixture();
 after(() => rmSync(fx.root, { recursive: true, force: true }));
 const errOf = (/** @type {import('../../control-plane/agents/scripts/core/context.mjs').Context} */ ctx) => ctx.chunks.filter(([s]) => s === 'err').map(([, b]) => b.toString('latin1')).join('');
-const realGrep = (/** @type {string} */ re, /** @type {string} */ text) => spawnSync('grep', ['-Eq', '-e', re], { input: text, env: { PATH: process.env.PATH ?? '', LC_ALL: 'C' } }).status === 0;
+const realGrep = (/** @type {string} */ re, /** @type {string} */ text) => refGrep(['-Eq'], re, text, { env: { PATH: process.env.PATH ?? '', LC_ALL: 'C' } }).status === 0;
 const cfgWith = (/** @type {string} */ v) => `git:\n  forbidden_identities: ${v}\n`;
 
 test('forbidden: an invalid or untranslatable regular expression FAILS CLOSED with a notice; a glob entry and a plain mismatch do not', () => {

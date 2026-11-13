@@ -4,7 +4,7 @@
 // POSIX, where the answers must stay those of `grep -E -e PATTERN`: the Node translation (ere.mjs) against the real grep on a corpus (the shipped config patterns and tricky ones),
 // the file-based fallback against the real grep, and a source guard that fails on a pattern argument.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { refGrep } from '../lib/winpath.mjs';
 import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, test } from 'node:test';
@@ -21,7 +21,7 @@ const ENV = { PATH: process.env.PATH ?? '', LC_ALL: 'C' };
 
 /** The platform grep over a list of lines: the set of matching line indexes (-e, the pattern as an argument: fine on POSIX, it is the reference); null when grep rejects the pattern. @param {string} re @param {string[]} lines @param {boolean} ci */
 function realLines(re, lines, ci) {
-  const r = spawnSync('grep', [ci ? '-Ein' : '-En', '-e', re], { input: `${lines.join('\n')}\n`, env: ENV, encoding: 'utf8' });
+  const r = refGrep([ci ? '-Ein' : '-En'], re, `${lines.join('\n')}\n`, { env: ENV, encoding: 'utf8' });
   if (r.status === 2) return null;
   return new Set(r.stdout.split('\n').filter((x) => x !== '').map((x) => Number.parseInt(x, 10) - 1));
 }

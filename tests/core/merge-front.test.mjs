@@ -9,27 +9,31 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { PL } from './frontend-lib.mjs';
-import { toolRoot } from './run6-lib.mjs';
+import { launch, nullDevice } from '../lib/winpath.mjs';
+import { toolRoot, nodeFake, ghMergeSource, joinPath } from './run6-lib.mjs';
 
 const sha = 'a'.repeat(40);
 
 /** A GitHub project and a fake gh that answers from the files of a state folder. */
 function setup() {
   const proj = tempDir('mf-proj-');
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: nullDevice(), GIT_CONFIG_NOSYSTEM: '1' };
   const git = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', proj, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { env, encoding: 'utf8' });
   git('init', '-q', '-b', 'main'); git('commit', '-q', '--allow-empty', '-m', 'base'); git('remote', 'add', 'origin', 'https://github.com/acme/app.git');
   const st = tempDir('mf-state-');
   const bin = path.join(toolRoot, `mf-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
-  writeFileSync(`${bin}/gh`, `#!/bin/sh\ncase "$*" in\n  *"pr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'feat/x' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) cat "${st}/view.json" ;;\n  *headRefOid*) cat "${st}/head.json" ;;\nesac\n`);
-  chmodSync(`${bin}/gh`, 0o755);
+  if (process.platform === 'win32') nodeFake(bin, 'gh', ghMergeSource(st));
+  else { writeFileSync(`${bin}/gh`, `#!/bin/sh\ncase "$*" in\n  *"pr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'feat/x' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) cat "${st}/view.json" ;;\n  *headRefOid*) cat "${st}/head.json" ;;\nesac\n`);
+  chmodSync(`${bin}/gh`, 0o755); }
   const view = (/** @type {string} */ conclusion) => {
     writeFileSync(`${st}/view.json`, JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, headRefOid: sha, statusCheckRollup: [{ __typename: 'CheckRun', name: 'static', status: 'COMPLETED', conclusion }] }));
     writeFileSync(`${st}/head.json`, JSON.stringify({ headRefOid: sha }));
   };
   const merge = (/** @type {string[]} */ args) => {
-    const r = spawnSync(PL, ['merge', ...args], { cwd: proj, env: { ...env, PATH: `${bin}:${process.env.PATH}`, PROOFLINE_NO_TTY: '1' }, encoding: 'utf8' });
+    const l = launch(PL, ['merge', ...args]);
+    const e = Object.fromEntries(Object.entries({ ...env, PROOFLINE_NO_TTY: '1' }).filter(([k]) => k.toLowerCase() !== 'path'));   // one PATH key (Windows spells it `Path`)
+    const r = spawnSync(l.program, l.args, { cwd: proj, env: { ...e, PATH: joinPath(bin, process.env.PATH) }, encoding: 'utf8' });
     return { status: r.status, out: r.stdout, err: r.stderr };
   };
   const merged = () => { try { return readFileSync(`${st}/merge.log`, 'utf8'); } catch { return ''; } };

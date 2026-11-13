@@ -4,7 +4,7 @@
 // agent.sh entry-tier, and the risk freeze hashes.
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { refGrep } from '../lib/winpath.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test, after } from 'node:test';
@@ -64,7 +64,7 @@ describe('ERE translation equals grep -E', () => {
     for (const p of pats) {
       const re = ereToRegExp(p);
       for (const t of texts) {
-        const sh = spawnSync('grep', ['-Eq', '--', p], { input: `${t}\n`, encoding: 'latin1' }).status === 0;
+        const sh = refGrep(['-Eq'], p, `${t}\n`, { encoding: 'latin1' }).status === 0;
         if (re === null) continue;
         assert.equal(re.test(t), sh, `/${p}/ on ${t}`);
       }
@@ -113,7 +113,7 @@ describe('ERE safety (S2-4)', () => {
     for (const [p, t] of [['a.b', 'a\rb'], ['^x.*$', 'xy\r'], ['x.$', 'x\r'], ['a.b', 'a\tb']]) {
       const re = ereToRegExp(p);
       assert.ok(re);
-      const g = spawnSync('grep', ['-Eq', '--', p], { input: `${t}\n`, encoding: 'latin1' }).status === 0;
+      const g = refGrep(['-Eq'], p, `${t}\n`, { encoding: 'latin1' }).status === 0;
       assert.equal(re.test(t), g, `${p} on ${JSON.stringify(t)}`);
     }
   });
