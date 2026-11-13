@@ -279,6 +279,11 @@ test('W10: the call sites use the platform rules (a revert goes red here, the Wi
   assert.match(hook, /if \(!isLocalAbsolute\(p\)\) return 1;/);
   assert.match(hook, /const rest = inside\(base, p\);/);
   assert.match(hook, /inside\(wd, p\) === null && p !== `\$\{wd\}\/`\) return 1;/, 'a worktree path with a trailing slash is approved as before');
+  // win32-only branches that no POSIX seam reaches: pinned as source, behaviour covered by the Windows probe only (accepted, A269)
+  assert.match(src('worktree.mjs'), /if \(act\.action === 'remove'\) \{ unlinkSync\(l\); ctx\.err\(/);
+  assert.match(src('worktree.mjs'), /else if \(act\.action === 'repoint'\) \{ unlinkSync\(l\); symlinkSync\(act\.target, l\); \}/);
+  assert.match(hook, /if \(!samePath\(physical\(wd\) \?\? '', wd\)\) return 1;/);
+  assert.match(hook, /process\.platform === 'win32' && samePath\(physical\(l\.slice\(9\)\) \?\? '', wd\)/);
   assert.match(src('worktree.mjs'), /if \(linkReachesRoot\(a, main\)\) \{ try \{ unlinkSync\(l\)/);
   assert.doesNotMatch(hook, /if \(!p\.startsWith\('\/'\)\) return 1;/, 'the leading-slash test of worktree-root is gone');
   assert.match(src('commands/runcmds.mjs'), /if \(notRunRelative\(nw\) \|\| nw\.includes\('\/\/'\)/);

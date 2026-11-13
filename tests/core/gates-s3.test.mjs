@@ -84,6 +84,9 @@ test('sc_decide: signals, overrides, escalations-used, persisted and ledgered; m
     // W10: `isLiveAncestor` answers false on Windows (an ancestor cannot be proven there), so a nonce is never accepted: the accepted limit is that fail-closed refusal, and the nonce stays unused
     refused(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a nonce naming this process was accepted on Windows although no ancestor can be proven there', 'not called ahead of one');
     assert.ok(existsSync(nf), 'the refused nonce was consumed');
+    // the replay while the file is still there: refused again for the same reason, so the refusal is the ancestor rule and not a missing nonce file
+    refused(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a replayed nonce with its file still present was accepted on Windows', 'not called ahead of one');
+    assert.equal(readFileSync(nf, 'utf8'), `${process.pid}\n`, 'the refused nonce file changed');
     rmSync(nf);
   } else {
     accepted(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a nonce naming an ancestor was refused');
