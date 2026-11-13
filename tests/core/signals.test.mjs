@@ -5,12 +5,14 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { refGrep } from '../lib/winpath.mjs';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, test, after } from 'node:test';
 import { rmSync } from 'node:fs';
 import { ereToRegExp } from '../../control-plane/agents/scripts/core/ere.mjs';
-import { entryTier, riskWordsMatch, tierMax, tierRank } from '../../control-plane/agents/scripts/core/signals.mjs';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { entryTier, knowledgeDocFile, riskWordsMatch, tierMax, tierRank } from '../../control-plane/agents/scripts/core/signals.mjs';
 import { repo } from './helpers.mjs';
 import { makeFixture } from './fixture.mjs';
 
@@ -160,5 +162,36 @@ describe('the ecosystem definition as flat rows (A245: no tsv, no sh reader)', (
       writeFileSync(path.join(agents, 'ecosystems.json'), '');
       assert.equal(ecosystemRowsAt(agents, agents), null, 'neither the project nor a different shipped folder: nothing loaded');
     } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+});
+
+// A266: `knowledge_doc_file` on Windows. NTFS has no execute bit and `accessSync(X_OK)` answers yes for every file there, so every wiki page counted as an executable doc and moved the
+// tier to full. The platform argument is the seam: win32 asks git's index (mode 100755) instead, and compares the folders in the core's one path form.
+describe('knowledgeDocFile: the executable-doc rule per platform (A266)', () => {
+  const d = tempDir('kdoc-');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: path.join(d, 'none'), GIT_CONFIG_NOSYSTEM: '1' };
+  const git = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', d, '-c', 'user.name=T', '-c', 'user.email=t@example.test', ...a], { env, encoding: 'utf8' });
+  git('init', '-q');
+  mkdirSync(path.join(d, '.agents/scripts'), { recursive: true });
+  mkdirSync(path.join(d, 'docs/wiki'), { recursive: true });
+  for (const n of ['plain', 'tracked-x', 'bitx']) writeFileSync(path.join(d, `docs/wiki/${n}.md`), '# page\n');
+  writeFileSync(path.join(d, 'docs/wiki/data.json'), '{}\n');
+  git('add', 'docs/wiki/tracked-x.md'); git('update-index', '--chmod=+x', 'docs/wiki/tracked-x.md');
+  /** @type {Context} */
+  const ctx = new Context({ env, cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(d, '.agents/scripts/proofline-core.mjs'));
+
+  test('win32: a page with no execute bit in the index is a plain doc, whatever the host file system says about X_OK', () => {
+    assert.equal(git('ls-files', '-s', '--', 'docs/wiki/tracked-x.md').stdout.startsWith('100755 '), true, 'premise: the index holds the execute bit');
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/plain.md', 'win32'), true);
+  });
+  test('win32: a page the index holds as 100755 still counts; a data file never leaves the tier', () => {
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/tracked-x.md', 'win32'), false);
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/data.json', 'win32'), false);
+  });
+  test('POSIX rule unchanged: the execute bit of the file decides, not the index', { skip: process.platform === 'win32' ? 'NTFS has no execute bit' : false }, () => {
+    chmodSync(path.join(d, 'docs/wiki/bitx.md'), 0o755);
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/bitx.md', 'linux'), false);
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/plain.md', 'linux'), true);
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/bitx.md', 'win32'), true, 'premise: on the win32 rule the same file is not looked at by its mode');
   });
 });

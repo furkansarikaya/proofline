@@ -8,8 +8,9 @@ import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
 import { grepTextLines, grepTextStatus } from './grepfile.mjs';
 import { unsupported } from './errors.mjs';
+import { samePath } from './pathin.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
-import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
+import { git, addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
 import { ecosystemRows } from './ecodata.mjs';
 import { sha256 } from './hash.mjs';
 import { isFile } from './paths.mjs';
@@ -101,16 +102,31 @@ export function controlPlaneOnly(ctx, p) {
   return sha256(stripProoflineBlock(head)) === sha256(stripProoflineBlock(cur));
 }
 
-/** `knowledge_doc_file PATH`: a regular, non-executable, non-symlink file with a documentation extension, with no linked folder on the way. @param {Context} ctx @param {string} p */
-function knowledgeDocFile(ctx, p) {
+/**
+ * Is PATH executable by the file system's own rule? POSIX: the execute bit. Windows (A266): NTFS has none and `accessSync(X_OK)` answers yes for every file, so every page would
+ * count as an executable doc; the only execute bit a Windows tree can carry is git's own (`update-index --chmod=+x`, mode 100755), so the index decides there (a file that is not
+ * tracked cannot hold one). The check is not weaker than the POSIX one: a page that is committed or staged as 100755 still counts.
+ * @param {Context} ctx @param {string} f @param {string} p @param {string} platform
+ */
+function hasExecuteBit(ctx, f, p, platform) {
+  if (platform === 'win32') return /^100755 /.test(git(ctx, ['ls-files', '-s', '--', p]).out);
+  try { accessSync(f, constants.X_OK); return true; } catch { return false; }
+}
+
+/**
+ * `knowledge_doc_file PATH`: a regular, non-executable, non-symlink file with a documentation extension, with no linked folder on the way.
+ * @param {Context} ctx @param {string} p @param {string} [platform] the host platform (a seam for tests)
+ */
+export function knowledgeDocFile(ctx, p, platform = process.platform) {
   const f = `${ctx.root}/${p}`;
   try {
     const l = lstatSync(f);
     if (!l.isFile()) return false;
-    try { accessSync(f, constants.X_OK); return false; } catch { /* not executable */ }
+    if (hasExecuteBit(ctx, f, p, platform)) return false;
   } catch { return false; }
   if (!/\.(md|mdx|rst|adoc|html|txt|png|jpg|jpeg|gif|svg|webp)$/.test(p)) return false;
-  try { return realpathSync(path.dirname(f)) === `${realpathSync(ctx.root)}/${path.posix.dirname(p)}`.replace(/\/\.$/, ''); } catch { return false; }
+  // the folder must be the one the path names (no link on the way); `realpathSync` answers backslashes on Windows, so both sides are compared in the core's one path form
+  try { return samePath(realpathSync(path.dirname(f)), `${realpathSync(ctx.root)}/${path.posix.dirname(p)}`.replace(/\/\.$/, ''), platform); } catch { return false; }
 }
 
 /** `fingerprint_path` where a failure is printed and read as empty (a `$(...)` inside a test). @param {Context} ctx @param {string} p */
