@@ -11,8 +11,9 @@ import path from 'node:path';
 import { describe, test, after } from 'node:test';
 import { rmSync } from 'node:fs';
 import { ereToRegExp } from '../../control-plane/agents/scripts/core/ere.mjs';
+/** @typedef {import('../../control-plane/agents/scripts/core/context.mjs').Context} Context */
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
-import { entryTier, knowledgeDocFile, riskWordsMatch, tierMax, tierRank } from '../../control-plane/agents/scripts/core/signals.mjs';
+import { entryTier, indexHoldsExecutable, knowledgeDocFile, riskWordsMatch, tierMax, tierRank } from '../../control-plane/agents/scripts/core/signals.mjs';
 import { repo } from './helpers.mjs';
 import { makeFixture } from './fixture.mjs';
 
@@ -193,5 +194,57 @@ describe('knowledgeDocFile: the executable-doc rule per platform (A266)', () => 
     assert.equal(knowledgeDocFile(ctx, 'docs/wiki/bitx.md', 'linux'), false);
     assert.equal(knowledgeDocFile(ctx, 'docs/wiki/plain.md', 'linux'), true);
     assert.equal(knowledgeDocFile(ctx, 'docs/wiki/bitx.md', 'win32'), true, 'premise: on the win32 rule the same file is not looked at by its mode');
+  });
+});
+
+// A266 security round 1: the Windows rule reads the index with LITERAL pathspecs, every entry, every stage, and fails closed. Names with `[`, `*`, `?`, `\\` and a leading `:` are pathspec
+// magic; `[` is legal in NTFS names, so a worker could commit `x[1].md` as 100755 next to a decoy `x1.md` (100644) that sorts first. The index is written with `update-index --index-info`
+// (no work tree file needed, so the names NTFS refuses are tested too); every test asserts its premise.
+describe('indexHoldsExecutable: literal paths, all entries, fail closed (A266)', () => {
+  const d = tempDir('kidx-');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: path.join(d, 'none'), GIT_CONFIG_NOSYSTEM: '1' };
+  const git = (/** @type {string[]} */ a, /** @type {string} */ input = '') => spawnSync('git', ['-C', d, ...a], { env, encoding: 'utf8', input });
+  git(['init', '-q']);
+  mkdirSync(path.join(d, '.agents/scripts'), { recursive: true });
+  const blob = git(['hash-object', '-w', '--stdin'], '#!/bin/sh\n').stdout.trim();
+  /** @param {string} rows */ const index = (rows) => { git(['rm', '-q', '--cached', '-r', '--ignore-unmatch', '.']); assert.equal(git(['update-index', '--index-info'], rows).status, 0); };
+  const names = () => git(['--literal-pathspecs', 'ls-files', '-s', '-z']).stdout.split('\0').filter((x) => x !== '');
+  /** @type {Context} */
+  const ctx = new Context({ env, cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(d, '.agents/scripts/proofline-core.mjs'));
+
+  test('a `[` name committed as 100755 is executable although a decoy that sorts first is 100644', () => {
+    index(`100644 ${blob}\tdocs/x1.md\n100755 ${blob}\tdocs/x[1].md\n`);
+    assert.ok(names()[0].endsWith('docs/x1.md'), 'premise: the decoy is listed first');
+    assert.ok(names().some((e) => e.startsWith('100755 ') && e.endsWith('docs/x[1].md')), 'premise: the index holds the bit');
+    assert.equal(git(['ls-files', '-s', '--', 'docs/x[1].md']).stdout.startsWith('100644 '), true, 'premise: a pathspec read gives the decoy');
+    assert.equal(indexHoldsExecutable(ctx, 'docs/x[1].md'), true);
+    assert.equal(indexHoldsExecutable(ctx, 'docs/x1.md'), false, 'the decoy itself is a plain doc');
+  });
+  test('`*`, `?`, a backslash and a leading colon are literal', () => {
+    index(`100644 ${blob}\tdocs/ab.md\n100755 ${blob}\tdocs/a*.md\n100755 ${blob}\tdocs/a?.md\n100755 ${blob}\tdocs/a\\b.md\n100755 ${blob}\t:(top)x.md\n100644 ${blob}\tdocs/plain.md\n`);
+    for (const n of ['docs/a*.md', 'docs/a?.md', 'docs/a\\b.md', ':(top)x.md']) assert.ok(names().some((e) => e.startsWith('100755 ') && e.endsWith(`\t${n}`)), `premise: ${n} holds the bit`);
+    for (const n of ['docs/a*.md', 'docs/a?.md', 'docs/a\\b.md', ':(top)x.md']) assert.equal(indexHoldsExecutable(ctx, n), true, n);
+    assert.equal(indexHoldsExecutable(ctx, 'docs/plain.md'), false);
+    assert.equal(indexHoldsExecutable(ctx, 'docs/*.md'), false, 'a glob matches nothing literally: not a tracked name');
+  });
+  test('an unmerged file counts at any stage', () => {
+    index(`100644 ${blob} 1\tdocs/u.md\n100644 ${blob} 2\tdocs/u.md\n100755 ${blob} 3\tdocs/u.md\n`);
+    assert.ok(names().length === 3 && names()[0].startsWith('100644 ') && names()[0].includes(' 1\t'), 'premise: three stages, the plain one listed first');
+    assert.equal(indexHoldsExecutable(ctx, 'docs/u.md'), true);
+  });
+  test('a git that fails is "executable" (the stricter tier), and so is output that is not index entries', () => {
+    const nogit = tempDir('kidx-none-');
+    mkdirSync(path.join(nogit, '.agents/scripts'), { recursive: true });
+    const bad = new Context({ env: { ...env, GIT_DIR: path.join(nogit, 'not-a-repo') }, cwd: nogit, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(nogit, '.agents/scripts/proofline-core.mjs'));
+    assert.notEqual(spawnSync('git', ['-C', nogit, 'ls-files'], { env: { ...env, GIT_DIR: path.join(nogit, 'not-a-repo') }, encoding: 'utf8' }).status, 0, 'premise: git fails there');
+    assert.equal(indexHoldsExecutable(bad, 'docs/x.md'), true);
+    assert.equal(knowledgeDocFile(bad, 'docs/x.md', 'win32'), false, 'a failed read keeps the page in the tier');
+  });
+  test('knowledgeDocFile on the win32 rule: the `[` file really on disk stays in the tier', () => {
+    index(`100644 ${blob}\tdocs/wiki/y1.md\n100755 ${blob}\tdocs/wiki/y[1].md\n`);
+    mkdirSync(path.join(d, 'docs/wiki'), { recursive: true });
+    writeFileSync(path.join(d, 'docs/wiki/y1.md'), '# a\n'); writeFileSync(path.join(d, 'docs/wiki/y[1].md'), '# b\n');
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/y1.md', 'win32'), true, 'premise: the decoy is a plain doc');
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/y[1].md', 'win32'), false);
   });
 });

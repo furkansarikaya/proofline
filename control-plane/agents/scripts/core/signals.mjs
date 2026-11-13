@@ -103,13 +103,32 @@ export function controlPlaneOnly(ctx, p) {
 }
 
 /**
+ * Windows rule of `hasExecuteBit`, fail CLOSED (true = counts as executable, so the page is NOT treated as a plain doc). The path is literal (`--literal-pathspecs`: `[`, `*`, `?`, `\` and a
+ * leading `:` are legal in NTFS names and pathspec magic otherwise, so a decoy `x1.md` could answer for `x[1].md`), the output is NUL separated and EVERY entry is read: any entry whose
+ * path equals PATH exactly with mode 100755, at any stage (an unmerged file has stages 1 to 3), makes it executable. A git that fails, or output that is not index entries, is "executable".
+ * @param {Context} ctx @param {string} p
+ */
+export function indexHoldsExecutable(ctx, p) {
+  const r = git(ctx, ['--literal-pathspecs', 'ls-files', '-s', '-z', '--', p]);
+  if (r.status !== 0) return true;
+  const want = Buffer.from(p, 'utf8').toString('latin1');   // git() decodes the bytes as latin1
+  for (const e of r.out.split('\0')) {
+    if (e === '') continue;
+    const m = /^(\d{6}) [0-9a-f]{40,64} ([0-3])\t([^]*)$/.exec(e);
+    if (m === null) return true;
+    if (m[3] === want && m[1] === '100755') return true;
+  }
+  return false;
+}
+
+/**
  * Is PATH executable by the file system's own rule? POSIX: the execute bit. Windows (A266): NTFS has none and `accessSync(X_OK)` answers yes for every file, so every page would
  * count as an executable doc; the only execute bit a Windows tree can carry is git's own (`update-index --chmod=+x`, mode 100755), so the index decides there (a file that is not
  * tracked cannot hold one). The check is not weaker than the POSIX one: a page that is committed or staged as 100755 still counts.
  * @param {Context} ctx @param {string} f @param {string} p @param {string} platform
  */
 function hasExecuteBit(ctx, f, p, platform) {
-  if (platform === 'win32') return /^100755 /.test(git(ctx, ['ls-files', '-s', '--', p]).out);
+  if (platform === 'win32') return indexHoldsExecutable(ctx, p);
   try { accessSync(f, constants.X_OK); return true; } catch { return false; }
 }
 
