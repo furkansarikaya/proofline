@@ -9,7 +9,9 @@ import { PL, sandbox } from './frontend-lib.mjs';
 const sb = sandbox();
 const SYSTEM = '/usr/bin:/bin';
 const hasNode = spawnSync('sh', ['-c', 'command -v node'], { env: { PATH: SYSTEM } }).status === 0;
-const opts = { skip: hasNode ? 'node is in /usr/bin or /bin here' : false };
+// Windows (W10): bin/proofline has no shebang launch there (it is started as `node <script>`, A261), so "node missing" is the answer of cmd or of the caller's shell, not a status 127 of
+// `env` that our launcher line causes: nothing of ours runs without node, and nothing of ours can be asserted. The POSIX test keeps the contract.
+const opts = { skip: process.platform === 'win32' ? 'the 127 comes from the POSIX shebang line (env node); Windows starts the launcher as `node <script>`' : hasNode ? 'node is in /usr/bin or /bin here' : false };
 
 test('without node every command stops with the status 127 and a message that names node, and prints nothing on standard output', opts, () => {
   const d = sb.copy('nn1');

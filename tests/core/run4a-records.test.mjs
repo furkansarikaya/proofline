@@ -514,7 +514,9 @@ test('task-source-relocate: a path with a line break, a quote or a backslash is 
   const ledgerBefore = ledger(d);
   const evil = ['tasks/m.md"\n  revision: "x"\nexecution:\n  topology: "standalone', 'tasks/m"x.md', 'tasks/m\\x.md', 'tasks/m\tx.md', 'tasks/m\rx.md'];
   for (const p of evil) {
-    writeFileSync(`${d}/tasks/${p.includes('/') ? p.slice(6).replace(/[\n\r]/g, '_') : 'x'}`, 'x');
+    // a name with a quote, a tab or a backslash cannot exist on Windows (the file system refuses it): the premise "the file is there" holds off Windows only, and there the path check
+    // still comes before any file lookup, so the refusal asserted below is the same one
+    try { writeFileSync(`${d}/tasks/${p.includes('/') ? p.slice(6).replace(/[\n\r]/g, '_') : 'x'}`, 'x'); } catch (e) { if (process.platform !== 'win32') throw e; }
     refused(A(d, ['task-source-relocate', 'LC', p]), `relocate to ${JSON.stringify(p)}`, 'invalid task source path');
   }
   assert.equal(read(d, '.agents/runs/LC/RUN.yaml'), before, 'RUN.yaml changed');

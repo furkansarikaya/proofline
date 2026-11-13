@@ -98,6 +98,9 @@ test('sc_scratch_worktrees: a registered scratch worktree blocks CODE_DONE; the 
   accepted(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE refused after the scratch worktree was removed (the run worktree RW-1 must not count)');
 });
 
+// Windows (W10): the read-only part of A196 is a property of POSIX directory modes (`chmod 555` stops a create in the folder); a directory's read-only attribute on Windows stops nothing, so the
+// premise "the folder is not writable" cannot be made there and the assertion would pass or fail for no reason of ours. The part that waits for a live older lock keeps running on every platform.
+const modeBits = process.platform !== 'win32';
 test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable, cannot write approvals or prompts, and waits for an older version\'s live lock (A196, A199)', async () => {
   const d = scaffold({ cls: 'STANDARD' });
   const rw = must(d, ['worktree-add', 'RW-1']).out;
@@ -109,12 +112,12 @@ test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable
   for (const f of ['.agents/local/locks', '.agents/local/approvals', '.agents/local/prompts']) mkdirSync(path.join(d, f), { recursive: true });
   mkdirSync(path.join(rwp, '.agents/local/locks'), { recursive: true });
   const ro = [path.join(d, '.agents/local'), path.join(d, '.agents/local/approvals'), path.join(d, '.agents/local/prompts'), path.join(rwp, '.agents/local')];
-  const lock = (/** @type {number} */ m) => { for (const p of ro) chmodSync(p, m); };
+  const lock = (/** @type {number} */ m) => { if (modeBits) for (const p of ro) chmodSync(p, m); };
   lock(0o555);
   /** @type {import('../lib/harness.mjs').Result} */ let r;
   try { r = A(rwp, ['ledger-note', 'LC', 'A196 note']); } finally { lock(0o755); }
   assert.equal(r.status, 0, `A196 the worktree command failed with the rest of .agents/local read-only: ${r.text}`);
-  if (process.getuid?.() !== 0) {
+  if (modeBits && process.getuid?.() !== 0) {
     assert.ok(!r.text.includes('cannot take the lock'), `A196 the worktree command could not take the shared lock with the rest of .agents/local read-only: ${r.text}`);
     lock(0o555);
     try {
