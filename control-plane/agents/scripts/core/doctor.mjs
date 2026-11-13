@@ -19,7 +19,7 @@ import { emailOf, forbidden } from './githooks.mjs';
 import { sha256File } from './hash.mjs';
 import { leftoverWorktrees } from './leftover.mjs';
 import { isDir, isFile } from './paths.mjs';
-import { eolText, realpathPosix, samePath } from './pathin.mjs';
+import { eolText, nullDevice, realpathPosix, samePath } from './pathin.mjs';
 import { detectPlatform, droppedNetVars, warnText } from './platform.mjs';
 import * as proc from './proc.mjs';
 import { binOf, commandV } from './runtimedetect.mjs';
@@ -237,7 +237,7 @@ function runMerged(program, args, opt) {
 export function probeEnv(env, home) {
   /** @type {NodeJS.ProcessEnv} */ const e = {};
   for (const [k, v] of Object.entries(env)) if (/^(PATH|LANG|LANGUAGE|LC_[A-Z]+|TZ|TMPDIR|SYSTEMROOT|COMSPEC|PATHEXT|USER|LOGNAME)$/.test(k)) e[k] = v;
-  e.HOME = home; e.GIT_CONFIG_GLOBAL = '/dev/null'; e.GIT_CONFIG_NOSYSTEM = '1'; e.GIT_TERMINAL_PROMPT = '0';
+  e.HOME = home; e.GIT_CONFIG_GLOBAL = nullDevice(); e.GIT_CONFIG_NOSYSTEM = '1'; e.GIT_TERMINAL_PROMPT = '0';
   e.PROOFLINE_NO_TTY = '1';
   return e;
 }

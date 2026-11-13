@@ -305,6 +305,9 @@ export function worktreeAdd(ctx, args) {
   const sha = git(ctx, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`]);
   if (sha.status !== 0) fail(`canonical branch not found locally: ${branch}`);
   mkdirSync(path.dirname(d), { recursive: true });
+  // A264: a record left by an earlier worktree of this id (removed by hand) is deleted BEFORE the new worktree exists, so a failed write of the new record cannot leave the old one to name
+  // a git folder that the new worktree may come to own; when it cannot be deleted nothing is added (fail closed)
+  try { rmSync(entryRecordPath(rwMain(ctx), id), { force: true }); } catch { fail(`the old record of the git folder of ${bytes(d)} could not be deleted; remove ${bytes(entryRecordPath(rwMain(ctx), id))} and run worktree-add again`); }
   // A248 round 6: `worktree add` checks out through a child git whose GIT_DIR is the NEW worktree's, where a `gitdir:` conditioned include can apply that the main tree does not
   // see. So the worktree is made WITHOUT a checkout, its drivers are found in the new worktree itself (hgit does it for the tree of the call), and the checkout runs through hgit there
   const add = hgit(ctx, ctx.root, ['worktree', 'add', '-q', '--no-checkout', '--detach', d, sha.stdout.toString('latin1').replace(/\n+$/, '')], { stdio: ['ignore', 'ignore', 'pipe'] });

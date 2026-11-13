@@ -4,7 +4,7 @@
 // push; `proofline merge` merges). The pull request is read through the platform tool (core/platform.mjs) BEFORE the locks are taken (a slow tool never
 // holds them). A merge is proved IN PROCESS (a pull request seen merged, or git) and the cleanup that follows is a call of this process: no file, flag or
 // lock says "merged" (A215).
-import { localRemote, realpathPosix } from './pathin.mjs';
+import { localRemote, nullDevice, realpathPosix } from './pathin.mjs';
 import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir, userInfo } from 'node:os';
@@ -102,7 +102,7 @@ export function originEffective(ctx, gitPath = 'git') {
  * @returns {{ tip: string, tmp: string, gp: (args: string[]) => { status: number | null, out: string }, intact: () => boolean, reaches: (target: string, rb: string) => boolean, verify: (rb: string, extra: string[]) => boolean, done: () => void } | null}
  */
 export function hermeticFetch(ctx, gitPath, url, base, cacheHome = '') {
-  const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  const nul = nullDevice();
   const env = { ...cleanToolEnv(ctx, { remote: true }), GIT_CONFIG_GLOBAL: nul, GIT_CONFIG_SYSTEM: nul, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: nul };
   /** @type {string} */ let parent = '';
   try { const home = cacheHome !== '' ? cacheHome : userInfo().homedir; if (home !== '') { mkdirSync(`${home}/.cache/proofline-proof`, { recursive: true, mode: 0o700 }); parent = `${home}/.cache/proofline-proof`; } } catch { parent = ''; }
@@ -587,7 +587,7 @@ export function importProvenTip(ctx, gitBin, hf, base) {
   const have = hgit(ctx, ctx.root, ['rev-parse', '-q', '--verify', ref], { bin: gitBin, env });
   const known = have.status === 0 ? sub(have.stdout.toString('latin1')) : '';
   const input = `${hf.tip}\n${/^[0-9a-f]{40,64}$/.test(known) ? `^${known}\n` : ''}`;
-  const pack = proc.run(gitBin, ['--no-replace-objects', '--git-dir', hf.tmp, 'pack-objects', '--revs', '--stdout', '-q'], { cwd: hf.tmp, env: { ...env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, input, stdio: ['pipe', 'pipe', 'ignore'], timeoutMs: 180000 });
+  const pack = proc.run(gitBin, ['--no-replace-objects', '--git-dir', hf.tmp, 'pack-objects', '--revs', '--stdout', '-q'], { cwd: hf.tmp, env: { ...env, GIT_CONFIG_GLOBAL: nullDevice(), GIT_CONFIG_NOSYSTEM: '1' }, input, stdio: ['pipe', 'pipe', 'ignore'], timeoutMs: 180000 });
   if (pack.status !== 0) return false;
   const idx = hgit(ctx, ctx.root, ['index-pack', '--stdin'], { bin: gitBin, env, input: pack.stdout });
   if (idx.status !== 0) return false;
@@ -719,7 +719,7 @@ export function deliverMerged(ctx, id, flag) {
   const later = `update it from origin/${dmBase} before the next task starts`;
   // what is neutralised on the user's checkout: hooks (core.hooksPath) and the file system monitor (core.fsmonitor, a program named in the repository config; every git call of
   // this command carries it); `--no-overwrite-ignore` makes git itself refuse to overwrite an ignored file the target tracks (also when it is a directory or differs in case)
-  const hookless = ['-c', 'core.hooksPath=/dev/null'];
+  const hookless = ['-c', `core.hooksPath=${nullDevice()}`];
   const ffNow = () => g([...hookless, 'merge', '--ff-only', '-q', '--no-overwrite-ignore', tip2], main).status === 0;
   const where = (/** @type {string} */ cur) => (cur === '' ? 'a detached HEAD' : `branch ${cur}`);
   // the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
@@ -1159,7 +1159,7 @@ export function deliverStep(ctx, id, step, prArg) {
         if (ctx.config().get('git.push_requires_approval', 'true') !== 'false') consumeApproval(ctx, id, /** @type {string} */ (app));
         const gtp = resolveGit(ctx);
         if ('unreadable' in gtp) stop(`no trusted git to push with (${gtp.unreadable})`);
-        const pushed = proc.run(gtp.path, ['-C', ctx.root, '-c', 'core.hooksPath=/dev/null', 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'pipe'] });
+        const pushed = proc.run(gtp.path, ['-C', ctx.root, '-c', `core.hooksPath=${nullDevice()}`, 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'pipe'] });
         if (pushed.status !== 0) stop(`git push to ${ou} failed: ${(pushed.stderr.toString('latin1') + pushed.stdout.toString('latin1')).trim().split('\n').slice(0, 3).join(' ')}`);
         git(ctx, ['update-ref', `refs/remotes/${v('remote')}/${br}`, head]);
         ctx.out(`pushed: ${br} -> ${ou}\nthen: agent.sh deliver-step ${id} pr\n`);

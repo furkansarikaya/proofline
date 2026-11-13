@@ -22,7 +22,7 @@ export const SKD = existsSync(path.join(repoRoot, 'skills')) ? path.join(repoRoo
 const BROWSER_NAMES = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'chrome', 'microsoft-edge', 'microsoft-edge-stable', 'msedge', 'brave-browser'];
 export const HOST_BROWSER = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge', 'Brave Browser.app/Contents/MacOS/Brave Browser']
   .some((a) => { try { return (statSync(`/Applications/${a}`).mode & 0o111) !== 0; } catch { return false; } });
-// Windows (A263): the scenarios run. `probeVisual` looks for the extension-less names (chrome, google-chrome ...) and the hosted runner's browsers are chrome.exe/msedge.exe, so "no browser" holds there.
+// Windows (A263, A264): the scenarios run. `probeVisual` looks for NAME.exe on the `;` separated PATH; the hosted runner's browsers are not on that PATH, so "no browser" holds there.
 /** The `skip` option of a scenario that needs "no browser" (the probe cannot hide the application folder, A214). */
 export const NO_BROWSER_SKIP = HOST_BROWSER ? 'a browser is installed in the application folder of this host (the probe cannot be hidden from it, A214)' : false;
 

@@ -9,7 +9,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
-import { probePerformance, probeVisual } from '../../control-plane/agents/scripts/core/probes.mjs';
+import { browserFiles, pathEntries, probePerformance, probeVisual } from '../../control-plane/agents/scripts/core/probes.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 import { project } from './legacy-lib.mjs';
 
@@ -38,6 +38,14 @@ test('probeVisual: a Chromium-family executable on PATH is a capability; a direc
   const f = bin();
   exe(f, 'brave-browser');
   assert.equal(probeVisual(ctxOf(d, `:${f}:`)), `browser ${f}/brave-browser`, 'empty PATH entries are skipped, the others are searched');
+});
+
+test('A264: pathEntries and browserFiles: off Windows exactly the old split(\':\') and the bare name; on win32 `;`, quotes taken off, NAME.exe only', () => {
+  const old = (/** @type {string} */ v) => v.split(':').filter((d) => d !== '');
+  for (const v of ['', ':', '/a:/b', ':/a::/b:', '/usr/bin:/bin', 'C:\\x;D:\\y', '/a b:/c']) for (const pl of ['linux', 'darwin']) assert.deepEqual(pathEntries(v, pl), old(v), `${pl} ${JSON.stringify(v)}`);
+  for (const pl of ['linux', 'darwin']) assert.deepEqual(browserFiles('/d', 'chrome', pl), ['/d/chrome']);
+  assert.deepEqual(pathEntries('C:\\Program Files\\x;;"D:\\y z";E:/w', 'win32'), ['C:\\Program Files\\x', 'D:\\y z', 'E:/w']);
+  assert.deepEqual(browserFiles('C:\\d', 'chrome', 'win32'), ['C:\\d/chrome.exe']);
 });
 
 test('probeVisual: an installed project browser-test dependency (from the ecosystem data) is a capability; a declared but missing one is not', () => {

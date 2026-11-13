@@ -459,6 +459,8 @@ test('A248 round 7: dropHalfWorktree unlocks, deletes the folder and prunes when
   // a folder nothing can delete (a read-only folder holding a file): the answer is false and the registration stays, so the message can tell the user what to do. The super user
   // can delete into a read-only folder, so there is no such folder for it
   if (process.getuid?.() === 0) return;
+  // Windows: `chmod 500` on a folder does not stop its removal (only a read-only FILE attribute or an ACL would, and node's rm clears the first), so no folder there is one nothing can delete (A264)
+  if (process.platform === 'win32') return;
   const b = `${root}-stuck`;
   git(root, ['worktree', 'add', '-q', '--detach', b, 'HEAD']);
   mkdirSync(`${b}/ro`); writeFileSync(`${b}/ro/f`, 'x');
@@ -489,7 +491,7 @@ exec ${shQuote(real)} "$@"
   return { PATH: `${bin}:${F.env.PATH}` };
 }
 
-test('A248 round 8: worktree-add after a failed checkout removes a LOCKED half-made worktree (a plain `worktree remove --force` would leave it registered)', () => {
+test('A248 round 8: worktree-add after a failed checkout removes a LOCKED half-made worktree (a plain `worktree remove --force` would leave it registered)', { skip: process.platform === 'win32' ? 'a git in front of the real one cannot be injected through agent.sh on Windows: Git for Windows\' sh puts its own /ucrt64/bin first on PATH (the locked fallback itself runs there: round 7 test)' : false }, () => {
   const F = fakes(); const dir = bnew();
   binstall(dir, { remote: false });
   const main = real(dir);
@@ -502,7 +504,7 @@ test('A248 round 8: worktree-add after a failed checkout removes a LOCKED half-m
   assert.ok(!existsSync(d), 'the locked half-made folder is still on disk');
 });
 
-test('A248 round 8: worktree-add after a failed checkout that nothing can clean up says so and names the folder and the command to run', { skip: process.getuid?.() === 0 ? 'the super user can delete into a read-only folder' : false }, () => {
+test('A248 round 8: worktree-add after a failed checkout that nothing can clean up says so and names the folder and the command to run', { skip: process.getuid?.() === 0 ? 'the super user can delete into a read-only folder' : process.platform === 'win32' ? 'no folder is undeletable by a mode on Windows (chmod 500 does not stop its removal)' : false }, () => {
   const F = fakes(); const dir = bnew();
   binstall(dir, { remote: false });
   const main = real(dir);
@@ -514,4 +516,27 @@ test('A248 round 8: worktree-add after a failed checkout that nothing can clean 
     assert.ok(bad.text.includes(`could not check out the worktree ${d}; it could NOT be removed: delete the folder ${d} and run git worktree prune before the next worktree-add`), bad.text);
     assert.ok(existsSync(d), 'the folder that nothing can delete is still there');
   } finally { try { chmodSync(`${d}/ro`, 0o700); } catch { /* not made */ } rmSync(d, { recursive: true, force: true }); }
+});
+
+test('A264: worktree-add deletes an old record of the id BEFORE git worktree add: a refused add leaves no stale record; a record that cannot be deleted stops the add', () => {
+  const F = fakes(); const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  const d = `${main}/.agents/local/worktrees/W-8`;
+  const rec = `${main}/.agents/local/wt-entries/W-8.entry`;
+  assert.equal(AB(F, dir, ['worktree-add', 'W-8']).status, 0);
+  assert.ok(lstatSync(rec).isFile(), 'premise: the record exists');
+  // the worktree folder is deleted by hand while git still holds it LOCKED: git refuses the next add ("missing but locked"), and the old record must be gone by then
+  gOk(main, ['worktree', 'lock', d]);
+  rmSync(d, { recursive: true, force: true });
+  const bad = AB(F, dir, ['worktree-add', 'W-8']);
+  assert.notEqual(bad.status, 0, bad.text);
+  assert.ok(bad.text.includes('could not add the worktree'), bad.text);
+  assert.ok(!existsSync(rec), 'the old record survived a refused worktree-add');
+  // a record that cannot be deleted (a non-empty folder where the file should be) stops the add before git runs (fail closed)
+  mkdirSync(`${rec}/x`, { recursive: true });
+  const stuck = AB(F, dir, ['worktree-add', 'W-8']);
+  assert.notEqual(stuck.status, 0, stuck.text);
+  assert.ok(stuck.text.includes('the old record of the git folder'), stuck.text);
+  rmSync(rec, { recursive: true, force: true });
 });

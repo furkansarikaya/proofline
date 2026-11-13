@@ -115,3 +115,12 @@ export function isLocalAbsolute(p, platform = process.platform) {
 export function scratchRoot(tmpdirEnv, platform = process.platform, host = tmpdir()) {
   return platform === 'win32' ? host : (tmpdirEnv || '/tmp');
 }
+
+/**
+ * The null device in the spelling git accepts (A264): `/dev/null` off Windows (exactly what the code wrote before), `NUL` on win32 (`os.devNull` is `\\.\nul` there and git refuses it). One
+ * place for `core.hooksPath`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` and `GIT_GRAFT_FILE`.
+ * @param {string} [platform]
+ */
+export function nullDevice(platform = process.platform) {
+  return platform === 'win32' ? 'NUL' : '/dev/null';
+}

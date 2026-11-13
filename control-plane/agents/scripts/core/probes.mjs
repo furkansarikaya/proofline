@@ -54,6 +54,19 @@ function executableFile(f) {
 }
 
 const BROWSERS = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'chrome', 'microsoft-edge', 'microsoft-edge-stable', 'msedge', 'brave-browser'];
+/**
+ * The folders of a PATH value (A264). Off Windows exactly `split(':')` without the empty entries, as before. On win32 the separator is `;` (a `:` cuts `C:\dir` in two) and a pair of double quotes
+ * around an entry is taken off. @param {string} value @param {string} [platform]
+ */
+export function pathEntries(value, platform = process.platform) {
+  return value.split(platform === 'win32' ? ';' : ':').map((d) => (platform === 'win32' ? d.replace(/^"(.*)"$/, '$1') : d)).filter((d) => d !== '');
+}
+
+/** The files that can be browser N in folder D: the bare name off Windows (exactly as before); on win32 only `N.exe` (a file without an extension is no program there). @param {string} d @param {string} n @param {string} [platform] */
+export function browserFiles(d, n, platform = process.platform) {
+  return platform === 'win32' ? [`${d}/${n}.exe`] : [`${d}/${n}`];
+}
+
 const APPS = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge', 'Brave Browser.app/Contents/MacOS/Brave Browser'];
 
 /**
@@ -61,9 +74,8 @@ const APPS = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Co
  * Empty when there is none. @param {Context} ctx
  */
 export function probeVisual(ctx) {
-  for (const d of (ctx.env.PATH ?? '').split(':')) {
-    if (d === '') continue;
-    for (const n of BROWSERS) if (executableFile(`${d}/${n}`)) return `browser ${d}/${n}`;
+  for (const d of pathEntries(ctx.env.PATH ?? '')) {
+    for (const n of BROWSERS) for (const f of browserFiles(d, n)) if (executableFile(f)) return `browser ${f}`;
   }
   for (const a of APPS) if (executableFile(`/Applications/${a}`)) return `browser /Applications/${a}`;
   const eco = loadEco(ctx);

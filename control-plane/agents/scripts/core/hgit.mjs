@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { nullDevice } from './pathin.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -121,7 +122,7 @@ export function hermeticEnv(base, names) {
   // and a hosting service signs its merge commits. Verification is off, signing is off, and the programs are empty (git then cannot start a program called "", never the config's)
   put('merge.verifySignatures', 'false'); put('log.showSignature', 'false'); put('commit.gpgSign', 'false'); put('tag.gpgSign', 'false');
   for (const k of ['gpg.program', 'gpg.openpgp.program', 'gpg.ssh.program', 'gpg.x509.program', 'gpg.ssh.defaultKeyCommand']) put(k, '');
-  put('core.hooksPath', process.platform === 'win32' ? 'NUL' : '/dev/null'); // a hook (post-checkout, reference-transaction ...) is repository code too
+  put('core.hooksPath', nullDevice()); // a hook (post-checkout, reference-transaction ...) is repository code too
   // auto-maintenance runs after a merge, a commit or a fetch (`maintenance run --auto`, `gc --auto`) and `gc.recentObjectsHook` is a program the repack runs
   put('gc.auto', '0'); put('maintenance.auto', 'false'); put('receive.autogc', 'false'); put('gc.recentObjectsHook', '');
   // an EMPTY command does not disable a driver that is `required` (git-lfs sets it): git then fails the whole call. `required=false` makes the blanked driver a no-op
