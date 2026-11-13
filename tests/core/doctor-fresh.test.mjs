@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { sandbox, verdicts } from './frontend-lib.mjs';
 
-const sb = sandbox();
+const sb = sandbox({ exeTools: true });   // Windows: real .exe runtimes (A266); elsewhere the shell-script fakes
 const edit = (/** @type {string} */ file, /** @type {(t: string) => string} */ fn) => writeFileSync(file, fn(readFileSync(file, 'utf8')));
 
 test('a fresh install passes: every check line, the 7 events of both runtimes, the probes, and a summary that counts the WARN lines', () => {
@@ -77,7 +77,7 @@ test('a missing hook file is a FAIL; a missing events/ folder is a FAIL naming t
   const dz = sb.copy('dz');
   edit(`${dz}/.agents/config.yaml`, (t) => t.replace(/^ {2}build:.*$/m, '  build:').replace(/^ {2}lint:.*$/m, '  lint:').replace(/^proofline_version:.*$/m, 'proofline_version: 0.0.1'));
   mkdirSync(`${sb.T}/rtkbin`, { recursive: true }); writeFileSync(`${sb.T}/rtkbin/rtk`, '#!/bin/sh\nexit 0\n'); chmodSync(`${sb.T}/rtkbin/rtk`, 0o755);
-  const [a, b, c] = await Promise.all([sb.plAsync(dmj, ['doctor']), sb.plAsync(dev, ['doctor']), sb.plAsync(dz, ['doctor'], { PATH: `${sb.T}/rtkbin:${sb.env.PATH}` })]);
+  const [a, b, c] = await Promise.all([sb.plAsync(dmj, ['doctor']), sb.plAsync(dev, ['doctor']), sb.plAsync(dz, ['doctor'], { PATH: `${sb.T}/rtkbin${path.delimiter}${sb.env.PATH}` })]);
   assert.ok(a.out.includes('FAIL hooks: .agents/hooks/proofline-hook.mjs missing (run: proofline upgrade)\n'), a.out);
   assert.notEqual(a.status, 0);
   assert.ok(b.out.includes('FAIL hooks: .agents/hooks/ lacks events/, guards/, lib/ or command-scan.mjs of the Node hook (run: proofline upgrade)\n'), b.out);
@@ -123,9 +123,8 @@ test('the CI line: a GitHub project without a pull_request workflow warns with t
 test('the toolchain line: a different Node major is a WARN that keeps the exit 0; the same major passes; a project without a runtime marker prints nothing', async () => {
   const dtc = sb.copy('dtc'); mkdirSync(`${dtc}/.github/workflows`, { recursive: true });
   writeFileSync(`${dtc}/.github/workflows/ci.yml`, 'on:\n  pull_request:\njobs:\n  t:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n');
-  const fakenode = (/** @type {string} */ v) => { const f = `${sb.T}/fakenode-${v}`; mkdirSync(f, { recursive: true }); writeFileSync(`${f}/node`, `#!/bin/sh\ncase "\${1:-}" in --version) echo v${v} ;; *) exec "${process.execPath}" "$@" ;; esac\n`); chmodSync(`${f}/node`, 0o755); return `${f}:${sb.env.PATH}`; };
   const dnr = sb.copy('dnr'); rmSync(`${dnr}/package.json`);
-  const [mis, same, none] = await Promise.all([sb.plAsync(dtc, ['doctor'], { PATH: fakenode('22.1.0') }), sb.plAsync(dtc, ['doctor'], { PATH: fakenode('20.5.0') }), sb.plAsync(dnr, ['doctor'])]);
+  const [mis, same, none] = await Promise.all([sb.plAsync(dtc, ['doctor'], { PATH: sb.fakeNodePath('22.1.0') }), sb.plAsync(dtc, ['doctor'], { PATH: sb.fakeNodePath('20.5.0') }), sb.plAsync(dnr, ['doctor'])]);
   assert.ok(mis.out.includes('WARN toolchain node: local 22.1.0, CI specifies 20 (.github/workflows/ci.yml); the major version differs, so a green local run may not hold in CI\n'), mis.out);
   assert.ok(mis.out.includes('WARN node: v22.1.0 is older than 22.13;'), 'the fake node is also older than the requirement');
   assert.equal(mis.status, 0, 'a toolchain mismatch is a WARN');
