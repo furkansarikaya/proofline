@@ -66,6 +66,14 @@ export function isAbsoluteInput(p, platform = process.platform) {
 }
 
 /**
+ * Is a path a cited artifact or evidence path may NOT be (A268): an absolute path of the host (`isAbsoluteInput`, so `C:/x`, `C:\\x` and a UNC path on win32 too) or one with a `..`. Off Windows exactly
+ * `p.startsWith('/') || p.includes('..')`, as the call sites had it. On Windows `/etc/passwd` reaches the core as `C:/Program Files/Git/etc/passwd` (the shell converts an argument), and before
+ * that was refused only later, for another reason (outside the paths of the gate).
+ * @param {string} p @param {string} [platform]
+ */
+export function notRunRelative(p, platform = process.platform) { return isAbsoluteInput(p, platform) || p.includes('..'); }
+
+/**
  * A path typed by the caller, as a path on disk (A267): an absolute one (`isAbsoluteInput`) stays, a relative one is taken from CWD. Before, only a leading `/` counted, so on Windows `C:\\x` was
  * joined to the working directory and read as a missing file. Off Windows this is `p.startsWith('/') ? p : `${cwd}/${p}``, as before.
  * @param {string} cwd @param {string} p @param {string} [platform]

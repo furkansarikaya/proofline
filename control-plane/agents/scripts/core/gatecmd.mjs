@@ -26,6 +26,7 @@ import { expandWords } from './shellglob.mjs';
 import { runSecretScan } from './secretscan.mjs';
 import { exemptedPath, verifyFreeze } from './commands/verify.mjs';
 import { headSha } from './git.mjs';
+import { notRunRelative } from './pathin.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -291,7 +292,7 @@ export function gateCommand(ctx, args) {
   if (ctx.role !== gateOwner(gate)) fail(`role ${ctx.role} may not record a ${gate} gate`);
   gatePreconditions(ctx, id, gate);
   if (art === '') art = gateDefaultArtifact(gate);
-  if (art.startsWith('/') || art.includes('..')) fail(`artifact path must be run-relative: ${art}`);
+  if (notRunRelative(art)) fail(`artifact path must be run-relative: ${art}`);
   if (!artifactAllowed(ctx.role, 'gate', gateFocus(gate), art)) fail(`artifact ${art} is outside the paths of ${gate}: ${artifactPaths(ctx.role, 'gate', gateFocus(gate))}`);
   const report = fileText(ctx, `${dir}/${art}`);
   if (report === null || report.length === 0) fail(`${gate} gate requires the role's report ${art} in the run directory`);

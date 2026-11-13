@@ -10,12 +10,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { scriptsDir } from './helpers.mjs';
+import { makeSymlink } from '../lib/winpath.mjs';
+import { needsCQuote } from '../../control-plane/agents/scripts/core/git.mjs';
 import { build, exec } from './verify-helpers.mjs';
 
 const GIT_ENV = { PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'f', GIT_AUTHOR_EMAIL: 'f@example.invalid', GIT_COMMITTER_NAME: 'f', GIT_COMMITTER_EMAIL: 'f@example.invalid' };
 /** @param {string} fx @param {string[]} a */
 const git = (fx, a) => spawnSync('git', ['-C', fx, '-c', 'protocol.file.allow=always', ...a], { env: GIT_ENV, encoding: 'utf8' });
 const base = () => build('scaffold orchestrated no COMPLEX; A handoff LC IMPLEMENTED >/dev/null');
+// A link target that means something on the host: `/etc/hosts` has none on Windows, there a sibling file of the fixture is the target (A268).
+const LINK_TARGET = process.platform === 'win32' ? 'zzz-evil.txt' : '/etc/hosts';
 const SCOPE = ['verify-scope', 'verify-knowledge-scope', 'verify-handoff', 'validate'];
 
 /** Both engines on their own copy of the tree: the same output, status and RUN.yaml/ledger. @param {string} fx @param {string[]} args @param {(copy: string) => void} [prep] */
@@ -39,7 +43,7 @@ const all = (fx) => { for (const c of SCOPE) same(fx, [c, 'LC']); };
 describe('a changed path that cannot be baselined fails the scope commands (S2-1)', () => {
   test('an untracked symlink and two out-of-scope files', () => {
     const fx = base();
-    spawnSync('ln', ['-s', '/etc/hosts', path.join(fx, 'lnk')]);
+    makeSymlink(LINK_TARGET, path.join(fx, 'lnk'));
     writeFileSync(path.join(fx, 'zzz-evil.txt'), 'x\n'); mkdirSync(path.join(fx, 'src')); writeFileSync(path.join(fx, 'src/payload.go'), 'x\n');
     const r = same(fx, ['verify-scope', 'LC']);
     assert.equal(r.code, 1); assert.match(String(r.err), /cannot baseline symlink: lnk/);
@@ -48,8 +52,10 @@ describe('a changed path that cannot be baselined fails the scope commands (S2-1
   test('a symlink in the knowledge scope', () => {
     const fx = base();
     mkdirSync(path.join(fx, 'docs/wiki'), { recursive: true });
-    spawnSync('ln', ['-s', '/etc/hosts', path.join(fx, 'docs/wiki/link.md')]);
-    assert.equal(same(fx, ['verify-knowledge-scope', 'LC']).code, 1);
+    makeSymlink(LINK_TARGET, path.join(fx, 'docs/wiki/link.md'));
+    const r = same(fx, ['verify-knowledge-scope', 'LC']);
+    assert.equal(r.code, 1);
+    assert.match(String(r.err), /cannot baseline symlink: docs\/wiki\/link\.md/);
     all(fx);
   });
   test('a nested git directory', () => {
@@ -70,12 +76,25 @@ describe('a changed path that cannot be baselined fails the scope commands (S2-1
 });
 
 describe('a name git would c-quote (S2-5)', () => {
+  // Windows cannot create a file name with a control character, a double quote or a backslash (a separator): there the shell is compared on the names it can hold (non-ASCII, spaces), and the
+  // rule that sends the rest to the shell is tested on the strings themselves (the next test), never by skipping the comparison.
+  const NAMES = process.platform === 'win32'
+    ? ['caf\u00e9.txt', 'na\u00efve \u00e9.txt', '\u65e5\u672c\u8a9e.txt']
+    : ['evil-\u001b]0;PWNED\u0007-\u001b[2J.txt', 'carriage\rreturn.txt', 'quo"te.txt', 'caf\u00e9.txt', 'back\\slash.txt'];
+  // the core reads git's output as a byte string (latin1), so a name is checked as the bytes of its UTF-8 form
+  const bytes = (/** @type {string} */ n) => Buffer.from(n, 'utf8').toString('latin1');
   test('control characters, a double quote and a non-ASCII name are judged by the shell', () => {
     const fx = base();
-    for (const n of ['evil-\u001b]0;PWNED\u0007-\u001b[2J.txt', 'carriage\rreturn.txt', 'quo"te.txt', 'café.txt', 'back\\slash.txt']) writeFileSync(path.join(fx, n), 'x\n');
+    for (const n of NAMES) { assert.ok(needsCQuote(bytes(n)), `premise: git would c-quote ${JSON.stringify(n)}`); writeFileSync(path.join(fx, n), 'x\n'); }
     const r = same(fx, ['verify-scope', 'LC']);
     assert.ok(!String(r.err).includes('\u001b'), 'no raw escape byte in the output');
     all(fx);
+  });
+  test('the c-quote rule: control characters, DEL, a byte of 0x80 or more, a double quote and a backslash are quoted by git; a plain name, a space and a dot are not', () => {
+    for (const n of ['a\u001bb', 'a\rb', 'a\tb', 'a\nb', 'a\u007fb', 'caf\u00e9', '\u65e5\u672c\u8a9e', 'a"b', 'a\\b', '\u0000x']) assert.equal(needsCQuote(bytes(n)), true, JSON.stringify(n));
+    // the bounds of the byte range, as latin1 text without a UTF-8 round trip: 0x7e is plain, 0x7f and 0x80 and 0xff are quoted
+    assert.equal(needsCQuote('a~b'), false); assert.equal(needsCQuote('\u007f'), true); assert.equal(needsCQuote('\u0080'), true); assert.equal(needsCQuote('ÿ'), true); assert.equal(needsCQuote('aÿb'), true);
+    for (const n of ['plain.txt', 'with space.txt', 'dir/sub-dir/a_b.c', '.hidden', 'a~b', "it's"]) assert.equal(needsCQuote(bytes(n)), false, JSON.stringify(n));
   });
 });
 

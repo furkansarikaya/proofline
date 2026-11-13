@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
+import { posix } from '../lib/winpath.mjs';
 import { A, IMPLEMENTED, accepted, project, read, refused } from './legacy-lib.mjs';
 
 /** A scratch folder outside every project: a file inside the project would change its content fingerprint. */
@@ -113,7 +114,11 @@ test('record: a stale FINGERPRINT, an ARTIFACT hash mismatch, an artifact outsid
   refused(rec(d, 'REVIEW_SMALL', 'PASS', { head: { ARTIFACT: REPORT.REVIEW_SMALL } }), 'no hash', "record rejected: ARTIFACT needs '<run-relative path> <sha256>'");
   refused(rec(d, 'REVIEW_SMALL', 'PASS', { head: { ARTIFACT: `../../../README ${'0'.repeat(64)}` } }), 'dot dot', 'record rejected: ARTIFACT path must be run-relative');
   refused(rec(d, 'REVIEW_SMALL', 'PASS', { head: { ARTIFACT: `reviews/missing.md ${'0'.repeat(64)}` } }), 'missing', 'record rejected: ARTIFACT not found in the run: reviews/missing.md');
-  refused(rec(d, 'REVIEW_SMALL', 'PASS', { head: { ARTIFACT: `/etc/hosts ${'0'.repeat(64)}` } }), 'absolute outside', 'record rejected: ARTIFACT path must be inside the run: /etc/hosts');
+  // an existing absolute file outside the run (`/etc/hosts` does not exist on Windows, where the record was refused as "not found" instead: A268); its path is the product's own form
+  const outside = posix(`${d}/outside-the-run.txt`);
+  writeFileSync(outside, 'x\n');
+  assert.ok(existsSync(outside) && !outside.startsWith(`${posix(d)}/.agents/runs/LC/`), 'premise: a file outside the run');
+  refused(rec(d, 'REVIEW_SMALL', 'PASS', { head: { ARTIFACT: `${outside} ${'0'.repeat(64)}` } }), 'absolute outside', `record rejected: ARTIFACT path must be inside the run: ${outside}`);
   const run = `${d}/.agents/runs/LC`;
   // outside the role's folders: a reviewer cannot report in the verifier's file
   writeFileSync(`${run}/VERIFY.md`, 'Verdict: PASS\n');
