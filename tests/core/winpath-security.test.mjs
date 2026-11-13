@@ -139,7 +139,8 @@ test('shadowingEntry on win32 skips an empty entry (a trailing ";"), as the reso
 
 test('the platform argument decides what is absolute where a file is read: resolveToolIn, caFileProblem and (in toolstats.test.mjs) metricsStep', () => {
   assert.deepEqual(resolveToolIn({ PATH: '/usr/bin:/bin' }, 'sh', [], 'win32'), { unreadable: 'unreadable' });
-  assert.ok('path' in resolveToolIn({ PATH: '/usr/bin:/bin' }, 'sh', [], 'linux'));
+  // the linux half reads the host's /usr/bin, which a Windows host does not have (the win32 half above and caFileProblem below hold everywhere)
+  if (process.platform !== 'win32') assert.ok('path' in resolveToolIn({ PATH: '/usr/bin:/bin' }, 'sh', [], 'linux'));
   const ctx = /** @type {any} */ ({ root: '/p', cwd: '/p', env: {} });
   for (const v of ['/etc/hosts', '\\\\srv\\share\\ca.pem', '//srv/share/ca.pem', 'ca.pem']) assert.equal(caFileProblem(ctx, v, 'win32'), 'not an absolute path', v);
   assert.equal(caFileProblem(ctx, 'ca.pem', 'linux'), 'not an absolute path');

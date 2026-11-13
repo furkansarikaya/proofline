@@ -12,7 +12,9 @@ import { repo } from './helpers.mjs';
 const sb = sandbox();
 
 test('bin/proofline is executable and holds a shebang, comments and the one dynamic import of the CLI module, nothing else', () => {
-  assert.ok(statSync(PL).mode & 0o100, 'not executable');
+  // POSIX: the file's execute bit. Windows (A266): NTFS has none (Node reports 0666), so the mode the repository committed is the shipped execute bit (100755 in the index of the checkout)
+  if (process.platform === 'win32') assert.match(spawnSync('git', ['-C', repo, 'ls-files', '-s', '--', 'bin/proofline'], { encoding: 'utf8' }).stdout, /^100755 /, 'not executable in the index');
+  else assert.ok(statSync(PL).mode & 0o100, 'not executable');
   const lines = readFileSync(PL, 'utf8').split('\n').filter((l) => l !== '');
   assert.equal(lines[0], '#!/usr/bin/env node');
   const code = lines.filter((l) => !l.startsWith('#') && !l.startsWith('//'));
