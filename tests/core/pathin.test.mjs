@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inRunWorktrees, inside, isScratchWorktreeWin, relUnder, winLinkAction, linkReachesRoot, isAbsoluteInput, localRemote, notRunRelative, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { isLocalAbsolute, onDiskLocal, inRunWorktrees, inside, isScratchWorktreeWin, relUnder, winLinkAction, linkReachesRoot, isAbsoluteInput, localRemote, notRunRelative, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { readFileSync as readSource } from 'node:fs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
@@ -201,7 +201,7 @@ test('A267: the call sites use the platform rules (a revert goes red here, the W
   assert.match(tools, /import \{ onDisk \} from '\.\.\/pathin\.mjs'/);
   assert.match(tools, /return onDisk\(ctx\.cwd, back\)/);
   assert.doesNotMatch(tools, /back\.startsWith\('\/'\)/, 'the leading-slash expression is gone');
-  assert.match(submit, /import \{ reportNamesAgent \} from '\.\/pathin\.mjs'/);
+  assert.match(submit, /import \{ notRunRelative, reportNamesAgent \} from '\.\/pathin\.mjs'/);
   assert.match(submit, /const ok = reportNamesAgent\(report, agent, tmp\)/);
   assert.doesNotMatch(submit, /report\.includes\(`\/\$\{agent\}-`\)/, 'the slash-only expression is gone');
 });
@@ -358,4 +358,49 @@ test('W10 review: the scratch check excludes the project, the main tree and run 
   assert.equal(isScratchWorktreeWin(main, main, root, temps, io), false, 'the main tree is not scratch');
   assert.equal(isScratchWorktreeWin(`${main}/.agents/local/worktrees/RW-1`, main, root, temps, io), false, 'a run worktree of the main tree');
   assert.equal(isScratchWorktreeWin(`${T}/scratch-wt`, main, root, temps, io), true, 'another folder under the temp folder');
+});
+
+test('A270 (W11): the early absolute-path guards decide through the platform helpers; POSIX answers as the old expressions did', async () => {
+  const { relOk } = await import('../../control-plane/agents/scripts/core/install.mjs');
+  // the old expression of each guard, over a table: POSIX must agree with it for every row
+  const oldGuard = (/** @type {string} */ p) => p.startsWith('/') || p.includes('..');
+  const rows = ['a/b', '/a', '', '.', './x', '../x', 'a/../b', 'C:\\x', 'C:/x', '\\\\srv\\s\\x', '//srv/s', '/', 'a\\b', 'C:x', 'x:y'];
+  for (const p of rows) for (const platform of ['linux', 'darwin']) assert.equal(notRunRelative(p, platform), oldGuard(p), `${platform} ${p}`);
+  // Windows: a drive or UNC path is absolute where the POSIX rule refuses `/x`
+  for (const p of ['C:\\x', 'C:/x', '\\\\srv\\s\\x', '/a']) assert.equal(notRunRelative(p, 'win32'), true, p);
+  for (const p of ['a/b', 'a\\b', 'C:x', '.']) assert.equal(notRunRelative(p, 'win32'), false, p);
+  // relOk (manifest paths): the old rule off Windows; `C:/x` and UNC refused on Windows
+  const oldRelOk = (/** @type {string} */ rel) => rel !== '' && !rel.startsWith('/') && !rel.includes('\\') && !rel.includes('\0') && rel.split('/').every((x) => x !== '' && x !== '.' && x !== '..');
+  for (const p of rows) assert.equal(relOk(p, 'linux'), oldRelOk(p), p);
+  assert.equal(relOk('C:/x/y', 'linux'), true); assert.equal(relOk('C:/x/y', 'win32'), false);
+  assert.equal(relOk('d/e.txt', 'win32'), true);
+  // the repository config path guard: a drive path is absolute on Windows (it was joined to the root and read as missing, so the config fingerprint was always `none`)
+  assert.equal(isLocalAbsolute('C:/r/.git/config', 'win32'), true); assert.equal(isLocalAbsolute('.git/config', 'win32'), false); assert.equal(isLocalAbsolute('/r/.git/config', 'linux'), true);
+  assert.equal(onDisk('/root', 'C:\\f', 'win32'), 'C:\\f'); assert.equal(onDisk('/root', 'C:\\f', 'linux'), '/root/C:\\f');
+});
+
+test('A270 (W11): the call sites use the platform helpers (a revert goes red here, the Windows probe is the only other check)', () => {
+  const core = new URL('../../control-plane/agents/scripts/core/', import.meta.url);
+  const src = (/** @type {string} */ f) => readSource(new URL(f, core), 'utf8');
+  const submit = src('submit.mjs');
+  assert.equal((submit.match(/notRunRelative\((?:rp|norm)\)/g) ?? []).length, 3, 'three --artifact guards');
+  assert.doesNotMatch(submit, /(?:rp|norm)\.startsWith\('\/'\)/);
+  assert.match(src('runstart.mjs'), /if \(notRunRelative\(tasks\)\) fail\(/); assert.doesNotMatch(src('runstart.mjs'), /tasks\.startsWith\('\/'\)/);
+  assert.match(src('adapters/markdown.mjs'), /if \(notRunRelative\(tdir\)\) die\(/); assert.doesNotMatch(src('adapters/markdown.mjs'), /tdir\.startsWith\('\/'\)/);
+  assert.match(src('gitstate.mjs'), /if \(!isLocalAbsolute\(cfgPath\)\)/); assert.doesNotMatch(src('gitstate.mjs'), /cfgPath\.startsWith\('\/'\)/);
+  assert.match(src('git.mjs'), /onDisk\(ctx\.root, p\)/); assert.doesNotMatch(src('git.mjs'), /p\.startsWith\('\/'\)/);
+  assert.match(src('commands/checks.mjs'), /onDiskLocal\(ctx\.cwd, file\)/); assert.doesNotMatch(src('commands/checks.mjs'), /file\.startsWith\('\/'\)/);
+  assert.match(src('record.mjs'), /onDiskLocal\(ctx\.root, m\)/); assert.doesNotMatch(src('record.mjs'), /m\.startsWith\('\/'\)/);
+  assert.match(src('install.mjs'), /!isAbsoluteInput\(rel, platform\)/); assert.doesNotMatch(src('install.mjs'), /!rel\.startsWith\('\/'\)/);
+  // the two that were already correct stay on the helper
+  assert.match(src('lifecycle.mjs'), /notRunRelative/); assert.match(src('gatecmd.mjs'), /notRunRelative/);
+});
+
+test('A270 security round 1: onDiskLocal refuses what is absolute but not on a local drive (UNC, verbatim UNC, rooted); POSIX is onDisk', () => {
+  // the premise: each refused row IS absolute for onDisk, so the refusal is the new rule and not a relative path
+  const refused = ['\\\\host\\share\\DESIGN.md', '//host/share/DESIGN.md', '\\\\?\\UNC\\host\\share\\D.md', '\\\\?\\C:\\D.md', '\\\\.\\pipe\\x', '/DESIGN.md'];
+  for (const p of refused) { assert.equal(isAbsoluteInput(p, 'win32'), true, `premise ${p}`); assert.equal(onDiskLocal('C:/proj', p, 'win32'), null, p); }
+  for (const p of ['C:\\proj\\DESIGN.md', 'c:/proj/DESIGN.md']) assert.equal(onDiskLocal('C:/other', p, 'win32'), p, p);
+  assert.equal(onDiskLocal('C:/proj', 'docs\\DESIGN.md', 'win32'), 'C:/proj/docs\\DESIGN.md');
+  for (const platform of ['linux', 'darwin']) for (const p of ['/a/b', '', 'a/b', '../x', '\\\\host\\s\\x', 'C:\\x', '//host/share/x']) assert.equal(onDiskLocal('/root', p, platform), onDisk('/root', p, platform), `${platform} ${p}`);
 });

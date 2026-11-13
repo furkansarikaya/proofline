@@ -21,7 +21,7 @@ import {
 } from './resultutil.mjs';
 import { gateDefaultArtifact } from './gatewrite.mjs';
 import * as proc from './proc.mjs';
-import { reportNamesAgent } from './pathin.mjs';
+import { notRunRelative, reportNamesAgent } from './pathin.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { inKnowledgeScope } from './scope.mjs';
 import { now } from './clock.mjs';
@@ -279,10 +279,10 @@ export function submitResult(ctx, id, args) {
       else {
         rp = art.startsWith(`.agents/runs/${id}/`) ? art.slice(`.agents/runs/${id}/`.length) : art;
         if (rp.startsWith('./')) rp = rp.slice(2);
-        if (rp === '' || rp.startsWith('/') || rp.includes('..')) submitFail(`--artifact must be a run-relative path: ${art}`);
+        if (rp === '' || notRunRelative(rp)) submitFail(`--artifact must be a run-relative path: ${art}`);
         rp = canonRel(rp);
       }
-      if (rp === '' || rp.startsWith('/') || rp.includes('..')) submitFail(`--artifact must be a run-relative path: ${art}`);
+      if (rp === '' || notRunRelative(rp)) submitFail(`--artifact must be a run-relative path: ${art}`);
       const rk = gaterole && res !== 'DONE' && res !== 'NEEDS_INPUT' ? 'gate' : 'task';
       if (!artifactAllowed(role, rk, focus, rp)) submitFail(`artifact ${rp} is outside the paths ${role}${focus !== '' ? ` (FOCUS ${focus})` : ''} reports in: ${artifactPaths(role, rk, focus)}`);
       try { mkdirSync(path.dirname(`${d}/${rp}`), { recursive: true }); copyFileSync(`${tmp}/report.in`, `${d}/${rp}`); } catch { submitFail(`could not write ${rp}`); }
@@ -295,7 +295,7 @@ export function submitResult(ctx, id, args) {
     else if (nr.code === 2 && res === 'BLOCKED') {
       norm = art.startsWith(`.agents/runs/${id}/`) ? art.slice(`.agents/runs/${id}/`.length) : art;
       if (norm.startsWith('./')) norm = norm.slice(2);
-      if (norm === '' || norm.startsWith('/') || norm.includes('..')) submitFail(`--artifact must be a run-relative path: ${art}`);
+      if (norm === '' || notRunRelative(norm)) submitFail(`--artifact must be a run-relative path: ${art}`);
       norm = canonRel(norm);
       mkdirSync(path.dirname(`${d}/${norm}`), { recursive: true });
       writeFileSync(`${d}/${norm}`, `# BLOCKED\n\n${reason === '' ? 'no reason given' : reason}\n`, 'latin1');

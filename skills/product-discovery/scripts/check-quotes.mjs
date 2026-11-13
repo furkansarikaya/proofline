@@ -11,6 +11,7 @@ import { join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { programOf, resolveProgram as winResolve } from "./winprog.mjs";
 import { read, resolveTarget, parseArgs, report, slugOf, stripComments } from "./lib.mjs";
 import { MARKER, parseMarker } from "./validate-product-claims.mjs";
 
@@ -50,7 +51,7 @@ export function checkPrivacy(root, slug) {
   const dir = rawDir(root, slug);
   let names = [];
   try { names = readdirSync(dir).sort(); } catch { console.log("nothing to check: no interviews folder"); return []; }
-  const git = (args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  const git = (args) => { try { return spawnSync(programOf("git"), ["-C", root, ...args], { encoding: "utf8" }); } catch (e) { return { status: null, error: e, stdout: "", stderr: e.message }; } };
   if (git(["rev-parse", "--is-inside-work-tree"]).status !== 0) return [{ file: relative(root, dir), line: 0, id: null, rule: "privacy", message: "not a git repository: cannot tell whether the raw interview texts are ignored" }];
   const findings = [];
   for (const n of names) {

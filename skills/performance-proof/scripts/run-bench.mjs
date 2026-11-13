@@ -17,6 +17,7 @@ import { constants as osc, availableParallelism, cpus, loadavg, machine, release
 import { join, resolve, delimiter, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { programOf, resolveProgram as winResolve } from "./winprog.mjs";
 import { loadEcosystems } from "./ecosystems.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -70,7 +71,9 @@ export function runCommand({ argv, cwd, logFile, label, timeoutMs, graceMs = 500
       try { closeSync(fd); } catch { /* closed */ }
       done({ rc, ms: Number(process.hrtime.bigint() - t0) / 1e6 });
     };
-    const child = spawn(argv[0], argv.slice(1), { cwd, stdio: ["ignore", fd, fd], detached: POSIX, windowsHide: true });
+    let program;
+    try { program = programOf(argv[0], cwd); } catch (e) { appendFileSync(logFile, `${e.message}\n`); finish(127); return; }
+    const child = spawn(program, argv.slice(1), { cwd, stdio: ["ignore", fd, fd], detached: POSIX, windowsHide: true });
     current = child;
     child.on("error", (e) => {
       try { appendFileSync(logFile, `${argv[0]}: ${e.code === "ENOENT" ? "not found" : e.message}\n`); } catch { /* log gone */ }
@@ -89,7 +92,7 @@ export function runCommand({ argv, cwd, logFile, label, timeoutMs, graceMs = 500
   });
 }
 
-const git = (dir, args) => { const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); return r.status === 0 ? r.stdout : null; };
+const git = (dir, args) => { const r = spawnSync(programOf("git"), ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); return r.status === 0 ? r.stdout : null; };
 function rev(dir) {
   let r = (git(dir, ["rev-parse", "HEAD"]) ?? "unknown").trim() || "unknown";
   if (r !== "unknown" && (git(dir, ["status", "--porcelain"]) ?? "").trim() !== "") r += "+uncommitted";
@@ -103,6 +106,7 @@ function loadAvg() {
 /** The absolute path of an executable on PATH; empty and relative entries ('.', 'bin') are skipped, so a program planted in the project is never chosen. */
 function resolveProgram(name) {
   if (name.includes("/") || name.includes("\\")) return null;
+  if (process.platform === "win32") { const r = winResolve(name, process.env); return "program" in r ? r.program : null; }
   const exts = POSIX ? [""] : ["", ...(process.env.PATHEXT ?? ".EXE;.CMD").split(";")];
   for (const d of (process.env.PATH ?? "").split(delimiter)) {
     if (d === "" || !isAbsolute(d)) continue;

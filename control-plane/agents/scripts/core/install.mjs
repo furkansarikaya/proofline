@@ -20,6 +20,7 @@ import { MANIFEST_REL, globalHookspathMessage, hooksPathState, matcherCovers } f
 import { sha256, sha256File } from './hash.mjs';
 import * as proc from './proc.mjs';
 import { commandV } from './runtimedetect.mjs';
+import { isAbsoluteInput } from './pathin.mjs';
 import { applyHookTimeouts } from './scale.mjs';
 
 /** A JS string (a path, a version) as a byte string. @param {string} s */
@@ -68,8 +69,8 @@ export function pathSafe(root, rel) {
 }
 
 /** A path a manifest may name: relative, no empty, `.` or `..` segment. @param {string} rel */
-export function relOk(rel) {
-  return rel !== '' && !rel.startsWith('/') && !rel.includes('\\') && !rel.includes('\0') && rel.split('/').every((p) => p !== '' && p !== '.' && p !== '..');
+export function relOk(rel, platform = process.platform) {
+  return rel !== '' && !isAbsoluteInput(rel, platform) && !rel.includes('\\') && !rel.includes('\0') && rel.split('/').every((p) => p !== '' && p !== '.' && p !== '..');
 }
 
 /** The tail of a version compare: is A older than B (dotted numbers)? @param {string} a @param {string} b */

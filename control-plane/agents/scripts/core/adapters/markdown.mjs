@@ -8,6 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync,
 import path from 'node:path';
 import { bytes } from '../config.mjs';
 import { slug as slugOf } from '../slug.mjs';
+import { notRunRelative } from '../pathin.mjs';
 import { AdapterExit, checkId, die, fsPath, importEngine, isFile, joinLines, lines, link, readText, sha, statusCheck, usage } from './lib.mjs';
 
 /** @typedef {import('./lib.mjs').Adapter} Adapter */
@@ -109,7 +110,7 @@ export function runMarkdown(a, argv) {
   const op = argv[0] ?? '';
   const n = argv.length; // $# + 1
   const tdir = a.tasksDir;
-  if (tdir.startsWith('/') || tdir.includes('..')) die(a, `tasks.dir must be a relative path inside the project: ${tdir}`);
+  if (notRunRelative(tdir)) die(a, `tasks.dir must be a relative path inside the project: ${tdir}`);
   const root = a.root;
   switch (op) {
     case 'create': {

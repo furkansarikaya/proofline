@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as proc from './proc.mjs';
+import { isLocalAbsolute } from './pathin.mjs';
 
 const MAX_HOPS = 8;
 
@@ -89,7 +90,7 @@ export function gitState(root, env) {
   const c = git(['rev-parse', '--git-path', 'config']);
   if (c.status !== 0) return 'none';
   let cfgPath = c.stdout.toString('utf8').replace(/\n$/, '');
-  if (!cfgPath.startsWith('/')) cfgPath = path.join(root, cfgPath);
+  if (!isLocalAbsolute(cfgPath)) cfgPath = path.join(root, cfgPath);
   let sum = 'none';
   try { sum = createHash('sha1').update(readFileSync(cfgPath)).digest('hex'); } catch { sum = 'none'; }
   const sym = git(['symbolic-ref', '-q', 'HEAD']);

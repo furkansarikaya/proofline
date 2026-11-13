@@ -2,6 +2,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,7 +57,7 @@ export function field(item, key, known = []) {
 }
 
 export function git(root, args) {
-  try { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
+  try { return execFileSync(programOf("git"), ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
 }
 
 // Common CLI shell: { args, flags, root }, or null after printing usage.

@@ -10,6 +10,7 @@ import { requireLead } from './approve.mjs';
 import { batchMember } from './next.mjs';
 import { led } from './lifeutil.mjs';
 import { isFile } from './paths.mjs';
+import { notRunRelative } from './pathin.mjs';
 import { runTaskAdapter } from './adapters/index.mjs';
 import { textLines, validTaskId } from './records.mjs';
 import { activeRun, openRuns, runDir } from './runs.mjs';
@@ -77,7 +78,7 @@ export function startRun(ctx, argv) {
   if (active !== '') fail(`another active run exists: ${active}`);
   const adapter = ctx.config().get('tasks.adapter', 'markdown');
   const tasks = ctx.config().get('tasks.dir', '.agents/tasks');
-  if (tasks.startsWith('/') || tasks.includes('..')) fail(`tasks.dir must be project-relative: ${tasks}`);
+  if (notRunRelative(tasks)) fail(`tasks.dir must be project-relative: ${tasks}`);
   const tmpd = mkdtempSync(`${tmpdir()}/agent-start.`);
   const tmp = `${tmpd}/task`;
   try {

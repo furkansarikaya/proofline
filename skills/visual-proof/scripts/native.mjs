@@ -12,6 +12,7 @@
 // Exit codes: 0 ok, 1 UNSUPPORTED or a failed command (detect), a failing check (check), 2 usage or I/O error.
 
 import { spawnSync } from "node:child_process";
+import { programOf, resolveProgram as winResolve } from "./winprog.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
@@ -250,7 +251,7 @@ export function suggestion(target) {
 }
 
 function deviceCheck() {
-  const run = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 30_000 }); return r.error || r.status !== 0 ? null : r.stdout; };
+  const run = (cmd, args) => { let r; try { r = spawnSync(programOf(cmd), args, { encoding: "utf8", timeout: 30_000 }); } catch { return null; } return r.error || r.status !== 0 ? null : r.stdout; };
   const adb = run("adb", ["devices"]);
   const sim = run("xcrun", ["simctl", "list", "devices", "booted"]);
   return { android: adb ? adb.split("\n").slice(1).filter((l) => /\tdevice\b/.test(l)).length : 0, ios: sim ? (sim.match(/\(Booted\)/g) || []).length : 0 };
@@ -274,7 +275,9 @@ export function detectAll({ repo, run = false, timeout = 120_000, exec = spawnSy
   const ms = Math.max(30_000, Number(timeout) || 0);
   const t0 = Date.now();
   process.stderr.write(`native.mjs --run will execute (no shell, cwd ${repo}): ${usable.argv.join(" ")}\n`);
-  const r = exec(usable.argv[0], usable.argv.slice(1), { cwd: repo, shell: false, encoding: "utf8", timeout: ms, maxBuffer: 20_000_000 });
+  let program, r;
+  try { program = programOf(usable.argv[0], repo); } catch (e) { r = { error: e, status: null, stdout: "", stderr: e.message }; }
+  r ??= exec(program, usable.argv.slice(1), { cwd: repo, shell: false, encoding: "utf8", timeout: ms, maxBuffer: 20_000_000 });
   const tail = `${r.stdout || ""}${r.stderr || ""}`.split(/\r?\n/).filter(Boolean).slice(-8).join("\n");
   const runRec = { command: usable.command, exit: r.status ?? (r.error ? -1 : null), timed_out: r.error?.code === "ETIMEDOUT", duration_ms: Date.now() - t0, tail };
   if (runRec.exit !== 0) return { ...base, tools, run: runRec, ...(dev ? { devices: dev } : {}), result: "UNSUPPORTED", reason: `the project's command did not run clean (exit ${runRec.exit}${runRec.timed_out ? ", timeout" : ""}): not proven`, suggestion: sug, chosen: usable.name };

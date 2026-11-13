@@ -13,6 +13,7 @@
 // The report is validated with validate-visual.mjs; judged items and the regression record are added by QA.
 
 import { spawn } from "node:child_process";
+import { programOf, resolveProgram as winResolve } from "./winprog.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, accessSync, constants } from "node:fs";
 import { tmpdir } from "node:os";
@@ -605,7 +606,7 @@ async function launch(path, timeoutMs, noSandbox) {
   // root in a container, or a CI kernel without unprivileged namespaces, cannot use the sandbox
   if (noSandbox || process.getuid?.() === 0) args.push("--no-sandbox");
   // detached: the browser gets its own process group, so close() also ends its helper processes
-  const proc = spawn(path, args, { stdio: ["ignore", "ignore", "pipe"], detached: true });
+  const proc = spawn(programOf(path), args, { stdio: ["ignore", "ignore", "pipe"], detached: true });
   const exited = new Promise((ok) => proc.once("exit", ok));
   const kill = (sig) => { try { process.kill(-proc.pid, sig); } catch { /* group already gone */ } };
   let sock, send;

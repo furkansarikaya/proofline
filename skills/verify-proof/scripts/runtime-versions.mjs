@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join, delimiter, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { programOf, resolveProgram as winResolve } from "./winprog.mjs";
 import { loadEcosystems, globToRegExp, matchesAny } from "./ecosystems.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -93,6 +94,7 @@ export function status(n, local, spec) {
 /** The absolute path of an executable on PATH; empty and relative entries ('.', 'bin') are skipped, so a program planted in the project is never chosen. */
 function resolveProgram(name) {
   if (name.includes('/') || name.includes('\\')) return null;
+  if (process.platform === "win32") { const r = winResolve(name, process.env); return "program" in r ? r.program : null; }
   const exts = process.platform === 'win32' ? ['', ...(process.env.PATHEXT ?? '.EXE;.CMD').split(';')] : [''];
   for (const d of (process.env.PATH ?? '').split(delimiter)) {
     if (d === '' || !isAbsolute(d)) continue;
