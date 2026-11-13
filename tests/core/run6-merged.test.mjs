@@ -2,16 +2,39 @@
 // Stage 6 (A215): a local origin, the manual merge proven from git (deliver-merged), the run's worktree that goes away with the merged run, and the proof that no
 // file, flag, lock or environment value says "merged" (deliver-test.sh scenarios local_origin, manual_merge_*, wt_*, hand_pushed, relative_*).
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, mkdirSync, realpathSync, utimesSync, rmSync, writeFileSync as wf } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, readdirSync, realpathSync, utimesSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs } from './run6-lib.mjs';
+import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs, joinPath } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
 import { tmp } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
+const WIN = process.platform === 'win32';
+/** Windows (A263): the launcher `sh agent.sh` that the harness starts INSIDE the run's worktree keeps that folder as its current directory while the core runs, and Windows cannot remove a folder that is some process's current directory (`git worktree remove`: "Permission denied", checked on the probe). The core then keeps the worktree and prints the fallback command, the restrictive side. A core started by node alone moves out first (`leaveFolder`, tested in run6-sbblock). */
+const WT_RM = WIN ? 'the sh launcher started inside the worktree holds it as its current directory, so Windows cannot remove the worktree (A263); the core keeps it and says how to remove it' : false;
+/** The PATH of a context that only has to find git: the POSIX system folders, on Windows the real PATH (a POSIX folder list names no program there). */
+const BASE_PATH = WIN ? (process.env.PATH ?? '') : '/usr/bin:/bin';
+/** The absolute path of the host's git (`command -v git`); on Windows the first git.exe of PATH, because `sh` answers an msys path (/mingw64/bin/git) that no Windows program can start. @param {string} cwd */
+function hostGit(cwd) {
+  if (!WIN) return run(cwd, 'sh', ['-c', 'command -v git']).out.trim();
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) { const f = path.join(dir, 'git.exe'); if (existsSync(f)) return f; }
+  return 'git';
+}
+/** `find tasks -name 'LC*.md'` without the host's find (Windows has its own, a different program): the first match in the walk order, as a `tasks/...` path; '' when none. @param {string} tree */
+const findTask = (tree) => {
+  /** @type {string[]} */ const hit = [];
+  const walk = (/** @type {string} */ rel) => {
+    for (const e of readdirSync(`${tree}/${rel}`, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(`${rel}/${e.name}`);
+      else if (/^LC.*\.md$/.test(e.name)) hit.push(`${rel}/${e.name}`);
+    }
+  };
+  try { walk('tasks'); } catch { /* no tasks folder */ }
+  return hit[0] ?? '';
+};
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
 const cli = (/** @type {string} */ d, /** @type {string[]} */ args) => run(d, 'node', [`${scripts}/proofline-core.mjs`, 'cli', 'platform-info', ...args]);
 
@@ -62,7 +85,7 @@ test('a local path, a relative path or a file:// origin is platform other (commi
   }
   gOk(d, 'remote', 'set-url', 'origin', lo);
   const glab = fakeTool('glab');
-  refused(A(d, ['deliver-plan', 'LC'], { env: { PROOFLINE_PLATFORM: 'gitlab', PATH: `${glab}:${process.env.PATH}` } }), 'a configured CLI platform on a local origin', 'delivery blocked');
+  refused(A(d, ['deliver-plan', 'LC'], { env: { PROOFLINE_PLATFORM: 'gitlab', PATH: joinPath(glab, process.env.PATH) } }), 'a configured CLI platform on a local origin', 'delivery blocked');
 });
 
 test('deliver-merged: not merged (or other content) records nothing and keeps the run; a squash merge is proven by identical content; a fast-forward by ancestry', () => {
@@ -137,13 +160,13 @@ test('SECURITY (A215 round 3): a fake git first on PATH (in the project) neither
   const lo = bareOrigin(d);
   loChain(d, lo);
   mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
-  const realGit = run(d, 'sh', ['-c', 'command -v git']).out.trim();
+  const realGit = hostGit(d);
   const bin = `${d}/.agents/local/scratch/bin`;
   mkdirSync(bin, { recursive: true });
   const mark = `${d}/.agents/local/scratch/fake-git-ran`;
   wf(`${bin}/git`, `#!/bin/sh\necho "$*" >> "${mark}"\nfor a in "$@"; do if [ "$a" = fetch ]; then "${realGit}" -C "$2" update-ref refs/remotes/origin/main "$("${realGit}" -C "$2" rev-parse proofline/LC-lookup)"; exit 0; fi; done\nexec "${realGit}" "$@"\n`);
   chmodSync(`${bin}/git`, 0o755);
-  const out = A(d, ['deliver-merged', 'LC'], { env: { PATH: `${bin}:${process.env.PATH}` } });
+  const out = A(d, ['deliver-merged', 'LC'], { env: { PATH: joinPath(bin, process.env.PATH) } });
   assert.notEqual(out.status, 0, out.text);
   assert.ok(!/fetch/.test(existsSync(mark) ? read(d, '.agents/local/scratch/fake-git-ran') : ''), 'the fake git never answered the fetch');
   assert.ok(existsSync(`${d}/.agents/runs/LC`), 'the run is kept');
@@ -177,7 +200,7 @@ test('SECURITY (A215 round 4): the merge-proof fetch is hermetic: a repository c
   loChain(d, lo);
   mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
   const realMain = g(d, `--git-dir=${lo}`, 'rev-parse', 'refs/heads/main');
-  const realGit = run(d, 'sh', ['-c', 'command -v git']).out.trim();
+  const realGit = hostGit(d);
   const hd = `${d}/.agents/local/scratch/hk`;
   mkdirSync(hd, { recursive: true });
   const del = g(d, 'rev-parse', 'proofline/LC-lookup');
@@ -199,8 +222,8 @@ test('SECURITY (A215 round 4): hermeticFetch reads the pinned url with no reposi
   gOk(base, 'clone', '-q', '--bare', w, real);
   gOk(w, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'delivered');
   gOk(base, 'clone', '-q', '--bare', w, fake);
-  const realGit = run(w, 'sh', ['-c', 'command -v git']).out.trim();
-  const ctx = /** @type {any} */ ({ env: { PATH: '/usr/bin:/bin' }, cwd: w, root: w, childEnv: () => ({ PATH: '/usr/bin:/bin' }), sharedMain: () => w });
+  const realGit = hostGit(w);
+  const ctx = /** @type {any} */ ({ env: { PATH: BASE_PATH }, cwd: w, root: w, childEnv: () => ({ PATH: BASE_PATH }), sharedMain: () => w });
   // a local url: with the project config nothing changes, the real repository is read
   const ok = hermeticFetch(ctx, realGit, real, 'main');
   assert.ok(ok !== null && ok.tip === g(w, '--git-dir', real, 'rev-parse', 'main'), 'the pinned url is read');
@@ -221,8 +244,8 @@ test('SECURITY (A215 round 5): the hermetic repository fails closed when anythin
   gOk(base, 'init', '-q', '-b', 'main', w);
   gOk(w, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base');
   gOk(base, 'clone', '-q', '--bare', w, real);
-  const realGit = run(w, 'sh', ['-c', 'command -v git']).out.trim();
-  const ctx = /** @type {any} */ ({ env: { PATH: '/usr/bin:/bin' }, cwd: w, root: w, childEnv: () => ({ PATH: '/usr/bin:/bin' }), sharedMain: () => w });
+  const realGit = hostGit(w);
+  const ctx = /** @type {any} */ ({ env: { PATH: BASE_PATH }, cwd: w, root: w, childEnv: () => ({ PATH: BASE_PATH }), sharedMain: () => w });
   const hf = hermeticFetch(ctx, realGit, real, 'main');
   assert.ok(hf !== null);
   assert.ok(hf.intact(), 'untouched');
@@ -259,8 +282,8 @@ test('SECURITY (A215 round 5): a loose object of the project store rewritten in 
   gOk(w, 'update-ref', 'refs/remotes/origin/main', x);
   const tree = g(w, 'rev-parse', `${c0}^{tree}`);
   const d = gOk(w, 'commit-tree', tree, '-p', c0, '-m', 'delivered, never merged');
-  const realGit = run(w, 'sh', ['-c', 'command -v git']).out.trim();
-  const ctx = /** @type {any} */ ({ env: { PATH: '/usr/bin:/bin' }, cwd: w, root: w, childEnv: () => ({ PATH: '/usr/bin:/bin' }), sharedMain: () => w });
+  const realGit = hostGit(w);
+  const ctx = /** @type {any} */ ({ env: { PATH: BASE_PATH }, cwd: w, root: w, childEnv: () => ({ PATH: BASE_PATH }), sharedMain: () => w });
   const honest = hermeticFetch(ctx, realGit, real, 'main');
   assert.ok(honest !== null);
   assert.equal(honest.reaches(d, c0), false, 'the delivered commit is not on origin');
@@ -326,13 +349,13 @@ function wtDeliver(d, wt, kind) {
   return { lo, pr: accepted(A(wt, ['deliver-step', 'LC', 'pr']), 'pr step in the worktree') };
 }
 
-test('deliver-merged inside the run\'s worktree: merge proven from git, recorded, local main fast-forwarded, the worktree removed; the final status block lands in the main tree', () => {
+test('deliver-merged inside the run\'s worktree: merge proven from git, recorded, local main fast-forwarded, the worktree removed; the final status block lands in the main tree', { skip: WT_RM }, () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
     const { lo } = wtDeliver(d, wt, 'local');
   refused(A(wt, ['deliver-merged', 'LC']), 'deliver-merged before the merge', 'not merged');
   assert.ok(existsSync(wt), 'an unmerged run lost its worktree');
-  const taskFile = run(wt, 'find', ['tasks', '-name', 'LC*.md']).out.split('\n')[0];
+  const taskFile = findTask(wt);
   assert.match(read(wt, taskFile), /^- stage: PR OPEN/m, 'the pr step left no PR OPEN block');
   const sha = g(wt, 'rev-parse', 'HEAD');
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', sha);
@@ -341,7 +364,7 @@ test('deliver-merged inside the run\'s worktree: merge proven from git, recorded
   assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
   assert.match(read(d, '.agents/local/batch/merged.tsv'), /^LC\t-\t/m);
   assert.equal(g(d, 'rev-parse', 'main'), g(d, `--git-dir=${lo}`, 'rev-parse', 'main'), 'the local main was not brought to the merge');
-  const mainFile = run(d, 'find', ['tasks', '-name', 'LC*.md']).out.split('\n')[0];
+  const mainFile = findTask(d);
   const blk = read(d, mainFile);
   assert.equal((blk.match(/^## Proofline Status/gm) ?? []).length, 1, 'not exactly one status section');
   assert.match(blk, /^- stage: MERGED$/m);
@@ -372,14 +395,14 @@ test('a task file changed by more than the task\'s own status block keeps the wo
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
     const { lo } = wtDeliver(d, wt, 'local');
-  const f = `${wt}/${run(wt, 'find', ['tasks', '-name', 'LC*.md']).out.split('\n')[0]}`;
+  const f = `${wt}/${findTask(wt)}`;
   wf(f, `${readFileSync(f, 'utf8')}\n## Proofline Status\n\n<!-- PROOFLINE-STATUS:BEGIN:OTHER-1 -->\n- run: OTHER-1\n<!-- PROOFLINE-STATUS:END:OTHER-1 -->\n`);
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
   A(wt, ['deliver-merged', 'LC']);
   assert.ok(existsSync(wt), 'a second marked block did not keep the worktree');
 });
 
-test('deliver-step cleanup after a merged pull request removes the worktree and leaves the main tree clean', () => {
+test('deliver-step cleanup after a merged pull request removes the worktree and leaves the main tree clean', { skip: WT_RM }, () => {
   const gh = fakeGh();
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
@@ -397,7 +420,7 @@ test('deliver-step cleanup after a merged pull request removes the worktree and 
   assert.equal(g(d, 'status', '--porcelain', '--untracked-files=no'), '', 'the main working tree is dirty after deliver-step cleanup');
 });
 
-test('a cleanup that fails after the merge step is recorded can be repeated: the batch row written before it lets a standalone `cleanup` remove the worktree', () => {
+test('a cleanup that fails after the merge step is recorded can be repeated: the batch row written before it lets a standalone `cleanup` remove the worktree', { skip: WT_RM }, () => {
   const gh = fakeGh();
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
@@ -412,7 +435,7 @@ test('a cleanup that fails after the merge step is recorded can be repeated: the
   // the assignments folder of the run is a link: cleanup refuses to remove it, after the approval was consumed
   mkdirSync(`${wt}/.agents/local`, { recursive: true });
   mkdirSync(`${d}-elsewhere`, { recursive: true });
-  run(wt, 'ln', ['-s', `${d}-elsewhere`, `${wt}/.agents/local/assignments`]);
+  symlinkSync(`${d}-elsewhere`, `${wt}/.agents/local/assignments`, 'junction');   // a junction on Windows (a link needs no privilege then; lstat reports it as a link)
   mkdirSync(`${d}-elsewhere/LC`, { recursive: true });
   const first = A(wt, ['deliver-step', 'LC', 'cleanup', '7'], { env: gh.env });
   assert.notEqual(first.status, 0, 'the cleanup should have failed');
@@ -425,7 +448,7 @@ test('a cleanup that fails after the merge step is recorded can be repeated: the
   assert.ok(wtGone(d, wt));
 });
 
-test('cleanup: removes the worktree once the merge is on record (a batch row), also a leftover one from the main tree; a BLOCKED run keeps it', () => {
+test('cleanup: removes the worktree once the merge is on record (a batch row), also a leftover one from the main tree; a BLOCKED run keeps it', { skip: WT_RM }, () => {
   const d = project(RECIPE);
   const wt = wtDoneRun(d);
   A(wt, ['task-source-done', 'LC']);
@@ -605,7 +628,7 @@ const CFG = '.agents/config.yaml';
 /** The fixture's `tasks.dir: tasks` (TASKS_IN_TASKS). @param {string} text */
 const tasksInTasks = (text) => text.replace(/^  dir: \.agents\/tasks/m, '  dir: tasks');
 /** The task file of LC in a tree, whichever lifecycle folder it is in (its path relative to the tree), or ''. @param {string} tree */
-const taskFileOf = (tree) => run(tree, 'find', ['tasks', '-name', 'LC*.md']).out.split('\n')[0];
+const taskFileOf = (tree) => findTask(tree);
 /** The block assertions: exactly one section, MERGED, no local path. @param {string} tree @param {string} why */
 function assertMergedBlock(tree, why) {
   const f = taskFileOf(tree);
@@ -632,7 +655,7 @@ test('A221: a main working tree that cannot be fast-forwarded (a local commit or
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
   assert.match(out, /^note: local main was not fast-forwarded \(it has commits origin lacks\): update it from origin\/main before the next task starts$/m, 'the fixture did not stop the fast-forward');
-  assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
+  if (!WT_RM) assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');   // Windows: the sh launcher holds it (WT_RM); the MERGED block below still runs
   assertMergedBlock(d, 'main not fast-forwarded');
 });
 
@@ -647,7 +670,7 @@ test('A221: a dirty main working tree (a tracked file the user edited) still get
   const out = accepted(A(wt, ['deliver-merged', 'LC']), 'deliver-merged in the worktree').out;
   assert.match(out, /^note: the main working tree was left as it is: it has uncommitted changes \(it is on branch main\); update it from origin\/main before the next task starts$/m, 'the fixture did not stop the fast-forward');
   assert.ok(!out.includes('not on a clean'), 'the old wording is gone');
-  assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
+  if (!WT_RM) assert.ok(wtGone(d, wt), 'the worktree survived deliver-merged');
   assertMergedBlock(d, 'main dirty');
   assert.match(read(d, tracked), /an edit of the user/, 'the user\'s edit was touched');
 });

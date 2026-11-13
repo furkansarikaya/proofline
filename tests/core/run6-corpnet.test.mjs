@@ -14,15 +14,48 @@ import { mergeGuard } from '../../adapters/claude/hooks/guards/merge.mjs';
 import { Deny } from '../../adapters/claude/hooks/guards/kit.mjs';
 import { caFileValue, cleanToolEnv, detectPlatform, noProxyValue, platformEnv, proxyValue, resolveTool, runTool } from '../../control-plane/agents/scripts/core/platform.mjs';
 import { A, project, scripts } from './legacy-lib.mjs';
-import { gOk, readFileSync, run, toolRoot } from './run6-lib.mjs';
+import { gOk, readFileSync, run, toolRoot, joinPath } from './run6-lib.mjs';
+import { fakeExe } from '../lib/winfake.mjs';
 
 /** A context as far as the platform module reads one. @param {string} cwd @param {Record<string, string>} [env] */
 function ctxOf(cwd, env = {}) {
-  const e = { PATH: '/usr/bin:/bin', ...env };
+  const e = { PATH: WIN ? (process.env.PATH ?? '') : '/usr/bin:/bin', ...env };   // Windows finds git and the tools through the real PATH (a POSIX folder list names no program there)
   return /** @type {any} */ ({ env: e, cwd, root: cwd, childEnv: () => ({ ...e, LC_ALL: 'C' }), sharedMain: () => cwd });
 }
 const work = tempDir('pf-corp-');
-const CA = '/etc/passwd'; // a regular file that exists on every system the tests run on and is outside every folder a model can write
+const WIN = process.platform === 'win32';
+/** Windows (A263): NTFS reports mode 0666, so the product's own check ("writable by a group or by everybody") refuses EVERY certificate file there; it fails closed and a Windows ACL check is not implemented. */
+const WIN_CA = 'the product refuses every certificate file on Windows (NTFS reports mode 0666, the writable-by-everybody check fails; fail closed, no ACL check), A263';
+const CA = WIN ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'win.ini') : '/etc/passwd'; // a regular file that exists on every system the tests run on and is outside every folder a model can write
+
+/**
+ * A fake `gh` that appends its environment to DUMP and answers like the shell script it replaces (the merge proof's questions; ENTERPRISE adds `pr view`, `--version`, `auth` and `issue`).
+ * Windows (A263): a real gh.exe that starts the same logic as a Node script (tests/lib/winfake.mjs), because the resolver runs no shell script there.
+ * @param {string} bin @param {string} dump @param {string} view @param {string} sha @param {string} [state] the `pr view` answer (enterprise)
+ */
+function ghEnvDump(bin, dump, view, sha, state) {
+  if (WIN) {
+    const script = path.join(bin, 'gh.mjs');
+    wf(script, `import { appendFileSync } from 'node:fs';
+const a = process.argv.slice(2).join(' ');
+appendFileSync(${JSON.stringify(dump)}, Object.entries(process.env).map(([k, v]) => k + '=' + v).join('\\n') + '\\n');
+const say = (t) => process.stdout.write(t + '\\n');
+if (a.includes('pr merge')) process.exit(0);
+else if (a.includes('pr checks')) { process.stderr.write("no required checks reported on the 'main' branch\\n"); process.exit(1); }
+else if (a.includes('statusCheckRollup')) say(${JSON.stringify(view)});
+else if (a.endsWith('--json headRefOid')) say(${JSON.stringify(`{"headRefOid":"${sha}"}`)});
+${state === undefined ? '' : `else if (a.includes('pr view')) say(${JSON.stringify(state)});
+else if (a === '--version') say('gh');
+else if (a.startsWith('auth')) process.exit(0);
+else if (a.startsWith('issue')) say('{"title":"t","url":"u","body":"","labels":[]}');`}
+`);
+    fakeExe(toolRoot, bin, 'gh', script);
+    return;
+  }
+  const extra = state === undefined ? '' : `  *"pr view"*) echo '${state}' ;;\n  --version) echo gh ;;\n  auth*) exit 0 ;;\n  issue*) echo '{"title":"t","url":"u","body":"","labels":[]}' ;;\n`;
+  wf(path.join(bin, 'gh'), `#!/bin/sh\nenv >> "${dump}"\ncase "$*" in\n  *"pr merge"*) exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'main' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) echo '${view}' ;;\n  *"--json headRefOid") echo '{"headRefOid":"${sha}"}' ;;\n${extra}esac\nexit 0\n`);
+  chmodSync(path.join(bin, 'gh'), 0o755);
+}
 
 test('a proxy value is a plain http(s) address: user, password, host or address, port; anything else is dropped, never repaired', () => {
   for (const ok of ['http://proxy.corp.example:3128', 'https://proxy.corp.example', 'http://user:p%40ss@proxy.corp.example:8080/', 'HTTP://10.0.0.1:80', 'http://[::1]:3128', 'http://user@proxy:1']) {
@@ -40,7 +73,7 @@ test('a NO_PROXY value is a plain list of hosts, suffixes, addresses and ports',
   for (const bad of ['', ',', 'a,,b', 'a,  b', 'a b', 'a\nb', 'a;b', '$(id)', 'a,b,', ' a', 'a\u0000', `h${',h'.repeat(3000)}`]) assert.equal(noProxyValue(bad), false, JSON.stringify(bad));
 });
 
-test('a certificate file is an absolute path of an existing regular file outside every folder a model can write', () => {
+test('a certificate file is an absolute path of an existing regular file outside every folder a model can write', { skip: WIN && WIN_CA }, () => {
   const ctx = ctxOf(work);
   assert.equal(caFileValue(ctx, CA), true);
   const inTmp = path.join(work, 'ca.pem'); wf(inTmp, 'x');
@@ -57,7 +90,7 @@ test('a certificate file is an absolute path of an existing regular file outside
   assert.equal(caFileValue({ ...ctxOf('/etc'), root: work }, CA), false, 'a file inside the working directory');
 });
 
-test('cleanToolEnv keeps a well-formed proxy and certificate variable (also for the merge-proof git) and drops a malformed one; the other variables stay dropped', () => {
+test('cleanToolEnv keeps a well-formed proxy and certificate variable (also for the merge-proof git) and drops a malformed one; the other variables stay dropped', { skip: WIN && WIN_CA }, () => {
   const good = {
     HTTPS_PROXY: 'http://proxy.corp.example:3128', https_proxy: 'http://u:p@proxy.corp.example:3128', HTTP_PROXY: 'http://proxy.corp.example:3128', http_proxy: 'http://proxy.corp.example:3128',
     NO_PROXY: 'localhost,.corp.example', no_proxy: 'localhost', SSL_CERT_FILE: CA, NODE_EXTRA_CA_CERTS: CA, REQUESTS_CA_BUNDLE: CA, GIT_SSL_CAINFO: CA,
@@ -85,12 +118,18 @@ test('gh, glab and az each start with the same coherent set: the proxy and certi
   mkdirSync(`${proj}/.agents`);
   const env = {
     HTTPS_PROXY: 'http://proxy.corp.example:3128', NO_PROXY: 'localhost', SSL_CERT_FILE: CA, NODE_EXTRA_CA_CERTS: CA, REQUESTS_CA_BUNDLE: CA, GIT_SSL_CAINFO: CA, GH_HOST: 'evil.example', GITLAB_HOST: 'evil.example',
-    ALL_PROXY: 'http://evil:1', PATH: `${bin}:/usr/bin:/bin`,
+    ALL_PROXY: 'http://evil:1', PATH: WIN ? joinPath(bin, process.env.PATH) : `${bin}:/usr/bin:/bin`,
   };
   for (const [tool, platform, url, host] of [['gh', 'github', 'https://git.corp.example/a/b.git', 'GH_HOST'], ['glab', 'gitlab', 'https://git.corp.example/a/b.git', 'GITLAB_HOST'], ['az', 'azure', 'https://dev.azure.com/acme/Proj/_git/app', '']]) {
     const dump = path.join(toolRoot, `corp-${process.pid}`, `${tool}.env`);
-    wf(`${bin}/${tool}`, `#!/bin/sh\nenv > "${dump}"\nexit 0\n`);
-    chmodSync(`${bin}/${tool}`, 0o755);
+    if (WIN) {   // a real .exe that starts a Node script (the resolver runs no shell script, A252)
+      const script = path.join(bin, `${tool}.mjs`);
+      wf(script, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(dump)}, Object.entries(process.env).map(([k, v]) => k + '=' + v).join('\\n') + '\\n');\n`);
+      fakeExe(toolRoot, bin, tool, script);
+    } else {
+      wf(`${bin}/${tool}`, `#!/bin/sh\nenv > "${dump}"\nexit 0\n`);
+      chmodSync(`${bin}/${tool}`, 0o755);
+    }
     wf(`${proj}/.agents/config.yaml`, `git:\n  platform: ${platform}\n  platform_host: ${tool === 'az' ? 'dev.azure.com' : 'git.corp.example'}\n`);
     const ctx = ctxOf(proj, env);
     const info = detectPlatform(ctx, { url, dir: proj });
@@ -101,10 +140,10 @@ test('gh, glab and az each start with the same coherent set: the proxy and certi
     const seen = seenBy[tool];
     assert.equal(seen.get('HTTPS_PROXY'), env.HTTPS_PROXY, `${tool}: proxy`);
     assert.equal(seen.get('NO_PROXY'), 'localhost', `${tool}: no_proxy`);
-    assert.equal(seen.get('SSL_CERT_FILE'), CA, `${tool}: certificate`);
-    assert.equal(seen.get('NODE_EXTRA_CA_CERTS'), CA, `${tool}: node certificate`);
-    assert.equal(seen.get('REQUESTS_CA_BUNDLE'), CA, `${tool}: python certificate`);
-    assert.equal(seen.get('GIT_SSL_CAINFO'), CA, `${tool}: git certificate`);
+    assert.equal(seen.get('SSL_CERT_FILE'), WIN ? undefined : CA, `${tool}: certificate`);   // Windows: refused, fail closed (WIN_CA)
+    assert.equal(seen.get('NODE_EXTRA_CA_CERTS'), WIN ? undefined : CA, `${tool}: node certificate`);   // Windows: refused, fail closed (WIN_CA)
+    assert.equal(seen.get('REQUESTS_CA_BUNDLE'), WIN ? undefined : CA, `${tool}: python certificate`);   // Windows: refused, fail closed (WIN_CA)
+    assert.equal(seen.get('GIT_SSL_CAINFO'), WIN ? undefined : CA, `${tool}: git certificate`);   // Windows: refused, fail closed (WIN_CA)
     assert.ok(!seen.has('ALL_PROXY'), `${tool}: ALL_PROXY`);
     if (host !== '') assert.equal(seen.get(host), 'git.corp.example', `${tool}: ${host} comes from git.platform_host`);
     for (const h of ['GH_HOST', 'GITLAB_HOST']) assert.ok(seen.get(h) !== 'evil.example', `${tool}: the caller's ${h} reached the tool`);
@@ -136,13 +175,12 @@ function enterpriseProject(/** @type {string} */ tag) {
   const sha = '1'.repeat(40);
   const view = JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, headRefOid: sha, statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }] });
   const state = JSON.stringify({ state: 'OPEN', isDraft: false, headRefOid: sha, headRefName: 'proofline/LC', baseRefName: 'main', headRepositoryOwner: { login: 'acme' } });
-  wf(`${bin}/gh`, `#!/bin/sh\nenv >> "${dump}"\ncase "$*" in\n  *"pr merge"*) exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'main' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) echo '${view}' ;;\n  *"--json headRefOid") echo '{"headRefOid":"${sha}"}' ;;\n  *"pr view"*) echo '${state}' ;;\n  --version) echo gh ;;\n  auth*) exit 0 ;;\n  issue*) echo '{"title":"t","url":"u","body":"","labels":[]}' ;;\nesac\nexit 0\n`);
-  chmodSync(`${bin}/gh`, 0o755);
+  ghEnvDump(bin, dump, view, sha, state);
   run(d, 'git', ['remote', 'remove', 'origin']);
   run(d, 'git', ['remote', 'add', 'origin', 'https://git.corp.example/acme/app.git']);
   wf(`${d}/.agents/config.yaml`, readFileSync(`${d}/.agents/config.yaml`, 'utf8').replace(/^ {2}platform:.*$/m, '  platform: github').replace(/^ {2}platform_host:.*$/m, '  platform_host: git.corp.example'));
   const hostile = { GH_HOST: 'evil.example', GH_REPO: 'evil/repo', HTTPS_PROXY: 'http://proxy.corp.example:3128', SSL_CERT_FILE: CA, PROOFLINE_PLATFORM: 'gitlab' };
-  const env = { PATH: `${bin}:${process.env.PATH}`, ...hostile };
+  const env = { PATH: joinPath(bin, process.env.PATH), ...hostile };
   /** The environments gh saw, as one text. */
   const seen = () => { try { return readFileSync(dump, 'utf8'); } catch { return ''; } };
   return { d, env, seen };
@@ -152,7 +190,8 @@ const checkHost = (/** @type {string} */ seen, /** @type {string} */ what) => {
   assert.match(seen, /^GH_HOST=git\.corp\.example$/m, what);
   assert.ok(!/evil/.test(seen), `${what}: ${seen}`);
   assert.match(seen, /^HTTPS_PROXY=http:\/\/proxy\.corp\.example:3128$/m, `${what}: proxy`);
-  assert.match(seen, /^SSL_CERT_FILE=\/etc\/passwd$/m, `${what}: certificate`);
+  if (WIN) assert.ok(!/^SSL_CERT_FILE=/m.test(seen), `${what}: a certificate reached gh although Windows refuses every one (WIN_CA)`);
+  else assert.match(seen, /^SSL_CERT_FILE=\/etc\/passwd$/m, `${what}: certificate`);
 };
 
 test('check delivery (pr-state), `merge` and the github adapter take GH_HOST from git.platform_host; the caller\'s GH_HOST never reaches gh', () => {
@@ -209,7 +248,7 @@ function projectOutsideTmp(/** @type {string} */ tag) {
   return { base, proj, install: path.join(base, 'install') };
 }
 
-test('SECURITY-1 (A220): with the control plane rooted in the install folder, a certificate the model wrote anywhere in the PROJECT (not only the working directory) is refused', () => {
+test('SECURITY-1 (A220): with the control plane rooted in the install folder, a certificate the model wrote anywhere in the PROJECT (not only the working directory) is refused', { skip: WIN && WIN_CA }, () => {
   const { base, proj, install } = projectOutsideTmp('corp-ca');
   // proofline merge: root is the install folder, the working directory a subfolder of the project
   const ctx = { ...ctxOf(path.join(proj, 'docs')), root: install };
@@ -230,7 +269,7 @@ test('SECURITY-1 (A220): with the control plane rooted in the install folder, a 
   assert.equal(caFileValue({ ...ctxOf(install), root: install }, CA), true, 'a system file passes');
 });
 
-test('SECURITY-1 (A220): proofline merge started with a project certificate and a loopback proxy hands gh no certificate (the forged green pull request needs both)', () => {
+test('SECURITY-1 (A220): proofline merge started with a project certificate and a loopback proxy hands gh no certificate (the forged green pull request needs both)', { skip: WIN && WIN_CA }, () => {
   const { proj } = projectOutsideTmp('corp-merge-ca');
   run(proj, 'git', ['init', '-q', '-b', 'main']);
   run(proj, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base']);
@@ -245,7 +284,7 @@ test('SECURITY-1 (A220): proofline merge started with a project certificate and 
   const core = path.join(scripts, 'proofline-core.mjs');
   const go = (/** @type {string} */ ca) => {
     wf(dump, '');
-    run(path.join(proj, 'docs'), process.execPath, [core, 'cli', 'merge', '7'], { PATH: `${bin}:${process.env.PATH}`, HTTPS_PROXY: 'http://127.0.0.1:9', SSL_CERT_FILE: ca });
+    run(path.join(proj, 'docs'), process.execPath, [core, 'cli', 'merge', '7'], { PATH: joinPath(bin, process.env.PATH), HTTPS_PROXY: 'http://127.0.0.1:9', SSL_CERT_FILE: ca });
     return readFileSync(dump, 'utf8');
   };
   for (const f of ['other/ca.pem', '.agents/local/scratch/ca.pem']) {
@@ -257,7 +296,7 @@ test('SECURITY-1 (A220): proofline merge started with a project certificate and 
   assert.match(go(CA), /^SSL_CERT_FILE=\/etc\/passwd$/m, 'a system file still passes');
 });
 
-test('SECURITY-1 round 2 (A220): the certificate is judged from the FILE up to the filesystem root, whatever the working directory is: a repository, a nested one, a linked worktree or an .agents folder above it refuse it; a plain folder passes', (t) => {
+test('SECURITY-1 round 2 (A220): the certificate is judged from the FILE up to the filesystem root, whatever the working directory is: a repository, a nested one, a linked worktree or an .agents folder above it refuse it; a plain folder passes', { skip: WIN && WIN_CA }, (t) => {
   // outside every temporary folder and outside the checkout: a folder of the home directory (skipped when the home cannot be used)
   let base = '';
   try { base = mkdtempSync(path.join(homedir(), '.pf-corpnet-')); } catch { t.skip('the home directory is not writable'); return; }
@@ -307,10 +346,9 @@ test('SECURITY-1 round 2 (A220): the certificate is judged from the FILE up to t
     mkdirSync(bin);
     const sha = '1'.repeat(40);
     const view = JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, headRefOid: sha, statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }] });
-    wf(path.join(bin, 'gh'), `#!/bin/sh\nenv >> "${dump}"\ncase "$*" in\n  *"pr merge"*) exit 0 ;;\n  *"pr checks"*) echo "no required checks reported on the 'main' branch" >&2; exit 1 ;;\n  *statusCheckRollup*) echo '${view}' ;;\n  *"--json headRefOid") echo '{"headRefOid":"${sha}"}' ;;\nesac\nexit 0\n`);
-    chmodSync(path.join(bin, 'gh'), 0o755);
+    ghEnvDump(bin, dump, view, sha);
     wf(dump, '');
-    const mr = run('/var', process.execPath, [path.join(scripts, 'proofline-core.mjs'), 'cli', 'merge', '7', '-R', 'acme/app'], { PATH: `${bin}:${process.env.PATH}`, HTTPS_PROXY: 'http://127.0.0.1:9', SSL_CERT_FILE: path.join(proj, 'README.md') });
+    const mr = run('/var', process.execPath, [path.join(scripts, 'proofline-core.mjs'), 'cli', 'merge', '7', '-R', 'acme/app'], { PATH: joinPath(bin, process.env.PATH), HTTPS_PROXY: 'http://127.0.0.1:9', SSL_CERT_FILE: path.join(proj, 'README.md') });
     const seen = readFileSync(dump, 'utf8');
     assert.ok(seen.length > 0, `gh was not run: ${mr.status} ${mr.text} | ${mr.err}`);
     assert.ok(!/^SSL_CERT_FILE=/m.test(seen), `the project file reached gh: ${seen}`);

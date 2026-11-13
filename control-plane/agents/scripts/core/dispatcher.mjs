@@ -30,10 +30,11 @@
 // Exit: 0 recorded | 1 task failure or record rejected | 2 usage/config | 5 NEEDS_INPUT | 6 BLOCKED | 124 timeout | 143 stopped from outside.
 // Runtime binaries: PROOFLINE_CODEX_BIN, PROOFLINE_CLAUDE_BIN (tests use fake runtimes). The watchdog's grace and the shortest timeout are options of
 // startDispatch(), not environment values.
-import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, mkdirSync, lstatSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ProfileRefused, worktreeGrants } from './codexprofile.mjs';
 import { bytes } from './config.mjs';
 import { Context } from './context.mjs';
 import { dispatcherIo } from './decide.mjs';
@@ -383,30 +384,17 @@ class Dispatcher {
   /** The Codex permission profile (A199, A203): the `-c` arguments, one per element. @param {string} id @param {string} root @returns {string[]} */
   codexProfileArgs(id, root) {
     let rules = `".agents"="read",".agents/runs/${id}"="write",".agents/runs/${id}/approvals"="read",".agents/runs/${id}/waivers"="read",".agents/local/locks"="write",".agents/local/submissions"="write"`;
-    let abs = '';
+    // A263: the reads go through hgit (the sanctioned wrapper: no repository configuration steers them); the answers are the same refs and paths
     const git = (/** @type {string[]} */ args) => {
-      const r = proc.run('git', ['-C', root, ...args], { env: this.env, stdio: ['ignore', 'pipe', 'ignore'] });
+      const r = hgit(this.ctx(), root, args, { env: this.env });
       return r.status === 0 ? r.stdout.toString('utf8').replace(/\n$/, '') : '';
     };
-    const real = (/** @type {string} */ p) => { try { return realpathSync(p); } catch { return p; } };
-    if (isFile(`${root}/.git`)) {
-      const first = git(['worktree', 'list', '--porcelain']).split('\n')[0] ?? '';
-      const main = first.startsWith('worktree ') ? first.slice('worktree '.length) : '';
-      if (main !== '' && real(root).startsWith(`${main}/.agents/local/worktrees/`)) {
-        mkdirSync(`${main}/.agents/local/locks`, { recursive: true });
-        abs += `,"${main}/.agents/local/locks"="write"`;
-      }
-      let g = git(['rev-parse', '--git-dir']);
-      if (g !== '' && !g.startsWith('/')) g = `${root}/${g}`;
-      if (g !== '' && isDir(g)) {
-        g = real(g);
-        if (/\/worktrees\//.test(g)) {
-          abs += `,"${g}"="write"`;
-          let o = git(['rev-parse', '--git-common-dir']);
-          if (!o.startsWith('/')) o = `${root}/${o}`;
-          if (isDir(`${o}/objects`)) abs += `,"${real(`${o}/objects`)}"="write"`;
-        }
-      }
+    const real = (/** @type {string} */ p) => { try { return process.platform === 'win32' ? realpathSync.native(p) : realpathSync(p); } catch { return p; } };
+    /** @type {string} */ let abs;
+    try { abs = worktreeGrants(root, { git, real, isDir, isFile, isPlainFile: (p) => { try { return lstatSync(p).isFile(); } catch { return false; } }, mkdirp: (p) => { mkdirSync(p, { recursive: true }); },
+      readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } } }); } catch (e) {
+      if (e instanceof ProfileRefused) throw (this.role ? this.blocked(e.message) : this.die(e.message));   // a worktree whose git folders are not where its path says (A263): no profile, the dispatch stops
+      throw e;
     }
     if ((rules + abs).includes('\\')) throw this.die('a path with a backslash cannot be placed in the Codex permission profile');
     return ['-c', 'default_permissions="proofline-worker"', '-c', 'permissions.proofline-worker.extends=":workspace"', '-c', `permissions.proofline-worker.filesystem={":workspace_roots"={${rules}}${abs}}`];

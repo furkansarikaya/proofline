@@ -3,9 +3,11 @@
 // (and the stub a test fixture writes) runs as a child through proc.mjs, exactly as before; otherwise the built-in adapters markdown and github run in
 // this process and jira and linear (which use `fetch`) run in one Node child. An unknown name is null. The adapter name is one file name: a slash,
 // a backslash, a control character or a leading dot never leaves the folder.
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Config } from '../config.mjs';
+import { posixForm } from '../pathin.mjs';
 import { cleanToolEnv, detectPlatform, platformEnv, resolveTool } from '../platform.mjs';
 import * as proc from '../proc.mjs';
 import { AdapterExit, isFile } from './lib.mjs';
@@ -29,6 +31,16 @@ export function userScript(root, name) {
 /** Is there an adapter of this name (a user script or a built-in)? @param {string} root @param {string} name */
 export function adapterExists(root, name) { return adapterNameOk(name) && (userScript(root, name) !== '' || BUILTIN.includes(name)); }
 
+/**
+ * The arguments a USER adapter script gets (A263). Off Windows exactly ARGS. On win32 an argument that is a drive path of an existing file (`C:\Users\r\run\COMPLETION_REPORT.md`, the core's mixed
+ * `C:\Users\r\p1/.agents/...`) is handed over in the form a shell script reads: forward slashes. `awk -v rf="$report"` would turn the backslashes into escapes (the report was read as
+ * an empty file and its receipt never matched the block). Text that is not an existing file stays as it is. @param {string[]} args @param {string} [platform] @param {(p: string) => boolean} [exists]
+ */
+export function scriptAdapterArgs(args, platform = process.platform, exists = existsSync) {
+  if (platform !== 'win32') return args;
+  return args.map((a) => (/^[A-Za-z]:[\\/]/.test(a) && exists(a) ? posixForm(a, platform) : a));
+}
+
 const netMain = path.join(path.dirname(fileURLToPath(import.meta.url)), 'netmain.mjs');
 
 /**
@@ -43,7 +55,7 @@ export function runTaskAdapter(ctx, name, args, opt = {}) {
   if (!adapterNameOk(name)) return null;
   const script = userScript(root, name);
   if (script !== '') {
-    const r = proc.runScript([script, ...args], { cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: opt.timeoutMs });
+    const r = proc.runScript([script, ...scriptAdapterArgs(args)], { cwd, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: opt.timeoutMs });
     return { status: r.status, stdout: r.stdout, stderr: r.stderr };
   }
   if (!BUILTIN.includes(name)) return null;

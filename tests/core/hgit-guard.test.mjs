@@ -72,14 +72,13 @@ export const WRAPPERS = /** @type {Record<string, string[]>} */ ({
   'install.mjs': ['g', 'this\\.git'],
   'doctor.mjs': ['git', 'this\\.gitOut', 'pg', 'init'],
   'platform.mjs': ['g'],
-  'dispatcher.mjs': ['git'],
   'proflinecli.mjs': ['git'],
   'worktree.mjs': ['git'],
   'deliver.mjs': ['gp', 'gps'],
 });
 /** How many raw git spawns per file take a list that is not a literal (the forwarding functions). A new local forwarding function changes the count and is found. */
 export const DYN_SPAWNS = /** @type {Record<string, number>} */ ({
-  'deliver.mjs': 1, 'dispatcher.mjs': 1, 'doctor.mjs': 3, 'gitstate.mjs': 1, 'install.mjs': 2, 'merge.mjs': 1, 'platform.mjs': 1, 'proflinecli.mjs': 1, 'worktree.mjs': 1,
+  'deliver.mjs': 1, 'doctor.mjs': 3, 'gitstate.mjs': 1, 'install.mjs': 2, 'merge.mjs': 1, 'platform.mjs': 1, 'proflinecli.mjs': 1, 'worktree.mjs': 1,
 });
 /** Programs other than git that a file may start by name (`proc.run('ps', ...)`), with the reason. No shell or awk is listed: since A251 only core/proc.mjs names them (tests/ci/no-shell-logic.mjs). A call that names git inside its text is refused whatever the program. */
 export const BIN_ALLOW = /** @type {Record<string, Record<string, string>>} */ ({

@@ -66,6 +66,21 @@ export function isAbsoluteInput(p, platform = process.platform) {
 }
 
 /**
+ * Is DIR a run worktree of the main tree MAIN, that is under `<main>/.agents/local/worktrees/` (A263)? Off Windows exactly `real(dir).startsWith(`${main}/.agents/local/worktrees/`)`, the
+ * expression every caller had (a failing `real` leaves DIR as given). On win32 git prints MAIN as `C:/Users/runneradmin/...` while the real path of DIR is `C:\Users\RUNNER~1\...`: both go
+ * through `realpathPosix`/`posixForm` (forward slashes, upper-case drive, the long name) and meet by `inside` (a whole component, ASCII case folded), so a worktree is found there too.
+ * A UNC path is never inside a drive path, so it is not a worktree. @param {string} main @param {string} dir
+ * @param {string} [platform] @param {(p: string) => string} [real] the real path of a folder (default: `realpathSync` off Windows, `realpathPosix` on)
+ */
+export function inRunWorktrees(main, dir, platform = process.platform, real = platform === 'win32' ? realpathPosix : realpathSync) {
+  if (main === '') return false;
+  let d;
+  try { d = real(dir); } catch { d = dir; }
+  if (platform !== 'win32') return d.startsWith(`${main}/.agents/local/worktrees/`);
+  return inside(`${posixForm(main, platform)}/.agents/local/worktrees`, posixForm(d, platform), platform) !== null;
+}
+
+/**
  * The text a program printed, with the line ends of the host turned into `\n`: a Windows program ends its lines with CRLF, and a version line read from it kept the CR (it showed as `?`,
  * A261). Off Windows the text is returned as it is. @param {string} text @param {string} [platform]
  */

@@ -2,11 +2,13 @@
 // Stage 4, package 4B: the end of a run: `terminate`, `cleanup` (with the removal of the run's worktree and the archive of its records) and
 // `archive_run`. File formats, messages and the order of the checks are those of agent.sh 0.0.47.
 import { hgit, populatedGitlinks } from './hgit.mjs';
+import { entryRecordPath } from './codexprofile.mjs';
 import { frictionReport } from './friction.mjs';
 import { rulesCommand } from './rules.mjs';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { now } from './clock.mjs';
+import { inside, posixForm, realpathPosix, samePath } from './pathin.mjs';
 import { ecosystemRows } from './ecodata.mjs';
 import { fail } from './errors.mjs';
 import { fixRoundsUsed, maxFixRounds, taskOwnedPaths } from './gates.mjs';
@@ -120,6 +122,17 @@ export function terminateRun(ctx, id, outcome) {
 function isLink(p) { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } }
 
 /**
+ * Where `tar` runs and how it is told the archive file (A263). Off Windows: the absolute FILE and the caller's working folder, exactly as before. On win32 a GNU `tar` (Git for Windows
+ * puts its own first on PATH) reads `C:/...` as `host:file` and cannot find a host `C`; the archive name is then relative and tar runs in the archive's own folder (`-C` takes a drive path
+ * everywhere). @param {string} file absolute @param {string} cwd the caller's working folder @param {string} [platform] @returns {{ file: string, cwd: string }}
+ */
+export function tarSpec(file, cwd, platform = process.platform) {
+  if (platform !== 'win32') return { file, cwd };
+  const at = file.lastIndexOf('/');
+  return { file: file.slice(at + 1), cwd: file.slice(0, at) };
+}
+
+/**
  * `archive_run ID RUNDIR` (A200): a compressed copy of the run's records under <main tree>/.agents/local/archive/<ID>/, the newest archive.keep runs kept.
  * @param {Context} ctx @param {string} id @param {string} runPath
  */
@@ -137,8 +150,9 @@ export function archiveRun(ctx, id, runPath) {
   const old = process.umask(0o077);
   let ok = false;
   try {
-    const a = proc.run('tar', ['-czf', file, '-C', path.dirname(runPath), path.basename(runPath)], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
-    ok = a.status === 0 && proc.run('tar', ['-tzf', file], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] }).status === 0;
+    const spec = tarSpec(file, ctx.cwd);
+    const a = proc.run('tar', ['-czf', spec.file, '-C', path.dirname(runPath), '--', path.basename(runPath)], { cwd: spec.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] });
+    ok = a.status === 0 && proc.run('tar', ['-tzf', spec.file], { cwd: spec.cwd, env: ctx.childEnv(), stdio: ['ignore', 'ignore', 'ignore'] }).status === 0;
   } finally { process.umask(old); }
   if (!ok) { rmSync(file, { force: true }); fail(`could not archive the records of ${id} into ${root}/${id}; the run is kept (set archive.keep: 0 to skip the archive)`); }
   // keep the newest archive.keep run folders (by last write), whichever task they belong to
@@ -200,6 +214,21 @@ function worktreeDepFolders(ctx) {
 }
 
 /**
+ * Windows (A263): a folder that is the current directory of a running process cannot be removed, and this process was started in the worktree it is about to remove (`git worktree
+ * remove` answered "Permission denied", the worktree stayed). Before the removal the process moves to the main tree, but only when its current directory is DIR or inside it; off Windows
+ * nothing happens (a POSIX process may remove its own current directory). @param {string} dir @param {string} main @param {string} [platform] @param {(() => string)} [cwd] @param {(p: string) => void} [chdir]
+ */
+export function leaveFolder(dir, main, platform = process.platform, cwd = () => realpathPosix(process.cwd()), chdir = (/** @type {string} */ p) => process.chdir(p)) {
+  if (platform !== 'win32') return false;
+  try {
+    const here = posixForm(cwd(), platform);
+    if (!samePath(here, dir, platform) && inside(posixForm(dir, platform), here, platform) === null) return false;
+    chdir(main);
+    return true;
+  } catch { return false; }
+}
+
+/**
  * `cleanup_worktree ID TERMINAL` (A169). The worktree of a delivered run is removed only when the merge is proved: IN PROCESS by the delivery code that
  * calls `cleanupRun` with `mergeProved` after its own proof (a pull request seen merged, or git), or by a `batch/merged.tsv` row of this run that is not
  * older than the nonce of this delivery's summary. There is no file, flag, lock or environment value that says "merged" (A215).
@@ -209,8 +238,8 @@ function cleanupWorktree(ctx, id, terminal, mergeProved = false) {
   const main = ctx.sharedMain();
   if (terminal || main === ctx.root) return;
   let p;
-  try { p = realpathSync(ctx.root); } catch { return; }
-  if (p !== `${main}/.agents/local/worktrees/${id}`) return;
+  try { p = realpathPosix(ctx.root); } catch { return; }   // A263: the real path in the stored form (off Windows `realpathSync`, as before)
+  if (!samePath(p, `${main}/.agents/local/worktrees/${id}`)) return;
   const delivered = `${ctx.root}/.agents/local/deliver/${id}/SUMMARY.md`;
   let from = '0';
   try { if (statSync(delivered).size > 0) { const m = /^nonce: ([0-9]*)-/m.exec(readFileSync(delivered, 'latin1')); from = m ? m[1] : '0'; } } catch { /* none */ }
@@ -234,8 +263,10 @@ function cleanupWorktree(ctx, id, terminal, mergeProved = false) {
   if (extra.length > 0) extra = extra.filter((q) => !sbBlockOnly(ctx, p, q, id));
   for (const f of worktreeDepFolders(ctx)) extra = extra.filter((x) => !x.startsWith(`${f}/`) && x !== f);
   if (extra.length > 0) { ctx.out(`note: the worktree ${p} is kept: it holds files git does not track (not removed): ${extra.slice(0, 3).map((x) => `${x} `).join('')}\n`); return; }
+  leaveFolder(p, main);
   const rm = hgit(ctx, main, ['worktree', 'remove', '--force', p], { cwd: main, stdio: ['ignore', 'ignore', 'ignore'] });
   const pr = rm.status === 0 ? hgit(ctx, main, ['worktree', 'prune'], { cwd: main, stdio: ['ignore', 'pipe', 'pipe'] }) : null;
+  if (rm.status === 0) { try { rmSync(entryRecordPath(main, id), { force: true }); } catch { /* none */ } }   // A263: the record of its git folder goes with it
   if (rm.status === 0 && pr && pr.status === 0) ctx.out(`worktree removed: ${id}\n`);
   else ctx.out(`note: the worktree ${p} could not be removed; agent.sh worktree-remove ${id} in the main working tree does it\n`);
 }

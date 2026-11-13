@@ -5,6 +5,7 @@
 import path from 'node:path';
 import { Config, bytes } from './config.mjs';
 import { ProoflineError } from './errors.mjs';
+import { inRunWorktrees } from './pathin.mjs';
 import { projectRoot, sharedRoot } from './paths.mjs';
 
 /**
@@ -99,7 +100,7 @@ export class Context {
    */
   get trustedScripts() {
     const main = this.sharedMain();
-    return this.root !== main && this.root.startsWith(`${main}/.agents/local/worktrees/`) ? `${main}/.agents/scripts` : this.scripts;
+    return this.root !== main && inRunWorktrees(main, this.root, process.platform, process.platform === 'win32' ? undefined : (p) => p) ? `${main}/.agents/scripts` : this.scripts;
   }
 
   /** `run_dir ID` @param {string} id */

@@ -4,6 +4,8 @@
 // proofline-core.mjs and core/, and the shell fallback and the helper scripts run from the same folder).
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { posixForm } from './pathin.mjs';
+import { asciiLower } from './shellglob.mjs';
 
 /** @param {string} a @param {string} b @returns {boolean} true when both are folders with the same names and, for files, the same bytes; a link is never the same */
 export function sameTree(a, b) {
@@ -30,8 +32,21 @@ function worktreeScript(program, args, cwd) {
   if (first === undefined) return null;
   let file = path.resolve(cwd ?? process.cwd(), first);
   try { file = realpathSync(file); } catch { /* the shell reports a missing file */ }
-  const m = /^(.*)\/\.agents\/local\/worktrees\/[^/]+\/\.agents\/scripts\//.exec(file);
-  return m ? { tree: file.slice(0, file.indexOf('/.agents/scripts/') + '/.agents/scripts'.length), main: `${m[1]}/.agents/scripts` } : null;
+  return worktreeScriptOf(file);
+}
+
+/**
+ * The worktree-script test on an absolute, real path (A263): `{ tree, main }` when FILE is under `<project>/.agents/local/worktrees/<run>/.agents/scripts/`. Off Windows exactly the
+ * test it always was. On win32 the path is `C:\Users\RUNNER~1\...` and the test looked for `/`, so a run worktree's script was never found and would have been started; there the
+ * path goes through `posixForm` and the fixed words are matched with the ASCII case folded (NTFS), so the same folder is found whatever the spelling.
+ * @param {string} file @param {string} [platform] @returns {{ tree: string, main: string } | null}
+ */
+export function worktreeScriptOf(file, platform = process.platform) {
+  const win = platform === 'win32';
+  const f = win ? posixForm(file, platform) : file;
+  const probe = win ? asciiLower(f) : f;
+  const m = /^(.*)\/\.agents\/local\/worktrees\/[^/]+\/\.agents\/scripts\//.exec(probe);
+  return m ? { tree: f.slice(0, probe.indexOf('/.agents/scripts/') + '/.agents/scripts'.length), main: `${f.slice(0, m[1].length)}/.agents/scripts` } : null;
 }
 
 /**
