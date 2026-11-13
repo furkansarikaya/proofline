@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.104 — 2026-11-14
+
+- Change (A271, Part of #165; Windows port W12): the PreToolUse hook guards read a drive (`C:/x`, `C:\x`), UNC (`\\srv\share\x`), `\\?\C:\x` and Git Bash (`/c/x`) path as the absolute path it is. Before, a leading `/` alone made a path absolute, so on a Windows host those spellings were read as names under the working directory and the guards approved what they must deny: a shell write (redirect, `tee`) to `C:/Users/me/.../Startup/x.bat` for any role, a database path entry in backslash or drive form, `sed -i C:/proj/file` by a read-only role, `git pull C:/other/repo` onto a protected branch, a script run through `bash C:/x/kill.sh` that was never scanned, and a drive path attributed to the project by `physicalPath`. One rule (`winSpell` in `hooks/lib/text.mjs`, behind the `host.platform` seam) normalises a path before every comparison and marks what no guard can place (`C:x`, device names, `\\.\`); such a path is refused like an outside one. POSIX is byte-identical (1356 old-against-new comparisons, 0 differences). No new files shipped; no README bytes.
+
 ## 0.0.103 — 2026-11-13
 
 - Change (A270, Part of #165; Windows port W11): the 16 shipped skill scripts that start programs by themselves go through a Windows-safe program resolution, and the early absolute-path guards decide through the platform helpers. Skills: every skill with such a script carries the same `scripts/winprog.mjs` (12 byte-identical copies, no shared library; the rules of `resolveProgram` in `core/proc.mjs`: on Windows a bare name is resolved against drive-absolute PATH entries and PATHEXT, a real `.exe`/`.com`, never from the working folder; a `.cmd`/`.bat` shim or an unknown name is refused, fail closed; POSIX returns the name unchanged). Guards: `submit` (three `--artifact` tests), `runstart` and the markdown adapter (`tasks.dir`) use `notRunRelative`; the repository config path, the index and objects paths, the DESIGN.md rationale path, the `check` file path and the manifest path test (`relOk`) use `isLocalAbsolute`, `onDisk` and `isAbsoluteInput`. POSIX byte-identical (old against new in table tests). See decision A270.
