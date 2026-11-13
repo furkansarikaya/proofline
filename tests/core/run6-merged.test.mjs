@@ -770,7 +770,7 @@ test('B4 (fix round 1): a configured filter driver is repository code that a swi
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const marker = `${d}-MARKER`;
+  const marker = posix(`${d}-MARKER`);
   gOk(d, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
   gOk(d, 'config', 'filter.mk.clean', 'cat');
   wf(`${d}/.git/info/attributes`, '* filter=mk\n');
@@ -800,10 +800,10 @@ test('F2 (fix round 3): a local process or clean driver is not run by the cleanu
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const cnt = `${d}-COUNT`;
+  const cnt = posix(`${d}-COUNT`);
   wf(`${d}-proc.sh`, `#!/bin/sh\necho p >> ${cnt}\nexit 1\n`);
   chmodSync(`${d}-proc.sh`, 0o755);
-  gOk(d, 'config', 'filter.pk.process', `${d}-proc.sh`);
+  gOk(d, 'config', 'filter.pk.process', posix(`${d}-proc.sh`));
   gOk(d, 'config', 'filter.ck.clean', `echo c >> ${cnt}; cat`);
   wf(`${d}/.git/info/attributes`, '*.md filter=pk\n*.txt filter=ck\n* filter=ck\n');
   // every tracked file gets a new mtime: git must re-read (and so filter) it to answer a status or a diff
@@ -855,7 +855,7 @@ test('R1 (fix round 1): a checkout ALREADY on main gets the same protection: an 
   mergedOnOrigin(e, lo2);
   gOk(e, '-c', 'core.hooksPath=/dev/null', 'switch', '-q', 'main');
   originAdds(e, lo2, { 'later.txt': 'later\n' }, []);
-  const marker = `${e}-MARKER`;
+  const marker = posix(`${e}-MARKER`);
   gOk(e, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
   gOk(e, 'config', 'filter.mk.clean', `touch ${marker}; cat`);
   wf(`${e}/.git/info/attributes`, '* filter=mk\n');
@@ -884,10 +884,10 @@ test('R3 (fix round 1): a core.fsmonitor program of the repository never runs du
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const marker = `${d}-FSMARK`;
+  const marker = posix(`${d}-FSMARK`);
   wf(`${d}-fsmon.sh`, `#!/bin/sh\ntouch ${marker}\n`);
   chmodSync(`${d}-fsmon.sh`, 0o755);
-  gOk(d, 'config', 'core.fsmonitor', `${d}-fsmon.sh`);
+  gOk(d, 'config', 'core.fsmonitor', posix(`${d}-fsmon.sh`));
   const out = A(d, ['deliver-merged', 'LC']).text;
   assert.ok(!existsSync(marker), `the fsmonitor program ran: ${out}`);
 });
@@ -951,7 +951,7 @@ test('A248 round 4 (wiring): the standalone `cleanup` of a finished run whose wo
   mkdirSync(sub);
   gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
   gOk(wt, 'add', 'vendor');
-  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  const mark = posix(`${d}-SUBFILTER`); const sh = posix(`${d}-filter.sh`);
   wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
   chmodSync(sh, 0o755);
   gOk(sub, 'config', 'filter.ev.clean', sh);
@@ -975,7 +975,7 @@ test('A248 round 4 (wiring): deliver-plan in a worktree with a populated submodu
   mkdirSync(sub);
   gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
   gOk(wt, 'add', 'vendor');
-  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  const mark = posix(`${d}-SUBFILTER`); const sh = posix(`${d}-filter.sh`);
   wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
   chmodSync(sh, 0o755);
   gOk(sub, 'config', 'filter.ev.clean', sh);
@@ -994,7 +994,7 @@ test('A248 round 4 (wiring): deliver-plan in a worktree with a populated submodu
 // ---- A248 round 5: the tree's OWN drivers are blanked whether or not a submodule exists (S1) --------------------------------------------------
 /** A local clean filter on the project (the config the run's worktree shares) that matches every file; returns the marker. Nothing in the tree is a gitlink. @param {string} d @param {string} wt */
 function plantOwnFilter(d, wt) {
-  const mark = `${d}-OWNFILTER`; const sh = `${d}-ownfilter.sh`;
+  const mark = posix(`${d}-OWNFILTER`); const sh = posix(`${d}-ownfilter.sh`);
   wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
   chmodSync(sh, 0o755);
   gOk(d, 'config', 'filter.ck.clean', sh);

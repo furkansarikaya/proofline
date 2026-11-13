@@ -2,6 +2,7 @@
 // A248 (Part of #165): the hermetic git helper, on tiny throwaway repositories (milliseconds each, no delivery chain). A planted driver counts its runs into a file; a planted
 // hook, difftool, submodule configuration, url rewrite and ssh command touch a marker. Nothing waits, nothing reads the clock; every repository is unique and removed.
 import { tempDir } from '../lib/tempdir.mjs';
+import { posix } from '../lib/winpath.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -21,7 +22,8 @@ const ENV = (/** @type {string} */ home) => ({ PATH: process.env.PATH ?? '/usr/b
 
 /** A unique scratch folder with a runner for plain git. @returns {{ dir: string, env: Record<string, string>, git: (cwd: string, ...a: string[]) => string, done: () => void }} */
 function scratch() {
-  const dir = tempDir('hgit-');
+  // forward slashes on Windows: the paths below are written into shell commands of git's own sh (a driver, a hook), which reads a backslash as an escape (A264)
+  const dir = posix(tempDir('hgit-'));
   const env = ENV(dir);
   return { dir, env, git: (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { env, stdio: ['ignore', 'pipe', 'pipe'] }).toString('latin1'), done: () => rmSync(dir, { recursive: true, force: true }) };
 }
@@ -244,7 +246,7 @@ test('S3: the import of the proven tip runs no transport: url.<x>.insteadOf plus
     try {
       const p = proofSetup(s);
       hf = p.hf;
-      assert.ok(hf.tmp.startsWith(`${s.dir}/`), 'the proof repository must live in the test\'s own folder');
+      assert.ok(posix(hf.tmp).startsWith(`${s.dir}/`), 'the proof repository must live in the test\'s own folder');
       const mark = `${s.dir}/PWNED`;
       const prefix = `${path.dirname(hf.tmp)}/`;
       if (variant === 'ssh') {

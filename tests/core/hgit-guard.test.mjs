@@ -494,7 +494,7 @@ test('A248 guard (scanner): the exceptions are matched per file and per subcomma
 
 test('A248 round 7: a known-issue place check (kirules listable, ls-files --error-unmatch) never runs the repository\'s core.fsmonitor program', () => {
   const fx = makeFixture();
-  const mark = `${fx.root}-FSM`; const prog = `${fx.root}-fsm.sh`;
+  const mark = posix(`${fx.root}-FSM`); const prog = posix(`${fx.root}-fsm.sh`);
   try {
     writeFileSync(prog, `#!/bin/sh\ntouch ${mark}\nprintf '\\0'\n`);
     chmodSync(prog, 0o755);
