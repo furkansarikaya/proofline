@@ -3,7 +3,7 @@
 // (the --agents JSON included) and of a command template, the prompt on stdin, the variables of the runtime and the Codex permission profile. tests/core/golden/dispatch/
 // cases.json was recorded from the OLD dispatch.sh with tests/core/golden/dispatch-record.mjs; nothing compares with a shell at test time.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, cpSync, existsSync, readdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, cpSync, existsSync, readdirSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
@@ -121,6 +121,13 @@ describe('the dispatcher hands the runtime exactly what the shell dispatcher han
 });
 
 describe('the Codex permission profile (dispatch codex-profile ID)', () => {
+  /** Write the record that `worktree-add` keeps (A263): the real path of the git folder of the worktree ID, as git reports it. @param {ReturnType<typeof fixture>} fx @param {string} id */
+  function recordEntry(fx, id) {
+    const wt = path.join(fx.loc, 'worktrees', id);
+    const gd = realpathSync(path.resolve(wt, spawnSync('git', ['-C', wt, 'rev-parse', '--git-dir'], { env: fx.env, encoding: 'utf8' }).stdout.trim()));
+    mkdirSync(path.join(fx.loc, 'wt-entries'), { recursive: true });
+    writeFileSync(path.join(fx.loc, 'wt-entries', `${id}.entry`), `${posix(gd)}\n`);
+  }
   /** @param {string} cwd @param {string} script @param {ReturnType<typeof fixture>} fx */
   const profile = (cwd, script, fx) => norm(fx, spawnSync('sh', [posix(script), 'codex-profile', 'LC'], { cwd, env: fx.env, encoding: 'utf8' }).stdout).split('\n').slice(0, -1);
   test('a run in the main tree: .agents read-only, the run folder, locks and submissions writable, nothing of .git', () => {
@@ -133,6 +140,7 @@ describe('the Codex permission profile (dispatch codex-profile ID)', () => {
     g('commit', '-q', '--allow-empty', '-m', 'init');
     mkdirSync(path.join(fx.loc, 'worktrees'), { recursive: true });
     g('worktree', 'add', '-q', '--detach', path.join(fx.loc, 'worktrees/LC'), 'HEAD');
+    recordEntry(fx, 'LC');
     const wt = realpathSync(path.join(fx.loc, 'worktrees/LC'));
     mkdirSync(path.join(wt, '.agents/runs/LC'), { recursive: true });
     cpSync(path.join(fx.dir, '.agents/scripts'), path.join(wt, '.agents/scripts'), { recursive: true });
@@ -147,6 +155,8 @@ describe('the Codex permission profile (dispatch codex-profile ID)', () => {
     mkdirSync(path.join(fx.loc, 'worktrees'), { recursive: true });
     g('worktree', 'add', '-q', '--detach', path.join(fx.loc, 'worktrees/LC'), 'HEAD');
     g('worktree', 'add', '-q', '--detach', path.join(fx.loc, 'worktrees/T2'), 'HEAD');
+    recordEntry(fx, 'LC'); recordEntry(fx, 'T2');
+    recordEntry(fx, 'LC'); recordEntry(fx, 'T2');
     const wt = realpathSync(path.join(fx.loc, 'worktrees/LC')); const t2 = realpathSync(path.join(fx.loc, 'worktrees/T2'));
     // entry by entry, `local` left out: Node 22.13 refuses to copy a folder into one of its own subfolders (the worktrees live under .agents/local)
     for (const n of readdirSync(path.join(fx.dir, '.agents'))) if (n !== 'local') cpSync(path.join(fx.dir, '.agents', n), path.join(wt, '.agents', n), { recursive: true });
@@ -165,6 +175,25 @@ describe('the Codex permission profile (dispatch codex-profile ID)', () => {
     assert.equal(r.status, 2, r.stderr);
     assert.equal(r.stdout, '');
     assert.match(r.stderr, /Codex profile is not built/);
+  });
+  test('A263 round 3: a worktree whose .git is a symlink to another run\'s .git file (its own entry rewritten) is refused by the verb, status 2, no profile; without a record too', { skip: process.platform === 'win32' ? 'symbolic links need a privilege on Windows; the lstat rule runs in codexprofile.test.mjs' : false }, () => {
+    const { fx, wt } = twoWorktrees((w, t2) => {
+      rmSync(path.join(w, '.git'), { force: true });
+      symlinkSync(path.join(t2, '.git'), path.join(w, '.git'));
+    });
+    const run = () => spawnSync('sh', [posix(path.join(wt, '.agents/scripts/dispatch.sh')), 'codex-profile', 'LC'], { cwd: wt, env: fx.env, encoding: 'utf8' });
+    const r = run();
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /is a link/);
+  });
+  test('A263 round 3: a worktree made by hand (no record of the core) is refused by the verb: status 2, no profile', () => {
+    const { fx, wt } = twoWorktrees(() => {});
+    rmSync(path.join(fx.loc, 'wt-entries', 'LC.entry'));
+    const r = spawnSync('sh', [posix(path.join(wt, '.agents/scripts/dispatch.sh')), 'codex-profile', 'LC'], { cwd: wt, env: fx.env, encoding: 'utf8' });
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /no record/);
   });
   test('the same refusal during a dispatch of a Codex role: the result is BLOCKED (exit 6) with the reason, and no runtime is started', async () => {
     const { fx, wt } = twoWorktrees(tamperGitFile);

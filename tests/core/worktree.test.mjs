@@ -33,6 +33,12 @@ test('worktree-add|path|remove: one worktree per run, open runs counted per work
   const wt = add.out.trim();
   assert.equal(wt, `${main}/.agents/local/worktrees/W-2`);
   assert.ok(has(`${wt}/.agents/scripts`));
+  // A263 round 3: the core recorded the git folder of the new worktree, outside the worktree, as a regular file, before any worker could run
+  const recPath = `${main}/.agents/local/wt-entries/W-2.entry`;
+  assert.ok(lstatSync(recPath).isFile(), 'no record of the git folder');
+  assert.equal(read(recPath), `${real(`${main}/.git/worktrees/W-2`)}\n`, 'the record is the real path of the worktree\'s git folder');
+  assert.match(read(`${wt}/.git`), /^gitdir: /, 'the worktree\'s .git file');
+  assert.equal(readdirSync(`${main}/.agents/local/wt-entries`).join(), 'W-2.entry', 'no temporary file is left');
   assert.equal(AB(F, dir, ['worktree-add', 'W-2']).out.trim(), wt, 'a second worktree-add did not reuse the worktree');
   // A200: commands written in the main tree after the user's yes (uncommitted) reach a worktree made from the committed branch, only when they are the sole config difference
   const cfgOf = (/** @type {string} */ d) => A(d, ['config-get', 'commands.test']).out.trim();
@@ -66,6 +72,7 @@ test('worktree-add|path|remove: one worktree per run, open runs counted per work
   assert.equal(rm.status, 0, rm.text);
   assert.ok(rm.out.includes('evidence archived') && rm.out.includes('worktree removed: W-2'), rm.text);
   assert.ok(!has(wt) && g(dir, ['worktree', 'list']).split('\n').length === 1, 'worktree left after removal');
+  assert.ok(!has(recPath), 'the record outlived the worktree');
   assert.match(AB(F, dir, ['worktree-remove', 'W-2']).out, /no worktree/, 'removing a missing worktree is not a no-op');
   // usage and role
   refused(AB(F, dir, ['worktree-add', '../x']), 'an invalid id', 'usage: agent.sh worktree-add <TASK-ID>');

@@ -15,7 +15,8 @@ import { ecosystemRowsAt } from './ecodata.mjs';
 import { fail } from './errors.mjs';
 import { wtLinked } from './commands/runcmds.mjs';
 import { isDir, isFile } from './paths.mjs';
-import { realpathPosix } from './pathin.mjs';
+import { inside, realpathPosix } from './pathin.mjs';
+import { entryRecordPath } from './codexprofile.mjs';
 import * as proc from './proc.mjs';
 import { hgit } from './hgit.mjs';
 import { archiveRun } from './runend.mjs';
@@ -234,6 +235,37 @@ function rwPrepare(ctx, wt) {
   if (rc !== 0) ctx.err('warning: worktree preparation reported a problem (the worktree is usable; dependencies or env files may be missing)\n');
 }
 
+/**
+ * The record of the git folder of a run worktree (A263 round 3), written by the core right after `git worktree add`, before any worker ran: the real path of `git rev-parse --git-dir` of the NEW
+ * worktree, which must be one folder under `<main>/.git/worktrees/`. The Codex profile grants the git folder only when this record, a regular file outside the worktree and outside every
+ * granted folder, names it. Written to a temporary file and renamed (atomic). A failure only warns: the worktree then has no record and a Codex dispatch in it is refused.
+ * @param {Context} ctx @param {string} d the worktree folder @returns {boolean}
+ */
+function recordEntry(ctx, d) {
+  try {
+    const main = rwMain(ctx);
+    const r = git(ctx, ['rev-parse', '--git-dir'], d);
+    if (r.status !== 0) return false;
+    const entry = physical(path.resolve(d, r.stdout.toString('utf8').replace(/\n+$/, '')));
+    const sub = entry === null ? null : inside(`${main}/.git/worktrees`, entry);
+    if (entry === null || sub === null || sub.includes('/')) return false;
+    const rec = entryRecordPath(main, path.basename(d));
+    mkdirSync(path.dirname(rec), { recursive: true });
+    const tmp = `${rec}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${entry}\n`);
+    renameSync(tmp, rec);
+    return true;
+  } catch { return false; }
+}
+
+/** Remove the record of the worktree D (best effort: a stale record names a folder git no longer has, and `worktree-add` replaces it). @param {string} d */
+export function dropEntryRecord(d) {
+  const id = path.basename(d);
+  const tail = `/.agents/local/worktrees/${id}`;
+  if (!d.endsWith(tail)) return;
+  try { rmSync(entryRecordPath(d.slice(0, d.length - tail.length), id), { force: true }); } catch { /* none */ }
+}
+
 /** Whether something (a folder, a file, a link, even a dangling one) is at PATH. @param {string} d */
 function present(d) { try { lstatSync(d); return true; } catch { return false; } }
 
@@ -249,7 +281,9 @@ export function dropHalfWorktree(ctx, d) {
     try { rmSync(d, { recursive: true, force: true }); } catch { /* reported by the check below */ }
     hgit(ctx, ctx.root, ['worktree', 'prune']);
   }
-  return !present(d) && !rwRegistered(ctx, d);
+  const gone = !present(d) && !rwRegistered(ctx, d);
+  if (gone) dropEntryRecord(d);
+  return gone;
 }
 
 // ---- the commands ---------------------------------------------------------------------------------------------------------------------------
@@ -276,6 +310,7 @@ export function worktreeAdd(ctx, args) {
   const add = hgit(ctx, ctx.root, ['worktree', 'add', '-q', '--no-checkout', '--detach', d, sha.stdout.toString('latin1').replace(/\n+$/, '')], { stdio: ['ignore', 'ignore', 'pipe'] });
   if (add.stderr.length > 0) ctx.err(add.stderr.toString('latin1'));
   if (add.status !== 0) fail(`could not add the worktree ${bytes(d)}`);
+  if (!recordEntry(ctx, d)) ctx.err(`warning: the git folder of ${bytes(d)} could not be recorded; a Codex dispatch in this worktree will be refused (remove it and run worktree-add again)\n`);
   const co = hgit(ctx, d, ['reset', '--hard', '-q', '--no-recurse-submodules'], { stdio: ['ignore', 'ignore', 'pipe'] });
   if (co.status !== 0) {
     ctx.err(co.stderr.toString('latin1'));
@@ -322,6 +357,7 @@ export function worktreeRemove(ctx, args) {
   const rm = hgit(ctx, ctx.root, ['worktree', 'remove', '--force', d], { stdio: ['ignore', 'ignore', 'ignore'] });
   if (rm.status !== 0) fail(`could not remove the worktree ${bytes(d)}`);
   hgit(ctx, ctx.root, ['worktree', 'prune']);
+  dropEntryRecord(d);
   try { rmdirSync(path.dirname(d)); } catch { /* not empty */ }
   ctx.out(`worktree removed: ${id}\n`);
   return 0;

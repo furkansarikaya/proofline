@@ -30,7 +30,7 @@
 // Exit: 0 recorded | 1 task failure or record rejected | 2 usage/config | 5 NEEDS_INPUT | 6 BLOCKED | 124 timeout | 143 stopped from outside.
 // Runtime binaries: PROOFLINE_CODEX_BIN, PROOFLINE_CLAUDE_BIN (tests use fake runtimes). The watchdog's grace and the shortest timeout are options of
 // startDispatch(), not environment values.
-import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, mkdirSync, lstatSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -391,8 +391,8 @@ class Dispatcher {
     };
     const real = (/** @type {string} */ p) => { try { return process.platform === 'win32' ? realpathSync.native(p) : realpathSync(p); } catch { return p; } };
     /** @type {string} */ let abs;
-    try { abs = worktreeGrants(root, { git, real, isDir, isFile, mkdirp: (p) => { mkdirSync(p, { recursive: true }); },
-      readdir: (p) => { try { return readdirSync(p); } catch { return []; } }, readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } } }); } catch (e) {
+    try { abs = worktreeGrants(root, { git, real, isDir, isFile, isPlainFile: (p) => { try { return lstatSync(p).isFile(); } catch { return false; } }, mkdirp: (p) => { mkdirSync(p, { recursive: true }); },
+      readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } } }); } catch (e) {
       if (e instanceof ProfileRefused) throw (this.role ? this.blocked(e.message) : this.die(e.message));   // a worktree whose git folders are not where its path says (A263): no profile, the dispatch stops
       throw e;
     }

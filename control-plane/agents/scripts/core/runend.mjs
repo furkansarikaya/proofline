@@ -2,6 +2,7 @@
 // Stage 4, package 4B: the end of a run: `terminate`, `cleanup` (with the removal of the run's worktree and the archive of its records) and
 // `archive_run`. File formats, messages and the order of the checks are those of agent.sh 0.0.47.
 import { hgit, populatedGitlinks } from './hgit.mjs';
+import { entryRecordPath } from './codexprofile.mjs';
 import { frictionReport } from './friction.mjs';
 import { rulesCommand } from './rules.mjs';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -265,6 +266,7 @@ function cleanupWorktree(ctx, id, terminal, mergeProved = false) {
   leaveFolder(p, main);
   const rm = hgit(ctx, main, ['worktree', 'remove', '--force', p], { cwd: main, stdio: ['ignore', 'ignore', 'ignore'] });
   const pr = rm.status === 0 ? hgit(ctx, main, ['worktree', 'prune'], { cwd: main, stdio: ['ignore', 'pipe', 'pipe'] }) : null;
+  if (rm.status === 0) { try { rmSync(entryRecordPath(main, id), { force: true }); } catch { /* none */ } }   // A263: the record of its git folder goes with it
   if (rm.status === 0 && pr && pr.status === 0) ctx.out(`worktree removed: ${id}\n`);
   else ctx.out(`note: the worktree ${p} could not be removed; agent.sh worktree-remove ${id} in the main working tree does it\n`);
 }
