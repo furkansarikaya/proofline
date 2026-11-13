@@ -13,6 +13,7 @@
 //   node check-outcome.mjs <OUTCOME.md|slug> [--rerun] [--timeout SEC] [--json] [--root DIR]   exit 0 clean, 1 findings, 2 usage
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { programOf, resolveProgram as winResolve } from "./winprog.mjs";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { cli, field, isMain, items, read, report, resolveDoc, sha256 } from "./lib.mjs";
 
@@ -40,7 +41,8 @@ export function meets(value, target) {
 function runScript(root, rel, timeoutSec) {
   const file = resolve(root, rel), ext = extname(file);
   const cmd = ext === ".mjs" || ext === ".js" ? [process.execPath, [file]] : ext === ".sh" ? ["sh", [file]] : ext === ".py" ? ["python3", [file]] : [file, []];
-  const r = spawnSync(cmd[0], cmd[1], { cwd: root, encoding: "utf8", timeout: timeoutSec * 1000 });
+  let r;
+  try { r = spawnSync(programOf(cmd[0], root), cmd[1], { cwd: root, encoding: "utf8", timeout: timeoutSec * 1000 }); } catch (e) { return { error: e.message }; }
   if (r.error) return { error: r.error.code === "ETIMEDOUT" ? `timed out after ${timeoutSec} s` : r.error.message };
   if (r.status !== 0) return { error: `exited with status ${r.status}` };
   return { stdout: r.stdout };

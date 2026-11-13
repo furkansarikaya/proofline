@@ -210,7 +210,7 @@ test("run-bench.mjs: usage errors are exit 2 with a run-bench: message; --help i
 });
 test("run-bench.mjs: reads only its own ecosystem definition and imports nothing outside the skill", () => {
   const src = readFileSync(join(scripts, "run-bench.mjs"), "utf8");
-  for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || m[1] === "./ecosystems.mjs", m[1]);
+  for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || ["./ecosystems.mjs", "./winprog.mjs"].includes(m[1]), m[1]);
   assert.match(src, /references", "ecosystems\.json"/);
 });
 

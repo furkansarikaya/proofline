@@ -14,6 +14,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve, join, sep, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 
 // One pattern per category. Kept conservative: whole words, typical spellings across languages.
 export const PATTERNS = {
@@ -52,7 +53,7 @@ export function scanText(file, text, changed) {
 }
 
 const gitLines = (root, base) => {
-  const git = (...a) => execFileSync("git", ["-C", root, ...a], { encoding: "utf8", maxBuffer: 64 << 20 });
+  const git = (...a) => execFileSync(programOf("git"), ["-C", root, ...a], { encoding: "utf8", maxBuffer: 64 << 20 });
   const map = new Map();
   let file = null;
   for (const l of git("diff", "-U0", "--no-color", "--no-ext-diff", base, "--").split("\n")) {

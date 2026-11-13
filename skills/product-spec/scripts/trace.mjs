@@ -15,6 +15,7 @@
 // Exit 0: every link found. 1: a link is missing (each is named). 2: usage, or the id matches no record.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { effectiveDecision, idKey, parsePrd, productDir, resolvePrd, tasksDir } from "./check-prd.mjs";
@@ -41,7 +42,7 @@ function tasks(root, dir) {
   return byId;
 }
 
-const git = (root, args) => { try { return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; } };
+const git = (root, args) => { try { return execFileSync(programOf("git"), ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; } };
 const TEST_FILE = /(^|\/)(tests?|__tests__|specs?)\/|[._-](test|spec)s?\.[A-Za-z0-9]+$|_test\.go$/;
 const isLive = (root, id) => existsSync(join(root, ".agents", "runs", id));
 

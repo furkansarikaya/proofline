@@ -10,6 +10,7 @@
 // state and inputs give a byte-identical report (no timestamps).
 
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 import { readFileSync, writeFileSync, statSync, readdirSync, existsSync } from "node:fs";
 import { join, posix, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,7 +50,7 @@ const isGeneratedPath = (p) => /\.generated\.|\.pb\.go$|_pb2?\.py$|(^|\/)generat
 const norm = (s) => s.toLowerCase().replace(/[_-]/g, "");
 
 function git(repo, args) {
-  try { return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 256 << 20, stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
+  try { return execFileSync(programOf("git"), ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 256 << 20, stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
 }
 
 // Mask: 0 code, 1 comment, 2 string. Line-based scanner; single and double quotes end at the newline.

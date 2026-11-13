@@ -7,6 +7,7 @@
 // Secret values are never copied into the document: only rule name, key name and value length.
 // Limits are listed in references/CONFIG.md; the document repeats them in `limits`.
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -137,7 +138,7 @@ export function planMentions(text, name) {
 }
 
 // --- git ----------------------------------------------------------------------------------------------------
-const git = (repo, args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+const git = (repo, args) => execFileSync(programOf("git"), ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 const baseText = (repo, base, p) => { try { return git(repo, ["show", `${base}:${p}`]); } catch { return null; } };
 const headText = (repo, p) => { const f = join(repo, p); try { const s = statSync(f); if (!s.isFile()) return null; if (s.size > MAX_BYTES) return ""; return readFileSync(f, "utf8"); } catch { return null; } };
 const isText = (t) => t != null && !t.includes("\0");

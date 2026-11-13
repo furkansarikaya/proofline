@@ -164,7 +164,7 @@ test("SECURITY: the skill reads only its own copy of the ecosystem definition, n
 
 test("the script imports nothing outside its skill (it is installable alone)", () => {
   const src = readFileSync(fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-versions.mjs", import.meta.url)), "utf8");
-  for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || m[1] === "./ecosystems.mjs", m[1]);
+  for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || ["./ecosystems.mjs", "./winprog.mjs"].includes(m[1]), m[1]);
 });
 
 // fix round 1 (F4, F5, F6)

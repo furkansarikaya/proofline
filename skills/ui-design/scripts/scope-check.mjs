@@ -8,6 +8,7 @@
 // Output: {"ok": bool, "base": ref, "changed": [paths], "outside": ["path" | "path:from-to"]}. Exit 0 ok, 1 something
 // outside the target changed, 2 usage or git error. Plain logic, no dependencies.
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -21,7 +22,7 @@ const rangesArg = opt("--ranges") ?? "";
 if (!base) fail("usage: node scope-check.mjs --root <repo> --base <git-ref> --allow <path|glob,...> [--ranges file:from-to,...]");
 
 const git = (...a) => {
-  try { return execFileSync("git", ["-C", root, ...a], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); }
+  try { return execFileSync(programOf("git"), ["-C", root, ...a], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); }
   catch (e) { return fail(`git ${a[0]} failed: ${String(e.stderr || e.message).trim()}`); }
 };
 const lines = (s) => s.split("\n").map((l) => l.trim()).filter(Boolean);

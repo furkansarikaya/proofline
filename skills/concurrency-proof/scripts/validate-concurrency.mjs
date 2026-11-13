@@ -25,6 +25,7 @@ import { readFileSync, existsSync, realpathSync, statSync } from "node:fs";
 import { resolve, isAbsolute, basename, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 import { createHash } from "node:crypto";
 import { scan, COMMENT } from "./find-shared-state.mjs";
 
@@ -391,7 +392,7 @@ export function checkRepo(doc, repo, base) {
 
 // Map file -> Set of line numbers that the working tree adds or changes relative to base.
 export function diffLines(root, base) {
-  const git = (...a) => execFileSync("git", ["-C", root, ...a], { encoding: "utf8", maxBuffer: 64 << 20 });
+  const git = (...a) => execFileSync(programOf("git"), ["-C", root, ...a], { encoding: "utf8", maxBuffer: 64 << 20 });
   const map = new Map();
   let file = null;
   for (const l of git("diff", "-U0", "--no-color", "--no-ext-diff", base, "--").split("\n")) {

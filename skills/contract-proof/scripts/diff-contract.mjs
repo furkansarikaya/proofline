@@ -13,6 +13,7 @@
 // Exit 0 on success, 2 on a usage error or an unreadable input.
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { programOf } from "./winprog.mjs";
 import { join, basename, dirname, extname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -987,7 +988,7 @@ export function detectTools(repo) {
 }
 
 // ---- repository mode ----------------------------------------------------------------------------
-const git = (repo, args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"] });
+const git = (repo, args) => execFileSync(programOf("git"), ["-C", repo, ...args], { encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"] });
 const show = (repo, ref, p) => { try { return git(repo, ["show", `${ref}:${p}`]); } catch { return null; } };
 const readHead = (repo, p) => { try { return readFileSync(join(repo, p), "utf8"); } catch { return null; } };
 export function changedPaths(repo, base) {
