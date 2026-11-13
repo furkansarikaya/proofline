@@ -134,9 +134,9 @@ function hasExecuteBit(ctx, f, p, platform) {
 
 /**
  * `knowledge_doc_file PATH`: a regular, non-executable, non-symlink file with a documentation extension, with no linked folder on the way.
- * @param {Context} ctx @param {string} p @param {string} [platform] the host platform (a seam for tests)
+ * @param {Context} ctx @param {string} p @param {string} [platform] the host platform (a seam for tests) @param {(x: string) => string} [real] the real-path function (a seam for tests)
  */
-export function knowledgeDocFile(ctx, p, platform = process.platform) {
+export function knowledgeDocFile(ctx, p, platform = process.platform, real = realpathSync) {
   const f = `${ctx.root}/${p}`;
   try {
     const l = lstatSync(f);
@@ -145,7 +145,7 @@ export function knowledgeDocFile(ctx, p, platform = process.platform) {
   } catch { return false; }
   if (!/\.(md|mdx|rst|adoc|html|txt|png|jpg|jpeg|gif|svg|webp)$/.test(p)) return false;
   // the folder must be the one the path names (no link on the way); `realpathSync` answers backslashes on Windows, so both sides are compared in the core's one path form
-  try { return samePath(realpathSync(path.dirname(f)), `${realpathSync(ctx.root)}/${path.posix.dirname(p)}`.replace(/\/\.$/, ''), platform); } catch { return false; }
+  try { return samePath(real(path.dirname(f)), `${real(ctx.root)}/${path.posix.dirname(p)}`.replace(/\/\.$/, ''), platform); } catch { return false; }
 }
 
 /** `fingerprint_path` where a failure is printed and read as empty (a `$(...)` inside a test). @param {Context} ctx @param {string} p */

@@ -13,6 +13,7 @@ import { rmSync } from 'node:fs';
 import { ereToRegExp } from '../../control-plane/agents/scripts/core/ere.mjs';
 /** @typedef {import('../../control-plane/agents/scripts/core/context.mjs').Context} Context */
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { samePath } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { entryTier, indexHoldsExecutable, knowledgeDocFile, riskWordsMatch, tierMax, tierRank } from '../../control-plane/agents/scripts/core/signals.mjs';
 import { repo } from './helpers.mjs';
 import { makeFixture } from './fixture.mjs';
@@ -249,5 +250,34 @@ describe('indexHoldsExecutable: literal paths, all entries, fail closed (A266)',
     writeFileSync(path.join(d, 'docs/wiki/y1.md'), '# a\n'); writeFileSync(path.join(d, 'docs/wiki/y[1].md'), '# b\n');
     assert.equal(knowledgeDocFile(ctx, 'docs/wiki/y1.md', 'win32'), true, 'premise: the decoy is a plain doc');
     assert.equal(knowledgeDocFile(ctx, 'docs/wiki/y[1].md', 'win32'), false);
+  });
+});
+
+// A266 (review addendum): the folder comparison of knowledgeDocFile is `samePath` on the Windows rule (case-insensitive, either slash, a trailing slash does not matter); the real-path function
+// is a seam, so a Windows-style answer is fed on POSIX. Replacing samePath by === makes the first test red.
+describe('knowledgeDocFile folder comparison and glob names through the seams (A266)', () => {
+  const d = tempDir('kcase-');
+  mkdirSync(path.join(d, '.agents/scripts'), { recursive: true });
+  mkdirSync(path.join(d, 'docs/wiki'), { recursive: true });
+  writeFileSync(path.join(d, 'docs/wiki/p.md'), '# p\n');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: path.join(d, 'none'), GIT_CONFIG_NOSYSTEM: '1' };
+  spawnSync('git', ['-C', d, 'init', '-q'], { env });
+  const ctx = new Context({ env, cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(d, '.agents/scripts/proofline-core.mjs'));
+  /** What a Windows realpath answers for the root and for the folder: other case, backslashes. @param {string} x */
+  const winReal = (x) => (x === ctx.root ? 'C:\\PROJ' : 'c:\\proj\\DOCS\\wiki');
+  test('win32: case and slash spelling of the real folders do not matter; the same answers are a different folder on POSIX rules', () => {
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/p.md', 'win32', winReal), true);
+    assert.equal(knowledgeDocFile(ctx, 'docs/wiki/p.md', 'win32', (x) => (x === ctx.root ? 'C:\\PROJ' : 'c:\\proj\\other')), false, 'a different folder (a link on the way) is still refused');
+    assert.equal(samePath('C:\\A\\b', 'c:/a/B', 'win32'), true);
+    assert.equal(samePath('C:\\A\\b', 'c:/a/B', 'linux'), false);
+    assert.equal(samePath('C:\\a\\\u00e9', 'C:/a/\u00c9', 'win32'), false, 'a non-ASCII case difference is a different path');
+  });
+  test('a glob name asks for itself: a tracked x1.md does not answer for x?.md', () => {
+    const blob = spawnSync('git', ['-C', d, 'hash-object', '-w', '--stdin'], { env, encoding: 'utf8', input: 'x\n' }).stdout.trim();
+    spawnSync('git', ['-C', d, 'update-index', '--index-info'], { env, input: `100755 ${blob}\tdocs/wiki/x1.md\n` });
+    assert.match(spawnSync('git', ['-C', d, 'ls-files', '-s'], { env, encoding: 'utf8' }).stdout, /^100755 .*x1\.md/m, 'premise: x1.md holds the bit');
+    assert.equal(indexHoldsExecutable(ctx, 'docs/wiki/x1.md'), true);
+    assert.equal(indexHoldsExecutable(ctx, 'docs/wiki/x?.md'), false);
+    assert.equal(indexHoldsExecutable(ctx, 'docs/wiki/*'), false);
   });
 });
