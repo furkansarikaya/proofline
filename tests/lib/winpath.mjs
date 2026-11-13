@@ -6,9 +6,10 @@
 //  - `posix(p)`: the form the core stores and prints paths in (forward slashes, upper-case drive letter); temp folders and `path.join` answer `C:\Users\...` on Windows. Use it on the
 //    EXPECTED or the observed side when only the test is biased towards POSIX text; the product's own values are compared as the product gives them.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { devNull, tmpdir } from 'node:os';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { devNull } from 'node:os';
 import path from 'node:path';
+import { tempDir } from './tempdir.mjs';
 import { posixForm } from '../../control-plane/agents/scripts/core/pathin.mjs';
 
 /** @param {string} program @param {string[]} args @param {string} [platform] @returns {{ program: string, args: string[] }} */
@@ -58,7 +59,7 @@ export function shellMakes(command, file) {
  */
 export function refGrep(flags, re, input, opts = {}) {
   if (process.platform !== 'win32') return spawnSync('grep', [...flags, '-e', re], { ...opts, input });
-  const dir = mkdtempSync(path.join(tmpdir(), 'refgrep-'));
+  const dir = tempDir('refgrep-');
   try {
     const file = path.join(dir, 'pat');
     writeFileSync(file, `${re}\n`);
