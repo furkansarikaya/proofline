@@ -154,7 +154,11 @@ describe('the Codex permission profile (dispatch codex-profile ID)', () => {
     return { fx, wt };
   }
   /** The worker rewrites the `.git` file of LC to name the git folder of T2. */
-  const tamperGitFile = (/** @type {string} */ wt, /** @type {string} */ t2) => writeFileSync(path.join(wt, '.git'), readFileSync(path.join(t2, '.git'), 'utf8'));
+  const tamperGitFile = (/** @type {string} */ wt, /** @type {string} */ t2) => {
+    const text = readFileSync(path.join(t2, '.git'), 'utf8');
+    rmSync(path.join(wt, '.git'), { force: true });   // Windows: git marks the file hidden, and a hidden file cannot be opened for writing (EPERM); it is replaced
+    writeFileSync(path.join(wt, '.git'), text);
+  };
   test('a worktree whose .git file names another run\'s git folder: the codex-profile verb stops with the status 2 and prints no profile', () => {
     const { fx, wt } = twoWorktrees(tamperGitFile);
     const r = spawnSync('sh', [posix(path.join(wt, '.agents/scripts/dispatch.sh')), 'codex-profile', 'LC'], { cwd: wt, env: fx.env, encoding: 'utf8' });
