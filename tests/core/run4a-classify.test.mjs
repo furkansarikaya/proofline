@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { makeSymlink } from '../lib/winpath.mjs';
 import { test } from 'node:test';
 import { A, accepted, project, read, refused } from './legacy-lib.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
@@ -188,7 +189,7 @@ test('baseline: records the base sha and every changed or untracked path with it
   refused(A(d, ['baseline', 'BR']), 'a second baseline', 'baseline already exists for BR; refusing to overwrite');
   const l = project(BRANCH_RUN);
   accepted(A(l, ['branch', 'BR']), 'branch');
-  spawnSync('ln', ['-s', 'authorized.txt', `${l}/link.txt`]);
+  makeSymlink('authorized.txt', `${l}/link.txt`);
   refused(A(l, ['baseline', 'BR']), 'a symlink was baselined', 'cannot baseline symlink: link.txt');
   assert.doesNotMatch(read(l, '.agents/runs/BR/RUN.yaml'), /status: captured/, 'a refused baseline was written');
 });

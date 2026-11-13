@@ -37,6 +37,8 @@ test('derive lists the non-info findings with their source and kind; no run is a
   assert.equal(L(d, ['derive']).status, 2);
 });
 
+// A line break alone does not travel through a Windows command line (Node leaves an argument without a space or a quote unquoted and the shell splits it at the break), so the text has a space too.
+const TWO_LINES = 'two words\nmore words';
 test('a candidate without a valid source is refused by write, whatever is wrong with the source; a refused candidate creates no page', () => {
   const { d, g1 } = withGate();
   const w = (/** @type {string} */ s) => L(d, ['write', 'LC', s, 'always check the empty key']);
@@ -50,7 +52,8 @@ test('a candidate without a valid source is refused by write, whatever is wrong 
   refused(w(`gate:INVENTED/001-REVIEW_SMALL#REVIEW_SMALL-1@${g1}`), 'an invented run', 'lessons: candidate refused: source is run INVENTED (not LC) or has no gate record now');
   refused(w(`gate:LC/001 REVIEW@${g1}`), 'a space in the source', 'is not gate:');
   refused(L(d, ['write', 'LC', `gate:LC/001-REVIEW_SMALL#REVIEW_SMALL-1@${g1}`, '  ']), 'empty text', 'lessons: a candidate needs text');
-  refused(L(d, ['write', 'LC', `gate:LC/001-REVIEW_SMALL#REVIEW_SMALL-1@${g1}`, 'two\nlines']), 'two lines', 'lessons: a candidate is one line');
+  assert.ok(TWO_LINES.includes('\n') && TWO_LINES.includes(' '), 'premise: a quoted argument with a line break');
+  refused(L(d, ['write', 'LC', `gate:LC/001-REVIEW_SMALL#REVIEW_SMALL-1@${g1}`, TWO_LINES]), 'two lines', 'lessons: a candidate is one line');
   assert.ok(!existsSync(`${d}/${PAGE}`), 'a refused candidate created the page');
 });
 

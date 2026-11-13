@@ -16,7 +16,7 @@ import * as proc from './proc.mjs';
 import { probePerformance, probeVisual } from './probes.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
 import { configuredRuntime } from './execpolicy.mjs';
-import { inside, isLocalAbsolute, realpathPosix } from './pathin.mjs';
+import { inside, isLocalAbsolute, notRunRelative, realpathPosix } from './pathin.mjs';
 import { runDir } from './runs.mjs';
 import { riskSignals } from './signals.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
@@ -139,9 +139,9 @@ export function normalizeArtifact(ctx, id, p0) {
   else if (p.startsWith(`.agents/runs/${id}/`)) p = p.slice(`.agents/runs/${id}/`.length);
   else if (p.startsWith(`./.agents/runs/${id}/`)) p = p.slice(`./.agents/runs/${id}/`.length);
   else if (p.startsWith('./')) p = p.slice(2);
-  if (p === '' || p.startsWith('/') || p.includes('..')) return { code: 1 };
+  if (p === '' || notRunRelative(p)) return { code: 1 };
   p = canonRel(p);
-  if (p === '' || p.startsWith('/') || p.includes('..')) return { code: 1 };
+  if (p === '' || notRunRelative(p)) return { code: 1 };
   try {
     const st = lstatSync(`${d}/${p}`);
     if (!st.isFile()) return { code: 2 };
@@ -234,7 +234,7 @@ export function evidenceCiteCheck(ctx, id, role, focus, p0, sha) {
   const d = runDir(ctx, id);
   let p = p0;
   if (p.startsWith(`.agents/runs/${id}/`)) p = p.slice(`.agents/runs/${id}/`.length);
-  if (p === '' || p.startsWith('/') || p.includes('..')) return { err: `cited evidence path must be run-relative: ${p0} (A107)` };
+  if (p === '' || notRunRelative(p)) return { err: `cited evidence path must be run-relative: ${p0} (A107)` };
   if (!plainFile(`${d}/${p}`)) return { err: `cited evidence file not found in the run: ${p} (A107)` };
   const real = realOf(`${d}/${p}`); const runReal = realOf(d);
   if (real === null || runReal === null || inside(runReal, real) === null) return { err: `cited evidence file must be inside the run: ${p} (A107)` };
@@ -453,7 +453,7 @@ export function unsupportedEvidenceCheck(ctx, id, role, focus, raw) {
   const sha = line.slice(sp + 1);
   if (sp < 0) return { err: "UNSUPPORTED_EVIDENCE needs '<run-relative path> <sha256>'" };
   if (p.startsWith(`.agents/runs/${id}/`)) p = p.slice(`.agents/runs/${id}/`.length);
-  if (p === '' || p.startsWith('/') || p.includes('..')) return { err: `UNSUPPORTED_EVIDENCE path must be run-relative: ${p}` };
+  if (p === '' || notRunRelative(p)) return { err: `UNSUPPORTED_EVIDENCE path must be run-relative: ${p}` };
   if (!plainFile(`${d}/${p}`)) return { err: `UNSUPPORTED_EVIDENCE not found in the run: ${p}` };
   const real = realOf(`${d}/${p}`); const runReal = realOf(d);
   if (real === null || runReal === null || inside(runReal, real) === null) return { err: `UNSUPPORTED_EVIDENCE must be inside the run: ${p}` };

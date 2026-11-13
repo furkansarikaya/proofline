@@ -6,7 +6,7 @@
 //  - `posix(p)`: the form the core stores and prints paths in (forward slashes, upper-case drive letter); temp folders and `path.join` answer `C:\Users\...` on Windows. Use it on the
 //    EXPECTED or the observed side when only the test is biased towards POSIX text; the product's own values are compared as the product gives them.
 import { spawnSync } from 'node:child_process';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
 import path from 'node:path';
 import { tempDir } from './tempdir.mjs';
@@ -65,4 +65,14 @@ export function refGrep(flags, re, input, opts = {}) {
     writeFileSync(file, `${re}\n`);
     return spawnSync('grep', [...flags, '-U', '-f', posix(file)], { ...opts, input });
   } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/**
+ * A real symbolic link LINK to TARGET, with the premise checked in the test (A268): `ln -s` in the Git-for-Windows shell COPIES the file (so a test of "a symlink is refused" saw a regular file
+ * and failed, or worse passed for another reason), and the link must be one for the product's lstat to see it. Throws when no link could be made, never a silent regular file.
+ * @param {string} target @param {string} link
+ */
+export function makeSymlink(target, link) {
+  symlinkSync(target, link);
+  if (!lstatSync(link).isSymbolicLink()) throw new Error(`premise: ${link} is not a symbolic link`);
 }

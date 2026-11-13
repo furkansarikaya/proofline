@@ -29,6 +29,13 @@ export function sortUnique(lines) { return [...new Set(lines)].sort((a, b) => (a
 function nonEmpty(out) { return out.split('\n').filter((l) => l !== ''); }
 
 /**
+ * Would git c-quote this changed path (a control character, DEL, a byte of 0x80 or more, a double quote, a backslash)? Such a name is the shell's to judge. A function of its own (A268), so the
+ * rule is tested without creating a file: Windows cannot make most of these names.
+ * @param {string} name
+ */
+export function needsCQuote(name) { return /[\x00-\x1f\x7f-\xff"\\]/.test(name); }
+
+/**
  * One `git status` for both lists (the working tree against the index, the index against HEAD, and the untracked files): the same paths as
  * `diff --name-only`, `diff --cached --name-only` and `ls-files --others --exclude-standard`, in one process. Not used for a delivered
  * run (its paths are measured from the base commit). Read-only (`--no-optional-locks`: the index is not refreshed on disk).
@@ -41,7 +48,7 @@ function statusLists(ctx) {
     for (const e of r.out.split('\0')) {
       if (e.length < 4) continue;
       // the shell reads git's c-quoted names (`diff --name-only`, quotepath): a name that git would quote is the shell's to judge
-      if (/[\x00-\x1f\x7f-\xff"\\]/.test(e.slice(3))) throw unsupported('a changed path git would c-quote');
+      if (needsCQuote(e.slice(3))) throw unsupported('a changed path git would c-quote');
       (e.startsWith('??') ? untracked : tracked).push(e.slice(3));
     }
     return { tracked: sortUnique(tracked), untracked: sortUnique(untracked) };

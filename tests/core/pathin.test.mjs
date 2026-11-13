@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inRunWorktrees, inside, isAbsoluteInput, localRemote, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inRunWorktrees, inside, isAbsoluteInput, localRemote, notRunRelative, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { readFileSync as readSource } from 'node:fs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
@@ -204,4 +204,10 @@ test('A267: the call sites use the platform rules (a revert goes red here, the W
   assert.match(submit, /import \{ reportNamesAgent \} from '\.\/pathin\.mjs'/);
   assert.match(submit, /const ok = reportNamesAgent\(report, agent, tmp\)/);
   assert.doesNotMatch(submit, /report\.includes\(`\/\$\{agent\}-`\)/, 'the slash-only expression is gone');
+});
+
+test('notRunRelative (A268): an absolute path (drive and UNC forms on win32 only) or a `..` is not a run-relative artifact path; a plain relative path is', () => {
+  for (const p of ['/etc/passwd', 'a/../b', '..', 'reports/..x']) for (const pl of ['linux', 'win32']) assert.equal(notRunRelative(p, pl), true, `${p} ${pl}`);
+  for (const p of ['C:/Program Files/Git/etc/passwd', 'C:\\x', '\\\\srv\\share\\x']) { assert.equal(notRunRelative(p, 'win32'), true, p); assert.equal(notRunRelative(p, 'linux'), false, p); }
+  for (const p of ['VERIFY.md', 'reviews/a.md', 'design/SYNC.md', 'C:x']) for (const pl of ['linux', 'win32']) assert.equal(notRunRelative(p, pl), false, `${p} ${pl}`);
 });
