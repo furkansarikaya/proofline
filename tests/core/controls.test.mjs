@@ -152,7 +152,7 @@ test('sc_standalone: standalone topology (the lead records its own evidence)', (
 });
 
 // A denied evidence write fails closed and leaves nothing behind. A process running as root is not denied by a mode: the check needs another user.
-test('sc_write_failure: a denied worker-evidence write fails closed and leaves nothing behind', { skip: process.getuid?.() === 0 ? 'root is not denied by a directory mode' : false }, () => {
+test('sc_write_failure: a denied worker-evidence write fails closed and leaves nothing behind', { skip: process.getuid?.() === 0 ? 'root is not denied by a directory mode' : process.platform === 'win32' ? 'NTFS ignores a directory mode: chmod 0555 denies no write there and the test sets up no ACL, so the denied write cannot be made (the POSIX run keeps the check)' : false }, () => {
   const d = newRepo(); layerRun(d, 'WF', ['impl.txt'], { extra: POLICY_KEYS }); w(d, 'impl.txt', ''); commit(d, 'baseline');
   must(d, ['baseline', 'WF']); must(d, ['freeze', 'WF']); must(d, ['handoff', 'WF', 'IMPLEMENTING']);
   const evd = path.join(d, '.agents/runs/WF/worker-evidence'); mkdirSync(evd, { recursive: true }); chmodSync(evd, 0o555);

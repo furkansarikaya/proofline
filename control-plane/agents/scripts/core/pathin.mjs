@@ -66,6 +66,24 @@ export function isAbsoluteInput(p, platform = process.platform) {
 }
 
 /**
+ * A path typed by the caller, as a path on disk (A267): an absolute one (`isAbsoluteInput`) stays, a relative one is taken from CWD. Before, only a leading `/` counted, so on Windows `C:\\x` was
+ * joined to the working directory and read as a missing file. Off Windows this is `p.startsWith('/') ? p : `${cwd}/${p}``, as before.
+ * @param {string} cwd @param {string} p @param {string} [platform]
+ */
+export function onDisk(cwd, p, platform = process.platform) { return isAbsoluteInput(p, platform) ? p : `${cwd}/${p}`; }
+
+/**
+ * Does the file name of an explorer's report carry the agent's token (A113), or does the report lie in the submit's own temporary folder TMP? A Windows path has both slashes, so on win32 the
+ * backslash separates too (before, `C:\\...\\ag1-rep` never matched `/ag1-`); elsewhere a backslash is an ordinary name character and the text is compared as given.
+ * @param {string} report @param {string} agent @param {string} tmp @param {string} [platform]
+ */
+export function reportNamesAgent(report, agent, tmp, platform = process.platform) {
+  const sl = (/** @type {string} */ t) => (platform === 'win32' ? t.replace(/\\/g, '/') : t);
+  const r = sl(report);
+  return r.includes(`/${agent}-`) || r.startsWith(`${agent}-`) || r.startsWith(`${sl(tmp)}/`);
+}
+
+/**
  * Is DIR a run worktree of the main tree MAIN, that is under `<main>/.agents/local/worktrees/` (A263)? Off Windows exactly `real(dir).startsWith(`${main}/.agents/local/worktrees/`)`, the
  * expression every caller had (a failing `real` leaves DIR as given). On win32 git prints MAIN as `C:/Users/runneradmin/...` while the real path of DIR is `C:\Users\RUNNER~1\...`: both go
  * through `realpathPosix`/`posixForm` (forward slashes, upper-case drive, the long name) and meet by `inside` (a whole component, ASCII case folded), so a worktree is found there too.

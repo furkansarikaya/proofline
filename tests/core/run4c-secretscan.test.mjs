@@ -24,7 +24,7 @@ test('a secret before a late NUL byte is reported; a NUL in the head makes a fil
   } finally { rmSync(d, { recursive: true, force: true }); }
 });
 
-test('an unreadable file fails the scan closed and names the path', { skip: process.getuid?.() === 0 }, () => {
+test('an unreadable file fails the scan closed and names the path', { skip: process.getuid?.() === 0 ? 'root reads a mode 0 file' : process.platform === 'win32' ? 'NTFS ignores chmod 0: no file is unreadable there without an ACL, which the test does not set up (the POSIX run keeps the check)' : false }, () => {
   const d = tempDir('ss4c-');
   try {
     mkdirSync(join(d, 'src'));

@@ -12,6 +12,7 @@ import { requireRun } from '../runs.mjs';
 import { ProoflineError, fail, unsupported } from '../errors.mjs';
 import { designGlobMatch, PathKinds, scopeKindRows } from '../pathkind.mjs';
 import { isDir, isFile } from '../paths.mjs';
+import { onDisk } from '../pathin.mjs';
 import { afterFrontMatter, evidenceField, humanChecks, readBytes, scopeEntries, scopeEntryCovers, taskType } from '../taskfile.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -27,7 +28,7 @@ function arg(a) {
 function disk(ctx, s) {
   const back = Buffer.from(s, 'latin1').toString('utf8');
   if (bytes(back) !== s) throw unsupported('path is not UTF-8');
-  return back.startsWith('/') ? back : `${ctx.cwd}/${back}`;
+  return onDisk(ctx.cwd, back);
 }
 
 /** `${N:?usage}` -> the shell prints a shell-specific error for a missing or empty argument. @param {string | undefined} a */
