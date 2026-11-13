@@ -5,7 +5,7 @@
 // and the `.git` file of its worktree) steers a grant; a layout that is not the honest one stops the profile (`ProfileRefused`), a worktree outside the proofline folder gets none.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { ProfileRefused, worktreeGrants } from '../../control-plane/agents/scripts/core/codexprofile.mjs';
@@ -13,10 +13,11 @@ import { tempDir } from '../lib/tempdir.mjs';
 
 /**
  * A fake file system. DIRS and FILES are the paths that exist; GIT answers by the first arguments; REAL maps a path to its real path.
- * @param {{ dirs?: string[], files?: string[], git?: Record<string, string>, real?: Record<string, string>, ci?: boolean }} o
+ * @param {{ dirs?: string[], files?: string[], git?: Record<string, string>, real?: Record<string, string>, ci?: boolean, entries?: Record<string, Record<string, string>> }} o
  */
 function fakeIo(o) {
   const made = /** @type {string[]} */ ([]);
+  const entriesAt = (/** @type {string} */ p) => Object.entries(o.entries ?? {}).find(([k]) => (o.ci ? k.toLowerCase() === p.toLowerCase() : k === p))?.[1];
   return {
     made,
     io: {
@@ -25,6 +26,8 @@ function fakeIo(o) {
       isDir: (/** @type {string} */ p) => (o.dirs ?? []).some((d) => (o.ci ? d.toLowerCase() === p.toLowerCase() : d === p)),
       isFile: (/** @type {string} */ p) => (o.files ?? []).includes(p),
       mkdirp: (/** @type {string} */ p) => { made.push(p); },
+      readdir: (/** @type {string} */ p) => Object.keys(entriesAt(p) ?? {}),
+      readText: (/** @type {string} */ p) => { const m = /^(.*)\/([^/]+)\/gitdir$/.exec(p); return m ? (entriesAt(m[1])?.[m[2]] ?? '') : ''; },
     },
   };
 }
@@ -59,14 +62,14 @@ const MAIN = '/p/main';
 const WT = `${MAIN}/.agents/local/worktrees/LC`;
 const GD = `${MAIN}/.git/worktrees/LC`;
 const LIST = (/** @type {string} */ m) => ({ 'worktree list --porcelain': `worktree ${m}\nHEAD x` });
-const HONEST = { files: [`${WT}/.git`], dirs: [GD, `${MAIN}/.git`, `${MAIN}/.git/objects`], git: { ...LIST(MAIN), 'rev-parse --git-dir': GD, 'rev-parse --git-common-dir': `${MAIN}/.git` } };
+const HONEST = { entries: { [`${MAIN}/.git/worktrees`]: { LC: `${WT}/.git` } }, files: [`${WT}/.git`], dirs: [GD, `${MAIN}/.git`, `${MAIN}/.git/objects`], git: { ...LIST(MAIN), 'rev-parse --git-dir': GD, 'rev-parse --git-common-dir': `${MAIN}/.git` } };
 const POSIX_CASES = /** @type {Array<[string, string, Parameters<typeof fakeIo>[0]]>} */ ([
   ['a worktree, absolute git folders', WT, HONEST],
   ['a worktree, relative git folders', WT, { ...HONEST, dirs: [`${WT}/rel/worktrees/LC`, `${MAIN}/.git`, `${WT}/../c/objects`], real: { [`${WT}/rel/worktrees/LC`]: GD, [`${WT}/../c/objects`]: `${MAIN}/.git/objects` }, git: { ...LIST(MAIN), 'rev-parse --git-dir': 'rel/worktrees/LC', 'rev-parse --git-common-dir': '../c' } }],
   ['git answers nothing about the git folder', WT, { files: [`${WT}/.git`], git: LIST(MAIN) }],
-  ['a symlinked root: real differs from the spelling', '/link/LC', { ...HONEST, files: ['/link/LC/.git'], real: { '/link/LC': WT } }],
+  ['a symlinked root: real differs from the spelling', '/link/LC', { ...HONEST, files: ['/link/LC/.git'], real: { '/link/LC': WT, '/link/LC/.git': `${WT}/.git` } }],
   ['no objects folder', WT, { ...HONEST, dirs: [GD, `${MAIN}/.git`] }],
-  ['a main tree with a space', '/a b/m/.agents/local/worktrees/LC', { files: ['/a b/m/.agents/local/worktrees/LC/.git'], dirs: ['/a b/m/.git/worktrees/LC', '/a b/m/.git', '/a b/m/.git/objects'], git: { ...LIST('/a b/m'), 'rev-parse --git-dir': '/a b/m/.git/worktrees/LC', 'rev-parse --git-common-dir': '/a b/m/.git' } }],
+  ['a main tree with a space', '/a b/m/.agents/local/worktrees/LC', { entries: { '/a b/m/.git/worktrees': { LC: '/a b/m/.agents/local/worktrees/LC/.git' } }, files: ['/a b/m/.agents/local/worktrees/LC/.git'], dirs: ['/a b/m/.git/worktrees/LC', '/a b/m/.git', '/a b/m/.git/objects'], git: { ...LIST('/a b/m'), 'rev-parse --git-dir': '/a b/m/.git/worktrees/LC', 'rev-parse --git-common-dir': '/a b/m/.git' } }],
   ['not a worktree (.git is a folder)', MAIN, { dirs: [`${MAIN}/.git`], git: { ...LIST(MAIN), 'rev-parse --git-dir': '.git' } }],
 ]);
 
@@ -122,8 +125,16 @@ function realLayout() {
     isDir: (/** @type {string} */ p) => { try { return realpathSync(p) !== '' && spawnSync('test', ['-d', p]).status === 0; } catch { return false; } },
     isFile: (/** @type {string} */ p) => spawnSync('test', ['-f', p]).status === 0,
     mkdirp: (/** @type {string} */ p) => { mkdirSync(p, { recursive: true }); },
+    readdir: (/** @type {string} */ p) => { try { return readdirSync(p); } catch { return []; } },
+    readText: (/** @type {string} */ p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } },
   };
   return { main, wt, io, gd: path.join(main, '.git/worktrees/LC') };
+}
+/** A second run worktree (T2) in the same project. @param {ReturnType<typeof realLayout>} a */
+function addSecond(a) {
+  const wt2 = path.join(a.main, '.agents/local/worktrees/T2');
+  assert.equal(sgit(a.main, ['worktree', 'add', '-q', '--detach', wt2, 'HEAD']).status, 0);
+  return { wt2, gd2: path.join(a.main, '.git/worktrees/T2') };
 }
 test('real git: the honest layout gives the old text byte for byte; a rewritten commondir (symlinked fake objects, or another repository) and a rewritten .git file are refused', { skip: process.platform === 'win32' ? 'POSIX symlinks and `test`; the Windows rules run through the injected tests (A263)' : false }, () => {
   const a = realLayout();
@@ -161,9 +172,9 @@ const WIN_GD = `${WIN_MAIN}/.git/worktrees/LC`;
 const short = (/** @type {string} */ p) => p.replace(/\//g, '\\');
 /** @param {Partial<Parameters<typeof fakeIo>[0]>} [over] */
 function winCase(over = {}) {
-  const real = { [WIN_WT]: short(WIN_WT), [WIN_GD]: short(WIN_GD), [`${WIN_MAIN}`]: short(WIN_MAIN), [`${WIN_MAIN}/.git/objects`]: short(`${WIN_MAIN}/.git/objects`), ...(over.real ?? {}) };
+  const real = { [WIN_WT]: short(WIN_WT), [`${WIN_WT}/.git`]: short(`${WIN_WT}/.git`), [WIN_GD]: short(WIN_GD), [`${WIN_MAIN}`]: short(WIN_MAIN), [`${WIN_MAIN}/.git/objects`]: short(`${WIN_MAIN}/.git/objects`), ...(over.real ?? {}) };
   return fakeIo({
-    files: [`${WIN_WT}/.git`], dirs: [WIN_GD, `${WIN_MAIN}/.git`, `${WIN_MAIN}/.git/objects`],
+    entries: { [`${WIN_MAIN}/.git/worktrees`]: { LC: `${WIN_WT}/.git` } }, files: [`${WIN_WT}/.git`], dirs: [WIN_GD, `${WIN_MAIN}/.git`, `${WIN_MAIN}/.git/objects`],
     git: { ...LIST(WIN_MAIN), 'rev-parse --git-dir': WIN_GD, 'rev-parse --git-common-dir': `${WIN_MAIN}/.git` },
     ci: true, ...over, real,
   });
@@ -181,7 +192,7 @@ test('win32: the three grants are found though real() answers backslashes and gi
 
 test('win32: a real path that differs only in case (drive letter, folder names) is the same place; a case-folding compare is what finds it', () => {
   const lower = (/** @type {string} */ p) => short(p).toLowerCase();
-  const o = winCase({ real: { [WIN_WT]: lower(WIN_WT), [WIN_GD]: lower(WIN_GD), [WIN_MAIN]: short(WIN_MAIN), [`${WIN_MAIN}/.git/objects`]: lower(`${WIN_MAIN}/.git/objects`) } });
+  const o = winCase({ real: { [WIN_WT]: lower(WIN_WT), [`${WIN_WT}/.git`]: lower(`${WIN_WT}/.git`), [WIN_GD]: lower(WIN_GD), [WIN_MAIN]: short(WIN_MAIN), [`${WIN_MAIN}/.git/objects`]: lower(`${WIN_MAIN}/.git/objects`) } });
   const got = worktreeGrants(WIN_WT, o.io, 'win32');
   assert.equal(got.toLowerCase(), WANT.toLowerCase(), 'the same three grants, in the spelling the real path gave');
   assert.ok(got.includes('C:/users/runneradmin/appdata/local/temp/proj/.agents/local/locks'), 'the main tree comes from the real path of the worktree');
@@ -201,4 +212,60 @@ test('win32: the profile stays restrictive, never wider: another drive, a UNC ma
   assert.equal(worktreeGrants('C:/Users/r/other', fakeIo({ files: ['C:/Users/r/other/.git'] }).io, 'win32'), '');
   assert.equal(worktreeGrants(WIN_MAIN, fakeIo({ dirs: [`${WIN_MAIN}/.git`] }).io, 'win32'), '');
   assert.equal(LOCKS.length > 0, true);
+});
+
+test('SECURITY-1 round 2, real git: the git folder is THIS worktree\'s own entry: T1\'s .git file pointing at T2, a rewritten gitdir of its own entry, and two entries claiming one .git file are refused; the honest layout of two runs is unchanged', { skip: process.platform === 'win32' ? 'POSIX symlinks and `test`; the Windows rules run through the injected tests (A263)' : false }, () => {
+  const a = realLayout(); const t2 = addSecond(a);
+  const want = `,"${a.main}/.agents/local/locks"="write","${a.gd}"="write","${a.main}/.git/objects"="write"`;
+  assert.equal(worktreeGrants(a.wt, a.io, 'linux'), want, 'two runs: the honest grants of T1 are unchanged');
+  assert.equal(old(a.wt, a.io), want);
+  // 1. T1's .git file names T2's git folder: the old code (and the first fix) granted it
+  const orig = readFileSync(path.join(a.wt, '.git'), 'utf8');
+  writeFileSync(path.join(a.wt, '.git'), `gitdir: ${t2.gd2}\n`);
+  assert.ok(old(a.wt, a.io).includes(`"${t2.gd2}"="write"`), 'the premise: the old code granted the other run\'s git folder');
+  assert.throws(() => worktreeGrants(a.wt, a.io, 'linux'), ProfileRefused);
+  writeFileSync(path.join(a.wt, '.git'), orig);
+  assert.equal(worktreeGrants(a.wt, a.io, 'linux'), want, 'restored: granted again');
+  // 2. the worker rewrites the gitdir file of its OWN entry: it only makes itself not match
+  const gdFile = path.join(a.gd, 'gitdir');
+  const keep = readFileSync(gdFile, 'utf8');
+  writeFileSync(gdFile, `${t2.wt2}/.git\n`);
+  assert.throws(() => worktreeGrants(a.wt, a.io, 'linux'), ProfileRefused);
+  writeFileSync(gdFile, keep);
+  // 3. two entries that name the same .git file
+  mkdirSync(path.join(a.main, '.git/worktrees/COPY'));
+  writeFileSync(path.join(a.main, '.git/worktrees/COPY/gitdir'), keep);
+  assert.throws(() => worktreeGrants(a.wt, a.io, 'linux'), ProfileRefused);
+});
+
+test('SECURITY-1 round 2, injected: exactly one entry of the main tree names this worktree\'s .git file, and it is the folder git reported (POSIX and win32)', () => {
+  const ENT = `${MAIN}/.git/worktrees`;
+  const grants = (/** @type {Record<string, string>} */ entries, /** @type {Partial<Parameters<typeof fakeIo>[0]>} */ over = {}) => worktreeGrants(WT, fakeIo({ ...HONEST, entries: { [ENT]: entries }, ...over }).io, 'linux');
+  assert.ok(grants({ LC: `${WT}/.git`, T2: `${MAIN}/.agents/local/worktrees/T2/.git` }).includes(GD));
+  assert.throws(() => grants({}), ProfileRefused, 'no entry');
+  assert.throws(() => grants({ LC: `${MAIN}/.agents/local/worktrees/T2/.git`, T2: `${MAIN}/.agents/local/worktrees/T2/.git` }), ProfileRefused, 'our own entry names another');
+  assert.throws(() => grants({ LC: `${WT}/.git`, DUP: `${WT}/.git` }), ProfileRefused, 'two entries');
+  assert.throws(() => grants({ T2: `${WT}/.git` }), ProfileRefused, 'the entry that names us is not the folder git reported');
+  // win32: the same rules, with the spellings of Windows
+  const ENTW = `${WIN_MAIN}/.git/worktrees`;
+  const w = (/** @type {Record<string, string>} */ entries) => worktreeGrants(WIN_WT, winCase({ entries: { [ENTW]: entries } }).io, 'win32');
+  assert.equal(w({ LC: `${WIN_WT}/.git`, T2: `${WIN_MAIN}/.agents/local/worktrees/T2/.git` }), WANT);
+  assert.throws(() => w({}), ProfileRefused);
+  assert.throws(() => w({ LC: `${WIN_WT}/.git`, DUP: `${WIN_WT}/.git` }), ProfileRefused);
+  assert.throws(() => w({ T2: `${WIN_WT}/.git` }), ProfileRefused);
+  assert.throws(() => w({ LC: `${WIN_MAIN}/.agents/local/worktrees/T2/.git` }), ProfileRefused);
+});
+
+test('a root that is a SUBFOLDER of a run worktree is not the worktree; a root spelled in another case than on disk is refused off Windows (fails closed) and found on win32', () => {
+  const sub = `${WT}/sub`;
+  const f = fakeIo({ ...HONEST, files: [`${sub}/.git`] });
+  assert.equal(worktreeGrants(sub, f.io, 'linux'), '', 'the $ anchor: a folder inside a worktree has no grants of its own');
+  assert.deepEqual(f.made, []);
+  // POSIX: the real path says /p/Main/..., git says /p/main: a different place, never a silent miss
+  const other = `/p/Main/.agents/local/worktrees/LC`;
+  assert.throws(() => worktreeGrants(other, fakeIo({ ...HONEST, files: [`${other}/.git`] }).io, 'linux'), ProfileRefused);
+  // win32: the fixed words of the real path in capitals still find the worktree (the probe is case folded)
+  const up = (/** @type {string} */ p) => short(p).toUpperCase();
+  const o = winCase({ real: { [WIN_WT]: up(WIN_WT), [`${WIN_WT}/.git`]: up(`${WIN_WT}/.git`), [WIN_GD]: short(WIN_GD), [WIN_MAIN]: short(WIN_MAIN) } });
+  assert.equal(worktreeGrants(WIN_WT, o.io, 'win32').toLowerCase(), WANT.toLowerCase());
 });

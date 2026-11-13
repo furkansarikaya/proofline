@@ -3,11 +3,12 @@
 // nothing else. The shell functions sb_strip and sb_block_only are gone; the worktree cleanup and deliver-merged use sbBlockOnly of the core.
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { leaveFolder, sbBlockOnly, tarSpec } from '../../control-plane/agents/scripts/core/runend.mjs';
+import { archiveRun, leaveFolder, sbBlockOnly, tarSpec } from '../../control-plane/agents/scripts/core/runend.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 import { gOk } from './run6-lib.mjs';
 
@@ -61,4 +62,18 @@ test('A263 leaveFolder: off Windows never moves; on win32 it moves to the main t
   assert.deepEqual(go('win32', 'C:/T/p/.agents/local/worktrees/LC2'), [false, []], 'a sibling with the same prefix');
   assert.deepEqual(go('win32', 'D:/T/p/.agents/local/worktrees/LC'), [false, []], 'another drive');
   assert.equal(leaveFolder('C:/x', 'C:/y', 'win32', () => 'C:/x', () => { throw new Error('busy'); }), false, 'a failing chdir is not an error');
+});
+
+test('A263 archiveRun: a run folder whose name starts with "-" is archived as a member, not read as an option of tar (the name follows `--`)', () => {
+  const main = tempDir('ar-');
+  const runs = `${main}/runs`;
+  mkdirSync(`${runs}/-rf`, { recursive: true });
+  writeFileSync(`${runs}/-rf/RUN.yaml`, 'task:\n  id: LC\n');
+  const ctx = /** @type {any} */ ({ cwd: main, config: () => ({ get: (/** @type {string} */ _k, /** @type {string} */ d) => d }), sharedMain: () => main, childEnv: () => cleanEnv(), out: () => {} });
+  archiveRun(ctx, 'LC', `${runs}/-rf`);
+  const dir = `${main}/.agents/local/archive/LC`;
+  const names = readdirSync(dir);
+  assert.equal(names.length, 1, names.join(','));
+  const r = spawnSync('tar', ['-tzf', names[0]], { cwd: dir, encoding: 'utf8' });
+  assert.match(r.stdout, /^-rf\/RUN\.yaml$/m, `${r.stdout}${r.stderr}`);
 });

@@ -12,6 +12,8 @@ import { posix, skipOnWin32 } from '../lib/winpath.mjs';
 const fakeTest = skipOnWin32(test, 'starts a shell-script fake runtime from a temp folder; on Windows only a real .exe outside temp folders runs, by design (A252, A262)');
 import { fixture } from './dispatch-lib.mjs';
 import { fakeRuntime } from './golden/dispatch-fakes.mjs';
+import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
+import { startDispatch } from '../../control-plane/agents/scripts/core/dispatcher.mjs';
 
 const golden = JSON.parse(readFileSync(path.join(import.meta.dirname, 'golden/dispatch/cases.json'), 'utf8'));
 
@@ -136,5 +138,37 @@ describe('the Codex permission profile (dispatch codex-profile ID)', () => {
     cpSync(path.join(fx.dir, '.agents/scripts'), path.join(wt, '.agents/scripts'), { recursive: true });
     // the recording was made with the main tree under its real path: the worktree profile names it
     assert.deepEqual(profile(wt, path.join(wt, '.agents/scripts/dispatch.sh'), fx), golden._profiles.worktree);
+  });
+  /** A project with a run worktree LC and a second one T2, the control plane copied into LC; `tamper(wt, t2)` runs before the dispatch. */
+  function twoWorktrees(/** @type {(wt: string, t2: string) => void} */ tamper) {
+    const fx = fixture();
+    const g = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', fx.dir, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { env: fx.env, encoding: 'utf8' });
+    g('commit', '-q', '--allow-empty', '-m', 'init');
+    mkdirSync(path.join(fx.loc, 'worktrees'), { recursive: true });
+    g('worktree', 'add', '-q', '--detach', path.join(fx.loc, 'worktrees/LC'), 'HEAD');
+    g('worktree', 'add', '-q', '--detach', path.join(fx.loc, 'worktrees/T2'), 'HEAD');
+    const wt = realpathSync(path.join(fx.loc, 'worktrees/LC')); const t2 = realpathSync(path.join(fx.loc, 'worktrees/T2'));
+    cpSync(path.join(fx.dir, '.agents'), path.join(wt, '.agents'), { recursive: true, filter: (src) => !src.includes(`${path.sep}worktrees`) });
+    tamper(wt, t2);
+    return { fx, wt };
+  }
+  /** The worker rewrites the `.git` file of LC to name the git folder of T2. */
+  const tamperGitFile = (/** @type {string} */ wt, /** @type {string} */ t2) => writeFileSync(path.join(wt, '.git'), readFileSync(path.join(t2, '.git'), 'utf8'));
+  test('a worktree whose .git file names another run\'s git folder: the codex-profile verb stops with the status 2 and prints no profile', () => {
+    const { fx, wt } = twoWorktrees(tamperGitFile);
+    const r = spawnSync('sh', [posix(path.join(wt, '.agents/scripts/dispatch.sh')), 'codex-profile', 'LC'], { cwd: wt, env: fx.env, encoding: 'utf8' });
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /Codex profile is not built/);
+  });
+  test('the same refusal during a dispatch of a Codex role: the result is BLOCKED (exit 6) with the reason, and no runtime is started', async () => {
+    const { fx, wt } = twoWorktrees(tamperGitFile);
+    /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
+    const io = { env: fx.env, cwd: wt, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) }, scriptPath: path.join(wt, '.agents/scripts/proofline-core.mjs') };
+    const code = await startDispatch(io, ['LC', 'implementer', '--runtime', 'codex'], { run, graceMs: 300, minTimeoutSeconds: 1 }).done;
+    const text = Buffer.concat(out).toString('latin1') + Buffer.concat(err).toString('latin1');
+    assert.equal(code, 6, text);
+    assert.match(text, /RESULT: BLOCKED[\s\S]*Codex profile is not built/);
+    assert.equal(existsSync(path.join(fx.loc, 'codex.argv')), false, 'the runtime was started');
   });
 });
