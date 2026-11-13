@@ -1,6 +1,6 @@
 // @ts-check
 // Helpers of tests/core/lifecycle-s2.test.mjs (lifecycle-test.sh scenario_terminal .. scenario_reopen_blocked_and_state). Only what harness.mjs does not have.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { A, accepted, cached, cleanEnv, codeKey, copyOf, gateOwner, qaBind, say, scaffold, tmp, tsha } from '../lib/harness.mjs';
@@ -135,6 +135,13 @@ export function approve(dir, kind, text) {
 
 /** A live process that is not a child of this one (started by a shell that exits at once), so a killed process is reaped by init, not left a zombie. @returns {number} */
 export function startSleeper() {
+  if (process.platform === 'win32') {
+    // W10: the `$!` of a Git-for-Windows `sh` is an MSYS pid, which is no Windows pid: the product looks the number up as a Windows one (`process.kill(pid, 0)`). A detached node process has a real pid.
+    const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { detached: true, stdio: 'ignore' });
+    c.unref();
+    if (typeof c.pid !== 'number') throw new Error('no sleeper');
+    return c.pid;
+  }
   const r = spawnSync('sh', ['-c', 'sleep 120 >/dev/null 2>&1 </dev/null & echo $!'], { encoding: 'utf8', env: cleanEnv({}) });
   const pid = Number(r.stdout.trim());
   if (!Number.isInteger(pid) || pid <= 1) throw new Error(`no sleeper: ${r.stdout}${r.stderr}`);
