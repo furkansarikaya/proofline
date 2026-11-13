@@ -268,3 +268,18 @@ test('W10: relUnder keeps the POSIX batch-line rule exactly and finds a worktree
   assert.equal(relUnder('C:/Users/runneradmin/p', 'C:/Users/runneradmin/p', 'win32'), '', 'the project itself');
   assert.equal(relUnder('C:/Users/runneradmin/p', 'C:/Users/runneradmin/p2/x', 'win32'), null, 'a sibling');
 });
+
+test('W10: the call sites use the platform rules (a revert goes red here, the Windows probe is the only other check)', () => {
+  const core = new URL('../../control-plane/agents/scripts/core/', import.meta.url);
+  const src = (/** @type {string} */ f) => readSource(new URL(f, core), 'utf8');
+  assert.match(src('handoff.mjs'), /\|\| isScratchWorktreeWin\(p, list\[0\] \?\? '', ctx\.root, \[ctx\.env\.TEMP, ctx\.env\.TMP, ctx\.env\.TMPDIR\]\)\) extra \+=/);
+  assert.match(src('worktree.mjs'), /process\.platform === 'win32'\) \{[^]*?winLinkAction\(t, physical\(path\.dirname\(l\)\) \?\? '', main, wt\)/);
+  const hook = src('commands/hookcmds.mjs');
+  assert.match(hook, /const p = posixForm\(args\[0\] \?\? ''\);/);
+  assert.match(hook, /if \(!isLocalAbsolute\(p\)\) return 1;/);
+  assert.match(hook, /const rest = inside\(base, p\);/);
+  assert.doesNotMatch(hook, /if \(!p\.startsWith\('\/'\)\) return 1;/, 'the leading-slash test of worktree-root is gone');
+  assert.match(src('commands/runcmds.mjs'), /if \(notRunRelative\(nw\) \|\| nw\.includes\('\/\/'\)/);
+  assert.match(src('lifecycle.mjs'), /p === '' \|\| notRunRelative\(p\) \|\| p\.includes\('\/\/'\)\) fail\('invalid local Markdown task source path'\)/);
+  assert.match(src('batch.mjs'), /const where = relUnder\(process\.platform === 'win32' \? physical\(ctx\.root\) : ctx\.root, rr\) \?\? rr;/);
+});

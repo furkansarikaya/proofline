@@ -4,10 +4,12 @@
 // reaches AGENTS.md once. Absolute expectations; the real control plane in a throwaway project.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { git, newProject } from './helper-lib.mjs';
 import { A, accepted, refused, say } from './legacy-lib.mjs';
+import { cleanEnv } from '../lib/harness.mjs';
 
 const PAGE = 'docs/wiki/lessons/observations.md';
 const sha = (/** @type {string} */ f) => createHash('sha256').update(readFileSync(f)).digest('hex');
@@ -24,6 +26,17 @@ function withGate() {
   return { d, g1, src: `gate:LC/001-REVIEW_SMALL#REVIEW_SMALL-1@${g1}` };
 }
 const L = (/** @type {string} */ d, /** @type {string[]} */ args, /** @type {string} */ role = 'lead') => A(d, ['lessons', ...args], { role });
+/**
+ * L with the arguments handed to the core as they are. Through `sh agent.sh` on Windows the MSYS command-line parser changes an argument (W10, probed: `Escape \\n ... C:\tmp.` arrives
+ * with one backslash less, a carriage return cuts the argument), which is the launch layer and not the product. There the core is started directly by node, whose argument list is exact;
+ * elsewhere this is L.
+ * @param {string} d @param {string[]} args
+ */
+function Lexact(d, args) {
+  if (process.platform !== 'win32') return L(d, args);
+  const r = spawnSync(process.execPath, [`${d}/.agents/scripts/proofline-core.mjs`, '--pl-argv0', '.agents/scripts/agent.sh', 'lessons', ...args], { cwd: d, env: cleanEnv({ AGENT_ROLE: 'lead' }), input: '', encoding: 'utf8', timeout: 300000 });
+  return { status: r.status, out: r.stdout ?? '', err: r.stderr ?? '', text: (r.stdout ?? '') + (r.stderr ?? '') };
+}
 
 test('derive lists the non-info findings with their source and kind; no run is a failure', () => {
   const { d, g1, src } = withGate();
@@ -148,7 +161,7 @@ test('promotion needs the user\'s approval: the request shows the rule text, an 
   refused(L(d, ['promote', 'LC', cand]), 'single use', `lessons: candidate ${cand} is already promoted`);
   assert.equal(L(d, ['validate']).status, 0);
   // the next promotion goes first into an existing section, after its blank line
-  const cand2 = (/lc-[0-9a-f]{8}/.exec(accepted(L(d, ['write', 'LC', `gate:LC/001-REVIEW_SMALL#REVIEW_SMALL-3@${sha(`${d}/.agents/runs/LC/gates/001-REVIEW_SMALL.yaml`)}`, 'Escape \\n as \\\\n in paths like C:\\tmp.']), 'write 2').out) ?? [])[0] ?? '';
+  const cand2 = (/lc-[0-9a-f]{8}/.exec(accepted(Lexact(d, ['write', 'LC', `gate:LC/001-REVIEW_SMALL#REVIEW_SMALL-3@${sha(`${d}/.agents/runs/LC/gates/001-REVIEW_SMALL.yaml`)}`, 'Escape \\n as \\\\n in paths like C:\\tmp.']), 'write 2').out) ?? [])[0] ?? '';
   assert.equal(L(d, ['bound', 'LC', cand2]).out.length, 65, 'the approval binding is a full sha256');
   const before = readFileSync(`${d}/AGENTS.md`, 'utf8');
   refused(L(d, ['promote', 'LC', cand2]), 'no approval for the second', 'promotion refused');

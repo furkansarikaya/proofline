@@ -12,6 +12,7 @@ import { dropHalfWorktree } from '../../control-plane/agents/scripts/core/worktr
 import { A, AB, batchApprove, bnew, binstall, fakes, g, gOk, has, lines, mktask, path, put, read, readIf, real, repo, say, scripts, sh, wtp } from './batch-lib.mjs';
 import { makeFixture, git } from './fixture.mjs';
 import { installGithooks } from '../lib/harness.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const wbody = (/** @type {string} */ title) => `## Goal\n\n${title}.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n`;
 /** @param {{ status: number|null, text: string }} r @param {string} what @param {string} [msg] */
@@ -170,7 +171,8 @@ test('worktree-add: a link inside a copied dependency folder that led into the m
   }
   try { writeFileSync(`${wt}/node_modules/.bin/rel`, 'changed\n'); } catch { /* the link may lead nowhere */ }
   assert.equal(read(`${dir}/shared/tool.js`), 'tool\n', 'a write through a copied link reached the main tree\'s shared/tool.js');
-  assert.equal(readlinkSync(`${wt}/node_modules/inside`), 'pkg/index.js', 'a link that stays inside the folder was changed');
+  // Windows answers the target with backslashes (`pkg\index.js`, Node writes the link that way): the same link in the form the core compares with
+  assert.equal(posix(readlinkSync(`${wt}/node_modules/inside`)), 'pkg/index.js', 'a link that stays inside the folder was changed');
 });
 
 /** The prompt hook of the main tree, as the runtime runs it. @param {string} main @param {string} prompt */
