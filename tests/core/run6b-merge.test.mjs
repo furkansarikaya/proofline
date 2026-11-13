@@ -10,7 +10,9 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { run, toolRoot } from './run6-lib.mjs';
+import { run, toolRoot, nodeFake, ghMergeSource, glabMergeSource, joinPath } from './run6-lib.mjs';
+import { fakeExe } from '../lib/winfake.mjs';
+import { commandV } from '../../control-plane/agents/scripts/core/runtimedetect.mjs';
 import { scripts } from './legacy-lib.mjs';
 
 const core = `${scripts}/proofline-core.mjs`;
@@ -18,7 +20,9 @@ const core = `${scripts}/proofline-core.mjs`;
  * A PATH that holds only what the merge needs (the real tools it runs, linked into one folder inside the checkout): no system folder, so a gh, glab or az that the
  * host happens to have (the CI runner has /usr/bin/gh) is never found, and the tests that expect "no tool" or "a refused entry" do not depend on the machine.
  */
-const minimal = (() => {
+const D = path.delimiter;
+const minimal = process.platform === 'win32' ? [...new Set(['git', 'sh'].map((t) => path.dirname(commandV(t, process.env) ?? ''))) ].join(D) : (() => {
+  // Windows: the folders of the real git and sh (symbolic links of those tools are not possible there; neither folder holds a gh)
   const d = path.join(toolRoot, `minpath-${process.pid}`);
   mkdirSync(d, { recursive: true });
   for (const t of ['git', 'sh', 'cat', 'sed', 'tr', 'head', 'tail', 'env', 'dirname', 'basename', 'mkdir', 'rm', 'grep', 'awk', 'wc', 'sort']) {
@@ -38,13 +42,14 @@ function setup() {
   const st = tempDir('mg-state-');
   const bin = path.join(toolRoot, `mg-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
-  wf(`${bin}/gh`, `#!/bin/sh\n[ ! -f "${st}/fail" ] || { echo "gh: HTTP 502" >&2; exit 1; }\ncase "$*" in\n  *"pr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"pr checks"*) [ ! -f "${st}/proxyerr" ] || { cat "${st}/proxyerr" >&2; exit 1; }; cat "${st}/required.json" 2>/dev/null || { echo "no required checks reported on the 'feat/x' branch" >&2; exit 1; } ;;\n  *"pr comment"*) echo "$*" >> "${st}/comment.log"; exit 0 ;;\n  *statusCheckRollup*) cat "${st}/view.json" ;;\n  *headRefOid*) cat "${st}/head.json" ;;\nesac\n`);
-  chmodSync(`${bin}/gh`, 0o755);
+  if (process.platform === 'win32') nodeFake(bin, 'gh', ghMergeSource(st));
+  else { wf(`${bin}/gh`, `#!/bin/sh\n[ ! -f "${st}/fail" ] || { echo "gh: HTTP 502" >&2; exit 1; }\ncase "$*" in\n  *"pr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"pr checks"*) [ ! -f "${st}/proxyerr" ] || { cat "${st}/proxyerr" >&2; exit 1; }; cat "${st}/required.json" 2>/dev/null || { echo "no required checks reported on the 'feat/x' branch" >&2; exit 1; } ;;\n  *"pr comment"*) echo "$*" >> "${st}/comment.log"; exit 0 ;;\n  *statusCheckRollup*) cat "${st}/view.json" ;;\n  *headRefOid*) cat "${st}/head.json" ;;\nesac\n`);
+  chmodSync(`${bin}/gh`, 0o755); }
   const view = (/** @type {string} */ state, /** @type {boolean} */ draft, /** @type {string} */ head, /** @type {unknown} */ rollup, now = head) => {
     wf(`${st}/view.json`, JSON.stringify({ number: 7, state, isDraft: draft, headRefOid: head, statusCheckRollup: rollup }));
     wf(`${st}/head.json`, JSON.stringify({ headRefOid: now }));
   };
-  const merge = (/** @type {string[]} */ args, /** @type {string} */ pathEnv = `${bin}:${minimal}`) => {
+  const merge = (/** @type {string[]} */ args, /** @type {string} */ pathEnv = joinPath(bin, minimal)) => {
     const r = run(proj, process.execPath, [core, 'cli', 'merge', ...args], { PATH: pathEnv });
     return { ...r, code: r.status };
   };
@@ -59,10 +64,11 @@ test('merge (GitLab): a draft is refused whether `draft` or the older `work_in_p
   const st = tempDir('mg-gl-state-');
   const bin = path.join(toolRoot, `mgl-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
-  wf(`${bin}/glab`, `#!/bin/sh\ncase "$*" in\n  *"mr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"mr view"*) cat "${st}/view.json" ;;\nesac\n`);
-  chmodSync(`${bin}/glab`, 0o755);
+  if (process.platform === 'win32') nodeFake(bin, 'glab', glabMergeSource(st));
+  else { wf(`${bin}/glab`, `#!/bin/sh\ncase "$*" in\n  *"mr merge"*) echo "$*" >> "${st}/merge.log"; exit 0 ;;\n  *"mr view"*) cat "${st}/view.json" ;;\nesac\n`);
+  chmodSync(`${bin}/glab`, 0o755); }
   const mr = (/** @type {Record<string, unknown>} */ extra) => wf(`${st}/view.json`, JSON.stringify({ iid: 7, state: 'opened', sha, head_pipeline: { status: 'success', sha }, ...extra }));
-  const merge = () => run(proj, process.execPath, [core, 'cli', 'merge', '7'], { PATH: `${bin}:${minimal}` });
+  const merge = () => run(proj, process.execPath, [core, 'cli', 'merge', '7'], { PATH: joinPath(bin, minimal) });
   for (const extra of [{ draft: false, work_in_progress: true }, { work_in_progress: true }, { draft: true }, { draft: true, work_in_progress: false }]) {
     mr(extra);
     const r = merge();
@@ -155,20 +161,29 @@ test('merge: a gh in a temporary folder, in the working directory or behind an e
   const t = setup();
   t.view('OPEN', false, sha, [okRun]);
   const shadow = tempDir('mg-shadow-');
-  wf(`${shadow}/gh`, `#!/bin/sh\necho "$*" >> "${t.st}/merge.log"\n`);
-  chmodSync(`${shadow}/gh`, 0o755);
+  // a planted gh: a shell script off Windows; there only a real gh.exe is a program the resolver considers, so the refusal is not vacuous
+  const plant = (/** @type {string} */ dir) => {
+    if (process.platform === 'win32') nodeFake(dir, 'gh', `import { appendFileSync } from 'node:fs'; appendFileSync(${JSON.stringify(`${t.st}/merge.log`)}, process.argv.slice(2).join(' ') + '\\n');\n`);
+    else { wf(`${dir}/gh`, `#!/bin/sh\necho "$*" >> "${t.st}/merge.log"\n`); chmodSync(`${dir}/gh`, 0o755); }
+  };
   const sys = minimal;
-  let r = t.merge(['7'], `${shadow}:${sys}`);
+  plant(shadow);
+  let r = t.merge(['7'], joinPath(shadow, sys));
   assert.notEqual(r.code, 0);
-  assert.ok(r.text.includes('possibly shadowed gh'), r.text);
+  // Windows: a gh.exe in a temporary folder is not found at all (the resolver skips such a folder), which refuses just the same; POSIX names the shadow
+  const SHADOW = process.platform === 'win32' ? /possibly shadowed gh|gh is not installed or not on PATH/ : /possibly shadowed gh/;
+  assert.match(r.text, SHADOW);
   assert.equal(t.merged(), '', 'the shadow gh ran');
-  wf(`${t.proj}/gh`, `#!/bin/sh\necho "$*" >> "${t.st}/merge.log"\n`);
-  chmodSync(`${t.proj}/gh`, 0o755);
-  r = t.merge(['7'], `${t.proj}:${sys}`);
-  assert.ok(r.text.includes('possibly shadowed gh'), r.text);
-  r = t.merge(['7'], `${t.bin}::${sys}`);
-  assert.ok(r.text.includes('empty or relative entry'), r.text);
-  r = t.merge(['7'], `${t.bin}:.:${sys}`);
+  plant(t.proj);
+  r = t.merge(['7'], joinPath(t.proj, sys));
+  assert.match(r.text, SHADOW);
+  assert.notEqual(r.code, 0);
+  // an EMPTY entry is refused by the POSIX rule; the Windows resolver never searches one (fail closed there: the entry is skipped, shadowingEntry)
+  if (process.platform !== 'win32') {
+    r = t.merge(['7'], `${t.bin}${D}${D}${sys}`);
+    assert.ok(r.text.includes('empty or relative entry'), r.text);
+  }
+  r = t.merge(['7'], `${t.bin}${D}.${D}${sys}`);
   assert.ok(r.text.includes('empty or relative entry'), r.text);
   assert.equal(t.merged(), '');
   r = t.merge(['7'], sys);

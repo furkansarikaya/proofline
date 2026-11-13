@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, accepted, project, refused, scripts } from './legacy-lib.mjs';
-import { run, toolRoot } from './run6-lib.mjs';
+import { run, toolRoot, nodeFake, joinPath } from './run6-lib.mjs';
 
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
 void scripts;
@@ -63,12 +63,21 @@ test('the github adapter starts gh with the allowlisted environment: GH_HOST com
   const bin = `${toolRoot}/ghenv-${process.pid}/bin`;
   mkdirSync(bin, { recursive: true });
   const dump = `${toolRoot}/ghenv-${process.pid}/env.txt`;
-  writeFileSync(`${bin}/gh`, `#!/bin/sh\nenv >> "${dump}"\ncase "$1" in --version) echo gh;; auth) exit 0;; issue) echo '{"title":"t","url":"u","body":"","labels":[]}';; esac\nexit 0\n`);
-  chmodSync(`${bin}/gh`, 0o755);
+  if (process.platform === 'win32') {
+    // a shell script is no program the Windows resolver runs (A252): a real gh.exe with the same answers (tests/lib/winfake.mjs)
+    nodeFake(bin, 'gh', `import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(dump)}, Object.entries(process.env).map(([k, v]) => k + '=' + v + '\\n').join(''));
+const a = process.argv.slice(2);
+if (a[0] === '--version') console.log('gh'); else if (a[0] === 'issue') console.log('{"title":"t","url":"u","body":"","labels":[]}');
+`);
+  } else {
+    writeFileSync(`${bin}/gh`, `#!/bin/sh\nenv >> "${dump}"\ncase "$1" in --version) echo gh;; auth) exit 0;; issue) echo '{"title":"t","url":"u","body":"","labels":[]}';; esac\nexit 0\n`);
+    chmodSync(`${bin}/gh`, 0o755);
+  }
   run(d, 'git', ['remote', 'remove', 'origin']);
   run(d, 'git', ['remote', 'add', 'origin', 'https://git.corp.example/acme/app.git']);
   writeFileSync(`${d}/.agents/config.yaml`, read(d, '.agents/config.yaml').replace(/^ {2}platform:.*$/m, '  platform: github').replace(/^ {2}platform_host:.*$/m, '  platform_host: git.corp.example'));
-  const env = { PATH: `${bin}:${process.env.PATH}`, GH_HOST: 'evil.example', GH_REPO: 'evil/repo', GH_CONFIG_DIR: '/evil/cfg' };
+  const env = { PATH: joinPath(bin, process.env.PATH), GH_HOST: 'evil.example', GH_REPO: 'evil/repo', GH_CONFIG_DIR: '/evil/cfg' };
   run(d, 'node', [`${d}/.agents/scripts/proofline-core.mjs`, 'cli', 'task-adapter', 'github', 'status', 'GH-7', 'todo'], env);
   const seen = existsSync(dump) ? readFileSync(dump, 'utf8') : '';
   assert.ok(seen.length > 0, 'the fake gh was not run');
