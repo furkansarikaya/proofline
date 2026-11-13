@@ -391,7 +391,8 @@ class Dispatcher {
     };
     const real = (/** @type {string} */ p) => { try { return process.platform === 'win32' ? realpathSync.native(p) : realpathSync(p); } catch { return p; } };
     /** @type {string} */ let abs;
-    try { abs = worktreeGrants(root, { git, real, isDir, isFile, mkdirp: (p) => { mkdirSync(p, { recursive: true }); } }); } catch (e) {
+    try { abs = worktreeGrants(root, { git, real, isDir, isFile, mkdirp: (p) => { mkdirSync(p, { recursive: true }); },
+      readdir: (p) => { try { return readdirSync(p); } catch { return []; } }, readText: (p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } } }); } catch (e) {
       if (e instanceof ProfileRefused) throw (this.role ? this.blocked(e.message) : this.die(e.message));   // a worktree whose git folders are not where its path says (A263): no profile, the dispatch stops
       throw e;
     }

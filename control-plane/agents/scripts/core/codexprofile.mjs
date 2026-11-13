@@ -25,6 +25,8 @@ export class ProfileRefused extends Error {}
  * @property {(p: string) => string} real the real path of P (`realpathSync`; on win32 the native form); P itself when it cannot be resolved
  * @property {(p: string) => boolean} isDir @property {(p: string) => boolean} isFile
  * @property {(p: string) => void} mkdirp
+ * @property {(p: string) => string[]} readdir the names in a folder, [] when it cannot be read
+ * @property {(p: string) => string} readText a small text file, '' when it cannot be read
  */
 
 /**
@@ -59,8 +61,19 @@ export function worktreeGrants(root, io, platform = process.platform) {
   if (g !== '' && !absolute(g)) g = rel(g);
   if (g !== '' && io.isDir(g)) {
     g = form(io.real(g));
-    // the worktree's own git folder is a folder under <main>/.git/worktrees/, nothing else
+    // the worktree's own git folder is a folder under <main>/.git/worktrees/, and THIS worktree's: the main tree's records say so (below)
     if (!absolute(g) || inside(`${main}/.git/worktrees`, g, platform) === null) throw new ProfileRefused(`the git folder of ${root} (${g}) is not under ${main}/.git/worktrees; the Codex profile is not built`);
+    // The `.git` file of the worktree is worker-writable, so it cannot say which entry is ours (it could name another run's folder). Each entry `<main>/.git/worktrees/<name>/` keeps a `gitdir`
+    // file with the path of the `.git` file of the worktree it belongs to (git wrote it, the worker cannot reach it): exactly ONE entry must name our `.git` file, and it must be the folder
+    // git reported. A worker that rewrites its own entry's `gitdir` only makes itself not match.
+    const ownGit = form(io.real(`${root}/.git`));   // one snapshot of the `.git` file's real path
+    /** @type {string[]} */ const mine = [];
+    for (const name of io.readdir(`${main}/.git/worktrees`)) {
+      const first = io.readText(`${main}/.git/worktrees/${name}/gitdir`).split('\n')[0].replace(/\r$/, '');
+      if (first !== '' && same(form(io.real(first)), ownGit)) mine.push(name);
+    }
+    if (mine.length !== 1) throw new ProfileRefused(`${mine.length} entries under ${main}/.git/worktrees name the .git file of ${root} (exactly one must); the Codex profile is not built`);
+    if (!same(g, form(io.real(`${main}/.git/worktrees/${mine[0]}`)))) throw new ProfileRefused(`the git folder of ${root} (${g}) is not its entry ${mine[0]} under ${main}/.git/worktrees; the Codex profile is not built`);
     abs += `,"${g}"="write"`;
     let o = form(io.git(['rev-parse', '--git-common-dir']));
     if (!absolute(o)) o = rel(o);
