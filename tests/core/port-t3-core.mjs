@@ -5,7 +5,7 @@
 // the change of the git state), all after the closed normalisation of the rig (port-t3-normalise.mjs). Here the Node core runs the same steps on the
 // restored state and must leave exactly that. Nothing runs or compares with the shell at test time.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -82,6 +82,17 @@ export function summarise(r) {
 
 const STUB = /^#!\/bin\/sh\necho (?:"([^"$`\\]*)"|'([^']*)')\n$/;
 let twins = 0;
+/** @type {string | undefined} */ let toolRoot;
+/** This process's own folder for the compiled launcher and the twins (git-ignored `tests/core/.fake-tools/rig-<pid>`, never shared with another test process); removed when the process ends. */
+function rigToolRoot() {
+  if (!toolRoot) {
+    toolRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '.fake-tools', `rig-${process.pid}`);
+    mkdirSync(toolRoot, { recursive: true });
+    const dir = toolRoot;
+    process.on('exit', () => { rmSync(dir, { recursive: true, force: true }); });
+  }
+  return toolRoot;
+}
 /**
  * Windows (A267): a recorded step writes `stubbin/NAME`, a shell script that only echoes a line, and puts `stubbin` first on a recorded POSIX PATH. The Windows resolver runs only a real
  * `.exe` outside every temporary folder (A252, by design), and the POSIX PATH joined with `;` reaches no git at all. So the stub is still written (the recorded delta holds it), a real
@@ -91,11 +102,11 @@ let twins = 0;
 function twinOf(aux, w) {
   const m = /^stubbin\/([a-z]+)$/.exec(w.path); const body = STUB.exec(w.content);
   if (!m || !body) throw new Error(`winfake: the stub ${w.path} is not a one-line echo script, add its twin by hand`);
-  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '.fake-tools', `rig-${process.pid}-${++twins}`);
+  const dir = path.join(rigToolRoot(), `twin-${++twins}`);
   mkdirSync(dir, { recursive: true }); aux.toolDirs.push(dir);
   const script = path.join(dir, `${m[1]}.fake.mjs`);
   writeFileSync(script, `process.stdout.write(${JSON.stringify(`${body[1] ?? body[2]}\n`)});\n`);
-  fakeExe(path.dirname(dir), dir, m[1], script);
+  fakeExe(rigToolRoot(), dir, m[1], script);
   return dir;
 }
 
