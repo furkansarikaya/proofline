@@ -25,15 +25,16 @@ export function registerGroup(name, title) {
       test(c.name, () => {
         const root = realpathSync(rp.state(c.state));
         const work = realpathSync(tempDir('pl-t3-'));
+        /** @type {import('./port-t3-core.mjs').Aux} */ const aux = { exec: new Set(), toolDirs: [] };
         try {
           const home = path.join(work, 'home'); const tmp = path.join(work, 'tmp'); mkdirSync(home); mkdirSync(tmp);
           const initial = snapTree(root);
           const start = git(root, 'rev-parse', 'HEAD').trim();
           const gitBefore = gitInfo(root, start);
           const t0 = Math.floor(Date.now() / 1000);
-          const outputs = runSteps(root, home, tmp, c.steps);
+          const outputs = runSteps(root, home, tmp, c.steps, aux);
           const t1 = Math.floor(Date.now() / 1000);
-          const got = summarise({ outputs, files: snapTree(root), initial, window: [Math.min(c.builtAt, t0), t1], tmpdir: tmp, root, baseSha: g.states[c.state].baseSha ? rp.shaOf(c.state) : '', gitBefore, gitAfter: gitInfo(root, start) });
+          const got = summarise({ outputs, files: snapTree(root, aux.exec), initial, window: [Math.min(c.builtAt, t0), t1], tmpdir: tmp, root, baseSha: g.states[c.state].baseSha ? rp.shaOf(c.state) : '', gitBefore, gitAfter: gitInfo(root, start) });
           assert.deepEqual(got.problems, [], `${c.name}: the closed normalisation reports problems`);
           // A210: a recorded SHELL error text (dash's `agent.sh: line N: ...`, awk's `awk: ...`, `unbound variable`) is not reproduced (the Node core has its own text for the same input); status and stdout still are.
           const shellText = (/** @type {string} */ e) => /agent\.sh: line \d+: |^awk: |\nawk: |unbound variable/.test(e);
@@ -51,7 +52,7 @@ export function registerGroup(name, title) {
             }
           });
           assert.deepEqual({ outputs: got.outputs, changed: got.changed, gone: got.gone, git: got.git }, { outputs: c.expect.outputs, changed: c.expect.changed, gone: c.expect.gone, git: c.expect.git }, c.name);
-        } finally { rmSync(work, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
+        } finally { for (const d of aux.toolDirs) rmSync(d, { recursive: true, force: true }); rmSync(work, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
       });
     }
   });

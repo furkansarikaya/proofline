@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inRunWorktrees, inside, isAbsoluteInput, localRemote, nullDevice, posixForm, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inRunWorktrees, inside, isAbsoluteInput, localRemote, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { readFileSync as readSource } from 'node:fs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
 
@@ -159,4 +160,48 @@ test('A264: nullDevice is /dev/null off Windows (the literal the code wrote befo
   for (const pl of ['linux', 'darwin', 'freebsd', 'aix']) assert.equal(nullDevice(pl), '/dev/null', pl);
   assert.equal(nullDevice('win32'), 'NUL');
   assert.equal(nullDevice(), nullDevice(process.platform));
+});
+
+test('A267: onDisk keeps an absolute path and takes a relative one from the working directory; off Windows it is the old leading-slash rule', () => {
+  for (const pl of ['linux', 'darwin']) {
+    for (const p of ['/a/b', 'a/b', './a', 'C:\\x\\t.md', 'C:/x/t.md', '\\\\srv\\share\\t.md', '']) assert.equal(onDisk('/w', p, pl), p.startsWith('/') ? p : `/w/${p}`, `${pl} ${p}`);
+  }
+  assert.equal(onDisk('/w', 'C:\\x\\t.md', 'linux'), '/w/C:\\x\\t.md', 'premise: off Windows a drive path is an ordinary relative name');
+  for (const p of ['C:\\x\\t.md', 'C:/x/t.md', '\\\\srv\\share\\t.md', '/a/b']) assert.equal(onDisk('D:/w', p, 'win32'), p, `win32 ${p}`);
+  assert.equal(onDisk('D:/w', 'a\\b', 'win32'), 'D:/w/a\\b');
+});
+
+test('A267: reportNamesAgent reads both slashes on win32 only; the POSIX answers are the old expression', () => {
+  const old = (/** @type {string} */ r, /** @type {string} */ a, /** @type {string} */ t) => r.includes(`/${a}-`) || r.startsWith(`${a}-`) || r.startsWith(`${t}/`);
+  const reports = ['/t/s1/ag1-rep', 'ag1-rep', '/t/s1/ag2-rep', '/tmp/x/report', '/t/s1/xag1-rep', 'C:\\t\\s1\\ag1-rep', 'C:\\t\\s1\\ag2-rep', 'C:\\tmp\\a\\b'];
+  for (const pl of ['linux', 'darwin']) for (const r of reports) assert.equal(reportNamesAgent(r, 'ag1', '/tmp/x', pl), old(r, 'ag1', '/tmp/x'), `${pl} ${r}`);
+  assert.equal(reportNamesAgent('C:\\t\\s1\\ag1-rep', 'ag1', '/tmp/x', 'linux'), false, 'premise: off Windows the backslash is not a separator');
+  assert.equal(reportNamesAgent('C:\\t\\s1\\ag1-rep', 'ag1', 'C:\\tmp', 'win32'), true);
+  assert.equal(reportNamesAgent('C:\\t\\s1\\ag2-rep', 'ag1', 'C:\\tmp', 'win32'), false, 'another agent\'s token still refuses');
+  assert.equal(reportNamesAgent('C:\\t\\s1\\xag1-rep', 'ag1', 'C:\\tmp', 'win32'), false, 'the token is a whole file-name start');
+  assert.equal(reportNamesAgent('C:\\tmp\\a\\b', 'ag1', 'C:\\tmp', 'win32'), true, 'a report in the submit\'s own temporary folder');
+});
+
+test('A267: reportNamesAgent pins what it does not do (accepted limits): no normalisation of `..`, the token may sit in any directory component, a trailing dot or a stream name passes', () => {
+  // the same answers as the old expression on POSIX and, with the separator fold, on win32; none of these is a new door, they are what the rule always accepted
+  assert.equal(reportNamesAgent('/tmp/x/../etc/passwd', 'ag1', '/tmp/x', 'linux'), true, '`..` after the temporary folder is not folded');
+  assert.equal(reportNamesAgent('C:\\tmp\\x\\..\\etc\\passwd', 'ag1', 'C:\\tmp\\x', 'win32'), true, 'same on win32');
+  assert.equal(reportNamesAgent('/etc/ag1-dir/passwd', 'ag1', '/tmp/x', 'linux'), true, 'the token in a directory component counts');
+  assert.equal(reportNamesAgent('C:\\ag1-dir\\passwd', 'ag1', 'C:\\tmp', 'win32'), true);
+  assert.equal(reportNamesAgent('C:\\s\\ag1-rep.', 'ag1', 'C:\\tmp', 'win32'), true, 'a trailing dot');
+  assert.equal(reportNamesAgent('C:\\s\\ag1-rep::$DATA', 'ag1', 'C:\\tmp', 'win32'), true, 'a stream name');
+  assert.equal(reportNamesAgent('/etc/passwd', 'ag1', '/tmp/x', 'linux'), false, 'premise: a path with none of the three is refused');
+  assert.equal(reportNamesAgent('/tmp/xy/a', 'ag1', '/tmp/x', 'linux'), false, 'the temporary folder is a whole component');
+});
+
+test('A267: the call sites use the platform rules (a revert goes red here, the Windows probe is the only other check)', () => {
+  const core = new URL('../../control-plane/agents/scripts/core/', import.meta.url);
+  const tools = readSource(new URL('commands/tools.mjs', core), 'utf8');
+  const submit = readSource(new URL('submit.mjs', core), 'utf8');
+  assert.match(tools, /import \{ onDisk \} from '\.\.\/pathin\.mjs'/);
+  assert.match(tools, /return onDisk\(ctx\.cwd, back\)/);
+  assert.doesNotMatch(tools, /back\.startsWith\('\/'\)/, 'the leading-slash expression is gone');
+  assert.match(submit, /import \{ reportNamesAgent \} from '\.\/pathin\.mjs'/);
+  assert.match(submit, /const ok = reportNamesAgent\(report, agent, tmp\)/);
+  assert.doesNotMatch(submit, /report\.includes\(`\/\$\{agent\}-`\)/, 'the slash-only expression is gone');
 });

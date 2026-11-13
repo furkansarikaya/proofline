@@ -21,6 +21,7 @@ import {
 } from './resultutil.mjs';
 import { gateDefaultArtifact } from './gatewrite.mjs';
 import * as proc from './proc.mjs';
+import { reportNamesAgent } from './pathin.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { inKnowledgeScope } from './scope.mjs';
 import { now } from './clock.mjs';
@@ -267,7 +268,7 @@ export function submitResult(ctx, id, args) {
         if (!isFileFollow(f) && !isFileFollow(report)) submitFail(`report file not found: ${report}`);
         const real = isFileFollow(f) ? f : report;
         if (role === 'explorer' && agent !== '') {
-          const ok = report.includes(`/${agent}-`) || report.startsWith(`${agent}-`) || report.startsWith(`${tmp}/`);
+          const ok = reportNamesAgent(report, agent, tmp);
           if (!ok) submitFail(`an explorer's report file name carries its own agent token, so a parallel explorer cannot overwrite it: write it to .agents/runs/${id}/scratch/${agent}-report.md (or pass --report - with the text on stdin); refused: ${report}`);
         }
         writeFileSync(`${tmp}/report.in`, readFileSync(real));

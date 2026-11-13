@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, rmdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { A, AS, accepted, approveAsUser, expectFail, gateStatus, must, pipe, project, refused, rv, say, tmp, tsha, worker, wopen, wev, wclose, solo, gpass, gfail, rec, resultFor } from '../lib/harness.mjs';
 import { Aasync, chmodTree, gateText, implemented, linesWith, lsDir, nGates, recTry } from './gates-s1-lib.mjs';
@@ -327,13 +328,13 @@ test('sc_lock_break_race: a holder that appears after the stale-pid read keeps t
     "import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';",
     'const rename = fs.renameSync;',
     'fs.renameSync = (from, to) => {',
-    "  if (String(from).endsWith('/.lock/pid') && fs.existsSync(process.env.FAKE_HOLDER_FLAG)) { fs.rmSync(process.env.FAKE_HOLDER_FLAG); fs.writeFileSync(from, `${process.env.FAKE_HOLDER_PID}\\n`); }",
+    "  if (/[\\\\/]\\.lock[\\\\/]pid$/.test(String(from)) && fs.existsSync(process.env.FAKE_HOLDER_FLAG)) { fs.rmSync(process.env.FAKE_HOLDER_FLAG); fs.writeFileSync(from, `${process.env.FAKE_HOLDER_PID}\\n`); }",
     '  return rename(from, to);', '};', 'syncBuiltinESMExports();', ''].join('\n'));
   mkdirSync(path.join(d, `${RUN}/.lock`)); writeFileSync(path.join(d, `${RUN}/.lock/pid`), '99999999\n');
   writeFileSync(flag, '');
   const h = holder();
   try {
-    refused(A(d, ['hook-time', 'LC'], { env: { NODE_OPTIONS: `--import ${pre}`, FAKE_HOLDER_FLAG: flag, FAKE_HOLDER_PID: String(h.pid), PROOFLINE_LOCK_TIMEOUT: '1' } }),
+    refused(A(d, ['hook-time', 'LC'], { env: { NODE_OPTIONS: `--import ${pathToFileURL(pre).href}`, FAKE_HOLDER_FLAG: flag, FAKE_HOLDER_PID: String(h.pid), PROOFLINE_LOCK_TIMEOUT: '1' } }),
       'a lock taken by a live holder after the stale read was broken', 'lock timeout after 1s');
     assert.ok(!existsSync(flag), 'the fake holder never took the lock (the race was not exercised)');
     assert.equal(rd(d, `${RUN}/.lock/pid`).replace(/\n+$/, ''), String(h.pid), 'the live holder lost its pid');

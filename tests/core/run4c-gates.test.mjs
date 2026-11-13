@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { posix } from '../lib/winpath.mjs';
 import { test } from 'node:test';
 import { BLOCKING_RULE_VERSION } from '../../control-plane/agents/scripts/core/gatewrite.mjs';
 import { builtinScan } from '../../control-plane/agents/scripts/core/secretscan.mjs';
@@ -73,7 +74,7 @@ test('the built-in scan: commands.secret_scan decides (0 clean, 1 found, anythin
     assert.equal(builtinScan(ctx, d, ['src/y.txt']).status, 0);
     assert.equal(builtinScan(ctx, d, ['src/x.txt']).status, 1);
     writeFileSync(join(d, 'tool.sh'), 'exit 3\n');
-    writeFileSync(join(d, '.agents/config.yaml'), `commands:\n  secret_scan: sh ${join(d, 'tool.sh')}\n`);
+    writeFileSync(join(d, '.agents/config.yaml'), `commands:\n  secret_scan: sh ${posix(join(d, 'tool.sh'))}\n`);
     const r = builtinScan(ctx, d, ['src/x.txt']);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /commands\.secret_scan failed \(exit 3\)/);

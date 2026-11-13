@@ -5,14 +5,16 @@
 // the change of the git state), all after the closed normalisation of the rig (port-t3-normalise.mjs). Here the Node core runs the same steps on the
 // restored state and must leave exactly that. Nothing runs or compares with the shell at test time.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
+import { fakeExe } from '../lib/winfake.mjs';
 import { normaliseSide } from './port-t3-normalise.mjs';
 
-/** Every file under root except .git/: path -> mode and bytes (a symlink holds its target; an empty directory is `<dir>/`). @param {string} root @returns {Map<string, { mode: number, data: Buffer }>} */
-export function snapTree(root) {
+/** Every file under root except .git/: path -> mode and bytes (a symlink holds its target; an empty directory is `<dir>/`). EXEC (win32 only): the paths a step wrote with an execute bit, which NTFS cannot keep (they read back as 0755). @param {string} root @param {Set<string>} [exec] @returns {Map<string, { mode: number, data: Buffer }>} */
+export function snapTree(root, exec = new Set()) {
   // NTFS has no permission bits: Node reports 0666 for a file and 0777 for a folder. The recorded values are the POSIX ones (0644 / 0755), so on win32 a file is read with umask 022 applied and a folder as 0755; an execute bit cannot be represented (A262)
   const modeOf = (/** @type {number} */ m, /** @type {boolean} */ dir = false) => (process.platform === 'win32' ? (dir ? 0o755 : ((m & 0o7777) & ~0o022)) : m & 0o7777);
   /** @type {Map<string, { mode: number, data: Buffer }>} */ const m = new Map();
@@ -22,7 +24,7 @@ export function snapTree(root) {
       const st = lstatSync(path.join(root, r));
       if (st.isDirectory()) { walk(r); if (readdirSync(path.join(root, r)).length === 0) m.set(`${r}/`, { mode: modeOf(st.mode, true), data: Buffer.alloc(0) }); }
       else if (st.isSymbolicLink()) m.set(r, { mode: 0o120000, data: Buffer.from(readlinkSync(path.join(root, r))) });
-      else m.set(r, { mode: modeOf(st.mode), data: readFileSync(path.join(root, r)) });
+      else m.set(r, { mode: modeOf(st.mode) | (process.platform === 'win32' && exec.has(r) ? 0o111 : 0), data: readFileSync(path.join(root, r)) });
     }
   };
   walk(''); return m;
@@ -76,14 +78,55 @@ export function summarise(r) {
 
 /** @typedef {{ args?: string[], role?: string, env?: Record<string, string>, stdin?: string, cwd?: string, write?: { path: string, content: string, mode?: number }, exec?: string[] }} Step */
 
-/** Run the steps on the Node core (a command call), or as plain files and commands (a write, an exec), in the project root. @param {string} root @param {string} home @param {string} tmp @param {Step[]} steps */
-export function runSteps(root, home, tmp, steps) {
+/** What a Windows run of the steps leaves behind: the paths written with an execute bit, and the folders of the real `.exe` twins (to remove). @typedef {{ exec: Set<string>, toolDirs: string[] }} Aux */
+
+const STUB = /^#!\/bin\/sh\necho (?:"([^"$`\\]*)"|'([^']*)')\n$/;
+let twins = 0;
+/** @type {string | undefined} */ let toolRoot;
+/** This process's own folder for the compiled launcher and the twins (git-ignored `tests/core/.fake-tools/rig-<pid>`, never shared with another test process); removed when the process ends. */
+function rigToolRoot() {
+  if (!toolRoot) {
+    toolRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '.fake-tools', `rig-${process.pid}`);
+    mkdirSync(toolRoot, { recursive: true });
+    const dir = toolRoot;
+    process.on('exit', () => { rmSync(dir, { recursive: true, force: true }); });
+  }
+  return toolRoot;
+}
+/**
+ * Windows (A267): a recorded step writes `stubbin/NAME`, a shell script that only echoes a line, and puts `stubbin` first on a recorded POSIX PATH. The Windows resolver runs only a real
+ * `.exe` outside every temporary folder (A252, by design), and the POSIX PATH joined with `;` reaches no git at all. So the stub is still written (the recorded delta holds it), a real
+ * `NAME.exe` that prints the same line is built in a git-ignored folder of the checkout, and the PATH of the step is that folder first, then the host's own PATH. Off Windows nothing happens.
+ * @param {Aux} aux @param {{ path: string, content: string }} w @returns {string | null} the folder that now holds the twin
+ */
+function twinOf(aux, w) {
+  const m = /^stubbin\/([a-z]+)$/.exec(w.path); const body = STUB.exec(w.content);
+  if (!m || !body) throw new Error(`winfake: the stub ${w.path} is not a one-line echo script, add its twin by hand`);
+  const dir = path.join(rigToolRoot(), `twin-${++twins}`);
+  mkdirSync(dir, { recursive: true }); aux.toolDirs.push(dir);
+  const script = path.join(dir, `${m[1]}.fake.mjs`);
+  writeFileSync(script, `process.stdout.write(${JSON.stringify(`${body[1] ?? body[2]}\n`)});\n`);
+  fakeExe(rigToolRoot(), dir, m[1], script);
+  return dir;
+}
+
+/** Run the steps on the Node core (a command call), or as plain files and commands (a write, an exec), in the project root. AUX (Windows): see `Aux`. @param {string} root @param {string} home @param {string} tmp @param {Step[]} steps @param {Aux} [aux] */
+export function runSteps(root, home, tmp, steps, aux = { exec: new Set(), toolDirs: [] }) {
+  const win = process.platform === 'win32';
+  /** @type {string[]} */ const twinDirs = [];
   /** @type {{ code: number | null, stdout: string, stderr: string }[]} */ const outputs = [];
-  for (const s of steps) {
-    if (s.write) { const p = path.join(root, s.write.path); mkdirSync(path.dirname(p), { recursive: true }); writeFileSync(p, s.write.content); if (s.write.mode !== undefined) chmodSync(p, s.write.mode); }
+  for (const step of steps) {
+    let s = step;
+    if (s.write) {
+      const p = path.join(root, s.write.path); mkdirSync(path.dirname(p), { recursive: true }); writeFileSync(p, s.write.content); if (s.write.mode !== undefined) chmodSync(p, s.write.mode);
+      if (win && s.write.mode !== undefined && (s.write.mode & 0o111) !== 0) { aux.exec.add(s.write.path); twinDirs.push(/** @type {string} */ (twinOf(aux, s.write))); }
+    }
     if (s.write && !s.args && !s.exec) continue; // a file write is a step of its own and answers nothing
     const env = stepEnv(home, { TMPDIR: tmp, ...(s.role ? { AGENT_ROLE: s.role } : {}), ...(s.env ?? {}) });
+    if (win && s.env && s.env.PATH !== undefined) env.PATH = [...twinDirs, process.env.PATH ?? ''].join(path.delimiter);   // the recorded PATH is the recording host's POSIX one
     const cwd = path.join(root, s.cwd ?? '');
+    // Windows: a shell's $PPID is an MSYS pid, not the Windows pid of the test process that the dispatch marker must name (process.kill(pid, 0) of the core reads a Windows pid)
+    if (s.exec && win && s.exec[0] === 'sh' && s.exec[1] === '-c') s = { ...s, exec: ['sh', '-c', s.exec[2].split('$PPID').join(String(process.pid)), ...s.exec.slice(3)] };
     if (s.exec) { const r = spawnSync(s.exec[0], s.exec.slice(1), { cwd, env, input: s.stdin ?? '', encoding: 'latin1', timeout: 120000 }); outputs.push({ code: r.status, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') }); continue; }
     /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
     const io = { env, cwd, stdout: { write: (/** @type {Buffer} */ b) => out.push(Buffer.from(b)) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(Buffer.from(b)) }, scriptPath: path.join(root, '.agents/scripts/agent.sh'), stdinText: s.stdin ?? '', argv0: './.agents/scripts/agent.sh' };
