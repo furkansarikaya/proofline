@@ -179,17 +179,44 @@ export function isScratchWorktreeWin(p, main, root, tempRoots, io = {}) {
  */
 export function winLinkAction(target, linkDir, main, wt, io = {}) {
   const platform = io.platform ?? process.platform;
+  const rm = { action: /** @type {'remove'} */ ('remove') };
   const t = posixForm(target, platform);
-  if (t.startsWith('//') || /^[A-Za-z]:(?![/])/.test(t)) return { action: 'remove' };
+  // UNC, `\\?\UNC\`, `\\.\` devices, the NT forms `\??\` and `\DosDevices\`, and a drive-relative `C:x` cannot be placed
+  if (t.startsWith('//') || t.startsWith('/??/') || /^\/dosdevices\//i.test(t) || /^[A-Za-z]:(?![/])/.test(t)) return rm;
   const joined = /^[A-Za-z]:\//.test(t) || t.startsWith('/') ? t : `${linkDir}/${t}`;
-  const m = /^([A-Za-z]:)?(.*)$/.exec(joined) ?? [];
-  /** @type {string[]} */ const st = [];
-  for (const seg of (m[2] ?? '').split('/')) { if (seg === '' || seg === '.') continue; if (seg === '..') { st.pop(); continue; } st.push(seg); }
-  const folded = `${m[1] ?? ''}/${st.join('/')}`;
-  const a = canonPosix(folded, { platform, real: io.real });
-  if (inside(wt, a, platform) !== null) return { action: 'keep' };
+  let drive = (/^([A-Za-z]:)/.exec(joined) ?? [])[1];
+  // a rooted target without a drive (`\Users\x`) is resolved by Windows on the drive of the link itself
+  if (drive === undefined) drive = (/^([A-Za-z]:)/.exec(posixForm(linkDir, platform)) ?? /^([A-Za-z]:)/.exec(posixForm(wt, platform)) ?? [])[1];
+  if (drive === undefined) return rm;
+  const segs = joined.replace(/^[A-Za-z]:/, '').split('/');
+  // walk the components: every existing one is resolved on the way (8.3 names, junctions, links, so a `..` after a junction is the junction's parent); a component that does not exist yet
+  // (a dangling link) continues textually from the deepest existing folder; a component Windows would trim (trailing dot or space) or that names a stream (`:`) cannot be placed
+  const rp = (/** @type {string} */ x) => realpathPosix(x, { platform, real: io.real });
+  let cur;
+  try { cur = rp(`${drive}/`).replace(/\/+$/, ''); } catch { return rm; }
+  let dangling = false;
+  for (const seg of segs) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') { const i = cur.lastIndexOf('/'); if (i >= 0) cur = cur.slice(0, i); continue; }
+    if (/[. ]$/.test(seg) || seg.includes(':')) return rm;
+    const cand = `${cur}/${seg}`;
+    if (dangling) { cur = cand; continue; }
+    try { cur = rp(cand).replace(/\/+$/, ''); } catch { cur = cand; dangling = true; }
+  }
+  const a = cur === drive ? `${drive}/` : cur;
+  if (samePath(a, wt, platform) || inside(wt, a, platform) !== null) return { action: 'keep' };
+  // the project root itself or a folder above it is the whole main tree: not a link a copy may keep
+  if (samePath(a, main, platform) || inside(a.replace(/\/+$/, ''), main, platform) !== null) return rm;
   const rel = inside(main, a, platform);
   return rel === null ? { action: 'keep' } : { action: 'repoint', target: `${wt}/${rel}` };
+}
+
+/**
+ * Does the POSIX link target A (folded, absolute) lead to the project root itself or to a folder above it (W10 review)? Such a link reaches the whole main tree, as the links under it do, and a
+ * copy must not keep it. The rule before kept it (only `startsWith(main + '/')` was re-pointed). @param {string} a @param {string} main
+ */
+export function linkReachesRoot(a, main) {
+  return a === main || a === '/' || main.startsWith(`${a}/`);
 }
 
 /**

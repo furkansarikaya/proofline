@@ -58,7 +58,7 @@ function worktreeRoot(ctx, args) {
   if (!samePath(physical(wd) ?? '', wd)) return 1;
   if (!list.some((l) => l.startsWith('worktree ') && (l === `worktree ${wd}` || (process.platform === 'win32' && samePath(physical(l.slice(9)) ?? '', wd))))) return 1;
   if (common(wd) !== wc) return 1;
-  if (!samePath(p, wd) && inside(wd, p) === null) return 1;
+  if (!samePath(p, wd) && inside(wd, p) === null && p !== `${wd}/`) return 1;   // `<wd>/` was approved before and stays so
   ctx.out(`${wd}\n`);
   return 0;
 }
