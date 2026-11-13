@@ -8,8 +8,9 @@ import path from 'node:path';
 import { ereToRegExp } from './ere.mjs';
 import { grepTextLines, grepTextStatus } from './grepfile.mjs';
 import { unsupported } from './errors.mjs';
+import { samePath } from './pathin.mjs';
 import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
-import { addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
+import { git, addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
 import { ecosystemRows } from './ecodata.mjs';
 import { sha256 } from './hash.mjs';
 import { isFile } from './paths.mjs';
@@ -101,16 +102,50 @@ export function controlPlaneOnly(ctx, p) {
   return sha256(stripProoflineBlock(head)) === sha256(stripProoflineBlock(cur));
 }
 
-/** `knowledge_doc_file PATH`: a regular, non-executable, non-symlink file with a documentation extension, with no linked folder on the way. @param {Context} ctx @param {string} p */
-function knowledgeDocFile(ctx, p) {
+/**
+ * Windows rule of `hasExecuteBit`, fail CLOSED (true = counts as executable, so the page is NOT treated as a plain doc). The path is literal (`--literal-pathspecs`: `[`, `*`, `?`, `\` and a
+ * leading `:` are legal in NTFS names and pathspec magic otherwise, so a decoy `x1.md` could answer for `x[1].md`), the output is NUL separated and EVERY entry is read: any entry whose
+ * path equals PATH exactly with mode 100755, at any stage (an unmerged file has stages 1 to 3), makes it executable. A git that fails, or output that is not index entries, is "executable".
+ * @param {Context} ctx @param {string} p
+ */
+export function indexHoldsExecutable(ctx, p) {
+  const r = git(ctx, ['--literal-pathspecs', 'ls-files', '-s', '-z', '--', p]);
+  if (r.status !== 0) return true;
+  const want = Buffer.from(p, 'utf8').toString('latin1');   // git() decodes the bytes as latin1
+  for (const e of r.out.split('\0')) {
+    if (e === '') continue;
+    const m = /^(\d{6}) [0-9a-f]{40,64} ([0-3])\t([^]*)$/.exec(e);
+    if (m === null) return true;
+    if (m[3] === want && m[1] === '100755') return true;
+  }
+  return false;
+}
+
+/**
+ * Is PATH executable by the file system's own rule? POSIX: the execute bit. Windows (A266): NTFS has none and `accessSync(X_OK)` answers yes for every file, so every page would
+ * count as an executable doc; the only execute bit a Windows tree can carry is git's own (`update-index --chmod=+x`, mode 100755), so the index decides there (a file that is not
+ * tracked cannot hold one). The check is not weaker than the POSIX one: a page that is committed or staged as 100755 still counts.
+ * @param {Context} ctx @param {string} f @param {string} p @param {string} platform
+ */
+function hasExecuteBit(ctx, f, p, platform) {
+  if (platform === 'win32') return indexHoldsExecutable(ctx, p);
+  try { accessSync(f, constants.X_OK); return true; } catch { return false; }
+}
+
+/**
+ * `knowledge_doc_file PATH`: a regular, non-executable, non-symlink file with a documentation extension, with no linked folder on the way.
+ * @param {Context} ctx @param {string} p @param {string} [platform] the host platform (a seam for tests) @param {(x: string) => string} [real] the real-path function (a seam for tests)
+ */
+export function knowledgeDocFile(ctx, p, platform = process.platform, real = realpathSync) {
   const f = `${ctx.root}/${p}`;
   try {
     const l = lstatSync(f);
     if (!l.isFile()) return false;
-    try { accessSync(f, constants.X_OK); return false; } catch { /* not executable */ }
+    if (hasExecuteBit(ctx, f, p, platform)) return false;
   } catch { return false; }
   if (!/\.(md|mdx|rst|adoc|html|txt|png|jpg|jpeg|gif|svg|webp)$/.test(p)) return false;
-  try { return realpathSync(path.dirname(f)) === `${realpathSync(ctx.root)}/${path.posix.dirname(p)}`.replace(/\/\.$/, ''); } catch { return false; }
+  // the folder must be the one the path names (no link on the way); `realpathSync` answers backslashes on Windows, so both sides are compared in the core's one path form
+  try { return samePath(real(path.dirname(f)), `${real(ctx.root)}/${path.posix.dirname(p)}`.replace(/\/\.$/, ''), platform); } catch { return false; }
 }
 
 /** `fingerprint_path` where a failure is printed and read as empty (a `$(...)` inside a test). @param {Context} ctx @param {string} p */

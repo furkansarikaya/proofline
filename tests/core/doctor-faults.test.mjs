@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { foreignHooks, globalHookspathMessage, headJoined, hookHas, loadWarning } from '../../control-plane/agents/scripts/core/doctor.mjs';
 import { sandbox } from './frontend-lib.mjs';
 
-const sb = sandbox();
+const sb = sandbox({ exeTools: true });   // Windows: real .exe runtimes, so the WARN count of the summary is the POSIX one (A266)
 const edit = (/** @type {string} */ file, /** @type {(t: string) => string} */ fn) => writeFileSync(file, fn(readFileSync(file, 'utf8')));
 const git = (/** @type {string} */ d, /** @type {string[]} */ a) => spawnSync('git', ['-C', d, ...a], { env: sb.env, encoding: 'utf8' });
 

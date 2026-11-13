@@ -3,13 +3,13 @@
 // The reader is tested with absolute known answers on a synthetic log (the shapes were taken from real Claude Code transcripts); the writer with the
 // `metrics: off`, null-visible and string-reduction rules of `records.jsonl` (A80).
 import assert from 'node:assert/strict';
-import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { describe, test } from 'node:test';
+import { after, describe, test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { metricsStep } from '../../control-plane/agents/scripts/core/resultutil.mjs';
 import { readToolStats, toolsRecord } from '../../control-plane/agents/scripts/core/toolstats.mjs';
-import { makeProject, memoryIo } from './helpers.mjs';
+import { makeProject, memoryIo, repo } from './helpers.mjs';
 
 /** @param {unknown[]} entries */
 const jsonl = (entries) => `${entries.map((e) => JSON.stringify(e)).join('\n')}\n`;
@@ -120,7 +120,7 @@ describe('tools.jsonl record', () => {
     assert.equal(step.schema, 'proofline.metrics/1');
     assert.equal(Object.keys(step).length, 20);
   });
-  test('metricsStep (A261, platform win32): a POSIX-looking absolute log path is not a local drive path, so neither the token read nor the tool record opens it; on this host the same log is read', () => {
+  test('metricsStep (A261, platform win32): a POSIX-looking absolute log path is not a local drive path, so neither the token read nor the tool record opens it; on this host the same log is read', { skip: process.platform === 'win32' ? 'a Windows host has no absolute path that win32 refuses and the host still opens (every absolute temp path is a drive path), so the premise that the same log is read here cannot be made; the UNC test below covers the refusal there' : false }, () => {
     const { root, ctx } = ctxOf();
     mkdirSync(path.join(root, '.agents/local/submissions'), { recursive: true });
     const log = writeLog(root, [use('a', 'Bash'), res('a', 'hello'), { type: 'assistant', message: { id: 'msg_01', role: 'assistant', content: [], usage: { input_tokens: 5, output_tokens: 7 } } }]);
@@ -136,8 +136,13 @@ describe('tools.jsonl record', () => {
   });
   test('metricsStep (A261): a session-log path that is not an absolute local path is never read; the tool record says no-log (a relative path, a UNC-looking path)', () => {
     const { root: r0 } = ctxOf();
-    const real = writeLog(r0, [use('a', 'Bash'), res('a', 'hello')]);   // a readable log, named by a path RELATIVE to the working directory: it exists, yet must not be read
-    for (const tp of [path.relative(process.cwd(), real), '\\\\srv\\share\\session.jsonl']) {
+    // Windows: the temporary folder can be on another drive than the working directory, where path.relative answers an ABSOLUTE path; the log is then made inside the checkout (git-ignored)
+    const near = path.join(repo, 'tests/core/.fake-tools', `toolstats-${process.pid}`);
+    if (process.platform === 'win32') { mkdirSync(near, { recursive: true }); after(() => { rmSync(near, { recursive: true, force: true }); }); }
+    const real = writeLog(process.platform === 'win32' ? near : r0, [use('a', 'Bash'), res('a', 'hello')]);   // a readable log, named by a path RELATIVE to the working directory: it exists, yet must not be read
+    const rel = path.relative(process.cwd(), real);
+    assert.ok(!path.isAbsolute(rel), `premise: the relative sample is relative (${rel})`);
+    for (const tp of [rel, '\\\\srv\\share\\session.jsonl']) {
       const { root, ctx } = ctxOf();
       mkdirSync(path.join(root, '.agents/local/submissions'), { recursive: true });
       writeFileSync(path.join(root, '.agents/local/submissions/tok.started'), `${tp}\n${Math.floor(Date.now() / 1000)}\n`);

@@ -123,7 +123,7 @@ test('cleanToolEnv on win32 (A215, A220; the run6-platform SECURITY test cannot 
   assert.equal(bad['HTTP_PROXY'], undefined);
 });
 
-test('POSIX: cleanToolEnv keeps the former PATH rule (":" separator, absolute entries outside the refused folders)', () => {
+test('POSIX: cleanToolEnv keeps the former PATH rule (":" separator, absolute entries outside the refused folders)', { skip: process.platform === 'win32' ? 'the rule under test is the ":" separator and /usr/bin folders of a POSIX host; the Windows rule has its own tests in this file' : false }, () => {
   const here = process.cwd();   // an existing folder: the project
   const ctx = /** @type {any} */ ({ root: here, cwd: here, env: { PATH: `/usr/bin:${here}/bin:bin::/bin`, TMPDIR: '/nonexistent-x' } });
   assert.equal(cleanToolEnv(ctx)['PATH'], '/usr/bin:/bin');
@@ -139,7 +139,8 @@ test('shadowingEntry on win32 skips an empty entry (a trailing ";"), as the reso
 
 test('the platform argument decides what is absolute where a file is read: resolveToolIn, caFileProblem and (in toolstats.test.mjs) metricsStep', () => {
   assert.deepEqual(resolveToolIn({ PATH: '/usr/bin:/bin' }, 'sh', [], 'win32'), { unreadable: 'unreadable' });
-  assert.ok('path' in resolveToolIn({ PATH: '/usr/bin:/bin' }, 'sh', [], 'linux'));
+  // the linux half reads the host's /usr/bin, which a Windows host does not have (the win32 half above and caFileProblem below hold everywhere)
+  if (process.platform !== 'win32') assert.ok('path' in resolveToolIn({ PATH: '/usr/bin:/bin' }, 'sh', [], 'linux'));
   const ctx = /** @type {any} */ ({ root: '/p', cwd: '/p', env: {} });
   for (const v of ['/etc/hosts', '\\\\srv\\share\\ca.pem', '//srv/share/ca.pem', 'ca.pem']) assert.equal(caFileProblem(ctx, v, 'win32'), 'not an absolute path', v);
   assert.equal(caFileProblem(ctx, 'ca.pem', 'linux'), 'not an absolute path');

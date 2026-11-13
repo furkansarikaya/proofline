@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync as wf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { cleanToolEnv, droppedNetVars } from '../../control-plane/agents/scripts/core/platform.mjs';
+import { caFileProblem, cleanToolEnv, droppedNetVars } from '../../control-plane/agents/scripts/core/platform.mjs';
 import { repo } from './helpers.mjs';
 import { launch } from '../lib/winpath.mjs';
 
@@ -19,10 +19,16 @@ function ctxOf(cwd, env = {}) {
   return /** @type {any} */ ({ env: e, cwd, root: cwd, childEnv: () => ({ ...e, LC_ALL: 'C' }), sharedMain: () => cwd });
 }
 const work = tempDir('pf-netdrop-');
-const CA = '/etc/passwd'; // a regular file outside every folder a model can write
+const WIN = process.platform === 'win32';
+/** A regular file outside every folder a model can write: `/etc/passwd`; on Windows win.ini of the system folder (there is no /etc). */
+const CA = WIN ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'win.ini') : '/etc/passwd';
+/** NTFS reports mode 0666 for every file, so the product's own certificate-file check (no group or world write) refuses every certificate file on Windows: it fails closed (A263, accepted limit, no ACL check exists). The tests that need an ACCEPTED certificate are skipped there; the ones about what is dropped state the Windows verdict and prove it from the product. */
+const WIN_CA_SKIP = 'NTFS reports mode 0666, so the certificate-file check refuses every certificate file on Windows (fails closed, A263); the POSIX test keeps the accepted case';
+/** The variables that hold the good certificate file CA: dropped on Windows (the limit above), passing elsewhere. @type {string[]} */
+const CA_DROPPED_ON_WIN = ['GIT_SSL_CAINFO', 'SSL_CERT_FILE'];
 const NEW_NAMES = ['REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO'];
 
-test('the two new certificate variables pass the same check as SSL_CERT_FILE (also for the merge-proof git); a bad value is dropped; the others stay dropped', () => {
+test('the two new certificate variables pass the same check as SSL_CERT_FILE (also for the merge-proof git); a bad value is dropped; the others stay dropped', { skip: WIN ? WIN_CA_SKIP : false }, () => {
   const inTmp = path.join(work, 'ca.pem'); wf(inTmp, 'x');
   const linkToTmp = path.join(work, 'ca-link.pem'); symlinkSync(inTmp, linkToTmp);
   for (const name of NEW_NAMES) {
@@ -55,11 +61,13 @@ test('droppedNetVars: the names that were dropped and a reason, never a value; w
   });
   const d = droppedNetVars(ctx);
   const names = d.map((x) => x.name).sort();
-  assert.deepEqual(names, ['ALL_PROXY', 'CURL_CA_BUNDLE', 'GIT_SSL_CAPATH', 'GIT_SSL_NO_VERIFY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NO_PROXY', 'REQUESTS_CA_BUNDLE', 'SSL_CERT_DIR']);
+  // Windows: the good file CA is refused for its mode (see WIN_CA_SKIP), so the variables that hold it are listed too; the premise is proved from the product, not assumed
+  if (WIN) assert.equal(caFileProblem(ctx, CA), 'the file or a folder above it is writable by a group or by everybody', 'premise: the verdict on Windows is the mode check');
+  assert.deepEqual(names, ['ALL_PROXY', 'CURL_CA_BUNDLE', ...(WIN ? ['GIT_SSL_CAINFO'] : []), 'GIT_SSL_CAPATH', 'GIT_SSL_NO_VERIFY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NO_PROXY', 'REQUESTS_CA_BUNDLE', 'SSL_CERT_DIR', ...(WIN ? ['SSL_CERT_FILE'] : [])].sort());
   assert.ok(!JSON.stringify(d).includes(SECRET), 'a value reached the list');
   assert.ok(!JSON.stringify(d).includes('pwned'), 'a name outside the pattern reached the list');
   for (const x of d) assert.match(x.reason, /^[A-Za-z0-9 ,.()_/:-]{1,200}$/, `${x.name}: the reason is plain text`);
-  assert.deepEqual(droppedNetVars(ctxOf(work, { HTTPS_PROXY: 'http://proxy.corp.example:3128', SSL_CERT_FILE: CA, GIT_SSL_CAINFO: CA, PATH: '/usr/bin' })), [], 'good values are not listed');
+  assert.deepEqual(droppedNetVars(ctxOf(work, { HTTPS_PROXY: 'http://proxy.corp.example:3128', SSL_CERT_FILE: CA, GIT_SSL_CAINFO: CA, PATH: '/usr/bin' })).map((x) => x.name).sort(), WIN ? CA_DROPPED_ON_WIN : [], 'good values are not listed');
   assert.deepEqual(droppedNetVars(ctxOf(work)), [], 'an environment without the variables lists nothing');
   // an empty value (`HTTPS_PROXY=`) is harmless: dropped as before, never listed
   const empty = Object.fromEntries(['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO', 'ALL_PROXY', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'GIT_SSL_NO_VERIFY', 'NODE_TLS_REJECT_UNAUTHORIZED'].map((k) => [k, '']));
@@ -87,7 +95,8 @@ test('proofline doctor lists the dropped variables (names and reasons) and never
     const line = r.stdout.split('\n').find((l) => l.startsWith('WARN network:')) ?? '';
     assert.ok(line !== '', r.stdout);
     for (const n of ['HTTPS_PROXY', 'ALL_PROXY', 'GIT_SSL_NO_VERIFY', 'GIT_SSL_CAINFO']) assert.ok(line.includes(`${n} (`), `${n} not listed: ${line}`);
-    assert.ok(!/REQUESTS_CA_BUNDLE \(|SSL_CERT_FILE \(/.test(line), 'a variable that passes was listed as dropped');
+    if (!WIN) assert.ok(!/REQUESTS_CA_BUNDLE \(|SSL_CERT_FILE \(/.test(line), 'a variable that passes was listed as dropped');
+    else for (const n of ['REQUESTS_CA_BUNDLE', 'SSL_CERT_FILE']) assert.ok(line.includes(`${n} (`), `${n} holds a certificate file the Windows check refuses (WIN_CA_SKIP), so it is listed: ${line}`);
     assert.ok(!r.stdout.includes(SECRET) && !r.stderr.includes(SECRET), 'a value was printed');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

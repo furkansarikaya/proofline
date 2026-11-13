@@ -133,7 +133,10 @@ describe('A252 security round 1', () => {
     assert.ok('refused' in resolveProgram('git', {}, 'C:\\proj', 'win32', fs('C:\\proj')), 'no PATH');
     for (const explicit of ['C:\\x\\git.exe', 'sub/git', '.\\git.exe', 'a:b']) assert.deepEqual(resolveProgram(explicit, {}, 'C:\\proj', 'win32', fs('C:\\proj')), { program: explicit }, explicit);
     for (const plat of ['linux', 'darwin']) assert.deepEqual(resolveProgram('git', { PATH: '/usr/bin' }, '/proj', plat), { program: 'git' }, plat);
-    assert.deepEqual(resolveProgram('git', undefined, undefined), { program: 'git' }, 'this host is POSIX in the test run, or resolves; never throws');
+    // no environment, no folder: POSIX answers the bare name; a Windows host resolves it to an absolute program (or refuses), never the bare name, and never throws
+    const bare = resolveProgram('git', undefined, undefined);
+    if (process.platform === 'win32') assert.ok('refused' in bare || (/** @type {any} */ (bare).program !== 'git' && /^[A-Za-z]:[\\/]/.test(/** @type {any} */ (bare).program)), JSON.stringify(bare));
+    else assert.deepEqual(bare, { program: 'git' }, 'this host is POSIX in the test run; never throws');
   });
   test('SEC-2: a refused folder given as an 8.3 short name still meets a long-form PATH entry; case and slash spelling do not matter', () => {
     const expand = (p) => p.replace(/RUNNER~1/i, 'runneradmin');
