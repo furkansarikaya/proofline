@@ -143,6 +143,68 @@ export function scratchRoot(tmpdirEnv, platform = process.platform, host = tmpdi
 }
 
 /**
+ * A path in the canonical POSIX form when it exists (the long name of an 8.3 short name, forward slashes), else the text as `posixForm` gives it. win32 only: git prints a worktree as
+ * `C:/Users/RUNNER~1/...` or `C:/Users/runneradmin/...` depending on how it was named, and the two must compare equal (W10). @param {string} p @param {{ platform?: string, real?: (p: string) => string }} [io]
+ */
+function canonPosix(p, io = {}) {
+  try { return realpathPosix(p, io); } catch { return posixForm(p, io.platform ?? process.platform); }
+}
+
+/**
+ * Is the registered worktree P a SCRATCH worktree on Windows (W10): a worktree that is not the project's own (ROOT), not the main one (MAIN) and not a run worktree under
+ * `<main>/.agents/local/worktrees/`, and that lies under a temporary folder (TEMP, TMP, TMPDIR or the account temporary folder). The POSIX rule (`$TMPDIR`, `/tmp/`, `/var/folders/`) names
+ * no Windows folder, so before this every scratch worktree passed the CODE_DONE check there. Always false off win32: the POSIX rule stays in the caller, byte for byte.
+ * @param {string} p @param {string} main @param {string} root @param {(string | undefined)[]} tempRoots
+ * @param {{ platform?: string, host?: string, real?: (p: string) => string }} [io]
+ */
+export function isScratchWorktreeWin(p, main, root, tempRoots, io = {}) {
+  const platform = io.platform ?? process.platform;
+  if (platform !== 'win32') return false;
+  const c = (/** @type {string} */ x) => canonPosix(x, { platform, real: io.real }).replace(/\/+$/, '');
+  const n = c(p);
+  if (samePath(n, c(root), platform) || samePath(n, c(main), platform)) return false;
+  if (inside(`${c(main)}/.agents/local/worktrees`, n, platform) !== null) return false;
+  return [...tempRoots, io.host ?? tmpdir()].filter((t) => t !== undefined && t !== '').some((t) => inside(c(/** @type {string} */ (t)), n, platform) !== null);
+}
+
+/**
+ * What to do with a symbolic link of a copied dependency folder on Windows (W10): `keep`, `repoint` at the same path of the worktree (`target`), or `remove`. TARGET is what `readlink` answered
+ * (`C:\proj\shared\tool.js`, `..\..\x`, `\?\C:\...`), LINKDIR the real folder that holds the link, MAIN and WT the real project and worktree folders (all in the POSIX form of `realpathPosix`).
+ * The POSIX rule of the caller reads only a leading `/` and `/` separators, so on Windows no link ever matched and a write through a copied link reached the main tree. Here: the target is
+ * folded to the POSIX form, a relative one is taken from LINKDIR, `.` and `..` are folded after the drive, the result is resolved to its real path when it exists (an 8.3 short name, a
+ * junction or a further link on the way), and the folder tests ignore ASCII case. A UNC target (`\localhost\C$\proj` names the main tree through the admin share) and a drive-relative one
+ * (`C:x`) cannot be placed, so they are `remove`d (fail closed): a missing dependency link is a build error, a link into the main tree is a write to it.
+ * @param {string} target @param {string} linkDir @param {string} main @param {string} wt @param {{ platform?: string, real?: (p: string) => string }} [io]
+ * @returns {{ action: 'keep' } | { action: 'remove' } | { action: 'repoint', target: string }}
+ */
+export function winLinkAction(target, linkDir, main, wt, io = {}) {
+  const platform = io.platform ?? process.platform;
+  const t = posixForm(target, platform);
+  if (t.startsWith('//') || /^[A-Za-z]:(?![/])/.test(t)) return { action: 'remove' };
+  const joined = /^[A-Za-z]:\//.test(t) || t.startsWith('/') ? t : `${linkDir}/${t}`;
+  const m = /^([A-Za-z]:)?(.*)$/.exec(joined) ?? [];
+  /** @type {string[]} */ const st = [];
+  for (const seg of (m[2] ?? '').split('/')) { if (seg === '' || seg === '.') continue; if (seg === '..') { st.pop(); continue; } st.push(seg); }
+  const folded = `${m[1] ?? ''}/${st.join('/')}`;
+  const a = canonPosix(folded, { platform, real: io.real });
+  if (inside(wt, a, platform) !== null) return { action: 'keep' };
+  const rel = inside(main, a, platform);
+  return rel === null ? { action: 'keep' } : { action: 'repoint', target: `${wt}/${rel}` };
+}
+
+/**
+ * The part of P under BASE for a message (`''` when P is BASE), or null when P is not under it. Off Windows exactly what the batch status line had: `p.startsWith(base)`, the rest with its leading
+ * slashes dropped. On win32 both go through `posixForm` and the folder test ignores ASCII case (W10): the real path of a run worktree (`C:/Users/runneradmin/...`) and the typed project
+ * folder never began with the same text, so the line printed an absolute path where POSIX prints a relative one.
+ * @param {string} base @param {string} p @param {string} [platform]
+ */
+export function relUnder(base, p, platform = process.platform) {
+  if (platform !== 'win32') return p.startsWith(base) ? p.slice(base.length).replace(/^\/+/, '') : null;
+  const b = posixForm(base, platform).replace(/\/+$/, ''); const q = posixForm(p, platform).replace(/\/+$/, '');
+  return samePath(b, q, platform) ? '' : inside(b, q, platform);
+}
+
+/**
  * The null device in the spelling git accepts (A264): `/dev/null` off Windows (exactly what the code wrote before), `NUL` on win32 (`os.devNull` is `\\.\nul` there and git refuses it). One
  * place for `core.hooksPath`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` and `GIT_GRAFT_FILE`.
  * @param {string} [platform]

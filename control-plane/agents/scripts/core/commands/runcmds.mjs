@@ -17,7 +17,7 @@ import { taskPatchFingerprint, taskOwnedPaths } from '../gates.mjs';
 import { ledgerAppend, verifySeal } from '../ledger.mjs';
 import { enforceTaskBranch, localTaskSource, localTaskSourceRun, setRunValue, taskSourceContractHash } from '../lifecycle.mjs';
 import { isFile } from '../paths.mjs';
-import { realpathPosix } from '../pathin.mjs';
+import { notRunRelative, realpathPosix } from '../pathin.mjs';
 import * as proc from '../proc.mjs';
 import { askCommand, verifyAssumptions } from '../questions.mjs';
 import { fileText, gateField, gatesEnforced, planDestructive, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
@@ -505,7 +505,7 @@ function taskSourceRelocate(ctx, args) {
   verifyFreeze(ctx, id, true);
   enforceTaskBranch(ctx, id);
   verifySeal(ctx, id, dir);
-  if (nw.startsWith('/') || nw.includes('..') || nw.includes('//') || /[\x00-\x1f\x7f"\\]/.test(nw)) fail(`invalid task source path: ${JSON.stringify(nw)}`);
+  if (notRunRelative(nw) || nw.includes('//') || /[\x00-\x1f\x7f"\\]/.test(nw)) fail(`invalid task source path: ${JSON.stringify(nw)}`);
   const old = sectionValue(ctx, dir, 'task_source', 'path');
   if (nw === old) fail(`the task source is already recorded at ${old}`);
   if (lexists(`${ctx.root}/${old}`)) fail(`the task source still exists at ${old}: a relocation is a move, not a copy`);

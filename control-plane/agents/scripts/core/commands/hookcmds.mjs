@@ -1,6 +1,6 @@
 // @ts-check
 // Stage 3: worktree-root, in-knowledge-scope, hook-time, friction-note, window-open, window-close, language-check, answer (agent.sh 0.0.42).
-import { realpathPosix } from '../pathin.mjs';
+import { inside, isLocalAbsolute, posixForm, realpathPosix, samePath } from '../pathin.mjs';
 import { appendFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { now } from '../clock.mjs';
@@ -29,8 +29,8 @@ function physical(d) { try { return realpathPosix(d); } catch { return null; } }
 
 /** `worktree_root PATH` (A184): the root of the registered run worktree that contains the physical path, else exit 1. @param {Context} ctx @param {string[]} args */
 function worktreeRoot(ctx, args) {
-  const p = args[0] ?? '';
-  if (!p.startsWith('/')) return 1;
+  const p = posixForm(args[0] ?? '');   // Windows (W10): `C:\x` and `C:/x` are the local absolute paths, folded to forward slashes; elsewhere the argument as given
+  if (!isLocalAbsolute(p)) return 1;
   if (`/${p}/`.includes('/../') || `/${p}/`.includes('/./')) return 1;
   const list = proc.run('git', ['-C', ctx.root, 'worktree', 'list', '--porcelain'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'] }).stdout.toString('latin1').split('\n');
   let m = (list[0] ?? '').startsWith('worktree ') ? list[0].slice(9) : '';
@@ -47,18 +47,18 @@ function worktreeRoot(ctx, args) {
   const wc = common(m);
   if (wc === null) return 1;
   const base = `${m}/.agents/local/worktrees`;
-  if (!p.startsWith(`${base}/`)) return 1;
-  const rest = p.slice(base.length + 1);
+  const rest = inside(base, p);   // Windows: the same folder in another letter case is inside; elsewhere exactly startsWith(`${base}/`)
+  if (rest === null || rest === '') return 1;
   const id = rest.includes('/') ? rest.slice(0, rest.indexOf('/')) : rest;
   if (!rwValid(id)) return 1;
   const wd = `${base}/${id}`;
   let st;
   try { st = lstatSync(wd); } catch { return 1; }
   if (!st.isDirectory() || st.isSymbolicLink() || !isFile(`${wd}/.git`)) return 1;
-  if (physical(wd) !== wd) return 1;
-  if (!list.some((l) => l === `worktree ${wd}`)) return 1;
+  if (!samePath(physical(wd) ?? '', wd)) return 1;
+  if (!list.some((l) => l.startsWith('worktree ') && (l === `worktree ${wd}` || (process.platform === 'win32' && samePath(physical(l.slice(9)) ?? '', wd))))) return 1;
   if (common(wd) !== wc) return 1;
-  if (p !== wd && !p.startsWith(`${wd}/`)) return 1;
+  if (!samePath(p, wd) && inside(wd, p) === null) return 1;
   ctx.out(`${wd}\n`);
   return 0;
 }

@@ -15,7 +15,7 @@ import { ecosystemRowsAt } from './ecodata.mjs';
 import { fail } from './errors.mjs';
 import { wtLinked } from './commands/runcmds.mjs';
 import { isDir, isFile } from './paths.mjs';
-import { inside, realpathPosix } from './pathin.mjs';
+import { inside, realpathPosix, winLinkAction } from './pathin.mjs';
 import { entryRecordPath } from './codexprofile.mjs';
 import * as proc from './proc.mjs';
 import { hgit } from './hgit.mjs';
@@ -122,6 +122,15 @@ function prepDeps(ctx, main, wt, eco) {
     for (const l of findLinks(`${wt}/${f}`)) {
       let t;
       try { t = readlinkSync(l); } catch { continue; }
+      if (process.platform === 'win32') {
+        // W10: the POSIX rule below reads `/` paths only; a Windows link target (`C:\x`, `..\x`, UNC) never matched it and a write through the copy reached the main tree
+        const act = winLinkAction(t, physical(path.dirname(l)) ?? '', main, wt);
+        try {
+          if (act.action === 'remove') { unlinkSync(l); ctx.err(`worktree-prep: removed the link ${bytes(l.slice(wt.length + 1))} from the copy: its target cannot be placed (UNC or drive-relative)\n`); }
+          else if (act.action === 'repoint') { unlinkSync(l); symlinkSync(act.target, l); }
+        } catch { try { unlinkSync(l); } catch { /* gone */ } }   // not re-pointable: fail closed, a link that leads into the main tree is not kept
+        continue;
+      }
       let a;
       if (t.startsWith('/')) a = t;
       else { const pd = physical(path.dirname(l)); a = `${pd ?? ''}/${t}`; }

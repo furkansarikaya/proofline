@@ -10,6 +10,7 @@ import { sha256 } from './hash.mjs';
 import { ledgerAppend } from './ledger.mjs';
 import { WS, authorizedPath, fileText, gatesEnforced, ledgerLines, planScope, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { isFile } from './paths.mjs';
+import { notRunRelative } from './pathin.mjs';
 import { ciChainOk, knownControlArtifact, lifecycleFolderStatus, runDir } from './runs.mjs';
 import { blockOnlyText, inKnowledgeScope, installedControlPath, isBlockFile, stripProoflineBlock } from './scope.mjs';
 
@@ -139,7 +140,7 @@ export function taskSourceBookkeepingOnly(ctx, id, p) {
 /** `local_task_source DIR`: the task file of a local Markdown run, or a failure. @param {Context} ctx @param {string} dir */
 export function localTaskSource(ctx, dir) {
   const p = sectionValue(ctx, dir, 'task_source', 'path');
-  if (p === '' || p.startsWith('/') || p.includes('..') || p.includes('//')) fail('invalid local Markdown task source path');
+  if (p === '' || notRunRelative(p) || p.includes('//')) fail('invalid local Markdown task source path');
   const source = `${ctx.root}/${p}`;
   let link = false;
   try { link = lstatSync(source).isSymbolicLink(); } catch { /* absent */ }
