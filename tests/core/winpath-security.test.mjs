@@ -123,7 +123,7 @@ test('cleanToolEnv on win32 (A215, A220; the run6-platform SECURITY test cannot 
   assert.equal(bad['HTTP_PROXY'], undefined);
 });
 
-test('POSIX: cleanToolEnv keeps the former PATH rule (":" separator, absolute entries outside the refused folders)', () => {
+test('POSIX: cleanToolEnv keeps the former PATH rule (":" separator, absolute entries outside the refused folders)', { skip: process.platform === 'win32' ? 'the rule under test is the ":" separator and /usr/bin folders of a POSIX host; the Windows rule has its own tests in this file' : false }, () => {
   const here = process.cwd();   // an existing folder: the project
   const ctx = /** @type {any} */ ({ root: here, cwd: here, env: { PATH: `/usr/bin:${here}/bin:bin::/bin`, TMPDIR: '/nonexistent-x' } });
   assert.equal(cleanToolEnv(ctx)['PATH'], '/usr/bin:/bin');

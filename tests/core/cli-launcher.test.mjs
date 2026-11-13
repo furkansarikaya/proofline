@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { CLI_COMMANDS } from '../../control-plane/agents/scripts/core/commands/cli.mjs';
 import { PL, sandbox } from './frontend-lib.mjs';
@@ -32,12 +33,12 @@ test('neither the installer nor the front end is a name of the `cli` family that
 });
 
 test('the CLI module exports main and the version, and nothing starts when it is imported', () => {
-  const r = spawnSync('node', ['--input-type=module', '-e', `const m = await import(${JSON.stringify(`${repo}/control-plane/agents/scripts/core/proflinecli.mjs`)}); console.log(typeof m.main, m.PROOFLINE_VERSION);`], { encoding: 'utf8' });
+  const r = spawnSync('node', ['--input-type=module', '-e', `const m = await import(${JSON.stringify(pathToFileURL(`${repo}/control-plane/agents/scripts/core/proflinecli.mjs`).href)}); console.log(typeof m.main, m.PROOFLINE_VERSION);`], { encoding: 'utf8' });
   assert.match(r.stdout, /^function \d+\.\d+\.\d+\n$/, r.stderr);
 });
 
 test('an older Node than 22.13 stops with the status 127 and the message of the core\'s Node check (a fake version, no real old node needed)', () => {
-  const r = spawnSync('node', ['--input-type=module', '-e', `Object.defineProperty(process.versions, 'node', { value: '20.1.0' }); await import(${JSON.stringify(`${repo}/control-plane/agents/scripts/core/node-check.mjs`)});`], { encoding: 'utf8' });
+  const r = spawnSync('node', ['--input-type=module', '-e', `Object.defineProperty(process.versions, 'node', { value: '20.1.0' }); await import(${JSON.stringify(pathToFileURL(`${repo}/control-plane/agents/scripts/core/node-check.mjs`).href)});   // a file URL: a Windows drive path is no module specifier`], { encoding: 'utf8' });
   assert.equal(r.status, 127);
   assert.match(r.stderr, /Node 22\.13 or newer is required \(found 20\.1\.0\)/);
 });

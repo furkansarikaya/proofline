@@ -67,7 +67,7 @@ test('droppedNetVars: the names that were dropped and a reason, never a value; w
   assert.ok(!JSON.stringify(d).includes(SECRET), 'a value reached the list');
   assert.ok(!JSON.stringify(d).includes('pwned'), 'a name outside the pattern reached the list');
   for (const x of d) assert.match(x.reason, /^[A-Za-z0-9 ,.()_/:-]{1,200}$/, `${x.name}: the reason is plain text`);
-  assert.deepEqual(droppedNetVars(ctxOf(work, { HTTPS_PROXY: 'http://proxy.corp.example:3128', SSL_CERT_FILE: CA, GIT_SSL_CAINFO: CA, PATH: '/usr/bin' })).map((x) => x.name), WIN ? CA_DROPPED_ON_WIN : [], 'good values are not listed');
+  assert.deepEqual(droppedNetVars(ctxOf(work, { HTTPS_PROXY: 'http://proxy.corp.example:3128', SSL_CERT_FILE: CA, GIT_SSL_CAINFO: CA, PATH: '/usr/bin' })).map((x) => x.name).sort(), WIN ? CA_DROPPED_ON_WIN : [], 'good values are not listed');
   assert.deepEqual(droppedNetVars(ctxOf(work)), [], 'an environment without the variables lists nothing');
   // an empty value (`HTTPS_PROXY=`) is harmless: dropped as before, never listed
   const empty = Object.fromEntries(['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO', 'ALL_PROXY', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'GIT_SSL_NO_VERIFY', 'NODE_TLS_REJECT_UNAUTHORIZED'].map((k) => [k, '']));
