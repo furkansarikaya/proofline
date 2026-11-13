@@ -866,27 +866,26 @@ test('R6-S2: what git sees through hgit has auto-maintenance off and no gc.recen
 /** @param {Partial<import('../../control-plane/agents/scripts/core/hooksoff.mjs').HooksFs>} [o] */
 const fakeHooksFs = (o = {}) => ({ real: (/** @type {string} */ p) => p, mkdir: () => {}, isRealDir: () => true, entries: () => /** @type {string[]} */ ([]), ...o });
 
-test('A264 hooksOff: /dev/null off Windows (no file system access); on win32 an absolute drive path of the core-owned empty folder, outside every worktree', () => {
-  const never = { sharedMain: () => { throw new Error('read the main tree'); } };
-  for (const pl of ['linux', 'darwin', 'freebsd']) assert.equal(hooksOff(never, pl), '/dev/null', pl);
+test('A264 hooksOff: /dev/null off Windows (no file system access); on win32 an absolute drive path of the core-owned empty folder in the account profile, outside every worktree', () => {
+  const never = /** @type {any} */ ({ real: () => { throw new Error('touched the file system'); } });
+  for (const pl of ['linux', 'darwin', 'freebsd']) assert.equal(hooksOff(pl, never), '/dev/null', pl);
   const made = /** @type {string[]} */ ([]);
-  const dir = hooksOffDir('C:\\Users\\r\\proj', fakeHooksFs({ mkdir: (p) => { made.push(p); } }));
-  assert.equal(dir, 'C:/Users/r/proj/.agents/local/hooks-off');
+  const dir = hooksOffDir('C:\\Users\\r', fakeHooksFs({ mkdir: (p) => { made.push(p); } }));
+  assert.equal(dir, 'C:/Users/r/.cache/proofline-hooks-off');
   assert.deepEqual(made, [dir]);
-  assert.ok(/^[A-Za-z]:\//.test(dir) && !dir.includes('/worktrees/'), 'absolute, on a drive, not inside a run worktree');
-  assert.equal(hooksOff({ sharedMain: () => 'c:/Users/r/proj' }, 'win32', fakeHooksFs()), 'C:/Users/r/proj/.agents/local/hooks-off', 'the drive letter is canonical');
-  assert.equal(hooksOff({ root: 'C:\\Users\\r\\own' }, 'win32', fakeHooksFs()), 'C:/Users/r/own/.agents/local/hooks-off', 'a context without a main tree (init, the code audit) uses its root');
+  assert.ok(/^[A-Za-z]:\//.test(dir) && !dir.includes('/.agents/'), 'absolute, on a drive, not inside a project');
+  assert.equal(hooksOff('win32', fakeHooksFs(), 'c:/Users/r'), 'C:/Users/r/.cache/proofline-hooks-off', 'the drive letter is canonical');
 });
 
-test('A264 hooksOffDir refuses (fail closed, the git command is not run): a UNC or rooted main tree, a link, another real path, a non-empty folder, a folder that cannot be made', () => {
-  const refused = (/** @type {string} */ main, /** @type {Parameters<typeof fakeHooksFs>[1]} */ o) => assert.throws(() => hooksOffDir(main, fakeHooksFs(o)), /git hooks cannot be turned off/, main);
-  refused('\\\\srv\\share\\proj', {});
-  refused('/proj', {});
-  refused('C:\\proj', { isRealDir: () => false });
-  refused('C:\\proj', { real: (/** @type {string} */ p) => (p.endsWith('hooks-off') ? 'D:\\elsewhere' : p) });
-  refused('C:\\proj', { real: (/** @type {string} */ p) => (p.endsWith('hooks-off') ? '\\\\srv\\share\\hooks-off' : p) });
-  refused('C:\\proj', { entries: () => ['pre-push'] });
-  refused('C:\\proj', { mkdir: () => { throw new Error('EACCES'); } });
+test('A264 hooksOffDir refuses (fail closed, the git command is not run): a UNC or rooted home, a link, another real path, a non-empty folder, a folder that cannot be made', () => {
+  const refused = (/** @type {string} */ home, /** @type {Parameters<typeof fakeHooksFs>[0]} */ o) => assert.throws(() => hooksOffDir(home, fakeHooksFs(o)), /git hooks cannot be turned off/, home);
+  refused('\\\\srv\\share\\r', {});
+  refused('/home/r', {});
+  refused('C:\\r', { isRealDir: () => false });
+  refused('C:\\r', { real: (/** @type {string} */ p) => (p.endsWith('proofline-hooks-off') ? 'D:\\elsewhere' : p) });
+  refused('C:\\r', { real: (/** @type {string} */ p) => (p.endsWith('proofline-hooks-off') ? '\\\\srv\\share\\hooks-off' : p) });
+  refused('C:\\r', { entries: () => ['pre-push'] });
+  refused('C:\\r', { mkdir: () => { throw new Error('EACCES'); } });
 });
 
 /** A real `NUL` FOLDER in the work tree holding a hook of each kind the core's git calls could fire. On Windows it is made through a `\\?\` path (the name is reserved for the API). */
@@ -921,7 +920,7 @@ test('A264: a hostile NUL folder in the work tree: core.hooksPath=NUL (the old s
     hgit(ctx, t, ['reset', '-q']);
     assert.ok(!existsSync(mark), 'a hook of the NUL folder ran through hgit');
     // the delivery's push command (deliver.mjs): the same -c core.hooksPath=<hooksOff>
-    const off = hooksOff(ctx);
+    const off = hooksOff();
     const push = execFileSync('git', ['-C', t, '-c', `core.hooksPath=${off}`, 'push', '-q', '--', bare, 'HEAD:refs/heads/pushed'], { env: s.env, stdio: ['ignore', 'pipe', 'pipe'] });
     assert.equal(push.length, 0);
     assert.ok(!existsSync(mark), 'a hook of the NUL folder ran through the push command');

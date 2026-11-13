@@ -261,7 +261,7 @@ export function hgit(ctx, tree, args, opt = {}) {
   const bin = opt.bin ?? 'git';
   const env = opt.env ?? ctx.childEnv();
   return proc.run(bin, ['-C', tree, ...a], {
-    cwd: opt.cwd ?? ctx.cwd, env: hermeticEnv(env, blankNames(ctx, tree, bin, env), hooksOff(ctx)), input: opt.input, stdio: opt.stdio ?? [opt.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
+    cwd: opt.cwd ?? ctx.cwd, env: hermeticEnv(env, blankNames(ctx, tree, bin, env), hooksOff()), input: opt.input, stdio: opt.stdio ?? [opt.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
   });
 }
 

@@ -17,7 +17,7 @@ import * as proc from './proc.mjs';
  */
 export function git(ctx, args, opt = {}) {
   const r = proc.run('git', ['-C', ctx.root, ...args], {
-    cwd: ctx.cwd, env: hermeticEnv({ ...ctx.childEnv(), ...(opt.env ?? {}) }, blankNames(ctx, ctx.root, 'git', ctx.childEnv()), hooksOff(ctx)), input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
+    cwd: ctx.cwd, env: hermeticEnv({ ...ctx.childEnv(), ...(opt.env ?? {}) }, blankNames(ctx, ctx.root, 'git', ctx.childEnv()), hooksOff()), input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
   });
   return { status: r.status, out: r.stdout.toString('latin1') };
 }

@@ -720,7 +720,7 @@ export function deliverMerged(ctx, id, flag) {
   const later = `update it from origin/${dmBase} before the next task starts`;
   // what is neutralised on the user's checkout: hooks (core.hooksPath) and the file system monitor (core.fsmonitor, a program named in the repository config; every git call of
   // this command carries it); `--no-overwrite-ignore` makes git itself refuse to overwrite an ignored file the target tracks (also when it is a directory or differs in case)
-  const hookless = ['-c', `core.hooksPath=${hooksOff(ctx)}`];
+  const hookless = ['-c', `core.hooksPath=${hooksOff()}`];
   const ffNow = () => g([...hookless, 'merge', '--ff-only', '-q', '--no-overwrite-ignore', tip2], main).status === 0;
   const where = (/** @type {string} */ cur) => (cur === '' ? 'a detached HEAD' : `branch ${cur}`);
   // the next task starts from the local canonical branch: bring it to the merge when that is a plain fast-forward of a clean main working tree
@@ -1160,7 +1160,7 @@ export function deliverStep(ctx, id, step, prArg) {
         if (ctx.config().get('git.push_requires_approval', 'true') !== 'false') consumeApproval(ctx, id, /** @type {string} */ (app));
         const gtp = resolveGit(ctx);
         if ('unreadable' in gtp) stop(`no trusted git to push with (${gtp.unreadable})`);
-        const pushed = proc.run(gtp.path, ['-C', ctx.root, '-c', `core.hooksPath=${hooksOff(ctx)}`, 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'pipe'] });
+        const pushed = proc.run(gtp.path, ['-C', ctx.root, '-c', `core.hooksPath=${hooksOff()}`, 'push', '-q', '--', ou, `${head}:refs/heads/${br}`], { cwd: ctx.cwd, env: cleanToolEnv(ctx, { remote: true }), stdio: ['ignore', 'pipe', 'pipe'] });
         if (pushed.status !== 0) stop(`git push to ${ou} failed: ${(pushed.stderr.toString('latin1') + pushed.stdout.toString('latin1')).trim().split('\n').slice(0, 3).join(' ')}`);
         git(ctx, ['update-ref', `refs/remotes/${v('remote')}/${br}`, head]);
         ctx.out(`pushed: ${br} -> ${ou}\nthen: agent.sh deliver-step ${id} pr\n`);
