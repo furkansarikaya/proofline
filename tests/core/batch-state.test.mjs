@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { after, test } from 'node:test';
 import { pidStat } from '../../control-plane/agents/scripts/core/batch.mjs';
 import {
-  A, AB, appendFileSync, batchApprove, behave, bnew, binstall, cfgBatch, drive, fakeDeliver, fakeRun, fakes, g, gOk, has, lines, mktask, nextline, orderIds, put, read, readIf, rmSync, sh, summaryOf, writeFileSync, wtp, mkdirSync, path,
+  A, AB, appendFileSync, batchApprove, behave, bnew, binstall, cfgBatch, drive, fakeDeliver, fakeRun, fakes, g, gOk, has, lines, mktask, nextline, orderIds, put, read, readIf, real, rmSync, sh, summaryOf, writeFileSync, wtp, mkdirSync, path,
 } from './batch-lib.mjs';
 
 /** Windows has no named pipes made by mkfifo and its platform resolver refuses a shell-script gh in a temp folder by design (A252, A262): those tests cannot run there. */
@@ -331,7 +331,10 @@ test('a task whose branch waits for the user\'s merge on a local origin: git say
   const head = g(wt, ['rev-parse', 'HEAD']);
   put(`${wt}/.agents/local/deliver/T-1/MERGE_HEAD`, `${head}\tmain\tproofline/T-1-x\n`);
   // the proof reads origin and the delivered head from the summary the user approved: a summary that pins the origin and an approval bound to its hash
-  put(`${wt}/.agents/local/deliver/T-1/SUMMARY.md`, `merge_by: user\nhead: ${head}\nbase: main\nbranch: proofline/T-1-x\norigin_url: ${g(wt, ['remote', 'get-url', 'origin'])}\norigin_effective: ${g(wt, ['ls-remote', '--get-url', 'origin'])}\n`);
+  // the pin is the form the core compares with (`originUrl`): on Windows the long forward-slash real path of a drive-absolute remote (W10; the raw `C:/Users/RUNNER~1/...` of git is not equal to it)
+  const rawUrl = g(wt, ['remote', 'get-url', 'origin']);
+  const pinUrl = process.platform === 'win32' && /^[A-Za-z]:[\\/]/.test(rawUrl) ? real(rawUrl) : rawUrl;
+  put(`${wt}/.agents/local/deliver/T-1/SUMMARY.md`, `merge_by: user\nhead: ${head}\nbase: main\nbranch: proofline/T-1-x\norigin_url: ${pinUrl}\norigin_effective: ${g(wt, ['ls-remote', '--get-url', 'origin'])}\n`);
   put(`${wt}/.agents/runs/T-1/approvals/001-push.yaml`, `kind: push\ndelivery: ${sha(`${wt}/.agents/local/deliver/T-1/SUMMARY.md`)}\nconsumed: true\n`);
   let out = nx(F, dir);
   assert.ok(out.includes('awaiting merge'), `batch-next does not say the task awaits the user's merge: ${out}`);

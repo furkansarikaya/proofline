@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inRunWorktrees, inside, isAbsoluteInput, localRemote, notRunRelative, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inRunWorktrees, inside, isScratchWorktreeWin, relUnder, winLinkAction, linkReachesRoot, isAbsoluteInput, localRemote, notRunRelative, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { readFileSync as readSource } from 'node:fs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
@@ -222,4 +222,140 @@ test('notRunRelative (A268):an absolute path (drive and UNC forms on win32 only)
   for (const p of ['/etc/passwd', 'a/../b', '..', 'reports/..x']) for (const pl of ['linux', 'win32']) assert.equal(notRunRelative(p, pl), true, `${p} ${pl}`);
   for (const p of ['C:/Program Files/Git/etc/passwd', 'C:\\x', '\\\\srv\\share\\x']) { assert.equal(notRunRelative(p, 'win32'), true, p); assert.equal(notRunRelative(p, 'linux'), false, p); }
   for (const p of ['VERIFY.md', 'reviews/a.md', 'design/SYNC.md', 'C:x']) for (const pl of ['linux', 'win32']) assert.equal(notRunRelative(p, pl), false, `${p} ${pl}`);
+});
+
+test('W10: a registered worktree under a Windows temporary folder is scratch; the project, the main tree and a run worktree are not; POSIX never answers true here', () => {
+  const io = { platform: 'win32', host: 'C:\\Users\\runneradmin\\AppData\\Local\\Temp', real: (/** @type {string} */ x) => x.replace('RUNNER~1', 'runneradmin') };
+  const main = 'C:/Users/runneradmin/AppData/Local/Temp/proofline-h-x/p1';
+  const temps = ['C:\\Users\\RUNNER~1\\AppData\\Local\\Temp', undefined, ''];
+  const scratch = 'C:/Users/RUNNER~1/AppData/Local/Temp/scratch-wt-ab12';
+  assert.equal(isScratchWorktreeWin(scratch, main, main, temps, io), true, 'a short-name spelling of the same temporary folder');
+  assert.equal(isScratchWorktreeWin('c:/users/runneradmin/appdata/local/temp/other', main, main, temps, io), true, 'another letter case');
+  assert.equal(isScratchWorktreeWin(main, main, main, temps, io), false, 'the project itself');
+  assert.equal(isScratchWorktreeWin(`${main}/.agents/local/worktrees/RW-1`, main, main, temps, io), false, 'a run worktree');
+  assert.equal(isScratchWorktreeWin('C:/Users/RUNNER~1/AppData/Local/Temp/proofline-h-x/p1', main, main, temps, io), false, 'the main tree spelled with the short name');
+  assert.equal(isScratchWorktreeWin('D:/work/elsewhere', main, main, temps, io), false, 'a folder outside every temporary folder');
+  assert.equal(isScratchWorktreeWin('C:/Users/runneradmin/AppData/Local/Temp2/x', main, main, temps, io), false, 'a sibling that only shares the prefix');
+  for (const platform of ['linux', 'darwin']) assert.equal(isScratchWorktreeWin('/tmp/x', '/r', '/r', ['/tmp'], { ...io, platform }), false, `the POSIX rule stays in the caller (${platform})`);
+});
+
+test('W10: a link of a copied dependency folder on Windows is re-pointed when it leads into the main tree (any spelling), kept inside the worktree or elsewhere, removed when it cannot be placed', () => {
+  const main = 'C:/Users/runneradmin/AppData/Local/Temp/p1';
+  const wt = `${main}/.agents/local/worktrees/W-1`;
+  const dir = `${wt}/node_modules/.bin`;
+  const io = { platform: 'win32', real: (/** @type {string} */ x) => x.replace('RUNNER~1', 'runneradmin') };
+  const act = (/** @type {string} */ t) => winLinkAction(t, dir, main, wt, io);
+  // relative, leaves the folder: six levels up from node_modules/.bin of the worktree is the main tree (the backslashes are what readlink answers on Windows)
+  assert.deepEqual(act('..\\..\\..\\..\\..\\..\\shared\\tool.js'), { action: 'repoint', target: `${wt}/shared/tool.js` });
+  assert.deepEqual(act('../../../../../../shared/tool.js'), { action: 'repoint', target: `${wt}/shared/tool.js` });
+  assert.deepEqual(act('C:\\Users\\runneradmin\\AppData\\Local\\Temp\\p1\\shared\\tool.js'), { action: 'repoint', target: `${wt}/shared/tool.js` }, 'absolute, backslashes');
+  assert.deepEqual(act('\\\\?\\C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\p1\\shared\\tool.js'), { action: 'repoint', target: `${wt}/shared/tool.js` }, 'verbatim prefix and a short name');
+  assert.deepEqual(act('c:/users/runneradmin/appdata/local/temp/P1/shared/../shared/tool.js'), { action: 'repoint', target: `${wt}/shared/tool.js` }, 'another case, a ..');
+  assert.deepEqual(act('pkg\\index.js'), { action: 'keep' }, 'an inner link stays');
+  assert.deepEqual(act(`${wt}/node_modules/pkg/index.js`), { action: 'keep' }, 'a link that already points into the worktree stays');
+  assert.deepEqual(act('D:\\tools\\x.exe'), { action: 'keep' }, 'another drive is not the main tree');
+  assert.deepEqual(act('\\\\localhost\\C$\\Users\\runneradmin\\AppData\\Local\\Temp\\p1\\shared\\tool.js'), { action: 'remove' }, 'the admin share names the main tree: fail closed');
+  assert.deepEqual(act('\\\\srv\\share\\x'), { action: 'remove' }, 'a UNC target cannot be placed');
+  assert.deepEqual(act('C:shared\\tool.js'), { action: 'remove' }, 'a drive-relative target cannot be placed');
+  assert.deepEqual(act('C:\\Users\\runneradmin\\AppData\\Local\\Temp\\p1-other\\x'), { action: 'keep' }, 'a sibling that only shares the prefix');
+});
+
+test('W10: relUnder keeps the POSIX batch-line rule exactly and finds a worktree under the project on Windows whatever the spelling', () => {
+  const old = (/** @type {string} */ root, /** @type {string} */ rr) => (rr.startsWith(root) ? rr.slice(root.length).replace(/^\/+/, '') : null);
+  for (const root of ['/r/p', '/r/p/']) for (const rr of ['/r/p', '/r/p/.agents/local/worktrees/T-1', '/r/p2/x', '/q', '/r/p//x']) for (const pl of ['linux', 'darwin']) assert.equal(relUnder(root, rr, pl), old(root, rr), `${root} ${rr} ${pl}`);
+  assert.equal(relUnder('C:/Users/runneradmin/p', 'C:/Users/runneradmin/p/.agents/local/worktrees/T-1', 'win32'), '.agents/local/worktrees/T-1');
+  assert.equal(relUnder('c:\\Users\\RunnerAdmin\\p', 'C:/Users/runneradmin/p/.agents/local/worktrees/T-1', 'win32'), '.agents/local/worktrees/T-1', 'typed with backslashes and another case');
+  assert.equal(relUnder('C:/Users/runneradmin/p', 'C:/Users/runneradmin/p', 'win32'), '', 'the project itself');
+  assert.equal(relUnder('C:/Users/runneradmin/p', 'C:/Users/runneradmin/p2/x', 'win32'), null, 'a sibling');
+});
+
+test('W10: the call sites use the platform rules (a revert goes red here, the Windows probe is the only other check)', () => {
+  const core = new URL('../../control-plane/agents/scripts/core/', import.meta.url);
+  const src = (/** @type {string} */ f) => readSource(new URL(f, core), 'utf8');
+  assert.match(src('handoff.mjs'), /\|\| isScratchWorktreeWin\(p, list\[0\] \?\? '', ctx\.root, \[ctx\.env\.TEMP, ctx\.env\.TMP, ctx\.env\.TMPDIR\]\)\) extra \+=/);
+  assert.match(src('worktree.mjs'), /process\.platform === 'win32'\) \{[^]*?winLinkAction\(t, physical\(path\.dirname\(l\)\) \?\? '', main, wt\)/);
+  const hook = src('commands/hookcmds.mjs');
+  assert.match(hook, /const p = posixForm\(args\[0\] \?\? ''\);/);
+  assert.match(hook, /if \(!isLocalAbsolute\(p\)\) return 1;/);
+  assert.match(hook, /const rest = inside\(base, p\);/);
+  assert.match(hook, /inside\(wd, p\) === null && p !== `\$\{wd\}\/`\) return 1;/, 'a worktree path with a trailing slash is approved as before');
+  // win32-only branches that no POSIX seam reaches: pinned as source, behaviour covered by the Windows probe only (accepted, A269)
+  assert.match(src('worktree.mjs'), /if \(act\.action === 'remove'\) \{ unlinkSync\(l\); ctx\.err\(/);
+  assert.match(src('worktree.mjs'), /else if \(act\.action === 'repoint'\) \{ unlinkSync\(l\); symlinkSync\(act\.target, l\); \}/);
+  assert.match(hook, /if \(!samePath\(physical\(wd\) \?\? '', wd\)\) return 1;/);
+  assert.match(hook, /process\.platform === 'win32' && samePath\(physical\(l\.slice\(9\)\) \?\? '', wd\)/);
+  assert.match(src('worktree.mjs'), /if \(linkReachesRoot\(a, main\)\) \{ try \{ unlinkSync\(l\)/);
+  assert.doesNotMatch(hook, /if \(!p\.startsWith\('\/'\)\) return 1;/, 'the leading-slash test of worktree-root is gone');
+  assert.match(src('commands/runcmds.mjs'), /if \(notRunRelative\(nw\) \|\| nw\.includes\('\/\/'\)/);
+  assert.match(src('lifecycle.mjs'), /p === '' \|\| notRunRelative\(p\) \|\| p\.includes\('\/\/'\)\) fail\('invalid local Markdown task source path'\)/);
+  assert.match(src('batch.mjs'), /const where = relUnder\(process\.platform === 'win32' \? physical\(ctx\.root\) : ctx\.root, rr\) \?\? rr;/);
+});
+
+/** A small Windows file system for the `real` seam: EXISTING folders and files by their real spelling (short names and case folded), JUNCTIONS (a path that really is another one). Throws for a path that does not exist, like realpathSync.native. */
+function fakeWinReal(/** @type {string[]} */ existing, /** @type {Record<string, string>} */ junctions = {}) {
+  const key = (/** @type {string} */ x) => x.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase().replace('runner~1', 'runneradmin');
+  const table = new Map(existing.map((e) => [key(e), e.replace(/\/+$/, '')]));
+  const real = (/** @type {string} */ x) => {
+    let k = key(x);
+    for (const [j, to] of Object.entries(junctions)) if (k === key(j) || k.startsWith(`${key(j)}/`)) k = key(to) + k.slice(key(j).length);
+    const hit = table.get(k);
+    if (hit === undefined) throw Object.assign(new Error(`ENOENT ${x}`), { code: 'ENOENT' });
+    return hit.length === 2 ? `${hit}\\` : hit.replace(/\//g, '\\');
+  };
+  return real;
+}
+
+test('W10 review: a rooted target without a drive, a dangling target in any spelling, a target through a junction, the project root and a folder above it, and the NT forms are judged on the real place (win32 seam)', () => {
+  const T = 'C:/Users/runneradmin/AppData/Local/Temp';
+  const main = `${T}/p1`; const wt = `${main}/.agents/local/worktrees/W-1`; const dir = `${wt}/node_modules/.bin`;
+  const existing = ['C:/', 'C:/Users', 'C:/Users/runneradmin', 'C:/Users/runneradmin/AppData', 'C:/Users/runneradmin/AppData/Local', T, main, `${main}/shared`, `${main}/shared/tool.js`, `${main}/.agents`, `${main}/.agents/local`, `${main}/.agents/local/worktrees`, wt, `${wt}/node_modules`, dir, 'C:/elsewhere', 'C:/elsewhere/deep', 'D:/'];
+  const fs = fakeWinReal(existing, { [`${main}/jn`]: 'C:/elsewhere/deep' });
+  const io = { platform: 'win32', real: fs };
+  const act = (/** @type {string} */ t) => winLinkAction(t, dir, main, wt, io);
+  // premises: the fake answers what the product asks (exact strings), existing and dangling alike
+  assert.equal(fs(`${main}/shared/tool.js`), 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\p1\\shared\\tool.js');
+  assert.throws(() => fs(`${main}/shared/new`), /ENOENT/, 'the dangling target does not exist');
+  assert.throws(() => fs(`${main}.`), /ENOENT/);
+  // BLOCKER: rooted, no drive letter: Windows resolves it on the link's own drive
+  assert.deepEqual(act('\\Users\\runneradmin\\AppData\\Local\\Temp\\p1\\shared\\tool.js'), { action: 'repoint', target: `${wt}/shared/tool.js` }, 'rooted, existing');
+  assert.deepEqual(act('/Users/runneradmin/AppData/Local/Temp/p1/shared/new'), { action: 'repoint', target: `${wt}/shared/new` }, 'rooted, dangling');
+  assert.deepEqual(winLinkAction('\\Users\\x', '', main, '', io), { action: 'remove' }, 'no drive can be determined: fail closed');
+  // MEDIUM 1: dangling in other spellings is resolved from the deepest existing folder
+  assert.deepEqual(act('C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\p1\\shared\\new'), { action: 'repoint', target: `${wt}/shared/new` }, '8.3, dangling');
+  assert.deepEqual(act('c:\\users\\runneradmin\\appdata\\local\\temp\\P1\\shared\\new'), { action: 'repoint', target: `${wt}/shared/new` }, 'letter case, dangling');
+  assert.deepEqual(act(`${main.replace(/\//g, '\\')}.\\shared\\new`), { action: 'remove' }, 'trailing dot (Windows trims it, so it names p1)');
+  assert.deepEqual(act(`${main.replace(/\//g, '\\')} \\shared\\new`), { action: 'remove' }, 'trailing space');
+  assert.deepEqual(act(`${main}/shared/new:stream`), { action: 'remove' }, 'a stream name');
+  // a `..` after a junction is the junction's parent, not the text's: jn -> C:/elsewhere/deep, so jn/../x is C:/elsewhere/x (outside), while the text would say p1/x (inside the main tree)
+  assert.deepEqual(act(`${main}/jn/../x`), { action: 'keep' }, 'through a junction');
+  // MEDIUM 2: the root itself and every folder above it
+  assert.deepEqual(act(main), { action: 'remove' }, 'the project root');
+  assert.deepEqual(act(`${main}\\`), { action: 'remove' }, 'the project root with a slash');
+  assert.deepEqual(act('..\\..\\..\\..\\..\\..'), { action: 'remove' }, 'a relative target that lands on the root');
+  assert.deepEqual(act('C:\\Users\\runneradmin'), { action: 'remove' }, 'a folder above the root');
+  assert.deepEqual(act('C:\\'), { action: 'remove' }, 'the drive root');
+  assert.deepEqual(act(wt), { action: 'keep' }, 'the worktree itself');
+  assert.deepEqual(act('D:\\'), { action: 'keep' }, 'another drive');
+  // NT forms
+  assert.deepEqual(act('\\??\\C:\\Users\\runneradmin\\AppData\\Local\\Temp\\p1\\shared\\tool.js'), { action: 'remove' }, '\\??\\ prefix');
+  assert.deepEqual(act('\\DosDevices\\C:\\x'), { action: 'remove' }, 'DosDevices');
+  assert.deepEqual(act('\\\\.\\pipe\\x'), { action: 'remove' }, 'device path');
+  assert.deepEqual(act('\\\\?\\UNC\\localhost\\C$\\x'), { action: 'remove' }, 'verbatim UNC');
+});
+
+test('W10 review: on POSIX a link to the project root or a folder above it is removed, one below it is not (table)', () => {
+  const main = '/r/proj';
+  /** @type {[string, boolean][]} */
+  const table = [['/r/proj', true], ['/r', true], ['/', true], ['/r/proj/shared', false], ['/r/proj2', false], ['/r/other', false], ['/usr/bin', false], ['/r/pro', false]];
+  for (const [a, want] of table) assert.equal(linkReachesRoot(a, main), want, a);
+});
+
+test('W10 review: the scratch check excludes the project, the main tree and run worktrees each on its own (a root different from the main tree)', () => {
+  const io = { platform: 'win32', host: 'C:/Users/runneradmin/AppData/Local/Temp', real: (/** @type {string} */ x) => x };
+  const T = 'C:/Users/runneradmin/AppData/Local/Temp';
+  const main = `${T}/main-tree`; const root = `${T}/other-root`; const temps = [T];
+  assert.equal(isScratchWorktreeWin(root, main, root, temps, io), false, 'the project root is not scratch');
+  assert.equal(isScratchWorktreeWin(main, main, root, temps, io), false, 'the main tree is not scratch');
+  assert.equal(isScratchWorktreeWin(`${main}/.agents/local/worktrees/RW-1`, main, root, temps, io), false, 'a run worktree of the main tree');
+  assert.equal(isScratchWorktreeWin(`${T}/scratch-wt`, main, root, temps, io), true, 'another folder under the temp folder');
 });

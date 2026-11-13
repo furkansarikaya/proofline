@@ -130,7 +130,10 @@ test('golden: the refusals of batch-plan (cycle, reserved word, invalid id, unkn
   check('plan-refusals', out.map(([k, v]) => `===== ${k}\n${v}`).join('\n'));
 });
 
-test('golden: the sleep inhibitor texts', () => {
+// Windows (W10): the fake caffeinate and systemd-inhibit are shell scripts in a temporary folder, which the platform resolver refuses by design there (A252), so the status line says "none available"
+// and the golden (the POSIX text of the two inhibitors) cannot be produced there.
+const noInhibitorStub = process.platform === 'win32' ? 'shell-script fake inhibitors in a temp folder are refused by design on Windows (A252); the golden is the POSIX text' : false;
+test('golden: the sleep inhibitor texts', { skip: noInhibitorStub }, () => {
   const F = fakes();
   const dir = bnew();
   mktask(dir, 'T-1', 'COMPLEX');

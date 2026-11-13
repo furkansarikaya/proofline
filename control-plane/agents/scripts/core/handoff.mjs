@@ -28,6 +28,7 @@ import { freshness, verifyKnowledgeScope, verifyScope, verifyWorkerEvidence } fr
 import { EXECUTABLE_CODE_DEFAULT } from './pathkind.mjs';
 import { planDestructive } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
+import { isScratchWorktreeWin } from './pathin.mjs';
 import { taskType } from './taskfile.mjs';
 import { metricsRun } from './runend.mjs';
 import { verifyCompletionReport } from './complreport.mjs';
@@ -110,7 +111,7 @@ export function verifyNoScratchWorktrees(ctx) {
     if (n === rootN) continue;
     if (n === main) continue;
     if (n.startsWith(`${main}/.agents/local/worktrees/`)) continue;
-    if (n.startsWith(`${t}/`) || n.startsWith('/tmp/') || n.startsWith('/var/folders/')) extra += ` ${p}`;
+    if (n.startsWith(`${t}/`) || n.startsWith('/tmp/') || n.startsWith('/var/folders/') || isScratchWorktreeWin(p, list[0] ?? '', ctx.root, [ctx.env.TEMP, ctx.env.TMP, ctx.env.TMPDIR])) extra += ` ${p}`;
   }
   if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. Remove each ('git worktree remove --force <path>'; the lead may run it) and run it again`);
 }

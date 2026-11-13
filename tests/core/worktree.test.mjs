@@ -12,6 +12,7 @@ import { dropHalfWorktree } from '../../control-plane/agents/scripts/core/worktr
 import { A, AB, batchApprove, bnew, binstall, fakes, g, gOk, has, lines, mktask, path, put, read, readIf, real, repo, say, scripts, sh, wtp } from './batch-lib.mjs';
 import { makeFixture, git } from './fixture.mjs';
 import { installGithooks } from '../lib/harness.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const wbody = (/** @type {string} */ title) => `## Goal\n\n${title}.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n`;
 /** @param {{ status: number|null, text: string }} r @param {string} what @param {string} [msg] */
@@ -170,7 +171,8 @@ test('worktree-add: a link inside a copied dependency folder that led into the m
   }
   try { writeFileSync(`${wt}/node_modules/.bin/rel`, 'changed\n'); } catch { /* the link may lead nowhere */ }
   assert.equal(read(`${dir}/shared/tool.js`), 'tool\n', 'a write through a copied link reached the main tree\'s shared/tool.js');
-  assert.equal(readlinkSync(`${wt}/node_modules/inside`), 'pkg/index.js', 'a link that stays inside the folder was changed');
+  // Windows answers the target with backslashes (`pkg\index.js`, Node writes the link that way): the same link in the form the core compares with
+  assert.equal(posix(readlinkSync(`${wt}/node_modules/inside`)), 'pkg/index.js', 'a link that stays inside the folder was changed');
 });
 
 /** The prompt hook of the main tree, as the runtime runs it. @param {string} main @param {string} prompt */
@@ -539,4 +541,25 @@ test('A264: worktree-add deletes an old record of the id BEFORE git worktree add
   assert.notEqual(stuck.status, 0, stuck.text);
   assert.ok(stuck.text.includes('the old record of the git folder'), stuck.text);
   rmSync(rec, { recursive: true, force: true });
+});
+
+test('worktree-root: the answer for each spelling of a path is the one the code had before W10 (table; the platform rules change nothing on POSIX)', () => {
+  const F = fakes(); const dir = bnew();
+  binstall(dir, { remote: false });
+  const wd = AB(F, dir, ['worktree-add', 'W-1']).out.trim();
+  assert.ok(has(`${wd}/.git`), 'premise: the worktree exists at the exact string the product prints');
+  const base = path.dirname(wd);
+  const win = process.platform === 'win32';
+  /** @type {[string, number, string][]} */
+  const table = [
+    [wd, 0, `${wd}\n`], [`${wd}/`, 0, `${wd}\n`], [`${wd}//`, 0, `${wd}\n`], [`${wd}/sub/x`, 0, `${wd}\n`], [`${wd}/.agents`, 0, `${wd}\n`],
+    [`${wd}/.`, 1, ''], [`${wd}/../W-2`, 1, ''], [`${base}/W-1x`, 1, ''], [`${base}/`, 1, ''], [base, 1, ''],
+    // the case variant: a different folder on POSIX, the same one on Windows (NTFS folds case; the answer keeps the spelling it was given) - the one platform difference of this table
+    win ? [wd.replace('/W-1', '/w-1'), 0, `${wd.replace('/W-1', '/w-1')}\n`] : [wd.replace('/W-1', '/w-1'), 1, ''], ...(win ? [] : /** @type {[string, number, string][]} */ ([[wd.replace(/^\//, ''), 1, '']])), ['', 1, ''], ['C:\\x', 1, ''], ['W-1', 1, ''],
+  ];
+  for (const [p, rc, out] of table) {
+    const r = A(dir, ['worktree-root', p]);
+    assert.equal(r.status, rc, `worktree-root ${JSON.stringify(p)}: ${r.text}`);
+    assert.equal(r.out, out, `worktree-root ${JSON.stringify(p)} output`);
+  }
 });

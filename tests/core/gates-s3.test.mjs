@@ -80,8 +80,18 @@ test('sc_decide: signals, overrides, escalations-used, persisted and ledgered; m
     refused(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a nonce of a live process that is not an ancestor was accepted', 'not called ahead of one');
   } finally { sleeper.kill(); }
   writeFileSync(nf, `${process.pid}\n`);
-  accepted(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a nonce naming an ancestor was refused');
-  assert.ok(!existsSync(nf), 'the nonce survived its use');
+  if (process.platform === 'win32') {
+    // W10: `isLiveAncestor` answers false on Windows (an ancestor cannot be proven there), so a nonce is never accepted: the accepted limit is that fail-closed refusal, and the nonce stays unused
+    refused(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a nonce naming this process was accepted on Windows although no ancestor can be proven there', 'not called ahead of one');
+    assert.ok(existsSync(nf), 'the refused nonce was consumed');
+    // the replay while the file is still there: refused again for the same reason, so the refusal is the ancestor rule and not a missing nonce file
+    refused(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a replayed nonce with its file still present was accepted on Windows', 'not called ahead of one');
+    assert.equal(readFileSync(nf, 'utf8'), `${process.pid}\n`, 'the refused nonce file changed');
+    rmSync(nf);
+  } else {
+    accepted(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a nonce naming an ancestor was refused');
+    assert.ok(!existsSync(nf), 'the nonce survived its use');
+  }
   refused(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a replayed nonce was accepted', 'not called ahead of one');
   writeFileSync(nf, '1\n');
   refused(D(['decide', 'LC', 'reviewer', '--focus', 'rules+tests'], undefined, { PROOFLINE_DISPATCH: nn }), 'a nonce naming pid 1 was accepted', 'not called ahead of one');

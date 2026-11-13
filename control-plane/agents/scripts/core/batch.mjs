@@ -10,7 +10,7 @@
 // Test seams (PROOFLINE_TEST=1 only): PROOFLINE_UNAME replaces the system name, PROOFLINE_BATCH_INHIBIT=none says no sleep inhibitor is installed,
 // PROOFLINE_SESSION_PID names the session process.
 import { frictionShowText } from './friction.mjs';
-import { realpathPosix } from './pathin.mjs';
+import { realpathPosix, relUnder } from './pathin.mjs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -481,7 +481,7 @@ export function nextReport(ctx, tsv = false) {
     if (act === 'run') ctx.out(`NEXT: run ${id}   (agent.sh worktree-add ${id}, then /proofline run ${id} with .agents/local/worktrees/${id} as the working folder)\n`);
     else if (act === 'resume') {
       const rr = rroot(ctx, id);
-      const where = rr.startsWith(ctx.root) ? rr.slice(ctx.root.length).replace(/^\/+/, '') : rr;
+      const where = relUnder(process.platform === 'win32' ? physical(ctx.root) : ctx.root, rr) ?? rr;
       ctx.out(`NEXT: resume ${id}   (agent.sh next ${id}, in ${where === '' ? 'the main working tree' : where})\n`);
     } else if (act.startsWith('cover ')) ctx.out(`NEXT: cover ${id} ${act.slice(6)}   (agent.sh batch-cover ${id} ${act.slice(6)})\n`);
     else if (act === 'deliver cleanup') ctx.out(`NEXT: deliver ${id} cleanup ${open.question}   (pull request ${open.question} is merged but not recorded: agent.sh deliver-step ${id} cleanup ${open.question} records the merge and cleans up)\n`);

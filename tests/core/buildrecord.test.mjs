@@ -176,6 +176,7 @@ test('a lock of a dead process and a lock past BUILD_RECORD_WAIT are reclaimed; 
   const key = keyOf(A(d, ['build-record', 'LC', 'run']).out);
   const dir = `${builds(d)}/${key}`;
   const dead = spawnDead();
+  assert.throws(() => process.kill(dead, 0), 'the premise: the pid is dead as the product looks it up (a Windows pid, not an MSYS one)');
   rmDir(dir); mkdirSync(`${dir}.lock`); writeFileSync(`${dir}.lock/pid`, `${dead}\n`);
   assert.equal(A(d, ['build-record', 'LC', 'run']).status, 0);
   assert.equal(n('build-ok'), 2);
@@ -347,8 +348,8 @@ test('a command stopped by the time limit (exit 124) is a failure and leaves no 
   assert.equal(n('build-ok'), 1, 'the second run built for real');
 });
 
-/** The pid of a process that has exited. */
-function spawnDead() { return Number(spawnSync('sh', ['-c', 'echo $$'], { encoding: 'utf8' }).stdout.trim()); }
+/** The pid of a process that has exited. It is the pid node itself reports for the child (`process.pid`): the `$$` of a Git-for-Windows `sh` is an MSYS pid, which is not a Windows pid, and the product's `process.kill(pid, 0)` looks the number up as a Windows one (W10). */
+function spawnDead() { return Number(spawnSync(process.execPath, ['-p', 'process.pid'], { encoding: 'utf8' }).stdout.trim()); }
 const rmDir = (/** @type {string} */ p) => rmSync(p, { recursive: true, force: true });
 
 test('A248 round 7: the build record keeps the repository\'s own filters but never runs its core.fsmonitor program (key snapshot, read-tree and the export)', () => {
