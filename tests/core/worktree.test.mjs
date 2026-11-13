@@ -542,3 +542,22 @@ test('A264: worktree-add deletes an old record of the id BEFORE git worktree add
   assert.ok(stuck.text.includes('the old record of the git folder'), stuck.text);
   rmSync(rec, { recursive: true, force: true });
 });
+
+test('worktree-root: the answer for each spelling of a path is the one the code had before W10 (table; the platform rules change nothing on POSIX)', () => {
+  const F = fakes(); const dir = bnew();
+  binstall(dir, { remote: false });
+  const wd = AB(F, dir, ['worktree-add', 'W-1']).out.trim();
+  assert.ok(has(`${wd}/.git`), 'premise: the worktree exists at the exact string the product prints');
+  const base = path.dirname(wd);
+  /** @type {[string, number, string][]} */
+  const table = [
+    [wd, 0, `${wd}\n`], [`${wd}/`, 0, `${wd}\n`], [`${wd}//`, 0, `${wd}\n`], [`${wd}/sub/x`, 0, `${wd}\n`], [`${wd}/.agents`, 0, `${wd}\n`],
+    [`${wd}/.`, 1, ''], [`${wd}/../W-2`, 1, ''], [`${base}/W-1x`, 1, ''], [`${base}/`, 1, ''], [base, 1, ''],
+    [wd.replace('/W-1', '/w-1'), 1, ''], [wd.replace(/^\//, ''), 1, ''], ['', 1, ''], ['C:\\x', 1, ''], ['W-1', 1, ''],
+  ];
+  for (const [p, rc, out] of table) {
+    const r = A(dir, ['worktree-root', p]);
+    assert.equal(r.status, rc, `worktree-root ${JSON.stringify(p)}: ${r.text}`);
+    assert.equal(r.out, out, `worktree-root ${JSON.stringify(p)} output`);
+  }
+});

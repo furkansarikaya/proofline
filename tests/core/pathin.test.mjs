@@ -349,3 +349,13 @@ test('W10 review: on POSIX a link to the project root or a folder above it is re
   const table = [['/r/proj', true], ['/r', true], ['/', true], ['/r/proj/shared', false], ['/r/proj2', false], ['/r/other', false], ['/usr/bin', false], ['/r/pro', false]];
   for (const [a, want] of table) assert.equal(linkReachesRoot(a, main), want, a);
 });
+
+test('W10 review: the scratch check excludes the project, the main tree and run worktrees each on its own (a root different from the main tree)', () => {
+  const io = { platform: 'win32', host: 'C:/Users/runneradmin/AppData/Local/Temp', real: (/** @type {string} */ x) => x };
+  const T = 'C:/Users/runneradmin/AppData/Local/Temp';
+  const main = `${T}/main-tree`; const root = `${T}/other-root`; const temps = [T];
+  assert.equal(isScratchWorktreeWin(root, main, root, temps, io), false, 'the project root is not scratch');
+  assert.equal(isScratchWorktreeWin(main, main, root, temps, io), false, 'the main tree is not scratch');
+  assert.equal(isScratchWorktreeWin(`${main}/.agents/local/worktrees/RW-1`, main, root, temps, io), false, 'a run worktree of the main tree');
+  assert.equal(isScratchWorktreeWin(`${T}/scratch-wt`, main, root, temps, io), true, 'another folder under the temp folder');
+});
