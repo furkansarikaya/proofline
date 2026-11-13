@@ -220,10 +220,13 @@ describe('indexHoldsExecutable: literal paths, all entries, fail closed (A266)',
     assert.equal(indexHoldsExecutable(ctx, 'docs/x[1].md'), true);
     assert.equal(indexHoldsExecutable(ctx, 'docs/x1.md'), false, 'the decoy itself is a plain doc');
   });
-  test('`*`, `?`, a backslash and a leading colon are literal', () => {
+  test('`*`, `?`, a backslash and a leading colon are literal', (t) => {
     index(`100644 ${blob}\tdocs/ab.md\n100755 ${blob}\tdocs/a*.md\n100755 ${blob}\tdocs/a?.md\n100755 ${blob}\tdocs/a\\b.md\n100755 ${blob}\t:(top)x.md\n100644 ${blob}\tdocs/plain.md\n`);
-    for (const n of ['docs/a*.md', 'docs/a?.md', 'docs/a\\b.md', ':(top)x.md']) assert.ok(names().some((e) => e.startsWith('100755 ') && e.endsWith(`\t${n}`)), `premise: ${n} holds the bit`);
-    for (const n of ['docs/a*.md', 'docs/a?.md', 'docs/a\\b.md', ':(top)x.md']) assert.equal(indexHoldsExecutable(ctx, n), true, n);
+    // Git for Windows refuses or rewrites some of these names itself (`*`, `?`, a backslash is a separator there): only the names the index really holds with the bit are tested there
+    const held = ['docs/a*.md', 'docs/a?.md', 'docs/a\\b.md', ':(top)x.md'].filter((n) => names().some((e) => e.startsWith('100755 ') && e.endsWith(`\t${n}`)));
+    if (process.platform !== 'win32') assert.equal(held.length, 4, 'premise: the index holds all four names');
+    else if (held.length === 0) { t.skip('Git for Windows holds none of these names in its index (NTFS-illegal); the `[` test covers the legal pathspec magic there'); return; }
+    for (const n of held) assert.equal(indexHoldsExecutable(ctx, n), true, n);
     assert.equal(indexHoldsExecutable(ctx, 'docs/plain.md'), false);
     assert.equal(indexHoldsExecutable(ctx, 'docs/*.md'), false, 'a glob matches nothing literally: not a tracked name');
   });
