@@ -4,7 +4,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix, shellMakes } from '../lib/winpath.mjs';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -875,6 +875,7 @@ test('A264 hooksOff: /dev/null off Windows (no file system access); on win32 an 
   assert.deepEqual(made, [dir]);
   assert.ok(/^[A-Za-z]:\//.test(dir) && !dir.includes('/worktrees/'), 'absolute, on a drive, not inside a run worktree');
   assert.equal(hooksOff({ sharedMain: () => 'c:/Users/r/proj' }, 'win32', fakeHooksFs()), 'C:/Users/r/proj/.agents/local/hooks-off', 'the drive letter is canonical');
+  assert.equal(hooksOff({ root: 'C:\\Users\\r\\own' }, 'win32', fakeHooksFs()), 'C:/Users/r/own/.agents/local/hooks-off', 'a context without a main tree (init, the code audit) uses its root');
 });
 
 test('A264 hooksOffDir refuses (fail closed, the git command is not run): a UNC or rooted main tree, a link, another real path, a non-empty folder, a folder that cannot be made', () => {
@@ -907,12 +908,13 @@ test('A264: a hostile NUL folder in the work tree: core.hooksPath=NUL (the old s
     const bare = `${s.dir}/bare.git`;
     s.git(s.dir, 'init', '-q', '--bare', bare);
     // premise: the RELATIVE value NUL is looked up below the work tree on every platform, so the hooks of the folder named NUL run
-    s.git(t, '-c', 'core.hooksPath=NUL', 'update-ref', 'refs/heads/prem1', 'HEAD');
-    assert.ok(existsSync(mark), 'test premise: core.hooksPath=NUL runs the hooks of a folder called NUL (reference-transaction)');
-    rmSync(mark);
-    s.git(t, '-c', 'core.hooksPath=NUL', 'push', '-q', bare, 'HEAD:refs/heads/prem2');
-    assert.ok(existsSync(mark), 'test premise: core.hooksPath=NUL runs its pre-push');
-    rmSync(mark);
+    // (POSIX: the hook runs. Windows probe 43373482249: git finds `NUL/reference-transaction` as a hook file and tries to START it, "cannot spawn NUL/reference-transaction", and aborts)
+    const viaNul = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', t, '-c', 'core.hooksPath=NUL', ...a], { env: s.env, encoding: 'utf8' });
+    for (const [what, run] of /** @type {Array<[string, () => import('node:child_process').SpawnSyncReturns<string>]>} */ ([['reference-transaction', () => viaNul('update-ref', 'refs/heads/prem1', 'HEAD')], ['pre-push', () => viaNul('push', '-q', bare, 'HEAD:refs/heads/prem2')]])) {
+      const r = run();
+      assert.ok(existsSync(mark) || r.stderr.includes(`NUL/${what}`), `test premise: core.hooksPath=NUL treats a folder called NUL as the hooks folder (${what}): ${r.stderr}`);
+      rmSync(mark, { force: true });
+    }
     const ctx = ctxOf(s, t);
     hgit(ctx, t, ['update-ref', 'refs/heads/p1', 'HEAD']);
     hgit(ctx, t, ['status', '--porcelain']);

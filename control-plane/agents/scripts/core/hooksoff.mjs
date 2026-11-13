@@ -43,8 +43,10 @@ export function hooksOffDir(main, fsx = NODE_FS) {
 }
 
 /**
- * `core.hooksPath` value that disables hooks for a git run in the tree of CTX. @param {{ sharedMain: () => string }} ctx @param {string} [platform] @param {HooksFs} [fsx]
+ * `core.hooksPath` value that disables hooks for a git run in the tree of CTX. @param {{ sharedMain?: () => string, root: string }} ctx @param {string} [platform] @param {HooksFs} [fsx]
  */
 export function hooksOff(ctx, platform = process.platform, fsx) {
-  return platform === 'win32' ? hooksOffDir(ctx.sharedMain(), fsx) : '/dev/null';
+  if (platform !== 'win32') return '/dev/null';
+  // the main tree of a run; the contexts of `init` and the code audit (a user's own checkout, no worker, no run) have no such notion and use their root
+  return hooksOffDir(typeof ctx.sharedMain === 'function' ? ctx.sharedMain() : ctx.root, fsx);
 }
