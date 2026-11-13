@@ -79,16 +79,18 @@ describe('a name git would c-quote (S2-5)', () => {
   const NAMES = process.platform === 'win32'
     ? ['caf\u00e9.txt', 'na\u00efve \u00e9.txt', '\u65e5\u672c\u8a9e.txt']
     : ['evil-\u001b]0;PWNED\u0007-\u001b[2J.txt', 'carriage\rreturn.txt', 'quo"te.txt', 'caf\u00e9.txt', 'back\\slash.txt'];
+  // the core reads git's output as a byte string (latin1), so a name is checked as the bytes of its UTF-8 form
+  const bytes = (/** @type {string} */ n) => Buffer.from(n, 'utf8').toString('latin1');
   test('control characters, a double quote and a non-ASCII name are judged by the shell', () => {
     const fx = base();
-    for (const n of NAMES) { assert.ok(needsCQuote(n), `premise: git would c-quote ${JSON.stringify(n)}`); writeFileSync(path.join(fx, n), 'x\n'); }
+    for (const n of NAMES) { assert.ok(needsCQuote(bytes(n)), `premise: git would c-quote ${JSON.stringify(n)}`); writeFileSync(path.join(fx, n), 'x\n'); }
     const r = same(fx, ['verify-scope', 'LC']);
     assert.ok(!String(r.err).includes('\u001b'), 'no raw escape byte in the output');
     all(fx);
   });
   test('the c-quote rule: control characters, DEL, a byte of 0x80 or more, a double quote and a backslash are quoted by git; a plain name, a space and a dot are not', () => {
-    for (const n of ['a\u001bb', 'a\rb', 'a\tb', 'a\nb', 'a\u007fb', 'caf\u00e9', 'a"b', 'a\\b', '\u0000x']) assert.equal(needsCQuote(n), true, JSON.stringify(n));
-    for (const n of ['plain.txt', 'with space.txt', 'dir/sub-dir/a_b.c', '.hidden', 'a~b', "it's"]) assert.equal(needsCQuote(n), false, JSON.stringify(n));
+    for (const n of ['a\u001bb', 'a\rb', 'a\tb', 'a\nb', 'a\u007fb', 'caf\u00e9', '\u65e5\u672c\u8a9e', 'a"b', 'a\\b', '\u0000x']) assert.equal(needsCQuote(bytes(n)), true, JSON.stringify(n));
+    for (const n of ['plain.txt', 'with space.txt', 'dir/sub-dir/a_b.c', '.hidden', 'a~b', "it's"]) assert.equal(needsCQuote(bytes(n)), false, JSON.stringify(n));
   });
 });
 
