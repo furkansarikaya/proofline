@@ -20,24 +20,29 @@ const HOST_BROWSER = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromiu
 const ctxOf = (d, path) => new Context({ env: cleanEnv({ PATH: path }), cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, `${d}/.agents/scripts/agent.sh`);
 const bin = () => tempDir('probe-bin-');
 /** A PATH with git and the system tools but no browser. */
-const sys = () => `${bin()}:/usr/bin:/bin`;
+const sys = () => (process.platform === 'win32' ? `${bin()};${process.env.PATH ?? ''}` : `${bin()}:/usr/bin:/bin`);
+/** The extension of an executable program file: `.exe` on Windows (A264), none elsewhere. */
+const X = process.platform === 'win32' ? '.exe' : '';
+/** The PATH separator. */
+const SEP = process.platform === 'win32' ? ';' : ':';
 /** @param {string} dir @param {string} name @param {number} mode */
 const exe = (dir, name, mode = 0o755) => { writeFileSync(`${dir}/${name}`, '#!/bin/sh\n'); chmodSync(`${dir}/${name}`, mode); };
 
 test('probeVisual: a Chromium-family executable on PATH is a capability; a directory, a file without the execute bit and another name are not', () => {
   const d = project('new_repo');
   const b = bin();
-  exe(b, 'chromium-browser');
-  assert.equal(probeVisual(ctxOf(d, b)), `browser ${b}/chromium-browser`);
+  exe(b, `chromium-browser${X}`);
+  assert.equal(probeVisual(ctxOf(d, b)), `browser ${b}/chromium-browser${X}`);
   const e = bin();
-  exe(e, 'google-chrome', 0o644);
-  mkdirSync(`${e}/chromium`);
+  // Windows has no execute bit: a file there is a program by its extension (the mode part is the POSIX premise)
+  if (process.platform !== 'win32') exe(e, 'google-chrome', 0o644);
+  mkdirSync(`${e}/chromium${X}`);
   exe(e, 'firefox');
   const got = probeVisual(ctxOf(d, e));
   if (HOST_BROWSER) assert.match(got, /^browser \/Applications\//); else assert.equal(got, '');
   const f = bin();
-  exe(f, 'brave-browser');
-  assert.equal(probeVisual(ctxOf(d, `:${f}:`)), `browser ${f}/brave-browser`, 'empty PATH entries are skipped, the others are searched');
+  exe(f, `brave-browser${X}`);
+  assert.equal(probeVisual(ctxOf(d, `${SEP}${f}${SEP}`)), `browser ${f}/brave-browser${X}`, 'empty PATH entries are skipped, the others are searched');
 });
 
 test('A264: pathEntries and browserFiles: off Windows exactly the old split(\':\') and the bare name; on win32 `;`, quotes taken off, NAME.exe only', () => {
