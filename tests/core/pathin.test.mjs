@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { isLocalAbsolute, inRunWorktrees, inside, isScratchWorktreeWin, relUnder, winLinkAction, linkReachesRoot, isAbsoluteInput, localRemote, notRunRelative, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { isLocalAbsolute, onDiskLocal, inRunWorktrees, inside, isScratchWorktreeWin, relUnder, winLinkAction, linkReachesRoot, isAbsoluteInput, localRemote, notRunRelative, nullDevice, onDisk, posixForm, reportNamesAgent, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { readFileSync as readSource } from 'node:fs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
@@ -389,9 +389,18 @@ test('A270 (W11): the call sites use the platform helpers (a revert goes red her
   assert.match(src('adapters/markdown.mjs'), /if \(notRunRelative\(tdir\)\) die\(/); assert.doesNotMatch(src('adapters/markdown.mjs'), /tdir\.startsWith\('\/'\)/);
   assert.match(src('gitstate.mjs'), /if \(!isLocalAbsolute\(cfgPath\)\)/); assert.doesNotMatch(src('gitstate.mjs'), /cfgPath\.startsWith\('\/'\)/);
   assert.match(src('git.mjs'), /onDisk\(ctx\.root, p\)/); assert.doesNotMatch(src('git.mjs'), /p\.startsWith\('\/'\)/);
-  assert.match(src('commands/checks.mjs'), /file = onDisk\(ctx\.cwd, file\)/); assert.doesNotMatch(src('commands/checks.mjs'), /file\.startsWith\('\/'\)/);
-  assert.match(src('record.mjs'), /onDisk\(ctx\.root, m\)/); assert.doesNotMatch(src('record.mjs'), /m\.startsWith\('\/'\)/);
+  assert.match(src('commands/checks.mjs'), /onDiskLocal\(ctx\.cwd, file\)/); assert.doesNotMatch(src('commands/checks.mjs'), /file\.startsWith\('\/'\)/);
+  assert.match(src('record.mjs'), /onDiskLocal\(ctx\.root, m\)/); assert.doesNotMatch(src('record.mjs'), /m\.startsWith\('\/'\)/);
   assert.match(src('install.mjs'), /!isAbsoluteInput\(rel, platform\)/); assert.doesNotMatch(src('install.mjs'), /!rel\.startsWith\('\/'\)/);
   // the two that were already correct stay on the helper
   assert.match(src('lifecycle.mjs'), /notRunRelative/); assert.match(src('gatecmd.mjs'), /notRunRelative/);
+});
+
+test('A270 security round 1: onDiskLocal refuses what is absolute but not on a local drive (UNC, verbatim UNC, rooted); POSIX is onDisk', () => {
+  // the premise: each refused row IS absolute for onDisk, so the refusal is the new rule and not a relative path
+  const refused = ['\\\\host\\share\\DESIGN.md', '//host/share/DESIGN.md', '\\\\?\\UNC\\host\\share\\D.md', '\\\\?\\C:\\D.md', '\\\\.\\pipe\\x', '/DESIGN.md'];
+  for (const p of refused) { assert.equal(isAbsoluteInput(p, 'win32'), true, `premise ${p}`); assert.equal(onDiskLocal('C:/proj', p, 'win32'), null, p); }
+  for (const p of ['C:\\proj\\DESIGN.md', 'c:/proj/DESIGN.md']) assert.equal(onDiskLocal('C:/other', p, 'win32'), p, p);
+  assert.equal(onDiskLocal('C:/proj', 'docs\\DESIGN.md', 'win32'), 'C:/proj/docs\\DESIGN.md');
+  for (const platform of ['linux', 'darwin']) for (const p of ['/a/b', '', 'a/b', '../x', '\\\\host\\s\\x', 'C:\\x', '//host/share/x']) assert.equal(onDiskLocal('/root', p, platform), onDisk('/root', p, platform), `${platform} ${p}`);
 });

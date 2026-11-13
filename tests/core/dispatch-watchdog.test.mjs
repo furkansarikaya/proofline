@@ -189,7 +189,8 @@ describe('a worker never outlives its dispatcher: the whole process group of the
       assert.ok(all.every(alive), 'they run before the kill');
       process.kill(-(/** @type {number} */ (child.pid)), 'SIGKILL');
       // the window record appears only AFTER the whole group is dead: when it exists, nothing of the worker is left that could still write
-      await until(() => windows(fx).length > 0);
+      // wait for the content, not only the name: the closer creates WINDOW-1.yaml and then writes it, so a read between the two saw an empty file
+      await until(() => { try { return /^exit_status: "137"$/m.test(fx.runFile('worker-evidence/WINDOW-1.yaml')); } catch { return false; } });
       assert.deepEqual(all.filter(alive), [], 'a process of the worker was still alive when the window was closed');
       assert.deepEqual(windows(fx), ['WINDOW-1.yaml']);
       assert.match(fx.runFile('worker-evidence/WINDOW-1.yaml'), /^role: "implementer"$[^]*^exit_status: "137"$/m);

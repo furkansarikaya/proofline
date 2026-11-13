@@ -30,7 +30,8 @@ export function refusedIn(dirs, expand) {
 export function resolveProgram(program, env = process.env, cwd, platform = process.platform, fsx) {
   if (platform !== "win32" || /[\\/:]/.test(program)) return { program };
   const here = [cwd, process.cwd()].filter((x) => typeof x === "string" && x !== "");
-  const fs = fsx ?? { isFile: (f) => statSync(f).isFile(), real: (f) => realpathSync.native(f), refusedDir: refusedIn(here, (f) => realpathSync.native(f)) };
+  const real = fsx?.real ?? ((f) => realpathSync.native(f));
+  const fs = { isFile: fsx?.isFile ?? ((f) => statSync(f).isFile()), real, refusedDir: fsx?.refusedDir ?? refusedIn(here, real) };
   const no = `proofline: ${program} was not found on PATH outside the working folder as a real .exe; not started`;
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(program) || program.includes("..")) return { refused: no };
   for (const entry of (env.PATH ?? env.Path ?? "").split(";")) {
@@ -54,9 +55,9 @@ export function resolveProgram(program, env = process.env, cwd, platform = proce
   return { refused: no };
 }
 
-/** The program to start for NAME (a throw when it is refused, so a caller's `try` around the spawn sees a failed start). @param {string} name @param {string} [cwd] */
-export function programOf(name, cwd) {
-  const r = resolveProgram(name, process.env, cwd);
+/** The program to start for NAME (a throw when it is refused, so a caller's `try` around the spawn sees a failed start). @param {string} name @param {string} [cwd] the child's working folder, when it is not the current one; ENV, PLATFORM and FSX are injectable for the tests */
+export function programOf(name, cwd, env = process.env, platform = process.platform, fsx) {
+  const r = resolveProgram(name, env, cwd, platform, fsx);
   if ("refused" in r) throw new Error(r.refused);
   return r.program;
 }

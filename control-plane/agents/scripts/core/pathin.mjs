@@ -81,6 +81,16 @@ export function notRunRelative(p, platform = process.platform) { return isAbsolu
 export function onDisk(cwd, p, platform = process.platform) { return isAbsoluteInput(p, platform) ? p : `${cwd}/${p}`; }
 
 /**
+ * `onDisk` for a file the core opens itself from a path a worker may have written (A270, security round 1): a path that is absolute but not on a local drive is refused (`null`): on win32 a UNC path
+ * (`\\\\host\\share\\x`, `//host/share/x`, `\\\\?\\UNC\\...`) would make Windows authenticate to a remote host when it is read, and a rooted `/x` is relative to the current drive (A261, `isLocalAbsolute`). Off Windows exactly `onDisk`.
+ * @param {string} cwd @param {string} p @param {string} [platform] @returns {string | null}
+ */
+export function onDiskLocal(cwd, p, platform = process.platform) {
+  if (isAbsoluteInput(p, platform) && !isLocalAbsolute(p, platform)) return null;
+  return onDisk(cwd, p, platform);
+}
+
+/**
  * Does the file name of an explorer's report carry the agent's token (A113), or does the report lie in the submit's own temporary folder TMP? A Windows path has both slashes, so on win32 the
  * backslash separates too (before, `C:\\...\\ag1-rep` never matched `/ag1-`); elsewhere a backslash is an ordinary name character and the text is compared as given.
  * @param {string} report @param {string} agent @param {string} tmp @param {string} [platform]
