@@ -93,3 +93,70 @@ export function textHasWord(text, word) { return text.split('\n').some((l) => ha
 
 /** `tr '\n' ' '` @param {string} s */
 export function nlToSpace(s) { return s.replace(/\n/g, ' '); }
+
+/** The platform seam of the path guards: a test replaces `platform` to run the Windows rules on any host (no path decision reads `process.platform` itself). */
+export const host = { platform: () => /** @type {string} */ (process.platform) };
+/** true on a Windows host (or under a test that says so). */
+export function isWin() { return host.platform() === 'win32'; }
+
+const DEVICE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
+
+/**
+ * A path as the guards read it on a Windows host, in one forward-slash spelling (A271). Elsewhere the text comes back untouched. Backslashes are
+ * separators; `\\?\C:\x` loses its prefix; `/c/x` and `/cygdrive/c/x` (Git Bash) are `C:/x`; the drive letter is upper case; `.` and `..` are
+ * resolved as Windows does (a `..` above a root stays at the root); the trailing dots and spaces of a name are dropped (`.agents/githooks.` is
+ * `.agents/githooks`); a UNC path is `//server/share/x`. `bad` marks what no guard can place: a drive-relative `C:x`, the `\\.\` and `\\?\` device
+ * namespaces, a name of only dots and spaces, a reserved device name (CON, PRN, AUX, NUL, COM1-9, LPT1-9, with or without an extension) and a UNC
+ * path without a share. `nul` is the bare name NUL, the Windows /dev/null. A guard denies a `bad` path where it would deny an outside one.
+ * @param {string} raw @param {string} [platform]
+ * @returns {{ p: string, bad: boolean, nul: boolean }}
+ */
+export function winSpell(raw, platform = host.platform()) {
+  if (platform !== 'win32') return { p: raw, bad: false, nul: false };
+  let s = raw.replace(/\\/g, '/');
+  const lp = /^\/\/[?.]\/([A-Za-z]:(?:\/.*)?)$/s.exec(s);
+  if (lp) s = /** @type {string} */ (lp[1]);
+  else if (/^\/\/[?.](\/|$)/.test(s)) return { p: s, bad: true, nul: false };
+  const ms = raw.startsWith('/') ? /^(?:\/cygdrive)?\/([A-Za-z])(?:\/(.*))?$/s.exec(s) : null; // Git Bash's /c/x (a backslash \c\x is the root of the current drive)
+  if (ms) s = `${ms[1]}:/${ms[2] ?? ''}`;
+  let head = ''; let rest = s; let abs = false; let bad = false;
+  const dr = /^([A-Za-z]):(.*)$/s.exec(s);
+  if (dr) {
+    head = `${/** @type {string} */ (dr[1]).toUpperCase()}:`; rest = /** @type {string} */ (dr[2]); abs = true;
+    if (!rest.startsWith('/')) { bad = true; rest = `/${rest}`; } // C:x and C: name the working directory of a drive: unresolvable
+  } else if (s.startsWith('//')) {
+    const um = /^\/\/([^/]+)\/([^/]+)(\/.*)?$/s.exec(s);
+    if (um) { head = `//${um[1]}/${um[2]}`; rest = um[3] ?? ''; } else { bad = true; head = '/'; rest = s; }
+    abs = true;
+  } else if (s.startsWith('/')) abs = true;
+  /** @type {string[]} */ const out = []; let dev = false; let nul = false;
+  for (const c of rest.split('/')) {
+    if (c === '' || c === '.') continue;
+    if (c === '..') { if (out.length > 0 && out[out.length - 1] !== '..') out.pop(); else if (!abs) out.push('..'); continue; }
+    const t = c.replace(/[. ]+$/, '');
+    if (t === '') { bad = true; continue; }
+    if (DEVICE.test(/** @type {string} */ (t.split('.')[0]).replace(/ +$/, ''))) { dev = true; if (/^nul$/i.test(t)) nul = true; }
+    out.push(t);
+  }
+  const body = out.join('/');
+  /** @type {string} */ let p;
+  if (head.endsWith(':')) p = `${head}/${body}`;
+  else if (head.startsWith('//')) p = body === '' ? head : `${head}/${body}`;
+  else if (abs) p = `/${body}`;
+  else p = body === '' ? '.' : body;
+  return { p, bad: bad || dev, nul: nul && !abs && out.length === 1 };
+}
+
+/** The text with backslashes turned into slashes and `/c/x` into `C:/x`, nothing else (a token that is only matched, never resolved). Elsewhere untouched. @param {string} p */
+export function winSoft(p) {
+  if (!isWin()) return p;
+  const s = p.replace(/\\/g, '/');
+  const ms = p.startsWith('/') ? /^(?:\/cygdrive)?\/([A-Za-z])(?:\/(.*))?$/s.exec(s) : null;
+  return ms ? `${/** @type {string} */ (ms[1]).toUpperCase()}:/${ms[2] ?? ''}` : s;
+}
+
+/** An absolute path in the guards' spelling: `/x`, and on a Windows host `C:/x`, `C:\x` and `\x` too (elsewhere `C:/x` is a name under the working directory). @param {string} p */
+export function isAbsPath(p) { return p.startsWith('/') || (isWin() && (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\'))); }
+
+/** The key two paths are compared by: on a Windows host the normalised spelling with ASCII letters folded (NTFS names are case-insensitive), elsewhere the text itself. @param {string} p */
+export function pathKey(p) { return isWin() ? winSpell(p).p.replace(/[A-Z]/g, (c) => c.toLowerCase()) : p; }

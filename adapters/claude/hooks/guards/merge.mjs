@@ -7,7 +7,7 @@
 //   mergeGuard(ctx, cmd, scan)   throws Deny (guards/kit.mjs) where the shell hook called `deny`; scan = scanCommand(cmd)
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { cmdSubst } from '../lib/text.mjs';
+import { cmdSubst, isWin, winSoft } from '../lib/text.mjs';
 import { cParts, deny, ereToJs, git, grepq, hcfgLoad, mcFail, stashPath, stateOf } from './kit.mjs';
 
 const MG_MSG = 'merging a pull request goes only through `proofline merge <PR-NUMBER> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]`, which checks that every check is green on the current head and then merges (A136); --admin and --auto are never allowed';
@@ -265,7 +265,9 @@ export async function mergeGuard(ctx, cmd, scan) {
       case 'pull':
         await load();
         for (const x of rest) {
-          if (x === '.' || x === './' || x === '..' || x.startsWith('../') || x.startsWith('/')) {
+          // A271: on a Windows host `C:\other\repo`, `C:/other/repo`, `\\srv\share\repo` and `..\x` are local paths too (and `C:repo`, which names a drive's working directory)
+          const xs = winSoft(x);
+          if (xs === '.' || xs === './' || xs === '..' || xs.startsWith('../') || xs.startsWith('/') || (isWin() && /^[A-Za-z]:/.test(xs))) {
             const c = await cur();
             if (isProt(c)) deny(`git pull from a local path onto the protected branch ${c} merges a task branch without proofline merge: ${MG_MSG}`);
             chainSwitch('git pull from a local path');

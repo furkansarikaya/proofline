@@ -11,7 +11,7 @@
 //   stashPath               a directory named in command text, resolved the way the shell hook's stash_path did
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { cmdSubst, posix } from '../lib/text.mjs';
+import { cmdSubst, isAbsPath, isWin, posix } from '../lib/text.mjs';
 
 /** The refusal of a guard (the text without the "proofline: " prefix). */
 export class Deny extends Error {
@@ -202,12 +202,15 @@ function escapeRe(c) { return c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'); }
 
 /** `dn_`: the dirname of a path as the hook's parameter expansion gave it. @param {string} p */
 export function dn(p) {
+  // a Windows root (`C:/`, `//srv/share`) is its own parent
+  if (isWin() && /^([A-Za-z]:|\/\/[^/]+\/[^/]+)\/*$/.test(p)) return /^[A-Za-z]:/.test(p) ? `${p.slice(0, 2)}/` : p.replace(/\/+$/, '');
   let r = p;
   while (r.length >= 2 && r.endsWith('/')) r = r.slice(0, -1);
   if (r.includes('/')) {
     r = r.slice(0, r.lastIndexOf('/'));
     while (r.length >= 2 && r.endsWith('/')) r = r.slice(0, -1);
     if (r === '') r = '/';
+    else if (isWin() && /^[A-Za-z]:$/.test(r)) r = `${r}/`;
   } else r = '.';
   return r;
 }
@@ -226,7 +229,7 @@ export function physDir(p) {
 }
 
 /** An absolute path in the hook's spelling: `/x`, and on a Windows host `C:/x` too (elsewhere `C:/x` is a name under the working directory). @param {string} p */
-export function isAbsolute(p) { return p.startsWith('/') || (process.platform === 'win32' && /^[A-Za-z]:[\\/]/.test(p)); }
+export function isAbsolute(p) { return isAbsPath(p); }
 
 /**
  * `stash_path P BASE`: P resolved against BASE (physical when it exists; leading $TMPDIR and $HOME expanded). '' when the path cannot be

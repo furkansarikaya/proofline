@@ -16,7 +16,7 @@ import { lstatSync, realpathSync, statSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { putAtomic, mkdirp, isFile, isDir, readText, rmf } from '../lib/fsx.mjs';
-import { canon, cmdSubst } from '../lib/text.mjs';
+import { canon, cmdSubst, isAbsPath, isWin, pathKey, winSpell } from '../lib/text.mjs';
 import { bn, dn, git, globMatch, hcfgLoad, mcFlag, stateOf, worktrees } from './kit.mjs';
 
 /** The roles that work in the project tree without writing to it (A143): the sentence their denials end with. @param {import('../lib/context.mjs').HookContext} ctx */
@@ -41,6 +41,7 @@ let normFn = null;
  * @param {import('../lib/context.mjs').HookContext} ctx @param {string} p
  */
 export async function inputPath(ctx, p) {
+  if (isWin()) return winSpell(p).p; // A271: one standalone rule for the drive, UNC, MSYS and backslash spellings (the same on every guard)
   if (!p.includes('\\') && !/^[A-Za-z]:/.test(p) && !p.startsWith('/c/') && !p.startsWith('/cygdrive/')) return p;
   normFn ??= (async () => {
     for (const d of [`${ctx.root}/.agents/scripts/core`, path.resolve(import.meta.dirname, '../../../../control-plane/agents/scripts/core')]) {
@@ -53,7 +54,7 @@ export async function inputPath(ctx, p) {
 }
 
 /** An absolute path; a drive spelling counts only on a Windows host (elsewhere `C:/x` is a name under the working directory, as in the shell). @param {string} p */
-function isAbs(p) { return p.startsWith('/') || (process.platform === 'win32' && /^[A-Za-z]:\//.test(p)); }
+function isAbs(p) { return isAbsPath(p); }
 
 /** Per-event memo of relpath answers. @type {WeakMap<object, Map<string, { rel: string, abs: string }>>} */
 const RELS = new WeakMap();
@@ -76,6 +77,7 @@ export async function relpathAbs(ctx, p0) {
 
 /** @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 */
 async function relpathCompute(ctx, p0) {
+  if (isWin() && winSpell(p0).bad) return { rel: '@unknown', abs: '' }; // a drive-relative, device or malformed spelling: no guard can place it
   const p = await inputPath(ctx, p0);
   let rp = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   let dir = dn(rp);
@@ -123,15 +125,16 @@ export async function outsideOk(ctx, p) {
   if (oo.startsWith('/private')) oo = oo.slice(8);
   let h = (ctx.env.HOME ?? '') || '/nonexistent-home';
   h = h.replace(/\/+/g, '/');
+  if (isWin()) { oo = pathKey(oo); h = pathKey(h); }
   if (h.startsWith('/private')) h = h.slice(8);
   if (oo.startsWith(`${h}/.claude/projects/`)) {
     const tail = oo.slice(h.length + '/.claude/projects/'.length);
     if (globMatch('*/memory/*', tail) || globMatch('*/tool-results/*', tail)) return null;
   }
   if (oo.startsWith(`${h}/.claude/plans/`)) return null;
-  const rootN = ctx.root.replace(/^\/private/, '');
+  const rootN = pathKey(ctx.root.replace(/^\/private/, ''));
   for (const w0 of await worktrees(ctx)) {
-    const w = w0.replace(/^\/private/, '');
+    const w = pathKey(w0.replace(/^\/private/, ''));
     if (w === rootN) continue;
     if (oo.startsWith(`${w}/`)) return null;
   }
@@ -140,6 +143,7 @@ export async function outsideOk(ctx, p) {
 
 /** `target_ok P`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 @returns {Promise<string | null>} */
 export async function targetOk(ctx, p0) {
+  if (isWin() && winSpell(p0).bad) return 'cannot resolve the target path';
   const p = await inputPath(ctx, p0);
   const abs = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   try { if (lstatSync(abs).isSymbolicLink()) return 'the target is a symbolic link; writes through links are never allowed during a run'; } catch { /* absent */ }
@@ -345,7 +349,13 @@ export async function roOperand(ctx, kind, word) {
     if (/[ \t\n\v\f\r;{(=]/.test(v)) return null;
     return `the path '${word}' of an in-place edit cannot be resolved from the command text`;
   }
-  const abs = v.startsWith('/') ? v : `${ctx.cwd}/${v}`;
+  if (isWin()) {
+    // A271: a drive, UNC or MSYS spelling is read as the absolute path it is before anything is looked up (it was `<cwd>/C:/x`, which never exists)
+    const s = winSpell(v);
+    if (s.bad) return `the path '${word}' of an in-place edit cannot be resolved (a drive-relative, device or malformed Windows path)`;
+    v = s.p;
+  }
+  const abs = isAbsPath(v) ? v : `${ctx.cwd}/${v}`;
   if (kind !== 'Q' && !existsSync(abs)) return null;
   if ((await relpath(ctx, v)) === '@outside') return null;
   return targetOk(ctx, v);

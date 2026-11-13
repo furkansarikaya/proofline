@@ -2,6 +2,7 @@
 // Scratch-space rules for shell commands (D10, A56, A52): scratch files go under .agents/runs/<ID>/scratch/ (before a run exists:
 // .agents/local/scratch/), $TMPDIR only holds git worktrees. Port of tmp_is_scratch_root, stray_tmp_path, scratch_guard and lead_tmp_check.
 import { cParts, deny, worktrees } from './kit.mjs';
+import { isAbsPath, isWin, pathKey, winSpell } from '../lib/text.mjs';
 
 /** true when $TMPDIR itself is /tmp (then /tmp is the scratch space and nothing is denied). @param {import('../lib/context.mjs').HookContext} ctx */
 export function tmpIsScratchRoot(ctx) {
@@ -62,16 +63,25 @@ export async function scratchGuard(ctx, scan) {
       if (v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR}/')) v = `${sgT}/${rest()}`;
       else if (v.startsWith('~/') || v.startsWith('$HOME/') || v.startsWith('${HOME}/')) v = `${ctx.env.HOME || '/nonexistent-home'}/${rest()}`;
       if (v.startsWith('/dev/')) continue;
-      if (!v.startsWith('/')) continue;
-      const n = v.replace(/^\/private/, '').replace(/\/+/g, '/');
-      if (n === rootN || n.startsWith(`${rootN}/`)) continue;
+      const shown = v;
+      if (isWin()) {
+        // A271: a drive (`C:\x`, `D:/x`), UNC (`\\srv\share\x`), `\\?\C:\x` or Git Bash (`/c/x`) spelling is an absolute path like `/etc/x`, never a relative one;
+        // one that cannot be placed (`C:x`, a device such as CON or `\\.\NUL`) is refused like an outside path. A bare NUL is the null device (the /dev/null above).
+        const sp = winSpell(v);
+        if (sp.nul) continue;
+        if (sp.bad) deny(`the command writes '${shown}', a Windows path that cannot be placed inside the project (a drive-relative, device or malformed path). Scratch files go under ${scratchDir(ctx)} (mkdir -p it, then write inside it, for example > ${scratchDir(ctx)}out.txt); $TMPDIR is only for git worktrees`);
+        v = sp.p;
+      }
+      if (!isAbsPath(v)) continue;
+      const n = pathKey(v.replace(/^\/private/, '').replace(/\/+/g, '/'));
+      if (n === pathKey(rootN) || n.startsWith(`${pathKey(rootN)}/`)) continue;
       let inWt = false;
       for (const w of wts.join('\n').split(/[ \t\n]+/).filter((x) => x !== '')) {
-        const wn = w.replace(/^\/private/, '');
-        if (wn === rootN) continue;
+        const wn = pathKey(w.replace(/^\/private/, ''));
+        if (wn === pathKey(rootN)) continue;
         if (n.startsWith(`${wn}/`)) inWt = true;
       }
-      if (!inWt) deny(`the command writes '${v}', outside the project. Scratch files go under ${scratchDir(ctx)} (mkdir -p it, then write inside it, for example > ${scratchDir(ctx)}out.txt); $TMPDIR is only for git worktrees`);
+      if (!inWt) deny(`the command writes '${shown}', outside the project. Scratch files go under ${scratchDir(ctx)} (mkdir -p it, then write inside it, for example > ${scratchDir(ctx)}out.txt); $TMPDIR is only for git worktrees`);
     } else if (rec.kind === 'C') {
       const { cw, rest } = cParts(rec);
       if (cw === 'mktemp') {
