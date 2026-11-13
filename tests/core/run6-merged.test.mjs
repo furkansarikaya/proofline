@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs, joinPath } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
 import { tmp } from '../lib/harness.mjs';
-import { posix } from '../lib/winpath.mjs';
+import { posix, shellMakes } from '../lib/winpath.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
 const WIN = process.platform === 'win32';
@@ -86,6 +86,26 @@ test('a local path, a relative path or a file:// origin is platform other (commi
   gOk(d, 'remote', 'set-url', 'origin', lo);
   const glab = fakeTool('glab');
   refused(A(d, ['deliver-plan', 'LC'], { env: { PROOFLINE_PLATFORM: 'gitlab', PATH: joinPath(glab, process.env.PATH) } }), 'a configured CLI platform on a local origin', 'delivery blocked');
+});
+
+test('A264: the switch and the fast-forward on the user\'s checkout run no git hook of the configured hooks folder (post-checkout, post-merge, reference-transaction)', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const hd = g(d, 'config', 'core.hooksPath');
+  const mark = posix(`${d}-HOOKRAN`);
+  for (const h of ['post-checkout', 'post-merge', 'reference-transaction']) { wf(`${hd}/${h}`, `#!/bin/sh\ntouch ${mark}\nexit 0\n`); chmodSync(`${hd}/${h}`, 0o755); }
+  assert.ok(shellMakes(`touch ${mark}`, mark), 'test premise: the hook command makes its marker through sh');
+  gOk(d, 'update-ref', 'refs/heads/zz', 'HEAD');
+  assert.ok(existsSync(mark), 'test premise: a plain git update-ref fires the reference-transaction hook of the configured folder');
+  const lo = bareOrigin(d);
+  loChain(d, lo);
+  mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(d, 'rev-parse', 'proofline/LC-lookup'));
+  rmSync(mark);   // the fixture's own git calls fire the hooks too; only the command under test is judged
+  const out = accepted(A(d, ['deliver-merged', 'LC']), 'deliver-merged').out;
+  assert.match(out, /fast-forwarded to origin\/main$/m);
+  assert.equal(g(d, 'branch', '--show-current'), 'main', 'the switch happened');
+  assert.ok(!existsSync(mark), 'a hook ran during the switch or the fast-forward');
 });
 
 test('deliver-merged: not merged (or other content) records nothing and keeps the run; a squash merge is proven by identical content; a fast-forward by ancestry', () => {
@@ -785,7 +805,8 @@ test('F1 (fix round 3): a driver loaded by includeIf onbranch (invisible on the 
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const marker = `${d}-MARKER`;
+  const marker = posix(`${d}-MARKER`);
+  assert.ok(shellMakes(`touch ${marker}; cat`, marker), 'test premise: the smudge command makes its marker through sh');
   wf(`${d}-inc.cfg`, `[filter "mk"]\n\tsmudge = touch ${marker}; cat\n\tclean = cat\n`);
   gOk(d, 'config', 'includeIf.onbranch:main.path', `${d}-inc.cfg`);
   wf(`${d}/.git/info/attributes`, '* filter=mk\n');
@@ -934,7 +955,8 @@ test('A248 (wiring): a driver found only through an includeIf onbranch include t
   const wt = wtDoneRun(d);
   const { lo } = wtDeliver(d, wt, 'local');
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
-  const cnt = `${d}-COUNT`;
+  const cnt = posix(`${d}-COUNT`);
+  assert.ok(shellMakes(`echo c >> ${cnt}; cat`, cnt), 'test premise: the clean command writes its count file through sh');
   wf(`${d}-inc.cfg`, `[filter "ck"]\n\tclean = echo c >> ${cnt}; cat\n`);
   gOk(d, 'config', 'includeIf.onbranch:proofline/**.path', `${d}-inc.cfg`);
   wf(`${d}/.git/info/attributes`, '* filter=ck\n');

@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { nullDevice } from './pathin.mjs';
+import { hooksOff } from './hooksoff.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -102,9 +102,9 @@ function gitlinkNames(run, tree) {
 /**
  * The environment entries that set the file system monitor off and blank each driver. Added after any GIT_CONFIG_COUNT the base environment already has, so a
  * count in the caller's environment is kept and cannot hide ours.
- * @param {Record<string, string | undefined>} base @param {string[]} names @returns {Record<string, string>}
+ * @param {Record<string, string | undefined>} base @param {string[]} names @param {string} [hooks] the `core.hooksPath` value that turns hooks off (hooksoff.mjs: `/dev/null`, on Windows a core-owned empty folder) @returns {Record<string, string>}
  */
-export function hermeticEnv(base, names) {
+export function hermeticEnv(base, names, hooks = '/dev/null') {
   /** @type {Record<string, string>} */ const out = {};
   // GIT_CONFIG_PARAMETERS (the `-c` carrier) is applied by git AFTER GIT_CONFIG_COUNT, so a caller's value could undo the blanking: it is dropped
   for (const [k, v] of Object.entries(base)) if (v !== undefined && k !== 'GIT_CONFIG_PARAMETERS') out[k] = v;
@@ -122,7 +122,7 @@ export function hermeticEnv(base, names) {
   // and a hosting service signs its merge commits. Verification is off, signing is off, and the programs are empty (git then cannot start a program called "", never the config's)
   put('merge.verifySignatures', 'false'); put('log.showSignature', 'false'); put('commit.gpgSign', 'false'); put('tag.gpgSign', 'false');
   for (const k of ['gpg.program', 'gpg.openpgp.program', 'gpg.ssh.program', 'gpg.x509.program', 'gpg.ssh.defaultKeyCommand']) put(k, '');
-  put('core.hooksPath', nullDevice()); // a hook (post-checkout, reference-transaction ...) is repository code too
+  put('core.hooksPath', hooks); // a hook (post-checkout, reference-transaction ...) is repository code too
   // auto-maintenance runs after a merge, a commit or a fetch (`maintenance run --auto`, `gc --auto`) and `gc.recentObjectsHook` is a program the repack runs
   put('gc.auto', '0'); put('maintenance.auto', 'false'); put('receive.autogc', 'false'); put('gc.recentObjectsHook', '');
   // an EMPTY command does not disable a driver that is `required` (git-lfs sets it): git then fails the whole call. `required=false` makes the blanked driver a no-op
@@ -261,7 +261,7 @@ export function hgit(ctx, tree, args, opt = {}) {
   const bin = opt.bin ?? 'git';
   const env = opt.env ?? ctx.childEnv();
   return proc.run(bin, ['-C', tree, ...a], {
-    cwd: opt.cwd ?? ctx.cwd, env: hermeticEnv(env, blankNames(ctx, tree, bin, env)), input: opt.input, stdio: opt.stdio ?? [opt.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
+    cwd: opt.cwd ?? ctx.cwd, env: hermeticEnv(env, blankNames(ctx, tree, bin, env), hooksOff(ctx)), input: opt.input, stdio: opt.stdio ?? [opt.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
   });
 }
 

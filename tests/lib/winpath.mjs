@@ -5,6 +5,8 @@
 //    `node <script>`. Elsewhere the script is started by its own path, as before, so the shebang and the execute bit stay covered.
 //  - `posix(p)`: the form the core stores and prints paths in (forward slashes, upper-case drive letter); temp folders and `path.join` answer `C:\Users\...` on Windows. Use it on the
 //    EXPECTED or the observed side when only the test is biased towards POSIX text; the product's own values are compared as the product gives them.
+import { spawnSync } from 'node:child_process';
+import { existsSync, rmSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { posixForm } from '../../control-plane/agents/scripts/core/pathin.mjs';
 
@@ -32,4 +34,17 @@ export function nullDevice(platform = process.platform, host = devNull) {
 export function skipOnWin32(fn, reason, platform = process.platform) {
   if (platform !== 'win32') return fn;
   return /** @type {any} */ ((/** @type {string} */ name, /** @type {any} */ a, /** @type {any} */ b) => (typeof a === 'function' ? fn(name, { skip: reason }, a) : fn(name, { ...a, skip: reason }, b)));
+}
+
+/**
+ * Does the shell command COMMAND (run by `sh -c`, the shell git uses for a driver or a config program) create FILE? The in-test premise of every negative assertion "the program never ran"
+ * (A264): when a Windows backslash path was written into the command, `sh` read it as an escape and made no file, so the negative assertion passed for the wrong reason. The file is removed.
+ * @param {string} command @param {string} file
+ */
+export function shellMakes(command, file) {
+  rmSync(file, { force: true });
+  spawnSync('sh', ['-c', command], { stdio: 'ignore' });
+  const made = existsSync(file);
+  rmSync(file, { force: true });
+  return made;
 }

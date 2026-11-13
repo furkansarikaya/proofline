@@ -8,6 +8,7 @@ import { isFile } from './paths.mjs';
 import { globToRegex } from './scope.mjs';
 import { grepEq } from './signals.mjs';
 import { ecosystemRows } from './ecodata.mjs';
+import { pathOf } from './platform.mjs';
 import { ecosystemSets } from './signals.mjs';
 import { textLines } from './records.mjs';
 import path from 'node:path';
@@ -74,7 +75,7 @@ const APPS = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Co
  * Empty when there is none. @param {Context} ctx
  */
 export function probeVisual(ctx) {
-  for (const d of pathEntries(ctx.env.PATH ?? '')) {
+  for (const d of pathEntries(pathOf(ctx.env) ?? '')) {
     for (const n of BROWSERS) for (const f of browserFiles(d, n)) if (executableFile(f)) return `browser ${f}`;
   }
   for (const a of APPS) if (executableFile(`/Applications/${a}`)) return `browser /Applications/${a}`;

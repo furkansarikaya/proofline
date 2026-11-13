@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import nodePath from 'node:path';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { browserFiles, pathEntries, probePerformance, probeVisual } from '../../control-plane/agents/scripts/core/probes.mjs';
@@ -20,7 +21,7 @@ const HOST_BROWSER = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromiu
 const ctxOf = (d, path) => new Context({ env: cleanEnv({ PATH: path }), cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, `${d}/.agents/scripts/agent.sh`);
 const bin = () => tempDir('probe-bin-');
 /** A PATH with git and the system tools but no browser. */
-const sys = () => (process.platform === 'win32' ? `${bin()};${process.env.PATH ?? ''}` : `${bin()}:/usr/bin:/bin`);
+const sys = () => (process.platform === 'win32' ? `${bin()};${nodePath.dirname(spawnSync('where', ['git'], { encoding: 'utf8' }).stdout.split(/\r?\n/)[0] ?? '')}` : `${bin()}:/usr/bin:/bin`);   // Windows: the folder of git only, so a browser elsewhere on the runner's PATH cannot be found
 /** The extension of an executable program file: `.exe` on Windows (A264), none elsewhere. */
 const X = process.platform === 'win32' ? '.exe' : '';
 /** The PATH separator. */

@@ -14,7 +14,7 @@ import { clean, cleanBytes, cleanLines, cleanOut, codeAudit, couldAlias, foldNam
 import { matcherCovers, probeEnv, recordText } from '../../control-plane/agents/scripts/core/doctor.mjs';
 import { repo } from './helpers.mjs';
 import { sandbox } from './frontend-lib.mjs';
-import { launch } from '../lib/winpath.mjs';
+import { launch, nullDevice, posix } from '../lib/winpath.mjs';
 
 const sb = sandbox();
 const git = (/** @type {string} */ d, /** @type {string[]} */ a) => spawnSync('git', ['-C', d, ...a], { env: sb.env, encoding: 'utf8' });
@@ -28,7 +28,7 @@ const NOT_SET = /core\.hooksPath was NOT set to \.agents\/githooks \(proofline's
 const doctor = (/** @type {string} */ d, /** @type {NodeJS.ProcessEnv} */ extra = {}) => sb.pl(d, ['doctor'], { PROOFLINE_DOCTOR_PROBES: '0', ...extra });
 let marks = 0;
 /** a fresh marker path: a hostile file that runs writes it */
-const marker = () => `${sb.T}/mark-${++marks}`;
+const marker = () => posix(`${sb.T}/mark-${++marks}`);   // forward slashes: the path is written into a shell hook, where a backslash is an escape (A264)
 const writeExec = (/** @type {string} */ f, /** @type {string} */ text) => { mkdirSync(path.dirname(f), { recursive: true }); writeFileSync(f, text); chmodSync(f, 0o755); };
 const hookWriting = (/** @type {string} */ m) => `#!/bin/sh\necho hostile > ${m}\nexit 0\n`;
 const coreWriting = (/** @type {string} */ m) => `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(m)}, 'hostile');\n`;
@@ -377,7 +377,9 @@ test('A249 doctor (SECURITY-1): the probe environment is an allowlist, HOME is t
   const env = probeEnv({ PATH: '/bin', LANG: 'C', HOME: '/home/u', SSH_AUTH_SOCK: '/tmp/agent', GITHUB_TOKEN: 't', GH_TOKEN: 't', AWS_SECRET_ACCESS_KEY: 's', GIT_ASKPASS: 'x', PROOFLINE_CLAUDE_BIN: 'x', ANTHROPIC_API_KEY: 'k', GIT_AUTHOR_EMAIL: 'a@b' }, '/tmp/probe-home');
   assert.deepEqual(Object.keys(env).sort(), ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_TERMINAL_PROMPT', 'HOME', 'LANG', 'PATH', 'PROOFLINE_NO_TTY']);
   assert.equal(env.HOME, '/tmp/probe-home');
-  assert.equal(env.GIT_CONFIG_GLOBAL, '/dev/null');
+  assert.equal(env.GIT_CONFIG_GLOBAL, nullDevice());
+  assert.equal(env.GIT_CONFIG_NOSYSTEM, '1');
+  assert.equal(env.GIT_TERMINAL_PROMPT, '0');
 });
 
 test('A249 doctor (R1): a modified git hook alone does not make doctor skip the config check and the approval timing (it never starts a git hook); the hook itself FAILs', () => {
