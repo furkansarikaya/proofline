@@ -53,7 +53,9 @@ describe('a changed path that cannot be baselined fails the scope commands (S2-1
     const fx = base();
     mkdirSync(path.join(fx, 'docs/wiki'), { recursive: true });
     makeSymlink(LINK_TARGET, path.join(fx, 'docs/wiki/link.md'));
-    assert.equal(same(fx, ['verify-knowledge-scope', 'LC']).code, 1);
+    const r = same(fx, ['verify-knowledge-scope', 'LC']);
+    assert.equal(r.code, 1);
+    assert.match(String(r.err), /cannot baseline symlink: docs\/wiki\/link\.md/);
     all(fx);
   });
   test('a nested git directory', () => {
@@ -90,6 +92,8 @@ describe('a name git would c-quote (S2-5)', () => {
   });
   test('the c-quote rule: control characters, DEL, a byte of 0x80 or more, a double quote and a backslash are quoted by git; a plain name, a space and a dot are not', () => {
     for (const n of ['a\u001bb', 'a\rb', 'a\tb', 'a\nb', 'a\u007fb', 'caf\u00e9', '\u65e5\u672c\u8a9e', 'a"b', 'a\\b', '\u0000x']) assert.equal(needsCQuote(bytes(n)), true, JSON.stringify(n));
+    // the bounds of the byte range, as latin1 text without a UTF-8 round trip: 0x7e is plain, 0x7f and 0x80 and 0xff are quoted
+    assert.equal(needsCQuote('a~b'), false); assert.equal(needsCQuote('\u007f'), true); assert.equal(needsCQuote('\u0080'), true); assert.equal(needsCQuote('ÿ'), true); assert.equal(needsCQuote('aÿb'), true);
     for (const n of ['plain.txt', 'with space.txt', 'dir/sub-dir/a_b.c', '.hidden', 'a~b', "it's"]) assert.equal(needsCQuote(bytes(n)), false, JSON.stringify(n));
   });
 });

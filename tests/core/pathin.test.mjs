@@ -206,7 +206,19 @@ test('A267: the call sites use the platform rules (a revert goes red here, the W
   assert.doesNotMatch(submit, /report\.includes\(`\/\$\{agent\}-`\)/, 'the slash-only expression is gone');
 });
 
-test('notRunRelative (A268): an absolute path (drive and UNC forms on win32 only) or a `..` is not a run-relative artifact path; a plain relative path is', () => {
+test('A268: the call sites use notRunRelative (a revert goes red here, the Windows probe is the only other check)', () => {
+  const core = new URL('../../control-plane/agents/scripts/core/', import.meta.url);
+  const gatecmd = readSource(new URL('gatecmd.mjs', core), 'utf8');
+  const resultutil = readSource(new URL('resultutil.mjs', core), 'utf8');
+  assert.match(gatecmd, /import \{ notRunRelative \} from '\.\/pathin\.mjs'/);
+  assert.match(gatecmd, /if \(notRunRelative\(art\)\) fail\(`artifact path must be run-relative/);
+  assert.doesNotMatch(gatecmd, /art\.startsWith\('\/'\)/, 'the leading-slash expression is gone');
+  assert.match(resultutil, /import \{[^}]*\bnotRunRelative\b[^}]*\} from '\.\/pathin\.mjs'/);
+  assert.equal((resultutil.match(/p === '' \|\| notRunRelative\(p\)/g) ?? []).length, 4, 'the four evidence path checks');
+  assert.doesNotMatch(resultutil, /p\.startsWith\('\/'\) \|\| p\.includes\('\.\.'\)/, 'the inline check is gone');
+});
+
+test('notRunRelative (A268):an absolute path (drive and UNC forms on win32 only) or a `..` is not a run-relative artifact path; a plain relative path is', () => {
   for (const p of ['/etc/passwd', 'a/../b', '..', 'reports/..x']) for (const pl of ['linux', 'win32']) assert.equal(notRunRelative(p, pl), true, `${p} ${pl}`);
   for (const p of ['C:/Program Files/Git/etc/passwd', 'C:\\x', '\\\\srv\\share\\x']) { assert.equal(notRunRelative(p, 'win32'), true, p); assert.equal(notRunRelative(p, 'linux'), false, p); }
   for (const p of ['VERIFY.md', 'reviews/a.md', 'design/SYNC.md', 'C:x']) for (const pl of ['linux', 'win32']) assert.equal(notRunRelative(p, pl), false, `${p} ${pl}`);
