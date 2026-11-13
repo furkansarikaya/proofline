@@ -554,8 +554,8 @@ test('worktree-root: the answer for each spelling of a path is the one the code 
   const table = [
     [wd, 0, `${wd}\n`], [`${wd}/`, 0, `${wd}\n`], [`${wd}//`, 0, `${wd}\n`], [`${wd}/sub/x`, 0, `${wd}\n`], [`${wd}/.agents`, 0, `${wd}\n`],
     [`${wd}/.`, 1, ''], [`${wd}/../W-2`, 1, ''], [`${base}/W-1x`, 1, ''], [`${base}/`, 1, ''], [base, 1, ''],
-    // the case variant: a different folder on POSIX, the same one on Windows (NTFS folds case; the answer is the real spelling) - the one platform difference of this table
-    win ? [wd.replace('/W-1', '/w-1'), 0, `${wd}\n`] : [wd.replace('/W-1', '/w-1'), 1, ''], ...(win ? [] : /** @type {[string, number, string][]} */ ([[wd.replace(/^\//, ''), 1, '']])), ['', 1, ''], ['C:\\x', 1, ''], ['W-1', 1, ''],
+    // the case variant: a different folder on POSIX, the same one on Windows (NTFS folds case; the answer keeps the spelling it was given) - the one platform difference of this table
+    win ? [wd.replace('/W-1', '/w-1'), 0, `${wd.replace('/W-1', '/w-1')}\n`] : [wd.replace('/W-1', '/w-1'), 1, ''], ...(win ? [] : /** @type {[string, number, string][]} */ ([[wd.replace(/^\//, ''), 1, '']])), ['', 1, ''], ['C:\\x', 1, ''], ['W-1', 1, ''],
   ];
   for (const [p, rc, out] of table) {
     const r = A(dir, ['worktree-root', p]);
