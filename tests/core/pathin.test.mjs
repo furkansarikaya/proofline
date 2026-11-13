@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inRunWorktrees, inside, isAbsoluteInput, localRemote, posixForm, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
+import { inRunWorktrees, inside, isAbsoluteInput, localRemote, nullDevice, posixForm, realpathPosix, samePath, scratchRoot } from '../../control-plane/agents/scripts/core/pathin.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
 import { posix } from '../lib/winpath.mjs';
 
@@ -153,4 +153,10 @@ test('inRunWorktrees: win32 meets git\'s `C:/Users/runneradmin/...` with the rea
   for (const d of yes) assert.equal(inRunWorktrees(main, d, 'win32', real), true, d);
   for (const d of no) assert.equal(inRunWorktrees(main, d, 'win32', real), false, d);
   assert.equal(inRunWorktrees('', 'C:/x/.agents/local/worktrees/LC', 'win32', real), false);
+});
+
+test('A264: nullDevice is /dev/null off Windows (the literal the code wrote before) and NUL on win32; no argument means the running platform', () => {
+  for (const pl of ['linux', 'darwin', 'freebsd', 'aix']) assert.equal(nullDevice(pl), '/dev/null', pl);
+  assert.equal(nullDevice('win32'), 'NUL');
+  assert.equal(nullDevice(), nullDevice(process.platform));
 });

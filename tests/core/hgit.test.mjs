@@ -2,8 +2,9 @@
 // A248 (Part of #165): the hermetic git helper, on tiny throwaway repositories (milliseconds each, no delivery chain). A planted driver counts its runs into a file; a planted
 // hook, difftool, submodule configuration, url rewrite and ssh command touch a marker. Nothing waits, nothing reads the clock; every repository is unique and removed.
 import { tempDir } from '../lib/tempdir.mjs';
+import { posix, shellMakes } from '../lib/winpath.mjs';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import * as proc from '../../control-plane/agents/scripts/core/proc.mjs';
 import { hermeticFetch, importProvenTip, sbMainPark } from '../../control-plane/agents/scripts/core/deliver.mjs';
+import { hooksOff, hooksOffDir } from '../../control-plane/agents/scripts/core/hooksoff.mjs';
 import { blankNames, hermeticEnv, hgit, indexHasGitlinks, parseDrivers, populatedGitlinks, repoDrivers } from '../../control-plane/agents/scripts/core/hgit.mjs';
 import { addedLines, diffNames, git, numstat, trackedPaths, untrackedPaths } from '../../control-plane/agents/scripts/core/git.mjs';
 
@@ -21,7 +23,8 @@ const ENV = (/** @type {string} */ home) => ({ PATH: process.env.PATH ?? '/usr/b
 
 /** A unique scratch folder with a runner for plain git. @returns {{ dir: string, env: Record<string, string>, git: (cwd: string, ...a: string[]) => string, done: () => void }} */
 function scratch() {
-  const dir = tempDir('hgit-');
+  // forward slashes on Windows: the paths below are written into shell commands of git's own sh (a driver, a hook), which reads a backslash as an escape (A264)
+  const dir = posix(tempDir('hgit-'));
   const env = ENV(dir);
   return { dir, env, git: (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { env, stdio: ['ignore', 'pipe', 'pipe'] }).toString('latin1'), done: () => rmSync(dir, { recursive: true, force: true }) };
 }
@@ -86,7 +89,7 @@ test('hermeticEnv: blanks each name as a key (so `=` is fine), keeps a count the
   assert.equal(e['GIT_CONFIG_COUNT'], '23');
   assert.deepEqual(kv, { 'a.b': '1', 'c.d': '2', 'core.fsmonitor': 'false', 'diff.submodule': 'short', 'submodule.recurse': 'false',
     'merge.verifySignatures': 'false', 'log.showSignature': 'false', 'commit.gpgSign': 'false', 'tag.gpgSign': 'false', 'gpg.program': '', 'gpg.openpgp.program': '', 'gpg.ssh.program': '', 'gpg.x509.program': '',
-    'gpg.ssh.defaultKeyCommand': '', 'core.hooksPath': process.platform === 'win32' ? 'NUL' : '/dev/null', 'gc.auto': '0', 'maintenance.auto': 'false', 'receive.autogc': 'false', 'gc.recentObjectsHook': '',
+    'gpg.ssh.defaultKeyCommand': '', 'core.hooksPath': '/dev/null', 'gc.auto': '0', 'maintenance.auto': 'false', 'receive.autogc': 'false', 'gc.recentObjectsHook': '',
     'filter.a=b.clean': '', 'filter.a=b.smudge': '', 'filter.a=b.process': '', 'filter.a=b.required': 'false' });
   // R3-1: no ignore setting is relied on (a per-submodule ignore=none overrides every one of them), so none is set
   assert.ok(!Object.keys(kv).some((k) => /ignoreSubmodules/i.test(k)), 'the environment must not rely on an ignore setting');
@@ -244,7 +247,7 @@ test('S3: the import of the proven tip runs no transport: url.<x>.insteadOf plus
     try {
       const p = proofSetup(s);
       hf = p.hf;
-      assert.ok(hf.tmp.startsWith(`${s.dir}/`), 'the proof repository must live in the test\'s own folder');
+      assert.ok(posix(hf.tmp).startsWith(`${s.dir}/`), 'the proof repository must live in the test\'s own folder');
       const mark = `${s.dir}/PWNED`;
       const prefix = `${path.dirname(hf.tmp)}/`;
       if (variant === 'ssh') {
@@ -857,4 +860,70 @@ test('R6-S2: what git sees through hgit has auto-maintenance off and no gc.recen
     assert.equal(seen('maintenance.auto'), 'false');
     assert.equal(seen('receive.autogc'), 'false');
   } finally { s.done(); }
+});
+
+// ---- A264 security round 1: `core.hooksPath=NUL` is a RELATIVE path on Windows ----------------------------------------------------------------------------------------------
+/** @param {Partial<import('../../control-plane/agents/scripts/core/hooksoff.mjs').HooksFs>} [o] */
+const fakeHooksFs = (o = {}) => ({ real: (/** @type {string} */ p) => p, mkdir: () => {}, isRealDir: () => true, entries: () => /** @type {string[]} */ ([]), ...o });
+
+test('A264 hooksOff: /dev/null off Windows (no file system access); on win32 an absolute drive path of the core-owned empty folder in the account profile, outside every worktree', () => {
+  const never = /** @type {any} */ ({ real: () => { throw new Error('touched the file system'); } });
+  for (const pl of ['linux', 'darwin', 'freebsd']) assert.equal(hooksOff(pl, never), '/dev/null', pl);
+  const made = /** @type {string[]} */ ([]);
+  const dir = hooksOffDir('C:\\Users\\r', fakeHooksFs({ mkdir: (p) => { made.push(p); } }));
+  assert.equal(dir, 'C:/Users/r/.cache/proofline-hooks-off');
+  assert.deepEqual(made, [dir]);
+  assert.ok(/^[A-Za-z]:\//.test(dir) && !dir.includes('/.agents/'), 'absolute, on a drive, not inside a project');
+  assert.equal(hooksOff('win32', fakeHooksFs(), 'c:/Users/r'), 'C:/Users/r/.cache/proofline-hooks-off', 'the drive letter is canonical');
+});
+
+test('A264 hooksOffDir refuses (fail closed, the git command is not run): a UNC or rooted home, a link, another real path, a non-empty folder, a folder that cannot be made', () => {
+  const refused = (/** @type {string} */ home, /** @type {Parameters<typeof fakeHooksFs>[0]} */ o) => assert.throws(() => hooksOffDir(home, fakeHooksFs(o)), /git hooks cannot be turned off/, home);
+  refused('\\\\srv\\share\\r', {});
+  refused('/home/r', {});
+  refused('C:\\r', { isRealDir: () => false });
+  refused('C:\\r', { real: (/** @type {string} */ p) => (p.endsWith('proofline-hooks-off') ? 'D:\\elsewhere' : p) });
+  refused('C:\\r', { real: (/** @type {string} */ p) => (p.endsWith('proofline-hooks-off') ? '\\\\srv\\share\\hooks-off' : p) });
+  refused('C:\\r', { entries: () => ['pre-push'] });
+  refused('C:\\r', { mkdir: () => { throw new Error('EACCES'); } });
+});
+
+/** A real `NUL` FOLDER in the work tree holding a hook of each kind the core's git calls could fire. On Windows it is made through a `\\?\` path (the name is reserved for the API). */
+function hostileNul(/** @type {string} */ tree, /** @type {string} */ mark) {
+  const nul = process.platform === 'win32' ? `\\\\?\\${path.win32.resolve(tree, 'NUL')}` : path.join(tree, 'NUL');
+  mkdirSync(nul);
+  for (const h of ['reference-transaction', 'pre-push', 'post-index-change', 'post-checkout']) { writeFileSync(path.join(nul, h), `#!/bin/sh\ntouch ${mark}\nexit 0\n`); chmodSync(path.join(nul, h), 0o755); }
+  return nul;
+}
+
+test('A264: a hostile NUL folder in the work tree: core.hooksPath=NUL (the old spelling) runs its hooks, hgit and the delivery push command (hooksOff) never do', () => {
+  const s = scratch();
+  let nul = '';
+  try {
+    const t = repo(s);
+    const mark = `${s.dir}/NULHOOK`;
+    assert.ok(shellMakes(`touch ${mark}`, mark), 'test premise: the hook command makes its marker through sh');
+    nul = hostileNul(t, mark);
+    const bare = `${s.dir}/bare.git`;
+    s.git(s.dir, 'init', '-q', '--bare', bare);
+    // premise: the RELATIVE value NUL is looked up below the work tree on every platform, so the hooks of the folder named NUL run
+    // (POSIX: the hook runs. Windows probe 43373482249: git finds `NUL/reference-transaction` as a hook file and tries to START it, "cannot spawn NUL/reference-transaction", and aborts)
+    const viaNul = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', t, '-c', 'core.hooksPath=NUL', ...a], { env: s.env, encoding: 'utf8' });
+    for (const [what, run] of /** @type {Array<[string, () => import('node:child_process').SpawnSyncReturns<string>]>} */ ([['reference-transaction', () => viaNul('update-ref', 'refs/heads/prem1', 'HEAD')], ['pre-push', () => viaNul('push', '-q', bare, 'HEAD:refs/heads/prem2')]])) {
+      const r = run();
+      assert.ok(existsSync(mark) || r.stderr.includes(`NUL/${what}`), `test premise: core.hooksPath=NUL treats a folder called NUL as the hooks folder (${what}): ${r.stderr}`);
+      rmSync(mark, { force: true });
+    }
+    const ctx = ctxOf(s, t);
+    hgit(ctx, t, ['update-ref', 'refs/heads/p1', 'HEAD']);
+    hgit(ctx, t, ['status', '--porcelain']);
+    hgit(ctx, t, ['reset', '-q']);
+    assert.ok(!existsSync(mark), 'a hook of the NUL folder ran through hgit');
+    // the delivery's push command (deliver.mjs): the same -c core.hooksPath=<hooksOff>
+    const off = hooksOff();
+    const push = execFileSync('git', ['-C', t, '-c', `core.hooksPath=${off}`, 'push', '-q', '--', bare, 'HEAD:refs/heads/pushed'], { env: s.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    assert.equal(push.length, 0);
+    assert.ok(!existsSync(mark), 'a hook of the NUL folder ran through the push command');
+    if (process.platform === 'win32') assert.ok(/^[A-Za-z]:\//.test(off) && existsSync(off), `the hooks-off folder is an absolute existing folder: ${off}`);
+  } finally { if (nul !== '') rmSync(nul, { recursive: true, force: true }); s.done(); }
 });

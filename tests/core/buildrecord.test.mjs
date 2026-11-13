@@ -13,6 +13,7 @@ import { cleanEnv } from '../hook/harness.mjs';
 import { commitAll, git, newProject, setCmd, setEnvFiles, setLists } from './helper-lib.mjs';
 import { A } from './legacy-lib.mjs';
 import { tmp } from '../lib/harness.mjs';
+import { posix } from '../lib/winpath.mjs';
 
 const keyOf = (/** @type {string} */ out) => (/^key: (.*)$/m.exec(out) ?? [])[1] ?? '';
 const builds = (/** @type {string} */ d) => `${d}/.agents/local/builds`;
@@ -324,7 +325,7 @@ const rmDir = (/** @type {string} */ p) => rmSync(p, { recursive: true, force: t
 
 test('A248 round 7: the build record keeps the repository\'s own filters but never runs its core.fsmonitor program (key snapshot, read-tree and the export)', () => {
   const { d } = counted();
-  const mark = `${d}-FSM`; const prog = `${d}-fsm.sh`;
+  const mark = posix(`${d}-FSM`); const prog = posix(`${d}-fsm.sh`);
   writeFileSync(prog, `#!/bin/sh\ntouch ${mark}\nprintf '\\0'\n`);
   chmodSync(prog, 0o755);
   git(d, ['config', 'core.fsmonitor', prog]);

@@ -367,9 +367,9 @@ test('sc_unsupported_browser_data: unsupported probes: browser_test is read from
 
 // A102: capability probes refuse an UNSUPPORTED whose capability is present (a browser on PATH, a project benchmark script); an INCONCLUSIVE must keep its prefix
 // and an UNSUPPORTED must not borrow one; only the submitting role's own files are evidence.
-test("sc_unsupported_probes: a browser or a bench script refuses UNSUPPORTED; INCONCLUSIVE keeps its prefix both ways; another role's file is refused", { skip: NO_BROWSER_SKIP || (process.platform === 'win32' ? 'open Windows product defect (A263): probeVisual splits PATH on ":", which cuts the drive letter, and looks only for extension-less chrome names, so the planted browser is not seen' : false) }, () => {
+test("sc_unsupported_probes: a browser or a bench script refuses UNSUPPORTED; INCONCLUSIVE keeps its prefix both ways; another role's file is refused", { skip: NO_BROWSER_SKIP }, () => {
   const d = unsRun();
-  const chrome = path.join(probeBin, 'google-chrome');
+  const chrome = path.join(probeBin, process.platform === 'win32' ? 'google-chrome.exe' : 'google-chrome'); // A264: on Windows the probe looks for NAME.exe on a `;` separated PATH
   writeFileSync(chrome, '#!/bin/sh\n'); chmodSync(chrome, 0o755);
   try {
     expectMsg('visual UNSUPPORTED with a browser on PATH', 'capability present: browser', unsVisual(d, 'no headless browser installed in the project'));

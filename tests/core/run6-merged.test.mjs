@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { A, DONE, TASKS_IN_TASKS, accepted, approveDelivery, existsSync, fakeGh, fakeTool, g, gOk, hooks, readFileSync, refused, run, verbs, joinPath } from './run6-lib.mjs';
 import { project, scripts } from './legacy-lib.mjs';
 import { tmp } from '../lib/harness.mjs';
-import { posix } from '../lib/winpath.mjs';
+import { posix, shellMakes } from '../lib/winpath.mjs';
 
 const RECIPE = `SC_BRANCH=1 scaffold orchestrated; ${TASKS_IN_TASKS}; to_code_done orchestrated; finish_done`;
 const WIN = process.platform === 'win32';
@@ -86,6 +86,26 @@ test('a local path, a relative path or a file:// origin is platform other (commi
   gOk(d, 'remote', 'set-url', 'origin', lo);
   const glab = fakeTool('glab');
   refused(A(d, ['deliver-plan', 'LC'], { env: { PROOFLINE_PLATFORM: 'gitlab', PATH: joinPath(glab, process.env.PATH) } }), 'a configured CLI platform on a local origin', 'delivery blocked');
+});
+
+test('A264: the switch and the fast-forward on the user\'s checkout run no git hook of the configured hooks folder (post-checkout, post-merge, reference-transaction)', () => {
+  const d = project(RECIPE);
+  hooks(d);
+  const hd = g(d, 'config', 'core.hooksPath');
+  const mark = posix(`${d}-HOOKRAN`);
+  for (const h of ['post-checkout', 'post-merge', 'reference-transaction']) { wf(`${hd}/${h}`, `#!/bin/sh\ntouch ${mark}\nexit 0\n`); chmodSync(`${hd}/${h}`, 0o755); }
+  assert.ok(shellMakes(`touch ${mark}`, mark), 'test premise: the hook command makes its marker through sh');
+  gOk(d, 'update-ref', 'refs/heads/zz', 'HEAD');
+  assert.ok(existsSync(mark), 'test premise: a plain git update-ref fires the reference-transaction hook of the configured folder');
+  const lo = bareOrigin(d);
+  loChain(d, lo);
+  mkdirSync(`${d}/.agents/local/batch`, { recursive: true });
+  gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(d, 'rev-parse', 'proofline/LC-lookup'));
+  rmSync(mark);   // the fixture's own git calls fire the hooks too; only the command under test is judged
+  const out = accepted(A(d, ['deliver-merged', 'LC']), 'deliver-merged').out;
+  assert.match(out, /fast-forwarded to origin\/main$/m);
+  assert.equal(g(d, 'branch', '--show-current'), 'main', 'the switch happened');
+  assert.ok(!existsSync(mark), 'a hook ran during the switch or the fast-forward');
 });
 
 test('deliver-merged: not merged (or other content) records nothing and keeps the run; a squash merge is proven by identical content; a fast-forward by ancestry', () => {
@@ -770,7 +790,7 @@ test('B4 (fix round 1): a configured filter driver is repository code that a swi
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const marker = `${d}-MARKER`;
+  const marker = posix(`${d}-MARKER`);
   gOk(d, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
   gOk(d, 'config', 'filter.mk.clean', 'cat');
   wf(`${d}/.git/info/attributes`, '* filter=mk\n');
@@ -785,7 +805,8 @@ test('F1 (fix round 3): a driver loaded by includeIf onbranch (invisible on the 
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const marker = `${d}-MARKER`;
+  const marker = posix(`${d}-MARKER`);
+  assert.ok(shellMakes(`touch ${marker}; cat`, marker), 'test premise: the smudge command makes its marker through sh');
   wf(`${d}-inc.cfg`, `[filter "mk"]\n\tsmudge = touch ${marker}; cat\n\tclean = cat\n`);
   gOk(d, 'config', 'includeIf.onbranch:main.path', `${d}-inc.cfg`);
   wf(`${d}/.git/info/attributes`, '* filter=mk\n');
@@ -800,10 +821,10 @@ test('F2 (fix round 3): a local process or clean driver is not run by the cleanu
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const cnt = `${d}-COUNT`;
+  const cnt = posix(`${d}-COUNT`);
   wf(`${d}-proc.sh`, `#!/bin/sh\necho p >> ${cnt}\nexit 1\n`);
   chmodSync(`${d}-proc.sh`, 0o755);
-  gOk(d, 'config', 'filter.pk.process', `${d}-proc.sh`);
+  gOk(d, 'config', 'filter.pk.process', posix(`${d}-proc.sh`));
   gOk(d, 'config', 'filter.ck.clean', `echo c >> ${cnt}; cat`);
   wf(`${d}/.git/info/attributes`, '*.md filter=pk\n*.txt filter=ck\n* filter=ck\n');
   // every tracked file gets a new mtime: git must re-read (and so filter) it to answer a status or a diff
@@ -855,7 +876,7 @@ test('R1 (fix round 1): a checkout ALREADY on main gets the same protection: an 
   mergedOnOrigin(e, lo2);
   gOk(e, '-c', 'core.hooksPath=/dev/null', 'switch', '-q', 'main');
   originAdds(e, lo2, { 'later.txt': 'later\n' }, []);
-  const marker = `${e}-MARKER`;
+  const marker = posix(`${e}-MARKER`);
   gOk(e, 'config', 'filter.mk.smudge', `touch ${marker}; cat`);
   gOk(e, 'config', 'filter.mk.clean', `touch ${marker}; cat`);
   wf(`${e}/.git/info/attributes`, '* filter=mk\n');
@@ -884,10 +905,10 @@ test('R3 (fix round 1): a core.fsmonitor program of the repository never runs du
   hooks(d);
   const lo = bareOrigin(d);
   mergedOnOrigin(d, lo);
-  const marker = `${d}-FSMARK`;
+  const marker = posix(`${d}-FSMARK`);
   wf(`${d}-fsmon.sh`, `#!/bin/sh\ntouch ${marker}\n`);
   chmodSync(`${d}-fsmon.sh`, 0o755);
-  gOk(d, 'config', 'core.fsmonitor', `${d}-fsmon.sh`);
+  gOk(d, 'config', 'core.fsmonitor', posix(`${d}-fsmon.sh`));
   const out = A(d, ['deliver-merged', 'LC']).text;
   assert.ok(!existsSync(marker), `the fsmonitor program ran: ${out}`);
 });
@@ -934,7 +955,8 @@ test('A248 (wiring): a driver found only through an includeIf onbranch include t
   const wt = wtDoneRun(d);
   const { lo } = wtDeliver(d, wt, 'local');
   gOk(d, `--git-dir=${lo}`, 'update-ref', 'refs/heads/main', g(wt, 'rev-parse', 'HEAD'));
-  const cnt = `${d}-COUNT`;
+  const cnt = posix(`${d}-COUNT`);
+  assert.ok(shellMakes(`echo c >> ${cnt}; cat`, cnt), 'test premise: the clean command writes its count file through sh');
   wf(`${d}-inc.cfg`, `[filter "ck"]\n\tclean = echo c >> ${cnt}; cat\n`);
   gOk(d, 'config', 'includeIf.onbranch:proofline/**.path', `${d}-inc.cfg`);
   wf(`${d}/.git/info/attributes`, '* filter=ck\n');
@@ -951,7 +973,7 @@ test('A248 round 4 (wiring): the standalone `cleanup` of a finished run whose wo
   mkdirSync(sub);
   gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
   gOk(wt, 'add', 'vendor');
-  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  const mark = posix(`${d}-SUBFILTER`); const sh = posix(`${d}-filter.sh`);
   wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
   chmodSync(sh, 0o755);
   gOk(sub, 'config', 'filter.ev.clean', sh);
@@ -975,7 +997,7 @@ test('A248 round 4 (wiring): deliver-plan in a worktree with a populated submodu
   mkdirSync(sub);
   gOk(sub, 'init', '-q', '-b', 'main'); wf(`${sub}/x`, 'x\n'); gOk(sub, 'add', 'x'); gOk(sub, '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'x');
   gOk(wt, 'add', 'vendor');
-  const mark = `${d}-SUBFILTER`; const sh = `${d}-filter.sh`;
+  const mark = posix(`${d}-SUBFILTER`); const sh = posix(`${d}-filter.sh`);
   wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
   chmodSync(sh, 0o755);
   gOk(sub, 'config', 'filter.ev.clean', sh);
@@ -994,7 +1016,7 @@ test('A248 round 4 (wiring): deliver-plan in a worktree with a populated submodu
 // ---- A248 round 5: the tree's OWN drivers are blanked whether or not a submodule exists (S1) --------------------------------------------------
 /** A local clean filter on the project (the config the run's worktree shares) that matches every file; returns the marker. Nothing in the tree is a gitlink. @param {string} d @param {string} wt */
 function plantOwnFilter(d, wt) {
-  const mark = `${d}-OWNFILTER`; const sh = `${d}-ownfilter.sh`;
+  const mark = posix(`${d}-OWNFILTER`); const sh = posix(`${d}-ownfilter.sh`);
   wf(sh, `#!/bin/sh\ntouch ${mark}\ncat\n`);
   chmodSync(sh, 0o755);
   gOk(d, 'config', 'filter.ck.clean', sh);

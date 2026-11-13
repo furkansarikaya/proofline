@@ -3,6 +3,7 @@
 // quoted paths and byte order are what the shell saw. `git -C <root>` with LC_ALL=C, like agent.sh.
 import { unsupported } from './errors.mjs';
 import { blankNames, hermeticEnv } from './hgit.mjs';
+import { hooksOff } from './hooksoff.mjs';
 import * as proc from './proc.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -16,7 +17,7 @@ import * as proc from './proc.mjs';
  */
 export function git(ctx, args, opt = {}) {
   const r = proc.run('git', ['-C', ctx.root, ...args], {
-    cwd: ctx.cwd, env: hermeticEnv({ ...ctx.childEnv(), ...(opt.env ?? {}) }, blankNames(ctx, ctx.root, 'git', ctx.childEnv())), input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
+    cwd: ctx.cwd, env: hermeticEnv({ ...ctx.childEnv(), ...(opt.env ?? {}) }, blankNames(ctx, ctx.root, 'git', ctx.childEnv()), hooksOff()), input: opt.input, stdio: ['pipe', 'pipe', 'ignore'],
   });
   return { status: r.status, out: r.stdout.toString('latin1') };
 }
