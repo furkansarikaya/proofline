@@ -38,6 +38,15 @@ const findTask = (tree) => {
 const read = (/** @type {string} */ d, /** @type {string} */ f) => readFileSync(`${d}/${f}`, 'utf8');
 const cli = (/** @type {string} */ d, /** @type {string[]} */ args) => run(d, 'node', [`${scripts}/proofline-core.mjs`, 'cli', 'platform-info', ...args]);
 
+/**
+ * `git status --porcelain` of the main tree as the USER's git sees it. The control plane's delivery runs git with the user's own configuration (the allowlisted tool environment passes no
+ * GIT_CONFIG_*), so a checkout it makes follows the user's `core.autocrlf`: on a Windows runner Git for Windows' system configuration says `autocrlf=true`, the delivery's switch writes the
+ * files with CRLF (as it should for that user: their git calls it clean), and the test's hermetic git (no system configuration, `cleanEnv`) calls the same files modified (A266). On Windows the
+ * status is therefore asked WITH the system configuration, the git the user would run next; elsewhere it is the hermetic status as before. The control plane's git calls stay exactly as they were.
+ * @param {string} cwd
+ */
+function userStatus(cwd) { return run(cwd, 'git', ['status', '--porcelain', '--untracked-files=no'], WIN ? { GIT_CONFIG_NOSYSTEM: '0' } : {}).out.replace(/\n+$/, ''); }
+
 /** A bare repository that holds main of the project. @param {string} d @param {string} name */
 function bareOrigin(d, name = 'lo.git') {
   const lo = `${d}-${name}`;
@@ -638,7 +647,7 @@ test('the approved commands\' uncommitted config edit is dropped once origin has
   assert.match(out, /local \.agents\/config\.yaml edit was dropped/);
   assert.match(out, /^local main fast-forwarded/m);
   // the only change left in the main tree is the status block the control plane put into the task file (a block-only change never stops a fast-forward)
-  assert.ok(['', ' M tasks/done/LC.md'].includes(g(d, 'status', '--porcelain', '--untracked-files=no')), g(d, 'status', '--porcelain', '--untracked-files=no'));
+  assert.ok(['', ' M tasks/done/LC.md'].includes(userStatus(d)), userStatus(d));
 });
 
 // ---- the final status block does not depend on the main working tree being fast-forwarded (A221, #172) -----------------------------------------------------
@@ -718,7 +727,7 @@ test('A238: a clean tree on the merged task branch goes to main and fast-forward
   assert.equal(g(d, 'branch', '--show-current'), 'main');
   assert.equal(g(d, 'rev-parse', 'main'), g(d, 'rev-parse', 'origin/main'));
   assert.equal(g(d, 'rev-list', '--count', '--merges', `${before}..main`), '0', 'no merge commit');
-  assert.equal(g(d, 'status', '--porcelain', '--untracked-files=no'), '');
+  assert.equal(userStatus(d), '');
   // a fresh clone of the origin has the same head as the project's main
   const c = `${d}-fresh`;
   gOk(d, 'clone', '-q', lo, c);
