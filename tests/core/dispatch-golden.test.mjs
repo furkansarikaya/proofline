@@ -3,7 +3,7 @@
 // (the --agents JSON included) and of a command template, the prompt on stdin, the variables of the runtime and the Codex permission profile. tests/core/golden/dispatch/
 // cases.json was recorded from the OLD dispatch.sh with tests/core/golden/dispatch-record.mjs; nothing compares with a shell at test time.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, cpSync, existsSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, cpSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
@@ -148,7 +148,8 @@ describe('the Codex permission profile (dispatch codex-profile ID)', () => {
     g('worktree', 'add', '-q', '--detach', path.join(fx.loc, 'worktrees/LC'), 'HEAD');
     g('worktree', 'add', '-q', '--detach', path.join(fx.loc, 'worktrees/T2'), 'HEAD');
     const wt = realpathSync(path.join(fx.loc, 'worktrees/LC')); const t2 = realpathSync(path.join(fx.loc, 'worktrees/T2'));
-    cpSync(path.join(fx.dir, '.agents'), path.join(wt, '.agents'), { recursive: true, filter: (src) => !src.includes(`${path.sep}worktrees`) });
+    // entry by entry, `local` left out: Node 22.13 refuses to copy a folder into one of its own subfolders (the worktrees live under .agents/local)
+    for (const n of readdirSync(path.join(fx.dir, '.agents'))) if (n !== 'local') cpSync(path.join(fx.dir, '.agents', n), path.join(wt, '.agents', n), { recursive: true });
     tamper(wt, t2);
     return { fx, wt };
   }
