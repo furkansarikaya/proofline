@@ -5,6 +5,7 @@ import { unsupported } from './errors.mjs';
 import { blankNames, hermeticEnv } from './hgit.mjs';
 import { hooksOff } from './hooksoff.mjs';
 import * as proc from './proc.mjs';
+import { onDisk } from './pathin.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -119,7 +120,7 @@ export function trackedSet(ctx, paths) {
 export function gitPaths(ctx) {
   const r = git(ctx, ['rev-parse', '--git-path', 'index', '--git-path', 'objects']);
   const [i = '', o = ''] = r.out.split('\n');
-  const abs = (/** @type {string} */ p) => (p.startsWith('/') ? p : `${ctx.root}/${p}`);
+  const abs = (/** @type {string} */ p) => onDisk(ctx.root, p);
   return { index: abs(i), objects: abs(o) };
 }
 

@@ -8,6 +8,7 @@ import { ProoflineError, fail, unsupported } from '../errors.mjs';
 import { DESIGN_MD_CANDIDATES, batchApproval, findApproval, hashOf, rationaleIds, rationaleLineIn, sharedDirOf } from '../approvals.mjs';
 import { sha256 } from '../hash.mjs';
 import { isFile } from '../paths.mjs';
+import { onDisk } from '../pathin.mjs';
 import { detectPlatform } from '../platform.mjs';
 import { fileLines, fileText } from '../records.mjs';
 import { requireRun } from '../runs.mjs';
@@ -126,7 +127,7 @@ function designRationales(ctx, args) {
     for (const c of DESIGN_MD_CANDIDATES) if (isFile(`${ctx.root}/${c}`)) { file = `${ctx.root}/${c}`; break; }
   } else {
     file = Buffer.from(bytes(file), 'latin1').toString('utf8');
-    if (!file.startsWith('/')) file = `${ctx.cwd}/${file}`;
+    file = onDisk(ctx.cwd, file);
     // awk cannot open a missing file and prints its own message: the shell code decides
     if (!isFile(file)) {
       try { if (statSync(file).isDirectory()) throw unsupported('design document is a directory'); } catch (e) { if (e instanceof ProoflineError) throw e; }

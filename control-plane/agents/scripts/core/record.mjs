@@ -16,7 +16,7 @@ import { gatePreconditions, writeGate } from './gatewrite.mjs';
 import { sha256 } from './hash.mjs';
 import { setRunValue } from './lifecycle.mjs';
 import { led } from './lifeutil.mjs';
-import { inside, isAbsoluteInput } from './pathin.mjs';
+import { inside, isAbsoluteInput, onDisk } from './pathin.mjs';
 import * as proc from './proc.mjs';
 import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import {
@@ -103,7 +103,7 @@ function recordVisualCheck(ctx, id, result) {
     const b = shaOf(`${i}: ${x}`);
     if (findApproval(ctx, id, `rationale:${i}`, b) === null) reject(`visual PASS relies on the DESIGN.md rationale for pattern ${i}, which the user has not approved: a rationale an agent wrote does not pass a finding. Ask: agent.sh request-approval ${id} rationale:${i} (relay it; the user's reply records the approval), or leave the finding blocking (FAIL)`);
     let cur = '';
-    if (m !== '') cur = rationaleLineOf(ctx, i, m.startsWith('/') ? m : `${ctx.root}/${m}`);
+    if (m !== '') cur = rationaleLineOf(ctx, i, onDisk(ctx.root, m));
     if (shaOf(cur) !== b) reject(`visual PASS: the DESIGN.md line for pattern ${i} is not the text the user approved (changed or removed since): ask for the approval again`);
   }
 }
