@@ -109,11 +109,13 @@ describe('stale lock: the core breaks it and records the lock-break event (the l
     try {
       const run = seedRun(root);
       const pid = deadPid();
-      seedStale(path.join(run, '.lock'), pid);
-      const locks = new LockSet(ctxOf(root));
-      locks.acquire(path.join(run, '.lock'));
+      const ctx = ctxOf(root);
+      const runLock = `${ctx.agents}/runs/T-1/.lock`;   // the core builds the path with a slash (A267: path.join gives backslashes on Windows, so the run-lock rule did not recognise it)
+      seedStale(runLock, pid);
+      const locks = new LockSet(ctx);
+      locks.acquire(runLock);
       locks.releaseAll();
-      assert.equal(existsSync(path.join(run, '.lock')), false, 'lock released');
+      assert.equal(existsSync(runLock), false, 'lock released');
       const lines = readFileSync(path.join(run, 'LEDGER.log'), 'utf8').trim().split('\n');
       assert.equal(lines.length, 2, 'one event appended');
       assert.equal(maskTime(lines[1]).replace(String(pid), 'PID'), GOLD.lockBreakLine, 'the line the shell wrote (prev and digest included)');
@@ -125,11 +127,14 @@ describe('stale lock: the core breaks it and records the lock-break event (the l
     const root = makeProject();
     try {
       const run = seedRun(root, { gates: false });
-      seedStale(path.join(run, '.lock'), deadPid());
+      const ctx = ctxOf(root);
+      const runLock = `${ctx.agents}/runs/T-1/.lock`;
+      assert.equal(path.resolve(runLock), path.join(run, '.lock'), 'premise: the slash path is the run lock of the seeded run');
+      seedStale(runLock, deadPid());
       const shared = path.join(root, '.agents', 'local', 'locks', 'shared.lock');
       seedStale(shared, deadPid());
-      const locks = new LockSet(ctxOf(root));
-      locks.acquire(path.join(run, '.lock'));
+      const locks = new LockSet(ctx);
+      locks.acquire(runLock);
       locks.acquire(shared);
       locks.releaseAll();
       assert.equal(readFileSync(path.join(run, 'LEDGER.log'), 'utf8'), LEDGER_1);

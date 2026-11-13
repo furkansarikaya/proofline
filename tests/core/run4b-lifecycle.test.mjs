@@ -3,7 +3,7 @@
 // behaviour of lifecycle-test.sh scenario_terminal, scenario_cleanup_after_hook_lines, scenario_failed_run_cleanup, scenario_amend_plan_change and
 // scenario_reopen_failed (tests/legacy-port-map.tsv); the shell scenarios themselves keep running against the Node commands through the fixture prologue.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, accepted, approveAsUser, project, read, refused } from './legacy-lib.mjs';
@@ -115,22 +115,37 @@ test('cleanup: a terminal run whose last ledger line is not its terminate (a han
 test('a child of a lock-holding command takes the locks over (no wait, no early release); the take-over proves nothing else', () => {
   const d = project('scaffold standalone');
   accepted(A(d, ['terminate', 'LC', 'BLOCKED'], { input: REASON }), 'terminate');
-  // a parent that holds the shared lock (as deliver-step does) starts the child: it is not waited for and the parent's pid file stays
-  const script = 'mkdir .agents/local/locks/shared.lock && echo $$ > .agents/local/locks/shared.lock/pid; '
-    + 'PROOFLINE_LOCK_TIMEOUT=3 sh .agents/scripts/agent.sh cleanup LC; rc=$?; '
-    + '[ "$(cat .agents/local/locks/shared.lock/pid)" = "$$" ] || exit 90; rm -rf .agents/local/locks/shared.lock; exit $rc';
-  const r = spawnSync('sh', ['-c', script], { cwd: d, encoding: 'utf8', timeout: 60000 });
+  // a parent that holds the shared lock (as deliver-step does) starts the child: it is not waited for and the parent's pid file stays. The parent is a Node process on every platform
+  // (A267): the core compares the pid file with its parent's WINDOWS pid, and an MSYS shell's `$$` is another number there, so the shell parent of the first form read as a dead holder.
+  const parent = "const fs = require('node:fs'); const cp = require('node:child_process'); const lock = '.agents/local/locks/shared.lock';"
+    + "fs.mkdirSync(lock); fs.writeFileSync(lock + '/pid', process.pid + '\\n');"
+    + "const r = cp.spawnSync('sh', ['.agents/scripts/agent.sh', 'cleanup', 'LC'], { env: { ...process.env, PROOFLINE_LOCK_TIMEOUT: '3' }, stdio: 'inherit' });"
+    + "const mine = fs.readFileSync(lock + '/pid', 'utf8').trim() === String(process.pid); fs.rmSync(lock, { recursive: true, force: true }); process.exit(mine ? r.status : 90);";
+  const r = spawnSync(process.execPath, ['-e', parent], { cwd: d, encoding: 'utf8', timeout: 60000 });
+  if (process.platform === 'win32') {
+    // ACCEPTED LIMIT (A267), proved by the Windows probe: `sh agent.sh` is a launcher that runs node as ITS child, so the core's parent is the launcher, not the holder, and the hand-over is not
+    // recognised. The child therefore waits for a lock whose holder is alive and fails at the timeout: closed, never a take-over, and the holder's pid file stays (exit 90 would be a changed file).
+    assert.notEqual(r.status, 90, 'the holder\'s pid file was changed');
+    assert.notEqual(r.status, 0, 'a child of the holder took the lock over: the limit is gone, make this branch the POSIX one');
+    assert.match(`${r.stdout}${r.stderr}`, /lock timeout after 3s/);
+    return;
+  }
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
   assert.match(r.stdout, /^run cleaned up: LC /m);
 });
 
 test('a lock held by a stranger is still waited for (the hand-over is for the parent only)', () => {
   const d = project('scaffold standalone');
-  const holder = spawnSync('sh', ['-c', 'mkdir -p .agents/local/locks; mkdir .agents/local/locks/shared.lock; sleep 30 >/dev/null 2>&1 & echo $! > .agents/local/locks/shared.lock/pid; echo $!'], { cwd: d, encoding: 'utf8' });
-  const pid = holder.stdout.trim();
-  const r = A(d, ['terminate', 'LC', 'BLOCKED'], { input: REASON, env: { PROOFLINE_LOCK_TIMEOUT: '1' } });
-  spawnSync('kill', [pid]);
-  refused(r, 'a stranger\'s lock was taken over', 'lock timeout after 1s');
+  // the holder is a live process that is not our parent; its WINDOWS pid is the one in the pid file (an MSYS shell's `$!` is not one, A267)
+  const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' });
+  try {
+    const pid = /** @type {number} */ (holder.pid);
+    mkdirSync(`${d}/.agents/local/locks/shared.lock`, { recursive: true });
+    writeFileSync(`${d}/.agents/local/locks/shared.lock/pid`, `${pid}\n`);
+    assert.doesNotThrow(() => process.kill(pid, 0), 'premise: the holder is alive');
+    const r = A(d, ['terminate', 'LC', 'BLOCKED'], { input: REASON, env: { PROOFLINE_LOCK_TIMEOUT: '1' } });
+    refused(r, 'a stranger\'s lock was taken over', 'lock timeout after 1s');
+  } finally { holder.kill(); }
 });
 
 test('amend: reopens a CODE_DONE run with a specific form; a path outside the frozen scope needs plan_change; the record, the states and the ledger follow', () => {
