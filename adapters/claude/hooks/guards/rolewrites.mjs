@@ -19,7 +19,7 @@
 import { WRITE_PROGRAMS } from '../command-scan.mjs';
 
 /** @typedef {{ v: string, q: boolean, sub: boolean, usub: boolean, bt: boolean, vr: boolean, glob: boolean, qAt: number }} Word v: the text with quotes and backslashes removed (a substitution keeps its source text); q: some part was quoted; sub: holds `$(`, a backtick or a process substitution; usub: an unquoted `$(` or process substitution; bt: holds a backtick; vr: holds a parameter expansion or a `$'...'` string with an escape the hook cannot decode; glob: an unquoted `*`, `?` or `[` */
-/** @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, depth: number, at: { off: number, paren: number } }} Simple here: the here-document bodies read by this command; pipeFrom: the command on the left of the `|`; depth: how many levels of substitution or shell string this command sits in; at: where the top-level command that holds this one starts: its offset in the original text and how many subshell parentheses are open there */
+/** @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, strict: boolean, depth: number, at: { off: number, paren: number } }} Simple here: the here-document bodies read by this command; pipeFrom: the command on the left of the `|`; depth: how many levels of substitution or shell string this command sits in; at: where the top-level command that holds this one starts: its offset in the original text and how many subshell parentheses are open there */
 /** @typedef {{ kind: 'deny', why: string }
  *   | { kind: 'target', word: Word, cwd: string, bad: boolean }
  *   | { kind: 'redir', word: Word, cwd: string, bad: boolean }
@@ -45,7 +45,7 @@ const RESERVED_ASSIGN = new Set(['{', '!', 'then', 'do', 'else', 'elif', 'if', '
 /** Words after which the next word is still at a command position. */
 const CMD_KEEP = new Set(['then', 'do', 'else', 'elif', 'if', 'while', 'until', 'time']);
 const BRACE_RE = /\{[^{}]*(,|\.\.)[^{}]*\}/;
-const ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 const OUT_OPS = new Set(['>', '>>', '>|', '&>', '&>>']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'ash', 'fish']);
 
@@ -56,7 +56,7 @@ const markQ = (x) => { if (!x.q) x.qAt = x.v.length; x.q = true; };
 /** Is the word an assignment `NAME=value` (the value may be quoted)? @param {Word} x */
 const isAssign = (x) => { const m = ASSIGN_RE.exec(x.v); return m !== null && (!x.q || x.qAt >= m[0].length); };
 /** @returns {Simple} */
-const mkSimple = (/** @type {number} */ depth, /** @type {{ off: number, paren: number }} */ at, /** @type {Simple | null} */ pipeFrom) => ({ words: [], redirs: [], assigns: [], here: [], pipeFrom, depth, at });
+const mkSimple = (/** @type {number} */ depth, /** @type {{ off: number, paren: number }} */ at, /** @type {Simple | null} */ pipeFrom) => ({ words: [], redirs: [], assigns: [], here: [], pipeFrom, strict: false, depth, at });
 
 /** The work counter and the doubts of the scan in progress (set by `tokenize` and `roleActions`; the scan is synchronous, so one module variable is enough). @type {Guard} */
 let G = { overflow: false, budget: Infinity, unsure: '', texts: [] };
@@ -265,12 +265,94 @@ export function tokenize(s, depth = 0, st = newGuard(s.length), top = { off: 0, 
 /** A fresh work counter for a command of n characters: STEPS_PER_CHAR steps per character and STEPS_BASE. @param {number} n @returns {Guard} */
 export const newGuard = (n) => ({ overflow: false, budget: STEPS_PER_CHAR * n + STEPS_BASE, unsure: '', texts: [] });
 
-/** Arithmetic or commands? Text inside `$((...))` or `((...))` that has a `;`, a newline or two words in a row cannot be an arithmetic expression, so bash reads it as nested subshells. @param {string} t */
-/** A word that makes a parenthesised arithmetic-looking text worth reading as commands too. @param {string} x */
-const suspect = (x) => ROLE_PROGRAMS.has(x) || Object.hasOwn(WRAPPERS, x) || SHELLS.has(x) || ['eval', 'source', '.', 'trap', 'alias', 'shopt', 'cd', 'pushd', 'popd', 'export', 'exec'].includes(x);
-/** Could this text between `((` and `))` be two subshells that do something? It holds a parenthesis and a write program, wrapper or shell word (or, outside a `for` header, a `>`). @param {string} t @param {boolean} isFor */
-const parenCmds = (t, isFor) => /[()]/.test(t) && (t.split(/[^A-Za-z0-9_./-]+/).some((x) => suspect(base(x))) || (!isFor && t.includes('>')));
-const cmdLike = (t) => /;|\n|[\w"')]\s+[A-Za-z_"'$/.]/.test(t);
+const NUM_RE = /0[xX][0-9a-fA-F]+|[0-9]+(#[0-9A-Za-z@_]+)?/y;
+const DOLLAR_RE = /\$([A-Za-z_][A-Za-z0-9_]*|[0-9]|[#?@*!$-])/y;
+const IDENT_RE = /[A-Za-z_][A-Za-z0-9_]*/y;
+const ARITH_OPS = ['<<=', '>>=', '**', '<<', '>>', '<=', '>=', '==', '!=', '&&', '||', '+=', '-=', '*=', '/=', '%=', '&=', '^=', '|=', '++', '--', '+', '-', '*', '/', '%', '<', '>', '&', '|', '^', '!', '?', ':', ',', '=', '(', ')', '[', ']'];
+
+/**
+ * Is the text a valid bash arithmetic expression? A small recursive-descent validator: numbers, identifiers (with `[index]`), `$name`, `${...}`, `$(...)` and backticks (whose commands are scanned on their own),
+ * unary, binary, ternary, assignment and comma operators, balanced parentheses, white space; nothing else (no quote, backslash, `;`, newline, `~`, a word that follows a word, `:` outside `?:`, a `--` followed by a path).
+ * Whether `((` ... `))` is arithmetic is decided by this grammar: text that is not valid arithmetic is read as commands (`((:)&&(mkdir -- X))` is two subshells). An empty text is valid.
+ * @param {string} t
+ */
+export function isArithmetic(t) {
+  const keep = G.unsure;
+  try { return arithOk(t); } finally { G.unsure = keep; }
+}
+
+/** @param {string} t */
+function arithOk(t) {
+  let i = 0;
+  let depth = 0;
+  let ternary = 0;
+  /** The match of a sticky expression at i (no slice of the text: linear). @param {RegExp} re */
+  const at = (re) => { re.lastIndex = i; return re.exec(t); };
+  const skipWs = () => { while (i < t.length && (t[i] === ' ' || t[i] === '\t')) i++; };
+  /** The next operator at i, or '' @returns {string} */
+  const op = () => { skipWs(); for (const o of ARITH_OPS) if (t.startsWith(o, i)) return o; return ''; };
+  /** One operand; false when the text there is not one. @returns {boolean} */
+  const primary = () => {
+    if (!step() || ++depth > SCAN_DEPTH) return false;
+    try {
+      skipWs();
+      const c = t[i];
+      if (c === undefined) return false;
+      if (c === '(') { i++; if (!expr()) return false; skipWs(); if (t[i] !== ')') return false; i++; return true; }
+      if (/[0-9]/.test(c)) { const m = at(NUM_RE); if (m === null) return false; i += m[0].length; return /[A-Za-z_]/.test(t[i] ?? ' ') ? false : true; }
+      if (c === '$') {
+        const nx = t[i + 1];
+        if (nx === '(') { const e = endParen(t, i + 2); if (e - 1 < i + 2 || t[e - 1] !== ')') return false; i = e; return true; }
+        if (nx === '{') { const e = endBrace(t, i + 2); if (e - 1 < i + 2 || t[e - 1] !== '}') return false; i = e; return true; }
+        const m = at(DOLLAR_RE);
+        if (m === null) return false;
+        i += m[0].length;
+        return true;
+      }
+      if (c === '`') { const e = endTick(t, i + 1); if (e - 1 <= i || t[e - 1] !== '`') return false; i = e; return true; }
+      if (/[A-Za-z_]/.test(c)) {
+        const m = at(IDENT_RE);
+        i += /** @type {RegExpExecArray} */ (m)[0].length;
+        if (t[i] === '[') { i++; if (!expr()) return false; skipWs(); if (t[i] !== ']') return false; i++; }
+        return true;
+      }
+      return false;
+    } finally { depth--; }
+  };
+  /** unary prefix operators, an operand, an optional postfix ++ or -- @returns {boolean} */
+  const unary = () => {
+    for (let o = op(); o === '+' || o === '-' || o === '!' || o === '++' || o === '--'; o = op()) i += o.length;
+    if (!primary()) return false;
+    const o = op();
+    if (o === '++' || o === '--') i += 2;
+    return true;
+  };
+  /** operands joined by binary and assignment operators, with an optional ?: @returns {boolean} */
+  const assign = () => {
+    if (!unary()) return false;
+    for (;;) {
+      const o = op();
+      if (o === '?') { i++; ternary++; if (!expr()) return false; if (op() !== ':') return false; i++; ternary--; if (!assign()) return false; continue; }
+      if (o === '' || o === ')' || o === ']' || o === ',' || o === ':' || o === '(' || o === '[' || o === '!') return true;
+      i += o.length;
+      if (!unary()) return false;
+    }
+  };
+  /** @returns {boolean} */
+  const expr = () => {
+    if (!assign()) return false;
+    while (op() === ',') { i++; if (!assign()) return false; }
+    return true;
+  };
+  skipWs();
+  if (i >= t.length) return true;
+  if (!expr()) return false;
+  skipWs();
+  return i >= t.length && ternary === 0;
+}
+
+/** The three parts of a `for ((a; b; c))` header, each valid arithmetic (an empty part is valid). @param {string} t */
+const forHeaderOk = (t) => { const p = t.split(';'); return p.length === 3 && p.every((x) => isArithmetic(x)); };
 
 /** @param {string} s @param {number} depth @param {Guard} st @param {{ off: number, paren: number }} top @returns {Simple[]} */
 function tokenizeIn(s, depth, st, top) {
@@ -286,8 +368,10 @@ function tokenizeIn(s, depth, st, top) {
   /** @type {Array<{ d: string, quoted: boolean, dash: boolean, owner: Simple }>} */ const heres = [];
   const n = s.length;
   /** @param {boolean} isPipe */
+  let strictUntil = -1; // offset up to which a command word that is not literal is refused even without an operand (the text after a `((` that is not arithmetic)
   const end = (isPipe) => {
     const done = cur;
+    if (i <= strictUntil) done.strict = true;
     if (cur.words.length > 0 || cur.redirs.length > 0 || cur.assigns.length > 0) out.push(cur);
     cur = mkSimple(depth, offNow(), isPipe ? done : null);
     lead = true;
@@ -308,7 +392,7 @@ function tokenizeIn(s, depth, st, top) {
   /** @returns {Word} */
   const cw = () => { if (w === null) w = mkWord(''); return w; };
   /** @param {string} inner */
-  const nest = (inner) => { if (inner.trim() !== '') st.texts.push(inner); for (const sc of tokenize(inner, depth + 1, st, offNow())) out.push(sc); };
+  const nest = (inner, strict = false) => { if (inner.trim() !== '') st.texts.push(inner); for (const sc of tokenize(inner, depth + 1, st, offNow())) { if (strict) sc.strict = true; out.push(sc); } };
   /** The commands inside the expansions of a text read inside double quotes, a here-document or a `${...}`. @param {string} t */
   const subsIn = (t) => {
     let j = 0;
@@ -355,10 +439,10 @@ function tokenizeIn(s, depth, st, top) {
         const keep = G.unsure;
         const e = endParen(s, i + 1);
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
-        if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')' && (forHdr || !cmdLike(s.slice(i + 2, e - 2)))) {
-          subsIn(s.slice(i + 2, e - 2));
-          if (parenCmds(s.slice(i + 2, e - 2), forHdr)) nest(s.slice(i + 2, e - 2)); // both readings: `((:)&&(mkdir -- X))` is two subshells
-          i = e; continue;
+        const body = s.slice(i + 2, e - 2);
+        if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')') {
+          if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { subsIn(body); i = e; continue; }
+          strictUntil = e; // not arithmetic: two subshells, read as commands below, and a command word that is not literal is refused even without an operand
         }
       }
       flush();
@@ -408,7 +492,7 @@ function tokenizeIn(s, depth, st, top) {
         const e = endParen(s, i + 2);
         const inner = innerOf(s, i + 2, e, ')');
         // `$((...))` is arithmetic: only the substitutions inside it are commands; when the text cannot be an arithmetic expression (`$((echo a); (mkdir X))`) bash reads subshells, so it is read as commands as well
-        if (inner.startsWith('(') && inner.endsWith(')')) { subsIn(inner); if (cmdLike(inner) || parenCmds(inner.slice(1, -1), false)) nest(inner); } else nest(inner);
+        if (inner.startsWith('(') && inner.endsWith(')') && isArithmetic(inner.slice(1, -1))) subsIn(inner); else nest(inner, inner.startsWith('(') && inner.endsWith(')'));
         const x = cw(); x.sub = true; x.usub = true; x.v += s.slice(i, e); i = e; continue;
       }
       if (nx === '[') { // `$[ ... ]`, the old arithmetic: its `<<` and `>` are operators; only the substitutions inside are commands
@@ -490,7 +574,8 @@ function unwrap(words) {
     return l;
   };
   let ws = strip(words);
-  for (let guard = 0; ws.length > 0 && guard < MAX_WRAPPERS; guard++) {
+  let guard = 0;
+  for (; ws.length > 0 && guard < MAX_WRAPPERS; guard++) {
     const name = base((/** @type {Word} */ (ws[0])).v);
     const spec = Object.hasOwn(WRAPPERS, name) ? WRAPPERS[name] : undefined;
     if (spec === undefined) break;
@@ -499,7 +584,7 @@ function unwrap(words) {
     while (i < ws.length) {
       if (!step()) break;
       const v = (/** @type {Word} */ (ws[i])).v;
-      if (v === '--') { i++; while (pos > 0 && i < ws.length) { i++; pos--; } break; } // `--` ends the options; the positional operands (timeout's DURATION) still come before the command
+      if (v === '--') { i++; if (name === 'env') while (i < ws.length && (/** @type {Word} */ (ws[i])).v.includes('=')) i++; while (pos > 0 && i < ws.length) { i++; pos--; } break; } // `--` ends the options; the positional operands (timeout's DURATION) still come before the command
       if (name === 'env' && v.includes('=') && !v.startsWith('-')) { if (v.startsWith('CDPATH=')) chdir = true; i++; continue; }
       if (!v.startsWith('-') || v === '-') { if (pos > 0) { pos--; i++; continue; } break; }
       if (spec.cd !== null && spec.cd.test(v)) chdir = true;
@@ -520,6 +605,7 @@ function unwrap(words) {
     }
     ws = strip(ws.slice(i));
   }
+  if (guard >= MAX_WRAPPERS && ws.length > 0 && Object.hasOwn(WRAPPERS, base((/** @type {Word} */ (ws[0])).v))) unknown = unknown || `more than ${MAX_WRAPPERS} wrappers in a row`;
   return { words: ws, chdir, unknown };
 }
 
@@ -775,7 +861,7 @@ function scanRole(cmd, st, actions) {
     const args = un.words.slice(1);
     // a command word the hook cannot read (a substitution, a backtick, a variable, a brace expansion or a glob) may be any program: with an operand it is refused, wherever the tokenizer reads it
     const lit = !first.sub && !first.vr && !first.bt && (first.q || (!first.glob && !BRACE_RE.test(first.v)));
-    if (!lit && args.length > 0 && first.v !== '[' && first.v !== '[[') {
+    if (!lit && (args.length > 0 || sc.strict) && first.v !== '[' && first.v !== '[[') {
       actions.push({ kind: 'deny', why: notice(`the command word '${first.v}' is not a literal (a substitution, a variable, a brace expansion or a glob)`) });
     }
     if (name === 'export' && args.some((a) => a.v.startsWith('CDPATH'))) chdir = true;

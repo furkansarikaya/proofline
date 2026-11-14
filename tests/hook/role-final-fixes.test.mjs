@@ -125,6 +125,31 @@ const REFUSED = /** @type {Array<[string, string, 'allow' | 'refuse', RegExp]>} 
   ['R6-4: env a.b=1 tee', `env a.b=1 tee ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
   ['R6-4: env 1X=1 mkdir', `env 1X=1 mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
   ['R6-4: env a-b=1 mkdir', `env a-b=1 mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  // round 7 item 2: a disguised command word inside (( )) that is not arithmetic
+  ['R7-2: m\\kdir', `((:)&&(m\\kdir -- ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: mk\'\'dir', `((:)&&(mk''dir -- ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: m"k"dir', `((:)&&(m"k"dir -- ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: /bin/m?dir', `((:)&&(/bin/m?dir -- ${OUT}))`, 'allow', /not a literal/],
+  ['R7-2: n\\ice -- m\\kdir', `((:)&&(n\\ice -- m\\kdir ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: m\\kfifo', `((:)&&(m\\kfifo ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: a variable command word in $(( ))', `c='mkdir ${OUT}'; echo $((:)&&($c))`, 'allow', /not a literal/],
+  ['R7-2: a variable command word in (( ))', `c='mkdir ${OUT}'; ((:)&&($c))`, 'refuse', /not a literal/],
+  ['R7-2: in x=$()', `x=$( ((:)&&(m\\kdir -- ${OUT})) )`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: in backticks', `echo \`((:)&&(m\\kdir -- ${OUT}))\``, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: after if', `if ((:)&&(m\\kdir -- ${OUT})); then :; fi`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: in a pipe', `echo a | ((:)&&(m\\kdir -- ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: in the background', `((:)&&(m\\kdir -- ${OUT})) &`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: in a case', `case x in x) ((:)&&(m\\kdir -- ${OUT}));; esac`, 'allow', /writes '\.\.\/out\/F'|case/],
+  ['R7-2: in a for body', `for i in 1; do ((:)&&(m\\kdir -- ${OUT})); done`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-2: in bash -c', `bash -c '((:)&&(m\\kdir -- ${OUT}))'`, 'allow', /writes '\.\.\/out\/F'/],
+  // round 7 item 3: env after --
+  ['R7-3: env -- a.b=1 tee', `env -- a.b=1 tee ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-3: env -- 1X=1 mkdir', `env -- 1X=1 mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-3: env -i -- 1X=1 mkdir', `env -i -- 1X=1 mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-3: env -- -x=1 mkdir', `env -- -x=1 mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  // round 7 item 4
+  ['R7-4: X+=a mkdir', `X+=a mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R7-4: a chain of 65 wrappers', `${'nice '.repeat(65)}mkdir ${OUT}`, 'allow', /more than 64 wrappers/],
   // D: aliases
   ['D: alias to a write program', 'alias m=mkdir', 'allow', /alias/],
   ['D: alias with options', "alias m='mkdir -p'", 'allow', /alias/],
@@ -183,6 +208,18 @@ const ALLOWED = [
   'ls 2>&1 | head',
   'echo hi > /dev/null',
   'env a.b=1 node a.js',
+  'echo $(( (a+b) > 3 ))',
+  'echo $(( (a) > (b) ))',
+  'x=$(( (a) > (b) ? 1 : 2 ))',
+  '(( (cd+1) * 2 ))',
+  'x=$(( (1+2)*3 ))',
+  '(( i++ ))',
+  'for ((i=0;i<3;i++)); do node a.js; done',
+  '(( (mkdir+1) * (tee) ))',
+  'echo $(( $(date +%s) > 5 ))',
+  'env -- A=1 node a.js',
+  'X+=a echo hi',
+  'nice nice nice node a.js',
   'function f { echo hi; }; f',
   'timeout 5 npm test',
   'for ((i=0;i<3;i++)); do echo $i; done',
@@ -346,4 +383,11 @@ test('A274 round 6: a quoted assignment value, odd env names and arithmetic-look
   assert.deepEqual(words('((true)&&(mkdir -- x))'), ['x']);
   assert.deepEqual(words('echo $( ((:)&&(mkdir -- x)) )'), ['x']);
   for (const c of ['echo $((1+2))', '(( x = (1+2)*3 ))', 'for ((i=0;i<3;i++)); do :; done', 'echo $(( (1+2)*3 ))']) assert.deepEqual(roleActions(c).actions, [], c);
+});
+
+test('A274 round 7: isArithmetic decides by grammar', () => {
+  const ok = ['1+2', '(a+b) > 3', '(a) > (b) ? 1 : 2', '(cd+1) * 2', 'i++', 'x = (1+2)*3', ' ', '', '0x1F + 010', 'a[1] + b', '$x + ${y} * $1', 'a, b', 'a <<= 2', '$(date) > 5', 'a ? b : c ? d : e'];
+  const bad = [':)&&(mkdir -- ../x', 'mkdir x', 'a b', "m\\kdir x", "'a'", 'a; b', 'a\nb', '~a', 'a : b', '(a', 'a)', '1 +', '..', 'a ? b', '`', 'x --'.concat(' ../y')];
+  for (const t of ok) assert.equal(/** @type {any} */ (RW).isArithmetic(t), true, JSON.stringify(t));
+  for (const t of bad) assert.equal(/** @type {any} */ (RW).isArithmetic(t), false, JSON.stringify(t));
 });
