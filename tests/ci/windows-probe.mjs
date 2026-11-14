@@ -1,5 +1,5 @@
 // @ts-check
-// The step of the `windows-core-probe` job of .github/workflows/ci.yml (A260, Windows port W1): `node tests/ci/windows-probe.mjs`. It reads the leg from $PROBE_SUITE (the matrix value,
+// The step of the `windows-core` job of .github/workflows/ci.yml (A260, Windows port W1): `node tests/ci/windows-probe.mjs`. It reads the leg from $PROBE_SUITE (the matrix value,
 // `core 1/4` ... `invariants`) and the optional selection from $PROBE_TESTS (the `tests` input of the manual run): space-separated test files, globs or folders relative to the repository root.
 // An empty selection runs the leg's default (today's behaviour: its shard of tests/core or tests/invariants-node). A selection runs ONLY those files: the files under tests/invariants-node go to
 // the `invariants` leg, every other file is shared by the four `core k/4` legs with their `--test-shard=k/4` (a leg that gets no file prints 0 tests), and an `invariants` leg without invariant files prints a SKIPPED line. The input is data, never shell: it reaches this script through the environment, is checked

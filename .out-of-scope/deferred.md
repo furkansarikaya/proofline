@@ -9,7 +9,5 @@ side effect of other work. Each has a condition for revisiting.
 | A glossary page with one name per concept and banned synonyms | Terminology confusion appears again in a retro |
 | Native mobile visual validation in a real project | A real mobile project uses proofline |
 | Issue creation and real-world testing of the Jira and Linear adapters | A user runs proofline with Jira or Linear |
-| Measuring hook cost on Windows runners | A Windows user reports slowness or a Windows runner is available |
 | Linux sandbox profile verification for Codex workers | A Linux user runs Codex workers |
 | Renaming the product because of a name clash | Before investing in SEO or a public launch |
-| Windows support beyond the hook tests: the core's Node tests and invariants on windows-latest (road map in A254) | The last Windows package of epic #165 lands (A254 road map); then remove this row |
