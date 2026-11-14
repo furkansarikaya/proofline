@@ -20,7 +20,7 @@ import { writeRule } from '../../adapters/claude/hooks/guards/bash.mjs';
 import { dbCheckToken, dbGuardCmd, dbTokens, scratchPath } from '../../adapters/claude/hooks/guards/db.mjs';
 import { mergeGuard } from '../../adapters/claude/hooks/guards/merge.mjs';
 import { killGuard } from '../../adapters/claude/hooks/guards/kill.mjs';
-import { alwaysProtected, canonCase, outsideOk, pathOk, relpath, roOperand, targetOk } from '../../adapters/claude/hooks/guards/paths.mjs';
+import { alwaysProtected, canonCase, nrPathOk, outsideOk, pathOk, relpath, roOperand, targetOk } from '../../adapters/claude/hooks/guards/paths.mjs';
 import { normalizeInputPath } from '../../control-plane/agents/scripts/core/paths.mjs';
 
 const realPlatform = host.platform;
@@ -128,7 +128,7 @@ test('the platform seam: isAbsPath, pathKey and dn follow it', () => {
 
 /** @param {string[]} wts @param {string} [cwd] @returns {any} */
 function ctxFor(wts = [], cwd = 'C:/proj/sub') {
-  const ctx = /** @type {any} */ ({ root: 'C:/proj', mainRoot: 'C:/proj', cwd, sroot: 'C:/proj', env: { TMPDIR: 'C:\\Users\\me\\AppData\\Local\\Temp', HOME: 'C:\\Users\\me', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }, act: '', ev: 'pretool', role: 'lead', ro: false, installed: false, agents: null });
+  const ctx = /** @type {any} */ ({ root: 'C:/proj', mainRoot: 'C:/proj', cwd, sroot: 'C:/proj', env: { TMPDIR: 'C:\\Users\\me\\AppData\\Local\\Temp', HOME: 'C:\\Users\\me', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', TEMP: 'C:\\Users\\me\\AppData\\Local\\Temp' }, act: '', ev: 'pretool', role: 'lead', ro: false, installed: false, agents: null });
   stateOf(ctx).wts = wts;
   return ctx;
 }
@@ -164,7 +164,26 @@ test('scratchGuard on a Windows host: a drive, UNC, long-path, Git Bash, relativ
   assert.equal(await scratchVerdict(inside, '%USERPROFILE%\\x'), null);
   const unset = ctxFor(); delete unset.env.APPDATA;
   assert.notEqual(await scratchVerdict(unset, '%APPDATA%\\x'), null);
+  const empty = ctxFor(); empty.env = {};
+  for (const t of ['%USERPROFILE%\\x', '$APPDATA/x', '$env:LOCALAPPDATA/x', '%TEMP%\\x']) assert.notEqual(await scratchVerdict(empty, t), null, `an unset variable is outside: ${t}`);
   assert.deepEqual(wrong, []);
+});
+
+const VAR_CLIMBS = ['$APPDATA/x/../Microsoft/Windows/Start Menu/Programs/Startup/evil.bat', '$USERPROFILE/../PWN', '${APPDATA}/a/../../PWN', '$TEMP/../PWN', '$LOCALAPPDATA/x/../PWN', '%USERPROFILE%\\..\\PWN', '$env:USERPROFILE/../PWN', '%TEMP%\\..\\x'];
+
+test('scratchGuard on a Windows host: a variable that names a folder outside the project, followed by `..`, is judged where it lands, never by its written text', async () => {
+  win(); host.drive = () => 'C:';
+  const phys = posix(realpathSync(F('proj')));   // the project in the spelling the guards hold, so that the physical second opinion agrees with the text
+  const ctx = ctxFor([phys], `${phys}/sub`); ctx.root = phys; ctx.mainRoot = phys; ctx.sroot = phys;
+  for (const t of VAR_CLIMBS) {
+    // premise: the written text alone collapses to a path INSIDE the project (the second opinion that used to override the deny)
+    const textual = landing(ctx.cwd, winSpell(t).p);
+    assert.ok(textual !== null && pathKey(textual).startsWith(`${pathKey(phys)}/`), `premise: ${t} read as text is inside (${textual})`);
+    assert.notEqual(await scratchVerdict(ctx, t), null, `allowed: ${t}`);
+  }
+  // a variable whose folder is inside the project, climbing but staying inside, is inside
+  const inside = ctxFor([phys], `${phys}/sub`); inside.root = phys; inside.mainRoot = phys; inside.sroot = phys; inside.env.APPDATA = `${phys}/home/app`;
+  assert.equal(await scratchVerdict(inside, '$APPDATA/../ok.txt'), null);
 });
 
 test('scratchGuard: the premise is the value the scanner hands the guard (the written target, backslashes kept, a cd folded in)', () => {
@@ -192,7 +211,7 @@ const POSIX_CMDS = /** @type {Array<[string, boolean]>} */ ([
   ['echo x > ../../outside.txt', true], ['echo x > ../outside.txt', true], ['tee ../../../out2.txt', true], ['echo x >> ../x', true], ['cd sub && echo x > ../../x', true], ['cd /tmp && echo > x', true],
   ['cp a ../../b', true], ['mv a ../b', true], ['ln -s /etc/passwd ../x', true], ['cd .. ; echo x > y', true], ['echo x > /work/proj/../x', true], ['echo x > /work/proj/../../../../etc/PWN', true],
   ['echo x > /dev/../etc/x', true], ['echo x > a/../../x', true], ['echo x > ./../x', true], ['echo x > /work/proj/sub/../../x', true], ['echo x > /work/proj/../../etc/x', true],
-  ['echo x > out.txt', false], ['echo x > src/a.js', false], ['echo x > ./a', false], ['echo x > a/../b', false], ['cd sub && echo > ../ok', false], ['echo x > /work/proj/a/../b', false],
+  ['echo x > $PWD/../PWN', true], ['echo x > ${PWD}/../PWN', true], ['echo x > $PWD/../../PWN', true], ['echo x > $PWD/ok', false], ['echo x > ${PWD}/a/../b', false], ['echo x > out.txt', false], ['echo x > src/a.js', false], ['echo x > ./a', false], ['echo x > a/../b', false], ['cd sub && echo > ../ok', false], ['echo x > /work/proj/a/../b', false],
   ['echo x > /dev/null', false], ['echo x > /dev/stderr', false], ['cp a b', false], ['tee ../proj/q', false], ['echo > /work/proj/sub/../q', false], ['echo > sub/../../proj/z', false],
 ]);
 
@@ -314,7 +333,38 @@ test('dbCheckToken: an NTFS stream or an 8.3 alias of a database file is the dat
     'DEV~1.SQL', 'PROD~1.DAT', 'C:\\proj\\var\\data\\DEV~1.SQL', 'X~1.DB']) {
     assert.notEqual(dbVerdict(ctx, t), null, `not refused: ${t}`);
   }
+  stateOf(ctx).dbPaths = 'longname.txt';
+  assert.notEqual(dbVerdict(ctx, 'LONGNA~1.TXT'), null, 'the stem of the alias is the start of the name');
+  assert.equal(dbVerdict(ctx, 'LONGNB~1.TXT'), null);
+  assert.equal(dbVerdict(ctx, 'LONGNA~1.EXE'), null);
+  stateOf(ctx).dbPaths = 'var/data/dev.sqlite prod.data *.db';
   for (const t of ['README~1.TXT', 'C:\\proj\\notes.md::$DATA', 'a~b.txt', 'DEV~1.EXE']) assert.equal(dbVerdict(ctx, t), null, `refused: ${t}`);
+});
+
+test('dbCheckToken: a name that is no valid Windows name is still what it was written as; a stream cannot leave a one-letter first name that the next pass reads as a drive', () => {
+  win(); host.drive = () => 'C:';
+  const ctx = dbCtx();
+  stateOf(ctx).dbPaths = '*.db prod.data';
+  for (const t of [':~x.db', 'sub/:x.db', 'C:/proj/:~y.db']) assert.notEqual(dbVerdict(ctx, t), null, `not refused: ${t}`);
+  assert.equal(winSpell('/d:x', 'win32').bad, true);
+  assert.equal(winSpell('/d:$DATA/y', 'win32').bad, true);
+  assert.equal(winSpell('/dd:x/y', 'win32').p, '/dd/y');
+  assert.equal(winSpell('/c/x', 'win32').p, 'C:/x', 'Git Bash is not touched');
+});
+
+test('canonCase fixes a known name only at a segment boundary, and the lead outside a run is held to the protected list without regard to case', async () => {
+  win();
+  const ctx = ctxFor();
+  ctx.act = 'LC'; stateOf(ctx).tasksDir = '.agents/tasks';
+  assert.equal(canonCase(ctx, '.Claude2/x'), '.Claude2/x', 'a longer name is not the known one');
+  assert.equal(canonCase(ctx, '.AGENTSX/runs'), '.AGENTSX/runs');
+  assert.equal(canonCase(ctx, '.Git/Config.bak'), '.git/config.bak', 'a dot is a boundary: .git/config.* is protected');
+  assert.equal(canonCase(ctx, '.Claude'), '.claude');
+  assert.equal(canonCase(ctx, '.Claude-other/x'), '.Claude-other/x', 'a name that only shares a prefix with a protected one');
+  assert.equal(canonCase(ctx, '.GITX/y'), '.GITX/y');
+  const lead = ctxFor(); lead.act = ''; stateOf(lead).tasksDir = '.agents/tasks';
+  assert.match(String(await nrPathOk(lead, '.AGENTS/Runs/ABC/run.yaml')), /written only by agent\.sh/);
+  assert.match(String(await nrPathOk(lead, '.agents/RUNS/abc/gates/g1')), /written only by agent\.sh/);
 });
 
 test('dbTokens keeps the colon of a drive in its word on a Windows host and splits as before elsewhere', () => {
@@ -499,7 +549,7 @@ test('physicalPath on a Windows host: a drive path is the path it names, not a n
   const root = /^[A-Za-z]:/.exec(R('proj'))?.[0] ?? 'C:';
   assert.equal(physicalPath(`${root}/`, cwd), `${root}/`, 'a drive root is its own parent');
   host.platform = () => 'linux';
-  assert.equal(physicalPath(R('proj/sub'), cwd).includes(R('proj/sub')) || onWindows, true, 'elsewhere it is a name under the working directory, as before');
+  assert.equal(physicalPath(R('proj/sub'), cwd).replaceAll('\\', '/'), `${posix(realpathSync(cwd))}/${R('proj/sub')}`, 'elsewhere it is a name under the working directory, as before');
 });
 
 test('the context reads a Windows-form cwd, CLAUDE_PROJECT_DIR and event path through the one rule', async () => {
@@ -533,6 +583,14 @@ test('a target of a few hundred thousand spaces, dots, backslashes, slashes or t
     t.set(n, ms + sc + db);
   }
   const small = t.get(25000) ?? 0; const big = t.get(200000) ?? 0;
+  // a path of very many segments below a folder that does not exist: the climb to the first existing folder is linear too
+  const seg = (/** @type {number} */ n) => `/work/proj/${'a/'.repeat(n)}x`;
+  host.platform = () => 'linux';
+  const rctx = /** @type {any} */ ({ root: '/work/proj', mainRoot: '/work/proj', cwd: '/work/proj', sroot: '/work/proj', env: {}, installed: false });
+  const tClimb = async (/** @type {number} */ n) => { const t0 = process.hrtime.bigint(); await relpath(rctx, seg(n)); return Number(process.hrtime.bigint() - t0) / 1e6; };
+  const c1 = await tClimb(12500); const c2 = await tClimb(100000);
+  assert.equal(await relpath(rctx, seg(100000)), '@unknown', 'a path no file system can hold is unresolvable (fail closed)');
+  assert.ok(c2 < 1500 && c2 < 40 * Math.max(c1, 5), `100k segments took ${c2.toFixed(0)} ms (12.5k: ${c1.toFixed(0)} ms)`);
   assert.ok(big < 1500, `200k-character targets took ${big.toFixed(0)} ms`);
   assert.ok(big < 40 * Math.max(small, 5), `8 times the input took ${(big / Math.max(small, 1)).toFixed(0)} times the time (a linear pattern is about 8, a quadratic one about 64)`);
 });

@@ -138,11 +138,12 @@ export function winSpell(raw, platform = host.platform()) {
     // one-letter first name (`\w\repo`) is ambiguous: unplaceable
     if (raw.startsWith('\\')) { const dv = host.drive(); if (dv !== '') { head = dv.toUpperCase(); rest = s; } else if (/^\/[A-Za-z](\/|$)/.test(s)) bad = true; }
   }
-  /** @type {string[]} */ const out = []; let dev = false; let nul = false;
+  /** @type {string[]} */ const out = []; let dev = false; let nul = false; let first = true;
   for (let c of rest.split('/')) {
     if (c === '' || c === '.') continue;
     if (c === '..') { if (out.length > 0 && out[out.length - 1] !== '..') out.pop(); else if (!abs) out.push('..'); continue; }
-    const sc = c.indexOf(':'); if (sc >= 0) c = c.slice(0, sc); // an NTFS stream (`x::$DATA`, `x:s`, `d:$INDEX_ALLOCATION`) names its file or folder
+    const sc = c.indexOf(':'); if (sc >= 0) { c = c.slice(0, sc); if (first && head === '' && abs && /^[A-Za-z]$/.test(c)) bad = true; } // (a one-letter first name left by a stream would be read as a drive by a second pass)
+    first = false; // an NTFS stream (`x::$DATA`, `x:s`, `d:$INDEX_ALLOCATION`) names its file or folder
     let e = c.length; while (e > 0 && (c[e - 1] === '.' || c[e - 1] === ' ')) e--; // loops, not `[. ]+$`: that is quadratic on a long run of spaces
     const t = c.slice(0, e);
     if (t === '') { bad = true; continue; }

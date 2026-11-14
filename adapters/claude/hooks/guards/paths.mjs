@@ -108,15 +108,18 @@ async function relpathCompute(ctx, p0) {
   const p = await inputPath(ctx, p0);
   if (isWin() && p.startsWith('//')) return { rel: '@outside', abs: p }; // a UNC path: no file system call (it would open a connection to the named server)
   let rp = isAbs(p) ? p : `${ctx.cwd}/${p}`;
+  // no file system takes a path of more than 32,767 characters (PATH_MAX is 4,096 on Linux): it cannot be a real file, and the climb below costs a lookup per level
+  if (rp.length > 32768) return { rel: '@unknown', abs: '' };
   let dir = dn(rp);
-  let tail = bn(rp);
+  const parts = [bn(rp)]; // the names below the first existing folder, last name first (joined once: a prepend per level is quadratic)
   while (!isDir(dir)) {
     try { if (lstatSync(dir).isSymbolicLink()) return { rel: '@unknown', abs: '' }; } catch { /* not there */ }
-    tail = `${bn(dir)}/${tail}`;
+    parts.push(bn(dir));
     const up = dn(dir);
     if (up === dir) return { rel: '@unknown', abs: '' };
     dir = up;
   }
+  let tail = parts.reverse().join('/');
   if (`/${tail}/`.includes('/../') || `/${tail}/`.includes('/./')) return { rel: '@unknown', abs: '' };
   const phys = physical(dir);
   if (phys === '') return { rel: '@unknown', abs: '' };

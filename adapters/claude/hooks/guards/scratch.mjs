@@ -91,10 +91,13 @@ export async function scratchGuard(ctx, scan) {
       let v = rec.value.replace(/\n+$/, '');
       const rest = () => v.slice(v.indexOf('/') + 1);
       if (v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR}/')) v = `${sgT}/${rest()}`;
+      else if (v === '$PWD' || v === '${PWD}') v = '.';
+      else if (v.startsWith('$PWD/') || v.startsWith('${PWD}/')) v = `./${rest()}`; // the scanner knows what $PWD is: the working directory, so the target is relative to it
       else if (v.startsWith('~/') || v.startsWith('$HOME/') || v.startsWith('${HOME}/')) v = `${ctx.env.HOME || '/nonexistent-home'}/${rest()}`;
       const climbs = `/${isWin() ? v.replace(/\\/g, '/') : v}/`.includes('/../');
       if (!climbs && v.startsWith('/dev/')) continue;
       const shown = v;
+      let viaVar = false; // the target was spelled with a variable: the written text is no second opinion
       if (isWin()) {
         // the Windows analogues of $HOME: a variable that names a folder outside the project, an unset one is outside too
         const vm = WIN_VARS.exec(v);
@@ -102,7 +105,7 @@ export async function scratchGuard(ctx, scan) {
           const name = (vm[1] ?? vm[2] ?? vm[3] ?? vm[4] ?? '').toLowerCase();
           if (WIN_VAR_NAMES.has(name)) {
             const key = Object.keys(ctx.env).find((k) => k.toLowerCase() === name);
-            v = `${(key ? ctx.env[key] : '') || 'C:/__unset_variable__'}${v.slice(vm[0].length)}`;
+            v = `${(key ? ctx.env[key] : '') || 'C:/__unset_variable__'}${v.slice(vm[0].length)}`; viaVar = true;
           }
         }
         // A271: a drive (`C:\x`, `D:/x`), UNC (`\\srv\share\x`), `\\?\C:\x` or Git Bash (`/c/x`) spelling is an absolute path like `/etc/x`, never a relative one;
@@ -120,7 +123,7 @@ export async function scratchGuard(ctx, scan) {
         if (at === null) deny(`the command writes '${shown}', a path that cannot be resolved to a place inside the project (a link followed by .., or a Windows path that cannot be placed). Scratch files go under ${scratchDir(ctx)} (mkdir -p it, then write inside it, for example > ${scratchDir(ctx)}out.txt); $TMPDIR is only for git worktrees`);
         v = at;
         if (!isWin() && v.startsWith('/dev/')) continue;
-        if (isWin() && !isAbsPath(shown.replace(/\\/g, '/'))) {
+        if (isWin() && !viaVar && !isAbsPath(shown.replace(/\\/g, '/'))) {
           // a relative target from a working directory spelled another way (8.3, case): the physical form decides when the written one says outside
           const n0 = pathKey(v.replace(/\/+/g, '/'));
           if (!(n0 === pathKey(rootN) || n0.startsWith(`${pathKey(rootN)}/`))) { const p2 = landing(posixPhys(ctx.cwd ?? ''), winSpell(shown).p); if (p2 !== null) v = p2; }

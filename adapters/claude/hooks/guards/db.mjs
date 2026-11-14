@@ -79,7 +79,8 @@ function dbIsPath(ctx, tok0) {
   const w = isWin();
   const low = (/** @type {string} */ x) => x.replace(/[A-Z]/g, (c) => c.toLowerCase());
   const sp = w ? winSpell(tok0).p : tok0;
-  const toks = [w ? low(sp) : tok0];
+  // the normal form, and (an addition that can only deny more) the written text with slashes: a name that is no valid Windows name (`:~x.db`) is still what it was
+  const toks = w ? [low(sp), low(tok0.replace(/\\/g, '/'))] : [tok0];
   // an 8.3 alias (`DEV~1.SQL`) names the file the entry names: its long form decides; one that cannot be resolved is checked as an alias of an entry's name
   let alias = false;
   if (w && /~[0-9]/.test(sp) && !sp.startsWith('//')) {
