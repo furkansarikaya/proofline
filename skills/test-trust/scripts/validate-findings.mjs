@@ -112,8 +112,9 @@ export function checkConsistency(doc) {
   const g = computeGate(doc.findings);
   if (doc.gate?.result !== g.result) errors.push(`gate.result is ${doc.gate?.result} but the rule computes ${g.result}`);
   if (JSON.stringify([...(doc.gate?.failing ?? [])].sort()) !== JSON.stringify([...g.failing].sort())) {
-    errors.push(`gate.failing must list exactly the confirmed flaky and hollow findings: ${g.failing.join(", ") || "none"}`);
+    errors.push(`gate.failing must list exactly the confirmed flaky, hollow, real wait, clock, over-budget and unmeasured findings: ${g.failing.join(", ") || "none"}`);
   }
+  errors.push(...checkFast(doc));
   if (!d) return errors;
   // the mutation budget is a cap (gate.mjs mutant enforces it while mutants run): a record of more executed mutants than the budget is INVALID
   if (d.mutants_run > d.thresholds?.mutation_budget) {
@@ -127,6 +128,42 @@ export function checkConsistency(doc) {
       errors.push(`${f.id}: confirmed slow finding does not exceed slow_ratio ${d.thresholds?.slow_ratio}`);
     }
     if (f.carried_forward === true) errors.push(`${f.id}: carried_forward is not allowed in diff mode (every run re-measures)`);
+  }
+  return errors;
+}
+
+// Issue 265 package C (A276): the findings of the speed and determinism check. A candidate the reviewer cannot trace stays a finding (verdict confirmed, outcome
+// untraced); only a false positive with a reason, or the PLAN's own `## Test exceptions` line, clears it. The verdict must agree with the outcome.
+export function checkFast(doc) {
+  const errors = [];
+  for (const f of doc.findings ?? []) {
+    const o = f.observed ?? {};
+    if (f.kind === "real_wait" || f.kind === "clock_not_injected") {
+      const blocking = o.outcome === "traced" || o.outcome === "untraced";
+      if (blocking && f.verdict !== "confirmed") errors.push(`${f.id}: a ${o.outcome} candidate stays a confirmed finding (safe side), not ${f.verdict}`);
+      if (!blocking && f.verdict !== "cleared") errors.push(`${f.id}: outcome ${o.outcome} must be a cleared finding, not ${f.verdict}`);
+      if (o.outcome === "traced" && !o.trace) errors.push(`${f.id}: a traced candidate needs "trace", the path followed`);
+      if (o.outcome === "false_positive" && !o.reason) errors.push(`${f.id}: a false_positive needs "reason"`);
+      if (o.outcome === "plan_justified" && (f.kind !== "real_wait" || !o.plan_exception)) errors.push(`${f.id}: plan_justified applies to real_wait only and needs "plan_exception", the exact PLAN ## Test exceptions line`);
+    } else if (f.kind === "over_budget") {
+      if (o.outcome === "over" && !(o.measured_ms > o.budget_ms)) errors.push(`${f.id}: over_budget with measured_ms ${o.measured_ms} not above budget_ms ${o.budget_ms}`);
+      if ((o.outcome === "over") !== (f.verdict === "confirmed")) errors.push(`${f.id}: outcome ${o.outcome} does not match verdict ${f.verdict} (over is confirmed, plan_justified is cleared)`);
+      if (o.outcome === "plan_justified" && !o.plan_exception) errors.push(`${f.id}: plan_justified needs "plan_exception", the exact PLAN ## Test exceptions line`);
+    }
+  }
+  return errors;
+}
+
+// With the plan: a plan_exception must be a line of the plan's `## Test exceptions` of the matching kind (wait for real_wait, budget for over_budget).
+export function checkPlanExceptions(doc, planText) {
+  const errors = [];
+  const m = /^## Test exceptions[^\n]*\n([\s\S]*?)(?=^## |\s*$(?![\s\S]))/m.exec(planText);
+  const lines = (m ? m[1] : "").split("\n").map((l) => l.trim());
+  for (const f of doc.findings ?? []) {
+    const e = f.observed?.plan_exception;
+    if (e === undefined) continue;
+    const kind = f.kind === "over_budget" ? "budget" : "wait";
+    if (!lines.includes(e.trim()) || !new RegExp(`^[-*]\\s*${kind}:`).test(e.trim())) errors.push(`${f.id}: plan_exception is not a "- ${kind}: ..." line of PLAN ## Test exceptions: ${e.slice(0, 80)}`);
   }
   return errors;
 }
@@ -178,7 +215,7 @@ function main(argv) {
     return 2;
   }
   const errors = validate(schema, doc);
-  if (errors.length === 0) errors.push(...checkConsistency(doc), ...checkClaims(doc, planText), ...missingEvidence(doc, dirname(file)));
+  if (errors.length === 0) errors.push(...checkConsistency(doc), ...checkClaims(doc, planText), ...(planText === undefined ? [] : checkPlanExceptions(doc, planText)), ...missingEvidence(doc, dirname(file)));
   if (errors.length) {
     console.error(`INVALID: ${file}`);
     for (const e of errors) console.error(`  ${e}`);

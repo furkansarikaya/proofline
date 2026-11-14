@@ -18,6 +18,8 @@ import { nextUser } from '../nextuser.mjs';
 import { queue } from '../queue.mjs';
 import { preCommit, prePush } from '../githooks.mjs';
 import { builtinScan } from '../secretscan.mjs';
+import { ecosystemRows } from '../ecodata.mjs';
+import { KINDS as SCAN_KINDS, applyAllowlist, listFiles, parseAllowlist, pruneNames, reportJson, reportText as scanText, scanFiles, scanRules } from '../waitscan.mjs';
 import { slug as slugOf } from '../slug.mjs';
 import { runTaskAdapter } from '../adapters/index.mjs';
 import { mergeCommand } from '../merge.mjs';
@@ -87,6 +89,49 @@ function secretScanCli(ctx, args) {
   const r = builtinScan(ctx, root, rest);
   ctx.out(r.stdout); ctx.err(r.stderr);
   return r.status;
+}
+
+/**
+ * `cli test-scan [--root DIR] [--allowlist FILE] [--kind wait|clock_read|all] [--json] <path>...` (issue 265 package C, A276): the real waits and direct clock reads in the files under
+ * the paths (a directory is walked), found with the `fast_tests` data of ecosystems.json. Candidates, not verdicts: sorted, text or JSON. Status 0 no open candidate, 1 at least one
+ * (a candidate the allowlist lists with a reason is `allowed`, not open), 2 usage or allowlist error.
+ * @param {Context} ctx @param {string[]} args
+ */
+function testScanCli(ctx, args) {
+  const usage = '[--root DIR] [--allowlist FILE] [--kind wait|clock_read|all] [--json] <path>...';
+  const bad = (/** @type {string} */ m) => new ProoflineError(`proofline-core cli test-scan: ${m}`, 2, 'USAGE');
+  let root = ctx.cwd; let allow = ''; let kind = 'all'; let json = false; /** @type {string[]} */ const targets = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--json') json = true;
+    else if (a === '--root' || a === '--allowlist' || a === '--kind') {
+      const v = args[++i];
+      if (v === undefined || v === '') throw bad(`${a} needs a value (${usage})`);
+      if (a === '--root') root = path.resolve(ctx.cwd, v); else if (a === '--allowlist') allow = path.resolve(ctx.cwd, v); else kind = v;
+    } else if (a.startsWith('--')) throw bad(`unknown option ${a} (${usage})`);
+    else targets.push(a);
+  }
+  if (targets.length === 0) throw bad(usage);
+  if (kind !== 'all' && !SCAN_KINDS.includes(kind)) throw bad(`--kind must be wait, clock_read or all`);
+  const rows = ecosystemRows(ctx);
+  const rules = scanRules(rows);
+  if (rules.length === 0) throw bad('ecosystems.json carries no fast_tests data');
+  /** @type {import('../waitscan.mjs').AllowEntry[]} */ let entries = [];
+  if (allow !== '') {
+    let text;
+    try { text = readFileSync(allow, 'utf8'); } catch { throw bad(`allowlist not found: ${allow}`); }
+    const p = parseAllowlist(text);
+    if (p.errors.length > 0) throw bad(p.errors.join('; '));
+    entries = p.entries;
+  }
+  const listed = listFiles(root, targets, pruneNames(rows));
+  if (listed.errors.length > 0) throw bad(listed.errors.join('; '));
+  const kinds = kind === 'all' ? SCAN_KINDS : [kind];
+  const scan = scanFiles(root, listed.files, rules, () => kinds);
+  const split = applyAllowlist(scan.candidates, entries);
+  const report = { scanned: scan.scanned, skipped: scan.skipped, candidates: split.open, allowed: split.allowed, unused: split.unused };
+  ctx.out(json ? reportJson(report) : scanText(report));
+  return split.open.length > 0 ? 1 : 0;
 }
 
 /**
@@ -267,7 +312,7 @@ function contextSizeCli(ctx, args) {
 }
 
 /** The closed set. @type {Readonly<Record<string, (ctx: Context, args: string[]) => number>>} */
-export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli, discover: discoverCli, 'run-timeout': runTimeoutCli, 'doctor-commands': doctorCommandsCli, 'doctor-scale': doctorScaleCli, 'context-size': contextSizeCli, config: configCommand });
+export const CLI_COMMANDS = Object.freeze({ 'leftover-worktrees': leftoverCommand, 'worktree-deps': worktreeDepsCli, insights, queue: queueCommand, 'next-line': nextLine, 'pre-commit': preCommitCommand, 'pre-push': prePushCommand, 'scan-secrets': secretScanCli, 'platform-info': platformCli, slug: slugCli, 'task-adapter': taskAdapterCli, merge: mergeCli, 'exec-policy': execPolicyCli, 'runtime-detect': runtimeDetectCli, discover: discoverCli, 'run-timeout': runTimeoutCli, 'doctor-commands': doctorCommandsCli, 'doctor-scale': doctorScaleCli, 'context-size': contextSizeCli, config: configCommand, 'test-scan': testScanCli });
 
 /**
  * The `cli` names only bin/proofline may start (A232): writers (a config key, a candidates file) and the runner of an arbitrary program.

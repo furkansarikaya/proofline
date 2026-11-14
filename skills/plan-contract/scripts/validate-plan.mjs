@@ -54,6 +54,18 @@ export function testKindProblems(testLines, budgetLines) {
   else if (budgetLines) for (const k of used) if (!given.has(k)) errors.push(`section "## Test budgets": no budget line for the test kind ${k} that ## Tests uses`);
   return errors;
 }
+// Issue 265 package C (A276): `## Test exceptions` is the only place a plan justifies a real wait or a test over its budget, so REVIEW_TESTS can clear the finding.
+// A line is `- wait: <test file or "test name"> -- <reason>` or `- budget: <...> -- <reason>` (the separator is `--` or an em dash); the reason has at least 20 characters.
+const EXCEPTION_LINE = /^\s*[-*]\s*(wait|budget):\s*(.+?)\s+(?:—|--)\s+(\S.{19,})$/;
+export function testExceptionProblems(lines) {
+  const errors = [];
+  for (const l of lines || []) {
+    if (l.trim() === "") continue;
+    if (l.length > 4096) { errors.push('section "## Test exceptions": a line is longer than 4096 characters'); continue; }
+    if (!EXCEPTION_LINE.test(l)) errors.push(`section "## Test exceptions": expected "- wait|budget: <test file or \\"test name\\"> -- <reason of at least 20 characters>", got "${l.trim().slice(0, 60)}"`);
+  }
+  return errors;
+}
 export const BASE_SECTIONS = ["Behavior", "Tests", "Verification commands", "Dependencies", "Contracts", "Assumptions"];
 export const ARCHITECTURE_CLASSES = ["COMPLEX", "CRITICAL"];
 export const MAX_SCOPE_PATHS = { TRIVIAL: 2 };
@@ -430,6 +442,7 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
   }
   for (const c of task.criteria) if (!mapped.has(idKey(c))) errors.push(`${c}: maps to no scope path and no explicit test`);
   errors.push(...testKindProblems(tests, body.get("Test budgets")));
+  if (body.get("Test exceptions")) errors.push(...testExceptionProblems(body.get("Test exceptions")));
 
   const data = body.get("Data");
   if (data) {

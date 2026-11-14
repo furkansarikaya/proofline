@@ -18,7 +18,7 @@ role.implementer.agent	12600
 role.implementer.skill	14750
 role.qa.agent	12100
 role.qa.skill	16350
-role.reviewer.agent	17200
+role.reviewer.agent	17500
 role.reviewer.skill	37400
 role.security_reviewer.agent	9200
 role.security_reviewer.skill	18400

@@ -213,6 +213,8 @@ export function validate(data = loadEcosystems()) {
     const ft = e.fast_tests ?? {};
     need(["supported", "unsupported"].includes(ft.fake_clock?.status), `${w}: fast_tests.fake_clock.status must be supported or unsupported`);
     need(typeof ft.fake_clock?.facility === "string" && ft.fake_clock.facility.trim() !== "", `${w}: fast_tests.fake_clock.facility must be a non-empty string`);
+    // #265 package C (A276): the source files the scan applies the lists to (globs); a scan of a file that no ecosystem claims reports nothing
+    need(Array.isArray(ft.files) && ft.files.length > 0 && ft.files.every((x) => typeof x === "string" && /^\*\.[A-Za-z0-9]+$/.test(x)), `${w}: fast_tests.files must be a non-empty array of "*.<extension>" globs`);
     for (const k of ["sleep", "clock_reads"]) need(Array.isArray(ft[k]) && ft[k].length > 0 && ft[k].every((x) => typeof x === "string" && x.trim() !== ""), `${w}: fast_tests.${k} must be a non-empty array of non-empty strings`);
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);

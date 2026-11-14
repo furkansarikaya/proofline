@@ -144,7 +144,8 @@ exists, else PASS. Suspicions, slow tests and other notes are `info` rows and ne
 - `rules`: a violation of a written, checkable project rule introduced by the diff; a reproduced or traced bug.
 - `rules+tests`: the same, with the bug hunt limited to the units the changed tests exercise.
 - `tests`: a confirmed flaky test among changed or covering tests; a hollow test on a changed unit (a
-  surviving mutant).
+  surviving mutant); a real wait or clock read that `agent.sh build-record <ID> scan` lists and you traced or cannot rule
+  out, a test over its budget, a test never measured (test-trust FAST.md), unless PLAN `## Test exceptions` justifies it.
 - `data`: a destructive or irreversible operation in the diff while PLAN `## Data` says `destructive: no`; a
   migration step without the plan's rollback or reversibility; a schema change the plan does not name; a
   broken invariant from `design/DATA.md`.

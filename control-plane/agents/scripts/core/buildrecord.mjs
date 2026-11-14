@@ -27,6 +27,7 @@ import { commandV } from './runtimedetect.mjs';
 import { requireRun } from './runs.mjs';
 import { builtinScan } from './secretscan.mjs';
 import { measureRun } from './testmeasure.mjs';
+import { reviewInputs } from './testreview.mjs';
 import { tmScaled, verifyCommandTimeout } from './timeouts.mjs';
 import { prepareWorktree } from './worktree.mjs';
 
@@ -306,7 +307,7 @@ export function buildRecord(ctx, op, rev = '', runId = '') {
   }
 }
 
-const USAGE = 'usage: agent.sh build-record <ID> [run|show]';
+const USAGE = 'usage: agent.sh build-record <ID> [run|show|scan [--json]]';
 
 /** `agent.sh build-record <ID> [run|show]`. @param {Context} ctx @param {string[]} args */
 export function buildRecordCommand(ctx, args) {
@@ -314,6 +315,14 @@ export function buildRecordCommand(ctx, args) {
   if (id === '') { ctx.err(`${USAGE}\n`); return 2; }
   requireRun(ctx, id);
   const op = args[1] === undefined || args[1] === '' ? 'show' : args[1];
+  // #265 package C (A276): the review inputs for the speed and determinism of the tests (read-only, any role); see testreview.mjs
+  if (op === 'scan') {
+    const extra = args.slice(2);
+    if (extra.some((x) => x !== '--json') || extra.length > 1) { ctx.err(`${USAGE}\n`); return 2; }
+    const r = reviewInputs(ctx, id, extra.length === 1);
+    ctx.out(r.out);
+    return r.status;
+  }
   if (op !== 'run' && op !== 'show') { ctx.err(`${USAGE}\n`); return 2; }
   const r = buildRecord(ctx, op, '', id);
   ctx.out(r.out); ctx.err(r.err);

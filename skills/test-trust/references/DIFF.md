@@ -73,6 +73,10 @@ Slow uses the per-test durations of the baseline run and the isolated runs, and 
 
 Without the per-test duration capability slow is unsupported and nothing is guessed. A slow finding never changes the result; it is listed with severity `info`.
 
+## 6a. Fast and deterministic tests
+
+In a run, [FAST.md](FAST.md) adds four kinds to the findings: `real_wait`, `clock_not_injected`, `over_budget`, `not_measured`. They are read from `agent.sh build-record <TASK-ID> scan`, not measured by test-trust itself.
+
 ## 7. Result
 
 1. Write `findings.json` with `mode: "diff"`, `fingerprint`, `scope.diff` (base, thresholds, changed units, tests, `mutants_run`, `not_examined`) and the findings, then compute the gate with the rule of `SKILL.md` (`node <skill-dir>/scripts/gate.mjs gate` or by hand) and write `gate: {result, failing}`. The scope `slug` is `diff`; `paths` are the changed paths.

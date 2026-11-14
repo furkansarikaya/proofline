@@ -48,9 +48,10 @@ export function minMutants(planText) {
   return new Set([...(m ? m[1] : "").matchAll(/^\s*[-*]\s+(AC-\d+):/gim)].map((x) => x[1].toUpperCase().replace(/-0+(?=\d)/g, "-"))).size;
 }
 
-// Gate rule of diff mode: a confirmed flaky finding (any flaky_* kind) or a confirmed
-// hollow finding fails; everything else (slow, needs_validation, cleared) never does.
-export const isBlocking = (f) => f?.verdict === "confirmed" && (String(f.kind).startsWith("flaky_") || f.kind === "hollow");
+// Gate rule of diff mode: a confirmed flaky finding (any flaky_* kind), a confirmed hollow finding, and (issue 265, A276) a confirmed real wait, direct
+// clock read, over-budget test or unmeasured test fail; everything else (slow, needs_validation, cleared) never does.
+export const FAST_KINDS = ["real_wait", "clock_not_injected", "over_budget", "not_measured"];
+export const isBlocking = (f) => f?.verdict === "confirmed" && (String(f.kind).startsWith("flaky_") || f.kind === "hollow" || FAST_KINDS.includes(f.kind));
 
 export function computeGate(findings) {
   const failing = (findings ?? []).filter(isBlocking).map((f) => f.id);
