@@ -831,7 +831,9 @@ export function extraTargets(name, args) {
     }
     case 'curl': return argsOf(parseOpts(args, 'AbcCdDeEFHKmoPrtTuUwxXyYzQ', '', ['--output', '--output-dir', '--dump-header', '--cookie-jar']).opts, ['-o', '-D', '-c', '--output', '--output-dir', '--dump-header', '--cookie-jar']);
     case 'wget': return argsOf(parseOpts(args, 'OPoaeiTtwUBlQ', '', ['--output-document', '--directory-prefix', '--output-file', '--append-output']).opts, ['-O', '-P', '-o', '-a', '--output-document', '--directory-prefix', '--output-file', '--append-output']);
+    // eco-ok: an interpreter name, not an ecosystem
     case 'sed': case 'gsed': case 'perl': case 'ruby': {
+      // eco-ok: an interpreter name, not an ecosystem
       const p = parseOpts(args, name === 'perl' ? 'eEI' : name === 'ruby' ? 'eIrC' : 'efl', 'i', name === 'perl' || name === 'ruby' ? [] : ['--expression', '--file', '--line-length']);
       if (!has(p.opts, ['-i', '--in-place'])) return [];
       const prog = has(p.opts, ['-e', '-E', '-f', '--expression', '--file']);
