@@ -1,7 +1,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, readFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -127,6 +127,24 @@ test("validate: schema_version 2 requires the three duration fields, schema_vers
   }
   const ok = good(); ok.schema_version = 2; assert.deepEqual(errs(ok), []);
   const bad = good(); bad.schema_version = 3; has(errs(bad), "schema_version");
+});
+test("validate-tdd.mjs refuses schema_version 1 in a run whose sealed ledger start row has measure=1, and keeps it valid for an older run (issue 265 package B)", () => {
+  const mk = (/** @type {string} */ startDetail, /** @type {number} */ version) => {
+    const root = tempDir("tdd-v");
+    const run = join(root, ".agents/runs/LC");
+    mkdirSync(join(run, "reports"), { recursive: true });
+    writeFileSync(join(run, "LEDGER.log"), `seq=1 prev=genesis event=start role=lead from=- to=PLANNED digest=x ts=t epoch=1 detail=${startDetail}\n`);
+    const doc = good(); doc.schema_version = version;
+    const f = join(run, "reports/001-implementer.md");
+    writeFileSync(f, `# result\n\n\`\`\`json\n${JSON.stringify(doc)}\n\`\`\`\n`);
+    return f;
+  };
+  const stampedV1 = spawnSync("node", [vScript, mk("task=t adapter=markdown measure=1", 1)]);
+  assert.equal(stampedV1.status, 1);
+  assert.match(stampedV1.stderr.toString(), /schema_version: must be 2/);
+  assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown measure=1", 2)]).status, 0);
+  assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown", 1)]).status, 0, "a run started before the stamp keeps version 1 valid");
+  assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown", 2)]).status, 0);
 });
 test("validate: a duration must be a non-negative number from a runner line or a timed command", () => {
   for (const v of [-1, "0.4", null, Number.NaN, Infinity]) {

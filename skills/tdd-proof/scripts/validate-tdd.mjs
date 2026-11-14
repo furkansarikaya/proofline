@@ -5,8 +5,8 @@
 // `path:AC-1+AC-2` in --scope every listed criterion must have its own cycle at that path.
 // A .md input is read through its first ```json fenced block (team mode embeds the ledger in the result file).
 // Exit: 0 valid, 1 invalid, 2 usage/read error. No dependencies.
-import { readFileSync } from "node:fs";
-import { resolve, isAbsolute } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify } from "./classify-red.mjs";
 
@@ -21,13 +21,14 @@ const KEYS = ["schema_version", "mode", "task", "cycles", "exemptions"];
 const idKey = (s) => String(s).toUpperCase().replace(/-0+(?=\d)/g, "-");
 const acsOf = (s) => (isStr(s) ? (s.match(/AC-\d+/gi) || [s.trim()]).map(idKey) : []);
 
-export function validate(doc, { scope = null, criteria = null } = {}) {
+export function validate(doc, { scope = null, criteria = null, requireV2 = false } = {}) {
   const errors = [];
   const err = (p, m) => errors.push(`${p}: ${m}`);
   if (!isObj(doc)) return ["$: expected object"];
   for (const k of KEYS) if (!(k in doc)) err("$", `missing required "${k}"`);
   for (const k of Object.keys(doc)) if (!KEYS.includes(k)) err("$", `unexpected "${k}"`);
-  if (doc.schema_version !== 1 && doc.schema_version !== 2) err("$.schema_version", "must be 2 (1 is the older form: the GREEN duration fields are optional)");
+  if (requireV2 && doc.schema_version !== 2) err("$.schema_version", "must be 2: this run was started with the test measurement (measure=1 on the start row of its ledger), so the GREEN durations are required; schema_version 1 is for runs started before it");
+  else if (doc.schema_version !== 1 && doc.schema_version !== 2) err("$.schema_version", "must be 2 (1 is the older form: the GREEN duration fields are optional)");
   if (!["team", "standalone"].includes(doc.mode)) err("$.mode", "must be team or standalone");
   if (!isStr(doc.task)) err("$.task", "expected non-empty string");
   const covered = new Set();
@@ -118,6 +119,24 @@ export function validate(doc, { scope = null, criteria = null } = {}) {
   return errors;
 }
 
+// A run started with the test measurement (#265 package B, A275) carries measure=1 on the start row of its sealed LEDGER.log. The ledger is found from the input
+// file: the run folder it sits in (.agents/runs/<ID>/...), else the run named by .agents/local/ACTIVE_RUN. No ledger found means an older or unmanaged setting: version 1 stays valid.
+export function runRequiresV2(file) {
+  const abs = resolve(file);
+  const parts = abs.split(sep);
+  const at = parts.lastIndexOf(".agents");
+  if (at < 0) return false;
+  const agents = parts.slice(0, at + 1).join(sep) || sep;
+  let runDir = null;
+  if (parts[at + 1] === "runs" && parts[at + 2]) runDir = join(agents, "runs", parts[at + 2]);
+  else if (existsSync(join(agents, "local", "ACTIVE_RUN"))) {
+    const id = readFileSync(join(agents, "local", "ACTIVE_RUN"), "utf8").trim();
+    if (/^[A-Za-z0-9_-]+$/.test(id)) runDir = join(agents, "runs", id);
+  }
+  if (!runDir || !existsSync(join(runDir, "LEDGER.log"))) return false;
+  return readFileSync(join(runDir, "LEDGER.log"), "utf8").split("\n").some((l) => / event=start /.test(l) && / detail=.*\bmeasure=1(\s|$)/.test(l));
+}
+
 export function loadDoc(file) {
   const text = readFileSync(file, "utf8");
   if (!file.endsWith(".md")) return JSON.parse(text);
@@ -135,7 +154,7 @@ const main = () => {
   if (args.length !== 1) { console.error("usage: validate-tdd.mjs <tdd.json|result.md> [--scope <path[:AC-1+AC-2],path,...>]"); process.exit(2); }
   let doc;
   try { doc = loadDoc(args[0]); } catch (e) { console.error(`cannot read JSON: ${e.message}`); process.exit(2); }
-  const errors = validate(doc, { scope, criteria });
+  const errors = validate(doc, { scope, criteria, requireV2: runRequiresV2(args[0]) });
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
   console.log("valid");
 };

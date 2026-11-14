@@ -175,6 +175,14 @@ export function withinTolerance(a, b, tol) {
   return hi - lo <= tol.floorMs || hi <= lo * tol.ratio;
 }
 
+/**
+ * The recorded per-test durations rest on the agent's word, so they are checked against the one thing the control plane measured: the command's wall time. Their sum
+ * cannot be larger than the time the whole command took by more than the tolerance (the floor AND the ratio, so a parallel runner's small overlap does not trip it).
+ * Too small a sum is not checked: a command's start-up alone makes its wall time larger than its tests, so there is no sound bound (A275, accepted limit).
+ * @param {number} sumMs @param {number} wallMs @param {{ ratio: number, floorMs: number }} tol
+ */
+export function durationsExceedWall(sumMs, wallMs, tol) { return sumMs - wallMs > tol.floorMs && sumMs > wallMs * tol.ratio; }
+
 /** @typedef {{ status: number, ms: number, timedOut?: boolean }} RunResult */
 
 /**
@@ -200,14 +208,14 @@ export function doubleRun(commands, runner, tol) {
   return { findings, runs };
 }
 
-/** The real runner: the project's command in the project root, output discarded, stopped at `limitSeconds` (a timed-out run is exit 124, never a pass). @param {Context} ctx @param {number} limitSeconds @returns {(command: string) => RunResult} */
+/** The real runner: the project's command in the project root, output discarded, stopped at `limitSeconds` with SIGKILL and its whole process group killed (a command that ignores TERM cannot outlive the limit or leave children; a timed-out run is exit 124, never a pass). @param {Context} ctx @param {number} limitSeconds @returns {(command: string) => RunResult} */
 export function realRunner(ctx, limitSeconds) {
   return (command) => {
     const dir = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'proofline-stability-'));
     const fd = openSync(`${dir}/out`, 'w');
     try {
       const t0 = monoMs();
-      const r = proc.runUserCommand(command, { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', fd, fd], timeoutMs: limitSeconds * 1000, group: true });
+      const r = proc.runUserCommand(command, { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', fd, fd], timeoutMs: limitSeconds * 1000, group: true, killSignal: 'SIGKILL' });
       const ms = monoMs() - t0;
       return r.timedOut === true ? { status: 124, ms, timedOut: true } : { status: r.status, ms };
     } finally { closeSync(fd); rmSync(dir, { recursive: true, force: true }); }
@@ -280,19 +288,34 @@ export function measureRun(ctx, id, opt = {}) {
   /** @type {string[]} */ const stability = [];
   /** @type {string[]} */ const notRun = [];
   /** @type {string[]} */ let ran = [];
+  /** @type {string[]} */ const blockers = [];
   if (opt.runner) {
+    const stamped = measureRequired(ctx, id);
     const allowed = new Set(reproduceAllowed(ctx, id));
     const cmds = [...new Set(greens.map((g) => g.command).filter((c) => c !== ''))];
     const todo = cmds.filter((c) => allowed.has(c));
-    for (const c of cmds) if (!allowed.has(c)) notRun.push(c);
+    for (const c of cmds) {
+      if (allowed.has(c)) continue;
+      // a run that carries the measurement stamp is measured on what the frozen, reviewed plan lists: the plan decides, the implementer's own string never does
+      if (stamped) blockers.push(`the GREEN command \`${c}\` is neither a configured build, test or lint command nor an entry of the plan's ## Verification commands, so it cannot be run twice: add the narrow command that runs the new or changed tests to the plan's ## Verification commands (the plan is frozen; an amendment and a refreeze put it there)`);
+      else notRun.push(c);
+    }
     if (todo.length > 0) {
       const before = headSha(ctx);
-      const dr = doubleRun(todo, opt.runner, toleranceOf(cfg));
+      const tol = toleranceOf(cfg);
+      const dr = doubleRun(todo, opt.runner, tol);
       stability.push(...dr.findings);
       ran = dr.runs.map((r) => r.command);
+      for (const r of dr.runs) {
+        if (r.results.length < 2 || stability.length > 0) continue;
+        const sum = greens.filter((g) => g.command === r.command).flatMap((g) => g.durations).reduce((a, d) => a + d.ms, 0);
+        const wall = Math.max(r.results[0].ms, r.results[1].ms);
+        if (durationsExceedWall(sum, wall, tol)) stability.push(`DURATIONS the recorded test durations of \`${r.command}\` add up to ${fmtMs(sum)}, but the whole command took at most ${fmtMs(wall)} when the control plane ran it: the recorded numbers are not from a real run`);
+      }
       const after = headSha(ctx);
       if (before !== after) stability.push('STABILITY the commit changed during the double run; both runs must see the same commit');
     }
+    if (stamped && greens.length > 0 && ran.length === 0 && blockers.length === 0) blockers.push('no GREEN command of this run could be run twice: record GREEN with the command that runs the new or changed tests, and list it in the plan\'s ## Verification commands');
   }
-  return { tests: bc.tests, budgetFindings: bc.findings, stability, notRun, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
+  return { tests: bc.tests, budgetFindings: bc.findings, stability, blockers, notRun, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
 }

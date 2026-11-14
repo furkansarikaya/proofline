@@ -4,13 +4,14 @@
 // No test waits and none reads a clock: the tolerance maths gets a fake runner that returns fixed milliseconds, the durations are fixed strings, and the CLI
 // tests use tiny commands whose outcome is decided by a counter file, not by time.
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
-import { DEFAULTS, KINDS, budgetCheck, budgetTable, doubleRun, kindOf, parseDurations, planKinds, toleranceOf, withinTolerance } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
-import { A, accepted, project, refused, tmp, wclose, wev, wopen } from '../lib/harness.mjs';
+import { DEFAULTS, KINDS, budgetCheck, budgetTable, doubleRun, durationsExceedWall, kindOf, parseDurations, planKinds, realRunner, toleranceOf, withinTolerance } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
+import { A, accepted, cached, codeKey, copyOf, project, refused, sha256, tmp, wclose, wev, wopen } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
 import { setCmd } from './helper-lib.mjs';
 
@@ -114,7 +115,7 @@ test('double run: failing on both runs contradicts the recorded GREEN; a time-ou
 /** Stamp a scaffolded run as started by this version (a real `start` writes the row; a scaffold writes none, which is how an older run looks). @param {string} d */
 function stamp(d) { ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'start', '-', 'PLANNED', 'task=tasks/LC.md adapter=markdown measure=1'); }
 const PLAN = '\n## Tests\n\n- AC-1: `impl_test.txt` "slow one" — it is slow (test_kind: unit)\n- AC-2: `impl_test.txt` "fast one" — it is fast (test_kind: unit)\n\n## Test budgets\n\n- unit: test 100 ms; suite 1000 ms\n';
-/** RED recorded and the implementation changed, so the next GREEN is accepted. @param {string} d */
+/** RED recorded and the implementation changed, so the next GREEN is accepted; the window is left open. @param {string} d */
 function redThenFix(d) {
   const w = wopen(d);
   appendFileSync(path.join(d, 'impl_test.txt'), 'test: lookup returns the stored value\n');
@@ -122,25 +123,40 @@ function redThenFix(d) {
   appendFileSync(path.join(d, 'impl.txt'), 'impl: lookup returns the stored value\n');
   return w;
 }
+/**
+ * A project at the point every test below starts from (RED recorded, the implementation changed, the window open), built once per code and options and copied: the
+ * cost of the five agent.sh calls that get there is paid once, not by every test. `stamped: false` is a run as an older version started it.
+ * @param {{ stamped?: boolean, scaffold?: Record<string, unknown> }} [o] @returns {{ d: string, w: string }}
+ */
+function seeded(o = {}) {
+  const stamped = o.stamped !== false;
+  const key = `tm-${codeKey()}-${sha256(JSON.stringify([stamped, o.scaffold ?? {}])).slice(0, 12)}`;
+  const d = copyOf(cached(key, (work) => {
+    const b = project({ topology: 'orchestrated', ...(o.scaffold ?? {}) });
+    if (stamped) stamp(b);
+    const w = redThenFix(b);
+    writeFileSync(path.join(b, '.seed-window'), w);
+    cpSync(b, work, { recursive: true });
+    rmSync(b, { recursive: true, force: true });
+  }));
+  const w = readFileSync(path.join(d, '.seed-window'), 'utf8');
+  rmSync(path.join(d, '.seed-window'));
+  return { d, w };
+}
 /** @param {string} d @param {string} command @param {string} [extra] */
 const green = (d, command, extra = '') => A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: `command: ${command}\ntarget: impl.txt,impl_test.txt\n${extra}` });
 
 test('a run started with the stamp must report test_durations with GREEN; a run started before it need not (old recordings stay valid)', () => {
-  const stamped = project({ topology: 'orchestrated' }); stamp(stamped);
-  const w = redThenFix(stamped);
-  refused(green(stamped, 'go test ./...'), 'GREEN without durations in a stamped run', 'GREEN evidence requires `test_durations');
-  accepted(green(stamped, 'go test ./...', 'test_durations: lookup=1\n'), 'GREEN with durations');
-  wclose(stamped, w);
-  const old = project({ topology: 'orchestrated' });
-  const w2 = redThenFix(old);
-  accepted(green(old, 'go test ./...'), 'GREEN without durations in a run that has no stamp');
-  wclose(old, w2);
+  const s = seeded();
+  refused(green(s.d, 'go test ./...'), 'GREEN without durations in a stamped run', 'GREEN evidence requires `test_durations');
+  accepted(green(s.d, 'go test ./...', 'test_durations: lookup=1\n'), 'GREEN with durations');
+  const o = seeded({ stamped: false });
+  accepted(green(o.d, 'go test ./...'), 'GREEN without durations in a run that has no stamp');
 });
 
 test('the build record holds the duration per test and the budget findings, and show prints them', () => {
-  const d = project({ topology: 'orchestrated', planExtra: PLAN }); stamp(d);
+  const { d, w } = seeded({ scaffold: { planExtra: PLAN } });
   setCmd(d, 'test', 'node --version');
-  const w = redThenFix(d);
   accepted(green(d, 'node --version', 'test_durations: slow one=5000; fast one=40\n'), 'GREEN');
   wclose(d, w);
   const r = A(d, ['build-record', 'LC', 'run']);
@@ -157,7 +173,7 @@ test('a build record of a run with no durations prints no measurement section (a
   assert.doesNotMatch(r.out, /test-durations:|finding:/);
 });
 
-/** A test command whose exit status comes from a counter file outside the project: the first run passes, the second run exits with SECOND. @param {string} second */
+/** A test command whose exit status comes from a counter file outside the project: the first run passes, the later runs exit with SECOND. @param {string} second */
 function counterCommand(second) {
   const dir = tmp('stab');
   const counter = path.join(dir, 'count');
@@ -168,42 +184,78 @@ function counterCommand(second) {
 }
 
 test('IMPLEMENTED runs the new tests twice: a test that passes once and fails once stops the handoff, and nothing is retried', () => {
-  const d = project({ topology: 'orchestrated' });
+  const { d, w } = seeded();
   const c = counterCommand('1');
   setCmd(d, 'test', c.command);
-  const w = redThenFix(d);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a flaky test', 'IMPLEMENTED blocked: STABILITY');
   assert.equal(c.runs(), 2, 'exactly two runs: the second one decided, no third');
 });
 
+test('a stability block is latched: IMPLEMENTED again on the same content stays blocked and runs nothing', () => {
+  const { d, w } = seeded();
+  const c = counterCommand('1');
+  setCmd(d, 'test', c.command);
+  accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(d, w);
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 1', 'IMPLEMENTED blocked: STABILITY');
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 2 on the same tree', 'unstable on exactly this content');
+  assert.equal(c.runs(), 2, 'the second attempt ran nothing');
+  assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure-block .* detail=patch=[0-9a-f]+ head=[0-9a-f]+$/m);
+});
+
 test('IMPLEMENTED with a stable test passes, records one ledger row, and runs the command twice (plus the one build record run)', () => {
-  const d = project({ topology: 'orchestrated' });
+  const { d, w } = seeded();
   const c = counterCommand('0');
   setCmd(d, 'test', c.command);
-  const w = redThenFix(d);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a stable test');
   assert.equal(c.runs(), 3, 'the double run (2) and the build record that IMPLEMENTED makes (1)');
-  assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure .* detail=tests=1 double_run=1 not_run=0 budget_findings=0 stability_findings=0 retries=0$/m);
+  assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure .* detail=tests=1 double_run=1 not_run=0 budget_findings=0 stability_findings=0 blockers=0 retries=0$/m);
 });
 
-test('a GREEN command that is neither configured nor in the plan is not run by the control plane; it is named', () => {
-  const d = project({ topology: 'orchestrated' });
-  const w = redThenFix(d);
-  accepted(green(d, 'go test ./...', 'test_durations: lookup=1\n'), 'GREEN');
+test('a measured run blocks on a GREEN command that is neither configured nor in the plan; listed in the plan it is run twice; an older run only gets a note', () => {
+  const blocked = seeded();
+  accepted(green(blocked.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(blocked.d, blocked.w);
+  const r = A(blocked.d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r, 'a narrow command not in the plan', "add the narrow command that runs the new or changed tests to the plan's ## Verification commands");
+  assert.match(r.text, /`node -e 0` is neither a configured build, test or lint command/);
+
+  const listed = seeded({ scaffold: { planExtra: '\n## Verification commands\n\n- `node -e 0`\n' } });
+  accepted(green(listed.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(listed.d, listed.w);
+  accepted(A(listed.d, ['handoff', 'LC', 'IMPLEMENTED']), 'a narrow command listed in the plan');
+  assert.match(readFileSync(path.join(listed.d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure .* detail=tests=1 double_run=1 not_run=0 /m);
+
+  const old = seeded({ stamped: false });
+  accepted(green(old.d, 'go test ./...'), 'GREEN');
+  wclose(old.d, old.w);
+  assert.match(accepted(A(old.d, ['handoff', 'LC', 'IMPLEMENTED']), 'an older run').text, /note: not run twice: `go test \.\/\.\.\.` is neither a configured command/);
+});
+
+test('recorded durations that add up to more than the whole command took are a finding that blocks', () => {
+  const { d, w } = seeded();
+  setCmd(d, 'test', 'node --version');
+  accepted(green(d, 'node --version', 'test_durations: lookup=900000\n'), 'GREEN');
   wclose(d, w);
-  const r = accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'handoff');
-  assert.match(r.text, /note: not run twice: `go test \.\/\.\.\.` is neither a configured command nor an entry of the plan's Verification commands/);
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a made-up duration', 'DURATIONS the recorded test durations of `node --version` add up to 900000 ms');
+});
+
+test('durationsExceedWall needs the floor AND the ratio, so a small overlap of a parallel runner is not a finding', () => {
+  const tol = { ratio: 4, floorMs: 2000 };
+  assert.equal(durationsExceedWall(900000, 300, tol), true);
+  assert.equal(durationsExceedWall(1500, 300, tol), false, 'under the floor');
+  assert.equal(durationsExceedWall(9000, 4000, tol), false, 'under the ratio');
+  assert.equal(durationsExceedWall(100, 50000, tol), false, 'a sum far below the wall time is the normal start-up cost, never a finding');
 });
 
 test('a retry in the project own CI configuration is reported, from the ecosystems.json data', () => {
-  const d = project({ topology: 'orchestrated', scopeNamed: '.gitlab-ci.yml' });
+  const { d, w } = seeded({ scaffold: { scopeNamed: '.gitlab-ci.yml' } });
   const c = counterCommand('0');
   setCmd(d, 'test', c.command);
-  const w = redThenFix(d);
   writeFileSync(path.join(d, '.gitlab-ci.yml'), 'test:\n  script: make test\n  retry: 2\n');
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
@@ -218,4 +270,19 @@ test('config-check accepts the budget keys and refuses a bad one', () => {
   const base = readFileSync(f, 'utf8');
   writeFileSync(f, `${base}\ntest_budgets:\n  unit:\n    test_ms: 0\n`);
   refused(A(d, ['config-check']), 'a zero budget', 'test_budgets.unit.test_ms must be at least 1');
+});
+
+// ---- the real runner: the limit holds against a command that ignores TERM ----------------------------------------------------------
+
+test('realRunner: a command that ignores TERM is killed at the limit with its children (verdict 124, nothing left); the run ends by the process exit, not by a wait', { skip: process.platform === 'win32' ? 'POSIX process groups' : false }, () => {
+  const dir = tmp('kill');
+  const pidFile = path.join(dir, 'child.pid');
+  const ctx = /** @type {any} */ ({ root: dir, childEnv: () => process.env });
+  const r = realRunner(ctx, 0.3)(`trap '' TERM; sleep 600 & echo $! > ${posix(pidFile)}; wait`);
+  assert.equal(r.status, 124);
+  assert.equal(r.timedOut, true);
+  const pid = readFileSync(pidFile, 'utf8').trim();
+  assert.match(pid, /^[0-9]+$/);
+  const st = spawnSync('ps', ['-o', 'stat=', '-p', pid], { encoding: 'utf8' }).stdout.trim();
+  assert.ok(st === '' || st.startsWith('Z'), `the child of the killed command is gone (ps says "${st}")`);
 });

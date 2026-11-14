@@ -12,7 +12,7 @@ import { consumeApproval, requireOpenRun } from './approve.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
-import { git } from './git.mjs';
+import { git, headSha } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf, setRunValue } from './lifecycle.mjs';
@@ -20,7 +20,7 @@ import { led, must } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gateField, gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileText, gateField, gatesEnforced, ledgerLines, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pathMatches } from './scope.mjs';
 import { pipelineClass, pipelineClassValid, taskChangedPaths, tierEffective } from './signals.mjs';
@@ -163,16 +163,28 @@ function reopenForFix(ctx, id) {
  * #265 package B (A275, AC-4, AC-5): at IMPLEMENTED the control plane runs the new and changed tests twice on the same commit (the GREEN commands that are a configured
  * command or an entry of the frozen plan's Verification commands) and compares exit status and duration with the configured tolerance. A stability finding stops the
  * handoff; nothing is retried. Budget findings and a retry configured in the project's own CI are reported, and one ledger row records what was measured.
- * @param {Context} ctx @param {string} id
+ * @param {Context} ctx @param {string} id @param {string} patch the task patch fingerprint of the content being handed off
  */
-function testMeasureAtImplemented(ctx, id) {
+function testMeasureAtImplemented(ctx, id, patch) {
   if (ctx.role !== 'lead' && ctx.role !== 'implementer') return;
+  const dir = runDir(ctx, id);
+  const head = headSha(ctx);
+  // A stability block is latched in the sealed ledger for the content it was found on (the task patch and the commit): running IMPLEMENTED again on the same content
+  // cannot clear it, only a change of the content does (a rerun that happens to pass is not evidence of a stable test).
+  const token = `patch=${patch} head=${head}`;
+  if (ledgerLines(ctx, dir).some((l) => / event=test-measure-block /.test(l) && l.endsWith(` detail=${token}`))) {
+    fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
+  }
   const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });
   for (const f of m.budgetFindings) ctx.err(`finding: ${f}\n`);
   for (const r of m.retries) ctx.err(`note: the project's own configuration retries a test (reported, proofline never retries): ${r}\n`);
   for (const c of m.notRun) ctx.err(`note: not run twice: \`${c}\` is neither a configured command nor an entry of the plan's Verification commands (list the command that runs the new tests there to have it double-run)\n`);
-  ledgerIf(ctx, id, 'test-measure', '-', '-', `tests=${m.tests.length} double_run=${m.ran.length} not_run=${m.notRun.length} budget_findings=${m.budgetFindings.length} stability_findings=${m.stability.length} retries=${m.retries.length}`);
-  if (m.stability.length > 0) fail(`IMPLEMENTED blocked: ${m.stability.join('; ')}. The new tests must give the same outcome and about the same duration on every run: find the cause (shared state, order, a real wait, the clock, randomness) and fix the test; there is no retry`);
+  ledgerIf(ctx, id, 'test-measure', '-', '-', `tests=${m.tests.length} double_run=${m.ran.length} not_run=${m.notRun.length} budget_findings=${m.budgetFindings.length} stability_findings=${m.stability.length} blockers=${m.blockers.length} retries=${m.retries.length}`);
+  if (m.stability.length > 0) {
+    ledgerIf(ctx, id, 'test-measure-block', '-', '-', token);
+    fail(`IMPLEMENTED blocked: ${m.stability.join('; ')}. The new tests must give the same outcome and about the same duration on every run: find the cause (shared state, order, a real wait, the clock, randomness) and fix the test; there is no retry`);
+  }
+  if (m.blockers.length > 0) fail(`IMPLEMENTED blocked: ${m.blockers.join('; ')}`);
 }
 
 /** `build_record_auto ID` (handoff IMPLEMENTED, lead) @param {Context} ctx @param {string} id */
@@ -277,7 +289,7 @@ export function recordHandoff(ctx, id, phase) {
       dbGuardCheck(ctx, id);
       verifyDebugResult(ctx, id);
       must(verifyWorkerEvidence(ctx, id));
-      testMeasureAtImplemented(ctx, id);
+      testMeasureAtImplemented(ctx, id, patch);
       verifyMutationOwnership(ctx, dir, id, true);
       verifyFixBound(ctx, id);
       buildRecordAuto(ctx, id);

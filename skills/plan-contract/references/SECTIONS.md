@@ -36,3 +36,4 @@ The validator detects Data and UI from scope paths. When the task changes stored
 ## 3. Size
 
 A STANDARD plan typically fits in 40–80 lines. A plan that needs more than 15 scope paths, or several pages of Behavior, is a sign the task should be split; say so instead of writing it.
+- **The command that runs the new and changed tests** (issue 265 package B, A275): the plan's `## Verification commands` lists, in backticks, the narrow command that runs exactly the new and changed tests (or says the configured test command does). In a run started with the test measurement the control plane runs the GREEN command of the implementer twice at `handoff IMPLEMENTED`, and only a command that is configured or listed here; any other GREEN command blocks the handoff. The plan is frozen, so what is measured is decided here, not by the implementer. Which tests a listed command really executes is for the REVIEW_TESTS reviewer to confirm.
