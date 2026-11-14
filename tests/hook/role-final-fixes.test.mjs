@@ -494,3 +494,47 @@ for (const command of ['echo $(( a$i ))', 'echo $(( $x$y ))', 'echo $(( ${x}0 ))
     assert.equal(await pre(command, implWho, implEnv), null);
   });
 }
+
+// Security round 12 (A274, last round): three bypasses of the `((` code. Each row writes `../out/F` in real bash 3.2 and 5 (the first line `V=../out` hides the target), is refused for both roles
+// and keeps the lead's verdict of a5a489bd (the second field: 'allow' or 'refuse').
+const V12 = 'V=../out\n';
+const ROUND12 = /** @type {Array<[string, string, 'allow' | 'refuse']>} */ ([
+  // 1: the body of a `for ((...))` loop is judged like any body (`do`, `{`), not dropped
+  ['for-do', V12 + 'for ((;;)) do mkdir $V/F; break; done', 'allow'],
+  ['for-brace', V12 + 'for ((;;)) { mkdir $V/F; break; }', 'allow'],
+  ['for-three-parts', V12 + 'for ((i=0;i<1;i++)) do mkdir $V/F; done', 'allow'],
+  ['for-newline-do', V12 + 'for ((;;))\ndo mkdir $V/F; break; done', 'allow'],
+  ['for-cp', V12 + 'for ((;;)) do cp /etc/hosts $V/F; break; done', 'refuse'],
+  ['for-tee', V12 + 'for ((;;)) do tee $V/F </dev/null; break; done', 'refuse'],
+  // 2: a backslash-newline between the two parentheses joins them into `((`
+  ['cont-comment', V12 + '(\\\n( # )) ; mkdir $V/F', 'allow'],
+  ['cont-heredoc', V12 + '(\\\n(<<X))\nmkdir $V/F', 'allow'],
+  ['cont-time', V12 + 'time (\\\n(<<X))\nmkdir $V/F', 'allow'],
+  ['cont-brace', V12 + '{ (\\\n( # )) ; mkdir $V/F; }', 'allow'],
+  ['cont-redirect-heredoc', V12 + '(\\\n(<<X))\necho x > $V/F', 'allow'],
+  ['cont-two-in-a-row', V12 + '(\\\n\\\n( # )) ; mkdir $V/F', 'allow'],
+  // 3: `((` after `=` is read by the same rule (bash discards the syntax-error line and runs the next one)
+  ['eq-heredoc', V12 + 'x=((<<X))\nmkdir $V/F', 'allow'],
+  ['eq-echo', V12 + 'echo a=((<<X))\nmkdir $V/F', 'allow'],
+  ['eq-comment', V12 + 'x=(( # )) ; mkdir $V/F', 'allow'],
+]);
+ROUND12.forEach(([name, command, leadExpected]) => {
+  test(`A274 round 12 ${name}: refused for both roles, the lead stays ${leadExpected}: ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
+    const lead = await pre(command, {}, {});
+    if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
+    else assert.ok(lead, 'the lead no longer refuses this form');
+  });
+});
+
+// Allowed rows stay allowed: harmless loop bodies, ordinary arithmetic, assignments and line continuations in ordinary commands.
+const ROUND12_OK = [
+  'for ((;;)); do break; done', 'for ((i=0;i<3;i++)) do echo $i; done', 'for ((i=0;i<3;i++)) { echo $i; }', 'for ((;;))\ndo break; done', 'x=$((1+2))', 'y=$(( (a+b)*2 ))', 'a=b', 'echo a=1',
+  'git commit -m "a" \\\n --amend', 'node a.js \\\n --flag', '(( i++ ))', 'echo $((1+2))', '(\\\n a; b)', 'x=1\n(( x++ ))',
+];
+ROUND12_OK.forEach((command, k) => {
+  test(`A274 round 12 allowed #${k}: ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
+    assert.equal(await pre(command, {}, {}), null);
+  });
+});

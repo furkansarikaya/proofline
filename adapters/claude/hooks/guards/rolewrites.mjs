@@ -522,22 +522,30 @@ function tokenizeIn(s, depth, st, top) {
       // a keyword (also written together with it: `if((`), `time`, `!`, `{`, `coproc`, a function header
       const lastW = w !== null ? w : /** @type {Word | undefined} */ (cur.words[cur.words.length - 1]);
       const forHdr = lastW !== undefined && !lastW.q && lastW.v === 'for';
-      if (c === '(' && s[i + 1] === '(' && !(w !== null && w.v.endsWith('='))) {
+      // bash joins a backslash-newline before it reads the operators: `(\<newline>(` is a `((` too; k is the offset of the second parenthesis
+      let k = i + 1;
+      while (c === '(' && s[k] === '\\' && s[k + 1] === '\n') k += 2;
+      if (c === '(' && s[k] === '(') {
         // `(( ... ))` is arithmetic (its `<<` and `>` are operators, not redirects); `((cmd); cmd)` is two subshells and ends in `)` alone
         const keep = G.unsure;
         G.unsure = '';
-        const e = endParen(s, i + 1, 0, true);
+        const e = endParen(s, k, 0, true);
         const probeDoubt = G.unsure;
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
-        const body = s.slice(i + 2, e - 2);
-        const closed = e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')';
+        const body = s.slice(k + 1, e - 2).replace(/\\\n/g, '');
+        const closed = e - 2 > k && s[e - 1] === ')' && s[e - 2] === ')';
         // the `))` is placed with certainty only when the probe has no doubt (a `<<` operator is no doubt while no newline lies in the body: a here-document body is then not skipped) and the text is closed by `))`;
         // anything else (a `#` or here-document marker that may hide the end, unbalanced parentheses, quotes, case patterns) is refused for the roles: the end of the `((` cannot be told
         const placed = closed && (probeDoubt === '' || (probeDoubt.startsWith('a << inside') && !body.includes('\n')));
         if (!placed) doubt('a "((" whose end cannot be placed: write a space after the first "(" for a nested subshell, or simplify the arithmetic');
         else {
           arithSubs(body);
-          if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { flush(); i = e; continue; }
+          if (forHdr ? forHeaderOk(body) : isArithmetic(body)) {
+            flush(); i = e;
+            // the words after a `for ((...))` header (`do`, `{`) are commands: the header is a command of its own, so the body is judged like any other body
+            if (forHdr) { end(false); segStart = i; cur.at = offNow(); }
+            continue;
+          }
           // not arithmetic: two subshells, read as commands below; a `#` or `<` in them is read by bash as arithmetic first, so the end is not certain
           if (/[#<]/.test(body)) doubt('a "((" whose end cannot be placed: write a space after the first "(" for a nested subshell, or simplify the arithmetic');
           strictUntil = e; // a command word that is not literal is refused even without an operand
