@@ -15,7 +15,7 @@ import * as proc from './proc.mjs';
 import { fieldOf, fileLines, fileText, ledgerLines, textLines } from './records.mjs';
 import { planVerificationCommands, reproduceAllowed } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
-import { pathMatches } from './shellglob.mjs';
+import { asciiLower, pathMatches } from './shellglob.mjs';
 import { tmScaleMilli, verifyCommandTimeout } from './timeouts.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -79,7 +79,7 @@ export function planKinds(plan) {
     if (sec === 'Tests') {
       const k = /\btest_kind:\s*([A-Za-z0-9_-]+)/.exec(l);
       if (!k || !KINDS.includes(k[1]) || !/^\s*[-*]\s+AC-\d+:/i.test(l)) continue;
-      for (const m of l.matchAll(/"([^"]+)"/g)) names.push({ name: m[1].trim().toLowerCase(), kind: k[1] });
+      for (const m of l.matchAll(/"([^"]+)"/g)) names.push({ name: asciiLower(m[1].trim()), kind: k[1] });
     } else if (sec === 'Test budgets') {
       const m = /^\s*-\s*([A-Za-z0-9_-]+):\s*(.*)$/.exec(l);
       if (!m || !KINDS.includes(m[1])) continue;
@@ -94,7 +94,7 @@ export function planKinds(plan) {
 
 /** The kind of a recorded test: the plan bullet that quotes its name (equal, or one contains the other), else the configured default kind. @param {string} name @param {Array<{ name: string, kind: string }>} names @param {string} fallback */
 export function kindOf(name, names, fallback) {
-  const n = name.trim().toLowerCase();
+  const n = asciiLower(name.trim());
   const exact = names.find((x) => x.name === n);
   if (exact) return exact.kind;
   const part = names.find((x) => x.name !== '' && (n.includes(x.name) || x.name.includes(n)));
