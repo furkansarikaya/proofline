@@ -18,15 +18,14 @@
 // `caffeinate`, `xcrun` and other wrappers not in the table, `script -c`, `hash -p`, scripts, /dev/fd/N, csh, the text of an interpreter program.
 import { WRITE_PROGRAMS } from '../command-scan.mjs';
 
-/** @typedef {{ v: string, q: boolean, sub: boolean, usub: boolean, bt: boolean, vr: boolean, glob: boolean }} Word v: the text with quotes and backslashes removed (a substitution keeps its source text); q: some part was quoted; sub: holds `$(`, a backtick or a process substitution; usub: an unquoted `$(` or process substitution; bt: holds a backtick; vr: holds a parameter expansion or a `$'...'` string with an escape the hook cannot decode; glob: an unquoted `*`, `?` or `[` */
+/** @typedef {{ v: string, q: boolean, sub: boolean, usub: boolean, bt: boolean, vr: boolean, glob: boolean, qAt: number }} Word v: the text with quotes and backslashes removed (a substitution keeps its source text); q: some part was quoted; sub: holds `$(`, a backtick or a process substitution; usub: an unquoted `$(` or process substitution; bt: holds a backtick; vr: holds a parameter expansion or a `$'...'` string with an escape the hook cannot decode; glob: an unquoted `*`, `?` or `[` */
 /** @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, depth: number, at: { off: number, paren: number } }} Simple here: the here-document bodies read by this command; pipeFrom: the command on the left of the `|`; depth: how many levels of substitution or shell string this command sits in; at: where the top-level command that holds this one starts: its offset in the original text and how many subshell parentheses are open there */
 /** @typedef {{ kind: 'deny', why: string }
  *   | { kind: 'target', word: Word, cwd: string, bad: boolean }
- *   | { kind: 'redir', word: Word, cwd: string, bad: boolean, soft: boolean }
- *   | { kind: 'scan', text: string, cwd: string, bad: boolean, soft: boolean }} Action
+ *   | { kind: 'redir', word: Word, cwd: string, bad: boolean }
+ *   | { kind: 'scan', text: string, cwd: string, bad: boolean }} Action
  * target: a word judged as unresolvable when it holds a variable, substitution or glob; redir: the file of a top-level output redirect, judged by the write rule itself;
- * scan: the rebuilt command of a write program the scanner of the lead knows, whose W and L records the guard judges; soft: the only thing the hook cannot read in it is a plain
- * variable (`$f`), which the scanner of the lead may have resolved from an assignment of the same command, so the guard judges it only when the lead's scanner missed a write */
+ * scan: the rebuilt command of a write program the scanner of the lead knows, whose W and L records the guard judges */
 /** @typedef {{ overflow: boolean, budget: number, unsure: string, texts: string[] }} Guard budget: steps of work left (one per character or token read, across every nested scan), never time; unsure: the first region the hook is not certain how bash parses; texts: the text of every nested region read (the guard also runs the scanner of the lead over each, so a writer the scanner knows is judged wherever it sits) */
 
 export const ROLE_PROGRAMS = new Set([...WRITE_PROGRAMS, 'mkdir', 'mkfifo', 'mknod']);
@@ -51,7 +50,11 @@ const OUT_OPS = new Set(['>', '>>', '>|', '&>', '&>>']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'ash', 'fish']);
 
 /** @param {string} v @returns {Word} */
-const mkWord = (v) => ({ v, q: false, sub: false, usub: false, bt: false, vr: false, glob: false });
+const mkWord = (v) => ({ v, q: false, sub: false, usub: false, bt: false, vr: false, glob: false, qAt: -1 });
+/** Mark a word as quoted from here on; qAt remembers where in its text the first quoted part began (`X='a'` is an assignment, `'X'=a` is not). @param {Word} x */
+const markQ = (x) => { if (!x.q) x.qAt = x.v.length; x.q = true; };
+/** Is the word an assignment `NAME=value` (the value may be quoted)? @param {Word} x */
+const isAssign = (x) => { const m = ASSIGN_RE.exec(x.v); return m !== null && (!x.q || x.qAt >= m[0].length); };
 /** @returns {Simple} */
 const mkSimple = (/** @type {number} */ depth, /** @type {{ off: number, paren: number }} */ at, /** @type {Simple | null} */ pipeFrom) => ({ words: [], redirs: [], assigns: [], here: [], pipeFrom, depth, at });
 
@@ -263,6 +266,10 @@ export function tokenize(s, depth = 0, st = newGuard(s.length), top = { off: 0, 
 export const newGuard = (n) => ({ overflow: false, budget: STEPS_PER_CHAR * n + STEPS_BASE, unsure: '', texts: [] });
 
 /** Arithmetic or commands? Text inside `$((...))` or `((...))` that has a `;`, a newline or two words in a row cannot be an arithmetic expression, so bash reads it as nested subshells. @param {string} t */
+/** A word that makes a parenthesised arithmetic-looking text worth reading as commands too. @param {string} x */
+const suspect = (x) => ROLE_PROGRAMS.has(x) || Object.hasOwn(WRAPPERS, x) || SHELLS.has(x) || ['eval', 'source', '.', 'trap', 'alias', 'shopt', 'cd', 'pushd', 'popd', 'export', 'exec'].includes(x);
+/** Could this text between `((` and `))` be two subshells that do something? It holds a parenthesis and a write program, wrapper or shell word (or, outside a `for` header, a `>`). @param {string} t @param {boolean} isFor */
+const parenCmds = (t, isFor) => /[()]/.test(t) && (t.split(/[^A-Za-z0-9_./-]+/).some((x) => suspect(base(x))) || (!isFor && t.includes('>')));
 const cmdLike = (t) => /;|\n|[\w"')]\s+[A-Za-z_"'$/.]/.test(t);
 
 /** @param {string} s @param {number} depth @param {Guard} st @param {{ off: number, paren: number }} top @returns {Simple[]} */
@@ -293,7 +300,7 @@ function tokenizeIn(s, depth, st, top) {
       if (pend === '<<' || pend === '<<-') heres.push({ d: x.v, quoted: x.q, dash: pend === '<<-', owner: cur });
       else cur.redirs.push({ op: pend, word: x });
       pend = null;
-    } else if (lead && !x.q && /^[A-Za-z_][A-Za-z0-9_]*=/.test(x.v)) cur.assigns.push(x);
+    } else if (lead && isAssign(x)) cur.assigns.push(x);
     else { cur.words.push(x); lead = lead && !x.q && RESERVED_ASSIGN.has(x.v); }
   };
   /** @param {string} t */
@@ -348,7 +355,11 @@ function tokenizeIn(s, depth, st, top) {
         const keep = G.unsure;
         const e = endParen(s, i + 1);
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
-        if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')' && (forHdr || !cmdLike(s.slice(i + 2, e - 2)))) { subsIn(s.slice(i + 2, e - 2)); i = e; continue; }
+        if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')' && (forHdr || !cmdLike(s.slice(i + 2, e - 2)))) {
+          subsIn(s.slice(i + 2, e - 2));
+          if (parenCmds(s.slice(i + 2, e - 2), forHdr)) nest(s.slice(i + 2, e - 2)); // both readings: `((:)&&(mkdir -- X))` is two subshells
+          i = e; continue;
+        }
       }
       flush();
       let isPipe = false;
@@ -376,13 +387,13 @@ function tokenizeIn(s, depth, st, top) {
     }
     if (c === '\\') {
       if (s[i + 1] === '\n') { i += 2; continue; }
-      const x = cw(); x.q = true; x.v += s[i + 1] ?? ''; i += 2; continue;
+      const x = cw(); markQ(x); x.v += s[i + 1] ?? ''; i += 2; continue;
     }
-    if (c === "'") { const e = s.indexOf("'", i + 1); if (e < 0) doubt('an unterminated quote'); const x = cw(); x.q = true; x.v += s.slice(i + 1, e < 0 ? n : e); i = e < 0 ? n : e + 1; continue; }
+    if (c === "'") { const e = s.indexOf("'", i + 1); if (e < 0) doubt('an unterminated quote'); const x = cw(); markQ(x); x.v += s.slice(i + 1, e < 0 ? n : e); i = e < 0 ? n : e + 1; continue; }
     if (c === '"') {
       const e = endDouble(s, i + 1);
       const body = s.slice(i + 1, Math.max(i + 1, s[e - 1] === '"' && e > i + 1 ? e - 1 : e));
-      const x = cw(); x.q = true;
+      const x = cw(); markQ(x);
       if (body.includes('`')) { x.sub = true; x.bt = true; }
       if (body.includes('$(')) x.sub = true;
       if (/\$[{A-Za-z_]/.test(body)) x.vr = true;
@@ -397,7 +408,7 @@ function tokenizeIn(s, depth, st, top) {
         const e = endParen(s, i + 2);
         const inner = innerOf(s, i + 2, e, ')');
         // `$((...))` is arithmetic: only the substitutions inside it are commands; when the text cannot be an arithmetic expression (`$((echo a); (mkdir X))`) bash reads subshells, so it is read as commands as well
-        if (inner.startsWith('(') && inner.endsWith(')')) { subsIn(inner); if (cmdLike(inner)) nest(inner); } else nest(inner);
+        if (inner.startsWith('(') && inner.endsWith(')')) { subsIn(inner); if (cmdLike(inner) || parenCmds(inner.slice(1, -1), false)) nest(inner); } else nest(inner);
         const x = cw(); x.sub = true; x.usub = true; x.v += s.slice(i, e); i = e; continue;
       }
       if (nx === '[') { // `$[ ... ]`, the old arithmetic: its `<<` and `>` are operators; only the substitutions inside are commands
@@ -407,7 +418,7 @@ function tokenizeIn(s, depth, st, top) {
         subsIn(s.slice(i + 2, Math.max(i + 2, e - 1))); const x = cw(); x.vr = true; x.v += s.slice(i, e); i = e; continue;
       }
       if (nx === '{') { const e = endBrace(s, i + 2); const x = cw(); x.vr = true; x.v += s.slice(i, e); subsIn(s.slice(i + 2, e)); i = e; continue; }
-      if (nx === "'") { const a = ansiC(s, i); const x = cw(); x.q = true; if (!a.plain) x.vr = true; x.v += a.text; i = a.end; continue; }
+      if (nx === "'") { const a = ansiC(s, i); const x = cw(); markQ(x); if (!a.plain) x.vr = true; x.v += a.text; i = a.end; continue; }
       const x = cw(); if (nx !== undefined && /[A-Za-z_0-9@*#?$!-]/.test(nx)) x.vr = true; x.v += '$'; i++; continue;
     }
     if (c === '*' || c === '?' || c === '[') cw().glob = true;
@@ -472,7 +483,7 @@ function unwrap(words) {
   // reserved words, then the assignments that may follow them (`time X=1 mkdir d`, `function f { X=1 mkdir d; }`: the tokenizer reads those as words)
   const strip = (/** @type {Word[]} */ list) => {
     let l = skipReserved(list);
-    while (l.length > 0 && !(/** @type {Word} */ (l[0])).q && ASSIGN_RE.test((/** @type {Word} */ (l[0])).v)) {
+    while (l.length > 0 && isAssign(/** @type {Word} */ (l[0]))) {
       if ((/** @type {Word} */ (l[0])).v.startsWith('CDPATH=')) chdir = true;
       l = skipReserved(l.slice(1));
     }
@@ -489,7 +500,7 @@ function unwrap(words) {
       if (!step()) break;
       const v = (/** @type {Word} */ (ws[i])).v;
       if (v === '--') { i++; while (pos > 0 && i < ws.length) { i++; pos--; } break; } // `--` ends the options; the positional operands (timeout's DURATION) still come before the command
-      if (name === 'env' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(v)) { if (v.startsWith('CDPATH=')) chdir = true; i++; continue; }
+      if (name === 'env' && v.includes('=') && !v.startsWith('-')) { if (v.startsWith('CDPATH=')) chdir = true; i++; continue; }
       if (!v.startsWith('-') || v === '-') { if (pos > 0) { pos--; i++; continue; } break; }
       if (spec.cd !== null && spec.cd.test(v)) chdir = true;
       let takes = false;
@@ -752,7 +763,7 @@ function scanRole(cmd, st, actions) {
       // a redirect inside a substitution or a shell string: the scanner of the lead may not read it (the same writeRule judges it)
       else if (sc.depth > 0 && OUT_OPS.has(r.op)) target(r.word);
       // a top-level redirect is judged from these tokens as well: the scanner of the lead can swallow a here-document (`<<` in `(( ))`, `$[ ]`, `${x:-<<E}`) and lose the lines after it
-      else if (OUT_OPS.has(r.op)) actions.push({ kind: 'redir', word: r.word, cwd, bad, soft: r.word.vr && !r.word.sub && !r.word.bt && !r.word.glob });
+      else if (OUT_OPS.has(r.op)) actions.push({ kind: 'redir', word: r.word, cwd, bad });
       else if (r.op === '<>') target(r.word);
     }
     const un = unwrap(sc.words);
@@ -805,7 +816,7 @@ function scanRole(cmd, st, actions) {
       // (the lead scanner can lose a command word behind `function f {`, `coproc` or a swallowed here-document)
       const text = [name, ...args.map(quoteForScan)].join(' ');
       G.budget = Math.max(0, G.budget - text.length);
-      if (++scans > MAX_SCANS) st.overflow = true; else actions.push({ kind: 'scan', text, cwd, bad, soft: args.some((a) => a.vr) && !args.some((a) => a.sub || a.bt || a.glob) });
+      if (++scans > MAX_SCANS) st.overflow = true; else actions.push({ kind: 'scan', text, cwd, bad });
     }
     for (const a of args) {
       if (a.bt || a.usub) { actions.push({ kind: 'deny', why: `the command gives ${name} an operand '${a.v}' that holds a command substitution, which cannot be resolved` }); break; }

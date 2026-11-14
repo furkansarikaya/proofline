@@ -84,7 +84,6 @@ const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents
 async function check(ctx, cmd) {
   const strictRole = ctx.role === 'implementer' || ctx.role === 'designer';
   let scan = scanCommand(cmd);
-  const leadWrites = scan.records.filter((r) => r.kind === 'W').length;
   // A274: the scanner of the lead ends a `$'...'` string at its first `'`, so `echo $'a\'b'; touch X` hides the touch. The two roles are judged on the records of both readings
   if (strictRole && cmd.includes("$'")) { const alt = scanCommand(rewriteAnsiC(cmd)); scan = { ...scan, records: [...scan.records, ...alt.records] }; }
   if (!ctx.installed) { await mergeGuard(ctx, cmd, scan); await killGuard(ctx, cmd, scan); return; }
@@ -183,19 +182,16 @@ async function check(ctx, cmd) {
       await writeRule(ctx, at, lineOf);
       extraW.push(at);
     };
-    /**
-     * The writes the role tokens show that the lead's scanner may or may not have recorded: `soft` ones hold a plain variable the lead may have resolved (`f=impl.txt; tee $f`).
-     * @type {Array<{ v: string, cwd: string, bad: boolean, soft: boolean }>}
-     */
+    /** The writes the role tokens show, each judged whatever the lead's scanner recorded (a variable or substitution in one is refused). @type {Array<{ v: string, cwd: string, bad: boolean }>} */
     const found = [];
     for (const a of ra.actions) {
       if (a.kind === 'deny') deny(`${a.why} (${ROLE_TAIL})`);
-      if (a.kind === 'redir') { if (a.word.v !== '') found.push({ v: a.word.v, cwd: a.cwd, bad: a.bad, soft: a.soft }); continue; }
+      if (a.kind === 'redir') { if (a.word.v !== '') found.push({ v: a.word.v, cwd: a.cwd, bad: a.bad }); continue; }
       if (a.kind === 'scan') {
         // a write program the scanner of the lead knows, rebuilt from the role tokens and judged by the lead's own rules (W records by writeRule, L records by the link rule)
         for (const rec of scanCommand(a.text).records) {
           const v = cmdSubst(rec.value);
-          if (rec.kind === 'W' && v !== '') found.push({ v, cwd: a.cwd, bad: a.bad, soft: a.soft });
+          if (rec.kind === 'W' && v !== '') found.push({ v, cwd: a.cwd, bad: a.bad });
           else if (rec.kind === 'L') await linkRule(ctx, v);
         }
         continue;
@@ -204,9 +200,7 @@ async function check(ctx, cmd) {
       if (w.sub || w.vr || w.glob) deny(`the command writes '${w.v}', which cannot be resolved (${ROLE_TAIL})`);
       await judgeAt(w.v, a.cwd, a.bad);
     }
-    // more writes in these tokens than the lead's scanner recorded: it lost some (a swallowed here-document, a hidden command word), so a variable in them is not one it resolved
-    const hidden = found.length > leadWrites;
-    for (const f of found) if (!(f.soft && !hidden && f.v.includes('$'))) await judgeAt(f.v, f.cwd, f.bad);
+    for (const f of found) await judgeAt(f.v, f.cwd, f.bad);
     // the scanner of the lead reads each nested region (substitution, shell string) as a command of its own, so a writer it knows is judged wherever it sits
     for (const text of ra.texts) {
       for (const rec of scanCommand(rewriteAnsiC(text)).records) {

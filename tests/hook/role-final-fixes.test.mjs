@@ -93,6 +93,38 @@ const REFUSED = /** @type {Array<[string, string, 'allow' | 'refuse', RegExp]>} 
   ['C: in source <(...)', `source <(echo '$M ${OUT}')`, 'allow', /not a literal/],
   ['C: in trap', `trap '$M ${OUT}' EXIT`, 'allow', /not a literal/],
   ['C: inside arithmetic', `echo $(( $($M ${OUT}) ))`, 'allow', /not a literal/],
+  // round 6 item 1: a quoted value is still an assignment
+  ['R6-1: X=\'a\' mkdir', `X='a' mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: X="a" mkfifo', `X="a" mkfifo ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: quoted prefix and a variable operand', `d=${OUT}; X='a' mkdir $d`, 'allow', /cannot be resolved/],
+  ['R6-1: quoted prefix and a substitution operand', `X='a' mkdir $(echo ${OUT})`, 'allow', /substitution|cannot be resolved/],
+  ['R6-1: quoted prefix before a wrapper', `X='a' nice mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: quoted prefix after time', `time X='a' mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: quoted prefix after then', `if true; then X='a' mkdir ${OUT}; fi`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: quoted prefix after !', `! X='a' mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: quoted prefix inside a group', `{ X='a' mkdir ${OUT}; }`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: quoted prefix inside a subshell', `( X='a' mkdir ${OUT} )`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-1: quoted prefix inside a function', `function f { X='a' mkdir ${OUT}; }; f`, 'allow', /writes '\.\.\/out\/F'/],
+  // round 6 item 2: ((  )) that is two subshells
+  ['R6-2: ((true)&&(mkdir --))', `((true)&&(mkdir -- ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-2: ((:)||(mkdir --))', `((:)||(mkdir -- ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-2: in $((', `echo $((:)&&(mkdir -- ${OUT}))`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-2: in $( ((', `echo $( ((:)&&(mkdir -- ${OUT})) )`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-2: after if', `if ((:)&&(mkdir -- ${OUT})); then :; fi`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-2: after while', `while ((:)&&(mkdir -- ${OUT})); do break; done`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-2: inside { }', `{ ((:)&&(mkdir -- ${OUT})); }`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-2: a redirect in the second subshell', `((:)&&(: > ${OUT}))`, 'refuse', /writes '\.\.\/out\/F'/],
+  // round 6 item 3: the count of the lead's writes does not decide
+  ['R6-3: a counted write before the variable redirect', `echo $(echo x > /dev/null); (( x = 1<<2 ))\nf=${OUT}\necho q > $f`, 'allow', /cannot be resolved/],
+  ['R6-3: tee', `echo $(echo x > /dev/null); (( x = 1<<2 ))\nf=${OUT}\ntee $f`, 'allow', /cannot be resolved/],
+  ['R6-3: touch', `echo $(echo x > /dev/null); (( x = 1<<2 ))\nf=${OUT}\ntouch $f`, 'allow', /cannot be resolved/],
+  ['R6-3: cp', `echo $(echo x > /dev/null); (( x = 1<<2 ))\nf=${OUT}\ncp a $f`, 'allow', /cannot be resolved/],
+  ['R6-3: a function that writes through a later variable', `function g { tee $f; }; f=${OUT}; g`, 'allow', /cannot be resolved/],
+  ['R6-3: f=impl.txt; tee $f (the roles no longer trust the lead\'s resolution)', 'f=impl.txt; tee $f', 'refuse', /cannot be resolved/],
+  // round 6 item 4: any word with = before the command of env is an assignment
+  ['R6-4: env a.b=1 tee', `env a.b=1 tee ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-4: env 1X=1 mkdir', `env 1X=1 mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
+  ['R6-4: env a-b=1 mkdir', `env a-b=1 mkdir ${OUT}`, 'allow', /writes '\.\.\/out\/F'/],
   // D: aliases
   ['D: alias to a write program', 'alias m=mkdir', 'allow', /alias/],
   ['D: alias with options', "alias m='mkdir -p'", 'allow', /alias/],
@@ -141,7 +173,16 @@ const ALLOWED = [
   'echo x > $TMPDIR/a',
   'cd "$(git rev-parse --show-toplevel)"',
   'echo $VAR',
-  'f=impl.txt; tee $f',
+  'X=\'a\' echo hi',
+  'echo $((1+2))',
+  'echo $(( (1+2)*3 ))',
+  '(( x = (1+2)*3 ))',
+  'for ((i=0;i<3;i++)); do :; done',
+  'for ((i=(0);i<3;i++)); do :; done',
+  'echo "$HOME"',
+  'ls 2>&1 | head',
+  'echo hi > /dev/null',
+  'env a.b=1 node a.js',
   'function f { echo hi; }; f',
   'timeout 5 npm test',
   'for ((i=0;i<3;i++)); do echo $i; done',
@@ -183,10 +224,6 @@ test('A274 B: the role pass returns the top-level redirects and the scanner-know
   assert.deepEqual(scans(`coproc tee -a ${OUT}`), [`tee '-a' '${OUT}'`]);
   assert.deepEqual(scans('echo hi'), []);
   assert.deepEqual(scans('env X=1 cp a "b c"'), ["cp 'a' 'b c'"]);
-  const soft = (/** @type {string} */ c) => of(c, 'scan').map((a) => (a.kind === 'scan' ? a.soft : null));
-  assert.deepEqual(soft('tee $f'), [true]);
-  assert.deepEqual(soft('tee $(pwd)/f'), [false]);
-  assert.deepEqual(soft('tee f'), [false]);
 });
 
 test('A274 C: wrappers, assignments and the command word', () => {
@@ -291,4 +328,22 @@ test('A274 E: pathological inputs take a linear number of steps and give the old
   const p4 = { steps: 0 };
   assert.equal(envChdirOpt(bars, false, p4), false);
   assert.ok(p4.steps <= 8 * bars.length, `${p4.steps}`);
+});
+
+// The two $-quote rows of review round 4 (A274 now reads the string): both roles allow them, and the lead's verdict is pinned to what 0ef7c794 gave.
+for (const command of ["echo $(echo $'x')", "cat <(echo $'a')"]) {
+  test(`A274 round 4 rows re-pinned: ${JSON.stringify(command)} is allowed for both roles and for the lead`, async () => {
+    for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
+    assert.equal(await pre(command, {}, {}), null, 'the lead changed');
+  });
+}
+
+test('A274 round 6: a quoted assignment value, odd env names and arithmetic-looking subshells in the role actions', () => {
+  assert.deepEqual(words("X='a' mkdir x"), ['x']);
+  assert.deepEqual(words('X="a b" Y=c mkdir x'), ['x']);
+  assert.deepEqual(words('env a.b=1 1X=2 mkdir x'), ['x']);
+  assert.deepEqual(words("'X'=a mkdir x"), [], "a quoted name is the command word, not an assignment");
+  assert.deepEqual(words('((true)&&(mkdir -- x))'), ['x']);
+  assert.deepEqual(words('echo $( ((:)&&(mkdir -- x)) )'), ['x']);
+  for (const c of ['echo $((1+2))', '(( x = (1+2)*3 ))', 'for ((i=0;i<3;i++)); do :; done', 'echo $(( (1+2)*3 ))']) assert.deepEqual(roleActions(c).actions, [], c);
 });
