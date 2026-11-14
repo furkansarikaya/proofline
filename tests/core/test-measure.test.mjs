@@ -4,14 +4,15 @@
 // No test waits and none reads a clock: the tolerance maths gets a fake runner that returns fixed milliseconds, the durations are fixed strings, and the CLI
 // tests use tiny commands whose outcome is decided by a counter file, not by time.
 import assert from 'node:assert/strict';
-import { appendFileSync, cpSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { test } from 'node:test';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
-import { DEFAULTS, KINDS, budgetCheck, budgetTable, doubleRun, durationsExceedWall, kindOf, parseDurations, planKinds, realRunner, toleranceOf, withinTolerance } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
+import { DEFAULTS, KINDS, budgetCheck, budgetTable, doubleRun, durationsExceedWall, greenRecords, kindOf, parseDurations, planKinds, realRunner, toleranceOf, withinTolerance } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
 import { A, accepted, cached, codeKey, copyOf, project, refused, sha256, tmp, wclose, wev, wopen } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
 import { setCmd } from './helper-lib.mjs';
@@ -297,6 +298,18 @@ test('a DURATIONS block is not latched: re-recording the GREEN evidence with hon
   accepted(green(d, 'node --version', 'test_durations: lookup=1\n'), 'GREEN re-recorded with an honest duration');
   wclose(d, w2);
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'the same content passes once the evidence is honest');
+});
+
+test('greenRecords orders GREEN-<n> by the number, so the latest record wins past GREEN-9: GREEN-12 replaces the made-up number of GREEN-5', () => {
+  const d = project({ topology: 'orchestrated' });
+  const ev = path.join(d, '.agents/runs/LC/worker-evidence');
+  mkdirSync(ev, { recursive: true });
+  for (let n = 1; n <= 12; n++) writeFileSync(path.join(ev, `GREEN-${n}.yaml`), `command: x\ntest_durations: lookup=${n === 5 ? 900000 : n === 12 ? 3 : 7}\n`);
+  const ctx = new Context({ env: {}, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+  const recs = greenRecords(ctx, 'LC');
+  assert.deepEqual(recs.map((r) => r.file), Array.from({ length: 12 }, (_, i) => `GREEN-${i + 1}.yaml`));
+  const durations = recs.flatMap((r) => r.durations);
+  assert.equal(budgetCheck(durations, [], SHIPPED, new Map()).tests[0].ms, 3, 'the latest record (GREEN-12) is the one that counts');
 });
 
 test('the latch token holds the plan Verification commands: a plan amendment that changes the listed commands runs the double run again on the same content', () => {

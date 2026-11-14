@@ -56,7 +56,9 @@ export function parseDurations(line) {
  */
 export function greenRecords(ctx, id) {
   const evdir = `${runDir(ctx, id)}/worker-evidence`;
-  return listNames(evdir, /^GREEN-.*\.yaml$/).map((n) => {
+  // numeric order of the recorder's sequence (GREEN-2 before GREEN-10): "the latest record wins" must not follow the text order
+  const seq = (/** @type {string} */ n) => Number(/^GREEN-0*([0-9]+)/.exec(n)?.[1] ?? Number.MAX_SAFE_INTEGER);
+  return listNames(evdir, /^GREEN-.*\.yaml$/).sort((a, b) => seq(a) - seq(b) || (a < b ? -1 : a > b ? 1 : 0)).map((n) => {
     const lines = fileLines(ctx, `${evdir}/${n}`);
     return { file: n, command: fieldOf(lines, 'command'), durations: parseDurations(fieldOf(lines, 'test_durations')) };
   });
