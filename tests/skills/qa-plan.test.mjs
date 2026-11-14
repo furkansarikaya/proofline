@@ -304,3 +304,25 @@ test("skill text: visual criteria are executed by browser measurement (visual-pr
   assert.match(skill, /visual criterion \(layout, overflow[^)]*\): measure it in a browser \(`visual-proof`\), never with a test that counts characters/);
   assert.match(refs, /executed by browser measurement with the `visual-proof` skill/);
 });
+
+// Issue 265, AC-8 (A273): the QA plan restates the test kinds and budgets of the plan it is derived from.
+const BUDGET_PLAN = "---\nscope:\n  - path: a.js\n    criteria: [AC-1, AC-2]\n---\n\n# Plan: T-1\n\n## Tests\n\n- AC-1: `a.test.js` \"x\" (test_kind: unit)\n- AC-2: `b.test.js` \"y\" (test_kind: integration)\n\n## Test budgets\n\n- unit: test 200 ms; suite 5000 ms\n- integration: default\n";
+const KINDS = "\n## Test kinds and budgets\n\n- unit: test 200 ms; suite 5000 ms\n- integration: default\n";
+const withKinds = (k) => `${PLAN.replace(/\n## Regression surface/, `${k}\n## Regression surface`)}`;
+const withHash = (t) => t.replace("# QA plan: T-1\n", `# QA plan: T-1\n\nPlan sha256: ${sha256(BUDGET_PLAN)}\n`);
+const kerr = (t, planMd = BUDGET_PLAN) => validatePlan(withHash(t), TASK, planMd).errors.join("\n");
+test("AC-8: a QA plan restating the plan's kinds and budgets is accepted", () => assert.equal(kerr(withKinds(KINDS)), ""));
+test("AC-8: a plan that has test budgets needs the QA plan section", () => assert.match(kerr(PLAN), /missing section "## Test kinds and budgets"/));
+test("AC-8: a kind or budget that differs from the plan is an error", () => {
+  assert.match(kerr(withKinds(KINDS.replace("test 200 ms", "test 900 ms"))), /unit: the budget differs from PLAN\.md/);
+  assert.match(kerr(withKinds(KINDS.replace("- integration: default\n", ""))), /integration: .*PLAN\.md/);
+  assert.match(kerr(withKinds(`${KINDS}- e2e: default\n`)), /e2e: .*not a test kind of PLAN\.md/);
+  assert.match(kerr(withKinds(KINDS.replace("- unit:", "- smoke:"))), /unknown test kind smoke/);
+});
+test("AC-8: a plan without budgets does not ask for the section, and a section given alone is checked for its format", () => {
+  const old = "---\nscope:\n  - path: a.js\n    criteria: [AC-1, AC-2]\n---\n\n# Plan: T-1\n\n## Tests\n\n- AC-1: `a.test.js` \"x\"\n";
+  const t = PLAN.replace("# QA plan: T-1\n", `# QA plan: T-1\n\nPlan sha256: ${sha256(old)}\n`);
+  assert.equal(validatePlan(t, TASK, old).errors.join("\n"), "");
+  const bad = withKinds("\n## Test kinds and budgets\n\n- unit: test fast; suite slow\n");
+  assert.match(validatePlan(bad, TASK).errors.join("\n"), /unit: budget line/);
+});

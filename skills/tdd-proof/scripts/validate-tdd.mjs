@@ -71,6 +71,10 @@ export function validate(doc, { scope = null, criteria = null } = {}) {
       if (g.exit_code !== 0) err(`${p}.green.exit_code`, "GREEN must exit 0");
       if (!isStr(g.suite_command)) err(`${p}.green.suite_command`, "expected non-empty string");
       if (g.suite_exit_code !== 0) err(`${p}.green.suite_exit_code`, "nothing else may break: the suite must exit 0");
+      // #265 AC-2: the duration of the new test, read from the GREEN run (a number with a source line), never an estimate
+      if (typeof g.duration_ms !== "number" || !Number.isFinite(g.duration_ms) || g.duration_ms < 0) err(`${p}.green.duration_ms`, "expected a number of milliseconds, 0 or more, read from the GREEN run");
+      if (!["runner_output", "command_wall_time"].includes(g.duration_source)) err(`${p}.green.duration_source`, "must be runner_output or command_wall_time");
+      if (!isStr(g.duration_excerpt) || !/[0-9]/.test(g.duration_excerpt)) err(`${p}.green.duration_excerpt`, "expected the runner or timing line the duration was read from (it holds a number)");
     }
     const h = c.hollow_check;
     if (!isObj(h)) err(`${p}.hollow_check`, "missing: the new test must be shown to fail without the production change");

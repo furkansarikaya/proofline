@@ -83,7 +83,7 @@ const good = () => ({
     path: "src/parse.js", criterion: "AC-1",
     test: { file: "test/parse.test.js", name: "parses seconds" },
     red: { command: "node --test test/parse.test.js", exit_code: 1, failure_class: "assertion", expected_failure: "parseDuration('90s') returns 0 instead of 90000", output_excerpt: SAMPLES.assertion.node, stub_written: true },
-    green: { command: "node --test test/parse.test.js", exit_code: 0, suite_command: "node --test", suite_exit_code: 0 },
+    green: { command: "node --test test/parse.test.js", exit_code: 0, suite_command: "node --test", suite_exit_code: 0, duration_ms: 0.42, duration_source: "runner_output", duration_excerpt: "ok 1 - parses seconds # duration_ms 0.42" },
     hollow_check: { method: "revert", worktree: "/tmp/wt-1", command: "node --test test/parse.test.js", exit_code: 1, output_excerpt: SAMPLES.assertion.node, failed_for_expected_reason: true },
     refactor: { changes: "extract unit table", command: "node --test", exit_code: 0 },
   }],
@@ -113,6 +113,22 @@ test("validate: stock or short expected_failure rejected", () => {
 test("validate: GREEN must use the RED command, exit 0, suite green", () => {
   const d = good(); d.cycles[0].green.command = "node --test"; d.cycles[0].green.exit_code = 1; d.cycles[0].green.suite_exit_code = 2;
   const e = errs(d); has(e, "same command"); has(e, "GREEN must exit 0"); has(e, "suite must exit 0");
+});
+test("validate: GREEN records the duration of the new test (issue 265, AC-2)", () => {
+  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) {
+    const d = good(); delete d.cycles[0].green[k]; has(errs(d), `green.${k}`);
+  }
+});
+test("validate: a duration must be a non-negative number from a runner line or a timed command", () => {
+  for (const v of [-1, "0.4", null, Number.NaN, Infinity]) {
+    const d = good(); d.cycles[0].green.duration_ms = v; has(errs(d), "green.duration_ms");
+  }
+  const d = good(); d.cycles[0].green.duration_source = "estimate"; has(errs(d), "green.duration_source");
+  const z = good(); z.cycles[0].green.duration_ms = 0; assert.deepEqual(errs(z), []);
+  const t = good(); t.cycles[0].green.duration_source = "command_wall_time"; t.cycles[0].green.duration_excerpt = "real 0m0.31s"; assert.deepEqual(errs(t), []);
+});
+test("validate: the excerpt must hold a number, so a prose estimate is not a measurement", () => {
+  const d = good(); d.cycles[0].green.duration_excerpt = "about a quarter of a second"; has(errs(d), "green.duration_excerpt");
 });
 test("validate: hollow test (still passes without the change) rejected", () => {
   const d = good(); d.cycles[0].hollow_check.exit_code = 0; has(errs(d), "hollow test");

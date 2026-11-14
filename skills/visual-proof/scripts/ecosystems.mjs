@@ -203,6 +203,11 @@ export function validate(data = loadEcosystems()) {
     // A185: git-ignored dependency folders a run worktree gets its own copy of (never a link into the main tree)
     need(Array.isArray(e.worktree_deps?.folders), `${w}: worktree_deps.folders must be an array`);
     for (const x of e.worktree_deps?.folders ?? []) need(/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(x) && !x.split("/").some((q) => q === "." || q === ".." || q === ".git" || q === ".agents"), `${w}: worktree_deps.folders entry ${x} must be a plain relative folder name`);
+    // #265 (A273): the facts the rules for fast, deterministic tests rest on. A missing fake-clock facility is "unsupported", never a gap.
+    const ft = e.fast_tests ?? {};
+    need(["supported", "unsupported"].includes(ft.fake_clock?.status), `${w}: fast_tests.fake_clock.status must be supported or unsupported`);
+    need(typeof ft.fake_clock?.facility === "string" && ft.fake_clock.facility.trim() !== "", `${w}: fast_tests.fake_clock.facility must be a non-empty string`);
+    for (const k of ["sleep", "clock_reads"]) need(Array.isArray(ft[k]) && ft[k].length > 0 && ft[k].every((x) => typeof x === "string" && x.trim() !== ""), `${w}: fast_tests.${k} must be a non-empty array of non-empty strings`);
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);
     for (const x of e.benchmark?.files ?? []) need(typeof x.glob === "string" && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.files entries need glob, contains and why`);

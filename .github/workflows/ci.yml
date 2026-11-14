@@ -310,7 +310,7 @@ jobs:
           - name: controls
             mode: files
             pattern: 'none'
-            files: tests/core/controls.test.mjs tests/core/identity.test.mjs
+            files: tests/core/controls.test.mjs tests/core/identity.test.mjs tests/core/green-duration.test.mjs
           - name: task-debt-perf
             mode: files
             pattern: 'none'

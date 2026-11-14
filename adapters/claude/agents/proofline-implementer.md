@@ -51,7 +51,7 @@ effort: high
    {"schema_version":1,"mode":"team","task":"<TASK-ID>","exemptions":[{"path":"<path>","reason":"<plan reason, 20+ chars>"}],
     "cycles":[{"path":"<scope path>","criterion":"AC-1","test":{"file":"<test file>","name":"<test name>"},
      "red":{"command":"<cmd>","exit_code":1,"failure_class":"assertion","expected_failure":"<behaviour that fails, 20+ chars>","output_excerpt":"<failing line>","stub_written":false},
-     "green":{"command":"<cmd>","exit_code":0,"suite_command":"<suite cmd>","suite_exit_code":0},
+     "green":{"command":"<cmd>","exit_code":0,"suite_command":"<suite cmd>","suite_exit_code":0,"duration_ms":0.4,"duration_source":"runner_output","duration_excerpt":"<the test's runner line>"},
      "hollow_check":{"method":"revert","worktree":"<path>","command":"<cmd>","exit_code":1,"output_excerpt":"<failing line>","failed_for_expected_reason":true},
      "refactor":null}]}
    ```

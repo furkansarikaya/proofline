@@ -154,6 +154,13 @@ export function workerEvidenceCommand(ctx, args) {
   const targetText = fieldFromText(stdin, 'target');
   const expectedFailure = fieldFromText(stdin, 'expected_failure');
   if (commandText === '') fail('worker evidence requires a non-empty command');
+  // #265 AC-2 (A273): GREEN may carry the duration of each new test, read from the run's own output: `test_durations: name=ms[; name=ms]`
+  const durationsGiven = stdin.split('\n').some((l) => l.startsWith('test_durations:'));
+  const durations = fieldFromText(stdin, 'test_durations').trim();
+  if (durationsGiven) {
+    if (phase !== 'GREEN') fail(`${phase} evidence cannot carry test_durations: only a passing GREEN run has a test duration to report`);
+    if (!durations.split(';').every((e) => /^[^=;]*[^=;\s][^=;]*=\d+(\.\d+)?$/.test(e.trim()))) fail('test_durations must be `<test name>=<milliseconds>` entries separated by `;` (a number of 0 or more read from the GREEN run output, never an estimate)');
+  }
   if (targetText === '') fail('worker evidence requires a non-empty target (comma-separated scope paths)');
   const sc = planScope(ctx, dir);
   if (!sc.ok) fail('invalid scope mapping');
@@ -185,6 +192,7 @@ export function workerEvidenceCommand(ctx, args) {
   const sv = (/** @type {string} */ k) => sectionValue(ctx, dir, 'freeze', k);
   let t = `task_id: "${id}"\nphase: "${phase}"\nresult: "${result}"\nrole: "${ctx.role}"\ntopology: "${topology}"\n`;
   t += `command: ${commandText}\ntarget: ${targetText}\n`;
+  if (durationsGiven) t += `test_durations: ${durations.split(';').map((e) => e.trim()).join('; ')}\n`;
   if (phase === 'RED') t += `expected_failure: ${expectedFailure}\n`;
   t += `scope_snapshot: ${snapshot}\n`;
   const base = headSha(ctx);
