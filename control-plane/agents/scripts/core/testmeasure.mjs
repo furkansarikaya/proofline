@@ -294,15 +294,20 @@ export function measureRun(ctx, id, opt = {}) {
   /** @type {string[]} */ const blockers = [];
   if (opt.runner) {
     const stamped = measureRequired(ctx, id);
-    // a measured run is measured on the commands the frozen, reviewed plan LISTS: a configured build or lint command never runs the new tests, so being configured is not enough
-    const allowed = new Set(stamped ? planVerificationCommands(ctx, id) : reproduceAllowed(ctx, id));
+    // a measured run is measured on the plan-listed Verification commands OR the project's own configured test command (it runs the real suite, so it runs the new tests); a configured build, lint or other command never runs the new tests, so being configured is not enough for those
+    const configuredTests = ctx.config().cmds('commands.test').filter((c) => c !== '');
+    const allowed = new Set(stamped ? [...planVerificationCommands(ctx, id), ...configuredTests] : reproduceAllowed(ctx, id));
     const cmds = [...new Set(greens.map((g) => g.command).filter((c) => c !== ''))];
     const todo = cmds.filter((c) => allowed.has(c));
     for (const c of cmds) {
       if (allowed.has(c)) continue;
-      // a run that carries the measurement stamp is measured on what the frozen, reviewed plan lists: the plan decides, the implementer's own string never does
-      if (stamped) blockers.push(`the GREEN command \`${c}\` is not an entry of the plan's ## Verification commands (a configured command counts only when the plan lists it), so it cannot be run twice (a measured run runs only commands the frozen plan lists): add the narrow command that runs the new or changed tests to the plan's ## Verification commands (the plan is frozen; an amendment and a refreeze put it there)`);
-      else notRun.push(c);
+      // a run that carries the measurement stamp is measured on a plan-listed command or the configured test command: the implementer's own string never decides
+      if (stamped) {
+        const doThis = configuredTests.length > 0
+          ? `re-record GREEN with the project test command (${configuredTests.map((t) => `\`${t}\``).join(' or ')}) or a command the plan lists under ## Verification commands; no plan amendment is needed for that`
+          : "no test command is configured (commands.test) and the plan lists none for this command, so a plan amendment and a refreeze must list the narrow command that runs the new or changed tests in ## Verification commands";
+        blockers.push(`the GREEN command \`${c}\` is neither an entry of the plan's ## Verification commands nor the configured test command (a configured build or lint command does not count: it does not run the new tests), so it cannot be run twice: ${doThis}`);
+      } else notRun.push(c);
     }
     if (todo.length > 0) {
       const before = headSha(ctx);
@@ -322,7 +327,7 @@ export function measureRun(ctx, id, opt = {}) {
       const after = headSha(ctx);
       if (before !== after) stability.push('STABILITY the commit changed during the double run; both runs must see the same commit');
     }
-    if (stamped && greens.length > 0 && ran.length === 0 && blockers.length === 0) blockers.push('no GREEN command of this run could be run twice: record GREEN with the command that runs the new or changed tests, and list it in the plan\'s ## Verification commands');
+    if (stamped && greens.length > 0 && ran.length === 0 && blockers.length === 0) blockers.push('no GREEN command of this run could be run twice: record GREEN with the project test command or a command the plan lists under ## Verification commands');
   }
   return { tests: bc.tests, budgetFindings: bc.findings, stability, durationBlocks, blockers, notRun, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
 }

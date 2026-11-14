@@ -232,8 +232,8 @@ test('a measured run blocks on a GREEN command that is neither configured nor in
   accepted(green(blocked.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
   wclose(blocked.d, blocked.w);
   const r = A(blocked.d, ['handoff', 'LC', 'IMPLEMENTED']);
-  refused(r, 'a narrow command not in the plan', "add the narrow command that runs the new or changed tests to the plan's ## Verification commands");
-  assert.match(r.text, /`node -e 0` is not an entry of the plan's ## Verification commands/);
+  refused(r, 'a narrow command not in the plan', 'is neither an entry of the plan\'s ## Verification commands nor the configured test command');
+  assert.match(r.text, /`node -e 0` is neither an entry/);
 
   const listed = seeded({ scaffold: { planExtra: '\n## Verification commands\n\n- `node -e 0`\n' } });
   accepted(green(listed.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
@@ -247,14 +247,47 @@ test('a measured run blocks on a GREEN command that is neither configured nor in
   assert.match(accepted(A(old.d, ['handoff', 'LC', 'IMPLEMENTED']), 'an older run').text, /note: not run twice: `go test \.\/\.\.\.` is neither a configured command/);
 });
 
+test('the configured test command needs no plan listing: it is double-run, a flaky one stops the handoff and a stable one passes', () => {
+  const f = seeded({ scaffold: { planExtra: verif('node --version') } }); // the plan lists something else
+  const c = counterIn(f.d, '1');
+  setCmd(f.d, 'test', c.command);
+  accepted(green(f.d, c.command, 'test_durations: lookup=1\n'), 'GREEN with the configured test command');
+  wclose(f.d, f.w);
+  refused(A(f.d, ['handoff', 'LC', 'IMPLEMENTED']), 'a flaky configured test command', 'IMPLEMENTED blocked: STABILITY');
+  assert.equal(c.runs(), 2, 'run exactly twice');
+  const s = seeded({ scaffold: { planExtra: verif('node --version') } });
+  const c2 = counterIn(s.d, '0');
+  setCmd(s.d, 'test', c2.command);
+  accepted(green(s.d, c2.command, 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(s.d, s.w);
+  accepted(A(s.d, ['handoff', 'LC', 'IMPLEMENTED']), 'a stable configured test command');
+  assert.ok(c2.runs() >= 2);
+});
+
+test('the block message says what to do without a plan amendment when a test command is configured, and asks for an amendment only when none is', () => {
+  const a = seeded();
+  setCmd(a.d, 'test', 'node --version');
+  accepted(green(a.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(a.d, a.w);
+  const ra = A(a.d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(ra, 'an unlisted command with a configured test command', 're-record GREEN with the project test command (`node --version`)');
+  assert.match(ra.text, /no plan amendment is needed/);
+  assert.doesNotMatch(ra.text, /refreeze/);
+  const b = seeded();
+  setCmd(b.d, 'test', '');
+  accepted(green(b.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(b.d, b.w);
+  refused(A(b.d, ['handoff', 'LC', 'IMPLEMENTED']), 'nothing configured, nothing listed', 'a plan amendment and a refreeze must list the narrow command');
+});
+
 test('a configured command that the plan does not list does not satisfy the double run (it never has to run the new tests): the handoff is blocked', () => {
   const { d, w } = seeded();
   setCmd(d, 'lint', 'node --version');
   accepted(green(d, 'node --version', 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
-  refused(r, 'a configured lint command as the GREEN command', "add the narrow command that runs the new or changed tests to the plan's ## Verification commands");
-  assert.match(r.text, /a configured command counts only when the plan lists it/);
+  refused(r, 'a configured lint command as the GREEN command', 'is neither an entry of the plan\'s ## Verification commands nor the configured test command');
+  assert.match(r.text, /a configured build or lint command does not count/);
 });
 
 test('the latch is keyed on the content, not on the commit: an empty commit stays blocked and an amend never passes; with the same content, a real change of the content runs the double run again', () => {
