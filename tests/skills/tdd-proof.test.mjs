@@ -114,10 +114,11 @@ test("validate: GREEN must use the RED command, exit 0, suite green", () => {
   const d = good(); d.cycles[0].green.command = "node --test"; d.cycles[0].green.exit_code = 1; d.cycles[0].green.suite_exit_code = 2;
   const e = errs(d); has(e, "same command"); has(e, "GREEN must exit 0"); has(e, "suite must exit 0");
 });
-test("validate: GREEN records the duration of the new test (issue 265, AC-2)", () => {
-  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) {
-    const d = good(); delete d.cycles[0].green[k]; has(errs(d), `green.${k}`);
-  }
+test("validate: the duration fields are optional (an older tdd.json still passes) and checked when present (issue 265, AC-2)", () => {
+  const d = good();
+  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) delete d.cycles[0].green[k];
+  assert.deepEqual(errs(d), []);
+  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) { const e = good(); e.cycles[0].green[k] = k === "duration_ms" ? "x" : 5; has(errs(e), `green.${k}`); }
 });
 test("validate: a duration must be a non-negative number from a runner line or a timed command", () => {
   for (const v of [-1, "0.4", null, Number.NaN, Infinity]) {

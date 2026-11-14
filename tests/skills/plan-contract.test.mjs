@@ -449,3 +449,9 @@ test("AC-8: the template and the sections reference describe the kinds and the b
   }
   assert.match(readFileSync(join(dir, "SKILL.md"), "utf8"), /test_kind/);
 });
+test("AC-8: a Test budgets line over 4096 characters is refused, and a long malformed line is judged without delay", () => {
+  const long = `- unit: ${"x ".repeat(3000)}`;
+  has(errs(plan({ body: { ...KINDED, "Test budgets": [long, "- integration: default"] } })), "longer than 4096");
+  const near = `- unit: ${" ".repeat(3000)}!`;
+  has(errs(plan({ body: { ...KINDED, "Test budgets": [near, "- integration: default"] } })), "budget line");
+});

@@ -54,3 +54,9 @@ test('test_durations on RED is refused: only a passing run has a test duration t
   refused(A(d, ['worker-evidence', 'LC', 'RED', 'fail'], { role: 'implementer', input: `${BASE}expected_failure: TestImpl fails: lookup is not implemented in impl.txt yet\ntest_durations: lookup=1\n` }), 'RED with durations', 'test_durations');
   wclose(d, w);
 });
+
+test('a test_durations line over 4096 characters is refused', () => {
+  const { d, w } = redThenFix();
+  refused(A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: `${BASE}test_durations: ${'a'.repeat(4100)}=1\n` }), 'a 4100 character line', 'longer than 4096');
+  wclose(d, w);
+});

@@ -39,6 +39,6 @@ In `tdd.json`, each cycle's `green` carries:
 | `duration_source` | `runner_output` (read from the per-test line) or `command_wall_time` (the single-test command was timed) |
 | `duration_excerpt` | the runner line (or the timing line) the number was read from |
 
-The validator checks the three fields exist and are well formed. It cannot check that the number matches the output; the control plane re-runs the command (a later package of issue 265 compares the build record's measurement with these values and applies the budgets).
+The three fields are optional for now (older recordings stay valid); the validator checks them when present, and a later package of issue 265 requires them. It cannot check that the number matches the output; the control plane re-runs the command (a later package of issue 265 compares the build record's measurement with these values and applies the budgets).
 
 In a run, the same durations go to the recorder: `test_durations: <test name>=<ms>[; <test name>=<ms>]` on stdin of `worker-evidence ... GREEN pass`.

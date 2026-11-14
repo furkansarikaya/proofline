@@ -326,3 +326,6 @@ test("AC-8: a plan without budgets does not ask for the section, and a section g
   const bad = withKinds("\n## Test kinds and budgets\n\n- unit: test fast; suite slow\n");
   assert.match(validatePlan(bad, TASK).errors.join("\n"), /unit: budget line/);
 });
+test("AC-8: a QA budget line over 4096 characters is refused", () => {
+  assert.match(kerr(withKinds(`\n## Test kinds and budgets\n\n- unit: ${"x ".repeat(3000)}\n- integration: default\n`)), /longer than 4096/);
+});

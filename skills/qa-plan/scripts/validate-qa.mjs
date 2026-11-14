@@ -143,7 +143,9 @@ function budgetLines(lines, secName, errors) {
   const out = new Map();
   for (const l of lines) {
     if (!l.trim()) continue;
-    const m = /^\s*-\s*([A-Za-z0-9_-]+):\s*(.*?)\s*$/.exec(l);
+    if (l.length > 4096) { errors.push(`${secName}: a line is longer than 4096 characters`); continue; }
+    const m = /^\s*-\s*([A-Za-z0-9_-]+):(.*)$/.exec(l);
+    if (m) m[2] = m[2].trim();
     if (!m) { errors.push(`${secName}: expected "- <kind>: test <ms> ms; suite <ms> ms" or "- <kind>: default", got "${l.trim().slice(0, 60)}"`); continue; }
     if (!TEST_KINDS.includes(m[1])) { errors.push(`${secName}: unknown test kind ${m[1]} (${TEST_KINDS.join("|")})`); continue; }
     const b = BUDGET.exec(m[2]);
