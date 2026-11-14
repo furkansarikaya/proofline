@@ -440,6 +440,36 @@ UNPLACED.forEach((command, k) => {
   });
 });
 
+// Security round 11: an unquoted `((` that is not part of `$((` is arithmetic or nested subshells whatever precedes it (a keyword, also glued to it, `time`, `!`, `{`, `coproc`, a function header).
+const M11 = '\nmkdir ../out/F';
+const ANYWHERE = [
+  '{ time ((<<X))' + M11 + '\n}', '{ time -p ((; # ));mkdir ../out/F#\n}', 'if :; then time ((<<X))' + M11 + '\nfi', 'for i in 1; do time ((<<X))' + M11 + '\ndone', '{ time (( < ))' + M11 + '\n}',
+  'time((<<X))' + M11, 'time -p((<<X))' + M11, 'time ! ((<<X))' + M11, '! time (( # )) ; mkdir ../out/F', 'if :; then time ((# ))' + M11 + '\nfi',
+  'if((<<X))' + M11 + '\nthen :; fi', 'while((<<X))' + M11 + '\ndo break; done', 'until((<<X))' + M11 + '\ndo break; done', '!((<<X))' + M11, 'for((<<X))' + M11, 'then((<<X))' + M11, 'do((<<X))' + M11, '{((<<X))' + M11 + '\n}',
+  '{ for ((<<X))' + M11 + '\n}', 'if :; then for ((<<X))' + M11 + '\nfi', '! time ((<<X))' + M11, 'coproc ((<<X))' + M11, 'function f ((<<X))' + M11, 'time -- ((<<X))' + M11, 'time time ((<<X))' + M11,
+];
+ANYWHERE.forEach((command, k) => {
+  test(`A274 round 11 #${k}: a (( is read by the same rule wherever it stands: ${JSON.stringify(command)}`, async () => {
+    assert.ok(roleActions(command).actions.some((a) => a.kind === 'deny'), 'the role actions hold a refusal');
+    for (const [role, who, env] of ROLES) assert.match(String(await pre(command, who, env)), /whose end cannot be placed/, `${role}: allowed`);
+    assert.equal(await pre(command, {}, {}), null, 'the lead is not asked');
+  });
+});
+
+// The `;;` of an empty `for ((;;))` part is no case terminator; a real case pattern list is still a doubt.
+const EMPTY_PARTS = ['for ((;;)); do break; done', 'for ((i=0;;i++)); do break; done', 'for ((;;i++)); do break; done', 'for ((i=0;;)); do break; done', 'for (( ; ; )); do break; done', 'if((x));then :;fi', 'time((x))', '!((x))'];
+EMPTY_PARTS.forEach((command, k) => {
+  test(`A274 round 11 #${k}: an empty for-header part or a glued keyword is allowed: ${JSON.stringify(command)}`, async () => {
+    assert.deepEqual(roleActions(command).actions.filter((a) => a.kind === 'target' || a.kind === 'deny'), []);
+    const [, implWho, implEnv] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+    assert.equal(await pre(command, implWho, implEnv), null);
+  });
+});
+
+test('A274 round 11: a real case pattern list inside a substitution is still a doubt', () => {
+  assert.ok(roleActions('echo $(case 1 in 1) :;; esac)').actions.some((a) => a.kind === 'deny'));
+});
+
 // A placed `))` ends the arithmetic: the text after it is read normally, quotes and all.
 const PLACED = [
   '(( i++ )) && echo "it\'s done"', "for ((i=0;i<3;i++)); do echo '$(not code)'; done", 'echo $((1+2))', 'x=$(( (a+b) > 3 ))', "A='b c' node a.js", 'echo $((10#$x)) $((16#ff$y))', 'echo $(( a$i ))',

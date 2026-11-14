@@ -18,15 +18,35 @@
 // `caffeinate`, `xcrun` and other wrappers not in the table, `script -c`, `hash -p`, scripts, /dev/fd/N, csh, the text of an interpreter program.
 import { WRITE_PROGRAMS } from '../command-scan.mjs';
 
-/** @typedef {{ v: string, q: boolean, sub: boolean, usub: boolean, bt: boolean, vr: boolean, glob: boolean, qAt: number }} Word v: the text with quotes and backslashes removed (a substitution keeps its source text); q: some part was quoted; sub: holds `$(`, a backtick or a process substitution; usub: an unquoted `$(` or process substitution; bt: holds a backtick; vr: holds a parameter expansion or a `$'...'` string with an escape the hook cannot decode; glob: an unquoted `*`, `?` or `[` */
-/** @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, strict: boolean, depth: number, at: { off: number, paren: number } }} Simple here: the here-document bodies read by this command; pipeFrom: the command on the left of the `|`; depth: how many levels of substitution or shell string this command sits in; at: where the top-level command that holds this one starts: its offset in the original text and how many subshell parentheses are open there */
+/**
+ * @typedef {{ v: string, q: boolean, sub: boolean, usub: boolean, bt: boolean, vr: boolean, glob: boolean, qAt: number }} Word
+ * v: the text with quotes and backslashes removed (a substitution keeps its source text);
+ * q: some part was quoted;
+ * sub: holds `$(`, a backtick or a process substitution;
+ * usub: an unquoted `$(` or process substitution;
+ * bt: holds a backtick;
+ * vr: holds a parameter expansion or a `$'...'` string with an escape the hook cannot decode;
+ * glob: an unquoted `*`, `?` or `[`;
+ */
+/**
+ * @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, strict: boolean, depth: number, at: { off: number, paren: number } }} Simple
+ * here: the here-document bodies read by this command;
+ * pipeFrom: the command on the left of the `|`;
+ * depth: how many levels of substitution or shell string this command sits in;
+ * at: where the top-level command that holds this one starts: its offset in the original text and how many subshell parentheses are open there;
+ */
 /** @typedef {{ kind: 'deny', why: string }
  *   | { kind: 'target', word: Word, cwd: string, bad: boolean }
  *   | { kind: 'redir', word: Word, cwd: string, bad: boolean }
  *   | { kind: 'scan', text: string, cwd: string, bad: boolean }} Action
  * target: a word judged as unresolvable when it holds a variable, substitution or glob; redir: the file of a top-level output redirect, judged by the write rule itself;
  * scan: the rebuilt command of a write program the scanner of the lead knows, whose W and L records the guard judges */
-/** @typedef {{ overflow: boolean, budget: number, unsure: string, texts: string[] }} Guard budget: steps of work left (one per character or token read, across every nested scan), never time; unsure: the first region the hook is not certain how bash parses; texts: the text of every nested region read (the guard also runs the scanner of the lead over each, so a writer the scanner knows is judged wherever it sits) */
+/**
+ * @typedef {{ overflow: boolean, budget: number, unsure: string, texts: string[] }} Guard
+ * budget: steps of work left (one per character or token read, across every nested scan), never time;
+ * unsure: the first region the hook is not certain how bash parses;
+ * texts: the text of every nested region read (the guard also runs the scanner of the lead over each, so a writer the scanner knows is judged wherever it sits);
+ */
 
 export const ROLE_PROGRAMS = new Set([...WRITE_PROGRAMS, 'mkdir', 'mkfifo', 'mknod']);
 /** How many levels of substitution and shell string the role scan follows; a deeper command is refused. */
@@ -41,6 +61,23 @@ export const MAX_WRAPPERS = 64;
 /** The most scanner passes over rebuilt writer commands (one per write program in the command). */
 const MAX_SCANS = 4000;
 const RESERVED_LEAD = new Set(['{', '}', '!', 'then', 'do', 'else', 'elif', 'if', 'while', 'until', 'done', 'fi', 'esac', 'in']);
+/** The long options of tar that take a value. */
+const TAR_LONG_ARG = ['--file',
+  '--directory',
+  '--files-from',
+  '--exclude-from',
+  '--use-compress-program',
+  '--transform',
+  '--xform',
+  '--strip-components',
+  '--to-command',
+  '--index-file',
+  '--blocking-factor',
+  '--label',
+  '--newer',
+  '--mode',
+  '--owner',
+  '--group'];
 const RESERVED_ASSIGN = new Set(['{', '!', 'then', 'do', 'else', 'elif', 'if', 'while', 'until']);
 /** Words after which the next word is still at a command position. */
 const CMD_KEEP = new Set(['then', 'do', 'else', 'elif', 'if', 'while', 'until', 'time']);
@@ -69,9 +106,10 @@ const doubt = (why) => { if (G.unsure === '') G.unsure = why; };
  * The index just after the `)` that closes a `$(` whose `(` is at i-1; quotes, backticks, `${...}`, here-document bodies and nested parentheses are skipped. Constructs bash reads in ways this scan does not
  * (a comment, `case` and `;;`, a here-document marker inside arithmetic, an unterminated region) are recorded as a doubt: the caller refuses the roles. d: how deep the scan is nested in quotes and
  * substitutions (beyond SCAN_DEPTH the rest of the text counts as inside, so the stack stays bounded).
- * @param {string} s @param {number} i @param {number} [d]
+ * hdr: the scan is the probe of a `((` ... `))` header, where `;;` (an empty `for ((;;))` part) is no case terminator.
+ * @param {string} s @param {number} i @param {number} [d] @param {boolean} [hdr]
  */
-function endParen(s, i, d = 0) {
+function endParen(s, i, d = 0, hdr = false) {
   if (d > SCAN_DEPTH) { G.overflow = true; return s.length; }
   let depth = 1;
   let arith = false;
@@ -100,7 +138,7 @@ function endParen(s, i, d = 0) {
     if (c === '$' && s[i + 1] === '{') { i = endBrace(s, i + 2, d + 1); continue; }
     if (c === '$' && s[i + 1] === '[') arith = true;
     if (c === '#' && edge) doubt('a comment inside a substitution');
-    if (c === ';' && s[i + 1] === ';') doubt('a case pattern list inside a substitution');
+    if (c === ';' && s[i + 1] === ';' && !(hdr && depth === 2)) doubt('a case pattern list inside a substitution');
     if (c === '(' && s[i + 1] === '(') arith = true;
     if (c === '<' && s[i + 1] === '<' && s[i + 2] !== '<') {
       if (arith) doubt('a << inside arithmetic in a substitution');
@@ -480,15 +518,15 @@ function tokenizeIn(s, depth, st, top) {
       continue;
     }
     if (c === ';' || c === '(' || c === ')' || (c === '&' && s[i + 1] !== '>') || c === '|') {
-      // after `if`, `while`, `until`, `{`, `!`, `time` ... (lead) or `for` the `((` is arithmetic as well: `for (( i=0; i<4; i++ ))` has `;` and is no pair of subshells
-      const forHdr = cur.words.length === 1 && !(/** @type {Word} */ (cur.words[0])).q && (/** @type {Word} */ (cur.words[0])).v === 'for';
-      // `time ((` and `time -p ((` start a timed arithmetic command as well
-      const timeHdr = cur.words.length > 0 && cur.words.every((x, k) => !x.q && (k === 0 ? x.v === 'time' : x.v === '-p'));
-      if (c === '(' && s[i + 1] === '(' && w === null && (cur.words.length === 0 || lead || forHdr || timeHdr)) {
+      // an unquoted `((` that is not part of `$((` is always an arithmetic command, a `for ((` header or a pair of nested subshells (a word `((` is a syntax error), whatever precedes it:
+      // a keyword (also written together with it: `if((`), `time`, `!`, `{`, `coproc`, a function header
+      const lastW = w !== null ? w : /** @type {Word | undefined} */ (cur.words[cur.words.length - 1]);
+      const forHdr = lastW !== undefined && !lastW.q && lastW.v === 'for';
+      if (c === '(' && s[i + 1] === '(' && !(w !== null && w.v.endsWith('='))) {
         // `(( ... ))` is arithmetic (its `<<` and `>` are operators, not redirects); `((cmd); cmd)` is two subshells and ends in `)` alone
         const keep = G.unsure;
         G.unsure = '';
-        const e = endParen(s, i + 1);
+        const e = endParen(s, i + 1, 0, true);
         const probeDoubt = G.unsure;
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
         const body = s.slice(i + 2, e - 2);
@@ -499,7 +537,7 @@ function tokenizeIn(s, depth, st, top) {
         if (!placed) doubt('a "((" whose end cannot be placed: write a space after the first "(" for a nested subshell, or simplify the arithmetic');
         else {
           arithSubs(body);
-          if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { i = e; continue; }
+          if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { flush(); i = e; continue; }
           // not arithmetic: two subshells, read as commands below; a `#` or `<` in them is read by bash as arithmetic first, so the end is not certain
           if (/[#<]/.test(body)) doubt('a "((" whose end cannot be placed: write a space after the first "(" for a nested subshell, or simplify the arithmetic');
           strictUntil = e; // a command word that is not literal is refused even without an operand
@@ -753,8 +791,8 @@ export function extraTargets(name, args) {
         // the old style `tar cfC out.tar dir`: the letters that take an argument read the following words in order; the words after them are options again (`tar xf a -C /etc`)
         const rest = args.slice(1);
         opts = [...first.v].map((ch) => ({ f: `-${ch}`, arg: 'fCbILNTXKVFgH'.includes(ch) ? rest.shift() ?? null : null }));
-        opts.push(...parseOpts(rest, 'fCbILNTXKVFgH', '', ['--file', '--directory', '--files-from', '--exclude-from', '--use-compress-program', '--transform', '--xform', '--strip-components', '--to-command', '--index-file', '--blocking-factor', '--label', '--newer', '--mode', '--owner', '--group']).opts);
-      } else opts = parseOpts(args, 'fCbILNTXKVFgH', '', ['--file', '--directory', '--files-from', '--exclude-from', '--use-compress-program', '--transform', '--xform', '--strip-components', '--to-command', '--index-file', '--blocking-factor', '--label', '--newer', '--mode', '--owner', '--group']).opts;
+        opts.push(...parseOpts(rest, 'fCbILNTXKVFgH', '', TAR_LONG_ARG).opts);
+      } else opts = parseOpts(args, 'fCbILNTXKVFgH', '', TAR_LONG_ARG).opts;
       /** @param {Word[]} ws */
       const real = (ws) => ws.filter((x) => x.v !== '-');
       return [
