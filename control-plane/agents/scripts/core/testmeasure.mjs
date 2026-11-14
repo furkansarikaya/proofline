@@ -308,6 +308,7 @@ export function measureRun(ctx, id, opt = {}) {
   /** @type {string[]} */ const stability = [];
   /** @type {string[]} */ const durationBlocks = [];
   /** @type {string[]} */ const notRun = [];
+  /** @type {string[]} */ const superseded = [];
   /** @type {string[]} */ let ran = [];
   /** @type {string[]} */ const blockers = [];
   if (opt.runner) {
@@ -324,8 +325,11 @@ export function measureRun(ctx, id, opt = {}) {
     const allowed = { has: (/** @type {string} */ c) => (stamped ? isPinned(c) || listed.has(c) : legacy.has(c)) };
     const cmds = [...new Set(greens.map((g) => g.command).filter((c) => c !== ''))];
     const todo = cmds.filter((c) => allowed.has(c));
+    // only the LATEST GREEN record decides (highest GREEN-<n>): a command recorded earlier and since replaced is superseded, noted and never a block; the run still has to end on a plan-listed or pinned command
+    const latestCmd = [...greens].reverse().map((g) => g.command).find((c) => c !== '') ?? '';
     for (const c of cmds) {
       if (allowed.has(c)) continue;
+      if (c !== latestCmd) { superseded.push(c); continue; }
       // a run that carries the measurement stamp is measured on a plan-listed command or the configured test command: the implementer's own string never decides
       if (stamped) {
         const doThis = configuredTests.length > 0 || (pinned.size > 0 && !changed && pin !== null)
@@ -355,5 +359,5 @@ export function measureRun(ctx, id, opt = {}) {
     }
     if (stamped && greens.length > 0 && ran.length === 0 && blockers.length === 0) blockers.push('no GREEN command of this run could be run twice: record GREEN with the project test command or a command the plan lists under ## Verification commands');
   }
-  return { tests: bc.tests, budgetFindings: bc.findings, stability, durationBlocks, blockers, notRun, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
+  return { tests: bc.tests, budgetFindings: bc.findings, stability, durationBlocks, blockers, notRun, superseded, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
 }

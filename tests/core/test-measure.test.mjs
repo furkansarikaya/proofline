@@ -305,6 +305,26 @@ test('a stamped run with no pin row accepts plan-listed commands only, and its b
   assert.doesNotMatch(r.text, /re-record GREEN with the project test command/);
 });
 
+test('only the latest GREEN record decides: an earlier unlisted command that a later listed one replaced is a note, a later unlisted one after a listed one blocks', () => {
+  const a = counterProject('0');
+  accepted(green(a.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN-1, an unlisted direct runner');
+  wclose(a.d, a.w);
+  const w2 = wopen(a.d);
+  accepted(green(a.d, a.c.command, 'test_durations: lookup=1\n'), 'GREEN-2, the listed command');
+  wclose(a.d, w2);
+  const ra = accepted(A(a.d, ['handoff', 'LC', 'IMPLEMENTED']), 'the latest GREEN is listed');
+  assert.match(ra.text, /note: superseded: the earlier GREEN command `node -e 0`/);
+  assert.ok(a.c.runs() >= 2, 'the latest command was double-run');
+
+  const b = counterProject('0');
+  accepted(green(b.d, b.c.command, 'test_durations: lookup=1\n'), 'GREEN-1, the listed command');
+  wclose(b.d, b.w);
+  const w3 = wopen(b.d);
+  accepted(green(b.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN-2, an unlisted command');
+  wclose(b.d, w3);
+  refused(A(b.d, ['handoff', 'LC', 'IMPLEMENTED']), 'the latest GREEN is unlisted', 'the GREEN command `node -e 0` is neither an entry');
+});
+
 test('the block message says what to do without a plan amendment when a test command is configured, and asks for an amendment only when none is', () => {
   const a = seeded({ testCmd: 'node --version' });
   setCmd(a.d, 'test', 'node --version');
