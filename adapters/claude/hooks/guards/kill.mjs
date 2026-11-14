@@ -12,7 +12,7 @@
 // and the text holds no kill word: that subshell, and only it, passes).
 import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { realpathSync } from 'node:fs';
-import { cmdSubst, posix } from '../lib/text.mjs';
+import { cmdSubst, isAbsPath, isWin, posix, winSoft, winSpell } from '../lib/text.mjs';
 import { scanText } from '../command-scan.mjs';
 import { bn, dn, deny, globMatch, grepq, isAbsolute } from './kit.mjs';
 
@@ -164,8 +164,10 @@ class Kill {
   /** `kg_sub`: a nested text; a refusal passes up unchanged. @param {string} text @param {number} depth */
   sub(text, depth) { this.text(text, depth); }
 
-  /** `kg_file_ok PATH`: the resolved path of a text file the guard may read, else ''. @param {string} p */
-  fileOk(p) {
+  /** `kg_file_ok PATH`: the resolved path of a text file the guard may read, else ''. @param {string} p0 */
+  fileOk(p0) {
+    let p = p0;
+    if (isWin()) { const sp = winSpell(p); if (sp.bad || sp.p.startsWith('//')) return ''; p = sp.p; } // A271: a drive or UNC path is absolute (it was `<cwd>/C:/x`); one that cannot be placed is unreadable
     let kf = isAbsolute(p) ? p : `${this.ctx.cwd}/${p}`;
     try { const st = lstatSync(kf); if (st.isSymbolicLink() || !st.isFile()) return ''; } catch { return ''; }
     try { if (!statSync(kf).isFile()) return ''; } catch { return ''; }
@@ -186,7 +188,7 @@ class Kill {
   }
 
   /** @param {string} p @param {string} cd */
-  rp(p, cd) { return p.startsWith('/') || p.startsWith('~') || p === '' ? p : (cd !== '' ? `${cd}/${p}` : p); }
+  rp(p, cd) { return isAbsPath(winSoft(p)) || p.startsWith('~') || p === '' ? p : (cd !== '' ? `${cd}/${p}` : p); }
 
   /** `kg_has_words`: could TEXT hold a kill rule at all? @param {string} t */
   hasWords(t) { return grepq(/kill|slay|fuser|(^|[;&|({]|then|do|else)[ \t\n\v\f\r]*\$[A-Za-z_{(]/, t.replace(/['"\\]/g, '')); }

@@ -10,7 +10,7 @@
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { delimiter } from 'node:path';
 import { scanCommand } from '../command-scan.mjs';
-import { canon, cmdSubst, safe } from '../lib/text.mjs';
+import { canon, cmdSubst, isWin, safe, winSpell } from '../lib/text.mjs';
 import { isFile, mkdirp, put } from '../lib/fsx.mjs';
 import { Deny, deny, grepq, SP } from './kit.mjs';
 import { alwaysProtected, erasable, nrPathOk, relpath, roOperand, roTail, targetOk } from './paths.mjs';
@@ -204,10 +204,10 @@ function agentRule(ctx, cmd, v, hasRole) {
 }
 
 /** A shell write (W record) while a run is open. @param {import('../lib/context.mjs').HookContext} ctx @param {string} v @param {string[]} lineOf */
-async function writeRule(ctx, v, lineOf) {
-  if (v === '' || v.startsWith('/dev/')) return;
+export async function writeRule(ctx, v, lineOf) {
+  if (v === '' || v.startsWith('/dev/') || (isWin() && winSpell(v).nul)) return;
   // A read role writes through no `..` component: $TMPDIR/<worktree>/../../<project path> would pass the worktree check
-  if (ctx.ro && `/${v}/`.includes('/../')) deny(`the command writes '${v}', which goes through a .. component and cannot be placed inside an evidence worktree${roTail(ctx)}`);
+  if (ctx.ro && `/${isWin() ? v.replace(/\\/g, '/') : v}/`.includes('/../')) deny(`the command writes '${v}', which goes through a .. component and cannot be placed inside an evidence worktree${roTail(ctx)}`);
   if (/[$*?[]/.test(v)) {
     if (v.startsWith('/tmp/') || v.startsWith('/private/tmp/') || v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR')) return;
     if (ctx.role === 'implementer' || ctx.role === 'designer') {
@@ -230,7 +230,7 @@ async function nrBashGuard(ctx, scan) {
   for (const rec of scan.records) {
     if (rec.kind !== 'W') continue;
     const v = cmdSubst(rec.value);
-    if (v === '' || v.startsWith('/dev/')) continue;
+    if (v === '' || v.startsWith('/dev/') || (isWin() && winSpell(v).nul)) continue;
     if (/[$*?[]/.test(v)) {
       if (v.startsWith('/tmp/') || v.startsWith('/private/tmp/') || v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR')) continue;
       deny(`the command writes '${v}', which cannot be resolved, and no run is active (A169): the lead edits no product file itself. Propose a light run with '/proofline run <text>', or write an allowed path literally (not through a variable or glob), for example > .agents/local/scratch/out.txt`);

@@ -14,8 +14,9 @@ import { realpathSync, readdirSync, statSync, rmSync, mkdirSync } from 'node:fs'
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Agents } from './agent.mjs';
+import { bn, dn } from '../guards/kit.mjs';
 import { append, isDir, isFile, mkdirp, put, readText, rmf } from './fsx.mjs';
-import { canon, cmdSubst, jget, posix, safe, sha256, validRole } from './text.mjs';
+import { canon, cmdSubst, isAbsPath, isWin, jget, posix, safe, sha256, validRole, winSpell } from './text.mjs';
 
 export const EVENTS = ['pretool', 'posttool', 'subagent-start', 'subagent-stop', 'prompt', 'stop', 'session'];
 
@@ -170,6 +171,7 @@ function shellPwd(env) {
 
 /** A path from the runtime in POSIX form (Windows drive and backslash spellings are converted before anything resolves them). @param {string} p */
 function inputPath(p) {
+  if (isWin()) return winSpell(p).p; // A271: the one Windows rule (drive, UNC, MSYS, backslashes, trailing dots)
   if (!/^[A-Za-z]:[\\/]/.test(p) && !p.includes('\\')) return p;
   return p.replace(/\\/g, '/');
 }
@@ -314,6 +316,7 @@ async function findRunWorktree(c) {
 
 /** `ev_phys`: the physical absolute path with existing parents resolved; '' when it cannot be resolved. @param {string} p @param {string} cwd */
 export function physicalPath(p, cwd) {
+  if (isWin()) return winPhysical(p, cwd);
   let q = p.startsWith('/') ? p : `${cwd}/${p}`;
   q = q.replace(/\/+$/, '') || '/';
   let d = path.posix.dirname(q);
@@ -325,6 +328,28 @@ export function physicalPath(p, cwd) {
     d = up;
   }
   try { return `${realpathSync(d)}/${tail}`; } catch { return ''; }
+}
+
+/**
+ * `physicalPath` on a Windows host (A271): a drive or UNC path is absolute (it was `<cwd>/C:/x`, a path under the project that is not there, which could
+ * attribute a path elsewhere to a run worktree and so choose the agent.sh that decides); one that cannot be placed gives '' (not inside anything).
+ * @param {string} p @param {string} cwd
+ */
+function winPhysical(p, cwd) {
+  const s = winSpell(p);
+  if (s.bad) return '';
+  const a = winSpell(isAbsPath(s.p) ? s.p : `${cwd}/${s.p}`);
+  if (a.bad || a.p.startsWith('//')) return ''; // a UNC path is never looked up (it would open a connection to the named server)
+  if (/^([A-Za-z]:\/|\/\/[^/]+\/[^/]+)$/.test(a.p)) return a.p; // a drive or share root is its own parent
+  let d = dn(a.p);
+  let tail = bn(a.p);
+  while (!isDir(d)) {
+    const up = dn(d);
+    if (up === d) return '';
+    tail = `${bn(d)}/${tail}`;
+    d = up;
+  }
+  try { const r = posix(realpathSync.native(d)); return `${r.endsWith('/') ? r.slice(0, -1) : r}/${tail}`; } catch { return ''; }
 }
 
 /** The in-flight marker of this hook (a hook the runtime kills leaves it; the next prompt or session hook turns it into a timeout line). @param {HookContext} c */
