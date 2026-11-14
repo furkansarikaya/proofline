@@ -13,7 +13,7 @@ import { asciiLower } from './shellglob.mjs';
 export const SHIPPED_GITHOOKS = ['pre-commit', 'pre-push'];
 
 /** The folders of the project whose files are loaded by a git hook or a runtime hook. */
-export const CODE_DIRS = ['.agents/scripts', '.agents/githooks', '.agents/hooks', '.agents/ecosystems.mjs', '.agents/skills'];
+export const CODE_DIRS = ['.agents/scripts', '.agents/githooks', '.agents/hooks', '.agents/ecosystems.mjs', '.agents/ecosystems.json', '.agents/skills'];
 
 /** The folders in which a file that proofline does not ship is itself a problem (a skill folder may hold the user's own skills). */
 const EXTRA_DIRS = ['.agents/scripts/', '.agents/githooks/', '.agents/hooks/'];
@@ -106,6 +106,8 @@ export function shippedCode(plHome) {
   } catch { /* no skills folder: the check below reports an unreadable tree */ }
   // doctor starts it (`ecosystems.mjs check`)
   m.set('.agents/ecosystems.mjs', `${plHome}/control-plane/agents/ecosystems.mjs`);
+  // the definition the scan for real waits (and every other reader) trusts: a project copy that was emptied or rewritten would blind it (A276)
+  m.set('.agents/ecosystems.json', `${plHome}/control-plane/agents/ecosystems.json`);
   return m;
 }
 
@@ -134,7 +136,7 @@ export function githooksFolder(root) {
 /** @typedef {{ rel: string, kind: 'link' | 'missing' | 'differs' | 'extra' | 'index' | 'head', eol?: boolean, alias?: boolean, symlink?: boolean }} CodeProblem  `eol`: a `differs` file that is proofline's copy except for its line endings (CRLF); `alias`: an `extra` tracked name that a case-insensitive or Unicode-folding file system can resolve to a code path proofline ships; `symlink`: an index or HEAD entry of mode 120000 */
 
 /** The names under `.agents` whose files are code (the first two components of every shipped path). */
-const CODE_NAMES = ['scripts', 'githooks', 'hooks', 'ecosystems.mjs', 'skills'];
+const CODE_NAMES = ['scripts', 'githooks', 'hooks', 'ecosystems.mjs', 'ecosystems.json', 'skills'];
 
 /** Characters a file system ignores when it compares names (HFS+: zero width and direction marks, soft hyphen, word joiner, BOM): they may be dropped. */
 const IGNORABLE_RE = /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufff8\u{1bca0}-\u{1bca3}\u{1d173}-\u{1d17a}\u{e0000}-\u{e0fff}]/gu;

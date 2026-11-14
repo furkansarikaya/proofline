@@ -22,12 +22,13 @@ import { PathKinds, scopeKindRows } from './pathkind.mjs';
 import { planMigrationShape } from './plancheck.mjs';
 import * as proc from './proc.mjs';
 import { askQuestion, verifyAssumptions } from './questions.mjs';
-import { fileLines, fileText, gateField, gatesEnforced, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileLines, fileText, gateField, gatesEnforced, ledgerLines, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { planEntries, pipelineClass, pipelineClassValid, pipelineDeclared, pipelineNeeds, pipelineValue, riskConfigHash, runAutonomy, validationCandidates, planValidationMissing, RISK_PLAN_FLAGS } from './signals.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { normRelPath, scopeBad, scopeEntries, scopeEntryCovers, sectionLines, taskType } from './taskfile.mjs';
 import { taskDefectFixes } from './plancheck.mjs';
+import { exceptionsHash } from './testreview.mjs';
 import { exemptedPath, checkTypeExemptions, pipelineSignature, verifyQaPlanBound } from './commands/verify.mjs';
 import { pathsExecutable, requireTaskDefects } from './handoff.mjs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
@@ -388,6 +389,14 @@ function freezeApprovals(ctx, id, mode) {
     if (a === null) fail(`the fix rounds are exhausted: only 'agent.sh terminate ${id} FAILED', or a refreeze with the user's budget approval for this PLAN.md ('agent.sh request-approval ${id} budget')`);
     out.push(a);
   }
+  if (mode === 'refreeze') {
+    // #265 package C (A276): the plan's `## Test exceptions` is the only thing that clears a real wait, a test over budget or a test that was not measured. Adding or changing a
+    // line after the freeze would let the implementer's side justify its own finding (Core invariant 3), so such a refreeze is REFUSED. Whether the user may approve it is the
+    // owner's decision (awaiting the owner, A276): until then the section is frozen with the first plan.
+    const rows = ledgerLines(ctx, dir).filter((l) => l.includes(' event=test-exceptions '));
+    const last = rows.length === 0 ? '' : (/ detail=sha=([0-9a-f]*)$/.exec(rows[rows.length - 1])?.[1] ?? '');
+    if (exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '') !== last) fail(`the amendment adds or changes a line of PLAN.md ## Test exceptions: that section justifies a real wait, a test over its budget or an unmeasured test and is frozen with the first plan; an amendment cannot change it (awaiting the owner's decision whether the user may approve such a change). Remove the change to the section`);
+  }
   if (mode === 'refreeze' && sectionKeyPresent(ctx, dir, 'freeze', 'scope_paths')) {
     const old = sectionValue(ctx, dir, 'freeze', 'scope_paths').split(',');
     let added = '';
@@ -576,6 +585,7 @@ export function freezeRun(ctx, id, word, amendment) {
   if (gatesEnforced(ctx, dir)) {
     if (mode === 'refreeze') refreezeLifecycle(ctx, id, amendment, oldPlan);
     else { const hs = sectionValue(ctx, dir, 'handoff', 'state'); led(ctx, id, 'freeze', hs, hs, sectionValue(ctx, dir, 'freeze', 'pipeline')); }
+    if (mode !== 'refreeze') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')}`);
     for (const a of approvals) consumeApproval(ctx, id, a);
   }
   ctx.out(`freeze recorded: ${id}\n`);

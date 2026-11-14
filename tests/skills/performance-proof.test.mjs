@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, chmodSync,
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -183,17 +184,81 @@ test("run-bench.mjs: interleaved samples, environment and exit codes", () => {
   assert.equal(run("--base", a, "--change", b, "--runs", "1", "--out", out).status, 2);
 });
 
-test("run-bench.mjs: a run over the limit gets its whole process group stopped and is recorded as failed (143)", async () => {
+// The limit, the grace period and the readiness of the commands are EVENTS here, not durations (issue 266, A277): runCommand takes an injectable clock that the test steps by
+// hand, and the commands are real processes that report over a local socket (a Unix socket, a named pipe on Windows): a process that has connected is up, a socket that closes
+// is a process that is gone (the kernel closes it at exit, even for a zombie that nothing reaps), and a byte on it says that a signal arrived. Nothing polls `ps` or a pid and
+// nothing sleeps, so the test does not depend on a reaping init: PID 1 of a container without one never reaps an orphan, which is why the old `kill(pid, 0)` check saw
+// the killed grandchild as still alive there. The process of the group that has children reaps them itself (see GROUP_LEADER).
+const handClock = () => {
+  let t = 0; /** @type {Array<{ fn: () => void, due: number }>} */ let q = [];
+  return {
+    now: () => t, pending: () => q.length,
+    setTimeout: (fn, ms) => { const h = { fn, due: t + ms }; q.push(h); return h; },
+    clearTimeout: (h) => { q = q.filter((x) => x !== h); },
+    advance(to) { t = to; for (const h of q.filter((x) => x.due <= to).sort((a, b) => a.due - b.due)) { q = q.filter((x) => x !== h); h.fn(); } },
+  };
+};
+let socketCount = 0;
+const socketPath = () => (process.platform === "win32" ? `\\\\.\\pipe\\perf-proof-${process.pid}-${++socketCount}` : join(tmp, `s${++socketCount}`));
+/** A server that hands the first connection to the test; `lines(sock)` then gives the newline-terminated messages of that connection one promise at a time. */
+async function listenOnce() {
+  const path = socketPath(); let hand; const first = new Promise((ok) => { hand = ok; });
+  const server = createServer((c) => hand(c));
+  await new Promise((ok) => server.listen(path, ok));
+  return { path, first, close: () => new Promise((ok) => server.close(ok)) };
+}
+const closed = (sock) => new Promise((ok) => sock.on("close", ok));
+function lines(sock) {
+  let buf = "", waiting = null; const got = [];
+  sock.on("data", (d) => { buf += d; let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (waiting) { const w = waiting; waiting = null; w(l); } else got.push(l); } });
+  return () => (got.length > 0 ? Promise.resolve(got.shift()) : new Promise((ok) => { waiting = ok; }));
+}
+// A leader whose grandchild starts in the leader's group; the leader reaps it on TERM (its exit event), and only then dies BY the signal, as a plain process would. The grandchild
+// reports the pid of its parent, the leader, so that a failed test can still stop the group it started.
+const GROUP_LEADER = `const c = require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify('const s = require("node:net").connect(process.argv[1], () => s.write(process.ppid + "\\n"));')}, process.argv[1]], { stdio: "inherit" });
+let gone = false, termed = false;
+const end = () => { if (gone && termed) { process.removeAllListeners("SIGTERM"); process.kill(process.pid, "SIGTERM"); } };
+c.on("exit", () => { gone = true; end(); });
+process.on("SIGTERM", () => { termed = true; end(); });`;
+// A process that reports its pid, tells over the socket that TERM arrived and ignores it: only KILL ends it.
+const TERM_IGNORER = `const s = require("node:net").connect(process.argv[1], () => s.write(process.pid + "\\n")); process.on("SIGTERM", () => s.write("term\\n"));`;
+/** After the test, when it failed or timed out: the groups of the leaders it reported are killed and its servers closed, so that a failure ends the test run instead of leaving processes behind. */
+const afterFailure = (t, leaders, servers) => t.after(() => {
+  if (t.passed !== false) return;
+  for (const pid of leaders) { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } }
+  for (const sv of servers) sv.close();
+});
+
+test("run-bench.mjs: a run over the limit gets its whole process group stopped and is recorded as failed (143)", { timeout: 20000 }, async (t) => {
   const { runCommand } = await import(join(scripts, "run-bench.mjs"));
   const d = join(tmp, "grp"); mkdirSync(d); const log = join(d, "log"); writeFileSync(log, "");
-  // the command starts a grandchild that would outlive it and writes a pid file
-  const r = await runCommand({ argv: ["sh", "-c", "sleep 60 & echo $! > pid; wait"], cwd: d, logFile: log, label: "x", timeoutMs: 700, graceMs: 300 });
-  assert.equal(r.rc, 143); assert.ok(r.ms >= 600 && r.ms < 10000, String(r.ms));
-  await new Promise((ok) => setTimeout(ok, 300));
-  const pid = Number(readFileSync(join(d, "pid"), "utf8"));
-  assert.throws(() => process.kill(pid, 0), /ESRCH/, "the grandchild is still alive");
-  const k = await runCommand({ argv: ["sh", "-c", "trap '' TERM; sleep 5"], cwd: d, logFile: log, label: "y", timeoutMs: 300, graceMs: 300 });
-  assert.equal(k.rc, 137);
+  const rv = await listenOnce(), rk = await listenOnce(); const leaders = [];
+  afterFailure(t, leaders, [rv, rk]);
+  {
+    // the command starts a grandchild that would outlive it: the grandchild reports in, and only then does the limit pass
+    const clock = handClock();
+    const run = runCommand({ argv: [process.execPath, "-e", GROUP_LEADER, rv.path], cwd: d, logFile: log, label: "x", timeoutMs: 700, graceMs: 300, clock });
+    const grandchild = await rv.first; const dead = closed(grandchild); const said = lines(grandchild);
+    leaders.push(Number(await said()));
+    assert.equal(clock.pending(), 1, "only the limit is armed");
+    clock.advance(700);
+    const r = await run;
+    assert.equal(r.rc, 143); assert.equal(r.ms, 700);
+    await dead; // the grandchild is gone: if the group had not been stopped this socket stays open and the test ends at its timeout
+    assert.equal(clock.pending(), 0, "the finished run leaves no timer");
+    await rv.close();
+    // a command that ignores TERM is killed at the end of the grace period: the grace period starts at the limit and is a second event
+    const clock2 = handClock();
+    const k = runCommand({ argv: [process.execPath, "-e", TERM_IGNORER, rk.path], cwd: d, logFile: log, label: "y", timeoutMs: 300, graceMs: 300, clock: clock2 });
+    const said2 = lines(await rk.first);
+    leaders.push(Number(await said2()));
+    clock2.advance(300);
+    assert.equal(await said2(), "term"); // TERM was delivered and ignored; now the grace period ends
+    assert.equal(clock2.pending(), 1, "the kill is armed");
+    clock2.advance(600);
+    assert.equal((await k).rc, 137);
+    await rk.close();
+  }
   const m = await runCommand({ argv: ["no-such-program-173d"], cwd: d, logFile: log, label: "z", timeoutMs: 5000 });
   assert.equal(m.rc, 127); assert.match(readFileSync(log, "utf8"), /== z\nno-such-program-173d: not found/);
 });

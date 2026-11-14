@@ -3,6 +3,10 @@
 // the first step, the classification and defect-report checks, the fix bound, the scratch-worktree check, the language check of the run folder and the
 // effective tier record. Messages, ordering of the checks and the writes are those of agent.sh 0.0.47 (the freeze consumes approvals, so does this).
 import { buildRecord } from './buildrecord.mjs';
+import { sha256 } from './hash.mjs';
+import { planVerificationCommands } from './resultutil.mjs';
+import { measureRun, realRunner } from './testmeasure.mjs';
+import { verifyCommandTimeout } from './timeouts.mjs';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
@@ -13,12 +17,12 @@ import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, 
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { verifySeal } from './ledger.mjs';
-import { enforceTaskBranch, setRunValue } from './lifecycle.mjs';
+import { enforceTaskBranch, ledgerIf, setRunValue } from './lifecycle.mjs';
 import { led, must } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gateField, gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileText, gateField, gatesEnforced, ledgerLines, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pathMatches } from './scope.mjs';
 import { pipelineClass, pipelineClassValid, taskChangedPaths, tierEffective } from './signals.mjs';
@@ -157,13 +161,44 @@ function reopenForFix(ctx, id) {
   setRunValue(ctx, id, 'handoff', 'code_done_patch_sha256', 'PENDING');
 }
 
+/**
+ * #265 package B (A275, AC-4, AC-5): at IMPLEMENTED the control plane runs the new and changed tests twice on the same commit (the GREEN commands that are a configured
+ * command or an entry of the frozen plan's Verification commands) and compares exit status and duration with the configured tolerance. A stability finding stops the
+ * handoff; nothing is retried. Budget findings and a retry configured in the project's own CI are reported, and one ledger row records what was measured.
+ * @param {Context} ctx @param {string} id @param {string} patch the task patch fingerprint of the content being handed off
+ */
+function testMeasureAtImplemented(ctx, id, patch) {
+  if (ctx.role !== 'lead' && ctx.role !== 'implementer') return;
+  const dir = runDir(ctx, id);
+  // A stability block is latched in the sealed ledger for the content it was found on (the task patch hash; the commit is NOT part of it, so an empty commit, an amend or a rebase with the same patch cannot clear it): running IMPLEMENTED again on the same content
+  // cannot clear it, only a change of the content does (a rerun that happens to pass is not evidence of a stable test).
+  // The token also holds the plan's listed Verification commands (sorted): an amendment that swaps the listed command is a different measurement, so it runs the double run again.
+  const token = `patch=${sha256(Buffer.from(`${patch}\n${[...planVerificationCommands(ctx, id)].sort().join('\n')}`, 'utf8'))}`;
+  if (ledgerLines(ctx, dir).some((l) => / event=test-measure-block /.test(l) && l.endsWith(` detail=${token}`))) {
+    fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
+  }
+  const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });
+  for (const f of m.budgetFindings) ctx.err(`finding: ${f}\n`);
+  for (const r of m.retries) ctx.err(`note: the project's own configuration retries a test (reported, proofline never retries): ${r}\n`);
+  for (const c of m.superseded) ctx.err(`note: superseded: the earlier GREEN command \`${c}\` is not plan-listed or pinned, but a later GREEN record replaced it (only the latest GREEN record decides)\n`);
+  for (const c of m.notRun) ctx.err(`note: not run twice: \`${c}\` is neither a configured command nor an entry of the plan's Verification commands (list the command that runs the new tests there to have it double-run)\n`);
+  ledgerIf(ctx, id, 'test-measure', '-', '-', `tests=${m.tests.length} double_run=${m.ran.length} not_run=${m.notRun.length} budget_findings=${m.budgetFindings.length} stability_findings=${m.stability.length} blockers=${m.blockers.length} retries=${m.retries.length}`);
+  if (m.stability.length > 0) {
+    ledgerIf(ctx, id, 'test-measure-block', '-', '-', token);
+    fail(`IMPLEMENTED blocked: ${m.stability.join('; ')}. The new tests must give the same outcome and about the same duration on every run: find the cause (shared state, order, a real wait, the clock, randomness) and fix the test; there is no retry`);
+  }
+  // A DURATIONS block comes from the GREEN evidence, not from the content under test: it is not latched, re-recording GREEN with the real durations clears it.
+  if (m.durationBlocks.length > 0) fail(`IMPLEMENTED blocked: ${m.durationBlocks.join('; ')}. Re-record the GREEN evidence with the durations read from the real run output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again`);
+  if (m.blockers.length > 0) fail(`IMPLEMENTED blocked: ${m.blockers.join('; ')}`);
+}
+
 /** `build_record_auto ID` (handoff IMPLEMENTED, lead) @param {Context} ctx @param {string} id */
 function buildRecordAuto(ctx, id) {
   if (ctx.role !== 'lead') return;
   const why = buildRecordUnmakeable(ctx);
   if (why !== '') { ctx.err(`MISSING STEP (lead): ${why}. Do: ${BUILD_STEP(id)}\n`); return; }
   if (!buildRecordMissing(ctx)) return;
-  const r = buildRecord(ctx, 'run');
+  const r = buildRecord(ctx, 'run', '', id);
   if (r.status === 0) ctx.err(`build record made for the implemented tree (agent.sh build-record ${id} show)\n`);
   else ctx.err(`MISSING STEP (lead): the build record of this tree could not be made (see agent.sh build-record ${id} run); the handoff is not blocked, but the reviewers and the verifier have no record to read. Fix what it reports (a missing install, secret or env file), then run agent.sh build-record ${id} run\n`);
 }
@@ -259,6 +294,7 @@ export function recordHandoff(ctx, id, phase) {
       dbGuardCheck(ctx, id);
       verifyDebugResult(ctx, id);
       must(verifyWorkerEvidence(ctx, id));
+      testMeasureAtImplemented(ctx, id, patch);
       verifyMutationOwnership(ctx, dir, id, true);
       verifyFixBound(ctx, id);
       buildRecordAuto(ctx, id);

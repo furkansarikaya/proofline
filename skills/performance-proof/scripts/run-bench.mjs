@@ -55,21 +55,25 @@ export function parseArgs(argv) {
 let current = null; // the child that runs now (for a signal sent to this process)
 const killGroup = (pid, sig) => { try { if (POSIX) process.kill(-pid, sig); else process.kill(pid, sig); } catch { /* gone */ } };
 
+const REAL_CLOCK = { now: () => Number(process.hrtime.bigint()) / 1e6, setTimeout, clearTimeout };
+
 /**
  * Runs argv in cwd with its output appended to logFile. The command is a child in its own process group: at the limit the whole
  * group gets TERM and, graceMs later, KILL. Resolves { rc, ms }; rc is 128+signal for a signal, 127 when the program does not exist.
+ * `clock` is the injectable time (its defaults are the monotonic clock and the real timers): { now() in ms, setTimeout, clearTimeout }; a test hands in a clock it
+ * steps by hand, so the limit and the grace period are events it fires, not durations it waits for.
  */
-export function runCommand({ argv, cwd, logFile, label, timeoutMs, graceMs = 5000 }) {
+export function runCommand({ argv, cwd, logFile, label, timeoutMs, graceMs = 5000, clock = REAL_CLOCK }) {
   appendFileSync(logFile, `== ${label}\n`);
   const fd = openSync(logFile, "a");
-  const t0 = process.hrtime.bigint();
+  const t0 = clock.now();
   return new Promise((done) => {
     let settled = false, timer = null, grace = null, timedOut = false;
     const finish = (rc) => {
       if (settled) return; settled = true;
-      clearTimeout(timer); clearTimeout(grace); current = null;
+      clock.clearTimeout(timer); clock.clearTimeout(grace); current = null;
       try { closeSync(fd); } catch { /* closed */ }
-      done({ rc, ms: Number(process.hrtime.bigint() - t0) / 1e6 });
+      done({ rc, ms: clock.now() - t0 });
     };
     let program;
     try { program = programOf(argv[0], cwd); } catch (e) { appendFileSync(logFile, `${e.message}\n`); finish(127); return; }
@@ -84,10 +88,10 @@ export function runCommand({ argv, cwd, logFile, label, timeoutMs, graceMs = 500
       const rc = code ?? 128 + (osc.signals[signal] ?? 0);
       finish(timedOut && rc === 0 ? 128 + osc.signals.SIGTERM : rc);
     });
-    timer = setTimeout(() => {
+    timer = clock.setTimeout(() => {
       timedOut = true;
       killGroup(child.pid, "SIGTERM");
-      grace = setTimeout(() => killGroup(child.pid, "SIGKILL"), graceMs);
+      grace = clock.setTimeout(() => killGroup(child.pid, "SIGKILL"), graceMs);
     }, timeoutMs);
   });
 }

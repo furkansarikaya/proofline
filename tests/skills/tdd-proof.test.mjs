@@ -1,7 +1,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, readFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -83,7 +83,7 @@ const good = () => ({
     path: "src/parse.js", criterion: "AC-1",
     test: { file: "test/parse.test.js", name: "parses seconds" },
     red: { command: "node --test test/parse.test.js", exit_code: 1, failure_class: "assertion", expected_failure: "parseDuration('90s') returns 0 instead of 90000", output_excerpt: SAMPLES.assertion.node, stub_written: true },
-    green: { command: "node --test test/parse.test.js", exit_code: 0, suite_command: "node --test", suite_exit_code: 0 },
+    green: { command: "node --test test/parse.test.js", exit_code: 0, suite_command: "node --test", suite_exit_code: 0, duration_ms: 0.42, duration_source: "runner_output", duration_excerpt: "ok 1 - parses seconds # duration_ms 0.42" },
     hollow_check: { method: "revert", worktree: "/tmp/wt-1", command: "node --test test/parse.test.js", exit_code: 1, output_excerpt: SAMPLES.assertion.node, failed_for_expected_reason: true },
     refactor: { changes: "extract unit table", command: "node --test", exit_code: 0 },
   }],
@@ -113,6 +113,64 @@ test("validate: stock or short expected_failure rejected", () => {
 test("validate: GREEN must use the RED command, exit 0, suite green", () => {
   const d = good(); d.cycles[0].green.command = "node --test"; d.cycles[0].green.exit_code = 1; d.cycles[0].green.suite_exit_code = 2;
   const e = errs(d); has(e, "same command"); has(e, "GREEN must exit 0"); has(e, "suite must exit 0");
+});
+test("validate: the duration fields are optional (an older tdd.json still passes) and checked when present (issue 265, AC-2)", () => {
+  const d = good();
+  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) delete d.cycles[0].green[k];
+  assert.deepEqual(errs(d), []);
+  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) { const e = good(); e.cycles[0].green[k] = k === "duration_ms" ? "x" : 5; has(errs(e), `green.${k}`); }
+});
+test("validate: schema_version 2 requires the three duration fields, schema_version 1 (an older recording) keeps them optional (issue 265 package B)", () => {
+  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) {
+    const v2 = good(); v2.schema_version = 2; delete v2.cycles[0].green[k]; has(errs(v2), `green.${k}`);
+    const v1 = good(); v1.schema_version = 1; delete v1.cycles[0].green[k]; assert.deepEqual(errs(v1), []);
+  }
+  const ok = good(); ok.schema_version = 2; assert.deepEqual(errs(ok), []);
+  const bad = good(); bad.schema_version = 3; has(errs(bad), "schema_version");
+});
+test("validate-tdd.mjs refuses schema_version 1 in a run whose sealed ledger start row has measure=1, and keeps it valid for an older run (issue 265 package B)", () => {
+  const mk = (/** @type {string} */ startDetail, /** @type {number} */ version) => {
+    const root = tempDir("tdd-v");
+    const run = join(root, ".agents/runs/LC");
+    mkdirSync(join(run, "reports"), { recursive: true });
+    writeFileSync(join(run, "LEDGER.log"), `seq=1 prev=genesis event=start role=lead from=- to=PLANNED digest=x ts=t epoch=1 detail=${startDetail}\n`);
+    const doc = good(); doc.schema_version = version;
+    const f = join(run, "reports/001-implementer.md");
+    writeFileSync(f, `# result\n\n\`\`\`json\n${JSON.stringify(doc)}\n\`\`\`\n`);
+    return f;
+  };
+  const stampedV1 = spawnSync("node", [vScript, mk("task=t adapter=markdown measure=1", 1)]);
+  assert.equal(stampedV1.status, 1);
+  assert.match(stampedV1.stderr.toString(), /schema_version: must be 2/);
+  assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown measure=1", 2)]).status, 0);
+  assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown", 1)]).status, 0, "a run started before the stamp keeps version 1 valid");
+  assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown", 2)]).status, 0);
+});
+test("validate-tdd.mjs finds the run from the working directory when the file is outside any .agents folder (the ACTIVE_RUN of the project that holds it)", () => {
+  const root = tempDir("tdd-cwd");
+  mkdirSync(join(root, ".agents/runs/LC"), { recursive: true });
+  mkdirSync(join(root, ".agents/local"), { recursive: true });
+  writeFileSync(join(root, ".agents/local/ACTIVE_RUN"), "LC\n");
+  writeFileSync(join(root, ".agents/runs/LC/LEDGER.log"), "seq=1 prev=genesis event=start role=lead from=- to=PLANNED digest=x ts=t epoch=1 detail=task=t adapter=markdown measure=1\n");
+  const elsewhere = tempDir("tdd-out");
+  const f = join(elsewhere, "tdd.json");
+  const doc = good(); doc.schema_version = 1;
+  writeFileSync(f, JSON.stringify(doc));
+  const inside = spawnSync("node", [vScript, f], { cwd: root });
+  assert.equal(inside.status, 1);
+  assert.match(inside.stderr.toString(), /schema_version: must be 2/);
+  assert.equal(spawnSync("node", [vScript, f], { cwd: elsewhere }).status, 0, "no project around the working directory: version 1 stays valid");
+});
+test("validate: a duration must be a non-negative number from a runner line or a timed command", () => {
+  for (const v of [-1, "0.4", null, Number.NaN, Infinity]) {
+    const d = good(); d.cycles[0].green.duration_ms = v; has(errs(d), "green.duration_ms");
+  }
+  const d = good(); d.cycles[0].green.duration_source = "estimate"; has(errs(d), "green.duration_source");
+  const z = good(); z.cycles[0].green.duration_ms = 0; assert.deepEqual(errs(z), []);
+  const t = good(); t.cycles[0].green.duration_source = "command_wall_time"; t.cycles[0].green.duration_excerpt = "real 0m0.31s"; assert.deepEqual(errs(t), []);
+});
+test("validate: the excerpt must hold a number, so a prose estimate is not a measurement", () => {
+  const d = good(); d.cycles[0].green.duration_excerpt = "about a quarter of a second"; has(errs(d), "green.duration_excerpt");
 });
 test("validate: hollow test (still passes without the change) rejected", () => {
   const d = good(); d.cycles[0].hollow_check.exit_code = 0; has(errs(d), "hollow test");

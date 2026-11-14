@@ -1,0 +1,10 @@
+{"file":"tests/a.test.mjs","name":"fast","nesting":1,"ms":2.7,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"slow","nesting":1,"ms":1100,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"inner","nesting":2,"ms":41,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"outer","nesting":1,"ms":46,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"Suite A","nesting":0,"ms":1150,"outcome":"pass","suite":true}
+{"file":"tests/b.test.mjs","name":"top level","nesting":0,"ms":3100,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"flaky outcome","nesting":0,"ms":5,"outcome":"fail","suite":false}
+{"file":"tests/b.test.mjs","name":"jittery","nesting":0,"ms":2600,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"twice","nesting":0,"ms":1,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"twice","nesting":0,"ms":2,"outcome":"pass","suite":false}

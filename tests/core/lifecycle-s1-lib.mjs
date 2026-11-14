@@ -46,7 +46,7 @@ export function amendAs(dir, role, reason, scope, instruction, by) {
 /** `worker-evidence` without touching the tree (the evidence-order scenario's `ev`); stdout and stderr together. @param {string} dir @param {string} phase @param {string} target @param {string} res */
 export function evidence(dir, phase, target, res = 'pass') {
   const ef = phase === 'RED' ? 'expected_failure: TestImpl fails: lookup is not implemented in impl.txt yet' : '';
-  return A(dir, ['worker-evidence', 'LC', phase, res], { input: `command: go test ./...\ntarget: ${target}\n${ef}\n` });
+  return A(dir, ['worker-evidence', 'LC', phase, res], { input: `command: go test ./...\ntarget: ${target}\n${ef}\n${phase === 'GREEN' ? 'test_durations: lookup returns the stored value=1\n' : ''}` });
 }
 
 /** `next LC` output. @param {string} dir */

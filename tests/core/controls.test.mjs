@@ -41,7 +41,7 @@ function report(d, id) {
 /** ev ROLE ID PHASE RESULT TARGET: worker evidence as the role (RED carries the expected failure). @param {string} d @param {string} role @param {string} id @param {string} phase @param {string} res @param {string} target */
 function ev(d, role, id, phase, res, target) {
   const ef = phase === 'RED' ? 'expected_failure: TestImpl fails: Find() does not exist yet, specifically' : '';
-  return A(d, ['worker-evidence', id, phase, res], { role, input: `command: go test ./...\ntarget: ${target}\n${ef}\n` });
+  return A(d, ['worker-evidence', id, phase, res], { role, input: `command: go test ./...\ntarget: ${target}\n${ef}\n${phase === 'GREEN' ? 'test_durations: lookup returns the stored value=1\n' : ''}` });
 }
 const commit = (/** @type {string} */ d, /** @type {string} */ m) => commitAll(d, m);
 /** `sed '$d'`: the text without its last line. @param {string} t */

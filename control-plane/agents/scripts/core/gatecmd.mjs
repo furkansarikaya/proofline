@@ -26,6 +26,7 @@ import { expandWords } from './shellglob.mjs';
 import { runSecretScan } from './secretscan.mjs';
 import { exemptedPath, verifyFreeze } from './commands/verify.mjs';
 import { headSha } from './git.mjs';
+import { measureRequired } from './testmeasure.mjs';
 import { notRunRelative } from './pathin.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -154,6 +155,15 @@ export function workerEvidenceCommand(ctx, args) {
   const targetText = fieldFromText(stdin, 'target');
   const expectedFailure = fieldFromText(stdin, 'expected_failure');
   if (commandText === '') fail('worker evidence requires a non-empty command');
+  // #265 AC-2 (A273): GREEN may carry the duration of each new test, read from the run's own output: `test_durations: name=ms[; name=ms]`
+  const durationsGiven = stdin.split('\n').some((l) => l.startsWith('test_durations:'));
+  const durations = fieldFromText(stdin, 'test_durations').trim();
+  if (durationsGiven) {
+    if (phase !== 'GREEN') fail(`${phase} evidence cannot carry test_durations: only a passing GREEN run has a test duration to report`);
+    const okEntry = (/** @type {string} */ e) => { const i = e.lastIndexOf('='); return i > 0 && e.slice(0, i).trim() !== '' && !e.slice(0, i).includes('=') && /^\d+(\.\d+)?$/.test(e.slice(i + 1)); };
+    if (durations.length > 4096) fail('test_durations is longer than 4096 characters');
+    if (!durations.split(';').every((e) => okEntry(e.trim()))) fail('test_durations must be `<test name>=<milliseconds>` entries separated by `;` (a number of 0 or more read from the GREEN run output, never an estimate)');
+  }
   if (targetText === '') fail('worker evidence requires a non-empty target (comma-separated scope paths)');
   const sc = planScope(ctx, dir);
   if (!sc.ok) fail('invalid scope mapping');
@@ -179,12 +189,19 @@ export function workerEvidenceCommand(ctx, args) {
       } else if (latestEvidence(ctx, evdir, 'GREEN', p) === '' && latestEvidence(ctx, evdir, 'FIX', p) === '') fail(`REFACTOR evidence rejected: no GREEN evidence for ${p} yet`);
     }
   }
+  // #265 package B (A275): a run started with the measure=1 stamp (sealed in its ledger) must report the duration of the new tests with every GREEN that
+  // covers a non-exempt path. A run started before the stamp existed keeps the optional field.
+  if (phase === 'GREEN' && !durationsGiven && measureRequired(ctx, id) && targets.some((p) => exemptedPath(plan, p) === '')) {
+    fail('GREEN evidence requires `test_durations: <test name>=<milliseconds>[; ...]` (the duration of each new test, read from the GREEN run output, never an estimate): this run was started with the test measurement (#265); a run started before it does not need the line');
+  }
+  if (phase === 'GREEN' && durationsGiven && durations === '') fail('test_durations is empty: name each new test with its measured milliseconds');
   try { mkdirSync(evdir, { recursive: true }); } catch { fail(`worker evidence directory could not be created (sandbox denied write?): ${evdir}`); }
   const seq = nextEvidenceSeq(evdir, phase);
   const out = `${evdir}/${phase}-${seq}.yaml`;
   const sv = (/** @type {string} */ k) => sectionValue(ctx, dir, 'freeze', k);
   let t = `task_id: "${id}"\nphase: "${phase}"\nresult: "${result}"\nrole: "${ctx.role}"\ntopology: "${topology}"\n`;
   t += `command: ${commandText}\ntarget: ${targetText}\n`;
+  if (durationsGiven) t += `test_durations: ${durations.split(';').map((e) => e.trim()).join('; ')}\n`;
   if (phase === 'RED') t += `expected_failure: ${expectedFailure}\n`;
   t += `scope_snapshot: ${snapshot}\n`;
   const base = headSha(ctx);

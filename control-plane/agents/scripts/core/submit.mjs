@@ -25,6 +25,7 @@ import { notRunRelative, reportNamesAgent } from './pathin.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { inKnowledgeScope } from './scope.mjs';
 import { now } from './clock.mjs';
+import { missingFindings } from './testreview.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -103,7 +104,10 @@ function verifyTestsFindings(ctx, id) {
   const out = r.stdout.toString('latin1') + r.stderr.toString('latin1');
   if (r.status !== 0) return out.replace(/\n/g, ' ');
   for (const l of out.split('\n')) if (l.startsWith('WARNING:')) ctx.err(`${l}\n`);
-  return '';
+  // #265 package C (A276): in a measured run every scan candidate, BUDGET finding and NOT MEASURED fact needs a finding of its own (confirmed, or cleared by the validator's rules)
+  let doc; try { doc = JSON.parse(readFileSync(f, 'utf8')); } catch { return ''; }
+  const missing = missingFindings(ctx, id, doc);
+  return missing.length > 0 ? missing.slice(0, 20).join('; ') : '';
 }
 
 /** `submit_status TOKEN STATUS ID ROLE RESULT GATE RAW ERROR` @param {Context} ctx @param {string[]} a */

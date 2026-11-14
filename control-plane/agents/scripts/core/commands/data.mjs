@@ -46,7 +46,7 @@ export const USAGE_LINES = [
   "  friction <report ID|show|issue-cmd|send>   (A149: anonymous run-end friction report; `send` files a GitHub issue only after the user's `report` approval)",
   "  calibrate   (A149: config suggestions from metrics and plans; read-only, never edits a file)",
   "  debt [list|page]   (A153: the project's `shortcut: <limit>, <when to improve>` code comments with file:line; read-only, needs no run; `page` is lead-only and rewrites the one wiki page)",
-  "  build-record <ID> [run|show]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record)",
+  "  build-record <ID> [run|show|scan [--json]]   (one build and test run per tree, recorded under .agents/local/builds/; `run` is lead-only, `show` is read-only and exits 3 without a record; `scan` is read-only and prints the real-wait and clock-read candidates of the task's files, the plan's test exceptions and the measurement facts REVIEW_TESTS reads, exit 1 when it lists a candidate, A276)",
   "  next-user [<command> [<ID>]] [--error[=<kind>]] | next-user --commands   (read-only, any role: the user's next step after a /proofline command, from the one table in core/nextuser.mjs, A159)",
   "  design-surface <REL-PATH>   (read-only: the design documents that apply to a file, key=value lines; design_docs.design as one path or as surfaces; exit 1 when two surfaces match)",
   "  worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)",
