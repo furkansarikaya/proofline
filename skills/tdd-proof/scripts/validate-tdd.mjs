@@ -120,12 +120,19 @@ export function validate(doc, { scope = null, criteria = null, requireV2 = false
 }
 
 // A run started with the test measurement (#265 package B, A275) carries measure=1 on the start row of its sealed LEDGER.log. The ledger is found from the input
-// file: the run folder it sits in (.agents/runs/<ID>/...), else the run named by .agents/local/ACTIVE_RUN. No ledger found means an older or unmanaged setting: version 1 stays valid.
-export function runRequiresV2(file) {
-  const abs = resolve(file);
-  const parts = abs.split(sep);
-  const at = parts.lastIndexOf(".agents");
-  if (at < 0) return false;
+// file: the run folder it sits in (.agents/runs/<ID>/...), else the run named by .agents/local/ACTIVE_RUN (for a file outside any .agents folder, the project that holds the working directory). No ledger found means an older or unmanaged setting: version 1 stays valid.
+export function runRequiresV2(file, cwd = process.cwd()) {
+  // a file outside any .agents folder (a tdd.json written to a scratch path): the project is then the one that holds the working directory
+  let parts = resolve(file).split(sep);
+  let at = parts.lastIndexOf(".agents");
+  if (at < 0) {
+    parts = resolve(cwd).split(sep);
+    let up = parts.length;
+    while (up > 0 && !existsSync(join(parts.slice(0, up).join(sep) || sep, ".agents", "local", "ACTIVE_RUN"))) up--;
+    if (up === 0) return false;
+    parts = [...parts.slice(0, up), ".agents"];
+    at = parts.length - 1;
+  }
   const agents = parts.slice(0, at + 1).join(sep) || sep;
   let runDir = null;
   if (parts[at + 1] === "runs" && parts[at + 2]) runDir = join(agents, "runs", parts[at + 2]);

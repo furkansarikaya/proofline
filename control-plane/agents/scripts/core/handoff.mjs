@@ -3,6 +3,8 @@
 // the first step, the classification and defect-report checks, the fix bound, the scratch-worktree check, the language check of the run folder and the
 // effective tier record. Messages, ordering of the checks and the writes are those of agent.sh 0.0.47 (the freeze consumes approvals, so does this).
 import { buildRecord } from './buildrecord.mjs';
+import { sha256 } from './hash.mjs';
+import { planVerificationCommands } from './resultutil.mjs';
 import { measureRun, realRunner } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -170,7 +172,8 @@ function testMeasureAtImplemented(ctx, id, patch) {
   const dir = runDir(ctx, id);
   // A stability block is latched in the sealed ledger for the content it was found on (the task patch hash; the commit is NOT part of it, so an empty commit, an amend or a rebase with the same patch cannot clear it): running IMPLEMENTED again on the same content
   // cannot clear it, only a change of the content does (a rerun that happens to pass is not evidence of a stable test).
-  const token = `patch=${patch}`;
+  // The token also holds the plan's listed Verification commands (sorted): an amendment that swaps the listed command is a different measurement, so it runs the double run again.
+  const token = `patch=${sha256(Buffer.from(`${patch}\n${[...planVerificationCommands(ctx, id)].sort().join('\n')}`, 'utf8'))}`;
   if (ledgerLines(ctx, dir).some((l) => / event=test-measure-block /.test(l) && l.endsWith(` detail=${token}`))) {
     fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
   }
@@ -183,6 +186,8 @@ function testMeasureAtImplemented(ctx, id, patch) {
     ledgerIf(ctx, id, 'test-measure-block', '-', '-', token);
     fail(`IMPLEMENTED blocked: ${m.stability.join('; ')}. The new tests must give the same outcome and about the same duration on every run: find the cause (shared state, order, a real wait, the clock, randomness) and fix the test; there is no retry`);
   }
+  // A DURATIONS block comes from the GREEN evidence, not from the content under test: it is not latched, re-recording GREEN with the real durations clears it.
+  if (m.durationBlocks.length > 0) fail(`IMPLEMENTED blocked: ${m.durationBlocks.join('; ')}. Re-record the GREEN evidence with the durations read from the real run output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again`);
   if (m.blockers.length > 0) fail(`IMPLEMENTED blocked: ${m.blockers.join('; ')}`);
 }
 

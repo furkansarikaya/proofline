@@ -146,6 +146,21 @@ test("validate-tdd.mjs refuses schema_version 1 in a run whose sealed ledger sta
   assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown", 1)]).status, 0, "a run started before the stamp keeps version 1 valid");
   assert.equal(spawnSync("node", [vScript, mk("task=t adapter=markdown", 2)]).status, 0);
 });
+test("validate-tdd.mjs finds the run from the working directory when the file is outside any .agents folder (the ACTIVE_RUN of the project that holds it)", () => {
+  const root = tempDir("tdd-cwd");
+  mkdirSync(join(root, ".agents/runs/LC"), { recursive: true });
+  mkdirSync(join(root, ".agents/local"), { recursive: true });
+  writeFileSync(join(root, ".agents/local/ACTIVE_RUN"), "LC\n");
+  writeFileSync(join(root, ".agents/runs/LC/LEDGER.log"), "seq=1 prev=genesis event=start role=lead from=- to=PLANNED digest=x ts=t epoch=1 detail=task=t adapter=markdown measure=1\n");
+  const elsewhere = tempDir("tdd-out");
+  const f = join(elsewhere, "tdd.json");
+  const doc = good(); doc.schema_version = 1;
+  writeFileSync(f, JSON.stringify(doc));
+  const inside = spawnSync("node", [vScript, f], { cwd: root });
+  assert.equal(inside.status, 1);
+  assert.match(inside.stderr.toString(), /schema_version: must be 2/);
+  assert.equal(spawnSync("node", [vScript, f], { cwd: elsewhere }).status, 0, "no project around the working directory: version 1 stays valid");
+});
 test("validate: a duration must be a non-negative number from a runner line or a timed command", () => {
   for (const v of [-1, "0.4", null, Number.NaN, Infinity]) {
     const d = good(); d.cycles[0].green.duration_ms = v; has(errs(d), "green.duration_ms");

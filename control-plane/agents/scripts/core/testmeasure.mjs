@@ -286,6 +286,7 @@ export function measureRun(ctx, id, opt = {}) {
   const durations = greens.flatMap((g) => g.durations);
   const bc = budgetCheck(durations, pk.names, cfg, pk.budgets);
   /** @type {string[]} */ const stability = [];
+  /** @type {string[]} */ const durationBlocks = [];
   /** @type {string[]} */ const notRun = [];
   /** @type {string[]} */ let ran = [];
   /** @type {string[]} */ const blockers = [];
@@ -309,14 +310,17 @@ export function measureRun(ctx, id, opt = {}) {
       ran = dr.runs.map((r) => r.command);
       for (const r of dr.runs) {
         if (r.results.length < 2 || stability.length > 0) continue;
-        const sum = greens.filter((g) => g.command === r.command).flatMap((g) => g.durations).reduce((a, d) => a + d.ms, 0);
+        // a test recorded again replaces its earlier number (the latest GREEN record of the command wins), so a re-recorded honest duration clears an earlier made-up one
+        /** @type {Map<string, number>} */ const latest = new Map();
+        for (const g of greens) if (g.command === r.command) for (const d of g.durations) latest.set(d.name, d.ms);
+        const sum = [...latest.values()].reduce((a, ms) => a + ms, 0);
         const wall = Math.max(r.results[0].ms, r.results[1].ms);
-        if (durationsExceedWall(sum, wall, tol)) stability.push(`DURATIONS the recorded test durations of \`${r.command}\` add up to ${fmtMs(sum)}, but the whole command took at most ${fmtMs(wall)} when the control plane ran it: the recorded numbers are not from a real run`);
+        if (durationsExceedWall(sum, wall, tol)) durationBlocks.push(`DURATIONS the recorded test durations of \`${r.command}\` add up to ${fmtMs(sum)}, but the whole command took at most ${fmtMs(wall)} when the control plane ran it: the recorded numbers are not from a real run`);
       }
       const after = headSha(ctx);
       if (before !== after) stability.push('STABILITY the commit changed during the double run; both runs must see the same commit');
     }
     if (stamped && greens.length > 0 && ran.length === 0 && blockers.length === 0) blockers.push('no GREEN command of this run could be run twice: record GREEN with the command that runs the new or changed tests, and list it in the plan\'s ## Verification commands');
   }
-  return { tests: bc.tests, budgetFindings: bc.findings, stability, blockers, notRun, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
+  return { tests: bc.tests, budgetFindings: bc.findings, stability, durationBlocks, blockers, notRun, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
 }

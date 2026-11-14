@@ -4,8 +4,9 @@
 // No test waits and none reads a clock: the tolerance maths gets a fake runner that returns fixed milliseconds, the durations are fixed strings, and the CLI
 // tests use tiny commands whose outcome is decided by a counter file, not by time.
 import assert from 'node:assert/strict';
-import { appendFileSync, cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
@@ -175,20 +176,29 @@ test('a build record of a run with no durations prints no measurement section (a
   assert.doesNotMatch(r.out, /test-durations:|finding:/);
 });
 
-/** A test command whose exit status comes from a counter file outside the project: the first run passes, the later runs exit with SECOND. @param {string} second */
-function counterCommand(second) {
-  const dir = tmp('stab');
-  const counter = path.join(dir, 'count');
-  const script = path.join(dir, 'run.mjs');
+/**
+ * The constant plan command of the counter tests: the plan text is the same in every test, so the seeded project is shared (one build, not one per test). The script and its
+ * counter file live inside the per-test project copy, at relative paths, and are written after the copy is made.
+ */
+const COUNTER = 'node .git/tm-run.mjs';
+/** A test command whose exit status comes from a counter file inside the project: the first run passes, the later runs exit with SECOND. @param {string} d @param {string} second */
+function counterIn(d, second) {
+  const counter = path.join(d, '.git/tm-count');
   writeFileSync(counter, '');
-  writeFileSync(script, `import { appendFileSync, readFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(counter)}, 'x');\nprocess.exit(readFileSync(${JSON.stringify(counter)}, 'utf8').length === 1 ? 0 : ${Number(second)});\n`);
-  return { command: `node ${posix(script)}`, runs: () => readFileSync(counter, 'utf8').length };
+  const script = path.join(d, '.git/tm-run.mjs');
+  // the counter sits beside the script, so the relative plan command and the absolute one that the build record runs (in its own export) count into the same file
+  writeFileSync(script, `import { appendFileSync, readFileSync } from 'node:fs';\nconst counter = new URL('tm-count', import.meta.url);\nappendFileSync(counter, 'x');\nprocess.exit(readFileSync(counter, 'utf8').length === 1 ? 0 : ${Number(second)});\n`);
+  return { command: COUNTER, buildCommand: `node ${posix(script)}`, runs: () => readFileSync(counter, 'utf8').length };
+}
+/** @param {string} second @returns {{ d: string, w: string, c: ReturnType<typeof counterIn> }} the seeded project with the counter command listed in the plan */
+function counterProject(second, extraScaffold = {}) {
+  const { d, w } = seeded({ scaffold: { planExtra: verif(COUNTER), ...extraScaffold } });
+  return { d, w, c: counterIn(d, second) };
 }
 
 test('IMPLEMENTED runs the new tests twice: a test that passes once and fails once stops the handoff, and nothing is retried', () => {
-  const c = counterCommand('1');
-  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
-  setCmd(d, 'test', c.command);
+  const { d, w, c } = counterProject('1');
+  setCmd(d, 'test', c.buildCommand);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a flaky test', 'IMPLEMENTED blocked: STABILITY');
@@ -196,9 +206,8 @@ test('IMPLEMENTED runs the new tests twice: a test that passes once and fails on
 });
 
 test('a stability block is latched: IMPLEMENTED again on the same content stays blocked and runs nothing', () => {
-  const c = counterCommand('1');
-  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
-  setCmd(d, 'test', c.command);
+  const { d, w, c } = counterProject('1');
+  setCmd(d, 'test', c.buildCommand);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 1', 'IMPLEMENTED blocked: STABILITY');
@@ -208,9 +217,8 @@ test('a stability block is latched: IMPLEMENTED again on the same content stays 
 });
 
 test('IMPLEMENTED with a stable test passes, records one ledger row, and runs the command twice (plus the one build record run)', () => {
-  const c = counterCommand('0');
-  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
-  setCmd(d, 'test', c.command);
+  const { d, w, c } = counterProject('0');
+  setCmd(d, 'test', c.buildCommand);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a stable test');
@@ -249,9 +257,8 @@ test('a configured command that the plan does not list does not satisfy the doub
 });
 
 test('the latch is keyed on the content, not on the commit: an empty commit stays blocked and an amend never passes; with the same content, a real change of the content runs the double run again', () => {
-  const c = counterCommand('1');
-  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
-  setCmd(d, 'test', c.command);
+  const { d, w, c } = counterProject('1');
+  setCmd(d, 'test', c.buildCommand);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 1', 'IMPLEMENTED blocked: STABILITY');
@@ -277,6 +284,42 @@ test('recorded durations that add up to more than the whole command took are a f
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a made-up duration', 'DURATIONS the recorded test durations of `node --version` add up to 900000 ms');
 });
 
+test('a DURATIONS block is not latched: re-recording the GREEN evidence with honest durations clears it on the same content, and the message says to re-record', () => {
+  const { d, w } = seeded({ scaffold: { planExtra: verif('node --version') } });
+  setCmd(d, 'test', 'node --version');
+  accepted(green(d, 'node --version', 'test_durations: lookup=900000\n'), 'GREEN with a made-up duration');
+  wclose(d, w);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r, 'a made-up duration', 'DURATIONS the recorded test durations');
+  assert.match(r.text, /Re-record the GREEN evidence with the durations read from the real run output/);
+  assert.doesNotMatch(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure-block /, 'a durations block is not a stability latch');
+  const w2 = wopen(d);
+  accepted(green(d, 'node --version', 'test_durations: lookup=1\n'), 'GREEN re-recorded with an honest duration');
+  wclose(d, w2);
+  accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'the same content passes once the evidence is honest');
+});
+
+test('the latch token holds the plan Verification commands: a plan amendment that changes the listed commands runs the double run again on the same content', () => {
+  const { d, w, c } = counterProject('1');
+  setCmd(d, 'test', c.buildCommand);
+  accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(d, w);
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 1', 'IMPLEMENTED blocked: STABILITY');
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 2, the same plan', 'unstable on exactly this content');
+  assert.equal(c.runs(), 2);
+  // the amendment: the listed commands change (a second command is added) and the freeze record names the new plan hash, as a refreeze would
+  const plan = path.join(d, '.agents/runs/LC/PLAN.md');
+  const runYaml = path.join(d, '.agents/runs/LC/RUN.yaml');
+  const hashOf = (/** @type {string} */ f) => createHash('sha256').update(readFileSync(f)).digest('hex');
+  const old = hashOf(plan);
+  appendFileSync(plan, '- `node .git/tm-other.mjs`\n');
+  const fresh = hashOf(plan);
+  for (const f of [runYaml, ...readdirSync(path.join(d, '.agents/runs/LC/worker-evidence')).map((n) => path.join(d, '.agents/runs/LC/worker-evidence', n))]) writeFileSync(f, readFileSync(f, 'utf8').replaceAll(old, fresh)); // the evidence names the plan hash it was recorded against
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  assert.doesNotMatch(r.text, /unstable on exactly this content/, 'a different list of commands is a different measurement');
+  assert.ok(c.runs() > 2, 'the double run ran again');
+});
+
 test('durationsExceedWall needs the floor AND the ratio, so a small overlap of a parallel runner is not a finding', () => {
   const tol = { ratio: 4, floorMs: 2000 };
   assert.equal(durationsExceedWall(900000, 300, tol), true);
@@ -286,9 +329,8 @@ test('durationsExceedWall needs the floor AND the ratio, so a small overlap of a
 });
 
 test('a retry in the project own CI configuration is reported, from the ecosystems.json data', () => {
-  const c = counterCommand('0');
-  const { d, w } = seeded({ scaffold: { scopeNamed: '.gitlab-ci.yml', planExtra: verif(c.command) } });
-  setCmd(d, 'test', c.command);
+  const { d, w, c } = counterProject('0', { scopeNamed: '.gitlab-ci.yml' });
+  setCmd(d, 'test', c.buildCommand);
   writeFileSync(path.join(d, '.gitlab-ci.yml'), 'test:\n  script: make test\n  retry: 2\n');
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
