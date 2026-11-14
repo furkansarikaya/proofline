@@ -6,7 +6,16 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTemplate, copyProject, runHook, rmSync } from './harness.mjs';
+import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { buildTemplate, copyProject, runHook, rmSync, nodeHook, cleanEnv } from './harness.mjs';
+import { tokenize, roleActions } from '../../adapters/claude/hooks/guards/rolewrites.mjs';
+import { WRITE_PROGRAMS } from '../../adapters/claude/hooks/command-scan.mjs';
+
+// The verdicts are asked in process (the same buildContext and PreToolUse handler the hook process runs; one test spawns the real hook to prove they agree): a hook process per question made the file take minutes.
+const hookDir = dirname(nodeHook);
+const { buildContext, finish } = await import(pathToFileURL(join(hookDir, 'lib/context.mjs')).href);
+const { handle } = await import(pathToFileURL(join(hookDir, 'events/pretool.mjs')).href);
 
 let template = '';
 let base = '';
@@ -23,9 +32,20 @@ const LEAD = /** @type {[string, Record<string, string>, Record<string, string>]
 
 /** @param {string} command @param {Record<string, string>} who @param {Record<string, string>} env @returns {Promise<string | null>} the refusal text, or null when allowed */
 async function pre(command, who, env) {
+  const raw = Buffer.from(JSON.stringify({ cwd: dir, session_id: 's1', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, ...who }));
+  const c = await buildContext('pretool', 'claude', raw, cleanEnv({ CLAUDE_PROJECT_DIR: dir, TMPDIR: '/var/proofline-roletgt-tmp', ...env }));
+  assert.ok(c, 'no hook context');
+  try {
+    const out = await handle(c);
+    if (typeof out !== 'string' || out === '') return null;
+    return /** @type {string} */ (JSON.parse(out).hookSpecificOutput.permissionDecisionReason);
+  } finally { finish(c); }
+}
+
+/** The real hook process, for the parity test. @param {string} command @param {Record<string, string>} who @param {Record<string, string>} env @returns {Promise<string | null>} */
+async function preSpawn(command, who, env) {
   const r = await runHook('node', dir, 'pretool', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, ...who }, { env: { TMPDIR: '/var/proofline-roletgt-tmp', ...env } });
-  if (r.stdout === '') return null;
-  return /** @type {string} */ (JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason);
+  return r.stdout === '' ? null : /** @type {string} */ (JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason);
 }
 
 // [name, command]. The first five are AC-1; the rest are the other spellings the lead refuses (redirect operators, file descriptors, quoting, brace and arithmetic forms, default-value forms,
@@ -179,6 +199,9 @@ test('A273: `cd src && echo x > a.txt` is judged by the path rule (literal cd), 
   }
 });
 
+// Rows the guard before A273 already refused (by the path rule, the glob rule or the scope rule): kept as regression rows, not as bypass proofs.
+const ALREADY_REFUSED = new Set(["cp a \"`pwd`/../x\"", "echo x > /dev/null/../../etc/x", "cp -rt $X a", "cp -t src a", "cp -t ../x a", "sed -i -e s/a/b/ impl.txt /etc/hosts", "sed -n -i.bak -e p /etc/x", "install -m755 a b", "cp \"$(git rev-parse HEAD)\" a", "ruby -pi -e 1 /etc/x", "gsed -i s/a/b/ /etc/x", "gawk --include=inplace 1 /etc/x", "mawk -i inplace 1 /etc/x", "echo x > ${TMPDIR}/x/*/y", "echo x > $TMPDIR/*/y", "echo x > /tmp/*/../x"]);
+const tag = (/** @type {string} */ c) => (ALREADY_REFUSED.has(c) ? ' (already refused on the old code by another rule)' : '');
 // Security review round 1 (issue #264): the operands the scanner does not record as writes. Role verdict: refused for both roles; lead verdict: pinned explicitly (allow = the lead's guard allows it today and keeps doing so).
 const BEYOND_SCANNER = /** @type {Array<[string, string, 'allow' | 'refuse']>} */ ([
   ["echo x >& $VAR/x", "echo x >& $VAR/x", 'allow'],
@@ -229,7 +252,7 @@ const BEYOND_SCANNER = /** @type {Array<[string, string, 'allow' | 'refuse']>} *
 ]);
 
 for (const [name, command, leadExpected] of BEYOND_SCANNER) {
-  test(`A273 review: ${name}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+  test(`A273 review: ${name}${tag(command)}: refused for both roles; the lead stays ${leadExpected}`, async () => {
     for (const [role, who, env] of ROLES) {
       const why = await pre(command, who, env);
       assert.ok(why, `${role}: allowed`);
@@ -251,4 +274,117 @@ test('A273 review: file descriptors, /dev/null and the standard streams, a hered
       assert.equal(await pre(command, who, env), null, `${role}: ${command}`);
     }
   }
+});
+
+// Review round 2: a command text tokenizer of its own (rolewrites.mjs) reads what the scanner loses. Role verdict: refused for both roles; lead verdict pinned explicitly.
+const ROUND2 = /** @type {Array<[string, string, 'allow' | 'refuse']>} */ ([
+  ["install -dm755 /etc/x", "install -dm755 /etc/x", 'allow'],
+  ["install -vdm755 /etc/x", "install -vdm755 /etc/x", 'allow'],
+  ["install -ddm755 /etc/x", "install -ddm755 /etc/x", 'allow'],
+  ["install -d /etc/x", "install -d /etc/x", 'allow'],
+  ["install -m755 a b", "install -m755 a b", 'refuse'],
+  ["cp $(true) a /etc/x", "cp $(true) a /etc/x", 'allow'],
+  ["mv $(true) a /etc/x", "mv $(true) a /etc/x", 'allow'],
+  ["install $(true) a /etc/x", "install $(true) a /etc/x", 'allow'],
+  ["dd if=$(true) of=/etc/x", "dd if=$(true) of=/etc/x", 'allow'],
+  ["tar -C $(true) -xf a", "tar -C $(true) -xf a", 'refuse'],
+  ["unzip $(true) -d /etc", "unzip $(true) -d /etc", 'allow'],
+  ["curl $(true) -o /etc/x", "curl $(true) -o /etc/x", 'allow'],
+  ["cp \"$(git rev-parse HEAD)\" a", "cp \"$(git rev-parse HEAD)\" a", 'refuse'],
+  ["echo x >& \"\"/etc/x", "echo x >& \"\"/etc/x", 'allow'],
+  ["echo x >& ''/etc/x", "echo x >& ''/etc/x", 'allow'],
+  ["echo x >& \"impl.txt\"/../../etc/x", "echo x >& \"impl.txt\"/../../etc/x", 'allow'],
+  ["echo x >& \\/etc/x", "echo x >& \\/etc/x", 'allow'],
+  ["echo x > \"`echo /etc/x`\"", "echo x > \"`echo /etc/x`\"", 'allow'],
+  ["echo x > .agents/runs/LC/scratch/\"`echo ..`\"/f", "echo x > .agents/runs/LC/scratch/\"`echo ..`\"/f", 'allow'],
+  ["echo x > .agents/runs/LC/scratch`true`/../../f", "echo x > .agents/runs/LC/scratch`true`/../../f", 'refuse'],
+  ["chmod 600 `pwd`/../x", "chmod 600 `pwd`/../x", 'allow'],
+  ["chown u `pwd`/x", "chown u `pwd`/x", 'allow'],
+  ["shred `pwd`/x", "shred `pwd`/x", 'allow'],
+  ["curl -o `pwd`/x u", "curl -o `pwd`/x u", 'allow'],
+  ["wget -O `pwd`/x u", "wget -O `pwd`/x u", 'allow'],
+  ["wget -P `pwd` u", "wget -P `pwd` u", 'allow'],
+  ["unzip a -d `pwd`/..", "unzip a -d `pwd`/..", 'allow'],
+  ["rsync a `pwd`/../x", "rsync a `pwd`/../x", 'allow'],
+  ["perl -0pi -e 1 /etc/x", "perl -0pi -e 1 /etc/x", 'allow'],
+  ["ruby -pi -e 1 /etc/x", "ruby -pi -e 1 /etc/x", 'refuse'],
+  ["gsed -i s/a/b/ /etc/x", "gsed -i s/a/b/ /etc/x", 'refuse'],
+  ["gawk --include=inplace 1 /etc/x", "gawk --include=inplace 1 /etc/x", 'refuse'],
+  ["mawk -i inplace 1 /etc/x", "mawk -i inplace 1 /etc/x", 'refuse'],
+  ["perl -0pi -e 1 impl.txt /etc/x", "perl -0pi -e 1 impl.txt /etc/x", 'allow'],
+  ["env -C /etc tee .agents/runs/LC/scratch/o.txt", "env -C /etc tee .agents/runs/LC/scratch/o.txt", 'allow'],
+  ["sudo -D /etc tee .agents/runs/LC/scratch/o.txt", "sudo -D /etc tee .agents/runs/LC/scratch/o.txt", 'allow'],
+  ["env --chdir=/etc tee .agents/runs/LC/scratch/o.txt", "env --chdir=/etc tee .agents/runs/LC/scratch/o.txt", 'allow'],
+  ["CDPATH=/etc cd .agents/runs/LC/scratch; tee o.txt", "CDPATH=/etc cd .agents/runs/LC/scratch; tee o.txt", 'allow'],
+  ["export CDPATH=/etc; cd .agents/runs/LC/scratch; tee o.txt", "export CDPATH=/etc; cd .agents/runs/LC/scratch; tee o.txt", 'allow'],
+  ["curl -fsSLo /etc/x u", "curl -fsSLo /etc/x u", 'allow'],
+  ["wget -qO /etc/x u", "wget -qO /etc/x u", 'allow'],
+  ["wget -qP /etc u", "wget -qP /etc u", 'allow'],
+  ["wget -o /etc/log u", "wget -o /etc/log u", 'allow'],
+  ["echo x > ${TMPDIR}/x/*/y", "echo x > ${TMPDIR}/x/*/y", 'refuse'],
+  ["echo x > $TMPDIR/*/y", "echo x > $TMPDIR/*/y", 'refuse'],
+  ["echo x > /tmp/*/../x", "echo x > /tmp/*/../x", 'refuse'],
+  ["echo x > /dev/disk0", "echo x > /dev/disk0", 'allow'],
+  ["dd of=/dev/disk0", "dd of=/dev/disk0", 'allow'],
+  ["tee /dev/disk0", "tee /dev/disk0", 'allow'],
+  ["patch /etc/x < impl.txt", "patch /etc/x < impl.txt", 'allow'],
+  ["patch -o /etc/x impl.txt", "patch -o /etc/x impl.txt", 'allow'],
+  ["ed /etc/x", "ed /etc/x", 'allow'],
+  ["vim /etc/x", "vim /etc/x", 'allow'],
+  ["unlink $VAR/x", "unlink $VAR/x", 'refuse'],
+  ["rmdir $VAR/x", "rmdir $VAR/x", 'refuse'],
+  ["chgrp g $VAR/x", "chgrp g $VAR/x", 'refuse'],
+  ["ex $VAR/x", "ex $VAR/x", 'allow'],
+  ["vi $VAR/x", "vi $VAR/x", 'allow'],
+  ["view $VAR/x", "view $VAR/x", 'allow'],
+  ["nvim $VAR/x", "nvim $VAR/x", 'allow'],
+  ["gpatch $VAR/x", "gpatch $VAR/x", 'allow'],
+  ["bsdtar -C $VAR -xf a", "bsdtar -C $VAR -xf a", 'refuse'],
+  ["gtar -C $VAR -xf a", "gtar -C $VAR -xf a", 'refuse'],
+  ["chmod 600 $VAR/x", "chmod 600 $VAR/x", 'refuse'],
+  ["ruby -pi -e 1 $VAR impl.txt", "ruby -pi -e 1 $VAR impl.txt", 'refuse'],
+]);
+
+for (const [name, command, leadExpected] of ROUND2) {
+  test(`A273 round 2: ${name}${tag(command)}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+    for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
+    const lead = await pre(command, LEAD[1], LEAD[2]);
+    if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
+    else assert.ok(lead, 'the lead no longer refuses this form');
+  });
+}
+
+test('A273 round 2: every program the scanner knows as a writer has a row in a refused table (completeness against WRITE_PROGRAMS; the tables are hand-derived from it)', () => {
+  const words = new Set();
+  for (const [, command] of [...REFUSED, ...CD_REFUSED, ...MKDIR_REFUSED, ...BEYOND_SCANNER, ...ROUND2]) {
+    for (const sc of tokenize(command)) { const w = sc.words[0]; if (w) words.add(w.v.replace(/^.*\//, '')); }
+  }
+  // a program whose operand is only reachable through a flag the table spells with another command word (dd of=, tar -C) counts through that row
+  const missing = [...WRITE_PROGRAMS].filter((p) => !words.has(p));
+  assert.deepEqual(missing, [], 'a writer the scanner knows has no refused-table row');
+});
+
+test('A273 round 2: quoted text, commit messages, heredoc bodies and fd duplicates do not trigger (AC-4 over-refusal guards)', async () => {
+  for (const [role, who, env] of ROLES) {
+    for (const command of ["git commit -m \"docs: document `install`\"", "sed -n 1p f && echo \"`date`\"", "echo \"x >& $LOG\"", "cat <<EOF\nrun >& $LOG\nEOF", "mkdir -pm 755 .agents/runs/LC/scratch/d", "mknod .agents/runs/LC/scratch/f p"]) assert.equal(await pre(command, who, env), null, `${role}: ${command}`);
+  }
+  const [, who, env] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+  for (const command of ["install -Dm755 a impl.txt", "sed -i s/a/b/ impl.txt && git commit -m \"fix `x`\"", "vim impl.txt"]) assert.equal(await pre(command, who, env), null, command);
+});
+
+test('A273 round 2: the in-process verdicts agree with the real hook process (a sample of refused and allowed commands)', async () => {
+  for (const [, who, env] of ROLES) {
+    for (const command of ['echo x > $OLDPWD/x', 'install -dm755 /etc/x', 'cp $(true) a /etc/x', 'echo x >& ""/etc/x', 'echo x > .agents/runs/LC/scratch/o.txt', 'git commit -m "docs: document `install`"']) {
+      assert.equal(await preSpawn(command, who, env), await pre(command, who, env), command);
+    }
+  }
+});
+
+test('A273 round 2: the tokenizer is linear on pathological input (a quadratic reader would not finish)', () => {
+  const big = '`'.repeat(300000) + "'".repeat(1001) + '$('.repeat(100000) + '"'.repeat(5001);
+  assert.ok(Array.isArray(tokenize(big)));
+  const heres = 'cat <<A\n'.repeat(60000) + 'x\n'.repeat(120000);
+  assert.ok(roleActions(heres).actions.length === 0);
+  const many = 'tee a$(x) '.repeat(100000);
+  assert.ok(roleActions(many).actions.length >= 1);
 });
