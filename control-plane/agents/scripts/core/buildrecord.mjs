@@ -26,6 +26,7 @@ import * as proc from './proc.mjs';
 import { commandV } from './runtimedetect.mjs';
 import { requireRun } from './runs.mjs';
 import { builtinScan } from './secretscan.mjs';
+import { measureRun } from './testmeasure.mjs';
 import { tmScaled, verifyCommandTimeout } from './timeouts.mjs';
 import { prepareWorktree } from './worktree.mjs';
 
@@ -115,6 +116,12 @@ function showRecord(key, dir) {
     if (slabel.includes('[')) multi = true;
     if (se !== '0') failed += `${slabel} (exit ${se})\n`;
   }
+  // #265 (A275, AC-3/AC-4): the duration of each new test (from the GREEN evidence of the run, never an estimate) and the budget findings; a record made before
+  // this version has neither file and prints nothing here
+  const dur = existsSync(`${dir}/durations`) ? readText(`${dir}/durations`) : '';
+  if (dur !== '') text += `test-durations:\n${dur.split('\n').filter((l) => l !== '').map((l) => { const [kind, ms, ...name] = l.split('\t'); return `  ${name.join('\t')} (${kind}): ${ms} ms\n`; }).join('')}`;
+  const fnd = existsSync(`${dir}/findings`) ? readText(`${dir}/findings`) : '';
+  if (fnd !== '') text += fnd.split('\n').filter((l) => l !== '').map((l) => `finding: ${l}\n`).join('');
   if (multi) text += failed !== '' ? failed.replace(/\n$/, '').split('\n').map((l) => `failed: ${l}\n`).join('') : 'all commands passed\n';
   // a failed record: the export is clean (tracked and untracked files only), so a test that needs a git-ignored file (.env, a local database, generated files) fails there
   if (catSub(`${dir}/done`) !== '0') {
@@ -194,9 +201,9 @@ export function runCommand(ctx, cwd, command, file, limit) {
 
 /**
  * `agent.sh build-record <ID> run|show` as a function (REV: the record of that revision, for `proofline merge`): the record of the current tree (or of REV), made once, read by everyone.
- * @param {Context} ctx @param {'run' | 'show'} op @param {string} [rev] @returns {Result}
+ * @param {Context} ctx @param {'run' | 'show'} op @param {string} [rev] @param {string} [runId] the run whose GREEN durations the record holds @returns {Result}
  */
-export function buildRecord(ctx, op, rev = '') {
+export function buildRecord(ctx, op, rev = '', runId = '') {
   let out = ''; let err = '';
   const emit = (/** @type {string} */ s) => { err += s; };
   try {
@@ -278,6 +285,11 @@ export function buildRecord(ctx, op, rev = '') {
               writeFileSync(`${dir}/timed-out`, `${timedout}\n`);
               throw new Stop(1);
             }
+            if (runId !== '') {
+              const m = measureRun(ctx, runId);
+              if (m.tests.length > 0) writeFileSync(`${dir}/durations`, m.tests.map((t) => `${t.kind}\t${Number(t.ms.toFixed(3))}\t${t.name}`).join('\n') + '\n');
+              if (m.budgetFindings.length > 0) writeFileSync(`${dir}/findings`, m.budgetFindings.join('\n') + '\n');
+            }
             writeFileSync(`${dir}/done`, `${fail1}\n`);
           }
         } finally {
@@ -303,7 +315,7 @@ export function buildRecordCommand(ctx, args) {
   requireRun(ctx, id);
   const op = args[1] === undefined || args[1] === '' ? 'show' : args[1];
   if (op !== 'run' && op !== 'show') { ctx.err(`${USAGE}\n`); return 2; }
-  const r = buildRecord(ctx, op);
+  const r = buildRecord(ctx, op, '', id);
   ctx.out(r.out); ctx.err(r.err);
   return r.status;
 }

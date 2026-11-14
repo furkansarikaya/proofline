@@ -26,6 +26,7 @@ import { expandWords } from './shellglob.mjs';
 import { runSecretScan } from './secretscan.mjs';
 import { exemptedPath, verifyFreeze } from './commands/verify.mjs';
 import { headSha } from './git.mjs';
+import { measureRequired } from './testmeasure.mjs';
 import { notRunRelative } from './pathin.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -188,6 +189,12 @@ export function workerEvidenceCommand(ctx, args) {
       } else if (latestEvidence(ctx, evdir, 'GREEN', p) === '' && latestEvidence(ctx, evdir, 'FIX', p) === '') fail(`REFACTOR evidence rejected: no GREEN evidence for ${p} yet`);
     }
   }
+  // #265 package B (A275): a run started with the measure=1 stamp (sealed in its ledger) must report the duration of the new tests with every GREEN that
+  // covers a non-exempt path. A run started before the stamp existed keeps the optional field.
+  if (phase === 'GREEN' && !durationsGiven && measureRequired(ctx, id) && targets.some((p) => exemptedPath(plan, p) === '')) {
+    fail('GREEN evidence requires `test_durations: <test name>=<milliseconds>[; ...]` (the duration of each new test, read from the GREEN run output, never an estimate): this run was started with the test measurement (#265); a run started before it does not need the line');
+  }
+  if (phase === 'GREEN' && durationsGiven && durations === '') fail('test_durations is empty: name each new test with its measured milliseconds');
   try { mkdirSync(evdir, { recursive: true }); } catch { fail(`worker evidence directory could not be created (sandbox denied write?): ${evdir}`); }
   const seq = nextEvidenceSeq(evdir, phase);
   const out = `${evdir}/${phase}-${seq}.yaml`;

@@ -26,7 +26,27 @@
       "build": " (build|compile|package)( |$)",
       "test": " (test|tests|pytest)( |$)|^pytest",
       "lint": " (lint|vet|clippy)( |$)|^(ruff|eslint)"
-    }
+    },
+    "test_retry": [
+      { "file": "jest.config.*", "pattern": "retryTimes", "what": "a test runner setting retries failed tests (retryTimes)" },
+      { "file": "vitest.config.*", "pattern": "retry:[ ]*[1-9]", "what": "a test runner setting retries failed tests (retry)" },
+      { "file": "playwright.config.*", "pattern": "retries:[ ]*[1-9]", "what": "a test runner setting retries failed tests (retries)" },
+      { "file": "cypress.config.*", "pattern": "retries", "what": "a test runner setting retries failed tests (retries)" },
+      { "file": ".mocharc.*", "pattern": "retries", "what": "a test runner setting retries failed tests (retries)" },
+      { "file": "pytest.ini", "pattern": "--reruns[ =]+[1-9]", "what": "a pytest option reruns failed tests (--reruns)" },
+      { "file": "pyproject.toml", "pattern": "--reruns[ =]+[1-9]", "what": "a pytest option reruns failed tests (--reruns)" },
+      { "file": "tox.ini", "pattern": "--reruns[ =]+[1-9]", "what": "a pytest option reruns failed tests (--reruns)" },
+      { "file": "Makefile", "pattern": "--rerun-fails|--reruns[ =]+[1-9]", "what": "a make target reruns failed tests" },
+      { "file": "*.runsettings", "pattern": "RetryCount|MaxRetries", "what": "a run settings file retries failed tests" },
+      { "file": ".github/workflows/*.yml", "pattern": "(max_attempts|rerun-failed|retry-on)", "what": "a GitHub workflow step retries a command" },
+      { "file": ".github/workflows/*.yaml", "pattern": "(max_attempts|rerun-failed|retry-on)", "what": "a GitHub workflow step retries a command" },
+      { "file": ".gitlab-ci.yml", "pattern": "^[ ]*retry:", "what": "a GitLab job retries on failure" },
+      { "file": ".circleci/config.yml", "pattern": "(rerun-failed|retry)", "what": "a CircleCI job retries failed tests" },
+      { "file": "azure-pipelines*.yml", "pattern": "retryCountOnTaskFailure", "what": "an Azure Pipelines task retries on failure" },
+      { "file": "Jenkinsfile", "pattern": "retry[ ]*[(]", "what": "a Jenkins stage retries" },
+      { "file": "bitbucket-pipelines.yml", "pattern": "retry", "what": "a Bitbucket step retries" },
+      { "file": ".travis.yml", "pattern": "travis_retry", "what": "a Travis command retries" }
+    ]
   },
   "ecosystems": [
     {

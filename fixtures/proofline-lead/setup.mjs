@@ -178,11 +178,12 @@ ${CLASS} — see the run classification
   };
   const rulesFail = () => gate('REVIEW_RULES', 'FAIL', 'high', "REVIEW_RULES-1|blocking|src/lookup.js:4|empty key returns undefined, AC-1 requires null|traced: lookup('') -> store.get('') -> undefined; scan: grep -n store.get src/lookup.js; instances: single");
   /** One implementer window, as dispatch.sh brackets it. @param {string} phase @param {string} res @param {string} file @param {string} text */
+  // the fixture's lookup code is a stand-in (its own `npm test` does not pass), so its GREEN record names a command that is neither configured nor in the plan: the IMPLEMENTED double run (A275) only notes it and runs nothing
   const worker = (phase, res, file, text) => {
     const before = A(['window-open', ID]);
     f.append(file, `${text}\n`);
     const ef = phase === 'RED' ? 'expected_failure: lookup("") returns undefined, the new test expects null' : '';
-    A(['worker-evidence', ID, phase, res], 'implementer', `command: npm test\ntarget: src/lookup.js,src/store.js,test/lookup.test.js\n${ef}\n`);
+    A(['worker-evidence', ID, phase, res], 'implementer', `command: ${phase === 'GREEN' ? 'node --version' : 'npm test'}\ntarget: src/lookup.js,src/store.js,test/lookup.test.js\n${ef}\n`);
     q(['window-close', ID, before, '0']);
   };
   /** reopen, one FIX window, back to IMPLEMENTED */

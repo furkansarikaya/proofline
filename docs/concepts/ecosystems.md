@@ -293,3 +293,7 @@ The risk lists are read at read time: the core adds the ecosystem globs to `revi
 ## Skills specific to your ecosystem
 
 proofline works alongside skills specific to your ecosystem. The gates verify the result regardless of which skill produced it.
+
+## Retries in the project's own configuration (A275)
+
+`global.test_retry` lists where a project's CI or test-runner configuration retries a test: `file` (a glob), `pattern` (a line pattern, the part of regular expressions that POSIX ERE and JavaScript share) and `what` (the text reported). At handoff IMPLEMENTED one generic scan reports every hit as a note; proofline never retries a test itself. A new CI or runner is one more entry; no shared code names an ecosystem.

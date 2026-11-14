@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.106
+proofline_version: 0.0.107
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -141,6 +141,27 @@ test_trust:
   repeat: 5
   mutation_budget: 20
   slow_ratio: 3
+# Test speed and determinism (A275, issue 265). test_budgets: per test kind (unit, integration, e2e) the longest ONE test may take (test_ms) and the longest
+# the tests of that kind in a run may take together (suite_ms), in milliseconds, times timeouts.scale. The defaults come from a measurement of this repository's
+# own suites (docs/decisions.md A275) and are generous. A PLAN.md `## Test budgets` line with numbers wins over these values for its kind (plan, then config).
+# A test over its budget is a finding that names the test and its measured duration (build record, `agent.sh build-record <ID> show`). default_kind is the kind
+# of a recorded test that no `## Tests` line names. test_stability: the new and changed tests run twice on the same commit (the control plane does it, at handoff
+# IMPLEMENTED); two durations agree when they differ by at most floor_ms (times timeouts.scale) or by at most ratio times; a different exit status or a duration outside
+# both is a stability finding and IMPLEMENTED stops. Nothing is retried.
+test_budgets:
+  default_kind: unit
+  unit:
+    test_ms: 2000
+    suite_ms: 30000
+  integration:
+    test_ms: 10000
+    suite_ms: 120000
+  e2e:
+    test_ms: 60000
+    suite_ms: 600000
+test_stability:
+  ratio: 4
+  floor_ms: 2000
 # performance-proof (A87): regression threshold on the median in percent, noise threshold (relative MAD) in
 # percent, minimum runs per side (at least 5). A relative budget stated in PLAN.md wins over these values.
 performance:

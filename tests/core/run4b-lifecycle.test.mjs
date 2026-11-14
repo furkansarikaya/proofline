@@ -26,7 +26,7 @@ test('start: a task from stdin becomes a run (RUN.yaml, TASK.md, ACTIVE_RUN, led
   assert.match(runValue(d, 'task_source', 'path', 'ST-1'), /^\.agents\/tasks\/in-progress\/ST-1-lookup\.md$/);
   assert.equal(read(d, '.agents/local/ACTIVE_RUN'), 'ST-1\n');
   assert.ok(read(d, '.agents/runs/ST-1/TASK.md').includes('AC-1: lookup returns the stored value'));
-  assert.match(read(d, '.agents/runs/ST-1/LEDGER.log').split('\n')[0], /^seq=1 prev=genesis event=start role=lead from=- to=PLANNED .* detail=task=\S+ adapter=markdown$/);
+  assert.match(read(d, '.agents/runs/ST-1/LEDGER.log').split('\n')[0], /^seq=1 prev=genesis event=start role=lead from=- to=PLANNED .* detail=task=\S+ adapter=markdown measure=1$/);
   refused(A(d, ['start', 'ST-2', '--title', 'Other'], { input: BODY }), 'a second open run', 'another open run exists in this worktree');
   assert.ok(!existsSync(`${d}/.agents/runs/ST-2`), 'the refused start left a run folder');
 });
