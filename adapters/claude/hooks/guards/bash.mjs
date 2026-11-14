@@ -19,7 +19,7 @@ import { killGuard } from './kill.mjs';
 import { mergeGuard } from './merge.mjs';
 import { stashGuard } from './stash.mjs';
 import { leadTmpCheck, scratchDir, scratchGuard, strayTmpPath, tmpIsScratchRoot } from './scratch.mjs';
-import { rewriteAnsiC, roleActions } from './rolewrites.mjs';
+import { rewriteAnsiC, safeRoleActions } from './rolewrites.mjs';
 import { NODE_OPTIONS_PRELOAD, PROOFLINE_ASSIGN, twCoreNode, twNodeOperand } from './tripwires.mjs';
 
 /** @param {unknown} input @param {import('../lib/context.mjs').HookContext} ctx @returns {Promise<{ decision: 'deny', reason: string } | null>} */
@@ -154,7 +154,7 @@ async function check(ctx, cmd) {
   /** @type {string[]} */ const extraW = [];
   if (strictRole) {
     // A273: the operands the scanner does not record (rolewrites.mjs), also inside substitutions and shell strings: `>&` targets, a substitution inside a write program's operands, -t/--target forms, mkdir, every file of an in-place editor, patch, ed, tar
-    const ra = roleActions(cmd);
+    const ra = safeRoleActions(cmd);
     for (const a of ra.actions) {
       if (a.kind === 'deny') deny(`${a.why} (${ROLE_TAIL})`);
       const w = a.word;
@@ -163,6 +163,16 @@ async function check(ctx, cmd) {
       const at = a.cwd !== '' && !ABS_RE.test(w.v) ? `${a.cwd}/${w.v}` : w.v;
       await writeRule(ctx, at, lineOf);
       extraW.push(at);
+    }
+    // the scanner of the lead reads each nested region (substitution, shell string) as a command of its own, so a writer it knows is judged wherever it sits
+    for (const text of ra.texts) {
+      for (const rec of scanCommand(rewriteAnsiC(text)).records) {
+        if (rec.kind !== 'W') continue;
+        const v = cmdSubst(rec.value);
+        if (v === '') continue;
+        await writeRule(ctx, v, lineOf);
+        extraW.push(v);
+      }
     }
     // after a cd the scanner cannot place (a variable, a substitution, `-`, ...) every later relative write the scanner records is unresolvable; rolewrites.mjs decides where that starts
     if (ra.badAt >= 0) {
