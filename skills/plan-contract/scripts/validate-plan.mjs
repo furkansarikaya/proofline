@@ -21,6 +21,39 @@ const VISUAL_WRITES_LINE = /^\s*(?:[-*]\s*)?`?visual_writes:[ \t]*\S/m;
 const VISUAL_PROOF_LINE = /^\s*(?:[-*]\s+)?`?visual_proof:\s*([^`]*?)\s*`?\s*$/;
 
 export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
+// Issue 265 AC-8 (A273): test kinds and budgets in the plan. A `## Tests` line may carry `test_kind: unit|integration|e2e`; the section
+// `## Test budgets` has one line per kind: `- <kind>: test <ms> ms; suite <ms> ms` or `- <kind>: default` (the numeric defaults belong to the config of a later package).
+export const TEST_KINDS = ["unit", "integration", "e2e"];
+const KIND_MARK = /\btest_kind:\s*([A-Za-z0-9_-]+)/;
+const BUDGET_LINE = /^test (\d+) ms; suite (\d+) ms$/;
+export function testKindProblems(testLines, budgetLines) {
+  const errors = [];
+  const used = new Set();
+  for (const l of testLines || []) {
+    const m = /^\s*-\s*(AC-\d+):/i.exec(l);
+    const k = KIND_MARK.exec(l);
+    if (!m || !k) continue;
+    if (!TEST_KINDS.includes(k[1])) errors.push(`Tests: ${m[1]} test_kind must be one of ${TEST_KINDS.join("|")}, got ${k[1]}`);
+    else used.add(k[1]);
+  }
+  const given = new Map();
+  for (const l of budgetLines || []) {
+    if (l.trim() === "") continue;
+    if (l.length > 4096) { errors.push('section "## Test budgets": a line is longer than 4096 characters'); continue; }
+    const m = /^\s*-\s*([A-Za-z0-9_-]+):(.*)$/.exec(l);
+    if (m) m[2] = m[2].trim();
+    if (!m) { errors.push(`section "## Test budgets": expected "- <kind>: test <ms> ms; suite <ms> ms" or "- <kind>: default", got "${l.trim().slice(0, 60)}"`); continue; }
+    if (!TEST_KINDS.includes(m[1])) { errors.push(`section "## Test budgets": unknown test kind ${m[1]} (${TEST_KINDS.join("|")})`); continue; }
+    given.set(m[1], m[2]);
+    if (m[2] === "default") continue;
+    const b = BUDGET_LINE.exec(m[2]);
+    if (!b || Number(b[1]) < 1 || Number(b[2]) < 1) errors.push(`section "## Test budgets": ${m[1]}: budget line must be "test <ms> ms; suite <ms> ms" with whole numbers of 1 or more, or "default"`);
+    else if (Number(b[1]) > Number(b[2])) errors.push(`section "## Test budgets": ${m[1]}: the test budget ${b[1]} ms is above its suite budget ${b[2]} ms`);
+  }
+  if (used.size && !budgetLines) errors.push('section "## Test budgets" is required when ## Tests names a test_kind (one line per kind used)');
+  else if (budgetLines) for (const k of used) if (!given.has(k)) errors.push(`section "## Test budgets": no budget line for the test kind ${k} that ## Tests uses`);
+  return errors;
+}
 export const BASE_SECTIONS = ["Behavior", "Tests", "Verification commands", "Dependencies", "Contracts", "Assumptions"];
 export const ARCHITECTURE_CLASSES = ["COMPLEX", "CRITICAL"];
 export const MAX_SCOPE_PATHS = { TRIVIAL: 2 };
@@ -309,6 +342,8 @@ export function lint(planMd, taskMd, { root, cls } = {}) {
   const noEx = content.filter((e) => !("tdd_exemption" in e)).map((e) => e.path);
   if (noEx.length) out.push(`scope: document or content path(s) without a tdd_exemption: ${noEx.slice(0, 5).join(", ")}${noEx.length > 5 ? ", ..." : ""}; a document has no RED/GREEN to show, so add 'tdd_exemption: <specific reason, 20+ characters>' to each, or a test that proves it (the freeze only warns, the implementer cannot finish without it)`);
   const secs = sections(planMd.split(/\r?\n/).slice(fm.bodyStart || 0));
+  const testLines = (secs.get("Tests") || []).filter((l) => /^\s*-\s*AC-\d+:/i.test(l) && !KIND_MARK.test(l));
+  if (testLines.length) out.push(`Tests: ${testLines.length} line(s) name no test_kind (unit|integration|e2e); write "(test_kind: unit)" after each, so the plan states the kind and its budget (## Test budgets) before the tests run`);
   const dep = (secs.get("Dependencies") || []).filter((l) => l.trim() !== "");
   if (dep.length && !(dep.length === 1 && /^none\b/i.test(dep[0].trim()))) out.push("Dependencies: a new dependency needs the user's own approval (a night batch does not cover it); say so in the plan before the freeze");
   const vague = [...taskMd.matchAll(/^\s*(?:[-*]|\d+\.)?\s*(AC-\d+):\s*(.*)$/gim)].find((m) => VAGUE.test(m[2]));
@@ -394,6 +429,7 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
     else mapped.add(idKey(m[1]));
   }
   for (const c of task.criteria) if (!mapped.has(idKey(c))) errors.push(`${c}: maps to no scope path and no explicit test`);
+  errors.push(...testKindProblems(tests, body.get("Test budgets")));
 
   const data = body.get("Data");
   if (data) {

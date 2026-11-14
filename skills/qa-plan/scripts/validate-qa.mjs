@@ -135,6 +135,25 @@ function entryNames(contractLines, c, tier) {
 }
 export function entryPoints(planText, c = ENTRY) { return entryNames(sections(planText).get("Contracts"), typeof c === "string" ? { ...ENTRY, words: c } : c, "mandatory"); }
 
+// Issue 265 AC-8 (A273): the QA plan restates the test kinds and budgets of PLAN.md (`## Test budgets`) in `## Test kinds and budgets`, line for line.
+// (A copy of the plan-contract format: a skill is installable alone and shares no file.)
+const TEST_KINDS = ["unit", "integration", "e2e"];
+const BUDGET = /^(default|test (\d+) ms; suite (\d+) ms)$/;
+function budgetLines(lines, secName, errors) {
+  const out = new Map();
+  for (const l of lines) {
+    if (!l.trim()) continue;
+    if (l.length > 4096) { errors.push(`${secName}: a line is longer than 4096 characters`); continue; }
+    const m = /^\s*-\s*([A-Za-z0-9_-]+):(.*)$/.exec(l);
+    if (m) m[2] = m[2].trim();
+    if (!m) { errors.push(`${secName}: expected "- <kind>: test <ms> ms; suite <ms> ms" or "- <kind>: default", got "${l.trim().slice(0, 60)}"`); continue; }
+    if (!TEST_KINDS.includes(m[1])) { errors.push(`${secName}: unknown test kind ${m[1]} (${TEST_KINDS.join("|")})`); continue; }
+    const b = BUDGET.exec(m[2]);
+    if (!b || (b[2] && (Number(b[2]) < 1 || Number(b[3]) < 1 || Number(b[2]) > Number(b[3])))) errors.push(`${m[1]}: budget line must be "test <ms> ms; suite <ms> ms" (whole numbers of 1 or more, test not above suite) or "default", got "${m[2]}"`);
+    else out.set(m[1], m[2]);
+  }
+  return out;
+}
 export function validatePlan(text, taskText, planText, entryWords) {
   const errors = [];
   const secs = sections(text);
@@ -161,6 +180,22 @@ export function validatePlan(text, taskText, planText, entryWords) {
   }
   for (const s of adv) if (!CATEGORIES.includes(s.category)) errors.push(`${s.id}: adversarial scenario needs a category from ${CATEGORIES.join("|")}`);
   for (const s of acc) if (s.category) errors.push(`${s.id}: acceptance scenarios carry no category`);
+  const kindsSec = secs.get("Test kinds and budgets");
+  const qaBudgets = kindsSec ? budgetLines(kindsSec, "Test kinds and budgets", errors) : new Map();
+  if (planText) {
+    const pb = sections(planText).get("Test budgets");
+    if (pb) {
+      if (!kindsSec) errors.push('missing section "## Test kinds and budgets": PLAN.md has "## Test budgets"; restate each kind and its budget line');
+      else {
+        const planBudgets = budgetLines(pb, "PLAN.md Test budgets", []);
+        for (const [k, v] of planBudgets) {
+          if (!qaBudgets.has(k)) errors.push(`${k}: PLAN.md ## Test budgets has this kind and the QA plan does not restate it`);
+          else if (qaBudgets.get(k) !== v) errors.push(`${k}: the budget differs from PLAN.md ("${qaBudgets.get(k)}" against "${v}"); copy it, never change it`);
+        }
+        for (const k of qaBudgets.keys()) if (!planBudgets.has(k)) errors.push(`${k}: not a test kind of PLAN.md ## Test budgets`);
+      }
+    }
+  }
   if (PLACEHOLDER.test(strip(text).replace(/^# QA plan:.*$/m, ""))) errors.push("unfilled placeholder remains");
   if (taskText) {
     const acs = taskAcs(taskText);

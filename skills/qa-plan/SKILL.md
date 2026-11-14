@@ -4,7 +4,7 @@ description: Independent QA in two phases. Before implementation, writes QA_PLAN
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.105"
+  version: "0.0.106"
 ---
 
 # qa-plan
@@ -55,7 +55,7 @@ Standalone use: `plan` on a task or a list of criteria the user gives; `report` 
 3. **Acceptance scenarios**, one or more per criterion, per [SCENARIOS.md](references/SCENARIOS.md#acceptance).
 4. **Adversarial scenarios** per rule 3.
 5. **Regression surface**: behaviour that must not change, each with a test or command.
-6. **Validate**: `node <skill-dir>/scripts/validate-qa.mjs plan QA_PLAN.md --task TASK.md --plan PLAN.md` must exit 0 (inside a run; standalone without `--plan`). It checks the cited plan hash, that every plan criterion has an acceptance scenario and no scenario names a criterion the plan lacks, and that no scenario expects a term the plan's `## Contracts` removes or renames, and that every entry point listed there has an `[invalid-input]` scenario. Fix and re-run. `agent.sh freeze` and `refreeze` repeat the same checks.
+6. **Validate**: `node <skill-dir>/scripts/validate-qa.mjs plan QA_PLAN.md --task TASK.md --plan PLAN.md` must exit 0 (inside a run; standalone without `--plan`). It checks the cited plan hash, that every plan criterion has an acceptance scenario and no scenario names a criterion the plan lacks, and that no scenario expects a term the plan's `## Contracts` removes or renames, and that every entry point listed there has an `[invalid-input]` scenario. When PLAN.md has `## Test budgets` (test kinds unit, integration, e2e), the QA plan restates each kind and its budget line unchanged in `## Test kinds and budgets` (template); a differing line is refused. Fix and re-run. `agent.sh freeze` and `refreeze` repeat the same checks.
 7. **Return** (see Output).
 
 ## Flow - report

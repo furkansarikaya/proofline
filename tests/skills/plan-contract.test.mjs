@@ -411,3 +411,47 @@ test("skill text: visual criteria are proven by browser measurement (visual-proo
   assert.match(skill, /\*\*Visual criteria\.\*\* A criterion about layout, overflow[^`]*is proven by a browser measurement \(the `visual-proof` skill/);
   assert.match(skill, /never by a unit test that counts characters/);
 });
+
+// Issue 265, AC-8 (A273): the plan states the test kinds and budgets. The numbers are defaults of a later package; here the fields exist and are validated.
+const KINDED = {
+  ...BODY,
+  Tests: ["- AC-1: `test/shipping.test.js` \"free at the threshold\" (test_kind: unit)", "- AC-4: `test/receipt.test.js` \"free shipping line\" (test_kind: integration)"],
+  "Test budgets": ["- unit: test 200 ms; suite 5000 ms", "- integration: default"],
+};
+test("AC-8: a plan with test kinds and a matching budgets section is accepted", () => assert.deepEqual(errs(plan({ body: KINDED })), []));
+test("AC-8: a test_kind outside unit|integration|e2e is an error", () => {
+  const body = { ...KINDED, Tests: KINDED.Tests.map((l) => l.replace("test_kind: unit", "test_kind: smoke")) };
+  has(errs(plan({ body })), "test_kind must be one of unit|integration|e2e");
+});
+test("AC-8: test kinds without a budgets section, or a used kind without a budget line, are errors", () => {
+  has(errs(plan({ body: Object.fromEntries(Object.entries(KINDED).filter(([n]) => n !== "Test budgets")) })), 'section "## Test budgets" is required');
+  has(errs(plan({ body: { ...KINDED, "Test budgets": ["- unit: default"] } })), "no budget line for the test kind integration");
+});
+test("AC-8: a malformed budget line is an error: unknown kind, words for numbers, a test budget above its suite budget", () => {
+  const e = (line) => errs(plan({ body: { ...KINDED, "Test budgets": [line, "- integration: default"] } }));
+  has(e("- smoke: default"), "unknown test kind smoke");
+  has(e("- unit: test fast; suite slow"), "budget line");
+  has(e("- unit: test 6000 ms; suite 5000 ms"), "above its suite budget");
+  has(e("- unit: test 0 ms; suite 5000 ms"), "budget line");
+});
+test("AC-8: a Tests line without test_kind is warned, never an error, and a plan with no kinds at all is still valid (older plans)", () => {
+  const w = lint(plan(), TASK, { root: repo, cls: "STANDARD" });
+  has(w, "no test_kind");
+  assert.deepEqual(errs(plan()), []);
+  assert.ok(!lint(plan({ body: KINDED }), TASK, { root: repo, cls: "STANDARD" }).some((x) => x.includes("test_kind")));
+});
+test("AC-8: the template and the sections reference describe the kinds and the budgets section", () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../../skills/plan-contract");
+  for (const f of ["assets/PLAN.template.md", "references/SECTIONS.md"]) {
+    const t = readFileSync(join(dir, f), "utf8");
+    assert.match(t, /test_kind/, f);
+    assert.match(t, /## Test budgets|`## Test budgets`/, f);
+  }
+  assert.match(readFileSync(join(dir, "SKILL.md"), "utf8"), /test_kind/);
+});
+test("AC-8: a Test budgets line over 4096 characters is refused, and a long malformed line is judged without delay", () => {
+  const long = `- unit: ${"x ".repeat(3000)}`;
+  has(errs(plan({ body: { ...KINDED, "Test budgets": [long, "- integration: default"] } })), "longer than 4096");
+  const near = `- unit: ${" ".repeat(3000)}!`;
+  has(errs(plan({ body: { ...KINDED, "Test budgets": [near, "- integration: default"] } })), "budget line");
+});

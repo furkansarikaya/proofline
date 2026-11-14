@@ -34,7 +34,12 @@
           "green": {
             "type": "object", "additionalProperties": false,
             "required": ["command", "exit_code", "suite_command", "suite_exit_code"],
-            "properties": { "command": { "type": "string", "minLength": 1 }, "exit_code": { "type": "integer" }, "suite_command": { "type": "string", "minLength": 1 }, "suite_exit_code": { "type": "integer" } }
+            "properties": {
+              "command": { "type": "string", "minLength": 1 }, "exit_code": { "type": "integer" }, "suite_command": { "type": "string", "minLength": 1 }, "suite_exit_code": { "type": "integer" },
+              "duration_ms": { "type": "number", "minimum": 0 },
+              "duration_source": { "enum": ["runner_output", "command_wall_time"] },
+              "duration_excerpt": { "type": "string", "pattern": "[0-9]" }
+            }
           },
           "hollow_check": {
             "type": "object", "additionalProperties": false,

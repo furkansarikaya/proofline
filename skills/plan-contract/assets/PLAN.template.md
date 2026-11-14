@@ -29,7 +29,12 @@ scope:
 
 ## Tests
 
-- AC-1: `<test file>` "<test name>" — <what it asserts>
+- AC-1: `<test file>` "<test name>" — <what it asserts> (test_kind: unit|integration|e2e)
+
+## Test budgets
+
+- unit: default
+<one line per test_kind the Tests section uses: `- <kind>: test <ms> ms; suite <ms> ms`, or `- <kind>: default` (the configured budget of the kind). Delete the section only when no Tests line names a test_kind.>
 
 ## Verification commands
 

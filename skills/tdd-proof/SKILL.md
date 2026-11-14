@@ -4,7 +4,7 @@ description: Implements a change test-first with recorded proof. For every non-e
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.105"
+  version: "0.0.106"
 ---
 
 # tdd-proof
@@ -29,6 +29,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
 7. **Exemptions are the plan's, not yours.** A path with `tdd_exemption` in the plan needs no cycle; never invent one. Standalone: an exemption is the user's explicit statement, recorded verbatim.
 8. **Never weaken a check** (skip, delete, loosen an assertion, widen a tolerance) to reach GREEN. Never touch the evidence files by hand; they are written only through the recorder.
 9. **No installs, no network.** Use the project's own test command (from the plan, CI config or README); prove a capability with a real trial before relying on it.
+10. **Fast, deterministic tests** ([FAST.md](references/FAST.md)), before any test is written. A test finishes fast and takes the same time on every run. No real waiting (sleep, delay, timeout or polling for a duration). Time-dependent code gets an injectable clock and the test uses fake time (the ecosystem's facility is `fast_tests` in `references/ecosystems.json`; `unsupported` means a small fake clock written inside the test, never an install). Code does not read the system clock directly, and no test asserts on wall-clock elapsed time. Randomness uses a fixed seed. External calls are faked. A concurrency test waits on an event, not a duration. Parallelism is not a fix for a slow test: fix its cause.
 
 ## Standalone vs team
 
@@ -37,6 +38,7 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
   printf 'command: <exact test command>\ntarget: <comma-separated scope paths>\nexpected_failure: <RED only: the specific assertion that fails>\n' \
     | AGENT_ROLE=implementer .agents/scripts/agent.sh worker-evidence <TASK-ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
   ```
+  GREEN also carries `test_durations: <test name>=<ms>[; ...]`, each read from that test's own line in the GREEN run output (FAST.md), never estimated.
   RED is recorded `fail` with a specific `expected_failure` (at least 20 characters, naming the behaviour, never a stock phrase); GREEN/REFACTOR/FIX `pass`. A rejected recording is fixed, not bypassed. Embed the `tdd.json` content as a fenced `json` block in the result file `reports/NNN-implementer.md` named by the assignment (the validator reads it from there) and finish with the result header, then the findings table (open problems), then BLOCKED_REASON or QUESTIONS.
 - **Standalone**: keep the ledger and `tdd.json` under `.agents/local/tdd-proof/<target>/` (nothing kept with `local_state: off`); report in the user's language and end with the next step.
 
@@ -48,9 +50,9 @@ Talk to the user in their language. Machine files (`tdd.json`, `ledger.md`, evid
    1. Write the test for the criterion. Stub the unit if needed to compile ([RED.md](references/RED.md#3-stub-first)).
    2. Run it; classify the output (`node <skill-dir>/scripts/classify-red.mjs --exit-code <N> --ecosystem <id>`; the last two are optional, the patterns come from `references/ecosystems.json`, [RED.md](references/RED.md)). Not `assertion` -> fix the cause and re-run; never record it as RED. Record RED.
    3. Implement the minimum production change.
-   4. Run the same command: it passes. Run the suite: nothing else broke.
+   4. Run the same command: it passes; note this test's duration from the output. Run the suite: nothing else broke.
    5. Hollow check in a worktree ([HOLLOW.md](references/HOLLOW.md)). Passing test there -> back to 3.1.
-   6. Record GREEN. Optionally refactor with the suite green and record REFACTOR.
+   6. Record GREEN with the duration (`green.duration_ms`, `duration_source`, `duration_excerpt` in `tdd.json`). Optionally refactor with the suite green and record REFACTOR.
 4. **Ledger and `tdd.json`** ([schema](schema/tdd.schema.json)) are written per cycle, before the next cycle starts.
 5. **Validate.** `node <skill-dir>/scripts/validate-tdd.mjs <tdd.json> --scope <path:AC-1+AC-2,path,...>` (criteria after the path, from the plan's scope); exit 0 required. Without Node, check [RED.md](references/RED.md#5-validation-rules) by hand and say so.
 6. **Clean up** the worktree (path recorded before use; removed on resume), verify the user's tree holds only scope changes.

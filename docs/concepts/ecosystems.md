@@ -286,6 +286,10 @@ The risk lists are read at read time: the core adds the ecosystem globs to `revi
 
 `worktree_deps.folders` lists the git-ignored folders a package manager fills (`node_modules`, `vendor`, `vendor/bundle`) that a run worktree gets its own copy of; an ecosystem whose folder is not relocatable (virtual environments, `.dart_tool`, `obj`) or whose cache lives outside the project lists none. the worktree preparation of the Node core (`core/worktree.mjs`) reads it; nothing else knows the names. See [night mode](night-mode.md).
 
+## Fast, deterministic tests (A273)
+
+`fast_tests` is the data behind the rules tdd-proof gives the implementer before any test is written (issue 265): `fake_clock.status` (`supported` when the ecosystem has a standard or common fake-time facility, `unsupported` when it has none, then a small fake clock is written inside the test and nothing is installed), `fake_clock.facility` (the facility or the fallback), `sleep` (the names of the real-wait calls) and `clock_reads` (the names of the direct system-clock reads). `node ecosystems.mjs check` requires all of them for every ecosystem. The text of the rules is [tdd-proof's FAST.md](../../skills/tdd-proof/references/FAST.md); no shared code branches on an ecosystem, adding one adds this object only. The scan for real waits and the budgets that use these lists come with later packages of issue 265.
+
 ## Skills specific to your ecosystem
 
 proofline works alongside skills specific to your ecosystem. The gates verify the result regardless of which skill produced it.
