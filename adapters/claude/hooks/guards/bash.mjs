@@ -147,9 +147,12 @@ async function check(ctx, cmd) {
   }
   const hasRole = scan.records.some((r) => r.kind === 'R');
   const lineOf = scan.records.map((r) => `${r.kind}\t${Buffer.from(r.raw, 'latin1').toString('utf8')}`);
+  const strictRole = role === 'implementer' || role === 'designer';
+  let badCd = false;
   for (const rec of scan.records) {
     const k = rec.kind;
     const v = cmdSubst(rec.value);
+    if (strictRole) { const hit = unresolvedCwdOrMkdir(rec.kind, v, badCd); badCd = hit.badCd; if (hit.why !== '') deny(hit.why); }
     switch (k) {
       case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and the command word literally; only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh status $ID (not A=.agents/scripts/agent.sh; $A status)`); break;
       case 'R': if (canon(v) !== role) deny(`AGENT_ROLE=${v} does not match the caller's role (${role}); a role never acts as another`); break;
@@ -173,6 +176,38 @@ async function check(ctx, cmd) {
   }
   await scratchGuard(ctx, scan);
   leadTmpCheck(ctx, cmd, scan);
+}
+
+const ABS_RE = /^([/~]|[A-Za-z]:|\\\\)/;
+
+/**
+ * A273 (issue #264), the implementer and the designer only (the lead's verdicts are unchanged): (a) after a `cd`/`pushd`/`popd` whose directory the scanner cannot place (a variable, a substitution, `-`, no operand,
+ * an option, a tilde), every later relative write target is unresolvable, so it is refused; (b) `mkdir`, `mkfifo` and `mknod` create a path, so an unresolved operand is refused like an unresolved write.
+ * @param {string} kind @param {string} v @param {boolean} badCd @returns {{ badCd: boolean, why: string }}
+ */
+function unresolvedCwdOrMkdir(kind, v, badCd) {
+  const tail = 'shell write detection is a heuristic; write the target literally, not through a variable, substitution or glob, or use the Write tool on an allowed path';
+  if (kind === 'C') {
+    const t = v.indexOf('\t');
+    const word = t < 0 ? v : v.slice(0, t);
+    const args = t < 0 ? [] : v.slice(t + 1).split('\x03');
+    if (word === 'cd' || word === 'pushd' || word === 'popd') {
+      const operand = args.find((a) => a !== '--');
+      if (word !== 'cd' || operand === undefined || operand === '' || /^-|[$`*?[{~()]/.test(operand)) return { badCd: true, why: '' };
+      return { badCd, why: '' };
+    }
+    if (word === 'mkdir' || word === 'mkfifo' || word === 'mknod') {
+      for (const a of args) {
+        if (/[$`*?[]/.test(a)) return { badCd, why: `the command creates '${a}', which cannot be resolved; ${tail}` };
+        if (badCd && a !== '' && !a.startsWith('-') && !ABS_RE.test(a)) return { badCd, why: `the command creates '${a}' after a cd to a directory that cannot be resolved, so the target cannot be resolved; ${tail}` };
+      }
+    }
+    return { badCd, why: '' };
+  }
+  if (badCd && (kind === 'W' || kind === 'E' || kind === 'P' || kind === 'Q') && v !== '' && !ABS_RE.test(v) && !v.startsWith('/dev/')) {
+    return { badCd, why: `the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved; ${tail}` };
+  }
+  return { badCd, why: '' };
 }
 
 /** The agent.sh forms per role (D12, D13, D16). @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd @param {string} v the A record value @param {boolean} hasRole */

@@ -116,3 +116,65 @@ test('A273: a literal target outside the role paths is still refused by the path
     assert.doesNotMatch(why, /cannot be resolved/, `${role}: ${why}`);
   }
 });
+
+// A273 addendum: (a) a cd the scanner cannot place makes every later relative target unresolvable; (b) mkdir and its kin create a path. Implementer and designer only: the lead's verdicts stay as they were.
+const CD_REFUSED = /** @type {Array<[string, string]>} */ ([
+  ['cd $VAR then a redirect', 'cd $VAR; echo x > impl.txt'],
+  ['cd $(mktemp -d) then tee', 'cd "$(mktemp -d)" && tee f'],
+  ['pushd $X then tee', 'pushd $X && tee f'],
+  ['cd - then tee', 'cd - && tee f'],
+  ['cd $OLDPWD then a redirect', 'cd $OLDPWD && echo x > impl.txt'],
+  ['cd with no operand (home) then a redirect', 'cd && echo x > impl.txt'],
+  ['cd backtick then tee', 'cd `pwd`; tee f'],
+  ['cd -P -- $X then tee', 'cd -P -- $X; tee f'],
+  ['cd in a subshell then tee', '(cd $X; tee f)'],
+  ['cd then rm', 'cd $X; rm f'],
+  ['cd then sed -i', 'cd $X; sed -i s/a/b/ f'],
+  ['cd then cp', 'cd $X; cp impl.txt f'],
+  ['cd on an earlier line', 'cd $X\necho x > impl.txt'],
+  ['popd then tee', 'popd; tee f'],
+  ['a literal cd after the unresolved one does not repair it', 'cd $X; cd src; echo x > a.txt'],
+  ['cd $VAR then mkdir', 'cd $VAR; mkdir d'],
+]);
+const MKDIR_REFUSED = /** @type {Array<[string, string]>} */ ([
+  ['mkdir $VAR/x', 'mkdir $VAR/x'],
+  ['mkdir -p $VAR/x', 'mkdir -p $VAR/x'],
+  ['mkdir quoted variable', 'mkdir "$V"'],
+  ['mkdir -m mode then variable', 'mkdir -p -m 755 $V/x'],
+  ['mkdir ${HOME}', 'mkdir -p ${HOME}/x'],
+  ['mkdir glob', 'mkdir -p d*'],
+  ['mkfifo', 'mkfifo $V/x'],
+]);
+
+for (const [name, command] of [...CD_REFUSED, ...MKDIR_REFUSED]) {
+  test(`A273: ${name}: refused for both roles as unresolvable, the lead's text is not the new one`, async () => {
+    for (const [role, who, env] of ROLES) {
+      const why = await pre(command, who, env);
+      assert.ok(why, `${role}: allowed`);
+      assert.match(why, /cannot be resolved/, `${role}: ${why}`);
+    }
+    const lead = await pre(command, LEAD[1], LEAD[2]);
+    assert.ok(lead === null || !/after a cd to a directory that cannot be resolved|the command creates/.test(lead), `the lead got the role-only text: ${lead}`);
+  });
+}
+
+test("A273: the lead's verdict for a bare mkdir through a variable is unchanged (allowed: the scanner records no write)", async () => {
+  assert.equal(await pre('mkdir $VAR/x', LEAD[1], LEAD[2]), null);
+  assert.equal(await pre('mkdir -p $VAR/x', LEAD[1], LEAD[2]), null);
+});
+
+test('A273: a literal cd stays allowed for both roles (cd into the run scratch folder, then a relative write; a literal mkdir)', async () => {
+  for (const [role, who, env] of ROLES) {
+    assert.equal(await pre('cd .agents/runs/LC/scratch && echo x > o.txt', who, env), null, `${role}: literal cd`);
+    assert.equal(await pre('mkdir -p .agents/runs/LC/scratch/d', who, env), null, `${role}: literal mkdir`);
+  }
+  const [, who, env] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+  assert.equal(await pre('cd . && echo x > impl.txt', who, env), null);
+});
+
+test('A273: `cd src && echo x > a.txt` is judged by the path rule (literal cd), not refused as unresolvable', async () => {
+  for (const [role, who, env] of ROLES) {
+    const why = await pre('cd src && echo x > a.txt', who, env);
+    assert.ok(why === null || !/cannot be resolved/.test(why), `${role}: ${why}`);
+  }
+});
