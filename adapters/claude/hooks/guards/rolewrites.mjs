@@ -482,7 +482,9 @@ function tokenizeIn(s, depth, st, top) {
     if (c === ';' || c === '(' || c === ')' || (c === '&' && s[i + 1] !== '>') || c === '|') {
       // after `if`, `while`, `until`, `{`, `!`, `time` ... (lead) or `for` the `((` is arithmetic as well: `for (( i=0; i<4; i++ ))` has `;` and is no pair of subshells
       const forHdr = cur.words.length === 1 && !(/** @type {Word} */ (cur.words[0])).q && (/** @type {Word} */ (cur.words[0])).v === 'for';
-      if (c === '(' && s[i + 1] === '(' && w === null && (cur.words.length === 0 || lead || forHdr)) {
+      // `time ((` and `time -p ((` start a timed arithmetic command as well
+      const timeHdr = cur.words.length > 0 && cur.words.every((x, k) => !x.q && (k === 0 ? x.v === 'time' : x.v === '-p'));
+      if (c === '(' && s[i + 1] === '(' && w === null && (cur.words.length === 0 || lead || forHdr || timeHdr)) {
         // `(( ... ))` is arithmetic (its `<<` and `>` are operators, not redirects); `((cmd); cmd)` is two subshells and ends in `)` alone
         const keep = G.unsure;
         G.unsure = '';
@@ -491,13 +493,16 @@ function tokenizeIn(s, depth, st, top) {
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
         const body = s.slice(i + 2, e - 2);
         const closed = e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')';
-        // the probe reads the text with shell quoting rules; when it cannot place the closing `))` (or doubts for another reason than a `<<` operator) a quote, a `#` or a here-document marker may hide
-        // the end, so every substitution in the whole rest of the text is scanned (quote- and #-blind) and an unbalanced one is a doubt
-        if (!closed || (probeDoubt !== '' && !probeDoubt.startsWith('a << inside'))) arithSubs(s.slice(i + 2));
-        if (closed) {
+        // the `))` is placed with certainty only when the probe has no doubt (a `<<` operator is no doubt while no newline lies in the body: a here-document body is then not skipped) and the text is closed by `))`;
+        // anything else (a `#` or here-document marker that may hide the end, unbalanced parentheses, quotes, case patterns) is refused for the roles: the end of the `((` cannot be told
+        const placed = closed && (probeDoubt === '' || (probeDoubt.startsWith('a << inside') && !body.includes('\n')));
+        if (!placed) doubt('a "((" whose end cannot be placed: write a space after the first "(" for a nested subshell, or simplify the arithmetic');
+        else {
           arithSubs(body);
           if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { i = e; continue; }
-          strictUntil = e; // not arithmetic: two subshells, read as commands below, and a command word that is not literal is refused even without an operand
+          // not arithmetic: two subshells, read as commands below; a `#` or `<` in them is read by bash as arithmetic first, so the end is not certain
+          if (/[#<]/.test(body)) doubt('a "((" whose end cannot be placed: write a space after the first "(" for a nested subshell, or simplify the arithmetic');
+          strictUntil = e; // a command word that is not literal is refused even without an operand
         }
       }
       flush();

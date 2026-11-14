@@ -395,7 +395,7 @@ test('A274 round 7: isArithmetic decides by grammar', () => {
 // Security round 8: quotes and `#` protect nothing inside arithmetic text (bash expands every `$(...)` and backtick pair there), and valid arithmetic with expansions stays allowed.
 const HIDDEN = [
   "echo $(( '$(mkdir ../out/F)' ))", "x=$(('`mkdir ../out/F`'))", "echo $(( 1 + '$(mkdir ../out/F)' ))", "(( '$(mkdir ../out/F)' ))",
-  'for ((i=0;i<1;#$(mkdir ../out/F))); do :; done', "for ((i=0;i<1;'$(mkdir ../out/F)')); do :; done", 'echo "$(( \'$(mkdir ../out/F)\' ))"', "echo $[ '$(mkdir ../out/F)' ]",
+  'echo "$(( \'$(mkdir ../out/F)\' ))"', "echo $[ '$(mkdir ../out/F)' ]",
   "echo $(( ${x:-'$(mkdir ../out/F)'} ))", "echo $(( 1 + $((:)&&(mkdir ../out/F)) ))",
 ];
 for (const command of HIDDEN) {
@@ -425,17 +425,37 @@ test('A274 round 8: isArithmetic grammar covers base prefixes, quoted expansions
   for (const t of bad) assert.equal(/** @type {any} */ (RW).isArithmetic(t), false, JSON.stringify(t));
 });
 
-// Security round 9: the `((` probe cannot place the closing `))` (a heredoc marker, `${y:-`, a case `)`), so the whole rest of the text is scanned for substitutions, quote- and #-blind.
-const HIDDEN9 = [
+// Security rounds 9 and 10: a `((` whose closing `))` cannot be placed with certainty (a `#` or `<<` marker, `${y:-;)`, a case `)`, quotes, no `))` at the end) is refused for the roles, with the rewrite hint; the lead is not asked.
+// Before, the rest of the text was scanned for substitutions only: a plain command after the `))` hidden by a `#` or `<` ran unseen, and an ordinary quoted `$(` after a placed `))` was refused.
+const UNPLACED = [
   'while ((# $(mkdir ../out/F) ${y:-;)); do break; done', 'if (( # $(mkdir ../out/F) <<X\n )); then :; fi', "for ((;'$(mkdir ../out/F)' <<X\n;)); do break; done",
   '(( # $(case 1 in 1) :;; esac) + $(mkdir ../out/F) ))',
+  'if (( # )); then :; fi; mkdir ../out/F', '((; # ));mkdir ../out/F#', '(( 1 <<X\n)) ; mkdir ../out/F\nX', '(( < ))\nmkdir ../out/F',
+  "((cd a; ls) | wc -l); git commit -m 'feat: handle $( in parser'", 'time ((<<X))\nmkdir ../out/F', 'time (( # )) ; mkdir ../out/F', 'for ((i=0;i<1;#$(mkdir ../out/F))); do :; done', "for ((i=0;i<1;'$(mkdir ../out/F)')); do :; done",
 ];
-for (const command of HIDDEN9) {
-  test(`A274 round 9: a substitution behind an unplaceable (( is judged: ${JSON.stringify(command)}`, async () => {
-    assert.ok(roleActions(command).actions.some((a) => (a.kind === 'target' && a.word.v === OUT) || a.kind === 'deny'), 'the role actions hold the write or a refusal');
-    for (const [role, who, env] of ROLES) assert.match(String(await pre(command, who, env)), /writes '\.\.\/out\/F'|outside|inside a substitution|cannot/, `${role}: allowed`);
+UNPLACED.forEach((command, k) => {
+  test(`A274 round 10 #${k}: an unplaceable (( is refused for both roles with the hint: ${JSON.stringify(command)}`, async () => {
+    assert.ok(roleActions(command).actions.some((a) => a.kind === 'deny'), 'the role actions hold a refusal');
+    for (const [role, who, env] of ROLES) assert.match(String(await pre(command, who, env)), /whose end cannot be placed: write a space after the first "\(" for a nested subshell, or simplify the arithmetic/, `${role}: allowed`);
   });
-}
+});
+
+// A placed `))` ends the arithmetic: the text after it is read normally, quotes and all.
+const PLACED = [
+  '(( i++ )) && echo "it\'s done"', "for ((i=0;i<3;i++)); do echo '$(not code)'; done", 'echo $((1+2))', 'x=$(( (a+b) > 3 ))', "A='b c' node a.js", 'echo $((10#$x)) $((16#ff$y))', 'echo $(( a$i ))',
+  'time (( i++ ))', "(( i++ )); git commit -m 'feat: handle $( in parser'", "((i++)); grep -n '$(' f.txt", "(( x = 1 )); sed 's/`//g' f",
+];
+PLACED.forEach((command, k) => {
+  test(`A274 round 10 #${k}: a placed (( )) is allowed and the text after it is read normally: ${JSON.stringify(command)}`, async () => {
+    assert.deepEqual(roleActions(command).actions.filter((a) => a.kind === 'target' || a.kind === 'deny'), []);
+    const [, implWho, implEnv] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+    assert.equal(await pre(command, implWho, implEnv), null);
+  });
+});
+
+test('A274 round 10: the lead is not asked about an unplaceable ((', async () => {
+  for (const command of UNPLACED) assert.equal(await pre(command, {}, {}), null, JSON.stringify(command));
+});
 
 for (const command of ['echo $(( a$i ))', 'echo $(( $x$y ))', 'echo $(( ${x}0 ))', 'echo $(( count_$name + 1 ))', 'echo $(( a[~5] ))', 'echo $(( a$i[1] + 1 ))', 'echo $(( x$i++ ))', 'for ((i=0;i<n$k;i++)); do :; done', '(( x = 1<<2 )); echo ok']) {
   test(`A274 round 9: juxtaposed expansions in arithmetic are allowed: ${JSON.stringify(command)}`, async () => {
