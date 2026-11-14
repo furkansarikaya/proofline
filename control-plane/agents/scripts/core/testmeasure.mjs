@@ -317,7 +317,7 @@ export function measureRun(ctx, id, opt = {}) {
     const pinned = new Set((pin ?? '').split(',').filter((h) => h !== ''));
     const live = ctx.config().cmds('commands.test').filter((c) => c !== '');
     const changed = stamped && pin !== null && testCmdPin(live) !== pin;
-    const configuredTests = changed ? [] : live; // names the project test command in a message, only when it is still the pinned one
+    const configuredTests = changed || pin === null ? [] : live; // a run without a pin accepts plan-listed commands only, so it must not be told to use the project test command // names the project test command in a message, only when it is still the pinned one
     const isPinned = (/** @type {string} */ c) => pinned.has(cmdHash(c));
     const listed = new Set(stamped ? planVerificationCommands(ctx, id) : []);
     const legacy = new Set(stamped ? [] : reproduceAllowed(ctx, id));
@@ -328,7 +328,7 @@ export function measureRun(ctx, id, opt = {}) {
       if (allowed.has(c)) continue;
       // a run that carries the measurement stamp is measured on a plan-listed command or the configured test command: the implementer's own string never decides
       if (stamped) {
-        const doThis = configuredTests.length > 0 || (pinned.size > 0 && !changed)
+        const doThis = configuredTests.length > 0 || (pinned.size > 0 && !changed && pin !== null)
           ? `re-record GREEN with the project test command (${configuredTests.length > 0 ? configuredTests.map((t) => `\`${t}\``).join(' or ') : 'the commands.test the run started with'}) or a command the plan lists under ## Verification commands; no plan amendment is needed for that`
           : "no test command is configured (commands.test) and the plan lists none for this command, so a plan amendment and a refreeze must list the narrow command that runs the new or changed tests in ## Verification commands";
         const note = changed ? ` (commands.test changed since the run started${live.length > 0 ? ` to \`${live.join('` or `')}\`` : ''}; only the command the run started with counts)` : '';

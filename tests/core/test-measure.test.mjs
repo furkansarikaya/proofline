@@ -291,6 +291,20 @@ test('commands.test changed by a commit after the start is blocked too', () => {
   assert.match(r.text, /IMPLEMENTED blocked: the GREEN command `true`/);
 });
 
+test('a stamped run with no pin row accepts plan-listed commands only, and its block message asks for a plan amendment, not for the project test command', () => {
+  const { d, w } = seeded({ testCmd: 'node --version' });
+  setCmd(d, 'test', 'node --version');
+  const ledger = path.join(d, '.agents/runs/LC/LEDGER.log');
+  // a run started before the pin existed has no test-cmd-pin row
+  writeFileSync(ledger, readFileSync(ledger, 'utf8').split('\n').filter((l) => !l.includes(' event=test-cmd-pin ')).join('\n'));
+  accepted(green(d, 'node --version', 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(d, w);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.text, /a plan amendment and a refreeze must list the narrow command/);
+  assert.doesNotMatch(r.text, /re-record GREEN with the project test command/);
+});
+
 test('the block message says what to do without a plan amendment when a test command is configured, and asks for an amendment only when none is', () => {
   const a = seeded({ testCmd: 'node --version' });
   setCmd(a.d, 'test', 'node --version');
