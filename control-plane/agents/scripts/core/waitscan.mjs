@@ -14,14 +14,14 @@
 // `unused` (a stale entry), so the list cannot rot. The line number is not part of an entry (lines move); the path and the pattern are.
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { clean } from './codetrust.mjs';
 
 export const KINDS = ['wait', 'clock_read'];
 const MIN_REASON = 10;
 const MAX_FILE_BYTES = 1048576;
-const MAX_LINE = 2000;
 
 /**
- * @typedef {{ id: string, files: string[], wait: string[], clock_read: string[] }} Rule
+ * @typedef {{ id: string, files: string[], wait: string[], clock_read: string[], markers: string[] }} Rule
  * @typedef {{ file: string, line: number, kind: string, pattern: string, source: string, text: string }} Candidate
  * @typedef {{ glob: string, pattern: string, reason: string, line: number }} AllowEntry
  */
@@ -34,13 +34,27 @@ export function scanRules(rows) {
   /** @type {Map<string, Rule>} */ const by = new Map();
   for (const [id, p, v] of rows ?? []) {
     if (id === '*') continue;
-    const k = p === 'fast_tests.files' ? 'files' : p === 'fast_tests.sleep' ? 'wait' : p === 'fast_tests.clock_reads' ? 'clock_read' : '';
+    const k = p === 'fast_tests.files' ? 'files' : p === 'fast_tests.sleep' ? 'wait' : p === 'fast_tests.clock_reads' ? 'clock_read' : p === 'fast_tests.test_markers' ? 'markers' : '';
     if (k === '') continue;
-    const r = by.get(id) ?? { id, files: [], wait: [], clock_read: [] };
-    r[k].push(v);
+    const r = by.get(id) ?? { id, files: [], wait: [], clock_read: [], markers: [] };
+    if (!r[k].includes(v)) r[k].push(v);   // the rows may hold several copies of the definition (the shipped one and the project's): a union, so a project can add and never remove
     by.set(id, r);
   }
   return [...by.values()].filter((r) => r.files.length > 0).sort((a, b) => cmp(a.id, b.id));
+}
+
+/** The path globs that mark a test file (`test_paths` of the global part of the definition). @param {string[][] | null} rows */
+export function testPathGlobs(rows) { return [...new Set((rows ?? []).filter((r) => r[0] === '*' && r[1] === 'test_paths').map((r) => r[2]))]; }
+
+/**
+ * Is this file a test? By its path (a test folder or name from the data) or by a test marker of the ecosystems that claim it found in its text: a file is judged by what it
+ * holds as well as by its name, so a name such as `lock.test.js` or `sleep.config.test.js` cannot hide a wait (fail safe). A marker that is not a regular expression is skipped.
+ * @param {string} file @param {string} text @param {Rule[]} rules @param {string[]} testGlobs
+ */
+export function isTestFile(file, text, rules, testGlobs) {
+  if (testGlobs.some((g) => globRe(g).test(file))) return true;
+  for (const r of claimedBy(file, rules)) for (const m of r.markers) { let re; try { re = new RegExp(m, 'm'); } catch { continue; } if (re.test(text)) return true; }
+  return false;
 }
 
 /** @param {string} a @param {string} b */
@@ -64,8 +78,7 @@ export function globRe(glob) {
 export function claimedBy(file, rules) { return rules.filter((r) => r.files.some((g) => globRe(g).test(file))); }
 
 /**
- * The candidates of one file's text. The lists used are those of every rule whose `files` globs match the path. A line longer than 2000 characters is skipped
- * (minified or generated text). One entry per (line, kind, pattern).
+ * The candidates of one file's text. The lists used are those of every rule whose `files` globs match the path. One entry per (line, kind, pattern).
  * @param {string} file relative path @param {string} text @param {Rule[]} rules @param {string[]} [kinds] @returns {Candidate[]}
  */
 export function scanText(file, text, rules, kinds = KINDS) {
@@ -76,12 +89,12 @@ export function scanText(file, text, rules, kinds = KINDS) {
   /** @type {Map<string, Candidate>} */ const out = new Map();
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i].replace(/\r$/, '');
-    if (l.length > MAX_LINE) continue;
+    const l = lines[i].replace(/\r$/, '');   // a line of any length is scanned in full: every pattern is a literal with blanks, so matching is linear
     for (const p of pats) {
-      if (!p.re.test(l)) continue;
+      const m = p.re.exec(l);
+      if (!m) continue;
       const key = `${i + 1}\0${p.kind}\0${p.pattern}`;
-      if (!out.has(key)) out.set(key, { file, line: i + 1, kind: p.kind, pattern: p.pattern, source: p.source, text: l.trim().slice(0, 160) });
+      if (!out.has(key)) out.set(key, { file, line: i + 1, kind: p.kind, pattern: p.pattern, source: p.source, text: l.slice(Math.max(0, m.index - 60), m.index + 100).trim() });
     }
   }
   return sortCandidates([...out.values()]);
@@ -111,18 +124,22 @@ export function parseAllowlist(text) {
 }
 
 /**
- * Candidates covered by an entry move to `allowed` (with the reason); the others stay `open`. An entry that covered nothing is `unused`.
- * @param {Candidate[]} cands @param {AllowEntry[]} entries
+ * Candidates covered by an entry move to `allowed` (with the reason); the others stay `open`. An entry that covered nothing is `unused`, judged only for the kinds that were
+ * scanned: an entry whose pattern is a name of the other kind is not stale just because that kind was not looked for (`*` entries always count).
+ * @param {Candidate[]} cands @param {AllowEntry[]} entries @param {{ kinds?: string[], rules?: Rule[] }} [o]
  * @returns {{ open: Candidate[], allowed: Array<Candidate & { reason: string }>, unused: AllowEntry[] }}
  */
-export function applyAllowlist(cands, entries) {
+export function applyAllowlist(cands, entries, o = {}) {
   const res = entries.map((e) => ({ e, re: globRe(e.glob), hits: 0 }));
   /** @type {Candidate[]} */ const open = []; /** @type {Array<Candidate & { reason: string }>} */ const allowed = [];
   for (const c of cands) {
     const hit = res.find((r) => r.re.test(c.file) && (r.e.pattern === '*' || r.e.pattern === c.pattern));
     if (hit) { hit.hits++; allowed.push({ ...c, reason: hit.e.reason }); } else open.push(c);
   }
-  return { open, allowed, unused: res.filter((r) => r.hits === 0).map((r) => r.e) };
+  const kinds = o.kinds ?? KINDS;
+  /** @param {string} pattern */
+  const inScope = (pattern) => pattern === '*' || !o.rules || o.rules.some((r) => KINDS.some((k) => kinds.includes(k) && r[/** @type {'wait' | 'clock_read'} */ (k)].includes(pattern)));
+  return { open, allowed, unused: res.filter((r) => r.hits === 0 && inScope(r.e.pattern)).map((r) => r.e) };
 }
 
 // ---- the file system edge -----------------------------------------------------------------------------------------------------------
@@ -159,7 +176,7 @@ export function pruneNames(rows) { return new Set((rows ?? []).filter((r) => r[1
 
 /**
  * Scan files of a root. `kindsOf(file)` says which kinds to look for in each file (default all); a file that no ecosystem claims, is too large or unreadable is
- * skipped and counted. @param {string} root @param {string[]} files @param {Rule[]} rules @param {(file: string) => string[]} [kindsOf]
+ * skipped and counted. @param {string} root @param {string[]} files @param {Rule[]} rules @param {(file: string, text: string) => string[]} [kindsOf]
  * @returns {{ scanned: string[], skipped: string[], candidates: Candidate[] }}
  */
 export function scanFiles(root, files, rules, kindsOf = () => KINDS) {
@@ -169,7 +186,7 @@ export function scanFiles(root, files, rules, kindsOf = () => KINDS) {
     let text;
     try { const abs = path.join(root, f); const st = lstatSync(abs); if (!st.isFile() || st.size > MAX_FILE_BYTES) { skipped.push(f); continue; } text = readFileSync(abs, 'utf8'); } catch { skipped.push(f); continue; }
     scanned.push(f);
-    candidates.push(...scanText(f, text, rules, kindsOf(f)));
+    candidates.push(...scanText(f, text, rules, kindsOf(f, text)));
   }
   return { scanned, skipped, candidates: sortCandidates(candidates) };
 }
@@ -180,26 +197,26 @@ export function scanFiles(root, files, rules, kindsOf = () => KINDS) {
  * @typedef {{ scanned: string[], skipped: string[], candidates: Candidate[], allowed: Array<Candidate & { reason: string }>, unused: AllowEntry[] }} Report
  */
 
-/** Fixed key order, so equal reports are equal bytes. @param {Report} r */
+/** Fixed key order, so equal reports are equal bytes. Every string that came from the repository (a path, a line, a reason) is cleaned of control and direction characters, so a file name or a line cannot forge a line of the report. @param {Report} r */
 export function reportJson(r) {
-  const c = (/** @type {Candidate} */ x) => ({ file: x.file, line: x.line, kind: x.kind, pattern: x.pattern, source: x.source, text: x.text });
+  const c = (/** @type {Candidate} */ x) => ({ file: clean(x.file), line: x.line, kind: x.kind, pattern: clean(x.pattern), source: x.source, text: clean(x.text) });
   return `${JSON.stringify({
     version: 1,
-    summary: { files: r.scanned.length, candidates: r.candidates.length, allowed: r.allowed.length, unused_allowlist_entries: r.unused.length },
+    summary: { files: r.scanned.length, candidates: r.candidates.length, allowed: r.allowed.length, unused_allowlist_entries: r.unused.length, skipped: r.skipped.length },
     candidates: r.candidates.map(c),
-    allowed: r.allowed.map((x) => ({ ...c(x), reason: x.reason })),
-    unused_allowlist_entries: r.unused.map((e) => ({ line: e.line, path: e.glob, pattern: e.pattern, reason: e.reason })),
-    skipped: r.skipped,
+    allowed: r.allowed.map((x) => ({ ...c(x), reason: clean(x.reason) })),
+    unused_allowlist_entries: r.unused.map((e) => ({ line: e.line, path: clean(e.glob), pattern: clean(e.pattern), reason: clean(e.reason) })),
+    skipped: r.skipped.map(clean),
   }, null, 2)}\n`;
 }
 
 /** @param {Report} r */
 export function reportText(r) {
-  let t = `test-scan: ${r.candidates.length} candidate(s) in ${r.scanned.length} scanned file(s)${r.allowed.length > 0 ? `, ${r.allowed.length} allowed` : ''}\n`;
+  let t = `test-scan: ${r.candidates.length} candidate(s) in ${r.scanned.length} scanned file(s)${r.allowed.length > 0 ? `, ${r.allowed.length} allowed` : ''}${r.skipped.length > 0 ? `, ${r.skipped.length} NOT SCANNED` : ''}\n`;
   t += 'a candidate is a text match, not a verdict: a name inside a string or a comment is a false positive; trace the path before you call it a finding\n';
-  for (const c of r.candidates) t += `candidate: ${c.file}:${c.line} ${c.kind} ${c.pattern} | ${c.text}\n`;
-  for (const c of r.allowed) t += `allowed: ${c.file}:${c.line} ${c.kind} ${c.pattern} (${c.reason})\n`;
-  for (const e of r.unused) t += `unused-allowlist-entry: line ${e.line}: ${e.glob} ${e.pattern} matched nothing\n`;
-  for (const s of r.skipped) t += `skipped: ${s} (unreadable or over ${MAX_FILE_BYTES} bytes)\n`;
+  for (const c of r.candidates) t += `candidate: ${clean(c.file)}:${c.line} ${c.kind} ${clean(c.pattern)} | ${clean(c.text)}\n`;
+  for (const c of r.allowed) t += `allowed: ${clean(c.file)}:${c.line} ${c.kind} ${clean(c.pattern)} (${clean(c.reason)})\n`;
+  for (const e of r.unused) t += `unused-allowlist-entry: line ${e.line}: ${clean(e.glob)} ${clean(e.pattern)} matched nothing\n`;
+  for (const f of r.skipped) t += `NOT SCANNED: ${clean(f)} (unreadable, not a regular file or over ${MAX_FILE_BYTES} bytes); a file nobody scanned is not a clean file\n`;
   return t;
 }

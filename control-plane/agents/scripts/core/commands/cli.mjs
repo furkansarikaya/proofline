@@ -18,7 +18,7 @@ import { nextUser } from '../nextuser.mjs';
 import { queue } from '../queue.mjs';
 import { preCommit, prePush } from '../githooks.mjs';
 import { builtinScan } from '../secretscan.mjs';
-import { ecosystemRows } from '../ecodata.mjs';
+import { ecosystemRowsAll } from '../ecodata.mjs';
 import { KINDS as SCAN_KINDS, applyAllowlist, listFiles, parseAllowlist, pruneNames, reportJson, reportText as scanText, scanFiles, scanRules } from '../waitscan.mjs';
 import { slug as slugOf } from '../slug.mjs';
 import { runTaskAdapter } from '../adapters/index.mjs';
@@ -98,12 +98,17 @@ function secretScanCli(ctx, args) {
  * @param {Context} ctx @param {string[]} args
  */
 function testScanCli(ctx, args) {
-  const usage = '[--root DIR] [--allowlist FILE] [--kind wait|clock_read|all] [--json] <path>...';
+  const usage = '[--root DIR] [--allowlist FILE] [--allow-unused] [--kind wait|clock_read|all] [--json] <path>...';
   const bad = (/** @type {string} */ m) => new ProoflineError(`proofline-core cli test-scan: ${m}`, 2, 'USAGE');
-  let root = ctx.cwd; let allow = ''; let kind = 'all'; let json = false; /** @type {string[]} */ const targets = [];
+  if (args.includes('--help') || args.includes('-h')) {
+    ctx.out(`usage: proofline-core cli test-scan ${usage}\nreal waits and direct clock reads under the paths, found with the fast_tests data of ecosystems.json; candidates, not verdicts.\nexit 0 nothing open, 1 an open candidate, a stale allowlist entry (unless --allow-unused) or a file that could not be scanned, 2 usage or allowlist error\nallowlist: <path glob><TAB><pattern><TAB><reason of at least 10 characters>, # starts a comment\n`);
+    return 0;
+  }
+  let root = ctx.cwd; let allow = ''; let kind = 'all'; let json = false; let allowUnused = false; /** @type {string[]} */ const targets = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--json') json = true;
+    else if (a === '--allow-unused') allowUnused = true;
     else if (a === '--root' || a === '--allowlist' || a === '--kind') {
       const v = args[++i];
       if (v === undefined || v === '') throw bad(`${a} needs a value (${usage})`);
@@ -113,7 +118,8 @@ function testScanCli(ctx, args) {
   }
   if (targets.length === 0) throw bad(usage);
   if (kind !== 'all' && !SCAN_KINDS.includes(kind)) throw bad(`--kind must be wait, clock_read or all`);
-  const rows = ecosystemRows(ctx);
+  // the union of every copy of the definition the command can see: a project cannot blind the scan by shipping a copy with the lists emptied
+  const rows = ecosystemRowsAll(ctx);
   const rules = scanRules(rows);
   if (rules.length === 0) throw bad('ecosystems.json carries no fast_tests data');
   /** @type {import('../waitscan.mjs').AllowEntry[]} */ let entries = [];
@@ -128,10 +134,10 @@ function testScanCli(ctx, args) {
   if (listed.errors.length > 0) throw bad(listed.errors.join('; '));
   const kinds = kind === 'all' ? SCAN_KINDS : [kind];
   const scan = scanFiles(root, listed.files, rules, () => kinds);
-  const split = applyAllowlist(scan.candidates, entries);
+  const split = applyAllowlist(scan.candidates, entries, { kinds, rules });
   const report = { scanned: scan.scanned, skipped: scan.skipped, candidates: split.open, allowed: split.allowed, unused: split.unused };
   ctx.out(json ? reportJson(report) : scanText(report));
-  return split.open.length > 0 ? 1 : 0;
+  return split.open.length > 0 || scan.skipped.length > 0 || (split.unused.length > 0 && !allowUnused) ? 1 : 0;
 }
 
 /**

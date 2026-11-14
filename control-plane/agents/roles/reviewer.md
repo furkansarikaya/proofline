@@ -119,6 +119,7 @@ exists, else PASS. Suspicions, slow tests and other notes are `info` rows and ne
   dependency; an unplanned versioned contract change.
 - `rules`: a violation of a written, checkable project rule introduced by the diff; a reproduced or traced bug.
 - `rules+tests`: the same, with the bug hunt limited to the units the changed tests exercise.
+  Also run `agent.sh build-record <ID> scan`: a real wait, direct clock read, over-budget or unmeasured test (test-trust FAST.md) is a `blocking` row unless PLAN `## Test exceptions` justifies it.
 - `tests`: a confirmed flaky test among changed or covering tests; a hollow test on a changed unit (a
   surviving mutant); a real wait or clock read that `agent.sh build-record <ID> scan` lists and you traced or cannot rule
   out, a test over its budget, a test never measured (test-trust FAST.md), unless PLAN `## Test exceptions` justifies it.

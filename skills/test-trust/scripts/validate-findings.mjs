@@ -133,7 +133,10 @@ export function checkConsistency(doc) {
 }
 
 // Issue 265 package C (A276): the findings of the speed and determinism check. A candidate the reviewer cannot trace stays a finding (verdict confirmed, outcome
-// untraced); only a false positive with a reason, or the PLAN's own `## Test exceptions` line, clears it. The verdict must agree with the outcome.
+// untraced); only a false positive that names the traced path, or the PLAN's own `## Test exceptions` line, clears it. The verdict must agree with the outcome. Clearing is
+// never weaker than the Core invariants: a reason is evidence (at least 30 characters, the test file's name and a line number or the matched text), and a not_measured fact
+// is cleared only by a plan line that quotes it.
+const base = (p) => String(p ?? "").split("/").pop();
 export function checkFast(doc) {
   const errors = [];
   for (const f of doc.findings ?? []) {
@@ -143,27 +146,56 @@ export function checkFast(doc) {
       if (blocking && f.verdict !== "confirmed") errors.push(`${f.id}: a ${o.outcome} candidate stays a confirmed finding (safe side), not ${f.verdict}`);
       if (!blocking && f.verdict !== "cleared") errors.push(`${f.id}: outcome ${o.outcome} must be a cleared finding, not ${f.verdict}`);
       if (o.outcome === "traced" && !o.trace) errors.push(`${f.id}: a traced candidate needs "trace", the path followed`);
-      if (o.outcome === "false_positive" && !o.reason) errors.push(`${f.id}: a false_positive needs "reason"`);
+      if (o.outcome === "false_positive") {
+        const r = String(o.reason ?? "");
+        const c = o.candidate ?? {};
+        if (r.length < 30 || !r.includes(base(c.file)) || !(r.includes(String(c.pattern)) || new RegExp(`(^|\\D)${c.line}(\\D|$)`).test(r))) errors.push(`${f.id}: a false_positive needs a "reason" of at least 30 characters that names the traced path: it must contain the file name ${base(c.file)} and the line number ${c.line} or the matched text ${c.pattern}`);
+      }
       if (o.outcome === "plan_justified" && (f.kind !== "real_wait" || !o.plan_exception)) errors.push(`${f.id}: plan_justified applies to real_wait only and needs "plan_exception", the exact PLAN ## Test exceptions line`);
     } else if (f.kind === "over_budget") {
       if (o.outcome === "over" && !(o.measured_ms > o.budget_ms)) errors.push(`${f.id}: over_budget with measured_ms ${o.measured_ms} not above budget_ms ${o.budget_ms}`);
       if ((o.outcome === "over") !== (f.verdict === "confirmed")) errors.push(`${f.id}: outcome ${o.outcome} does not match verdict ${f.verdict} (over is confirmed, plan_justified is cleared)`);
       if (o.outcome === "plan_justified" && !o.plan_exception) errors.push(`${f.id}: plan_justified needs "plan_exception", the exact PLAN ## Test exceptions line`);
+    } else if (f.kind === "not_measured") {
+      if (f.verdict === "cleared" && !o.plan_exception) errors.push(`${f.id}: a not_measured finding is never cleared by the reviewer; only a "- measure: ..." line of PLAN ## Test exceptions that quotes it clears it (give "plan_exception")`);
+      if (f.verdict === "needs_validation") errors.push(`${f.id}: a not_measured finding is confirmed or cleared by the plan, never needs_validation`);
     }
   }
   return errors;
 }
 
-// With the plan: a plan_exception must be a line of the plan's `## Test exceptions` of the matching kind (wait for real_wait, budget for over_budget).
+// With the plan: a plan_exception must be a line of the plan's `## Test exceptions` of the matching kind (wait for real_wait, budget for over_budget, measure for not_measured)
+// whose target names the finding's own test file or test name: a line written for another file clears nothing here. Linear: the section is cut line by line and a line over
+// 4096 characters is never an exception.
+export function exceptionLine(line) {
+  if (line.length > 4096) return null;
+  const head = /^[ \t]*[-*][ \t]*(wait|budget|measure):/.exec(line);
+  if (!head) return null;
+  const rest = line.slice(head[0].length);
+  const sep = rest.search(/[ \t](?:--|—)[ \t]/);
+  if (sep < 0) return null;
+  const target = rest.slice(0, sep).trim();
+  const reason = rest.slice(sep).replace(/^[ \t](?:--|—)[ \t]/, "").trim();
+  return target === "" || reason.length < 20 ? null : { kind: head[1], target: target.replace(/[`"]/g, "") };
+}
 export function checkPlanExceptions(doc, planText) {
   const errors = [];
-  const m = /^## Test exceptions[^\n]*\n([\s\S]*?)(?=^## |\s*$(?![\s\S]))/m.exec(planText);
-  const lines = (m ? m[1] : "").split("\n").map((l) => l.trim());
+  const lines = [];
+  let inside = false;
+  for (const l of planText.split("\n")) {
+    if (l.startsWith("## ")) { inside = l.slice(3).trim() === "Test exceptions"; continue; }
+    if (inside && l.trim() !== "") lines.push(l.trim());
+  }
   for (const f of doc.findings ?? []) {
     const e = f.observed?.plan_exception;
     if (e === undefined) continue;
-    const kind = f.kind === "over_budget" ? "budget" : "wait";
-    if (!lines.includes(e.trim()) || !new RegExp(`^[-*]\\s*${kind}:`).test(e.trim())) errors.push(`${f.id}: plan_exception is not a "- ${kind}: ..." line of PLAN ## Test exceptions: ${e.slice(0, 80)}`);
+    const kind = f.kind === "over_budget" ? "budget" : f.kind === "not_measured" ? "measure" : "wait";
+    const x = lines.includes(String(e).trim()) ? exceptionLine(String(e).trim()) : null;
+    if (!x || x.kind !== kind) { errors.push(`${f.id}: plan_exception is not a "- ${kind}: ..." line of PLAN ## Test exceptions: ${String(e).slice(0, 80)}`); continue; }
+    const file = String(f.test?.file ?? ""); const name = String(f.test?.name ?? "");
+    const t = x.target;
+    const fits = t === file || (file !== "" && (t.includes(file) || file.endsWith(`/${t}`))) || (name !== "" && (t === name || t.includes(name)));
+    if (!fits) errors.push(`${f.id}: the plan line is for "${t.slice(0, 60)}", not for this finding's test ${file || name}: a line written for another test clears nothing here`);
   }
   return errors;
 }

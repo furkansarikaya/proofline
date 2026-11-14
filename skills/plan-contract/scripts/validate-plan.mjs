@@ -54,15 +54,19 @@ export function testKindProblems(testLines, budgetLines) {
   else if (budgetLines) for (const k of used) if (!given.has(k)) errors.push(`section "## Test budgets": no budget line for the test kind ${k} that ## Tests uses`);
   return errors;
 }
-// Issue 265 package C (A276): `## Test exceptions` is the only place a plan justifies a real wait or a test over its budget, so REVIEW_TESTS can clear the finding.
-// A line is `- wait: <test file or "test name"> -- <reason>` or `- budget: <...> -- <reason>` (the separator is `--` or an em dash); the reason has at least 20 characters.
-const EXCEPTION_LINE = /^\s*[-*]\s*(wait|budget):\s*(.+?)\s+(?:—|--)\s+(\S.{19,})$/;
+// Issue 265 package C (A276): `## Test exceptions` is the only place a plan justifies a real wait, a test over its budget or a test that was not measured, so REVIEW_TESTS
+// can clear the finding. A line is `- wait|budget|measure: <test file or "test name"> -- <reason>` (the separator is `--` or an em dash between blanks); the reason has at
+// least 20 characters. Linear: a line over 4096 characters is refused before it is looked at, and the separator is searched for, not backtracked to.
 export function testExceptionProblems(lines) {
   const errors = [];
   for (const l of lines || []) {
     if (l.trim() === "") continue;
     if (l.length > 4096) { errors.push('section "## Test exceptions": a line is longer than 4096 characters'); continue; }
-    if (!EXCEPTION_LINE.test(l)) errors.push(`section "## Test exceptions": expected "- wait|budget: <test file or \\"test name\\"> -- <reason of at least 20 characters>", got "${l.trim().slice(0, 60)}"`);
+    const head = /^[ \t]*[-*][ \t]*(wait|budget|measure):/.exec(l);
+    const rest = head ? l.slice(head[0].length) : "";
+    const sep = rest.search(/[ \t](?:--|—)[ \t]/);
+    const reason = sep < 0 ? "" : rest.slice(sep).replace(/^[ \t](?:--|—)[ \t]/, "").trim();
+    if (!head || sep < 0 || rest.slice(0, sep).trim() === "" || reason.length < 20) errors.push(`section "## Test exceptions": expected "- wait|budget|measure: <test file or \\"test name\\"> -- <reason of at least 20 characters>", got "${l.trim().slice(0, 60)}"`);
   }
   return errors;
 }

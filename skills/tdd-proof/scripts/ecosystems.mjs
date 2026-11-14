@@ -158,6 +158,7 @@ export function validate(data = loadEcosystems()) {
   for (const k of ["discover_max_markers", "version_scan_depth", "version_scan_max_files", "scan_max_files"]) need(/^[0-9]+$/.test(g.limits?.[k] ?? ""), `global.limits.${k} must be a digit string`);
   for (const k of ["tools", "build", "test", "lint"]) need(g.ci_scan && k in g.ci_scan, `global.ci_scan.${k} missing`);
   // #265 (A275): where the project's own CI or test-runner configuration retries a test (reported, never used). file is a glob, pattern a line pattern.
+  need(Array.isArray(g.test_paths) && g.test_paths.length > 0 && g.test_paths.every((x) => typeof x === "string" && x !== ""), "global.test_paths must be a non-empty array of path globs (the folders and names that mark a test file)");
   need(Array.isArray(g.test_retry) && g.test_retry.length > 0, "global.test_retry must be a non-empty array");
   for (const x of g.test_retry ?? []) {
     need(typeof x.file === "string" && x.file !== "" && typeof x.pattern === "string" && x.pattern !== "" && typeof x.what === "string" && x.what !== "", "global.test_retry entries need file, pattern and what");
@@ -215,6 +216,8 @@ export function validate(data = loadEcosystems()) {
     need(typeof ft.fake_clock?.facility === "string" && ft.fake_clock.facility.trim() !== "", `${w}: fast_tests.fake_clock.facility must be a non-empty string`);
     // #265 package C (A276): the source files the scan applies the lists to (globs); a scan of a file that no ecosystem claims reports nothing
     need(Array.isArray(ft.files) && ft.files.length > 0 && ft.files.every((x) => typeof x === "string" && /^\*\.[A-Za-z0-9]+$/.test(x)), `${w}: fast_tests.files must be a non-empty array of "*.<extension>" globs`);
+    // the markers that say a file holds tests whatever its name (a regular expression each, searched in the text): the scan looks for waits in such a file even when its name is not a test name
+    need(Array.isArray(ft.test_markers) && ft.test_markers.length > 0 && ft.test_markers.every((x) => { try { new RegExp(x); return typeof x === "string" && x !== ""; } catch { return false; } }), `${w}: fast_tests.test_markers must be a non-empty array of regular expressions`);
     for (const k of ["sleep", "clock_reads"]) need(Array.isArray(ft[k]) && ft[k].length > 0 && ft[k].every((x) => typeof x === "string" && x.trim() !== ""), `${w}: fast_tests.${k} must be a non-empty array of non-empty strings`);
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);

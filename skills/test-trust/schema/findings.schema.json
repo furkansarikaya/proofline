@@ -776,13 +776,20 @@
             "no_test_measure_row",
             "no_recorded_duration",
             "command_not_double_run",
-            "command_does_not_run_test"
+            "command_does_not_run_test",
+            "file_not_scanned",
+            "measurement_finding"
           ],
-          "description": "not_double_run: the test-measure row says double_run=0. no_test_measure_row: the control plane never measured the run. no_recorded_duration: the plan names the test and no duration was recorded. command_not_double_run: a GREEN command is neither plan-listed nor the pinned project test command. command_does_not_run_test: the double-run command does not execute the test."
+          "description": "not_double_run: the test-measure row says double_run=0. no_test_measure_row: the control plane never measured the run. no_recorded_duration: the plan names the test and no duration was recorded. command_not_double_run: a GREEN command is neither plan-listed nor the pinned project test command. command_does_not_run_test: the double-run command does not execute the test. file_not_scanned: the scan could not read a changed file. measurement_finding: the test-measure row records a stability or duration finding."
         },
         "detail": {
           "type": "string",
           "minLength": 1
+        },
+        "plan_exception": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact `- measure: ...` line of PLAN ## Test exceptions (required to clear a not_measured finding)."
         }
       }
     }

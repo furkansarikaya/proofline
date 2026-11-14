@@ -59,3 +59,18 @@ export function ecosystemRowsAt(agents, shipped) {
 export function ecosystemRows(ctx) {
   return ctx.once('eco-rows', () => ecosystemRowsAt(ctx.agents, path.resolve(ctx.scriptDir, '..')));
 }
+
+/**
+ * The rows of EVERY copy of the definition this invocation can see, one after the other: the control plane's own (the folder above its scripts), the trusted scripts' (the main
+ * tree's, when the command runs in a run worktree) and the project's `.agents/ecosystems.json`. A reader that must not be blinded (the scan for real waits, issue 265) takes the
+ * union: a project can add names and never remove or replace one by shipping its own copy. Null when none is readable.
+ * @param {Context} ctx @returns {string[][] | null}
+ */
+export function ecosystemRowsAll(ctx) {
+  return ctx.once('eco-rows-all', () => {
+    const files = [...new Set([`${path.resolve(ctx.scriptDir, '..')}/ecosystems.json`, `${path.resolve(ctx.trustedScripts, '..')}/ecosystems.json`, `${ctx.agents}/ecosystems.json`])];
+    /** @type {string[][]} */ const all = [];
+    for (const f of files) { const r = rowsOf(f); if (r) all.push(...r); }
+    return all.length > 0 ? all : null;
+  });
+}

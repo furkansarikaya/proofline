@@ -18,10 +18,10 @@ One finding per candidate or per fact. `observed` shapes are in the schema (`obs
 
 | kind | when | verdict |
 |---|---|---|
-| `real_wait` | a `wait` candidate in a test file | `confirmed` when `traced` (you followed the path from the test to the wait; `trace` says how) or `untraced` (you could not rule it out: it stays a finding, the safe side). `cleared` only as `false_positive` (`reason`: the match is a string, a comment, or code the test never reaches) or `plan_justified` (`plan_exception`: the exact `- wait:` line of PLAN `## Test exceptions`). |
+| `real_wait` | a `wait` candidate in a test file | `confirmed` when `traced` (you followed the path from the test to the wait; `trace` says how) or `untraced` (you could not rule it out: it stays a finding, the safe side). `cleared` only as `false_positive` (`reason` of at least 30 characters that names the traced path: the file name and the line number or the matched text, for example "retry.test.js:8 setTimeout is inside a string literal") or `plan_justified` (`plan_exception`: the exact `- wait:` line of PLAN `## Test exceptions`). |
 | `clock_not_injected` | a `clock_read` candidate in a changed test or in changed code the tests exercise, where the time-dependent code reads the system clock itself instead of taking a clock (a parameter, a constructor argument, a provider) | `confirmed` traced or untraced, or `cleared` as `false_positive`. The plan cannot justify it. A test that only builds a fixed date from literals is a false positive. |
 | `over_budget` | a `BUDGET test` finding of the measurement | `confirmed` with `measured_ms` and `budget_ms` copied from it (`budget_source` plan or config), or `cleared` as `plan_justified` with the exact `- budget:` line. A `BUDGET suite` finding is reported the same way with the suite as `test`. |
-| `not_measured` | `NOT MEASURED` in the measurement; a plan test with no recorded duration; a GREEN command whose `source` is `neither`; or a double-run command that does not execute a changed test | `confirmed` with `reason` and `detail`. |
+| `not_measured` | `NOT MEASURED` or `NOT SCANNED` in the input; a plan test with no recorded duration; a GREEN command whose `source` is `neither`; a stability or duration finding in the `test-measure` row; or a double-run command that does not execute a changed test | `confirmed` with `reason` and `detail`. Never cleared by you: only a `- measure:` line of the plan that quotes it clears it. |
 
 Confirming that the double-run command really executes the tests is YOUR job (package B only checked that the command is plan-listed or the pinned project test command): read the command and the project's runner configuration, and compare with the task's test files. A command that runs a different suite, or filters the new tests out, is `command_does_not_run_test`. A test the plan names with no recorded duration is `no_recorded_duration`.
 
@@ -29,4 +29,6 @@ Confirming that the double-run command really executes the tests is YOUR job (pa
 
 - A time-dependent test passes a fake clock; a plan exception is for a wait that cannot be faked (a real process signal, a socket), never for a clock the code could take by injection.
 - Never lower a budget, edit the plan or the scan output, or run the tests yourself to replace a missing measurement: report `not_measured` and stop there.
+- Every candidate, every `BUDGET` line and every NOT MEASURED or NOT SCANNED fact needs a finding of its own (`submit` checks this in a measured run): passing one over by not mentioning it is refused. `over_budget` for a suite names the suite as the test, `suite unit`.
+- A plan line clears a finding only when its target is that finding's test file or test; a line for another test clears nothing.
 - A finding of these kinds is `blocking` when `confirmed`; a `cleared` one is listed in `REPORT.md` only. `validate-findings.mjs --plan <PLAN.md>` checks that a quoted `plan_exception` is a line of the plan.

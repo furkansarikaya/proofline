@@ -99,7 +99,8 @@ test('the ecosystem definition: a missing, invalid or unreadable .agents/ecosyst
   assert.ok(d.out.includes('FAIL ecosystems: .agents/ecosystems.json is not valid JSON (run: proofline upgrade)\n'), d.out); assert.notEqual(d.status, 0);
   assert.ok(a.out.includes('FAIL ecosystems: .agents/ecosystems.json is missing or empty, so the risky-path and dependency sets are empty (run: proofline upgrade)\n'), a.out);
   assert.notEqual(a.status, 0);
-  assert.match(b.out, /^FAIL ecosystems: .* \(run: proofline upgrade\)$/m);
+  // A276: the definition is hashed like ecosystems.mjs, so an emptied but valid copy is found by the code check first (it would blind the scan for real waits)
+  assert.match(b.out, /^FAIL (ecosystems|code): .*(\.agents\/ecosystems\.json differs from proofline's copy|\(run: proofline upgrade\))/m);
   assert.notEqual(b.status, 0);
   assert.ok(c.out.includes('FAIL ecosystems: .agents/ecosystems.mjs is missing, so the definition cannot be read (run: proofline upgrade)\n'), c.out);
   assert.notEqual(c.status, 0);

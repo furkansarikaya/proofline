@@ -2,10 +2,13 @@
 // Issue 265 package C (A276): `agent.sh build-record <ID> scan` hands the REVIEW_TESTS reviewer the scan candidates of the files the task changed, the plan's
 // `## Test exceptions` and the measurement facts of package B. No test here waits or reads a clock; the files are tiny text, the GREEN durations are fixed strings.
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, project } from '../lib/harness.mjs';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
+import { missingFindings } from '../../control-plane/agents/scripts/core/testreview.mjs';
+import { A, accepted, project } from '../lib/harness.mjs';
 
 const PLAN = '\n## Tests\n\n- AC-1: `impl_test.txt` "retries after the delay" — it retries (test_kind: unit)\n\n## Test budgets\n\n- unit: test 100 ms; suite 1000 ms\n\n## Test exceptions\n\n- wait: `tests/sleepy.test.js` -- a real child process signal is awaited here, no clock can fake it\n';
 const SLEEPY = 'test("retries after the delay", async () => {\n  await new Promise((r) => setTimeout(r, 500));\n  const started = Date.now();\n});\n';
@@ -54,4 +57,92 @@ test('scan --json has the same facts as JSON; a bad argument is a usage error', 
   assert.equal(j.plan_exceptions[0].kind, 'wait');
   assert.equal(A(d, ['build-record', 'LC', 'scan', '--bogus'], { role: 'reviewer' }).status, 2);
   assert.equal(A(d, ['build-record', 'LC', 'show'], { role: 'reviewer' }).status, 3, 'show is untouched: no record yet');
+});
+
+// ---- fix round 1 (A276): the name of a file, a long line, a missing finding, a refreeze --------------------------------------------------------
+
+/** A run whose scope names one more file, written after the scaffold. @param {string} file @param {string} text */
+function runWith(file, text) {
+  const d = project({ topology: 'orchestrated', scopeNamed: file, scopeExtra: 'AC-1', planExtra: PLAN });
+  mkdirSync(path.dirname(path.join(d, file)), { recursive: true });
+  writeFileSync(path.join(d, file), text);
+  return d;
+}
+
+test('S1: test-path calls a test named after a lock, a config, a dependency or a requirement a test; the scan finds the wait in it', () => {
+  const d = run();
+  const names = ['tests/clock.test.js', 'tests/block.test.js', 'tests/lock.test.js', 'tests/config.test.js', 'tests/sleep.config.test.js', 'tests/require.test.js'];
+  const kinds = A(d, ['test-path', ...names]).out.trim().split('\n').map((l) => l.split('\t')[1] ?? l);
+  assert.ok(kinds.every((k) => k.trim() === 'test' || k.includes('test')), kinds.join(','));
+  assert.equal(A(d, ['test-path', 'package-lock.json', 'jest.config.js', 'requirements.txt']).out.includes('test\t'), false, 'real manifests and settings stay product');
+  const e = runWith('tests/sleep.config.test.js', 'setTimeout(r, 30000);\n');
+  const r = A(e, ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /^candidate: tests\/sleep\.config\.test\.js:1 wait setTimeout /m);
+});
+
+test('S1: a support file that holds tests is scanned for waits; plain code only for clock reads', () => {
+  const t = A(runWith('lib/support.js', 'it("x", () => { setTimeout(f, 30000); });\n'), ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  assert.match(t.out, /^candidate: lib\/support\.js:1 wait setTimeout /m);
+  const p = A(runWith('lib/plain.js', 'setTimeout(f, 30000); Date.now();\n'), ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  assert.doesNotMatch(p.out, /wait setTimeout/);
+  assert.match(p.out, /^candidate: lib\/plain\.js:1 clock_read Date\.now /m);
+});
+
+test('S2: a wait after 5000 characters on one line is found; a file over the size cap is NOT SCANNED, exit 1, in text and JSON', () => {
+  const d = runWith('tests/long.test.js', `${'x'.repeat(5000)} setTimeout(f, 1);\n`);
+  assert.match(A(d, ['build-record', 'LC', 'scan'], { role: 'reviewer' }).out, /^candidate: tests\/long\.test\.js:1 wait setTimeout /m);
+  const big = runWith('tests/big.test.js', 'x'.repeat(1048577));
+  const r = A(big, ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /^NOT SCANNED: tests\/big\.test\.js /m);
+  assert.deepEqual(JSON.parse(A(big, ['build-record', 'LC', 'scan', '--json'], { role: 'reviewer' }).out).measurement.unscanned, ['tests/big.test.js']);
+});
+
+/** A context in the project, as the control plane builds it. @param {string} d */
+const ctxOf = (d) => new Context({ env: {}, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+
+test('S4d: in a measured run every candidate and every NOT MEASURED fact needs a finding of its own; an unmeasured (older) run is not asked', () => {
+  const d = run();
+  const need = () => missingFindings(ctxOf(d), 'LC', { findings: [] });
+  assert.deepEqual(need(), [], 'a run with no measurement stamp keeps the old rules');
+  ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'start', '-', 'PLANNED', 'task=tasks/LC.md adapter=markdown measure=1');
+  const m = need();
+  assert.ok(m.some((x) => /no real_wait finding for the wait candidate tests\/sleepy\.test\.js:2 setTimeout/.test(x)), m.join('|'));
+  assert.ok(m.some((x) => /no clock_not_injected finding for the clock_read candidate tests\/sleepy\.test\.js:3 Date\.now/.test(x)));
+  assert.ok(m.some((x) => /no not_measured finding for the missing test-measure ledger row/.test(x)));
+  assert.ok(m.some((x) => /no not_measured finding for the plan test "retries after the delay"/.test(x)));
+  const f = (/** @type {string} */ kind, /** @type {Record<string, unknown>} */ observed, extra = {}) => ({ id: 'F', kind, verdict: 'confirmed', test: { file: 'tests/sleepy.test.js', name: 'retries after the delay' }, observed, ...extra });
+  const answered = { findings: [
+    f('real_wait', { candidate: { file: 'tests/sleepy.test.js', line: 2, pattern: 'setTimeout' }, outcome: 'traced', trace: 'x' }),
+    f('clock_not_injected', { candidate: { file: 'tests/sleepy.test.js', line: 3, pattern: 'Date.now' }, outcome: 'untraced' }),
+    f('not_measured', { reason: 'no_test_measure_row', detail: 'none' }),
+    f('not_measured', { reason: 'no_recorded_duration', detail: 'retries after the delay' }),
+  ] };
+  assert.deepEqual(missingFindings(ctxOf(d), 'LC', answered), []);
+  assert.equal(missingFindings(ctxOf(d), 'LC', { findings: answered.findings.slice(1) }).length, 1, 'dropping one finding is one error');
+});
+
+test('S3: the report of a run cleans what the repository wrote (a plan exception line cannot forge a row)', () => {
+  const d = project({ topology: 'orchestrated', scopeNamed: 'tests/a.test.js', scopeExtra: 'AC-1', planExtra: `${PLAN}- wait: tests/x.js\u001b[31m -- a real signal is awaited and nothing can fake it\n` });
+  mkdirSync(path.join(d, 'tests'), { recursive: true });
+  writeFileSync(path.join(d, 'tests/a.test.js'), 'setTimeout(f, 1); // \u001b]0;t\u0007\n');
+  const r = A(d, ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  assert.ok(!/\u001b/.test(r.out), 'no escape character reaches the reviewer');
+});
+
+test('S4e: a refreeze that adds or changes a ## Test exceptions line is refused; one that leaves the section alone passes', () => {
+  const frozen = () => { const d = project({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'manual', planExtra: PLAN }); accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze'); return d; };
+  let d = frozen();
+  mkdirSync(path.join(d, '.agents/runs/LC/amendments'), { recursive: true });
+  writeFileSync(path.join(d, '.agents/runs/LC/amendments/001.md'), '# amendment 001: another exception\n');
+  appendFileSync(path.join(d, '.agents/runs/LC/PLAN.md'), '- wait: `tests/other.test.js` -- a real child process signal is awaited here, nothing fakes it\n');
+  const r = A(d, ['refreeze', 'LC', '001.md'], { bind: true });
+  assert.notEqual(r.status, 0);
+  assert.match(r.text, /adds or changes a line of PLAN\.md ## Test exceptions/);
+  d = frozen();
+  mkdirSync(path.join(d, '.agents/runs/LC/amendments'), { recursive: true });
+  writeFileSync(path.join(d, '.agents/runs/LC/amendments/001.md'), '# amendment 001: a note\n');
+  appendFileSync(path.join(d, '.agents/runs/LC/PLAN.md'), '\n## Risk\n\nperformance_critical: no\n');
+  accepted(A(d, ['refreeze', 'LC', '001.md'], { bind: true }), 'a refreeze that leaves the exceptions alone');
 });
