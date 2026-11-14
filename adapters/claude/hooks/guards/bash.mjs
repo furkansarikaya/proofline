@@ -35,9 +35,29 @@ export async function bashGuard(input, ctx) {
 }
 
 /** The text with quotes, backslashes and variable references removed, line by line (the sed of the shell hook). @param {string} cmd */
-function normalForm(cmd) {
+export function normalForm(cmd) {
   if (!/["'\\$]/.test(cmd)) return cmd;
-  return cmd.split('\n').map((l) => l.replace(/["'\\]/g, '').replace(/\$\{[^}]*\}/g, '').replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '')).join('\n');
+  return cmd.split('\n').map((l) => dropBraceVars(l.replace(/["'\\]/g, '')).replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '')).join('\n');
+}
+
+/**
+ * `l.replace(/\$\{[^}]*\}/g, '')` in linear time (A274): the expression scanned to the end of the line from every unclosed `${` (44 s for 110000 of them).
+ * After the first `${` with no `}` behind it, no later one has one either.
+ * @param {string} l @param {{ steps: number }} [probe] counts the searches made (for the test of the linear bound)
+ */
+export function dropBraceVars(l, probe) {
+  let out = '';
+  let i = 0;
+  for (;;) {
+    const a = l.indexOf('${', i);
+    if (a < 0) break;
+    const b = l.indexOf('}', a + 2);
+    if (probe) probe.steps++;
+    if (b < 0) break;
+    out += l.slice(i, a);
+    i = b + 1;
+  }
+  return out + l.slice(i);
 }
 
 /** `command -v rtk` @param {NodeJS.ProcessEnv} env */
@@ -64,7 +84,8 @@ const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents
 async function check(ctx, cmd) {
   const strictRole = ctx.role === 'implementer' || ctx.role === 'designer';
   let scan = scanCommand(cmd);
-  // A273: the scanner of the lead ends a `$'...'` string at its first `'`, so `echo $'a\'b'; touch X` hides the touch. The two roles are judged on the records of both readings
+  const leadWrites = scan.records.filter((r) => r.kind === 'W').length;
+  // A274: the scanner of the lead ends a `$'...'` string at its first `'`, so `echo $'a\'b'; touch X` hides the touch. The two roles are judged on the records of both readings
   if (strictRole && cmd.includes("$'")) { const alt = scanCommand(rewriteAnsiC(cmd)); scan = { ...scan, records: [...scan.records, ...alt.records] }; }
   if (!ctx.installed) { await mergeGuard(ctx, cmd, scan); await killGuard(ctx, cmd, scan); return; }
   const act = ctx.act;
@@ -153,17 +174,39 @@ async function check(ctx, cmd) {
   const lineOf = scan.records.map((r) => `${r.kind}\t${Buffer.from(r.raw, 'latin1').toString('utf8')}`);
   /** @type {string[]} */ const extraW = [];
   if (strictRole) {
-    // A273: the operands the scanner does not record (rolewrites.mjs), also inside substitutions and shell strings: `>&` targets, a substitution inside a write program's operands, -t/--target forms, mkdir, every file of an in-place editor, patch, ed, tar
+    // A274: the operands the scanner does not record (rolewrites.mjs), also inside substitutions and shell strings: `>&` targets, a substitution inside a write program's operands, -t/--target forms, mkdir, every file of an in-place editor, patch, ed, tar
     const ra = safeRoleActions(cmd);
-    for (const a of ra.actions) {
-      if (a.kind === 'deny') deny(`${a.why} (${ROLE_TAIL})`);
-      const w = a.word;
-      if (w.sub || w.vr || w.glob) deny(`the command writes '${w.v}', which cannot be resolved (${ROLE_TAIL})`);
-      if (a.bad && !ABS_RE.test(w.v)) deny(`the command writes '${w.v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved (${ROLE_TAIL})`);
-      const at = a.cwd !== '' && !ABS_RE.test(w.v) ? `${a.cwd}/${w.v}` : w.v;
+    /** @param {string} v @param {string} cwd @param {boolean} bad */
+    const judgeAt = async (v, cwd, bad) => {
+      if (bad && !ABS_RE.test(v)) deny(`the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved (${ROLE_TAIL})`);
+      const at = cwd !== '' && !ABS_RE.test(v) ? `${cwd}/${v}` : v;
       await writeRule(ctx, at, lineOf);
       extraW.push(at);
+    };
+    /**
+     * The writes the role tokens show that the lead's scanner may or may not have recorded: `soft` ones hold a plain variable the lead may have resolved (`f=impl.txt; tee $f`).
+     * @type {Array<{ v: string, cwd: string, bad: boolean, soft: boolean }>}
+     */
+    const found = [];
+    for (const a of ra.actions) {
+      if (a.kind === 'deny') deny(`${a.why} (${ROLE_TAIL})`);
+      if (a.kind === 'redir') { if (a.word.v !== '') found.push({ v: a.word.v, cwd: a.cwd, bad: a.bad, soft: a.soft }); continue; }
+      if (a.kind === 'scan') {
+        // a write program the scanner of the lead knows, rebuilt from the role tokens and judged by the lead's own rules (W records by writeRule, L records by the link rule)
+        for (const rec of scanCommand(a.text).records) {
+          const v = cmdSubst(rec.value);
+          if (rec.kind === 'W' && v !== '') found.push({ v, cwd: a.cwd, bad: a.bad, soft: a.soft });
+          else if (rec.kind === 'L') await linkRule(ctx, v);
+        }
+        continue;
+      }
+      const w = a.word;
+      if (w.sub || w.vr || w.glob) deny(`the command writes '${w.v}', which cannot be resolved (${ROLE_TAIL})`);
+      await judgeAt(w.v, a.cwd, a.bad);
     }
+    // more writes in these tokens than the lead's scanner recorded: it lost some (a swallowed here-document, a hidden command word), so a variable in them is not one it resolved
+    const hidden = found.length > leadWrites;
+    for (const f of found) if (!(f.soft && !hidden && f.v.includes('$'))) await judgeAt(f.v, f.cwd, f.bad);
     // the scanner of the lead reads each nested region (substitution, shell string) as a command of its own, so a writer it knows is judged wherever it sits
     for (const text of ra.texts) {
       for (const rec of scanCommand(rewriteAnsiC(text)).records) {
@@ -189,12 +232,7 @@ async function check(ctx, cmd) {
       case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and the command word literally; only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh status $ID (not A=.agents/scripts/agent.sh; $A status)`); break;
       case 'R': if (canon(v) !== role) deny(`AGENT_ROLE=${v} does not match the caller's role (${role}); a role never acts as another`); break;
       case 'N': deny(`specialists run through dispatch.sh (window, decision and recording), never as a nested runtime started by hand (${v})`); break;
-      case 'L': {
-        if (v.includes('.agents')) deny(`ln '${v}': links into or out of .agents/ are never made during a run`);
-        const r = await relpath(ctx, v);
-        if (r === '.agents' || r.startsWith('.agents/')) deny(`ln '${v}': links into or out of .agents/ are never made during a run`);
-        break;
-      }
+      case 'L': await linkRule(ctx, v); break;
       case 'A': agentRule(ctx, cmd, v, hasRole); break;
       case 'W': await writeRule(ctx, v, lineOf); break;
       case 'P': case 'Q': {
@@ -206,9 +244,16 @@ async function check(ctx, cmd) {
       default: break;
     }
   }
-  // A273: the operands found beyond the scanner's W records are judged by the same outside-the-project rule
+  // A274: the operands found beyond the scanner's W records are judged by the same outside-the-project rule
   await scratchGuard(ctx, extraW.length === 0 ? scan : { ...scan, records: [...scan.records, ...extraW.map((value) => ({ kind: 'W', raw: value, value }))] });
   leadTmpCheck(ctx, cmd, scan);
+}
+
+/** A link made while a run is active: never into or out of .agents/. @param {import('../lib/context.mjs').HookContext} ctx @param {string} v */
+async function linkRule(ctx, v) {
+  if (v.includes('.agents')) deny(`ln '${v}': links into or out of .agents/ are never made during a run`);
+  const r = await relpath(ctx, v);
+  if (r === '.agents' || r.startsWith('.agents/')) deny(`ln '${v}': links into or out of .agents/ are never made during a run`);
 }
 
 const ABS_RE = /^([/~]|[A-Za-z]:|\\\\)/;
@@ -243,7 +288,7 @@ function agentRule(ctx, cmd, v, hasRole) {
   deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint build-record plan-section config-get diff-digest next verify-*${role === 'lead' ? '' : ' and submit'} (not ${sc}); state changes belong to the lead`);
 }
 
-/** A273: the scratch exemption of the implementer and the designer takes the plain `$TMPDIR/` and `${TMPDIR}/` forms only (no `${TMPDIR%%/*}`, `${TMPDIR:0:0}`), and no `..`, variable or substitution in the rest. @param {string} v */
+/** A274: the scratch exemption of the implementer and the designer takes the plain `$TMPDIR/` and `${TMPDIR}/` forms only (no `${TMPDIR%%/*}`, `${TMPDIR:0:0}`), and no `..`, variable or substitution in the rest. @param {string} v */
 function tmpExempt(v) {
   const m = /^(?:\/tmp\/|\/private\/tmp\/|\$TMPDIR\/|\$\{TMPDIR\}\/)(.*)$/s.exec(v);
   return m !== null && !/(^|\/)\.\.(\/|$)|[$`*?[{]/.test(m[1] ?? '');
@@ -252,7 +297,7 @@ function tmpExempt(v) {
 /** A shell write (W record) while a run is open. @param {import('../lib/context.mjs').HookContext} ctx @param {string} v @param {string[]} lineOf */
 export async function writeRule(ctx, v, lineOf) {
   const strict = ctx.role === 'implementer' || ctx.role === 'designer';
-  // A273: for the implementer and the designer only /dev/null and the standard streams pass; `/dev/$X`, `/dev/*` and `/dev/null/../x` are judged like any other target
+  // A274: for the implementer and the designer only /dev/null and the standard streams pass; `/dev/$X`, `/dev/*` and `/dev/null/../x` are judged like any other target
   if (v === '' || (v.startsWith('/dev/') && (!strict || DEV_OK.test(v))) || (isWin() && winSpell(v).nul)) return;
   if (strict && v.startsWith('/dev/') && !/[$*?[]/.test(v)) deny(`the command writes '${v}', outside the project; only /dev/null and the standard streams are device targets. Scratch files go under ${scratchDir(ctx)} (mkdir -p it first)`);
   // A read role writes through no `..` component: $TMPDIR/<worktree>/../../<project path> would pass the worktree check
@@ -261,7 +306,7 @@ export async function writeRule(ctx, v, lineOf) {
     if (strict ? tmpExempt(v) : (v.startsWith('/tmp/') || v.startsWith('/private/tmp/') || v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR'))) return;
     if (ctx.role === 'implementer' || ctx.role === 'designer') {
       if (v.includes('.agents') || v.includes('.claude/settings') || v.includes('.codex/') || v.includes('.git/')) deny(`the command writes '${v}', which may be protected run state`);
-      // A273 (issue #264): a target the hook cannot resolve (a variable, a substitution, a glob) is refused for these two roles exactly as for the lead (A257): `echo x > $OLDPWD/x` reached outside the project
+      // A274 (issue #264): a target the hook cannot resolve (a variable, a substitution, a glob) is refused for these two roles exactly as for the lead (A257): `echo x > $OLDPWD/x` reached outside the project
       deny(`the command writes '${v}', which cannot be resolved; while run ${ctx.act} is active the ${ctx.role} writes only paths its role owns (shell write detection is a heuristic; write the target literally, not through a variable, substitution or glob, or use the Write tool on an allowed path)`);
     }
     deny(`the command writes '${v}', which cannot be resolved; while run ${ctx.act} is active the lead and read-only roles write only their run artifacts (shell write detection is a heuristic; write the target literally, for example > .agents/runs/${ctx.act}/scratch/out.txt, not through a variable or glob, or use the Write tool on an allowed path)${roTail(ctx)}`);

@@ -6,7 +6,7 @@
 //   stashNetCount(cmd)            how many `git [options] stash` (or a `$`/backtick where the subcommand goes) sit in command position, not after a
 //                                 printing or searching word. The awk of the shell hook matched with POSIX leftmost-longest; this is a matcher that
 //                                 explores every path of the same expression and takes the longest (tests/hook/stash-net.test.mjs runs both)
-import { cParts, deny, grepq, stashPath, worktrees } from './kit.mjs';
+import { cParts, deny, envChdirOpt, grepq, stashPath, worktrees } from './kit.mjs';
 import { roTail } from './paths.mjs';
 
 const S = ' \\t\\n\\v\\f\\r';
@@ -50,7 +50,8 @@ export async function stashGuard(ctx, cmd, scan) {
   const pre = cmd.includes('stash') ? cmd.slice(0, cmd.lastIndexOf('stash')) : cmd;
   const nl = pre.split('\n').map((l) => l.replace(/&&/g, '').replace(/[0-9]*>&[0-9-]*/g, '').replace(/&>/g, '')).join('\n');
   const nonlin = /[(|&{`]/.test(nl);
-  if (grepq(new RegExp(`(^|[^A-Za-z0-9_.-])(env|sudo|doas)[${S}]+([^;&|]*[${S}])?(-[A-Za-z]*[CD]|--chdir|--chdir=)`), cmd)) cd = '';
+  // A274: the expression `(^|[^A-Za-z0-9_.-])(env|sudo|doas)[${S}]+([^;&|]*[${S}])?(-[A-Za-z]*[CD]|--chdir|--chdir=)` per line, as a linear scan
+  if (cmd.split('\n').some((l) => envChdirOpt(l, true))) cd = '';
   for (const rec of scan.records) {
     if (rec.kind !== 'C') continue;
     const { cw, rest } = cParts(rec);

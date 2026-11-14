@@ -1,6 +1,6 @@
 // @ts-check
-// A273 (issue #264, AC-1 to AC-4 and AC-7): a shell write whose target starts with a variable, a substitution or a glob the hook cannot resolve is refused for the implementer and the
-// designer exactly as for the lead (A257, "which cannot be resolved"). Before A273 the two roles skipped that branch and `echo x > $OLDPWD/x` reached outside the project.
+// A274 (issue #264, AC-1 to AC-4 and AC-7): a shell write whose target starts with a variable, a substitution or a glob the hook cannot resolve is refused for the implementer and the
+// designer exactly as for the lead (A257, "which cannot be resolved"). Before A274 the two roles skipped that branch and `echo x > $OLDPWD/x` reached outside the project.
 // Table-driven: every form below is first required to be refused by the LEAD with the "cannot be resolved" verdict (so the table cannot drift from the lead's guard), then run against both roles.
 // The hook only judges the command text (nothing is executed); the command is never run by this test.
 import { tempDir } from '../lib/tempdir.mjs';
@@ -109,7 +109,7 @@ const REFUSED = /** @type {Array<[string, string]>} */ ([
 ]);
 
 for (const [name, command] of REFUSED) {
-  test(`A273: ${name}: the lead, the implementer and the designer all get the "cannot be resolved" refusal`, async () => {
+  test(`A274: ${name}: the lead, the implementer and the designer all get the "cannot be resolved" refusal`, async () => {
     const lead = await pre(command, LEAD[1], LEAD[2]);
     assert.ok(lead && /which cannot be resolved/.test(lead), `the lead no longer refuses this form as unresolvable (fix the table): ${lead}`);
     for (const [role, who, env] of ROLES) {
@@ -120,7 +120,7 @@ for (const [name, command] of REFUSED) {
   });
 }
 
-test('A273 AC-4: a literal in-scope target stays allowed (implementer impl.txt; both roles the run scratch folder)', async () => {
+test('A274 AC-4: a literal in-scope target stays allowed (implementer impl.txt; both roles the run scratch folder)', async () => {
   const [, implWho, implEnv] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
   assert.equal(await pre('echo x > impl.txt', implWho, implEnv), null);
   assert.equal(await pre('echo x >> impl.txt', implWho, implEnv), null);
@@ -129,7 +129,7 @@ test('A273 AC-4: a literal in-scope target stays allowed (implementer impl.txt; 
   }
 });
 
-test('A273: a literal target outside the role paths is still refused by the path rule, not by the unresolved rule', async () => {
+test('A274: a literal target outside the role paths is still refused by the path rule, not by the unresolved rule', async () => {
   for (const [role, who, env] of ROLES) {
     const why = await pre('echo x > src/app.js', who, env);
     assert.ok(why, `${role}: allowed`);
@@ -137,7 +137,7 @@ test('A273: a literal target outside the role paths is still refused by the path
   }
 });
 
-// A273 addendum: (a) a cd the scanner cannot place makes every later relative target unresolvable; (b) mkdir and its kin create a path. Implementer and designer only: the lead's verdicts stay as they were.
+// A274 addendum: (a) a cd the scanner cannot place makes every later relative target unresolvable; (b) mkdir and its kin create a path. Implementer and designer only: the lead's verdicts stay as they were.
 const CD_REFUSED = /** @type {Array<[string, string]>} */ ([
   ['cd $VAR then a redirect', 'cd $VAR; echo x > impl.txt'],
   ['cd $(mktemp -d) then tee', 'cd "$(mktemp -d)" && tee f'],
@@ -167,7 +167,7 @@ const MKDIR_REFUSED = /** @type {Array<[string, string]>} */ ([
 ]);
 
 for (const [name, command] of [...CD_REFUSED, ...MKDIR_REFUSED]) {
-  test(`A273: ${name}: refused for both roles as unresolvable, the lead's text is not the new one`, async () => {
+  test(`A274: ${name}: refused for both roles as unresolvable, the lead's text is not the new one`, async () => {
     for (const [role, who, env] of ROLES) {
       const why = await pre(command, who, env);
       assert.ok(why, `${role}: allowed`);
@@ -178,12 +178,12 @@ for (const [name, command] of [...CD_REFUSED, ...MKDIR_REFUSED]) {
   });
 }
 
-test("A273: the lead's verdict for a bare mkdir through a variable is unchanged (allowed: the scanner records no write)", async () => {
+test("A274: the lead's verdict for a bare mkdir through a variable is unchanged (allowed: the scanner records no write)", async () => {
   assert.equal(await pre('mkdir $VAR/x', LEAD[1], LEAD[2]), null);
   assert.equal(await pre('mkdir -p $VAR/x', LEAD[1], LEAD[2]), null);
 });
 
-test('A273: a literal cd stays allowed for both roles (cd into the run scratch folder, then a relative write; a literal mkdir)', async () => {
+test('A274: a literal cd stays allowed for both roles (cd into the run scratch folder, then a relative write; a literal mkdir)', async () => {
   for (const [role, who, env] of ROLES) {
     assert.equal(await pre('cd .agents/runs/LC/scratch && echo x > o.txt', who, env), null, `${role}: literal cd`);
     assert.equal(await pre('mkdir -p .agents/runs/LC/scratch/d', who, env), null, `${role}: literal mkdir`);
@@ -192,14 +192,14 @@ test('A273: a literal cd stays allowed for both roles (cd into the run scratch f
   assert.equal(await pre('cd . && echo x > impl.txt', who, env), null);
 });
 
-test('A273: `cd src && echo x > a.txt` is judged by the path rule (literal cd), not refused as unresolvable', async () => {
+test('A274: `cd src && echo x > a.txt` is judged by the path rule (literal cd), not refused as unresolvable', async () => {
   for (const [role, who, env] of ROLES) {
     const why = await pre('cd src && echo x > a.txt', who, env);
     assert.ok(why === null || !/cannot be resolved/.test(why), `${role}: ${why}`);
   }
 });
 
-// Rows the guard before A273 already refused (by the path rule, the glob rule or the scope rule): kept as regression rows, not as bypass proofs.
+// Rows the guard before A274 already refused (by the path rule, the glob rule or the scope rule): kept as regression rows, not as bypass proofs.
 const ALREADY_REFUSED = new Set(["cp a \"`pwd`/../x\"", "echo x > /dev/null/../../etc/x", "cp -rt $X a", "cp -t src a", "cp -t ../x a", "sed -i -e s/a/b/ impl.txt /etc/hosts", "sed -n -i.bak -e p /etc/x", "install -m755 a b", "cp \"$(git rev-parse HEAD)\" a", "ruby -pi -e 1 /etc/x", "gsed -i s/a/b/ /etc/x", "gawk --include=inplace 1 /etc/x", "mawk -i inplace 1 /etc/x", "echo x > ${TMPDIR}/x/*/y", "echo x > $TMPDIR/*/y", "echo x > /tmp/*/../x"]);
 const tag = (/** @type {string} */ c) => (ALREADY_REFUSED.has(c) ? ' (already refused on the old code by another rule)' : '');
 // Security review round 1 (issue #264): the operands the scanner does not record as writes. Role verdict: refused for both roles; lead verdict: pinned explicitly (allow = the lead's guard allows it today and keeps doing so).
@@ -252,7 +252,7 @@ const BEYOND_SCANNER = /** @type {Array<[string, string, 'allow' | 'refuse']>} *
 ]);
 
 for (const [name, command, leadExpected] of BEYOND_SCANNER) {
-  test(`A273 review: ${name}${tag(command)}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+  test(`A274 review: ${name}${tag(command)}: refused for both roles; the lead stays ${leadExpected}`, async () => {
     for (const [role, who, env] of ROLES) {
       const why = await pre(command, who, env);
       assert.ok(why, `${role}: allowed`);
@@ -264,7 +264,7 @@ for (const [name, command, leadExpected] of BEYOND_SCANNER) {
 }
 
 const STAY_ALLOWED = ["echo hi >& 1", "sed s/a/b/ /etc/hosts", "mkdir -m 755 .agents/runs/LC/scratch/e"];
-test('A273 review: file descriptors, /dev/null and the standard streams, a heredoc body with backticks and a literal in-scope in-place edit stay allowed', async () => {
+test('A274 review: file descriptors, /dev/null and the standard streams, a heredoc body with backticks and a literal in-scope in-place edit stay allowed', async () => {
   const [, implWho, implEnv] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
   for (const command of STAY_ALLOWED) {
     assert.equal(await pre(command, implWho, implEnv), null, command);
@@ -346,7 +346,7 @@ const ROUND2 = /** @type {Array<[string, string, 'allow' | 'refuse']>} */ ([
 ]);
 
 for (const [name, command, leadExpected] of ROUND2) {
-  test(`A273 round 2: ${name}${tag(command)}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+  test(`A274 round 2: ${name}${tag(command)}: refused for both roles; the lead stays ${leadExpected}`, async () => {
     for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
     const lead = await pre(command, LEAD[1], LEAD[2]);
     if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
@@ -354,7 +354,7 @@ for (const [name, command, leadExpected] of ROUND2) {
   });
 }
 
-test('A273 round 2: every program the scanner knows as a writer has a row in a refused table (completeness against WRITE_PROGRAMS; the tables are hand-derived from it)', () => {
+test('A274 round 2: every program the scanner knows as a writer has a row in a refused table (completeness against WRITE_PROGRAMS; the tables are hand-derived from it)', () => {
   const words = new Set();
   for (const [, command] of [...REFUSED, ...CD_REFUSED, ...MKDIR_REFUSED, ...BEYOND_SCANNER, ...ROUND2]) {
     for (const sc of tokenize(command)) { const w = sc.words[0]; if (w) words.add(w.v.replace(/^.*\//, '')); }
@@ -364,7 +364,7 @@ test('A273 round 2: every program the scanner knows as a writer has a row in a r
   assert.deepEqual(missing, [], 'a writer the scanner knows has no refused-table row');
 });
 
-test('A273 round 2: quoted text, commit messages, heredoc bodies and fd duplicates do not trigger (AC-4 over-refusal guards)', async () => {
+test('A274 round 2: quoted text, commit messages, heredoc bodies and fd duplicates do not trigger (AC-4 over-refusal guards)', async () => {
   for (const [role, who, env] of ROLES) {
     for (const command of ["git commit -m \"docs: document `install`\"", "sed -n 1p f && echo \"`date`\"", "echo \"x >& $LOG\"", "cat <<EOF\nrun >& $LOG\nEOF", "mkdir -pm 755 .agents/runs/LC/scratch/d", "mknod .agents/runs/LC/scratch/f p"]) assert.equal(await pre(command, who, env), null, `${role}: ${command}`);
   }
@@ -372,7 +372,7 @@ test('A273 round 2: quoted text, commit messages, heredoc bodies and fd duplicat
   for (const command of ["install -Dm755 a impl.txt", "sed -i s/a/b/ impl.txt && git commit -m \"fix `x`\"", "vim impl.txt"]) assert.equal(await pre(command, who, env), null, command);
 });
 
-test('A273 round 2: the in-process verdicts agree with the real hook process for the lead and both roles (a sample of refused and allowed commands)', async () => {
+test('A274 round 2: the in-process verdicts agree with the real hook process for the lead and both roles (a sample of refused and allowed commands)', async () => {
   for (const [, who, env] of [...ROLES, LEAD]) {
     for (const command of ['echo x > $OLDPWD/x', 'echo $(mkdir /etc/x)', "echo $'a\\'b'; touch /etc/x", 'echo x > .agents/runs/LC/scratch/o.txt', 'git commit -m "docs: document `install`"']) {
       assert.equal(await preSpawn(command, who, env), await pre(command, who, env), command);
@@ -380,7 +380,7 @@ test('A273 round 2: the in-process verdicts agree with the real hook process for
   }
 });
 
-test('A273 round 2: the tokenizer is linear on pathological input (a quadratic reader would not finish)', () => {
+test('A274 round 2: the tokenizer is linear on pathological input (a quadratic reader would not finish)', () => {
   const big = '`'.repeat(300000) + "'".repeat(1001) + '$('.repeat(100000) + '"'.repeat(5001);
   assert.ok(Array.isArray(tokenize(big)));
   const heres = 'cat <<A\n'.repeat(60000) + 'x\n'.repeat(120000);
@@ -389,7 +389,7 @@ test('A273 round 2: the tokenizer is linear on pathological input (a quadratic r
   assert.ok(roleActions(many).actions.length >= 1);
 });
 
-// ---- Review round 3 (A273): the role scan reads code wherever the shell runs code (substitutions, backticks, process substitutions, here-document expansions, `sh -c` strings, compound commands, wrappers),
+// ---- Review round 3 (A274): the role scan reads code wherever the shell runs code (substitutions, backticks, process substitutions, here-document expansions, `sh -c` strings, compound commands, wrappers),
 // the `$'...'` string, tar, gawk and GNU mkdir -Z. Each row is its own test: refused for both roles; the lead's verdict is pinned to what the base gave (it never changes). A row the base already refused for both
 // roles by another rule is tagged: it is a regression row, not a bypass proof.
 const R3_H1_SUBSTITUTION = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
@@ -604,7 +604,7 @@ const R3_GROUPS = /** @type {Array<[string, Array<[string, 'allow' | 'refuse']>]
 
 for (const [group, rows] of R3_GROUPS) {
   for (const [command, leadExpected] of rows) {
-    test(`A273 round 3 (${group}): ${JSON.stringify(command)}${ALREADY_R3.has(command) ? ' (already refused on the base by another rule)' : ''}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+    test(`A274 round 3 (${group}): ${JSON.stringify(command)}${ALREADY_R3.has(command) ? ' (already refused on the base by another rule)' : ''}: refused for both roles; the lead stays ${leadExpected}`, async () => {
       for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
       const lead = await pre(command, LEAD[1], LEAD[2]);
       if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
@@ -614,12 +614,12 @@ for (const [group, rows] of R3_GROUPS) {
 }
 
 for (const command of R3_ALLOWED) {
-  test(`A273 round 3 (stays allowed, AC-4): ${JSON.stringify(command)}`, async () => {
+  test(`A274 round 3 (stays allowed, AC-4): ${JSON.stringify(command)}`, async () => {
     for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
   });
 }
 
-test('A273 round 3: a write before the cd the scanner cannot place stays allowed; the same write after it is refused (one source for the position: rolewrites.mjs badAt)', async () => {
+test('A274 round 3: a write before the cd the scanner cannot place stays allowed; the same write after it is refused (one source for the position: rolewrites.mjs badAt)', async () => {
   const [, who, env] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
   assert.equal(await pre('echo x > impl.txt; cd $OLDPWD', who, env), null);
   assert.equal(await pre('rm impl.txt; cd -', who, env), null);
@@ -632,7 +632,7 @@ test('A273 round 3: a write before the cd the scanner cannot place stays allowed
   assert.equal(roleActions('env -C /etc true').badAt, 0);
 });
 
-test('A273 round 3: the tokenizer reads a $-quote string with its escapes (the text after a backslash-quote is not hidden) and decodes only the escapes it knows', () => {
+test('A274 round 3: the tokenizer reads a $-quote string with its escapes (the text after a backslash-quote is not hidden) and decodes only the escapes it knows', () => {
   const Q = "'";
   const BS = '\\';
   const src = `echo $${Q}a${BS}${Q}b${Q}; touch X`;
@@ -645,7 +645,7 @@ test('A273 round 3: the tokenizer reads a $-quote string with its escapes (the t
   assert.equal(rewriteAnsiC(`echo "$(echo $${Q}a${BS}${Q}b${Q})"`), `echo "$(echo ${Q}a${Q}${BS}${Q}${Q}b${Q})"`);
 });
 
-test('A273 round 3: the depth bound fails closed with its own reason, and a command inside the bound is read', () => {
+test('A274 round 3: the depth bound fails closed with its own reason, and a command inside the bound is read', () => {
   // n levels of `echo $(...)` around a core command that sits at a command position
   const nest = (/** @type {number} */ n, /** @type {string} */ core) => { let c = core; for (let k = 0; k < n; k++) c = `echo $(${c})`; return c; };
   assert.ok(roleActions(nest(MAX_DEPTH + 1, 'echo hi')).actions.some((a) => a.kind === 'deny' && /deeper than/.test(a.why)));
@@ -655,32 +655,31 @@ test('A273 round 3: the depth bound fails closed with its own reason, and a comm
   assert.equal(roleActions("sh -c 'mkdir /etc/x'").actions.length, 1);
 });
 
-test('A273 round 3: the tokenizer stays linear on pathological input with recursion (a quadratic or exponential reader would not finish)', () => {
+test('A274 round 3: the tokenizer stays linear on pathological input with recursion (a quadratic or exponential reader would not finish)', () => {
   const denies = (/** @type {string} */ c) => roleActions(c).actions.some((a) => a.kind === 'deny');
+  const why = (/** @type {string} */ c) => roleActions(c).actions.map((a) => (a.kind === 'deny' ? a.why : '')).join('|');
   assert.ok(denies('$('.repeat(100000)));
   assert.equal(roleActions('`'.repeat(100000)).actions.length, 0);
-  assert.ok(denies('`'.repeat(100001)), 'an unterminated backtick is a doubt');
+  assert.match(why('`'.repeat(100001)), /unterminated backtick/, 'an unterminated backtick is a doubt (the verdict changed from the 0dd2df54 allow in review round 4)');
   assert.ok(Array.isArray(roleActions("sh -c '".repeat(50000)).actions));
   assert.ok(denies('"$('.repeat(60000)));
   assert.equal(roleActions(`${'{ '.repeat(100000)}mkdir /etc/x`).actions.length, 1);
   assert.ok(denies('echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(mkdir /etc/x)))))))))'.repeat(2000)));
   const heredocs = roleActions('cat <<EOF\n$(mkdir /etc/x)\nEOF\n'.repeat(20000)).actions;
   assert.equal(heredocs.filter((a) => a.kind === 'target').length, 20000);
-  assert.ok(heredocs.some((a) => a.kind === 'deny' && /nested regions/.test(a.why)), 'too many nested regions are refused');
+  assert.ok(heredocs.some((a) => a.kind === 'deny' && /more than 4000 nested regions/.test(a.why)), 'too many nested regions are refused from MAX_TEXTS (4000)');
   assert.ok(Array.isArray(roleActions('echo "$(echo " '.repeat(30000)).actions));
 });
 
-// ---- Review round 4 (A273): where the tokenizer is not certain how bash reads a region, the roles are refused. The lead's verdict is pinned to what 0dd2df54 gave (it never changes);
+// ---- Review round 4 (A274): where the tokenizer is not certain how bash reads a region, the roles are refused. The lead's verdict is pinned to what 0dd2df54 gave (it never changes);
 // a row that 0dd2df54 already refused for both roles by another rule is tagged.
 const R4_R4_DOUBT_INSIDE_SUBSTITUTION = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
-  ["echo $(echo $'x')", 'allow'],
   ["echo $(echo $'a\\'b'; mkdir /etc/x)", 'allow'],
   ["echo $(echo hi # )\nmkdir /etc/x)", 'allow'],
   ["echo $(case x in x) echo y;; esac); mkdir /etc/x", 'allow'],
   ["echo $(echo ${x#)}; mkdir /etc/x)", 'allow'],
   ["echo $(echo ${y:-)}; mkdir /etc/x)", 'allow'],
   ["echo $(echo $((1<<2))\nmkdir /etc/x)", 'allow'],
-  ["cat <(echo $'a')", 'allow'],
   ["echo `echo hi # `\nmkdir /etc/x", 'allow'],
   ["echo $(echo \"a\nmkdir /etc/x)", 'allow'],
   ["echo 'abc; mkdir /etc/x", 'allow'],
@@ -769,7 +768,7 @@ const R4_GROUPS = /** @type {Array<[string, Array<[string, 'allow' | 'refuse']>]
 
 for (const [group, rows] of R4_GROUPS) {
   for (const [command, leadExpected] of rows) {
-    test(`A273 round 4 (${group}): ${JSON.stringify(command)}${ALREADY_R4.has(command) ? ' (already refused on 0dd2df54 by another rule)' : ''}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+    test(`A274 round 4 (${group}): ${JSON.stringify(command)}${ALREADY_R4.has(command) ? ' (already refused on 0dd2df54 by another rule)' : ''}: refused for both roles; the lead stays ${leadExpected}`, async () => {
       for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
       const lead = await pre(command, LEAD[1], LEAD[2]);
       if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
@@ -779,40 +778,46 @@ for (const [group, rows] of R4_GROUPS) {
 }
 
 for (const command of R4_ALLOWED) {
-  test(`A273 round 4 (stays allowed, AC-4): ${JSON.stringify(command)}`, async () => {
+  test(`A274 round 4 (stays allowed, AC-4): ${JSON.stringify(command)}`, async () => {
     for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
   });
 }
 
 // The work counter counts steps (characters and tokens read in every nested scan), never time: the budget is 64 steps per character and a constant, and the scan stops when it is spent.
-const WORK_INPUTS = /** @type {Array<[string, string, boolean]>} */ ([
-  ['160,000 open parentheses after a redirect (the quadratic endParen probe at every ((', `echo x > $OUT/a\n${'('.repeat(160000)}`, true],
-  ['30,000 pipes into a shell (the quadratic pipeline walk)', `echo x${' | sh'.repeat(30000)}`, true],
-  ['100,000 nested substitution openers', '$('.repeat(100000), false],
+const WORK_INPUTS = /** @type {Array<[string, string, boolean, boolean]>} */ ([
+  ['160,000 open parentheses after a redirect (the quadratic endParen probe at every ((', `echo x > $OUT/a\n${'('.repeat(160000)}`, true, true],
+  ['30,000 pipes into a shell (the quadratic pipeline walk)', `echo x${' | sh'.repeat(30000)}`, true, false],
+  ['100,000 nested substitution openers', '$('.repeat(100000), false, true],
 ]);
-for (const [name, command, viaHook] of WORK_INPUTS) {
-  test(`A273 round 4: ${name}: the step counter stays inside its linear budget${viaHook ? ' and the implementer is refused' : ' and the scan refuses'}`, async () => {
+for (const [name, command, viaHook, overflows] of WORK_INPUTS) {
+  test(`A274 round 4: ${name}: the step counter stays inside its linear budget${viaHook ? ' and the implementer is refused' : ' and the scan refuses'}`, async () => {
     const st = newGuard(command.length);
     const limit = st.budget;
     tokenize(command, 0, st);
     assert.ok(st.budget >= 0, 'the scan went on after the budget was spent');
-    assert.ok(limit - st.budget <= limit, 'more steps than the budget');
+    assert.equal(st.overflow, overflows, overflows ? 'the scan stopped on the budget and says so' : 'the scan finished inside its budget');
     assert.ok(limit - st.budget > command.length, 'the counter counts the work of every nested scan, not only the characters');
     if (viaHook) assert.ok(await pre(command, ROLES[0][1], ROLES[0][2]), 'implementer: allowed'); // one role: the rest of the hook reads a 150 KB command in about a second
     else assert.ok(roleActions(command).actions.some((a) => a.kind === 'deny'), 'the scan did not refuse');
   });
 }
 
-test('A273 round 4: an internal error in the role scan is a refusal (fail closed)', () => {
+test('A274 round 4: an internal error in the role scan is a refusal (fail closed)', () => {
   const ra = safeRoleActions('echo hi', () => { throw new Error('forced'); });
   assert.ok(ra.actions.some((a) => a.kind === 'deny' && /forced/.test(a.why)));
   assert.equal(safeRoleActions('echo hi').actions.length, 0);
 });
 
-test('A273 round 4: the principle is pinned by the unterminated region, the unknown wrapper option and the brace command word (each one a deny action of its own)', () => {
+test('A274: a thrown RangeError (stack overflow) in the role scan is a refusal, not an allow', () => {
+  const ra = safeRoleActions('echo hi', () => { throw new RangeError('Maximum call stack size exceeded'); });
+  assert.equal(ra.actions.length, 1);
+  assert.ok(ra.actions.every((a) => a.kind === 'deny' && /Maximum call stack size exceeded/.test(a.why) && /cannot be judged/.test(a.why)));
+});
+
+test('A274 round 4: the principle is pinned by the unterminated region, the unknown wrapper option and the brace command word (each one a deny action of its own)', () => {
   const why = (/** @type {string} */ c) => roleActions(c).actions.filter((a) => a.kind === 'deny').map((a) => a.kind === 'deny' ? a.why : '').join('|');
   assert.match(why('echo "abc'), /cannot read the way bash does|unterminated/);
   assert.match(why('env --bogus true'), /wrapper an option the hook does not know/);
   assert.match(why('{true,true} x'), /brace expansion/);
-  assert.match(why('echo $(echo $\'x\')'), /\$'/);
+  assert.match(why('echo $(echo hi # )\nmkdir X)'), /comment inside a substitution/); // a $'...' string inside a substitution is parsed now (A274), a comment still is a doubt
 });

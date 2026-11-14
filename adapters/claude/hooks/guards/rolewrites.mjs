@@ -1,5 +1,5 @@
 // @ts-check
-// A273 (issue #264): the text-level write rules of the implementer and the designer. The scanner (command-scan.mjs) is built for the lead's shell
+// A274 (issue #264): the text-level write rules of the implementer and the designer. The scanner (command-scan.mjs) is built for the lead's shell
 // hook: it splits a word at an unquoted `$(` or a backtick, drops a `>&` file target, hides the rest of a command behind a `$'...\'...'` string and
 // knows only the options it names. For the two roles that is not enough, so this module reads the command text with its own tokenizer and returns
 // the write targets the scanner does not record, plus the refusals that follow from a word the hook cannot resolve. It is pure: no file system, no
@@ -8,19 +8,25 @@
 // The tokenizer reads code wherever the shell runs code: the content of `$(...)`, backticks, `<(...)` and `>(...)`, of a double-quoted string and
 // of an unquoted here-document body (their expansions), of a `${...}` default value, the string of `sh|bash|zsh|dash|ksh -c` and of `eval`, the text
 // a shell reads from a here-document, a here-string or a pipe. Each is tokenized again as commands (recursively; MAX_DEPTH levels and a work budget of
-// 64 times the command length, beyond which the roles are refused: a bound that fails closed). Text that is not code (a commit message, an echo
+// STEPS_PER_CHAR times the command length, beyond which the roles are refused: a bound that fails closed). Text that is not code (a commit message, an echo
 // argument, a single-quoted string that is not a shell argument, a here-document body no shell reads) is never read as commands. Reserved words
 // (`{ } ! if then else elif fi while until do done for in case esac function`) at a command position and the wrappers in front of a command
 // (`env sudo doas nohup command builtin exec time nice timeout stdbuf ionice chrt taskset`) are skipped with their options.
 //
 // Limits (a text scanner cannot know a program's arguments; the same for the lead): programs not in WRITE_PROGRAMS and not named below, a
-// non-literal command word, `xargs` and `find -exec` writers, the wrappers busybox, setsid, coproc, flock and `script -c`, the text of an
-// interpreter program.
+// writers the scanner also cannot see (`mktemp`, `git init`, `sort -o`, sed `w`), `xargs` and `find -exec` writers, the wrappers busybox, flock, `arch`,
+// `caffeinate`, `xcrun` and other wrappers not in the table, `script -c`, `hash -p`, scripts, /dev/fd/N, csh, the text of an interpreter program.
 import { WRITE_PROGRAMS } from '../command-scan.mjs';
 
 /** @typedef {{ v: string, q: boolean, sub: boolean, usub: boolean, bt: boolean, vr: boolean, glob: boolean }} Word v: the text with quotes and backslashes removed (a substitution keeps its source text); q: some part was quoted; sub: holds `$(`, a backtick or a process substitution; usub: an unquoted `$(` or process substitution; bt: holds a backtick; vr: holds a parameter expansion or a `$'...'` string with an escape the hook cannot decode; glob: an unquoted `*`, `?` or `[` */
 /** @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, depth: number, at: { off: number, paren: number } }} Simple here: the here-document bodies read by this command; pipeFrom: the command on the left of the `|`; depth: how many levels of substitution or shell string this command sits in; at: where the top-level command that holds this one starts: its offset in the original text and how many subshell parentheses are open there */
-/** @typedef {{ kind: 'deny', why: string } | { kind: 'target', word: Word, cwd: string, bad: boolean }} Action */
+/** @typedef {{ kind: 'deny', why: string }
+ *   | { kind: 'target', word: Word, cwd: string, bad: boolean }
+ *   | { kind: 'redir', word: Word, cwd: string, bad: boolean, soft: boolean }
+ *   | { kind: 'scan', text: string, cwd: string, bad: boolean, soft: boolean }} Action
+ * target: a word judged as unresolvable when it holds a variable, substitution or glob; redir: the file of a top-level output redirect, judged by the write rule itself;
+ * scan: the rebuilt command of a write program the scanner of the lead knows, whose W and L records the guard judges; soft: the only thing the hook cannot read in it is a plain
+ * variable (`$f`), which the scanner of the lead may have resolved from an assignment of the same command, so the guard judges it only when the lead's scanner missed a write */
 /** @typedef {{ overflow: boolean, budget: number, unsure: string, texts: string[] }} Guard budget: steps of work left (one per character or token read, across every nested scan), never time; unsure: the first region the hook is not certain how bash parses; texts: the text of every nested region read (the guard also runs the scanner of the lead over each, so a writer the scanner knows is judged wherever it sits) */
 
 export const ROLE_PROGRAMS = new Set([...WRITE_PROGRAMS, 'mkdir', 'mkfifo', 'mknod']);
@@ -28,8 +34,20 @@ export const ROLE_PROGRAMS = new Set([...WRITE_PROGRAMS, 'mkdir', 'mkfifo', 'mkn
 export const MAX_DEPTH = 8;
 const SCAN_DEPTH = 200;
 const MAX_TEXTS = 4000;
+/** The work budget of one scan: STEPS_PER_CHAR steps per character of the command plus STEPS_BASE. */
+export const STEPS_PER_CHAR = 64;
+export const STEPS_BASE = 4096;
+/** How many wrappers in a row (`nice env time ...`) unwrap strips before it stops. */
+export const MAX_WRAPPERS = 64;
+/** The most scanner passes over rebuilt writer commands (one per write program in the command). */
+const MAX_SCANS = 4000;
 const RESERVED_LEAD = new Set(['{', '}', '!', 'then', 'do', 'else', 'elif', 'if', 'while', 'until', 'done', 'fi', 'esac', 'in']);
 const RESERVED_ASSIGN = new Set(['{', '!', 'then', 'do', 'else', 'elif', 'if', 'while', 'until']);
+/** Words after which the next word is still at a command position. */
+const CMD_KEEP = new Set(['then', 'do', 'else', 'elif', 'if', 'while', 'until', 'time']);
+const BRACE_RE = /\{[^{}]*(,|\.\.)[^{}]*\}/;
+const ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const OUT_OPS = new Set(['>', '>>', '>|', '&>', '&>>']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'ash', 'fish']);
 
 /** @param {string} v @returns {Word} */
@@ -46,7 +64,7 @@ const doubt = (why) => { if (G.unsure === '') G.unsure = why; };
 
 /**
  * The index just after the `)` that closes a `$(` whose `(` is at i-1; quotes, backticks, `${...}`, here-document bodies and nested parentheses are skipped. Constructs bash reads in ways this scan does not
- * (a `$'...'` string, a comment, `case` and `;;`, a here-document marker inside arithmetic, an unterminated region) are recorded as a doubt: the caller refuses the roles. d: how deep the scan is nested in quotes and
+ * (a comment, `case` and `;;`, a here-document marker inside arithmetic, an unterminated region) are recorded as a doubt: the caller refuses the roles. d: how deep the scan is nested in quotes and
  * substitutions (beyond SCAN_DEPTH the rest of the text counts as inside, so the stack stays bounded).
  * @param {string} s @param {number} i @param {number} [d]
  */
@@ -55,20 +73,31 @@ function endParen(s, i, d = 0) {
   let depth = 1;
   let arith = false;
   /** @type {string[]} */ const pend = [];
+  let cmdPos = true; // the next word is at a command position (a `case` or `esac` there starts or ends a case command; as an argument it is a plain word)
   while (i < s.length) {
     if (!step()) return s.length;
-    const c = s[i];
+    const c = /** @type {string} */ (s[i]);
+    const atCmd = cmdPos;
+    if (c === ';' || c === '&' || c === '|' || c === '(' || c === '\n' || (c === '{' && /\s/.test(s[i + 1] ?? ' ')) || (c === '!' && atCmd)) cmdPos = true;
+    else if (c !== ' ' && c !== '\t' && c !== '\r') cmdPos = false;
     const edge = i === 0 || /[\s;&|(){}<>]/.test(/** @type {string} */ (s[i - 1]));
+    if (atCmd && /[A-Za-z]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[A-Za-z0-9_.-]/.test(/** @type {string} */ (s[j]))) j++;
+      const word = s.slice(i, j);
+      if ((word === 'case' || word === 'esac') && /^[\s;)]?$/.test(s[j] ?? '')) doubt('a case command inside a substitution');
+      cmdPos = CMD_KEEP.has(word);
+      i = j; continue;
+    }
     if (c === '\\') { i += 2; continue; }
     if (c === "'") { const e = s.indexOf("'", i + 1); if (e < 0) doubt('an unterminated quote'); i = e < 0 ? s.length : e + 1; continue; }
     if (c === '"') { i = endDouble(s, i + 1, d + 1); continue; }
     if (c === '`') { i = endTick(s, i + 1); continue; }
-    if (c === '$' && s[i + 1] === "'") { doubt("a $'...' string inside a substitution"); i += 2; continue; }
+    if (c === '$' && s[i + 1] === "'") { i = ansiC(s, i).end; continue; }
     if (c === '$' && s[i + 1] === '{') { i = endBrace(s, i + 2, d + 1); continue; }
     if (c === '$' && s[i + 1] === '[') arith = true;
     if (c === '#' && edge) doubt('a comment inside a substitution');
     if (c === ';' && s[i + 1] === ';') doubt('a case pattern list inside a substitution');
-    if (edge && (s.startsWith('case', i) || s.startsWith('esac', i)) && /^[\s;)]?$/.test(s[i + 4] ?? '')) doubt('a case command inside a substitution');
     if (c === '(' && s[i + 1] === '(') arith = true;
     if (c === '<' && s[i + 1] === '<' && s[i + 2] !== '<') {
       if (arith) doubt('a << inside arithmetic in a substitution');
@@ -230,8 +259,8 @@ export function tokenize(s, depth = 0, st = newGuard(s.length), top = { off: 0, 
   try { return tokenizeIn(s, depth, st, top); } finally { G = prev; }
 }
 
-/** A fresh work counter for a command of n characters: 64 steps per character and a small constant. @param {number} n @returns {Guard} */
-export const newGuard = (n) => ({ overflow: false, budget: 64 * n + 4096, unsure: '', texts: [] });
+/** A fresh work counter for a command of n characters: STEPS_PER_CHAR steps per character and STEPS_BASE. @param {number} n @returns {Guard} */
+export const newGuard = (n) => ({ overflow: false, budget: STEPS_PER_CHAR * n + STEPS_BASE, unsure: '', texts: [] });
 
 /** Arithmetic or commands? Text inside `$((...))` or `((...))` that has a `;`, a newline or two words in a row cannot be an arithmetic expression, so bash reads it as nested subshells. @param {string} t */
 const cmdLike = (t) => /;|\n|[\w"')]\s+[A-Za-z_"'$/.]/.test(t);
@@ -312,12 +341,14 @@ function tokenizeIn(s, depth, st, top) {
       continue;
     }
     if (c === ';' || c === '(' || c === ')' || (c === '&' && s[i + 1] !== '>') || c === '|') {
-      if (c === '(' && s[i + 1] === '(' && w === null && cur.words.length === 0) {
+      // after `if`, `while`, `until`, `{`, `!`, `time` ... (lead) or `for` the `((` is arithmetic as well: `for (( i=0; i<4; i++ ))` has `;` and is no pair of subshells
+      const forHdr = cur.words.length === 1 && !(/** @type {Word} */ (cur.words[0])).q && (/** @type {Word} */ (cur.words[0])).v === 'for';
+      if (c === '(' && s[i + 1] === '(' && w === null && (cur.words.length === 0 || lead || forHdr)) {
         // `(( ... ))` is arithmetic (its `<<` and `>` are operators, not redirects); `((cmd); cmd)` is two subshells and ends in `)` alone
         const keep = G.unsure;
         const e = endParen(s, i + 1);
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
-        if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')' && !cmdLike(s.slice(i + 2, e - 2))) { subsIn(s.slice(i + 2, e - 2)); i = e; continue; }
+        if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')' && (forHdr || !cmdLike(s.slice(i + 2, e - 2)))) { subsIn(s.slice(i + 2, e - 2)); i = e; continue; }
       }
       flush();
       let isPipe = false;
@@ -423,6 +454,7 @@ function skipReserved(words) {
     if (x.q) break;
     if (RESERVED_LEAD.has(x.v)) { i++; continue; }
     if (x.v === 'function') { i += 2; continue; }
+    if (x.v === 'coproc') { i += words[i + 2]?.v === '{' ? 2 : 1; continue; } // `coproc NAME { cmd; }` and `coproc cmd`
     if (x.v === 'for' || x.v === 'select' || x.v === 'case') return [];
     break;
   }
@@ -437,8 +469,17 @@ function skipReserved(words) {
 function unwrap(words) {
   let chdir = false;
   let unknown = '';
-  let ws = skipReserved(words);
-  for (let guard = 0; ws.length > 0 && guard < 64; guard++) {
+  // reserved words, then the assignments that may follow them (`time X=1 mkdir d`, `function f { X=1 mkdir d; }`: the tokenizer reads those as words)
+  const strip = (/** @type {Word[]} */ list) => {
+    let l = skipReserved(list);
+    while (l.length > 0 && !(/** @type {Word} */ (l[0])).q && ASSIGN_RE.test((/** @type {Word} */ (l[0])).v)) {
+      if ((/** @type {Word} */ (l[0])).v.startsWith('CDPATH=')) chdir = true;
+      l = skipReserved(l.slice(1));
+    }
+    return l;
+  };
+  let ws = strip(words);
+  for (let guard = 0; ws.length > 0 && guard < MAX_WRAPPERS; guard++) {
     const name = base((/** @type {Word} */ (ws[0])).v);
     const spec = Object.hasOwn(WRAPPERS, name) ? WRAPPERS[name] : undefined;
     if (spec === undefined) break;
@@ -447,14 +488,14 @@ function unwrap(words) {
     while (i < ws.length) {
       if (!step()) break;
       const v = (/** @type {Word} */ (ws[i])).v;
-      if (v === '--') { i++; break; }
+      if (v === '--') { i++; while (pos > 0 && i < ws.length) { i++; pos--; } break; } // `--` ends the options; the positional operands (timeout's DURATION) still come before the command
       if (name === 'env' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(v)) { if (v.startsWith('CDPATH=')) chdir = true; i++; continue; }
       if (!v.startsWith('-') || v === '-') { if (pos > 0) { pos--; i++; continue; } break; }
       if (spec.cd !== null && spec.cd.test(v)) chdir = true;
       let takes = false;
       if (v.startsWith('--')) {
         const nm = v.split('=')[0] ?? v;
-        if (spec.long.includes(nm)) takes = !v.includes('=');
+        if (spec.long.includes(nm)) { takes = !v.includes('='); if (name === 'taskset' && nm === '--cpu-list') pos = 0; }
         else if (!spec.lflag.includes(nm)) unknown = unknown || `${name} ${nm}`;
       } else if (name === 'nice' && /^-[0-9]+$/.test(v)) takes = false;
       else {
@@ -466,7 +507,7 @@ function unwrap(words) {
       }
       i += takes ? 2 : 1;
     }
-    ws = skipReserved(ws.slice(i));
+    ws = strip(ws.slice(i));
   }
   return { words: ws, chdir, unknown };
 }
@@ -674,6 +715,12 @@ export function roleActions(cmd) {
   try { return scanRole(cmd, st, actions); } finally { G = prev; }
 }
 
+/** A word as one single-quoted word for the scanner of the lead; a `$'...'` string with an escape the hook cannot decode stays unresolvable (`"$ANSIC"`). @param {Word} w */
+function quoteForScan(w) {
+  if (w.vr && !w.v.includes('$')) return '"$ANSIC"';
+  return `'${w.v.replace(/'/g, "'\\''")}'`;
+}
+
 /** The error text of a refusal. @param {string} why */
 const notice = (why) => `${why}, so what the command writes cannot be judged`;
 
@@ -685,6 +732,7 @@ function scanRole(cmd, st, actions) {
   let bad = false;
   let badAt = -1;
   let badParen = 0;
+  let scans = 0;
   const target = (/** @type {Word} */ word) => actions.push({ kind: 'target', word, cwd, bad });
   /** @param {string} code @param {Simple} sc */
   const runCode = (code, sc) => {
@@ -702,7 +750,9 @@ function scanRole(cmd, st, actions) {
       if (r.op === '>&') { if (!/^([0-9]+-?|-)$/.test(r.word.v) || r.word.q) target(r.word); }
       else if (r.word.bt && !r.op.startsWith('<')) target(r.word);
       // a redirect inside a substitution or a shell string: the scanner of the lead may not read it (the same writeRule judges it)
-      else if (sc.depth > 0 && (r.op === '>' || r.op === '>>' || r.op === '>|' || r.op === '&>' || r.op === '&>>')) target(r.word);
+      else if (sc.depth > 0 && OUT_OPS.has(r.op)) target(r.word);
+      // a top-level redirect is judged from these tokens as well: the scanner of the lead can swallow a here-document (`<<` in `(( ))`, `$[ ]`, `${x:-<<E}`) and lose the lines after it
+      else if (OUT_OPS.has(r.op)) actions.push({ kind: 'redir', word: r.word, cwd, bad, soft: r.word.vr && !r.word.sub && !r.word.bt && !r.word.glob });
       else if (r.op === '<>') target(r.word);
     }
     const un = unwrap(sc.words);
@@ -712,9 +762,10 @@ function scanRole(cmd, st, actions) {
     if (first === undefined) return;
     const name = base(first.v);
     const args = un.words.slice(1);
-    // a command word that brace expansion or a glob may turn into a write program (`{mkdir,} X`, `/bin/m?dir X`)
-    if (!first.q && args.length > 0 && first.v !== '[' && first.v !== '[[' && (first.glob || /\{[^{}]*(,|\.\.)[^{}]*\}/.test(first.v))) {
-      actions.push({ kind: 'deny', why: notice(`the command word '${first.v}' holds a brace expansion or a glob`) });
+    // a command word the hook cannot read (a substitution, a backtick, a variable, a brace expansion or a glob) may be any program: with an operand it is refused, wherever the tokenizer reads it
+    const lit = !first.sub && !first.vr && !first.bt && (first.q || (!first.glob && !BRACE_RE.test(first.v)));
+    if (!lit && args.length > 0 && first.v !== '[' && first.v !== '[[') {
+      actions.push({ kind: 'deny', why: notice(`the command word '${first.v}' is not a literal (a substitution, a variable, a brace expansion or a glob)`) });
     }
     if (name === 'export' && args.some((a) => a.v.startsWith('CDPATH'))) chdir = true;
     if (name === 'cd' || name === 'pushd' || name === 'popd') {
@@ -733,14 +784,36 @@ function scanRole(cmd, st, actions) {
       for (const code of shellCode(name, args, sc)) runCode(code, sc);
       return;
     }
+    if (name === 'alias') {
+      for (const a of args) {
+        const eq = a.v.indexOf('=');
+        if (eq < 0) continue;
+        const body = a.v.slice(eq + 1);
+        if (a.sub || a.vr || a.glob || body.includes('>') || body.split(/[^A-Za-z0-9_./-]+/).some((x) => ROLE_PROGRAMS.has(base(x)))) {
+          actions.push({ kind: 'deny', why: notice(`the alias '${a.v.slice(0, 60)}' stands for a write program, a redirect or a word the hook cannot read`) });
+        }
+      }
+      return;
+    }
+    if (name === 'shopt' && args.some((a) => /^-[A-Za-z]*s/.test(a.v)) && args.some((a) => a.v === 'expand_aliases')) {
+      actions.push({ kind: 'deny', why: notice('the command turns on expand_aliases, so any word may stand for a write program') });
+      return;
+    }
     if (!ROLE_PROGRAMS.has(name)) return;
+    if (WRITE_PROGRAMS.has(name)) {
+      // the scanner of the lead knows this writer's operands; it judges the command rebuilt from these tokens
+      // (the lead scanner can lose a command word behind `function f {`, `coproc` or a swallowed here-document)
+      const text = [name, ...args.map(quoteForScan)].join(' ');
+      G.budget = Math.max(0, G.budget - text.length);
+      if (++scans > MAX_SCANS) st.overflow = true; else actions.push({ kind: 'scan', text, cwd, bad, soft: args.some((a) => a.vr) && !args.some((a) => a.sub || a.bt || a.glob) });
+    }
     for (const a of args) {
       if (a.bt || a.usub) { actions.push({ kind: 'deny', why: `the command gives ${name} an operand '${a.v}' that holds a command substitution, which cannot be resolved` }); break; }
     }
     for (const t of extraTargets(name, args)) target(t);
   };
   for (const sc of tokenize(cmd, 0, st, { off: 0, paren: 0 })) { if (st.overflow) break; judge(sc); }
-  if (chdir) { badAt = 0; badParen = 0; for (const a of actions) if (a.kind === 'target') a.bad = true; }
+  if (chdir) { badAt = 0; badParen = 0; for (const a of actions) if (a.kind !== 'deny') a.bad = true; }
   if (st.overflow) actions.push({ kind: 'deny', why: `the command nests substitutions or shell strings deeper than ${MAX_DEPTH} levels or is too large to read, so what it writes cannot be judged` });
   if (st.unsure !== '') actions.push({ kind: 'deny', why: notice(`the command holds ${st.unsure}, which the hook cannot read the way bash does`) });
   if (st.texts.length > MAX_TEXTS) actions.push({ kind: 'deny', why: notice(`the command holds more than ${MAX_TEXTS} nested regions`) });

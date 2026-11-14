@@ -8,7 +8,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { cmdSubst, isWin, winSoft } from '../lib/text.mjs';
-import { cParts, deny, ereToJs, git, grepq, hcfgLoad, mcFail, stashPath, stateOf } from './kit.mjs';
+import { cParts, deny, envChdirOpt, ereToJs, git, grepq, hcfgLoad, mcFail, stashPath, stateOf } from './kit.mjs';
 
 const MG_MSG = 'merging a pull request goes only through `proofline merge <PR-NUMBER> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]`, which checks that every check is green on the current head and then merges (A136); --admin and --auto are never allowed';
 const BT = '`';
@@ -16,7 +16,7 @@ const BT = '`';
 /** @param {string} s ERE text (POSIX classes allowed) @param {string} [flags] */
 const re = (s, flags = '') => /** @type {RegExp} */ (ereToJs(s, flags));
 
-const RE_ENV_CHDIR = re(String.raw`(env|sudo|doas)[[:space:]]+([^;&|]*[[:space:]])?(-[A-Za-z]*[CD]|--chdir)`);
+// A274: `(env|sudo|doas)[[:space:]]+([^;&|]*[[:space:]])?(-[A-Za-z]*[CD]|--chdir)` as a linear scan (kit.mjs envChdirOpt): the expression took 20 s on 36000 repeats of `env `
 const RE_SUBCMD = re(String.raw`(^|[^[:alnum:]_./-])(gh|glab)([[:space:]]+(-R|--repo)[[:space:]]+[^[:space:]]+)?([[:space:]]+[A-Za-z][A-Za-z-]*)?[[:space:]]+["']?[$${BT}]`);
 const RE_PAY = re(String.raw`(^|[^[:alnum:]_])(pr|mr)["'[:space:]]+merge([^[:alnum:]_]|$)|repos[[:space:]]+pr[[:space:]]+update[^;&|]*(completed|auto-complete)|/merge_requests/[^[:space:]]*merge|/pulls/[^[:space:]]*merge|mergePullRequest|enablePullRequestAutoMerge|git[[:space:]]+([^;&|]*[[:space:]])?push[^;&|]*[[:space:]:/+](main|master)([^[:alnum:]_.-]|$)|git[[:space:]]+merge`);
 const RE_SINK = re(String.raw`\|[[:space:]]*((env|sudo|command|exec)[[:space:]]+)*(/[^[:space:]|;&]*/)?(sh|bash|zsh|dash|ksh|ash)([[:space:]]|;|&|\)|$)|(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh)([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<|(sh|bash|zsh|dash|ksh)[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-s([[:space:]]|$)|(^|[^[:alnum:]_.-])(python[0-9.]*|node|nodejs|deno|bun|ruby|perl|php|lua)[[:space:]]+(-[A-Za-z]*[ceErp]|--eval)([[:space:]]|$)|awk[^|;&]*system[[:space:]]*\(|(^|[;&|({[:space:]])eval[[:space:]]|alias\.[A-Za-z0-9_-]+=["']?!`);
@@ -296,7 +296,7 @@ export async function mergeGuard(ctx, cmd, scan) {
   // (d) merge text piped, heredoc'd or passed to a shell / interpreter / eval / git alias
   if (RE_SINK.test(flat) && RE_PAY.test(flat)) deny(`merge text passed to a shell, an interpreter, eval or a git alias cannot be checked: ${MG_MSG}`);
   // env/sudo -C, --chdir move the directory away from what the text says
-  if (RE_ENV_CHDIR.test(flat)) envu = true;
+  if (envChdirOpt(flat, false)) envu = true;
   const nl = cmd.split('\n').map((l) => l.replace(/&&/g, '').replace(/[0-9]*>&[0-9-]*/g, '').replace(/&>/g, '')).join('\n');
   const nonlin = /[(|&{`]/.test(nl);
 
