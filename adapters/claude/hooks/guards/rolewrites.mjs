@@ -536,7 +536,11 @@ function tokenizeIn(s, depth, st, top) {
         const closed = e - 2 > k && s[e - 1] === ')' && s[e - 2] === ')';
         // the `))` is placed with certainty only when the probe has no doubt (a `<<` operator is no doubt while no newline lies in the body: a here-document body is then not skipped) and the text is closed by `))`;
         // anything else (a `#` or here-document marker that may hide the end, unbalanced parentheses, quotes, case patterns) is refused for the roles: the end of the `((` cannot be told
-        const placed = closed && (probeDoubt === '' || (probeDoubt.startsWith('a << inside') && !body.includes('\n')));
+        // a `))` glued to a word, quote or backslash (`export x=((1))\<newline>mkdir F`) is not placed either: bash reports the syntax error at the `(` and runs the next physical line, which the hook would read as arguments
+        const glued = /[\w\\'"$`]/.test(s[e] ?? '');
+        // `x=((` is always a syntax error in bash (no valid use): the rest of the physical line is discarded and the next one runs, with or without a continuation, so it is not placed either
+        const afterEq = w !== null && w.v.endsWith('=');
+        const placed = closed && !glued && !afterEq && (probeDoubt === '' || (probeDoubt.startsWith('a << inside') && !body.includes('\n')));
         if (!placed) doubt('a "((" whose end cannot be placed: write a space after the first "(" for a nested subshell, or simplify the arithmetic');
         else {
           arithSubs(body);
@@ -551,6 +555,8 @@ function tokenizeIn(s, depth, st, top) {
           strictUntil = e; // a command word that is not literal is refused even without an operand
         }
       }
+      // `x=(<<X)` and `x=( # ...`: bash reports a syntax error and runs the next line, while the hook reads a here-document or a comment that hides it
+      if (c === '(' && s[i + 1] !== '(' && w !== null && w.v.endsWith('=') && /^[ \t]*(<<|#)/.test(s.slice(i + 1, i + 1 + 64))) doubt('a "=(" followed by a here-document or comment marker: write the array elements on the line without a marker');
       flush();
       let isPipe = false;
       if (c === '|') {

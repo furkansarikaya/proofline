@@ -538,3 +538,22 @@ ROUND12_OK.forEach((command, k) => {
     assert.equal(await pre(command, {}, {}), null);
   });
 });
+
+// Security round 13 (A274): a `))` glued to a backslash-newline, a word or a quote is not placed (bash reports the syntax error at the `(` and runs the next physical line), and `=(` followed by a here-document or comment marker is refused.
+const ROUND13 = [
+  'export x=((1))\\\nmkdir $V/F', 'export x=((1))\\\n mkdir $V/F', 'declare x=((1))\\\nmkdir $V/F', 'local x=((1))\\\nmkdir $V/F', 'readonly x=((1))\\\nmkdir $V/F', 'typeset x=((1))\\\nmkdir $V/F',
+  'declare -a x=((1))\\\nmkdir $V/F', 'export x=((1))\\\nsh -c "mkdir $V/F"', 'export x=((1))\\\n sh -c "mkdir $V/F"', 'echo a=((1))\\\nmkdir $V/F', 'let x=((1))\\\nmkdir $V/F', '(( 1 ))\\\nmkdir $V/F',
+  'x=(<<X)\nmkdir $V/F', 'x=( # c\nmkdir $V/F\n)',
+].map((x) => V12 + x);
+ROUND13.forEach((command, k) => {
+  test(`A274 round 13 #${k}: refused for both roles, the lead stays allowed: ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
+    assert.equal(await pre(command, {}, {}), null, 'the lead verdict changed');
+  });
+});
+for (const command of ['y=(a b c)', 'export A=1', 'echo "a=((1))"', 'declare -a arr=(a b)', 'x=$((1+2)); export x']) {
+  test(`A274 round 13 allowed: ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
+    assert.equal(await pre(command, {}, {}), null);
+  });
+}
