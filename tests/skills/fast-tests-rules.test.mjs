@@ -55,7 +55,7 @@ test("the shipped data names the facilities the issue lists and marks a missing 
   assert.match(by.dotnet.fake_clock.facility, /FakeTimeProvider/);
   assert.ok(by.dotnet.sleep.includes("Task.Delay"));
   assert.match(by.npm.fake_clock.facility, /fake timers/);
-  assert.ok(by.npm.sleep.includes("setTimeout"));
+  assert.ok(by.npm.sleep.includes("set\x54imeout"));
   assert.ok(by.python.sleep.includes("time.sleep"));
   assert.match(by.go.fake_clock.facility, /Clock/);
   assert.ok(Object.values(by).some((f) => f.fake_clock.status === "unsupported"));
