@@ -213,7 +213,7 @@ function lines(sock) {
   sock.on("data", (d) => { buf += d; let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (waiting) { const w = waiting; waiting = null; w(l); } else got.push(l); } });
   return () => (got.length > 0 ? Promise.resolve(got.shift()) : new Promise((ok) => { waiting = ok; }));
 }
-// A leader that starts one grandchild in its own group, reaps it on TERM (its exit event), and only then dies BY the signal, as a plain process would. The grandchild
+// A leader whose grandchild starts in the leader's group; the leader reaps it on TERM (its exit event), and only then dies BY the signal, as a plain process would. The grandchild
 // reports the pid of its parent, the leader, so that a failed test can still stop the group it started.
 const GROUP_LEADER = `const c = require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify('const s = require("node:net").connect(process.argv[1], () => s.write(process.ppid + "\\n"));')}, process.argv[1]], { stdio: "inherit" });
 let gone = false, termed = false;

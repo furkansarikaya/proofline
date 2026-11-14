@@ -57,6 +57,13 @@ test('renderText: tables with min and max, a failed list and the unstable list',
   assert.match(t, /\n {2}duration: tests\/b\.test\.mjs :: jittery \[pass \/ pass\] \[100 \/ 2600 ms\]\n/);
 });
 
+test('renderText: a test name with a newline or an escape sequence stays one printable line', () => {
+  const ev = parseEvents('{"file":"a.test.mjs","name":"x\\ny\\u001b[31mred","nesting":0,"ms":1,"outcome":"fail","suite":false}\n');
+  const t = renderText(analyse([{ status: 1, events: ev }], OPT));
+  assert.ok(!/[\u0000-\u0009\u000b-\u001f]/.test(t));
+  assert.match(t, / {2}a\.test\.mjs :: x y {1}\[31mred\n/);
+});
+
 test('main: --twice runs the injected runner twice, --json and --out carry the same report, the exit status says unstable, usage errors are 2', () => {
   const outs = [fx('run1.jsonl'), fx('run2.jsonl')];
   /** @type {string[][]} */ const calls = [];

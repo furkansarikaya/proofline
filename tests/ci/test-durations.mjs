@@ -118,20 +118,23 @@ export function analyse(runs, opt) {
   };
 }
 
+/** A name or file as one printable line: control characters (newlines, escape sequences) become spaces. @param {string} s */
+const clean = (s) => s.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+
 /** @param {ReturnType<typeof analyse>} a */
 export function renderText(a) {
   const L = [];
   const ms = (/** @type {number} */ n) => n.toFixed(1).padStart(10);
   L.push(`runs ${a.runs}; ${a.tests} tests in ${a.files.length} files; total ${a.total_min_ms} ms (min) / ${a.total_max_ms} ms (max); exit statuses ${a.statuses.join(',')}`);
   L.push('', `slowest ${a.slowest.length} tests (max over the runs)`, `${'min ms'.padStart(10)} ${'max ms'.padStart(10)}  file :: test`);
-  for (const t of a.slowest) L.push(`${ms(t.min_ms)} ${ms(t.max_ms)}  ${t.file} :: ${t.name}`);
+  for (const t of a.slowest) L.push(`${ms(t.min_ms)} ${ms(t.max_ms)}  ${clean(t.file)} :: ${clean(t.name)}`);
   L.push('', 'per file (suite) total', `${'min ms'.padStart(10)} ${'max ms'.padStart(10)} ${'tests'.padStart(6)}  file`);
-  for (const f of a.files) L.push(`${ms(f.min_ms)} ${ms(f.max_ms)} ${String(f.tests).padStart(6)}  ${f.file}`);
+  for (const f of a.files) L.push(`${ms(f.min_ms)} ${ms(f.max_ms)} ${String(f.tests).padStart(6)}  ${clean(f.file)}`);
   L.push('', `grand total ${a.total_min_ms} ms (min) / ${a.total_max_ms} ms (max)`);
-  if (a.failed.length > 0) { L.push('', `failed (${a.failed.length})`); for (const f of a.failed) L.push(`  ${f.file} :: ${f.name}`); }
+  if (a.failed.length > 0) { L.push('', `failed (${a.failed.length})`); for (const f of a.failed) L.push(`  ${clean(f.file)} :: ${clean(f.name)}`); }
   if (a.runs > 1) {
     L.push('', `unstable (${a.unstable.length}; outcome differs, missing in a run, or durations differ by more than ${a.tolerance.floor_ms} ms and a ratio of ${a.tolerance.ratio})`);
-    for (const u of a.unstable) L.push(`  ${u.reason}: ${u.file} :: ${u.name} [${u.outcome.join(' / ')}] [${u.ms.map((m) => (m === null ? '-' : m)).join(' / ')} ms]`);
+    for (const u of a.unstable) L.push(`  ${u.reason}: ${clean(u.file)} :: ${clean(u.name)} [${u.outcome.join(' / ')}] [${u.ms.map((m) => (m === null ? '-' : m)).join(' / ')} ms]`);
   }
   return `${L.join('\n')}\n`;
 }
