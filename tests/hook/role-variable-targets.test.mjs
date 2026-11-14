@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildTemplate, copyProject, runHook, rmSync, nodeHook, cleanEnv } from './harness.mjs';
-import { tokenize, roleActions } from '../../adapters/claude/hooks/guards/rolewrites.mjs';
+import { tokenize, roleActions, rewriteAnsiC, MAX_DEPTH } from '../../adapters/claude/hooks/guards/rolewrites.mjs';
 import { WRITE_PROGRAMS } from '../../adapters/claude/hooks/command-scan.mjs';
 
 // The verdicts are asked in process (the same buildContext and PreToolUse handler the hook process runs; one test spawns the real hook to prove they agree): a hook process per question made the file take minutes.
@@ -372,9 +372,9 @@ test('A273 round 2: quoted text, commit messages, heredoc bodies and fd duplicat
   for (const command of ["install -Dm755 a impl.txt", "sed -i s/a/b/ impl.txt && git commit -m \"fix `x`\"", "vim impl.txt"]) assert.equal(await pre(command, who, env), null, command);
 });
 
-test('A273 round 2: the in-process verdicts agree with the real hook process (a sample of refused and allowed commands)', async () => {
-  for (const [, who, env] of ROLES) {
-    for (const command of ['echo x > $OLDPWD/x', 'install -dm755 /etc/x', 'cp $(true) a /etc/x', 'echo x >& ""/etc/x', 'echo x > .agents/runs/LC/scratch/o.txt', 'git commit -m "docs: document `install`"']) {
+test('A273 round 2: the in-process verdicts agree with the real hook process for the lead and both roles (a sample of refused and allowed commands)', async () => {
+  for (const [, who, env] of [...ROLES, LEAD]) {
+    for (const command of ['echo x > $OLDPWD/x', 'echo $(mkdir /etc/x)', "echo $'a\\'b'; touch /etc/x", 'echo x > .agents/runs/LC/scratch/o.txt', 'git commit -m "docs: document `install`"']) {
       assert.equal(await preSpawn(command, who, env), await pre(command, who, env), command);
     }
   }
@@ -387,4 +387,282 @@ test('A273 round 2: the tokenizer is linear on pathological input (a quadratic r
   assert.ok(roleActions(heres).actions.length === 0);
   const many = 'tee a$(x) '.repeat(100000);
   assert.ok(roleActions(many).actions.length >= 1);
+});
+
+// ---- Review round 3 (A273): the role scan reads code wherever the shell runs code (substitutions, backticks, process substitutions, here-document expansions, `sh -c` strings, compound commands, wrappers),
+// the `$'...'` string, tar, gawk and GNU mkdir -Z. Each row is its own test: refused for both roles; the lead's verdict is pinned to what the base gave (it never changes). A row the base already refused for both
+// roles by another rule is tagged: it is a regression row, not a bypass proof.
+const R3_H1_SUBSTITUTION = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["echo $(mkdir /etc/x)", 'allow'],
+  ["echo \"$(mkdir /etc/x)\"", 'allow'],
+  ["echo `mkdir /etc/x`", 'allow'],
+  ["echo \"`mkdir /etc/x`\"", 'allow'],
+  ["x=$(mkdir /etc/x)", 'allow'],
+  ["cat <(mkdir /etc/x)", 'allow'],
+  ["echo ${X:-$(mkdir /etc/x)}", 'allow'],
+  ["echo $(echo $(echo $(mkdir /etc/x)))", 'allow'],
+  ["echo $(echo `mkdir /etc/x`)", 'allow'],
+  ["echo $( mkdir /etc/x )", 'allow'],
+  ["echo $((1)) $(mkdir /etc/x)", 'allow'],
+]);
+const R3_H1_HEREDOC_BODY = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["cat <<EOF\n$(mkdir /etc/x)\nEOF", 'allow'],
+  ["cat <<EOF\n`mkdir /etc/x`\nEOF", 'allow'],
+  ["cat <<-EOF\n\t$(mkdir /etc/x)\n\tEOF", 'allow'],
+]);
+const R3_H1_ARITHMETIC = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["echo $[1<<2]\nmkdir /etc/x", 'allow'],
+  ["(( 1<<2 ))\nmkdir /etc/x", 'allow'],
+  ["echo $((1<<2))\nmkdir /etc/x", 'allow'],
+  ["echo $[ $(mkdir /etc/y) ]", 'allow'],
+  ["echo $(( $(mkdir /etc/y) ))", 'allow'],
+]);
+const R3_H1_COMPOUND = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["{ mkdir /etc/x; }", 'allow'],
+  ["if true; then mkdir /etc/x; fi", 'allow'],
+  ["if false; then true; elif true; then mkdir /etc/x; fi", 'allow'],
+  ["if false; then true; else mkdir /etc/x; fi", 'allow'],
+  ["if mkdir /etc/x; then true; fi", 'allow'],
+  ["while true; do mkdir /etc/x; done", 'allow'],
+  ["until false; do mkdir /etc/x; done", 'allow'],
+  ["for i in 1; do mkdir /etc/x; done", 'allow'],
+  ["! mkdir /etc/x", 'allow'],
+  ["f() { mkdir /etc/x; }; f", 'allow'],
+  ["function f { mkdir /etc/x; }; f", 'allow'],
+  ["case x in x) mkdir /etc/x;; esac", 'allow'],
+  ["true && { mkdir /etc/x; }", 'allow'],
+  ["if true; then A=1 mkdir /etc/x; fi", 'allow'],
+  ["(mkdir /etc/x)", 'allow'],
+]);
+const R3_H1_SHELL_STRING = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["sh -c 'mkdir /etc/x'", 'allow'],
+  ["bash -c \"mkdir /etc/x\"", 'allow'],
+  ["bash -lc 'mkdir /etc/x'", 'allow'],
+  ["sh -ec 'mkdir /etc/x'", 'allow'],
+  ["zsh -c 'mkdir /etc/x'", 'allow'],
+  ["sh -c \"sh -c 'mkdir /etc/x'\"", 'refuse'],
+  ["bash -o pipefail -c 'mkdir /etc/x'", 'allow'],
+  ["eval 'mkdir /etc/x'", 'refuse'],
+  ["echo 'mkdir /etc/x' | sh", 'refuse'],
+  ["sh <<'EOF'\nmkdir /etc/x\nEOF", 'refuse'],
+  ["cat <<'EOF' | bash\nmkdir /etc/x\nEOF", 'refuse'],
+  ["bash <<< 'mkdir /etc/x'", 'refuse'],
+  ["echo mkdir /etc/x | sh -s", 'refuse'],
+]);
+const R3_H1_WRAPPER = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["timeout 5 mkdir /etc/x", 'allow'],
+  ["timeout -k 5 10 mkdir /etc/x", 'allow'],
+  ["stdbuf -o0 mkdir /etc/x", 'allow'],
+  ["ionice -c3 mkdir /etc/x", 'allow'],
+  ["ionice -c 3 mkdir /etc/x", 'allow'],
+  ["nice mkdir /etc/x", 'allow'],
+  ["nice -n 5 mkdir /etc/x", 'allow'],
+  ["nohup mkdir /etc/x", 'allow'],
+  ["env VAR=1 mkdir /etc/x", 'allow'],
+  ["command mkdir /etc/x", 'allow'],
+  ["exec mkdir /etc/x", 'allow'],
+  ["time mkdir /etc/x", 'allow'],
+  ["time -p mkdir /etc/x", 'allow'],
+  ["sudo mkdir /etc/x", 'allow'],
+  ["chrt 10 mkdir /etc/x", 'allow'],
+  ["taskset 1 mkdir /etc/x", 'allow'],
+  ["nohup timeout 5 nice mkdir /etc/x", 'allow'],
+]);
+const R3_H1_OTHER_WRITERS = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["echo $(install -d /etc/x)", 'allow'],
+  ["echo $(mkfifo /etc/x)", 'allow'],
+  ["echo $(mknod /etc/x p)", 'allow'],
+  ["echo $(patch /etc/x < a)", 'allow'],
+  ["echo $(ed /etc/x)", 'allow'],
+  ["sh -c 'install -d /etc/x'", 'allow'],
+  ["sh -c 'mkfifo /etc/x'", 'allow'],
+  ["sh -c 'mknod /etc/x p'", 'allow'],
+  ["sh -c 'patch /etc/x'", 'allow'],
+  ["sh -c 'ed /etc/x'", 'allow'],
+  ["sh -c 'sed -i s/a/b/ /etc/x'", 'refuse'],
+  ["sh -c 'cp -t /etc a'", 'refuse'],
+  ["if true; then install -d /etc/x; fi", 'allow'],
+  ["timeout 5 patch /etc/x", 'allow'],
+  ["env X=1 ed /etc/x", 'allow'],
+  ["echo $(tar -cf /etc/x.tar a)", 'allow'],
+  ["echo $(gawk -i inplace 1 /etc/x)", 'refuse'],
+  ["echo $(curl -o /etc/x http://a)", 'refuse'],
+]);
+const R3_H2_REDIRECT_IN_SUBSTITUTION = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["echo $(echo hi >& /etc/zz)", 'allow'],
+  ["sh -c \"echo hi >& /etc/zz\"", 'allow'],
+  ["echo $(echo hi > /etc/zz)", 'refuse'],
+  ["sh -c \"echo hi >> /etc/zz\"", 'refuse'],
+  ["echo $(echo hi &> /etc/zz)", 'refuse'],
+  ["sh -c \"echo hi &> /etc/zz\"", 'refuse'],
+  ["echo $(echo hi | tee /etc/zz)", 'refuse'],
+  ["sh -c 'cp a /etc/zz'", 'refuse'],
+  ["echo $(cp a /etc/zz)", 'refuse'],
+  ["sh -c \"echo hi >& \\$OLDPWD/zz\"", 'allow'],
+  ["cat <(echo hi > /etc/zz)", 'refuse'],
+  ["echo \"`echo hi >& /etc/zz`\"", 'allow'],
+  ["echo $(echo hi >| /etc/zz)", 'refuse'],
+  ["echo $(echo hi 2>/etc/zz)", 'refuse'],
+  ["cat <<EOF\n$(echo hi >& /etc/zz)\nEOF", 'allow'],
+]);
+const R3_M_ANSI_C = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["echo $'a\\'b'; touch /etc/x", 'allow'],
+  ["echo $'\\'' ; echo hi > /etc/x", 'allow'],
+  ["echo $'it\\'s'; rm /etc/x", 'allow'],
+  ["echo $'a\\'b'; tee /etc/x", 'allow'],
+  ["echo $'a\\'b'; cp a /etc/x", 'allow'],
+  ["echo $'a\\'b'; mkdir /etc/x", 'allow'],
+  ["echo $'\\x41'; touch /etc/x", 'refuse'],
+  ["echo x > $'\\x2fetc\\x2fx'", 'refuse'],
+  ["echo $'a\\'b' > /etc/x", 'allow'],
+  ["echo $'a\\'b' && sh -c 'echo hi >& /etc/x'", 'allow'],
+]);
+const R3_M_TAR = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["tar -cf /etc/x.tar a", 'allow'],
+  ["tar cf /etc/x.tar a", 'allow'],
+  ["tar -c -f /etc/x.tar a", 'allow'],
+  ["tar --create --file=/etc/x.tar a", 'allow'],
+  ["tar --create --file /etc/x.tar a", 'allow'],
+  ["tar cf $OUT/a.tar a", 'allow'],
+  ["tar -cf ../x.tar a", 'allow'],
+  ["gtar -czf /etc/x.tgz a", 'allow'],
+  ["bsdtar -cf /etc/x.tar a", 'allow'],
+  ["tar -xf a.tar -C /etc", 'refuse'],
+  ["tar -x -C /etc -f a.tar", 'refuse'],
+  ["tar xf a.tar --directory=/etc", 'refuse'],
+  ["tar xfC a.tar /etc", 'allow'],
+  ["tar -rf /etc/x.tar a", 'allow'],
+  ["tar -cvf /etc/x.tar a", 'allow'],
+]);
+const R3_M_GAWK = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["gawk -i ./inplace.awk 1 /etc/x", 'allow'],
+  ["gawk -i /usr/share/awk/inplace.awk 1 /etc/x", 'allow'],
+  ["gawk --include=/x/inplace.awk 1 /etc/x", 'allow'],
+  ["gawk --include /x/inplace 1 /etc/x", 'allow'],
+  ["gawk -i ./inplace 1 /etc/x", 'allow'],
+]);
+const R3_M_MKDIR_Z = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["mkdir -Z /etc/x", 'allow'],
+  ["mkfifo -Z /etc/x", 'allow'],
+  ["mknod -Z /etc/x p", 'allow'],
+  ["mkdir -pZ /etc/x", 'allow'],
+  ["mkdir --context /etc/x", 'allow'],
+]);
+const R3_DEEP = /** @type {Array<[string, 'allow' | 'refuse']>} */ ([
+  ["echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo hi))))))))))", 'allow'],
+  ["echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(mkdir /etc/x)))))))))", 'allow'],
+]);
+const ALREADY_R3 = new Set([ "echo $((1<<2))\nmkdir /etc/x", "case x in x) mkdir /etc/x;; esac", "(mkdir /etc/x)", "sh -c \"sh -c 'mkdir /etc/x'\"", "eval 'mkdir /etc/x'", "echo 'mkdir /etc/x' | sh", "sh <<'EOF'\nmkdir /etc/x\nEOF", "cat <<'EOF' | bash\nmkdir /etc/x\nEOF", "bash <<< 'mkdir /etc/x'", "echo mkdir /etc/x | sh -s", "nice mkdir /etc/x", "nice -n 5 mkdir /etc/x", "nohup mkdir /etc/x", "env VAR=1 mkdir /etc/x", "command mkdir /etc/x", "exec mkdir /etc/x", "time mkdir /etc/x", "time -p mkdir /etc/x", "sudo mkdir /etc/x", "sh -c 'sed -i s/a/b/ /etc/x'", "sh -c 'cp -t /etc a'", "env X=1 ed /etc/x", "echo $(gawk -i inplace 1 /etc/x)", "echo $(curl -o /etc/x http://a)", "echo $(echo hi > /etc/zz)", "sh -c \"echo hi >> /etc/zz\"", "echo $(echo hi &> /etc/zz)", "sh -c \"echo hi &> /etc/zz\"", "echo $(echo hi | tee /etc/zz)", "sh -c 'cp a /etc/zz'", "echo $(cp a /etc/zz)", "cat <(echo hi > /etc/zz)", "echo $(echo hi >| /etc/zz)", "echo $(echo hi 2>/etc/zz)", "echo $'\\x41'; touch /etc/x", "echo x > $'\\x2fetc\\x2fx'", "echo $'a\\'b' && sh -c 'echo hi >& /etc/x'", "tar -xf a.tar -C /etc", "tar -x -C /etc -f a.tar", "tar xf a.tar --directory=/etc", "mknod -Z /etc/x p" ]);
+const R3_ALLOWED = [
+ "git commit -m \"docs: use `install` and $(date)\"",
+ "git commit -m 'docs: mkdir /etc/x'",
+ "cat <<'EOF'\nmkdir /etc/x $(foo) `bar`\nEOF",
+ "cat <<EOF\nvalue $HOME and `date`\nEOF",
+ "echo \"$HOME\"",
+ "grep -rn \"$(pwd)\" src",
+ "sed -n 1,5p impl.txt",
+ "npm test",
+ "node --test tests/x.test.mjs",
+ "ls 2>&1",
+ "echo \"mkdir /etc/x\"",
+ "echo 'mkdir /etc/x'",
+ "grep 'mkdir /etc/x' impl.txt",
+ "sh -c 'echo hi'",
+ "bash -c \"ls $(pwd)\"",
+ "echo $(git rev-parse HEAD)",
+ "x=$(cat impl.txt)",
+ "if [ -f impl.txt ]; then echo ok; fi",
+ "for f in a b; do echo $f; done",
+ "timeout 5 npm test",
+ "mkdir -p .agents/runs/LC/scratch/d && echo x > .agents/runs/LC/scratch/d/o",
+ "echo $'a\\'b'",
+ "echo $'a\\'b'; echo hi > .agents/runs/LC/scratch/o.txt",
+ "tar -tf a.tar",
+ "tar -xf a.tar",
+ "tar -cf - impl.txt | wc -c",
+ "tar -cf .agents/runs/LC/scratch/a.tar impl.txt",
+ "gawk '{print}' impl.txt",
+ "mkdir -Z .agents/runs/LC/scratch/dz",
+ "mkdir -p .agents/runs/LC/scratch/dz2",
+ "git commit -m \"$(cat <<'EOF'\nfix: don't break\n\nEOF\n)\"",
+ "echo $(date)",
+ "echo $(( 1 > 0 ))",
+ "echo $((2<<3))",
+ "(( 1<<2 ))\ncat impl.txt",
+ "ls | grep x",
+ "echo hi | xargs echo",
+ "echo \"it's $(date)\"",
+ "echo `date` > .agents/runs/LC/scratch/o.txt",
+ "git log --oneline | head -5",
+ "node -e 'console.log(1)'",
+ "python3 -c 'print(1)'",
+ "echo hi >&2",
+ "echo 'a b' | wc -c",
+ "echo $(echo $(echo $(echo hi)))"
+];
+const R3_GROUPS = /** @type {Array<[string, Array<[string, 'allow' | 'refuse']>]>} */ ([["H1 substitution", R3_H1_SUBSTITUTION], ["H1 heredoc body", R3_H1_HEREDOC_BODY], ["H1 arithmetic", R3_H1_ARITHMETIC], ["H1 compound", R3_H1_COMPOUND], ["H1 shell string", R3_H1_SHELL_STRING], ["H1 wrapper", R3_H1_WRAPPER], ["H1 other writers", R3_H1_OTHER_WRITERS], ["H2 redirect in substitution", R3_H2_REDIRECT_IN_SUBSTITUTION], ["M ansi-c", R3_M_ANSI_C], ["M tar", R3_M_TAR], ["M gawk", R3_M_GAWK], ["M mkdir -Z", R3_M_MKDIR_Z], ["deep", R3_DEEP]]);
+
+for (const [group, rows] of R3_GROUPS) {
+  for (const [command, leadExpected] of rows) {
+    test(`A273 round 3 (${group}): ${JSON.stringify(command)}${ALREADY_R3.has(command) ? ' (already refused on the base by another rule)' : ''}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+      for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
+      const lead = await pre(command, LEAD[1], LEAD[2]);
+      if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
+      else assert.ok(lead, 'the lead no longer refuses this form');
+    });
+  }
+}
+
+for (const command of R3_ALLOWED) {
+  test(`A273 round 3 (stays allowed, AC-4): ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
+  });
+}
+
+test('A273 round 3: a write before the cd the scanner cannot place stays allowed; the same write after it is refused (one source for the position: rolewrites.mjs badAt)', async () => {
+  const [, who, env] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+  assert.equal(await pre('echo x > impl.txt; cd $OLDPWD', who, env), null);
+  assert.equal(await pre('rm impl.txt; cd -', who, env), null);
+  assert.ok(await pre('cd -; rm impl.txt', who, env));
+  assert.ok(await pre('cd $X; echo x > impl.txt', who, env));
+  assert.ok(await pre('echo $(cd $X; touch impl.txt)', who, env));
+  assert.ok(await pre("sh -c 'cd $X; touch impl.txt'", who, env));
+  assert.equal(roleActions('echo x > impl.txt; cd $OLDPWD').badAt, 'echo x > impl.txt;'.length);
+  assert.equal(roleActions('echo hi').badAt, -1);
+  assert.equal(roleActions('env -C /etc true').badAt, 0);
+});
+
+test('A273 round 3: the tokenizer reads a $-quote string with its escapes (the text after a backslash-quote is not hidden) and decodes only the escapes it knows', () => {
+  const Q = "'";
+  const BS = '\\';
+  const src = `echo $${Q}a${BS}${Q}b${Q}; touch X`;
+  assert.deepEqual(tokenize(src).map((s) => s.words.map((x) => x.v)), [['echo', `a${Q}b`], ['touch', 'X']]);
+  assert.equal(tokenize(`echo $${Q}${BS}x41${Q}`)[0]?.words[1]?.vr, true);
+  assert.equal(rewriteAnsiC(src), `echo ${Q}a${Q}${BS}${Q}${Q}b${Q}; touch X`);
+  // inside double quotes and single quotes a $-quote is text, not a string: nothing is rewritten
+  assert.equal(rewriteAnsiC(`echo "$${Q}x${Q}" ${Q}it $${Q}x${Q} ok`), `echo "$${Q}x${Q}" ${Q}it $${Q}x${Q} ok`);
+  // inside a command substitution it is a string again
+  assert.equal(rewriteAnsiC(`echo "$(echo $${Q}a${BS}${Q}b${Q})"`), `echo "$(echo ${Q}a${Q}${BS}${Q}${Q}b${Q})"`);
+});
+
+test('A273 round 3: the depth bound fails closed with its own reason, and a command inside the bound is read', () => {
+  // n levels of `echo $(...)` around a core command that sits at a command position
+  const nest = (/** @type {number} */ n, /** @type {string} */ core) => { let c = core; for (let k = 0; k < n; k++) c = `echo $(${c})`; return c; };
+  assert.ok(roleActions(nest(MAX_DEPTH + 1, 'echo hi')).actions.some((a) => a.kind === 'deny' && /deeper than/.test(a.why)));
+  assert.equal(roleActions(nest(MAX_DEPTH, 'echo hi')).actions.length, 0);
+  assert.equal(roleActions(nest(MAX_DEPTH, 'mkdir /etc/x')).actions.length, 1);
+  assert.equal(roleActions("sh -c 'echo hi'").actions.length, 0);
+  assert.equal(roleActions("sh -c 'mkdir /etc/x'").actions.length, 1);
+});
+
+test('A273 round 3: the tokenizer stays linear on pathological input with recursion (a quadratic or exponential reader would not finish)', () => {
+  const denies = (/** @type {string} */ c) => roleActions(c).actions.some((a) => a.kind === 'deny');
+  assert.ok(denies('$('.repeat(100000)));
+  assert.equal(roleActions('`'.repeat(100001)).actions.length, 0);
+  assert.ok(Array.isArray(roleActions("sh -c '".repeat(50000)).actions));
+  assert.ok(denies('"$('.repeat(60000)));
+  assert.equal(roleActions(`${'{ '.repeat(100000)}mkdir /etc/x`).actions.length, 1);
+  assert.ok(denies('echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo $(mkdir /etc/x)))))))))'.repeat(2000)));
+  assert.equal(roleActions('cat <<EOF\n$(mkdir /etc/x)\nEOF\n'.repeat(20000)).actions.length, 20000);
+  assert.ok(Array.isArray(roleActions('echo "$(echo " '.repeat(30000)).actions));
 });

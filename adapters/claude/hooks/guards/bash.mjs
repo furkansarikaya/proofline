@@ -19,7 +19,7 @@ import { killGuard } from './kill.mjs';
 import { mergeGuard } from './merge.mjs';
 import { stashGuard } from './stash.mjs';
 import { leadTmpCheck, scratchDir, scratchGuard, strayTmpPath, tmpIsScratchRoot } from './scratch.mjs';
-import { roleActions } from './rolewrites.mjs';
+import { rewriteAnsiC, roleActions } from './rolewrites.mjs';
 import { NODE_OPTIONS_PRELOAD, PROOFLINE_ASSIGN, twCoreNode, twNodeOperand } from './tripwires.mjs';
 
 /** @param {unknown} input @param {import('../lib/context.mjs').HookContext} ctx @returns {Promise<{ decision: 'deny', reason: string } | null>} */
@@ -62,7 +62,10 @@ const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents
 
 /** @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */
 async function check(ctx, cmd) {
-  const scan = scanCommand(cmd);
+  const strictRole = ctx.role === 'implementer' || ctx.role === 'designer';
+  let scan = scanCommand(cmd);
+  // A273: the scanner of the lead ends a `$'...'` string at its first `'`, so `echo $'a\'b'; touch X` hides the touch. The two roles are judged on the records of both readings
+  if (strictRole && cmd.includes("$'")) { const alt = scanCommand(rewriteAnsiC(cmd)); scan = { ...scan, records: [...scan.records, ...alt.records] }; }
   if (!ctx.installed) { await mergeGuard(ctx, cmd, scan); await killGuard(ctx, cmd, scan); return; }
   const act = ctx.act;
   const role = ctx.role;
@@ -148,13 +151,10 @@ async function check(ctx, cmd) {
   }
   const hasRole = scan.records.some((r) => r.kind === 'R');
   const lineOf = scan.records.map((r) => `${r.kind}\t${Buffer.from(r.raw, 'latin1').toString('utf8')}`);
-  const strictRole = role === 'implementer' || role === 'designer';
-  let badCd = false;
   /** @type {string[]} */ const extraW = [];
   if (strictRole) {
-    // A273: the operands the scanner does not record (rolewrites.mjs): `>&` targets, a substitution inside a write program's operands, -t/--target forms, mkdir, every file of an in-place editor, patch, ed
+    // A273: the operands the scanner does not record (rolewrites.mjs), also inside substitutions and shell strings: `>&` targets, a substitution inside a write program's operands, -t/--target forms, mkdir, every file of an in-place editor, patch, ed, tar
     const ra = roleActions(cmd);
-    if (ra.chdir) badCd = true;
     for (const a of ra.actions) {
       if (a.kind === 'deny') deny(`${a.why} (${ROLE_TAIL})`);
       const w = a.word;
@@ -164,15 +164,17 @@ async function check(ctx, cmd) {
       await writeRule(ctx, at, lineOf);
       extraW.push(at);
     }
+    // after a cd the scanner cannot place (a variable, a substitution, `-`, ...) every later relative write the scanner records is unresolvable; rolewrites.mjs decides where that starts
+    if (ra.badAt >= 0) {
+      for (const rec of scanCommand(rewriteAnsiC('('.repeat(ra.badParen) + cmd.slice(ra.badAt))).records) {
+        const v = cmdSubst(rec.value);
+        if ((rec.kind === 'W' || rec.kind === 'E' || rec.kind === 'P' || rec.kind === 'Q') && v !== '' && !/^([/]|[A-Za-z]:|\\\\)/.test(v) && !v.startsWith('/dev/')) deny(`the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved (${ROLE_TAIL})`);
+      }
+    }
   }
   for (const rec of scan.records) {
     const k = rec.kind;
     const v = cmdSubst(rec.value);
-    if (strictRole) {
-      const hit = roleRecord(k, v, badCd);
-      badCd = hit.badCd;
-      if (hit.why !== '') deny(hit.why);
-    }
     switch (k) {
       case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and the command word literally; only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh status $ID (not A=.agents/scripts/agent.sh; $A status)`); break;
       case 'R': if (canon(v) !== role) deny(`AGENT_ROLE=${v} does not match the caller's role (${role}); a role never acts as another`); break;
@@ -202,29 +204,6 @@ async function check(ctx, cmd) {
 const ABS_RE = /^([/~]|[A-Za-z]:|\\\\)/;
 const ROLE_TAIL = 'shell write detection is a heuristic; write the target literally, not through a variable, substitution or glob, or use the Write tool on an allowed path';
 const DEV_OK = /^\/dev\/(null|zero|full|stdout|stderr|stdin|tty|fd\/[0-9]+)$/;
-
-/**
- * A273 (issue #264), the implementer and the designer only (the lead's verdicts are unchanged): after a `cd`, `pushd` or `popd` whose directory the scanner cannot place (a variable, a substitution, a backtick, `-`, no operand,
- * an option, a tilde, a brace; `pushd` and `popd` always, the scanner does not follow them) every later relative write, erase or in-place-edit target of the same command is unresolvable and refused. The operands the scanner does not
- * record are read by rolewrites.mjs.
- * @param {string} kind @param {string} v @param {boolean} badCd @returns {{ badCd: boolean, why: string }}
- */
-function roleRecord(kind, v, badCd) {
-  if (kind === 'C') {
-    const t = v.indexOf('\t');
-    const word = t < 0 ? v : v.slice(0, t);
-    const args = t < 0 ? [] : v.slice(t + 1).split('\x03');
-    if (word === 'cd' || word === 'pushd' || word === 'popd') {
-      const operand = args.find((a) => a !== '--');
-      if (word !== 'cd' || operand === undefined || operand === '' || /^-|[$`*?[{~()]/.test(operand)) return { badCd: true, why: '' };
-    }
-    return { badCd, why: '' };
-  }
-  if (badCd && (kind === 'W' || kind === 'E' || kind === 'P' || kind === 'Q') && v !== '' && !ABS_RE.test(v) && !v.startsWith('/dev/')) {
-    return { badCd, why: `the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved (${ROLE_TAIL})` };
-  }
-  return { badCd, why: '' };
-}
 
 /** The agent.sh forms per role (D12, D13, D16). @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd @param {string} v the A record value @param {boolean} hasRole */
 function agentRule(ctx, cmd, v, hasRole) {
