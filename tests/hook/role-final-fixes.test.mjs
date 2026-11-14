@@ -386,8 +386,8 @@ test('A274 round 6: a quoted assignment value, odd env names and arithmetic-look
 });
 
 test('A274 round 7: isArithmetic decides by grammar', () => {
-  const ok = ['1+2', '(a+b) > 3', '(a) > (b) ? 1 : 2', '(cd+1) * 2', 'i++', 'x = (1+2)*3', ' ', '', '0x1F + 010', 'a[1] + b', '$x + ${y} * $1', 'a, b', 'a <<= 2', '$(date) > 5', 'a ? b : c ? d : e'];
-  const bad = [':)&&(mkdir -- ../x', 'mkdir x', 'a b', "m\\kdir x", "'a'", 'a; b', 'a\nb', '~a', 'a : b', '(a', 'a)', '1 +', '..', 'a ? b', '`', 'x --'.concat(' ../y')];
+  const ok = ['1+2', '(a+b) > 3', '(a) > (b) ? 1 : 2', '(cd+1) * 2', 'i++', 'x = (1+2)*3', ' ', '', '0x1F + 010', 'a[1] + b', '$x + ${y} * $1', 'a, b', 'a <<= 2', '$(date) > 5', 'a ? b : c ? d : e', '~a', 'a[~5]'];
+  const bad = [':)&&(mkdir -- ../x', 'mkdir x', 'a b', "m\\kdir x", "'a'", 'a; b', 'a\nb', '~', 'a : b', '(a', 'a)', '1 +', '..', 'a ? b', '`', 'x --'.concat(' ../y')];
   for (const t of ok) assert.equal(/** @type {any} */ (RW).isArithmetic(t), true, JSON.stringify(t));
   for (const t of bad) assert.equal(/** @type {any} */ (RW).isArithmetic(t), false, JSON.stringify(t));
 });
@@ -424,3 +424,23 @@ test('A274 round 8: isArithmetic grammar covers base prefixes, quoted expansions
   for (const t of ok) assert.equal(/** @type {any} */ (RW).isArithmetic(t), true, JSON.stringify(t));
   for (const t of bad) assert.equal(/** @type {any} */ (RW).isArithmetic(t), false, JSON.stringify(t));
 });
+
+// Security round 9: the `((` probe cannot place the closing `))` (a heredoc marker, `${y:-`, a case `)`), so the whole rest of the text is scanned for substitutions, quote- and #-blind.
+const HIDDEN9 = [
+  'while ((# $(mkdir ../out/F) ${y:-;)); do break; done', 'if (( # $(mkdir ../out/F) <<X\n )); then :; fi', "for ((;'$(mkdir ../out/F)' <<X\n;)); do break; done",
+  '(( # $(case 1 in 1) :;; esac) + $(mkdir ../out/F) ))',
+];
+for (const command of HIDDEN9) {
+  test(`A274 round 9: a substitution behind an unplaceable (( is judged: ${JSON.stringify(command)}`, async () => {
+    assert.ok(roleActions(command).actions.some((a) => (a.kind === 'target' && a.word.v === OUT) || a.kind === 'deny'), 'the role actions hold the write or a refusal');
+    for (const [role, who, env] of ROLES) assert.match(String(await pre(command, who, env)), /writes '\.\.\/out\/F'|outside|inside a substitution|cannot/, `${role}: allowed`);
+  });
+}
+
+for (const command of ['echo $(( a$i ))', 'echo $(( $x$y ))', 'echo $(( ${x}0 ))', 'echo $(( count_$name + 1 ))', 'echo $(( a[~5] ))', 'echo $(( a$i[1] + 1 ))', 'echo $(( x$i++ ))', 'for ((i=0;i<n$k;i++)); do :; done', '(( x = 1<<2 )); echo ok']) {
+  test(`A274 round 9: juxtaposed expansions in arithmetic are allowed: ${JSON.stringify(command)}`, async () => {
+    assert.deepEqual(roleActions(command).actions, []);
+    const [, implWho, implEnv] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+    assert.equal(await pre(command, implWho, implEnv), null);
+  });
+}

@@ -307,6 +307,14 @@ function arithOk(t) {
     i += m[0].length;
     return true;
   };
+  /** The rest of a name or number written together with expansions: letters, digits, `_` and `$name`, `${...}`, `$(...)`, `$1` (`a$i`, `$x$y`, `${x}0`, `count_$name`). @returns {boolean} */
+  const juxta = () => {
+    for (;;) {
+      while (i < t.length && /[0-9A-Za-z_]/.test(/** @type {string} */ (t[i]))) i++;
+      if (t[i] !== '$') return true;
+      if (!dollar()) return false;
+    }
+  };
   /** One operand; false when the text there is not one. @returns {boolean} */
   const primary = () => {
     if (!step() || ++depth > SCAN_DEPTH) return false;
@@ -327,12 +335,14 @@ function arithOk(t) {
         }
         return /[A-Za-z_]/.test(t[i] ?? ' ') ? false : true;
       }
-      if (c === '$') return dollar();
+      if (c === '$') { if (!dollar()) return false; return juxta(); }
+      if (c === '~') { i++; return primary(); }
       if (c === '"') { const e = endDouble(t, i + 1); if (e - 1 <= i || t[e - 1] !== '"') return false; if (!arithOk(t.slice(i + 1, e - 1))) return false; i = e; return true; }
       if (c === '`') { const e = endTick(t, i + 1); if (e - 1 <= i || t[e - 1] !== '`') return false; i = e; return true; }
       if (/[A-Za-z_]/.test(c)) {
         const m = at(IDENT_RE);
         i += /** @type {RegExpExecArray} */ (m)[0].length;
+        if (!juxta()) return false;
         if (t[i] === '[') { i++; if (!expr()) return false; skipWs(); if (t[i] !== ']') return false; i++; }
         return true;
       }
@@ -475,10 +485,16 @@ function tokenizeIn(s, depth, st, top) {
       if (c === '(' && s[i + 1] === '(' && w === null && (cur.words.length === 0 || lead || forHdr)) {
         // `(( ... ))` is arithmetic (its `<<` and `>` are operators, not redirects); `((cmd); cmd)` is two subshells and ends in `)` alone
         const keep = G.unsure;
+        G.unsure = '';
         const e = endParen(s, i + 1);
+        const probeDoubt = G.unsure;
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
         const body = s.slice(i + 2, e - 2);
-        if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')') {
+        const closed = e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')';
+        // the probe reads the text with shell quoting rules; when it cannot place the closing `))` (or doubts for another reason than a `<<` operator) a quote, a `#` or a here-document marker may hide
+        // the end, so every substitution in the whole rest of the text is scanned (quote- and #-blind) and an unbalanced one is a doubt
+        if (!closed || (probeDoubt !== '' && !probeDoubt.startsWith('a << inside'))) arithSubs(s.slice(i + 2));
+        if (closed) {
           arithSubs(body);
           if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { i = e; continue; }
           strictUntil = e; // not arithmetic: two subshells, read as commands below, and a command word that is not literal is refused even without an operand
