@@ -4,7 +4,7 @@ description: Audits how far a test suite can be trusted, using runnable evidence
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.107"
+  version: "0.0.108"
 ---
 
 # test-trust
@@ -41,11 +41,16 @@ Outside a run the output folder is `.agents/local/test-trust/<scope-slug>/` (dif
 
 Read the `test_trust:` block of `.agents/config.yaml` when the file exists, defaults otherwise: `repeat` 5, `mutation_budget` 20, `slow_ratio` 3. With Node: `node <skill-dir>/scripts/gate.mjs thresholds <repo-root>/.agents/config.yaml <run-dir>` prints the values (with a team run's directory, `mutation_budget` is never below one mutant per `## Tests` criterion of its PLAN.md or the user-approved override; a validator error naming a budget below that is fixed by `agent.sh raise-budget`, never by dropping claims) (invalid values fall back to the default and are reported on stderr). Without Node, read the file by eye with the same rules: `repeat` is an integer of at least 2, `mutation_budget` an integer of at least 1, `slow_ratio` a number above 1. Record the values used, and where they came from, in the ledger.
 
+### Fast and deterministic tests (diff mode)
+
+In a run also read [FAST.md](references/FAST.md): run `agent.sh build-record <TASK-ID> scan`, trace each candidate, and report real waits, direct clock reads, tests over budget and tests never measured, unless the PLAN's `## Test exceptions` justifies the wait or the budget.
+
 ### Gate rule (diff mode)
 
 Computed from the findings, never from judgement:
 
 - any `confirmed` finding of kind `flaky_nondeterministic`, `flaky_order_dependent` or `flaky_unclassified`, or of kind `hollow` -> `FAIL`;
+- any `confirmed` finding of kind `real_wait`, `clock_not_injected`, `over_budget` or `not_measured` (speed and determinism, issue 265: [FAST.md](references/FAST.md)) -> `FAIL`;
 - otherwise `PASS`. `slow` findings, `needs_validation`, `cleared` and "red at baseline" never change the result.
 
 `findings.json` carries `gate: {result, failing}`; `node <skill-dir>/scripts/validate-findings.mjs` recomputes it and rejects a mismatch. `node <skill-dir>/scripts/gate.mjs gate <findings.json>` prints the result.
@@ -188,7 +193,7 @@ BLOCKED_REASON: <only for BLOCKED>
 - The gate is `REVIEW_TESTS`. Row ids are `REVIEW_TESTS-<n>`, numbered from 1 in the order of the internal ids, no gaps, no repeats. The skill's own ids (`F002`, ...) stay in `findings.json` and `REPORT.md` and open the row's finding text; they are never the row id.
 - `RESULT` is the computed gate result: `FAIL` exactly when at least one `blocking` row exists, else `PASS`; never `NEEDS_INPUT` or `DONE`. `BLOCKED` only when the audit could not run (no command execution, no test command, baseline cannot run, worktree first build fails, estimate over the limit, content changed during the audit); `BLOCKED_REASON` names the decision or the missing capability, and a `BLOCKED` result has no `blocking` row.
 - `CONFIDENCE`: `high` when every changed unit was examined and every capability diff mode needs was proven; `medium` when a unit was left out for the mutation budget, or a capability was unsupported and the step narrowed; `low` when a refutation attempt was inconclusive for a finding that decides the result. A `PASS` with `low` does not satisfy the gate.
-- `severity` is exactly `blocking` (a `confirmed` flaky or hollow finding, which fails the gate) or `info` (the other `confirmed` findings: slow). `needs_validation` findings appear only in `REPORT.md`.
+- `severity` is exactly `blocking` (a `confirmed` flaky, hollow, real-wait, clock, over-budget or not-measured finding, which fails the gate) or `info` (the other `confirmed` findings: slow). `needs_validation` findings appear only in `REPORT.md`.
 - `ARTIFACT` is the run-relative path of `REPORT.md` and its sha256 (`shasum -a 256`, or `sha256sum`), computed after the report is final.
 - The table lists `confirmed` findings only, one row each. Zero rows on a clean `PASS`.
 - In the QA use there is no such message: the QA role's own result carries the verdict.

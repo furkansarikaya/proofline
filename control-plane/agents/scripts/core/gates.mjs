@@ -272,6 +272,8 @@ function casePat(pat) {
 
 const CONFIG_NAMES = ['*lock*', '.env*', '*.env', 'Dockerfile*', 'docker-compose*', 'compose.*', 'Makefile', '*config*', '*.conf', '*.cfg', '*.ini', '*.toml', '*require*', '*constrain*', '*depend*', 'openapi*', 'swagger*', '*.proto', '*.graphql', '*.gql', '*.sql', '*.json', '*.yaml', '*.yml', '*.xml', '*.properties', '.*rc'].map(casePat);
 const CODE_NAMES = ['*.js', '*.jsx', '*.mjs', '*.cjs', '*.ts', '*.tsx', '*.py', '*.go', '*.rs', '*.java', '*.kt', '*.rb', '*.php', '*.cs', '*.swift', '*.sh', '*.scala', '*.ex', '*.exs', '*_test.*', '*.test.*', '*.spec.*', 'test_*.*', '*Test.*', '*Tests.*'].map(casePat);
+const TEST_FILE_NAMES = ['*_test.*', '*.test.*', '*.spec.*', 'test_*.*', '*Test.*', '*Tests.*'].map(casePat);
+const CODE_EXT = ['*.js', '*.jsx', '*.mjs', '*.cjs', '*.ts', '*.tsx', '*.py', '*.go', '*.rs', '*.java', '*.kt', '*.rb', '*.php', '*.cs', '*.swift', '*.sh', '*.scala', '*.ex', '*.exs'].map(casePat);
 export const TEST_PATH_GLOBS = '**/test/** **/tests/** **/__tests__/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*';
 export const SECURITY_TEST_WORDS = 'auth|login|logout|passw|credential|secret|token|session|cookie|csrf|xss|cors|permission|privilege|role|acl|rbac|admin|oauth|jwt|saml|sanitiz|escap|inject|validat|crypt|hash|signature|signing|tls|ssl|cert|owner|tenant|forbidden|unauthori|denied|allowlist|whitelist|blocklist|ssrf|traversal|redirect|upload|rate.?limit|csp|header';
 
@@ -282,7 +284,9 @@ export function testCodePath(ctx, p) {
   const eco = ecosystemSets(ctx);
   if (!eco.loaded) return false;
   if (pathMatches(p, `${eco.risky} ${eco.dependency} ${ctx.config().get('review.risky_paths', '')}`)) return false;
-  if (CONFIG_NAMES.some((r) => r.test(b))) return false;
+  // a test named after its subject (`lock.test.js`, `sleep.config.test.js`, `block.test.js`) is a test: a name pattern such as *lock* or *config* excludes manifests and settings, not code that follows a test naming convention (A276)
+  const testNamed = TEST_FILE_NAMES.some((r) => r.test(b)) && CODE_EXT.some((r) => r.test(b));
+  if (!testNamed && CONFIG_NAMES.some((r) => r.test(b))) return false;
   return CODE_NAMES.some((r) => r.test(b));
 }
 

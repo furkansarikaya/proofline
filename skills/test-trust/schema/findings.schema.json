@@ -260,7 +260,11 @@
             "flaky_order_dependent",
             "flaky_unclassified",
             "hollow",
-            "slow"
+            "slow",
+            "real_wait",
+            "clock_not_injected",
+            "over_budget",
+            "not_measured"
           ]
         },
         "verdict": {
@@ -481,6 +485,57 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "real_wait",
+                  "clock_not_injected"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "$ref": "#/$defs/observedCandidate"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "over_budget"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "$ref": "#/$defs/observedOverBudget"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "not_measured"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "observed": {
+                "$ref": "#/$defs/observedNotMeasured"
+              }
+            }
+          }
         }
       ]
     },
@@ -614,6 +669,134 @@
         "timeouts": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "observedCandidate": {
+      "type": "object",
+      "required": [
+        "candidate",
+        "outcome"
+      ],
+      "properties": {
+        "candidate": {
+          "type": "object",
+          "required": [
+            "file",
+            "line",
+            "pattern"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "outcome": {
+          "enum": [
+            "traced",
+            "untraced",
+            "false_positive",
+            "plan_justified"
+          ],
+          "description": "traced: the reviewer followed the path and the wait or clock read is real. untraced: the reviewer could not rule it out, which stays a finding (safe side). false_positive: needs `reason`. plan_justified (real_wait only): needs `plan_exception`, the exact line of the PLAN's ## Test exceptions."
+        },
+        "trace": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The path followed (required for traced)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the candidate is not a wait or clock read (required for false_positive)."
+        },
+        "plan_exception": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact `- wait: ...` line of PLAN ## Test exceptions (required for plan_justified)."
+        }
+      }
+    },
+    "observedOverBudget": {
+      "type": "object",
+      "required": [
+        "measured_ms",
+        "budget_ms",
+        "budget_source",
+        "outcome"
+      ],
+      "properties": {
+        "measured_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "budget_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "budget_source": {
+          "enum": [
+            "plan",
+            "config"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "over",
+            "plan_justified"
+          ]
+        },
+        "plan_exception": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact `- budget: ...` line of PLAN ## Test exceptions (required for plan_justified)."
+        }
+      }
+    },
+    "observedNotMeasured": {
+      "type": "object",
+      "required": [
+        "reason",
+        "subject",
+        "detail"
+      ],
+      "properties": {
+        "reason": {
+          "enum": [
+            "not_double_run",
+            "no_test_measure_row",
+            "no_recorded_duration",
+            "command_not_double_run",
+            "command_does_not_run_test",
+            "file_not_scanned",
+            "measurement_finding",
+            "definition_changed"
+          ],
+          "description": "not_double_run: the test-measure row says double_run=0. no_test_measure_row: the control plane never measured the run. no_recorded_duration: the plan names the test and no duration was recorded. command_not_double_run: a GREEN command is neither plan-listed nor the pinned project test command. command_does_not_run_test: the double-run command does not execute the test. file_not_scanned: the scan could not read a changed file. measurement_finding: the test-measure row records a stability or duration finding."
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan_exception": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact `- measure: ...` line of PLAN ## Test exceptions (required to clear a not_measured finding)."
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the scan input names: the file for file_not_scanned, the plan test for no_recorded_duration, the command for command_not_double_run, and the reason itself for no_test_measure_row, not_double_run, measurement_finding; ecosystems.json for definition_changed. Exactly that text, one finding per subject."
         }
       }
     }

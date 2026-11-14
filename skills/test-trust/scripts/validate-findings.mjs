@@ -112,8 +112,9 @@ export function checkConsistency(doc) {
   const g = computeGate(doc.findings);
   if (doc.gate?.result !== g.result) errors.push(`gate.result is ${doc.gate?.result} but the rule computes ${g.result}`);
   if (JSON.stringify([...(doc.gate?.failing ?? [])].sort()) !== JSON.stringify([...g.failing].sort())) {
-    errors.push(`gate.failing must list exactly the confirmed flaky and hollow findings: ${g.failing.join(", ") || "none"}`);
+    errors.push(`gate.failing must list exactly the confirmed flaky, hollow, real wait, clock, over-budget and unmeasured findings: ${g.failing.join(", ") || "none"}`);
   }
+  errors.push(...checkFast(doc));
   if (!d) return errors;
   // the mutation budget is a cap (gate.mjs mutant enforces it while mutants run): a record of more executed mutants than the budget is INVALID
   if (d.mutants_run > d.thresholds?.mutation_budget) {
@@ -127,6 +128,89 @@ export function checkConsistency(doc) {
       errors.push(`${f.id}: confirmed slow finding does not exceed slow_ratio ${d.thresholds?.slow_ratio}`);
     }
     if (f.carried_forward === true) errors.push(`${f.id}: carried_forward is not allowed in diff mode (every run re-measures)`);
+  }
+  return errors;
+}
+
+// Issue 265 package C (A276): the findings of the speed and determinism check. A candidate the reviewer cannot trace stays a finding (verdict confirmed, outcome
+// untraced); only a false positive that names the traced path, or the PLAN's own `## Test exceptions` line, clears it. The verdict must agree with the outcome. Clearing is
+// never weaker than the Core invariants: a reason is evidence (at least 30 characters, the test file's name and a line number or the matched text), and a not_measured fact
+// is cleared only by a plan line that quotes it.
+const base = (p) => String(p ?? "").split("/").pop();
+export function checkFast(doc) {
+  const errors = [];
+  for (const f of doc.findings ?? []) {
+    const o = f.observed ?? {};
+    if (f.kind === "real_wait" || f.kind === "clock_not_injected") {
+      const blocking = o.outcome === "traced" || o.outcome === "untraced";
+      if (blocking && f.verdict !== "confirmed") errors.push(`${f.id}: a ${o.outcome} candidate stays a confirmed finding (safe side), not ${f.verdict}`);
+      if (!blocking && f.verdict !== "cleared") errors.push(`${f.id}: outcome ${o.outcome} must be a cleared finding, not ${f.verdict}`);
+      if (o.outcome === "traced" && !o.trace) errors.push(`${f.id}: a traced candidate needs "trace", the path followed`);
+      if (o.outcome === "false_positive") {
+        const r = String(o.reason ?? "");
+        const c = o.candidate ?? {};
+        if (r.length < 30 || !r.includes(base(c.file)) || !(r.includes(String(c.pattern)) || new RegExp(`(^|\\D)${c.line}(\\D|$)`).test(r))) errors.push(`${f.id}: a false_positive needs a "reason" of at least 30 characters that names the traced path: it must contain the file name ${base(c.file)} and the line number ${c.line} or the matched text ${c.pattern}`);
+      }
+      if (o.outcome === "plan_justified" && (f.kind !== "real_wait" || !o.plan_exception)) errors.push(`${f.id}: plan_justified applies to real_wait only and needs "plan_exception", the exact PLAN ## Test exceptions line`);
+    } else if (f.kind === "over_budget") {
+      if (o.outcome === "over" && !(o.measured_ms > o.budget_ms)) errors.push(`${f.id}: over_budget with measured_ms ${o.measured_ms} not above budget_ms ${o.budget_ms}`);
+      if ((o.outcome === "over") !== (f.verdict === "confirmed")) errors.push(`${f.id}: outcome ${o.outcome} does not match verdict ${f.verdict} (over is confirmed, plan_justified is cleared)`);
+      if (o.outcome === "plan_justified" && !o.plan_exception) errors.push(`${f.id}: plan_justified needs "plan_exception", the exact PLAN ## Test exceptions line`);
+    } else if (f.kind === "not_measured") {
+      if (f.verdict === "cleared" && !o.plan_exception) errors.push(`${f.id}: a not_measured finding is never cleared by the reviewer; only a "- measure: ..." line of PLAN ## Test exceptions that quotes it clears it (give "plan_exception")`);
+      if (f.verdict === "needs_validation") errors.push(`${f.id}: a not_measured finding is confirmed or cleared by the plan, never needs_validation`);
+    }
+  }
+  return errors;
+}
+
+// With the plan: a plan_exception must be a line of the plan's `## Test exceptions` of the matching kind (wait for real_wait, budget for over_budget, measure for not_measured)
+// whose target names the finding's own test file or test name: a line written for another file clears nothing here. Linear: the section is cut line by line and a line over
+// 4096 characters is never an exception.
+export function exceptionLine(line) {
+  if (line.length > 4096) return null;
+  const head = /^[ \t]*[-*][ \t]*(wait|budget|measure):/.exec(line);
+  if (!head) return null;
+  const rest = line.slice(head[0].length);
+  const sep = rest.search(/[ \t](?:--|—)[ \t]/);
+  if (sep < 0) return null;
+  const target = rest.slice(0, sep).trim();
+  const reason = rest.slice(sep).replace(/^[ \t](?:--|—)[ \t]/, "").trim();
+  return target === "" || reason.length < 20 ? null : { kind: head[1], target: target.replace(/[`"]/g, "") };
+}
+// The target of the finding is the OBLIGATION it answers, not what the reviewer wrote about it: the candidate's file for a wait, the BUDGET test's name for a budget, the
+// `subject` for an unmeasured fact (`submit` makes each of them equal to the scan input's own). The plan line must name exactly that: the same path, or a path ending in it on a
+// directory boundary (`B.test.js` for `tests/B.test.js`), with an optional `:line` for a wait; a test name must be equal. No substring match.
+function targetFits(kind, f, t) {
+  const o = f.observed ?? {};
+  if (kind === "wait") {
+    const file = String(o.candidate?.file ?? "");
+    const m = /^(.*?)(?::(\d+))?$/.exec(t);
+    const p = m ? m[1] : t;
+    if (m && m[2] !== undefined && Number(m[2]) !== o.candidate?.line) return false;
+    return file !== "" && p !== "" && (p === file || file.endsWith(`/${p}`));
+  }
+  if (kind === "budget") return String(f.test?.name ?? "").trim().toLowerCase() === t.trim().toLowerCase() && t.trim() !== "";
+  const subject = String(o.subject ?? "");
+  if (subject === "") return false;
+  // the path-suffix form only for a subject that is a path; a command or a name is compared whole
+  return t === subject || (o.reason === "file_not_scanned" && subject.includes("/") && subject.endsWith(`/${t}`));
+}
+export function checkPlanExceptions(doc, planText) {
+  const errors = [];
+  const lines = [];
+  let inside = false;
+  for (const l of planText.split("\n")) {
+    if (l.startsWith("## ")) { inside = l.slice(3).trim() === "Test exceptions"; continue; }
+    if (inside && l.trim() !== "") lines.push(l.trim());
+  }
+  for (const f of doc.findings ?? []) {
+    const e = f.observed?.plan_exception;
+    if (e === undefined) continue;
+    const kind = f.kind === "over_budget" ? "budget" : f.kind === "not_measured" ? "measure" : "wait";
+    const x = lines.includes(String(e).trim()) ? exceptionLine(String(e).trim()) : null;
+    if (!x || x.kind !== kind) { errors.push(`${f.id}: plan_exception is not a "- ${kind}: ..." line of PLAN ## Test exceptions: ${String(e).slice(0, 80)}`); continue; }
+    if (!targetFits(kind, f, x.target)) errors.push(`${f.id}: the plan line is for "${x.target.slice(0, 60)}", which is not the target this finding answers (${kind === "wait" ? f.observed?.candidate?.file : kind === "budget" ? f.test?.name : f.observed?.subject}): a line written for another target clears nothing here`);
   }
   return errors;
 }
@@ -178,7 +262,7 @@ function main(argv) {
     return 2;
   }
   const errors = validate(schema, doc);
-  if (errors.length === 0) errors.push(...checkConsistency(doc), ...checkClaims(doc, planText), ...missingEvidence(doc, dirname(file)));
+  if (errors.length === 0) errors.push(...checkConsistency(doc), ...checkClaims(doc, planText), ...(planText === undefined ? [] : checkPlanExceptions(doc, planText)), ...missingEvidence(doc, dirname(file)));
   if (errors.length) {
     console.error(`INVALID: ${file}`);
     for (const e of errors) console.error(`  ${e}`);

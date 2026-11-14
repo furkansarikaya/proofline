@@ -149,6 +149,36 @@ const ECO_ARRAYS = ["prune", "project_files", "manifests", "locks", "settings", 
 const COMMAND_KEYS = ["truth", "tools", "ci_lint", "runners", "build", "test", "lint"];
 const TEST_KEYS = ["status", "runners", "no_tests", "compile", "assertion", "exit_codes"];
 const BENCH_KEYS = ["scripts", "dirs", "files", "dependencies", "config_files"];
+// A heuristic for the data-driven patterns (A276). It is NOT a proof of linear time (the scan also runs every pattern on windows of bounded length, waitscan.mjs lineWindows). True when the source
+// has a backreference, a bounded repeat over 100, an open-ended {n,}, a repeat inside a repeated group, an alternation inside a repeated group (one level of parentheses), or two adjacent
+// large repeats of the same atom or of a class, a dot or a class escape.
+export const REPEAT_LIMIT = 100;
+export function backtracks(src) {
+  if (/\\[1-9]|\\k</.test(src)) return true;
+  for (const m of src.matchAll(/\{(\d+)(?:,(\d*))?\}/g)) if (m[2] === "" || Math.max(Number(m[1]), m[2] === undefined ? 0 : Number(m[2])) > REPEAT_LIMIT) return true;
+  const IN = String.raw`(?:[^()\\]|\\.)*`;
+  const UNB = String.raw`(?:[*+]|\{\d+,\})`;          // an open-ended repeat
+  const ANY = String.raw`(?:[*+?]|\{\d+(?:,\d*)?\})`; // any repeat
+  if (new RegExp(`\\(${IN}${UNB}${IN}\\)${ANY}`).test(src) || new RegExp(`\\(${IN}${ANY}${IN}\\)${UNB}`).test(src)) return true;
+  if (new RegExp(String.raw`\(${IN}\|${IN}\)(?:[*+]|\{\d+(?:,\d*)?\})`).test(src)) return true;
+  // adjacent large repeats: tokens of atom + optional quantifier; a group edge or an alternation breaks the run
+  let prev = null; let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "(" || c === ")" || c === "|") { prev = null; i++; continue; }
+    let atom;
+    if (c === "\\") { atom = src.slice(i, i + 2); i += 2; }
+    else if (c === "[") { let k = i + 1; while (k < src.length && src[k] !== "]") k += src[k] === "\\" ? 2 : 1; atom = src.slice(i, k + 1); i = k + 1; }
+    else { atom = c; i++; }
+    const q = /^(?:[*+]|\{\d+(?:,\d*)?\})/.exec(src.slice(i));
+    let big = false;
+    if (q) { i += q[0].length; big = q[0] === "*" || q[0] === "+" || /^\{\d+,\d*\}$/.test(q[0]) && (q[0].endsWith(",}") || Number(/,(\d+)/.exec(q[0])?.[1]) > 1); if (src[i] === "?") i++; }
+    const wide = atom === "." || atom[0] === "[" || /^\\[A-Za-z]/.test(atom);
+    if (big && prev && (prev.atom === atom || prev.wide || wide)) return true;
+    prev = big ? { atom, wide } : null;
+  }
+  return false;
+}
 export function validate(data = loadEcosystems()) {
   const err = [];
   const need = (cond, msg) => { if (!cond) err.push(msg); };
@@ -158,6 +188,7 @@ export function validate(data = loadEcosystems()) {
   for (const k of ["discover_max_markers", "version_scan_depth", "version_scan_max_files", "scan_max_files"]) need(/^[0-9]+$/.test(g.limits?.[k] ?? ""), `global.limits.${k} must be a digit string`);
   for (const k of ["tools", "build", "test", "lint"]) need(g.ci_scan && k in g.ci_scan, `global.ci_scan.${k} missing`);
   // #265 (A275): where the project's own CI or test-runner configuration retries a test (reported, never used). file is a glob, pattern a line pattern.
+  need(Array.isArray(g.test_paths) && g.test_paths.length > 0 && g.test_paths.every((x) => typeof x === "string" && x !== ""), "global.test_paths must be a non-empty array of path globs (the folders and names that mark a test file)");
   need(Array.isArray(g.test_retry) && g.test_retry.length > 0, "global.test_retry must be a non-empty array");
   for (const x of g.test_retry ?? []) {
     need(typeof x.file === "string" && x.file !== "" && typeof x.pattern === "string" && x.pattern !== "" && typeof x.what === "string" && x.what !== "", "global.test_retry entries need file, pattern and what");
@@ -213,6 +244,12 @@ export function validate(data = loadEcosystems()) {
     const ft = e.fast_tests ?? {};
     need(["supported", "unsupported"].includes(ft.fake_clock?.status), `${w}: fast_tests.fake_clock.status must be supported or unsupported`);
     need(typeof ft.fake_clock?.facility === "string" && ft.fake_clock.facility.trim() !== "", `${w}: fast_tests.fake_clock.facility must be a non-empty string`);
+    // #265 package C (A276): the source files the scan applies the lists to (globs); a scan of a file that no ecosystem claims reports nothing
+    need(Array.isArray(ft.files) && ft.files.length > 0 && ft.files.every((x) => typeof x === "string" && /^\*\.[A-Za-z0-9]+$/.test(x)), `${w}: fast_tests.files must be a non-empty array of "*.<extension>" globs`);
+    // the markers that say a file holds tests whatever its name (a regular expression each, searched in the text): the scan looks for waits in such a file even when its name is not a test name
+    need(Array.isArray(ft.test_markers) && ft.test_markers.length > 0 && ft.test_markers.every((x) => { try { new RegExp(x); return typeof x === "string" && x !== ""; } catch { return false; } }), `${w}: fast_tests.test_markers must be a non-empty array of regular expressions`);
+    // a pattern the scan runs over text must not be able to backtrack badly: no repetition inside a repeated group, no unbounded `{n,}`, no two unbounded repeats of the same kind of character in a row
+    for (const x of Array.isArray(ft.test_markers) ? ft.test_markers : []) need(typeof x === "string" && !backtracks(x), `${w}: fast_tests.test_markers ${String(x)} can backtrack badly (a repeat or an alternation inside a repeated group, a backreference, an unbounded {n,} or a repeat over ${REPEAT_LIMIT}, or two large repeats in a row); bound the repetition`);
     for (const k of ["sleep", "clock_reads"]) need(Array.isArray(ft[k]) && ft[k].length > 0 && ft[k].every((x) => typeof x === "string" && x.trim() !== ""), `${w}: fast_tests.${k} must be a non-empty array of non-empty strings`);
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);
