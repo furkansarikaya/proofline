@@ -309,10 +309,9 @@ function plainOrLinkFile(f) { try { return statSync(f).isFile(); } catch { retur
 /** `repro_normalize` over one line. @param {string} line */
 export function reproNormalizeLine(line) { let s = line; for (const [re, to] of NORMALIZE) s = s.replace(re, /** @type {string} */ (to)); return s; }
 
-/** `reproduce_allowed ID`: the commands the control plane may run again (A107). @param {Context} ctx @param {string} id */
-export function reproduceAllowed(ctx, id) {
+/** The commands the frozen PLAN.md lists in `## Verification commands` (empty when the plan is not frozen or changed since the freeze). @param {Context} ctx @param {string} id @returns {string[]} */
+export function planVerificationCommands(ctx, id) {
   /** @type {string[]} */ const out = [];
-  for (const k of ['build', 'test', 'lint']) for (const c of ctx.config().cmds(`commands.${k}`)) if (c !== '') out.push(c);
   const dir = runDir(ctx, id);
   const plan = fileText(ctx, `${dir}/PLAN.md`);
   if (plan === null) return out;
@@ -328,6 +327,13 @@ export function reproduceAllowed(ctx, id) {
     if (m) out.push(m[1]);
   }
   return out;
+}
+
+/** `reproduce_allowed ID`: the commands the control plane may run again (A107). @param {Context} ctx @param {string} id */
+export function reproduceAllowed(ctx, id) {
+  /** @type {string[]} */ const out = [];
+  for (const k of ['build', 'test', 'lint']) for (const c of ctx.config().cmds(`commands.${k}`)) if (c !== '') out.push(c);
+  return [...out, ...planVerificationCommands(ctx, id)];
 }
 
 const VOLATILE = /[0-9]([ \t\n\v\f\r]*(ms|us|s|sec|secs|seconds|m|min|mins|minutes))([^A-Za-z]|$)|[0-9]{1,2}:[0-9]{2}|[0-9]{4}-[0-9]{2}-[0-9]{2}|pid[ =:]*[0-9]+|0x[0-9a-f]{6,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i;

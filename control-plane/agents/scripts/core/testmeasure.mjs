@@ -13,7 +13,7 @@ import { git, headSha } from './git.mjs';
 import { listNames } from './ledger.mjs';
 import * as proc from './proc.mjs';
 import { fieldOf, fileLines, fileText, ledgerLines, textLines } from './records.mjs';
-import { reproduceAllowed } from './resultutil.mjs';
+import { planVerificationCommands, reproduceAllowed } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { pathMatches } from './shellglob.mjs';
 import { tmScaleMilli, verifyCommandTimeout } from './timeouts.mjs';
@@ -291,13 +291,14 @@ export function measureRun(ctx, id, opt = {}) {
   /** @type {string[]} */ const blockers = [];
   if (opt.runner) {
     const stamped = measureRequired(ctx, id);
-    const allowed = new Set(reproduceAllowed(ctx, id));
+    // a measured run is measured on the commands the frozen, reviewed plan LISTS: a configured build or lint command never runs the new tests, so being configured is not enough
+    const allowed = new Set(stamped ? planVerificationCommands(ctx, id) : reproduceAllowed(ctx, id));
     const cmds = [...new Set(greens.map((g) => g.command).filter((c) => c !== ''))];
     const todo = cmds.filter((c) => allowed.has(c));
     for (const c of cmds) {
       if (allowed.has(c)) continue;
       // a run that carries the measurement stamp is measured on what the frozen, reviewed plan lists: the plan decides, the implementer's own string never does
-      if (stamped) blockers.push(`the GREEN command \`${c}\` is neither a configured build, test or lint command nor an entry of the plan's ## Verification commands, so it cannot be run twice: add the narrow command that runs the new or changed tests to the plan's ## Verification commands (the plan is frozen; an amendment and a refreeze put it there)`);
+      if (stamped) blockers.push(`the GREEN command \`${c}\` is not an entry of the plan's ## Verification commands (a configured command counts only when the plan lists it), so it cannot be run twice (a measured run runs only commands the frozen plan lists): add the narrow command that runs the new or changed tests to the plan's ## Verification commands (the plan is frozen; an amendment and a refreeze put it there)`);
       else notRun.push(c);
     }
     if (todo.length > 0) {

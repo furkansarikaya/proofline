@@ -12,7 +12,7 @@ import { consumeApproval, requireOpenRun } from './approve.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
-import { git, headSha } from './git.mjs';
+import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf, setRunValue } from './lifecycle.mjs';
@@ -168,10 +168,9 @@ function reopenForFix(ctx, id) {
 function testMeasureAtImplemented(ctx, id, patch) {
   if (ctx.role !== 'lead' && ctx.role !== 'implementer') return;
   const dir = runDir(ctx, id);
-  const head = headSha(ctx);
-  // A stability block is latched in the sealed ledger for the content it was found on (the task patch and the commit): running IMPLEMENTED again on the same content
+  // A stability block is latched in the sealed ledger for the content it was found on (the task patch hash; the commit is NOT part of it, so an empty commit, an amend or a rebase with the same patch cannot clear it): running IMPLEMENTED again on the same content
   // cannot clear it, only a change of the content does (a rerun that happens to pass is not evidence of a stable test).
-  const token = `patch=${patch} head=${head}`;
+  const token = `patch=${patch}`;
   if (ledgerLines(ctx, dir).some((l) => / event=test-measure-block /.test(l) && l.endsWith(` detail=${token}`))) {
     fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
   }

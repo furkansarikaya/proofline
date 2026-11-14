@@ -5,7 +5,7 @@
 // tests use tiny commands whose outcome is decided by a counter file, not by time.
 import assert from 'node:assert/strict';
 import { appendFileSync, cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
@@ -143,6 +143,8 @@ function seeded(o = {}) {
   rmSync(path.join(d, '.seed-window'));
   return { d, w };
 }
+/** The plan section that lists the command that runs the new tests. @param {string} command */
+const verif = (command) => `\n## Verification commands\n\n- \`${command}\`\n`;
 /** @param {string} d @param {string} command @param {string} [extra] */
 const green = (d, command, extra = '') => A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: `command: ${command}\ntarget: impl.txt,impl_test.txt\n${extra}` });
 
@@ -184,8 +186,8 @@ function counterCommand(second) {
 }
 
 test('IMPLEMENTED runs the new tests twice: a test that passes once and fails once stops the handoff, and nothing is retried', () => {
-  const { d, w } = seeded();
   const c = counterCommand('1');
+  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
   setCmd(d, 'test', c.command);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
@@ -194,20 +196,20 @@ test('IMPLEMENTED runs the new tests twice: a test that passes once and fails on
 });
 
 test('a stability block is latched: IMPLEMENTED again on the same content stays blocked and runs nothing', () => {
-  const { d, w } = seeded();
   const c = counterCommand('1');
+  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
   setCmd(d, 'test', c.command);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 1', 'IMPLEMENTED blocked: STABILITY');
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 2 on the same tree', 'unstable on exactly this content');
   assert.equal(c.runs(), 2, 'the second attempt ran nothing');
-  assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure-block .* detail=patch=[0-9a-f]+ head=[0-9a-f]+$/m);
+  assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure-block .* detail=patch=[0-9a-f]+$/m);
 });
 
 test('IMPLEMENTED with a stable test passes, records one ledger row, and runs the command twice (plus the one build record run)', () => {
-  const { d, w } = seeded();
   const c = counterCommand('0');
+  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
   setCmd(d, 'test', c.command);
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(d, w);
@@ -222,7 +224,7 @@ test('a measured run blocks on a GREEN command that is neither configured nor in
   wclose(blocked.d, blocked.w);
   const r = A(blocked.d, ['handoff', 'LC', 'IMPLEMENTED']);
   refused(r, 'a narrow command not in the plan', "add the narrow command that runs the new or changed tests to the plan's ## Verification commands");
-  assert.match(r.text, /`node -e 0` is neither a configured build, test or lint command/);
+  assert.match(r.text, /`node -e 0` is not an entry of the plan's ## Verification commands/);
 
   const listed = seeded({ scaffold: { planExtra: '\n## Verification commands\n\n- `node -e 0`\n' } });
   accepted(green(listed.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
@@ -236,8 +238,39 @@ test('a measured run blocks on a GREEN command that is neither configured nor in
   assert.match(accepted(A(old.d, ['handoff', 'LC', 'IMPLEMENTED']), 'an older run').text, /note: not run twice: `go test \.\/\.\.\.` is neither a configured command/);
 });
 
-test('recorded durations that add up to more than the whole command took are a finding that blocks', () => {
+test('a configured command that the plan does not list does not satisfy the double run (it never has to run the new tests): the handoff is blocked', () => {
   const { d, w } = seeded();
+  setCmd(d, 'lint', 'node --version');
+  accepted(green(d, 'node --version', 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(d, w);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r, 'a configured lint command as the GREEN command', "add the narrow command that runs the new or changed tests to the plan's ## Verification commands");
+  assert.match(r.text, /a configured command counts only when the plan lists it/);
+});
+
+test('the latch is keyed on the content, not on the commit: an empty commit stays blocked and an amend never passes; with the same content, a real change of the content runs the double run again', () => {
+  const c = counterCommand('1');
+  const { d, w } = seeded({ scaffold: { planExtra: verif(c.command) } });
+  setCmd(d, 'test', c.command);
+  accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
+  wclose(d, w);
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'attempt 1', 'IMPLEMENTED blocked: STABILITY');
+  const id = ['-c', 'user.email=a@b.c', '-c', 'user.name=a'];
+  execFileSync('git', [...id, 'commit', '-q', '--allow-empty', '-m', 'empty'], { cwd: d });
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'after an empty commit', 'unstable on exactly this content');
+  assert.equal(c.runs(), 2, 'no attempt after the first ran anything');
+  const w2 = wopen(d);
+  appendFileSync(path.join(d, 'impl_test.txt'), 'test: a changed test\n');
+  wclose(d, w2);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  assert.doesNotMatch(r.text, /unstable on exactly this content/, 'a changed patch is not latched');
+  assert.ok(c.runs() > 2, 'the double run ran again on the changed content');
+  execFileSync('git', [...id, 'commit', '-q', '--amend', '--allow-empty', '-m', 'amended'], { cwd: d });
+  assert.notEqual(A(d, ['handoff', 'LC', 'IMPLEMENTED']).status, 0, 'an amend that rewrites the base is refused (stale plan) before the latch is even asked; it never passes');
+});
+
+test('recorded durations that add up to more than the whole command took are a finding that blocks', () => {
+  const { d, w } = seeded({ scaffold: { planExtra: verif('node --version') } });
   setCmd(d, 'test', 'node --version');
   accepted(green(d, 'node --version', 'test_durations: lookup=900000\n'), 'GREEN');
   wclose(d, w);
@@ -253,8 +286,8 @@ test('durationsExceedWall needs the floor AND the ratio, so a small overlap of a
 });
 
 test('a retry in the project own CI configuration is reported, from the ecosystems.json data', () => {
-  const { d, w } = seeded({ scaffold: { scopeNamed: '.gitlab-ci.yml' } });
   const c = counterCommand('0');
+  const { d, w } = seeded({ scaffold: { scopeNamed: '.gitlab-ci.yml', planExtra: verif(c.command) } });
   setCmd(d, 'test', c.command);
   writeFileSync(path.join(d, '.gitlab-ci.yml'), 'test:\n  script: make test\n  retry: 2\n');
   accepted(green(d, c.command, 'test_durations: lookup=1\n'), 'GREEN');
