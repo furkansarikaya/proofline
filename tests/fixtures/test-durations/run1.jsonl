@@ -1,0 +1,12 @@
+not a json line, ignored
+{"file":"tests/a.test.mjs","name":"fast","nesting":1,"ms":2.5,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"slow","nesting":1,"ms":900,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"inner","nesting":2,"ms":40,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"outer","nesting":1,"ms":45,"outcome":"pass","suite":false}
+{"file":"tests/a.test.mjs","name":"Suite A","nesting":0,"ms":950,"outcome":"pass","suite":true}
+{"file":"tests/b.test.mjs","name":"top level","nesting":0,"ms":3000,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"flaky outcome","nesting":0,"ms":5,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"jittery","nesting":0,"ms":100,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"twice","nesting":0,"ms":1,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"twice","nesting":0,"ms":2,"outcome":"pass","suite":false}
+{"file":"tests/b.test.mjs","name":"only in run 1","nesting":0,"ms":7,"outcome":"pass","suite":false}
