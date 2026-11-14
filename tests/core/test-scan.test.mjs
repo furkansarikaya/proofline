@@ -3,7 +3,8 @@
 // `## Test exceptions` and the measurement facts of package B. No test here waits or reads a clock; the files are tiny text, the GREEN durations are fixed strings.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, realpathSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
@@ -11,7 +12,7 @@ import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
 import { ecosystemRowsAll } from '../../control-plane/agents/scripts/core/ecodata.mjs';
 import { scanRules, scanText } from '../../control-plane/agents/scripts/core/waitscan.mjs';
 import { missingFindings } from '../../control-plane/agents/scripts/core/testreview.mjs';
-import { A, accepted, project } from '../lib/harness.mjs';
+import { A, accepted, project, tmp } from '../lib/harness.mjs';
 
 const PLAN = '\n## Tests\n\n- AC-1: `impl_test.txt` "retries after the delay" — it retries (test_kind: unit)\n\n## Test budgets\n\n- unit: test 100 ms; suite 1000 ms\n\n## Test exceptions\n\n- wait: `tests/sleepy.test.js` -- a real child process signal is awaited here, no clock can fake it\n';
 const SLEEPY = 'test("retries after the delay", async () => {\n  await new Promise((r) => setTimeout(r, 500));\n  const started = Date.now();\n});\n';
@@ -167,14 +168,27 @@ test('B1 / R-c: file_not_scanned has its own obligation per file; one finding wh
   assert.deepEqual(left([f({ reason: 'file_not_scanned', subject: 'tests/big.test.js', detail: 'too large' })]), []);
 });
 
-test('R-b: the scan takes the union even when the project copy of the definition is blinded (ecosystemRowsAll), and a changed copy since the run started is a required finding', () => {
-  const d = run();
-  const def = JSON.parse(readFileSync(path.join(d, '.agents/ecosystems.json'), 'utf8'));
+test('R-b: in a run worktree the union keeps the shipped names under a blinded worktree copy (the trusted copy of the main tree); with no other copy the project copy alone is read (A276)', () => {
+  const main = realpathSync(tmp());   // git reports the physical path
+  const g = (/** @type {string} */ cwd, /** @type {string[]} */ ...a) => { const r = spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.test', '-c', 'commit.gpgsign=false', '-C', cwd, ...a], { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  mkdirSync(path.join(main, '.agents/scripts'), { recursive: true });
+  const shipped = readFileSync(path.join(import.meta.dirname, '../../control-plane/agents/ecosystems.json'), 'utf8');
+  writeFileSync(path.join(main, '.agents/ecosystems.json'), shipped);
+  writeFileSync(path.join(main, '.agents/scripts/proofline-core.mjs'), '// stand-in\n');
+  g(main, 'init', '-q', '-b', 'main'); g(main, 'add', '.'); g(main, 'commit', '-q', '-m', 'init');
+  const wt = path.join(main, '.agents/local/worktrees/W');
+  g(main, 'worktree', 'add', '-q', '-b', 'w', wt);
+  const def = JSON.parse(shipped);
   for (const e of def.ecosystems) { e.fast_tests.sleep = ['zzzzz']; e.fast_tests.clock_reads = ['zzzzz']; }
-  // a Context of the control plane's own scripts over the blinded project: its own copy is read as well as the project's
-  const outside = new Context({ env: {}, cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(import.meta.dirname, '../../control-plane/agents/scripts/proofline-core.mjs'));
-  writeFileSync(path.join(d, '.agents/ecosystems.json'), JSON.stringify(def));
-  assert.ok(scanText('a.test.js', 'setTimeout(f, 1)', scanRules(ecosystemRowsAll(outside))).length === 1, 'the union still has the shipped names');
+  writeFileSync(path.join(wt, '.agents/ecosystems.json'), JSON.stringify(def));   // the task rewrote its tracked copy
+  const mk = (/** @type {string} */ root) => new Context({ env: { PATH: process.env.PATH ?? '' }, cwd: root, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(root, '.agents/scripts/proofline-core.mjs'));
+  const names = (/** @type {Context} */ ctx) => scanRules(ecosystemRowsAll(ctx)).find((r) => r.id === 'npm')?.wait ?? [];
+  const inRun = mk(wt);
+  assert.equal(inRun.agents, path.join(wt, '.agents'), 'the blinded copy is the one this context reads as the project');
+  assert.ok(names(inRun).includes('zzzzz') && names(inRun).includes('setTimeout'), `the blinded names AND the shipped ones: ${names(inRun)}`);
+  // the installed layout, in the main tree: scripts and definition are one folder, so there is no other copy; the defence there is codeAudit, the eco-pin and the owns guard
+  writeFileSync(path.join(main, '.agents/ecosystems.json'), JSON.stringify(def));
+  assert.deepEqual(names(mk(main)), ['zzzzz'], 'only the project copy');
 });
 
 test('R-b: the run start records the hash of .agents/ecosystems.json; a scan after it changed lists it as NOT MEASURED, exit 1, and submit requires a finding', () => {

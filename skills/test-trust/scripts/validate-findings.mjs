@@ -193,7 +193,8 @@ function targetFits(kind, f, t) {
   if (kind === "budget") return String(f.test?.name ?? "").trim().toLowerCase() === t.trim().toLowerCase() && t.trim() !== "";
   const subject = String(o.subject ?? "");
   if (subject === "") return false;
-  return t === subject || (subject.includes("/") && subject.endsWith(`/${t}`));
+  // the path-suffix form only for a subject that is a path; a command or a name is compared whole
+  return t === subject || (o.reason === "file_not_scanned" && subject.includes("/") && subject.endsWith(`/${t}`));
 }
 export function checkPlanExceptions(doc, planText) {
   const errors = [];

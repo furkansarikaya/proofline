@@ -3,7 +3,7 @@
 // the version and tool lines, the CI line, the toolchain line and the foreign context sources. Absolute expectations on the printed lines and the exit status; the project is
 // made by the real `proofline init` with fake claude and codex binaries.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -104,6 +104,22 @@ test('the ecosystem definition: a missing, invalid or unreadable .agents/ecosyst
   assert.notEqual(b.status, 0);
   assert.ok(c.out.includes('FAIL ecosystems: .agents/ecosystems.mjs is missing, so the definition cannot be read (run: proofline upgrade)\n'), c.out);
   assert.notEqual(c.status, 0);
+});
+
+test('the ecosystem definition: a valid-JSON but schema-invalid definition that the code check accepts (project copy equal to the shipped one) is a FAIL ecosystems line with the next step (A276)', () => {
+  // a private copy of the plugin whose shipped definition lacks global.limits, and a project whose copy is byte-equal to it: the hash check passes, `ecosystems.mjs check` fails
+  const home = path.join(sb.T, 'plhome');
+  const repoRoot = path.resolve(import.meta.dirname, '../..');
+  for (const p of ['bin', 'control-plane', 'skills', 'adapters/claude']) cpSync(path.join(repoRoot, p), path.join(home, p), { recursive: true });
+  const shipped = path.join(home, 'control-plane/agents/ecosystems.json');
+  const def = JSON.parse(readFileSync(shipped, 'utf8')); delete def.global.limits;
+  writeFileSync(shipped, `${JSON.stringify(def, null, 2)}\n`);
+  const d = sb.copy('decbad');
+  cpSync(shipped, `${d}/.agents/ecosystems.json`);
+  const r = sb.pl(d, ['doctor'], {}, path.join(home, 'bin/proofline'));
+  assert.ok(!r.out.includes('FAIL code:'), r.out);
+  assert.match(r.out, /^FAIL ecosystems: .* \(run: proofline upgrade\)$/m);
+  assert.notEqual(r.status, 0);
 });
 
 test('the CI line: a GitHub project without a pull_request workflow warns with the exact fix line, with one it passes', () => {

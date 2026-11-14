@@ -37,7 +37,7 @@ export function scanRules(rows) {
     const k = p === 'fast_tests.files' ? 'files' : p === 'fast_tests.sleep' ? 'wait' : p === 'fast_tests.clock_reads' ? 'clock_read' : p === 'fast_tests.test_markers' ? 'markers' : '';
     if (k === '') continue;
     const r = by.get(id) ?? { id, files: [], wait: [], clock_read: [], markers: [] };
-    if (!r[k].includes(v)) r[k].push(v);   // the rows may hold several copies of the definition (the shipped one and the project's): a union, so a project can add and never remove
+    if (!r[k].includes(v)) r[k].push(v);   // the rows may hold several copies of the definition (the shipped one and the project's): a union of the copies that exist (in an installed project there is only one: its protection is codeAudit and the eco-pin, A276)
     by.set(id, r);
   }
   return [...by.values()].filter((r) => r.files.length > 0).sort((a, b) => cmp(a.id, b.id));

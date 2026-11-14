@@ -33,10 +33,10 @@ test('each ecosystem family: its sleep calls are candidates in its own files onl
   assert.deepEqual(hits('a.test.js', 'await new Promise((r) => setTimeout(r, 5));\nclearTimeout(x);\nsetInterval(f, 1)'), ['1:setTimeout', '3:setInterval']);
   assert.deepEqual(hits('test_a.py', 'time.sleep(1)\nawait asyncio.sleep(2)\nsleep(3)'), ['1:sleep(', '1:time.sleep', '2:asyncio.sleep', '2:sleep(', '3:sleep(']);
   assert.deepEqual(hits('a_test.go', 'time.Sleep(time.Second)\n<-time.After(d)\ntime.AfterFunc(d, f)'), ['1:time.Sleep', '2:time.After']);
-  assert.deepEqual(hits('A.java', 'Thread.sleep(10);'), ['1:Thread.sleep']);
-  assert.deepEqual(hits('A.cs', 'await Task.Delay(10); Thread.Sleep(5);'), ['1:Task.Delay', '1:Thread.Sleep']);
+  assert.deepEqual(hits('A.java', 'Thread.sleep(10);'), ['1:Thread.sleep', '1:sleep(']);
+  assert.deepEqual(hits('A.cs', 'await Task.Delay(10); Thread.Sleep(5);'), ['1:Delay(', '1:Sleep(', '1:Task.Delay', '1:Thread.Sleep']);
   assert.deepEqual(hits('a_spec.rb', 'sleep 1\nusleep 2'), ['1:sleep']);
-  assert.deepEqual(hits('lib.rs', 'std::thread::sleep(d); thread::sleep(d);'), ['1:thread::sleep'], 'one candidate per line and name, not two for std::thread::sleep');
+  assert.deepEqual(hits('lib.rs', 'std::thread::sleep(d); thread::sleep(d);'), ['1:sleep(', '1:thread::sleep'], 'one candidate per line and name, not two for std::thread::sleep');
   assert.deepEqual(hits('a.test.js', 'sleep(1)'), ['1:sleep('], 'a bare sleep( is a wait in a JS or TS test');
   assert.deepEqual(hits('notes.txt', 'setTimeout'), [], 'a file no ecosystem claims is not scanned');
 });
@@ -132,6 +132,20 @@ test('R5: the names of the common waits are data, one test per name', () => {
   one('test_a.py', 'gevent.sleep(1)', '1:gevent.sleep');
   one('test_a.py', 'await trio.sleep(1)', '1:trio.sleep');
   one('A.java', 'await().atMost(5, SECONDS); Awaitility.await();', '1:Awaitility');
+});
+
+test('R5b: a name imported bare (use, using static, static import) is still a wait: one test per name', () => {
+  const one = (/** @type {string} */ file, /** @type {string} */ text, /** @type {string} */ want) => assert.ok(hits(file, text).includes(want), `${want} in ${text}`);
+  one('t.rs', 'use tokio::time::{sleep, Duration};\n#[tokio::test]\nasync fn a(){ sleep(Duration::from_secs(5)).await; }', '3:sleep(');
+  one('t.rs', 'sleep_until(deadline).await;', '1:sleep_until(');
+  one('t.rs', 'let mut t = interval(Duration::from_secs(1)); t.tick().await;', '1:interval(');
+  one('A.cs', 'using static System.Threading.Tasks.Task;\n await Delay(5000);', '2:Delay(');
+  one('A.cs', 'using static System.Threading.Thread;\n Sleep(5000);', '2:Sleep(');
+  one('A.java', 'import static java.lang.Thread.sleep;\n sleep(500);', '2:sleep(');
+  for (const unit of ['NANOSECONDS', 'MICROSECONDS', 'MINUTES', 'HOURS', 'DAYS']) one('A.java', `TimeUnit.${unit}.sleep(1);`, `1:TimeUnit.${unit}.sleep`);
+  one('A.kt', 'runTest { delay(5000) }', '1:delay(');
+  one('a.test.ts', 'await sleep(5000);', '1:sleep(');
+  one('a.test.ts', "const { setTimeout: wait } = require('timers/promises');", '1:timers/promises');
 });
 
 test('S1: a test is found by its name, its folder or its text, never by a name that looks like a manifest', () => {
@@ -235,11 +249,14 @@ test('B2: text the scan cannot read is NOT SCANNED (UTF-16 with or without a byt
   writeFileSync(path.join(d, 'e.cs'), `${src}\u0000`);
   const r = scanFiles(d, ['a.cs', 'b.cs', 'c.cs', 'd.cs', 'e.cs'], rules);
   assert.deepEqual(r.skipped, ['a.cs', 'b.cs', 'c.cs', 'e.cs']);
-  assert.deepEqual(r.candidates.map((c) => `${c.file}:${c.pattern}`), ['d.cs:Thread.Sleep'], 'the UTF-8 file with a byte order mark is read normally');
+  assert.deepEqual(r.candidates.map((c) => `${c.file}:${c.pattern}`), ['d.cs:Sleep(', 'd.cs:Thread.Sleep'], 'the UTF-8 file with a byte order mark is read normally');
 });
 
 test('B3: every shipped pattern is bounded: the validator rejects backtracking shapes, accepts the shipped markers, and no pattern ever sees more than one window', () => {
   for (const bad of ['(a+)+', '(\\.\\w+)*', '\\w*\\w*', 'a{2,}', '(a{1,3}){2,}', '(x*y)*']) assert.equal(backtracks(bad), true, bad);
+  // A276 round 4: alternation inside a repeated group, adjacent repeated classes, bounded repeats over 100, backreferences
+  for (const bad of ['(a|aa)+', '(a|a)*$', '(?:x|xy){1,5}', '[a-z]*[a-z]*[a-z]*!', '\\w+\\d+x', '.*.*x', 'a{1,9999}a{1,9999}b', 'a{101}', 'x{0,101}', '(a)\\1', '(?<n>a)\\k<n>']) assert.equal(backtracks(bad), true, bad);
+  for (const ok of ['(a|b)', '\\b(describe|it|test)(\\.\\w{1,32}){0,3} ?\\(', 'a{1,100}b', '[a-z]{0,80}!', 'x*y*', 'a+b', '\\bdef test_\\w{0,80}\\(']) assert.equal(backtracks(ok), false, ok);
   for (const ok of ['\\b(it)(\\.\\w{1,32}){0,3} ?\\(', '\\bdef test_\\w{0,80}\\(', '((a){1,3}){0,3}']) assert.equal(backtracks(ok), false, ok);
   const markers = rows.filter((r) => r[1] === 'fast_tests.test_markers').map((r) => r[2]);
   assert.ok(markers.length >= 10);
@@ -324,6 +341,14 @@ test('S4c / B1: a plan line clears a finding only for the target of the OBLIGATI
   const slow = '- measure: "slow one" -- the runner cannot report this test in the sandbox';
   assert.equal(checkPlanExceptions(nm('tests/other.js', 's', slow), plan).length, 1, 'an unrelated measure line clears nothing, whatever name the reviewer gives the test');
   assert.deepEqual(checkPlanExceptions(nm('slow one', 's', slow), plan), []);
+  // the path-suffix form is for subjects that ARE paths (file_not_scanned); a command or a name is compared whole
+  const bare = '- measure: `x.js` -- the runner cannot report this test in the sandbox';
+  const planX = `## Test exceptions\n\n${bare}\n`;
+  const sub = (/** @type {string} */ reason, /** @type {string} */ subject) => ({ findings: [F({ kind: 'not_measured', verdict: 'cleared', test: { file: 'tests/t.js', name: 's' }, observed: { reason, subject, detail: 'x', plan_exception: bare } })] });
+  assert.equal(checkPlanExceptions(sub('no_recorded_duration', 'node tests/x.js'), planX).length, 1, 'a command that ends in /x.js is not the file x.js');
+  assert.equal(checkPlanExceptions(sub('command_does_not_run_test', 'node tests/x.js'), planX).length, 1);
+  assert.deepEqual(checkPlanExceptions(sub('file_not_scanned', 'tests/x.js'), planX), [], 'a path subject keeps the suffix form');
+  assert.deepEqual(checkPlanExceptions(sub('no_recorded_duration', 'x.js'), planX), [], 'equal is equal');
   // the LOW: a one-character test name is no longer "contained" in the plan target
   const bud = (/** @type {string} */ name) => ({ findings: [F({ kind: 'over_budget', verdict: 'cleared', test: { file: 't.js', name }, observed: { outcome: 'plan_justified', measured_ms: 1, budget_ms: 1, budget_source: 'plan', plan_exception: '- budget: "s" -- a real database migration runs in this test' } })] });
   assert.equal(checkPlanExceptions(bud('slow one'), plan).length, 1);
