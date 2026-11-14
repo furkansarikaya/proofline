@@ -557,3 +557,25 @@ for (const command of ['y=(a b c)', 'export A=1', 'echo "a=((1))"', 'declare -a 
     assert.equal(await pre(command, {}, {}), null);
   });
 }
+
+// Security round 14 (A274): an array assignment `NAME=( ... )` is valid only when its body is words; with an operator, a second parenthesis, a marker or a continuation before one, bash discards the rest of the physical line and runs the next one.
+const ROUND14 = [
+  'x=(\\\n<<X)', 'x=( \\\n<<X))', 'x=( (<<X));', 'y+=( (<<X)) ||', 'x=( a;b\\\nmkdir $V/F', 'x=(a<f\\\nmkdir $V/F', 'x=(a|b\\\nmkdir $V/F', 'x=(a&b\\\nmkdir $V/F',
+  'x=(a>f\nmkdir $V/F', 'x=(a b;\nmkdir $V/F', 'declare -a x=(a;b\nmkdir $V/F', 'local x=(a|b\nmkdir $V/F', 'x[1]=(a&b\nmkdir $V/F', 'x=(a (b)\nmkdir $V/F', 'x[2]=(a;b\nmkdir $V/F', 'x=(a # c\nmkdir $V/F\n)',
+  'x=(a)# c; mkdir $V/F', 'x=(a)\\ mkdir $V/F', 'x=(a)b; mkdir $V/F', 'x=(a)\\\nb mkdir $V/F', 'x=($(mkdir $V/F))', 'x=(a\nmkdir $V/F', 'echo a=(\nmkdir $V/F', 'x=(<<X)\nmkdir $V/F', 'x=( # c\nmkdir $V/F\n)',
+].map((x) => V12 + x);
+ROUND14.forEach((command, k) => {
+  test(`A274 round 14 #${k}: refused for both roles: ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.ok(await pre(command, who, env), `${role}: allowed`);
+  });
+});
+const ROUND14_OK = [
+  'x=(a b c)', 'x=(\\\na b)', 'files=(*.js)', 'arr+=(d)', 'declare -a arr=(a b c)', 'declare -A m=([a]=1)', 'm=([a]=1 [b]=2)', 'm=([a]+=1 [b]=2)', 'x=("a b" \'c d\' $e ${f} $(date))',
+  'local x=(1 2 3)', 'export A=1', 'a=b', 'echo "a=(1)"', 'x=(a\nb c)', 'x=(a \\\n b)', 'readonly -a r=(1 2)', 'FOO=1 x=(a b)',
+];
+ROUND14_OK.forEach((command, k) => {
+  test(`A274 round 14 allowed #${k}: ${JSON.stringify(command)}`, async () => {
+    for (const [role, who, env] of ROLES) assert.equal(await pre(command, who, env), null, `${role}: refused`);
+    assert.equal(await pre(command, {}, {}), null);
+  });
+});

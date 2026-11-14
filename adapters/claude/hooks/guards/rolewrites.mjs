@@ -29,7 +29,7 @@ import { WRITE_PROGRAMS } from '../command-scan.mjs';
  * glob: an unquoted `*`, `?` or `[`;
  */
 /**
- * @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, strict: boolean, depth: number, at: { off: number, paren: number } }} Simple
+ * @typedef {{ words: Word[], redirs: Array<{ op: string, word: Word }>, assigns: Word[], here: string[], pipeFrom: Simple | null, strict: boolean, arr: boolean, depth: number, at: { off: number, paren: number } }} Simple
  * here: the here-document bodies read by this command;
  * pipeFrom: the command on the left of the `|`;
  * depth: how many levels of substitution or shell string this command sits in;
@@ -93,7 +93,7 @@ const markQ = (x) => { if (!x.q) x.qAt = x.v.length; x.q = true; };
 /** Is the word an assignment `NAME=value` (the value may be quoted)? @param {Word} x */
 const isAssign = (x) => { const m = ASSIGN_RE.exec(x.v); return m !== null && (!x.q || x.qAt >= m[0].length); };
 /** @returns {Simple} */
-const mkSimple = (/** @type {number} */ depth, /** @type {{ off: number, paren: number }} */ at, /** @type {Simple | null} */ pipeFrom) => ({ words: [], redirs: [], assigns: [], here: [], pipeFrom, strict: false, depth, at });
+const mkSimple = (/** @type {number} */ depth, /** @type {{ off: number, paren: number }} */ at, /** @type {Simple | null} */ pipeFrom) => ({ words: [], redirs: [], assigns: [], here: [], pipeFrom, strict: false, arr: false, depth, at });
 
 /** The work counter and the doubts of the scan in progress (set by `tokenize` and `roleActions`; the scan is synchronous, so one module variable is enough). @type {Guard} */
 let G = { overflow: false, budget: Infinity, unsure: '', texts: [] };
@@ -223,6 +223,43 @@ function endBrace(s, i, d = 0) {
   }
   doubt('an unterminated ${...}');
   return s.length;
+}
+
+const DECL_BUILTINS = new Set(['declare', 'local', 'export', 'readonly', 'typeset']);
+
+/**
+ * The offset of the `)` that closes an array body that starts at i (just after the `(`), or -1 when the body is not only words: a top-level `;` `&` `|` `<` `>` `#` `(` or an unbalanced end is refused.
+ * Quotes, `$(...)`, `$((...))`, `${...}`, `$'...'` and backticks are skipped as parts of a word; a backslash-newline is a continuation.
+ * @param {string} s @param {number} i
+ */
+function arrayEnd(s, i) {
+  const before = G.unsure;
+  while (i < s.length) {
+    if (!step()) return -1;
+    const c = /** @type {string} */ (s[i]);
+    if (c === ')') {
+      // a word glued to the `)` (`x=(a)# c`, `x=(a)\ cmd`, `x=(a)b`) continues the assignment word in bash, which the hook reads as a comment or a command
+      let k = i + 1;
+      while (s[k] === '\\' && s[k + 1] === '\n') k += 2;
+      return G.unsure === before && (k >= s.length || /[ \t\r\n;&|)<>]/.test(/** @type {string} */ (s[k]))) ? i : -1;
+    }
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i++; continue; }
+    if (c === '\\') { if (i + 1 >= s.length) return -1; i += 2; continue; }
+    if (c === "'") { const e = s.indexOf("'", i + 1); if (e < 0) return -1; i = e + 1; continue; }
+    if (c === '"') { const e = endDouble(s, i + 1); if (s[e - 1] !== '"' || e - 1 <= i) return -1; i = e; continue; }
+    if (c === '`') { const e = endTick(s, i + 1); if (s[e - 1] !== '`' || e - 1 <= i) return -1; i = e; continue; }
+    if (c === '$') {
+      const nx = s[i + 1];
+      if (nx === '(') { const e = endParen(s, i + 2); if (s[e - 1] !== ')' || e - 1 < i + 2) return -1; i = e; continue; }
+      if (nx === '{') { const e = endBrace(s, i + 2); if (s[e - 1] !== '}' || e - 1 < i + 2) return -1; i = e; continue; }
+      if (nx === "'") { const a = ansiC(s, i); if (a.end - 1 <= i + 1 || s[a.end - 1] !== "'") return -1; i = a.end; continue; }
+      if (nx === '[') return -1;
+      i++; continue;
+    }
+    if (';&|<>#('.includes(c)) return -1;
+    i++;
+  }
+  return -1;
 }
 
 /** The text inside `$(` ... `)` or backticks: from i to e, without the closing character when the construct was closed. @param {string} s @param {number} i @param {number} e @param {string} close */
@@ -436,10 +473,12 @@ function tokenizeIn(s, depth, st, top) {
   /** @type {Array<{ d: string, quoted: boolean, dash: boolean, owner: Simple }>} */ const heres = [];
   const n = s.length;
   /** @param {boolean} isPipe */
+  let arrUntil = -1; // offset of the `)` that closes a placed array body: the words up to it are array elements, not command words
   let strictUntil = -1; // offset up to which a command word that is not literal is refused even without an operand (the text after a `((` that is not arithmetic)
   const end = (isPipe) => {
     const done = cur;
     if (i <= strictUntil) done.strict = true;
+    if (i <= arrUntil) done.arr = true;
     if (cur.words.length > 0 || cur.redirs.length > 0 || cur.assigns.length > 0) out.push(cur);
     cur = mkSimple(depth, offNow(), isPipe ? done : null);
     lead = true;
@@ -555,8 +594,15 @@ function tokenizeIn(s, depth, st, top) {
           strictUntil = e; // a command word that is not literal is refused even without an operand
         }
       }
-      // `x=(<<X)` and `x=( # ...`: bash reports a syntax error and runs the next line, while the hook reads a here-document or a comment that hides it
-      if (c === '(' && s[i + 1] !== '(' && w !== null && w.v.endsWith('=') && /^[ \t]*(<<|#)/.test(s.slice(i + 1, i + 1 + 64))) doubt('a "=(" followed by a here-document or comment marker: write the array elements on the line without a marker');
+      // an array assignment `NAME=( ... )`: bash reads the body as words only; any operator in it is a syntax error, after which bash discards the rest of the physical line and runs the next one
+      // (the hook would read that next line as an element). The body is valid only when it is words, quoted strings, expansions, globs and `[sub]=word` elements, separated by blanks, newlines and continuations
+      if (c === '(' && s[i + 1] !== '(' && w !== null && w.v.endsWith('=')) {
+        const declared = cur.words.length > 0 && DECL_BUILTINS.has(base(cur.words[0].v)) && !cur.words[0].q && cur.words.every((x, k) => k === 0 || x.v.startsWith('-') || isAssign(x));
+        const target = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=$/.test(w.v) && isAssign(w) && (lead || declared);
+        const e = target ? arrayEnd(s, i + 1) : -1;
+        if (e < 0) doubt('an array assignment whose end cannot be placed: write the elements as plain words, without ";", "&", "|", "<", ">", "#", a second "(" or a here-document');
+        else arrUntil = e;
+      }
       flush();
       let isPipe = false;
       if (c === '|') {
@@ -973,7 +1019,7 @@ function scanRole(cmd, st, actions) {
     const args = un.words.slice(1);
     // a command word the hook cannot read (a substitution, a backtick, a variable, a brace expansion or a glob) may be any program: with an operand it is refused, wherever the tokenizer reads it
     const lit = !first.sub && !first.vr && !first.bt && (first.q || (!first.glob && !BRACE_RE.test(first.v)));
-    if (!lit && (args.length > 0 || sc.strict) && first.v !== '[' && first.v !== '[[') {
+    if (!lit && !sc.arr && (args.length > 0 || sc.strict) && first.v !== '[' && first.v !== '[[') {
       actions.push({ kind: 'deny', why: notice(`the command word '${first.v}' is not a literal (a substitution, a variable, a brace expansion or a glob)`) });
     }
     if (name === 'export' && args.some((a) => a.v.startsWith('CDPATH'))) chdir = true;
