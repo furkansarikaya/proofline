@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.106 — 2026-11-14
+
+- Change (A273, Part of #265; package A: the writing rules, the GREEN duration and the plan fields): tdd-proof gives the implementer, before any test is written, the rules for fast and deterministic tests (Hard rule 10, detail in `references/FAST.md`): same time on every run, no real waiting, an injectable clock with fake time, no direct system-clock read or wall-clock assertion, fixed seeds, faked external calls, events not durations in concurrency tests, no parallelism as a fix. `ecosystems.json` gains `fast_tests` per ecosystem (fake-clock status and facility, real-wait names, clock-read names; PHP and Swift `unsupported`) with a validator. The GREEN evidence can record the duration of each new test (`tdd.json` `green.duration_ms`, `duration_source`, `duration_excerpt`, all optional for now; `worker-evidence` GREEN takes an optional `test_durations` line). PLAN.md can state `test_kind` per test and a `## Test budgets` section, and the QA plan restates it. The build record durations, budgets, the double run, the scan and the REVIEW_TESTS checks come with packages B and C.
+
 ## 0.0.105 — 2026-11-14
 
 - Change (A272, Part of #165; Windows port W13, the last package): the Windows core legs (the core's Node tests in four shards) and the Node Core-invariant leg on `windows-latest` are gates of the nightly and manual CI runs, like the hook leg: the job `windows-core` (formerly the manual `windows-core-probe`) runs on the schedule too, has no `continue-on-error`, so a red leg fails the run, and stays out of the pull request checks (a leg takes about 27 minutes of Windows runner time). The manual `tests` input still limits the legs; an empty one runs everything. Documentation: the README, CONTRIBUTING and `docs/concepts/workflow.md` say what runs on Windows (core, invariant and hook tests, nightly) and list what is still not verified there. `.out-of-scope/deferred.md` loses the two Windows rows. No product change; POSIX behaviour untouched.

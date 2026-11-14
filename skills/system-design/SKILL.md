@@ -4,7 +4,7 @@ description: Designs the smallest valid architecture for a task, or reverse-engi
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.105"
+  version: "0.0.106"
 ---
 
 # system-design
