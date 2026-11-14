@@ -74,3 +74,6 @@ export function ecosystemRowsAll(ctx) {
     return all.length > 0 ? all : null;
   });
 }
+
+/** The rows of the control plane's own copy only (the folder above its scripts), for what a project must not be able to change, such as the folders a scan does not walk. @param {Context} ctx @returns {string[][] | null} */
+export function ecosystemRowsOwn(ctx) { return rowsOf(`${path.resolve(ctx.scriptDir, '..')}/ecosystems.json`); }

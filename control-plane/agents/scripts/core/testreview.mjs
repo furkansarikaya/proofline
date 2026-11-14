@@ -9,7 +9,7 @@
 //    command) or neither, so the reviewer can confirm which command really executes which tests.
 // It decides nothing: candidates and facts are inputs, the reviewer traces them and the findings validator computes the gate. `missingFindings` is what `submit` uses to
 // require a finding (or an explicit, valid clearing) for every one of them in a run that carries the measurement stamp.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { clean } from './codetrust.mjs';
 import { ecosystemRowsAll } from './ecodata.mjs';
 import { patchManifest, testCodePath } from './gates.mjs';
@@ -60,6 +60,9 @@ export function exceptionsHash(plan) {
   return l.length === 0 ? '' : sha256(`${l.join('\n')}\n`);
 }
 
+/** The sha256 of the project's `.agents/ecosystems.json`, or `none`; the run start records it and the scan compares (A276). @param {Context} ctx */
+export function ecoPin(ctx) { try { return sha256(readFileSync(`${ctx.root}/.agents/ecosystems.json`)); } catch { return 'none'; } }
+
 /**
  * Everything the reviewer reads, and the list of what a findings.json has to answer.
  * @param {Context} ctx @param {string} id
@@ -98,11 +101,14 @@ export function collect(ctx, id) {
     durations: m.tests.map((t) => ({ name: t.name, kind: t.kind, ms: Number(t.ms.toFixed(3)) })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
     budget_findings: m.budgetFindings,
     unscanned: scan.skipped,
+    definition_changed: false,
   };
 
   /** @typedef {{ text: string, kind: string, match: (f: any) => boolean }} Obligation */
+  // every obligation is answered by a finding whose own fields are EXACTLY the obligation's (the candidate's file, line and pattern; the BUDGET test's name; the `subject` a
+  // not_measured finding names): a finding for another file or another test answers nothing, and one finding can answer one obligation only because the keys differ
   /** @type {Obligation[]} */ const need = [];
-  const nm = (/** @type {string} */ reason, /** @type {string} */ subject) => (/** @type {any} */ f) => f.kind === 'not_measured' && f.observed?.reason === reason && (subject === '' || String(f.observed?.detail ?? '').includes(subject));
+  const nm = (/** @type {string} */ reason, /** @type {string} */ subject) => (/** @type {any} */ f) => f.kind === 'not_measured' && f.observed?.reason === reason && f.observed?.subject === subject;
   for (const c of scan.candidates) {
     const kind = c.kind === 'wait' ? 'real_wait' : 'clock_not_injected';
     need.push({ text: `the ${c.kind} candidate ${c.file}:${c.line} ${c.pattern}`, kind, match: (f) => f.kind === kind && f.observed?.candidate?.file === c.file && f.observed?.candidate?.line === c.line && f.observed?.candidate?.pattern === c.pattern });
@@ -110,14 +116,21 @@ export function collect(ctx, id) {
   for (const b of m.budgetFindings) {
     const t = /^BUDGET test "([^"]*)"/.exec(b); const su = /^BUDGET suite (\S+)/.exec(b);
     const name = t ? asciiLower(t[1]) : su ? `suite ${su[1]}` : '';
-    need.push({ text: b, kind: 'over_budget', match: (f) => f.kind === 'over_budget' && (asciiLower(String(f.test?.name ?? '')) === name || (name !== '' && asciiLower(String(f.test?.name ?? '')).includes(name))) });
+    need.push({ text: b, kind: 'over_budget', match: (f) => f.kind === 'over_budget' && asciiLower(String(f.test?.name ?? '').trim()) === name });
   }
-  for (const f of scan.skipped) need.push({ text: `the file ${f} that nobody could scan`, kind: 'not_measured', match: nm('file_not_scanned', f) });
-  if (row === undefined) need.push({ text: 'the missing test-measure ledger row (the run was never measured)', kind: 'not_measured', match: nm('no_test_measure_row', '') });
-  else if (double === 0) need.push({ text: 'double_run=0 (no GREEN command was run twice)', kind: 'not_measured', match: nm('not_double_run', '') });
-  if (row !== undefined && ((num('stability_findings') ?? 0) > 0 || (num('blockers') ?? 0) > 0)) need.push({ text: `a stability or duration finding in the test-measure row (${detail})`, kind: 'not_measured', match: nm('measurement_finding', '') });
-  for (const n of planTestsWithoutDuration) need.push({ text: `the plan test "${n}" that has no recorded duration`, kind: 'not_measured', match: nm('no_recorded_duration', n) });
-  for (const c of commands) if (c.source === 'neither') need.push({ text: `the GREEN command \`${c.command}\` that the control plane did not run twice`, kind: 'not_measured', match: nm('command_not_double_run', c.command) });
+  for (const f of scan.skipped) need.push({ text: `the file ${f} that nobody could scan (subject: ${f})`, kind: 'not_measured', match: nm('file_not_scanned', f) });
+  if (row === undefined) need.push({ text: 'the missing test-measure ledger row (subject: no_test_measure_row)', kind: 'not_measured', match: nm('no_test_measure_row', 'no_test_measure_row') });
+  else if (double === 0) need.push({ text: 'double_run=0, no GREEN command was run twice (subject: not_double_run)', kind: 'not_measured', match: nm('not_double_run', 'not_double_run') });
+  if (row !== undefined && ((num('stability_findings') ?? 0) > 0 || (num('blockers') ?? 0) > 0)) need.push({ text: `a stability or duration finding in the test-measure row (${detail}) (subject: measurement_finding)`, kind: 'not_measured', match: nm('measurement_finding', 'measurement_finding') });
+  for (const n of planTestsWithoutDuration) need.push({ text: `the plan test "${n}" that has no recorded duration (subject: ${n})`, kind: 'not_measured', match: nm('no_recorded_duration', n) });
+  for (const c of commands) if (c.source === 'neither') need.push({ text: `the GREEN command \`${c.command}\` that the control plane did not run twice (subject: the command)`, kind: 'not_measured', match: nm('command_not_double_run', c.command) });
+  // the definition the scan read must be the one the run started with (the start recorded its hash): a changed copy could have removed the very names that would have found a wait
+  const pin = [...ledgerLines(ctx, dir)].find((l) => l.includes(' event=eco-pin '));
+  const pinned0 = pin === undefined ? null : (/ detail=sha=([0-9a-f]*|none)$/.exec(pin)?.[1] ?? null);
+  const eco = ecoPin(ctx);
+  const ecoChanged = pinned0 !== null && pinned0 !== eco;
+  if (ecoChanged) need.push({ text: 'ecosystems.json changed since the run started (subject: ecosystems.json)', kind: 'not_measured', match: nm('definition_changed', 'ecosystems.json') });
+  measurement.definition_changed = ecoChanged;
   return { files, scan, waitFiles, exceptions, measurement, commands, testFiles: files.filter((f) => scan.scanned.includes(f) && (testCodePath(ctx, f) || scan.candidates.some((c) => c.file === f && c.kind === 'wait'))), need };
 }
 
@@ -129,7 +142,7 @@ export function reviewInputs(ctx, id, json) {
   const c = collect(ctx, id);
   const m = c.measurement;
   const report = { scanned: c.scan.scanned, skipped: c.scan.skipped, candidates: c.scan.candidates, allowed: [], unused: [] };
-  const status = c.scan.candidates.length > 0 || c.scan.skipped.length > 0 ? 1 : 0;
+  const status = c.scan.candidates.length > 0 || c.scan.skipped.length > 0 || m.definition_changed ? 1 : 0;
   if (json) {
     const base = JSON.parse(reportJson(report));
     const cl = (/** @type {string} */ x) => clean(x);
@@ -141,6 +154,7 @@ export function reviewInputs(ctx, id, json) {
   t += 'measurement:\n';
   t += `  test-measure-row: ${m.test_measure_row === 'none' ? 'none (the control plane has not measured this run)' : clean(m.test_measure_row)}\n`;
   if (m.not_measured) t += '  NOT MEASURED: no GREEN command was run twice (double_run=0 or no row); the durations below are the recorder\'s word, so every duration and every budget below is unconfirmed\n';
+  if (m.definition_changed) t += '  NOT MEASURED: ecosystems.json changed since the run started; the names the scan used may not be the ones the run began with\n';
   for (const g of m.green_commands) t += `  green-command: \`${clean(g.command)}\` source=${g.source}${g.source === 'neither' ? ' (the control plane did not run it twice)' : ''}; confirm that it executes the task's test files${c.testFiles.length > 0 ? ` (${c.testFiles.map(clean).join(' ')})` : ''}\n`;
   for (const n of m.plan_tests_without_duration) t += `  NOT MEASURED: the plan names the test "${clean(n)}" and no recorded duration matches it\n`;
   for (const d of m.durations) t += `  duration: ${clean(d.name)} (${d.kind}) ${d.ms} ms\n`;

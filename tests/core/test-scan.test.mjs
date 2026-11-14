@@ -2,11 +2,14 @@
 // Issue 265 package C (A276): `agent.sh build-record <ID> scan` hands the REVIEW_TESTS reviewer the scan candidates of the files the task changed, the plan's
 // `## Test exceptions` and the measurement facts of package B. No test here waits or reads a clock; the files are tiny text, the GREEN durations are fixed strings.
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
+import { ecosystemRowsAll } from '../../control-plane/agents/scripts/core/ecodata.mjs';
+import { scanRules, scanText } from '../../control-plane/agents/scripts/core/waitscan.mjs';
 import { missingFindings } from '../../control-plane/agents/scripts/core/testreview.mjs';
 import { A, accepted, project } from '../lib/harness.mjs';
 
@@ -116,8 +119,8 @@ test('S4d: in a measured run every candidate and every NOT MEASURED fact needs a
   const answered = { findings: [
     f('real_wait', { candidate: { file: 'tests/sleepy.test.js', line: 2, pattern: 'setTimeout' }, outcome: 'traced', trace: 'x' }),
     f('clock_not_injected', { candidate: { file: 'tests/sleepy.test.js', line: 3, pattern: 'Date.now' }, outcome: 'untraced' }),
-    f('not_measured', { reason: 'no_test_measure_row', detail: 'none' }),
-    f('not_measured', { reason: 'no_recorded_duration', detail: 'retries after the delay' }),
+    f('not_measured', { reason: 'no_test_measure_row', subject: 'no_test_measure_row', detail: 'none' }),
+    f('not_measured', { reason: 'no_recorded_duration', subject: 'retries after the delay', detail: 'retries after the delay' }),
   ] };
   assert.deepEqual(missingFindings(ctxOf(d), 'LC', answered), []);
   assert.equal(missingFindings(ctxOf(d), 'LC', { findings: answered.findings.slice(1) }).length, 1, 'dropping one finding is one error');
@@ -145,4 +148,47 @@ test('S4e: a refreeze that adds or changes a ## Test exceptions line is refused;
   writeFileSync(path.join(d, '.agents/runs/LC/amendments/001.md'), '# amendment 001: a note\n');
   appendFileSync(path.join(d, '.agents/runs/LC/PLAN.md'), '\n## Risk\n\nperformance_critical: no\n');
   accepted(A(d, ['refreeze', 'LC', '001.md'], { bind: true }), 'a refreeze that leaves the exceptions alone');
+});
+
+test('B1 / R-c: file_not_scanned has its own obligation per file; one finding whose detail lists several paths answers none of them; a wrong subject answers nothing', () => {
+  const d = runWith('tests/big.test.js', 'x'.repeat(1048577));
+  writeFileSync(path.join(d, 'tests/sleepy.test.js'), SLEEPY);
+  ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'start', '-', 'PLANNED', 'task=tasks/LC.md adapter=markdown measure=1');
+  const f = (/** @type {Record<string, unknown>} */ observed) => ({ id: 'F', kind: 'not_measured', verdict: 'confirmed', test: { file: 'tests/big.test.js', name: 'x' }, observed });
+  const others = [
+    { id: 'F1', kind: 'real_wait', verdict: 'confirmed', test: { file: 'x', name: 'x' }, observed: { candidate: { file: 'tests/sleepy.test.js', line: 2, pattern: 'setTimeout' }, outcome: 'untraced' } },
+    { id: 'F2', kind: 'clock_not_injected', verdict: 'confirmed', test: { file: 'x', name: 'x' }, observed: { candidate: { file: 'tests/sleepy.test.js', line: 3, pattern: 'Date.now' }, outcome: 'untraced' } },
+    f({ reason: 'no_test_measure_row', subject: 'no_test_measure_row', detail: 'n' }),
+    f({ reason: 'no_recorded_duration', subject: 'retries after the delay', detail: 'n' }),
+  ];
+  const left = (/** @type {unknown[]} */ extra) => missingFindings(ctxOf(d), 'LC', { findings: [...others, ...extra] });
+  assert.match(left([])[0], /no not_measured finding for the file tests\/big\.test\.js that nobody could scan/);
+  assert.equal(left([f({ reason: 'file_not_scanned', subject: 'tests/other.test.js', detail: 'tests/big.test.js tests/sleepy.test.js' })]).length, 1, 'a detail that lists the path, with another subject, answers nothing');
+  assert.deepEqual(left([f({ reason: 'file_not_scanned', subject: 'tests/big.test.js', detail: 'too large' })]), []);
+});
+
+test('R-b: the scan takes the union even when the project copy of the definition is blinded (ecosystemRowsAll), and a changed copy since the run started is a required finding', () => {
+  const d = run();
+  const def = JSON.parse(readFileSync(path.join(d, '.agents/ecosystems.json'), 'utf8'));
+  for (const e of def.ecosystems) { e.fast_tests.sleep = ['zzzzz']; e.fast_tests.clock_reads = ['zzzzz']; }
+  // a Context of the control plane's own scripts over the blinded project: its own copy is read as well as the project's
+  const outside = new Context({ env: {}, cwd: d, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(import.meta.dirname, '../../control-plane/agents/scripts/proofline-core.mjs'));
+  writeFileSync(path.join(d, '.agents/ecosystems.json'), JSON.stringify(def));
+  assert.ok(scanText('a.test.js', 'setTimeout(f, 1)', scanRules(ecosystemRowsAll(outside))).length === 1, 'the union still has the shipped names');
+});
+
+test('R-b: the run start records the hash of .agents/ecosystems.json; a scan after it changed lists it as NOT MEASURED, exit 1, and submit requires a finding', () => {
+  const d = run();
+  const file = path.join(d, '.agents/ecosystems.json');
+  const sha = createHash('sha256').update(readFileSync(file)).digest('hex');
+  ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'start', '-', 'PLANNED', 'task=tasks/LC.md adapter=markdown measure=1');
+  ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'eco-pin', '-', '-', `sha=${sha}`);
+  const before = A(d, ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  assert.doesNotMatch(before.out, /ecosystems\.json changed/);
+  appendFileSync(file, '\n');
+  const after = A(d, ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  assert.match(after.out, /NOT MEASURED: ecosystems\.json changed since the run started/);
+  assert.ok(missingFindings(ctxOf(d), 'LC', { findings: [] }).some((m) => /ecosystems\.json changed since the run started \(subject: ecosystems\.json\)/.test(m)));
+  const answered = { findings: [{ id: 'F', kind: 'not_measured', verdict: 'confirmed', test: { file: 'x', name: 'x' }, observed: { reason: 'definition_changed', subject: 'ecosystems.json', detail: 'hash differs' } }] };
+  assert.equal(missingFindings(ctxOf(d), 'LC', answered).some((m) => /ecosystems\.json changed/.test(m)), false);
 });

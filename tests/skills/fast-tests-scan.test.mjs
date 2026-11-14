@@ -3,14 +3,14 @@
 // Nothing here waits, reads a clock or touches the network: the scan reads tiny text files in a per-test temp folder, the validators read JSON, and the fixture's own
 // selfcheck takes an injected runner.
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { test } from 'node:test';
-import { flatten, loadEcosystems } from '../../control-plane/agents/ecosystems.mjs';
+import { backtracks, flatten, loadEcosystems, validate } from '../../control-plane/agents/ecosystems.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { CLI_COMMANDS } from '../../control-plane/agents/scripts/core/commands/cli.mjs';
-import { applyAllowlist, isTestFile, parseAllowlist, reportJson, reportText, scanFiles, scanRules, scanText, testPathGlobs } from '../../control-plane/agents/scripts/core/waitscan.mjs';
+import { OVERLAP, WINDOW, applyAllowlist, isTestFile, lineWindows, parseAllowlist, reportJson, reportText, scanFiles, scanRules, scanText, testPathGlobs } from '../../control-plane/agents/scripts/core/waitscan.mjs';
 import { parseException, planExceptions } from '../../control-plane/agents/scripts/core/testreview.mjs';
 import { build as buildFixture } from '../../fixtures/fast-tests/setup.mjs';
 import { checkFast, checkPlanExceptions } from '../../skills/test-trust/scripts/validate-findings.mjs';
@@ -225,6 +225,60 @@ test('R4: the allowlist: stale entries are judged for the scanned kind only; --h
   assert.match(sk.out, /NOT SCANNED: tests\/big\.test\.js/);
 });
 
+test('B2: text the scan cannot read is NOT SCANNED (UTF-16 with or without a byte order mark, NUL bytes); a UTF-8 byte order mark is dropped', () => {
+  const d = tmp();
+  const src = 'using Xunit;\n[Fact]\npublic void T() { Thread.Sleep(5000); }\n';
+  writeFileSync(path.join(d, 'a.cs'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(src, 'utf16le')]));
+  writeFileSync(path.join(d, 'b.cs'), Buffer.from(src, 'utf16le'));
+  writeFileSync(path.join(d, 'c.cs'), Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(src, 'utf16le').swap16()]));
+  writeFileSync(path.join(d, 'd.cs'), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(src)]));
+  writeFileSync(path.join(d, 'e.cs'), `${src}\u0000`);
+  const r = scanFiles(d, ['a.cs', 'b.cs', 'c.cs', 'd.cs', 'e.cs'], rules);
+  assert.deepEqual(r.skipped, ['a.cs', 'b.cs', 'c.cs', 'e.cs']);
+  assert.deepEqual(r.candidates.map((c) => `${c.file}:${c.pattern}`), ['d.cs:Thread.Sleep'], 'the UTF-8 file with a byte order mark is read normally');
+});
+
+test('B3: every shipped pattern is bounded: the validator rejects backtracking shapes, accepts the shipped markers, and no pattern ever sees more than one window', () => {
+  for (const bad of ['(a+)+', '(\\.\\w+)*', '\\w*\\w*', 'a{2,}', '(a{1,3}){2,}', '(x*y)*']) assert.equal(backtracks(bad), true, bad);
+  for (const ok of ['\\b(it)(\\.\\w{1,32}){0,3} ?\\(', '\\bdef test_\\w{0,80}\\(', '((a){1,3}){0,3}']) assert.equal(backtracks(ok), false, ok);
+  const markers = rows.filter((r) => r[1] === 'fast_tests.test_markers').map((r) => r[2]);
+  assert.ok(markers.length >= 10);
+  for (const m of markers) { assert.equal(backtracks(m), false, m); new RegExp(m); }
+  // the data validator refuses a definition that carries a bad marker
+  const def = structuredClone(loadEcosystems(path.join(root, 'control-plane/agents/ecosystems.json')));
+  def.ecosystems[0].fast_tests.test_markers = ['\\b(describe|it|test)(\\.\\w+)*\\s*\\('];
+  assert.ok(validate(def).some((e) => /can backtrack badly/.test(e)));
+  // however a pattern is written, it runs on windows of at most WINDOW characters
+  for (const line of ['it.'.repeat(70000), ' '.repeat(200000), 'new '.repeat(50000), 'x'.repeat(200000)]) {
+    const w = lineWindows(line);
+    assert.ok(w.every((x) => x.length <= WINDOW), 'a window is never longer than WINDOW');
+    assert.ok(w.length <= Math.ceil(line.length / (WINDOW - OVERLAP)) + 1);
+  }
+  assert.equal(lineWindows('a'.repeat(WINDOW * 3)).join('').length >= WINDOW * 3, true, 'the windows cover the line');
+  // a pathological file gives a verdict (the old marker took 8.7 s on 60 KB; the structural bounds above are what keep it from coming back)
+  assert.equal(isTestFile('support.js', 'it.'.repeat(70000), rules, []), false);
+  assert.equal(scanText('a.test.js', `${'it.'.repeat(70000)} setTimeout(f)`, rules, ['wait']).length, 1);
+});
+
+test('R-d: Rust inline tests are tests; a project copy cannot prune the scan away; an explicit symlink argument is reported, not ignored', () => {
+  const globs = testPathGlobs(rows);
+  for (const t of ['#[cfg(test)]\nmod tests {}', '#[tokio::test(flavor = "multi_thread")]\nasync fn t() {}', '#[actix_rt::test]\nasync fn t() {}']) assert.equal(isTestFile('src/lib.rs', t, rules, globs), true, t);
+  const d = tmp();
+  mkdirSync(path.join(d, '.agents'), { recursive: true });
+  mkdirSync(path.join(d, 'tests'), { recursive: true });
+  const def = JSON.parse(readFileSync(path.join(root, 'control-plane/agents/ecosystems.json'), 'utf8'));
+  def.global.prune = [...def.global.prune, 'tests', 'src'];
+  writeFileSync(path.join(d, '.agents/ecosystems.json'), JSON.stringify(def));
+  writeFileSync(path.join(d, 'tests/a.test.js'), 'setTimeout(f, 1);\n');
+  const r = inProcess(['.'], d);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /candidate: tests\/a\.test\.js:1 wait setTimeout/);
+  try { symlinkSync(path.join(d, 'tests'), path.join(d, 'link')); } catch { return; }   // no symbolic links here (a restricted file system): nothing more to prove
+  const l = inProcess(['link'], d);
+  assert.equal(l.status, 1);
+  assert.match(l.out, /NOT SCANNED: link /);
+});
+
 // ---- AC-7: the finding kinds and their validators ------------------------------------------------------------------------------------------
 
 const F = (/** @type {Record<string, unknown>} */ o) => ({ id: 'F001', kind: 'real_wait', verdict: 'confirmed', test: { file: 't.js', name: 'x' }, evidence: [], source_commit: null, ...o });
@@ -258,14 +312,23 @@ test('S4a: a not_measured finding is never cleared by the reviewer; only a plan 
   assert.deepEqual(checkFast({ findings: [F({ kind: 'not_measured', verdict: 'cleared', observed: { reason: 'not_double_run', detail: 'x', plan_exception: '- measure: `t.js` -- no runner can run this test in the sandbox' } })] }), []);
 });
 
-test('S4c: a plan line clears a finding only for its own test file or test name, and only for its own kind', () => {
-  const plan = '## Test exceptions\n\n- wait: `other.test.js` -- a real signal is awaited, no clock can fake it\n- wait: `tests/t.js` -- a real signal is awaited, no clock can fake it\n- measure: "slow one" -- the runner cannot report this test in the sandbox\n';
-  const f = (/** @type {string} */ e, /** @type {Record<string, unknown>} */ more = {}) => ({ findings: [F({ kind: 'real_wait', verdict: 'cleared', test: { file: 'tests/t.js', name: 'x' }, observed: { candidate: C, outcome: 'plan_justified', plan_exception: e }, ...more })] });
-  assert.match(checkPlanExceptions(f('- wait: `other.test.js` -- a real signal is awaited, no clock can fake it'), plan)[0], /not for this finding's test tests\/t\.js/);
-  assert.deepEqual(checkPlanExceptions(f('- wait: `tests/t.js` -- a real signal is awaited, no clock can fake it'), plan), []);
-  const nm = { findings: [F({ kind: 'not_measured', verdict: 'cleared', test: { file: 'tests/t.js', name: 'slow one' }, observed: { reason: 'no_recorded_duration', detail: 'slow one', plan_exception: '- measure: "slow one" -- the runner cannot report this test in the sandbox' } })] };
-  assert.deepEqual(checkPlanExceptions(nm, plan), []);
-  assert.match(checkPlanExceptions(f('- measure: "slow one" -- the runner cannot report this test in the sandbox'), plan)[0], /"- wait: \.\.\." line/);
+test('S4c / B1: a plan line clears a finding only for the target of the OBLIGATION it answers (the candidate file, the BUDGET test name, the subject), not for what the reviewer wrote', () => {
+  const plan = '## Test exceptions\n\n- wait: `tests/a.test.js` -- a real signal is awaited, no clock can fake it\n- wait: `B.test.js:7` -- a real signal is awaited, no clock can fake it\n- measure: "slow one" -- the runner cannot report this test in the sandbox\n- budget: "s" -- a real database migration runs in this test\n';
+  const wait = (/** @type {string} */ e, cfile = 'tests/B.test.js', line = 7) => ({ findings: [F({ kind: 'real_wait', verdict: 'cleared', test: { file: 'tests/a.test.js', name: 'x' }, observed: { candidate: { file: cfile, line, pattern: 'setTimeout' }, outcome: 'plan_justified', plan_exception: e } })] });
+  // the PoC: a wait in B, the reviewer writes test.file = a.test.js and quotes the line for a.test.js
+  assert.match(checkPlanExceptions(wait('- wait: `tests/a.test.js` -- a real signal is awaited, no clock can fake it'), plan)[0], /not the target this finding answers \(tests\/B\.test\.js\)/);
+  assert.deepEqual(checkPlanExceptions(wait('- wait: `B.test.js:7` -- a real signal is awaited, no clock can fake it'), plan), [], 'a path suffix on a directory boundary, with the line');
+  assert.equal(checkPlanExceptions(wait('- wait: `B.test.js:7` -- a real signal is awaited, no clock can fake it', 'tests/B.test.js', 8), plan).length, 1, 'another line');
+  assert.equal(checkPlanExceptions(wait('- wait: `B.test.js:7` -- a real signal is awaited, no clock can fake it', 'tests/AB.test.js'), plan).length, 1, 'a suffix that does not start on a directory boundary');
+  const nm = (/** @type {string} */ subject, /** @type {string} */ name, /** @type {string} */ e) => ({ findings: [F({ kind: 'not_measured', verdict: 'cleared', test: { file: 'tests/t.js', name }, observed: { reason: 'file_not_scanned', subject, detail: 'x', plan_exception: e } })] });
+  const slow = '- measure: "slow one" -- the runner cannot report this test in the sandbox';
+  assert.equal(checkPlanExceptions(nm('tests/other.js', 's', slow), plan).length, 1, 'an unrelated measure line clears nothing, whatever name the reviewer gives the test');
+  assert.deepEqual(checkPlanExceptions(nm('slow one', 's', slow), plan), []);
+  // the LOW: a one-character test name is no longer "contained" in the plan target
+  const bud = (/** @type {string} */ name) => ({ findings: [F({ kind: 'over_budget', verdict: 'cleared', test: { file: 't.js', name }, observed: { outcome: 'plan_justified', measured_ms: 1, budget_ms: 1, budget_source: 'plan', plan_exception: '- budget: "s" -- a real database migration runs in this test' } })] });
+  assert.equal(checkPlanExceptions(bud('slow one'), plan).length, 1);
+  assert.deepEqual(checkPlanExceptions(bud('s'), plan), []);
+  assert.match(checkPlanExceptions(wait('- measure: "slow one" -- the runner cannot report this test in the sandbox'), plan)[0], /"- wait: \.\.\." line/);
 });
 
 test('over_budget: the measured duration must exceed the budget, and only a plan line justifies it', () => {

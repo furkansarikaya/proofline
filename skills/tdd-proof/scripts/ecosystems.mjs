@@ -149,6 +149,16 @@ const ECO_ARRAYS = ["prune", "project_files", "manifests", "locks", "settings", 
 const COMMAND_KEYS = ["truth", "tools", "ci_lint", "runners", "build", "test", "lint"];
 const TEST_KEYS = ["status", "runners", "no_tests", "compile", "assertion", "exit_codes"];
 const BENCH_KEYS = ["scripts", "dirs", "files", "dependencies", "config_files"];
+// A heuristic for the data-driven patterns (A276): true when the source repeats inside a repeated group, uses an open-ended {n,}, or has two adjacent unbounded repeats.
+export function backtracks(src) {
+  if (/\{\d+,\}/.test(src)) return true;
+  const IN = String.raw`(?:[^()\\]|\\.)*`;
+  const UNB = String.raw`(?:[*+]|\{\d+,\})`;          // an open-ended repeat
+  const ANY = String.raw`(?:[*+?]|\{\d+(?:,\d*)?\})`; // any repeat
+  if (new RegExp(`\\(${IN}${UNB}${IN}\\)${ANY}`).test(src) || new RegExp(`\\(${IN}${ANY}${IN}\\)${UNB}`).test(src)) return true;
+  if (/(?:\\[sdwSDW]|\.|\])[*+]\??(?:\\[sdwSDW]|\.|\[)[*+]/.test(src)) return true;
+  return false;
+}
 export function validate(data = loadEcosystems()) {
   const err = [];
   const need = (cond, msg) => { if (!cond) err.push(msg); };
@@ -218,6 +228,8 @@ export function validate(data = loadEcosystems()) {
     need(Array.isArray(ft.files) && ft.files.length > 0 && ft.files.every((x) => typeof x === "string" && /^\*\.[A-Za-z0-9]+$/.test(x)), `${w}: fast_tests.files must be a non-empty array of "*.<extension>" globs`);
     // the markers that say a file holds tests whatever its name (a regular expression each, searched in the text): the scan looks for waits in such a file even when its name is not a test name
     need(Array.isArray(ft.test_markers) && ft.test_markers.length > 0 && ft.test_markers.every((x) => { try { new RegExp(x); return typeof x === "string" && x !== ""; } catch { return false; } }), `${w}: fast_tests.test_markers must be a non-empty array of regular expressions`);
+    // a pattern the scan runs over text must not be able to backtrack badly: no repetition inside a repeated group, no unbounded `{n,}`, no two unbounded repeats of the same kind of character in a row
+    for (const x of Array.isArray(ft.test_markers) ? ft.test_markers : []) need(typeof x === "string" && !backtracks(x), `${w}: fast_tests.test_markers ${String(x)} can backtrack badly (a repeat inside a repeated group, an unbounded {n,}, or two unbounded repeats in a row); bound the repetition`);
     for (const k of ["sleep", "clock_reads"]) need(Array.isArray(ft[k]) && ft[k].length > 0 && ft[k].every((x) => typeof x === "string" && x.trim() !== ""), `${w}: fast_tests.${k} must be a non-empty array of non-empty strings`);
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);

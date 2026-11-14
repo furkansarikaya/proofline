@@ -767,6 +767,7 @@
       "type": "object",
       "required": [
         "reason",
+        "subject",
         "detail"
       ],
       "properties": {
@@ -778,7 +779,8 @@
             "command_not_double_run",
             "command_does_not_run_test",
             "file_not_scanned",
-            "measurement_finding"
+            "measurement_finding",
+            "definition_changed"
           ],
           "description": "not_double_run: the test-measure row says double_run=0. no_test_measure_row: the control plane never measured the run. no_recorded_duration: the plan names the test and no duration was recorded. command_not_double_run: a GREEN command is neither plan-listed nor the pinned project test command. command_does_not_run_test: the double-run command does not execute the test. file_not_scanned: the scan could not read a changed file. measurement_finding: the test-measure row records a stability or duration finding."
         },
@@ -790,6 +792,11 @@
           "type": "string",
           "minLength": 1,
           "description": "The exact `- measure: ...` line of PLAN ## Test exceptions (required to clear a not_measured finding)."
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the scan input names: the file for file_not_scanned, the plan test for no_recorded_duration, the command for command_not_double_run, and the reason itself for no_test_measure_row, not_double_run, measurement_finding; ecosystems.json for definition_changed. Exactly that text, one finding per subject."
         }
       }
     }

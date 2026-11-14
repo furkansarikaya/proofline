@@ -18,7 +18,7 @@ import { nextUser } from '../nextuser.mjs';
 import { queue } from '../queue.mjs';
 import { preCommit, prePush } from '../githooks.mjs';
 import { builtinScan } from '../secretscan.mjs';
-import { ecosystemRowsAll } from '../ecodata.mjs';
+import { ecosystemRowsAll, ecosystemRowsOwn } from '../ecodata.mjs';
 import { KINDS as SCAN_KINDS, applyAllowlist, listFiles, parseAllowlist, pruneNames, reportJson, reportText as scanText, scanFiles, scanRules } from '../waitscan.mjs';
 import { slug as slugOf } from '../slug.mjs';
 import { runTaskAdapter } from '../adapters/index.mjs';
@@ -130,10 +130,12 @@ function testScanCli(ctx, args) {
     if (p.errors.length > 0) throw bad(p.errors.join('; '));
     entries = p.entries;
   }
-  const listed = listFiles(root, targets, pruneNames(rows));
+  // the folders not to walk come from the control plane's own definition only: a project copy that lists `tests` as pruned must not make the scan see no file
+  const listed = listFiles(root, targets, pruneNames(ecosystemRowsOwn(ctx)));
   if (listed.errors.length > 0) throw bad(listed.errors.join('; '));
   const kinds = kind === 'all' ? SCAN_KINDS : [kind];
   const scan = scanFiles(root, listed.files, rules, () => kinds);
+  scan.skipped.push(...listed.skipped);
   const split = applyAllowlist(scan.candidates, entries, { kinds, rules });
   const report = { scanned: scan.scanned, skipped: scan.skipped, candidates: split.open, allowed: split.allowed, unused: split.unused };
   ctx.out(json ? reportJson(report) : scanText(report));

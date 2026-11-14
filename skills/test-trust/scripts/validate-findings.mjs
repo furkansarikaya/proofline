@@ -178,6 +178,23 @@ export function exceptionLine(line) {
   const reason = rest.slice(sep).replace(/^[ \t](?:--|—)[ \t]/, "").trim();
   return target === "" || reason.length < 20 ? null : { kind: head[1], target: target.replace(/[`"]/g, "") };
 }
+// The target of the finding is the OBLIGATION it answers, not what the reviewer wrote about it: the candidate's file for a wait, the BUDGET test's name for a budget, the
+// `subject` for an unmeasured fact (`submit` makes each of them equal to the scan input's own). The plan line must name exactly that: the same path, or a path ending in it on a
+// directory boundary (`B.test.js` for `tests/B.test.js`), with an optional `:line` for a wait; a test name must be equal. No substring match.
+function targetFits(kind, f, t) {
+  const o = f.observed ?? {};
+  if (kind === "wait") {
+    const file = String(o.candidate?.file ?? "");
+    const m = /^(.*?)(?::(\d+))?$/.exec(t);
+    const p = m ? m[1] : t;
+    if (m && m[2] !== undefined && Number(m[2]) !== o.candidate?.line) return false;
+    return file !== "" && p !== "" && (p === file || file.endsWith(`/${p}`));
+  }
+  if (kind === "budget") return String(f.test?.name ?? "").trim().toLowerCase() === t.trim().toLowerCase() && t.trim() !== "";
+  const subject = String(o.subject ?? "");
+  if (subject === "") return false;
+  return t === subject || (subject.includes("/") && subject.endsWith(`/${t}`));
+}
 export function checkPlanExceptions(doc, planText) {
   const errors = [];
   const lines = [];
@@ -192,10 +209,7 @@ export function checkPlanExceptions(doc, planText) {
     const kind = f.kind === "over_budget" ? "budget" : f.kind === "not_measured" ? "measure" : "wait";
     const x = lines.includes(String(e).trim()) ? exceptionLine(String(e).trim()) : null;
     if (!x || x.kind !== kind) { errors.push(`${f.id}: plan_exception is not a "- ${kind}: ..." line of PLAN ## Test exceptions: ${String(e).slice(0, 80)}`); continue; }
-    const file = String(f.test?.file ?? ""); const name = String(f.test?.name ?? "");
-    const t = x.target;
-    const fits = t === file || (file !== "" && (t.includes(file) || file.endsWith(`/${t}`))) || (name !== "" && (t === name || t.includes(name)));
-    if (!fits) errors.push(`${f.id}: the plan line is for "${t.slice(0, 60)}", not for this finding's test ${file || name}: a line written for another test clears nothing here`);
+    if (!targetFits(kind, f, x.target)) errors.push(`${f.id}: the plan line is for "${x.target.slice(0, 60)}", which is not the target this finding answers (${kind === "wait" ? f.observed?.candidate?.file : kind === "budget" ? f.test?.name : f.observed?.subject}): a line written for another target clears nothing here`);
   }
   return errors;
 }

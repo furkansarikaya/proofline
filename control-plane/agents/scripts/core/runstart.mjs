@@ -9,6 +9,7 @@ import { fail, unsupported } from './errors.mjs';
 import { requireLead } from './approve.mjs';
 import { batchMember } from './next.mjs';
 import { testCmdPin } from './testmeasure.mjs';
+import { ecoPin } from './testreview.mjs';
 import { led } from './lifeutil.mjs';
 import { isFile } from './paths.mjs';
 import { notRunRelative } from './pathin.mjs';
@@ -136,6 +137,7 @@ export function startRun(ctx, argv) {
     ctx.forget('file:');
     led(ctx, id, 'start', '-', 'PLANNED', `task=${taskPath} adapter=${adapter} measure=1`);
     led(ctx, id, 'test-cmd-pin', '-', '-', `testcmd=${testCmdPin(ctx.config().cmds('commands.test'))}`); // the project test command as the run started (A275): the implementer cannot change it later
+    led(ctx, id, 'eco-pin', '-', '-', `sha=${ecoPin(ctx)}`); // the scan for real waits (issue 265) must read the definition the run started with (A276)
     dbGuardBaseline(ctx, id);
     statusBlockUpdate(ctx, id, 'run-start');
     ctx.out(`run started: ${id} task=${taskPath}\n`);

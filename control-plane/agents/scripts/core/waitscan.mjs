@@ -53,7 +53,10 @@ export function testPathGlobs(rows) { return [...new Set((rows ?? []).filter((r)
  */
 export function isTestFile(file, text, rules, testGlobs) {
   if (testGlobs.some((g) => globRe(g).test(file))) return true;
-  for (const r of claimedBy(file, rules)) for (const m of r.markers) { let re; try { re = new RegExp(m, 'm'); } catch { continue; } if (re.test(text)) return true; }
+  /** @type {RegExp[]} */ const res = [];
+  for (const r of claimedBy(file, rules)) for (const m of r.markers) { try { res.push(new RegExp(m)); } catch { /* not a regular expression: skipped */ } }
+  if (res.length === 0) return false;
+  for (const l of text.split('\n')) for (const w of lineWindows(l)) if (res.some((re) => re.test(w))) return true;
   return false;
 }
 
@@ -63,10 +66,23 @@ function cmp(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
 /** @param {string} s */
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** The word-bounded pattern of a name: a space in the name matches any run of blanks; a boundary is added on a side that starts or ends with a word character. @param {string} name */
+/**
+ * The word-bounded pattern of a name: a literal (a space in the name is one space: the scanned text has its blank runs collapsed first, so the pattern has no repetition at all and
+ * cannot backtrack); a boundary is added on a side that starts or ends with a word character. @param {string} name
+ */
 export function patternFor(name) {
-  const body = escapeRe(name).replace(/ +/g, '\\s+');
-  return new RegExp(`${/^\w/.test(name) ? '\\b' : ''}${body}${/\w$/.test(name) ? '\\b' : ''}`);
+  return new RegExp(`${/^\w/.test(name) ? '\\b' : ''}${escapeRe(name)}${/\w$/.test(name) ? '\\b' : ''}`);
+}
+
+export const WINDOW = 8192;
+export const OVERLAP = 256;
+/** A line as the pieces a pattern is run on: blank runs collapsed to one space (linear), then windows of at most WINDOW characters overlapping by OVERLAP, so the work of any pattern, however it was written, is bounded by the window and not by the length of the line. @param {string} line @returns {string[]} */
+export function lineWindows(line) {
+  const c = line.replace(/\r$/, '').replace(/\s+/g, ' ');
+  if (c.length <= WINDOW) return [c];
+  /** @type {string[]} */ const out = [];
+  for (let i = 0; i < c.length; i += WINDOW - OVERLAP) { out.push(c.slice(i, i + WINDOW)); if (i + WINDOW >= c.length) break; }
+  return out;
 }
 
 /** A glob as a regular expression: `*` (and `**`) any characters, `?` one character. @param {string} glob */
@@ -89,12 +105,13 @@ export function scanText(file, text, rules, kinds = KINDS) {
   /** @type {Map<string, Candidate>} */ const out = new Map();
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i].replace(/\r$/, '');   // a line of any length is scanned in full: every pattern is a literal with blanks, so matching is linear
-    for (const p of pats) {
-      const m = p.re.exec(l);
-      if (!m) continue;
-      const key = `${i + 1}\0${p.kind}\0${p.pattern}`;
-      if (!out.has(key)) out.set(key, { file, line: i + 1, kind: p.kind, pattern: p.pattern, source: p.source, text: l.slice(Math.max(0, m.index - 60), m.index + 100).trim() });
+    for (const w of lineWindows(lines[i])) {
+      for (const p of pats) {
+        const m = p.re.exec(w);
+        if (!m) continue;
+        const key = `${i + 1}\0${p.kind}\0${p.pattern}`;
+        if (!out.has(key)) out.set(key, { file, line: i + 1, kind: p.kind, pattern: p.pattern, source: p.source, text: w.slice(Math.max(0, m.index - 60), m.index + 100).trim() });
+      }
     }
   }
   return sortCandidates([...out.values()]);
@@ -147,11 +164,11 @@ export function applyAllowlist(cands, entries, o = {}) {
 /**
  * The files under the given paths (a file is itself, a directory is walked, sorted), relative to `root`, with the pruned folder names left out and symbolic links
  * skipped. A path outside the root is an error.
- * @param {string} root @param {string[]} targets @param {Set<string>} prune @returns {{ files: string[], errors: string[] }}
+ * @param {string} root @param {string[]} targets @param {Set<string>} prune @returns {{ files: string[], errors: string[], skipped: string[] }}
  */
 export function listFiles(root, targets, prune) {
-  /** @type {Set<string>} */ const files = new Set(); /** @type {string[]} */ const errors = [];
-  let rr; try { rr = realpathSync(root); } catch { return { files: [], errors: [`no such directory: ${root}`] }; }
+  /** @type {Set<string>} */ const files = new Set(); /** @type {string[]} */ const errors = []; /** @type {string[]} */ const skipped = [];
+  let rr; try { rr = realpathSync(root); } catch { return { files: [], errors: [`no such directory: ${root}`], skipped }; }
   /** @param {string} abs */
   const walk = (abs) => {
     let st; try { st = lstatSync(abs); } catch { return; }
@@ -164,11 +181,13 @@ export function listFiles(root, targets, prune) {
   };
   for (const t of targets) {
     const abs = path.resolve(rr, t);
+    // a path the caller names is never dropped without a word: a symbolic link is not followed and is reported as not scanned
+    try { if (lstatSync(abs).isSymbolicLink()) { skipped.push(path.relative(rr, abs).split(path.sep).join('/') || t); continue; } } catch { /* reported below */ }
     let real; try { real = realpathSync(abs); } catch { errors.push(`no such file or directory: ${t}`); continue; }
     if (real !== rr && !real.startsWith(rr + path.sep)) { errors.push(`outside the scan root: ${t}`); continue; }
     walk(abs);
   }
-  return { files: [...files].sort(cmp), errors };
+  return { files: [...files].sort(cmp), errors, skipped };
 }
 
 /** The pruned folder names of the definition rows (`prune` of the global part and of every ecosystem). @param {string[][] | null} rows */
@@ -184,7 +203,14 @@ export function scanFiles(root, files, rules, kindsOf = () => KINDS) {
   for (const f of files) {
     if (claimedBy(f, rules).length === 0) continue;
     let text;
-    try { const abs = path.join(root, f); const st = lstatSync(abs); if (!st.isFile() || st.size > MAX_FILE_BYTES) { skipped.push(f); continue; } text = readFileSync(abs, 'utf8'); } catch { skipped.push(f); continue; }
+    try {
+      const abs = path.join(root, f); const st = lstatSync(abs);
+      if (!st.isFile() || st.size > MAX_FILE_BYTES) { skipped.push(f); continue; }
+      const buf = readFileSync(abs);
+      // text this scan cannot read is not a clean file: a NUL byte (UTF-16 or binary) or a UTF-16 byte order mark; a UTF-8 byte order mark is just dropped
+      if (buf.includes(0) || (buf.length >= 2 && ((buf[0] === 0xff && buf[1] === 0xfe) || (buf[0] === 0xfe && buf[1] === 0xff)))) { skipped.push(f); continue; }
+      text = buf.toString('utf8').replace(/^\ufeff/, '');
+    } catch { skipped.push(f); continue; }
     scanned.push(f);
     candidates.push(...scanText(f, text, rules, kindsOf(f, text)));
   }
@@ -217,6 +243,6 @@ export function reportText(r) {
   for (const c of r.candidates) t += `candidate: ${clean(c.file)}:${c.line} ${c.kind} ${clean(c.pattern)} | ${clean(c.text)}\n`;
   for (const c of r.allowed) t += `allowed: ${clean(c.file)}:${c.line} ${c.kind} ${clean(c.pattern)} (${clean(c.reason)})\n`;
   for (const e of r.unused) t += `unused-allowlist-entry: line ${e.line}: ${clean(e.glob)} ${clean(e.pattern)} matched nothing\n`;
-  for (const f of r.skipped) t += `NOT SCANNED: ${clean(f)} (unreadable, not a regular file or over ${MAX_FILE_BYTES} bytes); a file nobody scanned is not a clean file\n`;
+  for (const f of r.skipped) t += `NOT SCANNED: ${clean(f)} (unreadable, not a regular file, a NUL byte or UTF-16 text, or over ${MAX_FILE_BYTES} bytes); a file nobody scanned is not a clean file\n`;
   return t;
 }
