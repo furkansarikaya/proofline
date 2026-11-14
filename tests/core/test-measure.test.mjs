@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
-import { DEFAULTS, KINDS, budgetCheck, budgetTable, doubleRun, durationsExceedWall, greenRecords, kindOf, parseDurations, planKinds, realRunner, toleranceOf, withinTolerance } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
+import { DEFAULTS, KINDS, budgetCheck, budgetTable, doubleRun, durationsExceedWall, greenRecords, kindOf, parseDurations, planKinds, realRunner, testCmdPin, toleranceOf, withinTolerance } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
 import { A, accepted, cached, codeKey, copyOf, project, refused, sha256, tmp, wclose, wev, wopen } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
 import { setCmd } from './helper-lib.mjs';
@@ -115,7 +115,10 @@ test('double run: failing on both runs contradicts the recorded GREEN; a time-ou
 // ---- the control plane: recorder, build record, handoff ----------------------------------------------------------------------------
 
 /** Stamp a scaffolded run as started by this version (a real `start` writes the row; a scaffold writes none, which is how an older run looks). @param {string} d */
-function stamp(d) { ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'start', '-', 'PLANNED', 'task=tasks/LC.md adapter=markdown measure=1'); }
+function stamp(d, testCmd = '') {
+  ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'start', '-', 'PLANNED', 'task=tasks/LC.md adapter=markdown measure=1');
+  ledgerAppend(path.join(d, '.agents/runs/LC'), 'lead', 'test-cmd-pin', '-', '-', `testcmd=${testCmdPin(testCmd === '' ? [] : [testCmd])}`); // what a real start records: the project test command as the run started
+}
 const PLAN = '\n## Tests\n\n- AC-1: `impl_test.txt` "slow one" — it is slow (test_kind: unit)\n- AC-2: `impl_test.txt` "fast one" — it is fast (test_kind: unit)\n\n## Test budgets\n\n- unit: test 100 ms; suite 1000 ms\n';
 /** RED recorded and the implementation changed, so the next GREEN is accepted; the window is left open. @param {string} d */
 function redThenFix(d) {
@@ -128,14 +131,14 @@ function redThenFix(d) {
 /**
  * A project at the point every test below starts from (RED recorded, the implementation changed, the window open), built once per code and options and copied: the
  * cost of the five agent.sh calls that get there is paid once, not by every test. `stamped: false` is a run as an older version started it.
- * @param {{ stamped?: boolean, scaffold?: Record<string, unknown> }} [o] @returns {{ d: string, w: string }}
+ * @param {{ stamped?: boolean, scaffold?: Record<string, unknown>, testCmd?: string }} [o] testCmd: the commands.test the run started with @returns {{ d: string, w: string }}
  */
 function seeded(o = {}) {
   const stamped = o.stamped !== false;
-  const key = `tm-${codeKey()}-${sha256(JSON.stringify([stamped, o.scaffold ?? {}])).slice(0, 12)}`;
+  const key = `tm-${codeKey()}-${sha256(JSON.stringify([stamped, o.scaffold ?? {}, o.testCmd ?? ''])).slice(0, 12)}`;
   const d = copyOf(cached(key, (work) => {
     const b = project({ topology: 'orchestrated', ...(o.scaffold ?? {}) });
-    if (stamped) stamp(b);
+    if (stamped) stamp(b, o.testCmd);
     const w = redThenFix(b);
     writeFileSync(path.join(b, '.seed-window'), w);
     cpSync(b, work, { recursive: true });
@@ -247,25 +250,49 @@ test('a measured run blocks on a GREEN command that is neither configured nor in
   assert.match(accepted(A(old.d, ['handoff', 'LC', 'IMPLEMENTED']), 'an older run').text, /note: not run twice: `go test \.\/\.\.\.` is neither a configured command/);
 });
 
-test('the configured test command needs no plan listing: it is double-run, a flaky one stops the handoff and a stable one passes', () => {
-  const f = seeded({ scaffold: { planExtra: verif('node --version') } }); // the plan lists something else
+test('the configured test command (as the run started) needs no plan listing: it is double-run, a flaky one stops the handoff and a stable one passes', () => {
+  const f = seeded({ testCmd: COUNTER, scaffold: { planExtra: verif('node --version') } }); // the run started with COUNTER as commands.test; the plan lists something else
   const c = counterIn(f.d, '1');
-  setCmd(f.d, 'test', c.command);
-  accepted(green(f.d, c.command, 'test_durations: lookup=1\n'), 'GREEN with the configured test command');
+  setCmd(f.d, 'test', COUNTER);
+  accepted(green(f.d, COUNTER, 'test_durations: lookup=1\n'), 'GREEN with the configured test command');
   wclose(f.d, f.w);
   refused(A(f.d, ['handoff', 'LC', 'IMPLEMENTED']), 'a flaky configured test command', 'IMPLEMENTED blocked: STABILITY');
   assert.equal(c.runs(), 2, 'run exactly twice');
-  const s = seeded({ scaffold: { planExtra: verif('node --version') } });
+  const s = seeded({ testCmd: COUNTER, scaffold: { planExtra: verif('node --version') } });
   const c2 = counterIn(s.d, '0');
-  setCmd(s.d, 'test', c2.command);
-  accepted(green(s.d, c2.command, 'test_durations: lookup=1\n'), 'GREEN');
+  setCmd(s.d, 'test', COUNTER);
+  accepted(green(s.d, COUNTER, 'test_durations: lookup=1\n'), 'GREEN');
   wclose(s.d, s.w);
   accepted(A(s.d, ['handoff', 'LC', 'IMPLEMENTED']), 'a stable configured test command');
   assert.ok(c2.runs() >= 2);
 });
 
+test('commands.test edited after the run started does not count: an uncommitted edit to `true` and GREEN `true` stays blocked and the plan command is not skipped', () => {
+  const { d, w, c } = counterProject('1');
+  setCmd(d, 'test', 'true');
+  accepted(green(d, 'true', 'test_durations: lookup=1\n'), 'GREEN with the tampered command');
+  wclose(d, w);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r, 'a tampered commands.test', 'is neither an entry of the plan\'s ## Verification commands nor the configured test command');
+  assert.match(r.text, /commands\.test changed since the run started to `true`; only the command the run started with counts/);
+  assert.equal(c.runs(), 0, 'the plan command did not run, and the tampered one was not accepted in its place');
+});
+
+test('commands.test changed by a commit after the start is blocked too', () => {
+  const { d, w } = counterProject('1');
+  setCmd(d, 'test', 'true');
+  const id = ['-c', 'user.email=a@b.c', '-c', 'user.name=a'];
+  execFileSync('git', [...id, 'add', '-f', '.agents/config.yaml'], { cwd: d });
+  execFileSync('git', [...id, 'commit', '-q', '-m', 'tamper'], { cwd: d });
+  accepted(green(d, 'true', 'test_durations: lookup=1\n'), 'GREEN with the tampered command');
+  wclose(d, w);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.text, /IMPLEMENTED blocked: the GREEN command `true`/);
+});
+
 test('the block message says what to do without a plan amendment when a test command is configured, and asks for an amendment only when none is', () => {
-  const a = seeded();
+  const a = seeded({ testCmd: 'node --version' });
   setCmd(a.d, 'test', 'node --version');
   accepted(green(a.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
   wclose(a.d, a.w);
@@ -274,7 +301,6 @@ test('the block message says what to do without a plan amendment when a test com
   assert.match(ra.text, /no plan amendment is needed/);
   assert.doesNotMatch(ra.text, /refreeze/);
   const b = seeded();
-  setCmd(b.d, 'test', '');
   accepted(green(b.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN');
   wclose(b.d, b.w);
   refused(A(b.d, ['handoff', 'LC', 'IMPLEMENTED']), 'nothing configured, nothing listed', 'a plan amendment and a refreeze must list the narrow command');

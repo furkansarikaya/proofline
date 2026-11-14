@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { monoMs } from './clock.mjs';
 import { ecosystemRows } from './ecodata.mjs';
+import { createHash } from 'node:crypto';
 import { git, headSha } from './git.mjs';
 import { listNames } from './ledger.mjs';
 import * as proc from './proc.mjs';
@@ -266,6 +267,23 @@ export function retriesInProject(ctx) {
   return out;
 }
 
+/**
+ * The pin of the project's test command(s): the sorted SHA-256 of each `commands.test` entry, comma separated, empty when none is configured. The run start writes it
+ * into a `test-cmd-pin` row of the sealed ledger next to the start row (`testcmd=`), so the implementer, who can edit the working tree and even commit a config change after the start, cannot make
+ * another command count as the project's test command: only a GREEN command with a pinned hash is accepted, whatever the config says later.
+ * @param {string[]} cmds
+ */
+export function testCmdPin(cmds) { return cmds.filter((c) => c !== '').map(cmdHash).sort().join(','); }
+/** @param {string} c */
+const cmdHash = (c) => createHash('sha256').update(Buffer.from(c, 'utf8')).digest('hex');
+
+/** The pin recorded on the start row of the run, or null when the run was started without one (then only plan-listed commands count). @param {Context} ctx @param {string} id @returns {string | null} */
+export function recordedTestPin(ctx, id) {
+  const first = ledgerLines(ctx, runDir(ctx, id)).find((l) => l.includes(' event=test-cmd-pin '));
+  const m = first === undefined ? null : / detail=testcmd=([0-9a-f,]*)$/.exec(first);
+  return m ? m[1] : null;
+}
+
 // ---- the run: one report ----------------------------------------------------------------------------------------------------------------
 
 /** Does this run carry the measurement stamp (`measure=1` on the start row of its sealed ledger)? A run started before the stamp existed does not. @param {Context} ctx @param {string} id */
@@ -295,18 +313,26 @@ export function measureRun(ctx, id, opt = {}) {
   if (opt.runner) {
     const stamped = measureRequired(ctx, id);
     // a measured run is measured on the plan-listed Verification commands OR the project's own configured test command (it runs the real suite, so it runs the new tests); a configured build, lint or other command never runs the new tests, so being configured is not enough for those
-    const configuredTests = ctx.config().cmds('commands.test').filter((c) => c !== '');
-    const allowed = new Set(stamped ? [...planVerificationCommands(ctx, id), ...configuredTests] : reproduceAllowed(ctx, id));
+    const pin = stamped ? recordedTestPin(ctx, id) : null;
+    const pinned = new Set((pin ?? '').split(',').filter((h) => h !== ''));
+    const live = ctx.config().cmds('commands.test').filter((c) => c !== '');
+    const changed = stamped && pin !== null && testCmdPin(live) !== pin;
+    const configuredTests = changed ? [] : live; // names the project test command in a message, only when it is still the pinned one
+    const isPinned = (/** @type {string} */ c) => pinned.has(cmdHash(c));
+    const listed = new Set(stamped ? planVerificationCommands(ctx, id) : []);
+    const legacy = new Set(stamped ? [] : reproduceAllowed(ctx, id));
+    const allowed = { has: (/** @type {string} */ c) => (stamped ? isPinned(c) || listed.has(c) : legacy.has(c)) };
     const cmds = [...new Set(greens.map((g) => g.command).filter((c) => c !== ''))];
     const todo = cmds.filter((c) => allowed.has(c));
     for (const c of cmds) {
       if (allowed.has(c)) continue;
       // a run that carries the measurement stamp is measured on a plan-listed command or the configured test command: the implementer's own string never decides
       if (stamped) {
-        const doThis = configuredTests.length > 0
-          ? `re-record GREEN with the project test command (${configuredTests.map((t) => `\`${t}\``).join(' or ')}) or a command the plan lists under ## Verification commands; no plan amendment is needed for that`
+        const doThis = configuredTests.length > 0 || (pinned.size > 0 && !changed)
+          ? `re-record GREEN with the project test command (${configuredTests.length > 0 ? configuredTests.map((t) => `\`${t}\``).join(' or ') : 'the commands.test the run started with'}) or a command the plan lists under ## Verification commands; no plan amendment is needed for that`
           : "no test command is configured (commands.test) and the plan lists none for this command, so a plan amendment and a refreeze must list the narrow command that runs the new or changed tests in ## Verification commands";
-        blockers.push(`the GREEN command \`${c}\` is neither an entry of the plan's ## Verification commands nor the configured test command (a configured build or lint command does not count: it does not run the new tests), so it cannot be run twice: ${doThis}`);
+        const note = changed ? ` (commands.test changed since the run started${live.length > 0 ? ` to \`${live.join('` or `')}\`` : ''}; only the command the run started with counts)` : '';
+        blockers.push(`the GREEN command \`${c}\` is neither an entry of the plan's ## Verification commands nor the configured test command (a configured build or lint command does not count: it does not run the new tests), so it cannot be run twice${note}: ${doThis}`);
       } else notRun.push(c);
     }
     if (todo.length > 0) {
