@@ -7,9 +7,9 @@
 //   dbCheckToken(ctx, token, what)    deny unless TOKEN is no database file or a scratch one (the file tools use it for their paths too)
 //   dbGuardCmd(ctx, scan)             the Bash command: tokens of every command and write target, SQL clients, destructive SQL, migrations
 //   scratchPath(ctx, p)               a throwaway location outside the project root
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isDir as isDirectory } from '../lib/fsx.mjs';
-import { cmdSubst, isAbsPath, isWin, pathKey, winSpell } from '../lib/text.mjs';
+import { cmdSubst, isAbsPath, isWin, pathKey, posix, winSpell } from '../lib/text.mjs';
 import { cParts, deny, dn, physDir, ereToJs, globMatch, grepq, hcfgLoad, lines, mcFail, stateOf } from './kit.mjs';
 
 const DSQL = new RegExp('(^|[^a-z_])(drop[ \\t\\n\\v\\f\\r]+(table|column|index|view|schema|database|trigger)|alter[ \\t\\n\\v\\f\\r]+table[^;]*[ \\t\\n\\v\\f\\r]drop[ \\t\\n\\v\\f\\r]|truncate[ \\t\\n\\v\\f\\r]+(table[ \\t\\n\\v\\f\\r]+)?[a-z_"`]|delete[ \\t\\n\\v\\f\\r]+from[ \\t\\n\\v\\f\\r])', 'i');
@@ -77,12 +77,44 @@ export function scratchPath(ctx, p0) {
 function dbIsPath(ctx, tok0) {
   // A271: on a Windows host the token is read in one spelling (backslashes, `C:\x`, `/c/x`, `\\srv\share\x`, trailing dots) and compared without case
   const w = isWin();
-  const tok = w ? winSpell(tok0).p.replace(/[A-Z]/g, (c) => c.toLowerCase()) : tok0;
+  const low = (/** @type {string} */ x) => x.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  const sp = w ? winSpell(tok0).p : tok0;
+  const toks = [w ? low(sp) : tok0];
+  // an 8.3 alias (`DEV~1.SQL`) names the file the entry names: its long form decides; one that cannot be resolved is checked as an alias of an entry's name
+  let alias = false;
+  if (w && /~[0-9]/.test(sp) && !sp.startsWith('//')) {
+    let long = '';
+    try { long = posix(realpathSync.native(isAbsPath(sp) ? sp : `${ctx.cwd ?? ''}/${sp}`)); } catch { /* not there */ }
+    if (long !== '') toks.push(low(long)); else alias = true;
+  }
   for (const g0 of stateOf(ctx).dbPaths.split(/[ \t\n]+/).filter((x) => x !== '')) {
     const g = w ? g0.replace(/\\/g, '/').replace(/[A-Z]/g, (c) => c.toLowerCase()) : g0;
-    if (g.includes('/')) { if (globMatch(g, tok) || globMatch(`*/${g}`, tok)) return true; } else if (globMatch(g, tok.slice(tok.lastIndexOf('/') + 1))) return true;
+    for (const tok of toks) {
+      if (g.includes('/')) { if (globMatch(g, tok) || globMatch(`*/${g}`, tok)) return true; } else if (globMatch(g, tok.slice(tok.lastIndexOf('/') + 1))) return true;
+    }
+    if (alias && isAliasOf(g, (toks[0] ?? '').slice((toks[0] ?? '').lastIndexOf('/') + 1))) return true;
   }
   return false;
+}
+
+/** Could COMP (lower case, `dev~1.sql`) be the 8.3 short name of a file the database path entry G names (the last component of G, wildcards allowed)? @param {string} g @param {string} comp */
+function isAliasOf(g, comp) {
+  const i = comp.lastIndexOf('~');
+  if (i <= 0) return false;
+  const rest = comp.slice(i + 1);
+  const dot = rest.indexOf('.');
+  const digits = dot < 0 ? rest : rest.slice(0, dot);
+  const ext = dot < 0 ? '' : rest.slice(dot + 1);
+  if (!/^[0-9]{1,7}$/.test(digits)) return false;
+  const gl = g.slice(g.lastIndexOf('/') + 1);
+  const gd = gl.lastIndexOf('.');
+  const gstem = gd < 0 ? gl : gl.slice(0, gd);
+  const gext = gd < 0 ? '' : gl.slice(gd + 1);
+  const clean = (/** @type {string} */ x) => x.replace(/[^a-z0-9]/g, '');
+  const stem = clean(comp.slice(0, i));
+  const stemOk = /[*?[]/.test(gstem) || (stem.length <= 6 && clean(gstem).startsWith(stem));
+  const extOk = gext === '' ? ext === '' : (/[*?[]/.test(gext) || (ext !== '' && ext.length <= 3 && clean(gext).startsWith(clean(ext))));
+  return stemOk && extOk;
 }
 
 /** `db_check_token TOKEN WHAT`: the caller has run dbLoad. @param {import('../lib/context.mjs').HookContext} ctx @param {string} tok @param {string} what */

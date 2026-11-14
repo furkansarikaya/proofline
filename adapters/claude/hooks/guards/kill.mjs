@@ -167,7 +167,7 @@ class Kill {
   /** `kg_file_ok PATH`: the resolved path of a text file the guard may read, else ''. @param {string} p0 */
   fileOk(p0) {
     let p = p0;
-    if (isWin()) { const sp = winSpell(p); if (sp.bad) return ''; p = sp.p; } // A271: a drive or UNC path is absolute (it was `<cwd>/C:/x`); one that cannot be placed is unreadable
+    if (isWin()) { const sp = winSpell(p); if (sp.bad || sp.p.startsWith('//')) return ''; p = sp.p; } // A271: a drive or UNC path is absolute (it was `<cwd>/C:/x`); one that cannot be placed is unreadable
     let kf = isAbsolute(p) ? p : `${this.ctx.cwd}/${p}`;
     try { const st = lstatSync(kf); if (st.isSymbolicLink() || !st.isFile()) return ''; } catch { return ''; }
     try { if (!statSync(kf).isFile()) return ''; } catch { return ''; }

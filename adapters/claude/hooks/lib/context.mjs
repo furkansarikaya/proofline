@@ -339,7 +339,7 @@ function winPhysical(p, cwd) {
   const s = winSpell(p);
   if (s.bad) return '';
   const a = winSpell(isAbsPath(s.p) ? s.p : `${cwd}/${s.p}`);
-  if (a.bad) return '';
+  if (a.bad || a.p.startsWith('//')) return ''; // a UNC path is never looked up (it would open a connection to the named server)
   if (/^([A-Za-z]:\/|\/\/[^/]+\/[^/]+)$/.test(a.p)) return a.p; // a drive or share root is its own parent
   let d = dn(a.p);
   let tail = bn(a.p);

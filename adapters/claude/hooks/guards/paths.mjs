@@ -25,9 +25,36 @@ export function roTail(ctx) {
   return ` (role ${ctx.role} is read-only in the project working tree, A143: mutation, trials and fix attempts run only in an evidence worktree, a git worktree outside the project that you create under $TMPDIR: git worktree add --detach "$TMPDIR/<name>" HEAD, in its own call, then use literal paths inside it; git worktree list shows it. Allowed in the project: your run result files and .agents/runs/<ID>/scratch/)`;
 }
 
-/** @param {string} rel */
-export function alwaysProtected(rel) {
+/** @param {string} x */
+function lowerAscii(x) { return x.replace(/[A-Z]/g, (c) => c.toLowerCase()); }
+
+/** @param {string} rel0 */
+export function alwaysProtected(rel0) {
+  const rel = isWin() ? lowerAscii(rel0) : rel0; // NTFS names are case-insensitive: `.Agents/GitHooks/x` is the protected folder
   return rel === '.agents/githooks' || rel.startsWith('.agents/githooks/') || rel === '.git/config' || rel.startsWith('.git/config.');
+}
+
+/**
+ * On a Windows host a path takes the spelling the deny-lists use for the names they know (NTFS is case-insensitive, and a file that does not exist yet
+ * keeps the case it was typed with): `.CLAUDE/Settings.Local.json` becomes `.claude/settings.local.json` before any comparison. ASCII only. A name is fixed at a
+ * segment boundary (end, `/` or `.`), longest reference last so that the deeper names are fixed after their parents. Elsewhere the path is returned as it is.
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {string} rel
+ */
+export function canonCase(ctx, rel) {
+  if (!isWin() || rel.startsWith('@')) return rel;
+  const run = `.agents/runs/${ctx.act}`;
+  const td = stateOf(ctx).tasksDir || '.agents/tasks';
+  const refs = ['.agents', '.agents/githooks', '.agents/hooks', '.agents/local', '.agents/local/assignments', '.agents/local/scratch', '.agents/local/explain', '.agents/local/product-spec', '.agents/local/product-discovery', '.agents/local/intent-grill', '.agents/local/task-author',
+    '.agents/scripts', '.agents/config.yaml', '.agents/ecosystems.json', '.agents/ecosystems.tsv', '.agents/ecosystems.mjs', '.agents/owns.conf', '.agents/runs', '.git', '.git/config', '.claude', '.claude/settings.json', '.claude/settings.local.json', '.codex', '.codex/hooks.json', '.codex/config.toml', td,
+    run, `${run}/scratch`, `${run}/results`, `${run}/amendments`, ...['RUN.yaml', 'LEDGER.log', 'HOOKS.log', 'mutation_budget', 'TASK.md', 'PLAN.md', 'EVIDENCE.md', 'COMPLETION_REPORT.md', 'gates', 'approvals', 'waivers', 'questions', 'decisions', 'dispatch', 'worker-evidence', 'ci-fix'].map((n) => `${run}/${n}`)];
+  let r = rel;
+  for (const ref of refs) {
+    if (r.length < ref.length) continue;
+    if (lowerAscii(r.slice(0, ref.length)) !== lowerAscii(ref)) continue;
+    const next = r[ref.length];
+    if (next === undefined || next === '/' || next === '.') r = ref + r.slice(ref.length);
+  }
+  return r;
 }
 
 /** @param {string} p */
@@ -79,6 +106,7 @@ export async function relpathAbs(ctx, p0) {
 async function relpathCompute(ctx, p0) {
   if (isWin() && winSpell(p0).bad) return { rel: '@unknown', abs: '' }; // a drive-relative, device or malformed spelling: no guard can place it
   const p = await inputPath(ctx, p0);
+  if (isWin() && p.startsWith('//')) return { rel: '@outside', abs: p }; // a UNC path: no file system call (it would open a connection to the named server)
   let rp = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   let dir = dn(rp);
   let tail = bn(rp);
@@ -106,7 +134,7 @@ async function relpathCompute(ctx, p0) {
   else if (rp === main || rp.startsWith(`${main}/`)) base = main;
   if (base === '') return { rel: '@outside', abs: rp };
   if (rp === base) return { rel: '.', abs: rp };
-  let rel = rp.slice(base.length + 1);
+  let rel = canonCase(ctx, rp.slice(base.length + 1));
   // A184: a path inside a run's own git worktree is judged relative to THAT worktree's root (agent.sh worktree-root decides)
   if (/^\.agents\/local\/worktrees\/.*\/.*$/s.test(rel) && ctx.installed) {
     const r = await ctx.agent(['worktree-root', rp], { keepRole: true });
@@ -145,6 +173,7 @@ export async function outsideOk(ctx, p) {
 export async function targetOk(ctx, p0) {
   if (isWin() && winSpell(p0).bad) return 'cannot resolve the target path';
   const p = await inputPath(ctx, p0);
+  if (isWin() && p.startsWith('//')) return pathOk(ctx, '@outside'); // UNC: never looked up
   const abs = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   try { if (lstatSync(abs).isSymbolicLink()) return 'the target is a symbolic link; writes through links are never allowed during a run'; } catch { /* absent */ }
   try { const st = statSync(abs); if (st.isFile() && st.nlink > 1) return 'the target has several hard links; writes through links are never allowed during a run'; } catch { /* absent */ }
@@ -310,7 +339,7 @@ export async function nrPathOk(ctx, np) {
   const td = await tasksDir(ctx);
   if (np === '@outside') return null;
   if (np === '@unknown') return 'cannot resolve the target path';
-  if (NR_STATE.some((g) => globMatch(g, np))) {
+  if (NR_STATE.some((g) => (isWin() ? globMatch(lowerAscii(g), lowerAscii(np)) : globMatch(g, np)))) {
     return `${np} is written only by agent.sh and the runtime hooks`;
   }
   if (np.startsWith('.claude/settings') || np.startsWith('.codex/') || np.startsWith('.agents/scripts/') || ['.agents/config.yaml', '.agents/ecosystems.json', '.agents/ecosystems.tsv', '.agents/ecosystems.mjs'].includes(np)) {
@@ -354,6 +383,7 @@ export async function roOperand(ctx, kind, word) {
     const s = winSpell(v);
     if (s.bad) return `the path '${word}' of an in-place edit cannot be resolved (a drive-relative, device or malformed Windows path)`;
     v = s.p;
+    if (v.startsWith('//')) return null; // UNC: never looked up (outside the project; the scratch guard refuses the write)
   }
   const abs = isAbsPath(v) ? v : `${ctx.cwd}/${v}`;
   if (kind !== 'Q' && !existsSync(abs)) return null;

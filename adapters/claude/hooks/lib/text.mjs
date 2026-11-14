@@ -95,7 +95,11 @@ export function textHasWord(text, word) { return text.split('\n').some((l) => ha
 export function nlToSpace(s) { return s.replace(/\n/g, ' '); }
 
 /** The platform seam of the path guards: a test replaces `platform` to run the Windows rules on any host (no path decision reads `process.platform` itself). */
-export const host = { platform: () => /** @type {string} */ (process.platform) };
+export const host = {
+  platform: () => /** @type {string} */ (process.platform),
+  /** the drive of the working directory (`C:`), '' when it has none (a UNC working directory): what `\\x` (the root of the current drive) means */
+  drive: () => /^[A-Za-z]:/.exec(process.cwd())?.[0] ?? '',
+};
 /** true on a Windows host (or under a test that says so). */
 export function isWin() { return host.platform() === 'win32'; }
 
@@ -128,14 +132,21 @@ export function winSpell(raw, platform = host.platform()) {
     const um = /^\/\/([^/]+)\/([^/]+)(\/.*)?$/s.exec(s);
     if (um) { head = `//${um[1]}/${um[2]}`; rest = um[3] ?? ''; } else { bad = true; head = '/'; rest = s; }
     abs = true;
-  } else if (s.startsWith('/')) abs = true;
+  } else if (s.startsWith('/')) {
+    abs = true;
+    // `\x` is the root of the current drive: say which drive, so that the result is never read again as Git Bash's `/x` (idempotent); no drive known and a
+    // one-letter first name (`\w\repo`) is ambiguous: unplaceable
+    if (raw.startsWith('\\')) { const dv = host.drive(); if (dv !== '') { head = dv.toUpperCase(); rest = s; } else if (/^\/[A-Za-z](\/|$)/.test(s)) bad = true; }
+  }
   /** @type {string[]} */ const out = []; let dev = false; let nul = false;
-  for (const c of rest.split('/')) {
+  for (let c of rest.split('/')) {
     if (c === '' || c === '.') continue;
     if (c === '..') { if (out.length > 0 && out[out.length - 1] !== '..') out.pop(); else if (!abs) out.push('..'); continue; }
-    const t = c.replace(/[. ]+$/, '');
+    const sc = c.indexOf(':'); if (sc >= 0) c = c.slice(0, sc); // an NTFS stream (`x::$DATA`, `x:s`, `d:$INDEX_ALLOCATION`) names its file or folder
+    let e = c.length; while (e > 0 && (c[e - 1] === '.' || c[e - 1] === ' ')) e--; // loops, not `[. ]+$`: that is quadratic on a long run of spaces
+    const t = c.slice(0, e);
     if (t === '') { bad = true; continue; }
-    if (DEVICE.test(/** @type {string} */ (t.split('.')[0]).replace(/ +$/, ''))) { dev = true; if (/^nul$/i.test(t)) nul = true; }
+    if (DEVICE.test(/** @type {string} */ (t.split('.')[0]).trimEnd())) { dev = true; if (/^nul$/i.test(t)) nul = true; }
     out.push(t);
   }
   const body = out.join('/');
