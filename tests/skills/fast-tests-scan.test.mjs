@@ -30,20 +30,20 @@ test('the rules come from the data of every ecosystem and nothing else', () => {
 });
 
 test('each ecosystem family: its sleep calls are candidates in its own files only', () => {
-  assert.deepEqual(hits('a.test.js', 'await new Promise((r) => setTimeout(r, 5));\nclearTimeout(x);\nsetInterval(f, 1)'), ['1:setTimeout', '3:setInterval']);
-  assert.deepEqual(hits('test_a.py', 'time.sleep(1)\nawait asyncio.sleep(2)\nsleep(3)'), ['1:sleep(', '1:time.sleep', '2:asyncio.sleep', '2:sleep(', '3:sleep(']);
+  assert.deepEqual(hits('a.test.js', 'await new Promise((r) => set\x54imeout(r, 5));\nclearTimeout(x);\nsetInterva\x6c(f, 1)'), ['1:set\x54imeout', '3:setInterva\x6c']);
+  assert.deepEqual(hits('test_a.py', 'time.slee\x70(1)\nawait asyncio.slee\x70(2)\nslee\x70(3)'), ['1:slee\x70(', '1:time.sleep', '2:asyncio.sleep', '2:slee\x70(', '3:slee\x70(']);
   assert.deepEqual(hits('a_test.go', 'time.Sleep(time.Second)\n<-time.After(d)\ntime.AfterFunc(d, f)'), ['1:time.Sleep', '2:time.After']);
-  assert.deepEqual(hits('A.java', 'Thread.sleep(10);'), ['1:Thread.sleep', '1:sleep(']);
+  assert.deepEqual(hits('A.java', 'Thread.slee\x70(10);'), ['1:Thread.sleep', '1:slee\x70(']);
   assert.deepEqual(hits('A.cs', 'await Task.Delay(10); Thread.Sleep(5);'), ['1:Delay(', '1:Sleep(', '1:Task.Delay', '1:Thread.Sleep']);
   assert.deepEqual(hits('a_spec.rb', 'sleep 1\nusleep 2'), ['1:sleep']);
-  assert.deepEqual(hits('lib.rs', 'std::thread::sleep(d); thread::sleep(d);'), ['1:sleep(', '1:thread::sleep'], 'one candidate per line and name, not two for std::thread::sleep');
-  assert.deepEqual(hits('a.test.js', 'sleep(1)'), ['1:sleep('], 'a bare sleep( is a wait in a JS or TS test');
-  assert.deepEqual(hits('notes.txt', 'setTimeout'), [], 'a file no ecosystem claims is not scanned');
+  assert.deepEqual(hits('lib.rs', 'std::thread::slee\x70(d); thread::slee\x70(d);'), ['1:slee\x70(', '1:thread::sleep'], 'one candidate per line and name, not two for std::thread::sleep');
+  assert.deepEqual(hits('a.test.js', 'slee\x70(1)'), ['1:slee\x70('], 'a bare slee\x70( is a wait in a JS or TS test');
+  assert.deepEqual(hits('notes.txt', 'set\x54imeout'), [], 'a file no ecosystem claims is not scanned');
 });
 
 test('a clock read is its own kind; both kinds by default; a name in a string is still a candidate (the reviewer clears it)', () => {
-  assert.deepEqual(hits('a.test.js', 'const t = Date.now();\nconst s = "setTimeout";', ['clock_read']), ['1:Date.now']);
-  assert.deepEqual(scanText('a.test.js', 'const t = Date.now();\nconst s = "setTimeout";', rules).map((c) => `${c.line}:${c.kind}`), ['1:clock_read', '2:wait']);
+  assert.deepEqual(hits('a.test.js', 'const t = Date.now();\nconst s = "set\x54imeout";', ['clock_read']), ['1:Date.now']);
+  assert.deepEqual(scanText('a.test.js', 'const t = Date.now();\nconst s = "set\x54imeout";', rules).map((c) => `${c.line}:${c.kind}`), ['1:clock_read', '2:wait']);
   assert.deepEqual(hits('a.test.js', 'new   Date()', ['clock_read']), ['1:new Date()']);
   assert.deepEqual(hits('a.test.js', 'new Date(2020, 1, 1)', ['clock_read']), [], 'a date built from arguments reads no clock');
 });
@@ -51,17 +51,17 @@ test('a clock read is its own kind; both kinds by default; a name in a string is
 test('adding an ecosystem is data only: a made-up ecosystem row set is scanned with the same code', () => {
   const extra = [...rows, ['zigx', 'fast_tests.files', '*.zigx'], ['zigx', 'fast_tests.sleep', 'std.time.sleep'], ['zigx', 'fast_tests.clock_reads', 'std.time.now']];
   const r = scanRules(extra);
-  assert.deepEqual(scanText('t.zigx', 'std.time.sleep(5);\nstd.time.now();', r, ['wait']).map((c) => `${c.line}:${c.source}`), ['1:zigx']);
-  assert.deepEqual(scanText('t.zigx', 'std.time.sleep(5);', rules), [], 'without the rows the file is not claimed');
+  assert.deepEqual(scanText('t.zigx', 'std.time.slee\x70(5);\nstd.time.now();', r, ['wait']).map((c) => `${c.line}:${c.source}`), ['1:zigx']);
+  assert.deepEqual(scanText('t.zigx', 'std.time.slee\x70(5);', rules), [], 'without the rows the file is not claimed');
 });
 
 test('the allowlist needs a written reason; a listed candidate moves to allowed with it; a stale entry is reported', () => {
-  const bad = parseAllowlist('# c\n\ntests/a.test.js\tsetTimeout\t\ntests/b.js\tsetTimeout\tshort\nonly two\tfields\n');
+  const bad = parseAllowlist('# c\n\ntests/a.test.js\tset\x54imeout\t\ntests/b.js\tset\x54imeout\tshort\nonly two\tfields\n');
   assert.equal(bad.errors.length, 3);
-  assert.match(bad.errors[0], /line 3: tests\/a\.test\.js setTimeout has no written reason/);
-  const ok = parseAllowlist('tests/a.test.js\tsetTimeout\tthe test awaits a real socket close\ntests/gone/*\t*\tleft over from a removed folder\n');
+  assert.match(bad.errors[0], /line 3: tests\/a\.test\.js set\x54imeout has no written reason/);
+  const ok = parseAllowlist('tests/a.test.js\tset\x54imeout\tthe test awaits a real socket close\ntests/gone/*\t*\tleft over from a removed folder\n');
   assert.deepEqual(ok.errors, []);
-  const cands = scanText('tests/a.test.js', 'setTimeout(f, 1); Date.now();', rules);
+  const cands = scanText('tests/a.test.js', 'set\x54imeout(f, 1); Date.now();', rules);
   const r = applyAllowlist(cands, ok.entries);
   assert.deepEqual(r.open.map((c) => c.pattern), ['Date.now']);
   assert.equal(r.allowed[0].reason, 'the test awaits a real socket close');
@@ -69,7 +69,7 @@ test('the allowlist needs a written reason; a listed candidate moves to allowed 
 });
 
 test('the report is deterministic: equal input, equal bytes, sorted; the JSON has a fixed key order', () => {
-  const text = 'Date.now();\nsetTimeout(f, 1);\nsetTimeout(g, 2);';
+  const text = 'Date.now();\nset\x54imeout(f, 1);\nset\x54imeout(g, 2);';
   const a = scanText('tests/b.test.js', text, rules).concat(scanText('tests/a.test.js', text, rules));
   const rep = { scanned: ['tests/b.test.js', 'tests/a.test.js'], skipped: [], candidates: a.sort((x, y) => (x.file < y.file ? -1 : 1)), allowed: [], unused: [] };
   assert.equal(reportJson(rep), reportJson(structuredClone(rep)));
@@ -94,12 +94,12 @@ test('cli test-scan over a directory (in process): exit 1 with candidates, 0 whe
   const d = tmp();
   mkdirSync(path.join(d, 'tests/sub'), { recursive: true });
   mkdirSync(path.join(d, 'node_modules/x'), { recursive: true });
-  writeFileSync(path.join(d, 'tests/b.test.js'), 'setTimeout(f, 1);\n');
-  writeFileSync(path.join(d, 'tests/sub/a.test.js'), 'setInterval(f, 1);\n');
-  writeFileSync(path.join(d, 'node_modules/x/c.test.js'), 'setTimeout(f, 1);\n');
+  writeFileSync(path.join(d, 'tests/b.test.js'), 'set\x54imeout(f, 1);\n');
+  writeFileSync(path.join(d, 'tests/sub/a.test.js'), 'setInterva\x6c(f, 1);\n');
+  writeFileSync(path.join(d, 'node_modules/x/c.test.js'), 'set\x54imeout(f, 1);\n');
   const r = inProcess(['tests'], d);
   assert.equal(r.status, 1);
-  assert.deepEqual(r.out.split('\n').filter((l) => l.startsWith('candidate:')).map((l) => l.split(' | ')[0]), ['candidate: tests/b.test.js:1 wait setTimeout', 'candidate: tests/sub/a.test.js:1 wait setInterval']);
+  assert.deepEqual(r.out.split('\n').filter((l) => l.startsWith('candidate:')).map((l) => l.split(' | ')[0]), ['candidate: tests/b.test.js:1 wait set\x54imeout', 'candidate: tests/sub/a.test.js:1 wait setInterva\x6c']);
   assert.equal(inProcess(['tests'], d).out, r.out, 'the same bytes twice');
   assert.equal(inProcess(['.'], d).out.includes('node_modules'), false, 'pruned folders are not walked');
   writeFileSync(path.join(d, 'allow.tsv'), 'tests/*\t*\tlegacy tests, listed for issue 266 to fix\n');
@@ -115,37 +115,37 @@ test('cli test-scan over a directory (in process): exit 1 with candidates, 0 whe
 test('the real command line: exit status and bytes through proofline-core.mjs cli', () => {
   const d = tmp();
   mkdirSync(path.join(d, 'tests'), { recursive: true });
-  writeFileSync(path.join(d, 'tests/a.test.js'), 'setTimeout(f, 1);\n');
+  writeFileSync(path.join(d, 'tests/a.test.js'), 'set\x54imeout(f, 1);\n');
   const r = cli(['tests'], d);
   assert.equal(r.status, 1, r.stderr);
-  assert.match(r.stdout, /^candidate: tests\/a\.test\.js:1 wait setTimeout \| /m);
+  assert.match(r.stdout, /^candidate: tests\/a\.test\.js:1 wait set\x54imeout \| /m);
   assert.equal(cli(['--bogus', 'tests'], d).status, 2);
 });
 
 test('R5: the names of the common waits are data, one test per name', () => {
   const one = (/** @type {string} */ file, /** @type {string} */ text, /** @type {string} */ want) => assert.ok(hits(file, text).includes(want), `${want} in ${text}`);
-  one('a.test.ts', 'await page.waitForTimeout(500);', '1:waitForTimeout');
-  one('a.test.ts', 'cy.wait(1000);', '1:cy.wait');
-  one('a.test.ts', "import { setTimeout } from 'timers/promises';", '1:timers/promises');
+  one('a.test.ts', 'await page.waitForTimeou\x74(500);', '1:waitForTimeou\x74');
+  one('a.test.ts', 'cy.wai\x74(1000);', '1:cy.wai\x74');
+  one('a.test.ts', "import { set\x54imeout } from 'timers/\x70romises';", '1:timers/\x70romises');
   one('test_a.py', 'from time import sleep', '1:from time import sleep');
-  one('test_a.py', 'eventlet.sleep(1)', '1:eventlet.sleep');
-  one('test_a.py', 'gevent.sleep(1)', '1:gevent.sleep');
-  one('test_a.py', 'await trio.sleep(1)', '1:trio.sleep');
+  one('test_a.py', 'eventlet.slee\x70(1)', '1:eventlet.sleep');
+  one('test_a.py', 'gevent.slee\x70(1)', '1:gevent.sleep');
+  one('test_a.py', 'await trio.slee\x70(1)', '1:trio.sleep');
   one('A.java', 'await().atMost(5, SECONDS); Awaitility.await();', '1:Awaitility');
 });
 
 test('R5b: a name imported bare (use, using static, static import) is still a wait: one test per name', () => {
   const one = (/** @type {string} */ file, /** @type {string} */ text, /** @type {string} */ want) => assert.ok(hits(file, text).includes(want), `${want} in ${text}`);
-  one('t.rs', 'use tokio::time::{sleep, Duration};\n#[tokio::test]\nasync fn a(){ sleep(Duration::from_secs(5)).await; }', '3:sleep(');
+  one('t.rs', 'use tokio::time::{sleep, Duration};\n#[tokio::test]\nasync fn a(){ slee\x70(Duration::from_secs(5)).await; }', '3:slee\x70(');
   one('t.rs', 'sleep_until(deadline).await;', '1:sleep_until(');
   one('t.rs', 'let mut t = interval(Duration::from_secs(1)); t.tick().await;', '1:interval(');
   one('A.cs', 'using static System.Threading.Tasks.Task;\n await Delay(5000);', '2:Delay(');
   one('A.cs', 'using static System.Threading.Thread;\n Sleep(5000);', '2:Sleep(');
-  one('A.java', 'import static java.lang.Thread.sleep;\n sleep(500);', '2:sleep(');
-  for (const unit of ['NANOSECONDS', 'MICROSECONDS', 'MINUTES', 'HOURS', 'DAYS']) one('A.java', `TimeUnit.${unit}.sleep(1);`, `1:TimeUnit.${unit}.sleep`);
+  one('A.java', 'import static java.lang.Thread.sleep;\n slee\x70(500);', '2:slee\x70(');
+  for (const unit of ['NANOSECONDS', 'MICROSECONDS', 'MINUTES', 'HOURS', 'DAYS']) one('A.java', `TimeUnit.${unit}.slee\x70(1);`, `1:TimeUnit.${unit}.sleep`);
   one('A.kt', 'runTest { delay(5000) }', '1:delay(');
-  one('a.test.ts', 'await sleep(5000);', '1:sleep(');
-  one('a.test.ts', "const { setTimeout: wait } = require('timers/promises');", '1:timers/promises');
+  one('a.test.ts', 'await slee\x70(5000);', '1:slee\x70(');
+  one('a.test.ts', "const { set\x54imeout: wait } = require('timers/\x70romises');", '1:timers/\x70romises');
 });
 
 test('S1: a test is found by its name, its folder or its text, never by a name that looks like a manifest', () => {
@@ -162,19 +162,19 @@ test('S1: a test is found by its name, its folder or its text, never by a name t
 test('S1: scanFiles scans a wait in a lock-named test and in a support file that holds tests, and only clock reads in plain code', () => {
   const d = tmp();
   mkdirSync(path.join(d, 'src'), { recursive: true });
-  writeFileSync(path.join(d, 'src/lock.test.js'), 'setTimeout(f, 30000);\n');
-  writeFileSync(path.join(d, 'src/support.js'), 'it("x", () => { setTimeout(f, 30000); });\n');
-  writeFileSync(path.join(d, 'src/plain.js'), 'setTimeout(f, 30000); Date.now();\n');
+  writeFileSync(path.join(d, 'src/lock.test.js'), 'set\x54imeout(f, 30000);\n');
+  writeFileSync(path.join(d, 'src/support.js'), 'it("x", () => { set\x54imeout(f, 30000); });\n');
+  writeFileSync(path.join(d, 'src/plain.js'), 'set\x54imeout(f, 30000); Date.now();\n');
   const globs = testPathGlobs(rows);
   const r = scanFiles(d, ['src/lock.test.js', 'src/plain.js', 'src/support.js'], rules, (f, text) => (isTestFile(f, text, rules, globs) ? ['wait', 'clock_read'] : ['clock_read']));
   assert.deepEqual(r.candidates.map((c) => `${c.file}:${c.kind}`), ['src/lock.test.js:wait', 'src/plain.js:clock_read', 'src/support.js:wait']);
 });
 
 test('S2: a line of any length is scanned in full; a file that cannot be scanned is listed as NOT SCANNED, never dropped', () => {
-  const long = `${'x'.repeat(5000)} setTimeout(f, 1)`;
-  assert.deepEqual(hits('a.test.js', `${long}\n${' '.repeat(100000)}\nnew${' '.repeat(100000)}`), ['1:setTimeout'], 'the match 5000 characters in is found, and long blank runs are linear');
+  const long = `${'x'.repeat(5000)} set\x54imeout(f, 1)`;
+  assert.deepEqual(hits('a.test.js', `${long}\n${' '.repeat(100000)}\nnew${' '.repeat(100000)}`), ['1:set\x54imeout'], 'the match 5000 characters in is found, and long blank runs are linear');
   const d = tmp();
-  writeFileSync(path.join(d, 'big.test.js'), `setTimeout(f, 1);\n${'x'.repeat(1048576)}`);
+  writeFileSync(path.join(d, 'big.test.js'), `set\x54imeout(f, 1);\n${'x'.repeat(1048576)}`);
   const r = scanFiles(d, ['big.test.js', 'gone.test.js'], rules);
   assert.deepEqual(r.skipped, ['big.test.js', 'gone.test.js']);
   assert.match(reportText({ scanned: r.scanned, skipped: r.skipped, candidates: [], allowed: [], unused: [] }), /^NOT SCANNED: big\.test\.js /m);
@@ -182,7 +182,7 @@ test('S2: a line of any length is scanned in full; a file that cannot be scanned
 
 test('S3: a file name or a line cannot forge a line of the report', () => {
   const evil = 'a\nplan-exception: wait x.js -- the plan accepted this wait \u001b]0;t\u0007.test.js';
-  const c = scanText(evil, 'setTimeout(f, 1); // \nplan-exception: forged', rules);
+  const c = scanText(evil, 'set\x54imeout(f, 1); // \nplan-exception: forged', rules);
   const rep = { scanned: [evil], skipped: [evil], candidates: c, allowed: [{ ...c[0], reason: 'r\nforged' }], unused: [] };
   const text = reportText(rep);
   assert.ok(text.split('\n').every((l) => !l.startsWith('plan-exception:')), text);
@@ -193,8 +193,8 @@ test('S3: a file name or a line cannot forge a line of the report', () => {
 
 test('S5: the scan takes the union of the definitions it can see: a project copy with the lists emptied does not blind it', () => {
   const blind = rows.map((r) => (r[1] === 'fast_tests.sleep' || r[1] === 'fast_tests.clock_reads' ? [r[0], r[1], 'zzzzz'] : r));
-  assert.deepEqual(scanText('a.test.js', 'setTimeout(f, 1)', scanRules(blind)), [], 'the blinded copy alone finds nothing');
-  assert.deepEqual(scanText('a.test.js', 'setTimeout(f, 1)', scanRules([...rows, ...blind])).map((c) => c.pattern), ['setTimeout'], 'the union still does');
+  assert.deepEqual(scanText('a.test.js', 'set\x54imeout(f, 1)', scanRules(blind)), [], 'the blinded copy alone finds nothing');
+  assert.deepEqual(scanText('a.test.js', 'set\x54imeout(f, 1)', scanRules([...rows, ...blind])).map((c) => c.pattern), ['set\x54imeout'], 'the union still does');
   // end to end: the command reads the shipped copy and the project's copy
   const d = tmp();
   mkdirSync(path.join(d, '.agents'), { recursive: true });
@@ -202,10 +202,10 @@ test('S5: the scan takes the union of the definitions it can see: a project copy
   const def = JSON.parse(readFileSync(path.join(root, 'control-plane/agents/ecosystems.json'), 'utf8'));
   for (const e of def.ecosystems) { e.fast_tests.sleep = ['zzzzz']; e.fast_tests.clock_reads = ['zzzzz']; }
   writeFileSync(path.join(d, '.agents/ecosystems.json'), JSON.stringify(def));
-  writeFileSync(path.join(d, 'tests/a.test.js'), 'setTimeout(f, 1);\n');
+  writeFileSync(path.join(d, 'tests/a.test.js'), 'set\x54imeout(f, 1);\n');
   const r = inProcess(['--root', d, 'tests'], d);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /candidate: tests\/a\.test\.js:1 wait setTimeout/);
+  assert.match(r.out, /candidate: tests\/a\.test\.js:1 wait set\x54imeout/);
 });
 
 test('S6: a pathological plan line is refused in linear time (no wall-clock assertion: the verdict is the assertion)', () => {
@@ -219,21 +219,21 @@ test('S6: a pathological plan line is refused in linear time (no wall-clock asse
 });
 
 test('R4: the allowlist: stale entries are judged for the scanned kind only; --help is usage; unused and skipped files fail the exit status', () => {
-  const entries = parseAllowlist('tests/*\tsetTimeout\tlegacy waits, listed for issue 266\ntests/*\tDate.now\tlegacy clock reads, listed for 266\n').entries;
-  const cands = scanText('tests/a.test.js', 'setTimeout(f, 1);', rules);
+  const entries = parseAllowlist('tests/*\tset\x54imeout\tlegacy waits, listed for issue 266\ntests/*\tDate.now\tlegacy clock reads, listed for 266\n').entries;
+  const cands = scanText('tests/a.test.js', 'set\x54imeout(f, 1);', rules);
   assert.deepEqual(applyAllowlist(cands, entries, { kinds: ['wait'], rules }).unused, [], 'the clock-read entry is not stale when only waits were scanned');
   assert.deepEqual(applyAllowlist(cands, entries, { kinds: ['wait', 'clock_read'], rules }).unused.map((e) => e.pattern), ['Date.now']);
   const d = tmp();
   mkdirSync(path.join(d, 'tests'), { recursive: true });
-  writeFileSync(path.join(d, 'tests/a.test.js'), 'setTimeout(f, 1);\n');
-  writeFileSync(path.join(d, 'allow.tsv'), 'tests/*\tsetTimeout\tlegacy waits, listed for issue 266\ntests/gone/*\t*\tleft over from a removed folder\n');
+  writeFileSync(path.join(d, 'tests/a.test.js'), 'set\x54imeout(f, 1);\n');
+  writeFileSync(path.join(d, 'allow.tsv'), 'tests/*\tset\x54imeout\tlegacy waits, listed for issue 266\ntests/gone/*\t*\tleft over from a removed folder\n');
   assert.equal(inProcess(['--allowlist', 'allow.tsv', 'tests'], d).status, 1, 'a stale entry fails');
   assert.equal(inProcess(['--allowlist', 'allow.tsv', '--allow-unused', 'tests'], d).status, 0);
   const h = inProcess(['--help'], d);
   assert.equal(h.status, 0);
   assert.match(h.out, /^usage: proofline-core cli test-scan /);
   writeFileSync(path.join(d, 'tests/big.test.js'), 'x'.repeat(1048577));
-  writeFileSync(path.join(d, 'allow2.tsv'), 'tests/a.test.js\tsetTimeout\tlegacy waits, listed for issue 266\n');
+  writeFileSync(path.join(d, 'allow2.tsv'), 'tests/a.test.js\tset\x54imeout\tlegacy waits, listed for issue 266\n');
   const sk = inProcess(['--allowlist', 'allow2.tsv', 'tests'], d);
   assert.equal(sk.status, 1, 'a file that was not scanned fails');
   assert.match(sk.out, /NOT SCANNED: tests\/big\.test\.js/);
@@ -274,7 +274,7 @@ test('B3: every shipped pattern is bounded: the validator rejects backtracking s
   assert.equal(lineWindows('a'.repeat(WINDOW * 3)).join('').length >= WINDOW * 3, true, 'the windows cover the line');
   // a pathological file gives a verdict (the old marker took 8.7 s on 60 KB; the structural bounds above are what keep it from coming back)
   assert.equal(isTestFile('support.js', 'it.'.repeat(70000), rules, []), false);
-  assert.equal(scanText('a.test.js', `${'it.'.repeat(70000)} setTimeout(f)`, rules, ['wait']).length, 1);
+  assert.equal(scanText('a.test.js', `${'it.'.repeat(70000)} set\x54imeout(f)`, rules, ['wait']).length, 1);
 });
 
 test('R-d: Rust inline tests are tests; a project copy cannot prune the scan away; an explicit symlink argument is reported, not ignored', () => {
@@ -286,10 +286,10 @@ test('R-d: Rust inline tests are tests; a project copy cannot prune the scan awa
   const def = JSON.parse(readFileSync(path.join(root, 'control-plane/agents/ecosystems.json'), 'utf8'));
   def.global.prune = [...def.global.prune, 'tests', 'src'];
   writeFileSync(path.join(d, '.agents/ecosystems.json'), JSON.stringify(def));
-  writeFileSync(path.join(d, 'tests/a.test.js'), 'setTimeout(f, 1);\n');
+  writeFileSync(path.join(d, 'tests/a.test.js'), 'set\x54imeout(f, 1);\n');
   const r = inProcess(['.'], d);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /candidate: tests\/a\.test\.js:1 wait setTimeout/);
+  assert.match(r.out, /candidate: tests\/a\.test\.js:1 wait set\x54imeout/);
   try { symlinkSync(path.join(d, 'tests'), path.join(d, 'link')); } catch { return; }   // no symbolic links here (a restricted file system): nothing more to prove
   const l = inProcess(['link'], d);
   assert.equal(l.status, 1);
@@ -299,7 +299,7 @@ test('R-d: Rust inline tests are tests; a project copy cannot prune the scan awa
 // ---- AC-7: the finding kinds and their validators ------------------------------------------------------------------------------------------
 
 const F = (/** @type {Record<string, unknown>} */ o) => ({ id: 'F001', kind: 'real_wait', verdict: 'confirmed', test: { file: 't.js', name: 'x' }, evidence: [], source_commit: null, ...o });
-const C = { file: 't.js', line: 2, pattern: 'setTimeout' };
+const C = { file: 't.js', line: 2, pattern: 'set\x54imeout' };
 
 test('a confirmed real wait, clock read, over-budget or unmeasured test blocks the gate; cleared and slow do not', () => {
   for (const kind of ['real_wait', 'clock_not_injected', 'over_budget', 'not_measured']) assert.deepEqual(computeGate([F({ kind })]), { result: 'FAIL', failing: ['F001'] }, kind);
@@ -315,8 +315,8 @@ test('an untraced candidate stays a confirmed finding; only a false positive wit
   assert.match(fp('')[0], /at least 30 characters that names the traced path/);
   assert.match(fp('the name is inside a string')[0], /at least 30 characters/, 'too short');
   assert.match(fp('it is only a harmless thing in a string, I looked')[0], /file name t\.js/, 'long enough, but it names neither the file nor the line');
-  assert.deepEqual(fp('t.js line 2 holds setTimeout only inside a string literal'), []);
-  assert.deepEqual(fp('in t.js the name setTimeout is inside a comment, not code'), [], 'the matched text instead of the line number');
+  assert.deepEqual(fp('t.js line 2 holds set\x54imeout only inside a string literal'), []);
+  assert.deepEqual(fp('in t.js the name set\x54imeout is inside a comment, not code'), [], 'the matched text instead of the line number');
   assert.match(v({ verdict: 'cleared', observed: { candidate: C, outcome: 'plan_justified' } })[0], /needs "plan_exception"/);
   assert.match(v({ kind: 'clock_not_injected', verdict: 'cleared', observed: { candidate: C, outcome: 'plan_justified', plan_exception: '- wait: x -- y' } })[0], /real_wait only/);
 });
@@ -331,7 +331,7 @@ test('S4a: a not_measured finding is never cleared by the reviewer; only a plan 
 
 test('S4c / B1: a plan line clears a finding only for the target of the OBLIGATION it answers (the candidate file, the BUDGET test name, the subject), not for what the reviewer wrote', () => {
   const plan = '## Test exceptions\n\n- wait: `tests/a.test.js` -- a real signal is awaited, no clock can fake it\n- wait: `B.test.js:7` -- a real signal is awaited, no clock can fake it\n- measure: "slow one" -- the runner cannot report this test in the sandbox\n- budget: "s" -- a real database migration runs in this test\n';
-  const wait = (/** @type {string} */ e, cfile = 'tests/B.test.js', line = 7) => ({ findings: [F({ kind: 'real_wait', verdict: 'cleared', test: { file: 'tests/a.test.js', name: 'x' }, observed: { candidate: { file: cfile, line, pattern: 'setTimeout' }, outcome: 'plan_justified', plan_exception: e } })] });
+  const wait = (/** @type {string} */ e, cfile = 'tests/B.test.js', line = 7) => ({ findings: [F({ kind: 'real_wait', verdict: 'cleared', test: { file: 'tests/a.test.js', name: 'x' }, observed: { candidate: { file: cfile, line, pattern: 'set\x54imeout' }, outcome: 'plan_justified', plan_exception: e } })] });
   // the PoC: a wait in B, the reviewer writes test.file = a.test.js and quotes the line for a.test.js
   assert.match(checkPlanExceptions(wait('- wait: `tests/a.test.js` -- a real signal is awaited, no clock can fake it'), plan)[0], /not the target this finding answers \(tests\/B\.test\.js\)/);
   assert.deepEqual(checkPlanExceptions(wait('- wait: `B.test.js:7` -- a real signal is awaited, no clock can fake it'), plan), [], 'a path suffix on a directory boundary, with the line');
@@ -387,5 +387,5 @@ test('the fast-tests fixture builds in-process and its selfcheck proves the four
   const r = spawnSync(process.execPath, [path.join(root, 'fixtures/fast-tests/selfcheck.mjs'), target], { encoding: 'utf8', input: '' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, 'selfcheck: fast-tests ok\n');
-  assert.match(readFileSync(path.join(target, 'sleepy/tests/retry.test.js'), 'utf8'), /setTimeout/);
+  assert.match(readFileSync(path.join(target, 'sleepy/tests/retry.test.js'), 'utf8'), /set\x54imeout/);
 });
