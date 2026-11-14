@@ -391,3 +391,36 @@ test('A274 round 7: isArithmetic decides by grammar', () => {
   for (const t of ok) assert.equal(/** @type {any} */ (RW).isArithmetic(t), true, JSON.stringify(t));
   for (const t of bad) assert.equal(/** @type {any} */ (RW).isArithmetic(t), false, JSON.stringify(t));
 });
+
+// Security round 8: quotes and `#` protect nothing inside arithmetic text (bash expands every `$(...)` and backtick pair there), and valid arithmetic with expansions stays allowed.
+const HIDDEN = [
+  "echo $(( '$(mkdir ../out/F)' ))", "x=$(('`mkdir ../out/F`'))", "echo $(( 1 + '$(mkdir ../out/F)' ))", "(( '$(mkdir ../out/F)' ))",
+  'for ((i=0;i<1;#$(mkdir ../out/F))); do :; done', "for ((i=0;i<1;'$(mkdir ../out/F)')); do :; done", 'echo "$(( \'$(mkdir ../out/F)\' ))"', "echo $[ '$(mkdir ../out/F)' ]",
+  "echo $(( ${x:-'$(mkdir ../out/F)'} ))", "echo $(( 1 + $((:)&&(mkdir ../out/F)) ))",
+];
+for (const command of HIDDEN) {
+  test(`A274 round 8: a substitution hidden by a quote or # in arithmetic is judged: ${JSON.stringify(command)}`, async () => {
+    assert.ok(of(command, 'target').some((a) => a.kind === 'target' && a.word.v === OUT), 'the role actions hold the write');
+    for (const [role, who, env] of ROLES) assert.match(String(await pre(command, who, env)), /writes '\.\.\/out\/F'|outside/, `${role}: allowed`);
+  });
+}
+
+const ARITH_ALLOWED = [
+  'echo $((10#$x))', 'echo $((10#${m}))', 'echo $((0x$h))', 'x=$((16#ff$y))', 'echo $(( "$x" + 1 ))', 'echo $(( "1 + $x" ))', 'echo $(( $x + $(( $y * 2 )) ))', 'echo "$(( (a+b)*2 ))"',
+  'echo $(( $[a+1] ))', 'echo $(( $10 + 1 ))', 'echo $((1+2)) $(( 0x1F + 010 )) $(( i++ )) $(( a, b )) $(( a ? 1 : 2 ))', 'echo $(( $# + ${x:-1} + RANDOM + ${#arr[@]} ))',
+  'for ((i=0;i<3;i++)); do :; done', '(( i++ ))', 'x=$(( (a+b) > 3 ))', 'echo $(( $(date +%s) > 5 ))', "echo \"$(grep '$(foo)' f)\"",
+];
+for (const command of ARITH_ALLOWED) {
+  test(`A274 round 8: valid arithmetic with expansions is allowed: ${JSON.stringify(command)}`, async () => {
+    assert.deepEqual(roleActions(command).actions, []);
+    const [, implWho, implEnv] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+    assert.equal(await pre(command, implWho, implEnv), null);
+  });
+}
+
+test('A274 round 8: isArithmetic grammar covers base prefixes, quoted expansions, $[ ] and positional parameters', () => {
+  const ok = ['10#$x', '0x$h', '16#ff$y', '"$x" + 1', '$x + $(( $y * 2 ))', '$[a+1]', '$10 + 1', '${10}'];
+  const bad = ["'abc'", "1 + 'x'", '"a b"', '$[a+', '10#', '"$x', '$'];
+  for (const t of ok) assert.equal(/** @type {any} */ (RW).isArithmetic(t), true, JSON.stringify(t));
+  for (const t of bad) assert.equal(/** @type {any} */ (RW).isArithmetic(t), false, JSON.stringify(t));
+});

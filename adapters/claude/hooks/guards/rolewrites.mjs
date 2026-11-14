@@ -266,7 +266,7 @@ export function tokenize(s, depth = 0, st = newGuard(s.length), top = { off: 0, 
 export const newGuard = (n) => ({ overflow: false, budget: STEPS_PER_CHAR * n + STEPS_BASE, unsure: '', texts: [] });
 
 const NUM_RE = /0[xX][0-9a-fA-F]+|[0-9]+(#[0-9A-Za-z@_]+)?/y;
-const DOLLAR_RE = /\$([A-Za-z_][A-Za-z0-9_]*|[0-9]|[#?@*!$-])/y;
+const DOLLAR_RE = /\$([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[#?@*!$-])/y;
 const IDENT_RE = /[A-Za-z_][A-Za-z0-9_]*/y;
 const ARITH_OPS = ['<<=', '>>=', '**', '<<', '>>', '<=', '>=', '==', '!=', '&&', '||', '+=', '-=', '*=', '/=', '%=', '&=', '^=', '|=', '++', '--', '+', '-', '*', '/', '%', '<', '>', '&', '|', '^', '!', '?', ':', ',', '=', '(', ')', '[', ']'];
 
@@ -291,6 +291,22 @@ function arithOk(t) {
   const skipWs = () => { while (i < t.length && (t[i] === ' ' || t[i] === '\t')) i++; };
   /** The next operator at i, or '' @returns {string} */
   const op = () => { skipWs(); for (const o of ARITH_OPS) if (t.startsWith(o, i)) return o; return ''; };
+  /** An expansion at i (`$` there): `$(...)`, `${...}`, `$[...]`, `$name`, `$1`, `$#`; its commands are scanned on their own. @returns {boolean} */
+  const dollar = () => {
+    const nx = t[i + 1];
+    if (nx === '(') { const e = endParen(t, i + 2); if (e - 1 < i + 2 || t[e - 1] !== ')') return false; i = e; return true; }
+    if (nx === '{') { const e = endBrace(t, i + 2); if (e - 1 < i + 2 || t[e - 1] !== '}') return false; i = e; return true; }
+    if (nx === '[') {
+      let j = i + 2; let d = 1;
+      while (j < t.length && d > 0) { if (!step()) return false; if (t[j] === '[') d++; else if (t[j] === ']') d--; j++; }
+      if (d > 0 || !arithOk(t.slice(i + 2, j - 1))) return false;
+      i = j; return true;
+    }
+    const m = at(DOLLAR_RE);
+    if (m === null) return false;
+    i += m[0].length;
+    return true;
+  };
   /** One operand; false when the text there is not one. @returns {boolean} */
   const primary = () => {
     if (!step() || ++depth > SCAN_DEPTH) return false;
@@ -299,16 +315,20 @@ function arithOk(t) {
       const c = t[i];
       if (c === undefined) return false;
       if (c === '(') { i++; if (!expr()) return false; skipWs(); if (t[i] !== ')') return false; i++; return true; }
-      if (/[0-9]/.test(c)) { const m = at(NUM_RE); if (m === null) return false; i += m[0].length; return /[A-Za-z_]/.test(t[i] ?? ' ') ? false : true; }
-      if (c === '$') {
-        const nx = t[i + 1];
-        if (nx === '(') { const e = endParen(t, i + 2); if (e - 1 < i + 2 || t[e - 1] !== ')') return false; i = e; return true; }
-        if (nx === '{') { const e = endBrace(t, i + 2); if (e - 1 < i + 2 || t[e - 1] !== '}') return false; i = e; return true; }
-        const m = at(DOLLAR_RE);
+      if (/[0-9]/.test(c)) {
+        const m = at(NUM_RE);
         if (m === null) return false;
         i += m[0].length;
-        return true;
+        // a base prefix followed by an expansion: `10#$x`, `0x$h`, `16#ff$x`
+        if ((t[i] === '#' || ((t[i] === 'x' || t[i] === 'X') && m[0] === '0')) && t[i + 1] === '$') i++;
+        if (t[i] === '$') {
+          while (t[i] === '$') { if (!dollar()) return false; while (i < t.length && /[0-9A-Za-z@_]/.test(/** @type {string} */ (t[i]))) i++; }
+          return true;
+        }
+        return /[A-Za-z_]/.test(t[i] ?? ' ') ? false : true;
       }
+      if (c === '$') return dollar();
+      if (c === '"') { const e = endDouble(t, i + 1); if (e - 1 <= i || t[e - 1] !== '"') return false; if (!arithOk(t.slice(i + 1, e - 1))) return false; i = e; return true; }
       if (c === '`') { const e = endTick(t, i + 1); if (e - 1 <= i || t[e - 1] !== '`') return false; i = e; return true; }
       if (/[A-Za-z_]/.test(c)) {
         const m = at(IDENT_RE);
@@ -400,7 +420,25 @@ function tokenizeIn(s, depth, st, top) {
       if (!step()) return;
       const c = t[j];
       if (c === '\\') { j += 2; continue; }
-      if (c === '$' && t[j + 1] === '(') { const e = endParen(t, j + 2); nest(innerOf(t, j + 2, e, ')')); j = e; continue; }
+      if (c === '$' && t[j + 1] === '(') { const e = endParen(t, j + 2); substParen(innerOf(t, j + 2, e, ')')); j = e; continue; }
+      if (c === '`') { const e = endTick(t, j + 1); nest(unTick(innerOf(t, j + 1, e, '`'))); j = e; continue; }
+      j++;
+    }
+  };
+  /** The text inside a `$(` ... `)`: `$((...))` is arithmetic when the text between the inner parentheses is a valid expression (only the substitutions in it are commands), otherwise subshells. @param {string} inner */
+  const substParen = (inner) => {
+    const wrapped = inner.startsWith('(') && inner.endsWith(')');
+    if (wrapped) arithSubs(inner); // quotes and `#` protect nothing inside arithmetic text: every substitution in it runs
+    if (wrapped && isArithmetic(inner.slice(1, -1))) return;
+    nest(inner, wrapped);
+  };
+  /** Every `$(...)` and backtick substitution in a raw arithmetic text (`$((`, `((`, `for ((`), whatever quote or `#` is around it, scanned as commands; `${...}` and `$[...]` are read through, so the ones inside are found. @param {string} t */
+  const arithSubs = (t) => {
+    let j = 0;
+    while (j < t.length) {
+      if (!step()) return;
+      const c = t[j];
+      if (c === '$' && t[j + 1] === '(') { const e = endParen(t, j + 2); substParen(innerOf(t, j + 2, e, ')')); j = e; continue; }
       if (c === '`') { const e = endTick(t, j + 1); nest(unTick(innerOf(t, j + 1, e, '`'))); j = e; continue; }
       j++;
     }
@@ -441,7 +479,8 @@ function tokenizeIn(s, depth, st, top) {
         G.unsure = keep; // the probe only decides arithmetic or subshells; the text is read for real below when it is not arithmetic
         const body = s.slice(i + 2, e - 2);
         if (e - 2 > i + 1 && s[e - 1] === ')' && s[e - 2] === ')') {
-          if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { subsIn(body); i = e; continue; }
+          arithSubs(body);
+          if (forHdr ? forHeaderOk(body) : isArithmetic(body)) { i = e; continue; }
           strictUntil = e; // not arithmetic: two subshells, read as commands below, and a command word that is not literal is refused even without an operand
         }
       }
@@ -492,14 +531,14 @@ function tokenizeIn(s, depth, st, top) {
         const e = endParen(s, i + 2);
         const inner = innerOf(s, i + 2, e, ')');
         // `$((...))` is arithmetic: only the substitutions inside it are commands; when the text cannot be an arithmetic expression (`$((echo a); (mkdir X))`) bash reads subshells, so it is read as commands as well
-        if (inner.startsWith('(') && inner.endsWith(')') && isArithmetic(inner.slice(1, -1))) subsIn(inner); else nest(inner, inner.startsWith('(') && inner.endsWith(')'));
+        substParen(inner);
         const x = cw(); x.sub = true; x.usub = true; x.v += s.slice(i, e); i = e; continue;
       }
       if (nx === '[') { // `$[ ... ]`, the old arithmetic: its `<<` and `>` are operators; only the substitutions inside are commands
         let e = i + 2; let d = 1;
         while (e < n && d > 0) { if (!step()) break; const ch = s[e]; if (ch === '\\') e++; else if (ch === '[') d++; else if (ch === ']') d--; e++; }
         if (d > 0) doubt('an unterminated $[...]');
-        subsIn(s.slice(i + 2, Math.max(i + 2, e - 1))); const x = cw(); x.vr = true; x.v += s.slice(i, e); i = e; continue;
+        arithSubs(s.slice(i + 2, Math.max(i + 2, e - 1))); const x = cw(); x.vr = true; x.v += s.slice(i, e); i = e; continue;
       }
       if (nx === '{') { const e = endBrace(s, i + 2); const x = cw(); x.vr = true; x.v += s.slice(i, e); subsIn(s.slice(i + 2, e)); i = e; continue; }
       if (nx === "'") { const a = ansiC(s, i); const x = cw(); markQ(x); if (!a.plain) x.vr = true; x.v += a.text; i = a.end; continue; }
