@@ -16,7 +16,7 @@
 
 ## Status
 
-Version 0.0.104 is an early release.
+Version 0.0.105 is an early release.
 Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
 Codex as implementer is supported (real use, 2026-10-23 to 25).
 Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
@@ -53,7 +53,7 @@ cd your-project && proofline init
 npx skills add furkansarikaya/proofline --skill <name>
 ```
 
-Supported on macOS and Linux. On Windows only the hook tests run in CI; not tried (denenmedi): `.cmd` shims of `gh`/`az` (refused; use the `.exe`), `taskkill /T`, and `glab`, `az`, Jira, Linear on a real service ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
+Supported on macOS and Linux; Windows runs the core, invariant and hook tests nightly. Not tried (denenmedi): Codex sandbox, `.cmd` shims, `taskkill /T`, WSL, Git Bash, `glab`, `az`, Jira, Linear on a real service ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
 
 ## Quick start (5 minutes)
 
@@ -133,7 +133,7 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 
 ## Versioning and license
 
-Version **0.0.104**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.105**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

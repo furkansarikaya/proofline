@@ -210,12 +210,17 @@ When a pull request has **no checks** (or the project has no CI), it is not refu
 
 ## Not tried (denenmedi)
 
-Written against fakes only, never against the real thing (A252):
+**What runs on Windows (A272).** The nightly and manual CI run executes, on `windows-latest` with Node 22.13.0, the core's Node tests (four shards, `tests/core`), the Node Core-invariant suite (`tests/invariants-node`) and the hook tests, including the hook guards with drive, UNC and Git Bash path spellings (`hook-windows`, `windows-core`). A red leg fails the nightly run. They do not run on a pull request (a leg takes about 27 minutes of Windows runner time), so a change that breaks Windows is found the night after it merges, not before. A test that cannot run on Windows (a POSIX file mode, a shell fake) is skipped there by name; the totals of the last full run (2,490 pass, 0 fail, 103 skipped) are in A272.
 
+**What is not verified on Windows, and limits that stay (A260 to A271).** Written against fakes only, never against the real thing, or accepted as a limit:
+
+- **Codex.** Codex's own sandbox enforcement on Windows was not traced, and `SMOKE_ONLY=codex` was not run there. The permission profile is built with Windows path forms (A263) and fails closed. A worktree made before 0.0.96 needs `worktree-remove` and `worktree-add` before a Codex dispatch. Links created inside a granted folder may be followed by Codex's own sandbox (untraced).
 - **Windows `.cmd` shims.** `gh`, `glab` and `az` run only as a real `.exe`/`.com` found through `PATHEXT`, outside the project, the working directory and temporary folders (a refusal list, no ACL check). A `.cmd` or `.bat` shim is refused, never run through `cmd.exe` (it re-parses `& | ^ % " <`, CVE-2024-27980); the message names the shim and says to put the real `.exe` first on `PATH` (`az` ships only `az.cmd`: merge in Azure DevOps yourself). Rules tested with a fake file system; not tried on Windows.
-- **Bare program names (Windows).** The core, the hook and the CLI start a bare program name (`git`, `gh`) only as an absolute `.exe` found on `PATH`, never one inside the working folder; a tool under the current folder tree (running from a home folder, or a project at a drive root) is refused too. The skill scripts that start programs themselves are not covered (A252). Not tried on Windows.
-- **WSL and Git Bash.** WSL counts as Linux; Git Bash and native Windows are not tried.
-- **`taskkill /T`** (the process-tree kill of the dispatcher, A226): the command is tested with an injected spawn; not tried on Windows.
+- **Bare program names (Windows).** The core, the hook, the CLI and the shipped skill scripts (A270) start a bare program name (`git`, `gh`) only as an absolute `.exe` found on `PATH`, never one inside the working folder; a tool under the current folder tree (running from a home folder, or a project at a drive root) is refused too. The skill scripts are pinned by source and table tests; none was run end to end on Windows.
+- **WSL and Git Bash.** WSL counts as Linux; Git Bash is not a target of its own and was not tried as one.
+- **`taskkill /T`** (the process-tree kill of the dispatcher, A226): the command is tested with an injected spawn; not tried on Windows. A command stopped by its time limit may leave grandchildren running there (A265).
+- **Hook guards (A271).** 8.3 short names and per-directory case sensitivity are compared as written (an 8.3 spelling of the project root is read as outside: denied); an unquoted `C:\Users\me\x` in a shell command loses its backslashes and is denied; Windows reserved names (CON, AUX, ...) are refused; a link or junction inside the project that leads out is judged by its text; shell wrappers (`powershell -c`, `cmd /c`) are not parsed. Implementer and designer variable-led write targets are a pre-existing, undecided case.
+- **Smaller limits:** a lock holder of another elevation reads as dead (A267); `isLiveAncestor` answers false, so no dispatch nonce is accepted (A269); the per-directory case-sensitive NTFS flag can confuse the case-insensitive path compare (A260, A269); the grep fallback needs a `grep` on `PATH` (A265).
 - **Not tried against a real service:** the Jira adapter, the Linear adapter, `glab` and `az` (fake servers and fake tools only).
 
 ## The next step

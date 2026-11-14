@@ -465,7 +465,7 @@ Process cost on Windows (estimate, using the inventory's 20-50 ms per process): 
 to one Node start plus at most a few git calls. Status after stage 15 (A251): the hook tests and the hook benchmark run on `windows-latest` and are a
 gate of the nightly workflow (`hook-windows`, A188, A250). The core's Node tests and the Node Core-invariant suite were put on a Windows runner as a
 manual measurement (`windows-core-probe`) and do NOT pass there (the first run: 7 of 8 invariant tests and about a third of the core tests failed), so the
-README still says "use WSL or Git Bash" for everything but the hook, and the epic criterion "the Node invariant suite is green on Windows" is open.
+README still says "use WSL or Git Bash" for everything but the hook, and the epic criterion "the Node invariant suite is green on Windows" is open. (A272: that state ended with the Windows port W1 to W13; the core legs and the invariants are now gates of the nightly run, renamed `windows-core`.)
 
 ## 12. Stage plan
 
