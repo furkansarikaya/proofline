@@ -178,3 +178,77 @@ test('A273: `cd src && echo x > a.txt` is judged by the path rule (literal cd), 
     assert.ok(why === null || !/cannot be resolved/.test(why), `${role}: ${why}`);
   }
 });
+
+// Security review round 1 (issue #264): the operands the scanner does not record as writes. Role verdict: refused for both roles; lead verdict: pinned explicitly (allow = the lead's guard allows it today and keeps doing so).
+const BEYOND_SCANNER = /** @type {Array<[string, string, 'allow' | 'refuse']>} */ ([
+  ["echo x >& $VAR/x", "echo x >& $VAR/x", 'allow'],
+  ["echo x >&$OLDPWD/x", "echo x >&$OLDPWD/x", 'allow'],
+  ["echo x 2>&$VAR", "echo x 2>&$VAR", 'allow'],
+  ["echo x >& $(pwd)/../x", "echo x >& $(pwd)/../x", 'allow'],
+  ["echo x >& ../x", "echo x >& ../x", 'allow'],
+  ["cp a `pwd`/../x", "cp a `pwd`/../x", 'allow'],
+  ["tee `pwd`/../x", "tee `pwd`/../x", 'allow'],
+  ["touch `pwd`/../x", "touch `pwd`/../x", 'allow'],
+  ["rm `pwd`/../x", "rm `pwd`/../x", 'allow'],
+  ["mkdir -p `pwd`/../x", "mkdir -p `pwd`/../x", 'allow'],
+  ["install -d `pwd`/../x", "install -d `pwd`/../x", 'allow'],
+  ["cp -t `pwd`/.. a", "cp -t `pwd`/.. a", 'allow'],
+  ["cp a \"`pwd`/../x\"", "cp a \"`pwd`/../x\"", 'refuse'],
+  ["echo x > /dev/$X", "echo x > /dev/$X", 'allow'],
+  ["echo x > /dev/*", "echo x > /dev/*", 'allow'],
+  ["echo x > /dev/$(echo ../etc)/x", "echo x > /dev/$(echo ../etc)/x", 'allow'],
+  ["tee /dev/$X", "tee /dev/$X", 'allow'],
+  ["cp a /dev/$X", "cp a /dev/$X", 'allow'],
+  ["dd of=/dev/$X", "dd of=/dev/$X", 'allow'],
+  ["echo x > /dev/null/../../etc/x", "echo x > /dev/null/../../etc/x", 'refuse'],
+  ["echo x > ${TMPDIR%%/*}/etc/x", "echo x > ${TMPDIR%%/*}/etc/x", 'allow'],
+  ["echo x > ${TMPDIR:0:0}/x", "echo x > ${TMPDIR:0:0}/x", 'allow'],
+  ["echo x > ${TMPDIR/*/}/x", "echo x > ${TMPDIR/*/}/x", 'allow'],
+  ["install -d $VAR/x", "install -d $VAR/x", 'allow'],
+  ["install -d -m755 $VAR", "install -d -m755 $VAR", 'allow'],
+  ["install -t$X a", "install -t$X a", 'allow'],
+  ["mv -t$X a", "mv -t$X a", 'allow'],
+  ["cp -t$X a", "cp -t$X a", 'allow'],
+  ["cp --target=$VAR a", "cp --target=$VAR a", 'allow'],
+  ["cp --target-directory=$VAR a", "cp --target-directory=$VAR a", 'refuse'],
+  ["cp --target-directory $VAR a", "cp --target-directory $VAR a", 'refuse'],
+  ["cp -rt $X a", "cp -rt $X a", 'refuse'],
+  ["cp -t src a", "cp -t src a", 'refuse'],
+  ["cp -t ../x a", "cp -t ../x a", 'refuse'],
+  ["sed -i s/a/b/ $VAR impl.txt", "sed -i s/a/b/ $VAR impl.txt", 'refuse'],
+  ["perl -pi -e 1 $VAR impl.txt", "perl -pi -e 1 $VAR impl.txt", 'refuse'],
+  ["awk -i inplace 1 $VAR impl.txt", "awk -i inplace 1 $VAR impl.txt", 'refuse'],
+  ["sed -i s/a/b/ /etc/hosts impl.txt", "sed -i s/a/b/ /etc/hosts impl.txt", 'refuse'],
+  ["sed -i -e s/a/b/ impl.txt /etc/hosts", "sed -i -e s/a/b/ impl.txt /etc/hosts", 'refuse'],
+  ["sed -n -i.bak -e p /etc/x", "sed -n -i.bak -e p /etc/x", 'refuse'],
+  ["mkdir ../x", "mkdir ../x", 'allow'],
+  ["mkdir /etc/x", "mkdir /etc/x", 'allow'],
+  ["mkdir -p ~/x", "mkdir -p ~/x", 'allow'],
+  ["mkdir ../{x,y}", "mkdir ../{x,y}", 'allow'],
+  ["mkdir -p `pwd`/x", "mkdir -p `pwd`/x", 'allow'],
+]);
+
+for (const [name, command, leadExpected] of BEYOND_SCANNER) {
+  test(`A273 review: ${name}: refused for both roles; the lead stays ${leadExpected}`, async () => {
+    for (const [role, who, env] of ROLES) {
+      const why = await pre(command, who, env);
+      assert.ok(why, `${role}: allowed`);
+    }
+    const lead = await pre(command, LEAD[1], LEAD[2]);
+    if (leadExpected === 'allow') assert.equal(lead, null, `the lead's verdict changed: ${lead}`);
+    else assert.ok(lead, 'the lead no longer refuses this form');
+  });
+}
+
+const STAY_ALLOWED = ["echo hi >& 1", "sed s/a/b/ /etc/hosts", "mkdir -m 755 .agents/runs/LC/scratch/e"];
+test('A273 review: file descriptors, /dev/null and the standard streams, a heredoc body with backticks and a literal in-scope in-place edit stay allowed', async () => {
+  const [, implWho, implEnv] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (ROLES[0]);
+  for (const command of STAY_ALLOWED) {
+    assert.equal(await pre(command, implWho, implEnv), null, command);
+  }
+  for (const [role, who, env] of ROLES) {
+    for (const command of ['echo hi >&2', 'echo hi 2>&1', 'echo hi >&-', 'echo x > /dev/null', 'echo x > /dev/stderr', 'echo x > /dev/fd/2', 'echo x > /dev/tty', 'mkdir -p .agents/runs/LC/scratch/d', 'cd .agents/runs/LC/scratch && cp -t d a']) {
+      assert.equal(await pre(command, who, env), null, `${role}: ${command}`);
+    }
+  }
+});

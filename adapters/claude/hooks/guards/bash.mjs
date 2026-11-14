@@ -149,10 +149,27 @@ async function check(ctx, cmd) {
   const lineOf = scan.records.map((r) => `${r.kind}\t${Buffer.from(r.raw, 'latin1').toString('utf8')}`);
   const strictRole = role === 'implementer' || role === 'designer';
   let badCd = false;
+  let cwd = '';
+  /** @type {string[]} */ const extraW = [];
+  if (strictRole) {
+    for (const t of ampRedirectTargets(cmd)) { await writeRule(ctx, t, lineOf); extraW.push(t); }
+    if (hasBacktickOperand(cmd, scan)) deny(`a write program is given an operand led by a backtick substitution, which cannot be resolved (${ROLE_TAIL})`);
+  }
   for (const rec of scan.records) {
     const k = rec.kind;
     const v = cmdSubst(rec.value);
-    if (strictRole) { const hit = unresolvedCwdOrMkdir(rec.kind, v, badCd); badCd = hit.badCd; if (hit.why !== '') deny(hit.why); }
+    if (strictRole) {
+      if (k === 'V' && v.startsWith('cwd\t')) cwd = v.slice(4);
+      const hit = roleRecord(k, v, badCd);
+      badCd = hit.badCd;
+      if (hit.why !== '') deny(hit.why);
+      for (const o of hit.ops) {
+        if (badCd && !ABS_RE.test(o)) deny(`the command writes '${o}' after a cd to a directory that cannot be resolved, so the target cannot be resolved; ${ROLE_TAIL}`);
+        const at = cwd !== '' && !ABS_RE.test(o) ? `${cwd}/${o}` : o;
+        await writeRule(ctx, at, lineOf);
+        extraW.push(at);
+      }
+    }
     switch (k) {
       case 'X': deny(`${v} is not allowed while run ${act} is active; write agent.sh, AGENT_ROLE and the command word literally; only an argument may be a variable the same command assigns a plain literal: ID=T-1; sh .agents/scripts/agent.sh status $ID (not A=.agents/scripts/agent.sh; $A status)`); break;
       case 'R': if (canon(v) !== role) deny(`AGENT_ROLE=${v} does not match the caller's role (${role}); a role never acts as another`); break;
@@ -174,40 +191,122 @@ async function check(ctx, cmd) {
       default: break;
     }
   }
-  await scratchGuard(ctx, scan);
+  // A273: the operands found beyond the scanner's W records are judged by the same outside-the-project rule
+  await scratchGuard(ctx, extraW.length === 0 ? scan : { ...scan, records: [...scan.records, ...extraW.map((value) => ({ kind: 'W', raw: value, value }))] });
   leadTmpCheck(ctx, cmd, scan);
 }
 
 const ABS_RE = /^([/~]|[A-Za-z]:|\\\\)/;
+const ROLE_TAIL = 'shell write detection is a heuristic; write the target literally, not through a variable, substitution or glob, or use the Write tool on an allowed path';
+const WRITE_PROGRAMS = new Set(['cp', 'mv', 'ln', 'tee', 'touch', 'rm', 'rmdir', 'unlink', 'mkdir', 'mkfifo', 'mknod', 'install', 'dd', 'truncate', 'sed', 'perl']);
+const DEV_OK = /^\/dev\/(null|zero|full|stdout|stderr|stdin|tty|fd\/[0-9]+)$/;
+
+/** The targets of `>&WORD` (a redirect to a file; the scanner records none). A file descriptor (`>&1`, `2>&1`, `>&-`, `>&2-`) is not a target. @param {string} cmd @returns {string[]} */
+function ampRedirectTargets(cmd) {
+  const out = [];
+  for (const m of cmd.matchAll(/(?:^|[^<>&|])[0-9]*>&[ \t]*("[^"]*"|'[^']*'|[^\s;&|<>)]+)/g)) {
+    const w = (m[1] ?? '').replace(/^["']|["']$/g, '');
+    if (/^([0-9]+-?|-)$/.test(w) || w === '') continue;
+    out.push(w);
+  }
+  return out;
+}
+
+/** A write program together with a word that starts with a backtick substitution (the scanner splits such a word, so the operand is lost); here-document bodies are not read. @param {string} cmd @param {import('../command-scan.mjs').ScanResult} scan */
+function hasBacktickOperand(cmd, scan) {
+  if (!cmd.includes('`')) return false;
+  if (!scan.records.some((r) => r.kind === 'C' && WRITE_PROGRAMS.has(r.value.slice(0, r.value.indexOf('\t') < 0 ? r.value.length : r.value.indexOf('\t'))))) return false;
+  const text = cmd.replace(/<<-?[ \t]*(['"]?)([A-Za-z0-9_]+)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '<<$2$3');
+  return /(^|[\s;&|(=<>'"])`/.test(text);
+}
+
+/** @param {string[]} args @param {string[]} withArg options that take the next word @returns {string[]} the non-option words */
+function plainOperands(args, withArg) {
+  const ops = [];
+  let end = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] ?? '';
+    if (!end && a === '--') { end = true; continue; }
+    if (!end && a.startsWith('-') && a !== '-') { if (withArg.includes(a)) i++; continue; }
+    ops.push(a);
+  }
+  return ops;
+}
+
+/** The directory a `-t DIR`, `-tDIR`, `-rtDIR`, `--target-directory=DIR` (or any unique prefix of that long name) names. @param {string[]} args @returns {string[]} */
+function targetDirs(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] ?? '';
+    if (a === '--') break;
+    let m;
+    if ((m = /^--(ta[a-z-]*)(=(.*))?$/.exec(a)) && '--target-directory'.startsWith(`--${m[1]}`)) {
+      if (m[2] !== undefined) out.push(m[3] ?? ''); else if (i + 1 < args.length) out.push(args[++i] ?? '');
+    } else if ((m = /^-([A-Za-z]*)t(.*)$/.exec(a)) && !a.startsWith('--')) {
+      if ((m[2] ?? '') !== '') out.push(m[2] ?? ''); else if (i + 1 < args.length) out.push(args[++i] ?? '');
+    }
+  }
+  return out;
+}
+
+/** The file operands of an in-place editor (every one of them is written), or [] when the command is not in place. @param {string} word @param {string[]} args @returns {string[]} */
+function inPlaceFiles(word, args) {
+  let inplace = false;
+  let hasProg = false;
+  const files = [];
+  let skippedProg = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] ?? '';
+    if (a === '') continue; // the BSD `-i ''` suffix
+    if (a === '--') { for (const x of args.slice(i + 1)) files.push(x); break; }
+    if (a.startsWith('-') && a !== '-') {
+      if (word === 'awk') {
+        if (a === '-i' && args[i + 1] === 'inplace') { inplace = true; i++; continue; }
+        if (a === '-iinplace') { inplace = true; continue; }
+        if (/^-[fvFei]$/.test(a)) { if (a === '-f' || a === '-e') hasProg = true; i++; continue; }
+        if (/^--(file|source)(=|$)/.test(a)) hasProg = true;
+        continue;
+      }
+      if (a === '--in-place' || a.startsWith('--in-place=') || /^-[A-Za-z]*i/.test(a)) inplace = true;
+      if (/^-[A-Za-z]*[ef]$/.test(a) || a === '--expression' || a === '--file') { hasProg = true; i++; continue; }
+      if (/^--(expression|file)=/.test(a)) hasProg = true;
+      continue;
+    }
+    if (!hasProg && !skippedProg) { skippedProg = true; continue; }
+    if (word === 'awk' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(a)) continue;
+    files.push(a);
+  }
+  return inplace ? files : [];
+}
 
 /**
- * A273 (issue #264), the implementer and the designer only (the lead's verdicts are unchanged): (a) after a `cd`/`pushd`/`popd` whose directory the scanner cannot place (a variable, a substitution, `-`, no operand,
- * an option, a tilde), every later relative write target is unresolvable, so it is refused; (b) `mkdir`, `mkfifo` and `mknod` create a path, so an unresolved operand is refused like an unresolved write.
- * @param {string} kind @param {string} v @param {boolean} badCd @returns {{ badCd: boolean, why: string }}
+ * A273 (issue #264), the implementer and the designer only (the lead's verdicts are unchanged). Per record: (a) after a `cd`, `pushd` or `popd` whose directory the scanner cannot place, every later relative write target is
+ * unresolvable; (b) the operands the scanner does not record as writes are returned in `ops` and judged like any write: mkdir, mkfifo, mknod, `install -d`, the `-t`/`--target-directory` forms of cp, mv, ln and install, and every file of
+ * an in-place editor (sed -i, perl -i, awk -i inplace).
+ * @param {string} kind @param {string} v @param {boolean} badCd @returns {{ badCd: boolean, why: string, ops: string[] }}
  */
-function unresolvedCwdOrMkdir(kind, v, badCd) {
-  const tail = 'shell write detection is a heuristic; write the target literally, not through a variable, substitution or glob, or use the Write tool on an allowed path';
+function roleRecord(kind, v, badCd) {
+  const none = { badCd, why: '', ops: /** @type {string[]} */ ([]) };
   if (kind === 'C') {
     const t = v.indexOf('\t');
     const word = t < 0 ? v : v.slice(0, t);
     const args = t < 0 ? [] : v.slice(t + 1).split('\x03');
     if (word === 'cd' || word === 'pushd' || word === 'popd') {
       const operand = args.find((a) => a !== '--');
-      if (word !== 'cd' || operand === undefined || operand === '' || /^-|[$`*?[{~()]/.test(operand)) return { badCd: true, why: '' };
-      return { badCd, why: '' };
+      if (word !== 'cd' || operand === undefined || operand === '' || /^-|[$`*?[{~()]/.test(operand)) return { ...none, badCd: true };
+      return none;
     }
-    if (word === 'mkdir' || word === 'mkfifo' || word === 'mknod') {
-      for (const a of args) {
-        if (/[$`*?[]/.test(a)) return { badCd, why: `the command creates '${a}', which cannot be resolved; ${tail}` };
-        if (badCd && a !== '' && !a.startsWith('-') && !ABS_RE.test(a)) return { badCd, why: `the command creates '${a}' after a cd to a directory that cannot be resolved, so the target cannot be resolved; ${tail}` };
-      }
-    }
-    return { badCd, why: '' };
+    const ops = [];
+    if (word === 'mkdir' || word === 'mkfifo' || word === 'mknod') ops.push(...plainOperands(args, ['-m', '--mode', '-Z', '--context']));
+    else if (word === 'install' && args.some((a) => a === '-d' || a === '--directory' || /^-[A-Za-z]*d[A-Za-z]*$/.test(a))) ops.push(...plainOperands(args, ['-m', '--mode', '-o', '--owner', '-g', '--group', '-S', '--suffix']));
+    if (word === 'cp' || word === 'mv' || word === 'ln' || word === 'install') ops.push(...targetDirs(args));
+    if (word === 'sed' || word === 'perl' || word === 'awk' || word === 'gawk') ops.push(...inPlaceFiles(word === 'gawk' ? 'awk' : word, args));
+    return { ...none, ops };
   }
   if (badCd && (kind === 'W' || kind === 'E' || kind === 'P' || kind === 'Q') && v !== '' && !ABS_RE.test(v) && !v.startsWith('/dev/')) {
-    return { badCd, why: `the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved; ${tail}` };
+    return { ...none, why: `the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved; ${ROLE_TAIL}` };
   }
-  return { badCd, why: '' };
+  return none;
 }
 
 /** The agent.sh forms per role (D12, D13, D16). @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd @param {string} v the A record value @param {boolean} hasRole */
@@ -238,13 +337,21 @@ function agentRule(ctx, cmd, v, hasRole) {
   deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint build-record plan-section config-get diff-digest next verify-*${role === 'lead' ? '' : ' and submit'} (not ${sc}); state changes belong to the lead`);
 }
 
+/** A273: the scratch exemption of the implementer and the designer takes the plain `$TMPDIR/` and `${TMPDIR}/` forms only (no `${TMPDIR%%/*}`, `${TMPDIR:0:0}`), and no `..`, variable or substitution in the rest. @param {string} v */
+function tmpExempt(v) {
+  const m = /^(?:\/tmp\/|\/private\/tmp\/|\$TMPDIR\/|\$\{TMPDIR\}\/)(.*)$/s.exec(v);
+  return m !== null && !/(^|\/)\.\.(\/|$)|[$`]/.test(m[1] ?? '');
+}
+
 /** A shell write (W record) while a run is open. @param {import('../lib/context.mjs').HookContext} ctx @param {string} v @param {string[]} lineOf */
 export async function writeRule(ctx, v, lineOf) {
-  if (v === '' || v.startsWith('/dev/') || (isWin() && winSpell(v).nul)) return;
+  const strict = ctx.role === 'implementer' || ctx.role === 'designer';
+  // A273: for the implementer and the designer only /dev/null and the standard streams pass; `/dev/$X`, `/dev/*` and `/dev/null/../x` are judged like any other target
+  if (v === '' || (v.startsWith('/dev/') && (!strict || DEV_OK.test(v))) || (isWin() && winSpell(v).nul)) return;
   // A read role writes through no `..` component: $TMPDIR/<worktree>/../../<project path> would pass the worktree check
   if (ctx.ro && `/${isWin() ? v.replace(/\\/g, '/') : v}/`.includes('/../')) deny(`the command writes '${v}', which goes through a .. component and cannot be placed inside an evidence worktree${roTail(ctx)}`);
   if (/[$*?[]/.test(v)) {
-    if (v.startsWith('/tmp/') || v.startsWith('/private/tmp/') || v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR')) return;
+    if (strict ? tmpExempt(v) : (v.startsWith('/tmp/') || v.startsWith('/private/tmp/') || v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR'))) return;
     if (ctx.role === 'implementer' || ctx.role === 'designer') {
       if (v.includes('.agents') || v.includes('.claude/settings') || v.includes('.codex/') || v.includes('.git/')) deny(`the command writes '${v}', which may be protected run state`);
       // A273 (issue #264): a target the hook cannot resolve (a variable, a substitution, a glob) is refused for these two roles exactly as for the lead (A257): `echo x > $OLDPWD/x` reached outside the project
