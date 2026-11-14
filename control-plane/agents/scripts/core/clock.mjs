@@ -12,3 +12,12 @@ export function now() {
 export function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
+
+/**
+ * A monotonic reading in milliseconds, for measuring how long a command ran (#265, A275). It is not a date: only the difference of two readings means anything.
+ * The code that measures takes the reading function as a parameter; this is the one real source, used at the edge.
+ * @returns {number}
+ */
+export function monoMs() {
+  return Number(process.hrtime.bigint() / 1000n) / 1000;
+}

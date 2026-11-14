@@ -7,8 +7,14 @@
   "$defs": {
     "failureClass": { "enum": ["assertion", "syntax", "compile", "import", "missing_file", "no_tests", "setup_crash", "timeout", "crash", "unknown"] }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "schema_version": { "const": 2 } } },
+      "then": { "properties": { "cycles": { "items": { "properties": { "green": { "required": ["duration_ms", "duration_source", "duration_excerpt"] } } } } } }
+    }
+  ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "enum": [1, 2] },
     "mode": { "enum": ["team", "standalone"] },
     "task": { "type": "string", "minLength": 1 },
     "cycles": {

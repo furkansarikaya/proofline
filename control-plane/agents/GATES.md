@@ -59,7 +59,7 @@ When `commands.build` or `commands.test` is configured, the build record (`agent
 by the lead at `handoff IMPLEMENTING -> IMPLEMENTED`, before the review gate wave, so no reviewer has to lower its
 confidence for a missing record. A tree without a record (a changed tree, a failed automatic run) shows
 `agent.sh build-record <ID> run` as the first step of `agent.sh next`; `dispatch.sh` still makes it before a reviewer
-or verifier starts. A failing build is recorded and shown, it never blocks the handoff.
+or verifier starts. A failing build is recorded and shown, it never blocks the handoff. The record also holds the duration of each new test (from the GREEN evidence) and any budget finding (A275, `test_budgets`).
 
 A key may hold several commands (a block list under `commands.build`, `commands.test` or `commands.lint`, A173, for a
 project with more than one stack). The record runs every command of a key, even when an earlier one failed, and shows each

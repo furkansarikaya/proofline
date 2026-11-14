@@ -120,6 +120,14 @@ test("validate: the duration fields are optional (an older tdd.json still passes
   assert.deepEqual(errs(d), []);
   for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) { const e = good(); e.cycles[0].green[k] = k === "duration_ms" ? "x" : 5; has(errs(e), `green.${k}`); }
 });
+test("validate: schema_version 2 requires the three duration fields, schema_version 1 (an older recording) keeps them optional (issue 265 package B)", () => {
+  for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) {
+    const v2 = good(); v2.schema_version = 2; delete v2.cycles[0].green[k]; has(errs(v2), `green.${k}`);
+    const v1 = good(); v1.schema_version = 1; delete v1.cycles[0].green[k]; assert.deepEqual(errs(v1), []);
+  }
+  const ok = good(); ok.schema_version = 2; assert.deepEqual(errs(ok), []);
+  const bad = good(); bad.schema_version = 3; has(errs(bad), "schema_version");
+});
 test("validate: a duration must be a non-negative number from a runner line or a timed command", () => {
   for (const v of [-1, "0.4", null, Number.NaN, Infinity]) {
     const d = good(); d.cycles[0].green.duration_ms = v; has(errs(d), "green.duration_ms");

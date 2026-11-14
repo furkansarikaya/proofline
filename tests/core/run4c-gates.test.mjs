@@ -142,7 +142,7 @@ test('worker-evidence: the owner role records RED fail then GREEN pass; every ot
   assert.match(body, /base_sha: "[0-9a-f]{40}"/);
   refused(w(['GREEN', 'pass'], ev('go test', 'impl.txt,impl_test.txt')), 'GREEN with no implementation change since RED', 'no implementation file changed since the RED record');
   writeFileSync(`${d}/impl.txt`, 'impl: lookup returns the stored value\n', { flag: 'a' });
-  accepted(w(['GREEN', 'pass'], ev('go test ./...', 'impl.txt,impl_test.txt')), 'GREEN');
+  accepted(w(['GREEN', 'pass'], ev('go test ./...', 'impl.txt,impl_test.txt', 'test_durations: lookup=1\n')), 'GREEN');
   accepted(w(['REFACTOR', 'pass'], ev('go test ./...', 'impl.txt,impl_test.txt')), 'REFACTOR');
   assert.deepEqual(readdirSync(`${d}/.agents/runs/LC/worker-evidence`).filter((n) => /^(RED|GREEN|REFACTOR)-/.test(n)).sort(), ['GREEN-1.yaml', 'RED-1.yaml', 'REFACTOR-1.yaml']);
 });

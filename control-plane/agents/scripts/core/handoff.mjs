@@ -3,6 +3,8 @@
 // the first step, the classification and defect-report checks, the fix bound, the scratch-worktree check, the language check of the run folder and the
 // effective tier record. Messages, ordering of the checks and the writes are those of agent.sh 0.0.47 (the freeze consumes approvals, so does this).
 import { buildRecord } from './buildrecord.mjs';
+import { measureRun, realRunner } from './testmeasure.mjs';
+import { verifyCommandTimeout } from './timeouts.mjs';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
@@ -13,7 +15,7 @@ import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, 
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { verifySeal } from './ledger.mjs';
-import { enforceTaskBranch, setRunValue } from './lifecycle.mjs';
+import { enforceTaskBranch, ledgerIf, setRunValue } from './lifecycle.mjs';
 import { led, must } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
@@ -157,13 +159,29 @@ function reopenForFix(ctx, id) {
   setRunValue(ctx, id, 'handoff', 'code_done_patch_sha256', 'PENDING');
 }
 
+/**
+ * #265 package B (A275, AC-4, AC-5): at IMPLEMENTED the control plane runs the new and changed tests twice on the same commit (the GREEN commands that are a configured
+ * command or an entry of the frozen plan's Verification commands) and compares exit status and duration with the configured tolerance. A stability finding stops the
+ * handoff; nothing is retried. Budget findings and a retry configured in the project's own CI are reported, and one ledger row records what was measured.
+ * @param {Context} ctx @param {string} id
+ */
+function testMeasureAtImplemented(ctx, id) {
+  if (ctx.role !== 'lead' && ctx.role !== 'implementer') return;
+  const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });
+  for (const f of m.budgetFindings) ctx.err(`finding: ${f}\n`);
+  for (const r of m.retries) ctx.err(`note: the project's own configuration retries a test (reported, proofline never retries): ${r}\n`);
+  for (const c of m.notRun) ctx.err(`note: not run twice: \`${c}\` is neither a configured command nor an entry of the plan's Verification commands (list the command that runs the new tests there to have it double-run)\n`);
+  ledgerIf(ctx, id, 'test-measure', '-', '-', `tests=${m.tests.length} double_run=${m.ran.length} not_run=${m.notRun.length} budget_findings=${m.budgetFindings.length} stability_findings=${m.stability.length} retries=${m.retries.length}`);
+  if (m.stability.length > 0) fail(`IMPLEMENTED blocked: ${m.stability.join('; ')}. The new tests must give the same outcome and about the same duration on every run: find the cause (shared state, order, a real wait, the clock, randomness) and fix the test; there is no retry`);
+}
+
 /** `build_record_auto ID` (handoff IMPLEMENTED, lead) @param {Context} ctx @param {string} id */
 function buildRecordAuto(ctx, id) {
   if (ctx.role !== 'lead') return;
   const why = buildRecordUnmakeable(ctx);
   if (why !== '') { ctx.err(`MISSING STEP (lead): ${why}. Do: ${BUILD_STEP(id)}\n`); return; }
   if (!buildRecordMissing(ctx)) return;
-  const r = buildRecord(ctx, 'run');
+  const r = buildRecord(ctx, 'run', '', id);
   if (r.status === 0) ctx.err(`build record made for the implemented tree (agent.sh build-record ${id} show)\n`);
   else ctx.err(`MISSING STEP (lead): the build record of this tree could not be made (see agent.sh build-record ${id} run); the handoff is not blocked, but the reviewers and the verifier have no record to read. Fix what it reports (a missing install, secret or env file), then run agent.sh build-record ${id} run\n`);
 }
@@ -259,6 +277,7 @@ export function recordHandoff(ctx, id, phase) {
       dbGuardCheck(ctx, id);
       verifyDebugResult(ctx, id);
       must(verifyWorkerEvidence(ctx, id));
+      testMeasureAtImplemented(ctx, id);
       verifyMutationOwnership(ctx, dir, id, true);
       verifyFixBound(ctx, id);
       buildRecordAuto(ctx, id);

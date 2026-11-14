@@ -27,7 +27,7 @@ export function validate(doc, { scope = null, criteria = null } = {}) {
   if (!isObj(doc)) return ["$: expected object"];
   for (const k of KEYS) if (!(k in doc)) err("$", `missing required "${k}"`);
   for (const k of Object.keys(doc)) if (!KEYS.includes(k)) err("$", `unexpected "${k}"`);
-  if (doc.schema_version !== 1) err("$.schema_version", "must be 1");
+  if (doc.schema_version !== 1 && doc.schema_version !== 2) err("$.schema_version", "must be 2 (1 is the older form: the GREEN duration fields are optional)");
   if (!["team", "standalone"].includes(doc.mode)) err("$.mode", "must be team or standalone");
   if (!isStr(doc.task)) err("$.task", "expected non-empty string");
   const covered = new Set();
@@ -72,7 +72,8 @@ export function validate(doc, { scope = null, criteria = null } = {}) {
       if (!isStr(g.suite_command)) err(`${p}.green.suite_command`, "expected non-empty string");
       if (g.suite_exit_code !== 0) err(`${p}.green.suite_exit_code`, "nothing else may break: the suite must exit 0");
       // #265 AC-2: the duration of the new test, read from the GREEN run (a number with a source line), never an estimate
-      // optional for now (older recordings stay valid; a later package requires them); checked when present
+      // schema_version 2 (runs started with the test measurement, #265 package B) requires all three; schema_version 1, the older form, keeps them optional; checked when present
+      if (doc.schema_version === 2) for (const k of ["duration_ms", "duration_source", "duration_excerpt"]) if (g[k] === undefined) err(`${p}.green.${k}`, "required with schema_version 2: the duration of the new test, read from the GREEN run (use schema_version 1 only for a recording made before the test measurement)");
       if (g.duration_ms !== undefined && (typeof g.duration_ms !== "number" || !Number.isFinite(g.duration_ms) || g.duration_ms < 0)) err(`${p}.green.duration_ms`, "expected a number of milliseconds, 0 or more, read from the GREEN run");
       if (g.duration_source !== undefined && !["runner_output", "command_wall_time"].includes(g.duration_source)) err(`${p}.green.duration_source`, "must be runner_output or command_wall_time");
       if (g.duration_excerpt !== undefined && (!isStr(g.duration_excerpt) || !/[0-9]/.test(g.duration_excerpt))) err(`${p}.green.duration_excerpt`, "expected the runner or timing line the duration was read from (it holds a number)");

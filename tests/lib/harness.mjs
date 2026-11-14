@@ -377,7 +377,7 @@ export const wclose = (dir, w) => must(dir, ['window-close', 'LC', w, '0']);
 /** Worker evidence of a phase (RED needs the expected failure; opt.ef overrides it). @param {string} dir @param {string} phase @param {string} res @param {{ target?: string, ef?: string, role?: string | null }} [o] */
 export function wev(dir, phase, res, o = {}) {
   const ef = phase === 'RED' ? `expected_failure: ${o.ef ?? 'TestImpl fails: lookup is not implemented in impl.txt yet'}` : '';
-  const input = `command: go test ./...\ntarget: ${o.target ?? 'impl.txt,impl_test.txt'}\n${ef}\n`;
+  const input = `command: go test ./...\ntarget: ${o.target ?? 'impl.txt,impl_test.txt'}\n${ef}\n${phase === 'GREEN' ? 'test_durations: lookup returns the stored value=1\n' : ''}`;
   const role = o.role === undefined ? 'implementer' : o.role;
   return must(dir, ['worker-evidence', 'LC', phase, res], { input, ...(role ? { role } : {}) });
 }

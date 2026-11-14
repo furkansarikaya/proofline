@@ -69,7 +69,7 @@ export function solo(dir, phase, res, file, line, target) {
 /** @param {string} dir @param {string} phase @param {string} res @param {string} [role] @param {string} [target] */
 function wev(dir, phase, res, role, target) {
   const ef = phase === 'RED' ? 'expected_failure: TestImpl fails: lookup is not implemented in impl.txt yet' : '';
-  return must(dir, ['worker-evidence', 'LC', phase, res], { input: `command: go test ./...\ntarget: ${target ?? 'impl.txt,impl_test.txt'}\n${ef}\n`, ...(role ? { role } : {}) });
+  return must(dir, ['worker-evidence', 'LC', phase, res], { input: `command: go test ./...\ntarget: ${target ?? 'impl.txt,impl_test.txt'}\n${ef}\n${phase === 'GREEN' ? 'test_durations: lookup returns the stored value=1\n' : ''}`, ...(role ? { role } : {}) });
 }
 /** Drive a scaffolded run (frozen, IMPLEMENTING) to CODE_DONE. @param {string} dir @param {string} topology */
 export function toCodeDone(dir, topology) {

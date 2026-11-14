@@ -133,7 +133,7 @@ export function startRun(ctx, argv) {
     writeFileSync(`${dir}/TASK.md`, readFileSync(tmp));
     writeFileSync(marker, `${id}\n`);
     ctx.forget('file:');
-    led(ctx, id, 'start', '-', 'PLANNED', `task=${taskPath} adapter=${adapter}`);
+    led(ctx, id, 'start', '-', 'PLANNED', `task=${taskPath} adapter=${adapter} measure=1`);
     dbGuardBaseline(ctx, id);
     statusBlockUpdate(ctx, id, 'run-start');
     ctx.out(`run started: ${id} task=${taskPath}\n`);

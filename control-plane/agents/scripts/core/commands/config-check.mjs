@@ -6,7 +6,7 @@
 
 import { resolveTrailer } from '../committrailer.mjs';
 
-const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts)$/;
+const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts|test_budgets|test_stability)$/;
 const DIGITS = /^[0-9]+$/;
 const HOOK_EVENT_TIMEOUT = /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/;
 const REL_UP = /(^|\/)\.\.(\/|$)/;
@@ -92,6 +92,12 @@ export function checkConfigLines(lines) {
     else if (/^autonomy\./.test(k)) { if (!/^(TRIVIAL|STANDARD|COMPLEX|CRITICAL)$/.test(P(2))) bad(`unknown class under autonomy: ${P(2)}`); en(k, v, 'autonomous|supervised'); }
     else if (k === 'review.waiver_followup') en(k, v, 'none|task');
     else if (/^review\.(max_fix_rounds|small_max_files|small_max_lines)$/.test(k) || /^(test_trust|budgets|performance)\./.test(k)) num(k, v);
+    else if (k === 'test_budgets.default_kind') en(k, v, 'unit|integration|e2e');
+    else if (/^test_budgets\.(unit|integration|e2e)\.(test_ms|suite_ms)$/.test(k)) { num(k, v); if (DIGITS.test(v) && n0(v) < 1) bad(`${k} must be at least 1`); }
+    else if (k === 'test_stability.ratio') { if (v !== '' && (!/^[0-9]+(\.[0-9]+)?$/.test(v) || Number(v) < 1)) bad(`test_stability.ratio must be a number of 1 or more: ${v}`); }
+    else if (k === 'test_stability.floor_ms') { num(k, v); if (DIGITS.test(v) && n0(v) < 1) bad(`${k} must be at least 1`); }
+    else if (top === 'test_budgets' && k !== 'test_budgets' && !/^test_budgets\.(unit|integration|e2e)$/.test(k)) bad(`unknown test_budgets key: ${k} (want test_budgets.default_kind or test_budgets.<unit|integration|e2e>.test_ms|suite_ms)`);
+    else if (top === 'test_stability' && k !== 'test_stability') bad(`unknown test_stability key: ${k} (want test_stability.ratio or test_stability.floor_ms)`);
     else if (k === 'git.commit_format') en(k, v, 'conventional|plain');
     else if (k === 'git.push_requires_approval') en(k, v, 'true|false');
     else if (k === 'git.platform') en(k, v, 'github|gitlab|azure|bitbucket|other');

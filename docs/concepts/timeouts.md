@@ -94,3 +94,7 @@ that still holds the earlier shipped value to the new one (from a project older 
   is reported as not reproduced, with the limit named.
 - CI waits and delivery steps have no timer of their own; a batch that gives up on a CI run stops and resumes from its state
   (merged tasks are not run again).
+
+## Test budgets and the double run (A275)
+
+`test_budgets.<unit|integration|e2e>.test_ms|suite_ms` (milliseconds) and `test_stability.ratio|floor_ms` are multiplied by `timeouts.scale` like the durations above (the ratio is not). The double run of the new tests at handoff IMPLEMENTED uses the same limit as every other command, `verification.command_timeout_seconds` times the scale (never below 60 s, so the 30 s floor of the shared rule holds); each of the two runs has the whole limit, and a run that reaches it is a failure, never a pass. The defaults come from a measurement of this repository's own suites (the table is in decision A275) and are generous; tighten them for a project whose tests are faster.
