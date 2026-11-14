@@ -159,7 +159,7 @@ export function workerEvidenceCommand(ctx, args) {
   const durations = fieldFromText(stdin, 'test_durations').trim();
   if (durationsGiven) {
     if (phase !== 'GREEN') fail(`${phase} evidence cannot carry test_durations: only a passing GREEN run has a test duration to report`);
-    const okEntry = (/** @type {string} */ e) => { const i = e.lastIndexOf('='); return i > 0 && e.slice(0, i).trim() !== '' && !e.slice(0, i).includes('=') && /^\d+(\.\d+)?$/.test(e.slice(i + 1).trim()); };
+    const okEntry = (/** @type {string} */ e) => { const i = e.lastIndexOf('='); return i > 0 && e.slice(0, i).trim() !== '' && !e.slice(0, i).includes('=') && /^\d+(\.\d+)?$/.test(e.slice(i + 1)); };
     if (durations.length > 4096) fail('test_durations is longer than 4096 characters');
     if (!durations.split(';').every((e) => okEntry(e.trim()))) fail('test_durations must be `<test name>=<milliseconds>` entries separated by `;` (a number of 0 or more read from the GREEN run output, never an estimate)');
   }

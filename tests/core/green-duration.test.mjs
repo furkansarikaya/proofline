@@ -33,7 +33,7 @@ test('GREEN with test_durations: the durations are written into the GREEN record
 });
 
 test('GREEN with a malformed test_durations is refused: a word, a negative number and a missing name are not durations', () => {
-  for (const bad of ['lookup=-3', '=5', 'lookup=1; ']) {
+  for (const bad of ['lookup=-3', '=5', 'lookup=1; ', 'lookup = 12']) {
     const { d, w } = redThenFix();
     refused(A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: `${BASE}test_durations: ${bad}\n` }), `test_durations "${bad}"`, 'test_durations');
     wclose(d, w);
