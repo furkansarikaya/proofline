@@ -571,7 +571,7 @@ ROUND14.forEach((command, k) => {
 });
 const ROUND14_OK = [
   'x=(a b c)', 'x=(\\\na b)', 'files=(*.js)', 'arr+=(d)', 'declare -a arr=(a b c)', 'declare -A m=([a]=1)', 'm=([a]=1 [b]=2)', 'm=([a]+=1 [b]=2)', 'x=("a b" \'c d\' $e ${f} $(date))',
-  'local x=(1 2 3)', 'export A=1', 'a=b', 'echo "a=(1)"', 'x=(a\nb c)', 'x=(a \\\n b)', 'readonly -a r=(1 2)', 'FOO=1 x=(a b)',
+  'local x=(1 2 3)', 'export A=1', 'a=b', 'echo "a=(1)"', 'x=(a\nb c)', 'x=(a \\\n b)', 'readonly -a r=(1 2)', 'FOO=1 x=(a b)', '{ local x=(1 2); }', 'f() { local x=(1 2); }', 'if true; then local x=(1); fi', 'for i in 1; do declare -a y=(a b); done', 'if :; then :; else export z=(1); fi',
 ];
 ROUND14_OK.forEach((command, k) => {
   test(`A274 round 14 allowed #${k}: ${JSON.stringify(command)}`, async () => {

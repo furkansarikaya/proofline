@@ -597,7 +597,8 @@ function tokenizeIn(s, depth, st, top) {
       // an array assignment `NAME=( ... )`: bash reads the body as words only; any operator in it is a syntax error, after which bash discards the rest of the physical line and runs the next one
       // (the hook would read that next line as an element). The body is valid only when it is words, quoted strings, expansions, globs and `[sub]=word` elements, separated by blanks, newlines and continuations
       if (c === '(' && s[i + 1] !== '(' && w !== null && w.v.endsWith('=')) {
-        const declared = cur.words.length > 0 && DECL_BUILTINS.has(base(cur.words[0].v)) && !cur.words[0].q && cur.words.every((x, k) => k === 0 || x.v.startsWith('-') || isAssign(x));
+        const dw = skipReserved(cur.words); // the words after leading reserved words (`{`, `then`, `do`, `else`, `!`, a function header's brace)
+        const declared = dw.length > 0 && DECL_BUILTINS.has(base(dw[0].v)) && !dw[0].q && dw.every((x, k) => k === 0 || x.v.startsWith('-') || isAssign(x));
         const target = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=$/.test(w.v) && isAssign(w) && (lead || declared);
         const e = target ? arrayEnd(s, i + 1) : -1;
         if (e < 0) doubt('an array assignment whose end cannot be placed: write the elements as plain words, without ";", "&", "|", "<", ">", "#", a second "(" or a here-document');
