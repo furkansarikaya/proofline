@@ -60,6 +60,15 @@ test('A272: the Windows core and invariant legs are gates of the nightly and man
   assert.ok(!/pull_request/.test(/^    if: .*$/m.exec(j)?.[0] ?? ''), 'no pull request condition');
 });
 
+test('A272: windows-core takes no permissions of its own, no secret, the declared timeout, the runner and the Node version', () => {
+  const j = job('windows-core').replace(/^\s*#.*$/gm, '');
+  assert.ok(!/^\s*permissions:/m.test(j), 'the job inherits the top-level contents: read');
+  assert.ok(!/secrets\./.test(j), 'no secret reaches the Windows legs');
+  assert.match(j, /^    timeout-minutes: 90$/m);
+  assert.match(j, /^    runs-on: windows-latest$/m);
+  assert.match(j, /node-version: 22\.13\.0$/m);
+});
+
 test('A272: hook-windows is unchanged by the Windows gates (same condition, runner, steps)', () => {
   const j = job('hook-windows');
   assert.match(j, /^    if: \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && needs\.changes\.outputs\.code == 'true'$/m);
