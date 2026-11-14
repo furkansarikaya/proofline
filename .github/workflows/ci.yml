@@ -1,7 +1,7 @@
 name: ci
 # A76: pull requests run the Linux checks only, split into parallel jobs and shards. A164 changes A76's matrix:
 # pushes to main are Linux only too; macOS (static, fixtures), visual-browser and the benchmark report
-# run only on the nightly schedule and manual runs. A pull request that changes only plain documentation skips the heavy test
+# run only on the nightly schedule and manual runs, and so do the two Windows gates `hook-windows` and `windows-core` (A250, A272). A pull request that changes only plain documentation skips the heavy test
 # jobs (tests/ci/classify.mjs) but still runs the strict no-shell-logic check and the sync checks. The `checks` job always reports.
 # Node migration (docs/adr/0001-node-control-plane.md): `node-tests` (the Node tests of tests/core, tests/ci, tests/enforcement and tests/invariants-node on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates.
 # The temporary pull request shortcut (A205) and the legacy self-test shards are gone (A246, issue #176): a pull request runs what a push runs on Linux,
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       tests:
-        description: 'windows-core-probe only (A260): space-separated test files, globs or folders under tests/ (for example tests/core/gates-s1.test.mjs tests/invariants-node); empty runs every leg in full'
+        description: 'windows-core only (A260, A272): space-separated test files, globs or folders under tests/ (for example tests/core/gates-s1.test.mjs tests/invariants-node); empty runs every leg in full'
         required: false
         default: ''
         type: string
@@ -161,14 +161,14 @@ jobs:
       - name: hook processes and time per event (Node form, table in the job summary)
         run: node tests/ci/ci-steps.mjs windows-timing
 
-  # A251, stage 15: a MEASUREMENT of the core's Node tests and the Node Core-invariant suite on Windows. It is not a gate and not a claim: on the first run (A251) most core tests and 7 of the 8
-  # invariant tests failed on windows-latest, so the README does not say they pass there. Manual runs only (workflow_dispatch), `continue-on-error`, so the nightly workflow does not go red for known work;
-  # A260: the manual run takes a `tests` input (files, globs or folders under tests/) that limits it to those files, and every leg prints a PROBE-RESULT line and a job summary row (pass, fail, duration); it stays a manual, non-gating measurement until the LAST Windows package of epic #165 lands (A254); then the Windows hook and core jobs become gates of the nightly run.
-  windows-core-probe:
+  # A272, Windows port W13 (A251, A254, A260): the core's Node tests (four shards) and the Node Core-invariant suite on windows-latest are GATES of the nightly and manual runs, like `hook-windows` (A250): no
+  # continue-on-error, so a red leg fails the workflow run (the nightly outcome IS the run's conclusion; `checks` does not report it). They are not run on a pull request or a push and stay out of `checks`: the longest leg takes about
+  # 27 minutes and a Windows runner minute costs more than a Linux one. A skipped job counts as passed in `checks`, so the pin in tests/ci/ci-workflow.test.mjs fixes the condition literally. `fail-fast: false`: every leg reports.
+  # The manual run takes a `tests` input (files, globs or folders under tests/) that limits the legs to those files (A260); an empty input (and every scheduled run) runs every leg in full. Every leg prints a PROBE-RESULT line and a job summary row (pass, fail, duration).
+  windows-core:
     needs: [changes]
-    if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.code == 'true'
-    name: windows-core-probe (${{ matrix.suite }})
-    continue-on-error: true
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'
+    name: windows-core (${{ matrix.suite }})
     timeout-minutes: 90
     strategy:
       fail-fast: false
