@@ -212,7 +212,8 @@ export async function writeRule(ctx, v, lineOf) {
     if (v.startsWith('/tmp/') || v.startsWith('/private/tmp/') || v.startsWith('$TMPDIR/') || v.startsWith('${TMPDIR')) return;
     if (ctx.role === 'implementer' || ctx.role === 'designer') {
       if (v.includes('.agents') || v.includes('.claude/settings') || v.includes('.codex/') || v.includes('.git/')) deny(`the command writes '${v}', which may be protected run state`);
-      return;
+      // A273 (issue #264): a target the hook cannot resolve (a variable, a substitution, a glob) is refused for these two roles exactly as for the lead (A257): `echo x > $OLDPWD/x` reached outside the project
+      deny(`the command writes '${v}', which cannot be resolved; while run ${ctx.act} is active the ${ctx.role} writes only paths its role owns (shell write detection is a heuristic; write the target literally, not through a variable, substitution or glob, or use the Write tool on an allowed path)`);
     }
     deny(`the command writes '${v}', which cannot be resolved; while run ${ctx.act} is active the lead and read-only roles write only their run artifacts (shell write detection is a heuristic; write the target literally, for example > .agents/runs/${ctx.act}/scratch/out.txt, not through a variable or glob, or use the Write tool on an allowed path)${roTail(ctx)}`);
   }
