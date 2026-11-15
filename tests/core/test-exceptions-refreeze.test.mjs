@@ -200,3 +200,25 @@ test('dorm-3: the scope request shows U+00A0, other space-like characters and ra
   assert.match(r.out, /a real\\u\{a0\}signal is awaited here\\u\{2003\}and here/);
   assert.match(r.out, /\\xa0- wait: `tests\/b\.test\.js` -- a real signal is awaited here, raw \\xa0 byte/);
 });
+
+// A284 (round 5): the request cannot be spoofed or misread.
+test('spoof-1: a blank-glyph line is escaped and a reason with no visible text is marked; a literal backslash is doubled', () => {
+  const d = frozen(); amend(d);
+  addLine(d, '- wait: `tests/a.test.js` -- \u3164\u2800\u115f\u1160\uffa0\n');
+  addLine(d, '- wait: `tests/b.test.js` -- literal \\u{a0} text and a real\u00a0one\n');
+  const r = accepted(A(d, ['request-approval', 'LC', 'scope']), 'request');
+  assert.ok(!/[\u3164\u2800\u115f\u1160\uffa0\u00a0]/.test(r.out), 'a blank glyph reached the request');
+  assert.match(r.out, /tests\/a\.test\.js` -- \\u\{3164\}\\u\{2800\}\\u\{115f\}\\u\{1160\}\\u\{ffa0\} \[reason has no visible text\]/);
+  assert.match(r.out, /literal \\\\u\{a0\} text and a real\\u\{a0\}one(?! \[reason)/);
+});
+
+test('spoof-2: a reorder-only change shows the whole new section with the note, never an empty request', () => {
+  const d = project({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'manual', planExtra: PLAN.replace(/\n$/, `\n${NEW}`) });
+  accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze'); amend(d);
+  const t = readFileSync(plan(d), 'utf8'); const lines = t.split('\n');
+  const i = lines.findIndex((l) => l.startsWith('- wait: `tests/sleepy')); const j = lines.findIndex((l) => l.startsWith('- wait: `tests/other'));
+  [lines[i], lines[j]] = [lines[j], lines[i]];
+  writeFileSync(plan(d), lines.join('\n'));
+  const r = accepted(A(d, ['request-approval', 'LC', 'scope']), 'request');
+  assert.match(r.out, /order or duplicate count changed[^\n]*\n\s+- wait: `tests\/other\.test\.js`[^\n]*\n\s+- wait: `tests\/sleepy\.test\.js`/);
+});

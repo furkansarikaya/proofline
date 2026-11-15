@@ -28,7 +28,7 @@ import { isDir, isFile } from './paths.mjs';
 import { WS, fileLines, gateField, ledgerRows, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
-import { exceptionLines, exceptionsBaseLines } from './testreview.mjs';
+import { exceptionLines, exceptionsBaseLines, exceptionsBaseline, exceptionsHash } from './testreview.mjs';
 import { asciiLower } from './shellglob.mjs';
 
 
@@ -542,9 +542,16 @@ const EXC_SHOW_LINE = 1000; const EXC_SHOW_LINES = 50;
  */
 function shown(line) {
   const raw = Buffer.from(line, 'latin1');
-  let text;
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch { return line.replace(/[^\x20-\x7e]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`); }
-  return bs(text.replace(/[\p{C}\p{Z}]/gu, (c) => (c === ' ' ? c : `\\u{${c.codePointAt(0)?.toString(16)}}`)));
+  let text; let utf8 = true;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch { text = line; utf8 = false; }
+  // characters with no visible glyph, and the backslash (written \\ so a literal "\u{a0}" cannot pass for a real U+00A0)
+  const NOGLYPH = /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+  const BAD = utf8 ? /[\\\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu : /[\\\x80-\xff\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+  const esc = (/** @type {string} */ c) => (c === ' ' ? c : c === '\\' ? '\\\\' : (!utf8 && c.charCodeAt(0) >= 0x80 ? `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}` : `\\u{${c.codePointAt(0)?.toString(16)}}`));
+  const sep = /[ \t](?:--|\u2014)[ \t]([^]*)$/.exec(text);
+  const hollow = sep !== null && sep[1].replace(NOGLYPH, '') === '';
+  const out = text.replace(BAD, esc);
+  return bs(out + (hollow ? ' [reason has no visible text]' : ''));
 }
 
 /**
@@ -559,7 +566,7 @@ function scopeExceptionRows(ctx, id, plan) {
   const list = (/** @type {string[]} */ l) => l.map((x) => `     ${shown(x)}`).join('\n');
   if (base === null) return now_.length === 0 ? '' : `   PLAN ## Test exceptions (the frozen baseline text is not available, so the whole section is shown; a change of it after the freeze needs this approval):\n${list(now_)}`;
   const removed = base.filter((x) => !now_.includes(x)); const added = now_.filter((x) => !base.includes(x));
-  if (removed.length === 0 && added.length === 0) return '';
+  if (removed.length === 0 && added.length === 0) return exceptionsHash(plan) === exceptionsBaseline(ctx, runDir(ctx, id)) ? '' : `   PLAN ## Test exceptions changes (order or duplicate count changed; a change of this section after the freeze needs this approval): the whole new section:\n${list(now_)}`;
   if (now_.length === 0) return `   PLAN ## Test exceptions: section removed (was):\n${list(base)}`;
   let out = '   PLAN ## Test exceptions changes (a change of this section after the freeze needs this approval):';
   if (removed.length > 0) out += `\n   removed or changed (frozen baseline):\n${list(removed)}`;
