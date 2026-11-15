@@ -1,5 +1,5 @@
 {
-  "_comment": "Budgets of proofline's own tests (issue 266, A277), ENFORCED (enforce true): tests/ci/test-durations-ci.mjs exits 1 on a passing leg when a test is over its test_ms or a file over its suite_ms, and prints OVER BUDGET lines. Milliseconds before timeouts_scale (read like timeouts.scale of the control plane: 0.5 to 10, else 1; CI uses 1). kinds: the A275 defaults (unit 2000/30000, integration 10000/120000, e2e 60000/600000), the built-in fallback for a missing number. dirs: a kind per test directory (the most specific path prefix wins). files: one row per test file whose measured time needs more than its kind default, GENERATED, do not edit by hand: per file the maximum over the test-durations artifacts of CI (both Node versions, all legs, the twice run) x 2 for a test and x 1.7 for a suite, rounded up to 500 ms / 5 s / 10 s, never below the kind default. Regenerate after a deliberate change of the suite: gh run download <run id of a green main run> -D samples/<n> -p 'test-durations-*' for a few runs, then node tests/ci/derive-budgets.mjs samples/1 samples/2 > tests/ci/test-budgets.json (the script keeps this header, kinds, dirs and enforce). A budget that fails is fixed at the test; raising a number needs a reason in the pull request. legs: reserved.",
+  "_comment": "Budgets of proofline's own tests (issue 266, A277), ENFORCED (enforce true): tests/ci/test-durations-ci.mjs exits 1 on a passing leg when a test is over its test_ms or a file over its suite_ms, and prints OVER BUDGET lines. Milliseconds before timeouts_scale (read like timeouts.scale of the control plane: 0.5 to 10, else 1; CI uses 1). kinds: the A275 defaults (unit 2000/30000, integration 10000/120000, e2e 60000/600000), the built-in fallback for a missing number. dirs: a kind per test directory (the most specific path prefix wins). files: one row per sampled test file, GENERATED, do not edit by hand: per file the maximum over the test-durations artifacts of CI (both Node versions, all legs, the twice run, every available run of CI) x 3 for a test, x 2.5 for a suite measured at 20 s or more and x 3 for a smaller suite, rounded up to 500 ms / 5 s / 10 s, never below an absolute floor of 2000 ms per test and 10000 ms per suite. Regenerate after a deliberate change of the suite: gh run download <run id of a green main run> -D samples/<n> -p 'test-durations-*' for every run you have, then node tests/ci/derive-budgets.mjs samples/1 samples/2 ... > tests/ci/test-budgets.json (the script keeps this header, kinds, dirs and enforce). A budget that fails is fixed at the test; raising a number needs a reason in the pull request. legs: reserved.",
   "enforce": true,
   "timeouts_scale": 1,
   "default_kind": "unit",
@@ -58,360 +58,1132 @@
   "legs": {},
   "files": {
     "tests/bench/batch-budgets.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
+      "test_ms": 20000,
+      "suite_ms": 20000
+    },
+    "tests/bench/dispatch-budgets.test.mjs": {
+      "test_ms": 7500,
+      "suite_ms": 10000
     },
     "tests/bench/exec-budgets.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
+      "test_ms": 25000,
+      "suite_ms": 25000
+    },
+    "tests/bench/helper-budgets.test.mjs": {
+      "test_ms": 9000,
+      "suite_ms": 10000
+    },
+    "tests/benchmark/benchmark.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/affected.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/bump-version.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/change-reason.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/check-fixtures.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/ci-steps.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/ci-workflow.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/classify.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/derive-budgets.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/docs-stale.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/ecosystem-branching.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
     "tests/ci/fixture-trees.test.mjs": {
-      "test_ms": 75000,
-      "suite_ms": 120000
+      "test_ms": 110000,
+      "suite_ms": 95000
+    },
+    "tests/ci/gitattributes.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/hook-node-job.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/no-retry.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/no-shell-logic.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 25000
+    },
+    "tests/ci/node-tests-legs.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/shell-census.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/skill-child-process.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/static.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 20000
+    },
+    "tests/ci/sync-design-library.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/test-durations-ci.test.mjs": {
+      "test_ms": 8000,
+      "suite_ms": 10000
+    },
+    "tests/ci/test-durations.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/test-scan-gate.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 10000
+    },
+    "tests/ci/windows-paths.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/ci/windows-probe.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
     "tests/core/advance.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
+      "test_ms": 30000,
+      "suite_ms": 60000
+    },
+    "tests/core/answer-user.test.mjs": {
+      "test_ms": 7500,
+      "suite_ms": 30000
+    },
+    "tests/core/approval-grammar.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/approve-tty.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 25000
+    },
+    "tests/core/argv0.test.mjs": {
+      "test_ms": 4500,
+      "suite_ms": 10000
+    },
+    "tests/core/base.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/batch-answers.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 10000
     },
     "tests/core/batch-cover.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
+      "test_ms": 25000,
+      "suite_ms": 60000
+    },
+    "tests/core/batch-golden.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 35000
+    },
+    "tests/core/batch-plan.test.mjs": {
+      "test_ms": 9500,
+      "suite_ms": 60000
     },
     "tests/core/batch-state.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
+      "test_ms": 25000,
+      "suite_ms": 90000
+    },
+    "tests/core/budget.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/buildrecord.test.mjs": {
+      "test_ms": 9000,
+      "suite_ms": 60000
+    },
+    "tests/core/capture.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/cfgcli.test.mjs": {
+      "test_ms": 5000,
+      "suite_ms": 20000
+    },
+    "tests/core/cli-agent-path.test.mjs": {
+      "test_ms": 3000,
+      "suite_ms": 10000
+    },
+    "tests/core/cli-cmdlists.test.mjs": {
+      "test_ms": 4500,
+      "suite_ms": 20000
+    },
+    "tests/core/cli-help.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/cli-launcher.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
     "tests/core/cli-state.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 60000
+    },
+    "tests/core/cli.test.mjs": {
       "test_ms": 15000,
-      "suite_ms": 120000
+      "suite_ms": 25000
+    },
+    "tests/core/codexprofile.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/commandsprop.test.mjs": {
+      "test_ms": 7500,
+      "suite_ms": 15000
+    },
+    "tests/core/committrailer.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/config-check-grep.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/config-check.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/config.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/contextsize.test.mjs": {
+      "test_ms": 3000,
+      "suite_ms": 10000
     },
     "tests/core/controls.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 65000
+    },
+    "tests/core/debt.test.mjs": {
       "test_ms": 15000,
-      "suite_ms": 120000
+      "suite_ms": 15000
+    },
+    "tests/core/decide.test.mjs": {
+      "test_ms": 4500,
+      "suite_ms": 20000
+    },
+    "tests/core/diffdigest.test.mjs": {
+      "test_ms": 7500,
+      "suite_ms": 20000
+    },
+    "tests/core/discover.test.mjs": {
+      "test_ms": 6500,
+      "suite_ms": 25000
+    },
+    "tests/core/dispatch-golden.test.mjs": {
+      "test_ms": 3000,
+      "suite_ms": 25000
+    },
+    "tests/core/dispatch-text.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/dispatch-watchdog.test.mjs": {
+      "test_ms": 6500,
+      "suite_ms": 50000
     },
     "tests/core/dispatch.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
+      "test_ms": 25000,
+      "suite_ms": 90000
     },
     "tests/core/doctor-faults.test.mjs": {
-      "test_ms": 80000,
-      "suite_ms": 160000
-    },
-    "tests/core/doctor-fresh.test.mjs": {
-      "test_ms": 55000,
-      "suite_ms": 130000
-    },
-    "tests/core/entry.test.mjs": {
-      "test_ms": 50000,
-      "suite_ms": 120000
-    },
-    "tests/core/gates-s1.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 130000
-    },
-    "tests/core/gates-s2.test.mjs": {
-      "test_ms": 25000,
-      "suite_ms": 120000
-    },
-    "tests/core/gates-s3.test.mjs": {
-      "test_ms": 45000,
-      "suite_ms": 170000
-    },
-    "tests/core/gates-s4.test.mjs": {
-      "test_ms": 60000,
-      "suite_ms": 220000
-    },
-    "tests/core/gates-s5.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/core/githooks-run.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/githooks-trust.test.mjs": {
-      "test_ms": 65000,
-      "suite_ms": 120000
-    },
-    "tests/core/golden.test.mjs": {
-      "test_ms": 30000,
-      "suite_ms": 120000
-    },
-    "tests/core/install-init.test.mjs": {
-      "test_ms": 75000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-approval-multi.test.mjs": {
-      "test_ms": 25000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-approvals.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-fail-closed.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-known-issues.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-next-user.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-recovery.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-reopen.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/legacy-waivers.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/core/lifecycle-s1.test.mjs": {
-      "test_ms": 55000,
-      "suite_ms": 170000
-    },
-    "tests/core/lifecycle-s2.test.mjs": {
-      "test_ms": 50000,
-      "suite_ms": 240000
-    },
-    "tests/core/lifecycle-s3.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 130000
-    },
-    "tests/core/perf.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/core/port-t2-replay.test.mjs": {
-      "test_ms": 40000,
+      "test_ms": 120000,
       "suite_ms": 230000
     },
-    "tests/core/port-t3-replay.test.mjs": {
-      "test_ms": 35000,
-      "suite_ms": 120000
+    "tests/core/doctor-fresh.test.mjs": {
+      "test_ms": 85000,
+      "suite_ms": 200000
     },
-    "tests/core/port-t3-rig.mjs": {
-      "test_ms": 10000,
+    "tests/core/entry.test.mjs": {
+      "test_ms": 110000,
+      "suite_ms": 90000
+    },
+    "tests/core/exec-policy.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/core/fingerprint.test.mjs": {
+      "test_ms": 8500,
+      "suite_ms": 25000
+    },
+    "tests/core/friction.test.mjs": {
+      "test_ms": 7000,
+      "suite_ms": 35000
+    },
+    "tests/core/frontend-nonode.test.mjs": {
+      "test_ms": 9500,
+      "suite_ms": 10000
+    },
+    "tests/core/gates-s1.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 190000
+    },
+    "tests/core/gates-s2.test.mjs": {
+      "test_ms": 35000,
       "suite_ms": 130000
     },
-    "tests/core/risk-s1.test.mjs": {
-      "test_ms": 35000,
-      "suite_ms": 160000
+    "tests/core/gates-s3.test.mjs": {
+      "test_ms": 70000,
+      "suite_ms": 240000
     },
-    "tests/core/risk-s2.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
+    "tests/core/gates-s4.test.mjs": {
+      "test_ms": 90000,
+      "suite_ms": 330000
     },
-    "tests/core/run4a-records.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/core/run4b-freeze.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/run4b-lifecycle.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/run4c-lock.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/core/run6-cifix.test.mjs": {
+    "tests/core/gates-s5.test.mjs": {
       "test_ms": 40000,
       "suite_ms": 120000
     },
-    "tests/core/run6-corpnet.test.mjs": {
+    "tests/core/gates-s6.test.mjs": {
       "test_ms": 15000,
-      "suite_ms": 120000
+      "suite_ms": 50000
     },
-    "tests/core/run6-deliver.test.mjs": {
+    "tests/core/githooks-run.test.mjs": {
       "test_ms": 20000,
-      "suite_ms": 120000
+      "suite_ms": 25000
     },
-    "tests/core/run6-merged.test.mjs": {
+    "tests/core/githooks-trust.test.mjs": {
+      "test_ms": 95000,
+      "suite_ms": 170000
+    },
+    "tests/core/githooks.test.mjs": {
+      "test_ms": 8000,
+      "suite_ms": 20000
+    },
+    "tests/core/gitstate.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/golden.test.mjs": {
+      "test_ms": 40000,
+      "suite_ms": 40000
+    },
+    "tests/core/green-duration.test.mjs": {
       "test_ms": 15000,
-      "suite_ms": 150000
+      "suite_ms": 30000
     },
-    "tests/core/run6-netdropped.test.mjs": {
-      "test_ms": 65000,
-      "suite_ms": 120000
+    "tests/core/grep-failclosed.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 10000
     },
-    "tests/core/run6-plan.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
+    "tests/core/helpercmds.test.mjs": {
+      "test_ms": 8500,
+      "suite_ms": 30000
     },
-    "tests/core/run6-platform.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
+    "tests/core/hgit-guard.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
-    "tests/core/run6b-wire.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
+    "tests/core/hgit.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 15000
     },
-    "tests/core/user-decisions-1108.test.mjs": {
-      "test_ms": 90000,
-      "suite_ms": 260000
+    "tests/core/identity.test.mjs": {
+      "test_ms": 5500,
+      "suite_ms": 10000
     },
-    "tests/core/worktree.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
+    "tests/core/inflight-parts.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
-    "tests/e2e/capabilities.test.mjs": {
-      "test_ms": 65000,
-      "suite_ms": 120000
+    "tests/core/insights-front.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 20000
     },
-    "tests/e2e/reply-loop.test.mjs": {
-      "test_ms": 70000,
+    "tests/core/install-init.test.mjs": {
+      "test_ms": 120000,
       "suite_ms": 130000
     },
+    "tests/core/install-upgrade.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 60000
+    },
+    "tests/core/leadlog.test.mjs": {
+      "test_ms": 5000,
+      "suite_ms": 15000
+    },
+    "tests/core/legacy-approval-grammar.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 25000
+    },
+    "tests/core/legacy-approval-multi.test.mjs": {
+      "test_ms": 35000,
+      "suite_ms": 35000
+    },
+    "tests/core/legacy-approvals.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 50000
+    },
+    "tests/core/legacy-database.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/core/legacy-destructive.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 40000
+    },
+    "tests/core/legacy-fail-closed.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 70000
+    },
+    "tests/core/legacy-fingerprint.test.mjs": {
+      "test_ms": 7000,
+      "suite_ms": 15000
+    },
+    "tests/core/legacy-identity.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 15000
+    },
+    "tests/core/legacy-known-issues.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-language.test.mjs": {
+      "test_ms": 7000,
+      "suite_ms": 25000
+    },
+    "tests/core/legacy-next-user.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 140000
+    },
+    "tests/core/legacy-questions.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 20000
+    },
+    "tests/core/legacy-recovery.test.mjs": {
+      "test_ms": 35000,
+      "suite_ms": 40000
+    },
+    "tests/core/legacy-reopen.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 45000
+    },
+    "tests/core/legacy-scope.test.mjs": {
+      "test_ms": 7500,
+      "suite_ms": 10000
+    },
+    "tests/core/legacy-waivers.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 60000
+    },
+    "tests/core/lessons.test.mjs": {
+      "test_ms": 10000,
+      "suite_ms": 35000
+    },
+    "tests/core/lifecycle-s1.test.mjs": {
+      "test_ms": 80000,
+      "suite_ms": 250000
+    },
+    "tests/core/lifecycle-s2.test.mjs": {
+      "test_ms": 70000,
+      "suite_ms": 350000
+    },
+    "tests/core/lifecycle-s3.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 180000
+    },
+    "tests/core/lock.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 10000
+    },
+    "tests/core/merge-front.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/core/pathin.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/perf.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 50000
+    },
+    "tests/core/port-t2-drift.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/port-t2-eco.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/core/port-t2-fingerprint.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 40000
+    },
+    "tests/core/port-t2-own-commits.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/core/port-t2-replay.test.mjs": {
+      "test_ms": 90000,
+      "suite_ms": 450000
+    },
+    "tests/core/port-t2-tier.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 20000
+    },
+    "tests/core/port-t3-glob.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/port-t3-replay.test.mjs": {
+      "test_ms": 60000,
+      "suite_ms": 140000
+    },
+    "tests/core/port-t3-rig.mjs": {
+      "test_ms": 7000,
+      "suite_ms": 190000
+    },
+    "tests/core/port-t3-roles.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/preamble.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/proc-epipe.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/records.test.mjs": {
+      "test_ms": 8500,
+      "suite_ms": 10000
+    },
+    "tests/core/risk-s1.test.mjs": {
+      "test_ms": 50000,
+      "suite_ms": 230000
+    },
+    "tests/core/risk-s2.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 90000
+    },
+    "tests/core/rules.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 15000
+    },
+    "tests/core/run4a-classify.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 50000
+    },
+    "tests/core/run4a-records.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 110000
+    },
+    "tests/core/run4b-freeze.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 55000
+    },
+    "tests/core/run4b-lifecycle.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 45000
+    },
+    "tests/core/run4c-gates.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 60000
+    },
+    "tests/core/run4c-lock.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 20000
+    },
+    "tests/core/run4c-probes.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/run4c-record.test.mjs": {
+      "test_ms": 9000,
+      "suite_ms": 65000
+    },
+    "tests/core/run4c-report.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 55000
+    },
+    "tests/core/run4c-secretscan.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/run6-cifix.test.mjs": {
+      "test_ms": 60000,
+      "suite_ms": 170000
+    },
+    "tests/core/run6-corpnet.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 25000
+    },
+    "tests/core/run6-deliver.test.mjs": {
+      "test_ms": 35000,
+      "suite_ms": 50000
+    },
+    "tests/core/run6-merged.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 250000
+    },
+    "tests/core/run6-netdropped.test.mjs": {
+      "test_ms": 95000,
+      "suite_ms": 80000
+    },
+    "tests/core/run6-plan.test.mjs": {
+      "test_ms": 35000,
+      "suite_ms": 190000
+    },
+    "tests/core/run6-platform.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 50000
+    },
+    "tests/core/run6-sbblock.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/run6b-adapters.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/run6b-merge.test.mjs": {
+      "test_ms": 7500,
+      "suite_ms": 20000
+    },
+    "tests/core/run6b-wire.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 30000
+    },
+    "tests/core/scale.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 15000
+    },
+    "tests/core/signals.test.mjs": {
+      "test_ms": 7000,
+      "suite_ms": 10000
+    },
+    "tests/core/table.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/task-adversarial.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 45000
+    },
+    "tests/core/test-measure.test.mjs": {
+      "test_ms": 9500,
+      "suite_ms": 75000
+    },
+    "tests/core/test-scan.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 40000
+    },
+    "tests/core/timeouts.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/tools-insights.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/core/tools.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/toolstats-codex.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/toolstats.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/tree.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/unsupported.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/user-decisions-1108.test.mjs": {
+      "test_ms": 140000,
+      "suite_ms": 380000
+    },
+    "tests/core/verify-fixes.test.mjs": {
+      "test_ms": 10000,
+      "suite_ms": 55000
+    },
+    "tests/core/windows-patterns.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/winpath-security.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/wintool.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/core/worktree.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 60000
+    },
+    "tests/e2e/capabilities.test.mjs": {
+      "test_ms": 95000,
+      "suite_ms": 160000
+    },
+    "tests/e2e/pending-kind.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/e2e/reply-loop.test.mjs": {
+      "test_ms": 100000,
+      "suite_ms": 190000
+    },
     "tests/enforcement/approval-load.test.mjs": {
-      "test_ms": 65000,
+      "test_ms": 100000,
       "suite_ms": 120000
     },
     "tests/enforcement/enforcement-a1.test.mjs": {
-      "test_ms": 60000,
-      "suite_ms": 120000
+      "test_ms": 85000,
+      "suite_ms": 100000
     },
     "tests/enforcement/enforcement-a2.test.mjs": {
-      "test_ms": 40000,
-      "suite_ms": 120000
+      "test_ms": 55000,
+      "suite_ms": 130000
     },
     "tests/enforcement/enforcement-b.test.mjs": {
-      "test_ms": 45000,
-      "suite_ms": 120000
+      "test_ms": 85000,
+      "suite_ms": 110000
     },
     "tests/enforcement/enforcement-recorded-lead.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/enforcement-recorded-paths.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/enforcement-recorded-roles.test.mjs": {
-      "test_ms": 70000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/guards.test.mjs": {
       "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/merge-guard.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/platform.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/status-block.test.mjs": {
-      "test_ms": 25000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/timeouts.test.mjs": {
-      "test_ms": 30000,
-      "suite_ms": 120000
-    },
-    "tests/enforcement/wiring.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/generator/generator.test.mjs": {
-      "test_ms": 2500,
-      "suite_ms": 30000
-    },
-    "tests/hook/budgets.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/hook/case-world.test.mjs": {
-      "test_ms": 30000,
-      "suite_ms": 120000
-    },
-    "tests/hook/prompt.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/hook/win-drive-guards.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/invariants-node/rule-2b.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 120000
-    },
-    "tests/invariants-node/rule-3.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/invariants-node/rules-1-2.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/invariants-node/rules-5-6.test.mjs": {
-      "test_ms": 25000,
-      "suite_ms": 120000
-    },
-    "tests/lib/harness.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/real-session/smoke.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 120000
-    },
-    "tests/skills/contract-proof.test.mjs": {
-      "test_ms": 3000,
-      "suite_ms": 30000
-    },
-    "tests/skills/design-library.test.mjs": {
-      "test_ms": 3500,
-      "suite_ms": 30000
-    },
-    "tests/skills/docs-writer.test.mjs": {
-      "test_ms": 3500,
-      "suite_ms": 30000
-    },
-    "tests/skills/exploit-proof-manifests-eco.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 30000
-    },
-    "tests/skills/migration-validation.test.mjs": {
-      "test_ms": 3000,
-      "suite_ms": 30000
-    },
-    "tests/skills/performance-proof.test.mjs": {
-      "test_ms": 3500,
-      "suite_ms": 30000
-    },
-    "tests/skills/runtime-versions.test.mjs": {
-      "test_ms": 40000,
       "suite_ms": 55000
     },
-    "tests/skills/test-trust.test.mjs": {
-      "test_ms": 5000,
+    "tests/enforcement/enforcement-recorded-paths.test.mjs": {
+      "test_ms": 20000,
       "suite_ms": 30000
+    },
+    "tests/enforcement/enforcement-recorded-roles.test.mjs": {
+      "test_ms": 110000,
+      "suite_ms": 110000
+    },
+    "tests/enforcement/guards.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 110000
+    },
+    "tests/enforcement/merge-guard.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 40000
+    },
+    "tests/enforcement/platform.test.mjs": {
+      "test_ms": 55000,
+      "suite_ms": 90000
+    },
+    "tests/enforcement/status-block.test.mjs": {
+      "test_ms": 50000,
+      "suite_ms": 95000
+    },
+    "tests/enforcement/timeouts.test.mjs": {
+      "test_ms": 45000,
+      "suite_ms": 85000
+    },
+    "tests/enforcement/wiring.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 40000
+    },
+    "tests/generator/generator.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 10000
+    },
+    "tests/generator/skills-doc.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/budgets.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 20000
+    },
+    "tests/hook/capture.test.mjs": {
+      "test_ms": 3000,
+      "suite_ms": 10000
+    },
+    "tests/hook/case-paths.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 25000
+    },
+    "tests/hook/case-world.test.mjs": {
+      "test_ms": 40000,
+      "suite_ms": 95000
+    },
+    "tests/hook/fscase.test.mjs": {
+      "test_ms": 8500,
+      "suite_ms": 10000
+    },
+    "tests/hook/guards-file.test.mjs": {
+      "test_ms": 5500,
+      "suite_ms": 10000
+    },
+    "tests/hook/guards-kit.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/hardening.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 10000
+    },
+    "tests/hook/hook-under-test.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/imports.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/kill-guard.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/merge-guard.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/posix-paths.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/pretool-bash.test.mjs": {
+      "test_ms": 8500,
+      "suite_ms": 20000
+    },
+    "tests/hook/prompt.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 25000
+    },
+    "tests/hook/refusal-messages.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 40000
+    },
+    "tests/hook/role-final-fixes.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/role-variable-targets.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 55000
+    },
+    "tests/hook/session-head.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/hook/win-drive-guards.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 35000
+    },
+    "tests/hook/worktree-flow.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 20000
+    },
+    "tests/invariants-node/rule-2b.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 30000
+    },
+    "tests/invariants-node/rule-3.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 25000
+    },
+    "tests/invariants-node/rule-4.test.mjs": {
+      "test_ms": 9000,
+      "suite_ms": 15000
+    },
+    "tests/invariants-node/rules-1-2.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 35000
+    },
+    "tests/invariants-node/rules-5-6.test.mjs": {
+      "test_ms": 35000,
+      "suite_ms": 50000
+    },
+    "tests/lib/cache.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/lib/census.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/lib/clean-temp.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/lib/fixture.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/lib/harness-say.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/lib/harness.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 65000
+    },
+    "tests/lib/prune.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/lib/tempdir.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/lib/winpath.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/real-session/codex-sandbox.test.mjs": {
+      "test_ms": 5000,
+      "suite_ms": 10000
+    },
+    "tests/real-session/smoke.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 35000
+    },
+    "tests/skills/api-design.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/check-shared.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/concurrency-proof.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/contract-proof.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 15000
+    },
+    "tests/skills/data-design.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/debug-proof.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/decisions-unique-numbers.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/design-library.test.mjs": {
+      "test_ms": 5500,
+      "suite_ms": 10000
+    },
+    "tests/skills/design-sync.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/docs-writer.test.mjs": {
+      "test_ms": 5500,
+      "suite_ms": 10000
+    },
+    "tests/skills/ecosystems-detection.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/evidence-map-impact.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/evidence-map.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/explain-html.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/exploit-proof-dependencies.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/exploit-proof-manifests-eco.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 30000
+    },
+    "tests/skills/exploit-proof.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/fast-tests-rules.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/fast-tests-scan.test.mjs": {
+      "test_ms": 3000,
+      "suite_ms": 10000
+    },
+    "tests/skills/frontmatter.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/intent-grill.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/llm-wiki.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/migration-validation-a94.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/migration-validation.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 10000
+    },
+    "tests/skills/no-run-evidence-folder.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/orientation-help.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/performance-proof.test.mjs": {
+      "test_ms": 5000,
+      "suite_ms": 25000
+    },
+    "tests/skills/plan-contract.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/product-assess.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/product-discovery.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/product-spec.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/proof-review-config.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/proof-review.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/proofline-lead.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/qa-plan.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/review-fixes-a94b.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/runtime-versions.test.mjs": {
+      "test_ms": 100000,
+      "suite_ms": 120000
+    },
+    "tests/skills/system-design.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/task-author.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/task-planning.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/skills/tdd-proof-red-fixtures.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 10000
+    },
+    "tests/skills/tdd-proof.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/test-trust.test.mjs": {
+      "test_ms": 7500,
+      "suite_ms": 15000
+    },
+    "tests/skills/ui-design-craft.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/ui-design.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/verify-proof.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
     "tests/skills/visual-proof-design.test.mjs": {
-      "test_ms": 110000,
-      "suite_ms": 220000
+      "test_ms": 160000,
+      "suite_ms": 330000
+    },
+    "tests/skills/visual-proof-native.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
     "tests/skills/visual-proof-seo-browser.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 30000
+      "test_ms": 25000,
+      "suite_ms": 40000
+    },
+    "tests/skills/visual-proof-seo.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
     },
     "tests/skills/visual-proof.test.mjs": {
-      "test_ms": 60000,
-      "suite_ms": 60000
+      "test_ms": 90000,
+      "suite_ms": 85000
     }
   }
 }

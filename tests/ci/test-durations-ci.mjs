@@ -1,8 +1,12 @@
 // @ts-check
 // Issue 266 package 3a (A277): the CI side of the duration report. One CI step runs the tests of a leg through this file instead of calling `node --test` itself:
 //   node tests/ci/test-durations-ci.mjs <leg> -- <the arguments of node --test: files, globs, --test-name-pattern ...>
-// It starts `node --test` with TWO reporters: the usual `spec` text on the step's own stdout (so the log is what it was) and the JSON-lines reporter of
-// tests/ci/test-durations-reporter.mjs into a scratch file. After the run it writes `test-durations-<leg>.json` (every test and every file with the milliseconds
+// It starts `node --test` with TWO reporters: the usual `spec` text on the step's own stderr (so the log is what it was) and the JSON-lines reporter of
+// tests/ci/test-durations-reporter.mjs on the child's stdout, which is a PIPE read by this process in memory: no file that a test could delete, replace or
+// forge carries the verdict (fix round 1: a test that replaced the scratch events file made the verdict green). A test cannot reach this process's memory and the
+// pipe is not inherited by the test processes (their stdio are pipes of the runner); a test that finds the runner's stdout through /proc can only ADD lines, and the
+// budget check takes the worst duration per test and file, so an added line can never hide one. DEFENCE IN DEPTH: with enforce on, an empty stream, or a requested
+// test file (explicit or glob, when no name pattern is given) that has no event in the stream, fails closed with exit 1. After the run it writes `test-durations-<leg>.json` (every test and every file with the milliseconds
 // Node measured, the slowest tests, the budgets that were exceeded, with TEST_DURATIONS_TWICE=true the unstable tests) into $TEST_DURATIONS_DIR (else
 // $RUNNER_TEMP/test-durations, else ./test-durations) and appends a short table to the job summary ($GITHUB_STEP_SUMMARY).
 // THE VERDICT: a non-zero status of `node --test` is the exit status (a failing test fails the step; the report never changes it). When the tests passed and
@@ -12,12 +16,11 @@
 // exits 1. There is no retry: the wrapper starts `node --test` once (twice only with TEST_DURATIONS_TWICE=true, a manual measuring run whose unstable report is only
 // informational: a failed second run keeps its own status). The tool reads no clock; the milliseconds are Node's.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, realpathSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFAULTS, KINDS } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
 import { tmScaleMilli } from '../../control-plane/agents/scripts/core/timeouts.mjs';
-import { tempDir } from '../lib/tempdir.mjs';
 import { analyse, parseEvents, summarize } from './test-durations.mjs';
 
 const here = import.meta.dirname;
@@ -38,6 +41,8 @@ export function scaleMilli(b) {
   return tmScaleMilli(/** @type {any} */ ({ get: (/** @type {string} */ k, /** @type {string} */ d = '') => (k === 'timeouts.scale' && b.timeouts_scale !== undefined ? String(b.timeouts_scale) : d) }));
 }
 
+/** The largest budget accepted (one hour): a typo or a hostile 1e9 would switch a budget off. */
+export const MAX_MS = 3_600_000;
 const whole = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : undefined);
 
 /**
@@ -91,12 +96,12 @@ export function budgetProblems(b) {
   const isObj = (/** @type {unknown} */ v) => typeof v === 'object' && v !== null && !Array.isArray(v);
   if (!isObj(b)) return ['the document is not an object'];
   const o = /** @type {Record<string, any>} */ (b);
-  if (o.enforce !== undefined && typeof o.enforce !== 'boolean') out.push('enforce is not true or false');
+  if (typeof o.enforce !== 'boolean') out.push('enforce is missing or not true or false');
   if (o.default_kind !== undefined && !KINDS.includes(o.default_kind)) out.push('default_kind is not unit, integration or e2e');
-  if (o.timeouts_scale !== undefined && !(typeof o.timeouts_scale === 'number' || typeof o.timeouts_scale === 'string')) out.push('timeouts_scale is not a number');
+  if (o.timeouts_scale !== undefined && !(typeof o.timeouts_scale === 'number' && o.timeouts_scale >= 0.5 && o.timeouts_scale <= 10)) out.push('timeouts_scale is not a number from 0.5 to 10');
   const nums = (/** @type {string} */ where, /** @type {any} */ v) => {
     if (!isObj(v)) { out.push(`${where} is not an object`); return; }
-    for (const k of ['test_ms', 'suite_ms']) if (v[k] !== undefined && whole(v[k]) === undefined) out.push(`${where}.${k} is not a positive whole number`);
+    for (const k of ['test_ms', 'suite_ms']) if (v[k] !== undefined && (whole(v[k]) === undefined || v[k] > MAX_MS)) out.push(`${where}.${k} is not a whole number from 1 to ${MAX_MS}`);
   };
   for (const [sect, rows] of /** @type {Array<[string, any]>} */ ([['kinds', o.kinds], ['dirs', o.dirs], ['files', o.files]])) {
     if (rows === undefined) continue;
@@ -136,8 +141,8 @@ export function renderSummary(leg, a, over, enforce, twice) {
   return `${L.join('\n')}\n`;
 }
 
-/** @typedef {{ run?: (args: string[], eventsFile: string) => number, readFile?: (p: string) => string, writeFile?: (p: string, s: string) => void, append?: (p: string, s: string) => void,
- *   write?: (s: string) => void, env?: Record<string, string | undefined>, budgets?: Budgets, budgetsFile?: string, scratch?: () => string }} IO */
+/** @typedef {{ run?: (args: string[]) => { status: number, events: string | null }, writeFile?: (p: string, s: string) => void, append?: (p: string, s: string) => void,
+ *   write?: (s: string) => void, env?: Record<string, string | undefined>, budgets?: Budgets, budgetsFile?: string, stderr?: 'inherit' | 'ignore', cwd?: string }} IO */
 
 /** @param {string[]} argv @param {IO} [io] @returns {number} */
 export function main(argv, io = {}) {
@@ -147,11 +152,10 @@ export function main(argv, io = {}) {
   const leg = (sep < 0 ? argv : argv.slice(0, sep))[0] ?? '';
   const testArgs = sep < 0 ? [] : argv.slice(sep + 1);
   if (sep !== 1 || !/^[A-Za-z0-9._ \/*-]+$/.test(leg) || testArgs.length === 0) { write(`${USAGE}\n`); return 2; }
-  const readFile = io.readFile ?? ((/** @type {string} */ p) => readFileSync(p, 'utf8'));
   const writeOut = io.writeFile ?? ((/** @type {string} */ p, /** @type {string} */ s) => { mkdirSync(path.dirname(p), { recursive: true }); writeFileSync(p, s); });
   /** @type {Budgets} */ let budgets = {};
   try {
-    const raw = io.budgets ?? JSON.parse(readFileSync(io.budgetsFile ?? budgetsFile, 'utf8'));
+    const raw = io.budgets ?? parseStrict(readFileSync(io.budgetsFile ?? budgetsFile, 'utf8'));
     const bad = budgetProblems(raw);
     if (bad.length > 0) { write(`test-durations-ci: the budgets file is invalid, nothing was run (fails closed): ${bad.join('; ')}\n`); return 2; }
     budgets = raw;
@@ -159,16 +163,14 @@ export function main(argv, io = {}) {
   const enforce = budgets.enforce === true;
   const twice = env.TEST_DURATIONS_TWICE === 'true';
   const dir = env.TEST_DURATIONS_DIR || (env.RUNNER_TEMP ? path.join(env.RUNNER_TEMP, 'test-durations') : 'test-durations');
-  const scratch = io.scratch ? io.scratch() : tempDir('durations-ci-');
-  const run = io.run ?? realRun;
+  const run = io.run ?? ((/** @type {string[]} */ a) => realRun(a, io.stderr ?? 'inherit'));
+  const cwd = io.cwd ?? process.cwd();
   /** @type {Array<{ status: number, events: import('./test-durations.mjs').Event[] }>} */ const runs = [];
   let unreadable = false;
   for (let i = 0; i < (twice ? 2 : 1); i++) {
-    const ev = path.join(scratch, `events-${i}.jsonl`);
-    const status = run(testArgs, ev);
-    let text = '';
-    try { text = readFile(ev); } catch { text = ''; unreadable = true; }   // a run that died before the reporter wrote anything has no events; the status still counts
-    runs.push({ status, events: parseEvents(text) });
+    const r = run(testArgs);
+    if (r.events === null) unreadable = true;   // the stream could not be read: the status still counts, the verdict cannot be made
+    runs.push({ status: r.status, events: parseEvents(r.events ?? '') });
   }
   const nodeStatus = runs.map((r) => r.status).find((s) => s !== 0) ?? 0;
   /** @type {ReturnType<typeof overBudget> | null} */ let over = null;
@@ -192,16 +194,119 @@ export function main(argv, io = {}) {
   if (nodeStatus !== 0) return nodeStatus;
   if (!enforce) return 0;
   if (over === null || unreadable) { write('test-durations-ci: budgets are enforced but the measured durations are not available; failing closed\n'); return 1; }
+  for (const r of runs) {
+    if (r.events.length === 0) { write('test-durations-ci: the event stream is empty (no test was reported); failing closed\n'); return 1; }
+    const miss = uncovered(testArgs, r.events, cwd);
+    if (miss.length > 0) { write(`test-durations-ci: ${miss.length} requested test file(s) have no event in the stream, so their budgets cannot be checked; failing closed: ${miss.slice(0, 5).join(', ')}${miss.length > 5 ? ', ...' : ''}\n`); return 1; }
+  }
   if (over.tests.length > 0 || over.files.length > 0) { write(`test-durations-ci: ${over.tests.length} test(s) and ${over.files.length} file(s) are over budget. Fix the slow test; relaxing a budget needs a reason (CONTRIBUTING, tests/ci/test-budgets.json)\n`); return 1; }
   return 0;
 }
 
-/** The real run: `node --test` with the spec reporter on this process's stdout and the JSON-lines reporter into the scratch file; stdin, stdout and stderr pass through. @param {string[]} args @param {string} eventsFile */
-function realRun(args, eventsFile) {
+/**
+ * The real run: `node --test` with the spec reporter on stderr (the step log) and the JSON-lines reporter on stdout, which is a pipe read here in memory. The
+ * child's stdio is [inherit, pipe, stderr]: no other descriptor is passed on.
+ * @param {string[]} args @param {'inherit' | 'ignore'} stderr @returns {{ status: number, events: string | null }}
+ */
+function realRun(args, stderr) {
   // NODE_TEST_CONTEXT is removed so that a `node --test` started from inside a test run (the pin tests run this very file) is not refused
   const { NODE_TEST_CONTEXT: _c, ...env } = process.env;
-  const r = spawnSync(process.execPath, ['--test', '--test-reporter=spec', '--test-reporter-destination=stdout', `--test-reporter=${reporter}`, `--test-reporter-destination=${eventsFile}`, ...args], { stdio: 'inherit', env });
-  return r.status ?? 1;
+  const r = spawnSync(process.execPath, ['--test', '--test-reporter=spec', '--test-reporter-destination=stderr', `--test-reporter=${reporter}`, '--test-reporter-destination=stdout', ...args],
+    { stdio: ['inherit', 'pipe', stderr], env, encoding: 'utf8', maxBuffer: 1 << 29 });
+  return { status: r.status ?? 1, events: r.error ? null : r.stdout ?? '' };
+}
+
+/** The real path when there is one (a symlinked temp folder), else the path itself. @param {string} p */
+const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+
+/** The test files an argument list asks for: explicit files and glob patterns (`*`, `**`) of arguments that are not options; a directory argument and any run with a name pattern are not listed (node decides there). @param {string[]} args @param {string} cwd @returns {string[]} */
+export function requestedFiles(args, cwd) {
+  if (args.some((a) => /^--test-(name|skip)-pattern\b|^--test-only\b/.test(a))) return [];
+  /** @type {string[]} */ const out = [];
+  for (const a of args) {
+    if (a.startsWith('-')) continue;
+    const norm = (path.isAbsolute(a) ? path.relative(real(cwd), real(a)) : a).split('\\').join('/').replace(/^\.\//, '');   // the reporter names files relative to the folder
+    if (!/[*?]/.test(norm)) {
+      let isDir = false;
+      try { isDir = statSync(path.join(cwd, norm)).isDirectory(); } catch { isDir = false; }
+      if (!isDir) out.push(norm);
+      continue;
+    }
+    out.push(...globFiles(norm.split('/'), '', cwd));
+  }
+  return [...new Set(out)].sort();
+}
+
+/** @param {string[]} segs @param {string} base @param {string} cwd @returns {string[]} */
+function globFiles(segs, base, cwd) {
+  if (segs.length === 0) return [];
+  const [head, ...rest] = segs;
+  const dir = path.join(cwd, base);
+  if (!/[*?]/.test(head)) {
+    const next = base ? `${base}/${head}` : head;
+    if (rest.length === 0) return existsSync(path.join(cwd, next)) && !statSync(path.join(cwd, next)).isDirectory() ? [next] : [];
+    return globFiles(rest, next, cwd);
+  }
+  /** @type {string[]} */ let names = [];
+  try { names = readdirSync(dir).sort(); } catch { return []; }
+  /** @type {string[]} */ const out = [];
+  if (head === '**') {
+    out.push(...globFiles(rest, base, cwd));
+    for (const n of names) { const rel = base ? `${base}/${n}` : n; let d = false; try { d = statSync(path.join(cwd, rel)).isDirectory(); } catch { d = false; } if (d && n !== 'node_modules' && !n.startsWith('.')) out.push(...globFiles(segs, rel, cwd)); }
+    return out;
+  }
+  const re = new RegExp(`^${head.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]')}$`);
+  for (const n of names) {
+    if (!re.test(n)) continue;
+    const rel = base ? `${base}/${n}` : n;
+    if (rest.length === 0) { let d = false; try { d = statSync(path.join(cwd, rel)).isDirectory(); } catch { d = false; } if (!d) out.push(rel); } else out.push(...globFiles(rest, rel, cwd));
+  }
+  return out;
+}
+
+/**
+ * The requested files that have no event in a run. A file whose tests are registered by a helper module (tests/core/port-t3-rig.mjs: the stage files only call it) has its
+ * events under the helper's name; such a file is covered when the stream holds events of a module that is not a requested file and not itself a `.test.` file.
+ * @param {string[]} args @param {import('./test-durations.mjs').Event[]} events @param {string} cwd
+ */
+export function uncovered(args, events, cwd) {
+  const want = requestedFiles(args, cwd);
+  const have = new Set(events.map((e) => e.file));
+  const helper = [...have].some((f) => f !== '' && !want.includes(f) && !/\.test\.[cm]?[jt]s$/.test(f));
+  return want.filter((f) => !have.has(f) && !helper);
+}
+
+/**
+ * JSON.parse that refuses a duplicate key in any object (a second `enforce` would silently win). @param {string} text
+ * @returns {any}
+ */
+export function parseStrict(text) {
+  const v = JSON.parse(text);   // syntax first
+  /** @param {string} t */
+  const dupes = (t) => {
+    let i = 0;
+    /** @type {string[]} */ const found = [];
+    const ws = () => { while (i < t.length && ' \t\n\r'.includes(t[i])) i++; };
+    const str = () => { const st = i; i++; while (t[i] !== '"') { if (t[i] === '\\') i++; i++; } i++; return JSON.parse(t.slice(st, i)); };
+    const val = () => {
+      ws();
+      if (t[i] === '{') {
+        i++; const keys = new Set(); ws();
+        if (t[i] === '}') { i++; return; }
+        for (;;) { ws(); const k = str(); if (keys.has(k)) found.push(k); keys.add(k); ws(); i++; val(); ws(); if (t[i] === ',') { i++; continue; } i++; return; }
+      } else if (t[i] === '[') {
+        i++; ws();
+        if (t[i] === ']') { i++; return; }
+        for (;;) { val(); ws(); if (t[i] === ',') { i++; continue; } i++; return; }
+      } else if (t[i] === '"') str();
+      else while (i < t.length && !',}] \t\n\r'.includes(t[i])) i++;
+    };
+    val();
+    return found;
+  };
+  const d = dupes(text);
+  if (d.length > 0) throw new Error(`duplicate key ${d.map((k) => JSON.stringify(k)).join(', ')}`);
+  return v;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main(process.argv.slice(2));

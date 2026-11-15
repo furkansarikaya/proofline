@@ -22,15 +22,17 @@ test('maxima: the maximum over all reports; the slower run of a twice report cou
   assert.equal(m.get('tests/core/b.test.mjs')?.suite, 900);
 });
 
-test('derive: maximum x margin rounded up, never below the kind default; a file at its kind default gets no row; old rows are replaced; the rest of the base is kept', () => {
-  const { budgets, rows } = derive(base, reports, { testMargin: 2, suiteMargin: 1.7 });
+test('derive: maximum x margin rounded up (x3 test, x2.5 suite from 20 s, x3 below), never below the ABSOLUTE floors 2000 / 10000, a row for every sampled file, old rows replaced, the rest of the base kept', () => {
+  const { budgets, rows } = derive(base, reports, { testMargin: 3, suiteMargin: 2.5 });
   assert.equal(budgets.enforce, true);
   assert.deepEqual(budgets.dirs, base.dirs);
-  // g: 3100 x 2 = 6200 -> 6500 (unit; the suite 3100 x 1.7 stays under the floor 30000); a: 7000 x 2 -> 15000 over the integration floor 10000, 9000 x 1.7 under 120000; b: under both floors, no row
-  assert.deepEqual(budgets.files, { 'tests/core/a.test.mjs': { test_ms: 15000, suite_ms: 120000 }, 'tests/generator/g.test.mjs': { test_ms: 6500, suite_ms: 30000 } });
+  // a: test 7000 x 3 -> 21000 -> 25000 (the step is 5 s from 10 s), suite 9000 (< 20 s) x 3 -> 27000 -> 30000; b: 800 x 3 -> 2500, 900 x 3 -> floor 10000; g: 3100 x 3 -> 9500 (9300 up), suite 3100 x 3 -> 10000 (9300 under the floor)
+  assert.deepEqual(budgets.files, { 'tests/core/a.test.mjs': { test_ms: 25000, suite_ms: 30000 }, 'tests/core/b.test.mjs': { test_ms: 2500, suite_ms: 10000 }, 'tests/generator/g.test.mjs': { test_ms: 9500, suite_ms: 10000 } });
   assert.equal(rows.length, 3);
-  const tight = derive(base, reports, { testMargin: 4, suiteMargin: 20 });
-  assert.deepEqual(tight.budgets.files['tests/core/a.test.mjs'], { test_ms: 30000, suite_ms: 180000 });
+  const big = derive(base, reports, { testMargin: 4, suiteMargin: 20, smallSuiteMargin: 20 });
+  assert.deepEqual(big.budgets.files['tests/core/a.test.mjs'], { test_ms: 30000, suite_ms: 180000 });
+  const large = derive(base, [{ files: [{ file: 'tests/core/z.test.mjs', max_ms: 40000 }], tests_detail: [{ file: 'tests/core/z.test.mjs', name: 'z', ms: 6000 }] }], { testMargin: 3, suiteMargin: 2.5 });
+  assert.deepEqual(large.budgets.files['tests/core/z.test.mjs'], { test_ms: 20000, suite_ms: 100000 });
 });
 
 test('main: the same samples give the same bytes, a bad report or no report or a bad option is refused with 2', () => {
@@ -39,7 +41,7 @@ test('main: the same samples give the same bytes, a bad report or no report or a
   const r1 = run(['--base', base1, samples]);
   assert.equal(r1.st, 0);
   assert.equal(run(['--base', base1, samples]).out, r1.out);
-  assert.deepEqual(Object.keys(JSON.parse(r1.out).files), ['tests/core/a.test.mjs', 'tests/generator/g.test.mjs']);
+  assert.deepEqual(Object.keys(JSON.parse(r1.out).files), ['tests/core/a.test.mjs', 'tests/core/b.test.mjs', 'tests/generator/g.test.mjs']);
   assert.equal(run([]).st, 2);
   assert.equal(run(['--bogus', samples]).st, 2);
   assert.equal(run(['--test-margin', '0.5', samples]).st, 2);

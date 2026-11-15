@@ -10,7 +10,7 @@
 // (the status of the last command wins without pipefail) hide the status and are refused in a test step; a test step under any `if:` that mentions failure(), always(),
 // cancelled() or success(), and the same test command run again in another step or job whose own `if:` is such a condition, are reruns under other conditions.
 // ACCEPTED LIMITS (A277): the finder reads the text of the workflow. A script file that runs the tests (a retry hidden in `sh scripts/x.sh`) and an obfuscated command
-// (`node --te""st`, a command built in a variable) are not seen; review and the one place that starts tests (tests/ci/test-durations-ci.mjs, pinned in test-durations-ci.test.mjs) are the guard.
+// (`node --te""st`, a command built in a variable, `xargs -P` spread over several lines) are not seen; review and the one place that starts tests (tests/ci/test-durations-ci.mjs, pinned in test-durations-ci.test.mjs) are the guard.
 // `fail-fast: false` is fine: it only lets the other legs finish. The finder is a pure function with mutant rows, so a retry added later cannot slip through unseen.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,10 +28,12 @@ const ANYWHERE = [
   [/nick-fields\/retry|uses:\s*\S*retry\S*/i, 'a retry action'],
   [/retr(y|ies)|--flaky|attempt|rerun|re-run/i, 'a retry, attempt or rerun word'],
   [/--maxRetries\b|\bretryTimes\b/i, 'a retry option of a test runner'],
+  [/\buses:\s*['"]?[^\s'"]*(\.github\/workflows\/|\.\/)/, 'a reusable workflow or local action call (its steps are not seen here)'],
+  [/^\s*(-\s+)?([\w.'"-]+:\s*)?&[A-Za-z_][\w-]*(\s|$)|^\s*(-\s+)?([\w.'"-]+:\s+)?\*[A-Za-z_][\w-]*\s*$|<<\s*:/, 'a YAML anchor, alias or merge key (a whole step could be repeated unseen)'],
 ];
 const TEST_RUN = /--test\b|test-durations-ci|ci-steps\.mjs\s+(skill|windows)|windows-probe|\bnpm\s+(run\s+)?test\b|\b(yarn|pnpm)\s+(run\s+)?test\b|\bmake\s+(\S+\s+)*test\b|\bjest\b|\bpytest\b|\bgo\s+test\b/;
 /** A condition under which a step or job runs when the tests before it failed or whatever happened. */
-const RERUN_IF = /\b(failure|always|cancelled|success)\(\)/;
+const RERUN_IF = /\b(failure|always|cancelled|success)\(\)|\.(result|outcome|conclusion)\b|['"](failure|cancelled|skipped|success)['"]/;
 /** @type {Array<[RegExp, string]>} */
 const SHELL = [
   [/\|\|/, 'an `||` after a test command'],
@@ -41,7 +43,11 @@ const SHELL = [
   [/\bwhile\b|\buntil\b/, 'a while or until loop'],
   [/\bbreak\b/, 'a loop break'],
   [/\bexit\s+0\b/, '`exit 0` that hides the status'],
-  [/\|\s*(cat|tee)\b/, 'a pipe into cat or tee that hides the status of the tests'],
+  [/\|&?\s*(cat|tee|true|:|exit)\b/, 'a pipe into cat, tee, true or exit that hides the status of the tests'],
+  [/(?<![&>|<])&(\s|$)/, 'a trailing or lone `&` (background) that hides the status'],
+  [/(^|[\n;&|({])\s*(if|elif)\s/, 'an `if` around a test command (no pipefail under bash -e: the status is swallowed)'],
+  [/(^|[\n;&|({])\s*!\s/, 'a negated test command'],
+  [/\bxargs\b/, 'xargs around a test command'],
 ];
 
 /** The text of the `run:` of a step (one line or a block scalar), '' when the step has none. @param {string[]} step */
@@ -65,7 +71,7 @@ export function retryFindings(text, file = 'x.yml') {
   /** @type {string[]} */ const out = [];
   lines.forEach((l, i) => {
     for (const [re, what] of ANYWHERE) if (re.test(l)) out.push(`line ${i + 1}: ${what}: ${l.trim()}`);
-    const m = /^\s*(?:- )?continue-on-error:\s*(.*)$/.exec(l);
+    const m = /['"]?continue-on-error['"]?\s*:\s*([^,}]*)/.exec(l);   // anywhere in the line: a flow mapping `{ run: x, continue-on-error: true }` too
     if (m && !/^["']?false["']?$/.test(m[1].trim()) && !Object.keys(ALLOWED_CONTINUE_ON_ERROR).some((k) => k.startsWith(`${file}:`))) out.push(`line ${i + 1}: continue-on-error is not false: ${l.trim()}`);
   });
   /** @type {Map<string, string[]>} the normalised test command -> for each place it runs 'cond' (under a rerun condition) or 'plain' */
@@ -140,15 +146,44 @@ test('the finder is not blind: every mutant workflow with a retry or a swallowed
     ['test step under success()', `${head}      - name: tests\n        if: success() && matrix.rerun\n        run: node --test x\n`],
     ['second job reruns the same command after failure', `jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n  b:\n    needs: [a]\n    if: failure()\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n`],
     ['second job reruns the same command under always()', `jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node tests/ci/test-durations-ci.mjs leg -- x\n  b:\n    needs: [a]\n    if: always()\n    runs-on: ubuntu-latest\n    steps:\n      - run: node tests/ci/test-durations-ci.mjs leg -- x\n`],
+    ['rerun gated on needs result failure', `${head}      - name: tests\n        if: needs.a.result == 'failure'\n        run: node --test x\n`],
+    ['rerun gated on step outcome', `${head}      - id: t\n        run: node --test x\n      - name: again\n        if: steps.t.outcome == 'failure'\n        run: node --test x\n`],
+    ['rerun gated on not success', `${head}      - name: again\n        if: needs.a.result != 'success'\n        run: node --test x\n`],
+    ['rerun gated on conclusion', `${head}      - name: again\n        if: steps.t.conclusion == 'failure'\n        run: node --test x\n`],
+    ['second job reruns under needs result', `jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n  b:\n    needs: [a]\n    if: needs.a.result == 'failure'\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n`],
+    ['pipe into true', step('node --test x | true')],
+    ['|& cat', step('node --test x |& cat')],
+    ['|& tee', step('node --test x |& tee log.txt')],
+    ['|& true', step('node --test x |& true')],
+    ['trailing ampersand', step('node --test x &')],
+    ['ampersand then wait', step('node --test x & wait')],
+    ['if around the test', `${head}      - name: tests\n        run: |\n          if node --test x; then echo ok; fi\n`],
+    ['if with else', step('if node --test x; then echo ok; else echo again; fi')],
+    ['negated test', step('! node --test x')],
+    ['xargs', step('echo x | xargs node --test')],
+    ['flow-style continue-on-error', `${head}      - { name: t, run: node --test x, continue-on-error: true }\n`],
+    ['continue-on-error with a space before the colon', `${head}      - name: t\n        continue-on-error : true\n        run: node --test x\n`],
+    ['flow-style continue-on-error in a job', 'jobs:\n  t: { runs-on: ubuntu-latest, continue-on-error: true, steps: [] }\n'],
+    ['reusable workflow call, local', 'jobs:\n  t:\n    uses: ./.github/workflows/tests.yml\n'],
+    ['reusable workflow call, remote', 'jobs:\n  t:\n    uses: org/repo/.github/workflows/tests.yml@v1\n'],
+    ['local composite action', `${head}      - uses: ./.github/actions/tests\n`],
+    ['anchor on a step', `${head}      - &t\n        run: node --test x\n      - *t\n`],
+    ['alias of a step', `${head}      - run: node --test x\n      - *t\n`],
+    ['merge key', `${head}      - name: again\n        <<: *t\n`],
+    ['anchor on a mapping value', `${head}      - name: t\n        env: &e\n          A: 1\n        run: node --test x\n`],
     ['a rerun step after failure()', `${head}      - name: tests\n        run: node --test x\n      - name: again\n        if: failure()\n        run: node --test x\n`],
   ]);
   for (const [name, text] of rows) assert.ok(retryFindings(text).length > 0, name);
-  assert.ok(rows.length >= 30);
+  assert.ok(rows.length >= 55);
 });
 
 test('what is allowed stays allowed: fail-fast false, comments about retry, shell logic in a step that runs no test, continue-on-error false, retention-days', () => {
   const ok = 'jobs:\n  t:\n    strategy:\n      fail-fast: false\n    steps:\n      # never a retry: no nick-fields/retry here, no --retries\n      - run: node --test x\n      - name: prepare\n        run: for f in a b; do echo $f; done || true\n      - name: upload\n        continue-on-error: false\n        uses: actions/upload-artifact@v4\n        with:\n          retention-days: 14\n';
   assert.deepEqual(retryFindings(ok), []);
+  for (const ok2 of ['node --test x 2>&1', 'node --test x && echo ok', 'node --test x > out.txt 2>&1', 'node tests/ci/test-durations-ci.mjs "leg a" -- x', 'node --test "tests/**/*.test.mjs"']) {
+    assert.deepEqual(retryFindings(`jobs:\n  t:\n    steps:\n      - run: ${ok2}\n`), [], ok2);
+  }
+  assert.deepEqual(retryFindings("jobs:\n  t:\n    steps:\n      - uses: actions/checkout@v4\n      - name: needs\n        if: needs.changes.outputs.code == 'true'\n        run: node --test x\n"), [], 'an if on an output is not a rerun condition');
   const twoJobs = 'jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n  b:\n    needs: [a]\n    if: always()\n    runs-on: ubuntu-latest\n    steps:\n      - name: upload\n        run: echo done | cat\n';
   assert.deepEqual(retryFindings(twoJobs), [], 'a job under always() that runs no test, and a pipe into cat outside a test step');
   assert.deepEqual(retryFindings('jobs:\n  a:\n    steps:\n      - run: node --test x\n  b:\n    steps:\n      - run: node --test x\n'), [], 'the same test command in two plain jobs is not a rerun');
