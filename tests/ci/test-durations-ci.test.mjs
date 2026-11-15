@@ -141,11 +141,14 @@ function realRun(args, env) {
   return spawnSync(process.execPath, [path.join(import.meta.dirname, 'test-durations-ci.mjs'), ...args], { encoding: 'utf8', env: { ...base, ...env } });
 }
 
-test('renderSummary lines carry no control character from a test name', () => {
+test('renderSummary cells carry no control character, backtick, `<` or `[` from a test name (a fence or link would break the job summary)', () => {
   const a = analyse([{ status: 0, events: parseEvents('{"file":"a.test.mjs","name":"x\\ny|z","nesting":0,"ms":1,"outcome":"pass","suite":false}\n') }], { top: 5, ratio: 4, floorMs: 2000 });
   const t = renderSummary('l', a, { tests: [], files: [] }, false, false);
   assert.ok(!/[\u0000-\u0009\u000b-\u001f]/.test(t));
   assert.match(t, /\| x y z \|/);
+  const evil = analyse([{ status: 0, events: parseEvents('{"file":"a`b<c.test.mjs","name":"```\\n<img src=x> [l](http://e)","nesting":0,"ms":1,"outcome":"pass","suite":false}\n') }], { top: 5, ratio: 4, floorMs: 2000 });
+  const u = renderSummary('l`<[', evil, { tests: [{ file: 'a`.mjs', name: '`<[x', ms: 5, limit: 1 }], files: [] }, false, false);
+  assert.ok(!/[`<[]/.test(u.replace(/^```$/gm, '').replace(/\| --- /g, '')), u);
 });
 
 test('ci.yml: every Linux Node test run goes through the duration wrapper (only the Windows leg and the front matter check call node --test directly), the wrapper never has a retry or a continue-on-error', () => {

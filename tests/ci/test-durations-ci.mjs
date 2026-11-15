@@ -76,7 +76,8 @@ export function overBudget(b, runs) {
   return { tests: [...t.values()].sort((x, y) => cmp(x.file, y.file) || cmp(x.name, y.name)), files: files.sort((x, y) => cmp(x.file, y.file)) };
 }
 
-const clean = (/** @type {string} */ s) => s.replace(/[\u0000-\u001f\u007f-\u009f|]/g, ' ');
+/** One printable summary cell: control characters, the table bar, backticks (a code fence) and `<` and `[` (html and links) become spaces. @param {string} s */
+const clean = (s) => s.replace(/[\u0000-\u001f\u007f-\u009f|`<[]/g, ' ');
 const r1 = (/** @type {number} */ n) => (Math.round(n * 10) / 10).toFixed(1);
 
 /**
