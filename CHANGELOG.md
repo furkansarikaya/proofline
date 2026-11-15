@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.122 — 2026-11-16
+
 - Security (A284, review round 5, display only): the `scope` approval request now escapes invisible blank-glyph characters and a literal backslash, marks an exception whose reason shows no text, and shows the whole section when a change only reorders lines or changes a duplicate count.
 - Security (A284, review round 4): a `## Test exceptions` line with a leading U+00A0, form feed, vertical tab or CR is no exception but hashed like the active line (the hash trimmed it), so removing that byte at a refreeze read as unchanged and activated the exception with no approval. The parser and the hash now use the same lines, byte for byte (only one trailing CR is dropped), so any byte difference needs the user's `scope` approval; the approval request writes U+00A0 and other space-like, control and format characters escaped (`\u{..}`, raw non-UTF-8 bytes as `\xNN`). `latin1Buf` keeps a Buffer unchanged and the hash helpers use it. Known deviation: terminal and pipe output (`context.out/err`, `dispatcher`, `proflinecli`, `adapters/index`, the approve child sink) still truncates a character above 0xFF; no file is written that way.
 - Security (A284, review round 3b): the same low-byte truncation of a character above 0xFF reached every file writer, not only the ledger: `knowledge-done ID not_applicable "<reason>"` could inject keys into RUN.yaml, and a `waive` reason could break the waiver record. All file writes now go through one conversion (`core/wirebytes.mjs`, UTF-8 bytes for such a character), the ledger header fields included.
