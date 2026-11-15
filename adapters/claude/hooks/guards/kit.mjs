@@ -12,6 +12,8 @@
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { cmdSubst, isAbsPath, isWin, posix } from '../lib/text.mjs';
+import { insensitiveAt } from '../lib/fscase.mjs';
+import { scanCommand } from '../command-scan.mjs';
 
 /** The refusal of a guard (the text without the "proofline: " prefix). */
 export class Deny extends Error {
@@ -322,3 +324,15 @@ export function cParts(rec) {
   const rest = t < 0 ? '' : raw.slice(t + 1);
   return { cw, rest, args: cmdSubst(rest.replace(/\x03/g, '\n')) };
 }
+
+/** The command words of TEXT are read without regard to case (A278): on a volume that folds case `Agent.SH` runs agent.sh and `Kill` runs kill. The files a command word names live where the shell
+ * looks: the working directory for a path, the PATH folders for a bare word; any of them folding case (or not decidable, which fails closed) is enough. Text without a capital letter needs no fold and no probe.
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */
+export function foldCommands(ctx, text) {
+  if (!/[A-Z]/.test(text)) return false;
+  const dirs = [ctx.cwd || '.', ...(ctx.env.PATH ?? '').split(isWin() ? ';' : ':').filter((d) => d.startsWith('/'))];
+  return dirs.some((d) => insensitiveAt(d));
+}
+
+/** `scanCommand` with the case rule of the volume (A278). @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */
+export function scanFor(ctx, text) { return scanCommand(text, { fold: foldCommands(ctx, text) }); }

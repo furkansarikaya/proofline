@@ -327,7 +327,7 @@ export function physicalPath(p, cwd) {
     tail = `${path.posix.basename(d)}/${tail}`;
     d = up;
   }
-  try { return `${realpathSync(d)}/${tail}`; } catch { return ''; }
+  try { return `${realpathSync.native(d)}/${tail}`; } catch { return ''; } // native: a differently cased spelling of an existing folder gets the case it has on disk (A278)
 }
 
 /**
