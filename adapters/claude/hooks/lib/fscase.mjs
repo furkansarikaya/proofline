@@ -45,7 +45,7 @@ const realIo = {
   lstat: (p) => lstatSync(p),
 };
 
-/** The real probe (see the header). Only entries made of ASCII letters, digits and `._-` count. A pair that resolves to one device and inode (with one link) proves a folding volume at once; sensitivity needs positive evidence: an ASCII entry whose flipped name does not exist, and no pair that resolved. A hard-linked entry is ignored. Anything else is undecided. @param {string} dir @param {Io} [io] @type {Probe} */
+/** The real probe (see the header). Only entries made of ASCII letters, digits and `._-` count. A pair that resolves to one device and inode (with one link) proves a folding volume at once; sensitivity needs positive evidence: an ASCII entry whose flipped name does not exist, and no pair that resolved. A hard-linked entry is ignored. Anything else is undecided. @param {string} dir @param {Io} [io] @returns {boolean | undefined} */
 export function realProbe(dir, io = realIo) {
   /** @param {string} parent @param {string} name @param {boolean} isDir @returns {boolean | undefined} */
   const via = (parent, name, isDir) => {

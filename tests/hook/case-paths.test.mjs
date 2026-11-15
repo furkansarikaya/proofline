@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildTemplate, copyProject, runHook, rmSync, cleanEnv } from './harness.mjs';
 import { createFsCase } from '../../adapters/claude/hooks/lib/fscase.mjs';
-import { hookDir, FOLDS, KEEPS, onVolume, WHO, pre, U } from './case-kit.mjs';
+import { hookDir, FOLDS, KEEPS, onVolume, WHO, pre, U, aliasFolded, dropAliases } from './case-kit.mjs';
 
 const { canonCase } = await import(pathToFileURL(join(hookDir, 'guards/paths.mjs')).href);
 const { stateOf } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
@@ -23,11 +23,11 @@ let base = '';
 let dir = ''; // an installed project with the run LC open
 let noRun = ''; // the same without an active run (the lead's main session, A169)
 before(() => {
-  template = buildTemplate(); base = tempDir('hook-case-');
+  template = buildTemplate(); base = tempDir('hook-case-'); aliasFolded(base);
   dir = copyProject(template, base);
   noRun = copyProject(template, base); rm(join(noRun, '.agents/local/ACTIVE_RUN'), { force: true });
 });
-after(() => { rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
+after(() => { dropAliases(); rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
 /** A refusal text without the spelling of the path that was typed (the project folder and both spellings become placeholders), so two spellings of one path compare equal. @param {string | null} text @param {string} proj @param {string} exact @param {string} variant */
 const reason = (text, proj, exact, variant) => (text === null ? null : text.replaceAll(proj, '<P>').replaceAll(variant, '<p>').replaceAll(exact, '<p>'));
@@ -105,9 +105,9 @@ test('A278 AC-5: an unprotected path and the run scratch folder keep their verdi
       assert.equal(await pre('Write', { file_path: `${proj}/${scratch}`, content: 'x' }, who, env, proj), null, `${role}: scratch`);
       assert.equal(await pre('Write', { file_path: `${proj}/${scratchUp}`, content: 'x' }, who, env, proj), null, `${role}: scratch, cased`);
     }
-    const [, w, e] = /** @type {[string, Record<string, string>, Record<string, string>]} */ (WHO[2]);
+    const [, w, e] = WHO[2];
     assert.equal(await pre('Write', { file_path: `${dir}/impl.txt`, content: 'x' }, w, e, dir), null, 'the implementer writes its scope file');
-    assert.equal(await pre('Write', { file_path: `${dir}/IMPL.TXT`, content: 'x' }, w, e, dir), null, 'IMPL.TXT is impl.txt here only through the host path rule (it exists), still allowed');
+    // IMPL.TXT is impl.txt only on a host whose real file system folds case (the path rule resolves the existing file): that is the host's behaviour, covered by the real-file-system test below, not by an injected volume
   });
 });
 

@@ -3,10 +3,11 @@
 // The verdicts are asked in process (the same buildContext and PreToolUse handler the hook runs). A guard asks `agent.sh summary` (the core fingerprints the work tree: five git processes) once per verdict; a table of
 // hundreds of verdicts would spend its time there. THE TEST SEAM: `pre` answers `summary` once per project and run from a cache (the fixture's state never changes inside a table). Production code has no such seam.
 import assert from 'node:assert/strict';
+import { lstatSync, realpathSync, symlinkSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { nodeHook, cleanEnv } from './harness.mjs';
-import { createFsCase, useFsCase } from '../../adapters/claude/hooks/lib/fscase.mjs';
+import { createFsCase, fold, useFsCase } from '../../adapters/claude/hooks/lib/fscase.mjs';
 
 export const hookDir = dirname(nodeHook);
 export const { buildContext, finish } = await import(pathToFileURL(join(hookDir, 'lib/context.mjs')).href);
@@ -57,3 +58,15 @@ export const U = (t) => t.replaceAll('@', '');
 
 /** a small seeded generator (mulberry32) @param {number} seed */
 export function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+/** The injected volume says "folds case", so the second pass opens files at the lower-case spelling of a path. On a host whose real file system keeps case that spelling must exist for the injection to be true: this makes the lower-case spelling of DIR an alias of DIR (a symbolic link next to it) when the host has none. A folding host already has it. Returns DIR. @param {string} dir */
+export function aliasFolded(dir) {
+  const real = realpathSync.native(dir);
+  const low = fold(real);
+  if (low === real) return dir;
+  try { lstatSync(low); } catch { try { symlinkSync(real, low); aliases.push(low); } catch { /* the parent has capitals too: the test then runs without the alias */ } }
+  return dir;
+}
+/** @type {string[]} */ const aliases = [];
+/** Remove the aliases made by aliasFolded. */
+export function dropAliases() { for (const a of aliases.splice(0)) { try { unlinkSync(a); } catch { /* gone */ } } }

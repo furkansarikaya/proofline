@@ -12,8 +12,8 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildTemplate, copyProject, rmSync, cleanEnv, runHook } from './harness.mjs';
-import { fold } from '../../adapters/claude/hooks/lib/fscase.mjs';
-import { hookDir, FOLDS, KEEPS, onVolume, WHO, FIVE, pre, U, rng } from './case-kit.mjs';
+import { fold, realProbe } from '../../adapters/claude/hooks/lib/fscase.mjs';
+import { hookDir, FOLDS, KEEPS, onVolume, WHO, FIVE, pre, U, rng, aliasFolded, dropAliases } from './case-kit.mjs';
 
 const { foldCtx, foldWorld, stateOf } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
 
@@ -23,7 +23,7 @@ let t3 = ''; // run T-3, owns.conf, a registered worktree under Wt/
 let wtBase = ''; let wt = '';
 let rtkProj = ''; let rtkEnv = /** @type {Record<string, string>} */ ({});
 before(() => {
-  template = buildTemplate(); base = tempDir('hook-world-');
+  template = buildTemplate(); base = tempDir('hook-world-'); aliasFolded(base);
   dir = copyProject(template, base);
   t3 = copyProject(template, base);
   renameSync(join(t3, '.agents/runs/LC'), join(t3, '.agents/runs/T-3'));
@@ -35,6 +35,7 @@ before(() => {
   const g = spawnSync('git', ['-C', t3, 'worktree', 'add', '-q', '-b', 'wt-t3', wt], { env: cleanEnv({}), encoding: 'utf8' });
   assert.equal(g.status, 0, g.stderr);
   wt = realpathSync.native(wt); wtBase = realpathSync.native(wtBase);
+  aliasFolded(wtBase); aliasFolded(wt);
   mkdirSync(join(wt, '.agents/runs/T-3'), { recursive: true });
   rtkProj = copyProject(template, base);
   mkdirSync(join(rtkProj, '.claude'), { recursive: true });
@@ -42,7 +43,7 @@ before(() => {
   const bin = join(base, 'bin'); mkdirSync(bin); writeFileSync(join(bin, 'rtk'), '#!/bin/sh\n'); chmodSync(join(bin, 'rtk'), 0o755);
   rtkEnv = { PATH: `${bin}:${process.env.PATH}` };
 });
-after(() => { rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
+after(() => { dropAliases(); rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
 // ---- (a) the divergence matrix ----
 
@@ -352,5 +353,8 @@ test('(regression guard: passes without the fix) A278 round 4: the real hook pro
   const t = `${'echo "a $((1<<2))" Git\n'.repeat(2000)}Find . -maxdepth 0 -exec ${kill} \;`;
   const a = await runHook('node', dir, 'pretool', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: t } }, { env: { TMPDIR: '/var/proofline-case-tmp' } });
   const b = await runHook('node', dir, 'pretool', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: t.toLowerCase() } }, { env: { TMPDIR: '/var/proofline-case-tmp' } });
-  assert.equal(a.stdout === '', b.stdout === '');
+  // the real hook probes the real volume: where it folds case the cased text is refused as its twin is; where it keeps case `Find` and `Pki..ll` are other programs and nothing is refused for the case
+  const folds = realProbe(dir) !== false;
+  assert.equal(b.stdout === '', false, 'the lower-case twin is refused (fix the table)');
+  assert.equal(a.stdout === '', !folds, folds ? 'the cased text is refused as its twin' : 'the cased text is other programs on a case-keeping volume');
 });
