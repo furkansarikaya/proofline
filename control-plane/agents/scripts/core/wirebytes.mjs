@@ -9,5 +9,5 @@ export function wire(s) {
   return /[^\x00-\xff]/.test(s) ? s.replace(/[^\x00-\xff]/gu, (c) => Buffer.from(c, 'utf8').toString('latin1')) : s;
 }
 
-/** @param {string} s @returns {Buffer} the bytes of a file write */
-export function latin1Buf(s) { return Buffer.from(wire(s), 'latin1'); }
+/** @param {string | Buffer} s a Buffer is returned unchanged @returns {Buffer} the bytes of a file write */
+export function latin1Buf(s) { return Buffer.isBuffer(s) ? s : Buffer.from(wire(s), 'latin1'); }

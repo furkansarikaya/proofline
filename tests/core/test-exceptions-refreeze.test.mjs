@@ -160,3 +160,43 @@ test('req-3: control characters in a line are shown escaped; a line or a section
   r = A(d, ['request-approval', 'LC', 'scope']);
   refused(r, 'a request that cannot show a line in full', 'could not show it in full');
 });
+
+// A284 (round 4): the section hash covers the exact bytes of its lines; no trim() lets a dormant line become active without the user.
+const dormant = (/** @type {string} */ pre) => {
+  const d = project({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'manual', planExtra: PLAN });
+  writeFileSync(plan(d), readFileSync(plan(d), 'latin1').replace('- wait:', `${pre}- wait:`), 'latin1');
+  accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
+  return d;
+};
+
+test('dorm-1: a dormant line (leading U+00A0, form feed, vertical tab, CR) made active by an amendment is a change that needs the user', () => {
+  for (const pre of ['\xa0', '\f', '\v', '\r', ' \xa0']) {
+    const d = dormant(pre); amend(d);
+    writeFileSync(plan(d), readFileSync(plan(d), 'latin1').replace(`${pre}- wait:`, '- wait:'), 'latin1');
+    const r = refreeze(d); refused(r, `dormant line ${JSON.stringify(pre)} activated`, ''); assert.match(r.text, REFUSAL);
+    // with the user's scope approval for exactly that plan it goes through, and the activated line is the new baseline
+    approved(d);
+    accepted(refreeze(d), `approved activation ${JSON.stringify(pre)}`);
+  }
+});
+
+test('dorm-2: an invisible byte added to, or taken from, an active or a dormant line is a change; a CRLF file with the same text is not', () => {
+  for (const [from, to] of [['- wait:', '\xa0- wait:'], ['no clock', 'no\xa0clock'], ['fake it', 'fake it\xa0'], ['fake it', 'fake it\f']]) {
+    const d = frozen(); amend(d);
+    writeFileSync(plan(d), readFileSync(plan(d), 'latin1').replace(from, to), 'latin1');
+    refused(refreeze(d), `invisible change ${JSON.stringify(to)}`, '');
+  }
+  const d = frozen(); amend(d);
+  writeFileSync(plan(d), readFileSync(plan(d), 'latin1').replace(/(## Test exceptions\n)([^]*)$/, (_m, h, b) => h + b.replace(/\n/g, '\r\n')), 'latin1');
+  accepted(refreeze(d), 'the same lines with CRLF line ends');
+});
+
+test('dorm-3: the scope request shows U+00A0, other space-like characters and raw non-UTF-8 bytes escaped', () => {
+  const d = frozen(); amend(d);
+  addLine(d, '- wait: `tests/a.test.js` -- a real signal is awaited here and here\n');
+  writeFileSync(plan(d), `${readFileSync(plan(d), 'latin1')}\xa0- wait: \`tests/b.test.js\` -- a real signal is awaited here, raw \xa0 byte\n`, 'latin1');
+  const r = accepted(A(d, ['request-approval', 'LC', 'scope']), 'request');
+  assert.ok(!/[  Â]/.test(r.out), 'a raw space-like character reached the request');
+  assert.match(r.out, /a real\\u\{a0\}signal is awaited here\\u\{2003\}and here/);
+  assert.match(r.out, /\\xa0- wait: `tests\/b\.test\.js` -- a real signal is awaited here, raw \\xa0 byte/);
+});

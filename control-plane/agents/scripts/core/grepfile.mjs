@@ -11,7 +11,7 @@ import * as proc from './proc.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
 /** The pattern as the bytes a `-f` file or stdin carries. @param {string} pattern a byte string (latin1) @returns {Buffer} */
-export function patternBytes(pattern) { return Buffer.from(`${pattern}\n`, 'latin1'); }
+export function patternBytes(pattern) { return latin1Buf(`${pattern}\n`); }
 
 /**
  * `grep -Eq[i] -e PATTERN` over a text (some line matches): the pattern and the text are files of a private folder that is the child's working

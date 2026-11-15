@@ -135,3 +135,21 @@ test('inj-9: waive --reason with chars above 0xFF cannot forge a Test exceptions
   assert.equal(lines.filter((l) => parseLedgerLine(l)?.event === 'test-exceptions').length, had);
   assert.equal(lines.filter((l) => / event=test-exceptions /.test(l)).length, had);
 });
+
+test('inj-10: a Turkish reason lands on disk as the right bytes: chars up to 0xFF as one byte, chars above 0xFF as UTF-8 (real agent.sh waive and knowledge-done)', () => {
+  const d = project({ topology: 'orchestrated' }); implemented(d, 'orchestrated');
+  must(d, ['secret-scan', 'LC']); gfail(d, 'REVIEW_SMALL', 'impl.txt'); gpass(d, 'QA'); gpass(d, 'VERIFY');
+  must(d, ['request-approval', 'LC', 'waive:REVIEW_SMALL-1']);
+  say(d, 'I approve the waiver of REVIEW_SMALL-1.');
+  accepted(A(d, ['approve', 'LC', 'waive:REVIEW_SMALL-1']), 'approve');
+  const reason = 'kabul edilen risk: ş ğ ı İ ü ö ç Ş Ğ ve yüksek öncelik';
+  A(d, ['waive', 'LC', 'REVIEW_SMALL-1', '--reason', reason]);
+  const disk = readFileSync(path.join(d, RUN, 'LEDGER.log'));
+  // the argv text is converted once (ş U+015F, ğ U+011F, ı U+0131, İ U+0130, Ş U+015E, Ğ U+011E are above 0xFF: UTF-8 bytes); ü ö ç (U+FC, U+F6, U+E7) stay single bytes
+  assert.ok(disk.includes(Buffer.from('kabul edilen risk: ş ğ ı İ ', 'utf8')), 'chars above 0xFF are not UTF-8 on disk');
+  assert.ok(disk.includes(Buffer.concat([Buffer.from(' '), Buffer.from([0xfc, 0x20, 0xf6, 0x20, 0xe7, 0x20]), Buffer.from('Ş Ğ ve y', 'utf8')])), 'chars up to 0xFF are not single bytes');
+  const kd = scaffold({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'autonomous' }); toCodeDone(kd);
+  A(kd, ['knowledge-done', 'LC', 'not_applicable', 'bu değişiklik belgelenmiş davranışa dokunmaz: ş ğ ı İ ü ö ç ve daha uzun açıklama']);
+  const yaml = readFileSync(path.join(kd, RUN, 'RUN.yaml'));
+  assert.ok(yaml.includes(Buffer.concat([Buffer.from('ş ğ ı İ ', 'utf8'), Buffer.from([0xfc, 0x20, 0xf6, 0x20, 0xe7, 0x20])])), 'RUN.yaml: chars above 0xFF are not UTF-8 or chars up to 0xFF are not single bytes');
+});

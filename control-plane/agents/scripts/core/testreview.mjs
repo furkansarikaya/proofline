@@ -52,16 +52,22 @@ export function sectionOf(plan, name) {
 
 /** @param {string} plan @returns {Array<{ kind: string, target: string, reason: string }>} */
 export function planExceptions(plan) {
-  return sectionOf(plan, 'Test exceptions').map(parseException).filter((x) => x !== null).map((x) => /** @type {{ kind: string, target: string, reason: string }} */ (x));
+  return exceptionLines(plan).map(parseException).filter((x) => x !== null).map((x) => /** @type {{ kind: string, target: string, reason: string }} */ (x));
 }
 
-/** The non-blank, trimmed lines of the plan's `## Test exceptions`. @param {string} plan */
-export function exceptionLines(plan) { return sectionOf(plan, 'Test exceptions').map((x) => x.trim()).filter((x) => x !== ''); }
+/**
+ * The lines of the plan's `## Test exceptions`, byte for byte (A284): the ONE line set the parser, the hash, the kept baseline copy and the approval request all use. The only
+ * normalisation is one trailing CR per line (a CRLF file) and the dropping of lines that are then empty; nothing is trimmed, so a line that differs in any byte (a leading U+00A0,
+ * form feed, vertical tab, CR) is a different line with a different hash, never an unchanged one. @param {string} plan
+ */
+export function exceptionLines(plan) { return sectionOf(plan, 'Test exceptions').map((x) => (x.endsWith('\r') ? x.slice(0, -1) : x)).filter((x) => x !== ''); }
+
+/** The hash of a list of section lines (empty string for none); the one definition for the plan and for the kept baseline copy. @param {string[]} lines */
+function linesHash(lines) { return lines.length === 0 ? '' : sha256(`${lines.join('\n')}\n`); }
 
 /** The hash of the lines of the plan's `## Test exceptions` (blank lines left out); the empty string when there are none. A refreeze that changes it needs the user. @param {string} plan */
 export function exceptionsHash(plan) {
-  const l = exceptionLines(plan);
-  return l.length === 0 ? '' : sha256(`${l.join('\n')}\n`);
+  return linesHash(exceptionLines(plan));
 }
 
 /**
@@ -95,8 +101,7 @@ export function exceptionsBaseLines(ctx, dir) {
   let text;
   try { text = readFileSync(BASE_FILE(dir), 'latin1'); } catch { return want === '' ? [] : null; }
   const lines = text.split('\n').filter((x) => x !== '');
-  const h = lines.length === 0 ? '' : sha256(`${lines.join('\n')}\n`);
-  return h === want ? lines : null;
+  return linesHash(lines) === want ? lines : null;
 }
 
 /** The sha256 of the project's `.agents/ecosystems.json`, or `none`; the run start records it and the scan compares (A276). @param {Context} ctx */

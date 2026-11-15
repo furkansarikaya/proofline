@@ -132,7 +132,7 @@ function diffDigest(ctx, args) {
   if (outside.length) out.push(`not in the plan scope (${outside.length}${outside.length > shownOutside.length ? `, first ${shownOutside.length} in byte order` : ''}): ${shownOutside.map((r) => `${r.cls}:${fmt(r)}`).join('; ')}`);
   if (inScope.length) out.push(`largest in scope: ${inScope.map(fmt).join('; ')}`);
   out.push(shown >= rows.length ? 'truncated: no' : `truncated: yes (${rows.length - shown} of ${rows.length} paths are named only in the raw file; a decision about one path reads the raw file)`);
-  out.push(`raw: ${rel}/raw.txt sha256=${sha256(Buffer.from(raw, 'latin1'))}`);
+  out.push(`raw: ${rel}/raw.txt sha256=${sha256(latin1Buf(raw))}`);
   out.push(`again: agent.sh diff-digest ${id} (the same tree gives the same raw.txt; inputs.txt holds the hashes)`);
   ctx.out(`${out.join('\n')}\n`);
   return 0;

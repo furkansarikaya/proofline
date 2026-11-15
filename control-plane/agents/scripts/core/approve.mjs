@@ -535,9 +535,16 @@ export function requestApproval(ctx, id0, kind0) {
 }
 
 const EXC_SHOW_LINE = 1000; const EXC_SHOW_LINES = 50;
-/** A line shown in a request: control and format characters (CR, escape, bidi marks, line separators) are written as \u{..}, so a line cannot hide another or rewrite the screen. @param {string} line a byte string */
+/**
+ * A line shown in a request (A284): every character that is not a plain visible one is written escaped, so no difference between two lines can be invisible: control and format
+ * characters, line and paragraph separators and EVERY space-like character except the plain space (U+00A0, U+2003 ...) as \u{..}; when the bytes are not valid UTF-8 each byte
+ * from 0x80 up is written \xNN (never the replacement character, which would show two different lines alike). @param {string} line a byte string
+ */
 function shown(line) {
-  return bs(bytesBack(line).replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (c) => `\\u{${c.codePointAt(0)?.toString(16)}}`));
+  const raw = Buffer.from(line, 'latin1');
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch { return line.replace(/[^\x20-\x7e]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`); }
+  return bs(text.replace(/[\p{C}\p{Z}]/gu, (c) => (c === ' ' ? c : `\\u{${c.codePointAt(0)?.toString(16)}}`)));
 }
 
 /**

@@ -1,10 +1,11 @@
 // @ts-check
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** SHA-256 hex digest of bytes or of a byte string (one char per byte, the form the core keeps shell text in). @param {Buffer|string} data */
 export function sha256(data) {
-  return createHash('sha256').update(typeof data === 'string' ? Buffer.from(data, 'latin1') : data).digest('hex');
+  return createHash('sha256').update(typeof data === 'string' ? latin1Buf(data) : data).digest('hex');
 }
 
 /** SHA-256 of a file's bytes, or '' when it cannot be read (the shell's `hash_file` prints nothing then). @param {string} file */
@@ -14,7 +15,7 @@ export function sha256File(file) {
 
 /** The id `git hash-object --stdin` gives a byte string (a blob), without starting git: SHA-1 of "blob <length> NUL <bytes>". @param {string} text a byte string */
 export function gitBlobSha(text) {
-  const body = Buffer.from(text, 'latin1');
+  const body = latin1Buf(text);
   return createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${body.length}\0`), body])).digest('hex');
 }
 
