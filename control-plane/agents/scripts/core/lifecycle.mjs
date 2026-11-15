@@ -13,6 +13,7 @@ import { isFile } from './paths.mjs';
 import { notRunRelative } from './pathin.mjs';
 import { ciChainOk, knownControlArtifact, lifecycleFolderStatus, runDir } from './runs.mjs';
 import { blockOnlyText, inKnowledgeScope, installedControlPath, isBlockFile, stripProoflineBlock } from './scope.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -51,7 +52,7 @@ export function setRunValue(ctx, id, section, key, value) {
   }
   if (!found) fail(`RUN.yaml has no ${section}.${key} to set`);
   const tmp = `${dir}/RUN.yaml.tmp`;
-  writeFileSync(tmp, Buffer.from(`${out.join('\n')}\n`, 'latin1'));
+  writeFileSync(tmp, latin1Buf(`${out.join('\n')}\n`));
   renameSync(tmp, file);
   ctx.forget('file:');
   ctx.forget('plan-scope:');

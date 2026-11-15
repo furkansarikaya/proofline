@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import * as proc from './proc.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** The pattern as the bytes a `-f` file or stdin carries. @param {string} pattern a byte string (latin1) @returns {Buffer} */
 export function patternBytes(pattern) { return Buffer.from(`${pattern}\n`, 'latin1'); }
@@ -24,7 +25,7 @@ export function grepTextStatus(env, pattern, text, ci = false) {
   const dir = mkdtempSync(path.join(tmpdir(), 'proofline-grep-'));
   try {
     writeFileSync(path.join(dir, 'pat'), patternBytes(pattern));
-    writeFileSync(path.join(dir, 'txt'), Buffer.from(text, 'latin1'));
+    writeFileSync(path.join(dir, 'txt'), latin1Buf(text));
     return proc.run('grep', [ci ? '-Eiq' : '-Eq', '-f', 'pat', '--', 'txt'], { cwd: dir, env, stdio: ['ignore', 'ignore', 'ignore'] }).status;
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
@@ -37,7 +38,7 @@ export function grepTextLines(env, pattern, text) {
   const dir = mkdtempSync(path.join(tmpdir(), 'proofline-grep-'));
   try {
     writeFileSync(path.join(dir, 'pat'), patternBytes(pattern));
-    writeFileSync(path.join(dir, 'txt'), Buffer.from(text, 'latin1'));
+    writeFileSync(path.join(dir, 'txt'), latin1Buf(text));
     const r = proc.run('grep', ['-E', '-f', 'pat', '--', 'txt'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'ignore'] });
     if (r.status !== 0) return [];
     const ls = r.stdout.toString('latin1').split('\n');

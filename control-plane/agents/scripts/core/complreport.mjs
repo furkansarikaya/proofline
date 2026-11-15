@@ -21,6 +21,7 @@ import { fixRoundsUsed, maxFixRounds, requiredGates, riskNotRerun, riskUnsupport
 import { humanChecks, records, sectionLines } from './taskfile.mjs';
 import { freshness } from './commands/verify.mjs';
 import { listNames } from './ledger.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -154,7 +155,7 @@ function validateStructure(ctx, id) {
   mkdirSync(`${dir}/scratch`, { recursive: true });
   const evidence = blankSummary(raw);
   report = `${dir}/scratch/COMPLETION_REPORT.evidence.md`;
-  writeFileSync(report, evidence, 'latin1');
+  writeFileSync(report, latin1Buf(evidence));
   const lines = records(evidence);
   for (const h of requiredHeadings(ctx, dir)) if (!evidence.includes(`## ${h}`)) fail(`completion report missing required section: ## ${h}`);
   if (completionResponseAsked(ctx, dir) && !sectionBody(lines, 'Requested Response').some(hasText)) {
@@ -282,7 +283,7 @@ function stripFacts(ctx, file) {
     if (skip && l === FACTS_END) { skip = false; continue; }
     if (!skip) out.push(l);
   }
-  writeFileSync(file, out.map((l) => `${l}\n`).join(''), 'latin1');
+  writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
   ctx.forget('file:');
 }
 
@@ -305,7 +306,7 @@ function executionApply(ctx, id) {
     out.push(l);
   }
   if (!done) { out.push(''); emit(); }
-  writeFileSync(file, out.map((l) => `${l}\n`).join(''), 'latin1');
+  writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
   ctx.forget('file:');
 }
 
@@ -334,7 +335,7 @@ function summaryApply(ctx, id) {
   const n = body.length + items.filter((x) => x !== '').length;
   if (n > 5) fail(`completion report: the summary block is ${n} lines with the 'Look at:' lines the script adds; at most five (what changed, what to look at, one command to verify)`);
   const out = [...all.slice(0, b), ...main, ...items.filter((x) => x !== '').map((x) => `Look at: ${x}`), ...verify, ...all.slice(e - 1)];
-  writeFileSync(file, out.map((l) => `${l}\n`).join(''), 'latin1');
+  writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
   ctx.forget('file:');
 }
 
@@ -360,7 +361,7 @@ export function publishCompletionReport(ctx, id, given) {
   validateStructure(ctx, id);
   claimsCheck(ctx, id, report);
   const facts = capture(ctx, () => reportFacts(ctx, id));
-  appendFileSync(report, Buffer.from(`\n${facts}`, 'latin1'));
+  appendFileSync(report, latin1Buf(`\n${facts}`));
   ctx.forget('file:');
   const script = adapterScript(ctx, adapter);
   /** @type {{ file: string, data: Buffer, mode: number, atime: Date, mtime: Date } | null} */ let backup = null;

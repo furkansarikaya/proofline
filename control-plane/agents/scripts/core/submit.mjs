@@ -3,6 +3,7 @@
 // table, evidence lines, reasons), checks what it can before recording, snapshots the artifact and calls `record` IN PROCESS (there is no nested
 // `sh agent.sh record`). Every refusal is the shell's "submit rejected: ..." text, exit 1.
 import { asciiLower } from './shellglob.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 import { takeCommandLocks } from './lock.mjs';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -117,7 +118,7 @@ function submitStatus(ctx, a) {
   const dir = `${ctx.agents}/local/submissions`;
   try {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(`${dir}/${token}.status.tmp`, `status=${status}\ntask=${id}\nrole=${role}\nresult=${result}\ngate=${gate}\nraw=${raw}\nepoch=${now().epoch}\nerror=${oneLine(error)}\n`, 'latin1');
+    writeFileSync(`${dir}/${token}.status.tmp`, latin1Buf(`status=${status}\ntask=${id}\nrole=${role}\nresult=${result}\ngate=${gate}\nraw=${raw}\nepoch=${now().epoch}\nerror=${oneLine(error)}\n`));
     renameSync(`${dir}/${token}.status.tmp`, `${dir}/${token}.status`);
   } catch { /* best effort, as the shell's `|| return 0` */ }
 }
@@ -186,7 +187,7 @@ export function submitResult(ctx, id, args) {
           if (l === '=== FINDINGS ===' && into === 'report') { into = 'findings'; continue; }
           if (into === 'report') rep += `${l}\n`; else fin += `${l}\n`;
         }
-        writeFileSync(`${tmp}/report.pre`, rep, 'latin1'); writeFileSync(`${tmp}/findings.pre`, fin, 'latin1');
+        writeFileSync(`${tmp}/report.pre`, latin1Buf(rep)); writeFileSync(`${tmp}/findings.pre`, latin1Buf(fin));
         report = `${tmp}/report.pre`; findingsSrc = `${tmp}/findings.pre`;
       } else {
         submitFail("only one of --report/--findings/--questions may read stdin (-); write the others to a file under the run's scratch or reports dir (e.g. printf '%s\\n' 'info|-|answer|<one line>' > <scratch>/rows, then --findings <scratch>/rows --report -)");
@@ -261,12 +262,12 @@ export function submitResult(ctx, id, args) {
     const gate = gateOf(ctx, role, focus, id);
     if (art === '') art = defaultArtifact(ctx, role, res, focus);
     if (role === 'explorer' && report === '') {
-      if (res === 'BLOCKED') { writeFileSync(`${tmp}/blocked.in`, `# BLOCKED\n\n${reason === '' ? 'no reason given' : reason}\n`, 'latin1'); report = `${tmp}/blocked.in`; }
+      if (res === 'BLOCKED') { writeFileSync(`${tmp}/blocked.in`, latin1Buf(`# BLOCKED\n\n${reason === '' ? 'no reason given' : reason}\n`)); report = `${tmp}/blocked.in`; }
       else submitFail('an explorer hands its report over with --report <file> (or --report - on stdin), written in your scratch folder; the script assigns the numbered reports/NNN-explorer.md name (no --artifact)');
     }
     if (report !== '') {
       if (art === '' && role !== 'explorer') submitFail('--report needs --artifact: the run-relative path to write');
-      if (report === '-') writeFileSync(`${tmp}/report.in`, readStdin(), 'latin1');
+      if (report === '-') writeFileSync(`${tmp}/report.in`, latin1Buf(readStdin()));
       else {
         const f = diskPath(ctx, report);
         if (!isFileFollow(f) && !isFileFollow(report)) submitFail(`report file not found: ${report}`);
@@ -302,14 +303,14 @@ export function submitResult(ctx, id, args) {
       if (norm === '' || notRunRelative(norm)) submitFail(`--artifact must be a run-relative path: ${art}`);
       norm = canonRel(norm);
       mkdirSync(path.dirname(`${d}/${norm}`), { recursive: true });
-      writeFileSync(`${d}/${norm}`, `# BLOCKED\n\n${reason === '' ? 'no reason given' : reason}\n`, 'latin1');
+      writeFileSync(`${d}/${norm}`, latin1Buf(`# BLOCKED\n\n${reason === '' ? 'no reason given' : reason}\n`));
     } else if (nr.code === 1) submitFail(`--artifact must be a path inside the run directory: ${art}`);
     else submitFail(`artifact not found in the run: ${art} (write the report there first; expected location for your role: ${artifactPaths(role, gaterole ? 'gate' : 'task', focus)})`);
     let questions = '';
     if (questionsSrc !== '') {
       if (questionsSrc === '-') questions = readStdin();
       else { const f = diskPath(ctx, questionsSrc); if (!isFileFollow(f)) submitFail(`questions file not found: ${questionsSrc}`); questions = readFileSync(f, 'latin1'); }
-      writeFileSync(`${tmp}/questions.in`, questions, 'latin1');
+      writeFileSync(`${tmp}/questions.in`, latin1Buf(questions));
     }
     forgetFiles(ctx);
     // A184: an explorer's DONE report is a claims table
@@ -366,7 +367,7 @@ export function submitResult(ctx, id, args) {
       } else if (rr.n === 0) notRerun = `${gate !== '' ? gate : role}:${focus === '' ? '-' : focus} no reproduced evidence; this gate is not reproduced proof`;
     }
     // A33: run artifacts are English
-    writeFileSync(`${tmp}/rows`, rows.map((r) => `${r}\n`).join(''), 'latin1');
+    writeFileSync(`${tmp}/rows`, latin1Buf(rows.map((r) => `${r}\n`).join('')));
     const langFiles = [`${d}/${norm}`, `${tmp}/rows`];
     if (questionsSrc !== '') langFiles.push(`${tmp}/questions.in`);
     const hits = languageScanFiles(ctx, langFiles, `${d}/`);
@@ -454,6 +455,6 @@ export function submitResult(ctx, id, args) {
       try { writeFileSync(`${d}/${p}`, '', { flag: 'wx' }); alloc.p = p; break; } catch { /* taken: try the next */ }
     }
     alloc.created = alloc.p;
-    if (alloc.owner !== '') writeFileSync(alloc.owner, `${alloc.p}\n`, 'latin1');
+    if (alloc.owner !== '') writeFileSync(alloc.owner, latin1Buf(`${alloc.p}\n`));
   }
 }

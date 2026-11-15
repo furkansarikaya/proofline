@@ -17,6 +17,7 @@ import { authorizedPath, ledgerLines, ledgerRows, fileText, gateField, gatesEnfo
 import { requireRun, runDir } from './runs.mjs';
 import { ledgerToken } from './questions.mjs';
 import { freshness, verifyHandoff, verifyScope } from './commands/verify.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -45,7 +46,7 @@ function manifestFor(ctx, id, dir) {
   const gd = gatesDir(dir);
   mkdirSync(gd, { recursive: true });
   const rows = patchManifest(ctx, dir);
-  try { writeFileSync(`${gd}/${name}.manifest`, rows.map((r) => `${r}\n`).join(''), 'latin1'); } catch { fail('could not write reopen manifest'); }
+  try { writeFileSync(`${gd}/${name}.manifest`, latin1Buf(rows.map((r) => `${r}\n`).join(''))); } catch { fail('could not write reopen manifest'); }
   return { seq, name, gd };
 }
 
@@ -87,7 +88,7 @@ export function amendRun(ctx, id, input) {
     + `previous_implemented_patch_sha256: "${sectionValue(ctx, dir, 'handoff', 'implemented_patch_sha256')}"\nprevious_code_done_patch_sha256: "${sectionValue(ctx, dir, 'handoff', 'code_done_patch_sha256')}"\n`
     + `previous_completion_published: "${sectionValue(ctx, dir, 'completion_report', 'published')}"\nprevious_completion_receipt: "${sectionValue(ctx, dir, 'completion_report', 'receipt')}"\n`
     + `timestamp: "${now().iso}"\n`;
-  try { writeFileSync(`${gd}/${name}.yaml`, rec, 'latin1'); } catch { fail('could not write reopen record'); }
+  try { writeFileSync(`${gd}/${name}.yaml`, latin1Buf(rec)); } catch { fail('could not write reopen record'); }
   setRunValue(ctx, id, 'execution', 'state', 'AMENDING');
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_state')) setRunValue(ctx, id, 'execution', 'knowledge_state', 'not_started');
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) setRunValue(ctx, id, 'execution', 'knowledge_reason', '');
@@ -109,7 +110,7 @@ function reopenQuestion(ctx, id, ph, n, st, prev) {
     approvalTarget(ctx, id, k);
     const r = pendingRequest(ctx, id, k);
     if (r !== null && gateField(ctx, r, 'bound') === ph && gateField(ctx, r, 'joint') === `reopen:${id}`) continue;
-    writeFileSync(`${ad}/${nextNum(ad)}-request-${kindSlug(k)}.yaml`, `kind: "${k}"\nbound: "${ph}"\nrequested_at: ${now().epoch}\njoint: "reopen:${id}"\n`, 'latin1');
+    writeFileSync(`${ad}/${nextNum(ad)}-request-${kindSlug(k)}.yaml`, latin1Buf(`kind: "${k}"\nbound: "${ph}"\nrequested_at: ${now().epoch}\njoint: "reopen:${id}"\n`));
     ctx.forget('file:');
     const dir = runDir(ctx, id);
     if (gatesEnforced(ctx, dir)) { led(ctx, id, 'approval-request', '-', '-', `${k} bound=${ph} joint=reopen:${id}`); }
@@ -180,7 +181,7 @@ export function reopenRun(ctx, id) {
     + `task_sha256: "${fz('task_sha256')}"\nevidence_sha256: "${fz('evidence_sha256')}"\nplan_sha256: "${fz('plan_sha256')}"\nqa_plan_sha256: "${fz('qa_plan_sha256')}"\n`
     + `reason: ${oneLine(reason)}\nauthorized_by: user approval ${base}\nreopened_from: "${st}"\nrestored_execution_state: "${prev}"\nhandoff_state: "${hs}"\n`
     + `previous_knowledge_state: "${sectionValue(ctx, dir, 'execution', 'knowledge_state')}"\ntimestamp: "${now().iso}"\n`;
-  try { writeFileSync(`${gd}/${name}.yaml`, rec, 'latin1'); } catch { fail('could not write reopen record'); }
+  try { writeFileSync(`${gd}/${name}.yaml`, latin1Buf(rec)); } catch { fail('could not write reopen record'); }
   consumeApproval(ctx, id, app);
   setRunValue(ctx, id, 'execution', 'state', prev);
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_state')) setRunValue(ctx, id, 'execution', 'knowledge_state', 'not_started');

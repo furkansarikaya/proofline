@@ -17,6 +17,7 @@ import { cksum } from './hash.mjs';
 import { requireLead } from './approve.mjs';
 import { isDir, isFile } from './paths.mjs';
 import { asciiLower } from './shellglob.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -153,7 +154,7 @@ export function rulesCommand(ctx, args) {
       try { mkdirSync(`${ctx.root}/.agents/local`, { recursive: true }); appendFileSync(tally, ''); } catch { return 1; }
       const done = new Set(readText(tally).split('\n').map((l) => l.split('\t')).filter((p) => p[1] === '-').map((p) => p[0]));
       const add = liveUses(ctx).filter((l) => l.split('\t').length === 2 && !done.has(/** @type {string} */ (l.split('\t')[0])));
-      if (add.length > 0) writeFileSync(tally, Buffer.from(readText(tally) + add.map((l) => `${l}\n`).join(''), 'latin1'));
+      if (add.length > 0) writeFileSync(tally, latin1Buf(readText(tally) + add.map((l) => `${l}\n`).join('')));
       ctx.out(`rule-use counter: ${readText(tally).split('\n').filter((l) => l.split('\t')[1] === '-' && l.split('\t').length === 2).length} reviewed run(s) counted\n`);
       return 0;
     }

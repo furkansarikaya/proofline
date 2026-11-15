@@ -27,6 +27,7 @@ import { hookTime } from './commands/hookcmds.mjs';
 import { freshness, verifyHandoff, verifyKnowledgeScope } from './commands/verify.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
 import { leadToolsRecord } from './leadlog.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -41,7 +42,7 @@ export function metricsLine(ctx, f) {
     let size = 0;
     try { size = statSync(file).size; } catch { /* new */ }
     const head = size > 0 ? '' : 'time\ttask\trole\truntime\tmodel\tduration_s\toutcome\n';
-    writeFileSync(file, `${head}${now().iso}\t${f.join('\t')}\n`, { flag: 'a', encoding: 'latin1' });
+    writeFileSync(file, latin1Buf(`${head}${now().iso}\t${f.join('\t')}\n`), { flag: 'a' });
   } catch { /* best effort */ }
 }
 
@@ -53,7 +54,7 @@ export function metricsJson(ctx, a) {
   const n = (/** @type {string | undefined} */ v) => (v === undefined || !/^[0-9]+$/.test(v) ? 'null' : v);
   const g = (/** @type {number} */ i) => a[i];
   const line = `{"schema":"proofline.metrics/1","kind":${s(g(0))},"time":"${now().iso}","task":${s(g(1))},"role":${s(g(2))},"focus":${s(g(3))},"gate":${s(g(4))},"runtime":${s(g(5))},"model":${s(g(6))},"duration_s":${n(g(7))},"tokens_in":${n(g(8))},"tokens_out":${n(g(9))},"tokens_total":${n(g(10))},"turns":${n(g(11))},"retries":${n(g(12))},"delegations":${n(g(13))},"fix_rounds":${n(g(14))},"result":${s(g(15))},"size":${s(g(16))},"scope_paths":${n(g(17))}}\n`;
-  try { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, line, { flag: 'a', encoding: 'latin1' }); } catch { /* best effort */ }
+  try { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, latin1Buf(line), { flag: 'a' }); } catch { /* best effort */ }
 }
 
 /** `metrics_run ID OUTCOME`: the run record, the hook timings and the friction report. @param {Context} ctx @param {string} id @param {string} outcome */

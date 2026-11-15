@@ -15,6 +15,7 @@ import { asciiLower } from './shellglob.mjs';
 import { scopeEntries, scopeEntryCovers, taskType } from './taskfile.mjs';
 import { PLUG_LINE, agentCall, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
 import { now } from './clock.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -384,7 +385,7 @@ function plan(ctx, argv) {
   o(`The batch runs in THIS session, task after task; there is no background process. It stops when the session closes, a usage limit is hit or the computer sleeps. ${PLUG_LINE}\n`);
   o('On macOS the session offers to start caffeinate -i -w <this session\'s pid>, which keeps the Mac awake exactly as long as the session lives (agent.sh batch-awake).\n');
   o('After an interruption run /proofline batch again: the approved batch continues where it stopped and a merged task is never run again.\n');
-  const put = (/** @type {string} */ name, /** @type {string} */ text) => { writeFileSync(`${bd}/.${name}.new`, Buffer.from(text, 'latin1')); renameSync(`${bd}/.${name}.new`, `${bd}/${name}`); };
+  const put = (/** @type {string} */ name, /** @type {string} */ text) => { writeFileSync(`${bd}/.${name}.new`, latin1Buf(text)); renameSync(`${bd}/.${name}.new`, `${bd}/${name}`); };
   put('SUMMARY.md', s);
   put('order.tsv', orderList.map((x) => `${x.id}\t${x.cls}\t${x.dep}\n`).join(''));
   put('lint.tsv', lintRows.map((r) => `${r.join('\t')}\n`).join(''));

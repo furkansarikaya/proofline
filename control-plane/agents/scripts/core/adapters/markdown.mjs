@@ -10,6 +10,7 @@ import { bytes } from '../config.mjs';
 import { slug as slugOf } from '../slug.mjs';
 import { notRunRelative } from '../pathin.mjs';
 import { AdapterExit, checkId, die, fsPath, importEngine, isFile, joinLines, lines, link, readText, sha, statusCheck, usage } from './lib.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** @typedef {import('./lib.mjs').Adapter} Adapter */
 
@@ -133,7 +134,7 @@ export function runMarkdown(a, argv) {
       const il = imported.split('\n');
       const first = `${il[0]}\n`;
       const rest = il.slice(1).join('\n');
-      writeFileSync(`${root}/${rel}`, `${first}\n**Status:** in-progress\n${fm === '' ? '' : `\n${fm}\n`}${rest}`, 'latin1');
+      writeFileSync(`${root}/${rel}`, latin1Buf(`${first}\n**Status:** in-progress\n${fm === '' ? '' : `\n${fm}\n`}${rest}`));
       a.out(`${rel}\n`);
       return;
     }
@@ -162,7 +163,7 @@ export function runMarkdown(a, argv) {
       // keep the optional planning front matter (size, sprint, assignee, depends_on) parseable at the top of the run's TASK.md
       const fm = planBlock(getPlan(text));
       if (fm !== '') { const il = result.split('\n'); result = `${il[0]}\n\n${fm}\n${il.slice(1).join('\n')}`; }
-      writeFileSync(path.resolve(a.cwd, out), result, 'latin1');
+      writeFileSync(path.resolve(a.cwd, out), latin1Buf(result));
       return;
     }
     case 'publish': {
@@ -191,7 +192,7 @@ export function runMarkdown(a, argv) {
         }
         result = joinLines(o);
       } else result = `${text}\n## Completion Report\n\n${begin}\n${rep}${end}\n`;
-      writeFileSync(target, result, 'latin1');
+      writeFileSync(target, latin1Buf(result));
       a.out(`${p}#${sha(rep)}\n`);
       return;
     }
@@ -233,7 +234,7 @@ export function runMarkdown(a, argv) {
       let d = false;
       for (const l of lines(w)) { if (!d && l.startsWith('# ')) { d = true; continue; } t += `${l}\n`; }
       for (const h of ['Acceptance criteria', 'Out of scope', 'Constraints', 'Risks', 'Suggested class', 'Verification commands']) if (!hasLine(w, `## ${h}`)) t += `\n## ${h}\n\nTBD (task-author completes this follow-up)\n`;
-      writeFileSync(`${root}/${rel}`, t, 'latin1');
+      writeFileSync(`${root}/${rel}`, latin1Buf(t));
       link(`${root}/${tdir}/links.tsv`, id, nid, 'followup'); // A202: the back link (the source task file stays untouched, its hash too)
       a.out(`${rel}\n`);
       return;
@@ -260,7 +261,7 @@ export function runMarkdown(a, argv) {
       let result;
       if (ls.some((l) => l.startsWith('**Status:**'))) result = joinLines(ls.map((l) => (l.startsWith('**Status:**') ? `**Status:** ${state}` : l)));
       else result = joinLines(ls.flatMap((l, i) => (i === 0 ? [l, '', `**Status:** ${state}`] : [l])));
-      writeFileSync(`${root}/${rel}`, result, 'latin1');
+      writeFileSync(`${root}/${rel}`, latin1Buf(result));
       if (rel !== dest) renameSync(`${root}/${rel}`, `${root}/${dest}`);
       a.out(`${dest}\n`);
       return;
@@ -289,7 +290,7 @@ export function runMarkdown(a, argv) {
         }
         result = joinLines(o);
       } else result = `${text}\n## Proofline Status\n\n${begin}\n${block}${end}\n`;
-      writeFileSync(target, result, 'latin1');
+      writeFileSync(target, latin1Buf(result));
       a.out(`${p}\n`);
       return;
     }

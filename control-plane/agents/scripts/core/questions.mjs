@@ -14,6 +14,7 @@ import { sha256 } from './hash.mjs';
 import { fileText, gatesEnforced, sectionKeyPresent, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -38,7 +39,7 @@ export function askQuestion(ctx, id, text) {
   let sess = '';
   for (const v of [ctx.env.CLAUDE_CODE_SESSION_ID, ctx.env.CODEX_SESSION_ID, ctx.env.CODEX_THREAD_ID]) if (v) { sess = v; break; }
   if (/[^A-Za-z0-9_.-]/.test(sess)) sess = '';
-  writeFileSync(`${dir}/questions/${n}.md`, Buffer.from(`from: ${ctx.role}\nasked_at: ${now().epoch}\n${sess !== '' ? `asked_session: ${sess}\n` : ''}---\n${body}`, 'latin1'));
+  writeFileSync(`${dir}/questions/${n}.md`, latin1Buf(`from: ${ctx.role}\nasked_at: ${now().epoch}\n${sess !== '' ? `asked_session: ${sess}\n` : ''}---\n${body}`));
   ctx.forget('file:');
   if (sectionKeyPresent(ctx, dir, 'execution', 'awaiting_input')) setRunValue(ctx, id, 'execution', 'awaiting_input', 'true');
   if (gatesEnforced(ctx, dir)) { ledgerAppend(dir, ctx.role, 'ask', '-', '-', ledgerToken(dir, `questions/${n}.md`)); ctx.forget('file:'); }

@@ -32,6 +32,7 @@ import { topology, windowFiles } from './hookcmds.mjs';
 import { forgetFiles } from '../approve.mjs';
 import { sha256 } from '../hash.mjs';
 import { runSecretScan } from '../secretscan.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 export { runSecretScan };
 
 /** @typedef {import('../context.mjs').Context} Context */
@@ -90,7 +91,7 @@ function baseline(ctx, args) {
   block += '  untracked:\n';
   for (const p of untrackedPaths(ctx)) if (p !== '') block += `    - path: ${p}\n      sha256: "${pathFingerprint(ctx, p)}"\n`;
   const tmp = `${dir}/RUN.yaml.tmp`;
-  writeFileSync(tmp, Buffer.from(joinLines(withBase) + block, 'latin1'));
+  writeFileSync(tmp, latin1Buf(joinLines(withBase) + block));
   renameSync(tmp, `${dir}/RUN.yaml`);
   forgetFiles(ctx); ctx.forget('baseline:');
   ctx.out(`baseline recorded: ${id}\n`);
@@ -411,7 +412,7 @@ function treeAccept(ctx, args) {
   const n = nextWindow(ev);
   const base = app.slice(app.lastIndexOf('/') + 1);
   try {
-    writeFileSync(`${ev}/WINDOW-${n}.yaml`, Buffer.from(`task_id: "${id}"\nseq: ${n}\nrole: "user"\ntopology: "orchestrated"\nbefore_sha256: "${att}"\nafter_sha256: "${cur}"\nexit_status: "0"\napproval: "${base}"\ntimestamp: "${now().iso}"\n`, 'latin1'));
+    writeFileSync(`${ev}/WINDOW-${n}.yaml`, latin1Buf(`task_id: "${id}"\nseq: ${n}\nrole: "user"\ntopology: "orchestrated"\nbefore_sha256: "${att}"\nafter_sha256: "${cur}"\nexit_status: "0"\napproval: "${base}"\ntimestamp: "${now().iso}"\n`));
   } catch { fail('could not write the window record'); }
   ctx.forget('file:');
   led(ctx, id, 'tree-accept', '-', '-', `worker-evidence/WINDOW-${n}.yaml@${hashFile(`${ev}/WINDOW-${n}.yaml`)} approval=${base} tree=${cur}`);
@@ -467,11 +468,11 @@ function taskSourceStatus(ctx, args) {
   if (revision !== '' && revision !== 'PENDING' && revision !== 'not_applicable') {
     const tmp = mkdtempSync(`${tmpdir()}/agent-task-status.`);
     try {
-      writeFileSync(`${tmp}/t`, Buffer.from(next, 'latin1'));
+      writeFileSync(`${tmp}/t`, latin1Buf(next));
       if (revision !== taskSourceContractHash(ctx, id, `${tmp}/t`)) fail('refusing to change the task source: the frozen task contract would change; amendment and refreeze required');
     } finally { rmSync(tmp, { recursive: true, force: true }); }
   }
-  writeFileSync(source, Buffer.from(next, 'latin1'));
+  writeFileSync(source, latin1Buf(next));
   ctx.forget('file:');
   if (gatesEnforced(ctx, dir)) { const s = sectionValue(ctx, dir, 'handoff', 'state'); led(ctx, id, 'task-source-status', s, s, `${p}: ${have} -> ${want}`); }
   ctx.out(`task source status synchronized: ${id} ${p} ${have} -> ${want}\n`);

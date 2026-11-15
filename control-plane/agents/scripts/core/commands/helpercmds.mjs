@@ -21,6 +21,7 @@ import { rulesCommand } from '../rules.mjs';
 import { requireRun, runDir } from '../runs.mjs';
 import { slug } from '../slug.mjs';
 import { taskTitle } from './runcmds.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -120,7 +121,7 @@ function renamePlan(ctx) {
     ctx.out('task-rename: every queued task file is already named <ID>-<slug>.md\n');
     return 0;
   }
-  writeFileSync(`${pf}.tmp`, Buffer.from(rows, 'latin1'));
+  writeFileSync(`${pf}.tmp`, latin1Buf(rows));
   renameSync(`${pf}.tmp`, pf);
   ctx.out(rows);
   ctx.forget('file:');

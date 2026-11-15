@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { asciiLower } from '../shellglob.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** The end of an adapter run with an exit code. */
 export class AdapterExit extends Error {
@@ -65,7 +66,7 @@ export function link(file, source, created, kind) {
   const row = `${source}\t${created}\t${kind}`;
   const cur = readText(file);
   if (cur !== null && cur.split('\n').includes(row)) return;
-  appendFileSync(file, `${row}\n`, 'latin1');
+  appendFileSync(file, latin1Buf(`${row}\n`));
 }
 
 // ---- the import engine ------------------------------------------------------------------------------------------------------------

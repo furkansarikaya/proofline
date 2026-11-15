@@ -32,6 +32,7 @@ import { exceptionsBaseline, exceptionsHash, writeExceptionsBase } from './testr
 import { exemptedPath, checkTypeExemptions, pipelineSignature, verifyQaPlanBound } from './commands/verify.mjs';
 import { pathsExecutable, requireTaskDefects } from './handoff.mjs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -590,7 +591,7 @@ export function freezeRun(ctx, id, word, amendment) {
   if (mode === 'refreeze' && gatesEnforced(ctx, dir)) {
     if (freezeBlock(textLines(fileText(ctx, `${dir}/RUN.yaml`) ?? '')) === freezeBlock(next)) fail('refreeze changes nothing: an amendment must change the task, evidence, plan, QA plan or classification');
   }
-  writeFileSync(`${dir}/RUN.yaml.tmp`, Buffer.from(next.map((l) => `${l}\n`).join(''), 'latin1'));
+  writeFileSync(`${dir}/RUN.yaml.tmp`, latin1Buf(next.map((l) => `${l}\n`).join('')));
   renameSync(`${dir}/RUN.yaml.tmp`, `${dir}/RUN.yaml`);
   ctx.forget('file:'); ctx.forget('plan-scope:');
   setTaskSourceRevision(ctx, id);

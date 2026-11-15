@@ -7,6 +7,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { checkId, die, importEngine, isFile, readText, sha, statusCheck, statusComment, usage } from './lib.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** @typedef {import('./lib.mjs').Adapter} Adapter */
 
@@ -81,7 +82,7 @@ export async function runJira(a, argv) {
       const desc = typeof f.description === 'string' ? f.description : f.description ? JSON.stringify(f.description) : '';
       const work = `## Description\n\n${bs(desc)}\n\n\n## Labels\n\n${arr(f.labels).map((l) => `- ${bs(l)}\n`).join('')}\n\n## Components\n\n${arr(f.components).map((c) => `- ${bs(c?.name)}\n`).join('')}`;
       const text = importEngine(a, 'jira', work, id, bs(f.summary), `jira ${base.replace(/\/$/, '')}/browse/${id}`);
-      writeFileSync(path.resolve(a.cwd, argv[2]), text, 'latin1');
+      writeFileSync(path.resolve(a.cwd, argv[2]), latin1Buf(text));
       return;
     }
     case 'publish': {
@@ -194,7 +195,7 @@ export async function runLinear(a, argv) {
       const i = raw?.data?.issue ?? {};
       const work = `${bs(i.description)}\n\n\n## Labels\n\n${arr(i.labels?.nodes).map((l) => `- ${bs(l?.name)}\n`).join('')}`;
       const text = importEngine(a, 'linear', work, id, bs(i.title), `linear ${bs(i.url)}`);
-      writeFileSync(path.resolve(a.cwd, argv[2]), text, 'latin1');
+      writeFileSync(path.resolve(a.cwd, argv[2]), latin1Buf(text));
       return;
     }
     case 'publish': {

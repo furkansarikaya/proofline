@@ -30,6 +30,7 @@ import { gateField, readBytes, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pipelineClass, pipelineClassValid } from './signals.mjs';
 import { CHECK_HANDLERS } from './commands/checks.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** The program systemd-inhibit holds the lock for: it ends when the session pid is gone (signal 0 says ESRCH). Node code, so no shell is started (A251). */
 const INHIBIT_WATCH = "const p = Number(process.argv[1]); setInterval(() => { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') process.exit(0); } }, 5000);";
@@ -695,7 +696,7 @@ function batchRecord(ctx, id, kind, req, bh, delivery = '', cap = '') {
   if (ref !== '') body += `ref: "${ref}"\n`; // A169
   if (cap !== '') body += `cap: "${cap}"\n`;
   mkdirSync(ad, { recursive: true });
-  writeFileSync(file, Buffer.from(body, 'latin1'));
+  writeFileSync(file, latin1Buf(body));
   ctx.forget('file:'); ctx.forget('ledger-bound:'); ctx.forget('patch:'); ctx.forget('fp:');
   ledgerIf(ctx, id, 'approval', '-', '-', `${ledgerToken(runDir(ctx, id), `approvals/${n}-${slug}.yaml`)} ${kind} source=batch answered_by=user bound=${gateField(ctx, req, 'bound')} via_batch=${bh}`);
   ctx.out(`batch approval recorded: ${id} ${kind}\n`);

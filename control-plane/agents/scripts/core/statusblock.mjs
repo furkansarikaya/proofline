@@ -17,6 +17,7 @@ import { fileLines, fileText, ledgerRows, sectionValue, textLines, validTaskId }
 import { runDir } from './runs.mjs';
 import { knownIssueFacts, knownIssuesListed } from './knownissues.mjs';
 import { tmScaled } from './timeouts.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -216,7 +217,7 @@ function run(ctx, id, event, pr, seconds) {
   const tmp = mkdtempSync(`${tmpdir()}/agent-status-block.`);
   try {
     const file = `${tmp}/block`;
-    writeFileSync(file, Buffer.from(statusBlockBody(ctx, id, event, pr), 'latin1'));
+    writeFileSync(file, latin1Buf(statusBlockBody(ctx, id, event, pr)));
     const r = runTaskAdapter(ctx, adapter, ['statusblock', id, file], { timeoutMs: seconds * 1000 });
     if (r === null) return `unknown task-integration adapter: ${adapter}`;
     if (r.status === 0) return null;

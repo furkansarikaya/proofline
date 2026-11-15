@@ -20,6 +20,7 @@ import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { greenRecords, measureRequired, measureRun, planKinds, recordedTestPin, testCmdPin } from './testmeasure.mjs';
 import { claimedBy, isTestFile, reportJson, reportText, scanFiles, scanRules, testPathGlobs } from './waitscan.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -84,7 +85,7 @@ const BASE_FILE = (dir) => `${dir}/test-exceptions.base`;
 
 /** Keeps the section lines the freeze recorded, so that an approval request can show what changes. @param {string} dir @param {string} plan */
 export function writeExceptionsBase(dir, plan) {
-  writeFileSync(`${BASE_FILE(dir)}.tmp`, Buffer.from(exceptionLines(plan).map((x) => `${x}\n`).join(''), 'latin1'));
+  writeFileSync(`${BASE_FILE(dir)}.tmp`, latin1Buf(exceptionLines(plan).map((x) => `${x}\n`).join('')));
   renameSync(`${BASE_FILE(dir)}.tmp`, BASE_FILE(dir));
 }
 

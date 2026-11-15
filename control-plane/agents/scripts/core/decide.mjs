@@ -28,6 +28,7 @@ import { gateOf } from './resultutil.mjs';
 import { requireRun, runProfile } from './runs.mjs';
 import { pathChangedLines, pipelineClass, pipelineClassValid, pipelineValue, taskChangedPaths, tierEffective } from './signals.mjs';
 import { verifySeal } from './ledger.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 /** @typedef {import('./context.mjs').Io} Io */
@@ -307,7 +308,7 @@ export function decide(ctx, args) {
   mkdirSync(decisions, { recursive: true });
   const tag = focus === '' ? role : `${role}-${focus.replace(/\+/g, '-')}`;
   const out = `${decisions}/${nextNum(decisions)}-${bytes(tag)}.decision`;
-  writeFileSync(`${out}.tmp`, Buffer.from(`${body}\n`, 'latin1'));
+  writeFileSync(`${out}.tmp`, latin1Buf(`${body}\n`));
   renameSync(`${out}.tmp`, out);
   ctx.forget('file:');
   if (gatesEnforced(ctx, dir)) {

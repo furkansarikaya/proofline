@@ -24,6 +24,7 @@ import { gitBlobSha, sha256 } from './hash.mjs';
 import { LockSet, takeCommandLocks } from './lock.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -250,9 +251,9 @@ export function lessonsCommand(ctx, args) {
       const cid = candId(`${res.kind}|${src}`);
       if (rowOf(ctx, cid) !== null) throw new Die(`candidate ${cid} is already written`);
       try { mkdirSync(path.dirname(page), { recursive: true }); } catch { throw new Die('cannot create the wiki folder'); }
-      if (!existsSync(page)) writeFileSync(page, Buffer.from(PAGE_HEAD, 'latin1'));
+      if (!existsSync(page)) writeFileSync(page, latin1Buf(PAGE_HEAD));
       const nrow = `- ${cid} | kind=${res.kind} | run=${id} | source=${src} | status=candidate | ${text}`;
-      appendFileSync(page, Buffer.from(`${nrow}\n`, 'latin1'));
+      appendFileSync(page, latin1Buf(`${nrow}\n`));
       // local, untracked: this clone saw the record; the row hash binds id, kind, run, source and text
       const seen = `${ctx.root}/.agents/local/lessons-sources`;
       mkdirSync(path.dirname(seen), { recursive: true });
@@ -298,7 +299,7 @@ export function lessonsCommand(ctx, args) {
       // the new AGENTS.md is built first; the approval is consumed only when it exists, then it replaces the file (the approval is the user's:
       // 'request-approval <ID> rule:<CAND>', relayed, answered in the user's own words)
       const tmp = `${agents}.lessons.${process.pid}`;
-      writeFileSync(tmp, Buffer.from(withRule(readText(agents), `- ${rowText(row)} (lesson ${cand})`), 'latin1'));
+      writeFileSync(tmp, latin1Buf(withRule(readText(agents), `- ${rowText(row)} (lesson ${cand})`)));
       const mark = ctx.chunks.length;
       try {
         withCommandLocks(ctx, 'approval-consume', [id, `rule:${cand}`], () => approvalConsume(ctx, [id, `rule:${cand}`]));
@@ -310,7 +311,7 @@ export function lessonsCommand(ctx, args) {
       ctx.chunks.length = mark;
       try { renameSync(tmp, agents); } catch { throw new Die('cannot write AGENTS.md (the approval is consumed: request it again)'); }
       const re = new RegExp(`^(- ${cand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\| .* \\| source=[^|]* \\| )status=candidate`);
-      writeFileSync(page, Buffer.from(readText(page).split('\n').map((l) => l.replace(re, '$1status=promoted')).join('\n'), 'latin1'));
+      writeFileSync(page, latin1Buf(readText(page).split('\n').map((l) => l.replace(re, '$1status=promoted')).join('\n')));
       ctx.out(`promoted: ${cand} -> AGENTS.md\n`);
       return 0;
     }

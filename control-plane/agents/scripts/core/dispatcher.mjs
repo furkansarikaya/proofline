@@ -48,6 +48,7 @@ import { commandV, runtimeDetect } from './runtimedetect.mjs';
 import { sectionValue } from './records.mjs';
 import { tmScaled } from './timeouts.mjs';
 import { pipelineClassValid } from './signals.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Io} Io */
 /** @typedef {(argv: string[], io: Io) => number} Runner */
@@ -477,7 +478,7 @@ class Dispatcher {
     if (sb > Number(budget)) throw this.blocked(`task prompt is ${sb} bytes, over the resolved context budget of ${budget} (trim it; it is never truncated)`);
     const full = `${readLatin1(ins)}\n=== TASK ===\n${suffix}`;
     const fSuffix = `${this.work}/suffix`; const fFull = `${this.work}/full`;
-    writeFileSync(fSuffix, suffix, 'latin1'); writeFileSync(fFull, full, 'latin1');
+    writeFileSync(fSuffix, latin1Buf(suffix)); writeFileSync(fFull, latin1Buf(full));
 
     const nnn = pad3(this.seqN);
     this.out = `${this.run}/dispatch/${nnn}-${role}-${rt}.md`;
@@ -606,7 +607,7 @@ class Dispatcher {
       if (dt.claudeIsError(log)) this.status = 1;
       else {
         const res = dt.claudeResult(log);
-        if (res === null) this.status = 1; else writeFileSync(this.out, res, 'latin1');
+        if (res === null) this.status = 1; else writeFileSync(this.out, latin1Buf(res));
       }
     }
     if (this.status === 0 && sizeOf(this.out) === 0 && this.tmpl !== '') { try { copyFileSync(this.log, this.out); } catch { /* nothing to copy */ } }
@@ -728,7 +729,7 @@ class Dispatcher {
     t += 'last_output_of_the_worker:\n';
     for (const l of dt.tailLines(this.logText(), 25)) t += `  | ${l.slice(0, 300)}\n`;
     try {
-      writeFileSync(this.resumeFile, t, 'latin1');
+      writeFileSync(this.resumeFile, latin1Buf(t));
       if (this.resumeOne !== '') copyFileSync(this.resumeFile, this.resumeOne);
     } catch { /* best effort */ }
     this.note(`dispatch resume note written role=${this.role} file=${this.rel(this.resumeFile)}`);

@@ -5,6 +5,7 @@
 // grammar of approvals.mjs, and each captured message grants a kind at most once. Nothing here lets a model produce an approval: a refusal
 // keeps its text, and an input whose shell behaviour is a shell error text throws BridgeToShell before anything is written.
 import { appendFileSync, mkdirSync, readSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { latin1Buf } from './wirebytes.mjs';
 import { isatty } from 'node:tty';
 import { now, sleepSync } from './clock.mjs';
 import { captureField } from './capture.mjs';
@@ -489,7 +490,7 @@ export function requestApproval(ctx, id0, kind0) {
   const n = nextNum(ad);
   const bound = approvalBound(ctx, id, kind);
   const { epoch } = now();
-  writeFileSync(`${ad}/${n}-request-${kindSlug(kind)}.yaml`, Buffer.from(`kind: "${kind}"\nbound: "${bound}"\nrequested_at: ${epoch}\n`, 'latin1'));
+  writeFileSync(`${ad}/${n}-request-${kindSlug(kind)}.yaml`, latin1Buf(`kind: "${kind}"\nbound: "${bound}"\nrequested_at: ${epoch}\n`));
   forgetFiles(ctx);
   ledgerIf(ctx, id, 'approval-request', '-', '-', `${kind} bound=${bound}`);
   const tr = runLanguage(ctx, id) === 'tr';
@@ -674,7 +675,7 @@ export function approveOne(ctx, id, kind0, st) {
   // A171: the user's reply, verbatim, as a quote block (the language check exempts it; the first 20 lines)
   body += `reply: |\n${quoteBlock(text)}`;
   if (ctx.cancelled()) fail('approval refused: the prompt hook stopped waiting for this step (its time budget ended)');
-  writeFileSync(file, Buffer.from(body, 'latin1'));
+  writeFileSync(file, latin1Buf(body));
   forgetFiles(ctx);
   const tok = id === '-' ? '' : `approvals/${n}-${slug}.yaml@${sha256File(file)} `;
   ledgerIf(ctx, id, 'approval', '-', '-', `${tok}${kind} source=${src} answered_by=user bound=${bound}`);
@@ -725,7 +726,7 @@ export function consumeApproval(ctx, id, file) {
   const lines = text === '' ? [] : text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
   const out = lines.map((l) => (l.startsWith('consumed:') ? 'consumed: "true"' : l));
-  writeFileSync(`${file}.tmp`, Buffer.from(`${out.map((l) => `${l}\n`).join('')}consumed_at: ${now().epoch}\n`, 'latin1'));
+  writeFileSync(`${file}.tmp`, latin1Buf(`${out.map((l) => `${l}\n`).join('')}consumed_at: ${now().epoch}\n`));
   renameSync(`${file}.tmp`, file);
   forgetFiles(ctx);
   ledgerIf(ctx, id, 'approval-consumed', '-', '-', `${file.slice(file.lastIndexOf('/') + 1)} ${gateField(ctx, file, 'kind')}`);

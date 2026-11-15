@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { die, importEngine, isFile, readText, sha, statusCheck, statusComment, usage } from './lib.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** @typedef {import('./lib.mjs').Adapter} Adapter */
 /** @typedef {{ status: number, out: string, err: string }} ToolResult */
@@ -60,7 +61,7 @@ export function runGithub(a, argv) {
     const tmp = mkdtempSync(path.join(tmpdir(), 'gh-comment.'));
     try {
       const file = `${tmp}/body`;
-      writeFileSync(file, text, 'latin1');
+      writeFileSync(file, latin1Buf(text));
       const v = ghr(['issue', 'view', num, '--json', 'comments']);
       const j = v.status === 0 ? parse(v.out) : undefined;
       const mine = (Array.isArray(j?.comments) ? j.comments : []).filter((/** @type {{ body: string }} */ c) => String(c.body).startsWith(startsWith));
@@ -84,7 +85,7 @@ export function runGithub(a, argv) {
       const labels = (Array.isArray(j.labels) ? j.labels : []).map((/** @type {{ name: string }} */ l) => Buffer.from(l.name, 'utf8').toString('latin1'));
       if (labels.length > 0 && !/^#+[ \t\n\v\f\r]+labels[ \t\n\v\f\r]*$/im.test(work)) work += `\n\n## Labels\n\n${labels.map((/** @type {string} */ l) => `- ${l}\n`).join('')}`;
       const text = importEngine(a, 'github', work, `GH-${num}`, Buffer.from(String(j.title ?? ''), 'utf8').toString('latin1'), `github ${j.url}`);
-      writeFileSync(path.resolve(a.cwd, argv[2]), text, 'latin1');
+      writeFileSync(path.resolve(a.cwd, argv[2]), latin1Buf(text));
       return;
     }
     case 'publish': {
