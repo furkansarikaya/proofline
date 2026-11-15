@@ -7,7 +7,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync as rm, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync as rm, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -646,4 +646,39 @@ test('A278 E1: a pathological input costs steps in proportion to its size (many 
     assert.ok(regions.length <= t.length / 2);
     assert.equal(foldWords(t).length, t.length);
   }
+});
+
+test('A278 E3 (volume folds case): legitimate scope writes by every role under an active run, with the run id and artifact names in their exact case, get the verdict of the case-keeping volume (the second pass runs deny-class rules only), and the protected case variants stay refused', async () => {
+  const targets = ['.agents/runs/LC/EVIDENCE.md', '.agents/runs/LC/TASK.md', '.agents/runs/LC/PLAN.md', '.agents/runs/LC/QA_PLAN.md', '.agents/runs/LC/QA_REPORT.md', '.agents/runs/LC/reports/001-debug.md', '.agents/runs/LC/scratch/x', '.agents/runs/LC/scratch/Notes.TXT',
+    '.agents/local/assignments/LC-implementer.md', '.agents/local/assignments/LC/Spec.md', 'src/greet.js', 'src/Greet.js', 'Src/greet.js', 'docs/Guide.md', 'impl.txt', 'README.md'];
+  const forms = [(/** @type {string} */ t) => `echo x > ${t}`, (t) => `cat > ${t} <<'EOF'\nBody Make\nEOF`, (t) => `tee ${t} < /dev/null`, (t) => `cp a ${t}`, (t) => `touch ${t}`,
+    (t) => `mkdir -p ${t.replace(/[^/]*$/, '')} && cat > ${t} <<'EOF'\n# Evidence: LC\n- Base SHA: 93b0158\nEOF`, (t) => `cd ${t.replace(/[^/]*$/, '') || '.'} && echo x >> ${t.split('/').pop()}`];
+  // the scope lists of a real project: the files a role owns, spelled in their exact case (.agents/owns.conf)
+  const scoped = copyProject(template, base);
+  appendFileSync(join(scoped, '.agents/owns.conf'), 'qa QA_PLAN.md QA_REPORT.md reports/ reviews/test-trust/qa/\nimplementer /src/ /Make /Install/ /docs/\ndesigner /docs/ /Make\nreviewer reports/ REVIEW.md\n');
+  targets.push('Make', 'Install/x', '.agents/runs/LC/REVIEW.md');
+  let allowed = 0; const seen = new Set();
+  for (const [role, who, env, projKey] of WHO) {
+    const proj = projKey === 'run' ? scoped : noRun;
+    for (const t of targets) {
+      for (const f of forms) {
+        const c = f(t);
+        const folds = await onVolume(FOLDS(), () => pre('Bash', { command: c }, who, env, proj));
+        if (folds === null) { allowed++; seen.add(role); continue; } // the second pass only adds refusals, so an allowed verdict is allowed on the case-keeping volume too
+        const keeps = await onVolume(KEEPS(), () => pre('Bash', { command: c }, who, env, proj));
+        assert.ok(keeps !== null, `${role}: ${JSON.stringify(c)}: keeps allowed, folds refused (${folds})`);
+      }
+    }
+  }
+  assert.ok(allowed >= 40 && seen.size >= 5, `the table allows something for every role (${allowed} allowed, roles ${[...seen].join(', ')})`);
+  // the protected variants stay refused (the exact pass and the deny-class second pass)
+  await onVolume(FOLDS(), async () => {
+    for (const [role, who, env, projKey] of WHO) {
+      const proj = projKey === 'run' ? dir : noRun;
+      for (const c of ['echo x > .AGENTS/runs/LC/CI-FIX/x.md', 'echo x > .agents/runs/LC/Approvals/a', U('Pki@ll foo')]) {
+        if (projKey !== 'run' && /AGENTS/.test(c)) continue;
+        assert.ok(await pre('Bash', { command: c }, who, env, proj) !== null || role === 'lead without a run', `${role}: ${c} is refused`);
+      }
+    }
+  });
 });

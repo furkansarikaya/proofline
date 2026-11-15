@@ -89,13 +89,13 @@ async function check(ctx, cmd) {
       // the folded text must read as the same command lines: same line count and the same here-documents (the scanner decides what a here-document is); anything else fails closed
       const shape = (/** @type {string} */ t) => scanCommand(t, { fold: true }).records.filter((r) => r.kind === 'H').map((r) => r.raw.split('\x03').slice(2).join('\x03')).join('\0'); // the bodies (the feeding command's name is what folds)
       if (v.split('\n').length !== cmd.split('\n').length || shape(v) !== shape(cmd)) deny('the command changes its here-document structure when its program names are read in one case, so it cannot be judged; write the program names and here-document delimiters in lower case');
-      await checkOne(ctx, v);
+      await checkOne(ctx, v, true);
     }
   }
 }
 
-/** @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */
-async function checkOne(ctx, cmd) {
+/** `folded`: the second pass of `check` (A278 round 3). It runs the DENY-class rules only (protected words, paths, refs, commands, tripwires, kill, stash, merge, database, hook bypass). The scope ALLOW lists (run artifacts, owns and PLAN scope, scratch, worktree and tmp allowances, containment) are case-exact and the fold has lower-cased the run id and the file names they compare, so their verdict comes from the exact first pass alone. @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd @param {boolean} [folded] */
+async function checkOne(ctx, cmd, folded = false) {
   const strictRole = ctx.role === 'implementer' || ctx.role === 'designer';
   let scan = scanFor(ctx, cmd);
   // A274: the scanner of the lead ends a `$'...'` string at its first `'`, so `echo $'a\'b'; touch X` hides the touch. The two roles are judged on the records of both readings
@@ -144,7 +144,7 @@ async function checkOne(ctx, cmd) {
       deny('rtk is installed and its hook compresses command output, but this command produces evidence (agent.sh, build record, verification, tests, review diff) and must run uncompressed: prefix it with RTK_DISABLED=1, for example RTK_DISABLED=1 <command> (rtk configuration docs)');
     }
   }
-  if (act !== '' && specialist && !tmpIsScratchRoot(ctx)) {
+  if (!folded && act !== '' && specialist && !tmpIsScratchRoot(ctx)) {
     const stray = strayTmpPath(ctx, cmd, scan);
     if (stray !== '') deny(`${stray} is outside the project. Allowed: reading the runtime's own background task output (/tmp/claude-*/**/tasks/<id>.output). Scratch files go under ${scratchDir(ctx)} (mkdir -p it first); only git worktrees go under $TMPDIR (${ctx.env.TMPDIR || 'unset'})`);
   }
@@ -177,6 +177,7 @@ async function checkOne(ctx, cmd) {
   await killGuard(ctx, cmd, scan);
   // The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
   await dbGuardCmd(ctx, scan);
+  if (folded) return; // the scope allow lists below are judged on the exact text only
   if (act === '') {
     if (role === 'lead' && !ctx.sub) await nrBashGuard(ctx, scan);
     await scratchGuard(ctx, scan);
