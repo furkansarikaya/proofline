@@ -7,7 +7,8 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, realpathSync, rmSync as rm, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync as rm, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildTemplate, copyProject, runHook, rmSync, nodeHook, cleanEnv } from './harness.mjs';
@@ -82,6 +83,9 @@ const PATHS = /** @type {Array<[string, string, string, string]>} */ ([
   ['the runtime hooks folder', '.agents/hooks/pre', '.Agents/HOOKS/pre', '.Agents/HOOKSX/pre'],
   ['the runtime settings (a prefix of the name)', '.claude/settings.local.json', '.CLAUDE/Settings.Local.JSON', '.CLAUDE/SettingX.Local.JSON'],
   ['the Codex hooks', '.codex/hooks.json', '.CODEX/Hooks.json', '.CODEX/HooksX.json'],
+  ['the long s (APFS folds U+017F to s): an approvals folder', '.agents/runs/LC/approvals/x', '.agents/runs/LC/approval\u017f/x', '.agents/runs/LC/approval\u017fX/x'],
+  ['the long s in two folders of one path', '.agents/runs/LC/questions/x', '.agents/runs/LC/que\u017ftions/x', '.agents/runs/LC/que\u017ftionsX/x'],
+  ['the Kelvin sign (U+212A) for the k of hooks', '.agents/hooks/pre', '.agents/hoo\u212As/pre', '.agents/hoo\u212AsX/pre'],
 ]);
 
 /** @param {string} who */
@@ -150,7 +154,7 @@ const COMMANDS = /** @type {Array<[string, string, string, RegExp | null]>} */ (
   ['database file named by a token', 'cat data.db', 'cat DATA.DB', /names the database file/],
   ['node on the control plane (tripwire)', 'node .agents/scripts/core/x.mjs', 'NODE .AGENTS/SCRIPTS/core/x.mjs', /never starts Node on the control plane/],
   ['the dispatch nonce folder', 'cat .agents/local/dispatch/x', 'cat .AGENTS/Local/Dispatch/x', /PROOFLINE_DISPATCH/],
-  ['a link into .agents', 'ln -s a .agents/x', 'ln -s a .AGENTS/x', /links into or out of \.agents/],
+  ['a link into .agents (a stays-same pin: .AGENTS exists on every host, so a host that resolves it passes without the fix too)', 'ln -s a .agents/x', 'ln -s a .AGENTS/x', /links into or out of \.agents/],
 ]);
 
 const IMPL = /** @type {[string, Record<string, string>, Record<string, string>, 'run' | 'norun']} */ (WHO[2]);
@@ -282,4 +286,151 @@ test('A278: the probe writes nothing into the project (the folder listing is the
   const [, w, e] = WHO[2];
   await onVolume(createFsCase(), async () => { await pre('Write', { file_path: `${dir}/.agents/runs/LC/CI-FIX/x.md`, content: 'x' }, w, e, dir); });
   assert.equal(listing(), before);
+});
+
+// ---- A278 round 1: a command word is read in any case at EVERY command position (B1) ----
+
+/** @param {string} w */
+const capitalized = (w) => w[0].toUpperCase() + w.slice(1);
+/** @param {string} w */
+const alternating = (w) => [...w].map((c, i) => (i % 2 === 1 ? c.toUpperCase() : c)).join('');
+/** The spellings of a word a folding volume reads as the word: upper case, capitalized, alternating, the long s for s and the Kelvin sign for k. @param {string} w */
+function spellings(w) {
+  const v = new Set([w.toUpperCase(), capitalized(w), alternating(w)]);
+  if (w.includes('s')) v.add(w.replace(/s/g, 'ſ'));
+  if (w.includes('k')) v.add(w.replace(/k/g, 'K'));
+  v.delete(w);
+  return [...v];
+}
+
+/** Every position a command word can take: top level, find -exec, xargs, a shell string, a substitution, a here-document fed to a shell, after a wrapper. */
+const POSITIONS = /** @type {Array<[string, (c: string) => string]>} */ ([
+  ['top level', (c) => c],
+  ['find -exec', (c) => `find . -maxdepth 0 -exec ${c} \\;`],
+  ['xargs target', (c) => `echo 1 | xargs ${c}`],
+  ['sh -c string', (c) => `sh -c '${c}'`],
+  ['substitution', (c) => `echo $(${c})`],
+  ['here-document to a shell', (c) => `sh <<EOF\n${c}\nEOF`],
+  ['after a wrapper', (c) => `nohup ${c}`],
+]);
+
+// [family, the lower-case command, the word the volume reads in any case, indexes into WHO]
+const GUARD_FAMILIES = /** @type {Array<[string, string, string, number[]]>} */ ([
+  ['process killer (A156)', U('pki@ll foo'), U('pki@ll'), [0, 2, 4]],
+  ['process killer by name', U('killal@l foo'), U('killal@l'), [0, 2]],
+  ['git push of the protected branch', U('g@it push origin ma@in'), U('g@it'), [0, 2]],
+  ['git on the live tree (specialist)', 'git reset --hard', 'git', [2, 4]],
+  ['git stash (A71)', 'git stash', 'git', [2, 4]],
+  ['read role writer (A143)', 'touch s.txt', 'touch', [4]],
+  ['agent.sh approve', 'sh .agents/scripts/agent.sh approve T-1', 'agent.sh', [0, 2]],
+  ['dispatch nonce find (A171)', 'find .agents/local -type f', 'find', [0, 2, 4]],
+  ['node on the control plane', 'node .agents/scripts/core/x.mjs', 'node', [0, 2]],
+  ['specialist write program', 'touch ../outside.txt', 'touch', [2]],
+]);
+
+/** @param {string} cmd @param {string} word @param {string} spelling */
+const withWord = (cmd, word, spelling) => cmd.replace(word, spelling);
+
+test('A278 B1 (volume folds case): every guard family reads a command word in any case at every command position as it reads the lower-case word', async () => {
+  await onVolume(FOLDS(), async () => {
+    for (const [family, lower, word, whoIdx] of GUARD_FAMILIES) {
+      for (const wi of whoIdx) {
+        const [role, who, env, projKey] = /** @type {typeof WHO[number]} */ (WHO[wi]);
+        const proj = projKey === 'run' ? dir : noRun;
+        assert.ok(await pre('Bash', { command: lower }, who, env, proj), `${family}, ${role}: the lower-case command is allowed (fix the table)`);
+        for (const [posName, wrap] of POSITIONS) {
+          const base = await pre('Bash', { command: wrap(lower) }, who, env, proj);
+          for (const sp of spellings(word)) {
+            const v = await pre('Bash', { command: wrap(withWord(lower, word, sp)) }, who, env, proj);
+            assert.equal(v === null, base === null, `${family}, ${role}, ${posName}: ${sp} is ${v === null ? 'allowed' : 'refused'} but the lower-case word is ${base === null ? 'allowed' : 'refused'}`);
+          }
+        }
+      }
+    }
+  });
+});
+
+test('A278 B1 (volume folds case): the evidence-command rule (A194, rtk installed) reads npm, make, pytest, agent.sh and git in any case', async () => {
+  const proj = copyProject(template, base);
+  mkdirSync(join(proj, '.claude'), { recursive: true });
+  writeFileSync(join(proj, '.claude/settings.json'), '{"hooks":{"PreToolUse":"rtk"}}');
+  const bin = tempDir('hook-case-bin-'); writeFileSync(join(bin, 'rtk'), '#!/bin/sh\n'); chmodSync(join(bin, 'rtk'), 0o755);
+  const env = { PATH: `${bin}:${process.env.PATH}` };
+  const cases = /** @type {Array<[string, string, number[]]>} */ ([['npm test', 'npm', [0, 4]], ['make test', 'make', [0, 4]], ['pytest', 'pytest', [0]], ['sh .agents/scripts/agent.sh build-record', 'agent.sh', [0]], ['git diff', 'git', [4]]]);
+  await onVolume(FOLDS(), async () => {
+    for (const [lower, word, whoIdx] of cases) {
+      for (const wi of whoIdx) {
+        const [role, who, wenv] = /** @type {typeof WHO[number]} */ (WHO[wi]);
+        const base = await pre('Bash', { command: lower }, who, { ...wenv, ...env }, proj);
+        assert.ok(base && /rtk/.test(base), `${role}: ${lower} is not the rtk refusal (fix the table): ${base}`);
+        for (const sp of spellings(word)) {
+          const v = await pre('Bash', { command: withWord(lower, word, sp) }, who, { ...wenv, ...env }, proj);
+          assert.ok(v && /rtk/.test(v), `${role}: ${sp} escapes the evidence-command rule: ${v}`);
+        }
+      }
+    }
+  });
+});
+
+test('A278 B1 (volume keeps case): Make, Python3, Rscript, JAVA, Git and a cased write program are other programs there and are not refused', async () => {
+  await onVolume(KEEPS(), async () => {
+    for (const c of ['Make all', 'Python3 -c 1', 'Rscript x.R', 'JAVA -version', 'Git status', 'Npm test', 'Pytest', U('Pki@ll foo'), 'Touch s.txt']) {
+      for (const wi of [0, 2, 4]) {
+        const [role, who, env, projKey] = /** @type {typeof WHO[number]} */ (WHO[wi]);
+        assert.equal(await pre('Bash', { command: c }, who, env, projKey === 'run' ? dir : noRun), null, `${role}: ${c} refused on a volume that keeps case`);
+      }
+    }
+  });
+});
+
+// ---- A278 round 1: branch names on a git dir that folds case (B2) ----
+
+/** @param {string} root @param {string} head */
+const setHead = (root, head) => writeFileSync(join(root, '.git/HEAD'), `ref: refs/heads/${head}\n`);
+const MAIN_FORMS = /** @type {string[]} */ ([
+  U('git branch -f MA@IN HEAD'), U('git branch -M Ma@in'), U('git update-ref refs/heads/MA@IN HEAD'), U('git update-ref REFS/Heads/ma@in HEAD'), U('git checkout -B MA@IN'), U('git switch -C Mas@ter'),
+  U('git fetch origin x:MA@IN'), U('git checkout MA@IN && git me@rge feat'), U('git switch Ma@in; git reba@se feat'),
+]);
+const ON_MAIN = /** @type {string[]} */ ([U('git me@rge feat'), U('git reba@se feat'), 'git cherry-pick abc', 'git push', 'git push origin HEAD', 'git reset --hard abc']);
+const LEAD = WHO[0];
+
+test('A278 B2 (git dir folds case): the protected branch is protected in any case and form: the commands that move it, and the commands run while HEAD is MAIN', async () => {
+  const proj = copyProject(template, base);
+  await onVolume(FOLDS(), async () => {
+    setHead(proj, 'feat');
+    for (const c of MAIN_FORMS) assert.ok(await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj), `not refused: ${c}`);
+    setHead(proj, 'MAIN');
+    for (const c of ON_MAIN) assert.ok(await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj), `not refused with HEAD at MAIN: ${c}`);
+    setHead(proj, 'main');
+    for (const c of ON_MAIN) assert.ok(await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj), `the exact name is not refused with HEAD at main (fix the table): ${c}`);
+    // a remote side keeps its case: GitHub ref names are case-sensitive, so Main there is not the protected branch
+    setHead(proj, 'feat');
+    assert.equal(await pre('Bash', { command: U('git push origin HEAD:Ma@in') }, LEAD[1], LEAD[2], proj), null, 'a push to a differently cased REMOTE branch');
+    assert.equal(await pre('Bash', { command: U('git push origin Ma@in') }, LEAD[1], LEAD[2], proj), null);
+    assert.ok(await pre('Bash', { command: U('git push origin HEAD:ma@in') }, LEAD[1], LEAD[2], proj), 'the exact remote name is refused');
+  });
+});
+
+test('A278 B2 (git dir keeps case): MAIN is another branch there, judged like any task branch (no over-refusal)', async () => {
+  const proj = copyProject(template, base);
+  await onVolume(KEEPS(), async () => {
+    setHead(proj, 'feat');
+    for (const c of MAIN_FORMS) assert.equal(await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj), null, `refused on a case-keeping git dir: ${c}`);
+    setHead(proj, 'MAIN');
+    for (const c of ON_MAIN) assert.equal(await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj), null, `refused with HEAD at MAIN on a case-keeping git dir: ${c}`);
+  });
+});
+
+test('A278 B2 real file system: in a throwaway repository the refs of the temp folder fold case or not, and the guards judge the cased branch accordingly', async () => {
+  const repo = tempDir('hook-case-repo-');
+  const run = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', repo, ...a], { env: cleanEnv(), encoding: 'utf8' });
+  assert.equal(run('init', '-q', '-b', 'main').status, 0);
+  assert.equal(run('commit', '-q', '--allow-empty', '-m', 'x').status, 0);
+  const folds = existsSync(join(repo, '.git/refs/heads/MAIN')); // the ground truth of the ref store, found without the code under test
+  const proj = copyProject(template, base);
+  await onVolume(createFsCase(), async () => {
+    const v = await pre('Bash', { command: U(`git -C ${repo} branch -f MA@IN HEAD`) }, LEAD[1], LEAD[2], proj);
+    if (folds) assert.ok(v, 'the refs fold case: MAIN is main'); else assert.equal(v, null, 'the refs keep case: MAIN is another branch');
+    assert.ok(await pre('Bash', { command: U(`git -C ${repo} branch -f ma@in HEAD`) }, LEAD[1], LEAD[2], proj), 'the exact name is refused');
+  });
 });

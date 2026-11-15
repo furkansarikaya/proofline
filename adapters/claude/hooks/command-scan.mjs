@@ -93,7 +93,7 @@ const WRAPPERS = /^(sudo|doas|env|command|builtin|exec|nohup|time|nice|ionice|st
  */
 function scan(input, fold = false) {
   // A278: on a volume that folds case `Agent.SH` is agent.sh and `Kill` is kill: a command word is read in lower case then (the caller probed the volume)
-  const base = fold ? (/** @param {string} x */ (x) => lower(baseOf(x))) : baseOf;
+  const base = fold ? (/** @param {string} x */ (x) => Buffer.from(decodeBinary(baseOf(x)).normalize('NFC').toUpperCase().toLowerCase().replace(/\u00df/g, 'ss'), 'utf8').toString('latin1')) : baseOf; // full case folding (the long s is `s`), same as lib/fscase.mjs fold
   /** @type {string[]} */ const res = [];
   // global state of the awk program (kept across records and nested commands, like the awk's globals)
   /** @type {string[]} */ const w = [];

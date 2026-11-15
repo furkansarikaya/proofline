@@ -45,9 +45,9 @@ export function alwaysProtected(rel0) {
  */
 export function canonCase(ctx, rel, ci = false) {
   if (!(isWin() || ci) || rel.startsWith('@')) return rel;
-  const key = `${ctx.act}\0${stateOf(ctx).tasksDir || '.agents/tasks'}`;
+  const key = `${isWin() ? 'w' : 'p'}\0${ctx.act}\0${stateOf(ctx).tasksDir || '.agents/tasks'}`;
   let refs = REFS.get(key);
-  if (!refs) { refs = canonRefs(ctx).map((r) => r.split('/').map((s) => ({ name: s.replace(/^\*(?=.)|(?<=.)\*$/g, ''), mode: s === '*' ? 'any' : s.endsWith('*') ? 'prefix' : s.startsWith('*') ? 'suffix' : 'name', fold: fold(s.replace(/^\*(?=.)|(?<=.)\*$/g, '')) }))); REFS.set(key, refs); }
+  if (!refs) { refs = canonRefs(ctx).map((r) => r.split('/').map((s) => ({ name: s.replace(/^\*(?=.)|(?<=.)\*$/g, ''), mode: s === '*' ? 'any' : s.endsWith('*') ? 'prefix' : s.startsWith('*') ? 'suffix' : 'name', fold: cfold(s.replace(/^\*(?=.)|(?<=.)\*$/g, '')) }))); REFS.set(key, refs); }
   const segs = rel.split('/');
   for (const ref of refs) {
     if (segs.length < ref.length) continue;
@@ -67,17 +67,21 @@ export function canonCase(ctx, rel, ci = false) {
 
 /** How many characters of SEG the reference name R covers (the prefix length, or for a suffix the suffix length); -1 when it does not match at a boundary. @param {string} seg @param {{ name: string, mode: string, fold: string }} r @param {boolean} last */
 function fixLen(seg, r, last) {
+  const most = Math.min(seg.length, r.fold.length * 4 + 4); // a spelling of the name is at most a few characters per letter: the search stays linear on a very long segment
   if (r.mode === 'suffix') {
-    for (let k = 1; k <= seg.length; k++) if (fold(seg.slice(seg.length - k)) === r.fold) return k;
+    for (let k = 1; k <= most; k++) if (cfold(seg.slice(seg.length - k)) === r.fold) return k;
     return -1;
   }
-  if (!fold(seg).startsWith(r.fold)) return -1;
-  for (let k = 1; k <= seg.length; k++) {
-    if (fold(seg.slice(0, k)) !== r.fold) continue;
+  if (!cfold(seg.slice(0, most + 1)).startsWith(r.fold)) return -1;
+  for (let k = 1; k <= most; k++) {
+    if (cfold(seg.slice(0, k)) !== r.fold) continue;
     if (r.mode === 'prefix' || k === seg.length || (last && seg[k] === '.')) return k;
   }
   return -1;
 }
+
+/** The comparison spelling of canonCase: ASCII lower case on a Windows host (A271 rules untouched), the Unicode full fold elsewhere. @param {string} x */
+const cfold = (x) => (isWin() ? lowerAscii(x) : fold(x));
 
 /** @type {Map<string, Array<Array<{ name: string, mode: string, fold: string }>>>} */
 const REFS = new Map();

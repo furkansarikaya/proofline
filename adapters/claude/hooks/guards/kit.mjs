@@ -12,7 +12,7 @@
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { cmdSubst, isAbsPath, isWin, posix } from '../lib/text.mjs';
-import { insensitiveAt } from '../lib/fscase.mjs';
+import { fold, insensitiveAt } from '../lib/fscase.mjs';
 import { scanCommand } from '../command-scan.mjs';
 
 /** The refusal of a guard (the text without the "proofline: " prefix). */
@@ -329,9 +329,31 @@ export function cParts(rec) {
  * looks: the working directory for a path, the PATH folders for a bare word; any of them folding case (or not decidable, which fails closed) is enough. Text without a capital letter needs no fold and no probe.
  * @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */
 export function foldCommands(ctx, text) {
-  if (!/[A-Z]/.test(text)) return false;
+  if (!NEEDS_FOLD.test(text)) return false;
   const dirs = [ctx.cwd || '.', ...(ctx.env.PATH ?? '').split(isWin() ? ';' : ':').filter((d) => d.startsWith('/'))];
-  return dirs.some((d) => insensitiveAt(d));
+  return dirs.some((d) => insensitiveAt(d)) || insensitiveAt(ctx.root); // the project folder holds the protected names
+}
+
+/** A capital letter, or any non-ASCII character (the long s and the Kelvin sign fold to ASCII letters): the only texts a case fold can change. */
+const NEEDS_FOLD = /[A-Z\u0080-￿]/;
+
+/** The program names the guards know, in the one spelling their lower-case tests expect (A278). */
+const KNOWN_WORDS = new Set(`git gh find xargs kill pkill killall killall5 skill slay fuser pgrep pidof lsof ps nohup env sudo doas command builtin exec time nice ionice stdbuf timeout setsid caffeinate unbuffer watch flock taskset chrt nsenter strace ltrace runuser su script
+  sh bash dash zsh ksh ash mksh posh yash eval source cd pushd popd npm pnpm yarn bun npx pnpx node nodejs deno python python3 pytest go cargo dotnet mvn gradle jest vitest make rtk
+  rm mv cp tee truncate ed ex vi vim view nvim patch gpatch install dd chmod chown chgrp ln shred unlink rmdir touch mkdir sed gsed perl ruby php awk gawk mawk curl wget tar unzip rsync mktemp
+  cat head tail echo printf sqlite3 sqlite duckdb litecli psql mysql claude codex agent.sh dispatch.sh proofline-core.mjs proofline-core`.split(/\s+/));
+
+/** TEXT with every program name the guards know, in any case or Unicode form, in its lower-case spelling (A278): `Git`, `XARGS`, `Pkill`, `Agent.SH`, `ſh`. A token right after a redirection operator is a file name and stays as typed.
+ * It is applied only where the volume folds case, at every position of the text at once (top level, after a wrapper, in find -exec, xargs, sh -c, substitutions, here-documents), and the guards run on it in addition to the text as typed.
+ * @param {string} text */
+export function foldWords(text) {
+  // a word that names the control plane or the .agents folder is folded whole, with the path after it (`.AGENTS/Local/Dispatch/x`)
+  text = text.replace(/[^\s;&|(){}<>`'"=$]+/g, (tok) => { const f = fold(tok); return f !== tok && (f.includes('.agents') || f.includes('proofline-core')) ? f : tok; });
+  return text.replace(/[^\s;&|(){}<>`'"\/=$]+/g, (tok, off, str) => {
+    const f = fold(tok);
+    if (f === tok || !KNOWN_WORDS.has(f)) return tok;
+    return /[<>][ \t]*$/.test(str.slice(Math.max(0, off - 8), off)) ? tok : f;
+  });
 }
 
 /** `scanCommand` with the case rule of the volume (A278). @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */
