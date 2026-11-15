@@ -557,6 +557,8 @@
           { "run": "dotnet build", "at": "dotnet build {target}" }
         ],
         "test": [
+          { "when": { "root_json": "global.json", "json_path": "test.runner", "json_equals": "Microsoft.Testing.Platform", "target": "\\.slnx?$" }, "at": "dotnet test --solution {target}" },
+          { "when": { "root_json": "global.json", "json_path": "test.runner", "json_equals": "Microsoft.Testing.Platform" }, "at": "dotnet test --project {target}" },
           { "run": "dotnet test", "at": "dotnet test {target}" }
         ],
         "lint": [

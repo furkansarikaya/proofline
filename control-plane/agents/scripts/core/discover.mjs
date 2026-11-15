@@ -12,7 +12,7 @@ import { closeSync, openSync, readdirSync, readFileSync, statSync } from 'node:f
 import path from 'node:path';
 import * as proc from './proc.mjs';
 import { lineHoldsSecret } from './secretscan.mjs';
-import { awkGlobRegExp as globToRegExp } from './shellglob.mjs';
+import { asciiLower, awkGlobRegExp as globToRegExp } from './shellglob.mjs';
 
 /**
  * @typedef {{ build: string[], test: string[], lint: string[], ambig: Array<{ id: string, why: string }> }} Discovery
@@ -66,8 +66,26 @@ function pkgScript(unit, name, file) {
   } catch { return ''; }
 }
 
-/** `d_when`: every condition under a `when` object holds (no condition: true). An unknown key is false. @param {string} unit @param {string} root @param {Record<string, unknown> | undefined} w */
-function when(unit, root, w) {
+/**
+ * The value at a dotted key path (`test.runner`) of a JSON file as a string (a leading BOM is ignored), '' when the file is missing, not a regular file, over 1 MB or malformed (never throws), or the path is absent or not a scalar.
+ * @param {string} f @param {string} keyPath
+ */
+function jsonValue(f, keyPath) {
+  try {
+    const st = statSync(f);
+    if (!st.isFile() || st.size > 1048576) return '';
+    /** @type {any} */ let v = JSON.parse(readFileSync(f, 'utf8').replace(/^\uFEFF/, ''));
+    for (const k of keyPath.split('.')) { if (v === null || typeof v !== 'object' || Array.isArray(v)) return ''; v = v[k]; }
+    return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : '';
+  } catch { return ''; }
+}
+
+/**
+ * `d_when`: every condition under a `when` object holds (no condition: true). An unknown key is false. `root_json` (a JSON file at the project root) holds when the value at
+ * `json_path` equals `json_equals`, ignoring case; `target` is a regular expression the target of a targeted command must match (a bare command has target '').
+ * @param {string} unit @param {string} root @param {Record<string, unknown> | undefined} w @param {string} [target]
+ */
+function when(unit, root, w, target = '') {
   if (!w) return true;
   for (const k of Object.keys(w)) {
     switch (k) {
@@ -90,7 +108,13 @@ function when(unit, root, w) {
         if (no !== '' && body.split('\n').some((l) => new RegExp(no).test(l))) return false;
         break;
       }
-      case 'script_file': case 'script_not': break;
+      case 'root_json': {
+        const want = first(w.json_equals);
+        if (want === '' || first(w.json_path) === '' || asciiLower(jsonValue(path.join(root, first(w.root_json)), first(w.json_path))) !== asciiLower(want)) return false;
+        break;
+      }
+      case 'target': if (!new RegExp(first(w.target)).test(target)) return false; break;
+      case 'script_file': case 'script_not': case 'json_path': case 'json_equals': break;
       default: return false;
     }
   }
@@ -156,7 +180,7 @@ function rule(eco, kind, mode, unit, root, dir, target) {
   }
   const mem = members(eco, unit);
   for (const r of eco.commands?.[kind] ?? []) {
-    if (!when(unit, root, r.when)) continue;
+    if (!when(unit, root, r.when, target)) continue;
     let t;
     if (first(r.workspace) !== '') {
       if (mem === '') continue;
