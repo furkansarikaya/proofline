@@ -64,3 +64,21 @@ test('a missing, unparsable or empty ecosystems.json fails (a rule that can not 
   assert.match(check(scratch({ 'control-plane/agents/ecosystems.json': '{"ecosystems":[]}' }, false))[0], /lists no ecosystem id/);
   assert.match(check(scratch({ 'control-plane/agents/ecosystems.json': '{}' }, false))[0], /lists no ecosystem id/);
 });
+
+test('a table keyed by ecosystem ids fails in shared code and in a skill script, a pair table too (A283)', () => {
+  const keyed = "export const T = {\n  npm: [['npm', 'npm audit']],\n  python: [['pip-audit', 'pip-audit']],\n};\n";
+  const pairs = "export const T = [\n  [\"go\", 'govulncheck'],\n  [\"cargo\", 'cargo audit'],\n];\n";
+  for (const f of ['control-plane/agents/scripts/core/t.mjs', 'skills/some-proof/scripts/t.mjs']) {
+    for (const t of [keyed, pairs, "const t = { 'npm': 1, \"dart\": 2 };\n"]) {
+      const p = check(scratch({ [f]: t }));
+      assert.equal(p.length, 1, `${f}: ${t}`); assert.match(p[0], /t\.mjs:\d+: table keyed by ecosystem ids/);
+    }
+    // one id alone, ids far apart, an exempted line and a test file are not tables
+    assert.deepEqual(check(scratch({ [f]: "const r = { go: 1 };\nconst q = [\"go\", 2];\n" })), []);
+    assert.deepEqual(check(scratch({ [f]: `const a = { go: 1 };\n${'\n'.repeat(12)}const b = { npm: 2 };\n` })), []);
+    assert.deepEqual(check(scratch({ [f]: "// eco-ok: interpreter names\nconst a = { python: 1, ruby: 2 };\n" })), []);
+  }
+  assert.deepEqual(check(scratch({ 'skills/some-proof/scripts/t.test.mjs': keyed })), []);
+  // the skills' scripts are scanned for tables only: a comparison there is not (yet) a failure
+  assert.deepEqual(check(scratch({ 'skills/some-proof/scripts/t.mjs': "export const a = (e) => e === 'npm';\n" })), []);
+});

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Ecosystem knowledge as data (A283): the native-audit table of the dependency diff (`npm audit --json`, `pip-audit`, `cargo audit --json`, `govulncheck ./...`, `bundle-audit check`, `composer audit --format=json`, `dotnet list package --vulnerable --include-transitive`) is the new `audit` field of each ecosystem in `ecosystems.json` (`{tool, command}` list, validated); the audit candidates are unchanged. `tests/ci/ecosystem-branching.mjs` now also fails on a table keyed by two or more ecosystem ids (object keys or pair tables) in the shared Node code and in `skills/*/scripts`.
+
 ## 0.0.120 — 2026-11-15
 
 - Test fix (A282): the `answer` status-block adapter test no longer throws a bare `write EPIPE` when its child ends before reading stdin; it reports the exit code and stderr (same guard added to `run4c-lock` and `enforcement-b` stdin writes).
