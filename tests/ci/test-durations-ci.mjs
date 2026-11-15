@@ -5,10 +5,12 @@
 // tests/ci/test-durations-reporter.mjs into a scratch file. After the run it writes `test-durations-<leg>.json` (every test and every file with the milliseconds
 // Node measured, the slowest tests, the budgets that were exceeded, with TEST_DURATIONS_TWICE=true the unstable tests) into $TEST_DURATIONS_DIR (else
 // $RUNNER_TEMP/test-durations, else ./test-durations) and appends a short table to the job summary ($GITHUB_STEP_SUMMARY).
-// THE VERDICT: the exit status is exactly the status `node --test` gave (a failing test fails the step; the report never changes it). Only when
-// tests/ci/test-budgets.json says `"enforce": true` AND the tests passed does an exceeded budget make the exit status 1 (package P3b flips that switch; until then
-// the budgets are REPORTED as `OVER BUDGET:` lines). With TEST_DURATIONS_TWICE=true the leg runs a second time and the unstable tests are reported; a failed second
-// run keeps its own status, an unstable test never changes the status. The tool reads no clock; the milliseconds are Node's.
+// THE VERDICT: a non-zero status of `node --test` is the exit status (a failing test fails the step; the report never changes it). When the tests passed and
+// tests/ci/test-budgets.json says `"enforce": true` (package P3b, A277: it does) a test over its per-test budget or a file over its per-suite budget makes the exit
+// status 1 and the `OVER BUDGET:` lines name them. The budget file is read BEFORE anything runs and FAILS CLOSED: a missing, unreadable or malformed file (or a budget that
+// is not a positive whole number) exits 2 with a message, never a silent green; in enforce mode a leg whose events cannot be read or whose budgets cannot be applied also
+// exits 1. There is no retry: the wrapper starts `node --test` once (twice only with TEST_DURATIONS_TWICE=true, a manual measuring run whose unstable report is only
+// informational: a failed second run keeps its own status). The tool reads no clock; the milliseconds are Node's.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -26,7 +28,7 @@ const USAGE = 'usage: test-durations-ci.mjs <leg> -- <node --test arguments>';
 /**
  * @typedef {{ kind?: string, test_ms?: number, suite_ms?: number }} DirBudget
  * @typedef {{ enforce?: boolean, timeouts_scale?: number | string, default_kind?: string, kinds?: Record<string, { test_ms?: number, suite_ms?: number }>,
- *   dirs?: Record<string, DirBudget>, legs?: Record<string, { suite_ms?: number }> }} Budgets
+ *   dirs?: Record<string, DirBudget>, files?: Record<string, { test_ms?: number, suite_ms?: number }>, legs?: Record<string, { suite_ms?: number }> }} Budgets
  * @typedef {{ file: string, name: string, ms: number, limit: number }} OverTest
  * @typedef {{ file: string, ms: number, limit: number }} OverFile
  */
@@ -40,7 +42,8 @@ const whole = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isI
 
 /**
  * The budget of a test file in milliseconds, after the scale: the most specific `dirs` entry (longest path prefix) decides the kind and may override the numbers;
- * else the default kind; a number the file does not give is the built-in default of A275. @param {Budgets} b @param {string} file
+ * else the default kind; a `files` row for exactly this file overrides the numbers last (tests/ci/derive-budgets.mjs writes them from CI); a number not given is the
+ * built-in default of A275. @param {Budgets} b @param {string} file
  * @returns {{ kind: string, test: number, suite: number }}
  */
 export function budgetOf(b, file) {
@@ -51,7 +54,8 @@ export function budgetOf(b, file) {
   const k = b.kinds?.[kind] ?? {};
   const milli = scaleMilli(b);
   const sc = (/** @type {number} */ ms) => Math.ceil((ms * milli) / 1000);
-  return { kind, test: sc(whole(d.test_ms) ?? whole(k.test_ms) ?? def.test_ms), suite: sc(whole(d.suite_ms) ?? whole(k.suite_ms) ?? def.suite_ms) };
+  const f = b.files?.[file] ?? {};
+  return { kind, test: sc(whole(f.test_ms) ?? whole(d.test_ms) ?? whole(k.test_ms) ?? def.test_ms), suite: sc(whole(f.suite_ms) ?? whole(d.suite_ms) ?? whole(k.suite_ms) ?? def.suite_ms) };
 }
 
 /**
@@ -76,6 +80,36 @@ export function overBudget(b, runs) {
   return { tests: [...t.values()].sort((x, y) => cmp(x.file, y.file) || cmp(x.name, y.name)), files: files.sort((x, y) => cmp(x.file, y.file)) };
 }
 
+/** The `OVER BUDGET:` lines of a result, the same text as in the summary. @param {ReturnType<typeof overBudget>} over */
+export function overLines(over) {
+  return [...over.tests.map((x) => `OVER BUDGET: ${clean(x.file)} :: ${clean(x.name)} took ${r1(x.ms)} ms over ${x.limit}`), ...over.files.map((x) => `OVER BUDGET: ${clean(x.file)} (suite) took ${r1(x.ms)} ms over ${x.limit}`)];
+}
+
+/** What is wrong with a budgets document, as short sentences (empty when it is usable): a budget that is not a positive whole number would silently fall back to a default. @param {unknown} b @returns {string[]} */
+export function budgetProblems(b) {
+  /** @type {string[]} */ const out = [];
+  const isObj = (/** @type {unknown} */ v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isObj(b)) return ['the document is not an object'];
+  const o = /** @type {Record<string, any>} */ (b);
+  if (o.enforce !== undefined && typeof o.enforce !== 'boolean') out.push('enforce is not true or false');
+  if (o.default_kind !== undefined && !KINDS.includes(o.default_kind)) out.push('default_kind is not unit, integration or e2e');
+  if (o.timeouts_scale !== undefined && !(typeof o.timeouts_scale === 'number' || typeof o.timeouts_scale === 'string')) out.push('timeouts_scale is not a number');
+  const nums = (/** @type {string} */ where, /** @type {any} */ v) => {
+    if (!isObj(v)) { out.push(`${where} is not an object`); return; }
+    for (const k of ['test_ms', 'suite_ms']) if (v[k] !== undefined && whole(v[k]) === undefined) out.push(`${where}.${k} is not a positive whole number`);
+  };
+  for (const [sect, rows] of /** @type {Array<[string, any]>} */ ([['kinds', o.kinds], ['dirs', o.dirs], ['files', o.files]])) {
+    if (rows === undefined) continue;
+    if (!isObj(rows)) { out.push(`${sect} is not an object`); continue; }
+    for (const [k, v] of Object.entries(rows)) {
+      nums(`${sect}[${k}]`, v);
+      if (sect === 'kinds' && !KINDS.includes(k)) out.push(`kinds[${k}] is not a known kind`);
+      if (sect === 'dirs' && isObj(v) && /** @type {any} */ (v).kind !== undefined && !KINDS.includes(/** @type {any} */ (v).kind)) out.push(`dirs[${k}].kind is not a known kind`);
+    }
+  }
+  return out;
+}
+
 /** One printable summary cell: control characters, the table bar, backticks (a code fence) and `<` and `[` (html and links) become spaces. @param {string} s */
 const clean = (s) => s.replace(/[\u0000-\u001f\u007f-\u009f|`<[]/g, ' ');
 const r1 = (/** @type {number} */ n) => (Math.round(n * 10) / 10).toFixed(1);
@@ -92,7 +126,7 @@ export function renderSummary(leg, a, over, enforce, twice) {
   for (const f of a.files.slice(0, 15)) L.push(`| ${clean(f.file)} | ${f.tests} | ${r1(f.max_ms)} |`);
   if (a.files.length > 15) L.push(`| (${a.files.length - 15} more files in the JSON) | | |`);
   L.push('', `grand total ${a.total_max_ms} ms`);
-  const lines = [...over.tests.map((x) => `OVER BUDGET: ${clean(x.file)} :: ${clean(x.name)} took ${r1(x.ms)} ms over ${x.limit}`), ...over.files.map((x) => `OVER BUDGET: ${clean(x.file)} (suite) took ${r1(x.ms)} ms over ${x.limit}`)];
+  const lines = overLines(over);
   if (lines.length > 0) L.push('', '```', ...lines, '```');
   if (a.failed.length > 0) L.push('', `failed tests: ${a.failed.length}`);
   if (twice) {
@@ -103,7 +137,7 @@ export function renderSummary(leg, a, over, enforce, twice) {
 }
 
 /** @typedef {{ run?: (args: string[], eventsFile: string) => number, readFile?: (p: string) => string, writeFile?: (p: string, s: string) => void, append?: (p: string, s: string) => void,
- *   write?: (s: string) => void, env?: Record<string, string | undefined>, budgets?: Budgets, scratch?: () => string }} IO */
+ *   write?: (s: string) => void, env?: Record<string, string | undefined>, budgets?: Budgets, budgetsFile?: string, scratch?: () => string }} IO */
 
 /** @param {string[]} argv @param {IO} [io] @returns {number} */
 export function main(argv, io = {}) {
@@ -116,40 +150,50 @@ export function main(argv, io = {}) {
   const readFile = io.readFile ?? ((/** @type {string} */ p) => readFileSync(p, 'utf8'));
   const writeOut = io.writeFile ?? ((/** @type {string} */ p, /** @type {string} */ s) => { mkdirSync(path.dirname(p), { recursive: true }); writeFileSync(p, s); });
   /** @type {Budgets} */ let budgets = {};
-  try { budgets = io.budgets ?? JSON.parse(readFileSync(budgetsFile, 'utf8')); } catch (e) { write(`test-durations-ci: budgets file unreadable (${/** @type {Error} */ (e).message}); built-in defaults, report-only\n`); }
+  try {
+    const raw = io.budgets ?? JSON.parse(readFileSync(io.budgetsFile ?? budgetsFile, 'utf8'));
+    const bad = budgetProblems(raw);
+    if (bad.length > 0) { write(`test-durations-ci: the budgets file is invalid, nothing was run (fails closed): ${bad.join('; ')}\n`); return 2; }
+    budgets = raw;
+  } catch (e) { write(`test-durations-ci: the budgets file is missing, unreadable or not JSON, nothing was run (fails closed): ${/** @type {Error} */ (e).message}\n`); return 2; }
   const enforce = budgets.enforce === true;
   const twice = env.TEST_DURATIONS_TWICE === 'true';
   const dir = env.TEST_DURATIONS_DIR || (env.RUNNER_TEMP ? path.join(env.RUNNER_TEMP, 'test-durations') : 'test-durations');
   const scratch = io.scratch ? io.scratch() : tempDir('durations-ci-');
   const run = io.run ?? realRun;
   /** @type {Array<{ status: number, events: import('./test-durations.mjs').Event[] }>} */ const runs = [];
-  {
-    for (let i = 0; i < (twice ? 2 : 1); i++) {
-      const ev = path.join(scratch, `events-${i}.jsonl`);
-      const status = run(testArgs, ev);
-      let text = '';
-      try { text = readFile(ev); } catch { text = ''; }   // a run that died before the reporter wrote anything has no events; the status still counts
-      runs.push({ status, events: parseEvents(text) });
-    }
-    const nodeStatus = runs.map((r) => r.status).find((s) => s !== 0) ?? 0;
-    /** @type {ReturnType<typeof overBudget>} */ let over = { tests: [], files: [] };
-    try {
-      const a = analyse(runs, { top: 20, ratio: 4, floorMs: 2000 });
-      over = overBudget(budgets, runs);
-      const safe = leg.replace(/[^A-Za-z0-9._-]+/g, '-');
-      const { load: _load, ...rest } = a;   // no load average: the report is the same on any machine
-      const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, twice, node_status: nodeStatus, ...rest,
-        tests_detail: summarize(runs[0].events).tests, over_budget: over };
-      writeOut(path.join(dir, `test-durations-${safe}.json`), `${JSON.stringify(json, null, 2)}\n`);
-      const text = renderSummary(leg, a, over, enforce, twice);
-      const sum = env.GITHUB_STEP_SUMMARY;
-      if (sum) (io.append ?? appendFileSync)(sum, `${text}\n`);
-      for (const l of text.split('\n').filter((x) => x.startsWith('OVER BUDGET:') || x.startsWith('UNSTABLE TESTS:'))) write(`${l}\n`);
-    } catch (e) {   // the report must never change the verdict: a report that cannot be written is a notice, the status stays node's
-      write(`test-durations-ci: the report could not be written (${/** @type {Error} */ (e).message}); the exit status is node's\n`);
-    }
-    return nodeStatus !== 0 ? nodeStatus : enforce && (over.tests.length > 0 || over.files.length > 0) ? 1 : 0;
+  let unreadable = false;
+  for (let i = 0; i < (twice ? 2 : 1); i++) {
+    const ev = path.join(scratch, `events-${i}.jsonl`);
+    const status = run(testArgs, ev);
+    let text = '';
+    try { text = readFile(ev); } catch { text = ''; unreadable = true; }   // a run that died before the reporter wrote anything has no events; the status still counts
+    runs.push({ status, events: parseEvents(text) });
   }
+  const nodeStatus = runs.map((r) => r.status).find((s) => s !== 0) ?? 0;
+  /** @type {ReturnType<typeof overBudget> | null} */ let over = null;
+  try { over = overBudget(budgets, runs); } catch (e) { write(`test-durations-ci: the budgets could not be applied (${/** @type {Error} */ (e).message})\n`); }
+  try {
+    const a = analyse(runs, { top: 20, ratio: 4, floorMs: 2000 });
+    const o = over ?? { tests: [], files: [] };
+    const safe = leg.replace(/[^A-Za-z0-9._-]+/g, '-');
+    const { load: _load, ...rest } = a;   // no load average: the report is the same on any machine
+    const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, twice, node_status: nodeStatus, ...rest,
+      tests_detail: summarize(runs[0].events).tests, over_budget: o };
+    writeOut(path.join(dir, `test-durations-${safe}.json`), `${JSON.stringify(json, null, 2)}\n`);
+    const text = renderSummary(leg, a, o, enforce, twice);
+    const sum = env.GITHUB_STEP_SUMMARY;
+    if (sum) (io.append ?? appendFileSync)(sum, `${text}\n`);
+  } catch (e) {   // the report must never change the verdict: a report that cannot be written is a notice, the status stays node's
+    write(`test-durations-ci: the report could not be written (${/** @type {Error} */ (e).message}); the exit status is node's\n`);
+  }
+  if (over) for (const l of overLines(over)) write(`${l}\n`);
+  if (twice) { try { const u = analyse(runs, { top: 1, ratio: 4, floorMs: 2000 }).unstable.length; write(`UNSTABLE TESTS: ${u}\n`); } catch { /* informational only */ } }
+  if (nodeStatus !== 0) return nodeStatus;
+  if (!enforce) return 0;
+  if (over === null || unreadable) { write('test-durations-ci: budgets are enforced but the measured durations are not available; failing closed\n'); return 1; }
+  if (over.tests.length > 0 || over.files.length > 0) { write(`test-durations-ci: ${over.tests.length} test(s) and ${over.files.length} file(s) are over budget. Fix the slow test; relaxing a budget needs a reason (CONTRIBUTING, tests/ci/test-budgets.json)\n`); return 1; }
+  return 0;
 }
 
 /** The real run: `node --test` with the spec reporter on this process's stdout and the JSON-lines reporter into the scratch file; stdin, stdout and stderr pass through. @param {string[]} args @param {string} eventsFile */

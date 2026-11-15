@@ -1,0 +1,1 @@
+{"enforce":true,"kinds":{"unit":{"test_ms":2000,"suite_ms":30000},"integration":{"test_ms":10000,"suite_ms":120000}},"dirs":{"tests/core":{"kind":"integration"}}}

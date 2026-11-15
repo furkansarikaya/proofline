@@ -1,0 +1,3 @@
+{"leg":"node-tests 22.13.0 one","node":"v22.13.0","runs":1,"tests":3,"files":[{"file":"tests/core/a.test.mjs","tests":2,"min_ms":4100.5,"max_ms":4100.5},{"file":"tests/generator/g.test.mjs","tests":1,"min_ms":120,"max_ms":120}],
+ "slowest":[{"file":"tests/core/a.test.mjs","name":"slow one","min_ms":3000,"max_ms":3000,"ms":[3000],"outcome":["pass"]}],
+ "tests_detail":[{"file":"tests/core/a.test.mjs","name":"slow one","ms":3000,"outcome":"pass"},{"file":"tests/core/a.test.mjs","name":"fast","ms":1100.5,"outcome":"pass"},{"file":"tests/generator/g.test.mjs","name":"g","ms":120,"outcome":"pass"}]}

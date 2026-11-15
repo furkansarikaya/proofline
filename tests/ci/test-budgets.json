@@ -1,6 +1,6 @@
 {
-  "_comment": "Budgets of proofline's own tests (issue 266, A277). REPORT-ONLY while enforce is false: tests/ci/test-durations-ci.mjs prints OVER BUDGET lines in the job summary and exits as node --test did. Package P3b sets enforce to true with numbers measured from CI. Milliseconds before timeouts_scale (read like timeouts.scale of the control plane: 0.5 to 10, else 1). kinds: the A275 defaults (unit 2000/30000, integration 10000/120000, e2e 60000/600000) are the built-in fallback for a missing number. dirs: the most specific path prefix decides the kind of a test file and may override test_ms and suite_ms. legs: reserved for a per-leg total. The kinds per directory are a starting point read from the first CI run (run 43704899339: tests/ci fixture-trees 34 s, tests/e2e reply-loop 33 s, the browser file visual-proof-design 43 s). P3b sets the numbers per directory (and per file where one is far above its directory) from the test-durations artifacts of CI: the per-file maximum over the legs and Node versions plus a margin, then flips enforce.",
-  "enforce": false,
+  "_comment": "Budgets of proofline's own tests (issue 266, A277), ENFORCED (enforce true): tests/ci/test-durations-ci.mjs exits 1 on a passing leg when a test is over its test_ms or a file over its suite_ms, and prints OVER BUDGET lines. Milliseconds before timeouts_scale (read like timeouts.scale of the control plane: 0.5 to 10, else 1; CI uses 1). kinds: the A275 defaults (unit 2000/30000, integration 10000/120000, e2e 60000/600000), the built-in fallback for a missing number. dirs: a kind per test directory (the most specific path prefix wins). files: one row per test file whose measured time needs more than its kind default, GENERATED, do not edit by hand: per file the maximum over the test-durations artifacts of CI (both Node versions, all legs, the twice run) x 2 for a test and x 1.7 for a suite, rounded up to 500 ms / 5 s / 10 s, never below the kind default. Regenerate after a deliberate change of the suite: gh run download <run id of a green main run> -D samples/<n> -p 'test-durations-*' for a few runs, then node tests/ci/derive-budgets.mjs samples/1 samples/2 > tests/ci/test-budgets.json (the script keeps this header, kinds, dirs and enforce). A budget that fails is fixed at the test; raising a number needs a reason in the pull request. legs: reserved.",
+  "enforce": true,
   "timeouts_scale": 1,
   "default_kind": "unit",
   "kinds": {
@@ -53,10 +53,365 @@
     },
     "tests/skills": {
       "kind": "unit"
-    },
-    "tests/skills/visual-proof-design.test.mjs": {
-      "kind": "e2e"
     }
   },
-  "legs": {}
+  "legs": {},
+  "files": {
+    "tests/bench/batch-budgets.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/bench/exec-budgets.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/ci/fixture-trees.test.mjs": {
+      "test_ms": 75000,
+      "suite_ms": 120000
+    },
+    "tests/core/advance.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/batch-cover.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/batch-state.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/cli-state.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/controls.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/dispatch.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/doctor-faults.test.mjs": {
+      "test_ms": 80000,
+      "suite_ms": 160000
+    },
+    "tests/core/doctor-fresh.test.mjs": {
+      "test_ms": 55000,
+      "suite_ms": 130000
+    },
+    "tests/core/entry.test.mjs": {
+      "test_ms": 50000,
+      "suite_ms": 120000
+    },
+    "tests/core/gates-s1.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 130000
+    },
+    "tests/core/gates-s2.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 120000
+    },
+    "tests/core/gates-s3.test.mjs": {
+      "test_ms": 45000,
+      "suite_ms": 170000
+    },
+    "tests/core/gates-s4.test.mjs": {
+      "test_ms": 60000,
+      "suite_ms": 220000
+    },
+    "tests/core/gates-s5.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/githooks-run.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/githooks-trust.test.mjs": {
+      "test_ms": 65000,
+      "suite_ms": 120000
+    },
+    "tests/core/golden.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 120000
+    },
+    "tests/core/install-init.test.mjs": {
+      "test_ms": 75000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-approval-multi.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-approvals.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-fail-closed.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-known-issues.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-next-user.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-recovery.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-reopen.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/legacy-waivers.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/lifecycle-s1.test.mjs": {
+      "test_ms": 55000,
+      "suite_ms": 170000
+    },
+    "tests/core/lifecycle-s2.test.mjs": {
+      "test_ms": 50000,
+      "suite_ms": 240000
+    },
+    "tests/core/lifecycle-s3.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 130000
+    },
+    "tests/core/perf.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/port-t2-replay.test.mjs": {
+      "test_ms": 40000,
+      "suite_ms": 230000
+    },
+    "tests/core/port-t3-replay.test.mjs": {
+      "test_ms": 35000,
+      "suite_ms": 120000
+    },
+    "tests/core/port-t3-rig.mjs": {
+      "test_ms": 10000,
+      "suite_ms": 130000
+    },
+    "tests/core/risk-s1.test.mjs": {
+      "test_ms": 35000,
+      "suite_ms": 160000
+    },
+    "tests/core/risk-s2.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/run4a-records.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/run4b-freeze.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/run4b-lifecycle.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/run4c-lock.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/run6-cifix.test.mjs": {
+      "test_ms": 40000,
+      "suite_ms": 120000
+    },
+    "tests/core/run6-corpnet.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/run6-deliver.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/run6-merged.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 150000
+    },
+    "tests/core/run6-netdropped.test.mjs": {
+      "test_ms": 65000,
+      "suite_ms": 120000
+    },
+    "tests/core/run6-plan.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/run6-platform.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/core/run6b-wire.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/core/user-decisions-1108.test.mjs": {
+      "test_ms": 90000,
+      "suite_ms": 260000
+    },
+    "tests/core/worktree.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/e2e/capabilities.test.mjs": {
+      "test_ms": 65000,
+      "suite_ms": 120000
+    },
+    "tests/e2e/reply-loop.test.mjs": {
+      "test_ms": 70000,
+      "suite_ms": 130000
+    },
+    "tests/enforcement/approval-load.test.mjs": {
+      "test_ms": 65000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/enforcement-a1.test.mjs": {
+      "test_ms": 60000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/enforcement-a2.test.mjs": {
+      "test_ms": 40000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/enforcement-b.test.mjs": {
+      "test_ms": 45000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/enforcement-recorded-lead.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/enforcement-recorded-paths.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/enforcement-recorded-roles.test.mjs": {
+      "test_ms": 70000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/guards.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/merge-guard.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/platform.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/status-block.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/timeouts.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 120000
+    },
+    "tests/enforcement/wiring.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/generator/generator.test.mjs": {
+      "test_ms": 2500,
+      "suite_ms": 30000
+    },
+    "tests/hook/budgets.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/hook/case-world.test.mjs": {
+      "test_ms": 30000,
+      "suite_ms": 120000
+    },
+    "tests/hook/prompt.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/hook/win-drive-guards.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/invariants-node/rule-2b.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 120000
+    },
+    "tests/invariants-node/rule-3.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/invariants-node/rules-1-2.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/invariants-node/rules-5-6.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 120000
+    },
+    "tests/lib/harness.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/real-session/smoke.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 120000
+    },
+    "tests/skills/contract-proof.test.mjs": {
+      "test_ms": 3000,
+      "suite_ms": 30000
+    },
+    "tests/skills/design-library.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 30000
+    },
+    "tests/skills/docs-writer.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 30000
+    },
+    "tests/skills/exploit-proof-manifests-eco.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 30000
+    },
+    "tests/skills/migration-validation.test.mjs": {
+      "test_ms": 3000,
+      "suite_ms": 30000
+    },
+    "tests/skills/performance-proof.test.mjs": {
+      "test_ms": 3500,
+      "suite_ms": 30000
+    },
+    "tests/skills/runtime-versions.test.mjs": {
+      "test_ms": 40000,
+      "suite_ms": 55000
+    },
+    "tests/skills/test-trust.test.mjs": {
+      "test_ms": 5000,
+      "suite_ms": 30000
+    },
+    "tests/skills/visual-proof-design.test.mjs": {
+      "test_ms": 110000,
+      "suite_ms": 220000
+    },
+    "tests/skills/visual-proof-seo-browser.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 30000
+    },
+    "tests/skills/visual-proof.test.mjs": {
+      "test_ms": 60000,
+      "suite_ms": 60000
+    }
+  }
 }

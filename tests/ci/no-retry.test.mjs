@@ -6,6 +6,11 @@
 //  (3) in a TEST STEP: a shell construct that runs a command again or hides its status (`||`, `; true`, `set +e`, `for ... in`, `while`, `until`, `break`), and a step that runs tests under
 //      `if: failure()` (a rerun after a failure). A test step is a step whose `run:` command contains `--test`, `test-durations-ci`, the skill-tests command of ci-steps, `windows-probe`, or a
 //      known runner (`npm test`, `jest`, `pytest`, `go test`). Non-test steps may use shell logic freely (the strict no-shell-logic check polices them).
+// Package P3b hardening (review F1-F3): `make test`, `yarn test`, `pnpm test` and the ci-steps `windows-timing` command count as test runs; `exit 0`, a pipe into `cat` or `tee`
+// (the status of the last command wins without pipefail) hide the status and are refused in a test step; a test step under any `if:` that mentions failure(), always(),
+// cancelled() or success(), and the same test command run again in another step or job whose own `if:` is such a condition, are reruns under other conditions.
+// ACCEPTED LIMITS (A277): the finder reads the text of the workflow. A script file that runs the tests (a retry hidden in `sh scripts/x.sh`) and an obfuscated command
+// (`node --te""st`, a command built in a variable) are not seen; review and the one place that starts tests (tests/ci/test-durations-ci.mjs, pinned in test-durations-ci.test.mjs) are the guard.
 // `fail-fast: false` is fine: it only lets the other legs finish. The finder is a pure function with mutant rows, so a retry added later cannot slip through unseen.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +29,9 @@ const ANYWHERE = [
   [/retr(y|ies)|--flaky|attempt|rerun|re-run/i, 'a retry, attempt or rerun word'],
   [/--maxRetries\b|\bretryTimes\b/i, 'a retry option of a test runner'],
 ];
-const TEST_RUN = /--test\b|test-durations-ci|ci-steps\.mjs\s+skill|windows-probe|\bnpm\s+(run\s+)?test\b|\bjest\b|\bpytest\b|\bgo\s+test\b/;
+const TEST_RUN = /--test\b|test-durations-ci|ci-steps\.mjs\s+(skill|windows)|windows-probe|\bnpm\s+(run\s+)?test\b|\b(yarn|pnpm)\s+(run\s+)?test\b|\bmake\s+(\S+\s+)*test\b|\bjest\b|\bpytest\b|\bgo\s+test\b/;
+/** A condition under which a step or job runs when the tests before it failed or whatever happened. */
+const RERUN_IF = /\b(failure|always|cancelled|success)\(\)/;
 /** @type {Array<[RegExp, string]>} */
 const SHELL = [
   [/\|\|/, 'an `||` after a test command'],
@@ -33,6 +40,8 @@ const SHELL = [
   [/\bfor\s+\S+\s+in\b|\bfor\s*\(\(/, 'a for loop'],
   [/\bwhile\b|\buntil\b/, 'a while or until loop'],
   [/\bbreak\b/, 'a loop break'],
+  [/\bexit\s+0\b/, '`exit 0` that hides the status'],
+  [/\|\s*(cat|tee)\b/, 'a pipe into cat or tee that hides the status of the tests'],
 ];
 
 /** The text of the `run:` of a step (one line or a block scalar), '' when the step has none. @param {string[]} step */
@@ -59,16 +68,30 @@ export function retryFindings(text, file = 'x.yml') {
     const m = /^\s*(?:- )?continue-on-error:\s*(.*)$/.exec(l);
     if (m && !/^["']?false["']?$/.test(m[1].trim()) && !Object.keys(ALLOWED_CONTINUE_ON_ERROR).some((k) => k.startsWith(`${file}:`))) out.push(`line ${i + 1}: continue-on-error is not false: ${l.trim()}`);
   });
-  /** @type {string[][]} */ const steps = [];
-  /** @type {string[] | null} */ let cur = null;
+  /** @type {Map<string, string[]>} the normalised test command -> for each place it runs 'cond' (under a rerun condition) or 'plain' */
+  const seen = new Map();
+  let jobName = '';
+  /** @type {Array<{ job: string, step: string[] }>} */ const placed = [];
+  /** @type {Map<string, string>} the job-level `if:` of each job */ const jobIfs = new Map();
   for (const l of lines) {
-    if (/^ {6}- /.test(l)) { cur = [l]; steps.push(cur); } else if (!/^ {7}/.test(l)) cur = null; else if (cur) cur.push(l);
+    const j = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(l);
+    if (j) jobName = j[1];
+    const ji = /^ {4}if:\s*(.*)$/.exec(l);
+    if (ji) jobIfs.set(jobName, ji[1]);
+    if (/^ {6}- /.test(l)) placed.push({ job: jobName, step: [l] });
+    else if (/^ {7}/.test(l) && placed.length > 0 && placed[placed.length - 1].job === jobName) placed[placed.length - 1].step.push(l);
   }
-  for (const s of steps) {
+  for (const { job, step: s } of placed) {
     const run = runOf(s);
     if (!TEST_RUN.test(run)) continue;
     for (const [re, what] of SHELL) if (re.test(run)) out.push(`test step ${s[0].trim()}: ${what}`);
     if (s.some((l) => /^\s*(- )?if:.*\bfailure\(\)/.test(l))) out.push(`test step ${s[0].trim()}: runs tests under if: failure()`);
+    else if (s.some((l) => /^\s*(- )?if:/.test(l) && RERUN_IF.test(l))) out.push(`test step ${s[0].trim()}: runs tests under an if: that mentions failure(), always(), cancelled() or success()`);
+    const norm = run.replace(/\s+/g, ' ').trim();
+    const cond = s.some((l) => /^\s*(- )?if:/.test(l) && RERUN_IF.test(l)) || RERUN_IF.test(jobIfs.get(job) ?? '');
+    const prev = seen.get(norm) ?? [];
+    if (prev.length > 0 && (cond || prev.includes('cond'))) out.push(`test step ${s[0].trim()}: the same test command runs again in job ${job} under a rerun condition (if: failure() and the like)`);
+    seen.set(norm, [...prev, cond ? 'cond' : 'plain']);
   }
   return out;
 }
@@ -103,13 +126,35 @@ test('the finder is not blind: every mutant workflow with a retry or a swallowed
     ['for loop with break', `${head}      - name: tests\n        run: |\n          for i in 1 2 3; do\n            node --test x && break\n          done\n`],
     ['until', `${head}      - name: tests\n        run: |\n          until node --test x; do echo again; done\n`],
     ['while !', step('while ! node --test x; do :; done')],
+    ['make test', step('make test || true')],
+    ['npm test with exit 0', step('npm test; exit 0')],
+    ['pipe into cat', step('node --test x | cat')],
+    ['pipe into tee then exit 0', step('node --test x | tee log.txt; exit 0')],
+    ['pipe into tee', step('node --test x | tee log.txt')],
+    ['exit 0 on its own line', `${head}      - name: tests\n        run: |\n          node --test x\n          exit 0\n`],
+    ['yarn test loop', step('for i in 1 2; do yarn test && break; done')],
+    ['windows-timing swallowed', step('node tests/ci/ci-steps.mjs windows-timing || true')],
+    ['ci-steps skill-tests retried', step('node tests/ci/ci-steps.mjs skill-tests || node tests/ci/ci-steps.mjs skill-tests')],
+    ['test step under always()', `${head}      - name: tests\n        if: always()\n        run: node --test x\n`],
+    ['test step under cancelled()', `${head}      - name: tests\n        if: cancelled() || failure()\n        run: node --test x\n`],
+    ['test step under success()', `${head}      - name: tests\n        if: success() && matrix.rerun\n        run: node --test x\n`],
+    ['second job reruns the same command after failure', `jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n  b:\n    needs: [a]\n    if: failure()\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n`],
+    ['second job reruns the same command under always()', `jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node tests/ci/test-durations-ci.mjs leg -- x\n  b:\n    needs: [a]\n    if: always()\n    runs-on: ubuntu-latest\n    steps:\n      - run: node tests/ci/test-durations-ci.mjs leg -- x\n`],
     ['a rerun step after failure()', `${head}      - name: tests\n        run: node --test x\n      - name: again\n        if: failure()\n        run: node --test x\n`],
   ]);
   for (const [name, text] of rows) assert.ok(retryFindings(text).length > 0, name);
-  assert.ok(rows.length >= 20);
+  assert.ok(rows.length >= 30);
 });
 
 test('what is allowed stays allowed: fail-fast false, comments about retry, shell logic in a step that runs no test, continue-on-error false, retention-days', () => {
   const ok = 'jobs:\n  t:\n    strategy:\n      fail-fast: false\n    steps:\n      # never a retry: no nick-fields/retry here, no --retries\n      - run: node --test x\n      - name: prepare\n        run: for f in a b; do echo $f; done || true\n      - name: upload\n        continue-on-error: false\n        uses: actions/upload-artifact@v4\n        with:\n          retention-days: 14\n';
   assert.deepEqual(retryFindings(ok), []);
+  const twoJobs = 'jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: node --test x\n  b:\n    needs: [a]\n    if: always()\n    runs-on: ubuntu-latest\n    steps:\n      - name: upload\n        run: echo done | cat\n';
+  assert.deepEqual(retryFindings(twoJobs), [], 'a job under always() that runs no test, and a pipe into cat outside a test step');
+  assert.deepEqual(retryFindings('jobs:\n  a:\n    steps:\n      - run: node --test x\n  b:\n    steps:\n      - run: node --test x\n'), [], 'the same test command in two plain jobs is not a rerun');
+});
+
+test('the accepted limits are real: a script file or an obfuscated command is not seen (recorded in A277), the finder does not claim to see them', () => {
+  assert.deepEqual(retryFindings('jobs:\n  t:\n    steps:\n      - run: sh scripts/run-tests.sh\n'), []);
+  assert.deepEqual(retryFindings('jobs:\n  t:\n    steps:\n      - run: node --te""st x || true\n'), []);
 });

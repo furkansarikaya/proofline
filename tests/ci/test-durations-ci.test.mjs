@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { DEFAULTS } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
 import { tmp } from '../lib/harness.mjs';
 import { analyse, parseEvents } from './test-durations.mjs';
-import { budgetOf, main, overBudget, renderSummary, scaleMilli } from './test-durations-ci.mjs';
+import { budgetOf, budgetProblems, main, overBudget, overLines, renderSummary, scaleMilli } from './test-durations-ci.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const fx = (/** @type {string} */ n) => readFileSync(path.join(repo, 'tests', 'fixtures', 'test-durations', n), 'utf8');
@@ -30,10 +30,34 @@ test('budgetOf: the built-in A275 numbers are the fallback, a dir entry sets the
   assert.equal(budgetOf({ dirs: { t: { kind: 'bogus', test_ms: -4 } }, default_kind: 'bogus' }, 't/x').test, DEFAULTS.unit.test_ms, 'bad data falls back to the defaults');
 });
 
-test('test-budgets.json: report-only (enforce false until P3b), the kinds are the A275 defaults, every dir names a known kind', () => {
-  assert.equal(budgetsJson.enforce, false);
+test('budgetOf: a `files` row for exactly one file overrides the numbers of its dir last, other files are unaffected', () => {
+  const b = { dirs: { 'tests/core': { kind: 'integration' } }, files: { 'tests/core/a.test.mjs': { test_ms: 33000 } } };
+  assert.deepEqual(budgetOf(b, 'tests/core/a.test.mjs'), { kind: 'integration', test: 33000, suite: 120000 });
+  assert.deepEqual(budgetOf(b, 'tests/core/b.test.mjs'), { kind: 'integration', test: 10000, suite: 120000 });
+  assert.equal(budgetOf({ ...b, timeouts_scale: 2 }, 'tests/core/a.test.mjs').test, 66000, 'the scale applies to a files row too');
+});
+
+test('test-budgets.json: ENFORCED (enforce true), valid, the kinds are the A275 defaults, every dir and file exists, every files row is at least its kind default and a whole number', () => {
+  assert.equal(budgetsJson.enforce, true);
+  assert.deepEqual(budgetProblems(budgetsJson), []);
+  assert.equal(budgetsJson.timeouts_scale, 1, 'CI uses the default scale');
   for (const k of ['unit', 'integration', 'e2e']) assert.deepEqual(budgetsJson.kinds[k], DEFAULTS[/** @type {'unit'} */ (k)], k);
   for (const [d, v] of Object.entries(budgetsJson.dirs)) { assert.ok(existsSync(path.join(repo, d)), d); assert.ok(['unit', 'integration', 'e2e'].includes(/** @type {any} */ (v).kind), d); }
+  const rows = Object.entries(budgetsJson.files);
+  assert.ok(rows.length > 20, 'the numbers come from CI measurements (tests/ci/derive-budgets.mjs)');
+  for (const [f, v] of /** @type {Array<[string, any]>} */ (rows)) {
+    assert.ok(existsSync(path.join(repo, f)), f);
+    const floor = budgetOf({ ...budgetsJson, files: {} }, f);
+    assert.ok(Number.isInteger(v.test_ms) && v.test_ms >= floor.test, `${f} test_ms`);
+    assert.ok(Number.isInteger(v.suite_ms) && v.suite_ms >= floor.suite, `${f} suite_ms`);
+  }
+});
+
+test('budgetProblems: a budget that would silently fall back to a default is a problem', () => {
+  assert.deepEqual(budgetProblems({}), []);
+  assert.deepEqual(budgetProblems({ enforce: true, kinds: { unit: { test_ms: 5 } }, dirs: { a: { kind: 'e2e' } }, files: { 'a/x': { suite_ms: 9 } }, timeouts_scale: '1.5' }), []);
+  for (const bad of [null, [], 'x', { enforce: 'true' }, { default_kind: 'huge' }, { kinds: { unit: { test_ms: 0 } } }, { kinds: { weird: {} } }, { dirs: { a: { kind: 'x' } } },
+    { dirs: [] }, { files: { f: { test_ms: 1.5 } } }, { files: { f: { suite_ms: '9' } } }, { files: { f: 4 } }, { timeouts_scale: true }]) assert.ok(budgetProblems(bad).length > 0, JSON.stringify(bad));
 });
 
 test('overBudget: the worst of the runs counts, tests and files over the limit are named in a fixed order', () => {
@@ -73,6 +97,49 @@ test('the verdict is node\'s: a failing run keeps its own status, an exceeded bu
   assert.equal(drive(['leg one', '--', 'x'], { status: [0], budgets: { enforce: true, kinds: { unit: { test_ms: 1e9, suite_ms: 1e9 } } } }).st, 0);
 });
 
+test('enforce:true: a passing run with a test over its budget exits 1 and prints the OVER BUDGET lines and the reason; a failing run keeps node\'s status; there is exactly one run, no retry', () => {
+  const tight = { enforce: true, kinds: { unit: { test_ms: 1000, suite_ms: 1000 } } };
+  const r = drive(['leg one', '--', 'x'], { status: [0], budgets: tight });
+  assert.equal(r.st, 1);
+  assert.match(r.out, /OVER BUDGET: tests\/b\.test\.mjs :: .* took [\d.]+ ms over 1000\n/);
+  assert.match(r.out, /OVER BUDGET: tests\/[a-z.]+ \(suite\) took [\d.]+ ms over 1000\n/);
+  assert.match(r.out, /over budget\. Fix the slow test; relaxing a budget needs a reason/);
+  assert.equal(JSON.parse(r.json).enforce, true);
+  assert.match(r.summary, /budgets ENFORCED/);
+  let calls = 0;
+  const st = main(['leg', '--', 'x'], { budgets: tight, env: {}, scratch: () => tmp('dur-ci-'), write: () => {}, run: () => { calls++; return 1; }, readFile: () => fx('run1.jsonl'), writeFile: () => {}, append: () => {} });
+  assert.equal(st, 1);
+  assert.equal(calls, 1, 'a failing test is run once');
+  assert.equal(main(['leg', '--', 'x'], { budgets: tight, env: {}, scratch: () => tmp('dur-ci-'), write: () => {}, run: () => 9, readFile: () => fx('run1.jsonl'), writeFile: () => {}, append: () => {} }), 9, 'node\'s own status, not 1');
+  assert.deepEqual(overLines({ tests: [{ file: 'f', name: 'n', ms: 5, limit: 1 }], files: [{ file: 'f', ms: 6, limit: 2 }] }), ['OVER BUDGET: f :: n took 5.0 ms over 1', 'OVER BUDGET: f (suite) took 6.0 ms over 2']);
+});
+
+test('enforce:true fails CLOSED: events that cannot be read, or budgets that cannot be applied, are exit 1 on a passing run, never a silent green', () => {
+  const base = { env: {}, scratch: () => tmp('dur-ci-'), write: () => {}, writeFile: () => {}, append: () => {}, run: () => 0 };
+  let out = '';
+  assert.equal(main(['leg', '--', 'x'], { ...base, write: (s) => { out += s; }, budgets: { enforce: true }, readFile: () => { throw new Error('gone'); } }), 1);
+  assert.match(out, /not available; failing closed/);
+  assert.equal(main(['leg', '--', 'x'], { ...base, budgets: { enforce: false }, readFile: () => { throw new Error('gone'); } }), 0, 'report-only mode is not blocked by it');
+  assert.equal(main(['leg', '--', 'x'], { ...base, budgets: { enforce: true }, readFile: () => '' }), 0, 'a run with no test at all has nothing over budget');
+});
+
+test('the budgets file fails CLOSED: missing, malformed or invalid is exit 2 with a clear message, and no test is started', () => {
+  const dir = tmp('dur-ci-bud-');
+  const bad = path.join(dir, 'b.json');
+  /** @param {string | null} body */
+  const go = (body) => {
+    if (body !== null) writeFileSync(bad, body);
+    let out = '';
+    const st = main(['leg', '--', 'x'], { budgetsFile: body === null ? path.join(dir, 'missing.json') : bad, env: {}, write: (s) => { out += s; }, run: () => assert.fail('nothing runs'), scratch: () => dir });
+    return { st, out };
+  };
+  for (const body of [null, '', '{', 'null', '[]', '{"enforce":"yes"}', '{"files":{"tests/x":{"test_ms":0}}}', '{"kinds":{"unit":{"suite_ms":1.5}}}']) {
+    const r = go(body);
+    assert.equal(r.st, 2, String(body));
+    assert.match(r.out, /budgets file .*fails closed/, String(body));
+  }
+});
+
 test('a report that cannot be written never changes the verdict: the notice is printed and the status is node\'s', () => {
   for (const st of [0, 4]) {
     let out = '';
@@ -85,7 +152,7 @@ test('a report that cannot be written never changes the verdict: the notice is p
 test('the summary and the JSON: slowest tests, per-file totals, grand total and OVER BUDGET lines; the JSON holds every test and file; no host or load figure', () => {
   const r = drive(['leg one', '--', 'x'], { status: [0], budgets: { kinds: { unit: { test_ms: 1000, suite_ms: 1000 } } } });
   assert.match(r.summary, /^### Test durations: leg one\n/);
-  assert.match(r.summary, /budgets report-only/);
+  assert.match(r.summary, /budgets report-only/, 'enforce is not set in this injected budgets object');
   assert.match(r.summary, /\| slowest tests \| ms \| file \|/);
   assert.match(r.summary, /\| file \(suite total\) \| tests \| ms \|/);
   assert.match(r.summary, /\ngrand total \d+(\.\d+)? ms\n/);

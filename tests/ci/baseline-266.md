@@ -130,3 +130,7 @@ Duration (worst 15 by the larger run):
 - leg-core-rest: tests/core/test-scan.test.mjs :: S1: a support file that holds tests is scanned for waits; plain code only for clock reads [6183 / 1285 ms]
 - leg-legacy-approvals: tests/core/legacy-approval-grammar.test.mjs :: approval detection is fail-closed: ambiguous, negated, hedged and wrong-kind answers never approve (A108) [3446 / 544 ms]
 
+
+## CI suite totals (after P2 and P3a; recorded by P3b)
+
+Source: run 43710072142 (push of dc70eb8d on main, success, 137 successful jobs compared by name with the 137 of the baseline). Slowest jobs: static (ubuntu-latest) 225 s, node-tests port-replays 205 s (22.13.0) and 200 s (lts), cli-install 153 s and 132 s, hook-node 114 s (22.13.0), lifecycle-s2 114 s (lts). Sum of job durations: 6541 s before, 6430 s after (-1.7%). Slowest node-tests leg 206 s before, 205 s after. The slowest job overall (static, the skill tests step) is 12 s higher (213 s before); the same job took 226 s and 248 s in two main runs between, so a single run does not decide it (A277 P3b has the discussion and the number of tests over the default budgets: 67 distinct tests and 2 files before the budgets of `tests/ci/test-budgets.json` were measured from CI).
