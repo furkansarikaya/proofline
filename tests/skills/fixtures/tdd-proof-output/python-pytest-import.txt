@@ -1,0 +1,31 @@
+tool: Python 3.12.3 pytest 9.2.0
+ecosystem: python
+runner: pytest
+command: pytest -p no:cacheprovider
+exit_code: 2
+scenario: import (module not found during collection)
+expected_class: import
+source: captured
+captured: 2026-11-15 on macOS arm64, real run of the command above in a throwaway project (temporary virtualenv or npm prefix, nothing installed globally, deleted afterwards)
+redaction: the project directory written as /work/<case>; nothing else changed
+=== OUTPUT ===
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0
+rootdir: /work/import
+collected 0 items / 1 error
+
+==================================== ERRORS ====================================
+__________________________ ERROR collecting test_a.py __________________________
+ImportError while importing test module '/work/import/test_a.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+test_a.py:1: in <module>
+    import nonexistent_module_xyz
+E   ModuleNotFoundError: No module named 'nonexistent_module_xyz'
+=========================== short test summary info ============================
+ERROR test_a.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 0.07s ===============================

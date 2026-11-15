@@ -52,10 +52,10 @@ Collected on 2026-10-25 (macOS arm64). `captured` is a real run of the command, 
 | Node | bun test 1.2.8 | captured | `The following filters did not match any test files` [0] | `# Unhandled error between tests` [1] | `expect(received).toBe(expected)`, `Expected:` / `Received:` [1] |
 | Node | vitest 5.0.1 | captured | `No test files found, exiting with code 1` [1] | `[PARSE_ERROR]`, `Transform failed with 1 error` [1] | `AssertionError: expected 4 to be 5` [1] |
 | Node | tsc 5.9.3 | captured | | `error TS2322` [2] | |
-| Node | jest | docs | `No tests found, exiting with code 1` [1] | | `expect(received).toBe(expected)` |
+| Node | jest 29.7.0 | captured | `No tests found, exiting with code 1` [1] | `SyntaxError` is the syntax class | `expect(received).toBe(expected)` with `Expected:` / `Received:` [1] |
 | Node | mocha | docs | `No test files found` | | |
 | Python | unittest (Python 3.12.3) | captured | `Ran 0 tests` / `NO TESTS RAN` [5] | `SyntaxError`, `IndentationError` | `AssertionError: 4 != 5` [1] |
-| Python | pytest | docs | `collected 0 items`, `no tests ran` [5] | | `E   assert 4 == 5` [1] |
+| Python | pytest 9.2.0 | captured | `collected 0 items`, `no tests ran`, `collected N items / N deselected / 0 selected` (`-k`) [5] | `SyntaxError` is the syntax class | `E       assert (2 + 2) == 5` [1] |
 | Go | go 1.27.1 | captured | `[no test files]`, `[no tests to run]`, `testing: warning: no tests to run` [0] | `[build failed]`, `[setup failed]`, `undefined:`, `cannot use ... as ... value` [1] | `--- FAIL` and `_test.go:7:` [1] |
 | Java/Kotlin | Maven surefire, Gradle, JUnit 4 and 5 | docs | `No tests to run.`, `No tests were executed!`, `No tests found for given includes` | `COMPILATION ERROR`, `cannot find symbol`, `Compilation failed; see the compiler` | `AssertionFailedError`, `ComparisonFailure` |
 | Rust | cargo test | docs | `running 0 tests` [0] | `error[E0277]`, `could not compile` [101] | ``assertion `left == right` failed``, `assertion failed: ` [101] |
@@ -78,7 +78,7 @@ Things that are easy to get wrong, all seen in the captured runs:
 
 ### Not covered (neither a run nor a document backs it)
 
-Pest has no pattern of its own (it prints PHPUnit's `Failed asserting that`, but this was not checked); PHP's exit code 255 for a parse error, the Maven and Gradle exit codes, the Kotlin compiler's `e:` lines, mocha's assertion text and exit codes, flutter test exit codes, pytest's collection errors (`Interrupted: n errors during collection`) and `dart test` compile exit codes are absent from the definition. A run that shows any of them is `unknown` until a capture or a document is added.
+Pest has no pattern of its own (it prints PHPUnit's `Failed asserting that`, but this was not checked); PHP's exit code 255 for a parse error, the Maven and Gradle exit codes, the Kotlin compiler's `e:` lines, mocha's assertion text and exit codes, flutter test exit codes, and `dart test` compile exit codes are absent from the definition. A run that shows any of them is `unknown` until a capture or a document is added.
 
 
 

@@ -70,8 +70,10 @@ function classOfExitCode(ecosystem, code) {
   const e = loadEcosystems().ecosystems.find((x) => x.id === ecosystem);
   const hits = ["no_tests", "compile", "assertion"].filter((c) => (e?.test_output?.exit_codes?.[c] ?? []).some((x) => String(x.code) === String(code)));
   if (hits.length !== 1 || hits[0] === "assertion") return null;
-  const x = e.test_output.exit_codes[hits[0]].find((y) => String(y.code) === String(code));
-  return { cls: hits[0], evidence: `exit code ${code} (${x.runner}, ${x.source})` };
+  // Several runners may share a code (pytest and unittest both exit 5): name every one, not the first listed.
+  const xs = e.test_output.exit_codes[hits[0]].filter((y) => String(y.code) === String(code));
+  const who = [...new Set(xs.map((y) => `${y.runner}, ${y.source}`))].join("; ");
+  return { cls: hits[0], evidence: `exit code ${code} (${who})` };
 }
 
 export function classify(output, opts = {}) {

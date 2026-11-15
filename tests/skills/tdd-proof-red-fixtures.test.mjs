@@ -106,3 +106,41 @@ function exitTable(source) {
   assert.ok(n > 0, `no ${source} entries`);
   assert.deepEqual(bad, [], bad.join("\n"));
 }
+
+// A281: pytest 9.2.0 and jest 29.7.0 captured in throwaway installs; each case names the class the real output gets.
+const PYTEST_JEST = {
+  "python-pytest-assertion": ["python", "assertion", true],
+  "python-pytest-no-tests": ["python", "no_tests", false],
+  "python-pytest-no-tests-filter": ["python", "no_tests", false],
+  "python-pytest-import": ["python", "import", false],
+  "python-pytest-syntax": ["python", "syntax", false],
+  "python-pytest-fixture": ["python", "setup_crash", false],
+  "npm-jest-assertion": ["npm", "assertion", true],
+  "npm-jest-no-tests": ["npm", "no_tests", false],
+  "npm-jest-import": ["npm", "import", false],
+  "npm-jest-syntax": ["npm", "syntax", false],
+};
+test("pytest 9.2.0 and jest 29.7.0 (captured): each real output has its class, alone and with its exit code", () => {
+  for (const [name, [eco, cls, red]] of Object.entries(PYTEST_JEST)) {
+    const f = byName(name);
+    assert.equal(f.header.ecosystem, eco, name); assert.equal(f.header.expected_class, cls, name);
+    for (const opts of [{}, { ecosystem: eco }, { ecosystem: eco, exitCode: f.header.exit_code }]) {
+      const r = classify(f.output, opts);
+      assert.equal(r.class, cls, `${name} ${JSON.stringify(opts)}`); assert.equal(r.red_valid, red, name);
+    }
+  }
+  assert.equal(byName("python-pytest-no-tests-filter").header.exit_code, "5");
+  assert.equal(byName("python-pytest-no-tests").header.exit_code, "5");
+  assert.equal(byName("python-pytest-import").header.exit_code, "2");
+  assert.match(byName("python-pytest-assertion").header.tool, /pytest 9\.2\.0/);
+  assert.match(byName("npm-jest-assertion").header.tool, /jest 29\.7\.0/);
+});
+
+test("the exit code of a shared no_tests entry names every runner that lists it, not the first (pytest -k selecting nothing exits 5)", () => {
+  const f = byName("python-pytest-no-tests-filter");
+  const r = classify("unrecognised banner\n", { exitCode: 5, ecosystem: "python" });
+  assert.equal(r.class, "no_tests");
+  assert.match(r.evidence, /exit code 5 \(.*pytest, captured/); assert.match(r.evidence, /unittest, captured/);
+  assert.equal(classify(f.output, { exitCode: 5, ecosystem: "python" }).class, "no_tests");
+  assert.doesNotMatch(classify("", { exitCode: 8, ecosystem: "dotnet" }).evidence, /^exit code 8 \(unittest/);
+});

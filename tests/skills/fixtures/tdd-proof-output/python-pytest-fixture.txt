@@ -1,0 +1,30 @@
+tool: Python 3.12.3 pytest 9.2.0
+ecosystem: python
+runner: pytest
+command: pytest -p no:cacheprovider
+exit_code: 1
+scenario: setup_crash (fixture not found)
+expected_class: setup_crash
+source: captured
+captured: 2026-11-15 on macOS arm64, real run of the command above in a throwaway project (temporary virtualenv or npm prefix, nothing installed globally, deleted afterwards)
+redaction: the project directory written as /work/<case>; nothing else changed
+=== OUTPUT ===
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0
+rootdir: /work/fixture
+collected 1 item
+
+test_a.py E                                                              [100%]
+
+==================================== ERRORS ====================================
+___________________________ ERROR at setup of test_a ___________________________
+file /work/fixture/test_a.py, line 1
+  def test_a(missing_fixture):
+E       fixture 'missing_fixture' not found
+>       available fixtures: capfd, capfdbinary, caplog, capsys, capsysbinary, capteesys, doctest_namespace, monkeypatch, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, subtests, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory
+>       use 'pytest --fixtures [testpath]' for help on them.
+
+/work/fixture/test_a.py:1
+=========================== short test summary info ============================
+ERROR test_a.py::test_a
+=============================== 1 error in 0.00s ===============================
