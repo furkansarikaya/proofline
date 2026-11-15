@@ -3,7 +3,7 @@
 // queue, deliver, clean, run, task, design, batch, debt and the commands that only print the instruction for the agent session, with the text they printed in the shell.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -205,8 +205,11 @@ test('doctor --commands: a failed trial is not proven and writes no proposal; a 
   assert.notEqual(sb.pl(cm, ['doctor', '--apply-commands']).status, 0);
   assert.equal(cfgv(cm, 'commands.test'), '');
   mkdirSync(`${cm}/.agents/local/prompts`, { recursive: true });
-  await new Promise((res) => setTimeout(res, 1100)); // the reply is newer than the request, and stamped with the real time
-  writeFileSync(`${cm}/.agents/local/prompts/s1.json`, `${JSON.stringify({ session: 's1', time: Math.floor(Date.now() / 1000), sha256: createHash('sha256').update('approve commands').digest('hex'), text: 'approve commands' })}\n`);
+  // the reply is stamped one second after the newest request of the project: newer than the request, never ahead of the clock by more than a second, and nothing waits for the clock
+  const reqDir = `${cm}/.agents/local/approvals`;
+  const requestedAt = readdirSync(reqDir).map((n) => Number(/^requested_at: (\d+)/m.exec(read(`${reqDir}/${n}`))?.[1] ?? 0));
+  assert.ok(requestedAt.length > 0 && Math.max(...requestedAt) > 0, 'the proposal recorded an approval request');
+  writeFileSync(`${cm}/.agents/local/prompts/s1.json`, `${JSON.stringify({ session: 's1', time: Math.max(...requestedAt) + 1, sha256: createHash('sha256').update('approve commands').digest('hex'), text: 'approve commands' })}\n`);
   spawnSync('sh', ['.agents/scripts/agent.sh', 'approve-pending'], { cwd: cm, env: sb.env });
   r = sb.pl(cm, ['doctor', '--apply-commands']);
   assert.equal(r.status, 0, r.text);

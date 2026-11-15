@@ -8,6 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { commitAll, git, newProject } from './helper-lib.mjs';
 import { A, accepted, project, refused, say } from './legacy-lib.mjs';
+import { PARKED } from './event-lib.mjs';
 
 // ---- wait-line ----------------------------------------------------------------------------------------------------------------------
 
@@ -31,7 +32,7 @@ test('wait-line: without a WHAT it names the dispatch in flight, and fails when 
   const nothing = A(d, ['wait-line', 'LC']);
   assert.equal(nothing.status, 1);
   assert.equal(nothing.err, 'nothing is in flight: name what you wait for, for example agent.sh wait-line LC "CI of the pull request"\n');
-  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  const child = spawn(process.execPath, PARKED, { stdio: ['pipe', 'ignore', 'ignore'] });
   try {
     mkdirSync(`${d}/.agents/runs/LC/dispatch`, { recursive: true });
     writeFileSync(`${d}/.agents/runs/LC/dispatch/001-reviewer-claude.running`, `pid=${child.pid}\nrole=reviewer\ntimeout=10000\nstarted_epoch=${Math.floor(Date.now() / 1000)}\n`);

@@ -11,17 +11,17 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { fixture } from './dispatch-lib.mjs';
+import { until as pollUntil } from './poll-lib.mjs';
 
 /** POSIX process groups, SIGTERM/SIGKILL/SIGHUP and `trap` in shell-script fake workers do not exist on Windows (the platform kill is taskkill, tested in proc and budget tests); this file hung a Windows leg for 90 minutes (A262). Only the text test of `dispatch.sh` is not skipped. Every POSIX test has a `timeout`, so an await on a child that never closes fails fast. */
 const posixOnly = process.platform === 'win32' ? 'POSIX process groups, signals, `ps` and a shell-script fake worker (A262)' : false;
 
-const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
 /** @param {number} pid */
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 // Nothing here asserts how long anything took (decision 4 of 2026-11-08): a wait is for an event (a pid, a marker file, a process gone), and ONLY its failsafe is a time.
 const FAILSAFE = 120000;
-/** @param {() => boolean} cond @param {number} [ms] the failsafe: a wait that never ends fails instead of hanging */
-async function until(cond, ms = FAILSAFE) { const t0 = Date.now(); while (!cond()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting'); await sleep(20); } }
+/** @param {() => boolean} cond */
+const until = (cond) => pollUntil(cond, FAILSAFE);
 /** @param {import('./dispatch-lib.mjs').Fixture} fx @param {string} f */
 const readLoc = (fx, f) => { try { return readFileSync(path.join(fx.loc, f), 'utf8'); } catch { return ''; } };
 /** @param {import('./dispatch-lib.mjs').Fixture} fx */
@@ -52,9 +52,11 @@ const GRACE_MS = 4242;
 function heldClock() {
   const real = globalThis.setTimeout;
   /** @type {Held[]} */ const held = [];
+  /** @type {Array<() => void>} */ let wake = [];
   /** @type {any} */ (globalThis).setTimeout = (/** @type {(...a: unknown[]) => void} */ fn, /** @type {number} */ ms, /** @type {unknown[]} */ ...args) => {
     if (ms === LIMIT_MS || (typeof ms === 'number' && ms > 3000 && ms <= GRACE_MS)) {
       held.push({ ms, fn, args, fired: false });
+      const w = wake; wake = []; for (const f of w) f();   // a timer is held: whoever waits for the next one looks again
       const handle = { ref() { return handle; }, unref() { return handle; }, hasRef() { return false; }, refresh() { return handle; }, close() { return handle; }, [Symbol.toPrimitive]() { return -1; } };
       return handle;
     }
@@ -67,6 +69,8 @@ function heldClock() {
     graces: () => held.filter((t) => t.ms !== LIMIT_MS),
     /** @param {Held | undefined} t */
     fire(t) { if (t && !t.fired) { t.fired = true; t.fn(...t.args); } },
+    /** the next timer the dispatcher holds (an event, not a duration) @returns {Promise<void>} */
+    nextHold: () => new Promise((r) => { wake.push(r); }),
     restore() { globalThis.setTimeout = real; },
   };
 }
@@ -74,8 +78,7 @@ function heldClock() {
 async function finish(clk, h) {
   let over = false;
   const code = h.done.then((c) => { over = true; return c; });
-  const t0 = Date.now();
-  while (!over) { if (Date.now() - t0 > FAILSAFE) throw new Error('the dispatch did not end'); for (const t of clk.graces()) clk.fire(t); await Promise.race([code, sleep(20)]); }
+  while (!over) { for (const t of clk.graces()) clk.fire(t); await Promise.race([code, clk.nextHold()]); }   // a grace is fired as soon as it is held; the failsafe is the test's own timeout
   return code;
 }
 

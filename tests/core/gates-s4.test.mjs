@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { A, AS, accepted, approveAsUser, expectMsg, gateStatus, git, must, passAll, refused, rec, repo, say, scaffold, solo, wclose, wev, wopen, writeReport } from '../lib/harness.mjs';
+import { PARKED } from './event-lib.mjs';
 import { gatesOf, implemented, kindClaim, passAllExtra, unfrozen, worker2 } from './gates-s4-lib.mjs';
 
 const GL = 'test: lookup returns the stored value';
@@ -127,19 +128,23 @@ test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable
   }
   assert.ok(!existsSync(path.join(d, '.agents/local/locks/shared.lock')), 'A196 the shared lock was left behind');
   // an older version's lock in the main tree, held by a live process, is waited for (read-only) and never removed: the command must not finish before the holder is gone
-  const holder = spawn('sleep', ['30'], { stdio: 'ignore' });
+  const holder = spawn(process.execPath, PARKED, { stdio: ['pipe', 'ignore', 'ignore'] });
   try {
     mkdirSync(path.join(d, '.agents/local/.lock'));
     writeFileSync(path.join(d, '.agents/local/.lock/pid'), `${holder.pid}\n`);
-    const cmd = spawn('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: { PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', PROOFLINE_NO_TTY: '1', PROOFLINE_LOCK_TIMEOUT: '20', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' });
-    /** @type {Promise<number>} */
-    const finished = new Promise((res) => { cmd.on('close', () => res(0)); });
+    const env = (/** @type {string} */ seconds) => ({ PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', PROOFLINE_NO_TTY: '1', PROOFLINE_LOCK_TIMEOUT: seconds, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' });
     const noted = () => [path.join(d, '.agents/runs/LC/LEDGER.log'), path.join(rwp, '.agents/runs/LC/LEDGER.log')].some((f) => existsSync(f) && readFileSync(f, 'utf8').includes('A196 after the old lock'));
-    await new Promise((res) => setTimeout(res, 1500));   // the holder is alive for this time; only the state at the kill is asserted, not the length of the wait
-    assert.equal(cmd.exitCode, null, 'A196 a worktree command did not wait for the live holder of the old main-tree lock (it ended before the holder was gone)');
+    // the holder is alive: the command waits for it (its own lock timeout, one second here) and gives up on that timeout; it does not take the lock over and writes nothing
+    const waiting = spawnSync('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('1'), encoding: 'utf8' });
+    assert.notEqual(waiting.status, 0, 'A196 a worktree command did not wait for the live holder of the old main-tree lock (it finished while the holder was alive)');
+    assert.match(`${waiting.stdout}${waiting.stderr}`, /lock timeout after 1s/, 'A196 the command did not stop on its lock timeout');
     assert.ok(!noted(), 'A196 the command wrote its ledger note while the old main-tree lock was still held');
+    // the holder is gone (the exit event of the process, then the lock is free): the same command runs and writes its note
+    const gone = new Promise((res) => { holder.on('exit', () => res(undefined)); });
     holder.kill();
-    await finished;
+    await gone;
+    const after = spawnSync('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('20'), encoding: 'utf8' });
+    assert.equal(after.status, 0, `A196 the command failed after the old lock was released: ${after.stdout}${after.stderr}`);
     assert.ok(noted(), 'A196 the command did not write its ledger note after the old lock was released');
   } finally { holder.kill(); rmSync(path.join(d, '.agents/local/.lock'), { recursive: true, force: true }); }
 });

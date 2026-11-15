@@ -78,12 +78,11 @@ export function toolsOnly(dir, tools) {
 export function preBashAsync(dir, command) {
   const json = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', cwd: dir, tool_name: 'Bash', tool_input: { command } });
   return new Promise((resolve) => {
-    const c = spawn(process.execPath, [hookFile, 'pretool', 'claude'], { cwd: dir, env: cleanEnv({ PROOFLINE_HOOK_APPROVE_BUDGET: '300', PROOFLINE_HOOK_LOCK_WAIT: '120' }) });
+    const c = spawn(process.execPath, [hookFile, 'pretool', 'claude'], { cwd: dir, env: cleanEnv({ PROOFLINE_HOOK_APPROVE_BUDGET: '300', PROOFLINE_HOOK_LOCK_WAIT: '120' }), timeout: 120000, killSignal: 'SIGKILL' });   // the failsafe of a hung hook is the runner's own `timeout`
     let out = '';
     c.stdout.on('data', (d) => { out += d; });
     c.stderr.on('data', () => {});
-    const t = setTimeout(() => c.kill('SIGKILL'), 120000);
-    c.on('close', () => { clearTimeout(t); resolve(out); });
+    c.on('close', () => { resolve(out); });
     c.stdin.on('error', () => {});
     c.stdin.end(json);
   });

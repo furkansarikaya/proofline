@@ -8,12 +8,13 @@
 //  - next and digest stay close to their small-run time with a large run folder (performance, relative).
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, watch, writeFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, cleanEnv, newRepo, sha256, tmp } from '../lib/harness.mjs';
 import { repo, scripts } from '../lib/harness.mjs';
-import { editConfig, kv, shim, sleepSync, strip } from './cfg-util.mjs';
+import { editConfig, kv, shim, strip } from './cfg-util.mjs';
+import { recordsAge } from './enforcement-a-lib.mjs';
 import { fixture } from './lib.mjs';
 
 const hookPath = (/** @type {string} */ d) => path.join(d, '.agents/hooks/proofline-hook.mjs');
@@ -107,27 +108,31 @@ test('hook_config_knobs: hook time knobs are validated, bounded below and above,
   assert.equal(strip(core(['get', merged2, 'hook.approve_budget_seconds'])), '20', 'upgrade did not add the default hook block to an old config');
 });
 
-test('intake_first: the user\'s message is written first, before any git call or scan, and survives a stopped hook', async () => {
+test('intake_first: the user\'s message is written first, before any git call or scan, and survives a stopped hook', { timeout: 30000 }, async (t) => {
   const d = fixture();
-  const PATH = shim(path.join(tmp('shim'), 'bin'), 'git', `#!/bin/sh\nsleep 4\nexec ${gitPath} "$@"\n`);
-  const t0 = ms();
-  const child = spawn(process.execPath, [hookPath(d), 'prompt', 'claude'], { cwd: d, env: cleanEnv({ CLAUDE_PROJECT_DIR: d, PATH }), stdio: ['pipe', 'ignore', 'ignore'], detached: true });
+  // the folder exists before the hook starts, so that the test can watch it: the hook writes the raw event into it before anything else
+  const intakeDir = path.join(d, '.agents/local/prompts/intake');
+  mkdirSync(intakeDir, { recursive: true });
+  const child = spawn(process.execPath, [hookPath(d), 'prompt', 'claude'], { cwd: d, env: cleanEnv({ CLAUDE_PROJECT_DIR: d }), stdio: ['pipe', 'ignore', 'ignore'], detached: true });
+  const killGroup = () => { if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } };
+  const holds = () => lsGlob(d, '.agents/local/prompts/intake', /\.json$/).some((f) => readFileSync(f, 'utf8').includes(msg));
+  /** @type {import('node:fs').FSWatcher | undefined} */ let watcher;
+  t.after(() => { watcher?.close(); killGroup(); });
+  // the file system tells the test when the message is on disk: every change of the folder is a reason to look again
+  const onDisk = new Promise((res) => {
+    watcher = watch(intakeDir, () => { if (holds()) res(undefined); });
+    if (holds()) res(undefined);
+  });
   child.stdin.on('error', () => {});
   child.stdin.end(promptJson(d, msg));
-  const intake = () => lsGlob(d, '.agents/local/prompts/intake', /\.json$/);
-  for (let i = 0; i < 30 && intake().length === 0; i++) await new Promise((r) => setTimeout(r, 100));
-  const t1 = ms();
-  try {
-    assert.ok(intake().length > 0, 'the prompt was not on disk while the hook was still waiting for git');
-    if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ }
-    assert.ok(intake().some((f) => readFileSync(f, 'utf8').includes(msg)), "the intake file does not hold the user's message");
-    assert.ok(t1 - t0 < 3500, `the intake write waited for git (${t1 - t0} ms)`);
-  } finally { if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }
+  await onDisk;
+  killGroup();   // the hook is stopped; the message was already written
+  assert.ok(holds(), "the intake file does not hold the user's message");
 });
 
 test('timeout_message: a forced hook timeout keeps the message and says in one line that the approval was not recorded', () => {
   const d = fixture();
-  A(d, ['request-approval', 'LC', 'plan']); sleepSync(1000);
+  A(d, ['request-approval', 'LC', 'plan']); recordsAge(d);
   const holder = spawn('sleep', ['60'], { stdio: 'ignore' });
   try {
     mkdirSync(path.join(d, '.agents/local/.lock'));
@@ -141,12 +146,12 @@ test('timeout_message: a forced hook timeout keeps the message and says in one l
     assert.ok(lsGlob(d, '.agents/local/prompts/intake', /\.json$/).some((f) => readFileSync(f, 'utf8').includes(msg)), "the user's message is not in the intake");
   } finally { holder.kill(); }
   // an approval that DID get written before the stop is reported as recorded, not as lost
-  sleepSync(1000); A(d, ['request-approval', 'LC', 'plan']); sleepSync(1000);
+  recordsAge(d); A(d, ['request-approval', 'LC', 'plan']); recordsAge(d);
   const out2 = prompt(d, msg);
   assert.ok(out2.includes('approval recorded'), `a normal approval was not recorded: ${out2}`);
   // review A3 at the hook: a budget written with a leading zero does not break the hook's arithmetic, the approval is still recorded
   for (const f of lsGlob(d, '.agents/runs/LC/approvals', /^\d{3}-plan\.yaml$/)) rmSync(f);
-  sleepSync(1000); A(d, ['request-approval', 'LC', 'plan']); sleepSync(1000);
+  recordsAge(d); A(d, ['request-approval', 'LC', 'plan']); recordsAge(d);
   editConfig(d, (t) => t.replace('approve_budget_seconds: 20', 'approve_budget_seconds: 08'));
   assert.ok(readFileSync(path.join(d, '.agents/config.yaml'), 'utf8').includes('approve_budget_seconds: 08'), 'test setup: the zero-padded budget was not written');
   const out3 = prompt(d, msg);

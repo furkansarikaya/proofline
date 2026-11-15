@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, accepted, approveAsUser, project, read, refused } from './legacy-lib.mjs';
+import { PARKED } from './event-lib.mjs';
 
 /** The fixture installs a two-operation stub of the markdown adapter (a project script wins); `start` runs the built-in one, so the stub is removed. @param {string} d */
 const withAdapter = (d) => { rmSync(`${d}/.agents/task-integrations/markdown.sh`, { force: true }); return d; };
@@ -139,7 +140,7 @@ test('a child of a lock-holding command takes the locks over (no wait, no early 
 test('a lock held by a stranger is still waited for (the hand-over is for the parent only)', () => {
   const d = project('scaffold standalone');
   // the holder is a live process that is not our parent; its WINDOWS pid is the one in the pid file (an MSYS shell's `$!` is not one, A267)
-  const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { stdio: 'ignore' });
+  const holder = spawn(process.execPath, PARKED, { stdio: ['pipe', 'ignore', 'ignore'] });
   try {
     const pid = /** @type {number} */ (holder.pid);
     mkdirSync(`${d}/.agents/local/locks/shared.lock`, { recursive: true });

@@ -5,20 +5,20 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync, copyFileSync, cpSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, copyFileSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 import { A, cleanEnv, commitAll, newRepo, tsha } from '../lib/harness.mjs';
 import { repo } from '../hook/harness.mjs';
 import { H, allowed, denied, fixture, preBash, preEdit, prompt, subStop } from './lib.mjs';
+import { recordsAge } from './enforcement-a-lib.mjs';
 
 const base = tempDir('enf-b-');
 after(() => rmSync(base, { recursive: true, force: true }));
 let n = 0;
 /** A scratch folder outside the projects (the shell suite's $base/...). @param {string} prefix */
 const scratch = (prefix) => { const d = path.join(base, `${prefix}${++n}`); mkdirSync(d, { recursive: true }); return d; };
-const sleep = (/** @type {number} */ s) => { const c = new Int32Array(new SharedArrayBuffer(4)); Atomics.wait(c, 0, 0, s * 1000); };
 const exists = (/** @type {string} */ p) => existsSync(p);
 
 /** @typedef {['D' | 'A', string, 'pre_bash' | 'pre_edit', string[], string?]} Case  denied / allowed, label, call, arguments, expected reason */
@@ -196,21 +196,21 @@ test('hook_wiring (CLI-3, CLI-4): Codex hook commands resolve the project root, 
   renameSync(bak, hookFile);
   let out = H(d, 'session', JSON.stringify({ hook_event_name: 'SessionStart', cwd: d }));
   assert.ok(out.includes('(.agents/skills/proofline-lead/SKILL.md)'), `CLI-4 SessionStart skill path: ${out}`);
-  sleep(2);   // the same event within two seconds is a duplicate registration (below)
+  recordsAge(d);   // the same event within two seconds is a duplicate registration (below): the stamp of the first one is moved back instead of waiting
   out = H(d, 'session', JSON.stringify({ hook_event_name: 'SessionStart', cwd: d }), { env: { CLAUDE_PLUGIN_ROOT: '/plug' } });
   assert.ok(out.includes('/plug/skills/proofline-lead/SKILL.md'), `CLI-4 plugin SessionStart skill path: ${out}`);
   // One registration source: the plugin command stands down when the project settings already carry the hook.
   const pc = jcmd(path.join(repo, 'adapters/claude/hooks/hooks.json'), 'SessionStart'); const sj = JSON.stringify({ hook_event_name: 'SessionStart', cwd: d });
   const PS = () => shc(pc, d, sj, { CLAUDE_PROJECT_DIR: d, CLAUDE_PLUGIN_ROOT: repo }).stdout;
-  sleep(2); mkdirSync(path.join(d, '.claude'), { recursive: true });
+  recordsAge(d); mkdirSync(path.join(d, '.claude'), { recursive: true });
   copyFileSync(path.join(repo, 'adapters/claude/settings.fragment.json'), path.join(d, '.claude/settings.json'));
   assert.equal(PS(), '', 'the plugin hook ran although the project settings register the same event');
   writeFileSync(path.join(d, '.claude/settings.json'), readFileSync(path.join(d, '.claude/settings.json'), 'utf8').split('\n').filter((l) => !l.includes(' session claude')).join('\n') + '\n');
   assert.ok(PS().includes('proofline installed'), 'the plugin hook stood down because the project registers other events only');
-  rmSync(path.join(d, '.claude/settings.json')); sleep(2);
+  rmSync(path.join(d, '.claude/settings.json')); recordsAge(d);
   assert.ok(PS().includes('proofline installed'), 'the plugin hook did not run without project settings');
   // The same event started three times at once (Codex registers a hook up to three times) runs once.
-  sleep(2);
+  recordsAge(d);
   const outs = await Promise.all([1, 2, 3].map(() => new Promise((res) => {
     const c = spawn('sh', ['-c', pc], { cwd: d, env: cleanEnv({ CLAUDE_PROJECT_DIR: d, CLAUDE_PLUGIN_ROOT: repo }) });
     let o = ''; c.stdout.on('data', (x) => { o += x; }); c.on('close', () => res(o)); c.stdin.end(sj);
@@ -363,7 +363,7 @@ test('database_guard (DB-33b, DB-37 .. DB-41): the Claude PreToolUse matchers re
   const snap = path.join(d, '.agents/local/db/DB-1.snapshot');
   assert.ok(exists(snap) && /^data\/app\.db\|/m.test(readFileSync(snap, 'utf8')), 'DB-37 start did not record the database baseline');
   assert.equal(A(d, ['db-check', 'DB-1']).status, 0, 'DB-38 unchanged database reported as changed');
-  sleep(1); appendFileSync(path.join(d, 'data/app.db'), 'changed');
+  appendFileSync(path.join(d, 'data/app.db'), 'changed'); utimesSync(path.join(d, 'data/app.db'), 1e9, 1e9);   // the size changes and the modification time is a fixed other one: no wait for the clock to move
   let r = A(d, ['db-check', 'DB-1']);
   assert.notEqual(r.status, 0, 'DB-39 changed database not detected');
   assert.ok(r.text.includes('database guard: a database file changed'), `DB-39 message: ${r.text}`);

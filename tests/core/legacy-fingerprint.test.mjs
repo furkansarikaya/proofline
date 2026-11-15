@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { A, project } from './legacy-lib.mjs';
+import { PARKED } from './event-lib.mjs';
 
 const RECIPE = 'scaffold orchestrated no COMPLEX ""';
 
@@ -69,7 +70,7 @@ function setcfg(dir, section, key, value) {
 
 test('warn_line: a step at 80% of its time gets one TIME line in next and wait-line; none before, none when dead; the wait instruction stays', async () => {
   const dir = project(RECIPE);
-  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+  const child = spawn(process.execPath, PARKED, { stdio: ['pipe', 'ignore', 'ignore'] });
   try {
     /** @param {number} elapsed @param {number} limit */
     const mk = (elapsed, limit) => {

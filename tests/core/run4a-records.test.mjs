@@ -18,6 +18,8 @@ import { scrub } from '../../control-plane/agents/scripts/core/statusblock.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { verifyAssumptions } from '../../control-plane/agents/scripts/core/questions.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
+import { tempDir } from '../lib/tempdir.mjs';
+import { lines, listenOnce } from './event-lib.mjs';
 import { dbSnapshot } from '../../control-plane/agents/scripts/core/dbguard.mjs';
 
 const rv = (/** @type {string} */ d, /** @type {string} */ section, /** @type {string} */ key) => {
@@ -545,24 +547,25 @@ test('verify-assumptions: the word `ask` on the command line asks nothing (the c
   assert.ok(!existsSync(`${d}/.agents/runs/LC/questions`), 'a question was recorded without the locks');
 });
 
-test('answer: the status-block adapter runs after the locks are released, so a slow tracker does not hold them', async () => {
+test('answer: the status-block adapter runs after the locks are released, so a slow tracker does not hold them', async (t) => {
   const d = project('scaffold orchestrated');
   accepted(A(d, ['ask', 'LC'], { input: '1. Which one?\n   options: a | b\n' }), 'ask');
-  adapter(d, 'sleep 8');
+  // the slow tracker: the adapter reports over a local socket that it is running and then lives as long as the test keeps the connection open
+  const dir = tempDir('pl-answer-');
+  const srv = await listenOnce(dir);
   const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({}), stdio: ['pipe', 'ignore', 'ignore'] });
+  t.after(() => { child.kill(); void srv.close(); rmSync(dir, { recursive: true, force: true }); });
+  adapter(d, `exec ${JSON.stringify(process.execPath)} -e 'const s = require("node:net").connect(process.argv[1], () => s.write("up\\n"));' ${JSON.stringify(srv.path)}`);
   child.stdin.end('a\n');
-  let exited = false;
-  child.on('exit', () => { exited = true; });
+  const exited = new Promise((res) => { child.on('exit', () => res(undefined)); });
+  const sock = await srv.first;
+  await lines(sock)();   // "up": the adapter is running now
   const locks = [`${d}/.agents/local/locks/shared.lock`, `${d}/.agents/runs/LC/.lock`];
-  const answered = `${d}/.agents/runs/LC/questions/001.answer.md`;
-  const t0 = Date.now();
-  let freeWhileRunning = false;
-  while (Date.now() - t0 < 7000 && !exited) {
-    if (existsSync(answered) && locks.every((l) => !existsSync(l))) { freeWhileRunning = true; break; }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  assert.ok(freeWhileRunning && !exited, 'the locks were still held while the adapter ran');
-  child.kill();
+  assert.ok(existsSync(`${d}/.agents/runs/LC/questions/001.answer.md`), 'the answer was not recorded before the adapter ran');
+  assert.deepEqual(locks.filter((l) => existsSync(l)), [], 'the locks were still held while the adapter ran');
+  assert.equal(child.exitCode, null, 'the command ended before its adapter did');
+  sock.destroy();   // the tracker is done: the adapter ends and with it the command
+  await exited;
 });
 
 test('delivery-check secret scan: in a run worktree the files of the worktree are scanned (the trusted scanner is the main tree\'s and must not look in the main tree)', () => {
