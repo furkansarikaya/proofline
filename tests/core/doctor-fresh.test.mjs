@@ -137,6 +137,15 @@ test('the CI line: a GitHub project without a pull_request workflow warns with t
   assert.ok(!ok.out.includes('WARN ci:'));
 });
 
+test('the toolchain line: a pinned .NET SDK that is not installed is a mismatch naming the installed SDKs, not "not installed" (A279)', () => {
+  const d = sb.copy('ddn'); writeFileSync(`${d}/global.json`, '{ "sdk": { "version": "10.0.100" } }\n');
+  const bin = `${sb.T}/fakedotnet`; mkdirSync(bin, { recursive: true });
+  writeFileSync(`${bin}/dotnet`, '#!/bin/sh\ncase "$1" in --version) echo "Requested SDK version: 10.0.100" >&2; exit 145 ;; --list-sdks) echo "8.0.134 [/usr/share/dotnet/sdk]" ;; esac\n'); chmodSync(`${bin}/dotnet`, 0o755);
+  const r = sb.pl(d, ['doctor'], { PATH: `${bin}${path.delimiter}${sb.env.PATH}` });
+  assert.ok(r.out.includes('WARN toolchain dotnet: 10.0.100 (global.json) is not installed here; installed: 8.0.134, so a green local run may not hold in CI\n'), r.out);
+  assert.ok(!r.out.includes('toolchain dotnet: not installed'));
+});
+
 test('the toolchain line: a different Node major is a WARN that keeps the exit 0; the same major passes; a project without a runtime marker prints nothing', async () => {
   const dtc = sb.copy('dtc'); mkdirSync(`${dtc}/.github/workflows`, { recursive: true });
   writeFileSync(`${dtc}/.github/workflows/ci.yml`, 'on:\n  pull_request:\njobs:\n  t:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n');

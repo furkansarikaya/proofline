@@ -10,7 +10,7 @@
 //   ## AC coverage         | AC | test or command | status | evidence |     status PASS|FAIL|MISSING
 //   ## Scope               verify-scope: exit=N
 //   ## Design sync         design-sync: PASS|FAIL|SKIPPED (reason)
-//   ## Runtime             runtime: <name> local=<ver|missing> ci=<spec|none> source=<file|-> status=<match|mismatch|unknown>
+//   ## Runtime             runtime: <name> local=<ver|missing> ci=<spec|none> source=<file|-> status=<match|mismatch|unknown> [installed=<v,v>]
 //                          (lines of runtime-versions.mjs, or `runtime: none (reason)`); information only, never changes the verdict (0.0.26)
 //   ## Pre-existing failures   None | one line per command that failed at head AND base
 //   ## Failures            None | findings (each entry fails the gate: dependency, contract, design drift)
@@ -124,7 +124,7 @@ export function validateVerify(text, taskText, planText) {
       const t = line.trim();
       if (!t) continue;
       if (/^runtime: none \(\S.*\)$/.test(t)) { valid++; continue; }
-      const m = /^runtime: ([a-z][a-z0-9_-]*) local=(\S+) ci=(\S+) source=(\S+) status=(match|mismatch|unknown)$/.exec(t);
+      const m = /^runtime: ([a-z][a-z0-9_-]*) local=(\S+) ci=(\S+) source=(\S+) status=(match|mismatch|unknown)( installed=\S+)?$/.exec(t);
       if (!m) { if (/^runtime:/.test(t)) errors.push(`malformed runtime line "${t.slice(0, 70)}" (expected "runtime: <name> local=<version|missing> ci=<spec|none> source=<file|-> status=match|mismatch|unknown")`); continue; }
       valid++;
       if ((m[2] === "missing" || m[3] === "none") && m[5] !== "unknown") errors.push(`runtime ${m[1]}: status must be unknown when local is missing or ci is none`);
