@@ -20,7 +20,7 @@ import { verifyCompletionReport } from './complreport.mjs';
 import { requireLead, requireOpenRun } from './approve.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gatesEnforced, ledgerLines, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileText, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { hookTime } from './commands/hookcmds.mjs';
@@ -285,9 +285,9 @@ export function cleanupRun(ctx, id, mergeProved = false) {
   { const mark = ctx.chunks.length; try { rulesCommand(ctx, ['tally']); } catch { /* the counter is a courtesy */ } ctx.chunks.length = mark; }
   if (term) {
     verifySeal(ctx, id, dir);
-    const lines = ledgerLines(ctx, dir);
-    const last = lines.filter((l) => !/ event=hook(-timeout)? /.test(l)).pop();
-    const ok = last !== undefined && / event=(terminate|knowledge-done) /.test(last) && lines.some((l) => l.includes(' event=terminate '));
+    const rows = ledgerRows(ctx, dir, /^/).filter((r) => r.event !== 'hook' && r.event !== 'hook-timeout');
+    const last = rows.pop();
+    const ok = last !== undefined && (last.event === 'terminate' || last.event === 'knowledge-done') && ledgerRows(ctx, dir, 'terminate').length > 0;
     if (!ok) fail(`cleanup of a ${state} run requires its ledgered terminate transition: ${id}`);
   } else {
     if (sectionValue(ctx, dir, 'handoff', 'state') !== 'DONE') fail(`cleanup requires handoff DONE (or a FAILED/BLOCKED run): ${id}`);

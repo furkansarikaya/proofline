@@ -13,7 +13,7 @@ import { isFile } from './paths.mjs';
 import { adapterExists, runTaskAdapter } from './adapters/index.mjs';
 import * as proc from './proc.mjs';
 import { assumptionStates } from './questions.mjs';
-import { fileLines, fileText, gatesEnforced, sectionValue } from './records.mjs';
+import { fileLines, fileText, gatesEnforced, ledgerRows, sectionValue } from './records.mjs';
 import { evidenceRunCounts, fixRoundsDone, reportExecution, reportFacts } from './reports.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -239,7 +239,7 @@ function claimsCheck(ctx, id, file) {
   const [wt, wp] = evidenceRunCounts(ctx, dir);
   const gn = requiredGates(ctx, dir).length;
   const fr = fixRoundsUsed(ctx, dir); const fm = maxFixRounds(ctx); const done = fixRoundsDone(ctx, dir);
-  const rz = String(fileLines(ctx, `${dir}/LEDGER.log`).filter((l) => l.includes('event=refreeze ')).length);
+  const rz = String(ledgerRows(ctx, dir, 'refreeze').length);
   const tests = [wt, wp, wt - wp]; const gates = [gn, 0]; const rounds = [fr, fm, done]; const refz = [Number(rz)];
   const tlab = `worker-evidence run records: total ${wt}, ended pass ${wp}, ended fail ${wt - wp}; no record counts individual tests`;
   const glab = `required gates ${gn}`; const rlab = `used ${done}, maximum ${fm}`; const zlab = `refreezes ${rz}`;

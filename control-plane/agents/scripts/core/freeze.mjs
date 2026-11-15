@@ -22,7 +22,7 @@ import { PathKinds, scopeKindRows } from './pathkind.mjs';
 import { planMigrationShape } from './plancheck.mjs';
 import * as proc from './proc.mjs';
 import { askQuestion, verifyAssumptions } from './questions.mjs';
-import { fileLines, fileText, gateField, gatesEnforced, ledgerLines, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileLines, fileText, gateField, ledgerRows, gatesEnforced, ledgerLines, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { planEntries, pipelineClass, pipelineClassValid, pipelineDeclared, pipelineNeeds, pipelineValue, riskConfigHash, runAutonomy, validationCandidates, planValidationMissing, RISK_PLAN_FLAGS } from './signals.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -539,7 +539,7 @@ export function freezeRun(ctx, id, word, amendment) {
     if (!(word === 'refreeze' && amendment !== '')) fail(`existing freeze requires an explicit amendment. ${refreezeHint(id)}`);
     if (amendment.includes('/') || amendment.includes('..')) fail(`invalid amendment name: ${amendment} (a file name inside the run's amendments/ folder, no directory part). ${refreezeHint(id)}`);
     if (!isFile(`${dir}/amendments/${amendment}`)) fail(`amendment ${amendment} not found at ${dir}/amendments/${amendment}. ${refreezeHint(id)}`);
-    if (fileLines(ctx, `${dir}/LEDGER.log`).some((l) => l.includes('event=refreeze ') && l.includes(`detail=amendment ${amendment}`))) fail(`amendment ${amendment} was already used for a refreeze; write a new amendment`);
+    if (ledgerRows(ctx, dir, 'refreeze').some((r) => r.detail === `amendment ${amendment}`)) fail(`amendment ${amendment} was already used for a refreeze; write a new amendment`);
     mode = 'refreeze';
   }
   verifyScopeExistence(ctx, id, mode);

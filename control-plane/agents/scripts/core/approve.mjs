@@ -24,7 +24,7 @@ import * as proc from './proc.mjs';
 import { Context } from './context.mjs';
 import { LockSet, takeCommandLocks } from './lock.mjs';
 import { isDir, isFile } from './paths.mjs';
-import { WS, fileLines, gateField, readBytes, sectionValue, textLines } from './records.mjs';
+import { WS, fileLines, gateField, ledgerRows, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
 import { exceptionLines, exceptionsBaseLines } from './testreview.mjs';
@@ -473,8 +473,8 @@ export function mutationBudget(ctx, id) {
   if (!/^[0-9]+$/.test(o)) o = '0';
   o = o.replace(/^0+/, '');
   if (o === '') o = '0';
-  const led = readBytes(`${runDir(ctx, id)}/LEDGER.log`) ?? '';
-  if (!led.split('\n').some((l) => new RegExp(`event=raise-budget .*test_trust.mutation_budget ${o} for this run`).test(l))) o = '0';
+  const raised = new RegExp(`^test_trust\\.mutation_budget ${o} for this run, approval `);
+  if (!ledgerRows(ctx, runDir(ctx, id), 'raise-budget').some((r) => raised.test(r.detail))) o = '0';
   return BigInt(o) > BigInt(b) ? o : b;
 }
 

@@ -13,7 +13,7 @@ import { enforceTaskBranch, setRunValue } from './lifecycle.mjs';
 import { fieldFromText, justificationOk, led, must, oneLine, quietly, readStdin } from './lifeutil.mjs';
 import { raiseBudgetCommand } from './gatecmd.mjs';
 import { isFile } from './paths.mjs';
-import { authorizedPath, ledgerLines, fileText, gateField, gatesEnforced, planScope, sectionKeyPresent, sectionValue } from './records.mjs';
+import { authorizedPath, ledgerLines, ledgerRows, fileText, gateField, gatesEnforced, planScope, sectionKeyPresent, sectionValue } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { ledgerToken } from './questions.mjs';
 import { freshness, verifyHandoff, verifyScope } from './commands/verify.mjs';
@@ -137,8 +137,8 @@ export function reopenRun(ctx, id) {
   verifySeal(ctx, id, dir);
   const reason = fieldFromText(readStdin(), 'reason');
   if (!justificationOk(reason)) fail("reopen requires a specific 'reason:' on stdin (>=20 chars: what changed since the run ended)");
-  const termLine = ledgerLines(ctx, dir).filter((l) => l.includes(' event=terminate ')).pop();
-  const prev = termLine === undefined ? '' : (/ from=([^ ]*) /.exec(termLine)?.[1] ?? '');
+  const termRow = ledgerRows(ctx, dir, 'terminate').pop();
+  const prev = termRow === undefined ? '' : termRow.from;
   if (prev === '') fail(`reopen: the ledger has no terminate transition for ${id}`);
   enforceTaskBranch(ctx, id);
   // 1. the plan is unchanged and the scope still holds

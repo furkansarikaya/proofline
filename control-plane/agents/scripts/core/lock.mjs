@@ -77,8 +77,11 @@ export function ledgerAppend(runDir, role, event, from, to, detail) {
   const t = now();
   // A284: free text in `detail` (a reason, an evidence note) must not carry the row grammar: many readers look for ` event=X ` inside a line, so a key of the row that the readers search for followed by `=` is
   // written with `:` instead (`event=` -> `event:`); `from=` and `to=` stay (ledger notes use them, e.g. `failover from=claude to=codex`, and no decision reads them from free text); the readers see only the keys this function wrote
-  const one = detail.replace(/[\n\t\r]/g, ' ').replace(/(?<![A-Za-z0-9_])(seq|prev|event|role|digest|ts|epoch|detail)=/g, '$1:');
-  const line = `seq=${seq} prev=${prev} event=${event} role=${role} from=${from || '-'} to=${to || '-'} digest=${lifecycleDigest(rows)} ts=${t.iso} epoch=${t.epoch} detail=${one}\n`;
+  // review round 2: any occurrence of a key (no word boundary: `xevent=`, any case, blanks before the `=`) is escaped (`ts` only after a non-word character: `tests=1` is a detail the control plane writes itself); `from=` and `to=` of free text stay (see above)
+  const one = detail.replace(/[\n\t\r]/g, ' ').replace(/(seq|prev|event|role|digest|epoch|detail)[ ]*=/gi, '$1:').replace(/(?<![a-z0-9_])(ts)[ ]*=/gi, '$1:');
+  // the fields the callers pass (event, role, states) are one word each: a blank, a control character or `=` in one would open a second field
+  const word = (/** @type {string} */ x) => (x === '' ? '-' : x.replace(/[\s=]/g, '_'));
+  const line = `seq=${seq} prev=${prev} event=${word(event)} role=${word(role)} from=${word(from)} to=${word(to)} digest=${lifecycleDigest(rows)} ts=${t.iso} epoch=${t.epoch} detail=${one}\n`;
   try { appendFileSync(file, Buffer.from(line, 'latin1')); } catch { fail(`could not append to lifecycle ledger: ${file}`); }
 }
 

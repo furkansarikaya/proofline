@@ -31,7 +31,7 @@ import { cleanToolEnv, detectPlatform, linkText, resolveGit, parseJson, resolveT
 import * as proc from './proc.mjs';
 import { runTaskAdapter } from './adapters/index.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
-import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
+import { fileLines, fileText, gateField, gatesEnforced, ledgerRows, scopeMappings, sectionValue, textLines } from './records.mjs';
 import { amendRun } from './reopen.mjs';
 import { hooksOff } from './hooksoff.mjs';
 import { MAX_TREES, hgit, populatedGitlinks, repoDrivers } from './hgit.mjs';
@@ -808,7 +808,7 @@ function inProcessCleanup(ctx, id) {
 const CI_FIX_MAX = 2;
 
 /** `ci_fix_count` from the sealed ledger. @param {Context} ctx @param {string} id */
-function ciFixCount(ctx, id) { return fileLines(ctx, `${runDir(ctx, id)}/LEDGER.log`).filter((l) => l.includes(' event=ci-fix-open ')).length; }
+function ciFixCount(ctx, id) { return ledgerRows(ctx, runDir(ctx, id), 'ci-fix-open').length; }
 
 /** `ci_rec_set FILE KEY VALUE` @param {Context} ctx @param {string} file @param {string} k @param {string} v */
 function recSet(ctx, file, k, v) {

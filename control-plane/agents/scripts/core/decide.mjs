@@ -21,7 +21,7 @@ import { inflightAlive } from './dispatch.mjs';
 import { ledgerAppend } from './lock.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gateField, gatesEnforced, sectionValue, textLines } from './records.mjs';
+import { fileText, gateField, gatesEnforced, ledgerRows as ledgerRowsOf, sectionValue, textLines } from './records.mjs';
 import { requireOpenRun, requireLead, nextNum } from './approve.mjs';
 import { metricsJson } from './runend.mjs';
 import { gateOf } from './resultutil.mjs';
@@ -128,7 +128,7 @@ function explorerSlotCheck(ctx, id, cls) {
   const ledger = fileText(ctx, `${dir}/LEDGER.log`);
   const ledgerRows = ledger === null ? [] : textLines(ledger);
   let floor = 0;
-  for (const l of ledgerRows) if (/ event=(freeze|refreeze) /.test(l)) { const m = /^seq=([0-9]+)/.exec(l); floor = m ? Number(m[1]) : 0; }
+  for (const r of ledgerRowsOf(ctx, dir, /^(freeze|refreeze)$/)) floor = r.seq;
   /** @type {string[]} */ const have = []; /** @type {string[]} */ const keys = [];
   let results = [];
   try { results = readdirSync(`${dir}/results`).filter((n) => /^[0-9]{3}-explorer\.result\.md$/.test(n)).sort(); } catch { results = []; }

@@ -4,7 +4,7 @@
 import { fail } from './errors.mjs';
 import { sha256 } from './hash.mjs';
 import { hashFile } from './fingerprint.mjs';
-import { ledgerLines, runYaml, sectionValue, gatesEnforced } from './records.mjs';
+import { ledgerLines, parseLedgerLine, runYaml, sectionValue, gatesEnforced } from './records.mjs';
 import { readdirSync, statSync } from 'node:fs';
 
 export { ledgerAppend } from './lock.mjs';
@@ -66,16 +66,17 @@ export function verifySeal(ctx, id, dir) {
  */
 export function boundNames(ctx, dir, sub, eventEre, names) {
   if (names.length === 0 || !nonEmpty(`${dir}/LEDGER.log`)) return [];
-  const re = new RegExp(`^event=${eventEre}`);
-  const text = ctx.once(`ledger-bound:${dir}:${eventEre}`, () => {
-    let all = '';
+  const re = new RegExp(`^(?:${eventEre})`);
+  // A284: the token is the FIRST word of the `detail` the control plane wrote ("<sub>/<name>@<sha256> ..."); the free-text tail of a row (a reason, an evidence note) is never searched
+  const tokens = ctx.once(`ledger-bound:${dir}:${eventEre}`, () => {
+    /** @type {Set<string>} */ const all = new Set();
     for (const l of ledgerLines(ctx, dir)) {
-      const f = l.split(/[ \t\n]+/).filter((x) => x !== '');
-      if (f[2] !== undefined && re.test(f[2])) all += ` ${l.replace(' detail=', ' detail= ')} `;
+      const row = parseLedgerLine(l);
+      if (row !== null && re.test(row.event)) all.add(row.detail.split(' ')[0]);
     }
     return all;
   });
-  return names.filter((n) => text.includes(` ${sub}/${n}@${hashFile(`${dir}/${sub}/${n}`)} `));
+  return names.filter((n) => tokens.has(`${sub}/${n}@${hashFile(`${dir}/${sub}/${n}`)}`));
 }
 
 /** The names of a record folder (`ls -1`, byte order) that match a pattern. @param {string} folder @param {RegExp} re */

@@ -126,6 +126,20 @@ export function parseLedgerLine(line) {
   return { seq: Number(m[1]), prev: m[2], event: m[3], role: m[4], from: m[5], to: m[6], digest: m[7], ts: m[8], epoch: m[9], detail: m[10] };
 }
 
+/**
+ * The rows of a run's ledger that parse as a whole row (the grammar `ledgerAppend` writes, from the start of the line) and whose event field equals EVENT (a string) or matches it (a RegExp).
+ * The decision readers use this and never look for ` event=X ` inside a line (A284): free text of a row cannot make a row.
+ * @param {Context} ctx @param {string} dir @param {string | RegExp} event @returns {LedgerLine[]}
+ */
+export function ledgerRows(ctx, dir, event) {
+  /** @type {LedgerLine[]} */ const out = [];
+  for (const l of fileLines(ctx, `${dir}/LEDGER.log`)) {
+    const r = parseLedgerLine(l);
+    if (r !== null && (typeof event === 'string' ? r.event === event : event.test(r.event))) out.push(r);
+  }
+  return out;
+}
+
 /** The ledger lines of a run, read once. @param {Context} ctx @param {string} dir */
 export function ledgerLines(ctx, dir) { return fileLines(ctx, `${dir}/LEDGER.log`); }
 

@@ -14,7 +14,7 @@ import { clean } from './codetrust.mjs';
 import { ecosystemRowsAll } from './ecodata.mjs';
 import { patchManifest, testCodePath } from './gates.mjs';
 import { sha256 } from './hash.mjs';
-import { fileText, ledgerLines, parseLedgerLine, textLines } from './records.mjs';
+import { fileText, ledgerLines, ledgerRows, parseLedgerLine, textLines } from './records.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -122,8 +122,8 @@ export function collect(ctx, id) {
   const greens = greenRecords(ctx, id);
   const recorded = greens.flatMap((g) => g.durations.map((d) => asciiLower(d.name)));
   const planTestsWithoutDuration = [...new Set(pk.names.map((n) => n.name).filter((n) => !recorded.some((r) => r === n || r.includes(n) || n.includes(r))))].sort();
-  const row = [...ledgerLines(ctx, dir)].reverse().find((l) => l.includes(' event=test-measure '));
-  const detail = row === undefined ? '' : (/ detail=(.*)$/.exec(row)?.[1] ?? '');
+  const row = ledgerRows(ctx, dir, 'test-measure').pop();
+  const detail = row === undefined ? '' : row.detail;
   const num = (/** @type {string} */ k) => { const v = new RegExp(`\\b${k}=(\\d+)`).exec(detail)?.[1]; return v === undefined ? null : Number(v); };
   const pinned = new Set((recordedTestPin(ctx, id) ?? '').split(',').filter((h) => h !== ''));
   const listed = new Set(planVerificationCommands(ctx, id));
@@ -163,8 +163,8 @@ export function collect(ctx, id) {
   for (const n of planTestsWithoutDuration) need.push({ text: `the plan test "${n}" that has no recorded duration (subject: ${n})`, kind: 'not_measured', match: nm('no_recorded_duration', n) });
   for (const c of commands) if (c.source === 'neither') need.push({ text: `the GREEN command \`${c.command}\` that the control plane did not run twice (subject: the command)`, kind: 'not_measured', match: nm('command_not_double_run', c.command) });
   // the definition the scan read must be the one the run started with (the start recorded its hash): a changed copy could have removed the very names that would have found a wait
-  const pin = [...ledgerLines(ctx, dir)].find((l) => l.includes(' event=eco-pin '));
-  const pinned0 = pin === undefined ? null : (/ detail=sha=([0-9a-f]*|none)$/.exec(pin)?.[1] ?? null);
+  const pin = ledgerRows(ctx, dir, 'eco-pin')[0];
+  const pinned0 = pin === undefined ? null : (/^sha=([0-9a-f]*|none)$/.exec(pin.detail)?.[1] ?? null);
   const eco = ecoPin(ctx);
   const ecoChanged = pinned0 !== null && pinned0 !== eco;
   if (ecoChanged) need.push({ text: 'ecosystems.json changed since the run started (subject: ecosystems.json)', kind: 'not_measured', match: nm('definition_changed', 'ecosystems.json') });

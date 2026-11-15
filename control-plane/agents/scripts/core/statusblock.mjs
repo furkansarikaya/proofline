@@ -13,7 +13,7 @@ import { humanChecks } from './taskfile.mjs';
 import { isFile } from './paths.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { adapterExists, runTaskAdapter } from './adapters/index.mjs';
-import { fileLines, fileText, sectionValue, textLines, validTaskId } from './records.mjs';
+import { fileLines, fileText, ledgerRows, sectionValue, textLines, validTaskId } from './records.mjs';
 import { runDir } from './runs.mjs';
 import { knownIssueFacts, knownIssuesListed } from './knownissues.mjs';
 import { tmScaled } from './timeouts.mjs';
@@ -159,8 +159,8 @@ export function statusBlockBody(ctx, id, event0, prArg) {
   if (park !== '') kv('park', scrub(park));
   if (state === 'FAILED' || state === 'BLOCKED') {
     let fr = '';
-    const terms = fileLines(ctx, `${dir}/LEDGER.log`).filter((l) => l.includes(' event=terminate '));
-    const m = terms.length > 0 ? /^.* detail=reason: (.*); evidence: .*$/.exec(terms[terms.length - 1]) : null;
+    const terms = ledgerRows(ctx, dir, 'terminate');
+    const m = terms.length > 0 ? /^reason: (.*); evidence: .*$/.exec(terms[terms.length - 1].detail) : null;
     if (m) fr = scrub(m[1]);
     kv('failure', `${state}${fr !== '' ? `: ${fr}` : ''}`);
   }

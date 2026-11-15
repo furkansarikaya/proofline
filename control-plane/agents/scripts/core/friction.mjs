@@ -70,7 +70,7 @@ function ledgerPart(ledger) {
       bump(fnk, fnd);
       if (fnd === 'proofline_bug') fnb++; else fnt++;
     }
-    if (l.includes(' event=terminate ')) term = w(l.replace(/^.* to=/, '').replace(/ .*$/, ''));
+    { const tr = /^seq=[0-9]+ (?:prev=\S+ )?event=terminate role=\S+ from=\S+ to=(\S+)/.exec(l); if (tr !== null) term = w(tr[1]); } // from the start of the line (statistics only; the fixture ledger has no prev)
     if (l.includes(' event=handoff:DONE ')) done = true;
     if (/ event=note .*failover/.test(l)) { fo++; if (l.includes('reason=timeout')) fot++; }
     const g = / event=gate:([A-Z_]+):fail /.exec(l);
