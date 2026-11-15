@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Test-output classification of pytest 9.2.0 and jest 29.7.0 is backed by real captured runs (ten fixtures `python-pytest-*`, `npm-jest-*`); the two rows of the ecosystem matrix are `real tool`. A pytest run where `-k` selects nothing (`collected 1 item / 1 deselected / 0 selected`) is now `no_tests` from its output alone, and the evidence of a bare exit code names every runner that lists it (`exit code 5 (unittest, captured; pytest, captured)`, not just the first) (A281).
+- Test-output classification of pytest 9.2.0 and jest 29.7.0 is backed by real captured runs (ten fixtures `python-pytest-*`, `npm-jest-*`); the two rows of the ecosystem matrix are `real tool`. A pytest run where `-k` selects nothing (`collected 1 item / 1 deselected / 0 selected`) is now `no_tests` from its output alone, and the evidence of a bare exit code names the runner of the matched signature alone (`collected 0 items; exit code 5 (pytest, captured)`, `NO TESTS RAN; exit code 5 (unittest, captured)`); from the code alone, with no signature, it names every runner of the code (A281).
 
 ## 0.0.118 — 2026-11-15
 

@@ -136,11 +136,17 @@ test("pytest 9.2.0 and jest 29.7.0 (captured): each real output has its class, a
   assert.match(byName("npm-jest-assertion").header.tool, /jest 29\.7\.0/);
 });
 
-test("the exit code of a shared no_tests entry names every runner that lists it, not the first (pytest -k selecting nothing exits 5)", () => {
-  const f = byName("python-pytest-no-tests-filter");
+test("exit-code evidence names the runner of the matched signature alone; from the code alone it names every runner of the code", () => {
+  const ev = (name) => classify(byName(name).output, { exitCode: byName(name).header.exit_code, ecosystem: "python" }).evidence;
+  assert.match(ev("python-pytest-no-tests-filter"), /; exit code 5 \(pytest, captured\)$/);
+  assert.match(ev("python-pytest-no-tests"), /; exit code 5 \(pytest, captured\)$/);
+  assert.match(ev("python-unittest-no-tests"), /; exit code 5 \(unittest, captured\)$/);
+  assert.doesNotMatch(ev("python-pytest-no-tests-filter"), /unittest/);
+  assert.doesNotMatch(ev("python-unittest-no-tests"), /pytest/);
+  // no signature matched: the code alone cannot tell the runners apart, so all are named
   const r = classify("unrecognised banner\n", { exitCode: 5, ecosystem: "python" });
-  assert.equal(r.class, "no_tests");
-  assert.match(r.evidence, /exit code 5 \(.*pytest, captured/); assert.match(r.evidence, /unittest, captured/);
-  assert.equal(classify(f.output, { exitCode: 5, ecosystem: "python" }).class, "no_tests");
+  assert.equal(r.class, "no_tests"); assert.equal(r.evidence, "exit code 5 (unittest, captured; pytest, captured)");
+  // without --exit-code or --ecosystem nothing is appended
+  assert.equal(classify(byName("python-pytest-no-tests").output, { ecosystem: "python" }).evidence, "collected 0 items");
   assert.doesNotMatch(classify("", { exitCode: 8, ecosystem: "dotnet" }).evidence, /^exit code 8 \(unittest/);
 });
