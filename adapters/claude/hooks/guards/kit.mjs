@@ -168,6 +168,48 @@ export function grepq(re, text) {
   return false;
 }
 
+const ENV_WORDS = ['env', 'sudo', 'doas'];
+/**
+ * Does the text hold `(env|sudo|doas)[[:space:]]+([^;&|]*[[:space:]])?(-[A-Za-z]*[CD]|--chdir)`, one line of it? The same verdict as that regular expression in time linear in the text (the expression
+ * backtracks to the end of the text once per `env`: 36000 repeats took 20 s). `boundary`: the keyword must follow a character outside `[A-Za-z0-9_.-]`
+ * or the start (the stash guard).
+ * A keyword followed by white space starts a run that reaches to the next `;`, `&` or `|`; inside it any option that follows a white space character after the keyword's own white space counts.
+ * @param {string} text @param {boolean} boundary @param {{ steps: number }} [probe] counts the characters visited (for the test of the linear bound)
+ */
+export function envChdirOpt(text, boundary, probe) {
+  const n = text.length;
+  /** @param {string | undefined} c */
+  const ws = (c) => c === ' ' || c === '\t' || c === '\n' || c === '\v' || c === '\f' || c === '\r';
+  let p = 0;
+  while (p < n) {
+    let e = p;
+    while (e < n && text[e] !== ';' && text[e] !== '&' && text[e] !== '|') e++;
+    if (probe) probe.steps += e - p + 1;
+    // the end of the earliest keyword of this run that is followed by white space
+    let kend = -1;
+    for (let i = p; i < e; i++) {
+      if (probe) probe.steps++;
+      if (boundary && i > 0 && /[A-Za-z0-9_.-]/.test(/** @type {string} */ (text[i - 1]))) continue;
+      for (const k of ENV_WORDS) {
+        if (text.startsWith(k, i) && ws(text[i + k.length]) && (kend < 0 || i + k.length < kend)) kend = i + k.length;
+      }
+    }
+    if (kend >= 0) {
+      for (let q = kend + 1; q < e; q++) {
+        if (probe) probe.steps++;
+        if (text[q] !== '-' || !ws(text[q - 1])) continue;
+        if (text.startsWith('--chdir', q)) return true;
+        for (let j = q + 1; j < e && /[A-Za-z]/.test(/** @type {string} */ (text[j])); j++) {
+          if (probe) probe.steps++;
+          if (text[j] === 'C' || text[j] === 'D') return true;
+        }
+      }
+    }
+    p = e + 1;
+  }
+  return false;
+}
+
 /** `[[:space:]]` of the C locale. */
 export const SP = '[ \\t\\n\\v\\f\\r]';
 /** `[:alnum:]` of the C locale, for a bracket expression. */

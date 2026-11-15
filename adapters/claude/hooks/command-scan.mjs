@@ -59,6 +59,9 @@
 
 const PATH_KINDS = new Set(['W', 'E', 'P', 'Q', 'F']);
 
+/** The programs the scanner's command chain knows as writers (W, E, P or Q records). The role guard of the implementer and the designer reads its own operands for these (guards/rolewrites.mjs, A274); keep it in step with the chain in `scan`. */
+export const WRITE_PROGRAMS = new Set(['tee', 'touch', 'rm', 'truncate', 'unlink', 'rmdir', 'shred', 'chmod', 'chown', 'chgrp', 'ed', 'ex', 'vi', 'vim', 'view', 'nvim', 'patch', 'gpatch', 'ruby', 'awk', 'gawk', 'mawk', 'sed', 'gsed', 'perl', 'cp', 'mv', 'install', 'ln', 'rsync', 'dd', 'tar', 'bsdtar', 'gtar', 'unzip', 'curl', 'wget']);
+
 /** awk substr(s, m, n): 1-based, chars from m for n (all the rest without n), clamped like POSIX awk. @param {string} s @param {number} m @param {number} [n] */
 function substr(s, m, n) {
   const len = s.length;
