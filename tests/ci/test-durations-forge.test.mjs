@@ -5,7 +5,7 @@
 // On 8110e687 (events in a scratch file in $TMPDIR) the replaced file made the wrapper exit 0. Parallel-safe: the wrapper and the forger run with a throwaway TMPDIR of their
 // own (the environment is set for the call and restored), so the file hunt cannot touch any other run's files.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -40,7 +40,7 @@ test('slow', () => {
 
 /** Run the real wrapper on one file with a throwaway TMPDIR; returns the status, the output and the names left in that TMPDIR. @param {string} root @param {string} f @param {any} budgets */
 function go(root, f, budgets) {
-  const tdir = mkdtempSync(path.join(root, 'tmpdir-'));
+  const tdir = tmp('forge-tmpdir-');
   const saved = process.env.TMPDIR;
   process.env.TMPDIR = tdir;
   try {
