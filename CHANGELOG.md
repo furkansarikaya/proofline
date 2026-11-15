@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.120 — 2026-11-15
+
 - Docs (A282): `docs/concepts/ecosystems.md` no longer says discovery costs 0.45 s per project "because it is plain sh" (it is Node; measured about 0.04 ms per nested marker file plus about 105 ms start-up, 1000-marker limit rechecked) and its .NET known limit now says what remains after A280 (only `global.json` `test.runner` counts).
 
 ## 0.0.119 — 2026-11-15
