@@ -140,12 +140,13 @@ const said = new Set();
 export const AHEAD = 4;
 /**
  * The second a message is stamped with: after every record (NEWEST + 1) and not before NOW, the next free second when the same words were already stamped there (the same words
- * at the same second are one capture event, single use, A106). Never more than AHEAD seconds ahead of NOW: more would be ignored by the control plane without a word, so it throws.
- * @param {Set<string>} seen @param {string} scope project and session @param {string} text @param {number} newest @param {number} nowSec
+ * at the same second are one capture event, single use, A106: the second moves on only when an approval already used that event, USED says so). Never more than AHEAD seconds
+ * ahead of NOW: more would be ignored by the control plane without a word, so it throws.
+ * @param {Set<string>} seen @param {string} scope project and session @param {string} text @param {number} newest @param {number} nowSec @param {(t: number) => boolean} [used]
  */
-export function captureStamp(seen, scope, text, newest, nowSec) {
+export function captureStamp(seen, scope, text, newest, nowSec, used = () => true) {
   let t = Math.max(nowSec, newest + 1);
-  while (seen.has(`${scope}${t}|${text}`)) t++;
+  while (seen.has(`${scope}${t}|${text}`) && used(t)) t++;
   if (t > nowSec + AHEAD) throw new Error(`say: the message would be stamped ${t - nowSec} s ahead of the clock (more than ${AHEAD}); the control plane would ignore it. Say it with other words, or use sayNow / an explicit time.`);
   seen.add(`${scope}${t}|${text}`);
   return t;
@@ -159,11 +160,19 @@ function newestRecord(dir) {
   }
   return t;
 }
+/** Did an approval of the project already use the capture event of this session and second (its record names `capture_id: "<session>:<second>:<hash>"`)? @param {string} dir @param {string} session @param {number} t */
+function captureUsed(dir, session, t) {
+  const needle = `capture_id: "${session}:${t}:`;
+  const runs = `${dir}/.agents/runs`;
+  const dirs = [`${dir}/.agents/local/approvals`, ...(existsSync(runs) ? readdirSync(runs).map((r) => `${runs}/${r}/approvals`) : [])];
+  for (const d of dirs) { if (!existsSync(d)) continue; for (const n of readdirSync(d)) { try { if (readFileSync(`${d}/${n}`, 'utf8').includes(needle)) return true; } catch { /* not a file */ } } }
+  return false;
+}
 /** The captures of a project were deleted (its prompts folder is gone): `say` forgets what it stamped there, so the same words may be said again in the same second. @param {string} dir */
 export function forgetSaid(dir) { for (const k of [...said]) if (k.startsWith(`${dir}|`)) said.delete(k); }
 /** The user's message as the prompt hook stores it (session s1), stamped after every record of the project. The stamp may be a few seconds ahead of the clock (AHEAD at most, `captureStamp`); nothing waits for it (the control plane ignores a capture more than 5 s ahead). @param {string} dir @param {string} text @param {{ time?: number, session?: string }} [o] */
 export function say(dir, text, o = {}) {
-  const t = o.time ?? captureStamp(said, `${dir}|${o.session ?? 's1'}|`, text, newestRecord(dir), now());
+  const t = o.time ?? captureStamp(said, `${dir}|${o.session ?? 's1'}|`, text, newestRecord(dir), now(), (at) => captureUsed(dir, o.session ?? 's1', at));
   const r = storePrompt(`${dir}/.agents/local`, o.session ?? 's1', t, text);
   if (!r) throw new Error('capture not stored');
   return r;

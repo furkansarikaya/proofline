@@ -26,3 +26,12 @@ test('more than AHEAD seconds ahead is refused with a message that says what to 
   assert.equal(captureStamp(seen, 'p|s1|', 'y', 0, 1000), 1000, 'the refusal left the set alone');
   assert.throws(() => captureStamp(new Set(), 'p|s1|', 'z', 1000 + AHEAD, 1000), /ahead of the clock/, 'a record already at the limit leaves no room');
 });
+
+test('the second moves on only when the capture event was used; an unused one is said again at the same second', () => {
+  const seen = new Set(); const usedAt = new Set();
+  assert.equal(captureStamp(seen, 'p|s1|', 'x', 0, 1000, (t) => usedAt.has(t)), 1000);
+  assert.equal(captureStamp(seen, 'p|s1|', 'x', 0, 1000, (t) => usedAt.has(t)), 1000, 'nothing used it: the same capture again');
+  usedAt.add(1000);
+  assert.equal(captureStamp(seen, 'p|s1|', 'x', 0, 1000, (t) => usedAt.has(t)), 1001, 'an approval used it: the next second');
+  for (let i = 0; i < 20; i++) assert.equal(captureStamp(seen, 'p|s1|', 'y', 0, 1000, () => false), 1000);
+});
