@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Docs (A282): `docs/concepts/ecosystems.md` no longer says discovery costs 0.45 s per project "because it is plain sh" (it is Node; measured about 0.04 ms per nested marker file plus about 105 ms start-up, 1000-marker limit rechecked) and its .NET known limit now says what remains after A280 (only `global.json` `test.runner` counts).
+
 ## 0.0.119 — 2026-11-15
 
 - Test-output classification of pytest 9.2.0 and jest 29.7.0 is backed by real captured runs (ten fixtures `python-pytest-*`, `npm-jest-*`); the two rows of the ecosystem matrix are `real tool`. A pytest run where `-k` selects nothing (`collected 1 item / 1 deselected / 0 selected`) is now `no_tests` from its output alone, and the evidence of a bare exit code names the runner of the matched signature alone (`collected 0 items; exit code 5 (pytest, captured)`, `NO TESTS RAN; exit code 5 (unittest, captured)`); from the code alone, with no signature, it names every runner of the code (A281).

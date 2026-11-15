@@ -51,7 +51,7 @@ How a target is chosen:
 | only `svc/go.mod` | `go -C svc build ./...` | `go -C svc test ./...` | `go -C svc vet ./...` |
 | `go.work` without a root `go.mod` | none | none | none |
 
-Known limits: a `.NET 10` project that runs tests with Microsoft.Testing.Platform may need `--solution` or `--project` in front of the target, and fails to build without `"test": {"runner": "Microsoft.Testing.Platform"}` in `global.json`; the trial run of `--verify-commands` drops a command that fails, and only that item of a list. Ruby has no targeted form (Bundler needs the project folder as the working directory), so a nested Ruby project gets no candidate. Dart and Flutter test commands have no targeted form either. A second project of the same ecosystem gets no command. Discovery costs about 0.45 s per project because it is plain sh.
+Known limits: for the MTP mode of `dotnet test` (.NET 10) discovery proposes `--solution` or `--project` in front of the target (A280), but only when the root `global.json` has `"test": {"runner": "Microsoft.Testing.Platform"}`; csproj properties and the `DOTNET_TEST_RUNNER` variable are not evidence, and a `global.json` with comments is read as non-MTP, which keeps `dotnet test <target>`; the trial run of `--verify-commands` drops a command that fails, and only that item of a list. Ruby has no targeted form (Bundler needs the project folder as the working directory), so a nested Ruby project gets no candidate. Dart and Flutter test commands have no targeted form either. A second project of the same ecosystem gets no command. Discovery is Node and costs about 0.04 ms per nested marker file on top of a fixed start-up of about 105 ms (median of 5 warm runs of `proofline-core cli discover`: 104 ms with no nested project, 114 ms with 200, 145 ms with 999; measured on macOS arm64, 2026-11-15).
 
 ### Several commands per key
 
@@ -238,7 +238,7 @@ Not supported or limited by design:
 
 - **Ruby below the root and nested Dart or Flutter tests have no targeted command form**, so discovery gives no candidate for them; the run asks you once.
 - **A second project of the same ecosystem** gets no command (several targets are ambiguous); a workspace root is the way to name them.
-- **Discovery of nested projects costs about 0.45 s per project** because it is plain sh; a repository with more than 1000 marker files counts as unknown and proposes nothing nested.
+- **A repository with more than 1000 marker files** counts as unknown and proposes nothing nested (checked 2026-11-15: 1000 markers still propose `npm --prefix web ...`, 1001 propose nothing); the cost of the search is small (see Known limits above for the measured figures).
 - **MAUI is measured only through the project's own Maestro flows**; without one the visual check is UNSUPPORTED, never a pass.
 - **A missing `.agents/ecosystems.json`** makes `classify` and `pipeline` print one warning line and `proofline doctor` FAIL (A174, A245): without it the risky-path lists fall back to `config.yaml` alone and the benchmark probe reports nothing.
 - **Runtime versions:** the local version was read from the real tool only for node, Python, go, ruby and swift (`runtime-versions.mjs` run on the maintainer's machine, 2026-10-25); for java and dotnet no run is recorded in the repository, and for Rust, PHP and Dart the tool was missing, so their extraction patterns are code reading only. The CI-side sources of every runtime are code reading only.
