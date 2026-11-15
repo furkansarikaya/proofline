@@ -125,7 +125,7 @@ test('A278 round 4 (volume folds case): the rtk bypass keeps its meaning in a ca
   });
 });
 
-test('A278 round 4 (volume keeps case): the same variants are other programs and other files there, no second pass runs, nothing is refused for the case', async () => {
+test('(regression guard: passes without the fix) A278 round 4 (volume keeps case): the same variants are other programs and other files there, no second pass runs, nothing is refused for the case', async () => {
   await onVolume(KEEPS(), async () => {
     for (const [role, who, env] of FIVE) {
       for (const c of ['Make all', 'Python3 -c 1', 'Rscript x.R', 'JAVA -version', 'Git status', 'Manage.py migrate', 'Npx Prisma migrate reset', 'git log Main','Pkill foo', 'Touch s.txt']) {
@@ -191,7 +191,7 @@ async function onOff(c, wi) {
   return { on, off };
 }
 
-test('A278 round 4 legitimate writes (volume folds case): the scope writes, artifacts and commit forms of all five roles get the verdict of the case-keeping volume (0 flips), run id T-3, owns.conf present', async () => {
+test('(regression guard: passes without the fix) A278 round 4 legitimate writes (volume folds case): the scope writes, artifacts and commit forms of all five roles get the verdict of the case-keeping volume (0 flips), run id T-3, owns.conf present', async () => {
   let allowed = 0; let flips = 0; const roles = new Set();
   for (const [wis, c, must] of LEGIT) {
     for (const wi of wis) {
@@ -212,7 +212,7 @@ test('A278 round 4 legitimate writes (volume folds case): the scope writes, arti
   assert.ok(allowed >= 20 && roles.size === 5, `the table allows something for every role (${allowed} allowed, roles ${[...roles].join(',')})`);
 });
 
-test('A278 round 4 legitimate writes: a run id and artifact names of any case, written in the exact case, with the second pass on and off (T-3 and LC), and the protected variants stay refused', async () => {
+test('(regression guard: passes without the fix) A278 round 4 legitimate writes: a run id and artifact names of any case, written in the exact case, with the second pass on and off (T-3 and LC), and the protected variants stay refused', async () => {
   const targets = ['.agents/runs/T-3/EVIDENCE.md', '.agents/runs/T-3/TASK.md', '.agents/runs/T-3/QA_PLAN.md', '.agents/runs/T-3/reports/001-debug.md', '.agents/runs/T-3/scratch/Notes.TXT', '.agents/local/assignments/T-3/Spec.md', 'src/greet.js', 'src/Greet.js', 'docs/Guide.md', 'impl.txt', 'Make', 'Install/x'];
   const forms = [(/** @type {string} */ t) => `echo x > ${t}`, (t) => `cat > ${t} <<'EOF'\nBody Make\nEOF`, (t) => `mkdir -p ${t.replace(/[^/]*$/, '')} && tee ${t} < /dev/null`];
   let n = 0;
@@ -266,7 +266,7 @@ function ordinary(r) {
   }
 }
 
-test('A278 round 4 ordinary commands (volume folds case): 300 ordinary commands with here-documents, 5 roles: a refusal the case-keeping volume does not give is exactly the lower-case form of the command being refused (the accepted prose class)', async () => {
+test('(regression guard: passes without the fix) A278 round 4 ordinary commands (volume folds case): 300 ordinary commands with here-documents, 5 roles: a refusal the case-keeping volume does not give is exactly the lower-case form of the command being refused (the accepted prose class)', async () => {
   const r = rng(264_003);
   const cmds = Array.from({ length: 300 }, () => ordinary(r));
   let flips = 0; let heredocs = 0;
@@ -291,7 +291,7 @@ test('A278 round 4 ordinary commands (volume folds case): 300 ordinary commands 
 
 // ---- (c) a project path with capitals ----
 
-test('A278 round 4 (volume folds case): a project whose folder has capital letters keeps every verdict for its absolute .agents paths, the heredoc forms and the qa artifacts (0 flips)', async () => {
+test('(regression guard: passes without the fix) A278 round 4 (volume folds case): a project whose folder has capital letters keeps every verdict for its absolute .agents paths, the heredoc forms and the qa artifacts (0 flips)', async () => {
   const proj = join(base, 'MyProj');
   cpSync(template, proj, { recursive: true });
   const real = realpathSync.native(proj);
@@ -347,7 +347,7 @@ test('A278 round 4: a large input costs a second pass of the same size (the fold
   assert.equal(foldWorld(lower), lower);
 });
 
-test('A278 round 4: the real hook process refuses a large cased input as it refuses its lower-case twin', async () => {
+test('(regression guard: passes without the fix) A278 round 4: the real hook process refuses a large cased input as it refuses its lower-case twin', async () => {
   const kill = U('Pki@ll foo');
   const t = `${'echo "a $((1<<2))" Git\n'.repeat(2000)}Find . -maxdepth 0 -exec ${kill} \;`;
   const a = await runHook('node', dir, 'pretool', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: t } }, { env: { TMPDIR: '/var/proofline-case-tmp' } });
