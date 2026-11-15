@@ -159,6 +159,8 @@ function newestRecord(dir) {
   }
   return t;
 }
+/** The captures of a project were deleted (its prompts folder is gone): `say` forgets what it stamped there, so the same words may be said again in the same second. @param {string} dir */
+export function forgetSaid(dir) { for (const k of [...said]) if (k.startsWith(`${dir}|`)) said.delete(k); }
 /** The user's message as the prompt hook stores it (session s1), stamped after every record of the project. The stamp may be a few seconds ahead of the clock (AHEAD at most, `captureStamp`); nothing waits for it (the control plane ignores a capture more than 5 s ahead). @param {string} dir @param {string} text @param {{ time?: number, session?: string }} [o] */
 export function say(dir, text, o = {}) {
   const t = o.time ?? captureStamp(said, `${dir}|${o.session ?? 's1'}|`, text, newestRecord(dir), now());

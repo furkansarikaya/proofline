@@ -13,6 +13,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { cleanEnv } from '../hook/harness.mjs';
 import { A, project, say } from '../core/legacy-lib.mjs';
+import { forgetSaid } from '../lib/harness.mjs';
 import { repo } from '../core/helpers.mjs';
 
 const TXT = 'the legacy ignore list drops a documented entry';
@@ -59,7 +60,7 @@ export function measureAll(o = {}) {
     writeFileSync(`${d}/.agents/tasks/todo/FU-9.md`, '# Task: FU-9 — Fix the legacy ignore list\n\n**Status:** todo\n\n## Goal\n\nFix it.\n');
     const propose = () => A(d, ['known-issue-propose', 'LC', 'QA-1', '--followup', 'FU-9']);
     const approve = () => { say(d, 'approve known issue'); return A(d, ['approve', '-', 'known-issue']); };
-    const reset = () => { for (const f of [KI, '.agents/local/approvals', '.agents/local/prompts']) rmSync(path.join(d, f), { recursive: true, force: true }); };
+    const reset = () => { for (const f of [KI, '.agents/local/approvals', '.agents/local/prompts']) rmSync(path.join(d, f), { recursive: true, force: true }); forgetSaid(d); };
     /** @type {Array<[string, () => void, string[]]>} */
     const paths = [
       ['exec-policy-resolve', () => {}, [core, 'cli', 'exec-policy', 'resolve', '--role', 'implementer', '--class', 'STANDARD', '--tier', 'full', '--signal', 'large_diff']],
