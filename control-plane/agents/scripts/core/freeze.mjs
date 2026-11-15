@@ -362,6 +362,13 @@ function verifyIntentProvenance(ctx, id) {
 /** @param {string} d */
 function existsSyncDir(d) { try { return readdirSync(d) !== null; } catch { return false; } }
 
+/** Whether PLAN.md `## Test exceptions` differs from what the freeze recorded (a line added, changed or the whole section removed; A276, A284). @param {Context} ctx @param {string} dir */
+function exceptionsChanged(ctx, dir) {
+  const rows = ledgerLines(ctx, dir).filter((l) => l.includes(' event=test-exceptions '));
+  const last = rows.length === 0 ? '' : (/ detail=sha=([0-9a-f]*)(?: approval=\S+)?$/.exec(rows[rows.length - 1])?.[1] ?? '');
+  return exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '') !== last;
+}
+
 /** `freeze_approvals ID MODE`: the approval files to consume, after every condition has held. @param {Context} ctx @param {string} id @param {string} mode */
 function freezeApprovals(ctx, id, mode) {
   const dir = runDir(ctx, id);
@@ -390,12 +397,15 @@ function freezeApprovals(ctx, id, mode) {
     out.push(a);
   }
   if (mode === 'refreeze') {
-    // #265 package C (A276): the plan's `## Test exceptions` is the only thing that clears a real wait, a test over budget or a test that was not measured. Adding or changing a
-    // line after the freeze would let the implementer's side justify its own finding (Core invariant 3), so such a refreeze is REFUSED. Whether the user may approve it is the
-    // owner's decision (awaiting the owner, A276): until then the section is frozen with the first plan.
-    const rows = ledgerLines(ctx, dir).filter((l) => l.includes(' event=test-exceptions '));
-    const last = rows.length === 0 ? '' : (/ detail=sha=([0-9a-f]*)$/.exec(rows[rows.length - 1])?.[1] ?? '');
-    if (exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '') !== last) fail(`the amendment adds or changes a line of PLAN.md ## Test exceptions: that section justifies a real wait, a test over its budget or an unmeasured test and is frozen with the first plan; an amendment cannot change it (awaiting the owner's decision whether the user may approve such a change). Remove the change to the section`);
+    // #265 package C (A276): the plan's `## Test exceptions` is the only thing that clears a real wait, a test over budget or a test that was not measured. Adding, changing or
+    // removing a line after the freeze would let the implementer's side justify its own finding (Core invariant 3), so such a refreeze is REFUSED unless the USER approved it
+    // (A284): the user's `scope` approval for this exact PLAN.md (its hash covers every character of the section), recorded from the prompt hook and consumed once, like any other
+    // approval of a refreeze. Without it the refusal is the one of A276.
+    if (exceptionsChanged(ctx, dir)) {
+      const a = findApproval(ctx, id, 'scope', plan);
+      if (a === null) fail(`the amendment adds or changes a line of PLAN.md ## Test exceptions: that section justifies a real wait, a test over its budget or an unmeasured test and is frozen with the first plan; an amendment cannot change it (awaiting the owner's decision whether the user may approve such a change). Remove the change to the section`);
+      if (!out.includes(a)) out.push(a);
+    }
   }
   if (mode === 'refreeze' && sectionKeyPresent(ctx, dir, 'freeze', 'scope_paths')) {
     const old = sectionValue(ctx, dir, 'freeze', 'scope_paths').split(',');
@@ -404,7 +414,7 @@ function freezeApprovals(ctx, id, mode) {
     if (added !== '') {
       const a = findApproval(ctx, id, 'scope', plan);
       if (a === null) fail(`the amendment adds scope paths (${added} ): a scope approval for this PLAN.md is required ('agent.sh request-approval ${id} scope')`);
-      out.push(a);
+      if (!out.includes(a)) out.push(a);
     }
   }
   return out;
@@ -573,6 +583,9 @@ export function freezeRun(ctx, id, word, amendment) {
   if (hits.length > 0) fail(languageFailText(hits.join(' ')));
   let approvals = /** @type {string[]} */ ([]);
   if (gatesEnforced(ctx, dir)) approvals = freezeApprovals(ctx, id, mode);
+  // A284: the scope approval that let a changed `## Test exceptions` through is named in the ledger row that records the new section hash
+  const exceptionsApproval = mode === 'refreeze' && gatesEnforced(ctx, dir) && exceptionsChanged(ctx, dir)
+    ? (approvals.find((f) => gateField(ctx, f, 'kind') === 'scope') ?? '').split('/').pop() ?? '' : '';
   const oldPlan = sectionValue(ctx, dir, 'freeze', 'plan_sha256');
   const next = replaceHashes(ctx, id);
   if (mode === 'refreeze' && gatesEnforced(ctx, dir)) {
@@ -586,6 +599,7 @@ export function freezeRun(ctx, id, word, amendment) {
     if (mode === 'refreeze') refreezeLifecycle(ctx, id, amendment, oldPlan);
     else { const hs = sectionValue(ctx, dir, 'handoff', 'state'); led(ctx, id, 'freeze', hs, hs, sectionValue(ctx, dir, 'freeze', 'pipeline')); }
     if (mode !== 'refreeze') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')}`);
+    else if (exceptionsApproval !== '') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')} approval=${exceptionsApproval}`);
     for (const a of approvals) consumeApproval(ctx, id, a);
   }
   ctx.out(`freeze recorded: ${id}\n`);

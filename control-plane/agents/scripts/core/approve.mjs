@@ -27,6 +27,7 @@ import { isDir, isFile } from './paths.mjs';
 import { WS, fileLines, gateField, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
+import { sectionOf } from './testreview.mjs';
 import { asciiLower } from './shellglob.mjs';
 
 
@@ -370,7 +371,7 @@ function approvalWhy(ctx, kind, bound, turkish) {
       case 'plan': return bs('denetimli özerklik: plan yalnızca kullanıcı onayından sonra dondurulur');
       case 'destructive': return bs('plan yıkıcı bir veri değişikliği bildiriyor');
       case 'single_step': return bs('yıkıcı değişiklikte expand/contract adımı yok: okuma ile silme arasında durulacak nokta olmadan tek adımda çalışır');
-      case 'scope': return bs('değişiklik kapsama yol ekliyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor');
+      case 'scope': return bs('değişiklik kapsama yol ekliyor, PLAN ## Test exceptions bölümünü değiştiriyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor');
       case 'budget': return bs('düzeltme turları bitti: yeniden dondurma yeni bir düzeltme bütçesi başlatır');
       case 'mutation_budget': return bs('test_trust.mutation_budget planın ## Tests ölçütlerinden az: ölçüt başına bir mutant gerekir; bütçe yalnızca bu koşuda artar');
       case 'tree': return bs('çalışma ağacına bu koşunun hiçbir işçi penceresinin kaydetmediği bir değişiklik girdi: onaylarsanız koşu korunur ama bütün kapılar yeni içerik üzerinde yeniden çalışır');
@@ -393,7 +394,7 @@ function approvalWhy(ctx, kind, bound, turkish) {
     case 'plan': return 'supervised autonomy: the plan freezes only after user approval';
     case 'destructive': return 'the plan declares a destructive data change';
     case 'single_step': return 'the destructive change has no expand/contract steps: it would run as one step, with no point to stop between reading and dropping';
-    case 'scope': return 'the amendment adds scope paths, or the task fixes a pre-existing defect nobody asked about';
+    case 'scope': return 'the amendment adds scope paths or changes PLAN ## Test exceptions, or the task fixes a pre-existing defect nobody asked about';
     case 'budget': return 'the fix rounds are exhausted: a refreeze would start a fresh fix budget';
     case 'mutation_budget': return 'test_trust.mutation_budget is below the criteria of PLAN ## Tests (one mutant each is the minimum): the budget is raised for this run only, .agents/config.yaml is not edited';
     case 'tree': return 'a change entered the working tree that no worker window of this run recorded (a failover worker, an editor, another process): you inspect it (agent.sh tree-inspect); accepting it keeps the run, but every gate runs again on the new content; declining leaves the run as it is';
@@ -508,6 +509,11 @@ export function requestApproval(ctx, id0, kind0) {
       const wg = waiveGroupIds(ctx, wr, kind.slice(6));
       if (wg.length > 1) rows = `   this one decision covers ${wg.length} findings of the same rule in ${wr.slice(wr.lastIndexOf('/') + 1)}: ${wg.slice(0, 3).join(' ')} ... (detail: that gate record and the report); the lead records it with: agent.sh waive ${id} ${kind.slice(6)} --group --reason TEXT`.replace(' ... (detail', '... (detail');
     }
+  }
+  if (kind === 'scope' && plan !== null) {
+    // A284: the user sees the lines of PLAN ## Test exceptions that this approval would let through (the approval is bound to this exact PLAN.md)
+    const ex = sectionOf(plan, 'Test exceptions').map((x) => x.trim()).filter((x) => x !== '');
+    rows = ex.length === 0 ? '' : `   PLAN ## Test exceptions (a change of these after the freeze needs this approval):\n${ex.map((x) => `   ${x}`).join('\n')}`;
   }
   if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}`;
   let out = '';

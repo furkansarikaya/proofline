@@ -178,6 +178,8 @@ finding of the same record and rule on your one approval. The detail stays in th
 Kinds: `plan`, `destructive`, `scope`, `budget`, `tree`, `commit`, `push`, `waive:<FINDING-ID>`. The lead requests an
 approval with `agent.sh request-approval`; the answer counts only if it comes from a terminal you typed in or from a
 prompt your runtime captured after the request. Approvals are single-use and ledgered as `answered_by: user`.
+The `scope` approval also covers a change of the frozen plan's `## Test exceptions` at a refreeze (A284): it is bound to the
+hash of the exact new PLAN.md, so changing the line afterwards, or approving before writing it, leaves the refreeze refused.
 Commit and push need both a gate pass for the current content and your approval in the current message;
 `push_requires_approval` is `true` by default.
 
