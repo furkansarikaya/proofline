@@ -12,7 +12,7 @@ import { closeSync, openSync, readdirSync, readFileSync, statSync } from 'node:f
 import path from 'node:path';
 import * as proc from './proc.mjs';
 import { lineHoldsSecret } from './secretscan.mjs';
-import { awkGlobRegExp as globToRegExp } from './shellglob.mjs';
+import { asciiLower, awkGlobRegExp as globToRegExp } from './shellglob.mjs';
 
 /**
  * @typedef {{ build: string[], test: string[], lint: string[], ambig: Array<{ id: string, why: string }> }} Discovery
@@ -110,7 +110,7 @@ function when(unit, root, w, target = '') {
       }
       case 'root_json': {
         const want = first(w.json_equals);
-        if (want === '' || first(w.json_path) === '' || jsonValue(path.join(root, first(w.root_json)), first(w.json_path)).toLowerCase() !== want.toLowerCase()) return false;
+        if (want === '' || first(w.json_path) === '' || asciiLower(jsonValue(path.join(root, first(w.root_json)), first(w.json_path))) !== asciiLower(want)) return false;
         break;
       }
       case 'target': if (!new RegExp(first(w.target)).test(target)) return false; break;
