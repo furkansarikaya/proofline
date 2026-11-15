@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Command discovery names the .NET test target the way the MTP mode of `dotnet test` requires when `global.json` sets `test.runner` to `Microsoft.Testing.Platform`: `dotnet test --solution App.slnx`, `dotnet test --project X.csproj`. Other projects keep `dotnet test <target>`. New generic `when` keys `root_json` (+ `json_path`, `json_equals`) and `target` in `ecosystems.json` (A280).
+
 ## 0.0.117 — 2026-11-15
 
 - Fix (A279): a pinned SDK that is not installed (global.json asks 10.0.100, 8.0.134 installed) was reported as ".NET not installed / local=missing / unknown"; it is now `local=8.0.134 ... status=mismatch installed=8.0.134`, and doctor says the pinned version is not installed and lists what is. The ecosystem data got an optional `runtime.local.installed` (dotnet: `dotnet --list-sdks`); the shared code has no ecosystem branch.
