@@ -16,14 +16,14 @@ let base = '';
 before(() => { base = tempDir('hook-cap-'); });
 after(() => { rmSync(base, { recursive: true, force: true }); });
 
-/** The smallest installed project the prompt event needs: config, agent.sh, the capture module of the core. */
+/** The smallest installed project the prompt event needs: config, agent.sh, the capture module of the core and the modules it imports (hash.mjs, which imports wirebytes.mjs since A284). */
 function miniProject() {
   const d = mkdtempSync(join(base, 'mini-'));
   mkdirSync(join(d, '.agents/scripts/core'), { recursive: true });
   mkdirSync(join(d, '.agents/local'));
   writeFileSync(join(d, '.agents/config.yaml'), 'canonical_branch: main\n');
   writeFileSync(join(d, '.agents/scripts/agent.sh'), '#!/bin/sh\n');
-  for (const f of ['capture.mjs', 'hash.mjs']) cpSync(join(repo, 'control-plane/agents/scripts/core', f), join(d, '.agents/scripts/core', f));
+  for (const f of ['capture.mjs', 'hash.mjs', 'wirebytes.mjs']) cpSync(join(repo, 'control-plane/agents/scripts/core', f), join(d, '.agents/scripts/core', f));
   return d;
 }
 

@@ -181,7 +181,7 @@ describe('a worker never outlives its dispatcher: the whole process group of the
         assert.equal(open.status, 0, open.stderr);
         assert.equal(open.stdout.trim(), /after_sha256: "([0-9a-f]+)"/.exec(fx.runFile('worker-evidence/WINDOW-1.yaml'))?.[1], 'the recorded tree is the tree on disk: the next window opens on it');
       }
-      await until(() => /dispatch killed from outside role=implementer/.test(safeLedger(fx)));
+      await until(() => /dispatch killed from outside worker=implementer/.test(safeLedger(fx)));
       await until(() => closersOf(/** @type {number} */ (child.pid)) === 0);   // the closer has done its work and is gone: a second closing would have happened by now
       assert.deepEqual(windows(fx), ['WINDOW-1.yaml'], 'closed exactly once');
       assert.equal((fx.ledger().match(/dispatch killed from outside/g) ?? []).length, 1);
@@ -231,7 +231,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
       assert.equal(await h.done, 143);
       assert.equal(readLoc(fx, 'got.sig').trim(), sig.slice(3), 'the worker got the same signal');
       assert.equal(alive(pidOf(fx)), false);
-      assert.match(fx.ledger(), new RegExp(`dispatch interrupted signal=${sig.slice(3)} role=implementer runtime=codex attempt=1`));
+      assert.match(fx.ledger(), new RegExp(`dispatch interrupted signal=${sig.slice(3)} worker=implementer runtime=codex attempt=1`));
       assert.match(fx.runFile('dispatch/RESUME-implementer.md'), new RegExp(`^interrupted_at: \\S+ \\(${sig.slice(3)} to the dispatch after attempt 1, runtime codex: stopped from outside; no timeout\\)$`, 'm'));
       assert.equal(existsSync(path.join(fx.dir, '.agents/runs/LC/dispatch/001-implementer-codex.running')), false, 'the marker is removed');
       assert.match(h.err(), /stopped by/);
@@ -252,7 +252,7 @@ describe('a signal to the dispatcher (HUP, INT, TERM) is forwarded to the worker
       assert.deepEqual(windows(fx), ['WINDOW-1.yaml']);
       assert.match(fx.runFile('worker-evidence/WINDOW-1.yaml'), new RegExp(`^role: "implementer"$[^]*^exit_status: "${status}"$`, 'm'));
       assert.match(readFileSync(path.join(fx.dir, 'impl.txt'), 'utf8'), /work in progress/, 'the edit stays in the tree');
-      assert.match(fx.ledger(), new RegExp(`dispatch interrupted signal=${sig.slice(3)} role=implementer`));
+      assert.match(fx.ledger(), new RegExp(`dispatch interrupted signal=${sig.slice(3)} worker=implementer`));
       assert.match(fx.runFile('dispatch/RESUME-implementer.md'), /^interrupted_at: /m);
       assert.match(h.err(), new RegExp(`write window of the implementer was closed with status ${status}`));
       const again = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'ok' });

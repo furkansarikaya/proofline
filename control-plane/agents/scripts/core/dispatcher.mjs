@@ -170,7 +170,7 @@ class Dispatcher {
   /** @param {string} reason @returns {Exit} result-protocol block on stdout, ledgered */
   blocked(reason) {
     this.stdout(`ROLE: ${this.role}\nTASK: ${this.id}\nRESULT: BLOCKED\nBLOCKED_REASON: ${reason}\n`);
-    this.note(`dispatch blocked role=${this.role} reason=${reason}`);
+    this.note(`dispatch blocked worker=${this.role} reason=${reason}`);
     return new Exit(6);
   }
 
@@ -293,7 +293,7 @@ class Dispatcher {
     while (this.status !== 0 && this.status !== 124 && this.status !== 127 && netTry < netCap && !existsSync(`${subdir}/${this.token}.status`) && dt.transientNetwork(this.logText())) {
       netTry++;
       if (netWait > NET_BACKOFF_CAP) netWait = NET_BACKOFF_CAP;
-      this.note(`dispatch network retry ${netTry}/${netCap} role=${this.role} runtime=${this.rt} wait=${netWait}s (the connection dropped; the step resumes from the state it left)`);
+      this.note(`dispatch network retry ${netTry}/${netCap} worker=${this.role} runtime=${this.rt} wait=${netWait}s (the connection dropped; the step resumes from the state it left)`);
       this.stderr(`dispatch: ${this.role} on ${this.rt} lost its connection (attempt ${netTry} of ${netCap}); resuming in ${netWait}s; log: ${this.rel(this.log)}\n`);
       this.writeResume('network');
       await this.sleep(netWait * 1000);
@@ -324,7 +324,7 @@ class Dispatcher {
           const r = this.cmd(['ask', this.id, '--file', qf]);
           this.stderr(r.all);
           if (r.code !== 0) throw this.blocked(`runtime ${this.rt} failed (${reason}); failover: ask, but the question could not be stored`);
-          this.note(`dispatch needs_input role=${this.role} runtime=${this.rt} reason=${reason}`);
+          this.note(`dispatch needs_input worker=${this.role} runtime=${this.rt} reason=${reason}`);
           this.stdout(`ROLE: ${this.role}\nTASK: ${this.id}\nRESULT: NEEDS_INPUT\nQUESTIONS:\n`);
           this.io.stdout.write(qb);
           throw new Exit(5);
@@ -333,7 +333,7 @@ class Dispatcher {
         const detect = runtimeDetect(this.ctx(), ['has', other]);
         if (detect.status !== 0) throw this.blocked(`runtime ${this.rt} failed (${reason}); ${other} is not installed`);
         const from = this.rt; this.oModel = '';   // model ids are runtime-specific; the policy picks the other runtime's model
-        if (!this.note(`failover from=${from} to=${other} reason=${reason} role=${this.role}`)) throw this.blocked(`runtime ${this.rt} failed (${reason}); failover could not be ledgered`);
+        if (!this.note(`failover from=${from} to=${other} reason=${reason} worker=${this.role}`)) throw this.blocked(`runtime ${this.rt} failed (${reason}); failover could not be ledgered`);
         this.aRuntime = other; this.aRtReason = 'AUTOMATIC_FAILOVER';
         await this.attempt();
         if (this.status !== 0 && this.status !== 124 && dt.runtimeFailureReason(this.logText()) !== 'none') throw this.blocked(`runtime ${from} failed (${reason}) and failover runtime ${this.rt} failed too`);
@@ -343,7 +343,7 @@ class Dispatcher {
     for (;;) {
       if (this.status === 124) {
         this.writeResume();
-        this.note(`dispatch timeout role=${this.role} runtime=${this.rt} after=${this.timeoutS}s`);
+        this.note(`dispatch timeout worker=${this.role} runtime=${this.rt} after=${this.timeoutS}s`);
         this.stderr(`dispatch: ${this.role} on ${this.rt} timed out after ${this.timeoutS}s; log: ${this.rel(this.log)}\n`);
         throw new Exit(124);
       }
@@ -371,7 +371,7 @@ class Dispatcher {
       // A127: name what was looked for and what exists, so a missing status file (a submit under another token) shows in the ledger
       let seen = '';
       try { seen = readdirSync(subdir).sort().map((f) => `${f},`).join(''); } catch { seen = ''; }
-      this.note(`dispatch resubmit role=${this.role} runtime=${this.rt} reason=${err === '' ? 'no submission' : err} token=${this.token} status_files=${seen === '' ? 'none' : seen}`);
+      this.note(`dispatch resubmit worker=${this.role} runtime=${this.rt} reason=${err === '' ? 'no submission' : err} token=${this.token} status_files=${seen === '' ? 'none' : seen}`);
       this.retryNote = `Your previous attempt ended without a recorded result${err === '' ? '' : ` (last rejection: ${err})`}. Your report files may already exist: check them, fix what the rejection names, then submit. Do not redo finished work.`;
       this.aRuntime = this.rt; this.oModel = '';
       await this.attempt();
@@ -526,7 +526,7 @@ class Dispatcher {
       if (this.pm === 'bypassPermissions' && !this.preToolHookWired()) {
         throw this.blocked("claude worker not started: the proofline PreToolUse hook is not installed in .claude/settings.json (run 'proofline doctor', then install); a headless worker runs with bypassPermissions only while the hook confines it, or set dispatch.claude_permission_mode");
       }
-      this.note(`dispatch claude_permission_mode=${this.pm} role=${role}`);
+      this.note(`dispatch claude_permission_mode=${this.pm} worker=${role}`);
       argv.push('--model', this.model, '--effort', this.effort, '--permission-mode', this.pm, '--output-format', 'json');
     } else {
       throw this.blocked(`runtime ${rt} has no built-in invocation and no dispatch.command_template.${rt}`);
@@ -588,7 +588,7 @@ class Dispatcher {
     }
     const gsAfter = gitState(this.root, this.env);
     if (gsAfter !== gsBefore) {
-      this.note(`policy_violation role=${role} runtime=${rt} changed .git/config or HEAD during the step`);
+      this.note(`policy_violation worker=${role} runtime=${rt} changed .git/config or HEAD during the step`);
       throw this.blocked(`policy_violation: ${role} changed .git/config (hooks, config) or HEAD during the step; result not recorded`);
     }
     if (!this.writesCode) {
@@ -598,7 +598,7 @@ class Dispatcher {
         // Never auto-reverted: the user's files are theirs. Changed paths are reported; the result is not recorded.
         const dtree = proc.run('git', ['-C', this.root, 'diff-tree', '-r', '--name-only', fpBefore, fpAfter], { env: this.env, stdio: ['ignore', 'pipe', 'ignore'] });
         const changed = dtree.status === 0 ? dtree.stdout.toString('latin1').split('\n').filter((x) => x !== '').map((x) => `${x} `).join('') : '';
-        this.note(`policy_violation role=${role} runtime=${rt} product tree changed by a role that does not write code: ${changed === '' ? 'paths unknown' : changed}`);
+        this.note(`policy_violation worker=${role} runtime=${rt} product tree changed by a role that does not write code: ${changed === '' ? 'paths unknown' : changed}`);
         throw this.blocked(`policy_violation: ${role} changed the product tree (${changed === '' ? 'paths unknown' : changed}); result not recorded, changes left in place`);
       }
     }
@@ -678,7 +678,7 @@ class Dispatcher {
       cwd: this.io.cwd, remove, set,
       close: [process.execPath, core, '--pl-argv0', agent, 'window-close', this.id, this.before, '137', this.role],
       note: [process.execPath, core, '--pl-argv0', agent, 'ledger-note', this.id],
-      noteText: `dispatch killed from outside role=${this.role} runtime=${this.rt} attempt=${this.attempts}: the dispatcher got SIGKILL (no handler ran)`,
+      noteText: `dispatch killed from outside worker=${this.role} runtime=${this.rt} attempt=${this.attempts}: the dispatcher got SIGKILL (no handler ran)`,
     };
   }
 
@@ -686,7 +686,7 @@ class Dispatcher {
   async onInterrupted() {
     const sig = this.interrupted ?? 'SIGTERM';
     if (this.worker) { await this.worker.exited; this.worker = null; }
-    this.note(`dispatch interrupted signal=${sig.slice(3)} role=${this.role} runtime=${this.rt} attempt=${this.attempts}`);
+    this.note(`dispatch interrupted signal=${sig.slice(3)} worker=${this.role} runtime=${this.rt} attempt=${this.attempts}`);
     if (this.rt !== '' && this.log !== '') this.writeResume('signal', sig);
     if (this.writesCode && this.windowOpen) {
       // the worker's group is gone (exited above, or killed after the grace): nothing can write now. The close attributes the partial edits to the implementer, as a timeout does
@@ -732,6 +732,6 @@ class Dispatcher {
       writeFileSync(this.resumeFile, latin1Buf(t));
       if (this.resumeOne !== '') copyFileSync(this.resumeFile, this.resumeOne);
     } catch { /* best effort */ }
-    this.note(`dispatch resume note written role=${this.role} file=${this.rel(this.resumeFile)}`);
+    this.note(`dispatch resume note written worker=${this.role} file=${this.rel(this.resumeFile)}`);
   }
 }
