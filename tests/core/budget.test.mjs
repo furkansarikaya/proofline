@@ -66,7 +66,7 @@ describe('runWithBudget', { skip: process.platform === 'win32' ? 'POSIX process 
     const srv = await listenOnce(dir);
     /** @type {number[]} */ const leaders = [];
     t.after(() => {   // a failed or timed-out test ends the processes it started
-      if (t.passed === false) for (const pid of leaders) { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } }
+      if (/** @type {any} */ (t).passed === false) for (const pid of leaders) { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } }
       void srv.close();
       rmSync(dir, { recursive: true, force: true });
     });
