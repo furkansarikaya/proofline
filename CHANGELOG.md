@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.118 — 2026-11-15
+
 - Command discovery names the .NET test target the way the MTP mode of `dotnet test` requires when `global.json` sets `test.runner` to `Microsoft.Testing.Platform`: `dotnet test --solution App.slnx`, `dotnet test --project X.csproj`. Other projects keep `dotnet test <target>`. New generic `when` keys `root_json` (+ `json_path`, `json_equals`) and `target` in `ecosystems.json` (A280).
 
 ## 0.0.117 — 2026-11-15
