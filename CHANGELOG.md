@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.115 — 2026-11-15
+
+- Change (A277, Part of #266; package P3a: CI scan gate, no-retry pin and a per-test duration report): the three test-scan allowlists are one file, `tests/ci/test-scan-allowlist.tsv`, and the `static` job runs `test-scan --kind wait` on `tests` with it (exit 1 on an open candidate or a stale entry); `tests/ci/no-retry.test.mjs` fails when a workflow retries a test (retry action, retry options, reruns, `continue-on-error: true` on a test step); every Linux test step runs through `tests/ci/test-durations-ci.mjs` (the same `node --test` and exit status) and writes `test-durations-<leg>.json` (artifact, 14 days) and a job-summary table; budgets in `tests/ci/test-budgets.json` are report-only (`OVER BUDGET:` lines) until `enforce` is set; the manual run has a `twice` input that reports unstable tests. No product change.
+
 ## 0.0.114 — 2026-11-15
 
 - Change (A278, Part of #264; case-insensitive path and command checks follow the file system): the hook guards no longer compare names by their spelling alone. A runtime probe asks the directory a path lives in whether its volume folds case (no platform name, per directory, fail closed, nothing written), and on a folding volume a path, a command word, a git branch and `HEAD`, a database file name and a migration command that differ from the protected one only by letter case or Unicode form (full case folding including the sharp s, the long s and the ligatures) get the verdict of the protected spelling for every role and tool. A Bash command is judged a second time, deny rules only, as its whole text folded to lower case against a context folded the same way, so a case variant gets the verdict of its lower-case twin in every position (find -exec, xargs, shell strings, substitutions, here-documents, misread openers); option names, variable names and `HEAD` stay as typed. Accepted limits: capitalised prose in a command is judged like its lower-case form, a push to a differently cased remote branch is judged like `main`, and a scope `SRC/x` stays an other path. See docs/decisions.md A278.

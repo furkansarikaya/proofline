@@ -15,7 +15,7 @@ test('skill-tests: test files in tests/skills run first, then the benchmark test
   /** @type {string[]} */ const calls = [];
   const r = run(['skill-tests'], { list: () => ['a.test.mjs', 'README.md'], exec: (p, a) => { calls.push(`${p} ${a.join(' ')}`); return 0; } });
   assert.equal(r.status, 0);
-  assert.deepEqual(calls, ['node --test tests/skills/', 'node --test tests/benchmark/benchmark.test.mjs']);
+  assert.deepEqual(calls, ['node tests/ci/test-durations-ci.mjs static suite -- tests/skills/', 'node tests/ci/test-durations-ci.mjs static benchmark -- tests/benchmark/benchmark.test.mjs']);
   assert.equal(r.out, '');
 });
 
@@ -23,7 +23,7 @@ test('skill-tests: no test file there prints the SKIPPED line and still runs the
   /** @type {string[]} */ const calls = [];
   const r = run(['skill-tests'], { list: () => ['README.md'], exec: (p, a) => { calls.push(a.join(' ')); return 0; } });
   assert.equal(r.status, 0);
-  assert.deepEqual(calls, ['--test tests/benchmark/benchmark.test.mjs']);
+  assert.deepEqual(calls, ['tests/ci/test-durations-ci.mjs static benchmark -- tests/benchmark/benchmark.test.mjs']);
   assert.equal(r.out, 'SKIPPED: no tests/skills/*.test.mjs yet\n');
   const missing = run(['skill-tests'], { list: () => { throw new Error('ENOENT'); }, exec: () => 0 });
   assert.match(missing.out, /SKIPPED/);

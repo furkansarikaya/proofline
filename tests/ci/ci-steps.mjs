@@ -16,6 +16,8 @@ import { pathToFileURL } from 'node:url';
 import { classify } from './classify.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
+/** The duration wrapper (A277, issue 266): runs `node --test <args>` with the spec text on stdout and a JSON duration report; its exit status is node's. */
+const DURATIONS = 'tests/ci/test-durations-ci.mjs';
 
 /** @param {string[]} argv @returns {Record<string, string>} */
 function options(argv) {
@@ -59,8 +61,8 @@ export function main(argv, io = {}) {
       const list = io.list ?? ((d) => readdirSync(path.join(root, d)));
       let has = false;
       try { has = list('tests/skills').some((n) => n.endsWith('.test.mjs')); } catch { has = false; }
-      if (has) { const st = exec('node', ['--test', 'tests/skills/']); if (st !== 0) return st; } else write('SKIPPED: no tests/skills/*.test.mjs yet\n');
-      return exec('node', ['--test', 'tests/benchmark/benchmark.test.mjs']);
+      if (has) { const st = exec('node', [DURATIONS, 'static suite', '--', 'tests/skills/']); if (st !== 0) return st; } else write('SKIPPED: no tests/skills/*.test.mjs yet\n');
+      return exec('node', [DURATIONS, 'static benchmark', '--', 'tests/benchmark/benchmark.test.mjs']);
     }
     if (cmd === 'gate') {
       const failed = gateFailures(env.NEEDS_JSON);
