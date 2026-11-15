@@ -17,6 +17,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { putAtomic, mkdirp, isFile, isDir, readText, rmf } from '../lib/fsx.mjs';
 import { canon, cmdSubst, isAbsPath, isWin, pathKey, winSpell } from '../lib/text.mjs';
+import { fold, insensitiveAt, provenInsensitiveAt } from '../lib/fscase.mjs';
 import { bn, dn, git, globMatch, hcfgLoad, mcFlag, stateOf, worktrees } from './kit.mjs';
 
 /** The roles that work in the project tree without writing to it (A143): the sentence their denials end with. @param {import('../lib/context.mjs').HookContext} ctx */
@@ -35,26 +36,64 @@ export function alwaysProtected(rel0) {
 }
 
 /**
- * On a Windows host a path takes the spelling the deny-lists use for the names they know (NTFS is case-insensitive, and a file that does not exist yet
- * keeps the case it was typed with): `.CLAUDE/Settings.Local.json` becomes `.claude/settings.local.json` before any comparison. ASCII only. A name is fixed at a
- * segment boundary (end, `/` or `.`), longest reference last so that the deeper names are fixed after their parents. Elsewhere the path is returned as it is.
- * @param {import('../lib/context.mjs').HookContext} ctx @param {string} rel
+ * The spelling the deny-lists use for the names they know. A volume that folds case (NTFS always; elsewhere what the probe of lib/fscase.mjs finds, A278) lets a
+ * file that does not exist yet keep the case it was typed with: `.CLAUDE/Settings.Local.json` and `.agents/runs/ID/Gates/x` become `.claude/settings.local.json` and
+ * `.agents/runs/ID/gates/x` before any comparison. Names fold by NFC and lower case (lib/fscase.mjs fold), so a different Unicode normalization form is fixed too.
+ * A known name is fixed at a segment boundary (a last name also before a `.`); a `*` segment is any name (a run id) and keeps its spelling; a last segment written
+ * `name*` fixes a prefix and `*name` a suffix. Where the volume keeps case apart, or CI is false, the path is returned as it is.
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {string} rel @param {boolean} [ci] the volume folds case (Windows always does)
  */
-export function canonCase(ctx, rel) {
-  if (!isWin() || rel.startsWith('@')) return rel;
+export function canonCase(ctx, rel, ci = false) {
+  if (!(isWin() || ci) || rel.startsWith('@')) return rel;
+  const key = `${isWin() ? 'w' : 'p'}\0${ctx.act}\0${stateOf(ctx).tasksDir || '.agents/tasks'}`;
+  let refs = REFS.get(key);
+  if (!refs) { refs = canonRefs(ctx).map((r) => r.split('/').map((s) => ({ name: s.replace(/^\*(?=.)|(?<=.)\*$/g, ''), mode: s === '*' ? 'any' : s.endsWith('*') ? 'prefix' : s.startsWith('*') ? 'suffix' : 'name', fold: cfold(s.replace(/^\*(?=.)|(?<=.)\*$/g, '')) }))); REFS.set(key, refs); }
+  const segs = rel.split('/');
+  for (const ref of refs) {
+    if (segs.length < ref.length) continue;
+    let ok = true;
+    /** @type {Array<[number, string]>} */ const fix = [];
+    for (let i = 0; i < ref.length && ok; i++) {
+      const r = /** @type {{ name: string, mode: string, fold: string }} */ (ref[i]); const seg = /** @type {string} */ (segs[i]);
+      if (r.mode === 'any') continue;
+      const last = i === ref.length - 1;
+      const k = fixLen(seg, r, last);
+      if (k < 0) ok = false; else fix.push([i, r.mode === 'suffix' ? seg.slice(0, seg.length - k) + r.name : r.name + seg.slice(k)]);
+    }
+    if (ok) for (const [i, v] of fix) segs[i] = v;
+  }
+  return segs.join('/');
+}
+
+/** How many characters of SEG the reference name R covers (the prefix length, or for a suffix the suffix length); -1 when it does not match at a boundary. @param {string} seg @param {{ name: string, mode: string, fold: string }} r @param {boolean} last */
+function fixLen(seg, r, last) {
+  const most = Math.min(seg.length, r.fold.length * 4 + 4); // a spelling of the name is at most a few characters per letter: the search stays linear on a very long segment
+  if (r.mode === 'suffix') {
+    for (let k = 1; k <= most; k++) if (cfold(seg.slice(seg.length - k)) === r.fold) return k;
+    return -1;
+  }
+  if (!cfold(seg.slice(0, most + 1)).startsWith(r.fold)) return -1;
+  for (let k = 1; k <= most; k++) {
+    if (cfold(seg.slice(0, k)) !== r.fold) continue;
+    if (r.mode === 'prefix' || k === seg.length || (last && seg[k] === '.')) return k;
+  }
+  return -1;
+}
+
+/** The comparison spelling of canonCase: ASCII lower case on a Windows host (A271 rules untouched), the Unicode full fold elsewhere. @param {string} x */
+const cfold = (x) => (isWin() ? lowerAscii(x) : fold(x));
+
+/** @type {Map<string, Array<Array<{ name: string, mode: string, fold: string }>>>} */
+const REFS = new Map();
+
+/** The protected names, as relative paths; `*` is any one segment. @param {import('../lib/context.mjs').HookContext} ctx */
+function canonRefs(ctx) {
   const run = `.agents/runs/${ctx.act}`;
   const td = stateOf(ctx).tasksDir || '.agents/tasks';
-  const refs = ['.agents', '.agents/githooks', '.agents/hooks', '.agents/local', '.agents/local/assignments', '.agents/local/scratch', '.agents/local/explain', '.agents/local/product-spec', '.agents/local/product-discovery', '.agents/local/intent-grill', '.agents/local/task-author',
-    '.agents/scripts', '.agents/config.yaml', '.agents/ecosystems.json', '.agents/ecosystems.tsv', '.agents/ecosystems.mjs', '.agents/owns.conf', '.agents/runs', '.git', '.git/config', '.claude', '.claude/settings.json', '.claude/settings.local.json', '.codex', '.codex/hooks.json', '.codex/config.toml', td,
-    run, `${run}/scratch`, `${run}/results`, `${run}/amendments`, ...['RUN.yaml', 'LEDGER.log', 'HOOKS.log', 'mutation_budget', 'TASK.md', 'PLAN.md', 'EVIDENCE.md', 'COMPLETION_REPORT.md', 'gates', 'approvals', 'waivers', 'questions', 'decisions', 'dispatch', 'worker-evidence', 'ci-fix'].map((n) => `${run}/${n}`)];
-  let r = rel;
-  for (const ref of refs) {
-    if (r.length < ref.length) continue;
-    if (lowerAscii(r.slice(0, ref.length)) !== lowerAscii(ref)) continue;
-    const next = r[ref.length];
-    if (next === undefined || next === '/' || next === '.') r = ref + r.slice(ref.length);
-  }
-  return r;
+  const runNames = ['RUN.yaml', 'LEDGER.log', 'HOOKS.log', 'mutation_budget', 'TASK.md', 'PLAN.md', 'EVIDENCE.md', 'COMPLETION_REPORT.md', 'gates', 'approvals', 'waivers', 'questions', 'decisions', 'dispatch', 'worker-evidence', 'ci-fix', 'results', 'scratch', 'amendments'];
+  return ['.agents', '.agents/githooks', '.agents/hooks', '.agents/local', '.agents/local/assignments', '.agents/local/scratch', '.agents/local/explain', '.agents/local/product-spec', '.agents/local/product-discovery', '.agents/local/intent-grill', '.agents/local/task-author', '.agents/local/worktrees',
+    '.agents/scripts', '.agents/config.yaml', '.agents/ecosystems.json', '.agents/ecosystems.tsv', '.agents/ecosystems.mjs', '.agents/owns.conf', '.agents/runs', '.git', '.git/config', '.claude', '.claude/settings.json', '.claude/settings.local.json', '.claude/settings*', '.codex', '.codex/hooks.json', '.codex/config.toml', td,
+    run, ...runNames.map((n) => `${run}/${n}`), '.agents/runs/*', ...runNames.map((n) => `.agents/runs/*/${n}`), '.agents/runs/*/results/*.result.md', '.agents/runs/*/results/dispatch-*', `${run}/results/*.result.md`, `${run}/results/dispatch-*`];
 }
 
 /** @param {string} p */
@@ -83,14 +122,14 @@ export async function inputPath(ctx, p) {
 /** An absolute path; a drive spelling counts only on a Windows host (elsewhere `C:/x` is a name under the working directory, as in the shell). @param {string} p */
 function isAbs(p) { return isAbsPath(p); }
 
-/** Per-event memo of relpath answers. @type {WeakMap<object, Map<string, { rel: string, abs: string }>>} */
+/** Per-event memo of relpath answers (ci: the volume under the target folds case, A278). @type {WeakMap<object, Map<string, { rel: string, abs: string, ci: boolean }>>} */
 const RELS = new WeakMap();
 
 /**
  * `relpath P [abs]`: the project-relative path of P (resolved against cwd; every existing parent directory resolved PHYSICALLY, so `link/..` is
  * the parent of the link target, not the textual parent the shell's `cd` produced). Stricter than the shell on purpose: Windows spellings are
  * converted first, and an existing last component takes the case it has on disk (macOS: `run.yaml` is `RUN.yaml`).
- * @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 @returns {Promise<{ rel: string, abs: string }>}
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 @returns {Promise<{ rel: string, abs: string, ci: boolean }>}
  */
 export async function relpathAbs(ctx, p0) {
   let memo = RELS.get(ctx);
@@ -104,25 +143,25 @@ export async function relpathAbs(ctx, p0) {
 
 /** @param {import('../lib/context.mjs').HookContext} ctx @param {string} p0 */
 async function relpathCompute(ctx, p0) {
-  if (isWin() && winSpell(p0).bad) return { rel: '@unknown', abs: '' }; // a drive-relative, device or malformed spelling: no guard can place it
+  if (isWin() && winSpell(p0).bad) return { rel: '@unknown', abs: '', ci: true }; // a drive-relative, device or malformed spelling: no guard can place it
   const p = await inputPath(ctx, p0);
-  if (isWin() && p.startsWith('//')) return { rel: '@outside', abs: p }; // a UNC path: no file system call (it would open a connection to the named server)
+  if (isWin() && p.startsWith('//')) return { rel: '@outside', abs: p, ci: true }; // a UNC path: no file system call (it would open a connection to the named server)
   let rp = isAbs(p) ? p : `${ctx.cwd}/${p}`;
   // no file system takes a path of more than 32,767 characters (PATH_MAX is 4,096 on Linux): it cannot be a real file, and the climb below costs a lookup per level
-  if (rp.length > 32768) return { rel: '@unknown', abs: '' };
+  if (rp.length > 32768) return { rel: '@unknown', abs: '', ci: true };
   let dir = dn(rp);
   const parts = [bn(rp)]; // the names below the first existing folder, last name first (joined once: a prepend per level is quadratic)
   while (!isDir(dir)) {
-    try { if (lstatSync(dir).isSymbolicLink()) return { rel: '@unknown', abs: '' }; } catch { /* not there */ }
+    try { if (lstatSync(dir).isSymbolicLink()) return { rel: '@unknown', abs: '', ci: true }; } catch { /* not there */ }
     parts.push(bn(dir));
     const up = dn(dir);
-    if (up === dir) return { rel: '@unknown', abs: '' };
+    if (up === dir) return { rel: '@unknown', abs: '', ci: true };
     dir = up;
   }
   let tail = parts.reverse().join('/');
-  if (`/${tail}/`.includes('/../') || `/${tail}/`.includes('/./')) return { rel: '@unknown', abs: '' };
+  if (`/${tail}/`.includes('/../') || `/${tail}/`.includes('/./')) return { rel: '@unknown', abs: '', ci: true };
   const phys = physical(dir);
-  if (phys === '') return { rel: '@unknown', abs: '' };
+  if (phys === '') return { rel: '@unknown', abs: '', ci: true };
   // an existing last component keeps the case it has on disk (never a link: the link itself is judged by target_ok)
   if (!tail.includes('/')) {
     try {
@@ -135,16 +174,17 @@ async function relpathCompute(ctx, p0) {
   let base = '';
   if (rp === root || rp.startsWith(`${root}/`)) base = root;
   else if (rp === main || rp.startsWith(`${main}/`)) base = main;
-  if (base === '') return { rel: '@outside', abs: rp };
-  if (rp === base) return { rel: '.', abs: rp };
-  let rel = canonCase(ctx, rp.slice(base.length + 1));
+  const ci = isWin() || insensitiveAt(phys); // A278: the volume of the nearest existing folder decides, by probe (lib/fscase.mjs), never by the platform name
+  if (base === '') return { rel: '@outside', abs: rp, ci };
+  if (rp === base) return { rel: '.', abs: rp, ci };
+  let rel = canonCase(ctx, rp.slice(base.length + 1), ci);
   // A184: a path inside a run's own git worktree is judged relative to THAT worktree's root (agent.sh worktree-root decides)
   if (/^\.agents\/local\/worktrees\/.*\/.*$/s.test(rel) && ctx.installed) {
     const r = await ctx.agent(['worktree-root', rp], { keepRole: true });
     const w = cmdSubst(r.stdout);
     if (r.status === 0 && w !== '' && rp.startsWith(`${w}/`)) rel = rp.slice(w.length + 1);
   }
-  return { rel, abs: rp };
+  return { rel, abs: rp, ci };
 }
 
 /** @param {import('../lib/context.mjs').HookContext} ctx @param {string} p */
@@ -152,20 +192,24 @@ export async function relpath(ctx, p) { return (await relpathAbs(ctx, p)).rel; }
 
 /** `outside_ok P`. @param {import('../lib/context.mjs').HookContext} ctx @param {string} p @returns {Promise<string | null>} */
 export async function outsideOk(ctx, p) {
-  let oo = (await relpathAbs(ctx, p)).abs;
+  const got = await relpathAbs(ctx, p);
+  // A278: on a volume that folds case (and for any Unicode normalization form) a differently spelled folder is the same folder: both sides are compared in the fold spelling
+  const ci = isWin() || provenInsensitiveAt(got.abs); // an allow rule: folded only when the probe proved the volume folds case
+  const f = (/** @type {string} */ x) => fold(isWin() ? pathKey(x) : x, ci);
+  let oo = got.abs;
   if (oo.startsWith('/private')) oo = oo.slice(8);
   let h = (ctx.env.HOME ?? '') || '/nonexistent-home';
   h = h.replace(/\/+/g, '/');
-  if (isWin()) { oo = pathKey(oo); h = pathKey(h); }
   if (h.startsWith('/private')) h = h.slice(8);
+  oo = f(oo); h = f(h);
   if (oo.startsWith(`${h}/.claude/projects/`)) {
     const tail = oo.slice(h.length + '/.claude/projects/'.length);
     if (globMatch('*/memory/*', tail) || globMatch('*/tool-results/*', tail)) return null;
   }
   if (oo.startsWith(`${h}/.claude/plans/`)) return null;
-  const rootN = pathKey(ctx.root.replace(/^\/private/, ''));
+  const rootN = f(ctx.root.replace(/^\/private/, ''));
   for (const w0 of await worktrees(ctx)) {
-    const w = pathKey(w0.replace(/^\/private/, ''));
+    const w = f(w0.replace(/^\/private/, ''));
     if (w === rootN) continue;
     if (oo.startsWith(`${w}/`)) return null;
   }

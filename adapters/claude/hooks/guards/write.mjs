@@ -5,7 +5,7 @@
 // A refusal is thrown as kit.Deny (the router renders it); a guard that finds nothing to refuse returns null. The router has run baseline() and
 // handles the Skill tool; Codex's patch tools come here too (their file headers are the targets).
 import { deny } from './kit.mjs';
-import { alwaysProtected, erasable, nrPathOk, outsideOk, relpath, roTail, targetOk } from './paths.mjs';
+import { alwaysProtected, erasable, nrPathOk, outsideOk, relpath, relpathAbs, roTail, targetOk } from './paths.mjs';
 import { dbCheckToken, dbLoad } from './db.mjs';
 import { jget } from '../lib/text.mjs';
 
@@ -95,13 +95,13 @@ export async function dbGuardFiles(ctx, tool, targets) {
 
 /** @param {Ctx} ctx @param {string} tool */
 async function languageCheck(ctx, tool) {
-  const lp = await relpath(ctx, ctx.get('tool_input.file_path', 'tool_input.path'));
+  const { rel: lp, ci } = await relpathAbs(ctx, ctx.get('tool_input.file_path', 'tool_input.path')); // A278: on a volume that folds case `.MD` and `Questions/` are the same files
   // A178: exactly .agents/runs/<ID>/questions/NNN.md (the question block for the user, in the user's language) is not checked
   if (lp.startsWith('.agents/runs/') && lp.indexOf('/', 13) >= 0) {
     const lq = lp.slice(lp.indexOf('/', 13) + 1);
     if (/^questions\/[0-9][0-9][0-9]\.md$/.test(lq)) return;
   }
-  const g = (/** @type {string} */ s) => new RegExp(`^${s.replace(/[.]/g, '\\.').replace(/\*/g, '.*')}$`, 's').test(lp);
+  const g = (/** @type {string} */ s) => new RegExp(`^${s.replace(/[.]/g, '\\.').replace(/\*/g, '.*')}$`, ci ? 'si' : 's').test(lp);
   if (['.agents/runs/*/dispatch/*', '.agents/runs/*/scratch/*', '.agents/runs/*/gates/*', '.agents/runs/*/LEDGER.log', '.agents/runs/*/HOOKS.log', '.agents/runs/*/reviews/visual-proof/*', '.agents/runs/*/reports/qa-evidence/*'].some(g)) return;
   if (!['.agents/runs/*/*.md', '.agents/runs/*/*.yaml', '.agents/runs/*/*.json'].some(g)) return;
   let text;

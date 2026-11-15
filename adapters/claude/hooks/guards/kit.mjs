@@ -12,6 +12,8 @@
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { cmdSubst, isAbsPath, isWin, posix } from '../lib/text.mjs';
+import { fold, insensitiveAt } from '../lib/fscase.mjs';
+import { scanCommand } from '../command-scan.mjs';
 
 /** The refusal of a guard (the text without the "proofline: " prefix). */
 export class Deny extends Error {
@@ -322,3 +324,42 @@ export function cParts(rec) {
   const rest = t < 0 ? '' : raw.slice(t + 1);
   return { cw, rest, args: cmdSubst(rest.replace(/\x03/g, '\n')) };
 }
+
+/** The command words of TEXT are read without regard to case (A278): on a volume that folds case `Agent.SH` runs agent.sh and `Kill` runs kill. The files a command word names live where the shell
+ * looks: the working directory for a path, the PATH folders for a bare word; any of them folding case (or not decidable, which fails closed) is enough. Text without a capital letter needs no fold and no probe.
+ * @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */
+export function foldCommands(ctx, text) {
+  if (!NEEDS_FOLD.test(text)) return false;
+  const dirs = [ctx.cwd || '.', ...(ctx.env.PATH ?? '').split(isWin() ? ';' : ':').filter((d) => d.startsWith('/'))];
+  return dirs.some((d) => insensitiveAt(d)) || insensitiveAt(ctx.root); // the project folder holds the protected names
+}
+
+/** A capital letter, or any non-ASCII character (the long s and the Kelvin sign fold to ASCII letters): the only texts a case fold can change. */
+const NEEDS_FOLD = /[A-Z\u0080-￿]/;
+
+/** What a shell and its programs read in the exact case, whatever the file system does: option names (`-C`, the first letter of a short one only, so a value glued to it is folded; `--git-dir`), variable names (`$TMPDIR`, `${HOME}`, `RTK_DISABLED=`) and git's pseudo-references (`HEAD`, `ORIG_HEAD`). */
+const EXACT_WORDS = /(?<![\w.\/$-])(?:-[A-Za-z0-9]|--[A-Za-z0-9][\w-]*)|\$\{?[A-Za-z_]\w*|(?<![\w$.\/-])[A-Za-z_]\w*(?==)|(?<![\w.\/-])(?:HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD)(?![\w-])/g;
+
+/** TEXT in the lower-case world (A278 round 4): `fold` (NFC and full case folding) of the whole text, so every parser sees the structure of the original and a case variant gets the verdict of its lower-case twin. No parsing of words, quotes, here-documents or command positions: the text between the exceptions is folded as it stands. The exceptions are the spellings that are case-sensitive in every program and that the guards compare as written, so an exact `git -C wt`, `$TMPDIR/wt`, `RTK_DISABLED=1` or `HEAD~1` keeps its meaning (folded they were `-c`, an unknown variable, another variable, an unknown reference, and a legitimate command was refused). @param {string} text */
+export function foldWorld(text) {
+  let out = ''; let at = 0;
+  for (const m of text.matchAll(EXACT_WORDS)) {
+    out += fold(text.slice(at, m.index)) + m[0];
+    at = (m.index ?? 0) + m[0].length;
+  }
+  return out + fold(text.slice(at));
+}
+
+/** The guard context as the LOWER-CASE WORLD sees it (A278 round 4): every path-valued field folded with the text, so that a case variant of a command is judged against the same context its lower-case twin is. The state of the guards (hook-config answers, failure flag) is shared with CTX, so no agent call is repeated. Role, run id and tokens are ids, not paths: untouched (the allow lists that compare them do not run in the second pass). @param {import('../lib/context.mjs').HookContext} ctx */
+export function foldCtx(ctx) {
+  /** @type {any} */ const d = Object.create(ctx);
+  for (const k of ['cwd', 'root', 'mainRoot', 'sharedLocal', 'sroot', 'localDir', 'agentPath']) d[k] = fold(/** @type {any} */ (ctx)[k]);
+  d.env = { ...ctx.env };
+  for (const k of ['HOME', 'TMPDIR', 'TMP', 'TEMP', 'PWD', 'OLDPWD', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) if (typeof d.env[k] === 'string') d.env[k] = fold(d.env[k]);
+  d.lower = true;
+  states.set(d, stateOf(ctx));
+  return d;
+}
+
+/** `scanCommand` with the case rule of the volume (A278). @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */
+export function scanFor(ctx, text) { return scanCommand(text, { fold: foldCommands(ctx, text) }); }

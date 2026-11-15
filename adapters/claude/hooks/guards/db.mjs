@@ -10,7 +10,8 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isDir as isDirectory } from '../lib/fsx.mjs';
 import { cmdSubst, isAbsPath, isWin, pathKey, posix, winSpell } from '../lib/text.mjs';
-import { cParts, deny, dn, physDir, ereToJs, globMatch, grepq, hcfgLoad, lines, mcFail, stateOf } from './kit.mjs';
+import { fold, insensitiveAt } from '../lib/fscase.mjs';
+import { cParts, deny, dn, foldCommands, physDir, ereToJs, globMatch, grepq, hcfgLoad, lines, mcFail, stateOf } from './kit.mjs';
 
 const DSQL = new RegExp('(^|[^a-z_])(drop[ \\t\\n\\v\\f\\r]+(table|column|index|view|schema|database|trigger)|alter[ \\t\\n\\v\\f\\r]+table[^;]*[ \\t\\n\\v\\f\\r]drop[ \\t\\n\\v\\f\\r]|truncate[ \\t\\n\\v\\f\\r]+(table[ \\t\\n\\v\\f\\r]+)?[a-z_"`]|delete[ \\t\\n\\v\\f\\r]+from[ \\t\\n\\v\\f\\r])', 'i');
 
@@ -94,6 +95,15 @@ function dbIsPath(ctx, tok0) {
       if (g.includes('/')) { if (globMatch(g, tok) || globMatch(`*/${g}`, tok)) return true; } else if (globMatch(g, tok.slice(tok.lastIndexOf('/') + 1))) return true;
     }
     if (alias && isAliasOf(g, (toks[0] ?? '').slice((toks[0] ?? '').lastIndexOf('/') + 1))) return true;
+  }
+  // A278: on a volume that folds case (and any Unicode normalization form) `DATA.DB` is the file `*.db` names; the probe runs only for a token that matches in the fold spelling alone
+  if (!w) {
+    const ft = fold(tok0);
+    for (const g0 of stateOf(ctx).dbPaths.split(/[ \t\n]+/).filter((x) => x !== '')) {
+      const g = fold(g0);
+      const hit = g.includes('/') ? (globMatch(g, ft) || globMatch(`*/${g}`, ft)) : globMatch(g, ft.slice(ft.lastIndexOf('/') + 1));
+      if (hit && insensitiveAt(isAbsPath(tok0) ? tok0 : `${ctx.cwd ?? '.'}/${tok0}`)) return true;
+    }
   }
   return false;
 }
@@ -181,9 +191,12 @@ export async function dbGuardCmd(ctx, scan) {
       } else deny(`${cw} is a database client; no agent connects to a database while a run is open (a test suite builds its own throwaway database)`);
     }
     const joined = `${cw} ${args.replace(/\n/g, ' ')}`;
+    // A278: on a volume that folds case `Prisma migrate reset` and `python3 Manage.py migrate` are the configured commands at any position: the pattern is read without case, and the text also in its fold spelling
+    const folds = foldCommands(ctx, joined);
+    const joinedF = folds ? fold(joined) : joined;
     for (const pat of st.dbMigrate) {
-      const re = ereToJs(pat);
-      if (re && grepq(re, joined)) {
+      const re = ereToJs(pat, folds ? 'i' : '');
+      if (re && (grepq(re, joined) || (folds && grepq(re, joinedF)))) {
         deny(`'${cw}' runs a migration, seed or schema command (matches database.migrate_commands). No agent runs one in any environment: the project's test command exercises migrations on the suite's own throwaway database, and applying a destructive step is the user's decision after the destructive approval`);
       }
     }

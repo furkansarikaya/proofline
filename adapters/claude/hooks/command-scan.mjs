@@ -76,7 +76,7 @@ const index = (s, t) => s.indexOf(t) + 1;
 /** ASCII-only tolower. @param {string} s */
 const lower = (s) => s.replace(/[A-Z]+/g, (m) => m.toLowerCase());
 /** @param {string} x */
-function base(x) { return x.replace(/^[^]*\//, ''); }
+function baseOf(x) { return x.replace(/^[^]*\//, ''); }
 /** @param {string} x */
 const isassign = (x) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(x);
 /** @param {string} v */
@@ -88,9 +88,12 @@ const WRAPPERS = /^(sudo|doas|env|command|builtin|exec|nohup|time|nice|ionice|st
 /**
  * The whole scanner, state included. One call scans one input (the awk's one run).
  * @param {string} input binary string
+ * @param {boolean} [fold] read command words and script names without regard to case (A278)
  * @returns {string} binary string
  */
-function scan(input) {
+function scan(input, fold = false) {
+  // A278: on a volume that folds case `Agent.SH` is agent.sh and `Kill` is kill: a command word is read in lower case then (the caller probed the volume)
+  const base = fold ? (/** @param {string} x */ (x) => Buffer.from(decodeBinary(baseOf(x)).normalize('NFC').toUpperCase().toLowerCase().replace(/\u00df/g, 'ss'), 'utf8').toString('latin1')) : baseOf; // full case folding (the long s is `s`), same as lib/fscase.mjs fold
   /** @type {string[]} */ const res = [];
   // global state of the awk program (kept across records and nested commands, like the awk's globals)
   /** @type {string[]} */ const w = [];
@@ -390,7 +393,7 @@ function scan(input) {
       }
       if (c === 'ln') for (j = 1; j <= nopt; j++) out('L', op[j]);
       if (c === 'mv') for (j = 1; j < nopt + (tgt !== '' ? 1 : 0); j++) out('W', op[j]);
-      if (tgt !== '') out('W', tgt); else if (nopt >= 2) out('W', op[nopt]); else if (c === 'ln' && nopt === 1) out('W', base(op[1]));
+      if (tgt !== '') out('W', tgt); else if (nopt >= 2) out('W', op[nopt]); else if (c === 'ln' && nopt === 1) out('W', baseOf(op[1]));
     } else if (c === 'dd') { for (j = k + 1; j <= nw; j++) if (/^of=/.test(W(j))) out('W', substr(W(j), 4)); }
     else if (c === 'tar' || c === 'bsdtar' || c === 'gtar') {
       // an extraction lands in the directory named by -C / --directory (A210: a planted prompts/history file arrived this way)
@@ -551,9 +554,9 @@ export function parseHeredocRecord(rec) {
   return { cmd: decodeBinary(a[0] ?? ''), path: decodeBinary(a[1] ?? ''), body: decodeBinary(body.replace(/\x02/g, '\n')) };
 }
 
-/** Scan text exactly as given. @param {string|Uint8Array} input @returns {ScanResult} */
-export function scanText(input) {
-  const raw = scan(toBinary(input));
+/** Scan text exactly as given. @param {string|Uint8Array} input @param {{ fold?: boolean }} [opt] fold: read command words without regard to case (A278) @returns {ScanResult} */
+export function scanText(input, opt = {}) {
+  const raw = scan(toBinary(input), opt.fold === true);
   /** @type {Rec[]} */ const records = [];
   /** @type {Cmd[]} */ const commands = [];
   if (raw !== '') {
@@ -565,7 +568,7 @@ export function scanText(input) {
   }
   return { raw, records, commands };
 }
-/** The hook's call: the command text and a newline (`printf '%s\n' "$cmd" | scan_cmd`). @param {string} cmd */
-export function scanCommand(cmd) { return scanText(`${cmd}\n`); }
+/** The hook's call: the command text and a newline (`printf '%s\n' "$cmd" | scan_cmd`). @param {string} cmd @param {{ fold?: boolean }} [opt] */
+export function scanCommand(cmd, opt = {}) { return scanText(`${cmd}\n`, opt); }
 /** The records of one kind. @param {ScanResult} result @param {string} kind */
 export function kindOf(result, kind) { return result.records.filter((r) => r.kind === kind); }

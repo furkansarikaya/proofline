@@ -8,6 +8,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { cmdSubst, isWin, winSoft } from '../lib/text.mjs';
+import { fold, insensitiveAt } from '../lib/fscase.mjs';
 import { cParts, deny, envChdirOpt, ereToJs, git, grepq, hcfgLoad, mcFail, stashPath, stateOf } from './kit.mjs';
 
 const MG_MSG = 'merging a pull request goes only through `proofline merge <PR-NUMBER> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]`, which checks that every check is green on the current head and then merges (A136); --admin and --auto are never allowed';
@@ -110,7 +111,14 @@ async function originHead(ctx) {
  */
 export async function mergeGuard(ctx, cmd, scan) {
   let prot = '';
-  const isProt = (/** @type {string} */ b) => ` ${prot} `.includes(` ${b} `);
+  // A278: local branch names live in the git dir's file system. Where it folds case (a loose ref `refs/heads/MAIN` is `refs/heads/main`; fail closed when the probe cannot tell) a protected
+  // name is protected in any case and Unicode form. A remote side stays exact (GitHub ref names keep case), and so does a case-keeping git dir (`Main` is another branch there).
+  let rfDir = ctx.cwd;
+  /** @type {boolean | null} */ let rf = null;
+  const refsFold = () => (rf ??= (rfDir === '@unknown' ? true : insensitiveAt(findGitDir(rfDir) ?? rfDir)));
+  const isProt = (/** @type {string} */ b, local = true) => ` ${prot} `.includes(` ${b} `) || (local && refsFold() && ` ${fold(prot)} `.includes(` ${fold(b)} `));
+  // A278 round 4: git resolves `head`, `Head~1` on a git dir that folds case (probe on the git dir, fail closed); foldWorld keeps HEAD as typed, so the guard compares it here
+  const isHead = (/** @type {string} */ x, suffix = '') => (suffix === '' ? x === 'HEAD' : x.startsWith(`HEAD${suffix}`)) || (refsFold() && (suffix === '' ? fold(x) === 'head' : fold(x).startsWith(`head${suffix}`)));
   const load = async () => {
     if (prot !== '') return;
     let cb = '';
@@ -123,17 +131,19 @@ export async function mergeGuard(ctx, cmd, scan) {
     }
     prot = `main master ${cb} ${await originHead(ctx)}`;
   };
-  const mgRef = (/** @type {string} */ r0) => {
+  const mgRef = (/** @type {string} */ r0, local = true) => {
     let r = r0.startsWith('+') ? r0.slice(1) : r0;
-    if (r.startsWith('refs/heads/')) r = r.slice(11);
+    if (r.startsWith('refs/heads/') || (local && fold(r).startsWith('refs/heads/') && refsFold())) r = r.slice(11);
     if (r.includes('$') || r.includes(BT)) return true;
-    return isProt(r);
+    return isProt(r, local);
   };
   const switchesProt = () => {
     const alt = prot.replace(/ +/g, '|').replace(/^\|/, '').replace(/\|$/, '');
     if (alt === '') return false;
-    const norm = cmd.replace(/["']/g, '').replace(/[(){}]/g, ';');
-    const r1 = ereToJs(String.raw`(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?(refs/heads/)?(${alt})([[:space:]]|;|&|\||$)`);
+    let norm = cmd.replace(/["']/g, '').replace(/[(){}]/g, ';');
+    const lf = refsFold(); // a folding git dir: the switch is read in the fold spelling, the protected names too
+    if (lf) norm = fold(norm);
+    const r1 = ereToJs(String.raw`(checkout|switch)[[:space:]]+([^;&|]*[[:space:]])?(refs/heads/)?(${lf ? fold(alt) : alt})([[:space:]]|;|&|\||$)`);
     if (r1 && grepq(r1, norm)) return true;
     return grepq(RE_SWITCH_VAR, norm);
   };
@@ -162,6 +172,7 @@ export async function mergeGuard(ctx, cmd, scan) {
       i++;
     }
     const rest = a.slice(Math.min(i, a.length));
+    rfDir = dir; rf = null;
     const cur = async () => (dir === '@unknown' ? '' : currentBranch(ctx, dir));
     switch (sub) {
       case 'push': {
@@ -182,8 +193,8 @@ export async function mergeGuard(ctx, cmd, scan) {
           if (x.startsWith('-')) continue;
           np++;
           if (np < 2) continue;
-          if (x.includes(':')) { if (mgRef(x.slice(x.indexOf(':') + 1))) deny(`git push to the protected branch (${x}): ${MG_MSG}`); } else if (x === 'HEAD' || x === '@') head = true;
-          else if (mgRef(x)) deny(`git push of the protected branch (${x}): ${MG_MSG}`);
+          if (x.includes(':')) { if (mgRef(x.slice(x.indexOf(':') + 1), false)) deny(`git push to the protected branch (${x}): ${MG_MSG}`); } else if (isHead(x) || x === '@') head = true;
+          else if (mgRef(x, false)) deny(`git push of the protected branch (${x}): ${MG_MSG}`);
         }
         if (np < 2 || head) {
           if (dir === '@unknown') deny(`git push whose directory cannot be read from the command text (cd -, a variable, GIT_DIR, env -C, a cd in a subshell or pipe) pushes an unknown branch: ${MG_MSG}`);
@@ -203,7 +214,7 @@ export async function mergeGuard(ctx, cmd, scan) {
       }
       case 'update-ref':
         await load();
-        for (const x of rest) if (x.startsWith('refs/heads/') && mgRef(x)) deny(`git update-ref of a protected branch: ${MG_MSG}`);
+        for (const x of rest) if ((x.startsWith('refs/heads/') || (refsFold() && fold(x).startsWith('refs/heads/'))) && mgRef(x)) deny(`git update-ref of a protected branch: ${MG_MSG}`);
         return;
       case 'branch': {
         await load();
@@ -250,7 +261,7 @@ export async function mergeGuard(ctx, cmd, scan) {
           for (const x of rest) {
             if (['--hard', '--soft', '--keep', '--merge'].includes(x)) fl = true;
             else if (x.startsWith('-')) continue;
-            else if (x === 'HEAD' || x.startsWith('HEAD~') || x.startsWith('HEAD^') || x === '@' || x.startsWith('@~')) continue;
+            else if (isHead(x) || isHead(x, '~') || isHead(x, '^') || x === '@' || x.startsWith('@~')) continue;
             else mv = true;
           }
           if (!(fl && mv)) return;

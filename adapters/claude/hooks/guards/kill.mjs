@@ -14,7 +14,8 @@ import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { realpathSync } from 'node:fs';
 import { cmdSubst, isAbsPath, isWin, posix, winSoft, winSpell } from '../lib/text.mjs';
 import { scanText } from '../command-scan.mjs';
-import { bn, dn, deny, globMatch, grepq, isAbsolute } from './kit.mjs';
+import { insensitiveAt, same } from '../lib/fscase.mjs';
+import { bn, dn, deny, foldCommands, globMatch, grepq, isAbsolute } from './kit.mjs';
 
 const KG_MSG = 'kill only a process you started yourself, by its PID (kill <pid>, kill $!); pkill, killall and kill by pattern, by name, by port or by a process search are forbidden (A156, A161)';
 const KG_TXT = 'Text in code or a script that contains a kill-by-name word (pkill, killall, slay, fuser -k) cannot be told from a command the code runs, so it is denied even when the code only prints or matches it; if the user really wants this command, the user can run it themselves with the ! prefix in the terminal';
@@ -157,7 +158,7 @@ class Kill {
     try {
       const t = `${text}\n`;
       this.checkTime(t);
-      this.run(scanText(t), depth + 1, true);
+      this.run(scanText(t, { fold: foldCommands(this.ctx, t) }), depth + 1, true);
     } catch (e) { if (!(e instanceof KgPass)) throw e; }
   }
 
@@ -484,7 +485,7 @@ class Kill {
       let body = ''; let got = false;
       for (const [, hp, hb] of hdoc) {
         if (hp === '') continue;
-        if (hp.replace(/^\.\//, '') === np) { body = cmdSubst(hb.replace(/\x02/g, '\n')); got = true; }
+        if (same(hp.replace(/^\.\//, ''), np, insensitiveAt(isAbsolute(p) ? p : `${this.ctx.cwd}/${p}`))) { body = cmdSubst(hb.replace(/\x02/g, '\n')); got = true; }
       }
       if (!got) {
         const fo = this.fileOk(p);

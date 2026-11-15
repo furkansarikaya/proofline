@@ -22,6 +22,7 @@ import { mergeGuard } from '../../adapters/claude/hooks/guards/merge.mjs';
 import { killGuard } from '../../adapters/claude/hooks/guards/kill.mjs';
 import { alwaysProtected, canonCase, nrPathOk, outsideOk, pathOk, relpath, roOperand, targetOk } from '../../adapters/claude/hooks/guards/paths.mjs';
 import { normalizeInputPath } from '../../control-plane/agents/scripts/core/paths.mjs';
+import { createFsCase, useFsCase } from '../../adapters/claude/hooks/lib/fscase.mjs';
 
 const realPlatform = host.platform;
 const realDrive = host.drive;
@@ -319,10 +320,15 @@ test('dbCheckToken on a Windows host: a database path entry matches in every spe
   assert.notEqual(dbVerdict(ctx, 'var/data/mixed.sqlite'), null);
   assert.notEqual(dbVerdict(ctx, 'C:/proj/prod.data'), null);
   stateOf(ctx).dbPaths = 'var/data/dev.sqlite prod.data *.db *.sqlite';
-  host.platform = () => 'linux'; // elsewhere only the forward-slash form, and only the exact case
+  host.platform = () => 'linux'; // elsewhere only the forward-slash form; the case follows the volume (A278), not the platform name: here a volume that keeps case
   stateOf(ctx).dbPaths = 'var/data/dev.sqlite prod.data *.db';
-  for (const t of ['C:\\proj\\var\\data\\dev.sqlite', 'var\\data\\dev.sqlite', 'C:\\proj\\prod.data', 'DB.DB', 'dev.sqlite.', 'A.SQLITE', 'var/data/dev.sqlite::$DATA', 'DEV~1.SQL']) assert.equal(dbVerdict(ctx, t), null, `linux: refused ${t}`);
-  for (const t of ['C:/proj/var/data/dev.sqlite', '/proj/prod.data', 'a.db', 'var/data/dev.sqlite', 'x/dev.db']) assert.notEqual(dbVerdict(ctx, t), null, `linux: not refused ${t}`);
+  const prevVolume = useFsCase(createFsCase({ probe: () => false }));
+  try {
+    for (const t of ['C:\\proj\\var\\data\\dev.sqlite', 'var\\data\\dev.sqlite', 'C:\\proj\\prod.data', 'DB.DB', 'dev.sqlite.', 'A.SQLITE', 'var/data/dev.sqlite::$DATA', 'DEV~1.SQL']) assert.equal(dbVerdict(ctx, t), null, `linux: refused ${t}`);
+    for (const t of ['C:/proj/var/data/dev.sqlite', '/proj/prod.data', 'a.db', 'var/data/dev.sqlite', 'x/dev.db']) assert.notEqual(dbVerdict(ctx, t), null, `linux: not refused ${t}`);
+    useFsCase(createFsCase({ probe: () => true })); // the same names on a volume that folds case: the cased spelling is the database
+    for (const t of ['DB.DB', 'VAR/DATA/DEV.SQLITE', 'Prod.Data']) assert.notEqual(dbVerdict(ctx, t), null, `folding volume: not refused ${t}`);
+  } finally { useFsCase(prevVolume); }
 });
 
 test('dbCheckToken: an NTFS stream or an 8.3 alias of a database file is the database file (tool paths and shell words alike)', () => {
