@@ -392,12 +392,13 @@ test('A278 B2 (git dir keeps case; a regression guard for no over-refusal, it pa
 });
 
 test('A278 B2 real file system: in a throwaway repository the refs of the temp folder fold case or not, and the guards judge the cased branch accordingly', async () => {
-  const repo = tempDir('hook-case-repo-');
+  const proj = copyProject(template, base);
+  const repo = join(proj, '.agents/local/scratch/case-repo'); // inside the project: the hook's tmp rules judge a repository under the runner's /tmp as outside the project
+  mkdirSync(repo, { recursive: true });
   const run = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', repo, ...a], { env: cleanEnv(), encoding: 'utf8' });
   assert.equal(run('init', '-q', '-b', 'main').status, 0);
   assert.equal(run('commit', '-q', '--allow-empty', '-m', 'x').status, 0);
   const folds = existsSync(join(repo, '.git/refs/heads/MAIN')); // the ground truth of the ref store, found without the code under test
-  const proj = copyProject(template, base);
   await onVolume(createFsCase(), async () => {
     const v = await pre('Bash', { command: U(`git -C ${repo} branch -f MA@IN HEAD`) }, LEAD[1], LEAD[2], proj);
     if (folds) assert.ok(v, 'the refs fold case: MAIN is main'); else assert.equal(v, null, 'the refs keep case: MAIN is another branch');
