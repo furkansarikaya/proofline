@@ -126,7 +126,7 @@
         "status": "verified",
         "runners": ["jest","vitest","mocha","node:test","bun test","tsc"],
         "no_tests": [
-          { "pattern": "/No tests found, exiting with code/", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts" },
+          { "pattern": "/No tests found, exiting with code/", "runner": "jest", "source": "captured", "evidence": "npm-jest-no-tests" },
           { "pattern": "/No test files found/", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-no-tests" },
           { "pattern": "/No test files found/", "runner": "mocha", "source": "docs", "evidence": "https://github.com/mochajs/mocha/blob/main/lib/cli/collect-files.cjs" },
           { "pattern": "/^\\s*(ℹ|#)\\s*tests\\s+0\\b/m", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-no-tests" },
@@ -142,13 +142,13 @@
         "assertion": [
           { "pattern": "/AssertionError/", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-assertion" },
           { "pattern": "/\\bexpect\\(received\\)\\.(not\\.)?to\\w+/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" },
-          { "pattern": "/\\bexpect\\(received\\)\\.(not\\.)?to\\w+/", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/docs/ExpectAPI.md" },
+          { "pattern": "/\\bexpect\\(received\\)\\.(not\\.)?to\\w+/", "runner": "jest", "source": "captured", "evidence": "npm-jest-assertion" },
           { "pattern": "/Expected:[\\s\\S]{0,400}?(Received|Actual):/", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-assertion" }
         ],
         "exit_codes": {
           "no_tests": [
             { "code": "1", "runner": "vitest", "source": "captured", "evidence": "npm-vitest-no-tests" },
-            { "code": "1", "runner": "jest", "source": "docs", "evidence": "https://github.com/jestjs/jest/blob/main/e2e/__tests__/noTestsFound.test.ts" },
+            { "code": "1", "runner": "jest", "source": "captured", "evidence": "npm-jest-no-tests" },
             { "code": "0", "runner": "node:test", "source": "captured", "evidence": "npm-node-test-no-tests" },
             { "code": "0", "runner": "bun test", "source": "captured", "evidence": "npm-bun-test-no-tests" }
           ],
@@ -230,9 +230,10 @@
         "status": "verified",
         "runners": ["pytest","unittest"],
         "no_tests": [
-          { "pattern": "/collected 0 items/", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst" },
+          { "pattern": "/collected 0 items/", "runner": "pytest", "source": "captured", "evidence": "python-pytest-no-tests" },
+          { "pattern": "/collected \\d+ items? \\/ \\d+ deselected \\/ 0 selected/", "runner": "pytest", "source": "captured", "evidence": "python-pytest-no-tests-filter" },
           { "pattern": "/\\bno tests ran\\b/i", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
-          { "pattern": "/\\bno tests ran\\b/i", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/example/simple.rst" },
+          { "pattern": "/\\bno tests ran\\b/i", "runner": "pytest", "source": "captured", "evidence": "python-pytest-no-tests" },
           { "pattern": "/\\bRan 0 tests\\b/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
           { "pattern": "/\\(unittest\\.loader\\._FailedTest\\.\\w+\\)/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests-filter" }
         ],
@@ -242,17 +243,17 @@
         ],
         "assertion": [
           { "pattern": "/AssertionError/", "runner": "unittest", "source": "captured", "evidence": "python-unittest-assertion" },
-          { "pattern": "/^E\\s+assert\\b/m", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/getting-started.rst" }
+          { "pattern": "/^E\\s+assert\\b/m", "runner": "pytest", "source": "captured", "evidence": "python-pytest-assertion" }
         ],
         "exit_codes": {
           "no_tests": [
             { "code": "5", "runner": "unittest", "source": "captured", "evidence": "python-unittest-no-tests" },
-            { "code": "5", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst" }
+            { "code": "5", "runner": "pytest", "source": "captured", "evidence": "python-pytest-no-tests" }
           ],
           "compile": [],
           "assertion": [
             { "code": "1", "runner": "unittest", "source": "captured", "evidence": "python-unittest-assertion" },
-            { "code": "1", "runner": "pytest", "source": "docs", "evidence": "https://github.com/pytest-dev/pytest/blob/main/doc/en/reference/exit-codes.rst" }
+            { "code": "1", "runner": "pytest", "source": "captured", "evidence": "python-pytest-assertion" }
           ]
         }
       }

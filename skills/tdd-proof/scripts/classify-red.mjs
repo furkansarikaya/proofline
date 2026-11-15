@@ -34,7 +34,7 @@ function entries(data, cls, ecosystem) {
   const out = [];
   for (const e of data.ecosystems) {
     if (ecosystem && e.id !== ecosystem) continue;
-    for (const x of e.test_output?.[cls] ?? []) out.push({ re: toRegExp(x.pattern), unless: x.unless ? toRegExp(x.unless) : null });
+    for (const x of e.test_output?.[cls] ?? []) out.push({ re: toRegExp(x.pattern), unless: x.unless ? toRegExp(x.unless) : null, runner: x.runner ?? null });
   }
   return out;
 }
@@ -70,8 +70,19 @@ function classOfExitCode(ecosystem, code) {
   const e = loadEcosystems().ecosystems.find((x) => x.id === ecosystem);
   const hits = ["no_tests", "compile", "assertion"].filter((c) => (e?.test_output?.exit_codes?.[c] ?? []).some((x) => String(x.code) === String(code)));
   if (hits.length !== 1 || hits[0] === "assertion") return null;
-  const x = e.test_output.exit_codes[hits[0]].find((y) => String(y.code) === String(code));
-  return { cls: hits[0], evidence: `exit code ${code} (${x.runner}, ${x.source})` };
+  // Several runners may share a code (pytest and unittest both exit 5): name every one, not the first listed.
+  const xs = e.test_output.exit_codes[hits[0]].filter((y) => String(y.code) === String(code));
+  const who = [...new Set(xs.map((y) => `${y.runner}, ${y.source}`))].join("; ");
+  return { cls: hits[0], evidence: `exit code ${code} (${who})` };
+}
+
+// A signature that belongs to one runner (its entry names it) and an exit code the definition lists for that same runner and class:
+// the evidence names that runner alone. A code classified from the code alone (no signature matched) keeps every runner of the code.
+function agreeing(ecosystem, cls, code, runner) {
+  if (code === null || !ecosystem || !runner || (cls !== "no_tests" && cls !== "compile")) return "";
+  const e = loadEcosystems().ecosystems.find((x) => x.id === ecosystem);
+  const xs = (e?.test_output?.exit_codes?.[cls] ?? []).filter((y) => String(y.code) === String(code) && y.runner === runner);
+  return xs.length ? `; exit code ${code} (${[...new Set(xs.map((y) => y.source))].map((src) => `${runner}, ${src}`).join("; ")})` : "";
 }
 
 export function classify(output, opts = {}) {
@@ -85,10 +96,10 @@ export function classify(output, opts = {}) {
     return done(byCode ? { class: byCode.cls, evidence: byCode.evidence, red_valid: false } : { class: "unknown", evidence: "empty output", red_valid: false });
   }
   for (const [cls, list] of rules) {
-    for (const { re, unless } of list) {
+    for (const { re, unless, runner } of list) {
       if (!re.test(text) || (unless && unless.test(text))) continue;
       if (cls === "assertion" && code === 0) return done({ class: "unknown", evidence: `exit code 0 with an assertion message: a passing run is not RED (${firstLine(text, re) ?? ""})`.slice(0, 200), red_valid: false });
-      return done({ class: cls, evidence: firstLine(text, re) ?? "", red_valid: cls === "assertion" });
+      return done({ class: cls, evidence: (firstLine(text, re) ?? "") + agreeing(opts.ecosystem, cls, code, runner), red_valid: cls === "assertion" });
     }
   }
   const byCode = code !== null && opts.ecosystem ? classOfExitCode(opts.ecosystem, code) : null;
