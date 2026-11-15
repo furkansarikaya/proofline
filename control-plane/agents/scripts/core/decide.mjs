@@ -125,8 +125,6 @@ function explorerSlotCheck(ctx, id, cls) {
   const max = pipelineValue(ctx, cls, 'max_explorers');
   if (!/^[0-9]+$/.test(max) || Number(max) === 0) return;
   const dir = ctx.runDir(id);
-  const ledger = fileText(ctx, `${dir}/LEDGER.log`);
-  const ledgerRows = ledger === null ? [] : textLines(ledger);
   let floor = 0;
   for (const r of ledgerRowsOf(ctx, dir, /^(freeze|refreeze)$/)) floor = r.seq;
   /** @type {string[]} */ const have = []; /** @type {string[]} */ const keys = [];
@@ -135,7 +133,7 @@ function explorerSlotCheck(ctx, id, cls) {
   for (const f of results) {
     if (!textLines(fileText(ctx, `${dir}/results/${f}`) ?? '').includes('RESULT: DONE')) continue;
     let seq = '';
-    for (const l of ledgerRows) if (l.includes(`detail=results/${f} `)) { const m = /^seq=([0-9]*) /.exec(l); if (m) seq = m[1]; }
+    for (const r of ledgerRowsOf(ctx, dir, /^/)) if (r.detail.startsWith(`results/${f} `)) seq = String(r.seq);
     if (seq !== '' && !(Number(seq) > floor)) continue;
     const art = textLines(fileText(ctx, `${dir}/results/${f}`) ?? '').map((l) => /^ARTIFACT: [^ ]*\/[0-9a-f]{12}-([^ ]*) /.exec(l)).find((m) => m !== null);
     const key = art ? art[1] : '';

@@ -20,7 +20,7 @@ import { isFile } from '../paths.mjs';
 import { notRunRelative, realpathPosix } from '../pathin.mjs';
 import * as proc from '../proc.mjs';
 import { askCommand, verifyAssumptions } from '../questions.mjs';
-import { fileText, gateField, gatesEnforced, planDestructive, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
+import { fileText, gateField, gatesEnforced, parseLedgerLine, planDestructive, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
 import { lifecycleFolderStatus, requireRun, runDir } from '../runs.mjs';
 import { inKnowledgeScope } from '../scope.mjs';
 import { ECO_WARNING, ecosystemSets, pipelineClass, pipelineClassValid, pipelineDeclared, pipelineValue, runAutonomy, tierEffective } from '../signals.mjs';
@@ -124,7 +124,7 @@ function citedByRecord(dir, id, rel) {
   for (const f of files) {
     let text;
     try { text = readFileSync(f, 'latin1'); } catch (e) { if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT' || /** @type {NodeJS.ErrnoException} */ (e).code === 'ENOTDIR' || /** @type {NodeJS.ErrnoException} */ (e).code === 'EISDIR') continue; return true; }
-    for (const line of text.split('\n')) if (!/ event=discard-stray /.test(line) && re.test(line)) return true;
+    for (const line of text.split('\n')) if (!(f === `${dir}/LEDGER.log` && parseLedgerLine(line)?.event === 'discard-stray') && re.test(line)) return true;
   }
   return false;
 }
