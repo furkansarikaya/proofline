@@ -47,7 +47,7 @@ case "\${FAKE_CODEX:-ok}" in
   ignoreterm) trap 'echo $$ >> "$loc/term.log"' TERM; echo $$ > "$loc/codex.pid"; while :; do sleep 0.2; done ;;   # ignores TERM, but says it got one (term.log): the pid file means the trap is set
   grandchildren) echo $$ > "$loc/codex.pid"; sh -c 'trap "echo \\$\\$ >> \\"\\$FAKE_LOC/term.log\\"" TERM; echo $$ >> "$FAKE_LOC/grandchildren.pids"; while :; do sleep 0.2; done' & sh -c 'echo $$ >> "'"$loc"'/grandchildren.pids"; exec sleep 30' & wait ;;
   recordsig) echo $$ > "$loc/codex.pid"; for s in HUP INT TERM; do trap "echo $s > \\"$loc/got.sig\\"; exit 0" $s; done; echo ready > "$loc/codex.ready"; while :; do sleep 0.1; done ;;   # codex.ready: the traps are set
-  setsidchild) echo $$ > "$loc/codex.pid"; node -e "const c=require('child_process').spawn('sleep',['30'],{detached:true,stdio:'ignore'});require('fs').appendFileSync(process.argv[1],c.pid+'\\n');setTimeout(function(){},30000)" "$loc/grandchildren.pids" & wait ;;
+  setsidchild) echo $$ > "$loc/codex.pid"; node -e "const c=require('child_process').spawn('sleep',['30'],{detached:true,stdio:'ignore'});require('fs').appendFileSync(process.argv[1],c.pid+'\\n');require('net').createServer().listen(0)" "$loc/grandchildren.pids" & wait ;;
   early) echo "stopped before reading the prompt" >&2; exit 3 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\\n' > "$o"; sub PASS ;;
   implement) echo "work in progress" >> "$FAKE_ROOT/impl.txt"; printf 'x\\n' > "$o"; sub DONE ;;

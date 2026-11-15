@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { A, accepted, cached, cleanEnv, codeKey, copyOf, gateOwner, qaBind, say, scaffold, tmp, tsha } from '../lib/harness.mjs';
+import { PARKED } from './event-lib.mjs';
 
 /** @typedef {import('../lib/harness.mjs').Result} Result */
 
@@ -137,8 +138,8 @@ export function approve(dir, kind, text) {
 export function startSleeper() {
   if (process.platform === 'win32') {
     // W10: the `$!` of a Git-for-Windows `sh` is an MSYS pid, which is no Windows pid: the product looks the number up as a Windows one (`process.kill(pid, 0)`). A detached node process has a real pid.
-    const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)'], { detached: true, stdio: 'ignore' });
-    c.unref();
+    const c = spawn(process.execPath, PARKED, { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+    c.unref(); c.stdin?.unref();
     if (typeof c.pid !== 'number') throw new Error('no sleeper');
     return c.pid;
   }

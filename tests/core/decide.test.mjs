@@ -11,6 +11,7 @@ import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { dispatcherIo, isLiveAncestor, nonceAccepted, parentPid } from '../../control-plane/agents/scripts/core/decide.mjs';
 import { fixture } from './dispatch-lib.mjs';
+import { PARKED } from './event-lib.mjs';
 
 /**
  * One command in process. @param {import('./dispatch-lib.mjs').Fixture} fx @param {string[]} argv @param {{ role?: string, env?: Record<string, string>, dispatcher?: boolean }} [o]
@@ -192,7 +193,7 @@ describe('the nonce of another process (A171): a live ancestor, one use', () => 
   });
   test('an ancestor is found through /proc or ps: the parent of this process is its parent, and a child of ours has us as its ancestor', { skip: noAncestor }, async () => {
     assert.equal(parentPid(process.pid), process.ppid);
-    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)']);
+    const child = spawn(process.execPath, PARKED);
     try {
       assert.equal(parentPid(/** @type {number} */ (child.pid)), process.pid);
       assert.equal(isLiveAncestor(process.pid, process.platform, /** @type {number} */ (child.pid)), true);

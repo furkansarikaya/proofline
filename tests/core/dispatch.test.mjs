@@ -11,12 +11,12 @@ import { skipOnWin32 } from '../lib/winpath.mjs';
 /** A test that starts a shell-script fake runtime (or fake worker) from a temp folder: skipped on Windows, where only a real .exe outside temp folders runs, by design (A252, A262). Tests that only read text or run `dispatch.sh codex-profile` stay on. */
 const fakeTest = skipOnWin32(test, 'starts a shell-script fake runtime from a temp folder; on Windows only a real .exe outside temp folders runs, by design (A252, A262)');
 import { fixture } from './dispatch-lib.mjs';
+import { until as pollUntil } from './poll-lib.mjs';
 
-const sleep = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
 /** @param {number} pid */
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-/** @param {() => boolean} cond @param {number} [ms] */
-async function until(cond, ms = 15000) { const t0 = Date.now(); while (!cond()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting'); await sleep(20); } }
+/** @param {() => boolean} cond */
+const until = (cond) => pollUntil(cond, 15000);
 /** @param {import('./dispatch-lib.mjs').Fixture} fx @param {string} f */
 const loc = (fx, f) => path.join(fx.loc, f);
 /** @param {import('./dispatch-lib.mjs').Fixture} fx @param {string} f */

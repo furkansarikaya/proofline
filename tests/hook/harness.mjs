@@ -48,12 +48,11 @@ export function runHook(kind, dir, ev, payload, opt = {}) {
   const text = typeof payload === 'string' ? payload : JSON.stringify({ cwd: dir, session_id: 's1', ...payload });
   const args = [nodeHook, ev, opt.runtime ?? 'claude'];
   return new Promise((resolveRun) => {
-    const child = spawn(process.execPath, args, { cwd: dir, env: cleanEnv({ CLAUDE_PROJECT_DIR: dir, ...opt.env }) });
+    const child = spawn(process.execPath, args, { cwd: dir, env: cleanEnv({ CLAUDE_PROJECT_DIR: dir, ...opt.env }), timeout: 120000, killSignal: 'SIGKILL' });   // the failsafe of a hung hook is the runner's own `timeout`
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
-    const timer = setTimeout(() => child.kill('SIGKILL'), 120000);
-    child.on('close', (status) => { clearTimeout(timer); resolveRun({ status, stdout, stderr }); });
+    child.on('close', (status) => { resolveRun({ status, stdout, stderr }); });
     child.stdin.on('error', () => {});
     child.stdin.end(text);
   });
