@@ -178,7 +178,6 @@ test('a user-only question is recorded by the hook only when it is the single op
 function planApproved(d) {
   assert.equal(agent(d, ['request-approval', 'LC', 'plan']).status, 0);
   const t0 = Number(/^requested_at: (\d+)/m.exec(read(d, 'approvals/001-request-plan.yaml'))?.[1]);
-  waitUntil(t0 + 1);
   say(d, 'approve the plan', t0 + 1);
   assert.equal(agent(d, ['approve-pending', 'LC']).status, 0);
 }
@@ -237,15 +236,11 @@ test('an answer that names both options gives neither (exactly one accepted form
   assert.equal(hookAnswer(d, ['answer', 'LC', '1', '--captured'], { text: 'report it, out of scope', time: now() + 1 }).status, 0);
 });
 
-/** Wait until the clock has reached second T. @param {number} t */
-function waitUntil(t) { const c = new Int32Array(new SharedArrayBuffer(4)); while (now() < t) Atomics.wait(c, 0, 0, 25); }
-
 test('next records no approval from a file: a missed approval is reported and the lead asks the user again (H2)', () => {
   const d = project('plain');
   assert.equal(agent(d, ['request-approval', 'LC', 'plan']).status, 0);
   const t0 = Number(/^requested_at: (\d+)/m.exec(read(d, 'approvals/001-request-plan.yaml'))?.[1]);
   const approvals = () => readdirSync(`${d}/.agents/runs/LC/approvals`).filter((n) => /^\d{3}-plan\.yaml$/.test(n));
-  waitUntil(t0 + 1);
   say(d, 'approve the plan', t0 + 100);
   assert.match(agent(d, ['next', 'LC']).text, /wait for the user's answer/);
   say(d, 'approve the plan but wait', t0 + 1);
@@ -267,7 +262,6 @@ test('batch pre-flight: the user\'s answers are recorded by batch-answer and app
   writeFileSync(`${d}/.agents/local/batch/lint.tsv`, 'Q1\tLC\tsplit\tsplit it?\ta) b)\ta\t27\n');
   assert.equal(agent(d, ['request-approval', '-', 'batch']).status, 0);
   const t0 = Number(/^requested_at: (\d+)/m.exec(readFileSync(`${d}/.agents/local/approvals/001-request-batch.yaml`, 'utf8'))?.[1]);
-  waitUntil(t0 + 1);
   say(d, 'approve batch', t0 + 1);
   const ap = agent(d, ['approve-pending', 'LC']);
   assert.match(ap.out, /approved: {2}batch/);

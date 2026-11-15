@@ -13,6 +13,7 @@ import { A, AB, batchApprove, bnew, binstall, fakes, g, gOk, has, lines, mktask,
 import { makeFixture, git } from './fixture.mjs';
 import { installGithooks } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
+import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 
 const wbody = (/** @type {string} */ title) => `## Goal\n\n${title}.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n`;
 /** @param {{ status: number|null, text: string }} r @param {string} what @param {string} [msg] */
@@ -184,7 +185,8 @@ function hook(main, prompt) {
   });
   return r.stdout + r.stderr;
 }
-const sleepMs = (/** @type {number} */ ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** The hook stamps the user's message with the real clock and a message must be strictly newer than the request it answers (and the duplicate guard ignores a second copy within two seconds): the stored seconds of the request and of the guard are moved two seconds back instead of waiting for the next second. */
+const older = (/** @type {string[]} */ ...dirs) => { for (const d of dirs) recordsAge(d, 2); };
 const PLAN_X = '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n';
 
 test('a worktree run\'s pending request is approved by the main tree\'s prompt hook (shared approve.log, no worktree process without a request); a linked capture is refused (sc_worktree_prompt_approval)', () => {
@@ -198,7 +200,7 @@ test('a worktree run\'s pending request is approved by the main tree\'s prompt h
   const done = () => readdirSyncSafe(`${wt}/.agents/runs/W-1/approvals`).filter((n) => /^[0-9]{3}-scope\.yaml$/.test(n)).length;
   assert.equal(done(), 0);
   // the user's reply reaches the hook of the MAIN tree session; the run is in the worktree
-  sleepMs(1100); const out = hook(main, 'approve scope');
+  older(wt, main); const out = hook(main, 'approve scope');
   assert.equal(done(), 1, `the prompt hook did not record the scope approval in the worktree run: ${out}`);
   assert.ok(out.includes('approval recorded'), `the hook did not say it recorded the approval: ${out}`);
   assert.ok(!has(`${dir}/.agents/runs/W-1`), 'the approval created a run folder in the main tree');
@@ -216,7 +218,7 @@ test('a worktree run\'s pending request is approved by the main tree\'s prompt h
   assert.equal(readIf(`${F.FAKE}/wtcalls`), '', 'a prompt without a pending request started the worktree\'s agent.sh');
   sh(wt2, 'mv', [real2, `${wt2}/.agents/scripts/agent.sh`]);
   // the capture is safe state in the main tree: a capture planted as a link is refused, as in the main tree
-  assert.equal(A(wt, ['request-approval', 'W-1', 'scope']).status, 0); sleepMs(1100);
+  assert.equal(A(wt, ['request-approval', 'W-1', 'scope']).status, 0); older(wt, main);
   const cap = `${dir}/.agents/local/prompts/s1.json`;
   const keep = `${F.FAKE}/cap.real`;
   sh(dir, 'cp', [cap, keep]); sh(dir, 'rm', ['-f', cap]); symlinkSync(keep, cap);
@@ -243,15 +245,15 @@ test('the main tree\'s prompt hook runs only an unchanged worktree agent.sh, and
   const w1 = wtp(dir, 'W-1'); const w2 = wtp(dir, 'W-2');
   const approved = (/** @type {string} */ w, /** @type {string} */ r) => readdirSyncSafe(`${w}/.agents/runs/${r}/approvals`).some((n) => /^[0-9]{3}-scope\.yaml$/.test(n));
   // two runs wait: a reply that names none approves neither; naming W-2 approves only W-2
-  sleepMs(1100); const out = hook(main, 'approve scope');
+  older(w1, w2, main); const out = hook(main, 'approve scope');
   assert.ok(!approved(w1, 'W-1') && !approved(w2, 'W-2'), 'an unnamed reply approved a run while two waited');
   assert.ok(out.includes('say which run you approve'), `the hook did not ask which run: ${out}`);
-  sleepMs(1100); const out2 = hook(main, 'i approve the scope for W-2');
+  older(w1, w2, main); const out2 = hook(main, 'i approve the scope for W-2');
   assert.ok(approved(w2, 'W-2'), `the reply naming W-2 did not approve W-2: ${out2}`);
   assert.ok(!approved(w1, 'W-1'), 'the reply naming W-2 also approved W-1');
   // a worktree agent.sh that differs from the main one is never run (the Node hook runs the project's own core and only reads the worktree's data)
   appendFileSync(`${w1}/.agents/scripts/agent.sh`, `\necho forged > "${F.FAKE}/forged"\n`);
-  sleepMs(1100); hook(main, 'i approve the scope for W-1');
+  older(w1, w2, main); hook(main, 'i approve the scope for W-1');
   assert.ok(!has(`${F.FAKE}/forged`), 'the hook ran a modified worktree agent.sh');
 });
 

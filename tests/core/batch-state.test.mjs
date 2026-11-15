@@ -382,7 +382,7 @@ test('a run in a batch whose approvals wait: cover is the next action for a plan
 });
 void appendFileSync; void mkdirSync; void path; void sh; void orderIds; void summaryOf; void readIf;
 
-test('pidStat (A262): win32 never asks ps (a live process is S, a gone one \'\'); elsewhere the answer is exactly what ps gave, whatever its letters', () => {
+test('pidStat (A262): win32 never asks ps (a live process is S, a gone one \'\'); elsewhere the answer is exactly what ps gave, whatever its letters', async () => {
   /** @type {number[]} */ const asked = [];
   const ps = (/** @type {string} */ out) => (/** @type {number} */ pid) => { asked.push(pid); return out; };
   assert.equal(pidStat(process.pid, 'win32', ps('Ss+')), 'S');
@@ -395,8 +395,17 @@ test('pidStat (A262): win32 never asks ps (a live process is S, a gone one \'\')
   }
   assert.deepEqual(asked, [process.pid, process.pid, process.pid, process.pid], 'ps is asked once per live POSIX call');
   if (process.platform !== 'win32') {
-    const real = spawnSync('ps', ['-o', 'stat=', '-p', String(process.pid)], { encoding: 'latin1' }).stdout.replace(/ /g, '').replace(/\n/g, '');
-    assert.equal(pidStat(process.pid), real);
-    assert.ok(real !== '' && !real.startsWith('Z'));
+    // a real process: it reports `ready` and then waits on its standard input (an event, not a duration), so it is alive and not a zombie whatever letter ps shows at that moment
+    // (R while it is scheduled, S while it waits: two reads of one process can differ, so the letter is not compared, the property is); once it has exited and been reaped the answer is ''
+    const child = spawn(process.execPath, ['-e', "process.stdout.write('ready\\n'); process.stdin.resume();"], { stdio: ['pipe', 'pipe', 'ignore'] });
+    try {
+      await new Promise((ok) => { child.stdout.once('data', ok); });
+      const live = pidStat(/** @type {number} */ (child.pid));
+      assert.match(live, /^[RSDTI]/, `a live process shows a state letter and not Z: '${live}'`);
+      const exited = once(child, 'exit');
+      child.kill('SIGKILL');
+      await exited;   // reaped by Node: the pid is gone
+      assert.equal(pidStat(/** @type {number} */ (child.pid)), '', 'a reaped process is gone');
+    } finally { child.kill('SIGKILL'); }
   }
 });

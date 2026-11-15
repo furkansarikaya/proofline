@@ -15,7 +15,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { A, capture, cleanEnv, commitAll, git, newRepo, tmp } from '../lib/harness.mjs';
 import { repo } from '../hook/harness.mjs';
-import { editConfig, kv, setcfg, shim, sleepSync, strip, tv } from './cfg-util.mjs';
+import { editConfig, kv, setcfg, shim, strip, tv } from './cfg-util.mjs';
+import { recordsAge } from './enforcement-a-lib.mjs';
 import { fixture } from './lib.mjs';
 
 const PL = path.join(repo, 'bin/proofline');
@@ -243,7 +244,7 @@ test('doctor_scale: doctor proposes a scale from a measurement and writes it onl
   assert.match(v0, /^([1-9]\d*\.[05]|[1-9]\d*|10)$/, `the proposed scale is not a bounded half step: ${v0}`);
   // no reply, a reply that is not an approval, a negation, another kind: nothing is written
   assert.notEqual(pl(d, ['doctor', '--apply-scale']).status, 0, '--apply-scale wrote without any reply');
-  sleepSync(1000);   // a capture is newer than its request and not ahead of the clock (the Node core ignores a capture dated more than 5 s ahead)
+  recordsAge(d, 2);   // a capture is strictly newer than its request: the request is stored two seconds back, nothing waits
   for (const t of ['looks good', 'do not approve scale', 'approve commands', 'approve scale if it is safe']) {
     capture(d, t, now()); A(d, ['approve-pending']);
     assert.notEqual(pl(d, ['doctor', '--apply-scale']).status, 0, `--apply-scale wrote after '${t}'`);
@@ -254,7 +255,7 @@ test('doctor_scale: doctor proposes a scale from a measurement and writes it onl
   assert.notEqual(A(d, ['scale-check']).status, 0, 'a changed proposal was covered by the earlier request');
   pl(d, ['doctor', '--scale'], { PATH });
   const v = proposed();   // measured again: the value may differ, the approval binds the new file
-  sleepSync(1000); capture(d, 'approve scale', now()); A(d, ['approve-pending']);
+  recordsAge(d, 2); capture(d, 'approve scale', now()); A(d, ['approve-pending']);
   r = pl(d, ['doctor', '--apply-scale']);
   assert.equal(r.status, 0, `--apply-scale refused after the user's 'approve scale': ${r.text}`);
   const scales = () => cfgText(d).split('\n').filter((l) => l.startsWith('  scale: ')).map((l) => l.slice(9)).join('\n');
