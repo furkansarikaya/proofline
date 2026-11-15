@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, 
 import path from 'node:path';
 import { test } from 'node:test';
 import { allowed, H, Hr, post } from './lib.mjs';
-import { A, AS, V, chomp, expectMsg, gitR, hookTmpdir, ls, matches, sleep, tmp, tmpdirOwn, denied, fixture, preBash, preEdit, subStart, subStop } from './enforcement-a-lib.mjs';
+import { A, AS, V, chomp, expectMsg, gitR, hookTmpdir, ls, matches, tmp, tmpdirOwn, denied, fixture, preBash, preEdit, subStart, subStop } from './enforcement-a-lib.mjs';
 
 test('subagent_guard: subagent roles are held to what they own; windows, markers, stop and post events', () => {
   const d = fixture();
@@ -224,5 +224,5 @@ test('verdicts: lead-authored verdicts, role-bound submits, worktree and scratch
   appendFileSync(path.join(d, 'impl.txt'), '\n');
   subStop(d, 'proofline-reviewer', 'v2');
   gitR(d, ['checkout', '-q', 'impl.txt']);
-  void readdirSync; void sleep;
+  void readdirSync;
 });

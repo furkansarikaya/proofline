@@ -5,11 +5,12 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { A, AS, accepted, approveAsUser, expectMsg, gateStatus, git, must, passAll, refused, rec, repo, say, scaffold, solo, wclose, wev, wopen, writeReport } from '../lib/harness.mjs';
+import { PARKED } from './event-lib.mjs';
 import { gatesOf, implemented, kindClaim, passAllExtra, unfrozen, worker2 } from './gates-s4-lib.mjs';
 
 const GL = 'test: lookup returns the stored value';
@@ -101,7 +102,7 @@ test('sc_scratch_worktrees: a registered scratch worktree blocks CODE_DONE; the 
 // Windows (W10): the read-only part of A196 is a property of POSIX directory modes (`chmod 555` stops a create in the folder); a directory's read-only attribute on Windows stops nothing, so the
 // premise "the folder is not writable" cannot be made there and the assertion would pass or fail for no reason of ours. The part that waits for a live older lock keeps running on every platform.
 const modeBits = process.platform !== 'win32';
-test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable, cannot write approvals or prompts, and waits for an older version\'s live lock (A196, A199)', async () => {
+test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable, cannot write approvals or prompts, and waits for an older version\'s live lock (A196, A199)', { timeout: 90000 }, async () => {
   const d = scaffold({ cls: 'STANDARD' });
   const rw = must(d, ['worktree-add', 'RW-1']).out;
   let rwp = (/(\/[^ \n]*worktrees\/RW-1)/.exec(rw) ?? [])[1] ?? '';
@@ -127,20 +128,37 @@ test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable
   }
   assert.ok(!existsSync(path.join(d, '.agents/local/locks/shared.lock')), 'A196 the shared lock was left behind');
   // an older version's lock in the main tree, held by a live process, is waited for (read-only) and never removed: the command must not finish before the holder is gone
-  const holder = spawn('sleep', ['30'], { stdio: 'ignore' });
+  const holder = spawn(process.execPath, PARKED, { stdio: ['pipe', 'ignore', 'ignore'] });
   try {
     mkdirSync(path.join(d, '.agents/local/.lock'));
     writeFileSync(path.join(d, '.agents/local/.lock/pid'), `${holder.pid}\n`);
-    const cmd = spawn('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: { PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', PROOFLINE_NO_TTY: '1', PROOFLINE_LOCK_TIMEOUT: '20', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' });
-    /** @type {Promise<number>} */
-    const finished = new Promise((res) => { cmd.on('close', () => res(0)); });
+    const env = (/** @type {string} */ seconds) => ({ PATH: process.env.PATH ?? '', HOME: tmpdir(), LC_ALL: 'C', PROOFLINE_NO_TTY: '1', PROOFLINE_LOCK_TIMEOUT: seconds, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' });
     const noted = () => [path.join(d, '.agents/runs/LC/LEDGER.log'), path.join(rwp, '.agents/runs/LC/LEDGER.log')].some((f) => existsSync(f) && readFileSync(f, 'utf8').includes('A196 after the old lock'));
-    await new Promise((res) => setTimeout(res, 1500));   // the holder is alive for this time; only the state at the kill is asserted, not the length of the wait
-    assert.equal(cmd.exitCode, null, 'A196 a worktree command did not wait for the live holder of the old main-tree lock (it ended before the holder was gone)');
+    // the holder is alive: the command waits for it (its own lock timeout, one second here) and gives up on that timeout; it does not take the lock over and writes nothing
+    const waiting = spawnSync('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('1'), encoding: 'utf8' });
+    assert.notEqual(waiting.status, 0, 'A196 a worktree command did not wait for the live holder of the old main-tree lock (it finished while the holder was alive)');
+    assert.match(`${waiting.stdout}${waiting.stderr}`, /lock timeout after 1s/, 'A196 the command did not stop on its lock timeout');
     assert.ok(!noted(), 'A196 the command wrote its ledger note while the old main-tree lock was still held');
+    // the holder is released while the command waits: the command takes its own folder lock first (tree.lock, the event that it is on its way to the old lock) and then waits
+    // for the live holder; the holder ends (the exit event of the process) and the very same command, with a long lock timeout, goes on and writes its note
+    const locksDir = path.join(rwp, '.agents/local/locks');
+    const onWay = new Promise((res) => {
+      const w = watch(locksDir, () => { if (existsSync(path.join(locksDir, 'tree.lock'))) { w.close(); res(undefined); } });
+    });
+    const cmd = spawn('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('300'), stdio: ['ignore', 'pipe', 'pipe'], detached: true });   // a lock timeout far above the test timeout: only the release of the holder can end the wait in time
+    try {
+    let text = '';
+    cmd.stdout.on('data', (x) => { text += x; }); cmd.stderr.on('data', (x) => { text += x; });
+    const finished = new Promise((res) => { cmd.on('close', (code) => res(code)); });
+    await onWay;
+    assert.equal(cmd.exitCode, null, 'A196 the command ended although the old lock was still held');
+    const gone = new Promise((res) => { holder.on('exit', () => res(undefined)); });
     holder.kill();
-    await finished;
+    await gone;
+    assert.equal(await finished, 0, `A196 the command did not go on after the old lock was released: ${text}`);
     assert.ok(noted(), 'A196 the command did not write its ledger note after the old lock was released');
+    assert.doesNotMatch(text, /lock timeout/, 'A196 the wait ended by the lock timeout, not by the release of the holder');
+    } finally { try { process.kill(-(/** @type {number} */ (cmd.pid)), 'SIGKILL'); } catch { /* gone */ } }
   } finally { holder.kill(); rmSync(path.join(d, '.agents/local/.lock'), { recursive: true, force: true }); }
 });
 

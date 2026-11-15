@@ -5,29 +5,45 @@ import { describe, test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import * as fsSync from 'node:fs';
 import { readFileSync } from 'node:fs';
-import { BUDGET_STATUS, approvalStopLogLine, approvalTimeoutMessage, hkCfgNum, hookTimeLine, nextTimeoutNote, runWithBudget, withBudget } from '../../control-plane/agents/scripts/core/budget.mjs';
+import { holdTimeouts } from './fake-time.mjs';
+import { closed, lines, listenOnce } from './event-lib.mjs';
+import { BUDGET_STATUS, SETTLE_GRACE_MS, approvalStopLogLine, approvalTimeoutMessage, hkCfgNum, hookTimeLine, nextTimeoutNote, runWithBudget, withBudget } from '../../control-plane/agents/scripts/core/budget.mjs';
 
 const node = process.execPath;
-/** @param {number} ms */ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** @param {number} pid */ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+/** The promise callbacks that follow an event have run (no timer, no wait: the chain of withBudget after its budget is a few promise hops long). */
+const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
 describe('withBudget', () => {
   test('a step that finishes inside the budget returns its value', async () => {
     const r = await withBudget(5, async () => 42);
     assert.deepEqual(r, { timedOut: false, value: 42 });
   });
-  test('a step that outlives the budget is aborted and reported as status 124', async () => {
+  test('a step that outlives the budget is aborted and reported as status 124', async (t) => {
+    holdTimeouts(t);   // the budget is a timer the test fires, not a duration it waits for
     let aborted = false;
-    const r = await withBudget(0.05, (signal) => new Promise((resolve) => { signal.addEventListener('abort', () => { aborted = true; resolve('late'); }); }));
-    assert.deepEqual(r, { timedOut: true, status: 124 });
+    /** @type {() => void} */ let up = () => {};
+    const started = new Promise((r) => { up = () => r(undefined); });
+    const run = withBudget(0.05, (signal) => new Promise((resolve) => { signal.addEventListener('abort', () => { aborted = true; resolve('late'); }); up(); }));
+    await started;
+    assert.equal(aborted, false, 'nothing aborts the step before the budget is over');
+    t.mock.timers.tick(50);
+    assert.deepEqual(await run, { timedOut: true, status: 124 });
     assert.equal(BUDGET_STATUS, 124);
     assert.ok(aborted);
   });
-  test('a step that ignores the abort is not waited for beyond the grace', async () => {
-    const t0 = Date.now();
-    const r = await withBudget(0.02, () => sleep(60000).then(() => 1).catch(() => 0).then(() => 1));
+  test('a step that ignores the abort is not waited for beyond the grace', async (t) => {
+    holdTimeouts(t);
+    /** @type {() => void} */ let up = () => {};
+    const started = new Promise((r) => { up = () => r(undefined); });
+    let reported = false;
+    const run = withBudget(0.02, () => { up(); return new Promise(() => {}); }).then((r) => { reported = true; return r; });   // never settles, whatever the signal says
+    await started;
+    t.mock.timers.tick(20);   // the budget ends: the step is told to stop and ignores it
+    await settle();
+    assert.equal(reported, false, 'the result waits for the grace period');
+    t.mock.timers.tick(SETTLE_GRACE_MS);   // the grace period ends: the result is reported although the step never settled
+    const r = await run;
     assert.equal(r.timedOut, true);
-    assert.ok(Date.now() - t0 < 10000);
   });
   test('a budget of zero ends at once; a step that throws in time throws', async () => {
     assert.equal((await withBudget(0, (s) => new Promise((res) => s.addEventListener('abort', () => res(1))))).timedOut, true);
@@ -45,23 +61,27 @@ describe('runWithBudget', { skip: process.platform === 'win32' ? 'POSIX process 
     assert.equal(r.timedOut, false); assert.equal(r.status, 3);
     assert.equal(r.stdout.toString(), 'out'); assert.equal(r.stderr.toString(), 'err');
   });
-  test('the grandchild is gone after a stop (pid read from a file the child wrote)', async () => {
-    const { mkdtempSync, readFileSync, rmSync, existsSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
-    const path = await import('node:path');
+  test('the grandchild is gone after a stop (it reports over a socket, which the kernel closes when the process ends)', async (t) => {
+    const { rmSync } = await import('node:fs');
     const dir = tempDir('pl-budget-');
-    const f = path.join(dir, 'pid');
-    try {
-      const code = `const { spawn } = require('node:child_process'); const fs = require('node:fs');
-        const g = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 600000)'], { stdio: 'ignore' });
-        fs.writeFileSync(${JSON.stringify(f)}, String(g.pid)); setTimeout(()=>{}, 600000);`;
-      const r = await runWithBudget(1.5, node, ['-e', code]);
-      assert.equal(r.timedOut, true);
-      assert.ok(existsSync(f), 'the child started its helper before the budget ended');
-      const pid = Number(readFileSync(f, 'utf8'));
-      for (let i = 0; i < 100 && alive(pid); i++) await sleep(50);
-      assert.equal(alive(pid), false, 'the helper process survived the stop');
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    const srv = await listenOnce(dir);
+    /** @type {number[]} */ const leaders = [];
+    t.after(() => {   // a failed or timed-out test ends the processes it started
+      if (/** @type {any} */ (t).passed === false) for (const pid of leaders) { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } }
+      void srv.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    holdTimeouts(t);   // the budget is a timer the test fires once the helper is up
+    // the child starts a helper in its group; the helper holds a connection to the test and tells its parent's pid. Both live as long as that connection.
+    const helper = 'const s = require("node:net").connect(process.argv[1], () => s.write(process.ppid + "\\n"));';
+    const code = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(helper)}, ${JSON.stringify(srv.path)}], { stdio: 'inherit' });`;
+    const run = runWithBudget(1.5, node, ['-e', code]);
+    const sock = await srv.first; const gone = closed(sock);
+    leaders.push(Number(await lines(sock)()));
+    t.mock.timers.tick(1500);   // the helper is up inside the group: now the budget ends
+    const r = await run;
+    assert.equal(r.timedOut, true);
+    await gone;   // the helper process survived the stop: its connection would stay open and this test would end at its timeout
   });
   test('a program that is not found is status 127 inside the budget', async () => {
     const r = await runWithBudget(5, '/nonexistent/proofline-nothing', []);

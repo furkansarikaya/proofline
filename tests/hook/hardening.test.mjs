@@ -5,8 +5,12 @@ import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cpSync, readdirSync, readFileSync, existsSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, existsSync, writeFileSync as writeFile } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { Worker } from 'node:worker_threads';
+import { holdTimeouts } from '../core/fake-time.mjs';
+import { listenOnce } from '../core/event-lib.mjs';
 import { buildTemplate, copyProject, runHook, cleanEnv, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join } from './harness.mjs';
 
 let template = ''; let base = ''; let requested = '';
@@ -16,7 +20,12 @@ before(() => {
   requested = copyProject(template, base);
   const r = spawnSync('sh', ['.agents/scripts/agent.sh', 'request-approval', 'LC', 'plan'], { cwd: requested, env: cleanEnv(), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  spawnSync('sleep', ['1.1']);
+  // the user's reply must be newer than the request, by whole seconds: the request is recorded as made five seconds earlier (the same as a wait, without waiting)
+  const ap = join(requested, '.agents/runs/LC/approvals');
+  for (const n of readdirSync(ap)) {
+    const f = join(ap, n); const t = readFileSync(f, 'utf8');
+    if (/^requested_at: \d+/m.test(t)) writeFile(f, t.replace(/^requested_at: (\d+)/m, (_, x) => `requested_at: ${Number(x) - 5}`));
+  }
 });
 after(() => { rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
@@ -46,17 +55,31 @@ test('the prompt hook records the user\'s acceptance of an assumption from the m
   assert.match(readFileSync(file, 'utf8'), /^answered_by: user/m);
 });
 
-test('a worker the hook stopped waiting for writes no record (the flag is checked before the write)', async () => {
+test('a worker the hook stopped waiting for writes no record (the flag is checked before the write)', async (t) => {
   const root = mkdtempSync(join(base, 'fake-'));
   mkdirSync(join(root, '.agents/scripts/core'), { recursive: true });
   const seen = join(root, 'seen');
+  const srv = await listenOnce(root);
+  t.after(() => { void srv.close(); });
+  // the fake worker holds in a synchronous wait (a child process that connects to the test and ends when the test sends a byte), as a worker stuck in a long command does
+  const hold = `require('node:net').connect(process.argv[1], function () { this.once('data', function () { process.exit(0); }); });`;
   writeFileSync(join(root, '.agents/scripts/proofline-core.mjs'),
-    `import { writeFileSync } from 'node:fs';\nimport { spawnSync } from 'node:child_process';\nexport const commandTable = () => [{ name: 'approve-pending', moved: true }];\nexport const run = (argv, io) => { spawnSync('sleep', ['1.5']); writeFileSync(${JSON.stringify(seen)}, io.cancel && Atomics.load(io.cancel, 0) ? 'cancelled' : 'running'); return 0; };\n`);
+    `import { writeFileSync } from 'node:fs';\nimport { spawnSync } from 'node:child_process';\nexport const commandTable = () => [{ name: 'approve-pending', moved: true }];\nexport const run = (argv, io) => { spawnSync(process.execPath, ['-e', ${JSON.stringify(hold)}, ${JSON.stringify(srv.path)}]); writeFileSync(${JSON.stringify(seen)}, io.cancel && Atomics.load(io.cancel, 0) ? 'cancelled' : 'running'); return 0; };\n`);
   const { Agents } = await import('../../adapters/claude/hooks/lib/agent.mjs');
   const agents = new Agents({ root, mainRoot: root, agentPath: join(root, '.agents/scripts/agent.sh'), env: {}, lockWait: 8, cwd: root });
-  const r = await agents.run(['approve-pending', 'LC'], { budgetMs: 300 });
+  /** @type {Worker | undefined} */ let worker;
+  const on = Worker.prototype.on;
+  t.mock.method(Worker.prototype, 'on', /** @this {Worker} @param {any[]} a */ function (...a) { worker ??= this; return /** @type {any} */ (on).apply(this, a); });
+  holdTimeouts(t);   // the hook's budget is a timer the test fires, once the worker is inside its command
+  const running = agents.run(['approve-pending', 'LC'], { budgetMs: 300 });
+  const sock = await srv.first;   // the worker's command is up
+  t.mock.timers.tick(300);   // the budget ends: the hook stops waiting
+  const r = await running;
   assert.equal(r.timedOut, true);
-  await new Promise((done) => setTimeout(done, 2200));
+  assert.ok(worker, 'the worker was started');
+  const ended = once(worker, 'exit');
+  sock.write('go\n');   // the command of the late worker ends; now the worker would write its record
+  await ended;
   assert.notEqual(existsSync(seen) ? readFileSync(seen, 'utf8') : 'stopped', 'running', 'the worker wrote nothing as if the hook still waited');
 });
 
