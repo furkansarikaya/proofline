@@ -553,19 +553,27 @@ test('answer: the status-block adapter runs after the locks are released, so a s
   // the slow tracker: the adapter reports over a local socket that it is running and then lives as long as the test keeps the connection open
   const dir = tempDir('pl-answer-');
   const srv = await listenOnce(dir);
-  const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({}), stdio: ['pipe', 'ignore', 'ignore'] });
+  const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({}), stdio: ['pipe', 'ignore', 'pipe'] });
+  // A282 flake fix: a write to the stdin of a child that has already gone is EPIPE, and an 'error' event nobody listens to throws it out of the test
+  // at the write with no hint why the command ended. The error is recorded, and the command's exit and stderr are what the test reports.
+  let errText = ''; let stdinError = '';
+  child.stderr.on('data', (x) => { errText += x; });
+  child.stdin.on('error', (e) => { stdinError = e.message; });
+  const exited = /** @type {Promise<{ code: number | null, signal: string | null }>} */ (new Promise((res) => { child.on('exit', (code, signal) => res({ code, signal })); }));
+  const report = (/** @type {{ code: number | null, signal: string | null }} */ r) => `exit ${r.code ?? r.signal}${stdinError !== '' ? `, stdin: ${stdinError}` : ''}, stderr: ${errText.trim() || '(empty)'}`;
   t.after(() => { child.kill(); void srv.close(); rmSync(dir, { recursive: true, force: true }); });
   adapter(d, `exec ${JSON.stringify(process.execPath)} -e 'const s = require("node:net").connect(process.argv[1], () => s.write("up\\n"));' ${JSON.stringify(srv.path)}`);
   child.stdin.end('a\n');
-  const exited = new Promise((res) => { child.on('exit', () => res(undefined)); });
-  const sock = await srv.first;
+  const sock = await Promise.race([srv.first, exited.then((r) => { throw new Error(`the command ended before its adapter ran: ${report(r)}`); })]);
   await lines(sock)();   // "up": the adapter is running now
   const locks = [`${d}/.agents/local/locks/shared.lock`, `${d}/.agents/runs/LC/.lock`];
   assert.ok(existsSync(`${d}/.agents/runs/LC/questions/001.answer.md`), 'the answer was not recorded before the adapter ran');
   assert.deepEqual(locks.filter((l) => existsSync(l)), [], 'the locks were still held while the adapter ran');
   assert.equal(child.exitCode, null, 'the command ended before its adapter did');
   sock.destroy();   // the tracker is done: the adapter ends and with it the command
-  await exited;
+  const end = await exited;
+  assert.equal(end.code, 0, `the command did not end cleanly: ${report(end)}`);
+  assert.equal(stdinError, '', `the answer could not be handed to the command: ${report(end)}`);
 });
 
 test('delivery-check secret scan: in a run worktree the files of the worktree are scanned (the trusted scanner is the main tree\'s and must not look in the main tree)', () => {

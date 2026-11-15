@@ -213,7 +213,7 @@ test('hook_wiring (CLI-3, CLI-4): Codex hook commands resolve the project root, 
   recordsAge(d);
   const outs = await Promise.all([1, 2, 3].map(() => new Promise((res) => {
     const c = spawn('sh', ['-c', pc], { cwd: d, env: cleanEnv({ CLAUDE_PROJECT_DIR: d, CLAUDE_PLUGIN_ROOT: repo }) });
-    let o = ''; c.stdout.on('data', (x) => { o += x; }); c.on('close', () => res(o)); c.stdin.end(sj);
+    let o = ''; c.stdout.on('data', (x) => { o += x; }); c.on('close', () => res(o)); c.stdin.on('error', () => { /* EPIPE: the hook ended before it read its input; the output is what is asserted */ }); c.stdin.end(sj);
   })));
   assert.equal(outs.join('').split('proofline installed').length - 1, 1, 'three simultaneous SessionStart events did not run exactly once');
   // A background-agent notification is not the user's prompt: no capture. A killed approval hook is reported at the next prompt.

@@ -15,6 +15,7 @@ function sub(d, role, args) {
     const p = spawn('sh', ['.agents/scripts/agent.sh', ...args], { cwd: d, env: cleanEnv({ AGENT_ROLE: role }), stdio: ['pipe', 'pipe', 'pipe'] });
     let o = '';
     p.stdout.on('data', (b) => { o += b; }); p.stderr.on('data', (b) => { o += b; });
+    p.stdin.on('error', () => { /* EPIPE: the command ended before it read its input; its exit code and output are what the test asserts */ });
     p.stdin.end(`# report\n\nVerdict: PASS\n\nJudged the tree ${role}.\n`);
     p.on('close', (c) => res({ role, code: c, o: o.trim().split('\n').slice(-2).join(' | ') }));
   });
