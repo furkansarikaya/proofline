@@ -12,6 +12,7 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { fixture } from './dispatch-lib.mjs';
 import { until as pollUntil } from './poll-lib.mjs';
+import { heldClock as makeClock } from './held-clock.mjs';
 
 /** POSIX process groups, SIGTERM/SIGKILL/SIGHUP and `trap` in shell-script fake workers do not exist on Windows (the platform kill is taskkill, tested in proc and budget tests); this file hung a Windows leg for 90 minutes (A262). Only the text test of `dispatch.sh` is not skipped. Every POSIX test has a `timeout`, so an await on a child that never closes fails fast. */
 const posixOnly = process.platform === 'win32' ? 'POSIX process groups, signals, `ps` and a shell-script fake worker (A262)' : false;
@@ -48,32 +49,7 @@ const guardiansHere = () => commands().filter((c) => c.includes(`guardian.mjs ${
 const LIMIT_S = 777;
 const LIMIT_MS = LIMIT_S * 1000;
 const GRACE_MS = 4242;
-/** @typedef {{ ms: number, fn: (...a: unknown[]) => void, args: unknown[], fired: boolean }} Held */
-function heldClock() {
-  const real = globalThis.setTimeout;
-  /** @type {Held[]} */ const held = [];
-  /** @type {Array<() => void>} */ let wake = [];
-  /** @type {any} */ (globalThis).setTimeout = (/** @type {(...a: unknown[]) => void} */ fn, /** @type {number} */ ms, /** @type {unknown[]} */ ...args) => {
-    if (ms === LIMIT_MS || (typeof ms === 'number' && ms > 3000 && ms <= GRACE_MS)) {
-      held.push({ ms, fn, args, fired: false });
-      const w = wake; wake = []; for (const f of w) f();   // a timer is held: whoever waits for the next one looks again
-      const handle = { ref() { return handle; }, unref() { return handle; }, hasRef() { return false; }, refresh() { return handle; }, close() { return handle; }, [Symbol.toPrimitive]() { return -1; } };
-      return handle;
-    }
-    return real(fn, ms, ...args);
-  };
-  return {
-    /** the step limit's timer, once the dispatcher has set it */
-    limit: () => held.find((t) => t.ms === LIMIT_MS),
-    /** the timers of the grace between TERM and KILL */
-    graces: () => held.filter((t) => t.ms !== LIMIT_MS),
-    /** @param {Held | undefined} t */
-    fire(t) { if (t && !t.fired) { t.fired = true; t.fn(...t.args); } },
-    /** the next timer the dispatcher holds (an event, not a duration) @returns {Promise<void>} */
-    nextHold: () => new Promise((r) => { wake.push(r); }),
-    restore() { globalThis.setTimeout = real; },
-  };
-}
+const heldClock = () => makeClock(LIMIT_MS, GRACE_MS);
 /** The grace has run out (fired as soon as the dispatcher has set it, in as many rounds as it takes) and the dispatch ends. @param {ReturnType<typeof heldClock>} clk @param {{ done: Promise<number> }} h */
 async function finish(clk, h) {
   let over = false;

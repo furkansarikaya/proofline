@@ -5,11 +5,10 @@
 // a process being gone become the close of its connection; every other wait of the dispatcher tests is already an event (the held timers of the watchdog test, the end of the dispatch).
 const pause = (/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Wait until `cond()` holds, looking again every 20 ms; `failsafeMs` is only the failsafe that ends a wait that never ends. @param {() => boolean} cond @param {number} [failsafeMs] */
+/** Wait until `cond()` holds, looking again every 20 ms; `failsafeMs` only bounds the number of looks (failsafeMs / 20), so that a wait that never ends fails instead of hanging. No clock is read. @param {() => boolean} cond @param {number} [failsafeMs] */
 export async function until(cond, failsafeMs = 120000) {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > failsafeMs) throw new Error('timed out waiting');
+  for (let looks = 0; !cond(); looks++) {
+    if (looks > failsafeMs / 20) throw new Error('timed out waiting');
     await pause(20);
   }
 }

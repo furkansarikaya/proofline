@@ -5,7 +5,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -139,12 +139,22 @@ test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable
     assert.notEqual(waiting.status, 0, 'A196 a worktree command did not wait for the live holder of the old main-tree lock (it finished while the holder was alive)');
     assert.match(`${waiting.stdout}${waiting.stderr}`, /lock timeout after 1s/, 'A196 the command did not stop on its lock timeout');
     assert.ok(!noted(), 'A196 the command wrote its ledger note while the old main-tree lock was still held');
-    // the holder is gone (the exit event of the process, then the lock is free): the same command runs and writes its note
+    // the holder is released while the command waits: the command takes its own folder lock first (tree.lock, the event that it is on its way to the old lock) and then waits
+    // for the live holder; the holder ends (the exit event of the process) and the very same command, with a long lock timeout, goes on and writes its note
+    const locksDir = path.join(rwp, '.agents/local/locks');
+    const onWay = new Promise((res) => {
+      const w = watch(locksDir, () => { if (existsSync(path.join(locksDir, 'tree.lock'))) { w.close(); res(undefined); } });
+    });
+    const cmd = spawn('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('20'), stdio: ['ignore', 'pipe', 'pipe'] });
+    let text = '';
+    cmd.stdout.on('data', (x) => { text += x; }); cmd.stderr.on('data', (x) => { text += x; });
+    const finished = new Promise((res) => { cmd.on('close', (code) => res(code)); });
+    await onWay;
+    assert.equal(cmd.exitCode, null, 'A196 the command ended although the old lock was still held');
     const gone = new Promise((res) => { holder.on('exit', () => res(undefined)); });
     holder.kill();
     await gone;
-    const after = spawnSync('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('20'), encoding: 'utf8' });
-    assert.equal(after.status, 0, `A196 the command failed after the old lock was released: ${after.stdout}${after.stderr}`);
+    assert.equal(await finished, 0, `A196 the command did not go on after the old lock was released: ${text}`);
     assert.ok(noted(), 'A196 the command did not write its ledger note after the old lock was released');
   } finally { holder.kill(); rmSync(path.join(d, '.agents/local/.lock'), { recursive: true, force: true }); }
 });

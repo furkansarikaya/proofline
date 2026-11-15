@@ -5,6 +5,7 @@ import { describe, test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import * as fsSync from 'node:fs';
 import { readFileSync } from 'node:fs';
+import { holdTimeouts } from './fake-time.mjs';
 import { closed, lines, listenOnce } from './event-lib.mjs';
 import { BUDGET_STATUS, SETTLE_GRACE_MS, approvalStopLogLine, approvalTimeoutMessage, hkCfgNum, hookTimeLine, nextTimeoutNote, runWithBudget, withBudget } from '../../control-plane/agents/scripts/core/budget.mjs';
 
@@ -18,7 +19,7 @@ describe('withBudget', () => {
     assert.deepEqual(r, { timedOut: false, value: 42 });
   });
   test('a step that outlives the budget is aborted and reported as status 124', async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });   // the budget is a timer the test fires, not a duration it waits for
+    holdTimeouts(t);   // the budget is a timer the test fires, not a duration it waits for
     let aborted = false;
     /** @type {() => void} */ let up = () => {};
     const started = new Promise((r) => { up = () => r(undefined); });
@@ -31,7 +32,7 @@ describe('withBudget', () => {
     assert.ok(aborted);
   });
   test('a step that ignores the abort is not waited for beyond the grace', async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout'] });
+    holdTimeouts(t);
     /** @type {() => void} */ let up = () => {};
     const started = new Promise((r) => { up = () => r(undefined); });
     let reported = false;
@@ -70,7 +71,7 @@ describe('runWithBudget', { skip: process.platform === 'win32' ? 'POSIX process 
       void srv.close();
       rmSync(dir, { recursive: true, force: true });
     });
-    t.mock.timers.enable({ apis: ['setTimeout'] });   // the budget is a timer the test fires once the helper is up
+    holdTimeouts(t);   // the budget is a timer the test fires once the helper is up
     // the child starts a helper in its group; the helper holds a connection to the test and tells its parent's pid. Both live as long as that connection.
     const helper = 'const s = require("node:net").connect(process.argv[1], () => s.write(process.ppid + "\\n"));';
     const code = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(helper)}, ${JSON.stringify(srv.path)}], { stdio: 'inherit' });`;

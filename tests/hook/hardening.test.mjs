@@ -9,6 +9,7 @@ import { cpSync, readdirSync, readFileSync, existsSync, writeFileSync as writeFi
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { Worker } from 'node:worker_threads';
+import { holdTimeouts } from '../core/fake-time.mjs';
 import { listenOnce } from '../core/event-lib.mjs';
 import { buildTemplate, copyProject, runHook, cleanEnv, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join } from './harness.mjs';
 
@@ -69,7 +70,7 @@ test('a worker the hook stopped waiting for writes no record (the flag is checke
   /** @type {Worker | undefined} */ let worker;
   const on = Worker.prototype.on;
   t.mock.method(Worker.prototype, 'on', /** @this {Worker} @param {any[]} a */ function (...a) { worker ??= this; return /** @type {any} */ (on).apply(this, a); });
-  t.mock.timers.enable({ apis: ['setTimeout'] });   // the hook's budget is a timer the test fires, once the worker is inside its command
+  holdTimeouts(t);   // the hook's budget is a timer the test fires, once the worker is inside its command
   const running = agents.run(['approve-pending', 'LC'], { budgetMs: 300 });
   const sock = await srv.first;   // the worker's command is up
   t.mock.timers.tick(300);   // the budget ends: the hook stops waiting

@@ -1750,7 +1750,7 @@ timeouts-test	doctor_scale	doctor proposes a scale and writes it only after the 
 approval-load-test	fp_run_folder	the content fingerprint does not read the run folder and sees product changes	tests/enforcement/approval-load.test.mjs::fp_run_folder
 approval-load-test	fp_cache_integrity	a forged or stale fp-cache never reaches a sealing fingerprint; a same-size same-mtime edit is detected	tests/enforcement/approval-load.test.mjs::fp_cache_integrity
 approval-load-test	hook_config_knobs	hook time knobs validated, bounded, leading zeros, kept by an upgrade (merge-new)	tests/enforcement/approval-load.test.mjs::hook_config_knobs
-approval-load-test	intake_first	the user's message is on disk before any git call and survives a stopped hook	tests/enforcement/approval-load.test.mjs::intake_first
+approval-load-test	intake_first	the user's message is on disk and survives a killed hook (the order against git was never observable: the Node hook calls no git on a prompt)	tests/enforcement/approval-load.test.mjs::intake_written
 approval-load-test	timeout_message	a forced hook timeout keeps the message and says in one line the approval was not recorded; a normal approval is recorded; budget 08 works	tests/enforcement/approval-load.test.mjs::timeout_message
 approval-load-test	big_run_perf	next and digest do not grow with a large run folder (relative budget, 90 s ceiling)	tests/enforcement/approval-load.test.mjs::big_run_perf
 approval-load-test	doctor_budget	doctor measures the approval path and warns when it nears the hook budget	tests/enforcement/approval-load.test.mjs::doctor_budget

@@ -46,9 +46,9 @@ test('waivers: SECURITY is never waivable; a waiver needs the user\'s captured a
   expectMsg('waiver of a SECURITY finding', 'never waivable', A(d, ['waive', 'LC', 'SECURITY-1', '--reason', 'accepted risk for this lookup fixture only']));
   expectMsg("waiver without the user's approval", "needs the user's approval", A(d, ['waive', 'LC', 'REVIEW_RULES-1', '--reason', 'accepted risk for this lookup fixture only']));
   assert.equal(A(d, ['request-approval', 'LC', 'waive:REVIEW_RULES-1']).status, 0); recordsAge(d);
-  prompt(d, '"approve" REVIEW_RULES-1 \\ onaylıyorum\nevet');   // the hook captures the words (and approves, when the clock already lets it)
-  captureAfterGates(d, 's1'); A(d, ['approve-pending']);   // the capture, as the hook wrote it, is newer than the failing gate: agent.sh accepts it
-  assert.equal(ls(path.join(d, '.agents/runs/LC/approvals'), /^[0-9]{3}-waive-REVIEW_RULES-1\.yaml$/).length, 1, 'the prompt hook did not record the approval from the capture (capture format or sha256)');
+  prompt(d, '"approve" REVIEW_RULES-1 \\ onaylıyorum\nevet');   // the hook captures the words (and approves by itself when its clock is already past the failing gate)
+  captureAfterGates(d, 's1'); A(d, ['approve-pending', 'LC']);   // the capture as the hook wrote it (text, sha256), stamped after the failing gate: agent.sh must accept it
+  assert.equal(ls(path.join(d, '.agents/runs/LC/approvals'), /^[0-9]{3}-waive-REVIEW_RULES-1\.yaml$/).length, 1, 'agent.sh did not record the approval from the capture the hook wrote (capture format or sha256)');
   const w = A(d, ['waive', 'LC', 'REVIEW_RULES-1', '--reason', 'accepted risk for this lookup fixture only']);
   assert.equal(w.status, 0, `approved waiver refused: ${w.text}`);
 });

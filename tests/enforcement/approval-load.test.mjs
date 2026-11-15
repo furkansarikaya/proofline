@@ -1,7 +1,7 @@
 // @ts-check
 // A202 item 28, the Node form of tests/enforcement/approval-load-test.sh (176-C): the approval record does not depend on the size of the run folder or on
 // how loaded the machine is.
-//  - the user's message is on disk first (one small file), before any git call, lock or scan, and survives a forced hook timeout;
+//  - the user's message is on disk as one small file in the intake folder and survives a killed hook (the order against git, lock and scan is not asserted);
 //  - a timed-out approval step says "your approval could not be recorded, send it again" only when it truly was not recorded;
 //  - the content fingerprint no longer reads the run folder; the big-file hash cache never reaches an integrity check;
 //  - the hook time knobs are config values, validated, and kept by an upgrade;
@@ -108,7 +108,7 @@ test('hook_config_knobs: hook time knobs are validated, bounded below and above,
   assert.equal(strip(core(['get', merged2, 'hook.approve_budget_seconds'])), '20', 'upgrade did not add the default hook block to an old config');
 });
 
-test('intake_first: the user\'s message is written first, before any git call or scan, and survives a stopped hook', { timeout: 30000 }, async (t) => {
+test('intake_written: the hook writes the user\'s message to the intake folder, and it survives a killed hook (that it comes before any git call or scan is not asserted: the Node hook calls no git on a prompt)', { timeout: 30000 }, async (t) => {
   const d = fixture();
   // the folder exists before the hook starts, so that the test can watch it: the hook writes the raw event into it before anything else
   const intakeDir = path.join(d, '.agents/local/prompts/intake');
