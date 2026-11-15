@@ -13,6 +13,7 @@ const SCRIPT = fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-
 
 // Hermetic: the fake is a node script run by the absolute path of this node (no PATH lookup, no sh/grep/sed), PATH holds ONLY the unique tmp dir,
 // and every DOTNET_* variable is dropped, so no real dotnet of the machine can answer.
+assert.ok(!/\s/.test(process.execPath) && process.execPath.length <= 100, `the fake dotnet uses the node path as its shebang, which must have no whitespace and at most 100 characters: ${process.execPath}`);
 const FAKE = (sdks) => `#!${process.execPath}
 const fs = require("node:fs");
 const [a] = process.argv.slice(2);

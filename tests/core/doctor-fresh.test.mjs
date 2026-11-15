@@ -140,8 +140,11 @@ test('the CI line: a GitHub project without a pull_request workflow warns with t
 test('the toolchain line: a pinned .NET SDK that is not installed is a mismatch naming the installed SDKs, not "not installed" (A279)', () => {
   const d = sb.copy('ddn'); writeFileSync(`${d}/global.json`, '{ "sdk": { "version": "10.0.100" } }\n');
   const bin = `${sb.T}/fakedotnet`; mkdirSync(bin, { recursive: true });
-  writeFileSync(`${bin}/dotnet`, '#!/bin/sh\ncase "$1" in --version) echo "Requested SDK version: 10.0.100" >&2; exit 145 ;; --list-sdks) echo "8.0.134 [/usr/share/dotnet/sdk]" ;; esac\n'); chmodSync(`${bin}/dotnet`, 0o755);
-  const r = sb.pl(d, ['doctor'], { PATH: `${bin}${path.delimiter}${sb.env.PATH}`, DOTNET_ROOT: '', DOTNET_ROOT_X64: '', DOTNET_CLI_HOME: '' }); // the fake is first on PATH and answers both commands; no real dotnet root is consulted
+  assert.ok(!/\s/.test(process.execPath) && process.execPath.length <= 100, `the fake dotnet uses the node path as its shebang, which must have no whitespace and at most 100 characters: ${process.execPath}`);
+  writeFileSync(`${bin}/dotnet`, `#!${process.execPath}\nconst a = process.argv[2];\nif (a === '--version') { process.stderr.write('Requested SDK version: 10.0.100\\n'); process.exit(145); }\nif (a === '--list-sdks') console.log('8.0.134 [/usr/share/dotnet/sdk]');\n`); chmodSync(`${bin}/dotnet`, 0o755);
+  // the fake is first on PATH and answers both commands, so no real dotnet is reached; every DOTNET*/MSBUILD*/NUGET* variable is emptied
+  const scrub = Object.fromEntries(Object.keys(sb.env).filter((k) => /^(DOTNET|MSBUILD|NUGET)/i.test(k)).map((k) => [k, '']));
+  const r = sb.pl(d, ['doctor'], { ...scrub, PATH: `${bin}${path.delimiter}${sb.env.PATH}`, DOTNET_ROOT: '', DOTNET_ROOT_X64: '', DOTNET_CLI_HOME: '' });
   assert.ok(r.out.includes('WARN toolchain dotnet: 10.0.100 (global.json) is not installed here; installed: 8.0.134, so a green local run may not hold in CI\n'), r.out);
   assert.ok(!r.out.includes('toolchain dotnet: not installed'));
 });
