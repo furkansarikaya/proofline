@@ -253,6 +253,11 @@ export function validate(data = loadEcosystems()) {
     // a pattern the scan runs over text must not be able to backtrack badly: no repetition inside a repeated group, no unbounded `{n,}`, no two unbounded repeats of the same kind of character in a row
     for (const x of Array.isArray(ft.test_markers) ? ft.test_markers : []) need(typeof x === "string" && !backtracks(x), `${w}: fast_tests.test_markers ${String(x)} can backtrack badly (a repeat or an alternation inside a repeated group, a backreference, an unbounded {n,} or a repeat over ${REPEAT_LIMIT}, or two large repeats in a row); bound the repetition`);
     for (const k of ["sleep", "clock_reads"]) need(Array.isArray(ft[k]) && ft[k].length > 0 && ft[k].every((x) => typeof x === "string" && x.trim() !== ""), `${w}: fast_tests.${k} must be a non-empty array of non-empty strings`);
+    // A283 (optional, default []): the native audit tools of the ecosystem, in the order they are offered: the binary looked up on PATH and the command proposed (one line, no control characters)
+    if (e.audit !== undefined) {
+      need(Array.isArray(e.audit), `${w}: audit must be an array`);
+      for (const x of Array.isArray(e.audit) ? e.audit : []) need(x && typeof x === "object" && typeof x.tool === "string" && /^[A-Za-z0-9._-]+$/.test(x.tool) && typeof x.command === "string" && x.command.trim() !== "" && !/[\u0000-\u001f\u007f]/.test(x.command), `${w}: audit entries need tool (a plain binary name) and command (a non-empty single line without control characters)`);
+    }
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);
     for (const x of e.benchmark?.files ?? []) need(typeof x.glob === "string" && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.files entries need glob, contains and why`);
