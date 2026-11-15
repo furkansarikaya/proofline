@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.114 — 2026-11-15
+
+- Change (A277, Part of #266; package P3a: CI scan gate, no-retry pin and a per-test duration report): the three test-scan allowlists are one file, `tests/ci/test-scan-allowlist.tsv`, and the `static` job runs `test-scan --kind wait` on `tests` with it (exit 1 on an open candidate or a stale entry); `tests/ci/no-retry.test.mjs` fails when a workflow retries a test (retry action, retry options, reruns, `continue-on-error: true` on a test step); every Linux test step runs through `tests/ci/test-durations-ci.mjs` (the same `node --test` and exit status) and writes `test-durations-<leg>.json` (artifact, 14 days) and a job-summary table; budgets in `tests/ci/test-budgets.json` are report-only (`OVER BUDGET:` lines) until `enforce` is set; the manual run has a `twice` input that reports unstable tests. No product change.
+
 ## 0.0.113 — 2026-11-15
 
 - Change (A277, Part of #266; package P2d: the scan finds `Atomics.wait`, `sleepSync`-style helpers and busy waits on the clock; the waits it then found are replaced): the npm `fast_tests.sleep` data lists `Atomics.wait`, `Atomics.waitAsync`, `sleepSync(`, `sleepMs(`, `waitSync(`, `busyWait(`, and the busy waits in their exact spellings `while (Date.now() <` / `>` / `-` and the `performance.now()` twins (names are always literals: no regular expression comes from data; `waitUntil(` is deliberately not detected, spaced forms are a known limit); a data entry that is not a non-empty string is refused with a message and the scan is not clean. Of 27 candidates in `tests/`, 25 are fixed (by an event: the cache race barrier, the grandchild of the process-group test of build-record; by stored time instead of sleeping a second: worktree, timeouts, the hook benchmark, the harness `say`, answer-user and two legacy tests; by no process: the live and dead pids of lifecycle-s2) and 2 are listed with a reason in `tests/ci/test-scan-allowlist-atomics.tsv` (the manual e2e harness). `say` stamps at most 4 s ahead of the clock and throws otherwise. No product behaviour changed.
