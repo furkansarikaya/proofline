@@ -1,11 +1,8 @@
 // @ts-check
-// Small helpers shared by timeouts.test.mjs and approval-load.test.mjs (176-C): config edits the shell suites did with awk/sed, a blocking sleep, a PATH shim.
+// Small helpers shared by timeouts.test.mjs and approval-load.test.mjs (176-C): config edits the shell suites did with awk/sed, a PATH shim.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { A } from '../lib/harness.mjs';
-
-/** Blocking sleep. @param {number} ms */
-export function sleepSync(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 
 /** The newline-stripped text, as `$(...)` gives it. @param {string} s */
 export const strip = (s) => s.replace(/\n+$/, '');

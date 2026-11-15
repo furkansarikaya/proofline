@@ -11,7 +11,8 @@ import { chmodSync, cpSync, appendFileSync, mkdirSync, mkdtempSync, readFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { A, agentsSrc, cleanEnv, git, project, repo, waitUntil } from '../lib/harness.mjs';
+import { A, agentsSrc, cleanEnv, git, project, repo } from '../lib/harness.mjs';
+import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 
 const SHIMMED = ['jq', 'awk', 'sed', 'tr', 'cat', 'dirname', 'basename', 'date', 'mkdir', 'find', 'git', 'grep', 'cut', 'shasum', 'sha256sum', 'head', 'tail', 'wc', 'mv', 'rm', 'cp', 'sort', 'mktemp', 'node', 'perl', 'sleep', 'kill', 'ps', 'ls', 'readlink', 'uname', 'id', 'touch', 'chmod', 'ln', 'xargs', 'expr', 'rmdir', 'stat', 'sh', 'tee', 'env', 'od', 'uniq'];
 export const EVENTS = ['pretool-write-impl', 'pretool-read', 'pretool-bash', 'posttool', 'prompt-plain', 'prompt-approval', 'stop', 'session', 'subagent-start', 'subagent-stop'];
@@ -59,7 +60,7 @@ export function measureAll(o = {}) {
     const realPath = process.env.PATH ?? '';
     hookRun('subagent-start', j('SubagentStart', sub), realPath);   // opens the implementer's window, so the write below is allowed
     const noLock = () => rmSync(path.join(d, '.agents/local/hooklock'), { recursive: true, force: true });   // the duplicate guard (once) would turn a fast hook's repeated run into a no-op
-    const approval = () => { noLock(); A(d, ['request-approval', 'LC', 'plan']); waitUntil(Math.floor(Date.now() / 1000) + 1); };   // the hook's message is stamped after the request (the next second), as with a user
+    const approval = () => { noLock(); A(d, ['request-approval', 'LC', 'plan']); recordsAge(d, 2); };   // the hook's message is stamped after the request (strictly newer, as with a user): the request is stored two seconds back, nothing waits
     /** @type {Array<[string, string, string, () => void]>} */
     const cases = [
       ['pretool-write-impl', 'pretool', j('PreToolUse', `,"tool_name":"Write","tool_input":{"file_path":"impl.txt"}${sub}`), noLock],

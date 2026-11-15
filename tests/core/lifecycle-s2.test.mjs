@@ -6,7 +6,7 @@ import { appendFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync,
 import path from 'node:path';
 import { test } from 'node:test';
 import { accepted, expectFail, expectState, git, project, refused, repo, rv, tcStatus } from '../lib/harness.mjs';
-import { A, AS, approve, failedRun, finishDone, gfail, gitRun, gpass, lines, lsDir, must, passAll, pipe, rd, recTry, sayNow, solo, startSleeper, stopSleeper, subst, toCodeDone, worker, wr, writeReport } from './lifecycle-s2-lib.mjs';
+import { A, AS, approve, failedRun, finishDone, gfail, gitRun, gpass, lines, lsDir, must, passAll, pipe, rd, recTry, sayNow, solo, livePid, deadPid, subst, toCodeDone, worker, wr, writeReport } from './lifecycle-s2-lib.mjs';
 
 const RUN = '.agents/runs/LC';
 const KD = 'nothing durable changed in this synthetic test run';
@@ -29,8 +29,8 @@ test('scenario_terminal: FAILED only after the fix rounds, BLOCKED, dispatch mar
   // A124: a live dispatch marker makes `next` say wait (not the dispatch line) and `pipeline` report it; a dead pid is stale.
   const mk = `${RUN}/dispatch/001-verifier-claude.running`;
   const nextOf = () => A(d, ['next', 'LC']);
-  let pid = startSleeper();
-  try {
+  let pid = livePid();
+  {
     wr(d, mk, `pid=${pid}\nrole=verifier\ndispatch in flight\n`);
     const nx = nextOf().out;
     assert.ok(lines(nx).some((l) => l.startsWith(`next=wait: dispatch.sh LC verifier in flight (pid ${pid};`)), `next did not tell the lead to wait for a live dispatch (A124): ${nx}`);
@@ -38,16 +38,15 @@ test('scenario_terminal: FAILED only after the fix rounds, BLOCKED, dispatch mar
     assert.ok(lines(nx).some((l) => l.startsWith('next=wait: dispatch.sh LC verifier in flight (pid') && l.endsWith('; never end your turn while it runs: wait for the pid in a bounded wait loop and repeat it (DISPATCH.md, A227)')), `the wait line lacks the A227 sentence: ${nx}`);
     assert.ok(!lines(nextOf().out).some((l) => l.startsWith('next=dispatch.sh')), 'next printed a dispatch instruction while one is in flight (A124)');
     assert.ok(lines(A(d, ['pipeline', 'LC']).out).some((l) => l.startsWith(`in_flight=dispatch.sh LC verifier (pid ${pid})`)), 'pipeline did not report the dispatch in flight (A124)');
-  } finally { stopSleeper(pid); }
+  }
+  wr(d, mk, `pid=${deadPid()}\nrole=verifier\ndispatch in flight\n`);   // the same marker once its process has ended
   let n2 = nextOf().out;
   assert.ok(!lines(n2).some((l) => l.startsWith('next=wait')), 'next ignored a dead-pid marker as live (A124)');
   assert.ok(lines(n2).some((l) => l.startsWith('note=stale dispatch marker removed: 001-verifier-claude.running')), 'stale marker not reported (A124)');
   assert.ok(!existsSync(path.join(d, mk)), 'stale marker not removed (A124)');
-  pid = startSleeper();
-  try {
-    wr(d, mk, `pid=${pid}\nrole=verifier\n`); utimesSync(path.join(d, mk), new Date(2000, 0, 1), new Date(2000, 0, 1));
-    n2 = nextOf().out;
-  } finally { stopSleeper(pid); }
+  pid = livePid();
+  wr(d, mk, `pid=${pid}\nrole=verifier\n`); utimesSync(path.join(d, mk), new Date(2000, 0, 1), new Date(2000, 0, 1));
+  n2 = nextOf().out;
   assert.ok(!lines(n2).some((l) => l.startsWith('next=wait')), 'next treated an over-age marker with a live (reused) pid as in flight (A124)');
   assert.ok(lines(n2).some((l) => l.startsWith('note=stale dispatch marker removed')) && !existsSync(path.join(d, mk)), 'over-age marker not reported and removed (A124)');
   const term = (/** @type {string} */ outcome, role = 'lead') => A(d, ['terminate', 'LC', outcome], { input: FAILED_INPUT, role });

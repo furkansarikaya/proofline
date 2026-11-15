@@ -16,6 +16,7 @@ import { tmp } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
 import { commandV } from '../../control-plane/agents/scripts/core/runtimedetect.mjs';
 import { fakeTool } from './run6-lib.mjs';
+import { closed, listenOnce } from './event-lib.mjs';
 
 const keyOf = (/** @type {string} */ out) => (/^key: (.*)$/m.exec(out) ?? [])[1] ?? '';
 const builds = (/** @type {string} */ d) => `${d}/.agents/local/builds`;
@@ -303,26 +304,28 @@ test('the timer fallback: a command that traps TERM and exits 0 is still 124', {
 });
 
 // Windows has no process groups and `sh` reports MSYS process ids that `process.kill` cannot address, so the grandchild is neither killed by the product nor observable here (accepted limit, A265).
-test('the timer fallback: a grandchild is gone after the stop, and a background process does not outlive a command that ends in time', { skip: process.platform === 'win32' ? 'no process groups and MSYS pids on Windows (A265)' : false }, () => {
+test('the timer fallback: a grandchild is gone after the stop, and a background process does not outlive a command that ends in time', { skip: process.platform === 'win32' ? 'no process groups and MSYS pids on Windows (A265)' : false, timeout: 30000 }, async (t) => {
   const d = newProject();
   const ctx = new Context({ env: { PATH: '/nonexistent' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
   const out = `${d}/trap.out`;
-  const pidFile = `${d}/gc.pid`;
-  assert.equal(runCommand(ctx, d, `/bin/sleep 60 & echo $! > ${pidFile}; /bin/sleep 60`, out, 1), 124);
-  const pid = Number(readFileSync(pidFile, 'utf8').trim());
-  assert.ok(pid > 1);
-  const until = Date.now() + 3000;
-  let alive = true;
-  while (alive && Date.now() < until) { try { process.kill(pid, 0); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } catch { alive = false; } }
-  assert.equal(alive, false, 'the grandchild survived the stop');
-  // a command that ends in time leaves nothing behind either
-  writeFileSync(pidFile, '');
-  assert.equal(runCommand(ctx, d, `/bin/sleep 60 & echo $! > ${pidFile}; exit 0`, out, 30), 0);
-  const pid2 = Number(readFileSync(pidFile, 'utf8').trim());
-  const until2 = Date.now() + 3000;
-  let alive2 = true;
-  while (alive2 && Date.now() < until2) { try { process.kill(pid2, 0); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } catch { alive2 = false; } }
-  assert.equal(alive2, false, 'a background process outlived its command');
+  const holder = posix(path.join(import.meta.dirname, 'group-holder.mjs'));
+  const srv = await listenOnce(d);
+  /** @type {import('node:net').Socket[]} */ const socks = [];
+  /** The end of a connection (the process behind it is gone); when the test's own timeout aborts first, the wait fails so that the finally below ends the process and the run is not left hanging. @param {import('node:net').Socket} sock */
+  const gone = (sock) => Promise.race([closed(sock), new Promise((_, no) => { t.signal.addEventListener('abort', () => no(new Error('the background process was still connected when the test timed out: the stop did not end it')), { once: true }); })]);
+  try {
+    // a background process that stays up while the foreground command runs into its limit: the stop must end it too (its connection to this test closes with it)
+    assert.equal(runCommand(ctx, d, `${posix(process.execPath)} ${holder} ${srv.path} hold`, out, 1), 124);
+    const sock = await srv.first; socks.push(sock);
+    await gone(sock);   // the grandchild survived the stop: this never happens and the test times out
+    // a command that ends in time leaves nothing behind either: the background process was up when the command exited 0
+    const srv2 = await listenOnce(d);
+    try {
+      assert.equal(runCommand(ctx, d, `${posix(process.execPath)} ${holder} ${srv2.path} exit`, out, 30), 0);
+      const sock2 = await srv2.first; socks.push(sock2);
+      await gone(sock2);   // a background process outlived its command: this never happens and the test times out
+    } finally { await srv2.close(); }
+  } finally { for (const x of socks) x.destroy(); await srv.close(); }
 });
 
 test('commands.build and commands.test not configured exits 2', () => {

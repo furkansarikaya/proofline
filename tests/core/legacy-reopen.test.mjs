@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { A, accepted, project, refused, say, waitUntil } from './legacy-lib.mjs';
+import { A, accepted, project, refused, say } from './legacy-lib.mjs';
 
 const FAILED_RUN = `export SC_TEST_CRIT=AC-2 SC_TASK_EXTRA='- AC-2: second behavior'; scaffold orchestrated; unset SC_TEST_CRIT SC_TASK_EXTRA;
 worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value';
@@ -22,7 +22,6 @@ test('reopen approval: own id only, FAILED or BLOCKED runs only', () => {
   refused(A(d, ['approve', 'LC', 'reopen:OTHER']), 'an approval for another run id');
   say(d, 'I approve the reopen of LC');
   accepted(A(d, ['approve', 'LC', 'reopen:LC']), 'the reopen approval');
-  waitUntil(Math.floor(Date.now() / 1000));
   accepted(A(d, ['reopen', 'LC'], { input: reason }), 'reopen');
   refused(A(d, ['request-approval', 'LC', 'reopen:LC']), 'a reopen approval on a run that is no longer terminal', 'FAILED or BLOCKED run');
 });

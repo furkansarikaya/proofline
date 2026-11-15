@@ -133,9 +133,9 @@ export const read = (/** @type {string} */ dir, /** @type {string} */ f) => read
 
 // ---- time and the user's messages -----------------------------------------------------------------------------------------------------------
 const now = () => Math.floor(Date.now() / 1000);
-/** Wait until the wall clock has reached second T. @param {number} t */
-export function waitUntil(t) { const c = new Int32Array(new SharedArrayBuffer(4)); while (now() < t) Atomics.wait(c, 0, 0, 25); }
 
+/** @type {Set<string>} the captures `say` stamped on its own (project, session, second, words) */
+const said = new Set();
 /** The newest `requested_at`, gate `epoch` or `asked_at` of the project's records (a capture must be newer). @param {string} dir */
 function newestRecord(dir) {
   let t = 0;
@@ -145,12 +145,15 @@ function newestRecord(dir) {
   }
   return t;
 }
-/** The user's message as the prompt hook stores it (session s1), stamped after every record of the project; waits for the clock to reach it. @param {string} dir @param {string} text @param {{ time?: number, session?: string }} [o] */
+/** The user's message as the prompt hook stores it (session s1), stamped after every record of the project. The stamp may be one second ahead of the clock; nothing waits for it (the control plane ignores a capture only when it is more than 5 s ahead). @param {string} dir @param {string} text @param {{ time?: number, session?: string }} [o] */
 export function say(dir, text, o = {}) {
-  const t = o.time ?? Math.max(now(), newestRecord(dir) + 1);
+  let t = o.time ?? Math.max(now(), newestRecord(dir) + 1);
+  if (o.time === undefined) {
+    while (said.has(`${dir}|${o.session ?? 's1'}|${t}|${text}`)) t++;   // the same words at the same second would be the same capture event (single-use, A106): the next second, not a wait
+    said.add(`${dir}|${o.session ?? 's1'}|${t}|${text}`);
+  }
   const r = storePrompt(`${dir}/.agents/local`, o.session ?? 's1', t, text);
   if (!r) throw new Error('capture not stored');
-  if (o.time === undefined) waitUntil(t);
   return r;
 }
 /** `capture TEXT [TIME]` of the shell library: a capture stamped an hour ahead (no waiting). @param {string} dir @param {string} text @param {number} [time] */
