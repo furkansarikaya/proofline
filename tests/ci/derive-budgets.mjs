@@ -6,6 +6,7 @@
 // `files[<file>] = { test_ms, suite_ms }` = maximum x margin, rounded UP to a clean number: x3 for a test, x2.5 for a suite measured at 20 s or more and x3 for a smaller
 // suite (jitter of 3.4x was seen on browser and process tests), never below an ABSOLUTE floor of 2000 ms per test and 10000 ms per suite (not the kind default: a
 // 6 s file must not get 120 s). Use every sample you have: the CI run of a pull request, the manual `twice` run (both runs of it count), the latest runs of main.
+// `calibration.nominal_ms` = the MEDIAN of the `calibration_ms` of the reports that have one (the runner-speed reference workload of the wrapper, one number per leg), rounded up.
 // Everything else of the base budgets file (kinds, dirs, header, enforce) is kept; files without a sample fall back to the kind of their directory.
 // Pure and deterministic: the same samples give the same bytes; it reads no clock and no network (the samples are files).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -48,6 +49,14 @@ export function maxima(reports) {
   return m;
 }
 
+/** The median of the numbers, rounded up; null for none. @param {number[]} xs */
+export function median(xs) {
+  if (xs.length === 0) return null;
+  const v = [...xs].sort((a, b) => a - b);
+  const m = v.length >> 1;
+  return Math.ceil(v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2);
+}
+
 /**
  * The budgets file with the derived `files` rows. @param {any} base @param {Array<any>} reports @param {{ testMargin: number, suiteMargin: number, smallSuiteMargin?: number }} opt
  * @returns {{ budgets: any, rows: Array<{ file: string, test_max: number, test_ms: number, suite_max: number, suite_ms: number, testName: string }> }}
@@ -63,7 +72,9 @@ export function derive(base, reports, opt) {
     rows.push({ file, test_max: e.test, test_ms, suite_max: e.suite, suite_ms, testName: e.testName });
     files[file] = { test_ms, suite_ms };
   }
-  return { budgets: { ...rest, files }, rows };
+  const cals = reports.map((r) => r.calibration_ms).filter((x) => typeof x === 'number' && x > 0);
+  const nominal = median(cals);
+  return { budgets: { ...rest, ...(nominal === null ? {} : { calibration: { nominal_ms: nominal } }), files }, rows };
 }
 
 /** @param {string[]} argv @param {{ write?: (s: string) => void, read?: (p: string) => string, list?: (d: string) => string[] }} [io] @returns {number} */

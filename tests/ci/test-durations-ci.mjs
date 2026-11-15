@@ -14,13 +14,20 @@
 // status 1 and the `OVER BUDGET:` lines name them. The budget file is read BEFORE anything runs and FAILS CLOSED: a missing, unreadable or malformed file (or a budget that
 // is not a positive whole number) exits 2 with a message, never a silent green; in enforce mode a leg whose events cannot be read or whose budgets cannot be applied also
 // exits 1. There is no retry: the wrapper starts `node --test` once (twice only with TEST_DURATIONS_TWICE=true, a manual measuring run whose unstable report is only
-// informational: a failed second run keeps its own status). The tool reads no clock; the milliseconds are Node's.
+// informational: a failed second run keeps its own status). RUNNER-SPEED CALIBRATION (fix round 2): a degraded runner (one leg ran 4.9 times slower than its twin) must not
+// fail an unrelated pull request, so BEFORE node starts, in this process, the wrapper times a small fixed reference workload (15 `node -e 0` spawns, 40 sha256 rounds over a
+// fixed 1 MiB buffer, 300 file create/stat/unlink in a fresh private folder) and `speed_factor = clamp(measured / calibration.nominal_ms, 1, 5)` multiplies every budget (on top of
+// timeouts_scale); the nominal is the median over CI runs (derive-budgets.mjs). A factor never makes a budget stricter than the table. A raw ratio above 5 (a broken runner) fails
+// ONLY when a budget is violated, with the message 'runner too slow to judge budgets'. The tests under test run after the calibration, cannot reach its folder or its clock reads.
+// The tool reads the clock for this and for nothing else; the test milliseconds are Node's.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, realpathSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, realpathSync, rmSync, statSync as stat0, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { DEFAULTS, KINDS } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
 import { tmScaleMilli } from '../../control-plane/agents/scripts/core/timeouts.mjs';
+import { tempDir } from '../lib/tempdir.mjs';
 import { analyse, parseEvents, summarize } from './test-durations.mjs';
 
 const here = import.meta.dirname;
@@ -30,7 +37,7 @@ const USAGE = 'usage: test-durations-ci.mjs <leg> -- <node --test arguments>';
 
 /**
  * @typedef {{ kind?: string, test_ms?: number, suite_ms?: number }} DirBudget
- * @typedef {{ enforce?: boolean, timeouts_scale?: number | string, default_kind?: string, kinds?: Record<string, { test_ms?: number, suite_ms?: number }>,
+ * @typedef {{ enforce?: boolean, calibration?: { nominal_ms?: number }, timeouts_scale?: number | string, default_kind?: string, kinds?: Record<string, { test_ms?: number, suite_ms?: number }>,
  *   dirs?: Record<string, DirBudget>, files?: Record<string, { test_ms?: number, suite_ms?: number }>, legs?: Record<string, { suite_ms?: number }> }} Budgets
  * @typedef {{ file: string, name: string, ms: number, limit: number }} OverTest
  * @typedef {{ file: string, ms: number, limit: number }} OverFile
@@ -48,39 +55,39 @@ const whole = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isI
 /**
  * The budget of a test file in milliseconds, after the scale: the most specific `dirs` entry (longest path prefix) decides the kind and may override the numbers;
  * else the default kind; a `files` row for exactly this file overrides the numbers last (tests/ci/derive-budgets.mjs writes them from CI); a number not given is the
- * built-in default of A275. @param {Budgets} b @param {string} file
+ * built-in default of A275. @param {Budgets} b @param {string} file @param {number} [speed] the runner speed factor (1 to 5)
  * @returns {{ kind: string, test: number, suite: number }}
  */
-export function budgetOf(b, file) {
+export function budgetOf(b, file, speed = 1) {
   const dirs = Object.keys(b.dirs ?? {}).filter((d) => file === d || file.startsWith(`${d}/`)).sort((x, y) => y.length - x.length);
   const d = dirs.length > 0 ? /** @type {DirBudget} */ (b.dirs?.[dirs[0]]) : {};
   const kind = KINDS.includes(d.kind ?? '') ? /** @type {string} */ (d.kind) : KINDS.includes(b.default_kind ?? '') ? /** @type {string} */ (b.default_kind) : DEFAULTS.default_kind;
   const def = /** @type {{ test_ms: number, suite_ms: number }} */ (/** @type {any} */ (DEFAULTS)[kind]);
   const k = b.kinds?.[kind] ?? {};
   const milli = scaleMilli(b);
-  const sc = (/** @type {number} */ ms) => Math.ceil((ms * milli) / 1000);
+  const sc = (/** @type {number} */ ms) => Math.ceil(((ms * milli) / 1000) * speed);
   const f = b.files?.[file] ?? {};
   return { kind, test: sc(whole(f.test_ms) ?? whole(d.test_ms) ?? whole(k.test_ms) ?? def.test_ms), suite: sc(whole(f.suite_ms) ?? whole(d.suite_ms) ?? whole(k.suite_ms) ?? def.suite_ms) };
 }
 
 /**
- * The tests and files over their budget (the worst duration over the runs counts). @param {Budgets} b
+ * The tests and files over their budget (the worst duration over the runs counts). @param {Budgets} b @param {number} [speed] the runner speed factor
  * @param {Array<{ events: import('./test-durations.mjs').Event[] }>} runs
  * @returns {{ tests: OverTest[], files: OverFile[] }}
  */
-export function overBudget(b, runs) {
+export function overBudget(b, runs, speed = 1) {
   /** @type {Map<string, OverTest>} */ const t = new Map();
   /** @type {Map<string, { file: string, ms: number }>} */ const f = new Map();
   for (const r of runs) {
     const s = summarize(r.events);
     for (const x of s.tests) {
-      const limit = budgetOf(b, x.file).test;
+      const limit = budgetOf(b, x.file, speed).test;
       const k = `${x.file}\0${x.name}`;
       if (x.ms > limit && (t.get(k)?.ms ?? -1) < x.ms) t.set(k, { file: x.file, name: x.name, ms: x.ms, limit });
     }
     for (const x of s.files) if ((f.get(x.file)?.ms ?? -1) < x.ms) f.set(x.file, { file: x.file, ms: x.ms });
   }
-  const files = [...f.values()].map((x) => ({ ...x, limit: budgetOf(b, x.file).suite })).filter((x) => x.ms > x.limit);
+  const files = [...f.values()].map((x) => ({ ...x, limit: budgetOf(b, x.file, speed).suite })).filter((x) => x.ms > x.limit);
   const cmp = (/** @type {string} */ a, /** @type {string} */ c) => (a < c ? -1 : a > c ? 1 : 0);
   return { tests: [...t.values()].sort((x, y) => cmp(x.file, y.file) || cmp(x.name, y.name)), files: files.sort((x, y) => cmp(x.file, y.file)) };
 }
@@ -99,6 +106,10 @@ export function budgetProblems(b) {
   if (typeof o.enforce !== 'boolean') out.push('enforce is missing or not true or false');
   if (o.default_kind !== undefined && !KINDS.includes(o.default_kind)) out.push('default_kind is not unit, integration or e2e');
   if (o.timeouts_scale !== undefined && !(typeof o.timeouts_scale === 'number' && o.timeouts_scale >= 0.5 && o.timeouts_scale <= 10)) out.push('timeouts_scale is not a number from 0.5 to 10');
+  if (o.calibration !== undefined) {
+    const n = isObj(o.calibration) ? /** @type {any} */ (o.calibration).nominal_ms : undefined;
+    if (whole(n) === undefined || n > MAX_MS) out.push(`calibration.nominal_ms is not a whole number from 1 to ${MAX_MS}`);
+  }
   const nums = (/** @type {string} */ where, /** @type {any} */ v) => {
     if (!isObj(v)) { out.push(`${where} is not an object`); return; }
     for (const k of ['test_ms', 'suite_ms']) if (v[k] !== undefined && (whole(v[k]) === undefined || v[k] > MAX_MS)) out.push(`${where}.${k} is not a whole number from 1 to ${MAX_MS}`);
@@ -115,6 +126,28 @@ export function budgetProblems(b) {
   return out;
 }
 
+/** The reference workload: fixed work, no randomness. Takes about a second on a normal runner. @param {{ spawns?: number, rounds?: number, files?: number }} [n] */
+export function referenceWorkload(n = {}) {
+  for (let i = 0; i < (n.spawns ?? 15); i++) spawnSync(process.execPath, ['-e', '0'], { stdio: 'ignore' });
+  const buf = Buffer.alloc(1 << 20, 7);
+  let digest = '';
+  for (let i = 0; i < (n.rounds ?? 40); i++) digest = createHash('sha256').update(buf).update(digest).digest('hex');
+  const dir = tempDir('cal-');
+  try {
+    for (let i = 0; i < (n.files ?? 300); i++) { const f = path.join(dir, `f${i}`); writeFileSync(f, digest); stat0(f); rmSync(f); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  return digest;
+}
+
+/** The speed factor of a measurement: clamp(measured / nominal, 1, 5); `raw` is the unclamped ratio. @param {number} measuredMs @param {number} nominalMs */
+export function speedFactor(measuredMs, nominalMs) {
+  const raw = Number.isFinite(measuredMs) && measuredMs > 0 && nominalMs > 0 ? measuredMs / nominalMs : 1;
+  return { raw, factor: Math.min(5, Math.max(1, raw)) };
+}
+
+/** @param {number} n */
+const f2 = (n) => (Math.round(n * 100) / 100).toFixed(2);
+
 /** One printable summary cell: control characters, the table bar, backticks (a code fence) and `<` and `[` (html and links) become spaces. @param {string} s */
 const clean = (s) => s.replace(/[\u0000-\u001f\u007f-\u009f|`<[]/g, ' ');
 const r1 = (/** @type {number} */ n) => (Math.round(n * 10) / 10).toFixed(1);
@@ -122,9 +155,16 @@ const r1 = (/** @type {number} */ n) => (Math.round(n * 10) / 10).toFixed(1);
 /**
  * The job-summary text: the 10 slowest tests, the per-file totals (the 15 largest; the JSON has them all), the grand total, the budget lines, the unstable tests.
  * @param {string} leg @param {ReturnType<typeof analyse>} a @param {ReturnType<typeof overBudget>} over @param {boolean} enforce @param {boolean} twice
+ * @param {{ ms: number, nominal: number, raw: number, factor: number, rows: Array<{ file: string, test: number, suite: number }> } | null} [cal]
  */
-export function renderSummary(leg, a, over, enforce, twice) {
+export function renderSummary(leg, a, over, enforce, twice, cal) {
   const L = [`### Test durations: ${clean(leg)}`, '', `${a.tests} tests in ${a.files.length} files; grand total ${a.total_max_ms} ms; budgets ${enforce ? 'ENFORCED' : 'report-only'}${twice ? '; run twice' : ''}`, ''];
+  if (cal) {
+    L.push(`runner speed: calibration ${r1(cal.ms)} ms against ${cal.nominal} ms nominal; factor ${f2(cal.factor)}${cal.raw !== cal.factor ? ` (raw ${f2(cal.raw)})` : ''}; every budget below is multiplied by it`, '');
+    L.push('| effective budgets (slowest files) | test ms | suite ms |', '| --- | ---: | ---: |');
+    for (const r of cal.rows) L.push(`| ${clean(r.file)} | ${r.test} | ${r.suite} |`);
+    L.push('');
+  }
   L.push('| slowest tests | ms | file |', '| --- | ---: | --- |');
   for (const t of a.slowest.slice(0, 10)) L.push(`| ${clean(t.name)} | ${r1(t.max_ms)} | ${clean(t.file)} |`);
   L.push('', '| file (suite total) | tests | ms |', '| --- | ---: | ---: |');
@@ -142,7 +182,7 @@ export function renderSummary(leg, a, over, enforce, twice) {
 }
 
 /** @typedef {{ run?: (args: string[]) => { status: number, events: string | null }, writeFile?: (p: string, s: string) => void, append?: (p: string, s: string) => void,
- *   write?: (s: string) => void, env?: Record<string, string | undefined>, budgets?: Budgets, budgetsFile?: string, stderr?: 'inherit' | 'ignore', cwd?: string }} IO */
+ *   calibrate?: () => number, write?: (s: string) => void, env?: Record<string, string | undefined>, budgets?: Budgets, budgetsFile?: string, stderr?: 'inherit' | 'ignore', cwd?: string }} IO */
 
 /** @param {string[]} argv @param {IO} [io] @returns {number} */
 export function main(argv, io = {}) {
@@ -163,6 +203,14 @@ export function main(argv, io = {}) {
   const enforce = budgets.enforce === true;
   const twice = env.TEST_DURATIONS_TWICE === 'true';
   const dir = env.TEST_DURATIONS_DIR || (env.RUNNER_TEMP ? path.join(env.RUNNER_TEMP, 'test-durations') : 'test-durations');
+  // the calibration comes first, in this process, before any test code exists
+  const nominal = budgets.calibration?.nominal_ms;
+  /** @type {{ ms: number, nominal: number, raw: number, factor: number, rows: Array<{ file: string, test: number, suite: number }> } | null} */ let cal = null;
+  if (typeof nominal === 'number') {
+    const ms = io.calibrate ? io.calibrate() : timedWorkload();
+    cal = { ms, nominal, ...speedFactor(ms, nominal), rows: [] };
+  }
+  const speed = cal?.factor ?? 1;
   const run = io.run ?? ((/** @type {string[]} */ a) => realRun(a, io.stderr ?? 'inherit'));
   const cwd = io.cwd ?? process.cwd();
   /** @type {Array<{ status: number, events: import('./test-durations.mjs').Event[] }>} */ const runs = [];
@@ -174,16 +222,17 @@ export function main(argv, io = {}) {
   }
   const nodeStatus = runs.map((r) => r.status).find((s) => s !== 0) ?? 0;
   /** @type {ReturnType<typeof overBudget> | null} */ let over = null;
-  try { over = overBudget(budgets, runs); } catch (e) { write(`test-durations-ci: the budgets could not be applied (${/** @type {Error} */ (e).message})\n`); }
+  try { over = overBudget(budgets, runs, speed); } catch (e) { write(`test-durations-ci: the budgets could not be applied (${/** @type {Error} */ (e).message})\n`); }
   try {
     const a = analyse(runs, { top: 20, ratio: 4, floorMs: 2000 });
     const o = over ?? { tests: [], files: [] };
+    if (cal) cal.rows = a.files.slice(0, 5).map((f) => ({ file: f.file, ...(({ test, suite }) => ({ test, suite }))(budgetOf(budgets, f.file, speed)) }));
     const safe = leg.replace(/[^A-Za-z0-9._-]+/g, '-');
     const { load: _load, ...rest } = a;   // no load average: the report is the same on any machine
-    const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, twice, node_status: nodeStatus, ...rest,
+    const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, calibration_ms: cal ? Math.round(cal.ms * 100) / 100 : null, calibration_nominal_ms: nominal ?? null, speed_factor: cal ? Math.round(cal.factor * 1000) / 1000 : 1, twice, node_status: nodeStatus, ...rest,
       tests_detail: summarize(runs[0].events).tests, over_budget: o };
     writeOut(path.join(dir, `test-durations-${safe}.json`), `${JSON.stringify(json, null, 2)}\n`);
-    const text = renderSummary(leg, a, o, enforce, twice);
+    const text = renderSummary(leg, a, o, enforce, twice, cal);
     const sum = env.GITHUB_STEP_SUMMARY;
     if (sum) (io.append ?? appendFileSync)(sum, `${text}\n`);
   } catch (e) {   // the report must never change the verdict: a report that cannot be written is a notice, the status stays node's
@@ -199,8 +248,16 @@ export function main(argv, io = {}) {
     const miss = uncovered(testArgs, r.events, cwd);
     if (miss.length > 0) { write(`test-durations-ci: ${miss.length} requested test file(s) have no event in the stream, so their budgets cannot be checked; failing closed: ${miss.slice(0, 5).join(', ')}${miss.length > 5 ? ', ...' : ''}\n`); return 1; }
   }
+  if ((over.tests.length > 0 || over.files.length > 0) && cal && cal.raw > 5) { write(`test-durations-ci: runner too slow to judge budgets (the calibration took ${f2(cal.raw)} times the nominal, the factor is capped at 5) and ${over.tests.length} test(s) and ${over.files.length} file(s) are over even the scaled budgets\n`); return 1; }
   if (over.tests.length > 0 || over.files.length > 0) { write(`test-durations-ci: ${over.tests.length} test(s) and ${over.files.length} file(s) are over budget. Fix the slow test; relaxing a budget needs a reason (CONTRIBUTING, tests/ci/test-budgets.json)\n`); return 1; }
   return 0;
+}
+
+/** The calibration with the real clock and the real workload. @returns {number} */
+function timedWorkload() {
+  const t0 = performance.now();
+  referenceWorkload();
+  return performance.now() - t0;
 }
 
 /**

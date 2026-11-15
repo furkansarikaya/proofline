@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { cleanUp, derive, jsonFiles, main, maxima } from './derive-budgets.mjs';
+import { cleanUp, derive, jsonFiles, main, maxima, median } from './derive-budgets.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const samples = path.join(repo, 'tests', 'fixtures', 'budget-samples');
@@ -33,6 +33,13 @@ test('derive: maximum x margin rounded up (x3 test, x2.5 suite from 20 s, x3 bel
   assert.deepEqual(big.budgets.files['tests/core/a.test.mjs'], { test_ms: 30000, suite_ms: 180000 });
   const large = derive(base, [{ files: [{ file: 'tests/core/z.test.mjs', max_ms: 40000 }], tests_detail: [{ file: 'tests/core/z.test.mjs', name: 'z', ms: 6000 }] }], { testMargin: 3, suiteMargin: 2.5 });
   assert.deepEqual(large.budgets.files['tests/core/z.test.mjs'], { test_ms: 20000, suite_ms: 100000 });
+});
+
+test('median: the middle value, the mean of the two middle values rounded up, null for none; derive writes calibration.nominal_ms from the reports and keeps the base value without any', () => {
+  assert.deepEqual([[], [5], [3, 1, 2], [1000, 1200], [1, 2, 4, 9]].map(median), [null, 5, 2, 1100, 3]);
+  assert.deepEqual(derive(base, reports, { testMargin: 3, suiteMargin: 2.5 }).budgets.calibration, { nominal_ms: 1100 });
+  const none = derive({ ...base, calibration: { nominal_ms: 777 } }, [{ files: [], tests_detail: [] }], { testMargin: 3, suiteMargin: 2.5 });
+  assert.deepEqual(none.budgets.calibration, { nominal_ms: 777 });
 });
 
 test('main: the same samples give the same bytes, a bad report or no report or a bad option is refused with 2', () => {

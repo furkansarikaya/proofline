@@ -10,7 +10,7 @@ import { DEFAULTS } from '../../control-plane/agents/scripts/core/testmeasure.mj
 import { tmp } from '../lib/harness.mjs';
 import { FLOOR } from './derive-budgets.mjs';
 import { analyse, parseEvents } from './test-durations.mjs';
-import { budgetOf, budgetProblems, main, overBudget, overLines, parseStrict, renderSummary, requestedFiles, scaleMilli } from './test-durations-ci.mjs';
+import { budgetOf, budgetProblems, main, overBudget, overLines, parseStrict, referenceWorkload, renderSummary, requestedFiles, scaleMilli, speedFactor } from './test-durations-ci.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const fx = (/** @type {string} */ n) => readFileSync(path.join(repo, 'tests', 'fixtures', 'test-durations', n), 'utf8');
@@ -43,6 +43,7 @@ test('test-budgets.json: ENFORCED (enforce true), valid, the kinds are the A275 
   assert.deepEqual(budgetProblems(budgetsJson), []);
   assert.equal(budgetsJson.timeouts_scale, 1, 'CI uses the default scale');
   assert.equal(budgetsJson.default_kind, 'unit');
+  assert.ok(Number.isInteger(budgetsJson.calibration?.nominal_ms) && budgetsJson.calibration.nominal_ms > 0 && budgetsJson.calibration.nominal_ms <= 60000, 'calibration.nominal_ms: the median of the runner-speed workload over CI runs');
   for (const k of ['unit', 'integration', 'e2e']) assert.deepEqual(budgetsJson.kinds[k], DEFAULTS[/** @type {'unit'} */ (k)], k);
   assert.deepEqual(budgetsJson.dirs, Object.fromEntries([['tests/bench', 'integration'], ['tests/benchmark', 'integration'], ['tests/ci', 'integration'], ['tests/core', 'integration'], ['tests/e2e', 'integration'],
     ['tests/enforcement', 'integration'], ['tests/generator', 'unit'], ['tests/hook', 'integration'], ['tests/invariants-node', 'integration'], ['tests/lib', 'integration'], ['tests/real-session', 'integration'],
@@ -87,7 +88,7 @@ function drive(argv, o) {
   const outs = [...(o.events ?? [fx('run1.jsonl'), fx('run2.jsonl')])];
   const statuses = [...(o.status ?? [0])];
   const st = main(argv, {
-    budgets: o.budgets ?? { enforce: false }, env: { TEST_DURATIONS_DIR: path.join(dir, 'out'), GITHUB_STEP_SUMMARY: path.join(dir, 'sum.md'), ...o.env }, write: (s) => out.push(s), cwd: o.cwd ?? dir,
+    budgets: o.budgets ?? { enforce: false }, env: { TEST_DURATIONS_DIR: path.join(dir, 'out'), GITHUB_STEP_SUMMARY: path.join(dir, 'sum.md'), ...o.env }, write: (s) => out.push(s), cwd: o.cwd ?? dir, calibrate: () => 1000,
     run: () => ({ status: statuses.shift() ?? 0, events: /** @type {string | null} */ (outs.shift()) }),
     writeFile: (p, s) => { files[p] = s; }, append: (p, s) => { files[p] = (files[p] ?? '') + s; },
   });
@@ -185,6 +186,70 @@ test('the budgets file fails CLOSED: missing, malformed or invalid is exit 2 wit
   }
 });
 
+/** One test of `ms` in one file, as the reporter writes it. @param {number} ms */
+const one = (ms) => `{"file":"tests/ci/x.test.mjs","name":"t","nesting":0,"ms":${ms},"outcome":"pass","suite":false}\n`;
+
+test('speedFactor: measured / nominal clamped to 1..5, never stricter than the table; budgetOf multiplies (after timeouts_scale) and rounds up', () => {
+  assert.deepEqual(speedFactor(1000, 1000), { raw: 1, factor: 1 });
+  assert.deepEqual(speedFactor(500, 1000), { raw: 0.5, factor: 1 });
+  assert.deepEqual(speedFactor(1500, 1000), { raw: 1.5, factor: 1.5 });
+  assert.deepEqual(speedFactor(9000, 1000), { raw: 9, factor: 5 });
+  assert.deepEqual(speedFactor(0, 1000), { raw: 1, factor: 1 });
+  assert.deepEqual(speedFactor(NaN, 1000), { raw: 1, factor: 1 });
+  const b = { timeouts_scale: 2, files: { 'tests/ci/x.test.mjs': { test_ms: 1001, suite_ms: 5000 } } };
+  assert.deepEqual(budgetOf(b, 'tests/ci/x.test.mjs', 1.5), { kind: 'unit', test: 3003, suite: 15000 });
+  assert.equal(budgetOf(b, 'tests/ci/x.test.mjs').test, 2002, 'speed 1 by default');
+});
+
+test('runner-speed calibration: a slow runner passes, a normal runner with a really slow test still fails, a fast runner is never stricter, calibration runs before node', () => {
+  const budgets = { enforce: true, calibration: { nominal_ms: 1000 }, kinds: { unit: { test_ms: 2000, suite_ms: 100000 } } };
+  const go = (/** @type {number} */ testMs, /** @type {number} */ calibrationMs, /** @type {string[]} */ order = []) => {
+    let out = '';
+    const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: {}, write: (s) => { out += s; }, writeFile: () => {}, append: () => {},
+      calibrate: () => { order.push('calibrate'); return calibrationMs; }, run: () => { order.push('run'); return { status: 0, events: one(testMs) }; } });
+    return { st, out };
+  };
+  const order = /** @type {string[]} */ ([]);
+  assert.equal(go(5000, 3000, order).st, 0, 'a test of 5000 ms on a runner 3 times slower than nominal: the budget is 6000');
+  assert.deepEqual(order, ['calibrate', 'run'], 'measured before node starts, so the tests under test cannot influence it');
+  const normal = go(5000, 1000);
+  assert.equal(normal.st, 1, 'the same test on a normal runner is over its 2000 ms');
+  assert.match(normal.out, /OVER BUDGET: tests\/ci\/x\.test\.mjs :: t took 5000\.0 ms over 2000\n/);
+  const slowTest = go(20000, 3000);
+  assert.equal(slowTest.st, 1, 'a really slow test fails even on a slow runner (6000)');
+  assert.match(slowTest.out, /over 6000\n/);
+  assert.doesNotMatch(slowTest.out, /runner too slow/);
+  assert.equal(go(1500, 100).st, 0);
+  assert.equal(go(2500, 100).st, 1, 'a runner faster than nominal does not make the budget stricter: 2000 stays 2000, 2500 is over');
+  // mutants: with the factor ignored the slow-runner case would fail, so the pin above would be red
+  const ev = parseEvents(one(5000));
+  assert.ok(overBudget(budgets, [{ events: ev }], 1).tests.length > 0);
+  assert.equal(overBudget(budgets, [{ events: ev }], 3).tests.length, 0);
+});
+
+test('runner-speed calibration: above 5 times nominal the factor is capped and a violation says "runner too slow to judge budgets"; a green leg is never failed by a high calibration', () => {
+  const budgets = { enforce: true, calibration: { nominal_ms: 1000 }, kinds: { unit: { test_ms: 2000, suite_ms: 100000 } } };
+  /** @param {number} testMs */
+  const go = (testMs) => { let out = ''; const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: {}, write: (s) => { out += s; }, writeFile: () => {}, append: () => {}, calibrate: () => 9000, run: () => ({ status: 0, events: one(testMs) }) }); return { st, out }; };
+  const green = go(9000);
+  assert.equal(green.st, 0, 'under the capped budget 10000');
+  assert.doesNotMatch(green.out, /runner too slow/);
+  const red = go(11000);
+  assert.equal(red.st, 1);
+  assert.match(red.out, /runner too slow to judge budgets \(the calibration took 9\.00 times the nominal/);
+});
+
+test('the report and the summary carry the calibration: ms, nominal, factor, and the effective budgets of the slowest files', () => {
+  const r = drive(['leg one', '--', '--test-name-pattern=.'], { budgets: { enforce: false, calibration: { nominal_ms: 1000 }, kinds: { unit: { test_ms: 2000, suite_ms: 30000 } } }, events: [fx('run1.jsonl')], env: {} });
+  assert.equal(r.st, 0);
+  assert.match(r.summary, /runner speed: calibration \d/);
+  assert.match(r.summary, /\| effective budgets \(slowest files\) \| test ms \| suite ms \|/);
+  const j = JSON.parse(r.json);
+  assert.equal(j.calibration_nominal_ms, 1000);
+  assert.equal(typeof j.calibration_ms, 'number');
+  assert.equal(j.speed_factor, 1, 'the drive helper injects a calibration equal to the nominal');
+});
+
 test('a report that cannot be written never changes the verdict: the notice is printed and the status is node\'s', () => {
   for (const st of [0, 4]) {
     let out = '';
@@ -243,6 +308,8 @@ test('smoke, real node --test: the exit status of a passing file is 0 and of a f
     assert.match(r.stderr, want === 0 ? /adds/ : /breaks/, 'the spec text is the step log (stderr); stdout carries only the wrapper notices');
     const j = JSON.parse(readFileSync(path.join(out, 'test-durations-smoke.json'), 'utf8'));
     assert.equal(j.node_status, want); assert.equal(j.tests, 1);
+    assert.ok(Number.isFinite(j.calibration_ms) && j.calibration_ms > 0, 'the real reference workload ran before node');
+    assert.ok(j.speed_factor >= 1 && j.speed_factor <= 5);
     assert.match(readFileSync(sum, 'utf8'), /### Test durations: smoke/);
   }
 });
