@@ -75,7 +75,9 @@ export function ledgerAppend(runDir, role, event, from, to, detail) {
     prev = sha256(last);
   }
   const t = now();
-  const one = detail.replace(/[\n\t]/g, ' ');
+  // A284: free text in `detail` (a reason, an evidence note) must not carry the row grammar: many readers look for ` event=X ` inside a line, so a key of the row that the readers search for followed by `=` is
+  // written with `:` instead (`event=` -> `event:`); `from=` and `to=` stay (ledger notes use them, e.g. `failover from=claude to=codex`, and no decision reads them from free text); the readers see only the keys this function wrote
+  const one = detail.replace(/[\n\t\r]/g, ' ').replace(/(?<![A-Za-z0-9_])(seq|prev|event|role|digest|ts|epoch|detail)=/g, '$1:');
   const line = `seq=${seq} prev=${prev} event=${event} role=${role} from=${from || '-'} to=${to || '-'} digest=${lifecycleDigest(rows)} ts=${t.iso} epoch=${t.epoch} detail=${one}\n`;
   try { appendFileSync(file, Buffer.from(line, 'latin1')); } catch { fail(`could not append to lifecycle ledger: ${file}`); }
 }

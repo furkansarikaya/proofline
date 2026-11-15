@@ -189,7 +189,7 @@ export function knownControlArtifact(ctx, id, p) {
     return false;
   }
   const rel = p.slice(`.agents/runs/${id}/`.length);
-  if (['TASK.md', 'PLAN.md', 'RUN.yaml', 'COMPLETION_REPORT.md', 'LEDGER.log', 'HOOKS.log', 'VERIFY.md', 'mutation_budget', '.lock/pid'].includes(rel)) return true;
+  if (['TASK.md', 'PLAN.md', 'RUN.yaml', 'COMPLETION_REPORT.md', 'LEDGER.log', 'HOOKS.log', 'VERIFY.md', 'mutation_budget', 'test-exceptions.base', '.lock/pid'].includes(rel)) return true;
   if (/^(amendments|dispatch|worker-evidence|decisions|gates|results|reports|questions|approvals|waivers|security|ci-fix|scratch)\//.test(rel)) return true;
   if (/^reviews\/(proof-review\/(plan|rules|small)|test-trust\/(tests|qa)|data-design|proof-review\/config|contract-proof|concurrency-proof|performance-proof|data-migration|visual-proof)\//.test(rel)) return true;
   if (/^design\/[^]*\.(md|json)$/.test(rel)) return true; // the shell's `case` pattern design/*.md also matches design/adr/0001-x.md

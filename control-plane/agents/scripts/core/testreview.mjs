@@ -9,12 +9,12 @@
 //    command) or neither, so the reviewer can confirm which command really executes which tests.
 // It decides nothing: candidates and facts are inputs, the reviewer traces them and the findings validator computes the gate. `missingFindings` is what `submit` uses to
 // require a finding (or an explicit, valid clearing) for every one of them in a run that carries the measurement stamp.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { clean } from './codetrust.mjs';
 import { ecosystemRowsAll } from './ecodata.mjs';
 import { patchManifest, testCodePath } from './gates.mjs';
 import { sha256 } from './hash.mjs';
-import { fileText, ledgerLines, textLines } from './records.mjs';
+import { fileText, ledgerLines, parseLedgerLine, textLines } from './records.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -54,10 +54,48 @@ export function planExceptions(plan) {
   return sectionOf(plan, 'Test exceptions').map(parseException).filter((x) => x !== null).map((x) => /** @type {{ kind: string, target: string, reason: string }} */ (x));
 }
 
+/** The non-blank, trimmed lines of the plan's `## Test exceptions`. @param {string} plan */
+export function exceptionLines(plan) { return sectionOf(plan, 'Test exceptions').map((x) => x.trim()).filter((x) => x !== ''); }
+
 /** The hash of the lines of the plan's `## Test exceptions` (blank lines left out); the empty string when there are none. A refreeze that changes it needs the user. @param {string} plan */
 export function exceptionsHash(plan) {
-  const l = sectionOf(plan, 'Test exceptions').map((x) => x.trim()).filter((x) => x !== '');
+  const l = exceptionLines(plan);
   return l.length === 0 ? '' : sha256(`${l.join('\n')}\n`);
+}
+
+/**
+ * The section hash the freeze recorded (A284): the LAST ledger line that parses as a whole row (the shared grammar from the start of the line) whose event field is `test-exceptions` and whose detail is
+ * exactly `sha=<hex>[ approval=<file>]`. Text of another row that merely contains those words is never a row; a row of that event with another detail reads as `invalid-row`, which no section matches.
+ * @param {Context} ctx @param {string} dir
+ */
+export function exceptionsBaseline(ctx, dir) {
+  let last = '';
+  for (const l of ledgerLines(ctx, dir)) {
+    const row = parseLedgerLine(l);
+    if (row === null || row.event !== 'test-exceptions') continue;
+    const m = /^sha=([0-9a-f]*)(?: approval=\S+)?$/.exec(row.detail);
+    last = m === null ? 'invalid-row' : m[1];
+  }
+  return last;
+}
+
+/** The file that keeps the baseline lines for display only (the decision is the ledger hash). @param {string} dir */
+const BASE_FILE = (dir) => `${dir}/test-exceptions.base`;
+
+/** Keeps the section lines the freeze recorded, so that an approval request can show what changes. @param {string} dir @param {string} plan */
+export function writeExceptionsBase(dir, plan) {
+  writeFileSync(`${BASE_FILE(dir)}.tmp`, Buffer.from(exceptionLines(plan).map((x) => `${x}\n`).join(''), 'latin1'));
+  renameSync(`${BASE_FILE(dir)}.tmp`, BASE_FILE(dir));
+}
+
+/** The baseline lines for display, or null when the kept copy is missing or does not hash to the ledger's baseline. @param {Context} ctx @param {string} dir @returns {string[] | null} */
+export function exceptionsBaseLines(ctx, dir) {
+  const want = exceptionsBaseline(ctx, dir);
+  let text;
+  try { text = readFileSync(BASE_FILE(dir), 'latin1'); } catch { return want === '' ? [] : null; }
+  const lines = text.split('\n').filter((x) => x !== '');
+  const h = lines.length === 0 ? '' : sha256(`${lines.join('\n')}\n`);
+  return h === want ? lines : null;
 }
 
 /** The sha256 of the project's `.agents/ecosystems.json`, or `none`; the run start records it and the scan compares (A276). @param {Context} ctx */

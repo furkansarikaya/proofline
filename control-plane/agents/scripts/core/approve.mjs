@@ -27,7 +27,7 @@ import { isDir, isFile } from './paths.mjs';
 import { WS, fileLines, gateField, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
-import { sectionOf } from './testreview.mjs';
+import { exceptionLines, exceptionsBaseLines } from './testreview.mjs';
 import { asciiLower } from './shellglob.mjs';
 
 
@@ -510,11 +510,7 @@ export function requestApproval(ctx, id0, kind0) {
       if (wg.length > 1) rows = `   this one decision covers ${wg.length} findings of the same rule in ${wr.slice(wr.lastIndexOf('/') + 1)}: ${wg.slice(0, 3).join(' ')} ... (detail: that gate record and the report); the lead records it with: agent.sh waive ${id} ${kind.slice(6)} --group --reason TEXT`.replace(' ... (detail', '... (detail');
     }
   }
-  if (kind === 'scope' && plan !== null) {
-    // A284: the user sees the lines of PLAN ## Test exceptions that this approval would let through (the approval is bound to this exact PLAN.md)
-    const ex = sectionOf(plan, 'Test exceptions').map((x) => x.trim()).filter((x) => x !== '');
-    rows = ex.length === 0 ? '' : `   PLAN ## Test exceptions (a change of these after the freeze needs this approval):\n${ex.map((x) => `   ${x}`).join('\n')}`;
-  }
+  if (kind === 'scope' && plan !== null) rows = scopeExceptionRows(ctx, id, plan);
   if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}`;
   let out = '';
   if (kind === 'batch') out += `QUESTIONS:\n1. Approve the night batch shown above (batch ${bound.slice(0, 12)})?\n`;
@@ -535,6 +531,32 @@ export function requestApproval(ctx, id0, kind0) {
   if (sy.includes(',')) out += `   several open requests: one message answers them, one phrase per comma or line: ${sy}\n`;
   ctx.out(out);
   return 0;
+}
+
+const EXC_SHOW_LINE = 1000; const EXC_SHOW_LINES = 50;
+/** A line shown in a request: control and format characters (CR, escape, bidi marks, line separators) are written as \u{..}, so a line cannot hide another or rewrite the screen. @param {string} line a byte string */
+function shown(line) {
+  return bs(bytesBack(line).replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (c) => `\\u{${c.codePointAt(0)?.toString(16)}}`));
+}
+
+/**
+ * The rows of a `scope` request about PLAN `## Test exceptions` (A284): what the amendment removes or changes against the frozen baseline, what it adds, and for a removed
+ * section an explicit line. A line over the bound is refused (the request would not show it in full); the baseline text is display only (the ledger hash decides).
+ * @param {Context} ctx @param {string} id @param {string} plan
+ */
+function scopeExceptionRows(ctx, id, plan) {
+  const now_ = exceptionLines(plan);
+  if (now_.length > EXC_SHOW_LINES || now_.some((x) => x.length > EXC_SHOW_LINE)) fail(`PLAN ## Test exceptions has more than ${EXC_SHOW_LINES} lines or a line longer than ${EXC_SHOW_LINE} characters: the request could not show it in full, so none is made; shorten the section`);
+  const base = exceptionsBaseLines(ctx, runDir(ctx, id));
+  const list = (/** @type {string[]} */ l) => l.map((x) => `     ${shown(x)}`).join('\n');
+  if (base === null) return now_.length === 0 ? '' : `   PLAN ## Test exceptions (the frozen baseline text is not available, so the whole section is shown; a change of it after the freeze needs this approval):\n${list(now_)}`;
+  const removed = base.filter((x) => !now_.includes(x)); const added = now_.filter((x) => !base.includes(x));
+  if (removed.length === 0 && added.length === 0) return '';
+  if (now_.length === 0) return `   PLAN ## Test exceptions: section removed (was):\n${list(base)}`;
+  let out = '   PLAN ## Test exceptions changes (a change of this section after the freeze needs this approval):';
+  if (removed.length > 0) out += `\n   removed or changed (frozen baseline):\n${list(removed)}`;
+  if (added.length > 0) out += `\n   added or new text:\n${list(added)}`;
+  return out;
 }
 
 /** A byte string that is already UTF-8 bytes, taken back to text so that bs() can convert the whole template once. @param {string} s */

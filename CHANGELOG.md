@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Test exceptions at a refreeze (A284): a change of the frozen plan's `## Test exceptions` (a line added, edited or the section removed) is no longer refused outright; it is accepted with the user's `scope` approval for the exact new PLAN.md (recorded only from the user's message, single-use, named in the `test-exceptions` ledger row). Without it the refusal is unchanged. No new verb or option.
+- Security (A284, review round 1): a lead free-text reason (`amend`, `waive`, `terminate` evidence) could carry a fake ` event=test-exceptions ... detail=sha=...` tail that readers matching a substring of a ledger line took for a genuine row, so a new test exception passed without the approval. Fixed at the cause: `ledgerAppend` writes a row key followed by `=` inside free text as `key:` (so no reader can find a forged `event=`), and the baseline reader parses the row structurally (whole row from the start of the line, event field, exact `sha=` detail). The `scope` request now shows what changed against the frozen baseline (removed or changed lines, added lines, `section removed (was ...)`), escapes control and format characters, and refuses to be made for a section it cannot show in full (over 50 lines or a line over 1000 characters).
 
 ## 0.0.121 — 2026-11-15
 

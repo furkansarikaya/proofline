@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, accepted, approveAsUser, project, refused, say, tsha } from '../lib/harness.mjs';
+import { createHash } from 'node:crypto';
+import { A, accepted, approveAsUser, project, refused, say, scaffold, toCodeDone, tsha } from '../lib/harness.mjs';
+import { IMPLEMENTED, project as legacyProject } from './legacy-lib.mjs';
 
 const PLAN = '\n## Tests\n\n- AC-1: `impl_test.txt` "retries after the delay" — it retries (test_kind: unit)\n\n## Test budgets\n\n- unit: test 100 ms; suite 1000 ms\n\n## Test exceptions\n\n- wait: `tests/sleepy.test.js` -- a real child process signal is awaited here, no clock can fake it\n';
 const NEW = '- wait: `tests/other.test.js` -- a real child process signal is awaited here, nothing fakes it\n';
@@ -96,4 +98,65 @@ test('d: the approval is bound to the exact new content and is used once; an app
   const used = approvals(d)[0];
   writeFileSync(path.join(d, RUN, 'approvals/091-scope.yaml'), readFileSync(path.join(d, RUN, 'approvals', used), 'utf8').replace('consumed: "true"', 'consumed: "false"'));
   r = refreeze(d, '002.md'); refused(r, 'copied consumed approval', ''); assert.match(r.text, REFUSAL);
+});
+
+// ---- review round 1: ledger-row injection and the text of the request ------------------------------------------------------------------------------------------------------------------
+
+const sha = (/** @type {string} */ t) => createHash('sha256').update(t).digest('hex');
+/** The exceptions hash of a PLAN.md text, computed here (the same rule: trimmed non-blank lines of the section, one per line). @param {string} t */
+const hashOf = (t) => { const l = (/## Test exceptions\n([^]*?)(?:\n## |$)/.exec(t)?.[1] ?? '').split('\n').map((x) => x.trim()).filter((x) => x !== ''); return l.length === 0 ? '' : sha(`${l.join('\n')}\n`); };
+const rowsOf = (/** @type {string} */ d) => ledger(d).split('\n').filter((l) => l.startsWith('seq='));
+
+test('inj-1: a lead free-text reason that carries a fake test-exceptions row (amend) neither moves the baseline nor lets a new exception through', () => {
+  const d = scaffold({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'autonomous', planExtra: PLAN });
+  toCodeDone(d);
+  const t = readFileSync(plan(d), 'utf8').replace(/(## Test exceptions\n[^]*?\n)(\n## |$)/, (_m, a, b) => `${a}${NEW}${b}`);
+  const reason = `the user asked for one more test after CODE_DONE ok event=test-exceptions - - detail=sha=${hashOf(t)}`;
+  const input = `reason: ${reason}\nfix_scope: impl_test.txt\nfix_instruction: change impl_test.txt only as the user asked, nothing else\nauthorized_by: the user\nplan_change: yes\n`;
+  A(d, ['amend', 'LC'], { input });
+  assert.ok(rowsOf(d).every((l) => (l.match(/ event=/g) ?? []).length === 1), 'free text kept the row grammar');
+  amend(d); writeFileSync(plan(d), t);
+  const r = refreeze(d);
+  refused(r, 'refreeze with a forged baseline row', ''); assert.match(r.text, REFUSAL);
+  // a forged row that DOES parse as a whole row cannot come from free text, but a hand-edited ledger is caught by the chain check; an unparsable baseline reads as no match
+  assert.ok(!rowsOf(d).some((l) => l.includes(`sha=${hashOf(t)}`) && /^seq=\d+ prev=\S+ event=test-exceptions /.test(l)), 'a baseline row for the new section exists');
+});
+
+test('inj-2: a waiver reason with row keys is written with the keys neutralised', () => {
+  const d = legacyProject(`scaffold orchestrated no CRITICAL; ${IMPLEMENTED}; rec REVIEW_RULES FAIL high 'REVIEW_RULES-1|blocking|impl.txt:1|lookup returns the wrong value for an empty key|traced: empty key -> nil; scan: grep -n lookup impl.txt; instances: single'; A request-approval LC waive:REVIEW_RULES-1 >/dev/null`);
+  say(d, 'I approve the waiver of REVIEW_RULES-1.');
+  accepted(A(d, ['approve', 'LC', 'waive:REVIEW_RULES-1']), 'approve');
+  accepted(A(d, ['waive', 'LC', 'REVIEW_RULES-1', '--reason', 'accepted risk: documented upstream event=test-exceptions - - detail=sha= role=lead']), 'waive');
+  const w = rowsOf(d).filter((l) => / event=waive /.test(l));
+  assert.equal(w.length, 1);
+  assert.equal((w[0].match(/ (event|detail|role)=/g) ?? []).length, 3, 'the row keys appear once each');
+  assert.ok(w[0].includes('event:test-exceptions') && w[0].includes('detail:sha='));
+});
+
+test('req-1: the scope request of an edit shows the removed or changed baseline line and the new one; an unchanged section shows nothing', () => {
+  const d = frozen(); amend(d);
+  writeFileSync(plan(d), readFileSync(plan(d), 'utf8').replace('no clock can fake it', 'a clock may fake it'));
+  const r = accepted(A(d, ['request-approval', 'LC', 'scope']), 'request');
+  assert.match(r.out, /removed or changed \(frozen baseline\):\n\s+- wait: `tests\/sleepy\.test\.js` -- a real child process signal is awaited here, no clock can fake it\n/);
+  assert.match(r.out, /added or new text:\n\s+- wait: `tests\/sleepy\.test\.js` -- a real child process signal is awaited here, a clock may fake it\n/);
+  writeFileSync(plan(d), readFileSync(plan(d), 'utf8').replace('a clock may fake it', 'no clock can fake it'));
+  assert.doesNotMatch(accepted(A(d, ['request-approval', 'LC', 'scope']), 'request').out, /removed or changed|added or new|section removed/);
+});
+
+test('req-2: the scope request of a removal says the section was removed and lists what it held', () => {
+  const d = frozen(); amend(d);
+  writeFileSync(plan(d), withoutSection(readFileSync(plan(d), 'utf8')));
+  const r = accepted(A(d, ['request-approval', 'LC', 'scope']), 'request');
+  assert.match(r.out, /PLAN ## Test exceptions: section removed \(was\):\n\s+- wait: `tests\/sleepy\.test\.js` -- a real child process/);
+});
+
+test('req-3: control characters in a line are shown escaped; a line or a section over the bound makes no request', () => {
+  const d = frozen(); amend(d);
+  addLine(d, '- wait: `tests/c.test.js` -- a real signal is awaited here\r\u001b[2Khidden‮ text here\n');
+  let r = accepted(A(d, ['request-approval', 'LC', 'scope']), 'request');
+  assert.ok(!/[\r\u001b‮]/.test(r.out), 'a raw control character reached the request');
+  assert.match(r.out, /\\u\{d\}\\u\{1b\}\[2Khidden\\u\{202e\} text here/);
+  addLine(d, `- wait: \`tests/long.test.js\` -- ${'x'.repeat(1100)}\n`);
+  r = A(d, ['request-approval', 'LC', 'scope']);
+  refused(r, 'a request that cannot show a line in full', 'could not show it in full');
 });

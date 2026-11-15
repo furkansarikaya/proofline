@@ -28,7 +28,7 @@ import { planEntries, pipelineClass, pipelineClassValid, pipelineDeclared, pipel
 import { asciiLower } from './shellglob.mjs';
 import { normRelPath, scopeBad, scopeEntries, scopeEntryCovers, sectionLines, taskType } from './taskfile.mjs';
 import { taskDefectFixes } from './plancheck.mjs';
-import { exceptionsHash } from './testreview.mjs';
+import { exceptionsBaseline, exceptionsHash, writeExceptionsBase } from './testreview.mjs';
 import { exemptedPath, checkTypeExemptions, pipelineSignature, verifyQaPlanBound } from './commands/verify.mjs';
 import { pathsExecutable, requireTaskDefects } from './handoff.mjs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
@@ -364,8 +364,7 @@ function existsSyncDir(d) { try { return readdirSync(d) !== null; } catch { retu
 
 /** Whether PLAN.md `## Test exceptions` differs from what the freeze recorded (a line added, changed or the whole section removed; A276, A284). @param {Context} ctx @param {string} dir */
 function exceptionsChanged(ctx, dir) {
-  const rows = ledgerLines(ctx, dir).filter((l) => l.includes(' event=test-exceptions '));
-  const last = rows.length === 0 ? '' : (/ detail=sha=([0-9a-f]*)(?: approval=\S+)?$/.exec(rows[rows.length - 1])?.[1] ?? '');
+  const last = exceptionsBaseline(ctx, dir); // structural read of the ledger row (A284)
   return exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '') !== last;
 }
 
@@ -600,6 +599,7 @@ export function freezeRun(ctx, id, word, amendment) {
     else { const hs = sectionValue(ctx, dir, 'handoff', 'state'); led(ctx, id, 'freeze', hs, hs, sectionValue(ctx, dir, 'freeze', 'pipeline')); }
     if (mode !== 'refreeze') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')}`);
     else if (exceptionsApproval !== '') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')} approval=${exceptionsApproval}`);
+    if (mode !== 'refreeze' || exceptionsApproval !== '') writeExceptionsBase(dir, fileText(ctx, `${dir}/PLAN.md`) ?? '');
     for (const a of approvals) consumeApproval(ctx, id, a);
   }
   ctx.out(`freeze recorded: ${id}\n`);
