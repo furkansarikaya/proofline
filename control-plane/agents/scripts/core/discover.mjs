@@ -67,12 +67,14 @@ function pkgScript(unit, name, file) {
 }
 
 /**
- * The value at a dotted key path (`test.runner`) of a JSON file as a string, '' when the file is missing or malformed (never throws), or the path is absent or not a scalar.
+ * The value at a dotted key path (`test.runner`) of a JSON file as a string (a leading BOM is ignored), '' when the file is missing, not a regular file, over 1 MB or malformed (never throws), or the path is absent or not a scalar.
  * @param {string} f @param {string} keyPath
  */
 function jsonValue(f, keyPath) {
   try {
-    /** @type {any} */ let v = JSON.parse(readFileSync(f, 'utf8'));
+    const st = statSync(f);
+    if (!st.isFile() || st.size > 1048576) return '';
+    /** @type {any} */ let v = JSON.parse(readFileSync(f, 'utf8').replace(/^\uFEFF/, ''));
     for (const k of keyPath.split('.')) { if (v === null || typeof v !== 'object' || Array.isArray(v)) return ''; v = v[k]; }
     return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : '';
   } catch { return ''; }
