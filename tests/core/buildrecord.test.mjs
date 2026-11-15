@@ -3,8 +3,8 @@
 // test run per source state, a record keyed by commit or tree and the command strings, the FULL output kept, the lead runs and everyone reads, locks, dependency
 // copies, command lists, env files, the time limit. Absolute expectations; the real control plane in a throwaway project.
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { runCommand } from '../../control-plane/agents/scripts/core/buildrecord.mjs';
@@ -16,6 +16,7 @@ import { tmp } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
 import { commandV } from '../../control-plane/agents/scripts/core/runtimedetect.mjs';
 import { fakeTool } from './run6-lib.mjs';
+import { closed, listenOnce } from './event-lib.mjs';
 
 const keyOf = (/** @type {string} */ out) => (/^key: (.*)$/m.exec(out) ?? [])[1] ?? '';
 const builds = (/** @type {string} */ d) => `${d}/.agents/local/builds`;
@@ -303,26 +304,36 @@ test('the timer fallback: a command that traps TERM and exits 0 is still 124', {
 });
 
 // Windows has no process groups and `sh` reports MSYS process ids that `process.kill` cannot address, so the grandchild is neither killed by the product nor observable here (accepted limit, A265).
-test('the timer fallback: a grandchild is gone after the stop, and a background process does not outlive a command that ends in time', { skip: process.platform === 'win32' ? 'no process groups and MSYS pids on Windows (A265)' : false }, () => {
+test('the timer fallback: a grandchild is gone after the stop, and a background process does not outlive a command that ends in time', { skip: process.platform === 'win32' ? 'no process groups and MSYS pids on Windows (A265)' : false, timeout: 30000 }, async (t) => {
   const d = newProject();
   const ctx = new Context({ env: { PATH: '/nonexistent' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
   const out = `${d}/trap.out`;
-  const pidFile = `${d}/gc.pid`;
-  assert.equal(runCommand(ctx, d, `/bin/sleep 60 & echo $! > ${pidFile}; /bin/sleep 60`, out, 1), 124);
-  const pid = Number(readFileSync(pidFile, 'utf8').trim());
-  assert.ok(pid > 1);
-  const until = Date.now() + 3000;
-  let alive = true;
-  while (alive && Date.now() < until) { try { process.kill(pid, 0); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } catch { alive = false; } }
-  assert.equal(alive, false, 'the grandchild survived the stop');
-  // a command that ends in time leaves nothing behind either
-  writeFileSync(pidFile, '');
-  assert.equal(runCommand(ctx, d, `/bin/sleep 60 & echo $! > ${pidFile}; exit 0`, out, 30), 0);
-  const pid2 = Number(readFileSync(pidFile, 'utf8').trim());
-  const until2 = Date.now() + 3000;
-  let alive2 = true;
-  while (alive2 && Date.now() < until2) { try { process.kill(pid2, 0); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } catch { alive2 = false; } }
-  assert.equal(alive2, false, 'a background process outlived its command');
+  const holder = posix(path.join(import.meta.dirname, 'group-holder.mjs'));
+  /** The end of an event the test waits for; when the test's own timeout aborts first, the wait fails so that the finally below ends what the test started and the run is not left hanging. @param {Promise<unknown>} p @param {string} what */
+  const before = (p, what) => Promise.race([p, new Promise((_, no) => { t.signal.addEventListener('abort', () => no(new Error(`${what}: the test timed out`)), { once: true }); })]);
+  /** @type {number[]} */ const strays = [];
+  /** @type {import('node:net').Socket[]} */ const socks = [];
+  const fifo = `${d}/gc.fifo`; const pidFile = `${d}/gc.pid`;
+  const srv2 = await listenOnce(d);
+  try {
+    // a background process that stays up while the foreground command runs into its limit: the stop must end it too. It holds the write end of a named pipe the test reads: the
+    // read ends (EOF) when the last writer is gone, which is the event. Only `sh` and `sleep` start inside the one-second limit (no second Node start-up).
+    execFileSync('mkfifo', [fifo]);
+    const rs = createReadStream(fifo); rs.resume();   // opened by the thread pool while runCommand blocks this loop; the shell's open for writing completes when it is open
+    await new Promise((r) => process.nextTick(r));   // the stream issues its open in a tick: let it be issued before the blocking call
+    const ended = new Promise((ok) => { rs.on('close', () => ok(undefined)); });
+    assert.equal(runCommand(ctx, d, `/bin/sleep 60 > ${fifo} & echo $! > ${pidFile}; /bin/sleep 60`, out, 1), 124);
+    strays.push(Number(readFileSync(pidFile, 'utf8').trim()));
+    await before(ended, 'the grandchild survived the stop');
+    // a command that ends in time leaves nothing behind either: the background process was up (connected) when the command exited 0
+    assert.equal(runCommand(ctx, d, `${posix(process.execPath)} ${holder} ${srv2.path}`, out, 30), 0);
+    const sock2 = await srv2.first; socks.push(sock2);
+    await before(closed(sock2), 'a background process outlived its command');
+  } finally {
+    for (const x of socks) x.destroy();
+    await srv2.close();
+    for (const pid of strays) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone, as it should be */ } }
+  }
 });
 
 test('commands.build and commands.test not configured exits 2', () => {

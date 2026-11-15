@@ -41,6 +41,53 @@ test('each ecosystem family: its sleep calls are candidates in its own files onl
   assert.deepEqual(hits('notes.txt', 'set\x54imeout'), [], 'a file no ecosystem claims is not scanned');
 });
 
+test('P2d: a blocking Atomics wait, a sleep-style helper or a busy wait on the clock is a candidate, and a name that only looks alike is not', () => {
+  const t = 'a.test.mjs';
+  // each name of the data, one per case (written with escapes so that this file holds none of them and needs no allowlist entry)
+  assert.deepEqual(hits(t, 'Atomics.w\x61it(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);'), ['1:Atomics.w\x61it']);
+  assert.deepEqual(hits(t, 'await Atomics.w\x61itAsync(c, 0, 0, 5).value;'), ['1:Atomics.w\x61itAsync']);
+  assert.deepEqual(hits(t, 'sleepSy\x6e\x63(1000);'), ['1:sleepSy\x6e\x63(']);
+  assert.deepEqual(hits(t, 'export function sleepSy\x6e\x63(ms) {}'), ['1:sleepSy\x6e\x63('], 'a definition is found as well as a call');
+  assert.deepEqual(hits(t, 'sleepM\x73(25);'), ['1:sleepM\x73(']);
+  assert.deepEqual(hits(t, 'waitSy\x6e\x63(10);'), ['1:waitSy\x6e\x63(']);
+  assert.deepEqual(hits(t, 'busyW\x61it(5);'), ['1:busyW\x61it(']);
+  assert.deepEqual(hits(t, 'wh\x69le (Date.now() < until) {}'), ['1:wh\x69le (Date.now() <'], 'a busy wait on the clock is a wait; the read of the clock stays a clock read of its own');
+  assert.deepEqual(hits(t, 'wh\x69le (Date.now() < until) {}', ['clock_read']), ['1:Date.now']);
+  assert.deepEqual(hits(t, 'wh\x69le (Date.now() > 0) {}'), ['1:wh\x69le (Date.now() >']);
+  assert.deepEqual(hits(t, 'wh\x69le(Date.now()-t0<9) {}'), ['1:wh\x69le(Date.now()']);
+  assert.deepEqual(hits(t, 'wh\x69le   (   performance.now() <  deadline) {}'), [], 'the blank run is collapsed to one space, and two spaces after the bracket are not the written form');
+  assert.deepEqual(hits(t, 'wh\x69le (performance.now() < deadline) {}'), ['1:wh\x69le (performance.now() <']);
+  assert.deepEqual(hits(t, 'wh\x69le (performance.now() > 0) {}'), ['1:wh\x69le (performance.now() >']);
+  assert.deepEqual(hits(t, 'wh\x69le(performance.now()-t0<9) {}'), ['1:wh\x69le(performance.now()']);
+  assert.deepEqual(hits(t, 'setInterva\x6c(tick, 5);'), ['1:setInterva\x6c']);
+  // look-alikes: other names, other words
+  assert.deepEqual(hits(t, 'const sleepSyncs = 1; mySleepSyn\x63(1); Atomics.add(c, 0, 1); Atomics.notify(c, 0); waitSyncAll(); awaitUntil(1); wh\x69le (Date.now) {}'), [], 'a longer or different word is no candidate');
+  assert.deepEqual(hits('notes.txt', 'Atomics.w\x61it(c, 0, 0, 5)'), [], 'a file no ecosystem claims is not scanned');
+  assert.deepEqual(hits('a.py', 'sleepSy\x6e\x63(1)'), [], 'the names belong to the JavaScript family: a Python file does not list them');
+});
+
+test('P2d round 2: no regular expression comes from data: a name with metacharacters is a LITERAL and cannot crash or hang the scan; a bad entry is refused with a message', () => {
+  const t = 'a.test.mjs';
+  // waitUntil is deliberately NOT detected (a common helper and method name: event.waitUntil is no wait); the spaced busy waits are an accepted limit of the literal forms
+  assert.deepEqual(hits(t, 'waitUn\x74il(t0 + 1); event.waitUn\x74il(p);'), []);
+  assert.deepEqual(hits(t, 'wh\x69le (Date.now() - t0 < 5) {}'), ['1:wh\x69le (Date.now() -']);
+  assert.deepEqual(hits(t, 'wh\x69le (performance.now() - t0 < 5) {}'), ['1:wh\x69le (performance.now() -']);
+  const lit = (/** @type {string[]} */ wait) => [{ id: 'npm', files: ['*.mjs'], wait, clock_read: ['zzzzz'], markers: [] }];
+  // a name written as an exponential regular expression is only a string: 40 'a' do not match it, and it finds itself as a literal
+  const evil = '(?:a{1,100}){1,100}b';
+  assert.deepEqual(scanText(t, 'a'.repeat(40), lit([evil, '(', 'a{1,100}', '.*x.*x.*x']), ['wait']), [], 'no match, no hang, no throw');
+  assert.deepEqual(scanText(t, `x ${evil} y`, lit([evil, '(']), ['wait']).map((c) => c.pattern), ['(', evil]);
+  // the same names through the data path: strings are literals, anything else is refused with a message and the run is not clean
+  const bad = scanRules([['npm', 'fast_tests.files', '*.mjs'], ['npm', 'fast_tests.sleep', '('], ['npm', 'fast_tests.sleep', ''], ['npm', 'fast_tests.sleep', '   '], ['npm', 'fast_tests.sleep', 7], ['npm', 'fast_tests.clock_reads', null], ['npm', 'fast_tests.sleep', evil]]);
+  assert.deepEqual(bad[0].wait, ['(', evil]);
+  assert.equal(bad[0].refused?.length, 4);
+  assert.ok(bad[0].refused?.every((m) => /refused/.test(m) && m.startsWith('ecosystem npm: fast_tests.')));
+  const r = scanFiles(root, [], bad);
+  assert.equal(r.skipped.length, 4, 'the refused entries are listed with the skipped, so the run is not clean');
+  // defence in depth: a non-string or empty name that reached scanText is skipped
+  assert.deepEqual(scanText(t, 'abc', lit(/** @type {any} */ ([7, '', null, undefined])), ['wait']), []);
+});
+
 test('a clock read is its own kind; both kinds by default; a name in a string is still a candidate (the reviewer clears it)', () => {
   assert.deepEqual(hits('a.test.js', 'const t = Date.now();\nconst s = "set\x54imeout";', ['clock_read']), ['1:Date.now']);
   assert.deepEqual(scanText('a.test.js', 'const t = Date.now();\nconst s = "set\x54imeout";', rules).map((c) => `${c.line}:${c.kind}`), ['1:clock_read', '2:wait']);

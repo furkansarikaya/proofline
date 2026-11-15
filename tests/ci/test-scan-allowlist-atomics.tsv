@@ -1,0 +1,4 @@
+# Allowlist of package P2d (issue 266): waits written as Atomics.wait and the sleepSync helper of the manual harness. P3 merges all allowlist files into one used by CI.
+# <path glob><TAB><pattern><TAB><reason>
+tests/e2e/run.mjs	Atomics.wait	The sleepSync of the manual end-to-end harness (drives the real claude/codex CLI, NOT run by CI): its only caller is the bounded 5 s wait in cleanup() for the lead process group to exit after SIGTERM, before rm; the group is a real OS process tree started through a CLI with no event the harness can wait on (ps stat is what it polls).
+tests/e2e/run.mjs	sleepSync(	The call of the sleepSync helper in cleanup() of the manual end-to-end harness (NOT run by CI): bounded 100 ms steps, at most 50, while the real lead process group ends after SIGTERM so that rm never races a live process; no event exists for a process tree started by a vendor CLI.

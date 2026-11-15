@@ -2,7 +2,7 @@
 // The scan for real waits and direct clock reads in test code (issue 265 package C, A276; AC-6). It reports CANDIDATES, never verdicts: a `sleep` inside a string or a comment
 // is a false positive, so the reviewer traces each one (shared rule 1) and a candidate that cannot be traced stays a finding (safe side).
 // Shared rule 3: no ecosystem name is read here. Everything an ecosystem contributes is data of ecosystems.json `fast_tests` (`files` globs, `sleep` names, `clock_reads`
-// names); adding an ecosystem adds data only. A name becomes a word-bounded pattern; a file is scanned with the lists of the ecosystems whose `files` globs match it.
+// names); adding an ecosystem adds data only. A name becomes a word-bounded pattern (always a literal: no regular expression ever comes from data, so a name can neither hang nor crash the scan); a file is scanned with the lists of the ecosystems whose `files` globs match it.
 // The functions take their input as parameters (rows, text, a read function): the unit tests run no file system and no clock. Output is deterministic: candidates are sorted by
 // file, line, kind, pattern, and the JSON has a fixed key order.
 //
@@ -21,7 +21,7 @@ const MIN_REASON = 10;
 const MAX_FILE_BYTES = 1048576;
 
 /**
- * @typedef {{ id: string, files: string[], wait: string[], clock_read: string[], markers: string[] }} Rule
+ * @typedef {{ id: string, files: string[], wait: string[], clock_read: string[], markers: string[], refused?: string[] }} Rule
  * @typedef {{ file: string, line: number, kind: string, pattern: string, source: string, text: string }} Candidate
  * @typedef {{ glob: string, pattern: string, reason: string, line: number }} AllowEntry
  */
@@ -37,6 +37,7 @@ export function scanRules(rows) {
     const k = p === 'fast_tests.files' ? 'files' : p === 'fast_tests.sleep' ? 'wait' : p === 'fast_tests.clock_reads' ? 'clock_read' : p === 'fast_tests.test_markers' ? 'markers' : '';
     if (k === '') continue;
     const r = by.get(id) ?? { id, files: [], wait: [], clock_read: [], markers: [] };
+    if (typeof v !== 'string' || v.trim() === '') { (r.refused ??= []).push(`ecosystem ${id}: ${p} entry ${JSON.stringify(v)} is not a non-empty string; refused (not scanned)`); by.set(id, r); continue; }   // a bad data entry never crashes the scan and never counts as clean: it is listed with the skipped
     if (!r[k].includes(v)) r[k].push(v);   // the rows may hold several copies of the definition (the shipped one and the project's): a union of the copies that exist (in an installed project there is only one: its protection is codeAudit and the eco-pin, A276)
     by.set(id, r);
   }
@@ -101,7 +102,7 @@ export function scanText(file, text, rules, kinds = KINDS) {
   const claim = claimedBy(file, rules);
   if (claim.length === 0) return [];
   /** @type {Array<{ kind: string, pattern: string, source: string, re: RegExp }>} */ const pats = [];
-  for (const r of claim) for (const kind of KINDS) if (kinds.includes(kind)) for (const name of r[/** @type {'wait' | 'clock_read'} */ (kind)]) pats.push({ kind, pattern: name, source: r.id, re: patternFor(name) });
+  for (const r of claim) for (const kind of KINDS) if (kinds.includes(kind)) for (const name of r[/** @type {'wait' | 'clock_read'} */ (kind)]) { if (typeof name === 'string' && name.trim() !== '') pats.push({ kind, pattern: name, source: r.id, re: patternFor(name) }); }
   /** @type {Map<string, Candidate>} */ const out = new Map();
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
@@ -200,6 +201,7 @@ export function pruneNames(rows) { return new Set((rows ?? []).filter((r) => r[1
  */
 export function scanFiles(root, files, rules, kindsOf = () => KINDS) {
   /** @type {string[]} */ const scanned = []; /** @type {string[]} */ const skipped = []; /** @type {Candidate[]} */ const candidates = [];
+  for (const r of rules) for (const m of r.refused ?? []) if (!skipped.includes(m)) skipped.push(m);   // a refused data entry makes the run not clean (exit 1), with its message
   for (const f of files) {
     if (claimedBy(f, rules).length === 0) continue;
     let text;

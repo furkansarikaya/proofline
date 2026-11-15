@@ -1,10 +1,9 @@
 // @ts-check
 // Helpers of tests/core/lifecycle-s2.test.mjs (lifecycle-test.sh scenario_terminal .. scenario_reopen_blocked_and_state). Only what harness.mjs does not have.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { A, accepted, cached, cleanEnv, codeKey, copyOf, gateOwner, qaBind, say, scaffold, tmp, tsha } from '../lib/harness.mjs';
-import { PARKED } from './event-lib.mjs';
 
 /** @typedef {import('../lib/harness.mjs').Result} Result */
 
@@ -134,29 +133,13 @@ export function approve(dir, kind, text) {
   accepted(A(dir, ['approve', 'LC', kind]), `approve ${kind}`);
 }
 
-/** A live process that is not a child of this one (started by a shell that exits at once), so a killed process is reaped by init, not left a zombie. @returns {number} */
-export function startSleeper() {
-  if (process.platform === 'win32') {
-    // W10: the `$!` of a Git-for-Windows `sh` is an MSYS pid, which is no Windows pid: the product looks the number up as a Windows one (`process.kill(pid, 0)`). A detached node process has a real pid.
-    const c = spawn(process.execPath, PARKED, { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
-    c.unref(); c.stdin?.unref();
-    if (typeof c.pid !== 'number') throw new Error('no sleeper');
-    return c.pid;
-  }
-  const r = spawnSync('sh', ['-c', 'sleep 120 >/dev/null 2>&1 </dev/null & echo $!'], { encoding: 'utf8', env: cleanEnv({}) });
-  const pid = Number(r.stdout.trim());
-  if (!Number.isInteger(pid) || pid <= 1) throw new Error(`no sleeper: ${r.stdout}${r.stderr}`);
-  return pid;
-}
-/** Kill it and wait (on the process, not on a clock) until the pid is gone. @param {number} pid */
-export function stopSleeper(pid) {
-  try { process.kill(pid, 'SIGKILL'); } catch { /* gone already */ }
-  const c = new Int32Array(new SharedArrayBuffer(4));
-  for (let i = 0; i < 4000; i++) {
-    try { process.kill(pid, 0); } catch { return; }
-    Atomics.wait(c, 0, 0, 5);
-  }
-  throw new Error(`process ${pid} did not exit`);
+/** A pid that is alive for the whole test: this process (the product only asks whether the pid exists, `kill(pid, 0)`; nothing is started, killed or waited for). @returns {number} */
+export const livePid = () => process.pid;
+/** A pid that is gone: a process that was started and has ended and been reaped (`spawnSync` returns after its exit), so it is no zombie either. @returns {number} */
+export function deadPid() {
+  const r = spawnSync(process.execPath, ['-e', ''], { env: cleanEnv({}), stdio: 'ignore' });
+  if (typeof r.pid !== 'number' || r.pid <= 1) throw new Error('no pid of an ended process');
+  return r.pid;
 }
 
 /** git in the project with its status (the harness `git` only returns stdout). @param {string} dir @param {string[]} args @returns {Result} */

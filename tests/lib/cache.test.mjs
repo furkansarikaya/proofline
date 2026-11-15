@@ -72,30 +72,43 @@ describe('a template', () => {
 
 describe('concurrent callers of one key', () => {
   /**
-   * N processes call `cached` with a builder that meets the others at a barrier (a file per contender, polled without a clock decision: every contender is inside its build before
-   * any of them can publish), then builds. Resolves with each contender's exit code, stdout and stderr.
+   * N processes call `cached` with a builder that meets the others at a barrier (a file per contender, then the contender blocks reading its standard input until the test, which has
+   * seen every contender report in, closes it: an event, not a poll, so every contender is inside its build before any of them can publish), then builds. Resolves with each contender's exit code, stdout and stderr.
    * @param {string} root @param {string} key @param {number} n @param {string} bar
    */
   function contend(root, key, n, bar) {
     const code = `
       import { cached } from ${JSON.stringify(harnessUrl)};
       import { spawnSync } from 'node:child_process';
-      import { existsSync, readdirSync, writeFileSync } from 'node:fs';
+      import { existsSync, readFileSync, writeFileSync } from 'node:fs';
       const [root, key, bar, n, me] = process.argv.slice(1);
-      const wait = () => { const c = new Int32Array(new SharedArrayBuffer(4)); Atomics.wait(c, 0, 0, 10); };
       const dir = cached(key, (d) => {
         writeFileSync(bar + '/' + me, '');
-        while (readdirSync(bar).length < Number(n)) wait();
+        process.stderr.write('INSIDE\\n');
+        try { readFileSync(0); } catch (e) { if (e.code !== 'EOF') throw e; }   // blocks until the test has seen every contender inside and closes this standard input (Windows reports the closed pipe as EOF)
         const g = (...a) => spawnSync('git', a, { cwd: d, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'f', GIT_AUTHOR_EMAIL: 'f@example.invalid', GIT_COMMITTER_NAME: 'f', GIT_COMMITTER_EMAIL: 'f@example.invalid' } });
         writeFileSync(d + '/a.txt', 'v3'); g('init', '-q', '-b', 'main'); g('add', 'a.txt'); g('commit', '-q', '-m', 'base');
       }, root);
       process.stdout.write(dir);
     `;
+    let inside = 0;
+    /** @type {Array<import('node:child_process').ChildProcess>} */ const kids = [];
     return Promise.all(Array.from({ length: n }, (_, i) => new Promise((resolve) => {
       const c = spawn(process.execPath, ['--input-type=module', '-e', code, root, key, bar, String(n), String(i)], { env: cleanEnv({}) });
+      kids.push(c);
       let out = ''; let err = '';
-      c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
-      c.on('close', (status) => resolve({ status, out, err }));
+      c.stdout.on('data', (d) => { out += d; });
+      c.stderr.on('data', (d) => {
+        err += d;
+        if (err.includes('INSIDE\n')) {   // this contender is inside its build: when all are, release them all at once by closing their standard input
+          err = err.replace('INSIDE\n', '');
+          if (++inside === n) for (const k of kids) k.stdin?.end();
+        }
+      });
+      c.on('close', (status) => {
+        if (inside < n) for (const k of kids) k.stdin?.end();   // a contender ended before all were inside (it died): release the others so the run ends with the failure of the dead one, not a hang
+        resolve({ status, out, err });
+      });
     })));
   }
   /** What a race has to leave behind. @param {string} root @param {string} key @param {Array<{ status: number | null, out: string, err: string }>} results */
@@ -112,7 +125,7 @@ describe('concurrent callers of one key', () => {
   }
 
   for (const n of [4, 8]) {
-    test(`${n} contenders inside the build at once: one complete template at the final path, nothing left behind`, { timeout: 120000 }, async () => {
+    test(`${n} contenders inside the build at once: one complete template at the final path, nothing left behind`, { timeout: 60000 }, async () => {
       const root = tmp('cache'); const bar = tmp('barrier');
       const results = await contend(root, 'race', n, bar);
       assert.equal(readdirSync(bar).length, n, 'every contender built (they met at the barrier)');
@@ -120,7 +133,7 @@ describe('concurrent callers of one key', () => {
     });
   }
 
-  test('a contender that arrives after the publish finds the template and does not build', async () => {
+  test('a contender that arrives after the publish finds the template and does not build', { timeout: 60000 }, async () => {
     const root = tmp('cache'); const bar = tmp('barrier');
     outcome(root, 'late', /** @type {any} */ (await contend(root, 'late', 1, bar)));
     const second = /** @type {any} */ (await contend(root, 'late', 1, bar));

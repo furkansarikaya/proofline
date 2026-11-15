@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { test } from 'node:test';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
-import { A, accepted, project, refused, waitUntil } from './legacy-lib.mjs';
+import { A, accepted, project, refused } from './legacy-lib.mjs';
 
 test('several approvals in one message are parsed one by one (A202)', () => {
   const d = project('scaffold standalone no TRIVIAL supervised');
@@ -16,7 +16,6 @@ test('several approvals in one message are parsed one by one (A202)', () => {
   const qo = A(d, ['request-approval', 'LC', 'plan']).out;
   assert.ok(qo.includes('approve budget, approve destructive, approve plan, approve scope'), `the question does not show the phrases for several open requests: ${qo}`);
   const t0 = Math.max(...readdirSync(ad).filter((n) => n.includes('request')).map((n) => Number(/^requested_at: (\d+)/m.exec(readFileSync(`${ad}/${n}`, 'utf8'))?.[1])));
-  waitUntil(t0 + 1);
   let msg = '';
   /** The message the hook stores (several lines allowed), newer than every request. */
   const say = (/** @type {string} */ text) => { msg = text; storePrompt(`${d}/.agents/local`, 's1', Math.max(Math.floor(Date.now() / 1000), t0 + 1), text); };

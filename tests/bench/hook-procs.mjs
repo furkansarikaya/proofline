@@ -7,11 +7,12 @@
 // The fixture is a COMPLEX orchestrated run frozen at IMPLEMENTING (the harness scaffold, the Node core beside agent.sh); the shipped git hook launchers and the hook folder are installed in it.
 import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { A, agentsSrc, cleanEnv, git, project, repo, waitUntil } from '../lib/harness.mjs';
+import { A, agentsSrc, cleanEnv, git, project, repo } from '../lib/harness.mjs';
+import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 
 const SHIMMED = ['jq', 'awk', 'sed', 'tr', 'cat', 'dirname', 'basename', 'date', 'mkdir', 'find', 'git', 'grep', 'cut', 'shasum', 'sha256sum', 'head', 'tail', 'wc', 'mv', 'rm', 'cp', 'sort', 'mktemp', 'node', 'perl', 'sleep', 'kill', 'ps', 'ls', 'readlink', 'uname', 'id', 'touch', 'chmod', 'ln', 'xargs', 'expr', 'rmdir', 'stat', 'sh', 'tee', 'env', 'od', 'uniq'];
 export const EVENTS = ['pretool-write-impl', 'pretool-read', 'pretool-bash', 'posttool', 'prompt-plain', 'prompt-approval', 'stop', 'session', 'subagent-start', 'subagent-stop'];
@@ -59,7 +60,7 @@ export function measureAll(o = {}) {
     const realPath = process.env.PATH ?? '';
     hookRun('subagent-start', j('SubagentStart', sub), realPath);   // opens the implementer's window, so the write below is allowed
     const noLock = () => rmSync(path.join(d, '.agents/local/hooklock'), { recursive: true, force: true });   // the duplicate guard (once) would turn a fast hook's repeated run into a no-op
-    const approval = () => { noLock(); A(d, ['request-approval', 'LC', 'plan']); waitUntil(Math.floor(Date.now() / 1000) + 1); };   // the hook's message is stamped after the request (the next second), as with a user
+    const approval = () => { noLock(); A(d, ['request-approval', 'LC', 'plan']); recordsAge(d, 2); };   // the hook's message is stamped after the request (strictly newer, as with a user): the request is stored two seconds back, nothing waits
     /** @type {Array<[string, string, string, () => void]>} */
     const cases = [
       ['pretool-write-impl', 'pretool', j('PreToolUse', `,"tool_name":"Write","tool_input":{"file_path":"impl.txt"}${sub}`), noLock],
@@ -81,9 +82,13 @@ export function measureAll(o = {}) {
       for (let i = 0; i < repeat; i++) {
         pre();
         writeFileSync(log, '');
+        const approved = () => { try { return readdirSync(path.join(d, '.agents/runs/LC/approvals')).filter((n) => /^\d{3}-plan\.yaml$/.test(n)).length; } catch { return 0; } };
+        const before = approved();
         const t0 = performance.now();
         hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
         times.push(Math.round(performance.now() - t0));
+        // the approval path is really taken: the measured run recorded the plan approval (a row measured on a hook that ignored the reply would count too few processes)
+        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after)`);
         const used = readFileSync(log, 'utf8').split('\n').filter(Boolean);
         counts.push(used.length);
         if (o.trace) process.stderr.write(`--- ${name}\n${used.join('\n')}\n`);

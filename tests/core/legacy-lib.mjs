@@ -35,7 +35,7 @@ export function project(recipe) { return copyOf(template(recipe)); }
 /** The fixture verbs run in the project (state building only; the assertions are the caller's). @param {string} dir @param {string} snippet @returns {Result} */
 export function verbs(dir, snippet) { return runIn(dir, snippet); }
 
-export { A, accepted, approveAsUser, gateStatus, pipe, read, refused, say, waitUntil } from '../lib/harness.mjs';
+export { A, accepted, approveAsUser, gateStatus, pipe, read, refused, say } from '../lib/harness.mjs';
 export { existsSync, readdirSync, readFileSync, writeFileSync, appendFileSync };
 
 /** Recipes (sh text over the fixture verbs) shared by several files. */
