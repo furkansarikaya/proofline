@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.121 — 2026-11-15
+
 - Ecosystem knowledge as data (A283): the native-audit table of the dependency diff (`npm audit --json`, `pip-audit`, `cargo audit --json`, `govulncheck ./...`, `bundle-audit check`, `composer audit --format=json`, `dotnet list package --vulnerable --include-transitive`) is the new `audit` field of each ecosystem in `ecosystems.json` (`{tool, command}` list, validated); the audit candidates are unchanged. `tests/ci/ecosystem-branching.mjs` now also fails on a table keyed by two or more ecosystem ids (object keys or pair tables) in the shared Node code and in `skills/*/scripts`.
 
 ## 0.0.120 — 2026-11-15
