@@ -448,3 +448,44 @@ test('A278 D2: the configured migration commands are read without case on a fold
   }
 });
 
+
+// ---- A278 round 4 note: HEAD in any case (security round G) ----
+
+test('A278 round 4 HEAD forms (git dir folds case): head, Head, hEAD are HEAD for a push and a reset with main checked out, for the lead and four roles; a case-keeping git dir reads them as other words', async () => {
+  const proj = copyProject(template, base);
+  const five = [WHO[0], WHO[2], WHO[3], WHO[4], WHO[5]];
+  const variants = (/** @type {string} */ c) => ['head', 'Head', 'hEAD'].map((v) => c.replace('HEAD', v));
+  setHead(proj, 'main');
+  await onVolume(FOLDS(), async () => {
+    for (const [role, who, env] of five) {
+      const exact = await pre('Bash', { command: 'git push origin HEAD' }, who, env, proj);
+      assert.ok(exact, `${role}: the exact push of HEAD is refused on main (fix the table)`);
+      for (const v of variants('git push origin HEAD')) assert.ok(await pre('Bash', { command: v }, who, env, proj), `${role}: ${v} is refused like HEAD`);
+      for (const v of variants('git push origin HEAD:refs/heads/x')) assert.equal((await pre('Bash', { command: v }, who, env, proj)) === null, (await pre('Bash', { command: 'git push origin HEAD:refs/heads/x' }, who, env, proj)) === null, `${role}: ${v}`);
+      for (const c of ['git reset --hard HEAD~1', 'git log HEAD~1', 'git diff HEAD', 'git checkout HEAD -- .', 'git merge HEAD']) {
+        const e = await pre('Bash', { command: c }, who, env, proj);
+        for (const v of variants(c)) assert.equal((await pre('Bash', { command: v }, who, env, proj)) === null, e === null, `${role}: ${v} vs ${c}`);
+      }
+    }
+  });
+  await onVolume(KEEPS(), async () => {
+    const [, who, env] = WHO[0];
+    assert.equal(await pre('Bash', { command: 'git push origin head' }, who, env, proj), null, 'head is not HEAD on a case-keeping git dir');
+    assert.equal(await pre('Bash', { command: 'git log head~1' }, who, env, proj), null);
+  });
+});
+
+test('A278 round 4 HEAD forms, real git: in a throwaway repository head is HEAD exactly when the ref store folds case, and the guard agrees', async () => {
+  const repo = tempDir('hook-case-head-');
+  const run = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', repo, ...a], { env: cleanEnv(), encoding: 'utf8' });
+  assert.equal(run('init', '-q', '-b', 'main').status, 0);
+  assert.equal(run('commit', '-q', '--allow-empty', '-m', 'x').status, 0);
+  const folds = run('rev-parse', '--verify', '-q', 'head').status === 0;
+  const proj = copyProject(template, base);
+  setHead(proj, 'main');
+  const [, who, env] = WHO[0];
+  const v = await onVolume(createFsCase(), () => pre('Bash', { command: 'git push origin head' }, who, env, proj));
+  const probeFolds = existsSync(join(repo, '.git/HEAD')) && existsSync(join(repo, '.git/head'));
+  if (folds && probeFolds) assert.ok(v, 'head resolves to HEAD here, so the push is refused');
+  if (!probeFolds) assert.equal(v, null, 'head is no ref here: not refused');
+});

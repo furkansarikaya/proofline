@@ -117,6 +117,8 @@ export async function mergeGuard(ctx, cmd, scan) {
   /** @type {boolean | null} */ let rf = null;
   const refsFold = () => (rf ??= (rfDir === '@unknown' ? true : insensitiveAt(findGitDir(rfDir) ?? rfDir)));
   const isProt = (/** @type {string} */ b, local = true) => ` ${prot} `.includes(` ${b} `) || (local && refsFold() && ` ${fold(prot)} `.includes(` ${fold(b)} `));
+  // A278 round 4: git resolves `head`, `Head~1` on a git dir that folds case (probe on the git dir, fail closed); foldWorld keeps HEAD as typed, so the guard compares it here
+  const isHead = (/** @type {string} */ x, suffix = '') => (suffix === '' ? x === 'HEAD' : x.startsWith(`HEAD${suffix}`)) || (refsFold() && (suffix === '' ? fold(x) === 'head' : fold(x).startsWith(`head${suffix}`)));
   const load = async () => {
     if (prot !== '') return;
     let cb = '';
@@ -191,7 +193,7 @@ export async function mergeGuard(ctx, cmd, scan) {
           if (x.startsWith('-')) continue;
           np++;
           if (np < 2) continue;
-          if (x.includes(':')) { if (mgRef(x.slice(x.indexOf(':') + 1), false)) deny(`git push to the protected branch (${x}): ${MG_MSG}`); } else if (x === 'HEAD' || x === '@') head = true;
+          if (x.includes(':')) { if (mgRef(x.slice(x.indexOf(':') + 1), false)) deny(`git push to the protected branch (${x}): ${MG_MSG}`); } else if (isHead(x) || x === '@') head = true;
           else if (mgRef(x, false)) deny(`git push of the protected branch (${x}): ${MG_MSG}`);
         }
         if (np < 2 || head) {
@@ -259,7 +261,7 @@ export async function mergeGuard(ctx, cmd, scan) {
           for (const x of rest) {
             if (['--hard', '--soft', '--keep', '--merge'].includes(x)) fl = true;
             else if (x.startsWith('-')) continue;
-            else if (x === 'HEAD' || x.startsWith('HEAD~') || x.startsWith('HEAD^') || x === '@' || x.startsWith('@~')) continue;
+            else if (isHead(x) || isHead(x, '~') || isHead(x, '^') || x === '@' || x.startsWith('@~')) continue;
             else mv = true;
           }
           if (!(fl && mv)) return;
