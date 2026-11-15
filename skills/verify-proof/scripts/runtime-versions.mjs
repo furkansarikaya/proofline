@@ -4,7 +4,9 @@
 //
 // Usage: node runtime-versions.mjs [DIR]      (DIR defaults to the current directory)
 // Prints one line per runtime found, or `runtime: none (...)`:
-//   runtime: <name> local=<version|missing> ci=<spec|none> source=<file|-> status=<match|mismatch|unknown>
+//   runtime: <name> local=<version|missing> ci=<spec|none> source=<file|-> status=<match|mismatch|unknown> [installed=<v,v,...>]
+// `installed=` appears only when no `runtime.local.commands` entry gave a version but the tool answered `runtime.local.installed` (A279: it is
+// installed, the version the project asks for is not): local is the highest installed version, status is match when any installed one satisfies the spec.
 // Which runtimes exist, which files show that a project uses one (`runtime.present`), where its version is written
 // (`version_files`) and how the local version is read come from the ecosystem definition (references/ecosystems.json,
 // a byte-identical copy of control-plane/agents/ecosystems.json): node, java, python, go, rust, dotnet, php, ruby, swift, dart.
@@ -130,6 +132,21 @@ function localVersion(commands, extract, group) {
   return "";
 }
 
+/** Every version a command lists (`runtime.local.installed`): the extract applied to each output line, in order, without repeats; empty when the command cannot be started or lists none. */
+function installedVersions(spec) {
+  const ere = new RegExp(spec.extract.startsWith("^") ? spec.extract : `.*${spec.extract}`, "s");
+  const found = [];
+  for (const c of spec.commands ?? []) {
+    const argv = c.split(/\s+/).filter(Boolean);
+    const text = argv.length === 0 ? null : combinedOutput(argv[0], argv.slice(1));
+    if (text === null) continue;
+    for (const l of lines(text)) { const m = ere.exec(l); const v = m && m[Number(spec.group ?? "1")]; if (v && !found.includes(v)) found.push(v); }
+    if (found.length) break;
+  }
+  return found;
+}
+const byVersion = (a, b) => { const x = a.split("."), y = b.split("."); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (parseInt(x[i] ?? "0", 10) || 0) - (parseInt(y[i] ?? "0", 10) || 0); if (d) return d; } return 0; };
+
 /** The nested files that can matter: below the root, pruned, at most `depth` levels and `maxf` files, shallow first (byte order inside a level). */
 function nestedFiles(names, prune, depth, maxf) {
   // a find -name pattern on a base name: * and ? only
@@ -226,12 +243,17 @@ function main(argv) {
     const r = e.runtime ?? {};
     const own = new Set(e.prune ?? []);
     const nest = nested.filter((p) => !p.split("/").slice(0, -1).some((s) => own.has(s)));
-    const loc = localVersion(r.local?.commands ?? [], r.local?.extract ?? "", r.local?.group ?? "1") || "missing";
+    let loc = localVersion(r.local?.commands ?? [], r.local?.extract ?? "", r.local?.group ?? "1");
     const spec = specFor(e.version_files ?? [], nest);
     if (!presentFor(r.present ?? [], nest) && !spec) continue;
+    // A279: no version command answered, but the tool may be installed and unable to run here (a pinned SDK that is not installed):
+    // `runtime.local.installed` lists what is installed; local is the highest of them and the status asks whether any one satisfies the spec
+    const inst = loc === "" && r.local?.installed ? installedVersions(r.local.installed).sort(byVersion) : [];
+    if (inst.length) loc = inst[inst.length - 1];
+    loc = loc || "missing";
     const ci = spec ? spec[1] : "none", src = spec ? spec[0] : "-";
-    const st = loc === "missing" || ci === "none" ? "unknown" : status(r.compare, loc, ci);
-    out.push(`runtime: ${r.name} local=${loc} ci=${ci} source=${src} status=${st}`);
+    const st = loc === "missing" || ci === "none" ? "unknown" : inst.length ? (inst.some((v) => status(r.compare, v, ci) === "match") ? "match" : status(r.compare, loc, ci) === "unknown" ? "unknown" : "mismatch") : status(r.compare, loc, ci);
+    out.push(`runtime: ${r.name} local=${loc} ci=${ci} source=${src} status=${st}${inst.length ? ` installed=${inst.join(",")}` : ""}`);
     found = true;
   }
   if (!found) out.push("runtime: none (no language runtime detected)");

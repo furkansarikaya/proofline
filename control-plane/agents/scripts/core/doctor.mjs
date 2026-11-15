@@ -487,7 +487,10 @@ class Doctor {
         const eco = (defn.ecosystems ?? []).find((/** @type {any} */ e) => e?.runtime?.name === n);
         if (eco) unit = String(eco.runtime.compare ?? '') === '1' ? 'major' : 'major.minor';
       }
-      if (l === 'missing') this.warn(`toolchain ${n}: not installed here${c === 'none' ? '' : `, CI specifies ${c} (${src})`}`);
+      const inst = strip(f[6], 'installed=');
+      // A279: the tool is installed, but the version CI/the project pins is not (its version command fails): installed versions come from the definition's list command
+      if (inst !== '' && st === 'mismatch') this.warn(`toolchain ${n}: ${c} (${src}) is not installed here; installed: ${inst.replace(/,/g, ', ')}, so a green local run may not hold in CI`);
+      else if (l === 'missing') this.warn(`toolchain ${n}: not installed here${c === 'none' ? '' : `, CI specifies ${c} (${src})`}`);
       else if (st === 'mismatch') this.warn(`toolchain ${n}: local ${l}, CI specifies ${c} (${src}); the ${unit} version differs, so a green local run may not hold in CI`);
       else if (c === 'none') this.pass(`toolchain ${n}: local ${l} (no CI-specified version found)`);
       else if (st === 'match') this.pass(`toolchain ${n}: local ${l} matches CI ${c} (${src})`);

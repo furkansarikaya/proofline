@@ -231,6 +231,8 @@ export function validate(data = loadEcosystems()) {
     const r = e.runtime ?? {};
     for (const k of ["name", "compare"]) need(typeof r[k] === "string" && r[k] !== "", `${w}: runtime.${k} missing`);
     need(Array.isArray(r.present) && r.present.length > 0 && Array.isArray(r.local?.commands) && typeof r.local?.extract === "string", `${w}: runtime.present and runtime.local missing`);
+    // A279 (optional): what is installed when the version commands give nothing; the extract is applied to every output line
+    if (r.local?.installed !== undefined) need(Array.isArray(r.local.installed.commands) && r.local.installed.commands.length > 0 && typeof r.local.installed.extract === "string", `${w}: runtime.local.installed needs commands and extract`);
     for (const k of COMMAND_KEYS) need(k in (e.commands ?? {}), `${w}: commands.${k} missing`);
     need(["scripts", "tools"].includes(e.commands?.truth), `${w}: commands.truth must be scripts or tools`);
     for (const k of TEST_KEYS) need(k in (e.test_output ?? {}), `${w}: test_output.${k} missing`);
