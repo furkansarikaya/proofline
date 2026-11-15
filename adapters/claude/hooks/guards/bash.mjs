@@ -9,10 +9,9 @@
 // `bashGuard(input, ctx)` returns null (allow) or { decision: 'deny', reason }; the router renders it.
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { delimiter } from 'node:path';
-import { scanCommand } from '../command-scan.mjs';
 import { canon, cmdSubst, isWin, safe, winSpell } from '../lib/text.mjs';
 import { isFile, mkdirp, put } from '../lib/fsx.mjs';
-import { Deny, deny, grepq, SP } from './kit.mjs';
+import { Deny, deny, foldCommands, foldCtx, foldWorld, grepq, scanFor, SP } from './kit.mjs';
 import { alwaysProtected, erasable, nrPathOk, relpath, roOperand, roTail, targetOk } from './paths.mjs';
 import { dbGuardCmd } from './db.mjs';
 import { killGuard } from './kill.mjs';
@@ -80,12 +79,19 @@ const SPEC_GIT_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(reset|clean|restore|sw
 const SPEC_GIT_EXEMPT = new RegExp(`git${SP}+-C${SP}+|git${SP}+worktree|--work-tree`);
 const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents/local/[^/ \\t\\n\\v\\f\\r]*[*?[]|find${SP}[^;&|]*\\.agents(/local)?/?(${SP}|$)`);
 
-/** @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */
+/** On a volume that folds case the command is judged as typed and, in addition, in the LOWER-CASE WORLD (A278 round 4): the whole text folded (NFC and full case folding, no parsing, so the folded text has the structure of the original for every parser) against the context folded the same way. A case variant therefore gets the verdict of its lower-case twin by construction: a program name, a protected path, an environment name, a here-document body, a substitution, a misread `<<`. Text that the fold does not change needs no second pass. The second pass can only refuse more. @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */
 async function check(ctx, cmd) {
+  await checkOne(ctx, cmd);
+  const lower = foldWorld(cmd);
+  if (lower !== cmd && foldCommands(ctx, cmd)) await checkOne(foldCtx(ctx), lower, true);
+}
+
+/** `folded`: the second pass of `check` (A278 round 3). It runs the DENY-class rules only (protected words, paths, refs, commands, tripwires, kill, stash, merge, database, hook bypass). The scope ALLOW lists (run artifacts, owns and PLAN scope, scratch, worktree and tmp allowances, containment) are case-exact and the fold has lower-cased the run id and the file names they compare, so their verdict comes from the exact first pass alone. @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd @param {boolean} [folded] */
+async function checkOne(ctx, cmd, folded = false) {
   const strictRole = ctx.role === 'implementer' || ctx.role === 'designer';
-  let scan = scanCommand(cmd);
+  let scan = scanFor(ctx, cmd);
   // A274: the scanner of the lead ends a `$'...'` string at its first `'`, so `echo $'a\'b'; touch X` hides the touch. The two roles are judged on the records of both readings
-  if (strictRole && cmd.includes("$'")) { const alt = scanCommand(rewriteAnsiC(cmd)); scan = { ...scan, records: [...scan.records, ...alt.records] }; }
+  if (strictRole && cmd.includes("$'")) { const alt = scanFor(ctx, rewriteAnsiC(cmd)); scan = { ...scan, records: [...scan.records, ...alt.records] }; }
   if (!ctx.installed) { await mergeGuard(ctx, cmd, scan); await killGuard(ctx, cmd, scan); return; }
   const act = ctx.act;
   const role = ctx.role;
@@ -130,7 +136,7 @@ async function check(ctx, cmd) {
       deny('rtk is installed and its hook compresses command output, but this command produces evidence (agent.sh, build record, verification, tests, review diff) and must run uncompressed: prefix it with RTK_DISABLED=1, for example RTK_DISABLED=1 <command> (rtk configuration docs)');
     }
   }
-  if (act !== '' && specialist && !tmpIsScratchRoot(ctx)) {
+  if (!folded && act !== '' && specialist && !tmpIsScratchRoot(ctx)) {
     const stray = strayTmpPath(ctx, cmd, scan);
     if (stray !== '') deny(`${stray} is outside the project. Allowed: reading the runtime's own background task output (/tmp/claude-*/**/tasks/<id>.output). Scratch files go under ${scratchDir(ctx)} (mkdir -p it first); only git worktrees go under $TMPDIR (${ctx.env.TMPDIR || 'unset'})`);
   }
@@ -163,6 +169,7 @@ async function check(ctx, cmd) {
   await killGuard(ctx, cmd, scan);
   // The database guard is not run-scoped: a task author or an explorer runs before any run exists (A50).
   await dbGuardCmd(ctx, scan);
+  if (folded) return; // the scope allow lists below are judged on the exact text only
   if (act === '') {
     if (role === 'lead' && !ctx.sub) await nrBashGuard(ctx, scan);
     await scratchGuard(ctx, scan);
@@ -174,7 +181,7 @@ async function check(ctx, cmd) {
   /** @type {string[]} */ const extraW = [];
   if (strictRole) {
     // A274: the operands the scanner does not record (rolewrites.mjs), also inside substitutions and shell strings: `>&` targets, a substitution inside a write program's operands, -t/--target forms, mkdir, every file of an in-place editor, patch, ed, tar
-    const ra = safeRoleActions(cmd);
+    const ra = safeRoleActions(cmd, undefined, foldCommands(ctx, cmd));
     /** @param {string} v @param {string} cwd @param {boolean} bad */
     const judgeAt = async (v, cwd, bad) => {
       if (bad && !ABS_RE.test(v)) deny(`the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved (${ROLE_TAIL})`);
@@ -189,7 +196,7 @@ async function check(ctx, cmd) {
       if (a.kind === 'redir') { if (a.word.v !== '') found.push({ v: a.word.v, cwd: a.cwd, bad: a.bad }); continue; }
       if (a.kind === 'scan') {
         // a write program the scanner of the lead knows, rebuilt from the role tokens and judged by the lead's own rules (W records by writeRule, L records by the link rule)
-        for (const rec of scanCommand(a.text).records) {
+        for (const rec of scanFor(ctx, a.text).records) {
           const v = cmdSubst(rec.value);
           if (rec.kind === 'W' && v !== '') found.push({ v, cwd: a.cwd, bad: a.bad });
           else if (rec.kind === 'L') await linkRule(ctx, v);
@@ -203,7 +210,7 @@ async function check(ctx, cmd) {
     for (const f of found) await judgeAt(f.v, f.cwd, f.bad);
     // the scanner of the lead reads each nested region (substitution, shell string) as a command of its own, so a writer it knows is judged wherever it sits
     for (const text of ra.texts) {
-      for (const rec of scanCommand(rewriteAnsiC(text)).records) {
+      for (const rec of scanFor(ctx, rewriteAnsiC(text)).records) {
         if (rec.kind !== 'W') continue;
         const v = cmdSubst(rec.value);
         if (v === '') continue;
@@ -213,7 +220,7 @@ async function check(ctx, cmd) {
     }
     // after a cd the scanner cannot place (a variable, a substitution, `-`, ...) every later relative write the scanner records is unresolvable; rolewrites.mjs decides where that starts
     if (ra.badAt >= 0) {
-      for (const rec of scanCommand(rewriteAnsiC('('.repeat(ra.badParen) + cmd.slice(ra.badAt))).records) {
+      for (const rec of scanFor(ctx, rewriteAnsiC('('.repeat(ra.badParen) + cmd.slice(ra.badAt))).records) {
         const v = cmdSubst(rec.value);
         if ((rec.kind === 'W' || rec.kind === 'E' || rec.kind === 'P' || rec.kind === 'Q') && v !== '' && !/^([/]|[A-Za-z]:|\\\\)/.test(v) && !v.startsWith('/dev/')) deny(`the command writes '${v}' after a cd to a directory that cannot be resolved, so the target cannot be resolved (${ROLE_TAIL})`);
       }

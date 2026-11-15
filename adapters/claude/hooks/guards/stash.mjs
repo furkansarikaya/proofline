@@ -7,6 +7,7 @@
 //                                 printing or searching word. The awk of the shell hook matched with POSIX leftmost-longest; this is a matcher that
 //                                 explores every path of the same expression and takes the longest (tests/hook/stash-net.test.mjs runs both)
 import { cParts, deny, envChdirOpt, grepq, stashPath, worktrees } from './kit.mjs';
+import { fold } from '../lib/fscase.mjs';
 import { roTail } from './paths.mjs';
 
 const S = ' \\t\\n\\v\\f\\r';
@@ -26,15 +27,16 @@ function splitSep(s) {
   return f;
 }
 
-/** @param {string} p @param {string[]} wts @param {string} root */
-function inWorktree(p, wts, root) {
+/** P is a physical path (its folders in their on-disk case) and WTS are the registered worktrees: in the lower-case world (a folding volume) both sides are compared folded. @param {string} p @param {string[]} wts @param {import('../lib/context.mjs').HookContext} ctx */
+function inWorktree(p, wts, ctx) {
   if (p === '') return false;
-  const rootN = root.replace(/^\/private/, '');
+  const f = (/** @type {string} */ x) => (ctx.lower ? fold(x) : x).replace(/^\/private/, '');
+  const rootN = f(ctx.root);
   for (const w of wts) {
     if (w === '') continue;
-    const wn = w.replace(/^\/private/, '');
+    const wn = f(w);
     if (wn === rootN) continue;
-    if (`${p.replace(/^\/private/, '')}/`.startsWith(`${wn}/`)) return true;
+    if (`${f(p)}/`.startsWith(`${wn}/`)) return true;
   }
   return false;
 }
@@ -71,7 +73,7 @@ export async function stashGuard(ctx, cmd, scan) {
         let fd = cd;
         const f1 = rest.split('\x03')[0] ?? '';
         if (!(f1.startsWith('-') || f1 === '(' || f1 === '!' || f1 === '')) fd = stashPath(ctx, f1, cd);
-        if (!inWorktree(fd, wts, ctx.root)) deny(`find with -delete or -exec of a command that writes starts outside an evidence worktree (or its start directory cannot be read from the command text)${roTail(ctx)}`);
+        if (!inWorktree(fd, wts, ctx)) deny(`find with -delete or -exec of a command that writes starts outside an evidence worktree (or its start directory cannot be read from the command text)${roTail(ctx)}`);
         break;
       }
       case 'env': if (rest.startsWith('GIT_WORK_TREE=') || rest.startsWith('GIT_DIR=')) { cd = ''; force = true; } break;
@@ -106,7 +108,7 @@ export async function stashGuard(ctx, cmd, scan) {
         if (!hit) break;
         // --work-tree, core.worktree and GIT_WORK_TREE move the target away from what -C or cd says: the project
         if (wtopt) dir = '';
-        if (!inWorktree(dir, wts, ctx.root)) {
+        if (!inWorktree(dir, wts, ctx)) {
           if (sub === 'stash') deny(`${MSG}${roTail(ctx)}`);
           deny(`git ${sub} changes the project working tree; its directory is not a registered evidence worktree (or cannot be read from the command text: a variable, substitution, cd -, a missing directory, a cd inside a subshell or pipe)${roTail(ctx)}`);
         }
@@ -118,7 +120,7 @@ export async function stashGuard(ctx, cmd, scan) {
   }
   // `xargs <writer>` takes its files from stdin, so the directory the command ends in must be an evidence worktree.
   if (ctx.ro && RO_XARGS_WRITER.test(cmd.replace(/[\n\t]/g, ' '))) {
-    if (!inWorktree(cd, wts, ctx.root)) deny(`xargs of a command that writes runs outside an evidence worktree (or the directory cannot be read from the command text)${roTail(ctx)}`);
+    if (!inWorktree(cd, wts, ctx)) deny(`xargs of a command that writes runs outside an evidence worktree (or the directory cannot be read from the command text)${roTail(ctx)}`);
   }
   // Safety net on the text: every `git ... stash` in command position that the records above did not resolve to an evidence worktree is refused
   if (stashNetCount(cmd) > ok) deny(`${MSG}${roTail(ctx)}`);

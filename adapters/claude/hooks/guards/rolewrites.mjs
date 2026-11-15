@@ -16,6 +16,7 @@
 // Limits (a text scanner cannot know a program's arguments; the same for the lead): programs not in WRITE_PROGRAMS and not named below, a
 // writers the scanner also cannot see (`mktemp`, `git init`, `sort -o`, sed `w`), `xargs` and `find -exec` writers, the wrappers busybox, flock, `arch`,
 // `caffeinate`, `xcrun` and other wrappers not in the table, `script -c`, `hash -p`, scripts, /dev/fd/N, csh, the text of an interpreter program.
+import { fold } from '../lib/fscase.mjs';
 import { WRITE_PROGRAMS } from '../command-scan.mjs';
 
 /**
@@ -694,8 +695,10 @@ const WRAPPERS = {
   setsid: { flags: 'cfw', short: '', long: [], lflag: ['--ctty', '--fork', '--wait'], pos: 0, cd: null },
 };
 
+/** A278: a program name is read in lower case while FOLD is set (the volume folds case: `TOUCH` runs touch). Set by roleActions for the one synchronous scan. */
+let FOLD = false;
 /** @param {string} p */
-const base = (p) => { const k = p.lastIndexOf('/'); return k < 0 ? p : p.slice(k + 1); };
+const base = (p) => { const k = p.lastIndexOf('/'); const b = k < 0 ? p : p.slice(k + 1); return FOLD ? fold(b) : b; };
 
 /**
  * The words of a simple command without its leading reserved words (`if`, `then`, `{`, `!`, ...); a `for`, `select` or `case` header is not a command at all.
@@ -963,14 +966,14 @@ function trapCode(args) {
  * The write rules of the implementer and the designer over the command text. `badAt` is the offset (and `badParen` the number of subshell parentheses open there) of the first command that follows a `cd` the scanner cannot place (-1: none; 0: a wrapper or CDPATH changes the directory):
  * every relative write from there on is unresolvable. It is the one source of that rule: bash.mjs applies it to the scanner's records of the text from `badAt` on, and `bad` to the actions returned here.
  * Principle: where the hook is not certain how bash reads a region, the roles are refused (a deny action), never allowed.
- * @param {string} cmd @returns {{ chdir: boolean, badAt: number, badParen: number, actions: Action[], texts: string[] }}
+ * @param {string} cmd @param {boolean} [fold] read program names without regard to case (A278) @returns {{ chdir: boolean, badAt: number, badParen: number, actions: Action[], texts: string[] }}
  */
-export function roleActions(cmd) {
+export function roleActions(cmd, fold = false) {
   /** @type {Action[]} */ const actions = [];
   const st = newGuard(cmd.length);
-  const prev = G;
-  G = st;
-  try { return scanRole(cmd, st, actions); } finally { G = prev; }
+  const prev = G; const prevFold = FOLD;
+  G = st; FOLD = fold;
+  try { return scanRole(cmd, st, actions); } finally { G = prev; FOLD = prevFold; }
 }
 
 /** A word as one single-quoted word for the scanner of the lead; a `$'...'` string with an escape the hook cannot decode stays unresolvable (`"$ANSIC"`). @param {Word} w */
@@ -1081,10 +1084,10 @@ function scanRole(cmd, st, actions) {
 
 /**
  * roleActions that fails closed: an internal error is a refusal, never an allow. `impl` is injectable for the test that forces the throw.
- * @param {string} cmd @param {(c: string) => ReturnType<typeof roleActions>} [impl]
+ * @param {string} cmd @param {(c: string, fold?: boolean) => ReturnType<typeof roleActions>} [impl] @param {boolean} [fold]
  */
-export function safeRoleActions(cmd, impl = roleActions) {
-  try { return impl(cmd); } catch (e) {
+export function safeRoleActions(cmd, impl = roleActions, fold = false) {
+  try { return impl(cmd, fold); } catch (e) {
     return { chdir: false, badAt: -1, badParen: 0, texts: [], actions: /** @type {Action[]} */ ([{ kind: 'deny', why: `the role scan failed (${e instanceof Error ? e.message : String(e)}), so what the command writes cannot be judged` }]) };
   }
 }

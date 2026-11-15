@@ -4,6 +4,7 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { cParts, deny, worktrees } from './kit.mjs';
 import { isAbsPath, isWin, pathKey, winSpell } from '../lib/text.mjs';
+import { provenInsensitiveAt, under } from '../lib/fscase.mjs';
 
 /** true when $TMPDIR itself is /tmp (then /tmp is the scratch space and nothing is denied). @param {import('../lib/context.mjs').HookContext} ctx */
 export function tmpIsScratchRoot(ctx) {
@@ -131,12 +132,14 @@ export async function scratchGuard(ctx, scan) {
       }
       if (!isAbsPath(v)) continue;
       const n = pathKey(v.replace(/^\/private/, '').replace(/\/+/g, '/'));
-      if (n === pathKey(rootN) || n.startsWith(`${pathKey(rootN)}/`)) continue;
+      // A278: inside the project or a registered worktree is an allow decision: on a volume that PROVABLY folds case (lib/fscase.mjs) a differently cased spelling of the root is the root
+      const ci = isWin() || provenInsensitiveAt(v);
+      if (under(pathKey(rootN), n, ci)) continue;
       let inWt = false;
       for (const w of wts.join('\n').split(/[ \t\n]+/).filter((x) => x !== '')) {
         const wn = pathKey(w.replace(/^\/private/, ''));
         if (wn === pathKey(rootN)) continue;
-        if (n.startsWith(`${wn}/`)) inWt = true;
+        if (under(wn, n, ci) && n !== wn) inWt = true;
       }
       if (!inWt) deny(`the command writes '${shown}', outside the project. Scratch files go under ${scratchDir(ctx)} (mkdir -p it, then write inside it, for example > ${scratchDir(ctx)}out.txt); $TMPDIR is only for git worktrees`);
     } else if (rec.kind === 'C') {
