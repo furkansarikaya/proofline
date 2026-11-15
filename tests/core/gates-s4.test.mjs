@@ -102,7 +102,7 @@ test('sc_scratch_worktrees: a registered scratch worktree blocks CODE_DONE; the 
 // Windows (W10): the read-only part of A196 is a property of POSIX directory modes (`chmod 555` stops a create in the folder); a directory's read-only attribute on Windows stops nothing, so the
 // premise "the folder is not writable" cannot be made there and the assertion would pass or fail for no reason of ours. The part that waits for a live older lock keeps running on every platform.
 const modeBits = process.platform !== 'win32';
-test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable, cannot write approvals or prompts, and waits for an older version\'s live lock (A196, A199)', async () => {
+test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable, cannot write approvals or prompts, and waits for an older version\'s live lock (A196, A199)', { timeout: 90000 }, async () => {
   const d = scaffold({ cls: 'STANDARD' });
   const rw = must(d, ['worktree-add', 'RW-1']).out;
   let rwp = (/(\/[^ \n]*worktrees\/RW-1)/.exec(rw) ?? [])[1] ?? '';
@@ -145,7 +145,8 @@ test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable
     const onWay = new Promise((res) => {
       const w = watch(locksDir, () => { if (existsSync(path.join(locksDir, 'tree.lock'))) { w.close(); res(undefined); } });
     });
-    const cmd = spawn('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('20'), stdio: ['ignore', 'pipe', 'pipe'] });
+    const cmd = spawn('sh', ['.agents/scripts/agent.sh', 'ledger-note', 'LC', 'A196 after the old lock'], { cwd: rwp, env: env('300'), stdio: ['ignore', 'pipe', 'pipe'], detached: true });   // a lock timeout far above the test timeout: only the release of the holder can end the wait in time
+    try {
     let text = '';
     cmd.stdout.on('data', (x) => { text += x; }); cmd.stderr.on('data', (x) => { text += x; });
     const finished = new Promise((res) => { cmd.on('close', (code) => res(code)); });
@@ -156,6 +157,8 @@ test('sc_worktree_lock_folder: a run-worktree command needs only locks/ writable
     await gone;
     assert.equal(await finished, 0, `A196 the command did not go on after the old lock was released: ${text}`);
     assert.ok(noted(), 'A196 the command did not write its ledger note after the old lock was released');
+    assert.doesNotMatch(text, /lock timeout/, 'A196 the wait ended by the lock timeout, not by the release of the holder');
+    } finally { try { process.kill(-(/** @type {number} */ (cmd.pid)), 'SIGKILL'); } catch { /* gone */ } }
   } finally { holder.kill(); rmSync(path.join(d, '.agents/local/.lock'), { recursive: true, force: true }); }
 });
 
