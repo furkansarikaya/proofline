@@ -13,7 +13,7 @@ import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { cmdSubst, isAbsPath, isWin, posix } from '../lib/text.mjs';
 import { fold, insensitiveAt } from '../lib/fscase.mjs';
-import { scanCommand, scanRegions } from '../command-scan.mjs';
+import { scanCommand } from '../command-scan.mjs';
 
 /** The refusal of a guard (the text without the "proofline: " prefix). */
 export class Deny extends Error {
@@ -337,47 +337,28 @@ export function foldCommands(ctx, text) {
 /** A capital letter, or any non-ASCII character (the long s and the Kelvin sign fold to ASCII letters): the only texts a case fold can change. */
 const NEEDS_FOLD = /[A-Z\u0080-￿]/;
 
-/** The program names the guards know, in the one spelling their lower-case tests expect (A278). */
-export const KNOWN_WORDS = new Set(`git gh find xargs kill pkill killall killall5 skill slay fuser pgrep pidof lsof ps nohup env sudo doas command builtin exec time nice ionice stdbuf timeout setsid caffeinate unbuffer watch flock taskset chrt nsenter strace ltrace runuser su script
-  sh bash dash zsh ksh ash mksh posh yash eval source cd pushd popd npm pnpm yarn bun npx pnpx node nodejs deno python python3 pytest go cargo dotnet mvn gradle jest vitest make rtk
-  rm mv cp tee truncate ed ex vi vim view nvim patch gpatch install dd chmod chown chgrp ln shred unlink rmdir touch mkdir sed gsed perl ruby php awk gawk mawk curl wget tar unzip rsync mktemp
-  az bsdtar busybox fd fish glab gtar lua mkfifo mknod nawk osascript proofline pypy pypy3 systemd-run
-  cat head tail echo printf sqlite3 sqlite duckdb litecli psql mysql claude codex agent.sh dispatch.sh proofline-core.mjs proofline-core`.split(/\s+/));
+/** What a shell and its programs read in the exact case, whatever the file system does: option names (`-C`, the first letter of a short one only, so a value glued to it is folded; `--git-dir`), variable names (`$TMPDIR`, `${HOME}`, `RTK_DISABLED=`) and git's pseudo-references (`HEAD`, `ORIG_HEAD`). */
+const EXACT_WORDS = /(?<![\w.\/$-])(?:-[A-Za-z0-9]|--[A-Za-z0-9][\w-]*)|\$\{?[A-Za-z_]\w*|(?<![\w$.\/-])[A-Za-z_]\w*(?==)|(?<![\w.\/-])(?:HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD)(?![\w-])/g;
 
-/** One token of a command line in its folded spelling (see foldWords). @param {string} tok @param {number} off @param {string} line @param {string} root */
-function foldToken(tok, off, line, root) {
-  const segs = tok.split('/');
-  // a word that names the .agents folder or the control plane is folded with the path below it, never the path above it (an absolute project prefix keeps its case)
-  let changed = false;
-  for (let i = 0; i < segs.length; i++) {
-    const s = /** @type {string} */ (segs[i]);
-    const f = fold(s);
-    if (f === '.agents') { for (let j = i; j < segs.length; j++) { const g = fold(/** @type {string} */ (segs[j])); if (g !== segs[j]) { segs[j] = g; changed = true; } } break; }
-    if (f.startsWith('proofline-core') && f !== s) { segs[i] = f; changed = true; }
+/** TEXT in the lower-case world (A278 round 4): `fold` (NFC and full case folding) of the whole text, so every parser sees the structure of the original and a case variant gets the verdict of its lower-case twin. No parsing of words, quotes, here-documents or command positions: the text between the exceptions is folded as it stands. The exceptions are the spellings that are case-sensitive in every program and that the guards compare as written, so an exact `git -C wt`, `$TMPDIR/wt`, `RTK_DISABLED=1` or `HEAD~1` keeps its meaning (folded they were `-c`, an unknown variable, another variable, an unknown reference, and a legitimate command was refused). @param {string} text */
+export function foldWorld(text) {
+  let out = ''; let at = 0;
+  for (const m of text.matchAll(EXACT_WORDS)) {
+    out += fold(text.slice(at, m.index)) + m[0];
+    at = (m.index ?? 0) + m[0].length;
   }
-  if (changed) return segs.join('/');
-  if (/[<>][ \t]*$/.test(line.slice(Math.max(0, off - 8), off))) return tok; // a file name after a redirection operator
-  const last = /** @type {string} */ (segs[segs.length - 1]);
-  const f = fold(last);
-  if (f === last || !KNOWN_WORDS.has(f)) return tok;
-  if (segs.length > 1 && !(tok.startsWith('/') && (root === '' || !tok.startsWith(`${root}/`)))) return tok; // a name inside a relative or project path is a file, not a program
-  segs[segs.length - 1] = f;
-  return segs.join('/');
+  return out + fold(text.slice(at));
 }
 
-/** TEXT with every program name the guards know, in any case or Unicode form, in its lower-case spelling (A278): `Git`, `XARGS`, `Pkill`, `Agent.SH`, `ſh`; a word below `.agents` (and the control plane's name) is folded with the path after it,
- * never the path before it (the project's own absolute path keeps its case), and a program name inside a project or relative path is a file name. A file name after a redirection operator stays as typed.
- * The text keeps its line structure: the here-document delimiters, bodies and terminators the SCANNER finds (command-scan scanRegions: the reading every guard trusts, inside `"$(...)"`, backticks and `sh -c` strings too) are copied as typed, so a case variant sees the same here-documents as its lower-case twin (a body fed to a shell is scanned on its own by the scanner). It is applied only where the volume folds case, at every position
- * of the text at once (top level, after a wrapper, in find -exec, xargs, sh -c, substitutions), and the guards run on it in addition to the text as typed. @param {string} text @param {string} [root] the project root
- */
-export function foldWords(text, root = '') {
-  const { regions } = scanRegions(text, { fold: true });
-  let out = ''; let at = 0;
-  /** @param {number} a @param {number} b */
-  const words = (a, b) => { const seg = text.slice(a, b); out += seg.replace(/[^\s;&|(){}<>`'"=$]+/g, (tok, off) => foldToken(tok, off, seg, root)); };
-  for (const [x, y] of regions) { words(at, x); out += text.slice(x, y); at = y; }
-  words(at, text.length);
-  return out;
+/** The guard context as the LOWER-CASE WORLD sees it (A278 round 4): every path-valued field folded with the text, so that a case variant of a command is judged against the same context its lower-case twin is. The state of the guards (hook-config answers, failure flag) is shared with CTX, so no agent call is repeated. Role, run id and tokens are ids, not paths: untouched (the allow lists that compare them do not run in the second pass). @param {import('../lib/context.mjs').HookContext} ctx */
+export function foldCtx(ctx) {
+  /** @type {any} */ const d = Object.create(ctx);
+  for (const k of ['cwd', 'root', 'mainRoot', 'sharedLocal', 'sroot', 'localDir', 'agentPath']) d[k] = fold(/** @type {any} */ (ctx)[k]);
+  d.env = { ...ctx.env };
+  for (const k of ['HOME', 'TMPDIR', 'TMP', 'TEMP', 'PWD', 'OLDPWD', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) if (typeof d.env[k] === 'string') d.env[k] = fold(d.env[k]);
+  d.lower = true;
+  states.set(d, stateOf(ctx));
+  return d;
 }
 
 /** `scanCommand` with the case rule of the volume (A278). @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */

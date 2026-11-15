@@ -46,6 +46,7 @@ export class HookContext {
     this.localDir = '';
     this.agentPath = '';
     this.installed = false;
+    this.lower = false; // true only on the derived context of the second, lower-case pass of the Bash guard (A278 round 4, guards/kit.mjs foldCtx)
     this.act = '';
     this.role = 'lead'; this.prole = ''; this.aid = ''; this.atype = ''; this.aidf = ''; this.sub = false; this.ro = false;
     this.lockWait = 8; this.approveBudget = 20; this.nextBudget = 10;

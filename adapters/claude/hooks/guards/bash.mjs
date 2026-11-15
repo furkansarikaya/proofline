@@ -11,8 +11,7 @@ import { accessSync, constants, readFileSync } from 'node:fs';
 import { delimiter } from 'node:path';
 import { canon, cmdSubst, isWin, safe, winSpell } from '../lib/text.mjs';
 import { isFile, mkdirp, put } from '../lib/fsx.mjs';
-import { Deny, deny, foldCommands, foldWords, grepq, scanFor, SP } from './kit.mjs';
-import { scanCommand } from '../command-scan.mjs';
+import { Deny, deny, foldCommands, foldCtx, foldWorld, grepq, scanFor, SP } from './kit.mjs';
 import { alwaysProtected, erasable, nrPathOk, relpath, roOperand, roTail, targetOk } from './paths.mjs';
 import { dbGuardCmd } from './db.mjs';
 import { killGuard } from './kill.mjs';
@@ -80,18 +79,11 @@ const SPEC_GIT_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(reset|clean|restore|sw
 const SPEC_GIT_EXEMPT = new RegExp(`git${SP}+-C${SP}+|git${SP}+worktree|--work-tree`);
 const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents/local/[^/ \\t\\n\\v\\f\\r]*[*?[]|find${SP}[^;&|]*\\.agents(/local)?/?(${SP}|$)`);
 
-/** On a volume that folds case the command is judged as typed and, in addition, with every program name and protected path word in its one spelling (A278): `Git`, `XARGS`, `Pkill`, `Agent.SH`, `.AGENTS/Local/Dispatch`, `FIND` in a find -exec, an xargs, a shell string, a substitution or a here-document are the programs and folders the lower-case rules know. The second pass can only refuse more. @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */
+/** On a volume that folds case the command is judged as typed and, in addition, in the LOWER-CASE WORLD (A278 round 4): the whole text folded (NFC and full case folding, no parsing, so the folded text has the structure of the original for every parser) against the context folded the same way. A case variant therefore gets the verdict of its lower-case twin by construction: a program name, a protected path, an environment name, a here-document body, a substitution, a misread `<<`. Text that the fold does not change needs no second pass. The second pass can only refuse more. @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */
 async function check(ctx, cmd) {
   await checkOne(ctx, cmd);
-  if (foldCommands(ctx, cmd)) {
-    const v = foldWords(cmd, ctx.root);
-    if (v !== cmd) {
-      // the folded text must read as the same command lines: same line count and the same here-documents (the scanner decides what a here-document is); anything else fails closed
-      const shape = (/** @type {string} */ t) => scanCommand(t, { fold: true }).records.filter((r) => r.kind === 'H').map((r) => r.raw.split('\x03').slice(2).join('\x03')).join('\0'); // the bodies (the feeding command's name is what folds)
-      if (v.split('\n').length !== cmd.split('\n').length || shape(v) !== shape(cmd)) deny('the command changes its here-document structure when its program names are read in one case, so it cannot be judged; write the program names and here-document delimiters in lower case');
-      await checkOne(ctx, v, true);
-    }
-  }
+  const lower = foldWorld(cmd);
+  if (lower !== cmd && foldCommands(ctx, cmd)) await checkOne(foldCtx(ctx), lower, true);
 }
 
 /** `folded`: the second pass of `check` (A278 round 3). It runs the DENY-class rules only (protected words, paths, refs, commands, tripwires, kill, stash, merge, database, hook bypass). The scope ALLOW lists (run artifacts, owns and PLAN scope, scratch, worktree and tmp allowances, containment) are case-exact and the fold has lower-cased the run id and the file names they compare, so their verdict comes from the exact first pass alone. @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd @param {boolean} [folded] */
