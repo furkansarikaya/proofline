@@ -2,7 +2,7 @@
 // The scan for real waits and direct clock reads in test code (issue 265 package C, A276; AC-6). It reports CANDIDATES, never verdicts: a `sleep` inside a string or a comment
 // is a false positive, so the reviewer traces each one (shared rule 1) and a candidate that cannot be traced stays a finding (safe side).
 // Shared rule 3: no ecosystem name is read here. Everything an ecosystem contributes is data of ecosystems.json `fast_tests` (`files` globs, `sleep` names, `clock_reads`
-// names); adding an ecosystem adds data only. A name becomes a word-bounded pattern; a file is scanned with the lists of the ecosystems whose `files` globs match it.
+// names); adding an ecosystem adds data only. A name becomes a word-bounded pattern (or, written `re:<expression>`, a bounded regular expression of its own); a file is scanned with the lists of the ecosystems whose `files` globs match it.
 // The functions take their input as parameters (rows, text, a read function): the unit tests run no file system and no clock. Output is deterministic: candidates are sorted by
 // file, line, kind, pattern, and the JSON has a fixed key order.
 //
@@ -17,6 +17,8 @@ import path from 'node:path';
 import { clean } from './codetrust.mjs';
 
 export const KINDS = ['wait', 'clock_read'];
+/** A name of the data that starts with this is a regular expression (for a rule a literal cannot say: not a method call, a spaced form); every other name is a literal. */
+export const RE_PREFIX = 're:';
 const MIN_REASON = 10;
 const MAX_FILE_BYTES = 1048576;
 
@@ -71,6 +73,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * cannot backtrack); a boundary is added on a side that starts or ends with a word character. @param {string} name
  */
 export function patternFor(name) {
+  if (name.startsWith(RE_PREFIX)) return new RegExp(name.slice(RE_PREFIX.length));   // a name written `re:<regular expression>` is a pattern as written (validated: bounded, no backtracking, ecosystems.mjs)
   return new RegExp(`${/^\w/.test(name) ? '\\b' : ''}${escapeRe(name)}${/\w$/.test(name) ? '\\b' : ''}`);
 }
 

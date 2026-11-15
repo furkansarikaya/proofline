@@ -136,6 +136,20 @@ const now = () => Math.floor(Date.now() / 1000);
 
 /** @type {Set<string>} the captures `say` stamped on its own (project, session, second, words) */
 const said = new Set();
+/** How far ahead of the clock a capture of `say` may be stamped; the control plane silently ignores a capture more than 5 s ahead. */
+export const AHEAD = 4;
+/**
+ * The second a message is stamped with: after every record (NEWEST + 1) and not before NOW, the next free second when the same words were already stamped there (the same words
+ * at the same second are one capture event, single use, A106). Never more than AHEAD seconds ahead of NOW: more would be ignored by the control plane without a word, so it throws.
+ * @param {Set<string>} seen @param {string} scope project and session @param {string} text @param {number} newest @param {number} nowSec
+ */
+export function captureStamp(seen, scope, text, newest, nowSec) {
+  let t = Math.max(nowSec, newest + 1);
+  while (seen.has(`${scope}${t}|${text}`)) t++;
+  if (t > nowSec + AHEAD) throw new Error(`say: the message would be stamped ${t - nowSec} s ahead of the clock (more than ${AHEAD}); the control plane would ignore it. Say it with other words, or use sayNow / an explicit time.`);
+  seen.add(`${scope}${t}|${text}`);
+  return t;
+}
 /** The newest `requested_at`, gate `epoch` or `asked_at` of the project's records (a capture must be newer). @param {string} dir */
 function newestRecord(dir) {
   let t = 0;
@@ -145,13 +159,9 @@ function newestRecord(dir) {
   }
   return t;
 }
-/** The user's message as the prompt hook stores it (session s1), stamped after every record of the project. The stamp may be one second ahead of the clock; nothing waits for it (the control plane ignores a capture only when it is more than 5 s ahead). @param {string} dir @param {string} text @param {{ time?: number, session?: string }} [o] */
+/** The user's message as the prompt hook stores it (session s1), stamped after every record of the project. The stamp may be a few seconds ahead of the clock (AHEAD at most, `captureStamp`); nothing waits for it (the control plane ignores a capture more than 5 s ahead). @param {string} dir @param {string} text @param {{ time?: number, session?: string }} [o] */
 export function say(dir, text, o = {}) {
-  let t = o.time ?? Math.max(now(), newestRecord(dir) + 1);
-  if (o.time === undefined) {
-    while (said.has(`${dir}|${o.session ?? 's1'}|${t}|${text}`)) t++;   // the same words at the same second would be the same capture event (single-use, A106): the next second, not a wait
-    said.add(`${dir}|${o.session ?? 's1'}|${t}|${text}`);
-  }
+  const t = o.time ?? captureStamp(said, `${dir}|${o.session ?? 's1'}|`, text, newestRecord(dir), now());
   const r = storePrompt(`${dir}/.agents/local`, o.session ?? 's1', t, text);
   if (!r) throw new Error('capture not stored');
   return r;

@@ -50,21 +50,42 @@ test('P2d: a blocking Atomics wait, a sleep-style helper or a busy wait on the c
   assert.deepEqual(hits(t, 'export function sleepSy\x6e\x63(ms) {}'), ['1:sleepSy\x6e\x63('], 'a definition is found as well as a call');
   assert.deepEqual(hits(t, 'sleepM\x73(25);'), ['1:sleepM\x73(']);
   assert.deepEqual(hits(t, 'waitSy\x6e\x63(10);'), ['1:waitSy\x6e\x63(']);
-  assert.deepEqual(hits(t, 'waitUn\x74il(t0 + 1);'), ['1:waitUn\x74il(']);
+  assert.deepEqual(hits(t, 'waitUn\x74il(t0 + 1);'), ['1:re:(?<![.\\w])waitUn\x74il\\(']);
   assert.deepEqual(hits(t, 'busyW\x61it(5);'), ['1:busyW\x61it(']);
   assert.deepEqual(hits(t, 'wh\x69le (Date.now() < until) {}'), ['1:wh\x69le (Date.now() <'], 'a busy wait on the clock is a wait; the read of the clock stays a clock read of its own');
   assert.deepEqual(hits(t, 'wh\x69le (Date.now() < until) {}', ['clock_read']), ['1:Date.now']);
   assert.deepEqual(hits(t, 'wh\x69le (Date.now() > 0) {}'), ['1:wh\x69le (Date.now() >']);
-  assert.deepEqual(hits(t, 'wh\x69le(Date.now()-t0<9) {}'), ['1:wh\x69le(Date.now()']);
+  assert.deepEqual(hits(t, 'wh\x69le(Date.now()-t0<9) {}'), ['1:re:wh\x69le\\s*\\(\\s*Date\\.now\\(\\)\\s*-', '1:wh\x69le(Date.now()']);
   assert.deepEqual(hits(t, 'wh\x69le   (   performance.now() <  deadline) {}'), [], 'the blank run is collapsed to one space, and two spaces after the bracket are not the written form');
   assert.deepEqual(hits(t, 'wh\x69le (performance.now() < deadline) {}'), ['1:wh\x69le (performance.now() <']);
   assert.deepEqual(hits(t, 'wh\x69le (performance.now() > 0) {}'), ['1:wh\x69le (performance.now() >']);
-  assert.deepEqual(hits(t, 'wh\x69le(performance.now()-t0<9) {}'), ['1:wh\x69le(performance.now()']);
+  assert.deepEqual(hits(t, 'wh\x69le(performance.now()-t0<9) {}'), ['1:re:wh\x69le\\s*\\(\\s*performance\\.now\\(\\)\\s*-', '1:wh\x69le(performance.now()']);
   assert.deepEqual(hits(t, 'setInterva\x6c(tick, 5);'), ['1:setInterva\x6c']);
   // look-alikes: other names, other words
   assert.deepEqual(hits(t, 'const sleepSyncs = 1; mySleepSyn\x63(1); Atomics.add(c, 0, 1); Atomics.notify(c, 0); waitSyncAll(); awaitUntil(1); wh\x69le (Date.now) {}'), [], 'a longer or different word is no candidate');
   assert.deepEqual(hits('notes.txt', 'Atomics.w\x61it(c, 0, 0, 5)'), [], 'a file no ecosystem claims is not scanned');
   assert.deepEqual(hits('a.py', 'sleepSy\x6e\x63(1)'), [], 'the names belong to the JavaScript family: a Python file does not list them');
+});
+
+test('P2d round 1: waitUntil is a helper name but a METHOD call is not; the spaced busy wait with a subtraction is a wait; a bad regular-expression name is refused', () => {
+  const t = 'a.test.mjs';
+  assert.deepEqual(hits(t, 'waitUn\x74il(t0 + 1);'), ['1:re:(?<![.\\w])waitUn\x74il\\(']);
+  assert.deepEqual(hits(t, 'await waitUn\x74il(t0 + 1);'), ['1:re:(?<![.\\w])waitUn\x74il\\(']);
+  assert.deepEqual(hits(t, 'function waitUn\x74il(t) {}'), ['1:re:(?<![.\\w])waitUn\x74il\\(']);
+  assert.deepEqual(hits(t, 'event.waitUn\x74il(promise); ctx.waitUn\x74il(p); self.registration.waitUn\x74il(p);'), [], 'a method call (service worker, Worker context) is no helper');
+  assert.deepEqual(hits(t, 'mywaitUn\x74il(1); waitUn\x74ilDone(1);'), [], 'a longer word is no candidate');
+  assert.deepEqual(hits(t, 'wh\x69le (Date.now() - t0 < 5) {}'), ['1:re:wh\x69le\\s*\\(\\s*Date\\.now\\(\\)\\s*-']);
+  assert.deepEqual(hits(t, 'wh\x69le(  Date.now()   -t0<5) {}'), ['1:re:wh\x69le\\s*\\(\\s*Date\\.now\\(\\)\\s*-'], 'blanks inside the brackets are tolerated');
+  assert.deepEqual(hits(t, 'wh\x69le ( performance.now() - t0 < 5) {}'), ['1:re:wh\x69le\\s*\\(\\s*performance\\.now\\(\\)\\s*-']);
+  assert.deepEqual(hits(t, 'wh\x69le (performance.now() - t0 < 5) {}'), ['1:re:wh\x69le\\s*\\(\\s*performance\\.now\\(\\)\\s*-']);
+  assert.deepEqual(hits(t, 'wh\x69le (Date.now) {}'), [], 'no subtraction, no comparison: no candidate');
+  // the validator: a regular-expression name is checked like a marker
+  const def = structuredClone(loadEcosystems(path.join(root, 'control-plane/agents/ecosystems.json')));
+  assert.deepEqual(validate(def), [], 'the shipped data is valid');
+  def.ecosystems[0].fast_tests.sleep = [...def.ecosystems[0].fast_tests.sleep, 're:(\\w+)+x'];
+  assert.ok(validate(def).some((e) => /not a regular expression that is safe/.test(e)), 'a name that can backtrack is refused');
+  def.ecosystems[0].fast_tests.sleep = [...def.ecosystems[0].fast_tests.sleep.slice(0, -1), 're:(unclosed'];
+  assert.ok(validate(def).some((e) => /not a regular expression that is safe/.test(e)), 'a name that does not compile is refused');
 });
 
 test('a clock read is its own kind; both kinds by default; a name in a string is still a candidate (the reviewer clears it)', () => {

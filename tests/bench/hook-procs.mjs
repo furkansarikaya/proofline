@@ -7,7 +7,7 @@
 // The fixture is a COMPLEX orchestrated run frozen at IMPLEMENTING (the harness scaffold, the Node core beside agent.sh); the shipped git hook launchers and the hook folder are installed in it.
 import { tempDir } from '../lib/tempdir.mjs';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -82,9 +82,13 @@ export function measureAll(o = {}) {
       for (let i = 0; i < repeat; i++) {
         pre();
         writeFileSync(log, '');
+        const approved = () => { try { return readdirSync(path.join(d, '.agents/runs/LC/approvals')).filter((n) => /^\d{3}-plan\.yaml$/.test(n)).length; } catch { return 0; } };
+        const before = approved();
         const t0 = performance.now();
         hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
         times.push(Math.round(performance.now() - t0));
+        // the approval path is really taken: the measured run recorded the plan approval (a row measured on a hook that ignored the reply would count too few processes)
+        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after)`);
         const used = readFileSync(log, 'utf8').split('\n').filter(Boolean);
         counts.push(used.length);
         if (o.trace) process.stderr.write(`--- ${name}\n${used.join('\n')}\n`);
