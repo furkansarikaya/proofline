@@ -19,6 +19,11 @@ on:
         required: false
         default: ''
         type: string
+      twice:
+        description: 'A277 (issue 266): run every Linux test leg twice and report the number of unstable tests (outcome or duration differs) in the job summary; the verdict of a leg is still the status of node --test'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # one group per pull request; every other event gets its own group so queued main runs are never displaced
@@ -53,6 +58,8 @@ jobs:
         # macOS runs on the nightly schedule and manual runs only (A164); pushes and pull requests run Linux only.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    env:
+      TEST_DURATIONS_TWICE: ${{ inputs.twice }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,9 +95,13 @@ jobs:
       - name: no shell logic (strict)
         run: node tests/ci/no-shell-logic.mjs
 
+      # A277 (issue 266): the scan gate. No real wait (sleep, setTimeout, Atomics.wait, a busy wait on the clock) may enter proofline's own tests unlisted: exit 1 on an open candidate or on a stale allowlist entry.
+      - name: test scan (real waits in tests, allowlist tests/ci/test-scan-allowlist.tsv)
+        run: node control-plane/agents/scripts/proofline-core.mjs cli test-scan --kind wait --allowlist tests/ci/test-scan-allowlist.tsv tests
+
       - name: generator tests
         if: needs.changes.outputs.code == 'true'
-        run: node --test "tests/generator/*.test.mjs"
+        run: node tests/ci/test-durations-ci.mjs "static generator" -- "tests/generator/*.test.mjs"
 
       - uses: actions/setup-node@v4
         if: needs.changes.outputs.code == 'true'
@@ -100,6 +111,14 @@ jobs:
       - name: skill tests
         if: needs.changes.outputs.code == 'true'
         run: node tests/ci/ci-steps.mjs skill-tests
+      - name: upload the duration report (JSON per leg, 14 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-static-${{ matrix.os }}
+          path: ${{ runner.temp }}/test-durations/*.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   fixtures:
     needs: [changes]
@@ -444,6 +463,8 @@ jobs:
             pattern: 'none'
             files: tests/lib/*.test.mjs
     runs-on: ubuntu-latest
+    env:
+      TEST_DURATIONS_TWICE: ${{ inputs.twice }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -451,21 +472,29 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: tests of this leg (files)
         if: matrix.leg.mode == 'files'
-        run: node --test ${{ matrix.leg.files }}
+        run: node tests/ci/test-durations-ci.mjs "node-tests ${{ matrix.node }} ${{ matrix.leg.name }}" -- ${{ matrix.leg.files }}
       # nightly and manual runs only: the whole set in one process as before, the safety net behind the legs (on a pull request this leg does nothing)
       - name: every test file in one process (nightly and manual runs)
         if: matrix.leg.mode == 'full' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        run: node --test "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/e2e/*.test.mjs" "tests/real-session/*.test.mjs" "tests/invariants-node/*.test.mjs" "tests/lib/*.test.mjs"
+        run: node tests/ci/test-durations-ci.mjs "node-tests ${{ matrix.node }} full" -- "tests/ci/*.test.mjs" "tests/enforcement/*.test.mjs" "tests/core/*.test.mjs" "tests/e2e/*.test.mjs" "tests/real-session/*.test.mjs" "tests/invariants-node/*.test.mjs" "tests/lib/*.test.mjs"
       - name: tests of this leg (by test name)
         if: matrix.leg.mode == 'name'
         env:
           PATTERN: ${{ matrix.leg.pattern }}
-        run: node --test "--test-name-pattern=$PATTERN" ${{ matrix.leg.files }}
+        run: node tests/ci/test-durations-ci.mjs "node-tests ${{ matrix.node }} ${{ matrix.leg.name }}" -- "--test-name-pattern=$PATTERN" ${{ matrix.leg.files }}
       - name: tests of this leg (all but the names of another leg)
         if: matrix.leg.mode == 'skip'
         env:
           PATTERN: ${{ matrix.leg.pattern }}
-        run: node --test "--test-skip-pattern=$PATTERN" ${{ matrix.leg.files }}
+        run: node tests/ci/test-durations-ci.mjs "node-tests ${{ matrix.node }} ${{ matrix.leg.name }}" -- "--test-skip-pattern=$PATTERN" ${{ matrix.leg.files }}
+      - name: upload the duration report (JSON per leg, 14 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-node-tests-${{ strategy.job-index }}-${{ matrix.leg.name }}
+          path: ${{ runner.temp }}/test-durations/*.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   # The shipped Node hook (stage 3) is a pull request gate: its own tests and the guard tests run AGAINST
   # adapters/claude/hooks/proofline-hook.mjs (the enforcement suites, ported to Node in A239, run as `node-tests` legs under tests/enforcement/ against the same hook). The
@@ -482,6 +511,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HOOK_UNDER_TEST: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
+      TEST_DURATIONS_TWICE: ${{ inputs.twice }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -489,27 +519,35 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: hook tests (node:test)
         if: matrix.suite == 'node-tests'
-        run: node --test "tests/hook/*.test.mjs"
+        run: node tests/ci/test-durations-ci.mjs "hook-node ${{ matrix.node }} hook" -- "tests/hook/*.test.mjs"
       - name: process and output budgets of the execution policy, the runtime detection and the known-issue commands
         if: matrix.suite == 'node-tests'
-        run: node --test tests/bench/exec-budgets.test.mjs
+        run: node tests/ci/test-durations-ci.mjs "hook-node ${{ matrix.node }} exec-budgets" -- tests/bench/exec-budgets.test.mjs
       - name: process and output budgets of the night-mode read commands (batch-next, batch-status, batch-answers)
         if: matrix.suite == 'node-tests'
-        run: node --test tests/bench/batch-budgets.test.mjs
+        run: node tests/ci/test-durations-ci.mjs "hook-node ${{ matrix.node }} batch-budgets" -- tests/bench/batch-budgets.test.mjs
       - name: process budgets of the execution decision and the dispatcher
         if: matrix.suite == 'node-tests'
-        run: node --test tests/bench/dispatch-budgets.test.mjs
+        run: node tests/ci/test-durations-ci.mjs "hook-node ${{ matrix.node }} dispatch-budgets" -- tests/bench/dispatch-budgets.test.mjs
       - name: process budgets of the helper commands (build-record, friction, calibrate, lessons, rules)
         if: matrix.suite == 'node-tests'
-        run: node --test tests/bench/helper-budgets.test.mjs
+        run: node tests/ci/test-durations-ci.mjs "hook-node ${{ matrix.node }} helper-budgets" -- tests/bench/helper-budgets.test.mjs
       - name: guard tests against the Node hook
         if: matrix.suite == 'node-tests'
         env:
           GUARDS_HOOK: ${{ github.workspace }}/adapters/claude/hooks/proofline-hook.mjs
-        run: node --test tests/enforcement/guards.test.mjs
+        run: node tests/ci/test-durations-ci.mjs "hook-node ${{ matrix.node }} guards" -- tests/enforcement/guards.test.mjs
       - name: wiring tests
         if: matrix.suite == 'node-tests'
-        run: node --test tests/enforcement/wiring.test.mjs
+        run: node tests/ci/test-durations-ci.mjs "hook-node ${{ matrix.node }} wiring" -- tests/enforcement/wiring.test.mjs
+      - name: upload the duration report (JSON per leg, 14 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-hook-node-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/test-durations/*.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   # Type check of the Node code (jsconfig.json). The checker and the Node type definitions are fetched in this job only, at pinned exact versions;
   # nothing is added to a package.json and nothing is shipped. Never skipped.
@@ -565,6 +603,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    env:
+      TEST_DURATIONS_TWICE: ${{ inputs.twice }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -575,10 +615,18 @@ jobs:
       - name: invariant tests (this scenario)
         env:
           PATTERN: ${{ matrix.pattern }}
-        run: node --test "--test-name-pattern=$PATTERN" ${{ matrix.file }}
+        run: node tests/ci/test-durations-ci.mjs "invariants ${{ matrix.scenario }}" -- "--test-name-pattern=$PATTERN" ${{ matrix.file }}
       - name: context budget, measured by the Node core (A202, A230)
         if: matrix.scenario == 'sc_inv1_code_done_needs_gates'
-        run: node --test tests/core/contextsize.test.mjs
+        run: node tests/ci/test-durations-ci.mjs "invariants context-budget" -- tests/core/contextsize.test.mjs
+      - name: upload the duration report (JSON per leg, 14 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-invariants-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/test-durations/*.json
+          retention-days: 14
+          if-no-files-found: ignore
       - name: invariant tests changed only with a reason
         if: github.event_name == 'pull_request' && matrix.scenario == 'sc_inv1_code_done_needs_gates'
         env:

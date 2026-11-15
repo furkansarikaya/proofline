@@ -1,0 +1,26 @@
+{
+  "_comment": "Budgets of proofline's own tests (issue 266, A277). REPORT-ONLY while enforce is false: tests/ci/test-durations-ci.mjs prints OVER BUDGET lines in the job summary and exits as node --test did. Package P3b sets enforce to true with numbers measured from CI. Milliseconds before timeouts_scale (read like timeouts.scale of the control plane: 0.5 to 10, else 1). kinds: the A275 defaults (unit 2000/30000, integration 10000/120000, e2e 60000/600000) are the built-in fallback for a missing number. dirs: the most specific path prefix decides the kind of a test file and may override test_ms and suite_ms. legs: reserved for a per-leg total.",
+  "enforce": false,
+  "timeouts_scale": 1,
+  "default_kind": "unit",
+  "kinds": {
+    "unit": { "test_ms": 2000, "suite_ms": 30000 },
+    "integration": { "test_ms": 10000, "suite_ms": 120000 },
+    "e2e": { "test_ms": 60000, "suite_ms": 600000 }
+  },
+  "dirs": {
+    "tests/benchmark": { "kind": "integration" },
+    "tests/bench": { "kind": "integration" },
+    "tests/ci": { "kind": "unit" },
+    "tests/core": { "kind": "integration" },
+    "tests/e2e": { "kind": "unit" },
+    "tests/enforcement": { "kind": "integration" },
+    "tests/generator": { "kind": "unit" },
+    "tests/hook": { "kind": "integration" },
+    "tests/invariants-node": { "kind": "integration" },
+    "tests/lib": { "kind": "integration" },
+    "tests/real-session": { "kind": "integration" },
+    "tests/skills": { "kind": "unit" }
+  },
+  "legs": {}
+}

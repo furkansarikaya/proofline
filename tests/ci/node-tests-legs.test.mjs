@@ -39,9 +39,9 @@ test('every test file the old globs matched (tests/ci, tests/enforcement, tests/
 });
 
 test('the split legs use the node test-name flags and the other legs name files only', () => {
-  assert.match(nt, /run: node --test "--test-name-pattern=\$PATTERN" \$\{\{ matrix\.leg\.files \}\}/);
-  assert.match(nt, /run: node --test "--test-skip-pattern=\$PATTERN" \$\{\{ matrix\.leg\.files \}\}/);
-  assert.match(nt, /run: node --test \$\{\{ matrix\.leg\.files \}\}/);
+  assert.match(nt, /run: node tests\/ci\/test-durations-ci\.mjs "[^"\n]*" -- "--test-name-pattern=\$PATTERN" \$\{\{ matrix\.leg\.files \}\}/);
+  assert.match(nt, /run: node tests\/ci\/test-durations-ci\.mjs "[^"\n]*" -- "--test-skip-pattern=\$PATTERN" \$\{\{ matrix\.leg\.files \}\}/);
+  assert.match(nt, /run: node tests\/ci\/test-durations-ci\.mjs "[^"\n]*" -- \$\{\{ matrix\.leg\.files \}\}/);
   assert.ok(!/node --test tests\/[a-z]+\/(\s|$)/m.test(nt), 'no bare directory');
   assert.match(nt, /name: every test file in one process[^\n]*\n\s+if: matrix\.leg\.mode == 'full' && \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\)/);
 });
@@ -57,7 +57,7 @@ test('invariants is a matrix of its scenarios; the non-scenario checks run in th
   for (const l of legs) assert.ok(readFileSync(join(repo, l.file), 'utf8').includes(`test('${l.test}:`), `${l.scenario}: ${l.file} has no test named ${l.test}:`);
   assert.equal(sources.reduce((n, [, t]) => n + (t.match(/^test\('inv/gm) ?? []).length, 0), want.length, 'every core-invariant test has a leg');
   assert.ok(!existsSync(join(repo, 'tests/invariants/invariants-test.sh')), 'the shell copy of the invariant suite is gone');
-  assert.match(inv, /env:\n\s+PATTERN: \$\{\{ matrix\.pattern \}\}\n\s+run: node --test "--test-name-pattern=\$PATTERN" \$\{\{ matrix\.file \}\}/);
+  assert.match(inv, /env:\n\s+PATTERN: \$\{\{ matrix\.pattern \}\}\n\s+run: node tests\/ci\/test-durations-ci\.mjs "[^"\n]*" -- "--test-name-pattern=\$PATTERN" \$\{\{ matrix\.file \}\}/);
   assert.ok(!/check-changed|check-budget-changed|sh tests\/context/.test(inv), 'the change-reason checks are Node (tests/ci/change-reason.mjs), tested in tests/ci/change-reason.test.mjs');
   assert.match(inv, /name: invariant tests changed only with a reason\n\s+if: github\.event_name == 'pull_request' && matrix\.scenario == 'sc_inv1_code_done_needs_gates'\n[\s\S]*?run: node tests\/ci\/change-reason\.mjs invariants --base/);
   assert.match(inv, /name: context budget changed only with a reason \(A202\)\n\s+if: github\.event_name == 'pull_request' && matrix\.scenario == 'sc_inv1_code_done_needs_gates'\n[\s\S]*?run: node tests\/ci\/change-reason\.mjs context-budget --base/);

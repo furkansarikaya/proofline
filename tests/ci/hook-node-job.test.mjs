@@ -20,9 +20,9 @@ describe('the Node hook is a pull request gate (hook-node)', () => {
   test('it runs the hook tests, the guard tests with GUARDS_HOOK, and the wiring tests with HOOK_UNDER_TEST on the .mjs hook', () => {
     assert.match(j, /HOOK_UNDER_TEST: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
     assert.match(j, /GUARDS_HOOK: \$\{\{ github\.workspace \}\}\/adapters\/claude\/hooks\/proofline-hook\.mjs/);
-    assert.match(j, /run: node --test "tests\/hook\/\*\.test\.mjs"/);
-    assert.match(j, /run: node --test tests\/enforcement\/guards\.test\.mjs/);
-    assert.match(j, /run: node --test tests\/enforcement\/wiring\.test\.mjs/);
+    assert.match(j, /run: node tests\/ci\/test-durations-ci\.mjs "[^"\n]*" -- "tests\/hook\/\*\.test\.mjs"/);
+    assert.match(j, /run: node tests\/ci\/test-durations-ci\.mjs "[^"\n]*" -- tests\/enforcement\/guards\.test\.mjs/);
+    assert.match(j, /run: node tests\/ci\/test-durations-ci\.mjs "[^"\n]*" -- tests\/enforcement\/wiring\.test\.mjs/);
     assert.ok(!/SELFTEST_ONLY|selftest/.test(j), 'no shell suite runs here any more (A239)');
   });
   test('the Node tests run on Node 22.13.0 and the active LTS', () => {

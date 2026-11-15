@@ -64,7 +64,8 @@ test('the legs of the workflow matrix and the defaults of the script are the sam
   const ci = readFileSync(join(repo, '.github/workflows/ci.yml'), 'utf8');
   const matrix = /suite: \[(.*)\]/.exec(ci)?.[1].split(',').map((x) => x.trim().replace(/'/g, ''));
   assert.deepEqual(matrix, Object.keys(DEFAULTS));
-  const uses = [...ci.matchAll(/\$\{\{\s*inputs\.[^}]*\}\}/g)];
+  // the free-text input `tests` is used once, as data in the environment; the boolean `twice` (A277) only ever stands as the value of TEST_DURATIONS_TWICE, never in a command line
+  const uses = [...ci.matchAll(/\$\{\{\s*inputs\.[^}]*\}\}/g)].filter((m) => !/^ *TEST_DURATIONS_TWICE: \$\{\{ inputs\.twice \}\}$/m.test(ci.slice(ci.lastIndexOf('\n', m.index) + 1, ci.indexOf('\n', m.index))));
   assert.equal(uses.length, 1);
   assert.match(ci, /^ {10}PROBE_TESTS: \$\{\{ inputs\.tests \}\}$/m);
   assert.match(ci, /^ {8}run: node tests\/ci\/windows-probe\.mjs$/m);
