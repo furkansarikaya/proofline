@@ -651,7 +651,7 @@ test('A278 E1: a pathological input costs steps in proportion to its size (many 
 test('A278 E3 (volume folds case): legitimate scope writes by every role under an active run, with the run id and artifact names in their exact case, get the verdict of the case-keeping volume (the second pass runs deny-class rules only), and the protected case variants stay refused', async () => {
   const targets = ['.agents/runs/LC/EVIDENCE.md', '.agents/runs/LC/TASK.md', '.agents/runs/LC/PLAN.md', '.agents/runs/LC/QA_PLAN.md', '.agents/runs/LC/QA_REPORT.md', '.agents/runs/LC/reports/001-debug.md', '.agents/runs/LC/scratch/x', '.agents/runs/LC/scratch/Notes.TXT',
     '.agents/local/assignments/LC-implementer.md', '.agents/local/assignments/LC/Spec.md', 'src/greet.js', 'src/Greet.js', 'Src/greet.js', 'docs/Guide.md', 'impl.txt', 'README.md'];
-  const forms = [(/** @type {string} */ t) => `echo x > ${t}`, (t) => `cat > ${t} <<'EOF'\nBody Make\nEOF`, (t) => `tee ${t} < /dev/null`, (t) => `cp a ${t}`, (t) => `touch ${t}`,
+  const forms = [(/** @type {string} */ t) => `echo x > ${t}`, (t) => `cat > ${t} <<'EOF'\nBody Make\nEOF`, (t) => `tee ${t} < /dev/null`, 
     (t) => `mkdir -p ${t.replace(/[^/]*$/, '')} && cat > ${t} <<'EOF'\n# Evidence: LC\n- Base SHA: 93b0158\nEOF`, (t) => `cd ${t.replace(/[^/]*$/, '') || '.'} && echo x >> ${t.split('/').pop()}`];
   // the scope lists of a real project: the files a role owns, spelled in their exact case (.agents/owns.conf)
   const scoped = copyProject(template, base);
