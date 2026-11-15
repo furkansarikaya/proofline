@@ -13,11 +13,11 @@ import { A, IMPLEMENTED, project } from './legacy-lib.mjs';
 function sub(d, role, args) {
   return new Promise((res) => {
     const p = spawn('sh', ['.agents/scripts/agent.sh', ...args], { cwd: d, env: cleanEnv({ AGENT_ROLE: role }), stdio: ['pipe', 'pipe', 'pipe'] });
-    let o = '';
+    let o = ''; let pipe = '';
     p.stdout.on('data', (b) => { o += b; }); p.stderr.on('data', (b) => { o += b; });
-    p.stdin.on('error', () => { /* EPIPE: the command ended before it read its input; its exit code and output are what the test asserts */ });
+    p.stdin.on('error', (e) => { pipe = e.message; });   // EPIPE: the command ended before it read its input; kept in the result so a failure shows it
     p.stdin.end(`# report\n\nVerdict: PASS\n\nJudged the tree ${role}.\n`);
-    p.on('close', (c) => res({ role, code: c, o: o.trim().split('\n').slice(-2).join(' | ') }));
+    p.on('close', (c) => res({ role, code: c, o: o.trim().split('\n').slice(-2).join(' | '), pipe }));
   });
 }
 
