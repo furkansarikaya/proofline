@@ -56,6 +56,7 @@
 /** @typedef {{ kind: string, raw: string, value: string }} Rec */
 /** @typedef {{ word: string, args: string[] }} Cmd */
 /** @typedef {{ raw: string, records: Rec[], commands: Cmd[] }} ScanResult */
+/** @typedef {{ regions: Array<[number, number]>, steps: number }} ScanSink */
 
 const PATH_KINDS = new Set(['W', 'E', 'P', 'Q', 'F']);
 
@@ -89,9 +90,10 @@ const WRAPPERS = /^(sudo|doas|env|command|builtin|exec|nohup|time|nice|ionice|st
  * The whole scanner, state included. One call scans one input (the awk's one run).
  * @param {string} input binary string
  * @param {boolean} [fold] read command words and script names without regard to case (A278)
+ * @param {ScanSink} [sink] when given, the scan also reports WHERE it found here-document delimiters and bodies (byte offsets in INPUT) and how many steps it took; it never changes what the scan returns
  * @returns {string} binary string
  */
-function scan(input, fold = false) {
+function scan(input, fold = false, sink = undefined) {
   // A278: on a volume that folds case `Agent.SH` is agent.sh and `Kill` is kill: a command word is read in lower case then (the caller probed the volume)
   const base = fold ? (/** @param {string} x */ (x) => Buffer.from(decodeBinary(baseOf(x)).normalize('NFC').toUpperCase().toLowerCase().replace(/\u00df/g, 'ss'), 'utf8').toString('latin1')) : baseOf; // full case folding (the long s is `s`), same as lib/fscase.mjs fold
   /** @type {string[]} */ const res = [];
@@ -111,6 +113,27 @@ function scan(input, fold = false) {
   /** @type {number[]} */ const qd = [];
   let qn = 0, dep = 0, cwdp = '', lastcd = '', ifsset = 0, xfail = 0;
   let cur = '', have = 0, lit = 1, quo = 0, dyn = 0, redir = 0, inredir = 0, dup = 0, nw = 0;
+  // position tracking (only with a sink): where each string being parsed came from in INPUT. A string is a verbatim slice (`a` null: the offset `o` of its first char) or carries one source offset per char (`a`)
+  /** @type {{ a: number[] | null, o: number } | null} */ let om = null;
+  /** @type {Array<{ a: number[] | null, o: number } | null>} */ const qo = [];
+  /** @type {Array<number[] | null>} */ const wm = [];
+  /** @type {number[] | null} */ let cm = null;
+  let i = 1, dstart = -1;
+  /** @param {number} idx the 0-based index into the string being parsed */
+  const srcOf = (idx) => (om === null ? -1 : om.a ? (om.a[om.o + idx] ?? -1) : om.o + idx);
+  /** the mapping of the slice of the current string starting at 0-based K @param {number} k */
+  const sub = (k) => (sink && om ? { a: om.a, o: om.o + k } : null);
+  /** append STR (read from 0-based P of the current string) to the word being built @param {string} str @param {number} p */
+  function ap(str, p) {
+    if (sink) { if (cur === '') cm = []; else if (cm && cm.length !== cur.length) cm = null; if (cm) for (let k = 0; k < str.length; k++) cm.push(srcOf(p + k)); }
+    cur += str;
+  }
+  /** @param {number} a @param {number} b the 0-based range [a, b) of the current string, reported when it maps to INPUT */
+  function region(a, b) {
+    if (!sink || om === null || b <= a) return;
+    const x = srcOf(a), y = srcOf(b - 1);
+    if (x >= 0 && y >= 0) sink.regions.push([x, y + 1]);
+  }
   let hdn = 0, hdfirst = 1, hdbody = 0, hdd = 0, pd = 0, lastw = '', sep = 'p', prevsep = 'p', cc = '';
 
   /** @param {number} j */ const W = (j) => w[j] ?? '';
@@ -120,16 +143,16 @@ function scan(input, fold = false) {
     if (PATH_KINDS.has(k) && cwdp !== '' && substr(v, 1, 1) !== '/' && substr(v, 1, 1) !== '~') v = `${cwdp}/${v}`;
     res.push(`${k}\t${v.replace(/\n/g, '\x02')}\n`);
   }
-  /** @param {string} t @param {number} d */
-  function push(t, d) {
+  /** @param {string} t @param {number} d @param {{ a: number[] | null, o: number } | null} [m] */
+  function push(t, d, m = null) {
     if (d > 4) { out('B', 'commands nested more than four levels deep'); return; }
     if (d > 1) out('X', 'a nested shell command inside a nested shell command');
-    qs[++qn] = t; qd[qn] = d;
+    qs[++qn] = t; qd[qn] = d; qo[qn] = m;
   }
   /** a command inside a here-document body: no nesting complaint, only the depth limit @param {string} t @param {number} d */
   function pushraw(t, d) {
     if (d > 4) { out('B', 'commands nested more than four levels deep'); return; }
-    qs[++qn] = t; qd[qn] = d;
+    qs[++qn] = t; qd[qn] = d; qo[qn] = null;
   }
   /** @param {string} s @param {number} p */
   function mparen(s, p) {
@@ -160,12 +183,12 @@ function scan(input, fold = false) {
     if (redir) {
       out('W', cur); lastw = (substr(cur, 1, 1) !== '/' && cwdp !== '') ? `${cwdp}/${cur}` : cur; redir = 0;
     } else if (inredir) {
-      if (inredir === 2) { hdn++; hdw[hdn] = cur; hdq[hdn] = quo; hdt[hdn] = hdd; } else out('C', `<\t${cur}`);
+      if (inredir === 2) { if (sink && dstart >= 0) region(dstart, i - 1); hdn++; hdw[hdn] = cur; hdq[hdn] = quo; hdt[hdn] = hdd; } else out('C', `<\t${cur}`);
       inredir = 0;
     } else if (dup) {
       dup = 0;
     } else {
-      w[++nw] = cur; L[nw] = lit; L0[nw] = lit; dynw[nw] = dyn;
+      w[++nw] = cur; wm[nw] = (cm && cm.length === cur.length) ? cm : null; L[nw] = lit; L0[nw] = lit; dynw[nw] = dyn;
     }
     cur = ''; have = 0; lit = 1; quo = 0; dyn = 0;
   }
@@ -323,7 +346,7 @@ function scan(input, fold = false) {
         if (/^[-+][A-Za-z]+$/.test(x)) { if (/^-[A-Za-z]*c/.test(x)) hasc = 1; if (/^-[A-Za-z]*s/.test(x)) hass = 1; continue; }
         break;
       }
-      if (hasc) { if (j <= nw) push(W(j), dep + 1); } else if (hass || j > nw) out('X', 'a shell reading its commands from stdin');
+      if (hasc) { if (j <= nw) push(W(j), dep + 1, sink && wm[j] ? { a: wm[j], o: 0 } : null); } else if (hass || j > nw) out('X', 'a shell reading its commands from stdin');
       else script(j);
     } else if (c === '.' || c === 'source') { if (k + 1 <= nw) script(k + 1); }
     else if (c === 'agent.sh') { if (k + 1 <= nw) out('A', `${L[k + 1]}\t${W(k + 1)}`); }
@@ -430,32 +453,35 @@ function scan(input, fold = false) {
 
   /** @param {string} s */
   function parse(s) {
-    const n = s.length; let i = 1; let q = '';
+    const n = s.length; i = 1; let q = '';
     cur = ''; have = 0; lit = 1; hdn = 0; hdfirst = 1; hdbody = 0; pd = 0; quo = 0; hdd = 0; lastw = ''; nw = 0; redir = 0; inredir = 0; dup = 0;
     kvs.clear(); prevsep = 'p'; sep = 'p'; dyn = 0;
     while (i <= n) {
+      if (sink) sink.steps++;
       const ch = s[i - 1];
-      if (q === "'") { if (ch === "'") q = ''; else cur += ch; i++; continue; }
+      if (q === "'") { if (ch === "'") q = ''; else ap(ch, i - 1); i++; continue; }
       if (q === '"') {
-        if (ch === '\\' && i < n) { cur += s[i]; i += 2; continue; }
+        if (ch === '\\' && i < n) { ap(s[i] ?? '', i); i += 2; continue; }
         if (ch === '"') { q = ''; i++; continue; }
-        if (ch === '$' && s[i] === '(') { const e = mparen(s, i + 1); push(substr(s, i + 2, e - i - 2), dep + 1); cur += substr(s, i, e - i + 1); lit = 0; i = e + 1; continue; }
+        if (ch === '$' && s[i] === '(') { const e = mparen(s, i + 1); push(substr(s, i + 2, e - i - 2), dep + 1, sub(i + 1)); ap(substr(s, i, e - i + 1), i - 1); lit = 0; i = e + 1; continue; }
         if (ch === '`') {
           let e = index(substr(s, i + 1), '`'); if (!e) e = n - i + 1;
-          push(substr(s, i + 1, e - 1), dep + 1); lit = 0; dyn = 1; i += e + 1; continue;
+          push(substr(s, i + 1, e - 1), dep + 1, sub(i)); lit = 0; dyn = 1; i += e + 1; continue;
         }
         if (ch === '$') lit = 0;
-        cur += ch; i++; continue;
+        ap(ch, i - 1); i++; continue;
       }
       if (ch === "'" || ch === '"') { q = ch; have = 1; quo = 1; i++; continue; }
-      if (ch === '\\' && i < n) { if (s[i] !== '\n') { cur += s[i]; have = 1; quo = 1; } i += 2; continue; }
+      if (ch === '\\' && i < n) { if (s[i] !== '\n') { ap(s[i] ?? '', i); have = 1; quo = 1; } i += 2; continue; }
       if (ch === '#' && !have && cur === '') { const e = s.indexOf('\n', i - 1) + 1; i = e ? e : n + 1; continue; }   // a comment runs to the end of the line
       if (ch === ' ' || ch === '\t') { endword(); i++; continue; }
       if (ch === '\n') {
         sep = 'p'; endword(); endcmd(); i++;
         for (let hi = hdbody + 1; hi <= hdn; hi++) {   // the bodies follow the line, in order, up to their delimiter line
           let body = '';
+          const from = i - 1;
           while (i <= n) {
+            if (sink) sink.steps++;
             const e = s.indexOf('\n', i - 1) + 1;
             let line = e ? s.slice(i - 1, e - 1) : s.slice(i - 1);
             i = e ? e + 1 : n + 1;
@@ -463,6 +489,7 @@ function scan(input, fold = false) {
             if (line === hdw[hi]) break;
             if (body.length < 200000) body = `${body}${line}\n`;
           }
+          region(from, Math.min(i - 1, n));
           out('H', `${hdc[hi]}\x03${hdp[hi]}\x03${body}`);
           if (!hdq[hi]) hdsubs(body);
         }
@@ -494,11 +521,13 @@ function scan(input, fold = false) {
         hdd = (s[i - 1] === '-') ? 1 : 0; if (hdd) i++;
         if (s[i - 1] === '&') { i++; dup = 1; continue; }
         if (s[i - 1] === '(') { inredir = 0; out('V', 'psub'); continue; }   // < <(cmd): a process substitution, not a file
-        inredir = (k2 === 2) ? 2 : 1; continue;
+        inredir = (k2 === 2) ? 2 : 1;
+        if (sink) { let j = i; while (s[j - 1] === ' ' || s[j - 1] === '\t') j++; dstart = j - 1; }
+        continue;
       }
-      if (ch === '$' && s[i] === '(' && s[i + 1] === '(') { const e = mparen(s, i + 1); cur += substr(s, i, e - i + 1); have = 1; lit = 0; i = e + 1; continue; }
+      if (ch === '$' && s[i] === '(' && s[i + 1] === '(') { const e = mparen(s, i + 1); ap(substr(s, i, e - i + 1), i - 1); have = 1; lit = 0; i = e + 1; continue; }
       if (ch === '$') lit = 0;
-      cur += ch; have = 1; i++;
+      ap(ch, i - 1); have = 1; i++;
     }
     sep = 'p'; endword(); endcmd();
   }
@@ -507,9 +536,11 @@ function scan(input, fold = false) {
   if (input !== '') {
     const recs = input.split('\x01');
     if (recs.length > 1 && recs[recs.length - 1] === '') recs.pop();
+    let off = 0;
     for (const rec of recs) {
-      qn = 1; qs[1] = rec; qd[1] = 0;
-      for (let qi = 1; qi <= qn; qi++) { dep = qd[qi]; parse(qs[qi]); }
+      qn = 1; qs[1] = rec; qd[1] = 0; qo[1] = { a: null, o: off };
+      for (let qi = 1; qi <= qn; qi++) { dep = qd[qi]; om = sink ? (qo[qi] ?? null) : null; parse(qs[qi]); }
+      off += rec.length + 1;
     }
   }
   return res.join('');
@@ -570,5 +601,33 @@ export function scanText(input, opt = {}) {
 }
 /** The hook's call: the command text and a newline (`printf '%s\n' "$cmd" | scan_cmd`). @param {string} cmd @param {{ fold?: boolean }} [opt] */
 export function scanCommand(cmd, opt = {}) { return scanText(`${cmd}\n`, opt); }
+/**
+ * Where the scanner found here-documents in CMD (A278): the ranges [start, end) of CMD, in JS string offsets, that are a delimiter word (`<<'EOF'`) or a body with its terminator line, wherever they sit (top level, inside `"$(...)"`, a backtick,
+ * `sh -c '...'`). It is the scanner's own reading, the one every guard trusts, so a caller that copies these ranges verbatim sees exactly the here-documents the guards see. Sorted, merged. `steps` counts the scanner's loop turns (the tests bound it by the size).
+ * @param {string} cmd @param {{ fold?: boolean }} [opt] @returns {{ regions: Array<[number, number]>, steps: number }}
+ */
+export function scanRegions(cmd, opt = {}) {
+  /** @type {ScanSink} */ const sink = { regions: [], steps: 0 };
+  scan(toBinary(`${cmd}\n`), opt.fold === true, sink);
+  let regs = sink.regions;
+  if (!/^[\x00-\x7f]*$/.test(cmd)) { // byte offsets of the UTF-8 form to offsets in the string
+    /** @type {number[]} */ const b2c = [];
+    for (let c = 0, b = 0; c < cmd.length;) {
+      const cp = cmd.codePointAt(c) ?? 0; const len = cp > 0xffff ? 2 : 1;
+      const bytes = (cp >= 0xd800 && cp <= 0xdfff) ? 3 : cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+      for (let k = 0; k < bytes; k++) b2c[b + k] = c;
+      b += bytes; c += len;
+      b2c[b] = c;
+    }
+    regs = regs.map(([x, y]) => [b2c[x] ?? cmd.length, b2c[y] ?? cmd.length]);
+  }
+  const sorted = regs.map(([x, y]) => /** @type {[number, number]} */ ([Math.min(x, cmd.length), Math.min(y, cmd.length)])).filter(([x, y]) => y > x).sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  /** @type {Array<[number, number]>} */ const merged = [];
+  for (const r of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1]) { if (r[1] > last[1]) last[1] = r[1]; } else merged.push([r[0], r[1]]);
+  }
+  return { regions: merged, steps: sink.steps };
+}
 /** The records of one kind. @param {ScanResult} result @param {string} kind */
 export function kindOf(result, kind) { return result.records.filter((r) => r.kind === kind); }

@@ -87,7 +87,7 @@ async function check(ctx, cmd) {
     const v = foldWords(cmd, ctx.root);
     if (v !== cmd) {
       // the folded text must read as the same command lines: same line count and the same here-documents (the scanner decides what a here-document is); anything else fails closed
-      const shape = (/** @type {string} */ t) => scanCommand(t).records.filter((r) => r.kind === 'H').map((r) => r.raw.split('\x03').slice(2).join('\x03')).join('\0'); // the bodies (the feeding command's name is what folds)
+      const shape = (/** @type {string} */ t) => scanCommand(t, { fold: true }).records.filter((r) => r.kind === 'H').map((r) => r.raw.split('\x03').slice(2).join('\x03')).join('\0'); // the bodies (the feeding command's name is what folds)
       if (v.split('\n').length !== cmd.split('\n').length || shape(v) !== shape(cmd)) deny('the command changes its here-document structure when its program names are read in one case, so it cannot be judged; write the program names and here-document delimiters in lower case');
       await checkOne(ctx, v);
     }

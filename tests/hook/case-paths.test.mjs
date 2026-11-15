@@ -482,11 +482,11 @@ test('A278 D1 (volume folds case): a here-document delimiter or terminator that 
   });
 });
 
-test('A278 D1: the folded text keeps the line and here-document structure (heredocLines copies delimiters, bodies and terminators as typed; an arithmetic shift and a here-string open nothing)', async () => {
-  const { heredocLines, foldWords } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
+test('A278 D1: the folded text keeps the line and here-document structure (the regions are the scanner\'s: delimiters, bodies and terminators as typed; an arithmetic shift and a here-string open nothing)', async () => {
+  const { foldWords } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
+  const { scanRegions } = await import(pathToFileURL(join(hookDir, 'command-scan.mjs')).href);
   const text = "cat <<Time\nGit push\nTime\nGit status\ncat <<<Git\necho $((1<<2))\nGit x";
-  const lines = heredocLines(text);
-  assert.deepEqual(lines.map((l) => l.body), [false, true, true, false, false, false, false]);
+  assert.deepEqual(scanRegions(text).regions.map(([x, y]) => text.slice(x, y)), ['Time', 'Git push\nTime\n']);
   const out = foldWords(text);
   assert.equal(out, "cat <<Time\nGit push\nTime\ngit status\ncat <<<Git\necho $((1<<2))\ngit x");
   assert.equal(out.split('\n').length, text.split('\n').length);
@@ -515,4 +515,135 @@ test('A278 C1: foldWords folds the protected word and the path below it, never t
   assert.equal(foldWords('sh /Users/Me/Proj/.agents/scripts/Agent.SH status', '/Users/Me/Proj'), 'sh /Users/Me/Proj/.agents/scripts/agent.sh status', 'a name below .agents is folded');
   assert.equal(foldWords('cd /Users/Me/Git/Proj; Git status', '/Users/Me/Git/Proj'), 'cd /Users/Me/Git/Proj; git status');
   assert.equal(foldWords('cat Src/Git/Make /usr/bin/GIT', '/p'), 'cat Src/Git/Make /usr/bin/git');
+});
+
+// ---- A278 round 3: the here-document regions are the scanner's (E1 the commit forms, E2 the lines the old private parser misread, the ordinary table, the pathological input) ----
+
+/** a small seeded generator (mulberry32) @param {number} seed */
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const BODY_WORDS = ['Install', 'Make', 'Source', 'Time', 'Command', 'Script', 'Go', 'Cat', 'Git', 'Node', 'Find', 'Sh', 'Echo', 'Test', 'Fix', 'Add', 'Update', 'Python', 'Curl', 'Env', 'Exec', 'Kill', 'Watch', 'Nice', 'Tee', 'Touch', 'Rm', 'Sed', 'Awk', 'Claude', 'the', 'files', 'and', 'of', 'in', 'new', 'hook'];
+const TRAILERS = ['Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>', 'Claude-Session: https://claude.ai/code/session_01154uSCGRtcwmouJ68QRffm', 'Part of #264', 'Signed-off-by: A B <a@b.c>'];
+/** @param {() => number} r @param {number} n */
+function bodyText(r, n) {
+  const lines = [];
+  for (let l = 0; l < n; l++) lines.push(Array.from({ length: 2 + Math.floor(r() * 7) }, () => BODY_WORDS[Math.floor(r() * BODY_WORDS.length)]).join(' ') + (r() < 0.2 ? ' $HOME `x`' : ''));
+  if (r() < 0.6) lines.push('', TRAILERS[Math.floor(r() * TRAILERS.length)] ?? '');
+  return lines;
+}
+/** One ordinary command that carries a here-document, in the forms an agent writes (A278 E1). @param {() => number} r */
+function ordinary(r) {
+  const body = bodyText(r, 1 + Math.floor(r() * 4));
+  const eol = r() < 0.12 ? '\r\n' : '\n';
+  const D = ['EOF', 'EOF', "'EOF'", '"EOF"', '\\EOF', 'END', 'SQL', "'PY'", 'MSG', 'EOT'][Math.floor(r() * 10)] ?? 'EOF';
+  const w = D.replace(/['"\\]/g, '');
+  const j = (/** @type {string[]} */ ls) => ls.join(eol);
+  const heredoc = (/** @type {string} */ open, /** @type {string} */ tail = '', ls = body, tabs = false) => `${open}${eol}${j(tabs ? ls.map((x) => `\t${x}`) : ls)}${eol}${tabs ? '\t' : ''}${w}${eol}${tail}`;
+  const k = Math.floor(r() * 16);
+  switch (k) {
+    case 0: case 1: return `git commit -m "$(cat <<${D}${eol}${j(body)}${eol}${w}${eol})"`;
+    case 2: return `git add -A && git commit -m "$(cat <<${D}${eol}${j(body)}${eol}${w}${eol})" && git status`;
+    case 3: return heredoc(`git commit -F - <<${D}`);
+    case 4: return heredoc(`cat <<${D} > notes.txt`);
+    case 5: return heredoc(`cat > notes.txt <<${D}`);
+    case 6: return heredoc(`python - <<${D}`);
+    case 7: return heredoc(`sh <<${D}`);
+    case 8: return heredoc(`node - <<${D}`);
+    case 9: return heredoc(`psql <<${D}`);
+    case 10: return `gh pr create --title "T" --body "$(cat <<${D}${eol}${j(body)}${eol}${w}${eol})"`;
+    case 11: return `bash -c 'cat <<${D.replace(/'/g, '')}${eol}${j(body.filter((x) => !x.includes("'")))}${eol}${w}${eol}'`;
+    case 12: return `echo "$(cat <<${D}${eol}${j(body)}${eol}${w}${eol})"`;
+    case 13: return `echo "$(cat <<${D}${eol}${j(body)}${eol}${w}${eol}$(cat <<X${eol}${body[0]}${eol}X${eol}))"`;
+    case 14: return `cat <<A <<B${eol}${j(body)}${eol}A${eol}${j(bodyText(r, 1))}${eol}B${eol}ls`;
+    default: return heredoc(`cat <<-${D}`, 'ls', body, true);
+  }
+}
+
+test('A278 E1 (volume folds case): the commit and PR forms that carry a here-document are judged as on a case-keeping volume (no "changes its here-document structure" for a body with capitals)', async () => {
+  const { foldWords } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
+  const body = 'Install the Make target\nSource Time Command Script Go Cat\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01154uSCGRtcwmouJ68QRffm';
+  const cmds = [
+    `git commit -m "$(cat <<'EOF'\n${body}\nEOF\n)"`,
+    `git commit -m "$(cat <<EOF\n${body}\nEOF\n)"`,
+    `echo "$(cat <<EOF\n${body}\nEOF\n)"`,
+    `gh pr create --title t --body "$(cat <<'EOF'\n${body}\nEOF\n)"`,
+    `bash -c 'cat <<EOF\n${body}\nEOF'`,
+    `git commit -F - <<'EOF'\n${body}\nEOF`,
+  ];
+  for (const c of cmds) assert.equal(foldWords(c).split('\n').length, c.split('\n').length);
+  for (const [role, who, env, projKey] of WHO) {
+    const proj = projKey === 'run' ? dir : noRun;
+    for (const c of cmds) {
+      const keeps = await onVolume(KEEPS(), () => pre('Bash', { command: c }, who, env, proj));
+      const folds = await onVolume(FOLDS(), () => pre('Bash', { command: c }, who, env, proj));
+      assert.ok(!/here-document structure/.test(folds ?? ''), `${role}: ${JSON.stringify(c)}: ${folds}`);
+      assert.equal(folds === null, keeps === null, `${role}: ${JSON.stringify(c)}: keeps ${keeps === null ? 'allowed' : 'refused'} but folds ${folds === null ? 'allowed' : 'refused'} (${folds})`);
+    }
+  }
+});
+
+test('A278 E2 (volume folds case): a line the old private parser took for a here-document opener (a quote spanning lines, an arithmetic shift, a delimiter with a suffix) gives a case variant the verdict of its lower-case twin', async () => {
+  const kill = U('Pki@ll foo');
+  const cases = [
+    `echo "a\nb <<X"\nFind . -maxdepth 0 -exec ${kill} \\;`,
+    `echo "a\nb <<X"\nFind . -execdir Sh -c '${kill}' \\;`,
+    `echo $((1<<n))\nFind . -maxdepth 0 -exec ${kill} \\;`,
+    `echo $((1<<n))\nWatch ${kill}`,
+    `cat <<'X'Y\nx\nX\nFind . -maxdepth 0 -exec ${kill} \\;\nXY\nok`,
+    `cat <<'X'Y\nx\nXY\nFind . -maxdepth 0 -exec ${kill} \\;`,
+    `echo 'a\nb <<X'\nSetsid ${kill}`,
+  ];
+  let denied = 0;
+  await onVolume(FOLDS(), async () => {
+    for (const wh of [WHO[0], WHO[2], WHO[4]]) {
+      const [role, who, env, projKey] = /** @type {typeof WHO[number]} */ (wh);
+      const proj = projKey === 'run' ? dir : noRun;
+      for (const c of cases) {
+        const twin = await pre('Bash', { command: c.toLowerCase() }, who, env, proj);
+        const v = await pre('Bash', { command: c }, who, env, proj);
+        if (twin !== null) denied++;
+        assert.equal(v === null, twin === null, `${role}, ${JSON.stringify(c)}: ${v === null ? 'allowed' : 'refused'} but its lower-case twin is ${twin === null ? 'allowed' : 'refused'}`);
+      }
+    }
+  });
+  assert.ok(denied >= 6, `the table must contain denied twins (it had ${denied})`);
+});
+
+test('A278 E1 ordinary heredoc table (volume folds case): 300 ordinary commands with here-documents, 5 roles: the folded judgement equals the case-keeping one (0 flips), and the folded text keeps the scanner\'s bodies', async () => {
+  const { foldWords } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
+  const { scanCommand } = await import(pathToFileURL(join(hookDir, 'command-scan.mjs')).href);
+  const r = rng(264_003);
+  const cmds = Array.from({ length: 300 }, () => ordinary(r));
+  const shape = (/** @type {string} */ t) => scanCommand(t, { fold: true }).records.filter((x) => x.kind === 'H').map((x) => x.raw.split('\x03').slice(2).join('\x03')).join('\0');
+  let heredocs = 0;
+  for (const c of cmds) {
+    const v = foldWords(c);
+    assert.equal(v.split('\n').length, c.split('\n').length, JSON.stringify(c));
+    assert.equal(shape(v), shape(c), `the bodies changed: ${JSON.stringify(c)}`);
+    if (shape(c) !== '') heredocs++;
+  }
+  assert.ok(heredocs >= 270, `most of the table opens a here-document (${heredocs})`);
+  let flips = 0;
+  for (const [role, who, env, projKey] of WHO.filter((w) => w[0] !== 'lead without a run')) {
+    const proj = projKey === 'run' ? dir : noRun;
+    for (const c of cmds) {
+      const folds = await onVolume(FOLDS(), () => pre('Bash', { command: c }, who, env, proj));
+      if (folds === null) continue; // the second pass only adds refusals, so an allowed verdict here is allowed on the case-keeping volume too; only a refusal needs the comparison
+      const keeps = await onVolume(KEEPS(), () => pre('Bash', { command: c }, who, env, proj));
+      if (keeps === null) { flips++; assert.fail(`${role}: ${JSON.stringify(c)}: keeps allowed, folds refused (${folds})`); }
+    }
+  }
+  assert.equal(flips, 0);
+});
+
+test('A278 E1: a pathological input costs steps in proportion to its size (many openers, many nested substitutions, many shifts), not a quadratic scan', async () => {
+  const { foldWords } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
+  const { scanRegions } = await import(pathToFileURL(join(hookDir, 'command-scan.mjs')).href);
+  const forms = ['Cat <<A '.repeat(25000), 'Cat <<A\nx\nA\n'.repeat(16000), 'echo "$(Cat <<A\nx\nA\n)"\n'.repeat(8000), 'echo $((1<<n)) Git\n'.repeat(10000), '<<'.repeat(100000)];
+  for (const t of forms) {
+    assert.ok(t.length >= 180_000);
+    const { steps, regions } = scanRegions(t, { fold: true });
+    assert.ok(steps <= 2 * t.length, `${steps} scanner steps for ${t.length} characters`);
+    assert.ok(regions.length <= t.length / 2);
+    assert.equal(foldWords(t).length, t.length);
+  }
 });
