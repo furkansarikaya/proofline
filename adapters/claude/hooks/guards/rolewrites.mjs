@@ -16,6 +16,7 @@
 // Limits (a text scanner cannot know a program's arguments; the same for the lead): programs not in WRITE_PROGRAMS and not named below, a
 // writers the scanner also cannot see (`mktemp`, `git init`, `sort -o`, sed `w`), `xargs` and `find -exec` writers, the wrappers busybox, flock, `arch`,
 // `caffeinate`, `xcrun` and other wrappers not in the table, `script -c`, `hash -p`, scripts, /dev/fd/N, csh, the text of an interpreter program.
+import { fold } from '../lib/fscase.mjs';
 import { WRITE_PROGRAMS } from '../command-scan.mjs';
 
 /**
@@ -697,7 +698,7 @@ const WRAPPERS = {
 /** A278: a program name is read in lower case while FOLD is set (the volume folds case: `TOUCH` runs touch). Set by roleActions for the one synchronous scan. */
 let FOLD = false;
 /** @param {string} p */
-const base = (p) => { const k = p.lastIndexOf('/'); const b = k < 0 ? p : p.slice(k + 1); return FOLD ? b.toLowerCase() : b; };
+const base = (p) => { const k = p.lastIndexOf('/'); const b = k < 0 ? p : p.slice(k + 1); return FOLD ? fold(b) : b; };
 
 /**
  * The words of a simple command without its leading reserved words (`if`, `then`, `{`, `!`, ...); a `for`, `select` or `case` header is not a command at all.

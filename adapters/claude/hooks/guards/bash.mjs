@@ -12,6 +12,7 @@ import { delimiter } from 'node:path';
 import { canon, cmdSubst, isWin, safe, winSpell } from '../lib/text.mjs';
 import { isFile, mkdirp, put } from '../lib/fsx.mjs';
 import { Deny, deny, foldCommands, foldWords, grepq, scanFor, SP } from './kit.mjs';
+import { scanCommand } from '../command-scan.mjs';
 import { alwaysProtected, erasable, nrPathOk, relpath, roOperand, roTail, targetOk } from './paths.mjs';
 import { dbGuardCmd } from './db.mjs';
 import { killGuard } from './kill.mjs';
@@ -82,7 +83,15 @@ const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents
 /** On a volume that folds case the command is judged as typed and, in addition, with every program name and protected path word in its one spelling (A278): `Git`, `XARGS`, `Pkill`, `Agent.SH`, `.AGENTS/Local/Dispatch`, `FIND` in a find -exec, an xargs, a shell string, a substitution or a here-document are the programs and folders the lower-case rules know. The second pass can only refuse more. @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */
 async function check(ctx, cmd) {
   await checkOne(ctx, cmd);
-  if (foldCommands(ctx, cmd)) { const v = foldWords(cmd); if (v !== cmd) await checkOne(ctx, v); }
+  if (foldCommands(ctx, cmd)) {
+    const v = foldWords(cmd, ctx.root);
+    if (v !== cmd) {
+      // the folded text must read as the same command lines: same line count and the same here-documents (the scanner decides what a here-document is); anything else fails closed
+      const shape = (/** @type {string} */ t) => scanCommand(t).records.filter((r) => r.kind === 'H').map((r) => r.raw.split('\x03').slice(2).join('\x03')).join('\0'); // the bodies (the feeding command's name is what folds)
+      if (v.split('\n').length !== cmd.split('\n').length || shape(v) !== shape(cmd)) deny('the command changes its here-document structure when its program names are read in one case, so it cannot be judged; write the program names and here-document delimiters in lower case');
+      await checkOne(ctx, v);
+    }
+  }
 }
 
 /** @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd */

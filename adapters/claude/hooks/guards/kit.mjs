@@ -338,22 +338,83 @@ export function foldCommands(ctx, text) {
 const NEEDS_FOLD = /[A-Z\u0080-￿]/;
 
 /** The program names the guards know, in the one spelling their lower-case tests expect (A278). */
-const KNOWN_WORDS = new Set(`git gh find xargs kill pkill killall killall5 skill slay fuser pgrep pidof lsof ps nohup env sudo doas command builtin exec time nice ionice stdbuf timeout setsid caffeinate unbuffer watch flock taskset chrt nsenter strace ltrace runuser su script
+export const KNOWN_WORDS = new Set(`git gh find xargs kill pkill killall killall5 skill slay fuser pgrep pidof lsof ps nohup env sudo doas command builtin exec time nice ionice stdbuf timeout setsid caffeinate unbuffer watch flock taskset chrt nsenter strace ltrace runuser su script
   sh bash dash zsh ksh ash mksh posh yash eval source cd pushd popd npm pnpm yarn bun npx pnpx node nodejs deno python python3 pytest go cargo dotnet mvn gradle jest vitest make rtk
   rm mv cp tee truncate ed ex vi vim view nvim patch gpatch install dd chmod chown chgrp ln shred unlink rmdir touch mkdir sed gsed perl ruby php awk gawk mawk curl wget tar unzip rsync mktemp
+  az bsdtar busybox fd fish glab gtar lua mkfifo mknod nawk osascript proofline pypy pypy3 systemd-run
   cat head tail echo printf sqlite3 sqlite duckdb litecli psql mysql claude codex agent.sh dispatch.sh proofline-core.mjs proofline-core`.split(/\s+/));
 
-/** TEXT with every program name the guards know, in any case or Unicode form, in its lower-case spelling (A278): `Git`, `XARGS`, `Pkill`, `Agent.SH`, `ſh`. A token right after a redirection operator is a file name and stays as typed.
- * It is applied only where the volume folds case, at every position of the text at once (top level, after a wrapper, in find -exec, xargs, sh -c, substitutions, here-documents), and the guards run on it in addition to the text as typed.
- * @param {string} text */
-export function foldWords(text) {
-  // a word that names the control plane or the .agents folder is folded whole, with the path after it (`.AGENTS/Local/Dispatch/x`)
-  text = text.replace(/[^\s;&|(){}<>`'"=$]+/g, (tok) => { const f = fold(tok); return f !== tok && (f.includes('.agents') || f.includes('proofline-core')) ? f : tok; });
-  return text.replace(/[^\s;&|(){}<>`'"\/=$]+/g, (tok, off, str) => {
-    const f = fold(tok);
-    if (f === tok || !KNOWN_WORDS.has(f)) return tok;
-    return /[<>][ \t]*$/.test(str.slice(Math.max(0, off - 8), off)) ? tok : f;
-  });
+/**
+ * The lines of TEXT with the here-document structure of the shell: a line that opens one or more here-documents (`<<WORD`, `<<-WORD`, `<<'WORD'`, `<<\WORD`, outside quotes; `<<<` and an arithmetic
+ * `<<2` are no opener) is followed by body lines up to a line equal to the delimiter (leading tabs ignored for `<<-`). `spans` are the delimiter words of the opener line.
+ * @param {string} text @returns {Array<{ line: string, body: boolean, spans: Array<[number, number]> }>}
+ */
+export function heredocLines(text) {
+  /** @type {Array<{ line: string, body: boolean, spans: Array<[number, number]> }>} */ const out = [];
+  /** @type {Array<{ word: string, dash: boolean }>} */ const pending = [];
+  for (const line of text.split('\n')) {
+    if (pending.length > 0) {
+      const cur = /** @type {{ word: string, dash: boolean }} */ (pending[0]);
+      out.push({ line, body: true, spans: [] });
+      if ((cur.dash ? line.replace(/^\t+/, '') : line) === cur.word) pending.shift();
+      continue;
+    }
+    /** @type {Array<[number, number]>} */ const spans = [];
+    let q = '';
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q !== '') { if (c === q) q = ''; else if (c === '\\' && q === '"') i++; continue; }
+      if (c === "'" || c === '"') { q = c; continue; }
+      if (c === '\\') { i++; continue; }
+      if (c === '#' && (i === 0 || /\s/.test(line[i - 1] ?? ''))) break;
+      if (c === '<' && line[i + 1] === '<') {
+        if (line[i + 2] === '<') { i += 2; continue; }
+        const m = /^(-?)[ \t]*(\\?)(['"]?)([^\s;&|()<>'"\\]+)\3/.exec(line.slice(i + 2));
+        if (m && !/^[0-9]+$/.test(m[4] ?? '')) {
+          const word = m[4] ?? '';
+          const start = i + 2 + m[0].indexOf(word, m[0].length - word.length - m[3].length);
+          spans.push([start, start + word.length]);
+          pending.push({ word, dash: m[1] === '-' });
+        }
+        i += 1 + (m ? m[0].length : 0);
+      }
+    }
+    out.push({ line, body: false, spans });
+  }
+  return out;
+}
+
+/** One token of a command line in its folded spelling (see foldWords). @param {string} tok @param {number} off @param {string} line @param {string} root */
+function foldToken(tok, off, line, root) {
+  const segs = tok.split('/');
+  // a word that names the .agents folder or the control plane is folded with the path below it, never the path above it (an absolute project prefix keeps its case)
+  let changed = false;
+  for (let i = 0; i < segs.length; i++) {
+    const s = /** @type {string} */ (segs[i]);
+    const f = fold(s);
+    if (f === '.agents') { for (let j = i; j < segs.length; j++) { const g = fold(/** @type {string} */ (segs[j])); if (g !== segs[j]) { segs[j] = g; changed = true; } } break; }
+    if (f.startsWith('proofline-core') && f !== s) { segs[i] = f; changed = true; }
+  }
+  if (changed) return segs.join('/');
+  if (/[<>][ \t]*$/.test(line.slice(Math.max(0, off - 8), off))) return tok; // a file name after a redirection operator
+  const last = /** @type {string} */ (segs[segs.length - 1]);
+  const f = fold(last);
+  if (f === last || !KNOWN_WORDS.has(f)) return tok;
+  if (segs.length > 1 && !(tok.startsWith('/') && (root === '' || !tok.startsWith(`${root}/`)))) return tok; // a name inside a relative or project path is a file, not a program
+  segs[segs.length - 1] = f;
+  return segs.join('/');
+}
+
+/** TEXT with every program name the guards know, in any case or Unicode form, in its lower-case spelling (A278): `Git`, `XARGS`, `Pkill`, `Agent.SH`, `ſh`; a word below `.agents` (and the control plane's name) is folded with the path after it,
+ * never the path before it (the project's own absolute path keeps its case), and a program name inside a project or relative path is a file name. A file name after a redirection operator stays as typed.
+ * The text keeps its line structure: here-document delimiters, bodies and terminators are copied as typed (a body fed to a shell is scanned on its own by the scanner). It is applied only where the volume folds case, at every position
+ * of the text at once (top level, after a wrapper, in find -exec, xargs, sh -c, substitutions), and the guards run on it in addition to the text as typed. @param {string} text @param {string} [root] the project root
+ */
+export function foldWords(text, root = '') {
+  return heredocLines(text).map((l) => {
+    if (l.body) return l.line;
+    return l.line.replace(/[^\s;&|(){}<>`'"=$]+/g, (tok, off) => (l.spans.some(([x, y]) => off < y && off + tok.length > x) ? tok : foldToken(tok, off, l.line, root)));
+  }).join('\n');
 }
 
 /** `scanCommand` with the case rule of the volume (A278). @param {import('../lib/context.mjs').HookContext} ctx @param {string} text */

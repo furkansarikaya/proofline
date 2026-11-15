@@ -372,7 +372,7 @@ test('A278 B1 (volume folds case): the evidence-command rule (A194, rtk installe
   });
 });
 
-test('A278 B1 (volume keeps case): Make, Python3, Rscript, JAVA, Git and a cased write program are other programs there and are not refused', async () => {
+test('A278 B1 (volume keeps case; a regression guard for no over-refusal, it passes without the fix): Make, Python3, Rscript, JAVA, Git and a cased write program are other programs there and are not refused', async () => {
   await onVolume(KEEPS(), async () => {
     for (const c of ['Make all', 'Python3 -c 1', 'Rscript x.R', 'JAVA -version', 'Git status', 'Npm test', 'Pytest', U('Pki@ll foo'), 'Touch s.txt']) {
       for (const wi of [0, 2, 4]) {
@@ -411,7 +411,7 @@ test('A278 B2 (git dir folds case): the protected branch is protected in any cas
   });
 });
 
-test('A278 B2 (git dir keeps case): MAIN is another branch there, judged like any task branch (no over-refusal)', async () => {
+test('A278 B2 (git dir keeps case; a regression guard for no over-refusal, it passes without the fix): MAIN is another branch there, judged like any task branch (no over-refusal)', async () => {
   const proj = copyProject(template, base);
   await onVolume(KEEPS(), async () => {
     setHead(proj, 'feat');
@@ -433,4 +433,86 @@ test('A278 B2 real file system: in a throwaway repository the refs of the temp f
     if (folds) assert.ok(v, 'the refs fold case: MAIN is main'); else assert.equal(v, null, 'the refs keep case: MAIN is another branch');
     assert.ok(await pre('Bash', { command: U(`git -C ${repo} branch -f ma@in HEAD`) }, LEAD[1], LEAD[2], proj), 'the exact name is refused');
   });
+});
+
+// ---- A278 round 2: a project path with capitals (C1), here-document shapes (D1), the migrate patterns (D2) ----
+
+test('A278 C1 (volume folds case): in a project whose folder has capital letters the absolute paths of the project keep their verdicts, and the protected variants stay refused (0 allow-to-deny flips against the unfolded judgement)', async () => {
+  const { cpSync } = await import('node:fs');
+  const proj = join(base, 'MyProj');
+  cpSync(template, proj, { recursive: true });
+  const real = realpathSync.native(proj);
+  const cmds = [`ls ${real}/.agents`, `cat ${real}/.agents/runs/LC/TASK.md`, `sh ${real}/.agents/scripts/agent.sh status`, `echo x > ${real}/.agents/runs/LC/scratch/o.txt`, `cd ${real}/.agents`, `find ${real}/.agents -name x`,
+    `sed -n 1p ${real}/.agents/runs/LC/TASK.md`, `cat ${real}/impl.txt`, `echo x > ${real}/impl.txt`];
+  let flips = 0;
+  for (const [role, who, env] of WHO.filter((w) => w[3] === 'run')) {
+    for (const c of cmds) {
+      const unfolded = await onVolume(KEEPS(), () => pre('Bash', { command: c }, who, env, proj));
+      const folded = await onVolume(FOLDS(), () => pre('Bash', { command: c }, who, env, proj));
+      if (unfolded === null && folded !== null) flips++;
+      assert.equal(folded === null, unfolded === null, `${role}: ${c}: unfolded ${unfolded === null ? 'allowed' : 'refused'}, folded ${folded === null ? 'allowed' : 'refused'} (${folded})`);
+    }
+    // the protected variants stay refused through the project path
+    await onVolume(FOLDS(), async () => {
+      assert.ok(await pre('Bash', { command: `echo x > ${real}/.agents/runs/LC/CI-FIX/x` }, who, env, proj), `${role}: shell write to a cased protected folder`);
+      assert.ok(await pre('Write', { file_path: `${real}/.AGENTS/githooks/x`, content: 'x' }, who, env, proj), `${role}: Write to a cased protected folder`);
+    });
+  }
+  assert.equal(flips, 0);
+});
+
+test('A278 D1 (volume folds case): a here-document delimiter or terminator that is a program name does not hide the next line (the folded text keeps the structure of the original)', async () => {
+  const shapes = [(/** @type {string} */ w) => `cat <<${w}\nx\n${w}\n`, (w) => `cat <<\\${w}\nx\n${w}\n`, (w) => `cat <<'${w}'\nx\n${w}\n`, (w) => `cat <<-${w}\n\tx\n\t${w}\n`, (w) => `echo $(cat <<${w}\nx\n${w}\n)\n`];
+  const words = ['Time', 'Git', 'Echo', 'Sh', 'Find', 'EOF'];
+  const inner = [U('find . -maxdepth 0 -exec Pki@ll foo \\;'), U('Set@sid Pki@ll foo'), U('Watch Pki@ll foo'), U("find . -execdir Sh -c 'Pki@ll foo' \\;")];
+  await onVolume(FOLDS(), async () => {
+    for (const [wi, w] of words.entries()) {
+      for (const [si, shape] of shapes.entries()) {
+        for (const wh of [WHO[0], WHO[2], WHO[4]]) {
+          const [role, who, env, projKey] = /** @type {typeof WHO[number]} */ (wh);
+          const proj = projKey === 'run' ? dir : noRun;
+          const c = shape(w) + inner[(wi + si) % inner.length];
+          const twin = await pre('Bash', { command: c.toLowerCase() }, who, env, proj);
+          const v = await pre('Bash', { command: c }, who, env, proj);
+          assert.equal(v === null, twin === null, `${role}, ${JSON.stringify(c)}: ${v === null ? 'allowed' : 'refused'} but its lower-case twin is ${twin === null ? 'allowed' : 'refused'}`);
+          if (si === 0 && wh === WHO[0]) assert.ok(v, `the lead is not refused: ${JSON.stringify(c)}`);
+        }
+      }
+    }
+  });
+});
+
+test('A278 D1: the folded text keeps the line and here-document structure (heredocLines copies delimiters, bodies and terminators as typed; an arithmetic shift and a here-string open nothing)', async () => {
+  const { heredocLines, foldWords } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
+  const text = "cat <<Time\nGit push\nTime\nGit status\ncat <<<Git\necho $((1<<2))\nGit x";
+  const lines = heredocLines(text);
+  assert.deepEqual(lines.map((l) => l.body), [false, true, true, false, false, false, false]);
+  const out = foldWords(text);
+  assert.equal(out, "cat <<Time\nGit push\nTime\ngit status\ncat <<<Git\necho $((1<<2))\ngit x");
+  assert.equal(out.split('\n').length, text.split('\n').length);
+});
+
+test('A278 D2: the configured migration commands are read without case on a folding volume at every position (Manage.py, Prisma, in find -exec and behind a runner), and are other files on a case-keeping one', async () => {
+  const cmds = ['python3 Manage.py migrate', 'npx Prisma migrate reset', 'pnpm exec Prisma migrate reset', 'bunx Prisma migrate reset', 'yarn dlx Prisma migrate reset', 'find . -maxdepth 0 -exec Prisma migrate reset \\;', 'Prisma migrate reset'];
+  for (const wi of [0, 2]) {
+    const [role, who, env] = /** @type {typeof WHO[number]} */ (WHO[wi]);
+    await onVolume(FOLDS(), async () => {
+      for (const c of cmds) {
+        const twin = await pre('Bash', { command: c.toLowerCase() }, who, env, dir);
+        assert.ok(twin, `${role}: the lower-case ${c} is allowed (fix the table)`);
+        assert.ok(await pre('Bash', { command: c }, who, env, dir), `${role}: ${c} escapes the migration guard`);
+      }
+    });
+    await onVolume(KEEPS(), async () => {
+      for (const c of cmds.filter((x) => /Manage|Prisma/.test(x))) assert.equal(await pre('Bash', { command: c }, who, env, dir), null, `${role}: ${c} refused on a case-keeping volume`);
+    });
+  }
+});
+
+test('A278 C1: foldWords folds the protected word and the path below it, never the absolute path above it, and a program name inside a project or relative path is a file name', async () => {
+  const { foldWords } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
+  assert.equal(foldWords('ls /Users/Me/Proj/.AGENTS/Local/x', '/Users/Me/Proj'), 'ls /Users/Me/Proj/.agents/local/x');
+  assert.equal(foldWords('sh /Users/Me/Proj/.agents/scripts/Agent.SH status', '/Users/Me/Proj'), 'sh /Users/Me/Proj/.agents/scripts/agent.sh status', 'a name below .agents is folded');
+  assert.equal(foldWords('cd /Users/Me/Git/Proj; Git status', '/Users/Me/Git/Proj'), 'cd /Users/Me/Git/Proj; git status');
+  assert.equal(foldWords('cat Src/Git/Make /usr/bin/GIT', '/p'), 'cat Src/Git/Make /usr/bin/git');
 });

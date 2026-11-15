@@ -124,7 +124,7 @@ export function insensitiveAt(p) { return current.decide(p) !== false; }
 export function provenInsensitiveAt(p) { return current.decide(p) === true; }
 
 /** The comparison spelling of a name: NFC, then (when CI) upper then lower case, which is the Unicode full case folding as far as JS has it (the long s and the Kelvin sign become `s` and `k`, the sharp s `ss`, the ligature fi `fi`). @param {string} s @param {boolean} [ci] */
-export function fold(s, ci = true) { const n = s.normalize('NFC'); return ci ? n.toUpperCase().toLowerCase().replace(/\u00df/g, 'ss') : n; } // U+1E9E (capital sharp s) lower-cases to U+00DF, which APFS also resolves to `ss`: found by the ground-truth test of tests/hook/fscase.test.mjs
+export function fold(s, ci = true) { const n = s.normalize('NFC'); if (ci && isWin()) return n.replace(/[A-Z]/g, (c) => c.toLowerCase()); /* a Windows host keeps the ASCII-only fold of A271 */ return ci ? n.toUpperCase().toLowerCase().replace(/\u00df/g, 'ss') : n; } // U+1E9E (capital sharp s) lower-cases to U+00DF, which APFS also resolves to `ss`: found by the ground-truth test of tests/hook/fscase.test.mjs
 
 /** @param {string} a @param {string} b @param {boolean} ci */
 export function same(a, b, ci) { return fold(a, ci) === fold(b, ci); }

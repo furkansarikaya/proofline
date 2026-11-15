@@ -88,15 +88,16 @@ test('A278 fold: the sharp s, the long s, the Kelvin sign and the ligatures fold
   assert.equal(fold('ſ', false), 'ſ', 'a volume that keeps case apart leaves the letter alone');
 });
 
-test('A278 ground truth: every code point the real file system resolves to one of the ASCII names has an ASCII fold (the fold covers what the volume folds; on a case-keeping host nothing resolves)', () => {
+test('A278 ground truth (U+0080 to U+FFFF, plane 1 and the tag block; a to z and 0 to 9): every code point the real file system resolves to one of the ASCII names has an ASCII fold (the fold covers what the volume folds; on a case-keeping host nothing resolves)', () => {
   const dir = tempDir('fscase-truth-');
-  const names = ['s', 'k', 'i', 'f', 'l', 't', 'ss', 'fi', 'fl', 'ff', 'ffi', 'ffl', 'st'];
+  const names = [...'abcdefghijklmnopqrstuvwxyz0123456789', 'ss', 'fi', 'fl', 'ff', 'ffi', 'ffl', 'st'];
   /** @type {Map<string, string>} */ const byIno = new Map();
   for (const n of names) { writeFileSync(join(dir, n), ''); byIno.set(String(lstatSync(join(dir, n)).ino), n); }
   let resolved = 0; let covered = 0;
   /** @type {string[]} */ const missed = [];
-  for (let cp = 0x80; cp <= 0xffff; cp++) {
-    if (cp >= 0xd800 && cp <= 0xdfff) continue;
+  // the BMP, plane 1 and the tag block (about 130,000 lookups, about 1 s). A single run over U+0080 to U+10FFFF takes 21 s on APFS and passed (every code point that resolved is covered); planes 2 to 13, 15 and 16 are not enumerated here.
+  for (let cp = 0x80; cp <= 0xe0fff; cp++) {
+    if ((cp >= 0xd800 && cp <= 0xdfff) || (cp > 0x1ffff && cp < 0xe0000)) continue;
     const c = String.fromCodePoint(cp);
     let ino;
     try { ino = String(lstatSync(join(dir, c)).ino); } catch { continue; }
@@ -143,7 +144,7 @@ test('A278 probe: a hard-link pair a/A on a case-keeping volume is not a folding
   assert.equal(realProbe(dir, hard), false, 'the hard-linked pair is ignored; the parent says case-keeping');
 });
 
-test('A278 probe: files with hostile names made in a real folder do not change what the probe says about it', () => {
+test('A278 probe (a regression guard: it passes without the fix on a host whose directory order hides the poison): files with hostile names made in a real folder do not change what the probe says about it', () => {
   const dir = tempDir('fscase-poison-');
   writeFileSync(join(dir, 'Real.txt'), 'x');
   const folds = existsSync(join(dir, 'rEAL.TXT'));
