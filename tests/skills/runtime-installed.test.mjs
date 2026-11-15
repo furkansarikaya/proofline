@@ -11,24 +11,30 @@ import { fileURLToPath } from "node:url";
 // global.json whose SDK is not installed; `dotnet --list-sdks` prints "<version> [<dir>]" per installed SDK.
 const SCRIPT = fileURLToPath(new URL("../../skills/verify-proof/scripts/runtime-versions.mjs", import.meta.url));
 
-const FAKE = (sdks) => `#!/bin/sh
-case "$1" in
-  --version)
-    if [ -f global.json ] && ! grep -q '"version": *"${sdks[0].replace(/\./g, "\\.")}"' global.json; then
-      echo "The command could not be loaded, possibly because:" >&2
-      echo "  * Requested SDK version: $(sed -n 's/.*"version": *"\\([^"]*\\)".*/\\1/p' global.json)" >&2
-      exit 145
-    fi
-    echo '${sdks[0]}' ;;
-  --list-sdks) ${sdks.map((s) => `echo '${s} [/usr/share/dotnet/sdk]'`).join("; ")} ;;
-esac
+// Hermetic: the fake is a node script run by the absolute path of this node (no PATH lookup, no sh/grep/sed), PATH holds ONLY the unique tmp dir,
+// and every DOTNET_* variable is dropped, so no real dotnet of the machine can answer.
+const FAKE = (sdks) => `#!${process.execPath}
+const fs = require("node:fs");
+const [a] = process.argv.slice(2);
+if (a === "--version") {
+  let want = null;
+  try { want = JSON.parse(fs.readFileSync("global.json", "utf8")).sdk.version; } catch {}
+  if (want !== null && want !== ${JSON.stringify(sdks[0])}) {
+    process.stderr.write("The command could not be loaded, possibly because:\\n  * Requested SDK version: " + want + "\\n");
+    process.exit(145);
+  }
+  console.log(${JSON.stringify(sdks[0])});
+} else if (a === "--list-sdks") {
+  for (const v of ${JSON.stringify(sdks)}) console.log(v + " [/usr/share/dotnet/sdk]");
+}
 `;
 const run = (files, sdks) => {
   const bin = tempDir("ri-bin-");
   if (sdks) { writeFileSync(join(bin, "dotnet"), FAKE(sdks)); chmodSync(join(bin, "dotnet"), 0o755); }
   const dir = tempDir("ri-proj-");
   for (const [n, t] of Object.entries(files)) { mkdirSync(join(dir, n, ".."), { recursive: true }); writeFileSync(join(dir, n), t); }
-  const r = spawnSync(process.execPath, [SCRIPT, dir], { encoding: "utf8", env: { ...process.env, PATH: `${bin}:/usr/bin:/bin` } });
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(DOTNET|MSBUILD|NUGET)/i.test(k) && k !== "PATH"));
+  const r = spawnSync(process.execPath, [SCRIPT, dir], { encoding: "utf8", env: { ...env, PATH: bin } });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.split("\n").filter((l) => l.startsWith("runtime: dotnet ")).join("\n");
 };

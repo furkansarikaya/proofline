@@ -141,7 +141,7 @@ test('the toolchain line: a pinned .NET SDK that is not installed is a mismatch 
   const d = sb.copy('ddn'); writeFileSync(`${d}/global.json`, '{ "sdk": { "version": "10.0.100" } }\n');
   const bin = `${sb.T}/fakedotnet`; mkdirSync(bin, { recursive: true });
   writeFileSync(`${bin}/dotnet`, '#!/bin/sh\ncase "$1" in --version) echo "Requested SDK version: 10.0.100" >&2; exit 145 ;; --list-sdks) echo "8.0.134 [/usr/share/dotnet/sdk]" ;; esac\n'); chmodSync(`${bin}/dotnet`, 0o755);
-  const r = sb.pl(d, ['doctor'], { PATH: `${bin}${path.delimiter}${sb.env.PATH}` });
+  const r = sb.pl(d, ['doctor'], { PATH: `${bin}${path.delimiter}${sb.env.PATH}`, DOTNET_ROOT: '', DOTNET_ROOT_X64: '', DOTNET_CLI_HOME: '' }); // the fake is first on PATH and answers both commands; no real dotnet root is consulted
   assert.ok(r.out.includes('WARN toolchain dotnet: 10.0.100 (global.json) is not installed here; installed: 8.0.134, so a green local run may not hold in CI\n'), r.out);
   assert.ok(!r.out.includes('toolchain dotnet: not installed'));
 });
