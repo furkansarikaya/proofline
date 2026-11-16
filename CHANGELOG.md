@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.145 — 2026-11-17
+
+- Tests (A314): the build-only state helper of the T2 port keeps one base commit per state and a `before` hook builds the restored states before the first case; the eco, own-commits, tier and fingerprint cases are split into one test per independent group, so a slow runner no longer reads a 1 to 3 s case as over its budget; same assertions and scenarios, `tests/legacy-port-map.tsv` names the split tests; no product code changed.
+
 ## 0.0.144 — 2026-11-17
 
 - Tests (A313): the end-to-end reply loop reads every open approval request and answers a refreeze (plan plus scope) with the plan approval only, never a scope approval (COMPLEX X-13); the reply allowance is 3 plus 1 per distinct plan hash (cap 12), a repeated stop ends the loop, a stop on a request only the user may answer is reported as `stopped=unanswered-<kind>`, and the CRITICAL question reply is a script with one line per question stop instead of one sentence sent six times.
