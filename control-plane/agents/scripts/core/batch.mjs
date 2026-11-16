@@ -522,6 +522,13 @@ export function batchStatus(ctx) {
     const note = unapprovedNote(ctx, `${rroot(ctx, r.id)}/.agents/runs/${r.id}`, r.id);
     if (note !== '') ctx.out(`${note}\n`);
   }
+  // A290: what the knowledge step of a task proposed instead of asking (the user decides; nothing was written for it)
+  const sug = rows(`${bd}/suggestions.tsv`).filter((f) => f.length >= 2 && f[0] !== '');
+  if (sug.length > 0) {
+    ctx.out('Suggestions to the user (the batch asked nothing and wrote nothing for them):\n');
+    for (const f of sug) ctx.out(`  Suggestion to the user (knowledge): ${f.slice(1).join(' ')}\n`);
+    ctx.out('\n');
+  }
   const fr = frictionShowText(ctx);
   if (fr !== null) ctx.out(fr); else ctx.out('no friction report\n');
   ctx.out('\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n');

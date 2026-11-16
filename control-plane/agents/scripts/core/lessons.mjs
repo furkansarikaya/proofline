@@ -197,6 +197,20 @@ function count(ctx, want) {
   return out;
 }
 
+/**
+ * A290: the lesson promotions worth proposing for a run, decided by the script from the records (a finding kind of this run that repeated in another run and is not promoted yet).
+ * Read-only: nothing is requested, written or promoted. @param {Context} ctx @param {string} id @returns {Array<{ kind: string, runs: number }>}
+ */
+export function lessonProposals(ctx, id) {
+  const mine = new Set(findings(ctx, id).map((f) => f.kind));
+  /** @type {Array<{ kind: string, runs: number }>} */ const out = [];
+  for (const l of count(ctx, '').split('\n')) {
+    const m = /^(.*) \| runs=([0-9]+) \| repeats=[0-9]+ \| propose=yes$/.exec(l);
+    if (m !== null && mine.has(m[1])) out.push({ kind: m[1], runs: Number(m[2]) });
+  }
+  return out;
+}
+
 /** The AGENTS.md with the bullet in its "## Project rules" section (newest first), or in a new one at the end. @param {string} text @param {string} bullet */
 function withRule(text, bullet) {
   if (!/^## Project rules[ \t]*$/m.test(text)) return `${text}\n## Project rules\n\n${bullet}\n`;
