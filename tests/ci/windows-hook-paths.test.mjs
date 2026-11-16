@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FILES, PREFIXES, matchesWindowsHook, windowsHook } from './windows-hook-paths.mjs';
 import { main } from './ci-steps.mjs';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 const repo = path.resolve(import.meta.dirname, '../..');
@@ -19,9 +19,11 @@ function reachedFromHookTests() {
     seen.add(f);
     if (!f.startsWith('tests/')) continue;   // sources are checked against the list, their own imports are not followed
     const text = readFileSync(path.join(repo, f), 'utf8');
-    for (const m of text.matchAll(/(?:from\s+|import\s*\(\s*)'(\.{1,2}\/[^']+\.mjs)'/g)) {
-      const r = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1]));
-      if (existsSync(path.join(repo, r))) queue.push(r);
+    const specs = [/\bfrom\s*['"](\.[^'"]+)['"]/g, /\bimport\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g, /\bimport\s+['"](\.[^'"]+)['"]/g, /\bexport\s+\*\s+from\s*['"](\.[^'"]+)['"]/g];
+    for (const re of specs) for (const m of text.matchAll(re)) {
+      const base = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1]));
+      const r = [base, `${base}.mjs`, `${base}.js`, `${base}.json`, `${base}/index.mjs`, `${base}/index.js`].find((c) => { try { return statSync(path.join(repo, c)).isFile(); } catch { return false; } });
+      if (r) queue.push(r);
     }
   }
   return seen;
