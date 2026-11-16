@@ -3,9 +3,12 @@
 // Interactive run: the user's `scope` approval for the plan (recorded from the prompt hook, consumed by the freeze, named in the ledger row). Night batch: the line is listed, with the
 // sha256 of its exact bytes, in the batch summary the user approved. Every attempt below runs against the real agent.sh; a clearing nobody approved leaves the finding blocking
 // ("exception not approved: stays blocking"); a legitimate one works as before (A276). No waits, no clock reads.
+// Not yet mechanical (said here instead of faked): one user reply that approves a batch and a scope together while exceptions are listed (the shared approve path is covered by A202
+// item 31); a findings.json edited between the submit and a real CODE_DONE (the gate re-run is exercised through the skill validator, pe-14, not through a full run to CODE_DONE); a task
+// file written by an agent is only as honest as the summary the user reads: the lines are shown there, and the user's "approve batch" is what accepts them.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
@@ -28,8 +31,8 @@ const ledger = (/** @type {string} */ d) => rd(d, `${RUN}/LEDGER.log`);
 function unfrozen(section = SECTION(LINE)) { return scaffold({ autonomy: 'manual', cls: 'STANDARD', planExtra: section + TESTS }); }
 /** Freeze (the qa binding is done by A), IMPLEMENTING, RED, GREEN, IMPLEMENTED. @param {string} d */
 function toImplemented(d) { accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze'); must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d); }
-/** The tests review of the run: the skill copy, the report, and a findings.json holding a real wait that the reviewer CLEARS with `quote`. @param {string} d @param {string} quote */
-function tests(d, quote) {
+/** The tests review of the run: the skill copy, the report, and a findings.json holding a real wait that the reviewer CLEARS with `quote`. @param {string} d @param {string} quote @param {((q: string) => object) | undefined} [make] another finding built from the quote */
+function tests(d, quote, make = undefined) {
   mkdirSync(path.join(d, '.agents/skills'), { recursive: true });
   spawnSync('cp', ['-R', path.join(repo, 'skills/test-trust'), path.join(d, '.agents/skills/test-trust')]);
   appendFileSync(path.join(d, '.git/info/exclude'), '.agents/skills/\n');
@@ -37,10 +40,11 @@ function tests(d, quote) {
   wr(d, `${t}/REPORT.md`, 'tests review of the whole current tree\n');
   const finding = { id: 'F001', kind: 'real_wait', verdict: 'cleared', test: { file: 'tests/sleepy.test.js', name: 'waits for the signal' }, evidence: [], source_commit: null,
     observed: { candidate: { file: 'tests/sleepy.test.js', line: 2, pattern: 'set\x54imeout' }, outcome: 'plan_justified', plan_exception: quote } };
+  const used = make === undefined ? finding : make(quote);
   const doc = { mode: 'diff', fingerprint: 'a'.repeat(40), evidence_pruned: true, gate: { result: 'PASS', failing: [] },
     scope: { slug: 'diff', paths: ['.'], commit: 'abc1234', diff: { base: 'abc1234', thresholds: { repeat: 5, mutation_budget: 20, slow_ratio: 3 }, changed_units: ['impl.txt:lookup'], tests: ['lookup returns the stored value'], mutants_run: 1, not_examined: [],
       claims: [{ ac: 'AC-1', test: 'lookup returns the stored value', mutant: 'lookup returns undefined for a stored key without throwing', outcome: 'killed', failure: 'assertion', killed_by: ['lookup returns the stored value'] }] } },
-    findings: [finding] };
+    findings: [used] };
   wr(d, `${t}/findings.json`, `${JSON.stringify(doc, null, 1)}\n`);
 }
 let agentN = 0;
@@ -251,4 +255,61 @@ test('pe-12 (b,c): a stale approval of a previous batch, a summary edited by han
   // the task is not in the batch
   writeFileSync(path.join(dir, '.agents/local/batch/order.tsv'), '');
   blocks(submit(dir), 'a task that is not in the batch');
+});
+
+// ---- round 1: every verdict, every kind, the gate re-run, an unreadable file --------------------------------------------------------------------------
+
+const BLINE = '- budget: "slow one" -- the runner needs a real database here, nothing else measures it';
+/** An over_budget finding for the test "slow one" that quotes `q`. @param {string} verdict */
+const overBudget = (verdict) => (/** @type {string} */ q) => ({ id: 'F001', kind: 'over_budget', verdict, ...(verdict === 'needs_validation' ? { missing: 'not validated' } : {}), test: { file: 'tests/slow.test.js', name: 'slow one' }, evidence: [], source_commit: null,
+  observed: { measured_ms: 900, budget_ms: 100, budget_source: 'plan', outcome: verdict === 'confirmed' ? 'over' : 'plan_justified', plan_exception: q } });
+
+test('pe-13 (c): a finding that quotes an unapproved plan line is refused WHATEVER its verdict (needs_validation, cleared, confirmed) and kind; an approved one still clears (budget)', () => {
+  const d = unfrozen(SECTION(BLINE));
+  accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  for (const v of ['needs_validation', 'cleared', 'confirmed']) { tests(d, BLINE, overBudget(v)); blocks(submit(d), `over_budget ${v} quoting an unapproved line`); }
+  const e = unfrozen(SECTION(BLINE));
+  approveAsUser(e, 'scope', 'approve scope');
+  toImplemented(e);
+  tests(e, BLINE, overBudget('cleared')); clears(submit(e), 'an approved budget line');
+  // the validator itself: needs_validation is no clearing even for an approved line (it does not block, so the gate would pass)
+  tests(e, BLINE, overBudget('needs_validation'));
+  const r = submit(e); refused(r, 'needs_validation with plan_justified', ''); assert.match(r.text, /does not match verdict needs_validation/);
+});
+
+test('pe-14 (c): the gate re-run (the validator of the skill behind the tests review) fails a findings.json that quotes an unapproved line, however it came to say so', () => {
+  const unapproved = unfrozen();
+  accepted(A(unapproved, ['freeze', 'LC'], { bind: true }), 'freeze');
+  must(unapproved, ['handoff', 'LC', 'IMPLEMENTING']); implemented(unapproved);
+  const approvedRun = unfrozen();
+  approveAsUser(approvedRun, 'scope', 'approve scope');
+  toImplemented(approvedRun);
+  /** @param {string} d */
+  const rerun = async (d) => {
+    const { Context } = await import('../../control-plane/agents/scripts/core/context.mjs');
+    const { skillValidator } = await import('../../control-plane/agents/scripts/core/resultutil.mjs');
+    const ctx = new Context({ env: { ...process.env }, cwd: d, stdout: { write() {} }, stderr: { write() {} } }, `${d}/.agents/scripts/agent.sh`);
+    return skillValidator(ctx, 'LC', 'reviewer', 'tests', 'reviews/test-trust/tests/REPORT.md').text;
+  };
+  return (async () => {
+    tests(approvedRun, LINE);
+    assert.match(await rerun(approvedRun), /^PASS /, 'the approved clearing passes the re-run');
+    tests(unapproved, LINE); // written by hand after (or instead of) a submit: nothing checked it
+    assert.match(await rerun(unapproved), /^FAIL /, 'the unapproved clearing passed the gate re-run');
+    tests(unapproved, LINE, overBudget('needs_validation'));
+    assert.match(await rerun(unapproved), /^FAIL /);
+  })();
+});
+
+test('pe-15 (c): fail closed: an unreadable findings.json, or a project without the findings validator, cannot carry an unapproved clearing through submit', () => {
+  const d = unfrozen();
+  accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  tests(d, LINE);
+  rmSync(path.join(d, '.agents/skills/test-trust/scripts/validate-findings.mjs'));
+  const r = submit(d); refused(r, 'no validator', ''); assert.match(r.text, NOT_APPROVED);
+  tests(d, LINE);
+  writeFileSync(path.join(d, RUN, 'reviews/test-trust/tests/findings.json'), '{ "findings": [ ');
+  const u = submit(d); refused(u, 'unparseable findings', ''); assert.match(u.text, NOT_APPROVED);
 });

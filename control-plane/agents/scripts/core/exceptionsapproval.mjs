@@ -9,6 +9,8 @@ import { batchApproval, sharedDirOf } from './approvals.mjs';
 import { exceptionLineHash, exceptionLines, exceptionsHash, exceptionsRow } from './testreview.mjs';
 import { fileText, gateField, ledgerRows, readBytes, textLines } from './records.mjs';
 import { isFile } from './paths.mjs';
+import { bytes } from './config.mjs';
+import { readFileSync } from 'node:fs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -90,4 +92,26 @@ export function unapprovedNote(ctx, dir, id) {
   if (exceptionsRow(ctx, dir) === null) return '';
   const n = unapprovedExceptions(ctx, dir, id).length;
   return n === 0 ? '' : `${id}: exception not approved: stays blocking (${n} line(s) of PLAN.md ## Test exceptions are not in the approved batch summary and have no scope approval of yours)`;
+}
+
+/**
+ * The refusal text when the findings.json at FILE holds a finding that quotes a plan exception (`observed.plan_exception` set, WHATEVER its verdict, kind or outcome: a verdict other than
+ * `confirmed` is non-blocking) that is not byte for byte a line of the plan the user approved; '' when none does. Fail closed: a file that cannot be read or parsed is refused.
+ * Used at `submit` and again at the gate re-run, so a findings.json edited after the submit cannot clear.
+ * @param {Context} ctx @param {string} dir @param {string} id @param {string} file
+ */
+export function unapprovedClearings(ctx, dir, id, file) {
+  let doc;
+  try { doc = JSON.parse(readFileSync(file, 'utf8')); } catch { return 'exception not approved: stays blocking (findings.json cannot be read as JSON, so no line it quotes can be checked)'; }
+  const a = exceptionApproval(ctx, dir, id);
+  /** @type {string[]} */ const bad = [];
+  const list = Array.isArray(doc?.findings) ? doc.findings : [];
+  for (const f of list) {
+    const o = f?.observed;
+    if (o === null || typeof o !== 'object' || !('plan_exception' in o)) continue;
+    const e = o.plan_exception;
+    const line = typeof e === 'string' ? bytes(e) : '';
+    if (!(a.lines.includes(line) && a.approved(line))) bad.push(String(f.id ?? '?'));
+  }
+  return bad.length === 0 ? '' : `exception not approved: stays blocking (${bad.slice(0, 10).join(', ')}). A line of PLAN.md ## Test exceptions is quoted by a finding only when the user approved that exact line (interactive: their scope approval for the plan, recorded at the freeze; night batch: the line is listed in the approved batch summary) and the finding quotes it byte for byte. Report the finding as confirmed (verdict confirmed, outcome over): it blocks the gate`;
 }

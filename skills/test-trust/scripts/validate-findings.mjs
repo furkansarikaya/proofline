@@ -154,11 +154,12 @@ export function checkFast(doc) {
       if (o.outcome === "plan_justified" && (f.kind !== "real_wait" || !o.plan_exception)) errors.push(`${f.id}: plan_justified applies to real_wait only and needs "plan_exception", the exact PLAN ## Test exceptions line`);
     } else if (f.kind === "over_budget") {
       if (o.outcome === "over" && !(o.measured_ms > o.budget_ms)) errors.push(`${f.id}: over_budget with measured_ms ${o.measured_ms} not above budget_ms ${o.budget_ms}`);
-      if ((o.outcome === "over") !== (f.verdict === "confirmed")) errors.push(`${f.id}: outcome ${o.outcome} does not match verdict ${f.verdict} (over is confirmed, plan_justified is cleared)`);
+      // A285: no verdict but confirmed (blocking) or cleared (plan_justified, with its plan line) exists for this kind: needs_validation and any other verdict do not block, so they never stand for a clearing
+      if (!((o.outcome === "over" && f.verdict === "confirmed") || (o.outcome === "plan_justified" && f.verdict === "cleared"))) errors.push(`${f.id}: outcome ${o.outcome} does not match verdict ${f.verdict} (over is confirmed, plan_justified is cleared; nothing else is accepted)`);
       if (o.outcome === "plan_justified" && !o.plan_exception) errors.push(`${f.id}: plan_justified needs "plan_exception", the exact PLAN ## Test exceptions line`);
     } else if (f.kind === "not_measured") {
       if (f.verdict === "cleared" && !o.plan_exception) errors.push(`${f.id}: a not_measured finding is never cleared by the reviewer; only a "- measure: ..." line of PLAN ## Test exceptions that quotes it clears it (give "plan_exception")`);
-      if (f.verdict === "needs_validation") errors.push(`${f.id}: a not_measured finding is confirmed or cleared by the plan, never needs_validation`);
+      if (f.verdict !== "confirmed" && f.verdict !== "cleared") errors.push(`${f.id}: a not_measured finding is confirmed, or cleared by the plan, never ${f.verdict}`);
     }
   }
   return errors;
