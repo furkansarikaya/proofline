@@ -42,6 +42,7 @@ export const variants = [
 /** The listed variants plus every fixtures/<name>/setup.mjs built with only the target directory (proofline-lead: all states). */
 export async function allVariants() {
   const { readdirSync, existsSync } = await import('node:fs');
+  /** @type {Variant[]} */
   const extra = readdirSync(path.join(root, 'fixtures')).sort().filter((n) => existsSync(path.join(root, 'fixtures', n, 'setup.mjs')))
     .map((n) => ({ label: n, script: `${n}/setup.mjs`, args: ['@T'], volatile: n === 'risk-signals' || n === 'proofline-lead' }));
   return [...variants, ...extra].sort((a, b) => (a.label < b.label ? -1 : 1));
