@@ -4,8 +4,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, test } from 'node:test';
-import { helpers, node, restore } from './port-t2-lib.mjs';
+import { before, describe, test } from 'node:test';
+import { helpers, node, restore, warmRestores } from './port-t2-lib.mjs';
+
+before(() => warmRestores(['failed-run', 'tier-critical-data', 'tier-standard']));
 
 /** @param {string} r @param {string} key */
 const pipeVal = (r, key) => { const l = node(r, ['pipeline', 'LC']).out.split('\n').find((x) => x.startsWith(`${key}=`)); return l === undefined ? '' : l.slice(key.length + 1); };
@@ -19,8 +21,8 @@ function recordTier(r, t) {
 }
 
 describe('gates-test: tier', () => {
-  test('sc_tier: docs, code-like markdown, risky path, size, never decreasing', () => {
-    let r = restore('tier-standard'); let h = helpers(r);
+  test('sc_tier: docs, code-like markdown, risky path, never decreasing', () => {
+    const r = restore('tier-standard'); const h = helpers(r);
     assert.equal(tier(r), 'docs');                                   // no change is not a bigger tier
     h.write('notes.md', 'notes\n'); h.write('docs/guide.txt', 'guide\n');
     assert.equal(tier(r), 'docs');                                   // plain documentation
@@ -33,8 +35,9 @@ describe('gates-test: tier', () => {
     assert.equal(tier(r), 'full');                                   // a risky path
     recordTier(r, 'full'); h.rm('package.json');
     assert.equal(tier(r), 'full');
-    // size limits on a fresh run: more than small_max_lines is full
-    r = restore('tier-standard'); h = helpers(r);
+  });
+  test('sc_tier (size limits on a fresh run): more than small_max_lines is full', () => {
+    const r = restore('tier-standard'); const h = helpers(r);
     h.append('impl.txt', 'one\n'); assert.equal(tier(r), 'docs');    // a .txt change is docs
     h.write('app.go', 'package x\n'); assert.equal(tier(r), 'small'); // one small code file
     for (let i = 0; i < 31; i++) h.append('app.go', `line ${i}\n`);
@@ -45,14 +48,21 @@ describe('gates-test: tier', () => {
     assert.equal(pipeVal(r, 'gates'), 'SECRETS REVIEW_PLAN REVIEW_RULES REVIEW_TESTS REVIEW_DATA SECURITY QA VERIFY');
     assert.equal(tier(r), 'full');
   });
-  test('sc_tier_paths: docs only by extension, docs/ code is not docs, dependency manifests are full, the small limits count code files', () => {
+  // the path table is one test per group of rows and the size limits another (the rows are independent: each removes its file): a slow runner reads the cost of ~5 pipeline calls, not of all 16
+  /** @type {Array<[string, Array<[string, string]>]>} */
+  const groups = [
+    ['docs only by extension', [['docs/guide.adoc', 'docs'], ['notes.mdx', 'docs'], ['docs/api.rst', 'docs'], ['guide.txt', 'docs']]],
+    ['docs/ code is not docs', [['docs/conf.py', 'small'], ['docs/build.sh', 'small'], ['docs/index.html', 'small'], ['skills/x/SKILL.md', 'small'], ['AGENTS.md', 'small']]],
+    ['dependency manifests are full', [['requirements.txt', 'full'], ['requirements-dev.txt', 'full'], ['CMakeLists.txt', 'full'], ['docs/requirements.txt', 'full']]],
+  ];
+  for (const [title, rows] of groups) {
+    test(`sc_tier_paths (${title})`, () => {
+      const r = restore('tier-standard'); const h = helpers(r);
+      for (const [p, want] of rows) { h.write(p, 'x = 1\n'); const got = tier(r); h.rm(p); assert.equal(got, want, `tier of ${p}`); }
+    });
+  }
+  test('sc_tier_paths (the small limits count code files)', () => {
     const r = restore('tier-standard'); const h = helpers(r);
-    /** @param {string} p @param {string} want */
-    const t = (p, want) => { h.write(p, 'x = 1\n'); const got = tier(r); h.rm(p); assert.equal(got, want, `tier of ${p}`); };
-    t('docs/guide.adoc', 'docs'); t('notes.mdx', 'docs'); t('docs/api.rst', 'docs'); t('guide.txt', 'docs');
-    t('docs/conf.py', 'small'); t('docs/build.sh', 'small'); t('docs/index.html', 'small');
-    t('requirements.txt', 'full'); t('requirements-dev.txt', 'full'); t('CMakeLists.txt', 'full'); t('docs/requirements.txt', 'full');
-    t('skills/x/SKILL.md', 'small'); t('AGENTS.md', 'small');
     for (let i = 0; i < 10; i++) { h.append('app.go', `line ${i}\n`); h.append('util.go', `line ${i}\n`); }
     assert.equal(tier(r), 'small');                                  // two code files, 20 lines
     h.write('extra.go', 'package x\n');

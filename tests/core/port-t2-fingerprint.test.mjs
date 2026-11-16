@@ -7,8 +7,10 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, test } from 'node:test';
-import { helpers, node, restore } from './port-t2-lib.mjs';
+import { before, describe, test } from 'node:test';
+import { helpers, node, restore, warmRestores } from './port-t2-lib.mjs';
+
+before(() => warmRestores(['codedone', 'codedone-agents', 'codedone-md', 'codedone-named-agent', 'codedone-named-skill', 'failed-run', 'failed-run-md', 'failed-run-md2']));
 
 /** @param {string} r */
 const fp = (r) => { const x = node(r, ['fingerprint', 'LC']); assert.equal(x.code, 0, x.err); return x.out.trim(); };
@@ -162,8 +164,9 @@ describe('a moved base (lifecycle-test, cifix-test freshness)', () => {
     h.write('far.txt', 'x\n'); h.git(['add', 'far.txt']); h.git(['commit', '-q', '-m', 'product']);
     stalePlan(r);
   });
-  test('scenario_base_moved_new_block_file: a new block-only file keeps the plan fresh (also with whitespace around it); text before or after, a second pair, a lone marker, no markers and a symlink stale it with the file named', () => {
-    for (const f of ['AGENTS.md', 'CLAUDE.md']) {
+  // one test per file name: a slow runner then reads the cost of one name (~2.5 s), not of both
+  for (const f of ['AGENTS.md', 'CLAUDE.md']) {
+    test(`scenario_base_moved_new_block_file ${f}: a new block-only file keeps the plan fresh (also with whitespace around it); text before or after, a second pair, a lone marker, no markers and a symlink stale it with the file named`, () => {
       const r = restore('failed-run'); const h = helpers(r); const b0 = h.git(['rev-parse', 'HEAD']).trim();
       const blk = '<!-- proofline:begin -->\nblock v1\n<!-- proofline:end -->\n';
       for (const c of [`# Rules\n\n${blk}`, `${blk}\nmore text\n`, `${blk}${blk}`, '<!-- proofline:begin -->\nblock v1\n', 'just text\n']) {
@@ -178,8 +181,8 @@ describe('a moved base (lifecycle-test, cifix-test freshness)', () => {
       h.git(['reset', '-q', '--hard', b0]); h.git(['clean', '-qfd']);
       h.write(f, `\n\n${blk}\n\n`); h.git(['add', f]); h.git(['commit', '-q', '-m', 'new']);
       const x = node(r, ['freshness', 'LC']); assert.equal(x.code, 0, x.out + x.err); assert.ok((x.out + x.err).includes('base_sha moved'));
-    }
-  });
+    });
+  }
 });
 
 describe('gates-test: fingerprint', () => {
