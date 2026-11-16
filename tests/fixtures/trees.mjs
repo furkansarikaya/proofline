@@ -21,7 +21,11 @@ export const root = path.resolve(import.meta.dirname, '../..');
 export const repoVersion = (r) => JSON.parse(readFileSync(path.join(r, '.claude-plugin', 'plugin.json'), 'utf8')).version;
 export const recorded = path.join(root, 'fixtures', 'TREES.sha256');
 
-/** One builder run: label, script (relative to fixtures/), arguments with `@T` for the target directory; `volatile`: the builder drives the real control plane, whose clock and hash chain are masked in the digest. @typedef {{ label: string, script: string, args: string[], volatile?: boolean }} Variant */
+/** One builder run: label, script (relative to fixtures/), arguments with `@T` for the target directory; `volatile`: the builder drives the real control plane, whose clock and hash chain are masked in the digest.
+ *  `within`: the variant is not built a second time: the variant `of` (built with only the target directory) builds `<target>/<sub>` by running exactly `node setup.mjs <target>/<sub> <sub>`, which is the command line of
+ *  the single-state variant, so the digest of that folder IS the tree the single-state run builds (proofline-lead: five control-plane projects of 5-25 s each, which the all-states run builds anyway; the folder's own
+ *  path is masked as <ROOT> like any target, and the recorded digest of the single state must still match, which is what proves the equivalence on every run).
+ *  @typedef {{ label: string, script: string, args: string[], volatile?: boolean, within?: { of: string, sub: string } }} Variant */
 /** @type {Variant[]} */
 export const variants = [
   ...['go', 'ts'].flatMap((l) => [
@@ -32,7 +36,7 @@ export const variants = [
   ]),
   { label: 'migration-validation no-harness', script: 'migration-validation/setup.mjs', args: ['@T', 'no-harness'] },
   ...['review-rules-fail', 'needs-input', 'destructive-approval', 'security-pass-low', 'fix-rounds-exhausted']
-    .map((st) => ({ label: `proofline-lead ${st}`, script: 'proofline-lead/setup.mjs', args: ['@T', st], volatile: true })),
+    .map((st) => ({ label: `proofline-lead ${st}`, script: 'proofline-lead/setup.mjs', args: ['@T', st], volatile: true, within: { of: 'proofline-lead', sub: st } })),
 ];
 
 /** The listed variants plus every fixtures/<name>/setup.mjs built with only the target directory (proofline-lead: all states). */
@@ -45,18 +49,29 @@ export async function allVariants() {
 
 /** Build one variant in a fresh temporary directory and return its digest. @param {Variant} v @param {string} work */
 export async function build(v, work) {
+  return (await buildTree(v, work)).digest;
+}
+
+/** @param {Variant} v @param {string} work @returns {Promise<{ digest: string, target: string }>} */
+async function buildTree(v, work) {
   const dir = mkdtempSync(path.join(work, 'v-')); const target = path.join(dir, 'tree');
   const r = await runGroup(process.execPath, [path.join(root, 'fixtures', v.script), ...v.args.map((a) => (a === '@T' ? target : a))], { timeoutMs: 600000, env: { ...process.env, ...FIXED_DATE } });
   if (r.status !== 0) throw new Error(`${v.label}: builder failed (${r.status})\n${r.text}`);
-  return digest(target, { volatile: v.volatile, version: repoVersion(root) });
+  return { digest: digest(target, { volatile: v.volatile, version: repoVersion(root) }), target };
 }
 
 /** Build all variants, `jobs` at a time. @param {number} [jobs] @returns {Promise<Map<string, string>>} */
 export async function buildAll(jobs = 4) {
   const work = tempDir('proofline-trees-');
   try {
-    const list = await allVariants(); const out = new Map(); let next = 0;
-    await Promise.all(Array.from({ length: jobs }, async () => { while (next < list.length) { const v = list[next++]; out.set(v.label, await build(v, work)); } }));
+    const all = await allVariants(); const list = all.filter((v) => !v.within).sort((a, b) => Number(b.volatile === true) - Number(a.volatile === true));  const out = new Map(); let next = 0;   // the control-plane builders (volatile) are the long ones: they start first
+    /** @type {Map<string, string>} */ const targets = new Map();
+    await Promise.all(Array.from({ length: jobs }, async () => { while (next < list.length) { const v = list[next++]; const b = await buildTree(v, work); out.set(v.label, b.digest); targets.set(v.label, b.target); } }));
+    for (const v of all) {
+      if (!v.within) continue;
+      const parent = targets.get(v.within.of); if (!parent) throw new Error(`${v.label}: its parent variant ${v.within.of} was not built`);
+      out.set(v.label, digest(path.join(parent, v.within.sub), { volatile: v.volatile, version: repoVersion(root) }));
+    }
     return new Map([...out].sort((a, b) => (a[0] < b[0] ? -1 : 1)));
   } finally { rmSync(work, { recursive: true, force: true }); }
 }
