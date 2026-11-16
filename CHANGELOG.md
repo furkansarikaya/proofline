@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.124 — 2026-11-16
+
+- Test robustness (A286, Part of #266, package 3b): `tests/core/legacy-identity` and `legacy-language` spawn fewer processes (language checks in process, one record call for three spellings, fingerprint read once) so a stalled CI runner no longer pushes them over their budgets (main run 43793647225 went red at 26.6 s / 15.4 s / 38.5 s); warm total 10.4 s -> 4.5 s. No product change.
+
 ## 0.0.123 — 2026-11-16
 
 - Test fix (A285): the A278 round 4 foldCtx test in `tests/hook/case-world.test.mjs` took its only capital letter from the random suffix of the temporary folder and failed in about 4% of runs; its project folder now has a fixed capital.

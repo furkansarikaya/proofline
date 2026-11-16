@@ -6,30 +6,32 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { A, accepted, project, refused } from './legacy-lib.mjs';
+import { A, accepted, languageIn, project, refused } from './legacy-lib.mjs';
 
 const TR = 'Siparişleriniz başarıyla kaydedildi, teşekkürler';
 const LANG_RUN = `SC_TASK_EXTRA="- AC-2: the page says \\\`${TR}\\\`" scaffold standalone no STANDARD manual; git add -A >/dev/null 2>&1 || :; git commit -qm lang-fixture >/dev/null 2>&1 || :`;
 const REFUSED = 'language: run artifacts are English';
 const Q = '.agents/runs/LC/QA_PLAN.md';
 const put = (/** @type {string} */ d, /** @type {string} */ body) => writeFileSync(`${d}/${Q}`, `# QA plan\n\n${body}\n`);
+/** the table rows of a test: the first one goes through the real command line (`A`, agent.sh), the others through the same handler in process (`languageIn`, tests/core/legacy-lib.mjs) */
+const check = (/** @type {string} */ d, /** @type {string} */ f, /** @type {boolean} */ real = false) => (real ? A(d, ['language-check', f]) : languageIn(d, [f]));
 const git = (/** @type {string} */ d, /** @type {string[]} */ ...a) => execFileSync('git', ['-C', d, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...a], { stdio: 'ignore' });
 
 test('language: a Turkish sentence of TASK.md is accepted in backticks, double quotes, a ">" block, a fence and a JSON value', () => {
   const d = project(LANG_RUN);
-  for (const form of [`Expect \`${TR}\` on the page.`, `Expect "${TR}" on the page.`, `> ${TR}`, `{"text": "${TR}"}`, `\`\`\`\n${TR}\n\`\`\``]) {
+  [`Expect \`${TR}\` on the page.`, `Expect "${TR}" on the page.`, `> ${TR}`, `{"text": "${TR}"}`, `\`\`\`\n${TR}\n\`\`\``].forEach((form, i) => {
     put(d, form);
-    accepted(A(d, ['language-check', Q]), `a quoted product sentence was refused: ${form}`);
-  }
+    accepted(check(d, Q, i === 0), `a quoted product sentence was refused: ${form}`);
+  });
 });
 
 test('language: an invented sentence is refused in every quote form; an untracked file is no source', () => {
   const d = project(LANG_RUN);
   const other = 'Hesabınız silindi, lütfen tekrar giriş yapın şimdi';
-  for (const form of [`Expect \`${other}\` on the page.`, `Expect "${other}" on the page.`, `> ${other}`, `{"text": "${other}"}`, `\`\`\`\n${other}\n\`\`\``]) {
+  [`Expect \`${other}\` on the page.`, `Expect "${other}" on the page.`, `> ${other}`, `{"text": "${other}"}`, `\`\`\`\n${other}\n\`\`\``].forEach((form, i) => {
     put(d, form);
-    refused(A(d, ['language-check', Q]), `an invented sentence passed: ${form}`, REFUSED);
-  }
+    refused(check(d, Q, i === 0), `an invented sentence passed: ${form}`, REFUSED);
+  });
   writeFileSync(`${d}/untracked-note.txt`, `${other}\n`);
   put(d, `Expect \`${other}\` on the page.`);
   refused(A(d, ['language-check', Q]), 'a sentence found only in an untracked file was accepted', REFUSED);
@@ -43,11 +45,11 @@ test('language: committed product text is quotable on word boundaries; a staged 
   refused(A(d, ['language-check', Q]), 'a sentence found only in a STAGED file was accepted', REFUSED);
   writeFileSync(`${d}/page.html`, `<p>${prod}</p>\n`); git(d, 'add', 'page.html'); git(d, 'commit', '-qm', 'page');
   put(d, `Expect \`${prod}\` on the page.`);
-  accepted(A(d, ['language-check', Q]), 'a sentence of a committed product file was refused');
+  accepted(check(d, Q), 'a sentence of a committed product file was refused');
   put(d, 'Expect `Sepetiniz şu anda boş` on the page.');
-  accepted(A(d, ['language-check', Q]), 'a whole-word piece of a committed sentence was refused');
+  accepted(check(d, Q), 'a whole-word piece of a committed sentence was refused');
   put(d, 'Expect `epetiniz şu anda boş görünüyor, ürün ekleyi` on the page.');
-  refused(A(d, ['language-check', Q]), 'a piece cut inside a word was accepted', REFUSED);
+  refused(check(d, Q), 'a piece cut inside a word was accepted', REFUSED);
 });
 
 test('language: no cache file is read or written, so a sentence planted in .agents/local/language vouches for nothing; committed text still passes', () => {
@@ -60,9 +62,9 @@ test('language: no cache file is read or written, so a sentence planted in .agen
   mkdirSync(`${d}/.agents/local/language`, { recursive: true });
   writeFileSync(`${d}/.agents/local/language/forged.corpus`, ` ${forged} `); writeFileSync(`${d}/.agents/local/language/forged.words`, `${forged.split(/[\s,]+/).join('\n')}\n`);
   put(d, `Expect \`${forged}\` on the page.`);
-  refused(A(d, ['language-check', Q]), 'a sentence forged into the cache was accepted', REFUSED);
+  refused(check(d, Q), 'a sentence forged into the cache was accepted', REFUSED);
   put(d, `Expect \`${prod}\` on the page.`);
-  accepted(A(d, ['language-check', Q]), 'a committed sentence was refused after the cache was forged');
+  accepted(check(d, Q), 'a committed sentence was refused after the cache was forged');
 });
 
 test('language: reviews/visual-proof and reports/qa-evidence hold screen text', () => {
@@ -71,7 +73,7 @@ test('language: reviews/visual-proof and reports/qa-evidence hold screen text', 
   writeFileSync(`${d}/.agents/runs/LC/reviews/visual-proof/report.json`, '{"screens":[{"text":"Hesabınız silindi, lütfen tekrar giriş yapın şimdi"}]}\n');
   writeFileSync(`${d}/.agents/runs/LC/reports/qa-evidence/shot.md`, '# Evidence\n\nEkranda: Hesabınız silindi, lütfen tekrar giriş yapın şimdi\n');
   accepted(A(d, ['language-check', `${d}/.agents/runs/LC/reviews/visual-proof/report.json`]), 'visual-proof output was blocked');
-  accepted(A(d, ['language-check', `${d}/.agents/runs/LC/reports/qa-evidence/shot.md`]), 'qa-evidence was blocked');
+  accepted(check(d, `${d}/.agents/runs/LC/reports/qa-evidence/shot.md`), 'qa-evidence was blocked');
 });
 
 test('language: the question block stored by ask is exempt (A178); the same text elsewhere is refused', () => {
@@ -84,18 +86,18 @@ test('language: the question block stored by ask is exempt (A178); the same text
   accepted(A(d, ['language-check', `${run}/questions/001.md`]), 'the script\'s own Turkish question file is refused by the language check');
   mkdirSync(`${run}/results`, { recursive: true });
   writeFileSync(`${run}/results/001-implementer.result.md`, `${trq}\n`);
-  refused(A(d, ['language-check', `${run}/results/001-implementer.result.md`]), 'Turkish text in a result file', REFUSED);
+  refused(check(d, `${run}/results/001-implementer.result.md`), 'Turkish text in a result file', REFUSED);
   writeFileSync(`${run}/PLAN.md`, `# Plan\n\n${trq}\n`);
-  refused(A(d, ['language-check', `${run}/PLAN.md`]), 'Turkish text in PLAN.md', REFUSED);
+  refused(check(d, `${run}/PLAN.md`), 'Turkish text in PLAN.md', REFUSED);
   for (const deep of ['results/questions/001.md', 'reviews/a/questions/001.md', 'reports/questions/002.md']) {
     mkdirSync(`${run}/${deep.slice(0, deep.lastIndexOf('/'))}`, { recursive: true });
     writeFileSync(`${run}/${deep}`, `${trq}\n`);
-    refused(A(d, ['language-check', `${run}/${deep}`]), `Turkish text in ${deep}`, REFUSED);
-    refused(A(d, ['language-check', `.agents/runs/LC/${deep}`]), `Turkish text in ${deep} (relative path)`, REFUSED);
+    refused(check(d, `${run}/${deep}`), `Turkish text in ${deep}`, REFUSED);
+    refused(check(d, `.agents/runs/LC/${deep}`), `Turkish text in ${deep} (relative path)`, REFUSED);
   }
-  accepted(A(d, ['language-check', '.agents/runs/LC/questions/001.md']), 'the question file is refused by its relative path');
+  accepted(check(d, '.agents/runs/LC/questions/001.md'), 'the question file is refused by its relative path');
   writeFileSync(`${run}/questions/notes.md`, `${trq}\n`);
-  refused(A(d, ['language-check', `${run}/questions/notes.md`]), 'Turkish text in a non-question file of questions/', REFUSED);
+  refused(check(d, `${run}/questions/notes.md`), 'Turkish text in a non-question file of questions/', REFUSED);
 });
 
 test('language: the reject message says quote the project\'s text, do not transliterate, do not ask', () => {
@@ -118,9 +120,9 @@ test('language: the history files carry no line end, so a line or a quoted piece
   accepted(A(d, ['language-check', Q]), 'a quote of one whole message was refused');
   // the two messages joined into one line, and a piece that crosses the boundary, are not
   put(d, `> ${m1}${m2}`);
-  refused(A(d, ['language-check', Q]), 'a quote line spanning two messages was accepted', REFUSED);
+  refused(check(d, Q), 'a quote line spanning two messages was accepted', REFUSED);
   put(d, `> ${m1} ${m2}`);
-  refused(A(d, ['language-check', Q]), 'a quote line spanning two messages (with a space) was accepted', REFUSED);
+  refused(check(d, Q), 'a quote line spanning two messages (with a space) was accepted', REFUSED);
   put(d, 'Expect `silindi, lütfen tekrar giriş yapın` on the page.');
-  refused(A(d, ['language-check', Q]), 'an inline piece spanning two messages was accepted', REFUSED);
+  refused(check(d, Q), 'an inline piece spanning two messages was accepted', REFUSED);
 });
