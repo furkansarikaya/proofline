@@ -2,7 +2,7 @@
 
 The commands and habits for working with proofline once it is installed: the loop from a request to a merged change, what each command does, and what to check. For anyone who has run `proofline init` and wants the routine; installation is in [existing project](existing-project.md).
 
-Turkish translation (may lag behind this page): [tr/gunluk-kullanim.md](tr/gunluk-kullanim.md).
+Turkish translation (this English page is authoritative; the translation records which version it follows, and CI warns when it lags): [tr/gunluk-kullanim.md](tr/gunluk-kullanim.md).
 
 ## The loop
 
@@ -12,6 +12,8 @@ Turkish translation (may lag behind this page): [tr/gunluk-kullanim.md](tr/gunlu
 4. Answer the questions the lead relays (they are verbatim from the specialist). Approve the plan when asked (COMPLEX and CRITICAL).
 5. When the run reaches CODE_DONE, read the completion report, then `proofline deliver <TASK>` to see what delivery will do.
 6. `/proofline deliver <TASK>` in the agent session shows one summary (commit, push, pull request, merge when green, cleanup). Reply `approve delivery` to approve every step of it; any change before a step stops the chain and asks again.
+
+The words that count as an approval are configurable: `approval.phrases` in the project's `.agents/config.yaml` is a comma-separated list, and the defaults are English (`approve`, `yes`, `lgtm`, ...) and Turkish (`onay`, `evet`, `tamam`, ...). Your reply must contain one of the phrases and the kind word (`plan`, `commit`, `delivery`, ...) and no other words besides fillers such as `the` or `please`; anything else is ambiguous and the question is asked again. `agent.sh config-get approval.phrases` prints the list in force.
 
 Inside Claude Code the same commands are `/proofline status`, `/proofline run <TASK>`, and so on. In a terminal, the commands that need an agent (`task`, `run`, `design`, `review`, `audit`, `debug`, `docs`, `explain`, `wiki`, `knowledge`, `reopen`, `product`, `trace`, `batch`) print the exact instruction for your runtime and do nothing else; the state commands below run on their own. Checked in a scratch project with `proofline 0.0.135`: `task`, `run`, `review` and `design system` printed `This step needs an agent session`, `status`, `queue`, `debt`, `insights`, `clean`, `doctor` and `doctor --scale` ran and exited 0.
 

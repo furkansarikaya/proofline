@@ -106,6 +106,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node tests/ci/clock-read-gate.mjs
 
+      # A stale Turkish guide (docs/guides/tr, header translated-from) only warns; a missing or malformed header, or a header naming a missing English file, fails.
+      - name: translation staleness (docs/guides/tr)
+        run: node tests/ci/translation-stale.mjs
+
       - name: generator tests
         if: needs.changes.outputs.code == 'true'
         run: node tests/ci/test-durations-ci.mjs "static generator" -- "tests/generator/*.test.mjs"
