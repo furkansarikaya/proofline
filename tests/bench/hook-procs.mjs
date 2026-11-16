@@ -17,6 +17,9 @@ import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 const SHIMMED = ['jq', 'awk', 'sed', 'tr', 'cat', 'dirname', 'basename', 'date', 'mkdir', 'find', 'git', 'grep', 'cut', 'shasum', 'sha256sum', 'head', 'tail', 'wc', 'mv', 'rm', 'cp', 'sort', 'mktemp', 'node', 'perl', 'sleep', 'kill', 'ps', 'ls', 'readlink', 'uname', 'id', 'touch', 'chmod', 'ln', 'xargs', 'expr', 'rmdir', 'stat', 'sh', 'tee', 'env', 'od', 'uniq'];
 export const EVENTS = ['pretool-write-impl', 'pretool-read', 'pretool-bash', 'posttool', 'prompt-plain', 'prompt-approval', 'stop', 'session', 'subagent-start', 'subagent-stop'];
 
+/** @param {string} p */
+function readdirSyncOr(p) { try { return readdirSync(p); } catch (e) { return `${/** @type {Error} */ (e).message}`; } }
+
 /** @typedef {{ event: string, execs: number, ms: number, top: string }} Row */
 
 /** A folder of shims that log their name to LOG (with the first 70 characters of the arguments when TRACE) and run the real program. @param {string} dir @param {string} log @param {boolean} trace */
@@ -85,10 +88,10 @@ export function measureAll(o = {}) {
         const approved = () => { try { return readdirSync(path.join(d, '.agents/runs/LC/approvals')).filter((n) => /^\d{3}-plan\.yaml$/.test(n)).length; } catch { return 0; } };
         const before = approved();
         const t0 = performance.now();
-        hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
+        const run = hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
         times.push(Math.round(performance.now() - t0));
         // the approval path is really taken: the measured run recorded the plan approval (a row measured on a hook that ignored the reply would count too few processes)
-        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after)`);
+        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after; hook status ${run.status}, stdout ${JSON.stringify((run.stdout ?? '').slice(0, 600))}, stderr ${JSON.stringify((run.stderr ?? '').slice(0, 600))}, ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/runs/LC/approvals')))})`);
         const used = readFileSync(log, 'utf8').split('\n').filter(Boolean);
         counts.push(used.length);
         if (o.trace) process.stderr.write(`--- ${name}\n${used.join('\n')}\n`);
