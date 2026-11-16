@@ -7,8 +7,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { latin1Buf, wire } from '../../control-plane/agents/scripts/core/wirebytes.mjs';
 import { parseLedgerLine } from '../../control-plane/agents/scripts/core/records.mjs';
-import { A, gfail, gpass, must, project, say, scaffold, toCodeDone } from '../lib/harness.mjs';
-import { implemented } from './gates-s1-lib.mjs';
+import { A } from '../lib/harness.mjs';
+import { codeDoneRun, waiveReadyRun } from './fixtures-lib.mjs';
 
 const RUN = '.agents/runs/LC';
 /** the char above 0xFF whose low byte is `ch` @param {string} ch */
@@ -29,8 +29,7 @@ test('arg-1: wire and latin1Buf turn every char above 0xFF into its UTF-8 bytes 
 });
 
 test('arg-2: knowledge-done not_applicable with a reason built of chars above 0xFF cannot add a line, a key or a section to RUN.yaml (poc6, poc7)', () => {
-  const d = scaffold({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'autonomous' });
-  toCodeDone(d);
+  const d = codeDoneRun();
   const before = rd(d, 'RUN.yaml');
   const reason = `the change touches no documented behaviour at all${up('\n')}evil_section:${up('\n')}  injected: yes${up('\n')}awaiting_input: false ${up('"')} ${up('\\')} ${up('#')} ev${'ť'}nt${up('=')}`;
   A(d, ['knowledge-done', 'LC', 'not_applicable', reason]);
@@ -45,7 +44,7 @@ test('arg-3: property: a char above 0xFF in the knowledge-done reason or the wai
   const reasonText = `a reason of more than twenty characters ${hostile.join('')} seq${up('=')}9 ${up('e')}vent${up('=')}test-exceptions`;
   // knowledge-done
   {
-    const d = scaffold({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'autonomous' }); toCodeDone(d);
+    const d = codeDoneRun();
     const before = walk(d);
     A(d, ['knowledge-done', 'LC', 'not_applicable', reasonText]);
     const after = walk(d);
@@ -55,11 +54,7 @@ test('arg-3: property: a char above 0xFF in the knowledge-done reason or the wai
   }
   // waive
   {
-    const d = project({ topology: 'orchestrated' }); implemented(d, 'orchestrated');
-    must(d, ['secret-scan', 'LC']); gfail(d, 'REVIEW_SMALL', 'impl.txt'); gpass(d, 'QA'); gpass(d, 'VERIFY');
-    must(d, ['request-approval', 'LC', 'waive:REVIEW_SMALL-1']);
-    say(d, 'I approve the waiver of REVIEW_SMALL-1.');
-    must(d, ['approve', 'LC', 'waive:REVIEW_SMALL-1']);
+    const d = waiveReadyRun();
     const before = walk(d);
     A(d, ['waive', 'LC', 'REVIEW_SMALL-1', '--reason', reasonText]);
     const after = walk(d);
@@ -78,7 +73,7 @@ test('arg-3: property: a char above 0xFF in the knowledge-done reason or the wai
 test('arg-4: the generic RUN.yaml writer cannot be given a quote or a line break through a char above 0xFF (setRunValue, direct call)', async () => {
   const { setRunValue } = await import('../../control-plane/agents/scripts/core/lifecycle.mjs');
   const { Context } = await import('../../control-plane/agents/scripts/core/context.mjs');
-  const d = scaffold({ topology: 'orchestrated', cls: 'STANDARD', autonomy: 'autonomous' }); toCodeDone(d);
+  const d = codeDoneRun();
   const ctx = new Context({ env: { ...process.env }, cwd: d, stdout: { write() {} }, stderr: { write() {} } }, `${d}/.agents/scripts/agent.sh`);
   const before = rd(d, 'RUN.yaml');
   setRunValue(ctx, 'LC', 'execution', 'awaiting_input', `x${up('\n')}evil:${up('"')}`);
