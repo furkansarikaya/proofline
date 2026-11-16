@@ -121,8 +121,8 @@
       "suite_ms": 10000
     },
     "tests/ci/fixture-trees.test.mjs": {
-      "test_ms": 110000,
-      "suite_ms": 95000
+      "test_ms": 75000,
+      "suite_ms": 65000
     },
     "tests/ci/gitattributes.test.mjs": {
       "test_ms": 2000,
@@ -334,7 +334,7 @@
     },
     "tests/core/doctor-faults.test.mjs": {
       "test_ms": 120000,
-      "suite_ms": 230000
+      "suite_ms": 190000
     },
     "tests/core/doctor-fresh.test.mjs": {
       "test_ms": 85000,
@@ -366,7 +366,7 @@
     },
     "tests/core/gates-s2.test.mjs": {
       "test_ms": 35000,
-      "suite_ms": 130000
+      "suite_ms": 120000
     },
     "tests/core/gates-s3.test.mjs": {
       "test_ms": 70000,
@@ -425,7 +425,7 @@
       "suite_ms": 15000
     },
     "tests/core/identity.test.mjs": {
-      "test_ms": 5500,
+      "test_ms": 4500,
       "suite_ms": 10000
     },
     "tests/core/inflight-parts.test.mjs": {
@@ -450,15 +450,15 @@
     },
     "tests/core/legacy-approval-grammar.test.mjs": {
       "test_ms": 15000,
-      "suite_ms": 25000
+      "suite_ms": 20000
     },
     "tests/core/legacy-approval-multi.test.mjs": {
       "test_ms": 35000,
       "suite_ms": 35000
     },
     "tests/core/legacy-approvals.test.mjs": {
-      "test_ms": 25000,
-      "suite_ms": 50000
+      "test_ms": 20000,
+      "suite_ms": 40000
     },
     "tests/core/legacy-database.test.mjs": {
       "test_ms": 2500,
@@ -469,8 +469,8 @@
       "suite_ms": 40000
     },
     "tests/core/legacy-fail-closed.test.mjs": {
-      "test_ms": 25000,
-      "suite_ms": 70000
+      "test_ms": 10000,
+      "suite_ms": 45000
     },
     "tests/core/legacy-fingerprint.test.mjs": {
       "test_ms": 7000,
@@ -485,8 +485,8 @@
       "suite_ms": 120000
     },
     "tests/core/legacy-language.test.mjs": {
-      "test_ms": 7000,
-      "suite_ms": 25000
+      "test_ms": 2500,
+      "suite_ms": 10000
     },
     "tests/core/legacy-next-user.test.mjs": {
       "test_ms": 30000,
@@ -509,8 +509,8 @@
       "suite_ms": 10000
     },
     "tests/core/legacy-waivers.test.mjs": {
-      "test_ms": 30000,
-      "suite_ms": 60000
+      "test_ms": 15000,
+      "suite_ms": 30000
     },
     "tests/core/lessons.test.mjs": {
       "test_ms": 10000,
@@ -521,8 +521,8 @@
       "suite_ms": 250000
     },
     "tests/core/lifecycle-s2.test.mjs": {
-      "test_ms": 70000,
-      "suite_ms": 350000
+      "test_ms": 55000,
+      "suite_ms": 260000
     },
     "tests/core/lifecycle-s3.test.mjs": {
       "test_ms": 25000,
@@ -609,20 +609,20 @@
       "suite_ms": 15000
     },
     "tests/core/run4a-classify.test.mjs": {
-      "test_ms": 15000,
-      "suite_ms": 50000
+      "test_ms": 8000,
+      "suite_ms": 40000
     },
     "tests/core/run4a-records.test.mjs": {
       "test_ms": 25000,
       "suite_ms": 110000
     },
     "tests/core/run4b-freeze.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 55000
+      "test_ms": 7000,
+      "suite_ms": 40000
     },
     "tests/core/run4b-lifecycle.test.mjs": {
-      "test_ms": 20000,
-      "suite_ms": 45000
+      "test_ms": 7000,
+      "suite_ms": 35000
     },
     "tests/core/run4c-gates.test.mjs": {
       "test_ms": 15000,
@@ -745,8 +745,8 @@
       "suite_ms": 10000
     },
     "tests/core/user-decisions-1108.test.mjs": {
-      "test_ms": 140000,
-      "suite_ms": 380000
+      "test_ms": 95000,
+      "suite_ms": 240000
     },
     "tests/core/verify-fixes.test.mjs": {
       "test_ms": 10000,
@@ -1174,23 +1174,23 @@
     },
     "tests/skills/visual-proof-design.test.mjs": {
       "test_ms": 160000,
-      "suite_ms": 330000
+      "suite_ms": 190000
     },
     "tests/skills/visual-proof-native.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
     },
     "tests/skills/visual-proof-seo-browser.test.mjs": {
-      "test_ms": 25000,
-      "suite_ms": 40000
+      "test_ms": 20000,
+      "suite_ms": 30000
     },
     "tests/skills/visual-proof-seo.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
     },
     "tests/skills/visual-proof.test.mjs": {
-      "test_ms": 90000,
-      "suite_ms": 85000
+      "test_ms": 45000,
+      "suite_ms": 50000
     }
   }
 }

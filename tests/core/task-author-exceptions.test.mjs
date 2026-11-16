@@ -11,8 +11,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { A, AS, accepted, must, refused, repo, scaffold } from '../lib/harness.mjs';
 import { tempDir } from '../lib/tempdir.mjs';
-import { implemented } from './gates-s4-lib.mjs';
-import { AB, batchApprove, coverProject, fakes, summaryOf } from './batch-lib.mjs';
+import { copyOf, implemented, stage, template } from './legacy-lib.mjs';
+import { AB, PRELUDE, batchApprove, fakes, summaryOf } from './batch-lib.mjs';
 import { parseException, exceptionLines } from '../../control-plane/agents/scripts/core/testreview.mjs';
 import { BATCH_EXC_MAX_LINE, BATCH_EXC_MAX_LINES } from '../../control-plane/agents/scripts/core/exceptionsapproval.mjs';
 import { validate, testExceptionErrors, BATCH_LIMITS } from '../../skills/task-author/scripts/validate-task.mjs';
@@ -147,17 +147,27 @@ function tests(d, quote) {
   wr(d, `${t}/findings.json`, `${JSON.stringify(doc, null, 1)}\n`);
 }
 
-/** A batch of LC whose task file carries `proposed` (appended), planned; approved or not. Then the lead's plan carries `planLine`, frozen and implemented. */
+/**
+ * A batch of LC whose task file carries `proposed` (appended), planned; approved or not. The lead's plan carries `planLine`, frozen and implemented. The state is built ONCE per distinct
+ * prefix in process on top of the one scaffold (stage, A289/A290) and every test copies it: the plan with its line, frozen and IMPLEMENTED comes first (the expensive part, shared by every
+ * proposal), then batch-plan over the task file, then the approval. The batch states are the same files as when batch-plan comes first, apart from the nonce, the times and the hashes
+ * bound to the nonce. What each test ASSERTS (the summary text, the tests review, the submit, a replaced batch-plan, approve-pending, batch-status) still runs against the real agent.sh.
+ */
 function batchRun(/** @type {string} */ proposed, /** @type {string} */ planLine, approve = true) {
   const F = fakes();
-  const dir = coverProject('', 'orchestrated no STANDARD manual');
-  if (proposed !== '') appendFileSync(path.join(dir, '.agents/tasks/LC.md'), proposed);
-  const p = AB(F, dir, ['batch-plan', 'all']);
-  assert.equal(p.status, 0, `batch-plan: ${p.text}`);
-  if (approve) batchApprove(dir);
-  appendFileSync(planOf(dir), SECTION(planLine) + TESTS);
-  accepted(A(dir, ['freeze', 'LC'], { bind: true }), 'freeze');
-  must(dir, ['handoff', 'LC', 'IMPLEMENTING']); implemented(dir);
+  const env = { PROOFLINE_TEST: '1' };
+  const base = template(`${PRELUDE}\ntpl_tasks; scaffold orchestrated no STANDARD manual`);
+  const frozen = stage(base, `ta: plan line ${JSON.stringify(planLine)}, frozen, IMPLEMENTED`, (d) => {
+    appendFileSync(planOf(d), SECTION(planLine) + TESTS);
+    accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
+    must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  });
+  const planned = stage(frozen, `ta: batch-plan with the task section ${JSON.stringify(proposed)}`, (d) => {
+    if (proposed !== '') appendFileSync(path.join(d, '.agents/tasks/LC.md'), proposed);
+    const p = A(d, ['batch-plan', 'all'], { env });
+    assert.equal(p.status, 0, `batch-plan: ${p.text}`);
+  });
+  const dir = copyOf(approve ? stage(planned, 'ta: approve batch', (d) => { batchApprove(d); }) : planned);
   return { F, dir };
 }
 

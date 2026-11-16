@@ -71,6 +71,7 @@ test('tree recovery: a hand-written window of role user, not bound in the ledger
   const w = `${d}/.agents/runs/LC/worker-evidence`;
   const n = ls(w).filter((f) => /^WINDOW-\d+\.yaml$/.test(f)).length + 1;
   writeFileSync(`${w}/WINDOW-${n}.yaml`, `task_id: "LC"\nseq: ${n}\nrole: "user"\ntopology: "orchestrated"\nbefore_sha256: "${before}"\nafter_sha256: "${after}"\nexit_status: "0"\n`);
-  refused(A(d, ['handoff', 'LC', 'CODE_DONE']), 'a hand-written user window attested a change');
+  // IMPLEMENTED is where the windows are checked (CODE_DONE is refused earlier for the changed tree, which would pass with the window guard disabled, A290)
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a hand-written user window attested a change', 'no tree-accept command bound it');
   void readFileSync;
 });
