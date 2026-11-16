@@ -103,8 +103,9 @@ test('S2: a wait after 5000 characters on one line is found; a file over the siz
   assert.deepEqual(JSON.parse(A(big, ['build-record', 'LC', 'scan', '--json'], { role: 'reviewer' }).out).measurement.unscanned, ['tests/big.test.js']);
 });
 
+// PATH only: the Windows resolver finds git through it (an empty environment has no git there)
 /** A context in the project, as the control plane builds it. @param {string} d */
-const ctxOf = (d) => new Context({ env: {}, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+const ctxOf = (d) => new Context({ env: { PATH: process.env.PATH ?? '' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
 
 test('S4d: in a measured run every candidate and every NOT MEASURED fact needs a finding of its own; an unmeasured (older) run is not asked', () => {
   const d = run();
@@ -184,7 +185,8 @@ test('R-b: in a run worktree the union keeps the shipped names under a blinded w
   const mk = (/** @type {string} */ root) => new Context({ env: { PATH: process.env.PATH ?? '' }, cwd: root, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(root, '.agents/scripts/proofline-core.mjs'));
   const names = (/** @type {Context} */ ctx) => scanRules(ecosystemRowsAll(ctx)).find((r) => r.id === 'npm')?.wait ?? [];
   const inRun = mk(wt);
-  assert.equal(inRun.agents, path.join(wt, '.agents'), 'the blinded copy is the one this context reads as the project');
+  // the context spells its folders with `/`, the platform joins with its own separator
+  assert.equal(path.normalize(inRun.agents), path.join(wt, '.agents'), 'the blinded copy is the one this context reads as the project');
   assert.ok(names(inRun).includes('zzzzz') && names(inRun).includes('\x73etTimeout'), `the blinded names AND the shipped ones: ${names(inRun)}`);
   // the installed layout, in the main tree: scripts and definition are one folder, so there is no other copy; the defence there is codeAudit, the eco-pin and the owns guard
   writeFileSync(path.join(main, '.agents/ecosystems.json'), JSON.stringify(def));

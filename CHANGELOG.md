@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.138 — 2026-11-16
+
+- Tests (A300): the windows-core legs are green again; the doctor-fresh .NET test uses a real dotnet.exe on Windows (`nodeTool` in `frontend-lib.mjs`), the test-scan Contexts get a PATH instead of `env: {}`, and the blinded-copy test compares the normalized folder spelling. No product change.
+
 ## 0.0.137 — 2026-11-16
 
 - Tests (A299): the tree-recovery test in `legacy-approval-grammar` now forges a user window and runs the real `handoff IMPLEMENTED` window check; `task-author-exceptions` and `test-exceptions-refreeze` stage their state once per variant (dorm-1 5000-10000 ms to about 2.1 s warm); 17 files in `tests/ci/test-budgets.json` get lower budgets re-derived from three CI runs, none raised.
