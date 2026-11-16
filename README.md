@@ -53,7 +53,7 @@ cd your-project && proofline init
 npx skills add furkansarikaya/proofline --skill <name>
 ```
 
-Supported: macOS, Linux. Windows: core, invariant, hook tests nightly; hook tests also on path/hook PRs. Not tried (denenmedi): Codex sandbox, `.cmd` shims, `taskkill /T`, WSL, Git Bash as a shell, `glab`/`az`/Jira/Linear ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
+Supported: macOS, Linux. Windows: core, invariant, hook tests nightly; hook tests also on hook PRs. Not tried (denenmedi): Codex sandbox, `.cmd` shims, `taskkill /T`, WSL, Git Bash as a shell, `glab`/`az`/Jira/Linear ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
 
 ## Quick start (5 minutes)
 
