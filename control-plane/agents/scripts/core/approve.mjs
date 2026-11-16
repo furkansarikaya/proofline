@@ -5,6 +5,7 @@
 // grammar of approvals.mjs, and each captured message grants a kind at most once. Nothing here lets a model produce an approval: a refusal
 // keeps its text, and an input whose shell behaviour is a shell error text throws BridgeToShell before anything is written.
 import { appendFileSync, mkdirSync, readSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { latin1Buf } from './wirebytes.mjs';
 import { isatty } from 'node:tty';
 import { now, sleepSync } from './clock.mjs';
 import { captureField } from './capture.mjs';
@@ -24,9 +25,10 @@ import * as proc from './proc.mjs';
 import { Context } from './context.mjs';
 import { LockSet, takeCommandLocks } from './lock.mjs';
 import { isDir, isFile } from './paths.mjs';
-import { WS, fileLines, gateField, readBytes, sectionValue, textLines } from './records.mjs';
+import { WS, fileLines, gateField, ledgerRows, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
+import { exceptionLines, exceptionsBaseLines, exceptionsBaseline, exceptionsHash } from './testreview.mjs';
 import { asciiLower } from './shellglob.mjs';
 
 
@@ -370,7 +372,7 @@ function approvalWhy(ctx, kind, bound, turkish) {
       case 'plan': return bs('denetimli özerklik: plan yalnızca kullanıcı onayından sonra dondurulur');
       case 'destructive': return bs('plan yıkıcı bir veri değişikliği bildiriyor');
       case 'single_step': return bs('yıkıcı değişiklikte expand/contract adımı yok: okuma ile silme arasında durulacak nokta olmadan tek adımda çalışır');
-      case 'scope': return bs('değişiklik kapsama yol ekliyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor');
+      case 'scope': return bs('değişiklik kapsama yol ekliyor, PLAN ## Test exceptions bölümünü değiştiriyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor');
       case 'budget': return bs('düzeltme turları bitti: yeniden dondurma yeni bir düzeltme bütçesi başlatır');
       case 'mutation_budget': return bs('test_trust.mutation_budget planın ## Tests ölçütlerinden az: ölçüt başına bir mutant gerekir; bütçe yalnızca bu koşuda artar');
       case 'tree': return bs('çalışma ağacına bu koşunun hiçbir işçi penceresinin kaydetmediği bir değişiklik girdi: onaylarsanız koşu korunur ama bütün kapılar yeni içerik üzerinde yeniden çalışır');
@@ -393,7 +395,7 @@ function approvalWhy(ctx, kind, bound, turkish) {
     case 'plan': return 'supervised autonomy: the plan freezes only after user approval';
     case 'destructive': return 'the plan declares a destructive data change';
     case 'single_step': return 'the destructive change has no expand/contract steps: it would run as one step, with no point to stop between reading and dropping';
-    case 'scope': return 'the amendment adds scope paths, or the task fixes a pre-existing defect nobody asked about';
+    case 'scope': return 'the amendment adds scope paths or changes PLAN ## Test exceptions, or the task fixes a pre-existing defect nobody asked about';
     case 'budget': return 'the fix rounds are exhausted: a refreeze would start a fresh fix budget';
     case 'mutation_budget': return 'test_trust.mutation_budget is below the criteria of PLAN ## Tests (one mutant each is the minimum): the budget is raised for this run only, .agents/config.yaml is not edited';
     case 'tree': return 'a change entered the working tree that no worker window of this run recorded (a failover worker, an editor, another process): you inspect it (agent.sh tree-inspect); accepting it keeps the run, but every gate runs again on the new content; declining leaves the run as it is';
@@ -472,8 +474,8 @@ export function mutationBudget(ctx, id) {
   if (!/^[0-9]+$/.test(o)) o = '0';
   o = o.replace(/^0+/, '');
   if (o === '') o = '0';
-  const led = readBytes(`${runDir(ctx, id)}/LEDGER.log`) ?? '';
-  if (!led.split('\n').some((l) => new RegExp(`event=raise-budget .*test_trust.mutation_budget ${o} for this run`).test(l))) o = '0';
+  const raised = new RegExp(`^test_trust\\.mutation_budget ${o} for this run, approval `);
+  if (!ledgerRows(ctx, runDir(ctx, id), 'raise-budget').some((r) => raised.test(r.detail))) o = '0';
   return BigInt(o) > BigInt(b) ? o : b;
 }
 
@@ -488,7 +490,7 @@ export function requestApproval(ctx, id0, kind0) {
   const n = nextNum(ad);
   const bound = approvalBound(ctx, id, kind);
   const { epoch } = now();
-  writeFileSync(`${ad}/${n}-request-${kindSlug(kind)}.yaml`, Buffer.from(`kind: "${kind}"\nbound: "${bound}"\nrequested_at: ${epoch}\n`, 'latin1'));
+  writeFileSync(`${ad}/${n}-request-${kindSlug(kind)}.yaml`, latin1Buf(`kind: "${kind}"\nbound: "${bound}"\nrequested_at: ${epoch}\n`));
   forgetFiles(ctx);
   ledgerIf(ctx, id, 'approval-request', '-', '-', `${kind} bound=${bound}`);
   const tr = runLanguage(ctx, id) === 'tr';
@@ -509,6 +511,7 @@ export function requestApproval(ctx, id0, kind0) {
       if (wg.length > 1) rows = `   this one decision covers ${wg.length} findings of the same rule in ${wr.slice(wr.lastIndexOf('/') + 1)}: ${wg.slice(0, 3).join(' ')} ... (detail: that gate record and the report); the lead records it with: agent.sh waive ${id} ${kind.slice(6)} --group --reason TEXT`.replace(' ... (detail', '... (detail');
     }
   }
+  if (kind === 'scope' && plan !== null) rows = scopeExceptionRows(ctx, id, plan);
   if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}`;
   let out = '';
   if (kind === 'batch') out += `QUESTIONS:\n1. Approve the night batch shown above (batch ${bound.slice(0, 12)})?\n`;
@@ -529,6 +532,46 @@ export function requestApproval(ctx, id0, kind0) {
   if (sy.includes(',')) out += `   several open requests: one message answers them, one phrase per comma or line: ${sy}\n`;
   ctx.out(out);
   return 0;
+}
+
+const EXC_SHOW_LINE = 1000; const EXC_SHOW_LINES = 50;
+/**
+ * A line shown in a request (A284): every character that is not a plain visible one is written escaped, so no difference between two lines can be invisible: control and format
+ * characters, line and paragraph separators and EVERY space-like character except the plain space (U+00A0, U+2003 ...) as \u{..}; when the bytes are not valid UTF-8 each byte
+ * from 0x80 up is written \xNN (never the replacement character, which would show two different lines alike). @param {string} line a byte string
+ */
+function shown(line) {
+  const raw = Buffer.from(line, 'latin1');
+  let text; let utf8 = true;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch { text = line; utf8 = false; }
+  // characters with no visible glyph, and the backslash (written \\ so a literal "\u{a0}" cannot pass for a real U+00A0)
+  const NOGLYPH = /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+  const BAD = utf8 ? /[\\\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu : /[\\\x80-\xff\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+  const esc = (/** @type {string} */ c) => (c === ' ' ? c : c === '\\' ? '\\\\' : (!utf8 && c.charCodeAt(0) >= 0x80 ? `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}` : `\\u{${c.codePointAt(0)?.toString(16)}}`));
+  const sep = /[ \t](?:--|\u2014)[ \t]([^]*)$/.exec(text);
+  const hollow = sep !== null && sep[1].replace(NOGLYPH, '') === '';
+  const out = text.replace(BAD, esc);
+  return bs(out + (hollow ? ' [reason has no visible text]' : ''));
+}
+
+/**
+ * The rows of a `scope` request about PLAN `## Test exceptions` (A284): what the amendment removes or changes against the frozen baseline, what it adds, and for a removed
+ * section an explicit line. A line over the bound is refused (the request would not show it in full); the baseline text is display only (the ledger hash decides).
+ * @param {Context} ctx @param {string} id @param {string} plan
+ */
+function scopeExceptionRows(ctx, id, plan) {
+  const now_ = exceptionLines(plan);
+  if (now_.length > EXC_SHOW_LINES || now_.some((x) => x.length > EXC_SHOW_LINE)) fail(`PLAN ## Test exceptions has more than ${EXC_SHOW_LINES} lines or a line longer than ${EXC_SHOW_LINE} characters: the request could not show it in full, so none is made; shorten the section`);
+  const base = exceptionsBaseLines(ctx, runDir(ctx, id));
+  const list = (/** @type {string[]} */ l) => l.map((x) => `     ${shown(x)}`).join('\n');
+  if (base === null) return now_.length === 0 ? '' : `   PLAN ## Test exceptions (the frozen baseline text is not available, so the whole section is shown; a change of it after the freeze needs this approval):\n${list(now_)}`;
+  const removed = base.filter((x) => !now_.includes(x)); const added = now_.filter((x) => !base.includes(x));
+  if (removed.length === 0 && added.length === 0) return exceptionsHash(plan) === exceptionsBaseline(ctx, runDir(ctx, id)) ? '' : `   PLAN ## Test exceptions changes (order or duplicate count changed; a change of this section after the freeze needs this approval): the whole new section:\n${list(now_)}`;
+  if (now_.length === 0) return `   PLAN ## Test exceptions: section removed (was):\n${list(base)}`;
+  let out = '   PLAN ## Test exceptions changes (a change of this section after the freeze needs this approval):';
+  if (removed.length > 0) out += `\n   removed or changed (frozen baseline):\n${list(removed)}`;
+  if (added.length > 0) out += `\n   added or new text:\n${list(added)}`;
+  return out;
 }
 
 /** A byte string that is already UTF-8 bytes, taken back to text so that bs() can convert the whole template once. @param {string} s */
@@ -646,7 +689,7 @@ export function approveOne(ctx, id, kind0, st) {
   // A171: the user's reply, verbatim, as a quote block (the language check exempts it; the first 20 lines)
   body += `reply: |\n${quoteBlock(text)}`;
   if (ctx.cancelled()) fail('approval refused: the prompt hook stopped waiting for this step (its time budget ended)');
-  writeFileSync(file, Buffer.from(body, 'latin1'));
+  writeFileSync(file, latin1Buf(body));
   forgetFiles(ctx);
   const tok = id === '-' ? '' : `approvals/${n}-${slug}.yaml@${sha256File(file)} `;
   ledgerIf(ctx, id, 'approval', '-', '-', `${tok}${kind} source=${src} answered_by=user bound=${bound}`);
@@ -697,7 +740,7 @@ export function consumeApproval(ctx, id, file) {
   const lines = text === '' ? [] : text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
   const out = lines.map((l) => (l.startsWith('consumed:') ? 'consumed: "true"' : l));
-  writeFileSync(`${file}.tmp`, Buffer.from(`${out.map((l) => `${l}\n`).join('')}consumed_at: ${now().epoch}\n`, 'latin1'));
+  writeFileSync(`${file}.tmp`, latin1Buf(`${out.map((l) => `${l}\n`).join('')}consumed_at: ${now().epoch}\n`));
   renameSync(`${file}.tmp`, file);
   forgetFiles(ctx);
   ledgerIf(ctx, id, 'approval-consumed', '-', '-', `${file.slice(file.lastIndexOf('/') + 1)} ${gateField(ctx, file, 'kind')}`);

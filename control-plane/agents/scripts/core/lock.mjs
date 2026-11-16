@@ -13,6 +13,7 @@ import { fail } from './errors.mjs';
 import { sha256 } from './hash.mjs';
 import { runSections } from './records.mjs';
 import { tmScaled } from './timeouts.mjs';
+import { latin1Buf, wire } from './wirebytes.mjs';
 
 export { runSections };
 
@@ -75,9 +76,19 @@ export function ledgerAppend(runDir, role, event, from, to, detail) {
     prev = sha256(last);
   }
   const t = now();
-  const one = detail.replace(/[\n\t]/g, ' ');
-  const line = `seq=${seq} prev=${prev} event=${event} role=${role} from=${from || '-'} to=${to || '-'} digest=${lifecycleDigest(rows)} ts=${t.iso} epoch=${t.epoch} detail=${one}\n`;
-  try { appendFileSync(file, Buffer.from(line, 'latin1')); } catch { fail(`could not append to lifecycle ledger: ${file}`); }
+  // A284: free text in `detail` (a reason, an evidence note) must not carry the row grammar: many readers look for ` event=X ` inside a line, so a key of the row that the readers search for followed by `=` is
+  // written with `:` instead (`event=` -> `event:`); `from=` and `to=` stay (ledger notes use them, e.g. `failover from=claude to=codex`, and no decision reads them from free text); the readers see only the keys this function wrote
+  // review round 2: any occurrence of a key (no word boundary: `xevent=`, any case, blanks before the `=`) is escaped (`ts` only after a non-word character: `tests=1` is a detail the control plane writes itself); `from=` and `to=` of free text stay (see above)
+  // review round 3: the line is converted to the exact bytes that are written (a char above 0xFF becomes its UTF-8 bytes, one char per byte: latin1 would keep only the low byte, so `\u0165` would become `e` and `\u010A` a newline AFTER the escape)
+  // and the escape and the neutralisation run on that final byte string
+  // the fields the callers pass (event, role, states) are one word each: a blank, a control character or `=` in one would open a second field
+  const word = (/** @type {string} */ x) => (x === '' ? '-' : wire(x).replace(/[\s=]/g, '_'));
+  const line = `seq=${seq} prev=${prev} event=${word(event)} role=${word(role)} from=${word(from)} to=${word(to)} digest=${lifecycleDigest(rows)} ts=${t.iso} epoch=${t.epoch} detail=${detail}`;
+  const bytesOf = wire(line);
+  const head = bytesOf.slice(0, bytesOf.indexOf(' detail=') + 8);
+  const free = bytesOf.slice(head.length).replace(/[\n\t\r]/g, ' ').replace(/(seq|prev|event|role|digest|epoch|detail)[ ]*=/gi, '$1:').replace(/(?<![a-z0-9_])(ts)[ ]*=/gi, '$1:');
+  const final = `${head}${free}\n`;
+  try { appendFileSync(file, latin1Buf(final)); } catch { fail(`could not append to lifecycle ledger: ${file}`); }
 }
 
 /** `gates_enforced ID`: RUN.yaml has the key lifecycle_gates.required. @param {string} runDir */

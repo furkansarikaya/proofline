@@ -22,6 +22,7 @@ import * as proc from './proc.mjs';
 import { commandV } from './runtimedetect.mjs';
 import { isAbsoluteInput } from './pathin.mjs';
 import { applyHookTimeouts } from './scale.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** A JS string (a path, a version) as a byte string. @param {string} s */
 export const u = (s) => bytes(s);
@@ -159,7 +160,7 @@ class Install {
     const dst = `${this.root}/${rel}`;
     try {
       mkdirSync(path.dirname(dst), { recursive: true });
-      writeFileSync(dst, typeof data === 'string' ? Buffer.from(data, 'latin1') : data, mode === undefined ? undefined : { mode });
+      writeFileSync(dst, typeof data === 'string' ? latin1Buf(data) : data, mode === undefined ? undefined : { mode });
     } catch (e) { this.plog('warn', `${rel} not written (${/** @type {Error} */ (e).message})`); return false; }
     return true;
   }
@@ -417,9 +418,9 @@ class Install {
     const w = `${this.stage}/config.yaml`;
     const exists = existsSync(cur);
     const curText = exists ? readFileSync(cur, 'latin1') : '';
-    writeFileSync(w, exists ? curText : readFileSync(def, 'latin1'), 'latin1');
+    writeFileSync(w, latin1Buf(exists ? curText : readFileSync(def, 'latin1')));
     if (p.mode === 'upgrade') {
-      writeFileSync(w, cfgMergeNew(curText, readFileSync(def, 'latin1')), 'latin1');
+      writeFileSync(w, latin1Buf(cfgMergeNew(curText, readFileSync(def, 'latin1'))));
       // A202 item 29: the shipped time limits grew (measured durations plus a wide margin, docs/concepts/timeouts.md). From a project older than 0.0.39 a
       // limit that still holds the earlier shipped value moves to the new one; a value you changed is never touched, and so is none of the other keys.
       const oldV = Config.load(cur).get('proofline_version', '0.0.0');

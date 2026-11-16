@@ -17,6 +17,7 @@ import { runDir } from './runs.mjs';
 import { tierEffective } from './signals.mjs';
 import { freshness, verifyScope } from './commands/verify.mjs';
 import { nextGateSeq } from './reopen.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -92,7 +93,7 @@ export function writeGate(ctx, g) {
     scope = [...set].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',');
   }
   const manifest = `${gd}/${name}.manifest`;
-  try { writeFileSync(manifest, patchManifest(ctx, dir).map((r) => `${r}\n`).join(''), 'latin1'); } catch { fail('could not write gate manifest'); }
+  try { writeFileSync(manifest, latin1Buf(patchManifest(ctx, dir).map((r) => `${r}\n`).join(''))); } catch { fail('could not write gate manifest'); }
   const sv = (/** @type {string} */ s, /** @type {string} */ k) => sectionValue(ctx, dir, s, k);
   const n = now();
   const patch = taskPatchFingerprint(ctx, dir);
@@ -117,7 +118,7 @@ export function writeGate(ctx, g) {
   for (const row of g.findings) t += `finding: ${row}\n`;
   t += `timestamp: "${n.iso}"\nepoch: ${n.epoch}\n`;
   const file = `${gd}/${name}.yaml`;
-  try { writeFileSync(file, t, 'latin1'); } catch { fail('could not write gate record'); }
+  try { writeFileSync(file, latin1Buf(t)); } catch { fail('could not write gate record'); }
   let size = 0;
   try { size = statSync(file).size; } catch { /* missing */ }
   if (size === 0) { rmSync(file, { force: true }); rmSync(manifest, { force: true }); fail('gate record was not written'); }

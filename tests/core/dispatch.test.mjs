@@ -65,7 +65,7 @@ describe('what a dispatch records', () => {
     fx.reset();
     assert.equal((await fx.dispatch(['LC', 'reviewer', '--focus', 'rules'])).code, 0);
     assert.match(readLoc(fx, 'claude.argv'), /^--permission-mode\nbypassPermissions$/m);
-    assert.match(ledger(fx), /dispatch claude_permission_mode=bypassPermissions role=reviewer/);
+    assert.match(ledger(fx), /dispatch claude_permission_mode=bypassPermissions worker=reviewer/);
     fx.setConfig({ extra: { claude_permission_mode: 'acceptEdits' } });
     fx.reset();
     assert.equal((await fx.dispatch(['LC', 'reviewer', '--focus', 'rules'])).code, 0);
@@ -164,7 +164,7 @@ describe('the confinement checks (a step changes neither .git/config nor HEAD, a
     assert.equal(r.code, 6);
     assert.match(r.out, /git\/config/);
     assert.doesNotMatch(r.out, /^submitted/m);
-    assert.match(ledger(fx), /policy_violation role=reviewer/);
+    assert.match(ledger(fx), /policy_violation worker=reviewer/);
     spawnGit(fx, ['config', '--unset', 'core.hooksPath']);
   });
   test('a step that moves HEAD is BLOCKED even for the implementer, whose window was closed first', async () => {
@@ -181,7 +181,7 @@ describe('the confinement checks (a step changes neither .git/config nor HEAD, a
     const r = await fx.dispatch(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'edit' });
     assert.equal(r.code, 6);
     assert.match(r.out, /policy_violation/);
-    assert.match(ledger(fx), /policy_violation role=reviewer runtime=codex product tree changed by a role that does not write code: product\.txt/);
+    assert.match(ledger(fx), /policy_violation worker=reviewer runtime=codex product tree changed by a role that does not write code: product\.txt/);
     assert.match(readFileSync(path.join(fx.dir, 'product.txt'), 'utf8'), /tampered/);
     writeFileSync(path.join(fx.dir, 'product.txt'), 'original\n');
   });
@@ -197,7 +197,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     const r = await fx.dispatch(['LC', 'reviewer'], { FAKE_CLAUDE: 'limit' });
     assert.equal(r.code, 0, r.err);
     assert.equal(readLoc(fx, 'codex.role').trim(), 'reviewer');
-    assert.match(ledger(fx), /failover from=claude to=codex reason=limit role=reviewer/);
+    assert.match(ledger(fx), /failover from=claude to=codex reason=limit worker=reviewer/);
     assert.doesNotMatch(readLoc(fx, 'codex.argv'), /worker-evidence/);
     const decisions = readdirSync(path.join(fx.dir, '.agents/runs/LC/decisions')).sort();
     const last = readFileSync(path.join(fx.dir, '.agents/runs/LC/decisions', decisions[decisions.length - 1]), 'utf8');
@@ -266,7 +266,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     assert.ok(q.length >= 1);
     const text = readFileSync(path.join(fx.dir, '.agents/runs/LC/questions', q[q.length - 1]), 'utf8');
     assert.match(text, /1\. Runtime claude could not run reviewer/); assert.match(text, /options: yes \| no/);
-    assert.match(ledger(fx), /dispatch needs_input role=reviewer runtime=claude reason=limit/);
+    assert.match(ledger(fx), /dispatch needs_input worker=reviewer runtime=claude reason=limit/);
     fx.setConfig();
   });
   fakeTest('failover off: BLOCKED; a floor the other runtime cannot meet (security_reviewer on a two-model ladder): BLOCKED, never downgraded', async () => {
@@ -304,7 +304,7 @@ describe('failover (D7), network retry (A200) and the answers a dispatch gives',
     const r = await fx.dispatch(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'nosubmit' });
     assert.equal(r.code, 6); assert.match(r.out, /no valid submission/);
     assert.equal(n() - before, 2);
-    assert.match(ledger(fx), /dispatch resubmit role=reviewer/);
+    assert.match(ledger(fx), /dispatch resubmit worker=reviewer/);
     const rej = await fx.dispatch(['LC', 'reviewer', '--runtime', 'codex'], { FAKE_CODEX: 'rejected' });
     assert.equal(rej.code, 6); assert.match(rej.out, /last rejection: --confidence must be high/);
   });
@@ -399,7 +399,7 @@ describe('the time limit (A171, A202 item 29)', () => {
     const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'sleep' });
     assert.equal(r.code, 124);
     assert.match(fx.runFile('worker-evidence/WINDOW-1.yaml'), /exit_status: "124"/);
-    assert.match(ledger(fx), /dispatch timeout role=implementer runtime=codex after=1s/);
+    assert.match(ledger(fx), /dispatch timeout worker=implementer runtime=codex after=1s/);
     const note = fx.runFile('dispatch/RESUME-implementer.md');
     assert.match(note, /^timed_out_at: \S+ \(after 1s, attempt 1, runtime codex\)$/m);
     assert.match(note, /partial-work\.txt/);

@@ -31,13 +31,14 @@ import { cleanToolEnv, detectPlatform, linkText, resolveGit, parseJson, resolveT
 import * as proc from './proc.mjs';
 import { runTaskAdapter } from './adapters/index.mjs';
 import { askQuestion, ledgerToken } from './questions.mjs';
-import { fileLines, fileText, gateField, gatesEnforced, scopeMappings, sectionValue, textLines } from './records.mjs';
+import { fileLines, fileText, gateField, gatesEnforced, ledgerRows, scopeMappings, sectionValue, textLines } from './records.mjs';
 import { amendRun } from './reopen.mjs';
 import { hooksOff } from './hooksoff.mjs';
 import { MAX_TREES, hgit, populatedGitlinks, repoDrivers } from './hgit.mjs';
 import { cleanupRun, sbBlockOnly } from './runend.mjs';
 import { ciChainOk, ciFixRecs, commitMessageIsApproved, lifecycleFolderStatus, requireRun, runDir } from './runs.mjs';
 import { statusBlockBody, statusBlockUpdate } from './statusblock.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -364,10 +365,10 @@ export function taskSourceDone(ctx, id) {
   if (endsNl) lines.pop();
   const moved = `${lines.map((l) => (l.startsWith('**Status:**') ? '**Status:** done' : l)).join('\n')}${endsNl ? '\n' : ''}`;
   const tmp = `${mkdtempSync(path.join(tmpdir(), 'agent-task-done.'))}/t`;
-  writeFileSync(tmp, moved, 'latin1');
+  writeFileSync(tmp, latin1Buf(moved));
   if (taskSourceContractHash(ctx, id, tmp) !== sectionValue(ctx, dir, 'task_source', 'revision')) { rmSync(path.dirname(tmp), { recursive: true, force: true }); fail('refusing to move the task file: the frozen task contract would change'); }
   mkdirSync(`${ctx.root}/${root}/done`, { recursive: true });
-  writeFileSync(src, moved, 'latin1');
+  writeFileSync(src, latin1Buf(moved));
   rmSync(path.dirname(tmp), { recursive: true, force: true });
   renameSync(src, `${ctx.root}/${next}`);
   setRunValue(ctx, id, 'task_source', 'path', next);
@@ -440,7 +441,7 @@ export function deliverPlan(ctx, id, rest) {
   try { kn = knowledgeOwnedPaths(ctx, id).join('\n'); } catch (e) { if (!(e instanceof ProoflineError)) throw e; }
   mkdirSync(ddir, { recursive: true });
   rmSync(`${ddir}/PR`, { force: true });
-  writeFileSync(`${ddir}/COMMIT_MSG`, fullMessage, 'latin1');
+  writeFileSync(`${ddir}/COMMIT_MSG`, latin1Buf(fullMessage));
   copyFileSync(`${dir}/COMPLETION_REPORT.md`, `${ddir}/PR_BODY.md`);
   const noCi = ciAbsent(ctx);
   // A180: no CI here -> the description says the verification was local (the merge step makes it true before merging)
@@ -494,7 +495,7 @@ export function deliverPlan(ctx, id, rest) {
   }
   s += '\nseparate decisions (NOT covered by "approve delivery"):\n';
   s += rules !== '' ? `${rules}  each is promoted only with its own reply ("approve rule <ID>"; the summary is then prepared again); without it delivery goes on without the promotion\n` : '  none\n';
-  writeFileSync(`${ddir}/SUMMARY.md`, s, 'latin1');
+  writeFileSync(`${ddir}/SUMMARY.md`, latin1Buf(s));
   const h = hashFile(`${ddir}/SUMMARY.md`);
   ledgerIf(ctx, id, 'commit-trailer', '-', '-', `source=${trailer.source} lines=${trailer.lines.length} message_sha256=${hashFile(`${ddir}/COMMIT_MSG`)}${trailer.lines.length > 0 ? ` trailer=${trailer.lines.join(' / ')}` : ''}`);
   mkdirSync(ad, { recursive: true });
@@ -504,7 +505,7 @@ export function deliverPlan(ctx, id, rest) {
     let body = `kind: "${k}"\nbound: "${fp}"\nrequested_at: ${now().epoch}\ndelivery: "${h}"\n`;
     // A169: the push approval names the branch it is for; the pre-push hook refuses a push to any other ref
     if (k === 'push') body += `ref: "refs/heads/${br}"\n`;
-    writeFileSync(rf, body, 'latin1');
+    writeFileSync(rf, latin1Buf(body));
     ctx.forget('file:');
     ledgerIf(ctx, id, 'approval-request', '-', '-', `${k} bound=${fp} delivery=${h}`);
   }
@@ -527,7 +528,7 @@ function sbMainPut(ctx, adapter, id, body) {
   const main = ctx.sharedMain();
   const tmp = mkdtempSync(path.join(tmpdir(), 'agent-sb-put.'));
   try {
-    writeFileSync(`${tmp}/body`, body, 'latin1');
+    writeFileSync(`${tmp}/body`, latin1Buf(body));
     const r = runTaskAdapter(ctx, 'markdown', ['statusblock', id, `${tmp}/body`], { root: main, cwd: main });
     if (r === null || r.status !== 0) ctx.err(`note: the status block of ${id} could not be placed in the main working tree\n`);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
@@ -808,7 +809,7 @@ function inProcessCleanup(ctx, id) {
 const CI_FIX_MAX = 2;
 
 /** `ci_fix_count` from the sealed ledger. @param {Context} ctx @param {string} id */
-function ciFixCount(ctx, id) { return fileLines(ctx, `${runDir(ctx, id)}/LEDGER.log`).filter((l) => l.includes(' event=ci-fix-open ')).length; }
+function ciFixCount(ctx, id) { return ledgerRows(ctx, runDir(ctx, id), 'ci-fix-open').length; }
 
 /** `ci_rec_set FILE KEY VALUE` @param {Context} ctx @param {string} file @param {string} k @param {string} v */
 function recSet(ctx, file, k, v) {
@@ -818,7 +819,7 @@ function recSet(ctx, file, k, v) {
   let f = false;
   const out = lines.map((l) => { if (l.startsWith(`${k}:`)) { f = true; return `${k}: "${v}"`; } return l; });
   if (!f) out.push(`${k}: "${v}"`);
-  writeFileSync(`${file}.tmp`, `${out.join('\n')}\n`, 'latin1');
+  writeFileSync(`${file}.tmp`, latin1Buf(`${out.join('\n')}\n`));
   renameSync(`${file}.tmp`, file);
   forgetFiles(ctx);
 }
@@ -880,7 +881,7 @@ function ciFixGrant(ctx, id, kind, fp, n, h, ref = '') {
   const nn = String(n).padStart(3, '0');
   let body = `kind: "${kind}"\nbound: "${fp}"\nsource: "delivery_ci_fix"\nrequest: "ci-fix/${nn}.yaml"\nanswered_by: "user"\napproved_at: ${now().epoch}\nconsumed: "false"\nvia_delivery: "${h}"\nci_fix: "${n}"\ndelivery: "${h}"\n`;
   if (ref !== '') body += `ref: "${ref}"\n`;
-  writeFileSync(f, body, 'latin1');
+  writeFileSync(f, latin1Buf(body));
   ctx.forget('file:');
   ledgerIf(ctx, id, 'approval', '-', '-', `${ledgerToken(runDir(ctx, id), `approvals/${num}-${kind}.yaml`)} ${kind} source=delivery_ci_fix answered_by=user bound=${fp} via_delivery=${h} ci_fix=${n}`);
   return `${num}-${kind}.yaml`;
@@ -963,10 +964,10 @@ function ciFixOpen(ctx, s, red) {
   quietly(ctx, () => must(verifyHandoff(ctx, id, true)));
   mkdirSync(`${d}/ci-fix`, { recursive: true });
   const rec = `${d}/ci-fix/${num}.yaml`; const log = `${d}/ci-fix/${num}.log`;
-  writeFileSync(log, `${logLines.join('\n')}${logLines.length > 0 ? '\n' : ''}`, 'latin1');
+  writeFileSync(log, latin1Buf(`${logLines.join('\n')}${logLines.length > 0 ? '\n' : ''}`));
   const err = errorLine(readFileSync(log, 'latin1')) || 'no error line in the log';
-  writeFileSync(rec, `attempt: "${att}"\npr: "${pr}"\nbranch: "${br}"\nci_run: "${rid}"\nci_check: "${name}"\nfailing_head: "${head}"\ncontent_before: "${fullFingerprint(ctx)}"\nerror_sha256: "${hashFile(log)}"\nerror_line: "${err}"\n`
-    + `state: "open"\ncommit_approval: "PENDING"\npush_approval: "PENDING"\ngrant_content: "PENDING"\ncommitted_head: "PENDING"\npushed_head: "PENDING"\nopened_at: ${now().epoch}\n`, 'latin1');
+  writeFileSync(rec, latin1Buf(`attempt: "${att}"\npr: "${pr}"\nbranch: "${br}"\nci_run: "${rid}"\nci_check: "${name}"\nfailing_head: "${head}"\ncontent_before: "${fullFingerprint(ctx)}"\nerror_sha256: "${hashFile(log)}"\nerror_line: "${err}"\n`
+    + `state: "open"\ncommit_approval: "PENDING"\npush_approval: "PENDING"\ngrant_content: "PENDING"\ncommitted_head: "PENDING"\npushed_head: "PENDING"\nopened_at: ${now().epoch}\n`));
   recLedger(ctx, id, 'ci-fix-open', rec, `attempt=${att} of ${CI_FIX_MAX} pr=${pr} ci_run=${rid} check=${name} head=${head} via_delivery=${h}`);
   const plan = fileText(ctx, `${d}/PLAN.md`);
   const scope = scopeMappings(plan).rows.map((r) => (r[0].includes('|') ? r[0].slice(0, r[0].indexOf('|')) : r[0])).join(',');
@@ -1000,7 +1001,7 @@ function ciFixLimit(ctx, s, red, logLines) {
       t += `    pushed ${fh.slice(0, 7)} -> ${ph.slice(0, 7)}, files: ${git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--name-only', fh, ph]).out.split('\n').filter((x) => x !== '').map((x) => `${x} `).join('')}\n`;
     }
   }
-  writeFileSync(`${d}/ci-fix/limit.txt`, t, 'latin1');
+  writeFileSync(`${d}/ci-fix/limit.txt`, latin1Buf(t));
   ctx.out(t);
   if (!already) {
     const q = `1. The CI of pull request ${pr} (branch ${br}) of ${id} is still red after ${CI_FIX_MAX} CI-fix attempts. The process pushes no more fixes on its own. How do we go on?\n   options: I fix the branch myself | stop this task (terminate and clean up)\n   recommended: I fix the branch myself\n   why: the last error and what each attempt changed are in ci-fix/ of the run (limit.txt, NNN.log, NNN.yaml); the pull request stays open and unmerged\nci_fix_limit: pull request ${pr}, head ${head.slice(0, 7)}\n`;

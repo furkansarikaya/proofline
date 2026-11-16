@@ -30,6 +30,7 @@ import { measureRun } from './testmeasure.mjs';
 import { reviewInputs } from './testreview.mjs';
 import { tmScaled, verifyCommandTimeout } from './timeouts.mjs';
 import { prepareWorktree } from './worktree.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 /** @typedef {{ status: number, out: string, err: string }} Result */
@@ -164,7 +165,7 @@ function checkEnvFiles(ctx, envs, err) {
       i++;
       // an unquoted KEY=value line is shown to the scanner as KEY="value", so its assignment rule sees env files as it sees code
       const text = readText(`${root}/${f}`).split('\n').map((l) => l.replace(/^[ \t\v\f\r]*(export[ \t\v\f\r]+)?([A-Za-z_][A-Za-z0-9_]*)=([^"' \t\v\f\r#][^ \t\v\f\r#]*)/, '$2="$3"')).join('\n');
-      writeFileSync(`${sd}/e${i}.txt`, Buffer.from(text, 'latin1'));
+      writeFileSync(`${sd}/e${i}.txt`, latin1Buf(text));
       names[i] = f; paths.push(`${rel}/e${i}.txt`);
     }
     if (paths.length === 0) return;
@@ -270,7 +271,7 @@ export function buildRecord(ctx, op, rev = '', runId = '') {
                 i++;
                 const id = total > 1 ? `${s}.${i}` : s;
                 const label = total > 1 ? `${s}[${i}/${total}]` : s;
-                writeFileSync(`${dir}/${id}.cmd`, Buffer.from(`${c}\n`, 'latin1'));
+                writeFileSync(`${dir}/${id}.cmd`, latin1Buf(`${c}\n`));
                 const e = runCommand(ctx, `${wt}/src`, Buffer.from(c, 'latin1').toString('utf8'), `${dir}/${id}.out`, limit);
                 writeFileSync(`${dir}/${id}.exit`, `${e}\n`);
                 appendFileSync(`${dir}/steps`, `${id}\t${label}\n`);

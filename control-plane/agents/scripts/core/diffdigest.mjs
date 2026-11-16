@@ -19,6 +19,7 @@ import { realpathPosix } from './pathin.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { classifyChanges, scopeAllow } from './commands/verify.mjs';
 import { bytes } from './config.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -29,7 +30,7 @@ const MAX_UNTRACKED = 8 * 1024 * 1024;
 /** Lines of an untracked file as `git diff --numstat` would count them: null for a binary (NUL byte), unreadable or very large file. @param {Context} ctx @param {string} rel */
 function untrackedLines(ctx, rel) {
   try {
-    const file = Buffer.concat([Buffer.from(`${ctx.root}/`), Buffer.from(rel, 'latin1')]);
+    const file = Buffer.concat([Buffer.from(`${ctx.root}/`), latin1Buf(rel)]);
     const st = statSync(file);
     if (!st.isFile() || st.size > MAX_UNTRACKED) return null;
     const b = readFileSync(file);
@@ -78,7 +79,7 @@ function nextFolder(dir) {
 /** Write a new file, never through an existing name. @param {string} file @param {string} text a byte string */
 function writeNew(file, text) {
   const fd = openSync(file, 'wx', 0o644);
-  try { writeSync(fd, Buffer.from(text, 'latin1')); } finally { closeSync(fd); }
+  try { writeSync(fd, latin1Buf(text)); } finally { closeSync(fd); }
 }
 
 /** @param {Context} ctx @param {string[]} args */
@@ -131,7 +132,7 @@ function diffDigest(ctx, args) {
   if (outside.length) out.push(`not in the plan scope (${outside.length}${outside.length > shownOutside.length ? `, first ${shownOutside.length} in byte order` : ''}): ${shownOutside.map((r) => `${r.cls}:${fmt(r)}`).join('; ')}`);
   if (inScope.length) out.push(`largest in scope: ${inScope.map(fmt).join('; ')}`);
   out.push(shown >= rows.length ? 'truncated: no' : `truncated: yes (${rows.length - shown} of ${rows.length} paths are named only in the raw file; a decision about one path reads the raw file)`);
-  out.push(`raw: ${rel}/raw.txt sha256=${sha256(Buffer.from(raw, 'latin1'))}`);
+  out.push(`raw: ${rel}/raw.txt sha256=${sha256(latin1Buf(raw))}`);
   out.push(`again: agent.sh diff-digest ${id} (the same tree gives the same raw.txt; inputs.txt holds the hashes)`);
   ctx.out(`${out.join('\n')}\n`);
   return 0;

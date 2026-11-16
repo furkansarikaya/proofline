@@ -28,6 +28,7 @@ import { exemptedPath, verifyFreeze } from './commands/verify.mjs';
 import { headSha } from './git.mjs';
 import { measureRequired } from './testmeasure.mjs';
 import { notRunRelative } from './pathin.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -211,7 +212,7 @@ export function workerEvidenceCommand(ctx, args) {
   const codex = ctx.env.CODEX_SESSION_ID;
   if (codex !== undefined && codex !== '') t += `codex_session_id: "${codex}"\n`;
   t += `timestamp: "${now().iso}"\n`;
-  try { writeFileSync(out, Buffer.from(t, 'latin1')); } catch { rmSync(out, { force: true }); fail(`failed to write worker evidence file (sandbox denied write?): ${out}`); }
+  try { writeFileSync(out, latin1Buf(t)); } catch { rmSync(out, { force: true }); fail(`failed to write worker evidence file (sandbox denied write?): ${out}`); }
   let size = 0;
   try { size = statSync(out).size; } catch { /* none */ }
   if (size === 0) { rmSync(out, { force: true }); fail(`worker evidence file was not actually written (empty or missing after redirect): ${out}`); }
@@ -275,7 +276,7 @@ export function waiveCommand(ctx, args) {
     if (ctx.config().get('review.waiver_followup', 'none') === 'task') {
       const fu = `${dir}/waivers/${n}-${f}.followup.md`;
       const rows = fileLines(ctx, rec).filter((l) => l.startsWith(`finding: ${f}|`)).map((l) => `${l.slice('finding: '.length)}\n`).join('');
-      writeFileSync(fu, Buffer.from(`# Follow-up: waived finding ${f} of ${id}\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\nOrigin: ${id} (waived finding ${f})\n\n${rows}\nWaiver reason: ${reason}\n`, 'latin1'));
+      writeFileSync(fu, latin1Buf(`# Follow-up: waived finding ${f} of ${id}\n\n## Goal\n\nResolve the waived finding.\n\n## Context\n\nOrigin: ${id} (waived finding ${f})\n\n${rows}\nWaiver reason: ${reason}\n`));
       const adapter = ctx.config().get('tasks.adapter', 'markdown');
       if (adapterExists(ctx.root, adapter)) {
         const r = runTaskAdapter(ctx, adapter, ['followup', id, fu]);
@@ -285,7 +286,7 @@ export function waiveCommand(ctx, args) {
       } else follow = 'pending';
     }
     const t = `finding: "${f}"\ngate: "${gate}"\ngate_record: "${path.basename(rec)}"\ngate_record_sha256: "${rsha}"\nfinding_key: "${findingWaiverKey(ctx, rec, f)}"\nfingerprint: "${nowFp}"\nreason: ${oneLine(reason)}\napproval: "${path.basename(app)}"\nanswered_by: "user"\nfollowup: "${follow}"\ntimestamp: "${now().iso}"\n`;
-    writeFileSync(out, Buffer.from(t, 'latin1'));
+    writeFileSync(out, latin1Buf(t));
     ctx.forget('file:');
     if (gatesEnforced(ctx, dir)) led(ctx, id, 'waive', '-', '-', `${ledgerToken(dir, `waivers/${n}-${f}.yaml`)} ${f} gate=${gate} reason=${reason}`);
     if (!group) ctx.out(`waiver recorded: ${id} ${f} (${gate})\n`);

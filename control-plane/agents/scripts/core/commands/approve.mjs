@@ -7,6 +7,7 @@ import { now } from '../clock.mjs';
 import { approvalConsume, approvalScanLatest, approvalScanReport, approveInChild, approveKinds, forgetFiles, requestApproval, requireLead } from '../approve.mjs';
 import { approvalPendingPairs } from '../approvals.mjs';
 import { fail } from '../errors.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** @typedef {import('../context.mjs').Context} Ctx */
 
@@ -71,7 +72,7 @@ function approvePendingCommand(ctx, args) {
       try {
         mkdirSync(`${log}.lock`);
         const keep = text.split('\n').slice(0, -1).slice(-200).map((x) => `${x}\n`).join('');
-        writeFileSync(`${log}.tmp`, Buffer.from(keep, 'latin1'));
+        writeFileSync(`${log}.tmp`, latin1Buf(keep));
         renameSync(`${log}.tmp`, log);
         rmdirSync(`${log}.lock`);
       } catch { /* a busy lock skips the rotation */ }

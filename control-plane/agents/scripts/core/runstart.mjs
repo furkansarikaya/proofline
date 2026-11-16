@@ -17,6 +17,7 @@ import { runTaskAdapter } from './adapters/index.mjs';
 import { textLines, validTaskId } from './records.mjs';
 import { activeRun, openRuns, runDir } from './runs.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -33,7 +34,7 @@ export function dbGuardBaseline(ctx, id) {
   try {
     mkdirSync(path.dirname(f), { recursive: true });
     const rows = dbSnapshot(ctx);
-    writeFileSync(`${f}.tmp`, rows.length === 0 ? '' : `${rows.join('\n')}\n`, 'latin1');
+    writeFileSync(`${f}.tmp`, latin1Buf(rows.length === 0 ? '' : `${rows.join('\n')}\n`));
     renameSync(`${f}.tmp`, f);
   } catch { /* best effort, like the shell */ }
 }
@@ -104,7 +105,7 @@ export function startRun(ctx, argv) {
     } else {
       let body;
       try { body = readFileSync(0, 'latin1'); } catch { body = ''; }
-      writeFileSync(tmp, body, 'latin1');
+      writeFileSync(tmp, latin1Buf(body));
       if (title === '') { const m = /^# Task: [^ ]* — (.*)$/.exec(Buffer.from(textLines(body)[0] ?? '', 'latin1').toString('utf8')); title = m ? bytes(m[1]) : ''; }
       if (title === '') { ctx.out('MISSING title\n'); return 3; }
       const cr = adapterRun(ctx, ['create', id, toArg(title), tmp], true);
@@ -131,7 +132,7 @@ export function startRun(ctx, argv) {
     const marker = `${ctx.root}/${ctx.config().get('active_run_file', '.agents/local/ACTIVE_RUN')}`;
     mkdirSync(dir, { recursive: true });
     mkdirSync(path.dirname(marker), { recursive: true });
-    writeFileSync(`${dir}/RUN.yaml`, out.map((l) => `${l}\n`).join(''), 'latin1');
+    writeFileSync(`${dir}/RUN.yaml`, latin1Buf(out.map((l) => `${l}\n`).join('')));
     writeFileSync(`${dir}/TASK.md`, readFileSync(tmp));
     writeFileSync(marker, `${id}\n`);
     ctx.forget('file:');

@@ -16,7 +16,7 @@ import {
   taskSourceBookkeepingOnly, taskSourceContractHash, validateControlArtifacts, verifyTaskSourceStatus,
 } from '../lifecycle.mjs';
 import { isFile } from '../paths.mjs';
-import { WS, authorizedPath, fieldOf, fileLines, fileText, gateField, gatesEnforced, planScope, scopePaths, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
+import { WS, authorizedPath, fieldOf, fileLines, fileText, gateField, gatesEnforced, ledgerRows, planScope, scopePaths, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
 import { knownControlArtifact, requireRun, runDir } from '../runs.mjs';
 import { controlPlaneOnly, pipelineClass, pipelineDeclared, pipelineNeeds, pipelineReview, pipelineClassValid, planEntries, riskFreezeOk } from '../signals.mjs';
 import { inKnowledgeScope } from '../scope.mjs';
@@ -230,12 +230,12 @@ export function freshness(ctx, id) {
     if (baseMovedControlOnly(ctx, dir, base, false)) {
       const line = `base_sha moved (${base} -> ${head}): the commits between touch control-plane files only; the plan stays fresh`;
       ctx.out(`${line}\n`);
-      if (!baseMovedLines(ctx, dir).some((l) => l.includes(`detail=${line}`))) ledgerIf(ctx, id, 'base-moved', '-', '-', line);
+      if (!ledgerRows(ctx, dir, 'base-moved').some((r) => r.detail === line)) ledgerIf(ctx, id, 'base-moved', '-', '-', line);
       setRunValue(ctx, id, 'repository', 'base_sha', head);
     } else if (baseMovedControlOnly(ctx, dir, base, true)) {
       const line = `base_sha is at ${base}, HEAD is ${head}: the commits between touch control-plane files, this run's task file and knowledge documents only; the plan stays fresh`;
       ctx.out(`${line}\n`);
-      if (!fileLines(ctx, `${dir}/LEDGER.log`).some((l) => l.includes(`detail=${line}`))) ledgerIf(ctx, id, 'base-moved', '-', '-', line);
+      if (!ledgerRows(ctx, dir, 'base-moved').some((r) => r.detail === line)) ledgerIf(ctx, id, 'base-moved', '-', '-', line);
     } else {
       fail(`stale plan: repository.base_sha changed (${base} -> ${head}); amendment and refreeze required. Changed outside the control plane: ${baseMovedOffenders(ctx, dir, base)}. Amend and refreeze the plan to include them, or revert them; text in AGENTS.md or CLAUDE.md besides the proofline block is project rules every agent reads, so it counts as a product change (A161)`);
     }

@@ -19,7 +19,7 @@ import { boundNames, listNames } from './ledger.mjs';
 import { isFile } from './paths.mjs';
 import { assumptionBlocked, assumptionShapeErrors, planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
-import { fileLines, fileText, gateField, gatesEnforced, planDestructive, planScope, planSectionPresent, sectionKeyPresent, sectionValue, textLines, WS } from './records.mjs';
+import { fileLines, fileText, gateField, gatesEnforced, ledgerRows, planDestructive, planScope, planSectionPresent, sectionKeyPresent, sectionValue, textLines, WS } from './records.mjs';
 import { activeRun, knownControlArtifact, requireRun, runDir } from './runs.mjs';
 import { pipelineClass, pipelineClassValid, pipelineNeeds, pipelineValue, riskGateFocuses, riskMissingFlags, runAutonomy, tierEffective } from './signals.mjs';
 
@@ -195,8 +195,7 @@ export function gateReportIds(ctx, dir, g, focus) {
 /** `friction_count ID KIND`: the friction notes of one kind in the ledger ('' when there is no ledger, like `grep -c` on a missing file). @param {Context} ctx @param {string} dir @param {string} kind */
 export function frictionCount(ctx, dir, kind) {
   if (!exists(`${dir}/LEDGER.log`)) return '';
-  const re = new RegExp(`event=friction-note .*detail=${reEsc(kind)}$`);
-  return String(fileLines(ctx, `${dir}/LEDGER.log`).filter((l) => re.test(l)).length);
+  return String(ledgerRows(ctx, dir, 'friction-note').filter((r) => r.detail === kind).length);
 }
 
 /** `friction_reminder ID` @param {Context} ctx @param {string} id @param {string} dir */
@@ -405,10 +404,7 @@ function planned(ctx, id, d, o, r) {
 function implementing(ctx, id, d, o, r, emit) {
   // A200: an implementer DONE recorded after the last IMPLEMENTING handoff means the work is delivered
   let done = false;
-  for (const l of fileLines(ctx, `${d}/LEDGER.log`)) {
-    if (l.includes('event=handoff:IMPLEMENTING')) done = false;
-    if (l.includes('event=record:implementer:DONE')) done = true;
-  }
+  for (const r of ledgerRows(ctx, d, /^(handoff:IMPLEMENTING|record:implementer:DONE)$/)) done = r.event === 'record:implementer:DONE';
   if (done) { o(`agent.sh handoff ${id} IMPLEMENTED`); r("the implementer's DONE result is recorded: record IMPLEMENTED now, do not wait and do not dispatch it again"); return; }
   o(`dispatch.sh ${id} implementer`); o(`agent.sh handoff ${id} IMPLEMENTED`); emit(fixPathsLines(ctx, id, d)); r('implementation in progress');
 }

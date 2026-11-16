@@ -18,6 +18,7 @@ import { gateField, gatesEnforced, planDestructive, readBytes, sectionValue } fr
 import { requireRun, runDir } from '../runs.mjs';
 import { inKnowledgeScope } from '../scope.mjs';
 import { taskPatchFingerprint } from '../gates.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -182,7 +183,7 @@ function windowClose(ctx, args) {
   const n = nmax + 1;
   const after = taskPatchFingerprint(ctx, dir);
   try {
-    writeFileSync(`${ev}/WINDOW-${n}.yaml`, Buffer.from(`task_id: "${id}"\nseq: ${n}\nrole: "${role}"\ntopology: "orchestrated"\nbefore_sha256: "${before}"\nafter_sha256: "${after}"\nexit_status: "${status}"\ntimestamp: "${now().iso}"\n`, 'latin1'));
+    writeFileSync(`${ev}/WINDOW-${n}.yaml`, latin1Buf(`task_id: "${id}"\nseq: ${n}\nrole: "${role}"\ntopology: "orchestrated"\nbefore_sha256: "${before}"\nafter_sha256: "${after}"\nexit_status: "${status}"\ntimestamp: "${now().iso}"\n`));
   } catch { fail('could not write worker window record'); }
   ctx.forget('file:');
   ctx.out(`worker window recorded: ${id} WINDOW-${n}\n`);

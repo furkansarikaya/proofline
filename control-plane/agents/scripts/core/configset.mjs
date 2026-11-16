@@ -3,6 +3,7 @@
 // spaces per level; commands.build|test|lint may also be a block list of commands (A173).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Config } from './config.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 const item = (/** @type {string} */ l) => /^[ \t\n\v\f\r]*-([ \t\n\v\f\r]|$)/.test(l);
 const content = (/** @type {string} */ l) => !/^[ \t\n\v\f\r]*#/.test(l) && !/^[ \t\n\v\f\r]*$/.test(l) && !item(l) && l.includes(':');
@@ -62,6 +63,6 @@ export function cfgSet(file, key, value) {
     if (n === 1) emit(0, key, value);
     else if (n === 2) { out.push(`${sec}:`); emit(2, kp[1], value); } else return false;
   }
-  writeFileSync(file, out.length === 0 ? '' : `${out.join('\n')}\n`, 'latin1');
+  writeFileSync(file, latin1Buf(out.length === 0 ? '' : `${out.join('\n')}\n`));
   return true;
 }

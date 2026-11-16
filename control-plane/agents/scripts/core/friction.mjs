@@ -17,6 +17,7 @@ import { withCommandLocks } from './lessons.mjs';
 import { isFile } from './paths.mjs';
 import { asciiLower } from './shellglob.mjs';
 import * as proc from './proc.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -70,7 +71,7 @@ function ledgerPart(ledger) {
       bump(fnk, fnd);
       if (fnd === 'proofline_bug') fnb++; else fnt++;
     }
-    if (l.includes(' event=terminate ')) term = w(l.replace(/^.* to=/, '').replace(/ .*$/, ''));
+    { const tr = /^seq=[0-9]+ (?:prev=\S+ )?event=terminate role=\S+ from=\S+ to=(\S+)/.exec(l); if (tr !== null) term = w(tr[1]); } // from the start of the line (statistics only; the fixture ledger has no prev)
     if (l.includes(' event=handoff:DONE ')) done = true;
     if (/ event=note .*failover/.test(l)) { fo++; if (l.includes('reason=timeout')) fot++; }
     const g = / event=gate:([A-Z_]+):fail /.exec(l);
@@ -155,7 +156,7 @@ export function frictionReport(ctx, id) {
   try {
     mkdirSync(out, { recursive: true });
     const tmp = `${out}/.latest.${process.pid}`;
-    writeFileSync(tmp, Buffer.from(text, 'latin1'));
+    writeFileSync(tmp, latin1Buf(text));
     copyFileSync(tmp, `${out}/${id}.md`);
     renameSync(tmp, `${out}/latest.md`);
   } catch { return 1; }

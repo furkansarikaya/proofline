@@ -21,13 +21,14 @@ import { inflightAlive } from './dispatch.mjs';
 import { ledgerAppend } from './lock.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gateField, gatesEnforced, sectionValue, textLines } from './records.mjs';
+import { fileText, gateField, gatesEnforced, ledgerRows as ledgerRowsOf, sectionValue, textLines } from './records.mjs';
 import { requireOpenRun, requireLead, nextNum } from './approve.mjs';
 import { metricsJson } from './runend.mjs';
 import { gateOf } from './resultutil.mjs';
 import { requireRun, runProfile } from './runs.mjs';
 import { pathChangedLines, pipelineClass, pipelineClassValid, pipelineValue, taskChangedPaths, tierEffective } from './signals.mjs';
 import { verifySeal } from './ledger.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 /** @typedef {import('./context.mjs').Io} Io */
@@ -125,17 +126,15 @@ function explorerSlotCheck(ctx, id, cls) {
   const max = pipelineValue(ctx, cls, 'max_explorers');
   if (!/^[0-9]+$/.test(max) || Number(max) === 0) return;
   const dir = ctx.runDir(id);
-  const ledger = fileText(ctx, `${dir}/LEDGER.log`);
-  const ledgerRows = ledger === null ? [] : textLines(ledger);
   let floor = 0;
-  for (const l of ledgerRows) if (/ event=(freeze|refreeze) /.test(l)) { const m = /^seq=([0-9]+)/.exec(l); floor = m ? Number(m[1]) : 0; }
+  for (const r of ledgerRowsOf(ctx, dir, /^(freeze|refreeze)$/)) floor = r.seq;
   /** @type {string[]} */ const have = []; /** @type {string[]} */ const keys = [];
   let results = [];
   try { results = readdirSync(`${dir}/results`).filter((n) => /^[0-9]{3}-explorer\.result\.md$/.test(n)).sort(); } catch { results = []; }
   for (const f of results) {
     if (!textLines(fileText(ctx, `${dir}/results/${f}`) ?? '').includes('RESULT: DONE')) continue;
     let seq = '';
-    for (const l of ledgerRows) if (l.includes(`detail=results/${f} `)) { const m = /^seq=([0-9]*) /.exec(l); if (m) seq = m[1]; }
+    for (const r of ledgerRowsOf(ctx, dir, /^/)) if (r.detail.startsWith(`results/${f} `)) seq = String(r.seq);
     if (seq !== '' && !(Number(seq) > floor)) continue;
     const art = textLines(fileText(ctx, `${dir}/results/${f}`) ?? '').map((l) => /^ARTIFACT: [^ ]*\/[0-9a-f]{12}-([^ ]*) /.exec(l)).find((m) => m !== null);
     const key = art ? art[1] : '';
@@ -309,7 +308,7 @@ export function decide(ctx, args) {
   mkdirSync(decisions, { recursive: true });
   const tag = focus === '' ? role : `${role}-${focus.replace(/\+/g, '-')}`;
   const out = `${decisions}/${nextNum(decisions)}-${bytes(tag)}.decision`;
-  writeFileSync(`${out}.tmp`, Buffer.from(`${body}\n`, 'latin1'));
+  writeFileSync(`${out}.tmp`, latin1Buf(`${body}\n`));
   renameSync(`${out}.tmp`, out);
   ctx.forget('file:');
   if (gatesEnforced(ctx, dir)) {

@@ -15,6 +15,7 @@ import { fileLines, gateField, gatesEnforced, readBytes, sectionKeyPresent } fro
 import { requireRun, runDir } from './runs.mjs';
 import { sharedDirOf } from './approvals.mjs';
 import { isFile } from './paths.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -146,7 +147,7 @@ export function answer(ctx, args) {
     const old = readBytes(prev) ?? '';
     const lines = old === '' ? [] : old.split('\n');
     if (lines[lines.length - 1] === '') lines.pop();
-    writeFileSync(`${dir}/questions/${amends}`, Buffer.from(lines.length === 0 ? '' : `amended: true\namended_at: ${now().epoch}\n${lines.map((l) => `${l}\n`).join('')}`, 'latin1'));
+    writeFileSync(`${dir}/questions/${amends}`, latin1Buf(lines.length === 0 ? '' : `amended: true\namended_at: ${now().epoch}\n${lines.map((l) => `${l}\n`).join('')}`));
     rmSync(prev, { force: true });
   }
   const t = now();
@@ -154,7 +155,7 @@ export function answer(ctx, args) {
   if (src !== '') head += `source_message: ${src}\n`;
   if (amends !== '') head += `amends: ${amends}\n`;
   if (ctx.cancelled()) fail('answer refused: the prompt hook stopped waiting for this step (its time budget ended)');
-  writeFileSync(prev, Buffer.from(`${head}---\n${body}`, 'latin1'));
+  writeFileSync(prev, latin1Buf(`${head}---\n${body}`));
   if (used !== '') { mkdirSync(prompts, { recursive: true }); appendFileSync(`${prompts}/consumed`, `${used}\n`); }
   let left = false;
   for (const f of sortedNames(`${dir}/questions`, /^[0-9]{3}\.md$/)) if (!existsSync(`${dir}/questions/${f.slice(0, -3)}.answer.md`)) left = true;

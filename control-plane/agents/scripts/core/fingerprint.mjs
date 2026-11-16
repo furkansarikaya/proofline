@@ -12,6 +12,7 @@ import { isFile } from './paths.mjs';
 import { scratchRoot } from './pathin.mjs';
 import { fileLines, fileText, planScope, scopePaths } from './records.mjs';
 import { blockOnlyText, hasBlockMarkers, inKnowledgeScope, installedControlPath, installedControlPaths, knowledgeScopeEntries, stripProoflineBlock, words } from './scope.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -94,12 +95,12 @@ export function cachePut(ctx, key, hash) {
       if (lines.length - 1 > 4000) {
         const keep = lines.slice(0, -1).slice(-1000).join('\n') + '\n';
         rmSync(`${file}.t`, { force: true });
-        writeFileSync(`${file}.t`, Buffer.from(keep, 'latin1'), { flag: 'wx' });
+        writeFileSync(`${file}.t`, latin1Buf(keep), { flag: 'wx' });
         renameSync(`${file}.t`, file);
       }
     }
     const fd = openSync(file, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o666);
-    try { writeSync(fd, Buffer.from(`${key}\t${hash}\n`, 'latin1')); } finally { closeSync(fd); }
+    try { writeSync(fd, latin1Buf(`${key}\t${hash}\n`)); } finally { closeSync(fd); }
   } catch { /* a speed-up only */ }
   ctx.forget(`file:${file}`); ctx.forget(`file:lines:${file}`);
 }

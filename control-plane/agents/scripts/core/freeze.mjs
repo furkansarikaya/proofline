@@ -22,16 +22,17 @@ import { PathKinds, scopeKindRows } from './pathkind.mjs';
 import { planMigrationShape } from './plancheck.mjs';
 import * as proc from './proc.mjs';
 import { askQuestion, verifyAssumptions } from './questions.mjs';
-import { fileLines, fileText, gateField, gatesEnforced, ledgerLines, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileLines, fileText, gateField, ledgerRows, gatesEnforced, ledgerLines, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { planEntries, pipelineClass, pipelineClassValid, pipelineDeclared, pipelineNeeds, pipelineValue, riskConfigHash, runAutonomy, validationCandidates, planValidationMissing, RISK_PLAN_FLAGS } from './signals.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { normRelPath, scopeBad, scopeEntries, scopeEntryCovers, sectionLines, taskType } from './taskfile.mjs';
 import { taskDefectFixes } from './plancheck.mjs';
-import { exceptionsHash } from './testreview.mjs';
+import { exceptionsBaseline, exceptionsHash, writeExceptionsBase } from './testreview.mjs';
 import { exemptedPath, checkTypeExemptions, pipelineSignature, verifyQaPlanBound } from './commands/verify.mjs';
 import { pathsExecutable, requireTaskDefects } from './handoff.mjs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -362,6 +363,12 @@ function verifyIntentProvenance(ctx, id) {
 /** @param {string} d */
 function existsSyncDir(d) { try { return readdirSync(d) !== null; } catch { return false; } }
 
+/** Whether PLAN.md `## Test exceptions` differs from what the freeze recorded (a line added, changed or the whole section removed; A276, A284). @param {Context} ctx @param {string} dir */
+function exceptionsChanged(ctx, dir) {
+  const last = exceptionsBaseline(ctx, dir); // structural read of the ledger row (A284)
+  return exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '') !== last;
+}
+
 /** `freeze_approvals ID MODE`: the approval files to consume, after every condition has held. @param {Context} ctx @param {string} id @param {string} mode */
 function freezeApprovals(ctx, id, mode) {
   const dir = runDir(ctx, id);
@@ -390,12 +397,15 @@ function freezeApprovals(ctx, id, mode) {
     out.push(a);
   }
   if (mode === 'refreeze') {
-    // #265 package C (A276): the plan's `## Test exceptions` is the only thing that clears a real wait, a test over budget or a test that was not measured. Adding or changing a
-    // line after the freeze would let the implementer's side justify its own finding (Core invariant 3), so such a refreeze is REFUSED. Whether the user may approve it is the
-    // owner's decision (awaiting the owner, A276): until then the section is frozen with the first plan.
-    const rows = ledgerLines(ctx, dir).filter((l) => l.includes(' event=test-exceptions '));
-    const last = rows.length === 0 ? '' : (/ detail=sha=([0-9a-f]*)$/.exec(rows[rows.length - 1])?.[1] ?? '');
-    if (exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '') !== last) fail(`the amendment adds or changes a line of PLAN.md ## Test exceptions: that section justifies a real wait, a test over its budget or an unmeasured test and is frozen with the first plan; an amendment cannot change it (awaiting the owner's decision whether the user may approve such a change). Remove the change to the section`);
+    // #265 package C (A276): the plan's `## Test exceptions` is the only thing that clears a real wait, a test over budget or a test that was not measured. Adding, changing or
+    // removing a line after the freeze would let the implementer's side justify its own finding (Core invariant 3), so such a refreeze is REFUSED unless the USER approved it
+    // (A284): the user's `scope` approval for this exact PLAN.md (its hash covers every character of the section), recorded from the prompt hook and consumed once, like any other
+    // approval of a refreeze. Without it the refusal is the one of A276.
+    if (exceptionsChanged(ctx, dir)) {
+      const a = findApproval(ctx, id, 'scope', plan);
+      if (a === null) fail(`the amendment adds or changes a line of PLAN.md ## Test exceptions: that section justifies a real wait, a test over its budget or an unmeasured test and is frozen with the first plan; an amendment cannot change it (awaiting the owner's decision whether the user may approve such a change). Remove the change to the section`);
+      if (!out.includes(a)) out.push(a);
+    }
   }
   if (mode === 'refreeze' && sectionKeyPresent(ctx, dir, 'freeze', 'scope_paths')) {
     const old = sectionValue(ctx, dir, 'freeze', 'scope_paths').split(',');
@@ -404,7 +414,7 @@ function freezeApprovals(ctx, id, mode) {
     if (added !== '') {
       const a = findApproval(ctx, id, 'scope', plan);
       if (a === null) fail(`the amendment adds scope paths (${added} ): a scope approval for this PLAN.md is required ('agent.sh request-approval ${id} scope')`);
-      out.push(a);
+      if (!out.includes(a)) out.push(a);
     }
   }
   return out;
@@ -530,7 +540,7 @@ export function freezeRun(ctx, id, word, amendment) {
     if (!(word === 'refreeze' && amendment !== '')) fail(`existing freeze requires an explicit amendment. ${refreezeHint(id)}`);
     if (amendment.includes('/') || amendment.includes('..')) fail(`invalid amendment name: ${amendment} (a file name inside the run's amendments/ folder, no directory part). ${refreezeHint(id)}`);
     if (!isFile(`${dir}/amendments/${amendment}`)) fail(`amendment ${amendment} not found at ${dir}/amendments/${amendment}. ${refreezeHint(id)}`);
-    if (fileLines(ctx, `${dir}/LEDGER.log`).some((l) => l.includes('event=refreeze ') && l.includes(`detail=amendment ${amendment}`))) fail(`amendment ${amendment} was already used for a refreeze; write a new amendment`);
+    if (ledgerRows(ctx, dir, 'refreeze').some((r) => r.detail === `amendment ${amendment}`)) fail(`amendment ${amendment} was already used for a refreeze; write a new amendment`);
     mode = 'refreeze';
   }
   verifyScopeExistence(ctx, id, mode);
@@ -573,12 +583,15 @@ export function freezeRun(ctx, id, word, amendment) {
   if (hits.length > 0) fail(languageFailText(hits.join(' ')));
   let approvals = /** @type {string[]} */ ([]);
   if (gatesEnforced(ctx, dir)) approvals = freezeApprovals(ctx, id, mode);
+  // A284: the scope approval that let a changed `## Test exceptions` through is named in the ledger row that records the new section hash
+  const exceptionsApproval = mode === 'refreeze' && gatesEnforced(ctx, dir) && exceptionsChanged(ctx, dir)
+    ? (approvals.find((f) => gateField(ctx, f, 'kind') === 'scope') ?? '').split('/').pop() ?? '' : '';
   const oldPlan = sectionValue(ctx, dir, 'freeze', 'plan_sha256');
   const next = replaceHashes(ctx, id);
   if (mode === 'refreeze' && gatesEnforced(ctx, dir)) {
     if (freezeBlock(textLines(fileText(ctx, `${dir}/RUN.yaml`) ?? '')) === freezeBlock(next)) fail('refreeze changes nothing: an amendment must change the task, evidence, plan, QA plan or classification');
   }
-  writeFileSync(`${dir}/RUN.yaml.tmp`, Buffer.from(next.map((l) => `${l}\n`).join(''), 'latin1'));
+  writeFileSync(`${dir}/RUN.yaml.tmp`, latin1Buf(next.map((l) => `${l}\n`).join('')));
   renameSync(`${dir}/RUN.yaml.tmp`, `${dir}/RUN.yaml`);
   ctx.forget('file:'); ctx.forget('plan-scope:');
   setTaskSourceRevision(ctx, id);
@@ -586,6 +599,8 @@ export function freezeRun(ctx, id, word, amendment) {
     if (mode === 'refreeze') refreezeLifecycle(ctx, id, amendment, oldPlan);
     else { const hs = sectionValue(ctx, dir, 'handoff', 'state'); led(ctx, id, 'freeze', hs, hs, sectionValue(ctx, dir, 'freeze', 'pipeline')); }
     if (mode !== 'refreeze') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')}`);
+    else if (exceptionsApproval !== '') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')} approval=${exceptionsApproval}`);
+    if (mode !== 'refreeze' || exceptionsApproval !== '') writeExceptionsBase(dir, fileText(ctx, `${dir}/PLAN.md`) ?? '');
     for (const a of approvals) consumeApproval(ctx, id, a);
   }
   ctx.out(`freeze recorded: ${id}\n`);

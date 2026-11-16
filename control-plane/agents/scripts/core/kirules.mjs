@@ -20,6 +20,7 @@ import { isFile } from './paths.mjs';
 import { hgit } from './hgit.mjs';
 import { fileText, readBytes, textLines } from './records.mjs';
 import { asciiLower, asciiUpper, caseMatch } from './shellglob.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -225,10 +226,10 @@ export function appendRecord(ctx, g, p, t, f, a) {
     if (all.some((r) => { const c = r.split('\t'); return c[1] === g && c[2] === p && c[3] === t; })) throw new KiError('this finding is already on the list');
     /** @type {string[]} */ const keep = [];
     for (const row of all) {
-      if (rowState(ctx, row, all) === 'closed') appendFileSync(`${k.dir}/CLOSED.tsv`, Buffer.from(`${row}\n`, 'latin1'));
+      if (rowState(ctx, row, all) === 'closed') appendFileSync(`${k.dir}/CLOSED.tsv`, latin1Buf(`${row}\n`));
       else keep.push(row);
     }
-    writeFileSync(`${list}.keep`, Buffer.from(keep.map((r) => `${r}\n`).join(''), 'latin1'));
+    writeFileSync(`${list}.keep`, latin1Buf(keep.map((r) => `${r}\n`).join('')));
     renameSync(`${list}.keep`, list);
   }
   let max = 0;
@@ -238,7 +239,7 @@ export function appendRecord(ctx, g, p, t, f, a) {
   }
   const d = new Date();
   const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  appendFileSync(list, Buffer.from(`KI-${max + 1}\t${g}\t${p}\t${t}\t${f}\t${a}\t${date}\n`, 'latin1'));
+  appendFileSync(list, latin1Buf(`KI-${max + 1}\t${g}\t${p}\t${t}\t${f}\t${a}\t${date}\n`));
   return `KI-${max + 1}`;
 }
 

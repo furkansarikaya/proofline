@@ -10,7 +10,7 @@ import { gateFacts, knownIssuesListed } from './knownissues.mjs';
 import { frictionCount, gateReportIds, nextStep, nextWithoutRun } from './next.mjs';
 import { isFile } from './paths.mjs';
 import { PathKinds, scopeKindRows } from './pathkind.mjs';
-import { fileLines, fileText, gatesEnforced, sectionValue, textLines, WS } from './records.mjs';
+import { fileLines, fileText, gatesEnforced, ledgerRows, sectionValue, textLines, WS } from './records.mjs';
 import { activeRun, requireRun, runDir } from './runs.mjs';
 import { pipelineClass, pipelineClassValid, pipelineDeclared, riskGateFocuses, tierEffective } from './signals.mjs';
 
@@ -255,7 +255,7 @@ export function reportFacts(ctx, id) {
   const ks = sectionValue(ctx, d, 'execution', 'knowledge_state'); const kr = sectionValue(ctx, d, 'execution', 'knowledge_reason');
   ctx.out(`- Friction notes recorded (A200): proofline_bug ${frictionCount(ctx, d, 'proofline_bug')}, user-command ${frictionCount(ctx, d, 'user-command')}, user-shell ${frictionCount(ctx, d, 'user-shell')}\n`);
   ctx.out(`- Knowledge step: ${ks === '' ? 'not_started' : ks}${kr !== '' ? `; not_applicable reason: ${kr}` : ''}\n`);
-  const refreezes = exists(`${d}/LEDGER.log`) ? String(fileLines(ctx, `${d}/LEDGER.log`).filter((l) => l.includes('event=refreeze ')).length) : '';
+  const refreezes = exists(`${d}/LEDGER.log`) ? String(ledgerRows(ctx, d, 'refreeze').length) : '';
   // `task_owned_paths ... 2>/dev/null`: its stderr is dropped
   const mark = ctx.chunks.length;
   const owned = taskOwnedPaths(ctx, d).length;

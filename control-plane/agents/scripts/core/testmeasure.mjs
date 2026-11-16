@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { git, headSha } from './git.mjs';
 import { listNames } from './ledger.mjs';
 import * as proc from './proc.mjs';
-import { fieldOf, fileLines, fileText, ledgerLines, textLines } from './records.mjs';
+import { fieldOf, fileLines, fileText, ledgerLines, ledgerRows, textLines } from './records.mjs';
 import { planVerificationCommands, reproduceAllowed } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower, pathMatches } from './shellglob.mjs';
@@ -279,8 +279,8 @@ const cmdHash = (c) => createHash('sha256').update(Buffer.from(c, 'utf8')).diges
 
 /** The pin recorded on the start row of the run, or null when the run was started without one (then only plan-listed commands count). @param {Context} ctx @param {string} id @returns {string | null} */
 export function recordedTestPin(ctx, id) {
-  const first = ledgerLines(ctx, runDir(ctx, id)).find((l) => l.includes(' event=test-cmd-pin '));
-  const m = first === undefined ? null : / detail=testcmd=([0-9a-f,]*)$/.exec(first);
+  const first = ledgerRows(ctx, runDir(ctx, id), 'test-cmd-pin')[0];
+  const m = first === undefined ? null : /^testcmd=([0-9a-f,]*)$/.exec(first.detail);
   return m ? m[1] : null;
 }
 
@@ -288,8 +288,8 @@ export function recordedTestPin(ctx, id) {
 
 /** Does this run carry the measurement stamp (`measure=1` on the start row of its sealed ledger)? A run started before the stamp existed does not. @param {Context} ctx @param {string} id */
 export function measureRequired(ctx, id) {
-  const first = ledgerLines(ctx, runDir(ctx, id)).find((l) => l.includes(' event=start '));
-  return first !== undefined && / detail=.*\bmeasure=1(\s|$)/.test(first);
+  const first = ledgerRows(ctx, runDir(ctx, id), 'start')[0];
+  return first !== undefined && /\bmeasure=1(\s|$)/.test(first.detail);
 }
 
 /**

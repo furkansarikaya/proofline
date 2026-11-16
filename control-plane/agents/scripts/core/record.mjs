@@ -3,6 +3,7 @@
 // (`record_apply`) of agent.sh 0.0.47, in this process: the text of the result is held in memory, not in a temporary folder, and `submit` calls this
 // function directly. Every refusal is the shell's text ("record rejected: ..."), in the shell's order, so that no check is easier to pass.
 import { asciiLower, asciiUpper } from './shellglob.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -79,7 +80,7 @@ function recordVisualCheck(ctx, id, result) {
   const tmp = mkdtempSync(path.join(tmpdir(), 'proofline-lint.'));
   try {
     const ap = `${tmp}/approved.json`;
-    writeFileSync(ap, approvedRationalesJson(ctx, id), 'latin1');
+    writeFileSync(ap, latin1Buf(approvedRationalesJson(ctx, id)));
     const r = proc.run(process.execPath, [script, '--root', ctx.root, '--approved-rationales', ap, '--out', tmp], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
     if (r.status !== 0 || !existsSync(`${tmp}/lint.json`)) {
       const log = Buffer.concat([r.stdout, r.stderr]).subarray(0, 300).toString('latin1').replace(/\n/g, ' ');
@@ -315,7 +316,7 @@ function recordApply(ctx, id, raw, v, stepAgent) {
   mkdirSync(rd, { recursive: true });
   const n = nextNum(rd);
   const rawName = `results/${n}-${v.role}.result.md`;
-  writeFileSync(`${dir}/${rawName}`, raw, 'latin1');
+  writeFileSync(`${dir}/${rawName}`, latin1Buf(raw));
   const sha = hashFile(`${dir}/${rawName}`);
   if (v.kind === 'gate' && v.res !== 'BLOCKED') {
     let gres = 'fail';
@@ -327,7 +328,7 @@ function recordApply(ctx, id, raw, v, stepAgent) {
   if (v.res === 'NEEDS_INPUT') {
     mkdirSync(`${dir}/questions`, { recursive: true });
     const q = nextNum(`${dir}/questions`);
-    writeFileSync(`${dir}/questions/${q}.md`, `from: ${v.role}\nfocus: ${v.focus}\ngrill: ${v.grill}\nresult: ${rawName}\nasked_at: ${now().epoch}\n---\n${v.questions}`, 'latin1');
+    writeFileSync(`${dir}/questions/${q}.md`, latin1Buf(`from: ${v.role}\nfocus: ${v.focus}\ngrill: ${v.grill}\nresult: ${rawName}\nasked_at: ${now().epoch}\n---\n${v.questions}`));
     if (sectionKeyPresent(ctx, dir, 'execution', 'awaiting_input')) setRunValue(ctx, id, 'execution', 'awaiting_input', 'true');
   }
   if (gatesEnforced(ctx, dir)) led(ctx, id, `record:${v.role}:${v.res}`, '-', '-', `${rawName} sha256=${sha}${v.gate !== '' ? ` gate=${v.gate}` : ''}`);

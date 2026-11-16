@@ -22,7 +22,7 @@ import { led, must } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gateField, gatesEnforced, ledgerLines, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileText, gateField, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pathMatches } from './scope.mjs';
 import { pipelineClass, pipelineClassValid, taskChangedPaths, tierEffective } from './signals.mjs';
@@ -174,7 +174,7 @@ function testMeasureAtImplemented(ctx, id, patch) {
   // cannot clear it, only a change of the content does (a rerun that happens to pass is not evidence of a stable test).
   // The token also holds the plan's listed Verification commands (sorted): an amendment that swaps the listed command is a different measurement, so it runs the double run again.
   const token = `patch=${sha256(Buffer.from(`${patch}\n${[...planVerificationCommands(ctx, id)].sort().join('\n')}`, 'utf8'))}`;
-  if (ledgerLines(ctx, dir).some((l) => / event=test-measure-block /.test(l) && l.endsWith(` detail=${token}`))) {
+  if (ledgerRows(ctx, dir, 'test-measure-block').some((r) => r.detail === token)) {
     fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
   }
   const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });

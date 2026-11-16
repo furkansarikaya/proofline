@@ -20,13 +20,14 @@ import { verifyCompletionReport } from './complreport.mjs';
 import { requireLead, requireOpenRun } from './approve.mjs';
 import { isDir, isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gatesEnforced, ledgerLines, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileText, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { hookTime } from './commands/hookcmds.mjs';
 import { freshness, verifyHandoff, verifyKnowledgeScope } from './commands/verify.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
 import { leadToolsRecord } from './leadlog.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -41,7 +42,7 @@ export function metricsLine(ctx, f) {
     let size = 0;
     try { size = statSync(file).size; } catch { /* new */ }
     const head = size > 0 ? '' : 'time\ttask\trole\truntime\tmodel\tduration_s\toutcome\n';
-    writeFileSync(file, `${head}${now().iso}\t${f.join('\t')}\n`, { flag: 'a', encoding: 'latin1' });
+    writeFileSync(file, latin1Buf(`${head}${now().iso}\t${f.join('\t')}\n`), { flag: 'a' });
   } catch { /* best effort */ }
 }
 
@@ -53,7 +54,7 @@ export function metricsJson(ctx, a) {
   const n = (/** @type {string | undefined} */ v) => (v === undefined || !/^[0-9]+$/.test(v) ? 'null' : v);
   const g = (/** @type {number} */ i) => a[i];
   const line = `{"schema":"proofline.metrics/1","kind":${s(g(0))},"time":"${now().iso}","task":${s(g(1))},"role":${s(g(2))},"focus":${s(g(3))},"gate":${s(g(4))},"runtime":${s(g(5))},"model":${s(g(6))},"duration_s":${n(g(7))},"tokens_in":${n(g(8))},"tokens_out":${n(g(9))},"tokens_total":${n(g(10))},"turns":${n(g(11))},"retries":${n(g(12))},"delegations":${n(g(13))},"fix_rounds":${n(g(14))},"result":${s(g(15))},"size":${s(g(16))},"scope_paths":${n(g(17))}}\n`;
-  try { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, line, { flag: 'a', encoding: 'latin1' }); } catch { /* best effort */ }
+  try { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, latin1Buf(line), { flag: 'a' }); } catch { /* best effort */ }
 }
 
 /** `metrics_run ID OUTCOME`: the run record, the hook timings and the friction report. @param {Context} ctx @param {string} id @param {string} outcome */
@@ -285,9 +286,9 @@ export function cleanupRun(ctx, id, mergeProved = false) {
   { const mark = ctx.chunks.length; try { rulesCommand(ctx, ['tally']); } catch { /* the counter is a courtesy */ } ctx.chunks.length = mark; }
   if (term) {
     verifySeal(ctx, id, dir);
-    const lines = ledgerLines(ctx, dir);
-    const last = lines.filter((l) => !/ event=hook(-timeout)? /.test(l)).pop();
-    const ok = last !== undefined && / event=(terminate|knowledge-done) /.test(last) && lines.some((l) => l.includes(' event=terminate '));
+    const rows = ledgerRows(ctx, dir, /^/).filter((r) => r.event !== 'hook' && r.event !== 'hook-timeout');
+    const last = rows.pop();
+    const ok = last !== undefined && (last.event === 'terminate' || last.event === 'knowledge-done') && ledgerRows(ctx, dir, 'terminate').length > 0;
     if (!ok) fail(`cleanup of a ${state} run requires its ledgered terminate transition: ${id}`);
   } else {
     if (sectionValue(ctx, dir, 'handoff', 'state') !== 'DONE') fail(`cleanup requires handoff DONE (or a FAILED/BLOCKED run): ${id}`);

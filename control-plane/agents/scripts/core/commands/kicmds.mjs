@@ -8,6 +8,7 @@ import { consumeApproval, requestApproval, requireLead } from '../approve.mjs';
 import { fail } from '../errors.mjs';
 import { KiError, appendRecord, candidates, canon, followupState, listRecords, listable } from '../kirules.mjs';
 import { readBytes, gateField, validTaskId } from '../records.mjs';
+import { latin1Buf } from '../wirebytes.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -54,7 +55,7 @@ function propose(ctx, args) {
   const dir = sharedDirOf(ctx, 'known-issues');
   mkdirSync(dir, { recursive: true });
   const row = `${c.gate}\t${c.place}\t${c.text}\t${fu}\n`;
-  writeFileSync(`${dir}/PROPOSAL.tsv`, Buffer.from(row, 'latin1'));
+  writeFileSync(`${dir}/PROPOSAL.tsv`, latin1Buf(row));
   ctx.forget('file:');
   ctx.out(row);
   return requestApproval(ctx, '-', 'known-issue');

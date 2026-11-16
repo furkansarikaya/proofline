@@ -7,6 +7,7 @@ import { ProoflineError } from './errors.mjs';
 import * as proc from './proc.mjs';
 import { hgit } from './hgit.mjs';
 import { trimSpace } from './shellglob.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -98,7 +99,7 @@ function writePage(ctx, top, page, r) {
     body += '| Where | Limit | Improve when |\n|---|---|---|\n';
     for (const [f, ln, lim, imp] of r) body += `| \`${f}:${ln}\` | ${lim.replace(/\|/g, '\\|')} | ${imp.replace(/\|/g, '\\|')} |\n`;
   }
-  try { writeFileSync(tmp, Buffer.from(body, 'latin1')); } catch { rmSync(tmp, { force: true }); die(`cannot write ${page}`); }
+  try { writeFileSync(tmp, latin1Buf(body)); } catch { rmSync(tmp, { force: true }); die(`cannot write ${page}`); }
   try { renameSync(tmp, page); } catch { rmSync(tmp, { force: true }); die(`cannot write ${page}`); }
   const rel = page.startsWith(`${top}/`) ? page.slice(top.length + 1) : page;
   ctx.out(`wrote ${rel} (${r.length} shortcut(s)); link it from docs/wiki/index.md if it is not linked yet\n`);
