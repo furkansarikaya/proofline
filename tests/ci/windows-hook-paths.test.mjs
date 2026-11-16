@@ -1,0 +1,69 @@
+// @ts-check
+// The path list that makes the Windows hook leg run on a pull request (A290): a table of changed-file lists, and the classify step's windows_hook output.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { FILES, PREFIXES, matchesWindowsHook, windowsHook } from './windows-hook-paths.mjs';
+import { main } from './ci-steps.mjs';
+
+/** @type {[string, string[], boolean][]} */
+const TABLE = [
+  ['a hook file', ['adapters/claude/hooks/guards/bash.mjs'], true],
+  ['the hook entry point', ['adapters/claude/hooks/proofline-hook.mjs'], true],
+  ['the Codex hook wiring', ['adapters/codex/hooks.json'], true],
+  ['a core path module', ['control-plane/agents/scripts/core/paths.mjs'], true],
+  ['the shell glob module', ['control-plane/agents/scripts/core/shellglob.mjs'], true],
+  ['the process module', ['control-plane/agents/scripts/core/proc.mjs'], true],
+  ['a hook test', ['tests/hook/win-drive-guards.test.mjs'], true],
+  ['the Windows path test', ['tests/ci/windows-paths.test.mjs'], true],
+  ['the Windows probe', ['tests/ci/windows-probe.mjs'], true],
+  ['the workflow file', ['.github/workflows/ci.yml'], true],
+  ['a documentation-only change', ['README.md', 'docs/concepts/workflow.md', 'CONTRIBUTING.md'], false],
+  ['an unrelated skill', ['skills/proofline/SKILL.md'], false],
+  ['an unrelated core module', ['control-plane/agents/scripts/core/ledger.mjs'], false],
+  ['an unrelated CI file', ['tests/ci/classify.mjs'], false],
+  ['the other workflow files', ['.github/workflows/release.yml'], false],
+  ['a lookalike of a prefix', ['adapters/claude/hooks-old/x.mjs', 'tests/hooks/x.mjs', 'adapters/codex/agents/x.md'], false],
+  ['a lookalike of a file', ['control-plane/agents/scripts/core/paths.mjs.bak', 'control-plane/agents/scripts/core/pathsx.mjs'], false],
+  ['a deleted hook test (a deletion is listed by name)', ['tests/hook/old.test.mjs'], true],
+  ['a rename out of the list (both names are listed)', ['tests/hook/a.test.mjs', 'tests/core/a.test.mjs'], true],
+  ['a rename into the list', ['skills/x.md', 'adapters/claude/hooks/lib/x.mjs'], true],
+  ['an empty list', [], false],
+  ['empty entries only', ['', ''], false],
+  ['one match in a long list', [...Array.from({ length: 5000 }, (_, i) => `docs/page-${i}.md`), 'adapters/claude/hooks/lib/text.mjs', ...Array.from({ length: 5000 }, (_, i) => `skills/s${i}/SKILL.md`)], true],
+  ['a long list without a match', Array.from({ length: 10000 }, (_, i) => `skills/s${i}/SKILL.md`), false],
+];
+
+for (const [name, files, want] of TABLE) test(`windowsHook: ${name} is ${want}`, () => assert.equal(windowsHook(files), want));
+
+test('the list has no duplicates, no leading slash, and every prefix ends in / or -', () => {
+  assert.equal(new Set([...FILES, ...PREFIXES]).size, FILES.length + PREFIXES.length);
+  for (const e of [...FILES, ...PREFIXES]) assert.ok(!e.startsWith('/') && !e.includes('\\'), e);
+  for (const p of PREFIXES) assert.match(p, /[/-]$/);
+  for (const f of FILES) assert.ok(matchesWindowsHook(f), f);
+});
+
+/** @param {string[]} argv @param {Parameters<typeof main>[1]} io */
+function steps(argv, io) { let out = ''; const status = main(argv, { write: (s) => { out += s; }, ...io }); return { status, out }; }
+
+test('classify prints windows_hook beside code: true for a matching pull request, false for another, false for a push or a schedule', () => {
+  const pr = ['classify', '--event', 'pull_request', '--base', 'b', '--head', 'h'];
+  assert.deepEqual(steps(pr, { env: {}, changed: () => ['adapters/claude/hooks/guards/kill.mjs'] }), { status: 0, out: 'code=true\nwindows_hook=true\n' });
+  assert.deepEqual(steps(pr, { env: {}, changed: () => ['skills/x/SKILL.md'] }), { status: 0, out: 'code=true\nwindows_hook=false\n' });
+  assert.deepEqual(steps(pr, { env: {}, changed: () => ['README.md'] }), { status: 0, out: 'code=false\nwindows_hook=false\n' });
+  assert.deepEqual(steps(pr, { env: {}, changed: () => [] }), { status: 0, out: 'code=true\nwindows_hook=false\n' });
+  for (const event of ['push', 'schedule', 'workflow_dispatch']) {
+    assert.deepEqual(steps(['classify', '--event', event], { env: {}, changed: () => { throw new Error('not asked'); } }), { status: 0, out: 'code=true\nwindows_hook=false\n' }, event);
+  }
+});
+
+test('classify for a push: BASE_SHA empty, GITHUB_EVENT_NAME=push reads no diff and writes both outputs to GITHUB_OUTPUT', async () => {
+  const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const d = mkdtempSync(join(tmpdir(), 'wh-'));
+  try {
+    const f = join(d, 'out'); writeFileSync(f, '');
+    assert.equal(main(['classify'], { env: { GITHUB_EVENT_NAME: 'push', BASE_SHA: '', GITHUB_OUTPUT: f }, write: () => {}, changed: () => { throw new Error('not asked'); } }), 0);
+    assert.equal(readFileSync(f, 'utf8'), 'code=true\nwindows_hook=false\n');
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});

@@ -1,7 +1,8 @@
 // @ts-check
 // The logic of the inline steps of .github/workflows/ci.yml, as one-line `node` steps.
 //   node tests/ci/ci-steps.mjs classify [--event NAME] [--base SHA --head SHA]   (defaults: $GITHUB_EVENT_NAME, $BASE_SHA, $GITHUB_SHA)
-//       writes `code=true|false` to $GITHUB_OUTPUT and prints it: false for a pull request that changes only plain documentation (tests/ci/classify.mjs)
+//       writes `code=true|false` and `windows_hook=true|false` to $GITHUB_OUTPUT and prints them: code is false for a pull request that changes only plain documentation (tests/ci/classify.mjs);
+//       windows_hook is true only for a pull request that changes a path of the Windows hook list (tests/ci/windows-hook-paths.mjs, A290), false for every other event
 //   node tests/ci/ci-steps.mjs skill-tests
 //       the `skill tests` step of the static job: tests/skills/ when it holds test files (else a SKIPPED line), then the benchmark's own tests; the first failing status ends it
 //   node tests/ci/ci-steps.mjs gate
@@ -14,6 +15,7 @@ import { appendFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { classify } from './classify.mjs';
+import { windowsHook } from './windows-hook-paths.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 /** The duration wrapper (A277, issue 266): runs `node --test <args>` with the spec text on stdout and a JSON duration report; its exit status is node's. */
@@ -47,13 +49,16 @@ export function main(argv, io = {}) {
       const o = options(rest);
       o.event ??= env.GITHUB_EVENT_NAME; o.base ??= env.BASE_SHA; o.head ??= env.GITHUB_SHA;   // the defaults are what Actions sets
       let code = 'true';
+      let winHook = 'false';
       if (o.event === 'pull_request') {
         if (!o.base || !o.head) throw new Error('classify: --base and --head are needed for a pull request');
         const names = (io.changed ?? ((b, h) => execFileSync('git', ['-c', 'core.quotepath=false', 'diff', '-z', '--name-only', '--no-renames', b, h], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\0')))(o.base, o.head);
         code = classify(names).replace(/^code=/, '');
+        winHook = String(windowsHook(names));
       }
-      if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `code=${code}\n`);
-      write(`code=${code}\n`);
+      const lines = `code=${code}\nwindows_hook=${winHook}\n`;
+      if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, lines);
+      write(lines);
       return 0;
     }
     if (cmd === 'skill-tests') {
