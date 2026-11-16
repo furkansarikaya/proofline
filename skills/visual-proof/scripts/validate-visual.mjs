@@ -410,6 +410,7 @@ export function validateReport(report, opt = {}) {
   const designNm = []; // requested design checks that could not be measured: they keep the result from PASS
   const dvp = new Set(DESIGN_VIEWPORTS.map((v) => v.name));
   if (design !== undefined) {
+    if (isObj(design) && design.time_scale !== undefined && design.time_scale !== 1 && !opt.allowTimeScale) err(`design.time_scale is ${JSON.stringify(design.time_scale)}: the motion audit ran with shortened waits (a test-only knob), so this evidence is not accepted; measure again without PROOFLINE_MOTION_TIME_SCALE`);
     if (unsupported) err("design must be absent when tool.kind is none (nothing was rendered)");
     else if (!isObj(design) || !["run", "not_applicable"].includes(design.status)) err("design.status must be run or not_applicable");
     else if (!DESIGN_MODES.includes(design.mode)) err(`design.mode must be one of ${DESIGN_MODES.join("|")}`);

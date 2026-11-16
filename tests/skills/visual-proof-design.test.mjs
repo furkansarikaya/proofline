@@ -65,6 +65,22 @@ test("motion time scale: the product windows are the default and a scale only sh
   assert.deepEqual([0.25, 0.001].map(clampTimeScale), [0.25, 0.05]);
 });
 
+test("validator: evidence measured with a shortened motion time scale is refused; scale 1 or no field is accepted", () => {
+  const { report, check } = build("STANDARD", good());
+  assert.equal(report.design.time_scale, 1, "the assembled report records the scale it was measured with");
+  assert.equal(check().valid, true);
+  const old = structuredClone(report); delete old.design.time_scale;
+  assert.equal(check(old).valid, true, "a report without the field is a scale-1 report");
+  const scaled = structuredClone(report); scaled.design.time_scale = 0.25;
+  const v = check(scaled);
+  assert.equal(v.valid, false);
+  assert.match(v.errors.join("\n"), /time_scale is 0\.25/);
+  assert.equal(check(scaled, { allowTimeScale: true }).valid, true, "only the explicit option (the fixture tests) accepts it");
+  const raw = { tool: { kind: "headless-browser", name: "chromium" }, config: { class: "STANDARD", base_url: "file:///app/", viewports: VPS, screens: [], criteria: [], design: { visitor_mode: "operate", screens: [] } }, cells: [], network: { interception: "on", blocked: [] }, design: { pages: [], time_scale: 0.25 } };
+  assert.equal(assemble(raw, mktmp()).design.time_scale, 0.25, "assembly keeps a non-1 scale from the raw facts");
+  assert.equal(assemble(raw, mktmp()).result, "INCONCLUSIVE", "scaled evidence never closes as a verdict");
+});
+
 test("motion decisions: counts, reduced motion keeps content, no-script, scene start", () => {
   assert.deepEqual(decideMotionCount({ load: 4, scroll: 1 }).map((d) => d.status), ["pass", "fail"]);
   const shown = [{ k: "a" }, { k: "b" }];
@@ -180,7 +196,7 @@ async function measureSite(kind, browserArgs = [], screens) {
   const cfg = JSON.parse(readFileSync(join(FIX, kind, "visual.json"), "utf8").replace("@SITE@", `file://${join(FIX, kind, "site")}/`));
   if (screens) { cfg.screens = cfg.screens.filter((s) => screens.includes(s.id)); cfg.design.screens = cfg.design.screens.filter((p) => screens.includes(p.replace(".html", ""))); }
   writeFileSync(join(out, "visual.json"), JSON.stringify(cfg));
-  const args = [MEASURE, "--config", join(out, "visual.json"), "--out", out, "--repo", join(FIX, kind), ...browserArgs, ...(process.env.CI ? ["--no-sandbox"] : [])];
+  const args = [MEASURE, "--config", join(out, "visual.json"), "--out", out, "--repo", join(FIX, kind), ...browserArgs, ...(process.env.CI ? ["--no-sandbox"] : []), "--accept-time-scale"];
   const r = await new Promise((ok) => { const c = spawn(process.execPath, args, { env: { ...process.env, PROOFLINE_MOTION_TIME_SCALE: TIME_SCALE } }); let se = ""; c.stderr.on("data", (d) => { se += d; }); c.on("close", (code) => ok({ code, se })); });
   assert.equal(r.code, 0, `measure.mjs exited ${r.code} for the ${kind} fixture; ${diagnostics(out)}\nstderr: ${r.se}`);
   return { out, report: JSON.parse(readFileSync(join(out, "report.json"), "utf8")) };

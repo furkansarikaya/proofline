@@ -3,7 +3,7 @@
 // DevTools protocol (child process + Node's global WebSocket, Node >= 22). Installs nothing.
 //
 //   node measure.mjs --detect [--repo DIR]                 print the detected tooling as JSON (kind none => UNSUPPORTED)
-//   node measure.mjs --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox]
+//   node measure.mjs --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox] [--accept-time-scale]
 //                                                          measure; writes DIR/report.json and DIR/screenshots/
 //   node measure.mjs --print-probe                         print the page probe (for a project tool or runtime adapter)
 //   node measure.mjs --print-design-probe                  print the design-audit probe (facts of design-audit.mjs evaluateStatic)
@@ -928,7 +928,7 @@ export const seoPagePaths = (c) => [...new Set(c.seo?.pages || (c.screens || [])
 //         interactions: [{ name, viewport, screenshot, item } | { name, viewport, error }],
 //         seo?: { pages: [facts], site: {...} } | { not_applicable: true },   (A158: see seoEvaluate)
 //         design?: { pages: [{ path, viewports: [{ viewport, screenshot, facts }], ledger? }], motion? } }   (A170: see design-audit.mjs assembleDesign)
-export function assemble(raw, outDir) {
+export function assemble(raw, outDir, opt = {}) {
   const c = raw.config;
   const sha = (p) => createHash("sha256").update(readFileSync(join(outDir, p))).digest("hex");
   const report = {
@@ -998,8 +998,9 @@ export function assemble(raw, outDir) {
     const unreadable = (p) => { throw new Error(`cannot read ${p}`); };
     report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)), { ascii: asciiConfig([process.cwd(), outDir]) });
   }
-  const v = validateReport({ ...report, result: "PASS" }, { root: outDir });
+  const v = validateReport({ ...report, result: "PASS" }, { root: outDir, allowTimeScale: opt.allowTimeScale });
   report.result = v.computed;
+  if (report.design?.time_scale !== undefined && report.design.time_scale !== 1 && !opt.allowTimeScale) report.result = "INCONCLUSIVE"; // scaled evidence is never a verdict
   return report;
 }
 
@@ -1025,8 +1026,9 @@ async function measureSeo(p, config, reqLog, url) {
 
 // Design audit facts (A170): every design page is opened at 1440, 768 and 390 wide (a language-only page at 1440), scrolled once top to
 // bottom so lazy and scroll-revealed content exists, photographed, and probed; the ledger and the motion audit run on the same page object.
-// PROOFLINE_MOTION_TIME_SCALE (0.05 to 1, default 1): shortens the lazy-load scroll dwell and the motion audit waits by one factor; used by the
-// tests of the fixture sites, never lengthens a wait.
+// PROOFLINE_MOTION_TIME_SCALE (0.05 to 1, default 1) is TEST-ONLY: it shortens the motion audit waits and the lazy-load scroll dwell of
+// the page facts by one factor. The scale used is recorded as raw.design.time_scale and report.design.time_scale, and the validator refuses a report
+// whose scale is not 1 unless the caller passes allowTimeScale (measure.mjs --accept-time-scale, used only by the fixture tests).
 const TIME_SCALE = clampTimeScale(process.env.PROOFLINE_MOTION_TIME_SCALE);
 async function measureDesign(p, config, url, outDir, repo, shotName) {
   const d = config.design, out = { pages: [] };
@@ -1054,6 +1056,7 @@ async function measureDesign(p, config, url, outDir, repo, shotName) {
       } catch (e) { rv.error = e.message; delete rv.screenshot; delete rv.facts; }
     }
   }
+  out.time_scale = TIME_SCALE;
   try { out.motion = await motionAudit({ p, url, config, outDir, timeScale: TIME_SCALE, shotName: (...parts) => shotName(...parts).replace(/^screenshots\/design-/, "screenshots/") }); } catch (e) { out.motion = { error: e.message }; }
   return out;
 }
@@ -1153,7 +1156,8 @@ async function main(argv) {
     const errs = checkConfig(raw.config);
     if (errs.length) { errs.forEach((e) => console.error(`config: ${e}`)); return 2; }
     mkdirSync(out, { recursive: true });
-    const report = assemble(raw, out);
+    const acceptScale = argv.includes("--accept-time-scale");
+    const report = assemble(raw, out, { allowTimeScale: acceptScale });
     let prev = null; // A200: the report of the last run in this folder (or --prev-report) is the design-audit cache
     try { prev = read(arg(argv, "--prev-report") || join(out, "report.json")); } catch { prev = null; }
     if (report.design && report.design.status === "run") report.design.inputs = designCacheInputs(repo);
@@ -1163,7 +1167,7 @@ async function main(argv) {
       writeFileSync(join(out, "design-cache.json"), JSON.stringify({ schema: "visual-proof.design-cache/1", ...cache }, null, 2) + "\n");
       console.log(`DESIGN_CACHE: ${cache.diff.unchanged.length} page(s) unchanged (their judged items are in design-cache.json), judge again: ${cache.pages_to_judge.join(", ") || "none"}`);
     }
-    const v = validateReport(report, { root: out });
+    const v = validateReport(report, { root: out, allowTimeScale: acceptScale });
     console.log(`RESULT: ${report.result}`);
     console.log(`SUMMARY: ${v.summary}`);
     if (!v.valid) v.errors.forEach((e) => console.error(`note: ${e}`));

@@ -400,5 +400,5 @@ export async function motionAudit({ p, url, config, outDir, shotName, timeScale 
     try { writeFileSync(join(outDir, "motion-diagnostics.json"), JSON.stringify(diag, null, 1)); } catch (err) { /* diagnostics only */ }
     if (recorderId) await p.s("Page.removeScriptToEvaluateOnNewDocument", { identifier: recorderId }).catch(() => {});
   }
-  return { items, scenes, not_measured };
+  return { items, scenes, not_measured, time_scale: scale };
 }
