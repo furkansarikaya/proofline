@@ -12,7 +12,10 @@
 // callback forms of the file system module (the hook and the core do not use them), Dir.read() and the async iterator of a directory handle (only readSync is used), and a process that inherits an environment variable
 // holding the character without naming it.
 
+import { join, sep } from 'node:path';
+
 /** @typedef {(text: string) => boolean} Aborts */
+/** @typedef {(dir: string, opt?: object) => any[]} RawList the ORIGINAL readdirSync, taken before the module is patched */
 
 /** @param {unknown} x @returns {string} the text of a path argument; '' for a file descriptor or anything that is no path */
 function textOf(x) {
@@ -40,8 +43,35 @@ function clean(list, aborts) {
   return list.filter((e) => !aborts(typeof e === 'string' ? e : textOf(/** @type {any} */ (e)?.name) + textOf(/** @type {any} */ (e)?.parentPath ?? '')));
 }
 
-/** @param {Record<string, any>} mod the file system module (or a fake) @param {Aborts} aborts @param {boolean} promises */
-function guardModule(mod, aborts, promises) {
+/** The listing of a tree without the names that abort and without descending into them (a recursive listing of the platform would open them). @param {RawList} raw @param {Aborts} aborts @param {string} dir @param {boolean} dirents @param {string} [rel] @param {any[]} [out] */
+function walk(raw, aborts, dir, dirents, rel = '', out = []) {
+  for (const e of raw(dir, { withFileTypes: true })) {
+    if (aborts(e.name)) continue;
+    const r = rel === '' ? e.name : `${rel}${sep}${e.name}`;
+    out.push(dirents ? e : r);
+    if (e.isDirectory()) walk(raw, aborts, join(dir, e.name), dirents, r, out);
+  }
+  return out;
+}
+
+/** True when a name below DIR aborts (a recursive remove or copy of the platform would open it). Fails closed on a tree too large to read. @param {RawList} raw @param {Aborts} aborts @param {string} dir */
+function treeHolds(raw, aborts, dir) {
+  let n = 0;
+  /** @param {string} d @returns {boolean} */
+  const go = (d) => {
+    let list;
+    try { list = raw(d, { withFileTypes: true }); } catch { return false; }
+    for (const e of list) {
+      if (aborts(e.name) || ++n > 200000) return true;
+      if (e.isDirectory() && go(join(d, e.name))) return true;
+    }
+    return false;
+  };
+  return go(dir);
+}
+
+/** @param {Record<string, any>} mod the file system module (or a fake) @param {Aborts} aborts @param {boolean} promises @param {RawList} raw */
+function guardModule(mod, aborts, promises, raw) {
   /** @type {Array<() => void>} */ const undo = [];
   const bases = [...ONE, ...TWO].filter((n) => !promises || PROMISES.includes(n));
   for (const base of bases) {
@@ -58,6 +88,17 @@ function guardModule(mod, aborts, promises) {
           const err = enoent(key, args[0]);
           if (promises) return Promise.reject(err);
           throw err;
+        }
+        const o2 = /** @type {any} */ (args[1]);
+        const recursive = o2 !== null && typeof o2 === 'object' && o2.recursive === true;
+        if (recursive && (base === 'rm' || base === 'rmdir' || base === 'cp') && treeHolds(raw, aborts, textOf(args[0]))) {
+          const err = Object.assign(new Error(`EPERM: operation not permitted, ${base} '${textOf(args[0]).replace(/[\u{10000}\u{10FFFF}]/gu, '?')}': the tree holds a name that makes Node abort`), { code: 'EPERM' });
+          if (promises) return Promise.reject(err);
+          throw err;
+        }
+        if (recursive && base === 'readdir') {
+          if (!promises) return walk(raw, aborts, textOf(args[0]), o2.withFileTypes === true);
+          return new Promise((res, rej) => { try { res(walk(raw, aborts, textOf(args[0]), o2.withFileTypes === true)); } catch (e) { rej(e); } });
         }
         const r = orig.apply(this, args);
         if (base === 'readdir') {
@@ -105,8 +146,9 @@ function guardProcess(cp, aborts) {
  * @param {{ fs: Record<string, any>, promises?: Record<string, any>, cp?: Record<string, any> }} mods @param {Aborts} aborts
  */
 export function guardFs(mods, aborts) {
-  const undo = [guardModule(mods.fs, aborts, false)];
-  if (mods.promises) undo.push(guardModule(mods.promises, aborts, true));
+  const raw = /** @type {RawList} */ (mods.fs.readdirSync);
+  const undo = [guardModule(mods.fs, aborts, false, raw)];
+  if (mods.promises) undo.push(guardModule(mods.promises, aborts, true, raw));
   if (mods.cp) undo.push(guardProcess(mods.cp, aborts));
   return () => { for (const u of undo.reverse()) u(); };
 }

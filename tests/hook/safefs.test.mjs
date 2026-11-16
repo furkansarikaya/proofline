@@ -31,6 +31,12 @@ test('safefs (injected predicate): a path that aborts does not exist, it is neve
     assert.deepEqual(fs.readdirSync(dir).sort(), ['b.txt'], 'the name is not listed');
     assert.deepEqual(fs.readdirSync(dir, { withFileTypes: true }).map((/** @type {any} */ e) => e.name), ['b.txt']);
     assert.deepEqual(fs.readdirSync(dir, { recursive: true }), ['b.txt']);
+    realFs.mkdirSync(join(dir, 'sub')); realFs.writeFileSync(join(dir, 'sub', 'in.txt'), 'x'); realFs.writeFileSync(join(dir, 'sub', `deep${BAD}`), 'x');
+    assert.deepEqual(fs.readdirSync(dir, { recursive: true }).sort(), ['b.txt', join('sub'), join('sub', 'in.txt')].sort(), 'a recursive listing skips the name and does not open the folder named with it');
+    assert.deepEqual((await fsp.readdir(dir, { recursive: true })).sort(), ['b.txt', join('sub'), join('sub', 'in.txt')].sort());
+    assert.throws(() => fs.rmSync(dir, { recursive: true }), (/** @type {any} */ e) => e.code === 'EPERM', 'a recursive remove of a tree that holds the name is refused (the platform would open it)');
+    assert.equal(realFs.existsSync(join(dir, 'b.txt')), true, 'and nothing was removed');
+    assert.doesNotThrow(() => fs.rmSync(join(dir, 'sub', 'in.txt')));
     assert.equal(fs.readFileSync(join(dir, 'b.txt'), 'utf8'), 'plain');
     for (const f of ['readFileSync', 'statSync', 'lstatSync', 'realpathSync', 'readdirSync', 'accessSync', 'readlinkSync', 'openSync']) {
       assert.throws(() => fs[f](join(dir, `a${BAD}.txt`)), (/** @type {any} */ e) => e.code === 'ENOENT', f);
@@ -50,10 +56,10 @@ test('safefs (injected predicate): a path that aborts does not exist, it is neve
     const d = fs.opendirSync(dir);
     const seen = []; for (let e = d.readSync(); e; e = d.readSync()) seen.push(e.name);
     d.closeSync();
-    assert.deepEqual(seen.sort(), ['b.txt'], 'a directory handle skips the name');
+    assert.deepEqual(seen.sort(), ['b.txt', 'sub'], 'a directory handle skips the name');
     assert.throws(() => fs.opendirSync(join(dir, `d${BAD}`)), (/** @type {any} */ e) => e.code === 'ENOENT');
     // the promise API
-    assert.deepEqual((await fsp.readdir(dir)).sort(), ['b.txt']);
+    assert.deepEqual((await fsp.readdir(dir)).sort(), ['b.txt', 'sub']);
     await assert.rejects(() => fsp.readFile(join(dir, `a${BAD}.txt`)), (/** @type {any} */ e) => e.code === 'ENOENT');
     assert.equal(await fsp.readFile(join(dir, 'b.txt'), 'utf8'), 'plain');
     // the process module: the command, an argument, the working directory, an environment value
