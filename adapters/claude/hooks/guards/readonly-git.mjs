@@ -7,6 +7,7 @@
 //   readonlyGit(ctx, cmd, scan)   throws Deny; nothing for any other role
 import { cmdSubst } from '../lib/text.mjs';
 import { cParts, deny } from './kit.mjs';
+import { programTexts, SHELLS, OTHER_SHELLS } from './readonly-git-programs.mjs';
 
 /** The roles that never push and never create a branch or a tag. core/githooks.mjs NO_PUSH_ROLES is the same list. */
 export const NO_PUSH_ROLES = ['qa', 'reviewer', 'security_reviewer', 'verifier', 'explorer'];
@@ -19,8 +20,9 @@ const BUILTIN = new Set(('add am annotate apply archive backfill bisect blame br
 const PUSHERS = new Set(['push', 'send-pack', 'http-push', 'svn', 'p4', 'cvsexportcommit', 'imap-send', 'send-email', 'fast-import']);
 /** Subcommands that run a command line of the caller. */
 const RUNNERS = new Set(['submodule', 'rebase', 'bisect', 'filter-branch', 'difftool', 'mergetool', 'for-each-repo', 'hook', 'maintenance', 'stash']);
+/** Class: push text. `git ... push|send-pack|http-push` (anything between the words), and the gh forms that create a pull request, a repository, a fork, a release or a branch. Tested on the text with quotes removed. */
 const PUSH_TEXT = /(^|[^A-Za-z0-9_.-])git(\.exe)?([^;&|\n]*[\s'"])?(push|send-pack|http-push)([^A-Za-z0-9_-]|$)|(^|[^A-Za-z0-9_.-])gh[\s'"]+(pr[\s'"]+create|repo[\s'"]+(sync|create|fork)|release[\s'"]+create|issue[\s'"]+develop)/;
-/** A pipe, here-document or eval that feeds a shell: the text is judged as a command. */
+/** Class: a sink that runs text. A pipe, here-document or eval that feeds a shell: the text is judged as a command. */
 const SINK = /\|[\s]*((env|sudo|command|exec)\s+)*(\/[^\s|;&]*\/)?(sh|bash|zsh|dash|ksh|ash)(\s|;|&|\)|$)|(^|[^A-Za-z0-9_.-])(sh|bash|zsh|dash|ksh)(\s+-[A-Za-z]+)*\s*<<|(^|[^A-Za-z0-9_.-])eval(\s|$)/;
 /** A function definition whose body mentions git or gh: `function g { git "$@"; }`, `g() { git "$@"; }`. */
 const FUNC_DEF = /(\bfunction\s+[A-Za-z_][\w.-]*|[A-Za-z_][\w.-]*\s*\(\s*\))[^{;]*\{[^}]*\b(git|gh)\b/;
@@ -29,13 +31,19 @@ const PROG_GIT = /(^|[^A-Za-z0-9_])g["'+\s,\\]{0,6}i["'+\s,\\]{0,6}t([^A-Za-z0-9
 const PROG_VERB = /push|send-pack|fast-import|update-ref|\bbranch\b|\bcheckout\b|\bswitch\b|\btag\b|worktree|subtree|pu[^A-Za-z]{0,8}sh|create|develop|\bsync\b/;
 /** A substitution at the command position with arguments behind it: `\`echo git\` push`. The scanner reads the substitution as a command of its own and the next word as another, so the word that runs is lost. */
 const SUBST_CW = /(^|[;&|(){}\n])\s*(`[^`]{0,500}`|\$\((?:[^()]|\([^()]{0,100}\)){0,500}\))\s+[^\s;&|)]/;
-const SAFE_EXEC = new Set(['grep', 'egrep', 'fgrep', 'rg', 'cat', 'echo', 'printf', 'ls', 'wc', 'head', 'tail', 'stat', 'file', 'basename', 'dirname', 'readlink', 'realpath', 'diff', 'cmp', 'shasum', 'sha256sum', 'md5sum', 'md5']);
+/** Class: interpreters and shells that read a program from stdin or from an option. */
 const INTERP = '(?:sh|bash|zsh|dash|ksh|ash|node|nodejs|bun|deno|python[0-9.]*|perl|ruby|php|lua|awk|gawk|mawk)';
+/** Class: `interp <<EOF` (the program is the here-document text). */
 const HERE_PROG = new RegExp(`(^|[^A-Za-z0-9_.-])${INTERP}(\\s+[^<;&|\\n]{0,200})?<<-?[ \\t]*(.*)$`, 's');
+/** Class: `echo|printf|cat <text> | interp` (the program is the echoed text). */
 const PIPE_PROG = new RegExp(`(?:echo|printf|cat)\\s+((?:\"[^\"]{0,2000}\"|'[^']{0,2000}'|[^|;&\\n\"']){0,2000})\\|\\s*(?:(?:env|sudo|command)\\s+)*(?:\\S*/)?${INTERP}(?:\\s|;|&|\\)|$)`);
-/** Words that only print, search or page their arguments: git or gh among them is text. */
+/** Class: words that only print, search or page their arguments: git or gh among them is text. */
 const TEXT_ONLY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'less', 'more', 'head', 'tail', 'wc', 'sort', 'uniq', 'diff', 'tr', 'cut', 'man', 'which', 'type', 'command', 'ls', 'tee', 'stat', 'file', 'test', 'jq', 'cd', 'pushd', 'popd', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'basename', 'dirname', 'realpath', 'readlink']);
-const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash']);
+
+/** Class: git hosting CLIs judged by read verbs (gh, glab and their older wrappers hub and lab). */
+const HOSTS = new Set(['gh', 'glab', 'hub', 'lab']);
+/** The subcommand of a dashed git command (`git-push` -> `push`), or null. @param {string} b */
+const dashedSub = (b) => /^git-([a-z0-9][a-z0-9-]*)$/.exec(b)?.[1] ?? null;
 
 /** @param {string} x */
 const isShort = (x) => x.length > 1 && x.startsWith('-') && !x.startsWith('--');
@@ -51,7 +59,7 @@ export function readonlyGit(ctx, cmd, scan) {
   const bare = flat.replace(/["'\\]/g, '');
   if (SINK.test(flat) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
   // xargs and parallel given git or gh with the subcommand on stdin
-  if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
+  if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
   // an interpreter or shell fed its program by a here-document, a here-string or an echo: the text is judged as a program
   const fed = HERE_PROG.exec(cmd)?.[3] ?? PIPE_PROG.exec(flat)?.[1] ?? '';
   if (fed !== '' && PROG_GIT.test(fed) && PROG_VERB.test(fed)) deny(`a program fed to an interpreter or shell on stdin that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
@@ -64,76 +72,30 @@ export function readonlyGit(ctx, cmd, scan) {
     const words = cmdSubst(rest.replace(/[\x03\x02]/g, '\n')).split('\n').filter((w) => w !== '');
     // a command word that is a variable, a substitution or a brace expansion cannot be read (`$g push`, `\`echo git\` push`, `git{,} push`)
     if (cw.startsWith('$') || cw.startsWith('`') || /[{}]/.test(cw)) deny(`a command word that is a variable, a substitution or a brace expansion cannot be checked (it may be git): ${TAIL}`);
-    const base = cw.slice(cw.lastIndexOf('/') + 1);
-    if (base === 'git' || base === 'git.exe') { gitJudge(words); continue; }
-    if (base === 'gh' || base === 'glab' || base === 'az') { cliJudge(base, words); continue; }
+    const base = cw.slice(cw.lastIndexOf('/') + 1).replace(/\.exe$/, '');
+    if (base === 'git') { gitJudge(words); continue; }
+    // a dashed git command (`git-push`, `/usr/lib/git-core/git-push`) is `git push`
+    const dashed = dashedSub(base);
+    if (dashed !== null) { gitJudge([dashed, ...words]); continue; }
+    if (HOSTS.has(base) || base === 'az') { cliJudge(base, words); continue; }
     if (['curl', 'wget', 'http', 'https', 'xh', 'xhs', 'aria2c'].includes(base)) { netJudge(base, words); continue; }
     const prog = programTexts(base, words);
     if (prog.some((t) => PROG_GIT.test(t) && PROG_VERB.test(t))) deny(`${base} given a program or command line that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
     // any other program in front of git or gh (`caffeinate git push`, `arch -arm64 git push`, `xcrun git push`): the tokens from git on are judged as that command
     if (!TEXT_ONLY.has(base)) {
       const toks = [cw, ...words];
-      const at = toks.findIndex((t, idx) => idx > 0 && ['git', 'git.exe', 'gh', 'glab', 'az'].includes(t.slice(t.lastIndexOf('/') + 1)));
+      const nameOf = (/** @type {string} */ t) => t.slice(t.lastIndexOf('/') + 1).replace(/\.exe$/, '');
+      const at = toks.findIndex((t, idx) => idx > 0 && (nameOf(t) === 'git' || dashedSub(nameOf(t)) !== null || HOSTS.has(nameOf(t)) || nameOf(t) === 'az'));
       if (at > 0) {
-        const tool = /** @type {string} */ (toks[at]);
-        const name = tool.slice(tool.lastIndexOf('/') + 1);
-        if (name.startsWith('git')) gitJudge(toks.slice(at + 1)); else cliJudge(name, toks.slice(at + 1));
+        const name = nameOf(/** @type {string} */ (toks[at]));
+        const ds = dashedSub(name);
+        if (name === 'git') gitJudge(toks.slice(at + 1)); else if (ds !== null) gitJudge([ds, ...toks.slice(at + 1)]); else cliJudge(name, toks.slice(at + 1));
       }
     }
-    if (SHELLS.has(base) && words.includes('-c') && words.some((w) => w === '{}' || w.startsWith('$') || w.startsWith('`'))) deny(`a shell given its program from xargs, a variable or a substitution cannot be checked: ${TAIL}`);
+    if ((SHELLS.has(base) || OTHER_SHELLS.has(base)) && words.includes('-c') && words.some((w) => w === '{}' || w.startsWith('$') || w.startsWith('`'))) deny(`a shell given its program from xargs, a variable or a substitution cannot be checked: ${TAIL}`);
   }
 }
 
-/** The program text(s) an interpreter, a runner or a tool that runs commands is given, not its file operands (a script path or a document named git-push.md is not a program). @param {string} base @param {string[]} w */
-function programTexts(base, w) {
-  /** @type {string[]} */ const out = [];
-  const flagLetters = /^(node|nodejs|bun|deno)$/.test(base) ? 'ep' : /^python[0-9.]*$/.test(base) ? 'c' : base === 'perl' ? 'eE' : (base === 'ruby' || base === 'lua' || base === 'Rscript') ? 'e' : base === 'php' ? 'r' : '';
-  if (flagLetters !== '') {
-    // -c / -e / -p / -r as a word or as the last letter of a cluster (python -Bc, perl -we, ruby -ne, node -pe): the next word is the program
-    for (let k = 0; k < w.length; k++) {
-      const x = /** @type {string} */ (w[k]);
-      if (/^--(eval|print|command)$/.test(x)) out.push(w[k + 1] ?? '');
-      else if (/^--(eval|print)=/.test(x)) out.push(x.slice(x.indexOf('=') + 1));
-      else if (/^-[A-Za-z]+$/.test(x) && flagLetters.includes(x.slice(-1))) out.push(w[k + 1] ?? '');
-    }
-  } else if (/^(awk|gawk|mawk|nawk)$/.test(base)) {
-    // options that take a value are skipped before the program is taken; -f names a program file (not read: a gap)
-    const VAL = new Set(['-v', '-F', '-i', '-l', '-W', '--assign', '--field-separator', '--include', '--load']);
-    let fromOpt = false; let first = null;
-    for (let k = 0; k < w.length; k++) {
-      const x = /** @type {string} */ (w[k]);
-      if (x === '-e' || x === '--source') { out.push(w[k + 1] ?? ''); fromOpt = true; k++; } else if (x.startsWith('--source=')) { out.push(x.slice(9)); fromOpt = true; } else if (x === '-f' || x === '--file') { fromOpt = true; k++; } else if (VAL.has(x)) k++;
-      else if (x.startsWith('-') && x !== '-') continue;
-      else if (first === null) first = x;
-    }
-    if (!fromOpt && first !== null) out.push(first);
-  } else if (base === 'sed') {
-    let fromOpt = false; let first = null;
-    for (let k = 0; k < w.length; k++) {
-      const x = /** @type {string} */ (w[k]);
-      if (x === '-e' || x === '--expression') { out.push(w[k + 1] ?? ''); fromOpt = true; k++; } else if (x.startsWith('--expression=')) { out.push(x.slice(13)); fromOpt = true; } else if (x === '-f' || x === '--file') { fromOpt = true; k++; } else if (x.startsWith('-') && x !== '-') continue;
-      else if (first === null) first = x;
-    }
-    if (!fromOpt && first !== null) out.push(first);
-    // only the `e` command and the `e` flag of s/// run a command; any other script is text
-    for (let k = out.length - 1; k >= 0; k--) {
-      const t = /** @type {string} */ (out[k]);
-      const m = /(^|[;{}\s\d,$!])e\s+(.*)$/s.exec(t);
-      if (m) out[k] = m[2] ?? ''; else if (!/s(.).*\1.*\1[a-zA-Z]*e/s.test(t)) out.splice(k, 1);
-    }
-  } else if (base === 'find') {
-    let on = false;
-    for (const x of w) {
-      if (/^-(exec|execdir|ok|okdir)$/.test(x)) { on = true; out.push(''); continue; }
-      if (on && out[out.length - 1] === '' && SAFE_EXEC.has(x)) { on = false; out.pop(); continue; }
-      if (x === ';' || x === '\\;' || x === '+') { on = false; continue; }
-      if (on) out[out.length - 1] += ` ${x}`;
-    }
-  } else if (base === 'tar') { for (const x of w) if (/^--(to-command|checkpoint-action|use-compress-program|rsh-command)=/.test(x)) out.push(x.slice(x.indexOf('=') + 1)); } else if (base === 'rsync') {
-    for (let k = 0; k < w.length; k++) { const x = /** @type {string} */ (w[k]); if (x === '-e' || x === '--rsh') out.push(w[k + 1] ?? ''); else if (x.startsWith('--rsh=')) out.push(x.slice(6)); }
-  } else if (base === 'ssh' || base === 'eval' || base === 'env' || base === 'watch' || base === 'script' || base === 'su' || base === 'parallel') out.push(w.join(' '));
-  return out;
-}
 
 /** `-c key=value` keys that run nothing. Any other key can name a program (core.fsmonitor, core.sshCommand, credential.helper, core.pager, core.editor, diff.external, gpg.program, include.path, core.hooksPath, alias.*, protocol.ext.allow ...). */
 const HARMLESS_KEY = /^(color\.[a-z.]+|core\.quotepath|safe\.directory|advice\.[a-z]+|core\.abbrev|log\.abbrevcommit|log\.date|diff\.renames|diff\.algorithm)$/i;
@@ -230,7 +192,7 @@ function gitJudge(a, needSub = false) {
   }
 }
 
-/** The read verbs of gh and glab; anything else is a write (an allow-list, so a verb nobody listed is refused). */
+/** The read verbs of gh, glab, hub and lab; anything else is a write (an allow-list, so a verb nobody listed is refused). */
 const READ_VERBS = new Set(['list', 'ls', 'view', 'diff', 'checks', 'status', 'get', 'check', 'watch', 'download', 'show']);
 
 /** gh and glab: only the read verbs; `api` is judged by apiJudge. az: the verbs that create a pull request or a ref. @param {string} tool @param {string[]} a */
@@ -239,9 +201,9 @@ function cliJudge(tool, a) {
   for (let k = 0; k < a.length; k++) { const x = /** @type {string} */ (a[k]); if (x === '-R' || x === '--repo' || x === '--hostname') { k++; continue; } if (!x.startsWith('-')) n.push(x.toLowerCase()); }
   const [v1 = '', v2 = ''] = n;
   if (n.some((x) => x.startsWith('$') || x.startsWith('`'))) deny(`${tool} with a variable or substitution where the subcommand goes cannot be checked: ${TAIL}`);
-  if (tool === 'gh' || tool === 'glab') {
+  if (HOSTS.has(tool)) {
     if (v1 === 'api') { apiJudge(a); return; }
-    if (v1 === '' || ['search', 'status', 'help', 'version', 'browse', 'completion'].includes(v1)) return;
+    if (v1 === '' || ['search', 'status', 'help', 'version', 'browse', 'completion', ...(tool === 'hub' ? ['ci-status', 'compare'] : [])].includes(v1)) return;
     if ((v1 === 'auth' && v2 === 'status') || (v1 === 'config' && (v2 === 'get' || v2 === 'list')) || (v1 === 'repo' && v2 === 'clone')) return;
     if (READ_VERBS.has(v2)) return;
     deny(`${tool} ${v1} ${v2} is not a read verb (list, view, diff, checks, status, get, watch, download); it can push, create a branch, a tag or a pull request, or change the repository: ${TAIL}`);
