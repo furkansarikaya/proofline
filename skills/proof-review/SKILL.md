@@ -4,7 +4,7 @@ description: "Reviews a code change (uncommitted work, a branch, or a PR) and re
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.141"
+  version: "0.0.142"
 ---
 
 # proof-review
