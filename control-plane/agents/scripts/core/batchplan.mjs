@@ -6,8 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { batchApproval, sharedDirOf } from './approvals.mjs';
 import { requestApproval, requireLead, shown } from './approve.mjs';
-import { BATCH_EXC_HEADING, BATCH_EXC_MAX_LINE, BATCH_EXC_MAX_LINES } from './exceptionsapproval.mjs';
-import { exceptionLineHash, exceptionLines, parseException } from './testreview.mjs';
+import { BATCH_EXC_HEADING } from './exceptionsapproval.mjs';
+import { exceptionLineHash, exceptionLineIssues, exceptionLines } from './testreview.mjs';
 import { fail } from './errors.mjs';
 import { sha256File } from './hash.mjs';
 import { isFile } from './paths.mjs';
@@ -286,6 +286,21 @@ function plan(ctx, argv) {
     for (const x of info) ctx.err(`  ${x.id}: ${ex.get(x.id)}\n`);
     die('no task can be batched; nothing was written');
   }
+  // B6 (A294 'not covered'): a malformed line of a task file's `## Test exceptions` stops the batch before anything is written or requested. The summary lists a line only when it
+  // parses, so a line that did not parse used to vanish from the listing without a word; now the user hears which line of which task is invalid and why, and nothing is approved.
+  {
+    /** @type {string[]} */ const bad = [];
+    for (const x of kept) {
+      for (const i of exceptionLineIssues(rd(/** @type {string} */ (tfile(td, x.id))))) {
+        const cut = i.text.length > 80 ? `${shown(i.text.slice(0, 80))} [cut at 80 of ${i.text.length} bytes]` : shown(i.text);
+        bad.push(`  task ${x.id}, line ${i.line} of its task file, ## Test exceptions: ${i.reason}: ${cut}\n`);
+      }
+    }
+    if (bad.length > 0) {
+      ctx.err(`invalid test exception line(s); an invalid line is never listed, so it could never be approved:\n${bad.slice(0, 20).join('')}${bad.length > 20 ? `  ... and ${bad.length - 20} more\n` : ''}`);
+      die('the batch is refused; nothing was written and nothing is approved. Fix the line(s) in the task file (the task-author validator, skills/task-author/scripts/validate-task.mjs, reports the same) and plan the batch again');
+    }
+  }
   // topological order; among the tasks that are ready, the higher priority (A202: front matter priority, high before medium before low) goes first, and ties keep the listed order
   /** @type {typeof kept} */ const orderList = [];
   const emitted = new Set();
@@ -366,9 +381,8 @@ function plan(ctx, argv) {
   {
     /** @type {string[]} */ const rows = [];
     for (const x of orderList) {
-      const lines = exceptionLines(rd(/** @type {string} */ (tfile(td, x.id)))).filter((l) => parseException(l) !== null);
+      const lines = exceptionLines(rd(/** @type {string} */ (tfile(td, x.id)))); // every line is valid here (checked above, same parser)
       if (lines.length === 0) continue;
-      if (lines.length > BATCH_EXC_MAX_LINES || lines.some((l) => l.length > BATCH_EXC_MAX_LINE)) { rows.push(`- ${x.id}: ${lines.length} test exception line(s), too many or too long to show in full: none of them is listed, so none clears a finding\n`); continue; }
       for (const l of lines) rows.push(`- test exception ${x.id} ${exceptionLineHash(l)}: ${shown(l)}\n`);
     }
     if (rows.length > 0) {

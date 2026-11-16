@@ -325,8 +325,12 @@ export function validateOptionalFields(meta, t, errors, warnings, opts = {}) {
 }
 
 // ---- templates (D25) ----
-const FIELDS = ["title", "goal", "context", "acceptance_criteria", "out_of_scope", "constraints", "risks", "suggested_class", "verification_commands", "labels", "components"];
+const FIELDS = ["title", "goal", "context", "acceptance_criteria", "out_of_scope", "constraints", "risks", "suggested_class", "verification_commands", "test_exceptions", "labels", "components"];
 const ALWAYS_REQUIRED = ["goal", "acceptance_criteria", "out_of_scope", "constraints", "risks"];
+// Optional section (A294): a template may carry it, an export or an import without it is complete (unless the template lists it under required:).
+const OPTIONAL_FIELDS = ["test_exceptions"];
+// The template's own one-line `<!-- Optional ... -->` comment is not a line of the section.
+const dropComments = (body) => body.split("\n").map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l)).filter((l) => !/^[ \t]*<!--.*-->[ \t]*$/.test(l)).join("\n").trim();
 
 export function parseTemplate(text) {
   const fm = /^---\n([\s\S]*?)\n---\n?/.exec(text);
@@ -369,7 +373,8 @@ export function importIssue(text, template) {
   const ext = splitExternal(text);
   const fields = {}, custom = {}, missing = [];
   for (const s of template.sections) {
-    const body = (ext.get(norm(s.heading)) || []).join("\n").trim();
+    let body = (ext.get(norm(s.heading)) || []).join("\n").trim();
+    if (s.field === "test_exceptions") body = dropComments(body);
     const isCustom = s.field.startsWith("x_");
     const req = template.required.includes(s.field) || ALWAYS_REQUIRED.includes(s.field);
     if (body) (isCustom ? custom : fields)[s.field] = body;
@@ -380,7 +385,7 @@ export function importIssue(text, template) {
 
 export function checkExport(text, template) {
   const ext = splitExternal(text);
-  return template.sections.filter((s) => !(ext.get(norm(s.heading)) || []).join("").trim()).map((s) => `section "${s.heading}" is missing or empty`);
+  return template.sections.filter((s) => !(OPTIONAL_FIELDS.includes(s.field) && !template.required.includes(s.field)) && !(ext.get(norm(s.heading)) || []).join("").trim()).map((s) => `section "${s.heading}" is missing or empty`);
 }
 
 export function resolveTemplate(target, root) {

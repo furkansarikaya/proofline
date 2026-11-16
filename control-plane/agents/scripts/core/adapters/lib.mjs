@@ -161,6 +161,10 @@ export function importEngine(a, target, bodyText, id, title, source) {
     if (curField === '') pre += `${l}\n`; else txt[curField] = `${txt[curField] ?? ''}${l}\n`;
   }
   for (const f of Object.keys(txt)) txt[f] = body(txt[f]);
+  // B9 (A294): `## Test exceptions` is read back as the lines it holds. The template's own one-line `<!-- Optional ... -->` comment is not a line (a comment left in the issue must not become a
+  // malformed exception line); every other line is kept byte for byte (a CR from a CRLF issue is dropped), so the batch hashes what the task author proposed. Nothing is judged here:
+  // the batch pre-flight (batch-plan) and the validator refuse a malformed line, and the user's approval of the summary is what accepts a valid one.
+  if (txt.test_exceptions !== undefined) txt.test_exceptions = body(txt.test_exceptions.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l)).filter((l) => !/^[ \t]*<!--.*-->[ \t]*$/.test(l)).join('\n'));
   pre = body(pre);
   if (nknown === 0 && !empty(pre)) txt.goal = pre; // prose without any template heading: goal and context
   let ttl = title;
