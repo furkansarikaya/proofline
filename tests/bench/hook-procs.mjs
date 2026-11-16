@@ -20,6 +20,9 @@ export const EVENTS = ['pretool-write-impl', 'pretool-read', 'pretool-bash', 'po
 /** @param {string} p */
 function readdirSyncOr(p) { try { return readdirSync(p); } catch (e) { return `${/** @type {Error} */ (e).message}`; } }
 
+/** @param {string} p */
+function readOr(p) { try { return readFileSync(p, 'utf8'); } catch (e) { return `${/** @type {Error} */ (e).message}`; } }
+
 /** @typedef {{ event: string, execs: number, ms: number, top: string }} Row */
 
 /** A folder of shims that log their name to LOG (with the first 70 characters of the arguments when TRACE) and run the real program. @param {string} dir @param {string} log @param {boolean} trace */
@@ -91,7 +94,7 @@ export function measureAll(o = {}) {
         const run = hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
         times.push(Math.round(performance.now() - t0));
         // the approval path is really taken: the measured run recorded the plan approval (a row measured on a hook that ignored the reply would count too few processes)
-        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after; hook status ${run.status}, stdout ${JSON.stringify((run.stdout ?? '').slice(0, 600))}, stderr ${JSON.stringify((run.stderr ?? '').slice(0, 600))}, ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/runs/LC/approvals')))})`);
+        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after; hook status ${run.status}, stdout ${JSON.stringify((run.stdout ?? '').slice(0, 600))}, stderr ${JSON.stringify((run.stderr ?? '').slice(0, 600))}, ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/runs/LC/approvals')))}; request ${JSON.stringify(readOr(path.join(d, '.agents/runs/LC/approvals/002-request-plan.yaml')))}; approve.log ${JSON.stringify(readOr(path.join(d, '.agents/local/approve.log')))}; hook-times ${JSON.stringify(readOr(path.join(d, '.agents/local/hook-times')).slice(-1500))}; prompts ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/local/prompts')))}; hooklock ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/local/hooklock')))})`);
         const used = readFileSync(log, 'utf8').split('\n').filter(Boolean);
         counts.push(used.length);
         if (o.trace) process.stderr.write(`--- ${name}\n${used.join('\n')}\n`);
