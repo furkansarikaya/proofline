@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.146 — 2026-11-17
+
+- Fix (A315): the control plane no longer touches `process.stdin` at start-up (a lazy `io.stdin` getter, and `core/proc.mjs` uses the global `process.env` instead of importing `node:process`), so a command that reads piped input (`answer`, `amend`, `record`, `submit -`) waits for it instead of reading EAGAIN as an empty input (`empty answer`, exit 1); a regression test writes to the pipe only after the command started reading.
+
 ## 0.0.145 — 2026-11-17
 
 - Tests (A314): the build-only state helper of the T2 port keeps one base commit per state and a `before` hook builds the restored states before the first case; the eco, own-commits, tier and fingerprint cases are split into one test per independent group, so a slow runner no longer reads a 1 to 3 s case as over its budget; same assertions and scenarios, `tests/legacy-port-map.tsv` names the split tests; no product code changed.

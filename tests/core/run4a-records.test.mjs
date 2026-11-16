@@ -584,7 +584,7 @@ test('answer: the answer written to a pipe after the command is already waiting 
   // a preload that says on stderr when the command starts to read descriptor 0: from that line on the pipe is known to be empty, so the write that
   // follows comes after the read began (no sleep, no race: the test writes only on that signal)
   const preload = `${dir}/signal.mjs`;
-  writeFileSync(preload, "import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';\nconst read = fs.readFileSync;\nfs.readFileSync = function (p, ...r) { if (p === 0) fs.writeSync(2, 'STDIN-READ\\n'); return read.call(this, p, ...r); };\nsyncBuiltinESMExports();\n");
+  writeFileSync(preload, "import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';\nconst read = fs.readFileSync;\nfs.readFileSync = function (p, ...r) { if (p === 0) fs.writeSync(2, 'STDIN-READ\\n'); return read.call(this, p, ...r); };\nconst own = Object.getOwnPropertyDescriptor(process, 'stdin');\nObject.defineProperty(process, 'stdin', { configurable: true, get() { fs.writeSync(2, 'STDIN-TOUCH\\n'); return own.get.call(process); } });\nsyncBuiltinESMExports();\n");
   const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({ NODE_OPTIONS: `--import=${preload}` }), stdio: ['pipe', 'pipe', 'pipe'] });
   t.after(() => { child.kill(); });
   let errText = ''; let outText = '';
@@ -597,6 +597,7 @@ test('answer: the answer written to a pipe after the command is already waiting 
   child.stdin.end('a\n');
   const code = await exited;
   assert.equal(code, 0, `exit ${code}, stderr: ${errText.replace('STDIN-READ\n', '').trim() || '(empty)'}`);
+  assert.ok(!errText.includes('STDIN-TOUCH'), 'the core touched process.stdin (an import of node:process or an eager io.stdin puts fd 0 in non-blocking mode)');
   assert.match(outText, /^answer recorded: LC 001 /m);
   assert.match(readFileSync(`${d}/.agents/runs/LC/questions/001.answer.md`, 'utf8'), /^a$/m);
 });

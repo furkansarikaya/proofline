@@ -4,7 +4,7 @@ description: "Bounded codebase investigation that returns compact, verified evid
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.145"
+  version: "0.0.146"
 ---
 
 # evidence-map
