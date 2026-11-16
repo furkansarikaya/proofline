@@ -268,7 +268,8 @@ export async function main(argv) {
   if (scenario === 'FAILOVER' && killed) {
     // F-1: the state at the kill, taken after the Claude lead's process group is gone and before the Codex lead starts: the run folders (ledger prefix, RUN.yaml, the frozen files) and the working tree.
     const kill = path.join(out, 'at-kill'); mkdirSync(kill, { recursive: true });
-    if (existsSync(path.join(project, '.agents/runs'))) cpSync(path.join(project, '.agents/runs'), path.join(kill, 'runs'), { recursive: true }); else writeFileSync(path.join(kill, 'runs-note.txt'), 'no runs folder at the kill\n');
+    // a copy that fails is recorded and never ends the run before the Codex lead starts
+    try { if (existsSync(path.join(project, '.agents/runs'))) cpSync(path.join(project, '.agents/runs'), path.join(kill, 'runs'), { recursive: true }); else writeFileSync(path.join(kill, 'runs-note.txt'), 'no runs folder at the kill\n'); } catch (e) { writeFileSync(path.join(kill, 'copy-error.txt'), `${e instanceof Error ? e.message : String(e)}\n`); }
     for (const [name, args] of [['git-status.txt', ['status', '--porcelain']], ['git-diff.patch', ['diff']], ['git-diff-staged.patch', ['diff', '--cached']], ['git-branches.txt', ['branch', '--list']]]) {
       const fd = openSync(path.join(kill, name), 'w'); try { spawnSync('git', ['-C', project, ...args], { stdio: ['ignore', fd, 'inherit'] }); } finally { closeSync(fd); }
     }
