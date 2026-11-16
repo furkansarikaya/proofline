@@ -4,6 +4,39 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FILES, PREFIXES, matchesWindowsHook, windowsHook } from './windows-hook-paths.mjs';
 import { main } from './ci-steps.mjs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
+const repo = path.resolve(import.meta.dirname, '../..');
+
+/** The repository files a hook test reaches through relative imports, transitively through files under tests/. @returns {Set<string>} */
+function reachedFromHookTests() {
+  /** @type {Set<string>} */ const seen = new Set();
+  const queue = readdirSync(path.join(repo, 'tests/hook')).filter((n) => n.endsWith('.mjs')).map((n) => `tests/hook/${n}`);
+  while (queue.length > 0) {
+    const f = /** @type {string} */ (queue.pop());
+    if (seen.has(f)) continue;
+    seen.add(f);
+    if (!f.startsWith('tests/')) continue;   // sources are checked against the list, their own imports are not followed
+    const text = readFileSync(path.join(repo, f), 'utf8');
+    for (const m of text.matchAll(/(?:from\s+|import\s*\(\s*)'(\.{1,2}\/[^']+\.mjs)'/g)) {
+      const r = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1]));
+      if (existsSync(path.join(repo, r))) queue.push(r);
+    }
+  }
+  return seen;
+}
+
+test('every file the hook tests import (transitively under tests/) is covered by the list', () => {
+  const missing = [...reachedFromHookTests()].filter((f) => !matchesWindowsHook(f));
+  assert.deepEqual(missing, [], `add to tests/ci/windows-hook-paths.mjs: ${missing.join(', ')}`);
+  assert.ok(reachedFromHookTests().size > 20, 'the scan found the hook tests and their imports');
+});
+
+test('every listed exact file exists', () => {
+  for (const f of FILES) assert.ok(existsSync(path.join(repo, f)), f);
+  for (const p of PREFIXES) assert.ok(existsSync(path.join(repo, p.replace(/-$/, '').replace(/\/$/, ''))) || readdirSync(path.join(repo, path.dirname(p))).some((n) => `${path.dirname(p)}/${n}`.startsWith(p)), p);
+});
 
 /** @type {[string, string[], boolean][]} */
 const TABLE = [

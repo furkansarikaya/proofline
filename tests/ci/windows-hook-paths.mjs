@@ -3,7 +3,7 @@
 // The list is what the hook tests and the Windows path tests load or exercise (read from their imports), nothing wider:
 //   - the hooks and their guards: adapters/claude/hooks/ (command-scan, guards, events, lib), adapters/codex/hooks.json and install.mjs (the Codex hook wiring);
 //   - the core modules the hooks import or load at run time, or that the hook tests import: path handling (paths, pathin, pathkind, shellglob), process spawning (proc, platform, wintool), capture, budget, and the core entry proofline-core.mjs;
-//   - the hook tests and what they import: tests/hook/, tests/lib/, tests/golden/capture/, tests/bench/hook-procs.mjs, three helpers of tests/core/;
+//   - the hook tests and what they import: tests/hook/, tests/lib/, tests/golden/capture/, tests/bench/hook-procs.mjs, helpers of tests/core/ and tests/enforcement/ (tests/ci/windows-hook-paths.test.mjs scans the imports and fails on a missing file);
 //   - the Windows CI itself: tests/ci/windows-*.mjs, ci-steps.mjs (the windows-timing step), this file, and .github/workflows/ci.yml.
 // A path that ends in `/` or `-` is a prefix; any other entry is one exact file. Paths are repository-relative with `/`.
 import { pathToFileURL } from 'node:url';
@@ -20,11 +20,16 @@ export const FILES = [
   'adapters/codex/hooks.json',
   'adapters/codex/install.mjs',
   'control-plane/agents/scripts/proofline-core.mjs',
-  ...['paths', 'pathin', 'pathkind', 'shellglob', 'proc', 'platform', 'wintool', 'capture', 'budget'].map((n) => `control-plane/agents/scripts/core/${n}.mjs`),
+  ...['context', 'commands/hookcmds', 'paths', 'pathin', 'pathkind', 'shellglob', 'proc', 'platform', 'wintool', 'capture', 'budget'].map((n) => `control-plane/agents/scripts/core/${n}.mjs`),
   'tests/bench/hook-procs.mjs',
+  'tests/bench/hook-budgets.tsv',
   'tests/core/lib/fixture.mjs',
   'tests/core/fake-time.mjs',
   'tests/core/event-lib.mjs',
+  'tests/core/legacy-lib.mjs',
+  'tests/core/helpers.mjs',
+  'tests/enforcement/enforcement-a-lib.mjs',
+  'tests/enforcement/lib.mjs',
   'tests/ci/ci-steps.mjs',
   'tests/ci/ci-steps.test.mjs',
   'tests/ci/ci-workflow.test.mjs',
