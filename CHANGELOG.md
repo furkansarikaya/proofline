@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.147 — 2026-11-17
+
+- Fix (A316): a test name in a plan is a quoted string before the description dash; a quoted data value after the dash (`["book club", "sci-fi"]`) is no longer read as a test, which made REVIEW_TESTS fail with `not_measured` in the COMPLEX run; a bullet with no quoted name before the dash keeps the old reading, and the plan-contract template and SECTIONS.md state the rule.
+
 ## 0.0.146 — 2026-11-17
 
 - Fix (A315): the control plane no longer touches `process.stdin` at start-up (a lazy `io.stdin` getter, and `core/proc.mjs` no longer imports `node:process`; every entry point (the core, the guardian, the CLI, the hook including its worker thread and in-process core, the codex installer) hands it the environment with `setOwnEnv`, and a missing hand-over is a clear error), so a command that reads piped input (`answer`, `amend`, `record`, `submit -`) waits for it instead of reading EAGAIN as an empty input (`empty answer`, exit 1); a regression test writes to the pipe only after the command started reading.
@@ -9,7 +13,6 @@
 ## 0.0.145 — 2026-11-17
 
 - Tests (A314): the build-only state helper of the T2 port keeps one base commit per state and a `before` hook builds the restored states before the first case; the eco, own-commits, tier and fingerprint cases are split into one test per independent group, so a slow runner no longer reads a 1 to 3 s case as over its budget; same assertions and scenarios, `tests/legacy-port-map.tsv` names the split tests; no product code changed.
-
 ## 0.0.144 — 2026-11-17
 
 - Tests (A313): the end-to-end reply loop reads every open approval request and answers a refreeze (plan plus scope) with the plan approval only, never a scope approval (COMPLEX X-13); the reply allowance is 3 plus 1 per distinct plan hash (cap 12), a repeated stop ends the loop, a stop on a request only the user may answer is reported as `stopped=unanswered-<kind>`, and the CRITICAL question reply is a script with one line per question stop instead of one sentence sent six times.
