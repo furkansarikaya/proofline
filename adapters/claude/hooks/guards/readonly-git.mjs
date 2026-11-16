@@ -40,43 +40,43 @@ const PIPE_PROG = new RegExp(`(?:echo|printf|cat)\\s+((?:\"[^\"]{0,2000}\"|'[^']
 /** Class: words that only print, search or page their arguments: git or gh among them is text. */
 const TEXT_ONLY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'less', 'more', 'head', 'tail', 'wc', 'sort', 'uniq', 'diff', 'tr', 'cut', 'man', 'which', 'type', 'command', 'ls', 'tee', 'stat', 'file', 'test', 'jq', 'cd', 'pushd', 'popd', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'basename', 'dirname', 'realpath', 'readlink']);
 
-/** Options of an interpreter that take a value (the word after them is not the script). */
-const VALUE_OPTS = new Set(['-W', '-X', '-r', '-I', '-O', '-o', '--require', '--import', '--loader', '--eval-file', '--rcfile', '--init-file']);
-/** Whether an interpreter given these arguments reads its program from stdin: no script operand (`sh <<EOF`, `python3 - <<EOF`, `bash -s <<EOF`); `sh agent.sh submit <<EOF` runs a file and the body is its input. @param {string} args */
-function argsReadStdin(args) {
-  const t = args.split(/\s+/).filter((x) => x !== '');
-  for (let k = 0; k < t.length; k++) {
-    const x = /** @type {string} */ (t[k]);
-    if (x === '-s' || x === '-' || x === '-c') return true;
-    if (VALUE_OPTS.has(x)) { k++; continue; }
-    if (!x.startsWith('-')) return false;
-  }
-  return true;
+/** A pipe into any interpreter of the table, `source`/`.` of stdin: the text before it is run (SINK covers the shells). */
+const SINK_EXT = new RegExp(`\\|\\s*((env|sudo|command|exec)\\s+)*(\\S*/)?${INTERP}(\\s|;|&|\\)|$)|(^|[;&|(\\s])(source|\\.)\\s+(/dev/stdin|/dev/fd/0|/proc/self/fd/0|-)(\\s|;|&|\\)|$)`);
+const FILE = '[^\\s|;&<>`()]+';
+/** The only consumers whose here-document body is DATA: `cat [> file]`, `tee [-a] file`, `sh <path>/agent.sh <subcommand> ...`. Anything else (an interpreter, an unknown program, any option list) is scanned. */
+const DATA_CAT = new RegExp(`^(\\w+=\\S+\\s+)*cat(\\s+-\\w+)*(\\s*>>?\\s*${FILE})?$`);
+const DATA_TEE = new RegExp(`^(\\w+=\\S+\\s+)*tee(\\s+-a)?(\\s+${FILE})+$`);
+const DATA_AGENT = /^(\w+=\S+\s+)*(sh|bash)\s+[\w./~-]*agent\.sh\s+[\w-]+(\s+[^|;&<>`()]*)?$/;
+/** Whether a line with a here-document hands its body to a data sink and nothing else (no pipe, no substitution, no continuation). @param {string} line */
+function isDataHeredoc(line) {
+  const t = line.replace(/<<</g, '   ');
+  if (/[\\|&]\s*$/.test(t) || (t.match(/<</g) ?? []).length !== 1) return false;
+  const m = /<<-?[ \t]*(['"]?)([A-Za-z_][\w-]*)\1/.exec(t);
+  if (!m) return false;
+  const before = t.slice(0, m.index).trim();
+  const after = t.slice(m.index + m[0].length).trim();
+  if (!new RegExp(`^(\\d*>>?\\s*${FILE})?$`).test(after)) return false;
+  if (/[|`()]|\$\(/.test(before)) return false;
+  const consumer = /** @type {string} */ (before.split(/&&|;/).pop()).trim();
+  return DATA_CAT.test(consumer) || DATA_TEE.test(consumer) || DATA_AGENT.test(consumer);
 }
-/** Whether a line with a here-document feeds its body to something that runs it as a program: an interpreter without a script operand, `eval`, `source /dev/stdin`, a pipe into a shell. @param {string} line */
-function heredocIsProgram(line) {
-  if (SINK.test(line) || /(^|[^A-Za-z0-9_.-])(eval|source|\.)\s+(\/dev\/stdin|-)?/.test(line) && /\/dev\/stdin|(^|[^A-Za-z0-9_.-])eval(\s|$)/.test(line)) return true;
-  const re = new RegExp(`(^|[^A-Za-z0-9_.-])${INTERP}(?![\\w.-])`, 'g');
-  for (const m of line.matchAll(re)) {
-    const rest = line.slice((m.index ?? 0) + m[0].length);
-    const args = rest.split(/<<|[;&|\n]/)[0] ?? '';
-    if (argsReadStdin(args)) return true;
-  }
-  return false;
-}
-/** The command with the bodies of here-documents removed unless the here-document feeds a program: a report written with `cat > file <<'EOF'`, `tee`, or `agent.sh submit --report - <<'EOF'` is data. @param {string} cmd */
+/** The command with the bodies of data here-documents removed (a report written with `cat > file <<'EOF'`, `tee`, `agent.sh submit --report - <<'EOF'`). When the rest of the command runs text (eval, source, a pipe into a shell or interpreter, a variable as command word, xargs) nothing is removed. @param {string} cmd */
 function withoutDataBodies(cmd) {
   const lines = cmd.split('\n');
   /** @type {string[]} */ const out = [];
+  let dropped = false;
   for (let i = 0; i < lines.length; i++) {
     const l = /** @type {string} */ (lines[i]);
     out.push(l);
-    const m = /<<-?[ \t]*(['"]?)([A-Za-z_][\w-]*)\1/.exec(l.replace(/<<</g, '   '));
-    if (!m || heredocIsProgram(l)) continue;
+    if (!isDataHeredoc(l)) continue;
+    const delim = /** @type {RegExpExecArray} */ (/<<-?[ \t]*['"]?([A-Za-z_][\w-]*)/.exec(l))[1];
     let j = i + 1;
-    while (j < lines.length && /** @type {string} */ (lines[j]).trim() !== m[2]) j++;
-    i = j - 1;
+    while (j < lines.length && /** @type {string} */ (lines[j]).trim() !== delim) j++;
+    i = j - 1; dropped = true;
   }
+  if (!dropped) return cmd;
+  const rest = out.join('\n').replace(/\\\n/g, ' ').replace(/\n/g, ' ');
+  if (SINK.test(rest) || SINK_EXT.test(rest) || /(^|[^A-Za-z0-9_.-])(eval|xargs|parallel)(\s|$)/.test(rest) || /(^|[;&|(]\s*)["']?\$\{?\w/.test(rest)) return cmd;
   return out.join('\n');
 }
 
@@ -95,15 +95,14 @@ const isShort = (x) => x.length > 1 && x.startsWith('-') && !x.startsWith('--');
  */
 export function readonlyGit(ctx, cmd, scan) {
   if (!NO_PUSH_ROLES.includes(ctx.role)) return;
-  const flat = withoutDataBodies(cmd).replace(/\n/g, ' ');
+  const stripped = withoutDataBodies(cmd);
+  const flat = stripped.replace(/\\\n/g, ' ').replace(/\n/g, ' ');
   const bare = flat.replace(/["'\\]/g, '');
-  if (SINK.test(flat) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
+  if ((SINK.test(flat) || SINK_EXT.test(flat)) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
   // xargs and parallel given git or gh with the subcommand on stdin
-  if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
+  if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/m.test(stripped) || /\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
   // an interpreter or shell fed its program by a here-document, a here-string or an echo: the text is judged as a program
-  const cmdLines = cmd.split('\n');
-  const hereAt = cmdLines.findIndex((l) => l.includes('<<') && heredocIsProgram(l) && HERE_PROG.test(l));
-  const fed = (hereAt >= 0 ? HERE_PROG.exec(cmdLines.slice(hereAt).join('\n'))?.[3] : undefined) ?? PIPE_PROG.exec(flat)?.[1] ?? '';
+  const fed = HERE_PROG.exec(stripped)?.[3] ?? PIPE_PROG.exec(flat)?.[1] ?? '';
   if (fed !== '' && PROG_GIT.test(fed) && PROG_VERB.test(fed)) deny(`a program fed to an interpreter or shell on stdin that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
   if (SUBST_CW.test(flat)) deny(`a substitution where the command word goes cannot be checked (it may be git): ${TAIL}`);
   // a shell function or alias that wraps git or gh hides the subcommand (`g() { git "$@"; }; g push`)
