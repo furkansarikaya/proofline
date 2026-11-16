@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FILES, PREFIXES, matchesWindowsHook, windowsHook } from './windows-hook-paths.mjs';
 import { main } from './ci-steps.mjs';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { tempDir } from '../lib/tempdir.mjs';
 import path from 'node:path';
 
 const repo = path.resolve(import.meta.dirname, '../..');
@@ -91,14 +92,8 @@ test('classify prints windows_hook beside code: true for a matching pull request
   }
 });
 
-test('classify for a push: BASE_SHA empty, GITHUB_EVENT_NAME=push reads no diff and writes both outputs to GITHUB_OUTPUT', async () => {
-  const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const d = mkdtempSync(join(tmpdir(), 'wh-'));
-  try {
-    const f = join(d, 'out'); writeFileSync(f, '');
-    assert.equal(main(['classify'], { env: { GITHUB_EVENT_NAME: 'push', BASE_SHA: '', GITHUB_OUTPUT: f }, write: () => {}, changed: () => { throw new Error('not asked'); } }), 0);
-    assert.equal(readFileSync(f, 'utf8'), 'code=true\nwindows_hook=false\n');
-  } finally { rmSync(d, { recursive: true, force: true }); }
+test('classify for a push: BASE_SHA empty, GITHUB_EVENT_NAME=push reads no diff and writes both outputs to GITHUB_OUTPUT', () => {
+  const f = path.join(tempDir('wh-'), 'out'); writeFileSync(f, '');
+  assert.equal(main(['classify'], { env: { GITHUB_EVENT_NAME: 'push', BASE_SHA: '', GITHUB_OUTPUT: f }, write: () => {}, changed: () => { throw new Error('not asked'); } }), 0);
+  assert.equal(readFileSync(f, 'utf8'), 'code=true\nwindows_hook=false\n');
 });
