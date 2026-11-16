@@ -14,6 +14,7 @@ import { clean } from './codetrust.mjs';
 import { ecosystemRowsAll } from './ecodata.mjs';
 import { patchManifest, testCodePath } from './gates.mjs';
 import { sha256 } from './hash.mjs';
+import { TASK_EXC_MAX_LINE, TASK_EXC_MAX_LINES } from './exclimits.mjs';
 import { fileText, ledgerLines, ledgerRows, parseLedgerLine, textLines } from './records.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
@@ -61,6 +62,37 @@ export function planExceptions(plan) {
  * form feed, vertical tab, CR) is a different line with a different hash, never an unchanged one. @param {string} plan
  */
 export function exceptionLines(plan) { return sectionOf(plan, 'Test exceptions').map((x) => (x.endsWith('\r') ? x.slice(0, -1) : x)).filter((x) => x !== ''); }
+
+/**
+ * Every line of a TASK FILE's `## Test exceptions` that the batch cannot list, with its 1-based line number in the file and the reason (B6): the SAME line set (`exceptionLines`: one
+ * trailing CR dropped, blank lines skipped) and the SAME grammar (`parseException`) the batch lists from, so a line that is not in the listing is never silently lost. Reasons, in this
+ * order per line: a control character (C0 other than tab, DEL, C1; text that is not UTF-8 is checked for C0 and DEL only), a line over the byte limit, a grammar mismatch, a duplicate of an
+ * earlier line; a line after the 50th is over the line limit. Format and space-like characters (zero-width, no-break space) are NOT refused: the summary shows them escaped and hashes
+ * the exact bytes (A285). @param {string} taskText a byte (latin1) string @returns {Array<{ line: number, text: string, reason: string }>}
+ */
+export function exceptionLineIssues(taskText) {
+  /** @type {Array<{ line: number, text: string, reason: string }>} */ const out = [];
+  /** @type {Map<string, number>} */ const seen = new Map();
+  let inside = false; let n = 0; let count = 0;
+  for (const raw of textLines(taskText)) {
+    n++;
+    if (raw.startsWith('## ')) { inside = raw.slice(3).trim() === 'Test exceptions'; continue; }
+    if (!inside) continue;
+    const l = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (l === '') continue;
+    count++;
+    /** @type {string} */ let text = l; let utf8 = true;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(l, 'latin1')); } catch { utf8 = false; }
+    const add = (/** @type {string} */ reason) => { out.push({ line: n, text: l, reason }); };
+    if ((utf8 ? /[\p{Cc}]/u : /[\x00-\x1f\x7f]/).test(text.replace(/\t/g, ' '))) add('it contains an invisible or control character');
+    else if (l.length > TASK_EXC_MAX_LINE) add(`it is ${l.length} bytes, over the ${TASK_EXC_MAX_LINE}-byte limit of one line`);
+    else if (parseException(l) === null) add('it does not match the grammar "- wait|budget|measure: <target> -- <reason of at least 20 characters>" (separator `--`)');
+    else if (seen.has(l)) add(`it duplicates line ${seen.get(l)}`);
+    else if (count > TASK_EXC_MAX_LINES) add(`it is line ${count} of the section, over the ${TASK_EXC_MAX_LINES}-line limit of one task`);
+    if (!seen.has(l)) seen.set(l, n);
+  }
+  return out;
+}
 
 /** The hash of a list of section lines (empty string for none); the one definition for the plan and for the kept baseline copy. @param {string[]} lines */
 function linesHash(lines) { return lines.length === 0 ? '' : sha256(`${lines.join('\n')}\n`); }

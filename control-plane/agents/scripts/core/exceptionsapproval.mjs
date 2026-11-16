@@ -6,6 +6,7 @@
 // Everything else is unapproved and clears nothing. Nothing here writes a record; every input is a record the control plane wrote (the ledger, parsed structurally, the approval files, the
 // approved summary), never a statement of an agent.
 import { batchApproval, sharedDirOf } from './approvals.mjs';
+import { TASK_EXC_MAX_LINE, TASK_EXC_MAX_LINES } from './exclimits.mjs';
 import { exceptionLineHash, exceptionLines, exceptionsHash, exceptionsRow } from './testreview.mjs';
 import { fileText, gateField, ledgerRows, readBytes, textLines } from './records.mjs';
 import { isFile } from './paths.mjs';
@@ -19,8 +20,8 @@ export const BATCH_EXC_HEADING = '## Test exceptions declared by the tasks (the 
 const LINE_ROW = /^- test exception ([A-Za-z0-9_-]+) ([0-9a-f]{64}): /;
 
 /** The most lines and the longest line one task may declare in a batch: a line that could not be shown in full is not listed (so it is not approved). */
-export const BATCH_EXC_MAX_LINES = 50;
-export const BATCH_EXC_MAX_LINE = 1000;
+export const BATCH_EXC_MAX_LINES = TASK_EXC_MAX_LINES;
+export const BATCH_EXC_MAX_LINE = TASK_EXC_MAX_LINE;
 
 /**
  * The line hashes the APPROVED batch summary lists for a task; empty when there is no valid batch approval for the current summary or the task is not in the batch.
