@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.126 — 2026-11-16
+
+- Test speed (A288, Part of #266, package 3a): `tests/core/doctor-faults` runs doctor with `PROOFLINE_DOCTOR_PROBES=0` except in the leftover-worktree test, and `tests/fixtures/trees.mjs` digests the five single-state proofline-lead variants from the all-states build instead of rebuilding them; doctor-faults 105 s -> 47 s, fixture-trees 41 s -> 31 s. Every recorded digest is still compared with freshly built content.
+
 ## 0.0.125 — 2026-11-16
 
 - Test speed (A287, Part of #266, package 3a): the visual-proof design browser tests run the audit waits at a quarter scale (`PROOFLINE_MOTION_TIME_SCALE`, only shortens, clamped to 0.05..1); the scale is recorded in `raw.design.time_scale`, `motion.time_scale` and `report.design.time_scale`, and `validate-visual.mjs` refuses scaled evidence (INCONCLUSIVE) unless a test passes `--accept-time-scale`. Suite 108 s -> 30 s.
