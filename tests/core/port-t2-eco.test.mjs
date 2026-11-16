@@ -4,8 +4,10 @@
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
-import { describe, test } from 'node:test';
-import { node, stateOf } from './port-t2-lib.mjs';
+import { before, describe, test } from 'node:test';
+import { node, stateOf, warmStates } from './port-t2-lib.mjs';
+
+before(() => warmStates(['risk-fsproj']));
 
 describe('risk-test: ecosystem fallback', () => {
   test('sc_eco_fallback: a script run from a folder that ships the definition uses it when the project\'s copy is missing; an installed project warns', () => {

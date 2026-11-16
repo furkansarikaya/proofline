@@ -80,10 +80,19 @@ function eraDeleted(list) {
 }
 
 /** @type {Map<string, string>} */ const cache = new Map();
-/** A fresh copy of a restored state (the restore is made once per file and copied: the copy is cheap). @param {string} name */
-export function restore(name) {
+/** The restored master of a snapshot, made once per file. @param {string} name */
+function masterOf(name) {
   let master = cache.get(name);
   if (!master) { master = restoreNew(name); cache.set(name, master); made.push(master); }
+  return master;
+}
+
+/** Restore the masters of snapshots ahead of the first case (a `before` hook), so the case that happens to be first does not carry the build. @param {string[]} names */
+export function warmRestores(names) { for (const n of names) masterOf(n); }
+
+/** A fresh copy of a restored state (the restore is made once per file and copied: the copy is cheap). @param {string} name */
+export function restore(name) {
+  const master = masterOf(name);
   const copy = realpathSync(tempDir(`pl-t2c-${name}-`));
   made.push(copy);
   cpSync(master, copy, { recursive: true, verbatimSymlinks: true });
@@ -225,12 +234,21 @@ export function replayer(tr) {
   };
 }
 
+/** @type {Map<string, { rp: ReturnType<typeof replayer>, key: string }>} */ const stateReplayers = new Map();
+/** The replayer of a build-only state: one per state name and file, so the base commit is made once and every `stateOf` is a copy of it. @param {string} name */
+function stateReplayer(name) {
+  let e = stateReplayers.get(name);
+  if (!e) { const tr = loadTrace(`state__${name}`); e = { rp: replayer(tr), key: Object.keys(tr.states)[0] }; stateReplayers.set(name, e); }
+  return e;
+}
+
+/** Make the base commits of build-only states ahead of the first case (a `before` hook), so no case carries the build of its base. @param {string[]} names */
+export function warmStates(names) { for (const n of names) { const e = stateReplayer(n); e.rp.shaOf(e.key); } }
+
 /** A build-only state (tests/fixtures/port-t2/trace/state__NAME.json.gz, recorded by record-state.mjs) restored in a fresh folder. @param {string} name */
 export function stateOf(name) {
-  const tr = loadTrace(`state__${name}`);
-  const rp = replayer(tr);
-  const key = Object.keys(tr.states)[0];
-  return rp.state(key);
+  const e = stateReplayer(name);
+  return e.rp.state(e.key);
 }
 
 /** The traces of the T3 port (texts and navigation: next-user, batch, debt, window, digest, ci-fix limit, timeouts warn line, deliver ci-check): replayed by port-t3-replay.test.mjs. */
