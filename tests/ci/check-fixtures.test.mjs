@@ -19,11 +19,10 @@ test('a name without a setup.mjs builds nothing and passes with zero fixtures', 
 test('TypeScript by type stripping needs node 22.18+, 23.6+ or 24+', () => {
   for (const [v, want] of /** @type {Array<[string, boolean]>} */ ([['22.17.9', false], ['22.18.0', true], ['23.5.0', false], ['23.6.0', true], ['24.0.0', true], ['20.19.0', false], ['25.1.0', true]])) assert.equal(nodeTsOk(v), want, v);
 });
-test('a setup that hangs is killed with its process group and fails (timeout)', async () => {
+test('a setup that hangs is killed with its process group and fails (timeout)', { timeout: 10000 }, async () => {
   // the driver takes the timeout as an option; a fixture that never finishes must not hold the job
   const { runGroup } = await import('../lib/proc.mjs');
-  const t0 = Date.now();
   const r = await runGroup('sh', ['-c', 'sleep 30 & wait'], { timeoutMs: 500 });
-  assert.equal(r.status, 124); assert.ok(r.timedOut); assert.ok(Date.now() - t0 < 10000);
+  assert.equal(r.status, 124); assert.ok(r.timedOut);
   assert.match(r.stderr, /killed with its process group/);
 });

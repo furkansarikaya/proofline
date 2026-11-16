@@ -100,6 +100,12 @@ jobs:
       - name: test scan (real waits in tests, allowlist tests/ci/test-scan-allowlist.tsv)
         run: node control-plane/agents/scripts/proofline-core.mjs cli test-scan --kind wait --allowlist tests/ci/test-scan-allowlist.tsv tests
 
+      # Issue 266 package 3c: a direct clock read in a new or changed line of a test fails (the injected clock is the way); the existing reads are the ratchet tests/ci/clock-read-baseline.tsv, which only shrinks.
+      - name: clock-read gate (baseline tests/ci/clock-read-baseline.tsv)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node tests/ci/clock-read-gate.mjs
+
       - name: generator tests
         if: needs.changes.outputs.code == 'true'
         run: node tests/ci/test-durations-ci.mjs "static generator" -- "tests/generator/*.test.mjs"

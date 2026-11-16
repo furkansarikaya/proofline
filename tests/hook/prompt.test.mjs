@@ -58,15 +58,13 @@ before(() => {
   spawnSync('sleep', ['1.1']);
 });
 
-test('the approval step is stopped by its budget; the message says it was not recorded and is kept', { skip }, async () => {
+test('the approval step is stopped by its budget; the message says it was not recorded and is kept', { skip, timeout: 15000 }, async () => {   // the test timeout is the bound: the hook answers within its budget (no clock read)
   const d = copyProject(requested, base);
   const holder = spawn('sleep', ['30']);
   try {
     mkdirSync(join(d, '.agents/local/.lock'));
     writeFileSync(join(d, '.agents/local/.lock/pid'), `${holder.pid}\n`);
-    const t0 = Date.now();
     const r = await runHook('node', d, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'plan approved, go ahead' }, { env: { PROOFLINE_HOOK_LOCK_WAIT: '30', PROOFLINE_HOOK_APPROVE_BUDGET: '1' } });
-    assert.ok(Date.now() - t0 < 15000, 'the hook answered within its budget');
     assert.match(r.stdout, /your approval could not be recorded, send it again/);
     assert.equal(snapshot(d)['.agents/local/prompts/s1.json'].includes('plan approved, go ahead'), true, 'the message is kept');
     assert.ok(!Object.keys(snapshot(d)).some((k) => k.includes('.approving-')), 'the marker is gone');

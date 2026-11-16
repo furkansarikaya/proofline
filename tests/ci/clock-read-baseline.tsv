@@ -1,0 +1,52 @@
+# Baseline of the clock-read gate (issue 266 package 3c): the direct clock reads that proofline's own tests still hold, one line per file: <file><TAB><count>.
+# A RATCHET, enforced by tests/ci/clock-read-gate.test.mjs and the CI step "clock-read gate": a count above its line, a file that is not listed and has a read, and a
+# count below its line (lower the baseline) all fail, so the list only shrinks. Regenerate after removing reads: node tests/ci/clock-read-gate.mjs --update
+# Sorted by file (byte order), unique. A new test must inject its clock (see tests/core/fake-time.mjs and tests/core/held-clock.mjs); this list is never extended by hand.
+tests/bench/batch-procs.mjs	3
+tests/bench/dispatch-procs.mjs	2
+tests/bench/exec-procs.mjs	2
+tests/bench/helper-procs.mjs	2
+tests/bench/hook-procs.mjs	2
+tests/ci/bump-version.mjs	1
+tests/ci/test-durations-ci.mjs	2
+tests/core/answer-user.test.mjs	1
+tests/core/batch-answers.test.mjs	1
+tests/core/batch-golden.test.mjs	1
+tests/core/batch-lib.mjs	2
+tests/core/batch-plan.test.mjs	2
+tests/core/buildrecord.test.mjs	4
+tests/core/discover.test.mjs	6
+tests/core/gates-s2-lib.mjs	1
+tests/core/gates-s3.test.mjs	2
+tests/core/helpercmds.test.mjs	2
+tests/core/knowledge-batch.test.mjs	1
+tests/core/legacy-approval-multi.test.mjs	1
+tests/core/legacy-approvals.test.mjs	1
+tests/core/legacy-fingerprint.test.mjs	1
+tests/core/lib/fixture.mjs	2
+tests/core/lib/stage2-fixtures.mjs	1
+tests/core/lifecycle-s2-lib.mjs	1
+tests/core/port-t3-rig.mjs	2
+tests/core/run4a-records.test.mjs	2
+tests/core/run6-lib.mjs	1
+tests/core/run6-merged.test.mjs	6
+tests/core/run6-platform.test.mjs	1
+tests/core/signals.test.mjs	6
+tests/core/test-scan.test.mjs	5
+tests/core/toolstats.test.mjs	3
+tests/e2e/run.mjs	4
+tests/enforcement/approval-load.test.mjs	1
+tests/enforcement/enforcement-a1.test.mjs	2
+tests/enforcement/enforcement-a2.test.mjs	1
+tests/enforcement/timeouts.test.mjs	2
+tests/enforcement/wiring.test.mjs	2
+tests/hook/capture.test.mjs	1
+tests/hook/hardening.test.mjs	1
+tests/hook/kill-guard.test.mjs	1
+tests/hook/win-drive-guards.test.mjs	4
+tests/lib/census.test.mjs	1
+tests/lib/clean-temp.mjs	1
+tests/lib/harness.mjs	2
+tests/real-session/smoke.mjs	2
+tests/real-session/smoke.test.mjs	2
+tests/skills/fast-tests-scan.test.mjs	19

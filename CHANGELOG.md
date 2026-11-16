@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.134 — 2026-11-16
+
+- CI (A296, package 3c): a direct clock read in a new or changed test line now fails the static job (`clock-read gate`, `tests/ci/clock-read-gate.mjs`), and the existing reads (116 in 48 files) are a baseline ratchet `tests/ci/clock-read-baseline.tsv` that can only shrink. The elapsed-time assertions in `tests/hook/prompt.test.mjs` and `tests/ci/check-fixtures.test.mjs` use the node:test `timeout` option instead of reading the clock.
+
 ## 0.0.133 — 2026-11-16
 
 - CI (A295, package 4b): the Windows hook leg (`hook-windows`), green again since A292, also runs on pull requests that touch path, hook or guard code. `classify` in `tests/ci/ci-steps.mjs` writes `windows_hook=` from the list in `tests/ci/windows-hook-paths.mjs` (a test checks the list against the imports of the hook tests); the leg is a need of the `checks` gate (skipped passes, failed fails) with a 60 minute timeout. The windows-core shards, invariant legs and probes stay nightly/manual; pushes to main are unchanged.
