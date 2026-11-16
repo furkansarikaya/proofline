@@ -149,8 +149,6 @@ export function knowledgeDoneCommand(ctx, args) {
   if (batchRun) {
     // A290: a lesson worth proposing is a suggestion to the user too (the script lists it from the records; no approval is requested, nothing is promoted, no agent text is involved)
     for (const p of lessonProposals(ctx, id)) suggestions.push(plainLine(`${id}: the finding kind ${p.kind} appeared in ${p.runs} runs; promoting it to a project rule in AGENTS.md needs your approval and was not requested here, nothing was promoted`));
-    for (const t of suggestions) led(ctx, id, 'knowledge-suggestion', '-', '-', t);
-    recordSuggestions(ctx, id, suggestions);
   }
   setRunValue(ctx, id, 'execution', 'knowledge_state', state);
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) setRunValue(ctx, id, 'execution', 'knowledge_reason', reason);
@@ -161,6 +159,9 @@ export function knowledgeDoneCommand(ctx, args) {
       if (l.length > 0) led(ctx, id, 'knowledge-paths', '-', '-', l.join(' '));
     }
   }
+  // A290: written AFTER the knowledge-done row; the reader takes the rows after the LAST knowledge-done row, so a retry (or a later run in any mode) never shows a duplicate or an old one
+  for (const t of suggestions) led(ctx, id, 'knowledge-suggestion', '-', '-', t);
+  if (batchRun || existsSync(`${bdOf(ctx)}/suggestions.tsv`)) recordSuggestions(ctx, id, suggestions); // any mode replaces the task's rows
   ctx.out(`knowledge state recorded: ${id} ${state}\n`);
   return 0;
 }

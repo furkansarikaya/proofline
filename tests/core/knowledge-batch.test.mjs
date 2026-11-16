@@ -6,8 +6,11 @@ import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { lessonProposals } from '../../control-plane/agents/scripts/core/lessons.mjs';
 import { parseLedgerLine } from '../../control-plane/agents/scripts/core/records.mjs';
 import { accepted, git, project, refused, rv } from '../lib/harness.mjs';
+import { makeProject, memoryIo } from './helpers.mjs';
 import { A, AS, codeDone, must, sayNow, writeReport } from './lifecycle-s2-lib.mjs';
 
 const BD = '.agents/local/batch';
@@ -40,7 +43,7 @@ test('a run of the approved batch finishes the knowledge step without a question
   assert.ok(sug[0].detail.startsWith('LC: no knowledge note was written'), sug[0].detail);
   const kd = rowsOf(d, 'knowledge-done');
   assert.equal(kd.length, 1);
-  assert.ok(sug[0].seq < kd[0].seq);
+  assert.ok(sug[0].seq > kd[0].seq, 'written after the knowledge-done row');
   // nothing was written under docs/ or into skills/rules
   assert.deepEqual(outsideAgents(d), before);
   assert.ok(!existsSync(path.join(d, 'docs')));
@@ -109,4 +112,62 @@ test('forgery: the default is not available before CODE_DONE and writes no sugge
   refused(A(d, ['knowledge-done', 'LC']), 'the batch default on a run that is not CODE_DONE', 'requires CODE_DONE');
   assert.equal(rowsOf(d, 'knowledge-suggestion').length, 0);
   assert.ok(!existsSync(path.join(d, BD, 'suggestions.tsv')));
+});
+
+/** The whole-row suggestion lines after the last knowledge-done row. @param {string} d */
+const liveSuggestions = (d) => { const kd = rowsOf(d, 'knowledge-done'); const last = kd[kd.length - 1]?.seq ?? Infinity; return rowsOf(d, 'knowledge-suggestion').filter((r) => r.seq > last); };
+const tsvRows = (/** @type {string} */ d) => (existsSync(path.join(d, BD, 'suggestions.tsv')) ? readFileSync(path.join(d, BD, 'suggestions.tsv'), 'utf8').split('\n').filter((l) => l !== '') : []);
+const mark = 'Suggestion to the user (knowledge): LC: no knowledge note was written';
+
+test('a retry of the default shows exactly one suggestion in the ledger, the report and the batch status', () => {
+  const d = batchRun();
+  accepted(A(d, ['knowledge-done', 'LC']), 'first knowledge-done');
+  accepted(A(d, ['knowledge-done', 'LC']), 'the re-run after a failure in between');
+  assert.equal(liveSuggestions(d).length, 1);
+  assert.equal(rowsOf(d, 'knowledge-suggestion').length, 2, 'the first call row stays in the ledger (append only) but belongs to the earlier knowledge-done');
+  assert.equal(tsvRows(d).length, 1);
+  writeReport(d);
+  must(d, ['publish-completion-report', 'LC', 'markdown']);
+  const report = readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8');
+  assert.equal(report.split('\n').filter((l) => l.includes(mark)).length, 1);
+  assert.equal(A(d, ['batch-status']).out.split('\n').filter((l) => l.includes(mark)).length, 1);
+});
+
+test('a later knowledge-done that is not a batch default replaces the old suggestion of the task in the report and the batch status', () => {
+  const d = batchRun();
+  accepted(A(d, ['knowledge-done', 'LC']), 'the batch default');
+  assert.equal(tsvRows(d).length, 1);
+  appendFileSync(path.join(d, BD, 'SUMMARY.md'), 'edited after the approval\n'); // the run is no longer a batch run
+  must(d, ['knowledge-done', 'LC', 'not_applicable', 'nothing durable changed in this synthetic test run']);
+  assert.equal(liveSuggestions(d).length, 0);
+  assert.equal(tsvRows(d).length, 0);
+  writeReport(d);
+  must(d, ['publish-completion-report', 'LC', 'markdown']);
+  assert.ok(!readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8').includes('Suggestion to the user'));
+  assert.ok(!A(d, ['batch-status']).out.includes('Suggestion to the user'));
+});
+
+test('forgery: a CRITICAL task listed in order.tsv and in the approved table keeps the real step; a finished batch gives no default', () => {
+  const c = codeDone('standalone', { cls: 'CRITICAL' });
+  approveBatch(c, SUMMARY('| 1 | LC | title | CRITICAL | - |'), 'LC\tCRITICAL\t-\n');
+  refused(A(c, ['knowledge-done', 'LC']), 'the batch default on a CRITICAL task', 'no knowledge page was written');
+  assert.equal(liveSuggestions(c).length, 0);
+  // the batch has no work left: LC is merged
+  const d = batchRun();
+  appendFileSync(path.join(d, BD, 'merged.tsv'), `LC\t12\t${Math.floor(Date.now() / 1000)}\n`);
+  appendFileSync(path.join(d, BD, 'ci.tsv'), 'LC\tgreen\t1\n'); // its CI check is recorded too: no work is left
+  refused(A(d, ['knowledge-done', 'LC']), 'the batch default after the batch finished', 'no knowledge page was written');
+});
+
+test('the lesson proposals are the finding kinds of the run that repeated in another run', () => {
+  const root = makeProject();
+  const gate = (/** @type {string} */ run, /** @type {string} */ g, /** @type {string} */ f) => {
+    mkdirSync(path.join(root, '.agents/runs', run, 'gates'), { recursive: true });
+    writeFileSync(path.join(root, '.agents/runs', run, 'gates', `001-${g}.yaml`), `task_id: "${run}"\ngate: "${g}"\nresult: "fail"\nfocus: "-"\nfinding: ${f}|blocking|a.txt:1|text|traced\n`);
+  };
+  gate('R1', 'QA', 'QA-1'); gate('R2', 'QA', 'QA-1'); gate('R1', 'VERIFY', 'VERIFY-1');
+  const { io } = memoryIo(root);
+  const ctx = new Context(io, io.scriptPath);
+  assert.deepEqual(lessonProposals(ctx, 'R1'), [{ kind: 'QA:-', runs: 2 }]);
+  assert.deepEqual(lessonProposals(ctx, 'R2'), [{ kind: 'QA:-', runs: 2 }]);
 });

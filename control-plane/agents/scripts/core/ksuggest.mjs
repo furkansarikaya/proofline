@@ -1,7 +1,7 @@
 // @ts-check
 // A290: the knowledge step in an unattended batch never asks and never parks. In a run of the approved batch `knowledge-done` records the safe default (no page written, nothing
 // under docs/ or in skills/rules by an agent) and a `knowledge-suggestion` ledger row per proposal for the user; this module decides whether a run is such a run and reads the rows back.
-import { batchApproval } from './approvals.mjs';
+import { deriveState } from './batch.mjs';
 import { batchMember } from './next.mjs';
 import { fileText, ledgerRows } from './records.mjs';
 import { runDir } from './runs.mjs';
@@ -28,20 +28,22 @@ export function batchKnowledgeRun(ctx, id) {
   const summary = fileText(ctx, `${ctx.sharedMain()}/.agents/local/batch/SUMMARY.md`) ?? '';
   if (!summary.split('\n').some((l) => new RegExp(`^\\| [0-9]+ \\| ${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|`).test(l))) return false;
   const cls = pipelineClass(ctx, runDir(ctx, id));
-  return pipelineClassValid(cls) && cls !== 'CRITICAL';
+  if (!(pipelineClassValid(cls) && cls !== 'CRITICAL')) return false;
+  // the batch must still have work left (a finished batch gives no default); a batch whose session stopped with work left is not told apart (no such record exists)
+  const mode = ctx.fpMode;
+  try { ctx.fpMode = 'yes'; return deriveState(ctx) === 'approved'; } finally { ctx.fpMode = mode; }
 }
 
 /**
- * The suggestions of the last `knowledge-done` of a run, read structurally (whole ledger rows only, A284): the `knowledge-suggestion` rows written between the previous
- * `knowledge-done` row and the last one.
+ * The suggestions of the last `knowledge-done` of a run, read structurally (whole ledger rows only, A284): the `knowledge-suggestion` rows written after the last
+ * `knowledge-done` row (written after it, so a retry that fails in between cannot leave a duplicate: the last knowledge-done row starts the list again).
  * @param {Context} ctx @param {string} dir @returns {string[]}
  */
 export function knowledgeSuggestions(ctx, dir) {
   const done = ledgerRows(ctx, dir, 'knowledge-done');
   if (done.length === 0) return [];
   const last = done[done.length - 1].seq;
-  const prev = done.length > 1 ? done[done.length - 2].seq : 0;
-  return ledgerRows(ctx, dir, 'knowledge-suggestion').filter((r) => r.seq > prev && r.seq < last).map((r) => r.detail);
+  return ledgerRows(ctx, dir, 'knowledge-suggestion').filter((r) => r.seq > last).map((r) => r.detail);
 }
 
 /** The `knowledge_reason` that marks the batch default. */
