@@ -9,11 +9,11 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync as rm, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildTemplate, copyProject, runHook, rmSync, cleanEnv } from './harness.mjs';
 import { createFsCase } from '../../adapters/claude/hooks/lib/fscase.mjs';
-import { hookDir, FOLDS, KEEPS, onVolume, WHO, pre, U, aliasFolded, dropAliases } from './case-kit.mjs';
+import { hookDir, FOLDS, KEEPS, onVolume, WHO, pre, U, aliasFolded, dropAliases, WIN, slash, lowerAscii } from './case-kit.mjs';
 
 const { canonCase } = await import(pathToFileURL(join(hookDir, 'guards/paths.mjs')).href);
 const { stateOf } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
@@ -68,11 +68,13 @@ for (const [what, exact, variant, sibling] of PATHS) {
       for (const [role, who, env, projKey] of WHO) {
         const proj = projKey === 'run' ? dir : noRun;
         for (const [opName, op] of OPS) {
-          const a = await pre(...op(exact, proj), who, env, proj);
+          // NTFS folds ASCII case only (A271, the Windows fold stays ASCII): the long s and the Kelvin sign are other letters there, so on Windows that variant gets the verdict of its unprotected sibling
+          const ref = WIN && /[^\x00-\x7f]/.test(variant) ? sibling : exact;
+          const a = await pre(...op(ref, proj), who, env, proj);
           const b = await pre(...op(variant, proj), who, env, proj);
-          assert.equal(b === null, a === null, `${role}, ${opName}: exact ${a === null ? 'allowed' : 'refused'} but ${variant} ${b === null ? 'allowed' : 'refused'}`);
+          assert.equal(b === null, a === null, `${role}, ${opName}: ${ref} ${a === null ? 'allowed' : 'refused'} but ${variant} ${b === null ? 'allowed' : 'refused'}`);
           // the same verdict means the same reason too: a role that the path rule keeps out anyway would hide a protected name that is not recognised
-          assert.equal(reason(b, proj, exact, variant), reason(a, proj, exact, variant), `${role}, ${opName}: another reason for ${variant}`);
+          assert.equal(reason(b, proj, ref, variant), reason(a, proj, ref, variant), `${role}, ${opName}: another reason for ${variant}`);
         }
       }
     });
@@ -82,14 +84,19 @@ for (const [what, exact, variant, sibling] of PATHS) {
     await onVolume(KEEPS(), async () => {
       for (const [role, who, env, projKey] of WHO) {
         const proj = projKey === 'run' ? dir : noRun;
+        // Windows has no case-keeping volume for the hook (A271): there an ASCII case variant IS the exact path and gets its verdict; a variant with another letter (the long s, the Kelvin sign) is another name there as everywhere
+        const ntfs = WIN && lowerAscii(variant) === lowerAscii(exact);
+        const ref = ntfs ? exact : sibling;
         for (const [opName, op] of OPS.filter(([n]) => ['Write', 'shell redirect'].includes(n))) { // the allowed verdicts of the lead start the control plane; two tools show the rule
           const v = await pre(...op(variant, proj), who, env, proj);
-          const s = await pre(...op(sibling, proj), who, env, proj);
-          assert.equal(v === null, s === null, `${role}, ${opName}: ${variant} ${v === null ? 'allowed' : 'refused'} but its unprotected sibling ${sibling} ${s === null ? 'allowed' : 'refused'}`);
+          const s = await pre(...op(ref, proj), who, env, proj);
+          assert.equal(v === null, s === null, `${role}, ${opName}: ${variant} ${v === null ? 'allowed' : 'refused'} but ${ntfs ? 'the exact path' : 'its unprotected sibling'} ${ref} ${s === null ? 'allowed' : 'refused'}`);
         }
-        // the implementer and the designer own the run folder: a differently cased name under it is theirs to write on a volume that keeps case
+        // the implementer and the designer own the run folder: a differently cased name under it is theirs to write on a volume that keeps case (never on NTFS, where it is the protected folder)
         if (ownerOfScope(role) && variant.startsWith('.agents/runs/LC/')) {
-          assert.equal(await pre('Write', { file_path: `${proj}/${variant}`, content: 'x' }, who, env, proj), null, `${role}: Write ${variant} refused although the volume keeps case`);
+          const w = await pre('Write', { file_path: `${proj}/${variant}`, content: 'x' }, who, env, proj);
+          if (ntfs) assert.equal(w === null, (await pre('Write', { file_path: `${proj}/${exact}`, content: 'x' }, who, env, proj)) === null, `${role}: Write ${variant} judged otherwise than ${exact} on NTFS`);
+          else assert.equal(w, null, `${role}: Write ${variant} refused although the volume keeps case`);
         }
       }
     });
@@ -148,6 +155,16 @@ test('A278 AC-6 (volume keeps case): the cased command words are other programs 
     for (const [what, exact, variant, why] of COMMANDS) {
       if (/database|link into|dispatch nonce|a script written/.test(what)) continue; // judged by text or a real file here, not by the program name
       const b = await pre('Bash', { command: variant }, WHO[0][1], WHO[0][2], dir);
+      if (WIN) { // NTFS and the Windows program lookup read the cased words as the exact ones (A271): the cased spelling gets the verdict of the exact one
+        const a = await pre('Bash', { command: exact }, WHO[0][1], WHO[0][2], dir);
+        assert.equal(b === null, a === null, `${what}: on Windows the cased spelling is judged as the exact one (${b ?? a})`);
+        if (why !== null) { // a both-allowed verdict would hide a lost rule: the exact spelling is refused for the expected reason for some role (the lead is not the one every rule binds)
+          let refused = false;
+          for (const [, who, env, projKey] of WHO) { const x = await pre('Bash', { command: exact }, who, env, projKey === 'run' ? dir : noRun); if (x !== null && why.test(x)) refused = true; }
+          assert.ok(refused, `${what}: the exact spelling is refused on Windows for no role`);
+        }
+        continue;
+      }
       if (b !== null && why !== null) assert.doesNotMatch(b, why, `${what}: the cased spelling must not be refused as the protected one: ${b}`);
     }
   });
@@ -162,7 +179,10 @@ test('A278 AC-5/AC-6: a specialist writing with a cased write program (TOUCH, Te
         assert.ok(await pre('Bash', { command: cased }, who, env, dir), `${role}: ${cased} allowed on a volume that folds case`);
       });
       await onVolume(KEEPS(), async () => {
-        assert.equal(await pre('Bash', { command: cased }, who, env, dir), null, `${role}: ${cased} refused on a volume that keeps case`);
+        const v = await pre('Bash', { command: cased }, who, env, dir);
+        if (WIN) assert.ok(await pre('Bash', { command: lower }, who, env, dir), `${role}: ${lower} is refused on Windows too`);
+        if (WIN) assert.ok(v, `${role}: ${cased} allowed on Windows, where TOUCH starts touch (A271)`);
+        else assert.equal(v, null, `${role}: ${cased} refused on a volume that keeps case`);
       });
     }
   }
@@ -175,7 +195,8 @@ test('A278 AC-5/AC-6: the db guard reads DATA.DB as data.db on a folding volume 
     assert.ok(await pre('Grep', { pattern: 'x', path: `${dir}/Data.Sqlite` }, w, e, dir), 'Grep of a cased database name allowed');
   });
   await onVolume(KEEPS(), async () => {
-    assert.equal(await pre('Read', { file_path: `${dir}/DATA.DB` }, w, e, dir), null, 'on a case-keeping volume DATA.DB is not a database named *.db');
+    if (WIN) assert.ok(await pre('Read', { file_path: `${dir}/DATA.DB` }, w, e, dir), 'on Windows (NTFS, A271) DATA.DB is data.db');
+    else assert.equal(await pre('Read', { file_path: `${dir}/DATA.DB` }, w, e, dir), null, 'on a case-keeping volume DATA.DB is not a database named *.db');
     assert.ok(await pre('Read', { file_path: `${dir}/data.db` }, w, e, dir), 'the exact name is still a database');
   });
 });
@@ -188,10 +209,13 @@ test('A278 mixed volume: one protected name is protected under a folding folder 
   const inst = createFsCase({ probe: (d) => { asked.push(d); return d !== runDir; } });
   const [, w, e] = WHO[2];
   await onVolume(inst, async () => {
-    assert.equal(await pre('Write', { file_path: `${dir}/.agents/runs/LC/CI-FIX/x.md`, content: 'x' }, w, e, dir), null, 'under the case-keeping run folder CI-FIX is not ci-fix');
+    const cased = await pre('Write', { file_path: `${dir}/.agents/runs/LC/CI-FIX/x.md`, content: 'x' }, w, e, dir);
+    if (WIN) assert.ok(cased, 'Windows folds ASCII case in every folder (A271): CI-FIX is ci-fix whatever the injected volume says');
+    else assert.equal(cased, null, 'under the case-keeping run folder CI-FIX is not ci-fix');
     assert.ok(await pre('Write', { file_path: `${dir}/.agents/runs/LC/ci-fix/x.md`, content: 'x' }, w, e, dir), 'the exact spelling is protected there');
     assert.ok(await pre('Write', { file_path: `${dir}/.CODEX/hooks.json`, content: 'x' }, w, e, dir), 'under the folding project root the cased name is protected');
   });
+  if (WIN) { assert.deepEqual(asked, [], 'on Windows no folder is asked: NTFS is case-insensitive by definition (A271)'); return; }
   assert.deepEqual([...new Set(asked)].sort(), [proj, runDir].sort(), 'two different folders, two probes, each asked once');
   assert.equal(asked.length, 2);
 });
@@ -203,8 +227,9 @@ test('A278 Unicode: the Kelvin sign for the k of a protected name, and a decompo
   });
   const c = /** @type {any} */ ({ act: 'LC' });
   stateOf(c).tasksDir = 'docs/tâches'; // a configured, non-ASCII task folder
-  assert.equal(canonCase(c, 'DOCS/TÂCHES/x', true), 'docs/tâches/x');
-  assert.equal(canonCase(c, 'Docs/Tâches/x', true), 'docs/tâches/x', 'the decomposed spelling is the same folder');
+  // Windows keeps the ASCII-only fold of A271 for these names: a capital letter outside ASCII is not folded there, so the cased spelling of a configured non-ASCII folder is returned as typed
+  assert.equal(canonCase(c, 'DOCS/TÂCHES/x', true), WIN ? 'DOCS/TÂCHES/x' : 'docs/tâches/x');
+  assert.equal(canonCase(c, 'Docs/Tâches/x', true), WIN ? 'Docs/Tâches/x' : 'docs/tâches/x', 'the decomposed spelling is the same folder');
   assert.equal(canonCase(c, 'Docs/Tâches/x', false), 'Docs/Tâches/x', 'a volume that keeps case apart is not rewritten');
 });
 
@@ -245,7 +270,9 @@ test('A278 real file system: the temp folder has some behaviour, and the guards 
     else assert.ok(viaRoot, 'the cased root is another place, outside the project');
     assert.ok(await pre('Write', { file_path: `${rootUp}/${exactSpelling}`, content: 'x' }, w, e, dir), 'the protected state is refused through the cased root as well (inside, or outside the project)');
     // a cased spelling of the project root in a shell write is judged as the exact root
-    const sh = await pre('Bash', { command: `echo x > ${rootUp}/impl.txt` }, w, e, dir);
+    // the shell guard compares the text with the project root without asking the file system, so on Windows the root is named by its long form (the runner's temp folder is a short 8.3 name, RUNNER~1, a different spelling of the same folder)
+    const shRoot = slash(WIN ? realpathSync.native(dir) : dir).toUpperCase();
+    const sh = await pre('Bash', { command: `echo x > ${shRoot}/impl.txt` }, w, e, dir);
     if (folds) assert.equal(sh, null); else assert.ok(sh);
   });
 });
@@ -325,17 +352,18 @@ test('A278 B1 (volume folds case): the evidence-command rule (A194, rtk installe
   mkdirSync(join(proj, '.claude'), { recursive: true });
   writeFileSync(join(proj, '.claude/settings.json'), '{"hooks":{"PreToolUse":"rtk"}}');
   const bin = tempDir('hook-case-bin-'); writeFileSync(join(bin, 'rtk'), '#!/bin/sh\n'); chmodSync(join(bin, 'rtk'), 0o755);
-  const env = { PATH: `${bin}:${process.env.PATH}` };
+  const env = { PATH: `${bin}${delimiter}${process.env.PATH}` };
   const cases = /** @type {Array<[string, string, number[]]>} */ ([['npm test', 'npm', [0, 4]], ['make test', 'make', [0, 4]], ['pytest', 'pytest', [0]], ['sh .agents/scripts/agent.sh build-record', 'agent.sh', [0]], ['git diff', 'git', [4]]]);
   await onVolume(FOLDS(), async () => {
     for (const [lower, word, whoIdx] of cases) {
       for (const wi of whoIdx) {
         const [role, who, wenv] = /** @type {typeof WHO[number]} */ (WHO[wi]);
         const base = await pre('Bash', { command: lower }, who, { ...wenv, ...env }, proj);
-        assert.ok(base && /rtk/.test(base), `${role}: ${lower} is not the rtk refusal (fix the table): ${base}`);
+        // Windows: the hook does not find rtk there (it reads only the `/` entries of PATH and the name rtk, never rtk.exe: docs/concepts/workflow.md, A271), so the evidence-command rule is not enforced and no spelling is refused for it
+        if (WIN) assert.equal(base, null, `${role}: ${lower} is refused on Windows although the rule is a documented gap there: ${base}`); else assert.ok(base && /rtk/.test(base), `${role}: ${lower} is not the rtk refusal (fix the table): ${base}`);
         for (const sp of spellings(word)) {
           const v = await pre('Bash', { command: withWord(lower, word, sp) }, who, { ...wenv, ...env }, proj);
-          assert.ok(v && /rtk/.test(v), `${role}: ${sp} escapes the evidence-command rule: ${v}`);
+          if (WIN) assert.equal(v === null, base === null, `${role}: ${sp} is judged otherwise than ${lower} on Windows: ${v}`); else assert.ok(v && /rtk/.test(v), `${role}: ${sp} escapes the evidence-command rule: ${v}`);
         }
       }
     }
@@ -347,7 +375,9 @@ test('A278 B1 (volume keeps case; a regression guard for no over-refusal, it pas
     for (const c of ['Make all', 'Python3 -c 1', 'Rscript x.R', 'JAVA -version', 'Git status', 'Npm test', 'Pytest', U('Pki@ll foo'), 'Touch s.txt']) {
       for (const wi of [0, 2, 4]) {
         const [role, who, env, projKey] = /** @type {typeof WHO[number]} */ (WHO[wi]);
-        assert.equal(await pre('Bash', { command: c }, who, env, projKey === 'run' ? dir : noRun), null, `${role}: ${c} refused on a volume that keeps case`);
+        const v = await pre('Bash', { command: c }, who, env, projKey === 'run' ? dir : noRun);
+        if (WIN) assert.equal(v === null, (await pre('Bash', { command: c.toLowerCase() }, who, env, projKey === 'run' ? dir : noRun)) === null, `${role}: ${c} is judged otherwise than its lower-case twin on Windows (A271)`);
+        else assert.equal(v, null, `${role}: ${c} refused on a volume that keeps case`);
       }
     }
   });
@@ -385,9 +415,10 @@ test('A278 B2 (git dir keeps case; a regression guard for no over-refusal, it pa
   const proj = copyProject(template, base);
   await onVolume(KEEPS(), async () => {
     setHead(proj, 'feat');
-    for (const c of MAIN_FORMS) assert.equal(await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj), null, `refused on a case-keeping git dir: ${c}`);
+    // Windows has no case-keeping git dir for the hook (A271): MAIN is main there, and every form is refused as its lower-case twin is
+    for (const c of MAIN_FORMS) { const v = await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj); if (WIN) assert.ok(v, `not refused on Windows: ${c}`); else assert.equal(v, null, `refused on a case-keeping git dir: ${c}`); }
     setHead(proj, 'MAIN');
-    for (const c of ON_MAIN) assert.equal(await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj), null, `refused with HEAD at MAIN on a case-keeping git dir: ${c}`);
+    for (const c of ON_MAIN) { const v = await pre('Bash', { command: c }, LEAD[1], LEAD[2], proj); if (WIN) assert.ok(v, `not refused with HEAD at MAIN on Windows: ${c}`); else assert.equal(v, null, `refused with HEAD at MAIN on a case-keeping git dir: ${c}`); }
   });
 });
 
@@ -444,7 +475,10 @@ test('A278 D2: the configured migration commands are read without case on a fold
       }
     });
     await onVolume(KEEPS(), async () => {
-      for (const c of cmds.filter((x) => /Manage|Prisma/.test(x))) assert.equal(await pre('Bash', { command: c }, who, env, dir), null, `${role}: ${c} refused on a case-keeping volume`);
+      for (const c of cmds.filter((x) => /Manage|Prisma/.test(x))) {
+        const v = await pre('Bash', { command: c }, who, env, dir);
+        if (WIN) assert.ok(v, `${role}: ${c} allowed on Windows, where Manage.py is manage.py (A271)`); else assert.equal(v, null, `${role}: ${c} refused on a case-keeping volume`);
+      }
     });
   }
 });
@@ -471,8 +505,10 @@ test('A278 round 4 HEAD forms (git dir folds case): head, Head, hEAD are HEAD fo
   });
   await onVolume(KEEPS(), async () => {
     const [, who, env] = WHO[0];
-    assert.equal(await pre('Bash', { command: 'git push origin head' }, who, env, proj), null, 'head is not HEAD on a case-keeping git dir');
-    assert.equal(await pre('Bash', { command: 'git log head~1' }, who, env, proj), null);
+    const pushHead = await pre('Bash', { command: 'git push origin head' }, who, env, proj);
+    if (WIN) assert.ok(pushHead, 'head is HEAD on Windows (A271): a push with main checked out is refused');
+    else assert.equal(pushHead, null, 'head is not HEAD on a case-keeping git dir');
+    assert.equal((await pre('Bash', { command: 'git log head~1' }, who, env, proj)) === null, WIN ? (await pre('Bash', { command: 'git log HEAD~1' }, who, env, proj)) === null : true, 'a read of head~1 is judged as HEAD~1 on Windows and allowed on a case-keeping dir');
   });
 });
 

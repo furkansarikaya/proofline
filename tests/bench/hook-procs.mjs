@@ -55,7 +55,8 @@ export function measureAll(o = {}) {
     };
     const hookRun = (/** @type {string} */ event, /** @type {string} */ json, /** @type {string} */ PATH) =>
       spawnSync('node', [hook, event, 'claude'], { cwd: d, env: env(PATH), input: json, encoding: 'utf8', timeout: 300000 });
-    const j = (/** @type {string} */ name, /** @type {string} */ extra) => `{"hook_event_name":"${name}","session_id":"s1","cwd":"${d}"${extra}}`;
+    // the event is built as JSON: a Windows project folder holds backslashes, which a template string would leave unescaped (the hook rightly ignores an event that is not JSON)
+    const j = (/** @type {string} */ name, /** @type {string} */ extra) => JSON.stringify({ hook_event_name: name, session_id: 's1', cwd: d, ...JSON.parse(`{${extra.replace(/^,/, '')}}`) });
     const sub = ',"agent_type":"proofline-implementer","agent_id":"a1"';
     const realPath = process.env.PATH ?? '';
     hookRun('subagent-start', j('SubagentStart', sub), realPath);   // opens the implementer's window, so the write below is allowed
@@ -85,10 +86,10 @@ export function measureAll(o = {}) {
         const approved = () => { try { return readdirSync(path.join(d, '.agents/runs/LC/approvals')).filter((n) => /^\d{3}-plan\.yaml$/.test(n)).length; } catch { return 0; } };
         const before = approved();
         const t0 = performance.now();
-        hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
+        const run = hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
         times.push(Math.round(performance.now() - t0));
         // the approval path is really taken: the measured run recorded the plan approval (a row measured on a hook that ignored the reply would count too few processes)
-        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after)`);
+        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after; hook status ${run.status}, stderr ${JSON.stringify((run.stderr ?? '').slice(0, 400))})`);
         const used = readFileSync(log, 'utf8').split('\n').filter(Boolean);
         counts.push(used.length);
         if (o.trace) process.stderr.write(`--- ${name}\n${used.join('\n')}\n`);

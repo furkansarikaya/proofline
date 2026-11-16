@@ -15,6 +15,8 @@ import { readFileSync, realpathSync, writeSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { EVENTS, buildContext, finish } from './lib/context.mjs';
 import { rmf } from './lib/fsx.mjs';
+import { isWin } from './lib/text.mjs';
+import { screenEvent } from './lib/winabort.mjs';
 import { yieldsToOtherWiring } from './lib/yield.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -54,6 +56,8 @@ export async function main(argv) {
   const rt = argv[1] ?? 'claude';
   if (yieldsToOtherWiring(here, ev, rt, process.env)) return 0;   // the same event is wired by the old shell string (or by the project, for the plugin): handled once
   const raw = readStdin();
+  const screened = screenEvent(ev, raw, isWin());   // before anything touches the file system: Node aborts on some Windows paths and an abort is not a block (lib/winabort.mjs)
+  if (screened !== null) { if (screened !== '') writeOut(1, screened); return 0; }
   const c = await buildContext(ev, rt, raw, process.env);
   if (!c) return 0;
   try {
