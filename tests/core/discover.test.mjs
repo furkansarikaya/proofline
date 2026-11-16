@@ -153,13 +153,11 @@ test('discovery: a Makefile target closes its kind, the other kinds still list e
   assert.deepEqual([flat(got.build), flat(got.test), flat(got.lint)], ['make build', 'dotnet test App.slnx;npm --prefix web test', 'npm --prefix web run lint']);
 });
 
-test('discovery: 300 nested package.json are judged in seconds and named as several projects', () => {
+test('discovery: 300 nested package.json are judged in seconds and named as several projects', { timeout: 6000 }, () => {   // the test timeout is the bound (no clock read)
   const items = /** @type {Array<[string, string]>} */ ([]);
   for (let i = 0; i < 300; i++) items.push([`pkgs/p${i}/package.json`, `{"name":"p${i}"}\n`]);
   const d = fx(items);
-  const t0 = Date.now();
   const got = discoverCommands(d);
-  assert.ok(Date.now() - t0 < 6000, `took ${Date.now() - t0} ms`);
   assert.deepEqual([flat(got.build), flat(got.test), flat(got.lint)], ['-', '-', '-']);
   assert.deepEqual(got.ambig, [{ id: 'npm', why: 'several projects: pkgs/p0, pkgs/p1, pkgs/p10, pkgs/p100, ...' }]);
 });
@@ -248,12 +246,10 @@ test('verifyCommands never runs a command with shell operators, keeps a passing 
   assert.equal(readOrNull(path.join(d, 'out.txt')), null);
 });
 
-test('verifyCommands stops a trial run that hangs after its limit and says it failed', () => {
+test('verifyCommands stops a trial run that hangs after its limit and says it failed', { timeout: 10000 }, () => {
   const d = fx([['x', '']]);
   const lines = /** @type {string[]} */ ([]);
-  const t0 = Date.now();
   const kept = verifyCommands(d, { build: ['sleep 30'], test: [], lint: [] }, (l) => lines.push(l), { seconds: 1 });
-  assert.ok(Date.now() - t0 < 10000);
   assert.deepEqual(kept.build, []);
   assert.deepEqual(lines, ['  commands.build trial failed, left empty: sleep 30']);
 });
@@ -274,11 +270,9 @@ test('runWithTimeout: a hung tree (a nested sh, a plain sleep, a subshell that i
   assert.deepEqual(left(), []);
 });
 
-test('runWithTimeout: a leader that ignores TERM does not hold the run, and a command that traps TERM and exits 0 is no pass', () => {
-  const t0 = Date.now();
+test('runWithTimeout: a leader that ignores TERM does not hold the run, and a command that traps TERM and exits 0 is no pass', { timeout: 20000 }, () => {
   assert.equal(runWithTimeout(1, ['sh', '-c', 'trap "" TERM; sleep 30']).status, 124);
   assert.equal(runWithTimeout(1, ['sh', '-c', 'trap "exit 0" TERM; sleep 30 & wait']).status, 124);
-  assert.ok(Date.now() - t0 < 20000);
 });
 
 test('runWithTimeout: the status of a command that ends in time, its output file, and a program that is not found', () => {

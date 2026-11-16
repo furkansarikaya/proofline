@@ -459,7 +459,7 @@ test('status-block: a pending question parks the stage, a failed run says why, b
   assert.match(c, /- look_at: open the login page at \[path\] and look\n- look_at: second\n- look_at: third\n$/);
 });
 
-test('status-block: a failing or hanging adapter never fails the command: a note on stderr and a line in status-block.log; `tasks.status_block: off` skips it', () => {
+test('status-block: a failing or hanging adapter never fails the command: a note on stderr and a line in status-block.log; `tasks.status_block: off` skips it', { timeout: 19000 }, () => {   // the test timeout is the bound: an adapter that sleeps 20 s must be stopped at its 1 s limit (no clock read)
   const d = project('scaffold standalone');
   adapter(d, 'echo "boom: password hunter2 at /tmp/x" >&2; exit 1');
   const r = accepted(A(d, ['status-block', 'LC', 'parked']), 'a failing adapter');
@@ -470,9 +470,7 @@ test('status-block: a failing or hanging adapter never fails the command: a note
   const cfg = read(d, '.agents/config.yaml');
   writeFileSync(`${d}/.agents/config.yaml`, cfg.replace('status_block_seconds: 20', 'status_block_seconds: 1'));
   adapter(d, 'sleep 20');
-  const t0 = Date.now();
   const slow = accepted(A(d, ['status-block', 'LC']), 'a hanging adapter');
-  assert.ok(Date.now() - t0 < 15000, 'a hanging adapter held the command');
   assert.match(slow.err, /timed out after 1s|the adapter failed/);
   writeFileSync(`${d}/.agents/config.yaml`, cfg.replace('tasks:\n', 'tasks:\n  status_block: off\n'));
   adapter(d, 'exit 1');

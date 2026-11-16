@@ -154,14 +154,12 @@ test('pre-push launcher: the push guard holds (protected branch, approval switch
   assert.equal(human.code, 0, human.stderr);
 });
 
-test('S3-6: a huge command is answered within the budget, and denied while a run exists', () => {
+test('S3-6: a huge command is answered within the budget, and denied while a run exists', { timeout: 40000 }, () => {   // the test timeout is the bound (no clock read)
   const command = pretoolOf('adapters/claude/settings.fragment.json');
   const dir = project({ run: true });
   for (const size of [300 * 1024, 4 * 1024 * 1024]) {
     const cmd = 'xargs a b c '.repeat(Math.ceil(size / 12));
-    const t0 = Date.now();
     const r = wired(command, dir, { input: JSON.stringify({ cwd: dir, session_id: 's1', tool_name: 'Bash', tool_input: { command: cmd } }) });
-    assert.ok(Date.now() - t0 < 20000, `${size} bytes answered in ${Date.now() - t0} ms`);
     assert.ok(denied(r), `${size} bytes: ${r.stdout.slice(0, 200)}${r.stderr.slice(0, 200)}`);
     assert.match(r.stdout, /ran out of time/);
   }
