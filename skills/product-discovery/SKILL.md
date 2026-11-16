@@ -4,7 +4,7 @@ description: Discovers a product problem with the user in the main session befor
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.141"
+  version: "0.0.142"
 ---
 
 # product-discovery

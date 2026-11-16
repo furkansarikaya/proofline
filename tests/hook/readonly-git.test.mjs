@@ -84,15 +84,17 @@ test('a headless review specialist (AGENT_ROLE in the environment, no agent_type
   assert.deepEqual(wrong, []);
 });
 
-test('no other role is touched: the lead, the implementer, the designer and the specialists that write get no A293 refusal for any row', async () => {
-  const others = [['lead', {}], ['implementer', sub('proofline-implementer')], ['designer', sub('proofline-designer')], ['architect', sub('proofline-architect')], ['data_architect', sub('proofline-data-architect')], ['task_author', sub('proofline-task-author')]];
-  for (const [role, who] of /** @type {Array<[string, Record<string, string>]>} */ (others)) {
+// One test per role (A304): the six roles x 487 rows ran as one test of ~6 s (7.2 s of a 10 s budget on a slow runner); each role is ~1 s, the same rows and the same assertion.
+/** @type {Array<[string, Record<string, string>]>} */
+const OTHERS = [['lead', {}], ['implementer', sub('proofline-implementer')], ['designer', sub('proofline-designer')], ['architect', sub('proofline-architect')], ['data_architect', sub('proofline-data-architect')], ['task_author', sub('proofline-task-author')]];
+for (const [role, who] of OTHERS) {
+  test(`no other role is touched: the ${role} gets no A293 refusal for any row`, async () => {
     for (const [label, command] of CASES) {
       const r = await pre(dir, command, who);
       assert.ok(r === null || !r.includes('A293'), `${role}: ${label}: ${JSON.stringify(command)} -> ${r}`);
     }
-  }
-});
+  });
+}
 
 test('the runtime guard and the git pre-push name the same roles', async () => {
   const guard = await import(pathToFileURL(join(hookDir, 'guards/readonly-git.mjs')).href);

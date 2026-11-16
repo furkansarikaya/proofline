@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.142 — 2026-11-16
+
+- Tests (A311): the port-rig suite (`tests/core/port-t3-rig.mjs`) runs its cases one after another, builds the base commits once before the first case and caches the git state before the steps per recorded state, and the no-other-role check of the read-only git guard is one test per role (same rows, same assertion), so a slow runner no longer reads a 1 s case as 8 s; no product code changed.
+
 ## 0.0.141 — 2026-11-16
 
 - Fix (A303): `batch-cover` and the batch knowledge default honour a task only when the user-approved SUMMARY.md lists it (one Order row) with the same class and depends_on row in order.tsv; a hand-edited order.tsv no longer widens what one approval covers, and a refusal writes nothing. The Order row is parsed tolerant of CRLF. The hook protection of `.agents/local/batch` is pinned by a new enforcement test.
