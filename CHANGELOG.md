@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.127 — 2026-11-16
+
+- Test speed (A289, Part of #266, package 3a): `tests/core/user-decisions-1108` runs doctor with `PROOFLINE_DOCTOR_PROBES=0`; `tests/core/lifecycle-s2-lib.mjs` builds the CODE_DONE run once per option set (`codeDone()`, copied per scenario) and runs the stdin-free verbs in process while a fixture is built; the approval test sends one request per kind. user-decisions-1108 233/268 s -> 88/107 s, lifecycle-s2 179/239 s -> 102/125 s; no assertion removed, the mutation review found no assurance loss.
+
 ## 0.0.126 — 2026-11-16
 
 - Test speed (A288, Part of #266, package 3a): `tests/core/doctor-faults` runs doctor with `PROOFLINE_DOCTOR_PROBES=0` except in the leftover-worktree test, and `tests/fixtures/trees.mjs` digests the five single-state proofline-lead variants from the all-states build instead of rebuilding them; doctor-faults 105 s -> 47 s, fixture-trees 41 s -> 31 s. Every recorded digest is still compared with freshly built content.

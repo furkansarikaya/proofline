@@ -6,7 +6,7 @@ import { appendFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync,
 import path from 'node:path';
 import { test } from 'node:test';
 import { accepted, expectFail, expectState, git, project, refused, repo, rv, tcStatus } from '../lib/harness.mjs';
-import { A, AS, approve, failedRun, finishDone, gfail, gitRun, gpass, lines, lsDir, must, passAll, pipe, rd, recTry, sayNow, solo, livePid, deadPid, subst, toCodeDone, worker, wr, writeReport } from './lifecycle-s2-lib.mjs';
+import { A, AS, approve, codeDone, failedRun, finishDone, gfail, gitRun, gpass, lines, lsDir, must, passAll, pipe, rd, recTry, sayNow, solo, livePid, deadPid, subst, toCodeDone, worker, wr, writeReport } from './lifecycle-s2-lib.mjs';
 
 const RUN = '.agents/runs/LC';
 const KD = 'nothing durable changed in this synthetic test run';
@@ -216,14 +216,12 @@ test('scenario_classification: lead only, review option only where optional, rec
   rmSync(path.join(d, RUN, 'EVIDENCE.md')); rmSync(path.join(d, RUN, 'QA_PLAN.md'));
   wr(d, `${RUN}/PLAN.md`, `${['---', 'scope:', '  - path: impl.txt', '    criteria: [AC-1]', '  - path: impl_test.txt', '    criteria: [AC-1]', '  - path: tasks/LC.md', '    criteria: [AC-1]', '---', '# Plan', '', '## Assumptions', 'none', '', '## Behavior', 'unchanged'].join('\n')}\n`);
   refused(fz(d, 'refreeze', 'LC', '004.md'), 'TRIVIAL froze a plan with three scope paths');
-  const done = project({ topology: 'standalone' });
-  toCodeDone(done, 'standalone');
+  const done = codeDone('standalone');
   refused(A(done, ['classify', 'LC', 'TRIVIAL']), 'a completed run was reclassified');
 });
 
 test('scenario_amend_plan_change: reopen with an authorized plan amendment, scope approval, refreeze, DONE again', () => {
-  const d = project({ topology: 'standalone' });
-  toCodeDone(d, 'standalone'); finishDone(d);
+  const d = codeDone('standalone'); finishDone(d);
   refused(A(d, ['amend', 'LC'], { input: 'reason: the review found a missing helper file the plan did not cover\nfix_scope: extra.txt\nfix_instruction: add extra.txt with the helper and cover it with a test\nauthorized_by: the user\n' }), 'reopen naming a path outside the frozen plan without plan_change');
   must(d, ['amend', 'LC'], { input: 'reason: the review found a missing helper file the plan did not cover\nfix_scope: extra.txt\nfix_instruction: add extra.txt with the helper and cover it with a test\nauthorized_by: the user\nplan_change: yes\n' });
   refused(A(d, ['freeze', 'LC']), 'plain freeze on a reopened run');
@@ -280,7 +278,7 @@ test('scenario_hardening: registry, verdict lines, amendments, forged terminal s
 // --- task-source contract --------------------------------------------------------------------
 for (const topo of /** @type {const} */ (['standalone', 'orchestrated'])) {
   test(`scenario_task_contract_bookkeeping ${topo}: a moved task source is relocated, the frozen contract revision never moves, an edit after the END marker is rejected`, () => {
-    const d = project({ topology: topo, layout: 'yes' }); toCodeDone(d, topo); const frozen = rv(d, 'task_source', 'revision');
+    const d = codeDone(topo, { layout: 'yes' }); const frozen = rv(d, 'task_source', 'revision');
     mkdirSync(path.join(d, 'tasks/done'), { recursive: true }); git(d, ['mv', 'tasks/in-progress/LC.md', 'tasks/done/LC.md']); tcStatus(path.join(d, 'tasks/done/LC.md'), 'done');
     refused(A(d, ['freshness', 'LC']), 'a moved task source was accepted without being relocated', 'task-source-relocate');
     must(d, ['task-source-relocate', 'LC', 'tasks/done/LC.md']);
@@ -299,7 +297,7 @@ for (const topo of /** @type {const} */ (['standalone', 'orchestrated'])) {
 }
 for (const topo of /** @type {const} */ (['standalone', 'orchestrated'])) {
   test(`scenario_task_contract_edit ${topo}: an in-place edit of the frozen task contract is rejected by freshness, knowledge-done, publish and DONE`, () => {
-    const d = project({ topology: topo, layout: 'yes' }); toCodeDone(d, topo); const frozen = rv(d, 'task_source', 'revision');
+    const d = codeDone(topo, { layout: 'yes' }); const frozen = rv(d, 'task_source', 'revision');
     appendFileSync(path.join(d, 'tasks/in-progress/LC.md'), '- a requirement added after freeze\n');
     refused(A(d, ['freshness', 'LC']), 'an edited task contract passed freshness', 'frozen task contract changed');
     refused(A(d, ['knowledge-done', 'LC', 'not_applicable', KD]), 'knowledge-done accepted an edited task contract', 'frozen task contract changed');
@@ -312,7 +310,7 @@ for (const topo of /** @type {const} */ (['standalone', 'orchestrated'])) {
 }
 
 test('scenario_task_contract_laundering: a relocation cannot absorb an edited contract, a hand-edited task source path or revision is rejected', () => {
-  const d = project({ topology: 'standalone', layout: 'yes' }); toCodeDone(d, 'standalone');
+  const d = codeDone('standalone', { layout: 'yes' });
   mkdirSync(path.join(d, 'tasks/done'), { recursive: true }); git(d, ['mv', 'tasks/in-progress/LC.md', 'tasks/done/LC.md']); tcStatus(path.join(d, 'tasks/done/LC.md'), 'done');
   appendFileSync(path.join(d, 'tasks/done/LC.md'), '- a requirement smuggled in with the move\n');
   refused(A(d, ['task-source-relocate', 'LC', 'tasks/done/LC.md']), 'a relocation absorbed an edited contract', 'differs from the frozen contract');
@@ -327,20 +325,20 @@ test('scenario_task_contract_laundering: a relocation cannot absorb an edited co
 
 // A74: a defect task (a debug-proof result exists) must carry a ## Root cause section in its completion report.
 test("scenario_report_root_cause: a defect run's completion report needs ## Root cause; a run without a debug-proof result does not (A74)", () => {
-  const d = project({ topology: 'standalone', layout: 'yes' }); toCodeDone(d, 'standalone');
+  const d = codeDone('standalone', { layout: 'yes' });
   knowledgeDone(d); writeReport(d);
   wr(d, `${RUN}/reports/001-debug.md`, '# debug\n\nreproduction, root cause, regression test\n');
   refused(A(d, ['publish-completion-report', 'LC', 'markdown']), "a defect run's report without ## Root cause was published", 'missing required section: ## Root cause');
   expectState(d, 'completion_report', 'published', 'false');
   writeReport(d, '', '## Root cause', '`lookup` compares the untrimmed key where the trimmed key is needed.');
   must(d, ['publish-completion-report', 'LC', 'markdown']); must(d, ['handoff', 'LC', 'DONE']);
-  const s = project({ topology: 'standalone', layout: 'yes' }); toCodeDone(s, 'standalone');
+  const s = codeDone('standalone', { layout: 'yes' });
   knowledgeDone(s); writeReport(s);
   must(s, ['publish-completion-report', 'LC', 'markdown']); must(s, ['handoff', 'LC', 'DONE']);
 });
 
 test('scenario_task_contract_adapter: an adapter that changes the contract is rejected and the task source restored byte for byte', () => {
-  const d = project({ topology: 'standalone', layout: 'yes' }); toCodeDone(d, 'standalone'); const frozen = rv(d, 'task_source', 'revision');
+  const d = codeDone('standalone', { layout: 'yes' }); const frozen = rv(d, 'task_source', 'revision');
   const pre = readFileSync(path.join(d, 'tasks/in-progress/LC.md'));
   knowledgeDone(d); writeReport(d);
   wr(d, '.agents/task-integrations/evil.sh', `${['#!/bin/sh', 'set -eu', 'root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)', 'path=$(sed -n "s/^  path: //p" "$root/.agents/runs/$2/RUN.yaml" | head -1)',
@@ -387,8 +385,11 @@ test('scenario_approval_fail_closed: only an allowlisted phrase approves, every 
     assert.deepEqual(approvalOf('plan'), [], `an approval file exists after '${t}'`);
     assert.ok(files('^\\d{3}-request-plan\\.yaml$').length > 0, `the request is no longer pending after '${t}'`);
   }
+  // One request per kind serves every phrase: a request stays pending after an approval (only the approval record is removed below). Each phrase is still its own fresh capture (`sayNow`) and a real
+  // `agent.sh approve`, so what is tested (which words approve) is unchanged. That a capture is single-use and a stale capture is refused is not tested here; tests/core/legacy-approvals.test.mjs and
+  // tests/core/gates-s2.test.mjs cover it.
   for (const t of ['approve the plan', 'Plan approved.', 'yes, plan', 'ok plan', 'okay, plan', 'LGTM plan', 'go ahead with the plan', 'plan onaylandı', 'plan onayliyorum', 'Plan: evet', 'plan tamam', 'plan olur']) {
-    must(d, ['request-approval', 'LC', 'plan']); sayNow(d, t); accepted(A(d, ['approve', 'LC', 'plan']), `an allowlisted answer was refused: '${t}'`);
+    sayNow(d, t); accepted(A(d, ['approve', 'LC', 'plan']), `an allowlisted answer was refused: '${t}'`);
     for (const n of approvalOf('plan')) rmSync(path.join(d, ad, n), { force: true });
   }
   // A134: the full sentences of every kind approve (English and Turkish, ASCII variants), nothing else does.
@@ -405,8 +406,9 @@ test('scenario_approval_fail_closed: only an allowlisted phrase approves, every 
     ['push', ['I approve the push', "Push'u onaylıyorum", "push'u onayliyorum"]],
   ];
   for (const [k, texts] of full) {
+    must(d, ['request-approval', 'LC', k]);
     for (const t of texts) {
-      must(d, ['request-approval', 'LC', k]); sayNow(d, t); accepted(A(d, ['approve', 'LC', k]), `a full sentence was refused for ${k}: '${t}'`);
+      sayNow(d, t); accepted(A(d, ['approve', 'LC', k]), `a full sentence was refused for ${k}: '${t}'`);
       for (const n of approvalOf(k)) rmSync(path.join(d, ad, n), { force: true });
     }
   }
@@ -426,10 +428,11 @@ test('scenario_approval_fail_closed: only an allowlisted phrase approves, every 
     }
   }
   must(d, ['request-approval', 'LC', 'plan']);
-  for (const t of ['', longq, 'I approve the plan I approve the plan']) { sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan']), `an empty or quoted answer approved: '${t}'`); }
+  for (const t of ['', longq, 'I approve the plan I approve the plan']) { sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan']), `an empty or quoted answer approved: '${t}'`); assert.deepEqual(approvalOf('plan'), [], `an approval file exists after '${t}'`); }
   // The grammar is locale independent (the harness runs under LC_ALL=C): the same refusals and a positive under UTF-8.
   for (const t of ["I shouldn't approve the plan", 'PLAN ONAYLIYORUM DEĞİL', 'plan onay yok', 'yes the plan is wrong']) {
     sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan'], { env: { LC_ALL: 'en_US.UTF-8' } }), `an ambiguous answer approved under UTF-8: '${t}'`);
+    assert.deepEqual(approvalOf('plan'), [], `an approval file exists after '${t}' under UTF-8`);
   }
   must(d, ['request-approval', 'LC', 'plan']); sayNow(d, 'PLAN ONAYLIYORUM');
   accepted(A(d, ['approve', 'LC', 'plan'], { env: { LC_ALL: 'en_US.UTF-8' } }), 'an allowlisted answer was refused under UTF-8');
@@ -569,15 +572,7 @@ test('scenario_freeze_scope_mapping: freeze validates the scope mapping first an
 
 // A FAILED run is cleaned up after its evidence is reported; deliver never opens a draft pull request (A152).
 test('scenario_failed_run_cleanup: a FAILED run reports its knowledge and is cleaned up without any extra approval (A152)', () => {
-  const d = project({ topology: 'orchestrated', testCrit: 'AC-2', taskExtra: '- AC-2: second behavior' });
-  worker(d, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value'); worker(d, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value');
-  must(d, ['handoff', 'LC', 'IMPLEMENTED']);
-  gfail(d, 'REVIEW_SMALL', 'impl_test.txt'); must(d, ['handoff', 'LC', 'IMPLEMENTING']);
-  worker(d, 'FIX', 'pass', 'impl_test.txt', 'test: default for an empty key'); must(d, ['handoff', 'LC', 'IMPLEMENTED']);
-  gfail(d, 'QA', 'impl.txt'); must(d, ['handoff', 'LC', 'IMPLEMENTING']);
-  worker(d, 'FIX', 'pass', 'impl.txt', 'impl: second attempt at the empty key default'); must(d, ['handoff', 'LC', 'IMPLEMENTED']);
-  gfail(d, 'VERIFY', 'impl.txt');
-  must(d, ['terminate', 'LC', 'FAILED'], { input: 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' });
+  const d = failedRun();   // the same run, built once: RED, GREEN, three failed gate rounds (REVIEW_SMALL, QA, VERIFY), terminate FAILED
   accepted(A(d, ['knowledge-done', 'LC', 'not_applicable', KD]), 'knowledge-done refused on a FAILED run');
   accepted(A(d, ['cleanup', 'LC']), 'cleanup of a FAILED run refused');
   assert.ok(!existsSync(path.join(d, RUN)), 'the run directory survived the cleanup');

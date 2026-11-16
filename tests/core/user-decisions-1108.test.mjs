@@ -8,6 +8,10 @@ import { spawnSync } from 'node:child_process';
 import { sandbox } from './frontend-lib.mjs';
 
 const sb = sandbox();
+// What these tests read from `doctor` is the `git hooks` and `claude hooks` lines, which come from the files and the git configuration. The live probes (a throwaway repository, a bare remote,
+// a commit and a push through the shipped hooks, about 20 processes) are not what is under test here (tests/core/githooks-trust.test.mjs and the doctor tests run them), and they
+// were two thirds of the time of every doctor call: skipped by the product's own switch, which reports `probes: skipped` as a WARN and changes no FAIL.
+sb.env.PROOFLINE_DOCTOR_PROBES = '0';
 const git = (/** @type {string} */ d, /** @type {string[]} */ a) => spawnSync('git', ['-C', d, ...a], { env: sb.env, encoding: 'utf8' });
 const hp = (/** @type {string} */ d) => git(d, ['config', '--local', '--get', 'core.hooksPath']).stdout.trim();
 const INIT = ['init', '--yes', '--runtimes', 'claude'];
@@ -50,7 +54,9 @@ test('A238 hooksPath: a local value for another folder is not overwritten by ini
   const doc = sb.pl(d, ['doctor']);
   assert.match(doc.out, /^WARN git hooks: core\.hooksPath is '\.husky' \(local git config /m, doc.out);
   assert.match(doc.out, /^FAIL git hooks: core\.hooksPath is '\.husky', not \.agents\/githooks/m, doc.out);
-  assert.notEqual(doc.status, 0);
+  assert.match(doc.out, /^doctor: 1 FAIL, \d+ WARN$/m, doc.out);   // the one FAIL is the hooks finding above; the probes WARN does not decide the exit
+  assert.equal(doc.out.match(/^FAIL /gm)?.length, 1, doc.out);
+  assert.equal(doc.status, 1);
 });
 
 test('A238 hooksPath: a global value is not overwritten and not overridden by a local one; the message says global and where; doctor WARNs', () => {
