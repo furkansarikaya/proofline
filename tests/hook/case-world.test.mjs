@@ -312,10 +312,11 @@ test('(regression guard: passes without the fix) A278 round 4 (volume folds case
 // ---- the context fold ----
 
 test('A278 round 4: foldCtx folds every path-valued field and the path-valued environment, shares the guard state, and leaves ids and tokens alone', async () => {
-  const raw = Buffer.from(JSON.stringify({ cwd: dir, session_id: 'S1', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, agent_type: 'proofline-implementer', agent_id: 'F1' }));
+  const capDir = copyProject(template, join(base, 'Proofline-Case')); // a fixed capital: the random suffix of base has none in about 4 of 100 runs (36/62)^6
+  const raw = Buffer.from(JSON.stringify({ cwd: capDir, session_id: 'S1', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, agent_type: 'proofline-implementer', agent_id: 'F1' }));
   const { buildContext, finish } = await import(pathToFileURL(join(hookDir, 'lib/context.mjs')).href);
   const { cleanEnv: ce } = await import('./harness.mjs');
-  const c = await buildContext('pretool', 'claude', raw, ce({ CLAUDE_PROJECT_DIR: dir, TMPDIR: '/Var/Tmp/X', HOME: '/Users/Me', AGENT_ROLE: 'implementer', TOKEN_X: 'AbC' }));
+  const c = await buildContext('pretool', 'claude', raw, ce({ CLAUDE_PROJECT_DIR: capDir, TMPDIR: '/Var/Tmp/X', HOME: '/Users/Me', AGENT_ROLE: 'implementer', TOKEN_X: 'AbC' }));
   try {
     stateOf(c).tasksDir = 'Tasks';
     const f = foldCtx(c);
