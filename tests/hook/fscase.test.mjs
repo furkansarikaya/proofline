@@ -98,6 +98,7 @@ test('A278 ground truth (U+0080 to U+FFFF, plane 1 and the tag block; a to z and
   // the BMP, plane 1 and the tag block (about 130,000 lookups, about 1 s). A single run over U+0080 to U+10FFFF takes 21 s on APFS and passed (every code point that resolved is covered); planes 2 to 13, 15 and 16 are not enumerated here.
   for (let cp = 0x80; cp <= 0xe0fff; cp++) {
     if ((cp >= 0xd800 && cp <= 0xdfff) || (cp > 0x1ffff && cp < 0xe0000)) continue;
+    if (cp === 0x10000 && process.platform === 'win32') continue; // Node 22.13 on Windows aborts the whole process (libuv idna.c assertion w_target_len == 0, exit 0xC0000409) on a file name that holds U+10000 (Linear B syllable, which has no case): the one code point not asked there
     const c = String.fromCodePoint(cp);
     let ino;
     try { ino = String(lstatSync(join(dir, c)).ino); } catch { continue; }
