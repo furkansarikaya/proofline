@@ -4,10 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tempDir } from '../lib/tempdir.mjs';
-import { addedLines, ALTERNATIVE, BASELINE_FILE, changedLines, countByFile, formatBaseline, judge, main, parseBaseline, scanRepo } from './clock-read-gate.mjs';
+import { addedLines, ALTERNATIVE, BASELINE_FILE, changedLines, countByFile, extraReads, formatBaseline, judge, main, parseBaseline, resolveBase, scanRepo, validBase } from './clock-read-gate.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const NOW = ['Date', 'now'].join('.');
@@ -81,9 +81,9 @@ test('the changed lines come from git diff against the merge base of an injectab
   assert.deepEqual([...(m?.get('tests/new.test.mjs') ?? [])], [1, 2]);
   assert.equal(changedLines(d, null), null, 'no base');
   /** @type {string[][]} */ const calls = [];
-  changedLines(d, 'BASEREF', (a) => { calls.push(a); return a[0] === 'merge-base' ? 'abc123\n' : ''; });
-  assert.deepEqual(calls.map((c) => c[0]), ['merge-base', 'diff']);
-  assert.ok(calls[1].includes('abc123'), 'the diff is taken from the merge base');
+  changedLines(d, 'BASEREF', (a) => { calls.push(a); return a[0] === 'rev-parse' ? 'abc123\n' : a[0] === 'merge-base' ? 'def456\n' : ''; });
+  assert.deepEqual(calls.map((c) => c[0]), ['rev-parse', 'merge-base', 'diff']);
+  assert.ok(calls[2].includes('def456') && calls[2].includes('--end-of-options'), 'the diff is taken from the merge base, after --end-of-options');
 });
 
 test('main: exit 1 and a message on problems, exit 0 when clean, --update writes the sorted baseline, usage is 2', () => {
@@ -118,4 +118,45 @@ test('the static job runs the gate against the pull request base; the baseline f
   assert.ok(m, 'no clock-read gate step');
   assert.match(m[1], /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
   assert.match(m[1], /run: node tests\/ci\/clock-read-gate\.mjs\n/);
+});
+
+test('the base is validated before any git call: option-like, dotted, braced and blank spellings are refused; a valid sha and a ref name resolve; an unknown sha is a clear error', () => {
+  for (const bad of ['--output=/abs/x', '-x', 'a..b', 'a@{1}', 'a b', '', 'x\ny', '--end-of-options']) assert.equal(validBase(bad), false, JSON.stringify(bad));
+  for (const ok of ['abcdef1', 'origin/main', 'release-1.2', 'A'.repeat(1) + 'b0c1d2e']) assert.equal(validBase(ok), true, ok);
+  /** @type {string[][]} */ const calls = [];
+  assert.throws(() => resolveBase('--output=/abs/x', (a) => { calls.push(a); return ''; }), /is refused/);
+  assert.equal(calls.length, 0, 'no git call for a refused base');
+  assert.throws(() => resolveBase('abcdef1', () => { throw new Error('bad'); }), /is not a commit in this checkout/);
+  const seen = /** @type {string[][]} */ ([]);
+  assert.equal(resolveBase('origin/main', (a) => { seen.push(a); return a[0] === 'rev-parse' ? 'c0ffee\n' : 'beef\n'; }), 'beef');
+  assert.deepEqual(seen[0], ['rev-parse', '--verify', '--end-of-options', 'origin/main^{commit}']);
+  assert.deepEqual(seen[1], ['merge-base', '--end-of-options', 'c0ffee', 'HEAD']);
+});
+
+test('main: --base=--output=FILE is refused (exit 2) and writes no file; an unknown sha and a pull request without a base are errors, not skips', () => {
+  const d = tempDir('clock-gate-base-');
+  const g = (/** @type {string[]} */ a) => { const r = spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.test', '-c', 'commit.gpgsign=false', '-C', d, ...a], { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  mkdirSync(path.join(d, 'tests')); writeFileSync(path.join(d, 'tests/a.mjs'), 'x\n'); g(['init', '-q', '-b', 'main']); g(['add', '.']); g(['commit', '-q', '-m', 'one']);
+  const out = path.join(d, 'poc-output');
+  /** @param {string[]} argv @param {NodeJS.ProcessEnv} [env] */
+  const run = (argv, env = {}) => { let err = ''; const status = main(argv, { root: d, env, scan: () => [], read: () => '', out: () => {}, err: (s) => { err += s; }, hasRef: () => false }); return { status, err }; };
+  const a = run([`--base=--output=${out}`]);
+  assert.equal(a.status, 2); assert.match(a.err, /is refused/); assert.equal(existsSync(out), false);
+  const b = run(['--base', '-x']); assert.equal(b.status, 2);
+  const c = run(['--base', 'deadbeefdeadbeef']); assert.equal(c.status, 2); assert.match(c.err, /is not a commit/);
+  assert.equal(run(['--base', 'main']).status, 0, 'a valid ref works');
+  const sha = spawnSync('git', ['-C', d, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+  assert.equal(run(['--base', sha]).status, 0, 'a valid sha works');
+  const pr = run([], { GITHUB_EVENT_NAME: 'pull_request' });
+  assert.equal(pr.status, 2); assert.match(pr.err, /pull request run has no base/);
+  assert.equal(run([]).status, 0, 'a push run (no base, no pull request) is ratchet-only');
+});
+
+test('extra spellings are caught: the bigint timer, the argument-less date constructor in any spacing, bracket access, destructured and aliased clocks; a dated constructor with an argument is not', () => {
+  const D = ['Da', 'te'].join(''); const P = ['perfor', 'mance'].join(''); const H = ['hr', 'time'].join('');
+  const lines = [`const t = ${H}.bigint();`, `const d = new ${D};`, `const d = new ${D}( );`, `const x = ${D}['n' + 'ow']();`, `const { now } = ${D};`, `const clock = ${P};`, `const { ${H} } = process;`];
+  const hits = extraReads('tests/x.mjs', lines.join('\n'), new Set());
+  assert.deepEqual(hits.map((h) => h.line), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(extraReads('tests/x.mjs', `const d = new ${D}(0);\nconst e = new ${D}(x, y);\nconst f = new ${D} (2020, 1);`, new Set()), []);
+  assert.deepEqual(extraReads('tests/x.mjs', lines[0], new Set(['tests/x.mjs:1'])), [], 'a line the finder reported is not counted twice');
 });

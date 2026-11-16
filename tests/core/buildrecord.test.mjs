@@ -281,22 +281,26 @@ function pathWithoutTimeout() {
 const NO_TIMEOUT_PATH = pathWithoutTimeout();
 const noTimeoutSkip = NO_TIMEOUT_PATH === null ? 'this host has no folder with sh.exe and without a timeout command' : false;
 
-test('without a `timeout` command the limit still holds: Node\'s timer stops the command and the status is 124; a command that ends in time keeps its own status', { skip: noTimeoutSkip, timeout: 8000 }, () => {   // the test timeout is the bound: a command not stopped at its limit (10 s sleep, 1 s limit) fails the test; no clock is read
+test('without a `timeout` command the limit still holds: Node\'s timer stops the command and the status is 124; a command that ends in time keeps its own status', { skip: noTimeoutSkip }, () => {
   const d = newProject();
   assert.equal(commandV('timeout', { PATH: NO_TIMEOUT_PATH ?? '' }), null, 'test premise: no timeout command on this PATH');
   const ctx = new Context({ env: { PATH: NO_TIMEOUT_PATH ?? '' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
   const out = `${d}/limit.out`;
+  const t0 = Date.now();
   assert.equal(runCommand(ctx, d, 'echo started; exec /bin/sleep 10', out, 1), 124);
+  assert.ok(Date.now() - t0 < 8000, 'the command was not stopped at the limit');
   assert.equal(readFileSync(out, 'utf8'), 'started\n', 'what the command wrote before the stop stays');
   assert.equal(runCommand(ctx, d, 'echo quick; exit 3', out, 30), 3);
   assert.equal(readFileSync(out, 'utf8'), 'quick\n');
 });
 
-test('the timer fallback: a command that traps TERM and exits 0 is still 124', { skip: noTimeoutSkip, timeout: 8000 }, () => {
+test('the timer fallback: a command that traps TERM and exits 0 is still 124', { skip: noTimeoutSkip }, () => {
   const d = newProject();
   const ctx = new Context({ env: { PATH: NO_TIMEOUT_PATH ?? '' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
   const out = `${d}/trap.out`;
+  const t0 = Date.now();
   assert.equal(runCommand(ctx, d, "trap 'exit 0' TERM; /bin/sleep 10 & wait", out, 2), 124, 'an expired limit is 124 whatever status the command reports');
+  assert.ok(Date.now() - t0 < 8000);
 });
 
 // Windows has no process groups and `sh` reports MSYS process ids that `process.kill` cannot address, so the grandchild is neither killed by the product nor observable here (accepted limit, A265).

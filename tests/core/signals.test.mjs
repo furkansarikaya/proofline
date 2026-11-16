@@ -98,16 +98,20 @@ describe('tiers', () => {
 });
 
 describe('ERE safety (S2-4)', () => {
-  test('nested quantifiers and quantified alternations go to the platform tools, in no time', { timeout: 5000 }, () => {   // a backtracking hang would hold the test until its timeout (no clock read)
+  test('nested quantifiers and quantified alternations go to the platform tools, in no time', () => {
     for (const p of ['(a+)+$', '(a|a)*b', '(a*)*', '(x+x+)+y', '(a|b)+c']) {
+      const t0 = Date.now();
       assert.equal(ereToRegExp(p), null, p);
+      assert.ok(Date.now() - t0 < 100);
     }
     assert.ok(ereToRegExp('(a)?b') !== null);
     assert.ok(ereToRegExp('(^|[^A-Za-z0-9])(log|Log)(\\.|\\()') !== null);
   });
-  test('the pattern of the report is answered by grep, not by a backtracking engine', { timeout: 5000 }, () => {
+  test('the pattern of the report is answered by grep, not by a backtracking engine', () => {
     const ctx = fx.ctx();
+    const t0 = Date.now();
     assert.equal(riskWordsMatch(ctx, '(a+)+$', 'x', ['a'.repeat(32) + 'b']), false);
+    assert.ok(Date.now() - t0 < 5000);
   });
   test('a dot matches a carriage return, like grep and awk', () => {
     for (const [p, t] of [['a.b', 'a\rb'], ['^x.*$', 'xy\r'], ['x.$', 'x\r'], ['a.b', 'a\tb']]) {
@@ -120,12 +124,14 @@ describe('ERE safety (S2-4)', () => {
 });
 
 describe('ERE polynomial patterns (S2-4)', () => {
-  test('more than two unbounded quantifiers in one branch go to grep, in well under a second', { timeout: 5000 }, () => {
+  test('more than two unbounded quantifiers in one branch go to grep, in well under a second', () => {
+    const t0 = Date.now();
     assert.equal(ereToRegExp('.*.*.*.*.*.*.*x'), null);
     assert.equal(ereToRegExp('a*b*c*d'), null);
     assert.equal(ereToRegExp('a{2,}b+c*'), null);
     assert.ok(ereToRegExp('a*b*c') !== null);
     assert.ok(ereToRegExp('a*|b*|c*|d*') !== null, 'branches do not add up');
+    assert.ok(Date.now() - t0 < 1000);
   });
 });
 
