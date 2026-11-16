@@ -13,7 +13,8 @@ const sb = sandbox({ exeTools: true });   // Windows: real .exe runtimes, so the
 const edit = (/** @type {string} */ file, /** @type {(t: string) => string} */ fn) => writeFileSync(file, fn(readFileSync(file, 'utf8')));
 // The git-hook and runtime probes of doctor (a throwaway repository, real commits and pushes, hook processes: ~2/3 of one run, and identical for every project because they are
 // built from shipped files only) are asserted by doctor-fresh.test.mjs and githooks-trust.test.mjs. None of the faults here is about them, so a run skips them, except the one
-// run whose WARN count of the summary includes the probes (the leftover worktree test).
+// run whose WARN count of the summary includes the probes (the leftover worktree test). Skipping (PROOFLINE_DOCTOR_PROBES=0, the documented switch of A249) adds one
+// `WARN probes: skipped` line, so a summary count in a probes-off test is off by one WARN.
 const NO_PROBES = { PROOFLINE_DOCTOR_PROBES: '0' };
 const doctor = (/** @type {string} */ dir, /** @type {NodeJS.ProcessEnv} */ extra = {}) => sb.pl(dir, ['doctor'], { ...NO_PROBES, ...extra });
 const doctorAsync = (/** @type {string} */ dir, /** @type {NodeJS.ProcessEnv} */ extra = {}) => sb.plAsync(dir, ['doctor'], { ...NO_PROBES, ...extra });
