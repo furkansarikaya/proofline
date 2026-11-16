@@ -98,6 +98,8 @@ export async function main(argv) {
   };
   globalGit('git-global-before.txt');
   cpSync(path.join(repo, 'playground'), project, { recursive: true });
+  // FAILOVER: the resumed Codex implementer runs in a profile without network, where a loopback listener is refused (`npm test` of the project starts one). Its copy gets a test helper that answers in process.
+  if (scenario === 'FAILOVER') cpSync(path.join(here, 'overlays/failover-helpers.js'), path.join(project, 'tests/helpers.js'));
   // Write identity only into this throwaway repository's own config. Git plumbing avoids hooks.
   const git = (/** @type {string[]} */ args, /** @type {import('node:child_process').SpawnSyncOptions} */ o = {}) => capture('git', ['-C', project, ...args], o);
   git(['init', '-q', '-b', 'main']);
@@ -175,11 +177,12 @@ export async function main(argv) {
   if (cxE !== '') codexCheap += ` -c 'model_reasoning_effort="${cxE}"'`;
   const request = readFileSync(path.join(here, 'tasks', `${task}.md`), 'utf8');
   const maxTurns = env('E2E_MAX_TURNS', '250');
+  const pollS = Math.max(1, Number(env('E2E_FAILOVER_POLL_S', '10')) || 10);   // how often the failover watchdog reads the ledger
   const line = (/** @type {string} */ f, /** @type {number} */ n) => (readFileSync(f, 'utf8').split('\n')[n - 1] ?? '');
   if (dry) {
     const say = (/** @type {string} */ s) => console.log(s);
     say(`run_dir=${run}`); say(`project=${project}`); say(`scenario=${scenario} config=${config} task=${task}`); say('prepared=baseline,install,doctor,codex-isolation');
-    say(`setup: cp -R '${repo}/playground/.' '${project}/'; git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '${repo}/bin/proofline' init --yes --runtimes '${cfg.runtimes}' --lead '${cfg.lead}' --worker '${cfg.worker}' --reviewers '${cfg.reviewers}' --profile ${profile} --task-adapter markdown; baseline 'chore: install proofline'; '${repo}/bin/proofline' doctor`);
+    say(`setup: cp -R '${repo}/playground/.' '${project}/';${scenario === 'FAILOVER' ? ` cp '${here}/overlays/failover-helpers.js' '${project}/tests/helpers.js';` : ''} git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '${repo}/bin/proofline' init --yes --runtimes '${cfg.runtimes}' --lead '${cfg.lead}' --worker '${cfg.worker}' --reviewers '${cfg.reviewers}' --profile ${profile} --task-adapter markdown; baseline 'chore: install proofline'; '${repo}/bin/proofline' doctor`);
     if (lead === 'claude') say(`lead: (cd '${project}' && claude -p '<whole ${task} task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${leadModel}' --output-format stream-json --verbose --max-turns '${maxTurns}') > '${out}/lead-1.jsonl' 2> '${out}/lead-1.err'`);
     else {
       say(`lead: HOME='${run}/codexhome' CODEX_HOME='${run}/codexhome/.codex' codex exec${codexCheap} --dangerously-bypass-hook-trust -C '${project}' -s danger-full-access -c 'approval_policy="never"' --json -o '${out}/lead-1.last.txt' '<whole ${task} task file>' > '${out}/lead-1.jsonl'`);
@@ -210,7 +213,7 @@ export async function main(argv) {
       cmd = 'claude'; cwd = project; cenv = { ...process.env, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' };
       args = ['-p', message, ...(resumed ? ['--resume', session] : []), '--setting-sources', 'project,local', '--permission-mode', 'bypassPermissions', '--model', leadModel, '--output-format', 'stream-json', '--verbose', '--max-turns', maxTurns];
     } else {
-      cmd = 'codex'; cenv = { ...process.env, HOME: path.join(run, 'codexhome'), CODEX_HOME: path.join(run, 'codexhome/.codex') };
+      cmd = 'codex'; cenv = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^CLAUDE_?CODE/.test(k))), HOME: path.join(run, 'codexhome'), CODEX_HOME: path.join(run, 'codexhome/.codex') };   // a harness started from a Claude session must not leak its session into the Codex lead (the lead record would name claude)
       const m = [...(cxM ? ['-m', cxM] : []), ...(cxE ? ['-c', `model_reasoning_effort="${cxE}"`] : [])];
       const last = path.join(out, `lead-${number}.last.txt`);
       args = resumed ? ['exec', 'resume', ...m, '-c', 'sandbox_mode="danger-full-access"', '-c', 'approval_policy="never"', '--json', '-o', last, thread, message]
@@ -227,7 +230,7 @@ export async function main(argv) {
     let elapsed = 0; timedOut = false; killed = false;
     const killGroup = () => { try { process.kill(-(/** @type {number} */ (child.pid)), 'SIGTERM'); } catch { try { child.kill('SIGTERM'); } catch { /* gone */ } } };
     while (!exited) {
-      if (scenario === 'FAILOVER' && runtime === 'claude' && elapsed > 0 && elapsed % 10 === 0) {
+      if (scenario === 'FAILOVER' && runtime === 'claude' && elapsed > 0 && elapsed % pollS === 0) {
         // the implementer step has started: the ledger of any run has a freeze and then an implementer window, decision or dispatch note
         let frozen = false; let found = false;
         const runsDir = path.join(project, '.agents/runs');
@@ -262,7 +265,15 @@ export async function main(argv) {
   };
   await runLead(lead, 1, request, false);
   let number = 1;
-  if (scenario === 'FAILOVER' && killed) { number = 2; await runLead('codex', number, 'proofline resume', false); }
+  if (scenario === 'FAILOVER' && killed) {
+    // F-1: the state at the kill, taken after the Claude lead's process group is gone and before the Codex lead starts: the run folders (ledger prefix, RUN.yaml, the frozen files) and the working tree.
+    const kill = path.join(out, 'at-kill'); mkdirSync(kill, { recursive: true });
+    if (existsSync(path.join(project, '.agents/runs'))) cpSync(path.join(project, '.agents/runs'), path.join(kill, 'runs'), { recursive: true }); else writeFileSync(path.join(kill, 'runs-note.txt'), 'no runs folder at the kill\n');
+    for (const [name, args] of [['git-status.txt', ['status', '--porcelain']], ['git-diff.patch', ['diff']], ['git-diff-staged.patch', ['diff', '--cached']], ['git-branches.txt', ['branch', '--list']]]) {
+      const fd = openSync(path.join(kill, name), 'w'); try { spawnSync('git', ['-C', project, ...args], { stdio: ['ignore', fd, 'inherit'] }); } finally { closeSync(fd); }
+    }
+    number = 2; await runLead('codex', number, 'proofline resume', false);
+  }
   // C-14 (A133): 3 answers plus one for every refreeze (E2E_MAX_REPLIES replaces the 3), under a hard ceiling that no bug can lift.
   const baseMax = Number(env('E2E_MAX_REPLIES', '3')); let replies = 0; let planReplies = 0; let questionReplies = 0; let refreezeReplies = 0; let stopped = ''; let stopState = ''; let budget = baseMax;
   const qscript = questionScript(qreplyFile, qreplyFile === replyFile);
