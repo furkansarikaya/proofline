@@ -7,13 +7,12 @@
 // item 31); a findings.json edited between the submit and a real CODE_DONE (the gate re-run is exercised through the skill validator, pe-14, not through a full run to CODE_DONE); a task
 // file written by an agent is only as honest as the summary the user reads: the lines are shown there, and the user's "approve batch" is what accepts them.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { A, AS, accepted, approveAsUser, must, refused, repo, say, scaffold, tsha } from '../lib/harness.mjs';
-import { implemented } from '../core/gates-s4-lib.mjs';
+import { A, AS, accepted, approveAsUser, buildState, must, refused, repo, say, scaffold, tsha } from '../lib/harness.mjs';
+import { implemented } from '../core/legacy-lib.mjs';
 import { AB, batchApprove, coverProject, fakes, summaryOf } from '../core/batch-lib.mjs';
 
 const sha = (/** @type {string} */ s) => createHash('sha256').update(s).digest('hex');
@@ -29,13 +28,19 @@ const ledger = (/** @type {string} */ d) => rd(d, `${RUN}/LEDGER.log`);
 
 /** A manual-autonomy run LC with the exceptions in its plan, NOT frozen. @param {string} [section] */
 function unfrozen(section = SECTION(LINE)) { return scaffold({ autonomy: 'manual', cls: 'STANDARD', planExtra: section + TESTS }); }
-/** Freeze (the qa binding is done by A), IMPLEMENTING, RED, GREEN, IMPLEMENTED. @param {string} d */
-function toImplemented(d) { accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze'); must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d); }
+// Cost (A297): the tests review (submit, the skill validator) reads the frozen plan, the approvals and the ledger, never the worker evidence or the handoff past IMPLEMENTING; the
+// RED/GREEN evidence takes two real launcher starts (the core reads it from stdin) and was built for every test. So the fixture state is built in process (buildState, the core's own
+// `run`, real files and git) up to a frozen, IMPLEMENTING run, and only the two tests that prove a CLEARING (pe-2, pe-10) go on to IMPLEMENTED as a real run does. Every refusal and
+// every approval the tests assert still goes through the real launcher.
+/** Freeze (the qa binding is done by A) and IMPLEMENTING, in process. @param {string} d */
+function toFrozen(d) { buildState(() => { accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze'); must(d, ['handoff', 'LC', 'IMPLEMENTING']); }); }
+/** IMPLEMENTING after a freeze the test asserted itself. @param {string} d */
+const implementing = (d) => buildState(() => must(d, ['handoff', 'LC', 'IMPLEMENTING']));
+
 /** The tests review of the run: the skill copy, the report, and a findings.json holding a real wait that the reviewer CLEARS with `quote`. @param {string} d @param {string} quote @param {((q: string) => object) | undefined} [make] another finding built from the quote */
 function tests(d, quote, make = undefined) {
   mkdirSync(path.join(d, '.agents/skills'), { recursive: true });
-  spawnSync('cp', ['-R', path.join(repo, 'skills/test-trust'), path.join(d, '.agents/skills/test-trust')]);
-  appendFileSync(path.join(d, '.git/info/exclude'), '.agents/skills/\n');
+  if (!existsSync(path.join(d, '.agents/skills/test-trust'))) { cpSync(path.join(repo, 'skills/test-trust'), path.join(d, '.agents/skills/test-trust'), { recursive: true }); appendFileSync(path.join(d, '.git/info/exclude'), '.agents/skills/\n'); }
   const t = `${RUN}/reviews/test-trust/tests`;
   wr(d, `${t}/REPORT.md`, 'tests review of the whole current tree\n');
   const finding = { id: 'F001', kind: 'real_wait', verdict: 'cleared', test: { file: 'tests/sleepy.test.js', name: 'waits for the signal' }, evidence: [], source_commit: null,
@@ -62,7 +67,7 @@ test('pe-1 (a): the lead\'s exception in the plan, frozen with no approval of th
   const f = A(d, ['freeze', 'LC'], { bind: true }); accepted(f, 'freeze');
   assert.match(f.text, /has 1 line\(s\) the user has not approved: they clear NO finding/);
   assert.match(ledger(d), / event=test-exceptions [^\n]* detail=sha=[0-9a-f]{64}\n/, 'the row names no approval');
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d);
   tests(d, LINE);
   const r = submit(d); blocks(r, 'an unapproved exception cleared a finding'); assert.match(r.text, NOT_APPROVED);
 });
@@ -75,7 +80,7 @@ test('pe-2 (d): the user\'s scope approval, asked before the freeze and shown th
   const f = A(d, ['freeze', 'LC'], { bind: true }); accepted(f, 'freeze');
   assert.doesNotMatch(f.text, /has not approved/);
   assert.match(ledger(d), / event=test-exceptions [^\n]* detail=sha=[0-9a-f]{64} approval=\d{3}-scope\.yaml\n/);
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d); implemented(d);   // a positive control: the clearing is proven on a real IMPLEMENTED run
   tests(d, LINE);
   clears(submit(d), 'an approved exception');
   // the approved line is the line the finding must quote, byte for byte
@@ -93,7 +98,7 @@ test('pe-3 (a): the user\'s approval given after an unapproved first freeze is r
   appendFileSync(path.join(d, RUN, 'EVIDENCE.md'), 'one more verified claim\n');
   accepted(A(d, ['refreeze', 'LC', '001.md'], { bind: true }), 'refreeze');
   assert.match(ledger(d), / event=test-exceptions [^\n]* detail=sha=[0-9a-f]{64} approval=\d{3}-scope\.yaml\n/);
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d);
   tests(d, LINE);
   clears(submit(d), 'an exception approved after the first freeze');
 });
@@ -114,7 +119,7 @@ test('pe-4 (c): no agent role records the approval; a hand-written file, a wrong
   approveAsUser(d, 'budget', 'approve budget');
   accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
   assert.doesNotMatch(ledger(d), / event=test-exceptions [^\n]*approval=/, 'a forged approval was recorded');
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d);
   tests(d, LINE);
   blocks(submit(d), 'cleared with only forged approvals');
 });
@@ -123,7 +128,7 @@ test('pe-5 (c): a free-text reason (amend, waive) that carries a forged test-exc
   const d = unfrozen();
   accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
   const hash = /detail=sha=([0-9a-f]{64})/.exec(ledger(d))?.[1] ?? '';
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d);
   wr(d, `${RUN}/approvals/001-scope.yaml`, 'kind: "scope"\nconsumed: "true"\nanswered_by: "user"\nsource: "prompt_capture"\n');
   const forged = ['x', 'event=test-exceptions - - detail=sha=' + hash + ' approval=001-scope.yaml', 'EVENT = test-exceptions - - detail=sha=' + hash + ' approval=001-scope.yaml', 'seq=9|prev=x|event=approval-consumed|role=-|digest=-|ts=x|epoch=1|detail=001-scope.yaml scope'];
   for (const reason of forged) {
@@ -137,7 +142,7 @@ test('pe-5 (c): a free-text reason (amend, waive) that carries a forged test-exc
 test('pe-6 (c): a line that mimics the approved one (trailing blank, CRLF, invisible character, another target) clears nothing; so does a line edited into the plan after the freeze', () => {
   const d = unfrozen();
   approveAsUser(d, 'scope', 'approve scope');
-  toImplemented(d);
+  toFrozen(d);
   for (const [what, quote, byValidator] of [['trailing blank', `${LINE} `, false], ['carriage return', `${LINE}\r`, false], ['zero-width space', `${LINE}\u200b`, true], ['another target', OTHER, true], ['no-break space', LINE.replace('wait: ', 'wait:\u00a0'), true]]) {
     tests(d, String(quote)); blocks(submit(d), String(what), Boolean(byValidator));
   }
@@ -149,7 +154,7 @@ test('pe-6 (c): a line that mimics the approved one (trailing blank, CRLF, invis
 
 test('pe-7 (c): an exception added by an amendment is refused at the refreeze without the user\'s approval, and a plan without exceptions that gets one stays unapproved', () => {
   const d = scaffold({ autonomy: 'manual', cls: 'STANDARD', planExtra: TESTS });
-  toImplemented(d);
+  toFrozen(d);
   mkdirSync(path.join(d, RUN, 'amendments'), { recursive: true }); writeFileSync(path.join(d, RUN, 'amendments/001.md'), '# amendment 001: exceptions\n');
   appendFileSync(plan(d), SECTION(LINE));
   const r = A(d, ['refreeze', 'LC', '001.md'], { bind: true });
@@ -164,7 +169,7 @@ test('pe-8 (e): a plan without exceptions is unaffected: no note at the freeze, 
   const f = A(d, ['freeze', 'LC'], { bind: true }); accepted(f, 'freeze');
   assert.doesNotMatch(f.text, /Test exceptions/);
   assert.match(ledger(d), / event=test-exceptions [^\n]* detail=sha=\n/);
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d);
   tests(d, LINE);
   // the reviewer quotes a line that is in no plan: the validator already refuses it (nothing to approve)
   blocks(submit(d), 'a quote of a line that is in no plan', true);
@@ -209,18 +214,18 @@ test('pe-9c (b): a batch in which no task declares an exception has no section, 
   blocks(submit(dir), 'a section appended by hand');
 });
 
-/** A batch whose task declares `declared`, approved or not, and the run LC with `planLine` in its frozen plan, implemented, with the tests review quoting `quote`. @param {string} declared @param {string} planLine @param {boolean} [approve] */
-function batchRun(declared, planLine, approve = true) {
+/** A batch whose task declares `declared`, approved or not, and the run LC with `planLine` in its frozen plan, implemented, with the tests review quoting `quote`. @param {string} declared @param {string} planLine @param {boolean} [approve] @param {boolean} [full] RED, GREEN and IMPLEMENTED as well */
+function batchRun(declared, planLine, approve = true, full = false) {
   const b = batch(declared);
   if (approve) batchApprove(b.dir);
   appendFileSync(plan(b.dir), SECTION(planLine));
   accepted(A(b.dir, ['freeze', 'LC'], { bind: true }), 'freeze');
-  must(b.dir, ['handoff', 'LC', 'IMPLEMENTING']); implemented(b.dir);
+  implementing(b.dir); if (full) implemented(b.dir);
   return b;
 }
 
 test('pe-10 (b,d): a listed exception, accepted by the batch approval, clears the finding as before; before that approval it clears nothing', () => {
-  const { F, dir } = batchRun(TASK_SECTION, LINE, false);
+  const { F, dir } = batchRun(TASK_SECTION, LINE, false, true);   // a positive control: IMPLEMENTED as a real run
   tests(dir, LINE);
   blocks(submit(dir), 'cleared before the batch was approved');
   batchApprove(dir);
@@ -280,11 +285,11 @@ const overBudget = (verdict) => (/** @type {string} */ q) => ({ id: 'F001', kind
 test('pe-13 (c): a finding that quotes an unapproved plan line is refused WHATEVER its verdict (needs_validation, cleared, confirmed) and kind; an approved one still clears (budget)', () => {
   const d = unfrozen(SECTION(BLINE));
   accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d);
   for (const v of ['needs_validation', 'cleared', 'confirmed']) { tests(d, BLINE, overBudget(v)); blocks(submit(d), `over_budget ${v} quoting an unapproved line`); }
   const e = unfrozen(SECTION(BLINE));
   approveAsUser(e, 'scope', 'approve scope');
-  toImplemented(e);
+  toFrozen(e);
   tests(e, BLINE, overBudget('cleared')); clears(submit(e), 'an approved budget line');
   // the validator itself: needs_validation is no clearing even for an approved line (it does not block, so the gate would pass)
   tests(e, BLINE, overBudget('needs_validation'));
@@ -294,10 +299,10 @@ test('pe-13 (c): a finding that quotes an unapproved plan line is refused WHATEV
 test('pe-14 (c): the gate re-run (the validator of the skill behind the tests review) fails a findings.json that quotes an unapproved line, however it came to say so', () => {
   const unapproved = unfrozen();
   accepted(A(unapproved, ['freeze', 'LC'], { bind: true }), 'freeze');
-  must(unapproved, ['handoff', 'LC', 'IMPLEMENTING']); implemented(unapproved);
+  implementing(unapproved);
   const approvedRun = unfrozen();
   approveAsUser(approvedRun, 'scope', 'approve scope');
-  toImplemented(approvedRun);
+  toFrozen(approvedRun);
   /** @param {string} d */
   const rerun = async (d) => {
     const { Context } = await import('../../control-plane/agents/scripts/core/context.mjs');
@@ -318,7 +323,7 @@ test('pe-14 (c): the gate re-run (the validator of the skill behind the tests re
 test('pe-15 (c): fail closed: an unreadable findings.json, or a project without the findings validator, cannot carry an unapproved clearing through submit', () => {
   const d = unfrozen();
   accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
-  must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
+  implementing(d);
   tests(d, LINE);
   rmSync(path.join(d, '.agents/skills/test-trust/scripts/validate-findings.mjs'));
   const r = submit(d); refused(r, 'no validator', ''); assert.match(r.text, NOT_APPROVED);
