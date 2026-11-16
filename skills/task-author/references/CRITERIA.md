@@ -41,6 +41,21 @@ What could make the task larger or wrong: unclear boundary, shared code, data th
 
 A defect the work runs into that the user did not ask about is never an acceptance criterion and never the recommended answer of a question. Write it under `## Pre-existing defects` as `decision: report` (leave it unchanged; the completion report names it). `decision: fix` is written only when the user's own words ask for the fix; the freeze then needs the user's `scope` approval. The validator and `agent.sh freeze` enforce the declaration (A105): in a COMPLEX or CRITICAL task whose request (title, Goal, the user's quotes, Suggested class line) names no defect, a Context, criterion, constraint or risk line that speaks of a defect or a fix needs at least one entry here, and every entry carries `decision: report` or `decision: fix`. A delegated answer ("use your recommended option") never turns a defect fix into requested work: the fix is not a criterion and not a Context decision. A criterion that cannot be met without the defect fixed is reworded to what can be observed without it, or asked as a question whose recommended option is "report it, out of scope".
 
+## Test exceptions
+
+Optional. The plan of a task may later need a line of its own `## Test exceptions` (a real wait, a test over its budget, an unmeasured test) before the tests review accepts it, and in a night batch no one is there to approve it then. You may PROPOSE the line in the task file in advance, so the batch summary shows it to the user (task, sha256 of the exact line) and the user's "approve batch" accepts it (A285, A294). It is a proposal of an agent, never an approval: the plan still has to carry the identical line, and an exception that was not proposed here still parks the task.
+
+Write it only when you can foresee a real need from the request and the repository: a test that must receive a real process signal, an end-to-end test that must wait for a real browser, a test that must measure a slow external thing. Never as a blanket, never "in case", never for a test you could design without the wait. First prefer the design without the exception (an injected clock, an event, a fake); propose only when none of those can replace the real thing. The reason says which real signal, browser or measurement is involved and why an injected clock or an event cannot replace it (at least 20 characters; vague text such as "needs to wait" is not a reason).
+
+Format, one line per need (the exact grammar of the plan):
+
+    ## Test exceptions
+
+    - wait: `tests/e2e/login.test.mjs` -- the test drives a real browser and waits for its load event, no clock or event of ours stands in for it
+    - measure: `tests/perf/import.test.mjs` -- times a real import against the external service, a fake would measure nothing
+
+`wait`, `budget` or `measure`, then the test file in backticks (for `budget` the test name in double quotes), then ` -- ` (or an em dash) and the reason. The target must be the full repo-relative path (with the test name in double quotes or `:line` where the grammar allows): a bare basename such as `sleepy.test.js` clears every finding of that file name in any directory, and a wildcard matches nothing (targets are exact). State that reach in two sentences so the user accepts exactly what they picture. Do not pad, trim or reformat a line after you wrote it: the batch hashes its exact bytes. The validator refuses a malformed line (the batch would silently not list it). The batch lists at most 50 lines per task and none over 1000 bytes (the validator refuses more). No section means no proposal; the section is not part of the class or of any criterion.
+
 ## Suggested class
 See [CLASSES.md](CLASSES.md).
 

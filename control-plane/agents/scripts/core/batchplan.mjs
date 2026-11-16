@@ -373,7 +373,7 @@ function plan(ctx, argv) {
     }
     if (rows.length > 0) {
       o(`\n${BATCH_EXC_HEADING}\n\n`);
-      o('A task file may carry a `## Test exceptions` section (`- wait|budget|measure: <target> -- <reason>`). A line of the PLAN.md of a task clears a finding of its tests review (a real wait, a test over its budget, an unmeasured test) only if it is listed below for that task, byte for byte; a line that is not listed clears nothing and the finding stays blocking. Your approval of this batch accepts exactly the listed lines.\n');
+      o('A task file may carry a `## Test exceptions` section (`- wait|budget|measure: <target> -- <reason>`). These lines are PROPOSALS, normally written by the task author (an agent, not you) when it foresaw that the plan would need a real wait, a test over its budget or an unmeasured test; read each reason before you approve. A line of the PLAN.md of a task clears a finding of its tests review (a real wait, a test over its budget, an unmeasured test) only if it is listed below for that task, byte for byte; a line that is not listed clears nothing and the finding stays blocking. Your approval of this batch accepts exactly the listed lines.\n');
       for (const r of rows) o(r);
     }
   }

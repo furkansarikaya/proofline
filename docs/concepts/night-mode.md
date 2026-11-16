@@ -31,6 +31,8 @@ Test exceptions (A285). A task file may carry a `## Test exceptions` section (`-
 them, byte for byte; a line the lead adds later, changes or mimics clears nothing, the finding stays blocking, and `batch-status` reports "exception not approved:
 stays blocking" for that task. A summary edited by hand, an approval of a previous batch and a task outside the batch accept nothing.
 
+Proposed exceptions (A294). The task author may propose, in advance, the exceptions it can foresee a task's plan will need (a real process signal, a wait for a real browser, a measurement of a slow external thing that no injected clock or event can replace), each with a one-line reason and the full repo-relative path as its target, never as a blanket. The task validator refuses a malformed line, a line over 1000 bytes and more than 50 lines. A proposal is an agent's text, not your approval: only your "approve batch" accepts it, and an exception nobody proposed still parks the task.
+
 A project with no CI check on pull requests can still run a batch (A180). The summary carries a WARNING with the ready
 `/proofline task Add a GitHub Actions workflow ...` line, and each pull request is merged only after the project's build and test
 commands pass in a clean copy of its commit; the pull request then says "verified locally, no CI". The batch needs a platform

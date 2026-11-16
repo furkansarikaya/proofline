@@ -160,6 +160,40 @@ function knownIds(dirs) {
   return ids;
 }
 
+// A294: `## Test exceptions` is OPTIONAL in a task file. The task author PROPOSES a line there when it can foresee that the plan will need a real wait, a budget or a measurement;
+// the night batch lists it with the sha256 of its exact bytes and only the user's approval of the batch accepts it. The batch (core/batchplan.mjs) reads the section with
+// testreview.mjs `exceptionLines` + `parseException` over the file's BYTES and silently drops a line that does not parse, so a malformed line would be a proposal that
+// never reaches the user. A skill is installable alone and cannot import the control plane: this is the same cut and the same grammar as testreview.mjs (and as
+// validate-plan.mjs `testExceptionProblems`); tests/core/task-author-exceptions.test.mjs compares it with `parseException` over a corpus. Nothing is trimmed: the
+// section is cut from the raw text (comments are not stripped: the batch would list a line inside a comment too), one trailing CR per line is the only normalisation.
+// `bytes` is the file read as latin1 (what the batch reads); without it the text is encoded as UTF-8 first.
+// The batch lists at most 50 lines per task and none longer than 1000 BYTES (exceptionsapproval.mjs BATCH_EXC_MAX_LINES / BATCH_EXC_MAX_LINE; the line is a latin1 string there, so
+// its length is its bytes); beyond that it lists none of the task's lines. The test compares these two numbers with the batch's.
+export const BATCH_LIMITS = { lines: 50, bytes: 1000 };
+export function testExceptionErrors(full, bytes) {
+  const text = bytes ?? Buffer.from(full, "utf8").toString("latin1");
+  const errors = [];
+  let inside = false, valid = 0;
+  const raw = text.split("\n");
+  if (raw[raw.length - 1] === "") raw.pop();
+  for (const l0 of raw) {
+    if (l0.startsWith("## ")) { inside = l0.slice(3).trim() === "Test exceptions"; continue; }
+    if (!inside) continue;
+    const l = l0.endsWith("\r") ? l0.slice(0, -1) : l0;
+    if (l === "") continue;
+    if (l.length > 4096) { errors.push('section "## Test exceptions": a line is longer than 4096 characters, so it is no exception and the batch would not list it'); continue; }
+    const head = /^[ \t]*[-*][ \t]*(wait|budget|measure):/.exec(l);
+    const rest = head ? l.slice(head[0].length) : "";
+    const sep = rest.search(/[ \t](?:--|—)[ \t]/);
+    const target = sep < 0 ? "" : rest.slice(0, sep).trim();
+    const reason = sep < 0 ? "" : rest.slice(sep).replace(/^[ \t](?:--|—)[ \t]/, "").trim();
+    if (!head || sep < 0 || target === "" || reason.length < 20) errors.push(`section "## Test exceptions": expected "- wait|budget|measure: <test file or \\"test name\\"> -- <reason of at least 20 characters>", got "${l.trim().slice(0, 60)}" (the batch would not list this line${l.includes("\u00e2\u0080\u0094") ? "; it reads bytes, so use \`--\` as the separator, not an em dash" : ""})`);
+    else { valid++; if (l.length > BATCH_LIMITS.bytes) { errors.push(`section "## Test exceptions": a line is ${l.length} bytes; the batch would not list it (limit ${BATCH_LIMITS.bytes} bytes per line): "${l.slice(0, 40)}"`); } }
+  }
+  if (valid > BATCH_LIMITS.lines) errors.push(`section "## Test exceptions": ${valid} lines; the batch would not list any of them (limit ${BATCH_LIMITS.lines} lines per task)`);
+  return errors;
+}
+
 export function validate(full, opts = {}) {
   const errors = [], warnings = [];
   const { meta, body: text } = frontMatter(full);
@@ -219,6 +253,7 @@ export function validate(full, opts = {}) {
   }
   if (PLACEHOLDER.test(stripComments(text).replace(/^# Task:.*$/m, ""))) errors.push("unfilled placeholder (<...>, TBD, TODO or ???) remains");
   errors.push(...defectErrors(text));
+  errors.push(...testExceptionErrors(full, opts.bytes));
   if (defectEntries(text).some((e) => /decision:\s*fix\b/i.test(e))) warnings.push("a pre-existing defect with `decision: fix` needs the user's own `scope` approval at freeze; an answer such as \"use your recommended option\" is not one");
   const nameWarn = fileNameWarning(t.id, t.title, opts.fileName);
   if (nameWarn) warnings.push(nameWarn);
@@ -395,7 +430,7 @@ function main(argv) {
   const td = opt("--tasks-dir");
   const own = dirname(resolve(file));
   const tasksDirs = td ? [resolve(td)] : [own, dirname(own)];
-  const r = validate(read(file), { tasksDirs, vagueWords: configVagueWords(resolve(file)), fileName: basename(file) });
+  const r = validate(read(file), { bytes: (() => { try { return readFileSync(file, "latin1"); } catch { return undefined; } })(), tasksDirs, vagueWords: configVagueWords(resolve(file)), fileName: basename(file) });
   if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
   else { r.errors.forEach((e) => console.error(`error: ${e}`)); r.warnings.forEach((w) => console.error(`warning: ${w}`)); }
   return r.valid ? 0 : 1;

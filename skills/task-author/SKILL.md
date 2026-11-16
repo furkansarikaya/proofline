@@ -4,7 +4,7 @@ description: Turns a one-sentence request or an external issue (GitHub, Jira, Li
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.131"
+  version: "0.0.132"
 ---
 
 # task-author
@@ -27,6 +27,7 @@ Output is the canonical `TASK.md`. It is the contract that planning, QA and veri
 8. **Self-check before returning**, every item, fixing what fails ([CRITERIA.md](references/CRITERIA.md#self-check)). Then run `node <skill-dir>/scripts/validate-task.mjs <TASK.md>`; exit 0 is required.
 9. **Recommend `intent-grill` first** (one line in the report, not a blocker) when the class is COMPLEX or CRITICAL, or the request has more than one plausible reading, or the user asked for it. In a run the lead decides; this skill only recommends.
 10. **Never touch the tracker.** Writing to GitHub/Jira/Linear is the task adapter's job; this skill only produces text in the target's template.
+11. **Test exceptions only when foreseen:** a real signal, browser wait or slow measurement no clock or event can replace is proposed in `## Test exceptions` ([CRITERIA.md](references/CRITERIA.md#test-exceptions)); never a blanket.
 
 ## Modes
 
@@ -37,15 +38,15 @@ Output is the canonical `TASK.md`. It is the contract that planning, QA and veri
 | export | an existing `TASK.md` and a target | the issue text in the target's template (`<target>.md` next to `TASK.md`) |
 | split | a PRD (`<product.dir>/<slug>/PRD.md`, written by `product-spec`) | one `TASK.md` per deliverable, each criterion linked to the requirements it satisfies ([From a PRD](#from-a-prd)) |
 
-Interactive session: the lead (main session) applies this skill, and intent-grill, itself in standalone mode and talks to the user directly; a sub-agent relay adds a hop per round. Team mode (a dispatched `task_author`) is for headless use (`dispatch.sh`, no user attached) and imports that need no questions.
+Interactive session: the lead (main session) applies this skill and intent-grill itself in standalone mode, talking to the user directly (a relay adds a hop per round). Team mode (a dispatched `task_author`) is for headless use (`dispatch.sh`) and imports that need no questions.
 
-Targets: `markdown` (default), `github`, `jira`, `linear`. Jira and Linear are written to the template contract and are untested against live trackers.
+Targets: `markdown` (default), `github`, `jira`, `linear`. Jira and Linear follow the template contract, untested against live trackers.
 
 ## Flow
 
 ### 1. Resolve context
 
-Standalone: working and evidence files go to `.agents/local/task-author/<slug>/` (git-ignored; created on demand; nothing is written there when config `local_state: off`). The approved task itself is written to config `tasks.dir` (default `.agents/tasks`; for `github`, `jira`, `linear` the adapter decides, this skill only produces the text) - see step 6. In a run: the assignment names the file, normally `.agents/runs/<TASK-ID>/TASK.md`. Read config `tasks.adapter` for the default target. Task id: from the assignment, the imported issue key, or `T-<slug>` standalone.
+Standalone: working and evidence files go to `.agents/local/task-author/<slug>/` (git-ignored; created on demand; nothing is written there when config `local_state: off`). The approved task itself is written to config `tasks.dir` (default `.agents/tasks`; for `github`, `jira`, `linear` the adapter decides, this skill only produces the text) - see step 6. In a run: the assignment names the file, normally `.agents/runs/<TASK-ID>/TASK.md`. Config `tasks.adapter` is the default target. Task id: from the assignment, the imported issue key, or `T-<slug>` standalone.
 
 Resolve the template: `node <skill-dir>/scripts/validate-task.mjs --resolve-template <target> --root <project>` prints `.agents/templates/tasks/<target>.md` when it exists, else the bundled `assets/templates/<target>.md`.
 
