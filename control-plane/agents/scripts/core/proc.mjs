@@ -6,11 +6,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, closeSync, constants, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { env as ownEnv } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { posixForm } from './pathin.mjs';
 import { refuseUntrustedScript } from './tree.mjs';
 import { makeRefusedDir, resolveWindowsTool, shimMessage } from './wintool.mjs';
+// the global, not `import { env } from 'node:process'`: building the ESM facade of node:process reads `process.stdin`, which puts descriptor 0 (a pipe) into non-blocking mode and a later `readFileSync(0)` answers EAGAIN (A315)
+const ownEnv = process.env;
 
 /** @type {Map<string, number>} */
 const counts = new Map();
