@@ -27,6 +27,7 @@ import { requireRun, runDir } from './runs.mjs';
 import { inKnowledgeScope } from './scope.mjs';
 import { now } from './clock.mjs';
 import { missingFindings } from './testreview.mjs';
+import { unapprovedClearings } from './exceptionsapproval.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -95,9 +96,11 @@ function verifyDesignSync(ctx, id) {
 /** `verify_tests_findings ID` (A171): '' when fine, else the refusal text; warnings go to stderr. @param {Context} ctx @param {string} id */
 function verifyTestsFindings(ctx, id) {
   const s = `${ctx.root}/.agents/skills/test-trust/scripts/validate-findings.mjs`;
-  if (!isFileFollow(s)) return '';
   const dir = runDir(ctx, id);
   const f = `${dir}/reviews/test-trust/tests/findings.json`;
+  // A285: first and whatever the skill is: a finding that quotes a plan exception counts only when the USER approved that exact line (fail closed: a findings.json that cannot be read is refused)
+  if (isFileFollow(f)) { const u = unapprovedClearings(ctx, dir, id, f); if (u !== '') return u; }
+  if (!isFileFollow(s)) return '';
   if (!isFileFollow(f)) return 'the tests review needs reviews/test-trust/tests/findings.json (test-trust diff mode, scope.diff.claims for every criterion of PLAN ## Tests); the report alone is not enough';
   const a = [s, f];
   if (isFileFollow(`${dir}/PLAN.md`)) a.push('--plan', `${dir}/PLAN.md`);

@@ -16,7 +16,7 @@
 
 ## Status
 
-Version 0.0.122 is an early release.
+Version 0.0.123 is an early release.
 Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
 Codex as implementer is supported (real use, 2026-10-23 to 25).
 Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
@@ -117,7 +117,7 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 
 **Project layout.** No layout is assumed: one ecosystem definition drives `init` (a command per ecosystem, workspaces included); `commands.build|test|lint` may be a list; an ambiguous one gets none and the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
 
-**Faster, not looser (A200).** Gates re-run when their inputs changed, batch questions come before the approval, empty `commands.*` are proposed by `proofline doctor --commands` and written only after your yes. Six core invariants ([CONTRIBUTING](CONTRIBUTING.md#core-invariants)) bound every change and are tested in CI ([gates](docs/concepts/gates.md#repeating-gates-after-a-fix-round-a200)). A waiver follows the finding and same-rule findings are one decision; a stopped run with a changed tree is recovered with `approve the tree` ([gates](docs/concepts/gates.md#approvals)).
+**Faster, not looser.** Gates re-run when their inputs changed, batch questions come before the approval, empty `commands.*` are proposed by `proofline doctor --commands` and written only after your yes. Six core invariants ([CONTRIBUTING](CONTRIBUTING.md#core-invariants)) bound every change and are tested ([gates](docs/concepts/gates.md#repeating-gates-after-a-fix-round-a200)). A waiver follows the finding and same-rule findings are one decision; a test exception clears a finding only with your approval, and a batch lists them ([gates](docs/concepts/gates.md#approvals)).
 
 **The task model (A202).** A task has a type (`feature|bug|refactor|content|docs|chore`; `bug` needs repro steps, `content` and `docs` a written test-first exemption that never covers code), a name `<ID>-<slug>.md` and optional scope limits, pattern references, `priority`, `origin`. One status block per task is updated in place; a finding the task does not touch can become a user-approved known issue; one message may hold several approvals; limits scale with `proofline doctor --scale` ([types](docs/guides/task-templates.md), [status](docs/concepts/workflow.md#live-status-block-a202), [known issues](docs/concepts/gates.md#known-issues-a202), [timeouts](docs/concepts/timeouts.md)).
 
@@ -133,7 +133,7 @@ clean, merge, insights                clean up, the only allowed merge, cost, fa
 
 ## Versioning and license
 
-Version **0.0.122**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.123**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
 

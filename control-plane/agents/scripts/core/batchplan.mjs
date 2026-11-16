@@ -5,7 +5,9 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { batchApproval, sharedDirOf } from './approvals.mjs';
-import { requestApproval, requireLead } from './approve.mjs';
+import { requestApproval, requireLead, shown } from './approve.mjs';
+import { BATCH_EXC_HEADING, BATCH_EXC_MAX_LINE, BATCH_EXC_MAX_LINES } from './exceptionsapproval.mjs';
+import { exceptionLineHash, exceptionLines, parseException } from './testreview.mjs';
 import { fail } from './errors.mjs';
 import { sha256File } from './hash.mjs';
 import { isFile } from './paths.mjs';
@@ -357,6 +359,24 @@ function plan(ctx, argv) {
     for (const a of accept) { if (a[0] === 'K') o(`- accept K ${a[1]} ${a[2]}: ${a[3]}\n`); else o(`- accept R ${a[1]}: ${a[3]}\n`); }
   } else o('- none\n');
   for (const l of lt(agentCall(ctx, ['known-issue-list']).out)) if (!l.startsWith('known issues: none')) o(`- already on the known-issues list: ${l}\n`);
+  // A285: the test exceptions the tasks declare. A line of a plan's `## Test exceptions` clears a finding in this batch only when it is listed here (task, sha256 of the exact bytes, the line
+  // with every invisible character written out); the approval of this summary is bound to its hash, so it accepts exactly these lines and no agent can add one afterwards.
+  // The section exists only when at least one task declares an exception: a batch without one writes the summary it always wrote (same bytes, same digest), and a summary without the
+  // section lists no hash, so no plan exception clears anything (batchListed reads a missing section as the empty set).
+  {
+    /** @type {string[]} */ const rows = [];
+    for (const x of orderList) {
+      const lines = exceptionLines(rd(/** @type {string} */ (tfile(td, x.id)))).filter((l) => parseException(l) !== null);
+      if (lines.length === 0) continue;
+      if (lines.length > BATCH_EXC_MAX_LINES || lines.some((l) => l.length > BATCH_EXC_MAX_LINE)) { rows.push(`- ${x.id}: ${lines.length} test exception line(s), too many or too long to show in full: none of them is listed, so none clears a finding\n`); continue; }
+      for (const l of lines) rows.push(`- test exception ${x.id} ${exceptionLineHash(l)}: ${shown(l)}\n`);
+    }
+    if (rows.length > 0) {
+      o(`\n${BATCH_EXC_HEADING}\n\n`);
+      o('A task file may carry a `## Test exceptions` section (`- wait|budget|measure: <target> -- <reason>`). A line of the PLAN.md of a task clears a finding of its tests review (a real wait, a test over its budget, an unmeasured test) only if it is listed below for that task, byte for byte; a line that is not listed clears nothing and the finding stays blocking. Your approval of this batch accepts exactly the listed lines.\n');
+      for (const r of rows) o(r);
+    }
+  }
   o('\n## Pre-flight questions (plan-lint, A200)\n\n');
   if (lintRows.length > 0) {
     o('These are the questions the plan of each task would raise at freeze, asked now so that no task parks on them overnight. Answer with the letters ("Q1 a, Q2 b"), in your own words ("Q1: do not split", "Q3 hayir"), or "all recommended". Your message is recorded as it is (agent.sh batch-answer) and applied when each plan freezes; a question you leave open is asked again at freeze, as before. An answer is never an approval of anything else.\n\n');

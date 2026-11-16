@@ -180,6 +180,10 @@ approval with `agent.sh request-approval`; the answer counts only if it comes fr
 prompt your runtime captured after the request. Approvals are single-use and ledgered as `answered_by: user`.
 The `scope` approval also covers a change of the frozen plan's `## Test exceptions` at a refreeze (A284): it is bound to the
 hash of the exact new PLAN.md, so changing the line afterwards, or approving before writing it, leaves the refreeze refused.
+A line the lead wrote into `## Test exceptions` clears a finding of the tests review only when you approved that exact line (A285): your `scope` approval for the
+PLAN.md (the freeze consumes it and the ledger row `test-exceptions` names it), or, in a night batch, the line is listed in the approved batch summary. A plan frozen
+without it is accepted, but the lines clear nothing (the freeze says so, and `submit` refuses a clearing with `exception not approved: stays blocking`); ask for the
+approval with `agent.sh request-approval <ID> scope`, which then shows the lines.
 Commit and push need both a gate pass for the current content and your approval in the current message;
 `push_requires_approval` is `true` by default.
 

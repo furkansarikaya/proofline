@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.123 — 2026-11-16
+
+- Test fix (A285): the A278 round 4 foldCtx test in `tests/hook/case-world.test.mjs` took its only capital letter from the random suffix of the temporary folder and failed in about 4% of runs; its project folder now has a fixed capital.
+- Security (A285): a line of the plan's `## Test exceptions` written by the lead no longer clears a real wait, an over-budget test or an unmeasured test by itself. It counts only with the user's approval of that exact line: the `scope` approval the freeze consumes (named in the `test-exceptions` ledger row), or, in a night batch, a row of the approved batch summary (task id, sha256 of the exact line, the line with invisible characters written out; the section `Test exceptions declared by the tasks`, read from the task file). Anything else leaves the finding blocking (`exception not approved: stays blocking` at `submit`, a note at the freeze, a line in `batch-status`). A plan without exceptions is unaffected; `request-approval <ID> scope` lists the lines of a section frozen without approval. Core invariant 3 tests: `tests/invariants-node/rule-3-plan-exceptions.test.mjs`.
+- Security (A285, review round 1): a tests-review finding with verdict `needs_validation` (or any verdict but `confirmed`) and outcome `plan_justified` passed the gate while quoting an unapproved exception line. The approval check now covers every finding that quotes a plan exception, whatever its verdict or kind, at `submit` (in the check and in the skill validator that computes the submitted gate result; there is no later re-run of the tests review), also when the validator is missing or the findings file cannot be parsed; the validator accepts only `over`+`confirmed` or `plan_justified`+`cleared` for `over_budget`, and `confirmed` or `cleared` for `not_measured`.
+
 ## 0.0.122 — 2026-11-16
 
 - Security (A284, review round 5, display only): the `scope` approval request now escapes invisible blank-glyph characters and a literal backslash, marks an exception whose reason shows no text, and shows the whole section when a change only reorders lines or changes a duplicate count.

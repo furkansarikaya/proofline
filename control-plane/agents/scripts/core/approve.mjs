@@ -28,7 +28,7 @@ import { isDir, isFile } from './paths.mjs';
 import { WS, fileLines, gateField, ledgerRows, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
-import { exceptionLines, exceptionsBaseLines, exceptionsBaseline, exceptionsHash } from './testreview.mjs';
+import { exceptionLines, exceptionsBaseLines, exceptionsBaseline, exceptionsHash, exceptionsRow } from './testreview.mjs';
 import { asciiLower } from './shellglob.mjs';
 
 
@@ -512,6 +512,7 @@ export function requestApproval(ctx, id0, kind0) {
     }
   }
   if (kind === 'scope' && plan !== null) rows = scopeExceptionRows(ctx, id, plan);
+  if (kind === 'scope' && plan !== null && rows === '' && exceptionLines(plan).length > 0 && exceptionsRow(ctx, runDir(ctx, id))?.approval === '') rows = unapprovedExceptionRows(plan);
   if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}`;
   let out = '';
   if (kind === 'batch') out += `QUESTIONS:\n1. Approve the night batch shown above (batch ${bound.slice(0, 12)})?\n`;
@@ -540,7 +541,7 @@ const EXC_SHOW_LINE = 1000; const EXC_SHOW_LINES = 50;
  * characters, line and paragraph separators and EVERY space-like character except the plain space (U+00A0, U+2003 ...) as \u{..}; when the bytes are not valid UTF-8 each byte
  * from 0x80 up is written \xNN (never the replacement character, which would show two different lines alike). @param {string} line a byte string
  */
-function shown(line) {
+export function shown(line) {
   const raw = Buffer.from(line, 'latin1');
   let text; let utf8 = true;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch { text = line; utf8 = false; }
@@ -550,7 +551,8 @@ function shown(line) {
   const esc = (/** @type {string} */ c) => (c === ' ' ? c : c === '\\' ? '\\\\' : (!utf8 && c.charCodeAt(0) >= 0x80 ? `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}` : `\\u{${c.codePointAt(0)?.toString(16)}}`));
   const sep = /[ \t](?:--|\u2014)[ \t]([^]*)$/.exec(text);
   const hollow = sep !== null && sep[1].replace(NOGLYPH, '') === '';
-  const out = text.replace(BAD, esc);
+  // A285: a space at the start or the end of a line is invisible in a listing, so it is written \u{20} (two lines that differ only there must not look alike)
+  const out = text.replace(BAD, esc).replace(/^ +| +$/g, (m) => '\\u{20}'.repeat(m.length));
   return bs(out + (hollow ? ' [reason has no visible text]' : ''));
 }
 
@@ -572,6 +574,16 @@ function scopeExceptionRows(ctx, id, plan) {
   if (removed.length > 0) out += `\n   removed or changed (frozen baseline):\n${list(removed)}`;
   if (added.length > 0) out += `\n   added or new text:\n${list(added)}`;
   return out;
+}
+
+/**
+ * The rows of a `scope` request for a plan whose `## Test exceptions` the freeze recorded without the user's approval (A285): the approval also covers these lines (it is bound to the
+ * hash of the whole PLAN.md), and only then do they clear a finding. @param {string} plan
+ */
+function unapprovedExceptionRows(plan) {
+  const now_ = exceptionLines(plan);
+  if (now_.length > EXC_SHOW_LINES || now_.some((x) => x.length > EXC_SHOW_LINE)) fail(`PLAN ## Test exceptions has more than ${EXC_SHOW_LINES} lines or a line longer than ${EXC_SHOW_LINE} characters: the request could not show it in full, so none is made; shorten the section`);
+  return `   PLAN ## Test exceptions (frozen without your approval; they clear no finding until you approve them, and this approval covers exactly these lines):\n${now_.map((x) => `     ${shown(x)}`).join('\n')}`;
 }
 
 /** A byte string that is already UTF-8 bytes, taken back to text so that bs() can convert the whole template once. @param {string} s */

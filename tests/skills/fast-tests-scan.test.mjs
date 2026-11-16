@@ -403,6 +403,16 @@ test('S4c / B1: a plan line clears a finding only for the target of the OBLIGATI
   assert.match(checkPlanExceptions(wait('- measure: "slow one" -- the runner cannot report this test in the sandbox'), plan)[0], /"- wait: \.\.\." line/);
 });
 
+test('A285: over_budget and not_measured accept only the verdicts that stand for their outcome: needs_validation or any other verdict is no clearing', () => {
+  const ob = (/** @type {string} */ verdict, /** @type {string} */ outcome) => checkFast({ findings: [F({ kind: 'over_budget', verdict, observed: { measured_ms: 900, budget_ms: 100, budget_source: 'plan', outcome, plan_exception: '- budget: "x" -- a real database migration runs in this test' } })] });
+  assert.match(ob('needs_validation', 'plan_justified')[0], /does not match verdict needs_validation/);
+  assert.match(ob('confirmed', 'plan_justified')[0], /does not match verdict confirmed/);
+  assert.match(ob('cleared', 'over')[0], /does not match verdict cleared/);
+  assert.deepEqual(ob('cleared', 'plan_justified'), []);
+  assert.deepEqual(ob('confirmed', 'over'), []);
+  assert.match(checkFast({ findings: [F({ kind: 'not_measured', verdict: 'dismissed', observed: { reason: 'not_double_run', detail: 'x' } })] })[0], /never dismissed/);
+});
+
 test('over_budget: the measured duration must exceed the budget, and only a plan line justifies it', () => {
   const v = (/** @type {Record<string, unknown>} */ o) => checkFast({ findings: [F({ kind: 'over_budget', ...o })] });
   assert.deepEqual(v({ observed: { measured_ms: 3500, budget_ms: 200, budget_source: 'plan', outcome: 'over' } }), []);

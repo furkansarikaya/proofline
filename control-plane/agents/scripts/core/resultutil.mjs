@@ -24,6 +24,7 @@ import { listNames } from './ledger.mjs';
 import { metricsJson, metricsLine } from './runend.mjs';
 import { findCodexRollout, toolsRecord } from './toolstats.mjs';
 import { now } from './clock.mjs';
+import { unapprovedClearings } from './exceptionsapproval.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -288,7 +289,9 @@ export function skillValidator(ctx, id, role, focus, artifact) {
   if (role === 'reviewer' && focus === 'tests') {
     const s = `${root}/.agents/skills/test-trust/scripts/gate.mjs`; const f = `${d}/reviews/test-trust/tests/findings.json`;
     if (!(plainOrLinkFile(s) && plainOrLinkFile(f))) return { text: 'UNRUN reviews/test-trust/tests/findings.json or the test-trust gate script is missing', rc: 0 };
-    return { text: `${nodeRun(ctx, [s, 'gate', f]).status === 0 ? 'PASS' : 'FAIL'} test-trust/scripts/gate.mjs`, rc: 0 };
+    // A285: the gate counts only confirmed findings, so the quoted plan exceptions are checked again here: a findings.json edited after the submit cannot clear
+    const gated = nodeRun(ctx, [s, 'gate', f]).status === 0 && unapprovedClearings(ctx, d, id, f) === '';
+    return { text: `${gated ? 'PASS' : 'FAIL'} test-trust/scripts/gate.mjs`, rc: 0 };
   }
   const sub = focus === 'plan' ? 'plan' : focus === 'rules' ? 'rules' : 'small';
   const f = `${d}/reviews/proof-review/${sub}/findings.json`;

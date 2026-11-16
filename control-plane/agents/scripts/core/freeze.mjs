@@ -28,7 +28,8 @@ import { planEntries, pipelineClass, pipelineClassValid, pipelineDeclared, pipel
 import { asciiLower } from './shellglob.mjs';
 import { normRelPath, scopeBad, scopeEntries, scopeEntryCovers, sectionLines, taskType } from './taskfile.mjs';
 import { taskDefectFixes } from './plancheck.mjs';
-import { exceptionsBaseline, exceptionsHash, writeExceptionsBase } from './testreview.mjs';
+import { exceptionLines, exceptionsBaseline, exceptionsHash, exceptionsRow, writeExceptionsBase } from './testreview.mjs';
+import { unapprovedExceptions } from './exceptionsapproval.mjs';
 import { exemptedPath, checkTypeExemptions, pipelineSignature, verifyQaPlanBound } from './commands/verify.mjs';
 import { pathsExecutable, requireTaskDefects } from './handoff.mjs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
@@ -407,6 +408,12 @@ function freezeApprovals(ctx, id, mode) {
       if (!out.includes(a)) out.push(a);
     }
   }
+  // A285: a plan with `## Test exceptions` takes the user's `scope` approval for this exact PLAN.md when one exists (any freeze, not only a changed section): the ledger row records it, and
+  // only then does a line clear a finding. None is not a refusal of the freeze: the lines are unapproved and clear nothing (in a night batch the approved summary may list them instead).
+  if (exceptionLines(fileText(ctx, `${dir}/PLAN.md`) ?? '').length > 0) {
+    const a = findApproval(ctx, id, 'scope', plan);
+    if (a !== null && !out.includes(a)) out.push(a);
+  }
   if (mode === 'refreeze' && sectionKeyPresent(ctx, dir, 'freeze', 'scope_paths')) {
     const old = sectionValue(ctx, dir, 'freeze', 'scope_paths').split(',');
     let added = '';
@@ -584,8 +591,11 @@ export function freezeRun(ctx, id, word, amendment) {
   let approvals = /** @type {string[]} */ ([]);
   if (gatesEnforced(ctx, dir)) approvals = freezeApprovals(ctx, id, mode);
   // A284: the scope approval that let a changed `## Test exceptions` through is named in the ledger row that records the new section hash
-  const exceptionsApproval = mode === 'refreeze' && gatesEnforced(ctx, dir) && exceptionsChanged(ctx, dir)
-    ? (approvals.find((f) => gateField(ctx, f, 'kind') === 'scope') ?? '').split('/').pop() ?? '' : '';
+  const excChanged = mode === 'refreeze' && gatesEnforced(ctx, dir) && exceptionsChanged(ctx, dir);
+  const excNow = exceptionLines(fileText(ctx, `${dir}/PLAN.md`) ?? '');
+  const scopeApp = (approvals.find((f) => gateField(ctx, f, 'kind') === 'scope') ?? '').split('/').pop() ?? '';
+  // A285: the row names the approval for a changed section (A284) and for a section that has none yet (a first freeze, or a refreeze that found the user's approval for a section frozen without one)
+  const exceptionsApproval = gatesEnforced(ctx, dir) && scopeApp !== '' && (excChanged || (excNow.length > 0 && (mode !== 'refreeze' || (exceptionsRow(ctx, dir)?.approval ?? '') === ''))) ? scopeApp : '';
   const oldPlan = sectionValue(ctx, dir, 'freeze', 'plan_sha256');
   const next = replaceHashes(ctx, id);
   if (mode === 'refreeze' && gatesEnforced(ctx, dir)) {
@@ -598,10 +608,12 @@ export function freezeRun(ctx, id, word, amendment) {
   if (gatesEnforced(ctx, dir)) {
     if (mode === 'refreeze') refreezeLifecycle(ctx, id, amendment, oldPlan);
     else { const hs = sectionValue(ctx, dir, 'handoff', 'state'); led(ctx, id, 'freeze', hs, hs, sectionValue(ctx, dir, 'freeze', 'pipeline')); }
-    if (mode !== 'refreeze') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')}`);
+    if (mode !== 'refreeze') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')}${exceptionsApproval !== '' ? ` approval=${exceptionsApproval}` : ''}`);
     else if (exceptionsApproval !== '') led(ctx, id, 'test-exceptions', '-', '-', `sha=${exceptionsHash(fileText(ctx, `${dir}/PLAN.md`) ?? '')} approval=${exceptionsApproval}`);
     if (mode !== 'refreeze' || exceptionsApproval !== '') writeExceptionsBase(dir, fileText(ctx, `${dir}/PLAN.md`) ?? '');
     for (const a of approvals) consumeApproval(ctx, id, a);
+    const unapproved = unapprovedExceptions(ctx, dir, id);
+    if (unapproved.length > 0) ctx.err(`note: PLAN.md ## Test exceptions has ${unapproved.length} line(s) the user has not approved: they clear NO finding (exception not approved: stays blocking, A285). Interactive run: 'agent.sh request-approval ${id} scope', relay it, and the next freeze records the approval. Night batch: only a line listed in the approved batch summary counts\n`);
   }
   ctx.out(`freeze recorded: ${id}\n`);
   if (mode === 'refreeze' && gatesEnforced(ctx, dir) && planDestructive(fileText(ctx, `${dir}/PLAN.md`)) === 'yes') {

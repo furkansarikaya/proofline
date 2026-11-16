@@ -76,15 +76,28 @@ export function exceptionsHash(plan) {
  * @param {Context} ctx @param {string} dir
  */
 export function exceptionsBaseline(ctx, dir) {
-  let last = '';
+  const r = exceptionsRow(ctx, dir);
+  return r === null ? '' : r.sha;
+}
+
+/**
+ * The last `test-exceptions` row as the structural reader sees it (A284, A285): `sha` is the section hash (`invalid-row` for a row of that event with another detail) and `approval`
+ * the name of the user's `scope` approval the freeze consumed for it ('' when the freeze had none). Null when there is no such row.
+ * @param {Context} ctx @param {string} dir @returns {{ sha: string, approval: string } | null}
+ */
+export function exceptionsRow(ctx, dir) {
+  /** @type {{ sha: string, approval: string } | null} */ let last = null;
   for (const l of ledgerLines(ctx, dir)) {
     const row = parseLedgerLine(l);
     if (row === null || row.event !== 'test-exceptions') continue;
-    const m = /^sha=([0-9a-f]*)(?: approval=\S+)?$/.exec(row.detail);
-    last = m === null ? 'invalid-row' : m[1];
+    const m = /^sha=([0-9a-f]*)(?: approval=(\S+))?$/.exec(row.detail);
+    last = m === null ? { sha: 'invalid-row', approval: '' } : { sha: m[1], approval: m[2] ?? '' };
   }
   return last;
 }
+
+/** The hash of one exception line, exact bytes (A285): what the batch summary lists and what a plan line is compared with. @param {string} line */
+export function exceptionLineHash(line) { return sha256(line); }
 
 /** The file that keeps the baseline lines for display only (the decision is the ledger hash). @param {string} dir */
 const BASE_FILE = (dir) => `${dir}/test-exceptions.base`;

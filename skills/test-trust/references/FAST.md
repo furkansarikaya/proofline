@@ -7,7 +7,7 @@ Question answered: **"Do the tests this change added or edited wait for real, re
 Run once and save the output under `evidence/` (`evidence/test-scan.txt`, command `agent.sh build-record <TASK-ID> scan`; `--json` gives the same facts as JSON):
 
 - `candidate: <file>:<line> <kind> <pattern> | <line text>`: the files the task added or changed, found by the ecosystem data (`fast_tests` in `ecosystems.json`). `wait` is a sleep or timer call (test files); `clock_read` is a direct clock read (test files and other code files). A candidate is a TEXT match: a name inside a string or a comment is a false positive.
-- `plan-exception: wait|budget <target> -- <reason>`: the only justification the gate accepts (PLAN `## Test exceptions`, frozen with the plan).
+- `plan-exception: wait|budget <target> -- <reason>`: the only justification the gate accepts (PLAN `## Test exceptions`, frozen with the plan), and only for a line the USER approved (A285): quote it byte for byte; an unapproved line clears nothing (`submit` answers `exception not approved: stays blocking`), report that finding as confirmed.
 - `measurement:` the `test-measure` ledger row, a `NOT MEASURED` line when nothing was run twice, each GREEN command with its `source` (`plan-listed`, `project test command` or `neither`), the plan's tests with no recorded duration, the recorded durations and the `BUDGET` findings.
 
 The scan exits 1 when it lists a candidate. That is information, not a failure of your run.
