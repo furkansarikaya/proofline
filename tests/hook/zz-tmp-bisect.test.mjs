@@ -14,10 +14,12 @@ console.log('HITS ' + hits.join(','));
 `;
 test('bisect the lstat crash', () => {
   const out = [];
-  const ranges = []; for (let lo = 0x10000; lo <= 0x1ffff; lo += 0x1000) ranges.push([lo, lo + 0xfff]);
-  for (const [lo, hi] of ranges) {
-    const r = spawnSync(process.execPath, ['-e', child, String(lo), String(hi)], { encoding: 'utf8' });
-    out.push(`${lo.toString(16)}-${hi.toString(16)} status=${r.status} ${(r.stdout || '').trim()} ${(r.stderr || '').slice(0, 200)}`);
+  const run = (lo, hi) => spawnSync(process.execPath, ['-e', child, String(lo), String(hi)], { encoding: 'utf8' });
+  for (let lo = 0x10000; lo < 0x11000; lo += 0x100) {
+    const r = run(lo, lo + 0xff);
+    if (r.status === 0) continue;
+    out.push(`chunk ${lo.toString(16)} crashes`);
+    for (let cp = lo; cp < lo + 0x100; cp++) { const q = run(cp, cp); if (q.status !== 0) out.push(`  U+${cp.toString(16)} status=${q.status} ${(q.stderr || '').slice(0, 120)}`); }
   }
   console.log('BISECT\n' + out.join('\n'));
 });

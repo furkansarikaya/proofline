@@ -264,7 +264,9 @@ test('A278 real file system: the temp folder has some behaviour, and the guards 
     else assert.ok(viaRoot, 'the cased root is another place, outside the project');
     assert.ok(await pre('Write', { file_path: `${rootUp}/${exactSpelling}`, content: 'x' }, w, e, dir), 'the protected state is refused through the cased root as well (inside, or outside the project)');
     // a cased spelling of the project root in a shell write is judged as the exact root
-    const sh = await pre('Bash', { command: `echo x > ${slash(rootUp)}/impl.txt` }, w, e, dir);
+    // the shell guard compares the text with the project root without asking the file system, so on Windows the root is named by its long form (the runner's temp folder is a short 8.3 name, RUNNER~1, a different spelling of the same folder)
+    const shRoot = slash(WIN ? realpathSync.native(dir) : dir).toUpperCase();
+    const sh = await pre('Bash', { command: `echo x > ${shRoot}/impl.txt` }, w, e, dir);
     if (folds) assert.equal(sh, null); else assert.ok(sh);
   });
 });
