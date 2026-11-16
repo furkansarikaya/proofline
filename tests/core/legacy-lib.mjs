@@ -6,7 +6,9 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { A, accepted, cached, codeKey, copyOf } from '../lib/harness.mjs';
+import { HOOKCMD_HANDLERS } from '../../control-plane/agents/scripts/core/commands/hookcmds.mjs';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { A, accepted, cached, cleanEnv, codeKey, copyOf } from '../lib/harness.mjs';
 import { buildRecipe, runIn } from '../lib/recipe.mjs';
 import { repo } from './helpers.mjs';
 
@@ -31,6 +33,24 @@ export function template(recipe) {
 export function project(recipe) { return copyOf(template(recipe)); }
 
 /** @typedef {import('../lib/harness.mjs').Result} Result */
+
+/**
+ * `agent.sh language-check FILE` run IN THIS PROCESS: the same command handler the core dispatches to (hookcmds `language-check`), over the project's real files and its real
+ * git (the committed-text lookup still starts git), with the hardened environment of every child. It saves the sh + node start of a round trip, so a table of spellings or
+ * quote forms is checked without a process per row; one row per table still goes through `A` (the command line). A relative FILE resolves against the project, as it does
+ * for the launcher, which runs in the project folder. @param {string} dir @param {string[]} args @returns {Result}
+ */
+export function languageIn(dir, args) {
+  const out = /** @type {Buffer[]} */ ([]); const err = /** @type {Buffer[]} */ ([]);
+  const io = { env: cleanEnv(), cwd: dir, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) }, scriptPath: `${dir}/.agents/scripts/agent.sh` };
+  const ctx = new Context(io, io.scriptPath);
+  const before = process.cwd();
+  let status;
+  try { process.chdir(dir); status = HOOKCMD_HANDLERS['language-check'](ctx, args); } finally { process.chdir(before); }
+  ctx.flush();
+  const o = Buffer.concat(out).toString('utf8'); const e = Buffer.concat(err).toString('utf8');
+  return { status, out: o, err: e, text: o + e };
+}
 
 /** The fixture verbs run in the project (state building only; the assertions are the caller's). @param {string} dir @param {string} snippet @returns {Result} */
 export function verbs(dir, snippet) { return runIn(dir, snippet); }

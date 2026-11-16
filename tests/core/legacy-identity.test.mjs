@@ -10,15 +10,15 @@ import { A, IMPLEMENTED, accepted, project, read, verbs } from './legacy-lib.mjs
 test('identity: finding ids (qa-n, QA-n, gate ids) and QA-n/AC-n spellings are accepted by their checker and recorded as written', () => {
   const d = project(`scaffold orchestrated; ${IMPLEMENTED}`);
   const sha = (/** @type {string} */ f) => createHash('sha256').update(readFileSync(f)).digest('hex');
-  /** a hand-written task result with the given finding id spelling */
-  const rec = (/** @type {string} */ spelling) => {
-    const f = `${d}/.agents/local/rec.md`;
-    writeFileSync(f, `ROLE: qa\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: ${A(d, ['fingerprint', 'LC']).out.trim()}\nARTIFACT: QA_PLAN.md ${sha(`${d}/.agents/runs/LC/QA_PLAN.md`)}\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n| ${spelling}-1 | info | impl.txt:1 | a note | seen |\n`);
-    return A(d, ['record', 'LC', '--file', f], { role: 'qa' });
-  };
-  for (const sp of ['qa', 'QA', 'Qa']) accepted(rec(sp), `record refused finding id spelling ${sp}-1 for qa`);
+  const fp = A(d, ['fingerprint', 'LC']).out.trim();   // the project state does not change between the records (a record writes under .agents/runs, which the fingerprint leaves out): once
+  /** a hand-written task result whose finding table carries one row per spelling (qa-1, QA-2, Qa-3): one record call checks them all, each is kept as written */
+  const spellings = ['qa-1', 'QA-2', 'Qa-3'];
+  const f = `${d}/.agents/local/rec.md`;
+  const rows = spellings.map((sp) => `| ${sp} | info | impl.txt:1 | a note | seen |\n`).join('');
+  writeFileSync(f, `ROLE: qa\nTASK: LC\nRESULT: DONE\nCONFIDENCE: high\nFINGERPRINT: ${fp}\nARTIFACT: QA_PLAN.md ${sha(`${d}/.agents/runs/LC/QA_PLAN.md`)}\n\n| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n${rows}`);
+  accepted(A(d, ['record', 'LC', '--file', f], { role: 'qa' }), `record refused a finding id spelling of ${spellings.join(', ')} for qa`);
   const all = ['results', 'reports'].flatMap((s) => { try { return readdirSync(`${d}/.agents/runs/LC/${s}`).map((n) => read(d, `.agents/runs/LC/${s}/${n}`)); } catch { return []; } });
-  assert.ok(all.some((t) => t.includes('QA-1')), 'the recorded spelling QA-1 was not kept as written');
+  for (const sp of spellings) assert.ok(all.some((t) => t.includes(`| ${sp} |`)), `the recorded spelling ${sp} was not kept as written`);
   // gate ids: submit writes <GATE>-<n>; record takes any case
   mkdirSync(`${d}/.agents/runs/LC/reviews/proof-review/small`, { recursive: true });
   writeFileSync(`${d}/.agents/runs/LC/reviews/proof-review/small/REPORT.md`, 'review of the tree\n');
