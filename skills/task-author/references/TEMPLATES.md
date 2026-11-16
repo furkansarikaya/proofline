@@ -24,7 +24,7 @@ required: title goal acceptance_criteria labels components
 {{goal}}
 ```
 
-Fields: `title`, `goal`, `context`, `acceptance_criteria`, `out_of_scope`, `constraints`, `risks`, `suggested_class`, `verification_commands`, `labels`, `components`; custom fields start with `x_` (for example `{{x_owner_team}}`). `required:` adds fields to the always-required canonical set (`goal`, `acceptance_criteria`, `out_of_scope`, `constraints`, `risks`).
+Fields: `title`, `goal`, `context`, `acceptance_criteria`, `out_of_scope`, `constraints`, `risks`, `suggested_class`, `verification_commands`, `test_exceptions` (optional: an export or an import without it is complete; its one-line `<!-- Optional ... -->` comment is not a line), `labels`, `components`; custom fields start with `x_` (for example `{{x_owner_team}}`). `required:` adds fields to the always-required canonical set (`goal`, `acceptance_criteria`, `out_of_scope`, `constraints`, `risks`).
 
 Bundled mappings:
 

@@ -110,7 +110,7 @@ Written to this contract and exercised only with a fake `fetch`; no real service
 
 `templates/tasks/<target>.md`: front matter `target:` and `required:`, then `##` sections with one `{{field}}` line
 each. Fields: `title goal context acceptance_criteria out_of_scope constraints risks suggested_class
-verification_commands labels components` and custom `x_*`. Editing the project copy defines a team's own required
+verification_commands test_exceptions (optional) labels components` and custom `x_*`. Editing the project copy defines a team's own required
 fields and sections once; import and export follow it.
 
 ## Names and types (A202)
