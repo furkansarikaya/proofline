@@ -5,6 +5,7 @@ import { deriveState } from './batch.mjs';
 import { batchMember } from './next.mjs';
 import { fileText, ledgerRows } from './records.mjs';
 import { runDir } from './runs.mjs';
+import { asciiLower } from './shellglob.mjs';
 import { pipelineClass, pipelineClassValid } from './signals.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -51,3 +52,22 @@ export const DEFAULT_REASON = 'batch default (A290): no knowledge page was writt
 
 /** The line shown when a batch default has no suggestion row (the process died between the knowledge-done row and the suggestion rows): what was skipped never depends on the second write. */
 export const DEFAULT_FALLBACK = 'Suggestion to the user (knowledge): no knowledge page was written for this task (batch default); nothing under docs/, skills or rules was changed; consider writing one.';
+
+/** The batch default was taken by the script in the last `knowledge-done` of the run: a `knowledge-default` ledger row written only by that path after the last `knowledge-done` row (whole rows, A284); the reason text alone proves nothing. @param {Context} ctx @param {string} dir */
+export function knowledgeDefaultTaken(ctx, dir) {
+  const done = ledgerRows(ctx, dir, 'knowledge-done');
+  if (done.length === 0) return false;
+  const last = done[done.length - 1].seq;
+  return ledgerRows(ctx, dir, 'knowledge-default').some((r) => r.seq > last);
+}
+
+/** The normalised text an agent-given reason is compared on: ASCII-folded, blanks collapsed and trimmed. @param {string} s */
+export function foldReason(s) {
+  return asciiLower(s).replace(/[ \t\n\v\f\r]+/g, ' ').replace(/^ /, '').replace(/ $/, '');
+}
+
+/** A reason that equals the batch default's text or starts with its fixed prefix: only the script writes it. @param {string} reason */
+export function imitatesBatchDefault(reason) {
+  const f = foldReason(reason);
+  return f === foldReason(DEFAULT_REASON) || f.startsWith('batch default');
+}

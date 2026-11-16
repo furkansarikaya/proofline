@@ -190,3 +190,41 @@ test('a batch default whose suggestion rows are missing (the process died betwee
   assert.equal(report.split('\n').filter((l) => l === `- ${fixed}`).length, 1, report);
   assert.equal(A(d, ['batch-status']).out.split('\n').filter((l) => l.includes(fixed)).length, 1);
 });
+
+const DEFAULT_TEXT = 'batch default (A290): no knowledge page was written, the suggestion to the user is in the report';
+const FIXED_LINE = '- Suggestion to the user (knowledge): no knowledge page was written for this task (batch default); nothing under docs/, skills or rules was changed; consider writing one.';
+
+test('an attended run cannot pass the batch default text (or a case/spacing variant) as its not_applicable reason; the fallback line needs the script-written default', () => {
+  const d = codeDone('standalone');
+  for (const [name, reason] of [
+    ['the exact text', DEFAULT_TEXT],
+    ['upper case', DEFAULT_TEXT.toUpperCase()],
+    ['padded and spaced', `  Batch   Default (a290): no knowledge page was written, the suggestion to the user is in the report  `],
+    ['only the prefix', 'batch default: the wiki and the design documents need nothing here'],
+  ]) {
+    refused(A(d, ['knowledge-done', 'LC', 'not_applicable', reason]), `an attended not_applicable with ${name}`, "must not start with 'batch default'");
+    assert.notEqual(rv(d, 'execution', 'knowledge_state'), 'not_applicable', name);
+  }
+  assert.equal(rowsOf(d, 'knowledge-done').length, 0);
+  // a plain reason still works, and its report has no fallback line even if the text is not the default
+  accepted(A(d, ['knowledge-done', 'LC', 'not_applicable', 'only the wording of an internal log line changed, no document claims it']), 'a plain reason');
+  assert.equal(rowsOf(d, 'knowledge-default').length, 0);
+  writeReport(d);
+  must(d, ['publish-completion-report', 'LC', 'markdown']);
+  assert.ok(!readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8').split('\n').includes(FIXED_LINE));
+});
+
+test('the real batch default writes the knowledge-default row after the knowledge-done row; the fixed fallback line keys on it', () => {
+  const d = batchRun();
+  accepted(A(d, ['knowledge-done', 'LC']), 'the batch default');
+  const kd = rowsOf(d, 'knowledge-done'); const def = rowsOf(d, 'knowledge-default');
+  assert.equal(def.length, 1);
+  assert.ok(def[0].seq > kd[0].seq);
+  // the suggestion rows are gone: the fallback line shows because of the script row
+  const led = path.join(d, '.agents/runs/LC/LEDGER.log');
+  writeFileSync(led, `${readFileSync(led, 'utf8').split('\n').filter((l) => l !== '' && parseLedgerLine(l)?.event !== 'knowledge-suggestion').join('\n')}\n`);
+  rmSync(path.join(d, BD, 'suggestions.tsv'));
+  writeReport(d);
+  must(d, ['publish-completion-report', 'LC', 'markdown']);
+  assert.equal(readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8').split('\n').filter((l) => l === FIXED_LINE).length, 1);
+});
