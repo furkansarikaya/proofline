@@ -1931,3 +1931,10 @@ task-adversarial-test	sc_type_unreadable	A202 review B2: an unreadable type is r
 task-adversarial-test	sc_run_copy_vs_source	A202 review B3: the run copy of TASK.md is compared with the task file (type, Forbidden scope) before the first freeze	tests/core/task-adversarial.test.mjs::sc_run_copy_vs_source: the run copy is compared with the task file before the first freeze
 debt-test	list_page_roles	shortcut debt list (zero case, six comment styles, exclusions, not stated), page rows and drop-off, empty page, no wiki no-op, lead-only page, list for every role without a run	tests/core/debt.test.mjs::debt: list, page, roles (A153)
 debt-test	sc_a162_converted	A162: the four converted shortcuts of this repository are listed with file:line and a condition; no foreign label remains	tests/core/debt.test.mjs::debt: the four converted shortcuts of this repository are listed with file:line and a condition; no foreign label remains (A162)
+lifecycle-test	scenario_base_moved_new_block_file AGENTS.md	A314: split from one test into one test per file name (same assertions)	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_new_block_file AGENTS.md
+lifecycle-test	scenario_base_moved_new_block_file CLAUDE.md	A314: split from one test into one test per file name (same assertions)	tests/core/port-t2-fingerprint.test.mjs::scenario_base_moved_new_block_file CLAUDE.md
+gates-test	sc_tier	A314: the size limits on a fresh run are their own test (same assertions)	tests/core/port-t2-tier.test.mjs::sc_tier (size limits on a fresh run)
+gates-test	sc_tier_paths	A314: split into one test per group of rows plus the small limits (same assertions)	tests/core/port-t2-tier.test.mjs::sc_tier_paths (docs only by extension)
+gates-test	sc_tier_paths	A314: the docs/ code rows	tests/core/port-t2-tier.test.mjs::sc_tier_paths (docs/ code is not docs)
+gates-test	sc_tier_paths	A314: the dependency manifest rows	tests/core/port-t2-tier.test.mjs::sc_tier_paths (dependency manifests are full)
+gates-test	sc_tier_paths	A314: the small limits on code files	tests/core/port-t2-tier.test.mjs::sc_tier_paths (the small limits count code files)
