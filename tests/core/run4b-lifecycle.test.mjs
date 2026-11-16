@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { A, accepted, approveAsUser, project, read, refused } from './legacy-lib.mjs';
+import { A, accepted, approveAsUser, copyOf, doneStandalone, project, read, refused } from './legacy-lib.mjs';
 import { PARKED } from './event-lib.mjs';
 
 /** The fixture installs a two-operation stub of the markdown adapter (a project script wins); `start` runs the built-in one, so the stub is removed. @param {string} d */
@@ -152,7 +152,7 @@ test('a lock held by a stranger is still waited for (the hand-over is for the pa
 });
 
 test('amend: reopens a CODE_DONE run with a specific form; a path outside the frozen scope needs plan_change; the record, the states and the ledger follow', () => {
-  const d = project('scaffold standalone; to_code_done standalone; finish_done');
+  const d = copyOf(doneStandalone());   // scaffold, CODE_DONE and DONE are shared prefixes built once (legacy-lib stage)
   const form = (/** @type {string} */ extra = '') => `reason: the review found a missing helper file the plan did not cover\nfix_scope: ${extra || 'impl.txt'}\nfix_instruction: add the helper and cover it with a test of its own\nauthorized_by: the user\n`;
   refused(A(d, ['amend', 'LC'], { input: 'reason: short\n' }), 'a short form', 'amend requires a specific reason');
   refused(A(d, ['amend', 'LC'], { input: form().replace('authorized_by: the user', 'authorized_by: x') }), 'a missing authority', 'amend requires authorized_by');

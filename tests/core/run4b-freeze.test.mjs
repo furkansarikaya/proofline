@@ -4,9 +4,9 @@
 // ladder checks of scenario_hardening (tests/legacy-port-map.tsv); the shell scenarios keep running against the Node commands through the fixture prologue.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { A, accepted, approveAsUser, project, read, refused, verbs } from './legacy-lib.mjs';
+import { A, accepted, approveAsUser, buildState, copyOf, doneStandalone, scaffolded, passAll, project, read, refused, solo } from './legacy-lib.mjs';
 
 const runValue = (/** @type {string} */ d, /** @type {string} */ s, /** @type {string} */ k) => {
   const m = new RegExp(`^${s}:\\n(?:  .*\\n)*?  ${k}: "?([^"\\n]*)"?$`, 'm').exec(read(d, '.agents/runs/LC/RUN.yaml'));
@@ -25,7 +25,7 @@ function bind(d) {
 }
 /** One call of the control plane; a freeze or refreeze binds the QA plan first, as the self-test library's A does. @param {string} d @param {string[]} args @param {{ role?: string, input?: string }} [o] */
 const AF = (d, args, o = {}) => { if (args[0] === 'freeze' || args[0] === 'refreeze') bind(d); return A(d, args, o); };
-const SUP = (/** @type {string} */ env = '') => `${env} scaffold standalone no COMPLEX supervised`;
+const SUP = () => 'scaffold standalone no COMPLEX supervised';
 const addPlan = (/** @type {string} */ d, /** @type {string} */ text) => writeFileSync(`${d}/.agents/runs/LC/PLAN.md`, read(d, '.agents/runs/LC/PLAN.md') + text);
 
 test('freeze: records the hashes of the task, plan, policy and risk block, the pipeline and the scope; the ledger names it; verify-freeze agrees', () => {
@@ -62,22 +62,23 @@ test('freeze: a non-lead, a missing baseline and a second plain freeze are refus
 });
 
 test('freeze: the task\'s own boundaries - Forbidden scope is never waived, Allowed scope bounds the plan, an entry must be a path, a pattern reference must exist and be named', () => {
-  const task = (/** @type {string} */ t) => SUP(`SC_TASK_EXTRA='${t}'`);
-  let d = project(task('\n## Forbidden scope\n\n- `impl.txt`\n'));
+  // the supervised run is scaffolded once (SUP, shared with the other tests of the file); each case copies it and adds its section to the TASK.md the freeze reads
+  const task = (/** @type {string} */ t) => { const c = project(SUP()); appendFileSync(`${c}/.agents/runs/LC/TASK.md`, `${t}\n`); return c; };
+  let d = task('\n## Forbidden scope\n\n- `impl.txt`\n');
   refused(AF(d, ['freeze', 'LC']), 'a plan path in Forbidden scope', "plan scope path impl.txt is inside the task's Forbidden scope");
-  d = project(task('\n## Forbidden scope\n\n- `IMPL.TXT`\n'));
+  d = task('\n## Forbidden scope\n\n- `IMPL.TXT`\n');
   refused(AF(d, ['freeze', 'LC']), 'a case-folded Forbidden scope', "inside the task's Forbidden scope");
-  d = project(task('\n## Allowed scope\n\n- `docs/`\n'));
+  d = task('\n## Allowed scope\n\n- `docs/`\n');
   refused(AF(d, ['freeze', 'LC']), 'a plan path outside Allowed scope', "plan scope path(s) outside the task's Allowed scope: impl.txt impl_test.txt");
-  d = project(task('\n## Allowed scope\n\n- a sentence that is not a path\n'));
+  d = task('\n## Allowed scope\n\n- a sentence that is not a path\n');
   refused(AF(d, ['freeze', 'LC']), 'a sentence as an entry', "has an entry that is not a path or glob: \"a\"");
-  d = project(task('\n## Existing pattern references\n\n- `src/nope.js`\n'));
+  d = task('\n## Existing pattern references\n\n- `src/nope.js`\n');
   refused(AF(d, ['freeze', 'LC']), 'a reference that does not exist', 'name src/nope.js, which does not exist in the repository');
-  d = project(`${task('\n## Existing pattern references\n\n- `lib/pattern.js`\n')}`);
+  d = task('\n## Existing pattern references\n\n- `lib/pattern.js`\n');
   mkdirSync(`${d}/lib`, { recursive: true });
   writeFileSync(`${d}/lib/pattern.js`, 'x\n');
   refused(AF(d, ['freeze', 'LC']), 'a reference the plan does not name', "PLAN.md does not mention the task's Existing pattern reference lib/pattern.js");
-  d = project(task('\n## Allowed scope\n\n- `impl*.txt`\n'));
+  d = task('\n## Allowed scope\n\n- `impl*.txt`\n');
   approveAsUser(d, 'plan', 'approve the plan');
   accepted(AF(d, ['freeze', 'LC']), 'a plan inside Allowed scope');
 });
@@ -138,7 +139,7 @@ test('freeze: the mutation budget is one question now, a destructive plan become
 
 /** @param {string} d */
 function readdirApprovals(d) {
-  return verbs(d, 'ls .agents/runs/LC/approvals | grep mutation_budget | head -1').out.trim();
+  return readdirSync(`${d}/.agents/runs/LC/approvals`).filter((n) => n.includes('mutation_budget')).sort()[0] ?? '';
 }
 
 test('a design document in a nested folder of the run is a known run artifact (the shell case pattern design/*.md spans folders); a stray top-level file is not', () => {
@@ -164,7 +165,7 @@ test('handoff: the ladder is strict, an implementer may only start implementing,
   refused(A(d, ['handoff', 'LC', 'FINISHED']), 'an unknown phase', 'invalid handoff phase');
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED'], { role: 'implementer' }), 'an implementer past IMPLEMENTING', 'handoff phase denied for implementer');
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED without worker evidence', 'worker-evidence verification failed');
-  verbs(d, "solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass impl.txt 'impl: lookup returns the stored value'");
+  buildState(() => { solo(d, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value'); solo(d, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value'); });
   const r = accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED');
   assert.match(r.out, /^handoff recorded: LC IMPLEMENTED$/m);
   assert.equal(runValue(d, 'handoff', 'state'), 'IMPLEMENTED');
@@ -172,19 +173,19 @@ test('handoff: the ladder is strict, an implementer may only start implementing,
   assert.equal(runValue(d, 'handoff', 'code_done_patch_sha256'), 'PENDING');
   assert.match(read(d, '.agents/runs/LC/LEDGER.log'), / event=handoff:IMPLEMENTED role=lead from=IMPLEMENTING to=IMPLEMENTED /);
   refused(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE with gates missing', 'CODE_DONE blocked');
-  verbs(d, 'pass_all');
+  buildState(() => passAll(d));
   writeFileSync(`${d}/impl.txt`, `${read(d, 'impl.txt')}edited after IMPLEMENTED\n`);
   refused(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE on a changed tree', 'CODE_DONE blocked: the application tree changed since IMPLEMENTED');
 });
 
 test('handoff: a defect task needs the debug report, a TRIVIAL run whose diff holds executable code is blocked, the run reaches DONE through CODE_DONE', () => {
-  let d = project("SC_TASK_FM='type: bug' scaffold standalone no STANDARD");
-  verbs(d, "solo RED fail impl_test.txt 'test: lookup returns the stored value'; solo GREEN pass impl.txt 'impl: lookup returns the stored value'");
+  let d = copyOf(scaffolded({ topology: 'standalone', cls: 'STANDARD', taskFm: 'type: bug' }));
+  buildState(() => { solo(d, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value'); solo(d, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value'); });
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED for a bug without a debug report', "IMPLEMENTED blocked: the task is typed or labelled as a defect ('type: bug'");
   mkdirSync(`${d}/.agents/runs/LC/reports`, { recursive: true });
   writeFileSync(`${d}/.agents/runs/LC/reports/001-debug.md`, '# debug\n');
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED with the debug report');
-  d = project('scaffold standalone; to_code_done standalone; finish_done');
+  d = copyOf(doneStandalone());
   assert.equal(runValue(d, 'handoff', 'state'), 'DONE');
   assert.equal(runValue(d, 'execution', 'state'), 'CODE_DONE');
   const ledger = read(d, '.agents/runs/LC/LEDGER.log');
