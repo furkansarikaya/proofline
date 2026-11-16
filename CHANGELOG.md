@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.143 — 2026-11-16
+
+- Fix (A312): the `Changed:` line of the completion report is English whatever the user's language (the chat message follows the user's language); both templates and `REPORT.md` say so, the language check no longer exempts the summary block, and `publishCompletionReport` refuses a non-English report before the task adapter publishes. Amends A171 and A202 item 19.
+
 ## 0.0.142 — 2026-11-16
 
 - Tests (A311): the port-rig suite (`tests/core/port-t3-rig.mjs`) runs its cases one after another, builds the base commits once before the first case and caches the git state before the steps per recorded state, and the no-other-role check of the read-only git guard is one test per role (same rows, same assertion), so a slow runner no longer reads a 1 s case as 8 s; no product code changed.
