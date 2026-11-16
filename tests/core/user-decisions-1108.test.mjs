@@ -276,10 +276,41 @@ test('B2 hooksPath: the value is read expanded by git (%(prefix), ~, ~user); a s
 
 test('R4 settings: a command that hides the script behind a newline gets no PASS', () => {
   const d = sb.copy('r4-newline');
-  settings(d, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].hooks[0].command = j.hooks.PreToolUse[0].hooks[0].command.replace('node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs"', 'node --version\nexit\n/.agents/hooks/proofline-hook.mjs"'); });
+  // the hostile command is built on its own (the shipped PreToolUse string no longer starts with `node`, A299, so a replace on it would not put the newline first)
+  settings(d, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].hooks[0].command = 'node --version\nexit\n/.agents/hooks/proofline-hook.mjs" pretool claude'; });
   assert.ok(settings(d, '.claude/settings.json').hooks.PreToolUse[0].hooks[0].command.startsWith('node --version\nexit'));
   const r = doctor(d);
   assert.match(r.out, /^FAIL claude hooks: .*lacks proofline hooks for: PreToolUse /m, r.out);
+});
+
+test('A299 settings: a command that merely wraps the shipped PreToolUse string (a line before, a line after, `|| true`, an echo of it) gets no PASS', () => {
+  const shipped = JSON.parse(readFileSync(new URL('../../adapters/claude/settings.fragment.json', import.meta.url), 'utf8')).hooks.PreToolUse[0].hooks[0].command;
+  let wrapN = 0;
+  for (const wrap of [`exit 0\n${shipped}`, `${shipped}\ntrue`, `${shipped} || true`, `echo '${shipped.replaceAll("'", '')}'`, `true; ${shipped}`]) {
+    const d = sb.copy(`a299-wrap-${wrapN++}`);
+    settings(d, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].hooks[0].command = wrap; });
+    const r = doctor(d);
+    assert.match(r.out, /^FAIL claude hooks: .*lacks proofline hooks for: PreToolUse /m, `${JSON.stringify(wrap).slice(0, 60)}: ${r.out}`);
+  }
+});
+
+test('A299 init: a user PreToolUse hook already in .claude/settings.json stays first and unchanged; proofline appends its own group after it, once', () => {
+  const d = sb.mkrepo('a299-order');
+  mkdirSync(`${d}/.claude`, { recursive: true });
+  const user = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }, { type: 'command', command: 'node --version' }] };
+  writeFileSync(`${d}/.claude/settings.json`, `${JSON.stringify({ hooks: { PreToolUse: [user] } }, null, 2)}\n`);
+  const shipped = JSON.parse(readFileSync(new URL('../../adapters/claude/settings.fragment.json', import.meta.url), 'utf8')).hooks.PreToolUse[0];
+  for (const args of [INIT, INIT, ['upgrade', '--yes']]) {
+    const r = sb.pl(d, args);
+    assert.equal(r.status, 0, r.text);
+    const pre = settings(d, '.claude/settings.json').hooks.PreToolUse;
+    assert.deepEqual(pre[0], user, `${args[0]}: the user's group is kept first and unchanged`);
+    assert.equal(pre.length, 2, `${args[0]}: proofline's group is added once`);
+    assert.equal(pre[1].hooks[0].command, shipped.hooks[0].command);
+    assert.equal(pre[1].matcher, shipped.matcher);
+  }
+  const r = doctor(d);
+  assert.ok(!/lacks proofline hooks for:[^\n]*PreToolUse/.test(r.out), r.out);
 });
 
 test('R5 hooksPath: a path from a config file cannot forge a line or an escape sequence', () => {

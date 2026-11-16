@@ -32,7 +32,7 @@ jobs:
       - run: echo "\${{ github.sha }}"
 `;
 const CLEAN_CI = CI.replace(/ {6}- name: legacy\n {8}run: \|\n {10}if \[ -f x \]; then echo a; fi\n {10}echo b\n/, '');
-const HOOK = 'node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" pretool claude || test ! -f "$CLAUDE_PROJECT_DIR/.agents/config.yaml" || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }';
+const HOOK = 'node "${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.mjs" pretool claude || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }';
 const WIRING = JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: HOOK, timeout: 30 }] }] } }, null, 2);
 
 function git(dir, ...a) { return spawnSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }); }

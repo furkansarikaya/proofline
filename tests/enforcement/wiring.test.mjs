@@ -59,7 +59,9 @@ test('every wiring string equals a pinned template, wires all 7 events, and each
     assert.deepEqual(w.map((x) => x.event).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit'], form);
     for (const { event, command } of w) {
       assert.equal(hookStrictProblem(command, templates), '', `${form} ${event}`);
-      assert.match(command, /^node "/, `${form} ${event} starts node`);
+      // the plugin form and every other event start with node; the project and Codex PreToolUse strings first look for node and the hook file (A302) and keep the hook's exit status
+      if (event !== 'PreToolUse' || form === 'plugin') assert.match(command, /^node "/, `${form} ${event} starts node`);
+      else assert.match(command, /^(R=\$\(git rev-parse --show-toplevel 2>\/dev\/null\); )?if command -v node >\/dev\/null 2>&1 && test -f "/, `${form} ${event} looks for node and the hook first`);
       assert.equal(/exit 2/.test(command), event === 'PreToolUse', `${form} ${event}: only PreToolUse carries the guard`);
     }
   }

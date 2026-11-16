@@ -45,7 +45,8 @@ Hook behaviour: the hook is a Node process and parses the event JSON itself. Unp
 call (fail closed); with no active run every check except the git-bypass rules passes (fail open). Without
 `.agents/config.yaml` the hook does nothing. The wiring (`settings.fragment.json`, `.codex/hooks.json`)
 denies PreToolUse with exit 2 when `.agents/config.yaml` exists but `.agents/hooks/proofline-hook.mjs` is
-missing. The Bash scan is a tokenizer heuristic (quotes removed, heredoc bodies skipped; writes:
+missing or node is not on PATH, and (A302) with exit 2 whenever the hook ran and ended with a status other than 0 (an abort, a signal, a crash;
+the hook's own exit 2 is passed through), with or without `.agents/config.yaml`. The Bash scan is a tokenizer heuristic (quotes removed, heredoc bodies skipped; writes:
 redirections, `tee`, `sed -i`, `perl -i`, `cp`/`mv`/`install`/`rsync`/`ln` targets and `-t`, `mv` sources,
 `touch`/`rm`/`truncate`/`unlink`/`rmdir`/`shred`, `chmod`/`chown`/`chgrp`, `dd of=`); the authoritative check
 stays the window/fingerprint verification at every gate.
