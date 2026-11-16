@@ -31,7 +31,7 @@ starts with `destructive: yes` makes the task CRITICAL at freeze.
 
 `PLAN.md` carries a YAML `scope:` listing every file the change may touch, each tied to an acceptance
 criterion. Freezing hashes the task contract and the plan. Changing scope afterwards needs an amendment and a
-refreeze (and a `scope` approval when paths are added or a line of the plan's `## Test exceptions` is added, changed or removed, A284).
+refreeze (and a `scope` approval when paths are added or a line of the plan's `## Test exceptions` is added, changed or removed, A284). A line of that section clears a finding only with your approval of that exact line (A285, gates.md).
 
 ### Assumptions
 

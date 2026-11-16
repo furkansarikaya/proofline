@@ -25,6 +25,12 @@ whole list for this batch only: a listed finding stops no task of the batch that
 `agent.sh batch-cover <ID> rationale:<pattern>` when its run asks. SECRETS and SECURITY findings are never listed or accepted this way. A task waits for every task it depends on and for an earlier unmerged task that names the same
 code path, and the lead delivers each task itself and goes on to the next one (it does not stop at CODE_DONE).
 
+Test exceptions (A285). A task file may carry a `## Test exceptions` section (`- wait|budget|measure: <target> -- <reason>`). The summary lists every such line under
+"Test exceptions declared by the tasks", per task, with the sha256 of its exact bytes and the line written out character by character (invisible characters as
+`\u{..}`), and your "approve batch" accepts exactly those lines. In the task's run, a line of the plan's `## Test exceptions` clears a finding only if it is one of
+them, byte for byte; a line the lead adds later, changes or mimics clears nothing, the finding stays blocking, and `batch-status` reports "exception not approved:
+stays blocking" for that task. A summary edited by hand, an approval of a previous batch and a task outside the batch accept nothing.
+
 A project with no CI check on pull requests can still run a batch (A180). The summary carries a WARNING with the ready
 `/proofline task Add a GitHub Actions workflow ...` line, and each pull request is merged only after the project's build and test
 commands pass in a clean copy of its commit; the pull request then says "verified locally, no CI". The batch needs a platform

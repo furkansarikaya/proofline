@@ -9,6 +9,7 @@
 // accept.tsv, owner (pid epoch of the session that works the batch), awake.pid / awake (the sleep inhibitor), history/<batch id>/.
 // Test seams (PROOFLINE_TEST=1 only): PROOFLINE_UNAME replaces the system name, PROOFLINE_BATCH_INHIBIT=none says no sleep inhibitor is installed,
 // PROOFLINE_SESSION_PID names the session process.
+import { unapprovedNote } from './exceptionsapproval.mjs';
 import { frictionShowText } from './friction.mjs';
 import { realpathPosix, relUnder } from './pathin.mjs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -516,6 +517,11 @@ export function batchStatus(ctx) {
     ctx.out(`${r.id} | ${s} | ${r.pr === '' ? '-' : r.pr} | ${t === '' ? '-' : t} | ${d === '' ? '-' : d} | ${r.question === '' ? '-' : r.question}\n`);
   }
   ctx.out('\n');
+  for (const r of derive(ctx)) {
+    if (!hasRun(ctx, r.id)) continue;
+    const note = unapprovedNote(ctx, `${rroot(ctx, r.id)}/.agents/runs/${r.id}`, r.id);
+    if (note !== '') ctx.out(`${note}\n`);
+  }
   const fr = frictionShowText(ctx);
   if (fr !== null) ctx.out(fr); else ctx.out('no friction report\n');
   ctx.out('\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n');

@@ -27,6 +27,8 @@ import { requireRun, runDir } from './runs.mjs';
 import { inKnowledgeScope } from './scope.mjs';
 import { now } from './clock.mjs';
 import { missingFindings } from './testreview.mjs';
+import { exceptionApproval } from './exceptionsapproval.mjs';
+import { bytes } from './config.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -92,6 +94,20 @@ function verifyDesignSync(ctx, id) {
   return need ? "the plan changes what a design document describes: write design/SYNC.md (design-sync) or record 'design-sync: SKIPPED (<reason>)' in VERIFY.md" : '';
 }
 
+/** The refusal text for findings cleared by a plan exception nobody approved, or ''. @param {Context} ctx @param {string} id @param {any} doc */
+function unapprovedClearings(ctx, id, doc) {
+  const dir = runDir(ctx, id);
+  const a = exceptionApproval(ctx, dir, id);
+  const bad = [];
+  for (const f of Array.isArray(doc?.findings) ? doc.findings : []) {
+    const e = f?.observed?.plan_exception;
+    if (e === undefined || f.verdict !== 'cleared') continue;
+    const line = typeof e === 'string' ? bytes(e) : '';
+    if (!(a.lines.includes(line) && a.approved(line))) bad.push(String(f.id ?? '?'));
+  }
+  return bad.length === 0 ? '' : `exception not approved: stays blocking (${bad.slice(0, 10).join(', ')}). A line of PLAN.md ## Test exceptions clears a finding only when the user approved that exact line (interactive: their scope approval for the plan, recorded at the freeze; night batch: the line is listed in the approved batch summary) and the finding quotes it byte for byte. Report the finding as confirmed (verdict confirmed, outcome over): it blocks the gate`;
+}
+
 /** `verify_tests_findings ID` (A171): '' when fine, else the refusal text; warnings go to stderr. @param {Context} ctx @param {string} id */
 function verifyTestsFindings(ctx, id) {
   const s = `${ctx.root}/.agents/skills/test-trust/scripts/validate-findings.mjs`;
@@ -107,6 +123,10 @@ function verifyTestsFindings(ctx, id) {
   for (const l of out.split('\n')) if (l.startsWith('WARNING:')) ctx.err(`${l}\n`);
   // #265 package C (A276): in a measured run every scan candidate, BUDGET finding and NOT MEASURED fact needs a finding of its own (confirmed, or cleared by the validator's rules)
   let doc; try { doc = JSON.parse(readFileSync(f, 'utf8')); } catch { return ''; }
+  // A285: a finding cleared by a line of the plan's `## Test exceptions` counts only when the USER approved that exact line (their scope approval for the plan, or the approved batch
+  // summary listing it); the line quoted must equal a plan line byte for byte. Anything else stays blocking: report it as confirmed.
+  const unapproved = unapprovedClearings(ctx, id, doc);
+  if (unapproved !== '') return unapproved;
   const missing = missingFindings(ctx, id, doc);
   return missing.length > 0 ? missing.slice(0, 20).join('; ') : '';
 }
