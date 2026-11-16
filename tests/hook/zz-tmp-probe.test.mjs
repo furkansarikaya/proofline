@@ -17,15 +17,8 @@ console.log('OK');
 const run = (mode, lo, hi) => spawnSync(process.execPath, ['-e', child, mode, String(lo), String(hi)], { encoding: 'utf8' });
 test('probe astral aborts', () => {
   const out = [];
-  for (const cp of [0x10000, 0x10001, 0x1000f, 0x1d400, 0x1f600, 0x10ffff, 0xffff, 0xfffe, 0xe0001]) for (const mode of ['first', 'mid']) { const r = run(mode, cp, cp); out.push(`U+${cp.toString(16)} ${mode} status=${r.status}`); }
-  for (let plane = 1; plane <= 16; plane++) {
-    for (let lo = plane * 0x10000; lo < (plane + 1) * 0x10000; lo += 0x1000) {
-      const hi = Math.min(lo + 0xfff, 0x10ffff);
-      if (lo === 0x10000 || (plane >= 3 && plane <= 13)) { if (lo !== plane * 0x10000 && !(lo === 0x10000)) continue; }
-      const r = run('first', lo, hi);
-      if (r.status !== 0) out.push(`chunk ${lo.toString(16)}-${hi.toString(16)} crashes status=${r.status}`);
-    }
-  }
-  const r2 = run('mid', 0x10000, 0x10fff); out.push(`mid 10000-10fff status=${r2.status}`);
-  console.log('PROBE\n' + out.join('\n'));
+  for (let plane = 0; plane <= 16; plane++) for (const off of [0, 1, 0xfffe, 0xffff]) { const cp = plane * 0x10000 + off; if (cp < 0x80) continue; const r = run('first', cp, cp); if (r.status !== 0) out.push(`U+${cp.toString(16)} aborts`); }
+  for (let lo = 0x10f000; lo < 0x110000; lo += 0x100) { const r = run('first', lo, lo + 0xff); if (r.status !== 0) { out.push(`chunk ${lo.toString(16)} aborts`); for (let cp = lo; cp < lo + 0x100; cp++) { const q = run('first', cp, cp); if (q.status !== 0) out.push(`  U+${cp.toString(16)}`); } } }
+  for (let plane = 2; plane <= 14; plane++) for (let lo = plane * 0x10000 + 0x1000; lo < (plane + 1) * 0x10000; lo += 0x1000) { const r = run('first', lo, lo + 0xfff); if (r.status !== 0) out.push(`plane chunk ${lo.toString(16)} aborts`); }
+  console.log('PROBE\n' + out.join('\n') + '\nDONE');
 });
