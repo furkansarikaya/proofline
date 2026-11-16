@@ -69,6 +69,22 @@ test('planKinds: separators, quotes in code spans after the separator, and the l
   assert.deepEqual(names('- AC-1: `a.test` "one" returns "data" (test_kind: unit)'), ['one', 'data']);
 });
 
+test('planKinds: indented, nested, star, tab and two-digit bullets keep their names; a bullet naming no test before the dash reads every quote', () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  const tail = '`a.test` "real one" — expects "x" (test_kind: unit)';
+  for (const marker of ['  - AC-1:', '    - AC-1:', '- AC-1:', '* AC-1:', '\t- AC-1:', '  * AC-12:', '- AC-12:']) assert.deepEqual(names(`${marker} ${tail}`), ['real one'], marker);
+  assert.deepEqual(names('    - AC-1: "real one" (test_kind: unit)'), ['real one']);
+  assert.deepEqual(names('  - AC-1: "only names", "two" (test_kind: unit)'), ['only names', 'two']);
+  // no name before the dash: the old behaviour for that bullet, every quoted string is a name
+  assert.deepEqual(names('- AC-1: `a.test` — "must run" (test_kind: unit)'), ['must run']);
+  assert.deepEqual(names('- AC-1: foo - "must run" (test_kind: unit)'), ['must run']);
+  assert.deepEqual(names('- AC-1: (test_kind: unit) — `a.test` "n" and "m"'), ['n', 'm']);
+  // the COMPLEX case is unchanged: names before the dash, data values after
+  assert.deepEqual(names('- AC-2: `t.js` "POST tags" — returns `["book club", "sci-fi"]` (test_kind: integration)'), ['post tags']);
+  // not covered: no name before the dash and quoted DATA after it still reads the data as names
+  assert.deepEqual(names('- AC-1: `a.test` — returns "book club" (test_kind: unit)'), ['book club']);
+});
+
 test('budgets: the plan wins over config, config over the built-in default, timeouts.scale scales both, default means config', () => {
   const none = new Map();
   assert.deepEqual(budgetTable(cfgOf(''), none).unit, { test: DEFAULTS.unit.test_ms, suite: DEFAULTS.unit.suite_ms, source: 'config' });
