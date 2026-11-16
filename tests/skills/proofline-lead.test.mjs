@@ -209,7 +209,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.142"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.143"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -232,6 +232,20 @@ test("every relative link in the skill bundle resolves", () => {
 test("the completion report asset has the control-plane template's sections in order", () => {
   const heads = (p) => readFileSync(p, "utf8").split("\n").filter((l) => /^## /.test(l));
   assert.deepEqual(heads(join(skill, "assets/COMPLETION_REPORT.md")), heads(join(repoRoot, "control-plane/agents/templates/COMPLETION_REPORT.md")));
+});
+
+test("the completion report template says the report file is English and only the chat message follows the user's language", () => {
+  for (const p of [join(skill, "assets/COMPLETION_REPORT.md"), join(repoRoot, "control-plane/agents/templates/COMPLETION_REPORT.md")]) {
+    const t = readFileSync(p, "utf8");
+    const changed = t.split("\n").find((l) => l.startsWith("Changed:"));
+    assert.match(changed, /English/, `${p}: the Changed line is not English`);
+    assert.doesNotMatch(changed, /user's language/, `${p}: the Changed line follows the user's language`);
+    assert.doesNotMatch(t, /(?:in|for) the user's language, at most/, `${p}: the summary block follows the user's language`);
+    assert.match(t, /every file the run writes is English/, `${p}: states no English rule for the file`);
+    assert.match(t, /your chat message to the user is in\s+the user's language/, `${p}: states no user-language rule for the chat message`);
+  }
+  const rep = readFileSync(join(skill, "references/REPORT.md"), "utf8");
+  assert.match(rep, /all of it, the summary block's `Changed:` line included, is English/);
 });
 
 test("SKILL.md maps every D23 command and the rules that keep the lead out of verdicts", () => {

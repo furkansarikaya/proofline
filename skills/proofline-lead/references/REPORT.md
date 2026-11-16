@@ -28,7 +28,8 @@ ARTIFACT: <COMPLETION_REPORT.md or PLAN.md> <sha256>
 
 `COMPLETION_REPORT.md` in the run, from [assets/COMPLETION_REPORT.md](../assets/COMPLETION_REPORT.md).
 `A publish-completion-report <ID>` rejects it when a section the run needs is missing. Every statement comes
-from run evidence; nothing is inferred or invented.
+from run evidence; nothing is inferred or invented. The report is a file: all of it, the summary block's `Changed:` line included, is English
+whatever the user's language (A171 language check); only your chat message to the user is in the user's language.
 
 | Section | Source |
 |---|---|

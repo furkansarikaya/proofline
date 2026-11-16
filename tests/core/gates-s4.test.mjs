@@ -304,7 +304,7 @@ test('sc_rollback_note: a COMPLEX or CRITICAL plan without a rollback note in ##
   assert.ok(!out.includes('rollback'), `A202 TRIVIAL was asked for a rollback note: ${out}`);
 });
 
-test('sc_summary_human_checks: the Human checks list is copied by script into the report summary once, equal to the QA report list; the summary is user-language and not evidence (A202)', () => {
+test('sc_summary_human_checks: the Human checks list is copied by script into the report summary once, equal to the QA report list; the summary is English like the file and not evidence (A202)', () => {
   const d = scaffold({ topology: 'standalone' });
   const human = '## Human checks\n\n- The error text reads naturally in Turkish\n- The empty state looks balanced on a phone';
   solo(d, 'RED', 'fail', 'impl_test.txt', GL); solo(d, 'GREEN', 'pass', 'impl.txt', IL);
@@ -328,8 +328,13 @@ test('sc_summary_human_checks: the Human checks list is copied by script into th
   expectMsg('a six-line summary was published', 'at most five', A(d, ['publish-completion-report', 'LC', 'markdown']));
   mk('Changed: the lookup returns the default for an empty key');
   expectMsg('a summary without a Verify command was published', "needs exactly one line 'Verify:", A(d, ['publish-completion-report', 'LC', 'markdown']));
+  // the report is a file: a Turkish Changed line is refused (every file of a run is English), the English line is published; the chat message carries the user's language
   mk('Changed: arama artik bos anahtar icin varsayilani donduruyor, çünkü şunu istediniz', V);
-  accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), "A202 a summary in the user's language was refused");
+  expectMsg('a Turkish summary line was published into the task file', "language: run artifacts are English", A(d, ['publish-completion-report', 'LC', 'markdown']));
+  expectMsg('the refusal does not name the Changed line', "The summary block's Changed: line must be English; only the chat message follows the user's language", A(d, ['publish-completion-report', 'LC', 'markdown']));
+  assert.ok(!existsSync(path.join(d, '.agents/tasks/in-progress')) || !readdirSync(path.join(d, '.agents/tasks/in-progress')).some((f) => rd(d, `.agents/tasks/in-progress/${f}`).includes('varsayilani')), 'the Turkish line reached the task file');
+  mk('Changed: the lookup returns the default for an empty key', V);
+  accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), 'A202 an English summary was refused');
   const look = () => rd(d, rp).split('\n').filter((l) => l.startsWith('Look at: '));
   assert.equal(look().length, 2, `A202 the Look at lines are not there exactly once each: ${rd(d, rp).split('\n').slice(0, 12).join('\n')}`);
   assert.equal(look().map((l) => l.slice('Look at: '.length)).join('\n'), hc(), 'A202 the summary list differs from the QA_REPORT.md list');
@@ -337,7 +342,7 @@ test('sc_summary_human_checks: the Human checks list is copied by script into th
   assert.ok(rd(d, rp).split('\n')[2] === '<!-- proofline:summary:begin -->' && /^<!-- proofline:facts:begin -->/m.test(rd(d, rp)), 'A202 summary not at the top or Facts block missing');
   accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), 'A202 republish refused');
   assert.equal(look().length, 2, 'A202 a republish doubled the list');
-  accepted(A(d, ['handoff', 'LC', 'DONE']), "A202 DONE refused for a report with a summary in the user's language");
+  accepted(A(d, ['handoff', 'LC', 'DONE']), 'A202 DONE refused for a report with an English summary');
   A(d, ['status-block', 'LC', 'code-done']);
   assert.equal(hc().split('\n').length, 2);
 });

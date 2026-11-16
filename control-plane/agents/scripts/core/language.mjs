@@ -20,16 +20,6 @@ const trim = (/** @type {string} */ t) => t.replace(new RegExp(`^${WSP}+|${WSP}+
 const norm = (/** @type {string} */ t) => trim(t.replace(new RegExp(`${WSP}+`, 'g'), ' '));
 const nchars = (/** @type {string} */ t) => t.replace(/[\x80-\xbf]/g, '').length;
 
-/** `report_blank_summary`: the lines of the summary block blanked, line numbers kept. @param {string[]} lines */
-function blankSummary(lines) {
-  let skip = false; let done = false;
-  return lines.map((l) => {
-    if (l === '<!-- proofline:summary:begin -->' && !done) { skip = true; return ''; }
-    if (skip) { if (l === '<!-- proofline:summary:end -->') { skip = false; done = true; } return ''; }
-    return l;
-  });
-}
-
 /** `language_question_file PATH` @param {string} p */
 function questionFile(p) {
   let r = `/${p}`;
@@ -51,8 +41,7 @@ export function scanLine(text, file, hint, history, ok = null, collect = null) {
   if (/\/runs\/[^]*\/reviews\/visual-proof\/|\/runs\/[^]*\/reports\/qa-evidence\//.test(file)) return 0; // machine output (A172)
   if (questionFile(file)) return 0;
   const own = /\/questions\/[^]*\.answer\.md$|\/questions\/[^]*\.answer\.amended-[^]*\.md$|\/approvals\/|\/runs\/[^]*\/TASK\.md$/.test(file);
-  let lines = textLines(text);
-  if (/\/COMPLETION_REPORT\.md$/.test(file) || hint.includes('COMPLETION_REPORT.md')) lines = blankSummary(lines);
+  const lines = textLines(text);
   // one message at a time: the history files carry no line end (capture.mjs), so a line must never join the end of one message to the start of the next (A247)
   const blob = new Set(history.flatMap((m) => textLines(m)));
   const inprod = (/** @type {string} */ t0) => {

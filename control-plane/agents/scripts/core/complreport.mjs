@@ -16,6 +16,7 @@ import { assumptionStates } from './questions.mjs';
 import { fileLines, fileText, gatesEnforced, ledgerRows, sectionValue } from './records.mjs';
 import { evidenceRunCounts, fixRoundsDone, reportExecution, reportFacts } from './reports.mjs';
 import { requireRun, runDir } from './runs.mjs';
+import { languageFailText, languageScanFiles } from './language.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { fixRoundsUsed, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported } from './gates.mjs';
 import { humanChecks, records, sectionLines } from './taskfile.mjs';
@@ -358,6 +359,9 @@ export function publishCompletionReport(ctx, id, given) {
   stripFacts(ctx, report);
   executionApply(ctx, id); // A203: the Execution table is generated from the decision records, whatever the lead wrote there
   summaryApply(ctx, id);
+  // the report is a file, so English whatever the user's language: the summary block is not exempt from the language check (the chat message is the user-language text)
+  const langHits = languageScanFiles(ctx, [report]);
+  if (langHits.length > 0) fail(`${languageFailText(langHits.join(' '))}. The summary block's Changed: line must be English; only the chat message follows the user's language`);
   validateStructure(ctx, id);
   claimsCheck(ctx, id, report);
   const facts = capture(ctx, () => reportFacts(ctx, id));
