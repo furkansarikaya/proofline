@@ -6,7 +6,10 @@ import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { abortingInput, screenEvent } from '../../adapters/claude/hooks/lib/winabort.mjs';
-import { buildTemplate, copyProject, runHook, rmSync } from './harness.mjs';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { buildTemplate, copyProject, runHook, rmSync, repo } from './harness.mjs';
 
 const WIN = process.platform === 'win32';
 const LB = '\u{10000}';
@@ -73,4 +76,35 @@ test('winabort: the real hook process answers a Write and a shell command that n
   // an ordinary call is not touched by the screen
   const ok = await runHook('node', dir, 'pretool', { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: `${dir}/impl.txt` }, ...who }, { env: { AGENT_ROLE: 'implementer' } });
   assert.doesNotMatch(ok.stdout, /U\+10000/);
+});
+
+// ---- the wiring turns an abort into a block (the premise of the screen being a message and not the control) ----
+
+const WIRINGS = ['adapters/claude/hooks/hooks.json', 'adapters/codex/hooks.json'];
+/** @param {string} rel */
+const pretool = (rel) => /** @type {string} */ (JSON.parse(readFileSync(join(repo, rel), 'utf8')).hooks.PreToolUse[0].hooks[0].command);
+
+test('winabort: both hooks.json files run the PreToolUse hook behind a wrapper that exits 2 when node does not end normally (an abort is a block)', () => {
+  for (const rel of WIRINGS) {
+    const c = pretool(rel);
+    assert.match(c, /^node "[^"]*proofline-hook\.mjs" pretool (claude|codex) \|\| /, rel);
+    assert.match(c, /exit 2; \}$/, `${rel}: the wrapper ends in exit 2`);
+    assert.match(c, /failing closed/, rel);
+  }
+});
+
+test('winabort: the exact wrapper of hooks.json, run through sh, exits 2 (not 0) when a name with U+10000 sits in a folder the hook lists; elsewhere the name is ordinary and the wrapper exits 0', () => {
+  const sh = (/** @type {string} */ script) => spawnSync('sh', ['-c', `n=$(printf '\\360\\220\\200\\200'); ${script}`, 'sh', dir], { encoding: 'utf8' });
+  const command = pretool('adapters/claude/hooks/hooks.json');
+  const run = () => spawnSync('sh', ['-c', command], { cwd: dir, input: JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's1', cwd: dir, tool_name: 'Bash', tool_input: { command: 'git status --short' }, agent_type: 'proofline-implementer', agent_id: 'f1' }), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_PLUGIN_ROOT: repo, AGENT_ROLE: 'implementer' } });
+  assert.equal(run().status, 0, 'without the entry the wrapper exits 0');
+  const made = sh('mkdir -p "$1/.git/worktrees/ev$n" && echo "$1/ev$n/.git" > "$1/.git/worktrees/ev$n/gitdir" && echo made');
+  assert.equal(made.stdout.trim(), 'made', made.stderr);
+  try {
+    const r = run();
+    if (WIN) {
+      assert.equal(r.status, 2, `the wrapper must turn the abort into a block (status ${r.status}): ${r.stderr}`);
+      assert.match(r.stderr, /failing closed/);
+    } else assert.equal(r.status, 0, r.stderr);
+  } finally { sh('rm -rf "$1/.git/worktrees/ev$n"'); }
 });

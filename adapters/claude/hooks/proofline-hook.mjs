@@ -11,7 +11,6 @@
 //   events/<name>.mjs  export async function handle(ctx): Promise<string | undefined>   the stdout line (with its newline) or nothing
 //   lib/               text (jesc, jget, safe, sha), fsx (writes that refuse links), agent (the project's commands), context
 // An unexpected exception fails closed: PreToolUse denies while a run exists; the other events print the error on stderr and exit 1.
-import './lib/safefs-install.mjs';   // first: on Windows every later path call is judged by text before libuv (a native abort is not a block)
 import { readFileSync, realpathSync, writeSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { EVENTS, buildContext, finish } from './lib/context.mjs';

@@ -1,9 +1,9 @@
 // @ts-check
-// A Windows host only (A271): Node 22.13 aborts the WHOLE process (exit code 0xC0000409, a libuv assertion in idna.c, not an exception) when a file system call (lstat, stat, realpath) is
-// given a path that holds the code point U+10000 (Linear B syllable) or U+10FFFF (the last code point). The runtime treats any exit code other than 2 from a PreToolUse hook as a NON-blocking error, so a file name chosen by an
-// agent could end the hook before any guard ran and let the tool call proceed. A native abort cannot be caught, so the input is screened BEFORE anything touches the file system: a PreToolUse
-// event whose path-bearing fields hold such a code point is denied (fail closed) and a PostToolUse event is not handled. The screen reads the decoded fields, so a JSON escape (a surrogate-pair escape) and the
-// literal character are one. `content` and the other text a tool writes are not paths and are not screened. The list is what a scan on the windows-latest runner found: every code point (U+0080 to U+FFFF, every 4096-code-point chunk of the sixteen planes, the lone surrogates) was asked in a file name and only U+10000 and U+10FFFF abort (docs/concepts/workflow.md). The safe layer (lib/safefs.mjs) is the control; this screen is the first one.
+// A Windows host only (A271): Node 22.13 aborts the WHOLE process (exit code 0xC0000409, a libuv assertion in the path conversion, not an exception) when a file system call is given a path that holds
+// U+10000 (Linear B syllable) or U+10FFFF (the last code point); a scan on the windows-latest runner (U+0080 to U+FFFF, every 4096-code-point chunk of the sixteen planes, the lone surrogates) found only these two.
+// The hook wiring (hooks.json, adapters/codex/hooks.json: `node ... pretool ... || { ...; exit 2; }`) turns ANY non-zero exit of node into exit 2, which the runtime reads as a BLOCK: an abort is fail closed, never a bypass.
+// What this screen adds is a clear message: a PreToolUse event whose working directory or path-bearing tool input holds either character is denied before anything touches the file system, instead of the generic
+// 'the hook did not start'. A PostToolUse event with it is not handled. The screen reads the decoded fields (a JSON escape and the literal character are one); `content` and the other text a tool writes are not paths.
 
 /** The code points that abort Node on Windows when they reach a path call. */
 export const ABORTING = /[\u{10000}\u{10FFFF}]/u;
@@ -53,5 +53,5 @@ export function screenEvent(ev, raw, win) {
   try { const t = raw.toString('utf8'); parsed = JSON.parse(t.charCodeAt(0) === 0xfeff ? t.slice(1) : t); } catch { return null; }
   if (!abortingInput(parsed)) return null;
   if (ev === 'posttool') return '';
-  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'proofline: a path in this tool call holds the character U+10000, which makes Node abort on Windows before any guard can run (a native abort is not a block). The call is refused; name the file without that character.' } })}\n`;
+  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'proofline: a path in this tool call holds the character U+10000 or U+10FFFF, which makes Node abort on Windows before any guard can run (a native abort is not a block). The call is refused; name the file without that character.' } })}\n`;
 }

@@ -1,7 +1,6 @@
 // @ts-check
 // A core command run on a worker thread, so that the hook can stop WAITING for it when its time budget ends (a command in this very process cannot
 // be interrupted). The hook never gives the worker anything a command line, a file or the environment could set: workerData is built by the hook.
-import './safefs-install.mjs'; // this thread has its own built-in modules: the safe layer is installed here too, before the core is imported
 import { parentPort, workerData } from 'node:worker_threads';
 
 const { coreUrl, argv, io: given, cancel } = workerData;
