@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.135 — 2026-11-16
+
+- Tests (A297): the plan-exceptions invariant suite (`tests/invariants-node/rule-3-plan-exceptions.test.mjs`) and the `ledger-injection` and `argv-bytes` core suites build their fixture state once (in process, staged by `tests/core/fixtures-lib.mjs`) instead of spawning the launcher per test; pe-11 had reached 10258 ms against its 10 s budget on main CI. pe-11 11.8 s to 4.2 s, inj-10 9.96 s to 0.7 s, arg-3 9.85 s to 3.3 s cold. Every refusal and approval is still asserted through the real launcher. No product change.
+
 ## 0.0.134 — 2026-11-16
 
 - CI (A296, package 3c): a direct clock read in a new or changed test line now fails the static job (`clock-read gate`, `tests/ci/clock-read-gate.mjs`), and the existing reads (116 in 48 files) are a baseline ratchet `tests/ci/clock-read-baseline.tsv` that can only shrink. The elapsed-time assertions in `tests/hook/prompt.test.mjs` and `tests/ci/check-fixtures.test.mjs` use the node:test `timeout` option instead of reading the clock.
