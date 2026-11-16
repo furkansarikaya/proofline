@@ -247,7 +247,8 @@ Kinds: `plan`, `destructive`, `scope`, `budget`, `mutation_budget` (bound to the
   `source: "batch"` and `via_batch: "<summary hash>"` for a pending request of kind `plan`, a `mutation_budget` within the cap
   (the file stores `cap:`; `raise-budget` refuses a larger N for it) or the pending step requests of the current delivery
   summary (commit, push, pr, merge, cleanup, each with its `delivery:` hash). It refuses every other kind, a task outside the
-  batch, a run classified CRITICAL (or not classified) and a FAILED or BLOCKED run, and writes nothing then.
+  batch (the task must be in the Order table of the approved SUMMARY.md and carry the same row, class and depends_on, in order.tsv:
+  order.tsv is not part of the approved bytes), a task the approved summary shows as CRITICAL, a run classified CRITICAL (or not classified) and a FAILED or BLOCKED run, and writes nothing then.
 - `reopen:<ID>` (bound to the PLAN.md sha256, accepted on a FAILED or BLOCKED run, named for that run only): the
   user's approval for `agent.sh reopen <ID>` (A152), which consumes it. `mutation_budget` is accepted on such a run
   too; when PLAN `## Tests` has more criteria than the budget, `reopen` asks both in one summary and one question

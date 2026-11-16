@@ -216,6 +216,14 @@
       "test_ms": 25000,
       "suite_ms": 60000
     },
+    "tests/core/knowledge-batch-crlf.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 30000
+    },
+    "tests/core/batch-cover-crosscheck.test.mjs": {
+      "test_ms": 10000,
+      "suite_ms": 25000
+    },
     "tests/core/batch-golden.test.mjs": {
       "test_ms": 15000,
       "suite_ms": 35000
@@ -807,6 +815,10 @@
     "tests/enforcement/enforcement-recorded-roles.test.mjs": {
       "test_ms": 110000,
       "suite_ms": 110000
+    },
+    "tests/enforcement/batch-files-protected.test.mjs": {
+      "test_ms": 10000,
+      "suite_ms": 50000
     },
     "tests/enforcement/guards.test.mjs": {
       "test_ms": 30000,
