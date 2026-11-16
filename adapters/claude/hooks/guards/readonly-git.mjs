@@ -46,18 +46,23 @@ const FILE = '[^\\s|;&<>`()]+';
 /** The only consumers whose here-document body is DATA: `cat [> file]`, `tee [-a] file`, `sh <path>/agent.sh <subcommand> ...`. Anything else (an interpreter, an unknown program, any option list) is scanned. */
 const DATA_CAT = new RegExp(`^(\\w+=\\S+\\s+)*cat(\\s+-\\w+)*(\\s*>>?\\s*${FILE})?$`);
 const DATA_TEE = new RegExp(`^(\\w+=\\S+\\s+)*tee(\\s+-a)?(\\s+${FILE})+$`);
-const DATA_AGENT = /^(\w+=\S+\s+)*(sh|bash)\s+[\w./~-]*agent\.sh\s+[\w-]+(\s+[^|;&<>`()]*)?$/;
-/** Whether a line with a here-document hands its body to a data sink and nothing else (no pipe, no substitution, no continuation). @param {string} line */
-function isDataHeredoc(line) {
+const DATA_AGENT = /^(\w+=\S+\s+)*(sh|bash)\s+(?:(?:\.|\$PWD|\"\$PWD\"|\/[\w.~-]+(?:\/[\w.~-]+)*)\/)?\.agents\/scripts\/agent\.sh\s+[\w-]+(\s+[^|;&<>`()]*)?$/;
+/** The here-document operator of a line: delimiter, whether it is quoted (the body is then taken literally), text before and after. @param {string} line */
+function hereOf(line) {
   const t = line.replace(/<<</g, '   ');
-  if (/[\\|&]\s*$/.test(t) || (t.match(/<</g) ?? []).length !== 1) return false;
-  const m = /<<-?[ \t]*(['"]?)([A-Za-z_][\w-]*)\1/.exec(t);
-  if (!m) return false;
-  const before = t.slice(0, m.index).trim();
-  const after = t.slice(m.index + m[0].length).trim();
-  if (!new RegExp(`^(\\d*>>?\\s*${FILE})?$`).test(after)) return false;
-  if (/[|`()]|\$\(/.test(before)) return false;
-  const consumer = /** @type {string} */ (before.split(/&&|;/).pop()).trim();
+  const m = /<<-?[ \t]*(?:(['"])([A-Za-z_][\w-]*)\1|(\\?)([A-Za-z_][\w-]*))/.exec(t);
+  if (!m) return null;
+  return { t, delim: /** @type {string} */ (m[2] ?? m[4]), quoted: m[1] !== undefined || m[3] === '\\', before: t.slice(0, m.index).trim(), after: t.slice(m.index + m[0].length).trim() };
+}
+/** Whether a line with a here-document hands its body to a data sink and nothing else (no pipe, no substitution, no continuation); an unquoted body must hold no substitution and no nested here-document, since the shell runs those. @param {string} line @param {string} body */
+function isDataHeredoc(line, body) {
+  const h = hereOf(line);
+  if (!h) return false;
+  if (/[\\|&]\s*$/.test(h.t) || (h.t.match(/<</g) ?? []).length !== 1) return false;
+  if (!h.quoted && /\$\(|`|\$\{|<</.test(body)) return false;
+  if (!new RegExp(`^(\\d*>>?\\s*${FILE})?$`).test(h.after)) return false;
+  if (/[|`()]|\$\(/.test(h.before)) return false;
+  const consumer = /** @type {string} */ (h.before.split(/&&|;/).pop()).trim();
   return DATA_CAT.test(consumer) || DATA_TEE.test(consumer) || DATA_AGENT.test(consumer);
 }
 /** The command with the bodies of data here-documents removed (a report written with `cat > file <<'EOF'`, `tee`, `agent.sh submit --report - <<'EOF'`). When the rest of the command runs text (eval, source, a pipe into a shell or interpreter, a variable as command word, xargs) nothing is removed. @param {string} cmd */
@@ -68,10 +73,11 @@ function withoutDataBodies(cmd) {
   for (let i = 0; i < lines.length; i++) {
     const l = /** @type {string} */ (lines[i]);
     out.push(l);
-    if (!isDataHeredoc(l)) continue;
-    const delim = /** @type {RegExpExecArray} */ (/<<-?[ \t]*['"]?([A-Za-z_][\w-]*)/.exec(l))[1];
+    const h = hereOf(l);
+    if (h === null) continue;
     let j = i + 1;
-    while (j < lines.length && /** @type {string} */ (lines[j]).trim() !== delim) j++;
+    while (j < lines.length && /** @type {string} */ (lines[j]).trim() !== h.delim) j++;
+    if (!isDataHeredoc(l, lines.slice(i + 1, j).join('\n'))) continue;
     i = j - 1; dropped = true;
   }
   if (!dropped) return cmd;
