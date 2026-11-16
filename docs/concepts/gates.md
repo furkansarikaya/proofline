@@ -183,7 +183,7 @@ hash of the exact new PLAN.md, so changing the line afterwards, or approving bef
 A line the lead wrote into `## Test exceptions` clears a finding of the tests review only when you approved that exact line (A285): your `scope` approval for the
 PLAN.md (the freeze consumes it and the ledger row `test-exceptions` names it), or, in a night batch, the line is listed in the approved batch summary. A plan frozen
 without it is accepted, but the lines clear nothing (the freeze says so, and `submit` refuses a clearing with `exception not approved: stays blocking`); ask for the
-approval with `agent.sh request-approval <ID> scope`, which then shows the lines.
+approval with `agent.sh request-approval <ID> scope`, which then shows the lines. The task author may propose such lines in the task file in advance (A294, night-mode.md): a proposal is shown in the batch summary and accepted only by your approval of the batch.
 Commit and push need both a gate pass for the current content and your approval in the current message;
 `push_requires_approval` is `true` by default.
 

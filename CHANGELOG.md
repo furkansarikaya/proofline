@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.132 — 2026-11-16
+
+- The task author proposes foreseeable test exceptions (A294, package 2d): `skills/task-author` rule 11 and CRITERIA.md say when to write a `## Test exceptions` section in the task file; `validate-task.mjs` checks the lines with a copy of the batch's line grammar and limits (parity test), and the batch summary labels them as proposals written by the task author, accepted only by the user's approval of the batch. Undeclared exceptions still park the task.
+
 ## 0.0.131 — 2026-11-16
 
 - Review and security agents never push (A293, package 4a): the runtime hook (`adapters/claude/hooks/guards/readonly-git.mjs`) refuses pushes, branch, tag and ref creation, git config writes and platform write verbs for the roles qa, reviewer, security_reviewer, verifier and explorer, and the git `pre-push` hook refuses any push while `AGENT_ROLE` names one of them. A tripwire for honest mistakes; the boundary is branch protection (docs/concepts/enforcement-layers.md).
