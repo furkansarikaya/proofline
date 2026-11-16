@@ -6,11 +6,12 @@ import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { after, test } from 'node:test';
-import { here, repo, runE2e } from './runner.mjs';
+import { spawn } from 'node:child_process';
+import { after, describe, test } from 'node:test';
+import { here, repo } from './runner.mjs';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
 import { A, accepted, project } from '../core/legacy-lib.mjs';
-import { HARD_REPLY_CAP, openApprovals, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
+import { HARD_REPLY_CAP, openApprovals, pendingKind, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
 
 const root = tempDir('e2e-stops-');
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -34,7 +35,10 @@ writeFileSync(cf, String(n + 1));
 const dir = '.agents/runs/none/approvals';
 const next = () => String(readdirSync(dir).length + 1).padStart(3, '0');
 let text;
-if (script.forever) {
+if (script.forever && n >= 13) {
+  // iteration guard: a harness without its cap must fail in seconds, not by timeout
+  text = 'Guard: stub finished.';
+} else if (script.forever) {
   // a bug: every call freezes a different plan and raises a plan and a scope request
   mkdirSync(dir, { recursive: true });
   for (const k of ['plan', 'scope']) writeFileSync(dir + '/' + next() + '-request-' + k + '.yaml', 'kind: "' + k + '"\\nbound: "H' + n + '"\\nrequested_at: ' + n + '\\n');
@@ -63,25 +67,32 @@ function findOut(dir) {
   return '';
 }
 /**
+ * One harness run, asynchronous so the loop tests of this file run side by side (each has its own E2E_ROOT and stub counter). E2E_RUNNER replaces the default runner like in runner.mjs.
  * @param {string} scenario @param {object} script @param {string} sub @param {Record<string, string>} [env]
- * @returns {{ summary: string, log: string }}
+ * @returns {Promise<{ summary: string, log: string }>}
  */
-function play(scenario, script, sub, env = {}) {
+async function play(scenario, script, sub, env = {}) {
   const r = path.join(root, sub);
   rmSync(r, { recursive: true, force: true });
   const sf = path.join(root, `${sub}.json`);
   writeFileSync(sf, JSON.stringify(script));
-  const res = runE2e([scenario, 'claude'], { STUB_SCRIPT: sf, E2E_ROOT: r, PATH: PATHENV, ...env });
-  assert.equal(res.status, 0, `run failed: ${res.out}`);
+  const custom = process.env.E2E_RUNNER ? process.env.E2E_RUNNER.split(' ') : null;
+  const [cmd, ...pre] = custom ?? [process.execPath, path.join(here, 'run.mjs')];
+  const status = await new Promise((resolve) => {
+    const c = spawn(/** @type {string} */ (cmd), [...pre.map((x) => (x.startsWith('tests/') ? path.join(repo, x) : x)), scenario, 'claude'], { cwd: repo, env: { ...process.env, STUB_SCRIPT: sf, E2E_ROOT: r, PATH: PATHENV, ...env }, stdio: 'ignore' });
+    c.on('close', resolve);
+  });
+  assert.equal(status, 0, `run failed (${sub})`);
   const out = findOut(r);
   return { summary: readFileSync(path.join(out, 'summary.txt'), 'utf8'), log: readFileSync(path.join(out, 'replies-log.txt'), 'utf8') };
 }
 const replyTexts = (/** @type {string} */ log) => log.split('\n').filter(Boolean).map((l) => l.slice(l.indexOf(' | ') + 3));
 
-test('CRITICAL: the real intent interview (three questions, then three again) completes within 3 replies with distinct scripted lines', () => {
+describe('reply loop against the stub lead', { concurrency: true }, () => {
+test('CRITICAL: the real intent interview (three questions, then three again) completes within 3 replies with distinct scripted lines', async () => {
   const [q1, q2] = real.critical;
   const done = 'Understood. I have recorded your answers.\n\nNext step: nothing is pending.';
-  const { summary, log } = play('CRITICAL', { steps: [{ text: q1 }, { text: q2 }, { text: done }] }, 'critical');
+  const { summary, log } = await play('CRITICAL', { steps: [{ text: q1 }, { text: q2 }, { text: done }] }, 'critical');
   const want = replies('question.CRITICAL.txt').filter(Boolean);
   assert.deepEqual(replyTexts(log), want, `the lines sent: ${log}`);
   assert.match(summary, /^replies=2$/m, summary);
@@ -90,15 +101,15 @@ test('CRITICAL: the real intent interview (three questions, then three again) co
   assert.notEqual(want[0], want[1], 'the second question reply repeats the first');
 });
 
-test('CRITICAL: a lead that repeats the same message gets one reply, then stopped=repeated-stop', () => {
+test('CRITICAL: a lead that repeats the same message gets one reply, then stopped=repeated-stop', async () => {
   const [, , q3] = real.critical;
-  const { summary } = play('CRITICAL', { steps: [{ text: q3 }] }, 'critical-repeat');
+  const { summary } = await play('CRITICAL', { steps: [{ text: q3 }] }, 'critical-repeat');
   assert.match(summary, /^replies=1$/m, summary);
   assert.match(summary, /^stopped=repeated-stop$/m, summary);
 });
 
-test('CRITICAL: five different open questions stop at the C-14 allowance of 3 replies, not 6', () => {
-  const { summary } = play('CRITICAL', { steps: [...real.critical.slice(0, 5).map((text) => ({ text })), { text: `${real.critical[4]} again?` }] }, 'critical-cap');
+test('CRITICAL: five different open questions stop at the C-14 allowance of 3 replies, not 6', async () => {
+  const { summary } = await play('CRITICAL', { steps: [...real.critical.slice(0, 5).map((text) => ({ text })), { text: `${real.critical[4]} again?` }] }, 'critical-cap');
   assert.match(summary, /^replies=3$/m, summary);
   assert.match(summary, /^stopped=max-replies$/m, summary);
   assert.match(summary, /^reply_budget=3$/m, summary);
@@ -107,14 +118,14 @@ test('CRITICAL: five different open questions stop at the C-14 allowance of 3 re
 const plan = (/** @type {string} */ n, /** @type {string} */ bound) => ({ name: `${n}-request-plan.yaml`, kind: 'plan', bound });
 const scope = (/** @type {string} */ n, /** @type {string} */ bound) => ({ name: `${n}-request-scope.yaml`, kind: 'scope', bound });
 
-test('COMPLEX: the refreeze after failed gates raises a plan and a scope request; one reply approves the plan only, within 3 + 1', () => {
+test('COMPLEX: the refreeze after failed gates raises a plan and a scope request; one reply approves the plan only, within 3 + 1', async () => {
   const steps = [
     { text: real.complexPlan, create: [plan('001', 'A')] },
     { text: 'Gates failed.\n\nQUESTIONS:\n1. A tag that is exactly "." can be added but never removed. How should the fix round handle it?', answer: [{ kind: 'plan', request: '001-request-plan.yaml' }] },
     { text: real.complexRefreeze, create: [plan('003', 'B'), scope('004', 'B')] },
     { text: 'Approvals recorded. Starting the fix round.', answer: [{ kind: 'plan', request: '003-request-plan.yaml' }] },
   ];
-  const { summary, log } = play('COMPLEX', { steps }, 'complex-refreeze');
+  const { summary, log } = await play('COMPLEX', { steps }, 'complex-refreeze');
   const texts = replyTexts(log);
   assert.equal(texts[2], replies('COMPLEX.txt')[2], `the refreeze reply: ${log}`);
   assert.doesNotMatch(texts[2] ?? '', /scope/i, 'the refreeze reply must hold no scope approval');
@@ -126,7 +137,7 @@ test('COMPLEX: the refreeze after failed gates raises a plan and a scope request
   assert.doesNotMatch(summary, /^stopped=(max-replies|repeated-stop)$/m, summary);   // the run ends with a message that asks nothing
 });
 
-test('COMPLEX: a second refreeze is answered too (allowance 3 + 2)', () => {
+test('COMPLEX: a second refreeze is answered too (allowance 3 + 2)', async () => {
   const steps = [
     { text: real.complexPlan, create: [plan('001', 'A')] },
     { text: 'Q?', answer: [{ kind: 'plan', request: '001-request-plan.yaml' }] },
@@ -134,22 +145,46 @@ test('COMPLEX: a second refreeze is answered too (allowance 3 + 2)', () => {
     { text: real.complexRefreeze, answer: [{ kind: 'plan', request: '003-request-plan.yaml' }], create: [plan('007', 'C'), scope('008', 'C')] },
     { text: 'done', answer: [{ kind: 'plan', request: '007-request-plan.yaml' }] },
   ];
-  const { summary } = play('COMPLEX', { steps }, 'complex-two');
+  const { summary } = await play('COMPLEX', { steps }, 'complex-two');
   assert.match(summary, /^replies=4$/m, summary);
   assert.match(summary, /^refreeze_approval_replies=2$/m, summary);
   assert.match(summary, /^reply_budget=5$/m, summary);
   assert.doesNotMatch(summary, /^stopped=(max-replies|repeated-stop)$/m, summary);
 });
 
-test('a lead that raises a new plan and scope request after every reply stops at the hard cap', () => {
-  const { summary } = play('COMPLEX', { forever: true }, 'forever');
+test('a lead that raises a new plan and scope request after every reply stops at the hard cap', async () => {
+  const { summary } = await play('COMPLEX', { forever: true }, 'forever');
+  // the stub stops raising requests after 3 calls beyond the cap: a missing cap shows as replies > 12 within seconds, not as a timeout
   assert.match(summary, new RegExp(`^replies=${HARD_REPLY_CAP}$`, 'm'), summary);
   assert.match(summary, /^stopped=max-replies$/m, summary);
 });
 
-test('a scope request alone is never answered, also next to a commit request', () => {
-  const { summary } = play('COMPLEX', { steps: [{ text: 'Approve scope for T-1?', create: [scope('001', 'A')] }] }, 'scope-alone');
+test('a scope request alone is never answered, also next to a commit request', async () => {
+  const { summary } = await play('COMPLEX', { steps: [{ text: 'Approve scope for T-1?', create: [scope('001', 'A')] }] }, 'scope-alone');
   assert.match(summary, /^replies=0$/m, summary);
+  assert.match(summary, /^stopped=unanswered-scope$/m, summary);
+});
+
+test('a scope request left open after the refreeze reply ends the run as stopped=unanswered-scope, also when the lead then asks a question', async () => {
+  const steps = [
+    { text: real.complexPlan, create: [plan('001', 'A')] },
+    { text: 'Gates failed. Which option do you prefer?', answer: [{ kind: 'plan', request: '001-request-plan.yaml' }] },
+    { text: real.complexRefreeze, create: [plan('003', 'B'), scope('004', 'B')] },
+    { text: 'Plan recorded. Which option do you prefer for the test exceptions?', answer: [{ kind: 'plan', request: '003-request-plan.yaml' }] },
+  ];
+  const { summary } = await play('COMPLEX', { steps }, 'scope-left');
+  assert.match(summary, /^replies=3$/m, summary);
+  assert.match(summary, /^stopped=unanswered-scope$/m, summary);
+});
+
+for (const k of ['destructive', 'scope', 'commit']) {
+  test(`a ${k} request that stays open ends the run as stopped=unanswered-${k}`, async () => {
+    const { summary } = await play('COMPLEX', { steps: [{ text: 'Waiting.', create: [{ name: `001-request-${k}.yaml`, kind: k, bound: 'A' }] }] }, `unanswered-${k}`);
+    assert.match(summary, /^replies=0$/m, summary);
+    assert.match(summary, new RegExp(`^stopped=unanswered-${k}$`, 'm'), summary);
+  });
+}
+
 });
 
 test('lib: openApprovals reads every unanswered request, refreezeCount the distinct plan hashes, stopDecision the pair', () => {
@@ -171,6 +206,16 @@ test('lib: openApprovals reads every unanswered request, refreezeCount the disti
   assert.equal(stopDecision('destructive', openApprovals(d)), 'stop');
   assert.equal(replyBudget(3, 1), 4);
   assert.equal(replyBudget(3, 99), HARD_REPLY_CAP);
+});
+
+test('lib: an approvals path that is a file (ENOTDIR) or absent reads as no request, no refreeze, no kind, never a crash', () => {
+  const f = path.join(root, 'approvals-is-a-file');
+  writeFileSync(f, 'x');
+  assert.deepEqual(openApprovals(f), []);
+  assert.equal(refreezeCount(f), 0);
+  assert.equal(pendingKind('next=agent.sh freeze LC', f), '');
+  assert.equal(stopDecision('', openApprovals(f), 'Which option?'), 'question');
+  assert.deepEqual(openApprovals(path.join(root, 'nope')), []);
 });
 
 test('lib: the question script is the lines of question.<SCENARIO>.txt, line 1 only for a generic file', () => {

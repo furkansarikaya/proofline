@@ -24,7 +24,7 @@ export function pendingKind(state, approvalsDir) {
     }
   }
   if (approvalsDir && existsSync(approvalsDir)) {
-    const newest = readdirSync(approvalsDir).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)).at(-1) ?? '';
+    const newest = listDir(approvalsDir).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)).at(-1) ?? '';
     if (/^[0-9].*-request-.*\.yaml$/.test(newest)) {
       let kind = newest.slice(newest.indexOf('-request-') + '-request-'.length).replace(/\.yaml$/, '');
       if (kind.startsWith('waive-')) kind = `waive:${kind.slice('waive-'.length)}`;
@@ -60,6 +60,8 @@ export function replyDecision(kind, text = '') {
 
 /** The kind of a request file slug (`agent.sh` only turns ':' into '-': waive-F-1 is waive:F-1). @param {string} slug */
 const slugKind = (slug) => (slug.startsWith('waive-') ? `waive:${slug.slice('waive-'.length)}` : slug);
+/** The names in a folder; none when it is not a readable folder (a file, ENOTDIR, EACCES): the loop then ends with a stop reason instead of a crash. @param {string} dir @returns {string[]} */
+function listDir(dir) { try { return readdirSync(dir); } catch { return []; } }
 const byteSort = (/** @type {string} */ x, /** @type {string} */ y) => (x < y ? -1 : x > y ? 1 : 0);
 
 /**
@@ -70,7 +72,7 @@ const byteSort = (/** @type {string} */ x, /** @type {string} */ y) => (x < y ? 
  */
 export function openApprovals(approvalsDir) {
   if (!approvalsDir || !existsSync(approvalsDir)) return [];
-  const names = readdirSync(approvalsDir).sort(byteSort);
+  const names = listDir(approvalsDir).sort(byteSort);
   const read = (/** @type {string} */ n) => { try { return readFileSync(path.join(approvalsDir, n), 'utf8'); } catch { return ''; } };
   const answered = new Set();
   for (const n of names) {
@@ -93,7 +95,7 @@ export function openApprovals(approvalsDir) {
 export function refreezeCount(approvalsDir) {
   if (!approvalsDir || !existsSync(approvalsDir)) return 0;
   const bounds = new Set();
-  for (const n of readdirSync(approvalsDir)) {
+  for (const n of listDir(approvalsDir)) {
     if (!/^[0-9]+-request-plan\.yaml$/.test(n)) continue;
     try { bounds.add(/^bound: "?([^"\n]*?)"?\s*$/m.exec(readFileSync(path.join(approvalsDir, n), 'utf8'))?.[1] ?? ''); } catch { bounds.add(''); }
   }

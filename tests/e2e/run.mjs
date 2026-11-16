@@ -291,7 +291,10 @@ export async function main(argv) {
     let reply;
     if (decision === 'plan') reply = line(replyFile, 2);
     else if (decision === 'refreeze') reply = line(replyFile, 3);
-    else if (decision === 'stop') break;
+    else if (decision === 'stop') {
+      // a request only the user may answer (scope, destructive, commit, ...): the run ends here and says which
+      stopped = `unanswered-${[...new Set(open.map((o) => o.kind))].join('+') || kind || 'commit-or-push'}`; stopState = stateLines(state); break;
+    }
     else {
       // A120: no open question, no reply (the lead waits for something a reply cannot give).
       if (!questionOpen(state, lastFile, id)) { stopped = 'no-open-question'; stopState = stateLines(state); break; }
