@@ -5,6 +5,7 @@
 //   node measure.mjs --detect [--repo DIR]                 print the detected tooling as JSON (kind none => UNSUPPORTED)
 //   node measure.mjs --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox] [--accept-time-scale]
 //                                                          measure; writes DIR/report.json and DIR/screenshots/
+//                                                          --accept-time-scale: tests only: evidence made with a time scale other than 1 is refused by the validator
 //   node measure.mjs --print-probe                         print the page probe (for a project tool or runtime adapter)
 //   node measure.mjs --print-design-probe                  print the design-audit probe (facts of design-audit.mjs evaluateStatic)
 //   node measure.mjs --assemble raw.json --out DIR         build DIR/report.json from cells measured by another tool
