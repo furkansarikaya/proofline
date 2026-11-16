@@ -185,7 +185,8 @@ test('R-b: in a run worktree the union keeps the shipped names under a blinded w
   const mk = (/** @type {string} */ root) => new Context({ env: { PATH: process.env.PATH ?? '' }, cwd: root, stdout: { write: () => true }, stderr: { write: () => true } }, path.join(root, '.agents/scripts/proofline-core.mjs'));
   const names = (/** @type {Context} */ ctx) => scanRules(ecosystemRowsAll(ctx)).find((r) => r.id === 'npm')?.wait ?? [];
   const inRun = mk(wt);
-  assert.equal(path.normalize(inRun.agents), path.join(wt, '.agents'),  // the context spells its folders with `/` 'the blinded copy is the one this context reads as the project');
+  // the context spells its folders with `/`, the platform joins with its own separator
+  assert.equal(path.normalize(inRun.agents), path.join(wt, '.agents'), 'the blinded copy is the one this context reads as the project');
   assert.ok(names(inRun).includes('zzzzz') && names(inRun).includes('\x73etTimeout'), `the blinded names AND the shipped ones: ${names(inRun)}`);
   // the installed layout, in the main tree: scripts and definition are one folder, so there is no other copy; the defence there is codeAudit, the eco-pin and the owns guard
   writeFileSync(path.join(main, '.agents/ecosystems.json'), JSON.stringify(def));
