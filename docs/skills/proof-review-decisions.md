@@ -1,4 +1,4 @@
-> **Ported into proofline.** This is the decision log of the standalone [proof-review](https://github.com/furkansarikaya/proof-review) repository, carried over verbatim below the horizontal rule. The skill now lives in `skills/proof-review/` of proofline (team version 0.0.1, D30) and its fixtures in `fixtures/proof-review/`. Where a numbered decision below names a path or a behaviour that proofline changed (for example the `<git-common-dir>/proof-review/` output folder, decision 12), the section "Proofline extensions" at the end says what replaced it; everything else still holds. The source repository is archived only after proofline has been used on a real project (D30).
+> **Ported into proofline.** This is the design log of the `proof-review` skill: why it reports only provable findings and how it behaves outside and inside a proofline run. For maintainers who change the skill; users read `skills/proof-review/SKILL.md`. The log is the decision record of the standalone [proof-review](https://github.com/furkansarikaya/proof-review) repository, carried over verbatim below the horizontal rule. The skill now lives in `skills/proof-review/` of proofline and its fixtures in `fixtures/proof-review/`; its `metadata.version` is the proofline version (the release script rewrites it, A168), not the 0.0.1 named in the entries below. Where a numbered decision below names a path or a behaviour that proofline changed (for example the `<git-common-dir>/proof-review/` output folder, decision 12), the section "Proofline extensions" says what replaced it, and the section "Later changes" at the end lists what differs from both today. Everything else still holds. The source repository is archived only after proofline has been used on a real project (D30).
 
 ---
 
@@ -289,3 +289,16 @@ Added when the skill was ported into proofline (phase 4). Each entry says what w
 ### Fixtures
 
 - `fixtures/proof-review/` holds the original `go/setup.mjs`, `ts/setup.mjs` and `EXPECTED.md` (paths and output locations adjusted), plus `plan-setup.mjs` (Node) which turns the branch-mode fixture into a run (`.agents/runs/FIX-1/`: `RUN.yaml`, `TASK.md`, `PLAN.md`, plus `ACTIVE_RUN`), adds a versioned contract in the base, and a feature commit with two new dependencies (one named in the plan, one not). `EXPECTED.md` has a "Focus plan inside a run" section (which claim is missing or partial, which dependency and contract edit are deviations, which controls must stay silent, the gate) and short expectations for the other focuses. Builds were checked for both languages; no LLM run (phase 9).
+
+---
+
+## Later changes
+
+Where the text above no longer matches `skills/proof-review/SKILL.md`. The skill file wins; this list names the differences so the log is not read as current behaviour.
+
+- **Focus values.** `focus` is `plan`, `rules`, `bugs`, `rules+bugs`, `rules+tests`, `all` or `config` (SKILL.md, "Focus and run mode"). `rules+bugs` is what the full tier's `REVIEW_RULES` reviewer runs (the result header says `FOCUS: rules`); `config` is a risk focus inside `REVIEW_RULES` or `REVIEW_SMALL` (A78, A88) that runs a deterministic script (`scripts/check-config.mjs`, `validate-config.mjs`) and runs no project code.
+- **The lead's open point on focus values is closed.** The lead assigns only `plan` (gate `REVIEW_PLAN`), `rules` (gate `REVIEW_RULES`, run as `rules+bugs`), `rules+tests` (`REVIEW_SMALL`) and, when the pipeline lists it, `config`. `bugs`, `all` and a bare `rules` exist for standalone use and have no gate in a run.
+- **Output folders in a run.** `.agents/runs/<TASK-ID>/reviews/proof-review/<dir>/` with `<dir>` = `plan`, `rules`, `small` or `config`, not one folder.
+- **Unrequested changes can fail the gate.** Inside a run an `unrequested` record marked `"blocking": true` (a hunk inside the plan scope that changes behaviour and ties to no acceptance criterion) fails the gate; other `unrequested` records still never do (SKILL.md, "Gate rule").
+- **Validator and scripts.** `validate-findings.mjs` has `--help` and `--schema` (A256); the skill also ships `gate.mjs`, `check-config.mjs`, `validate-config.mjs` and `winprog.mjs`, and the references include `PLAN-CHECK.md` and `CONFIG.md`. The layout sketch above predates them.
+- **Version.** All skills carry the proofline version in `metadata.version`; `node tests/ci/bump-version.mjs` rewrites it.

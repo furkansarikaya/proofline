@@ -1,5 +1,7 @@
 # Failover
 
+This page explains what happens when a runtime runs out of limit or fails mid-run: how the lead resumes in another runtime and when a specialist switches runtime. It is for users who run proofline with Claude Code and Codex together.
+
 All run state is in `RUN.yaml`, the ledger and the run artifacts, written after every transition. That is what
 makes switching runtimes safe.
 

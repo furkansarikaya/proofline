@@ -1,7 +1,7 @@
 # Workflow
 
-One deterministic lifecycle per task. The lead (your main session) classifies, freezes, dispatches bounded
-roles and closes the run. `agent.sh` enforces every transition; `agent.sh next <ID>` prints the next step at any point. `agent.sh advance <ID>` (A258, lead only) is `next` that also runs the steps `next` names alone and that need no decision (`branch`, `baseline`, `freeze` with `freshness`, `handoff IMPLEMENTING`, `handoff IMPLEMENTED` with `tier` and `pipeline`), each as the typed command with its own checks; it stops at the first other step, the first failure, or after 8 steps, and runs no approval, waiver, dispatch, classification, CODE_DONE or DONE.
+This page describes the lifecycle of one task from request to cleanup, the classes, the freeze, delivery, night mode, the Windows limits and the knowledge step, for users who run proofline and contributors who change the lifecycle. It is one deterministic lifecycle per task. The lead (your main session) classifies, freezes, dispatches bounded
+roles and closes the run. The Node control plane enforces every transition (`agent.sh` is a thin launcher that starts it, A245); `agent.sh next <ID>` prints the next step at any point. `agent.sh advance <ID>` (A258, lead only) is `next` that also runs the steps `next` names alone and that need no decision (`branch`, `baseline`, `freeze` with `freshness`, `handoff IMPLEMENTING`, `handoff IMPLEMENTED` with `tier` and `pipeline`), each as the typed command with its own checks; it stops at the first other step, the first failure, or after 8 steps, and runs no approval, waiver, dispatch, classification, CODE_DONE or DONE.
 
 ```text
 TASK -> CLASSIFY -> BRANCH -> BASELINE -> DISCOVER -> EVIDENCE -> [ARCHITECT/DATA/UI] -> PLAN -> [QA PLAN]
@@ -20,7 +20,7 @@ The highest class any indicator reaches wins; when unsure, take the higher.
 | COMPLEX | several modules, new integration or dependency, public contract, persistence, real design tradeoffs |
 | CRITICAL | auth, crypto, secrets, destructive migration, financial or data-integrity behaviour, high-impact CI or deploy |
 
-A plan with more scope paths than `pipelines.<CLASS>.max_scope_paths` (15 by default) does not freeze: `freeze` records a split question (task-author's split flow), and only the user's answer `proceed without splitting` lets it continue, recorded in the ledger (A171). `pipelines.<CLASS>.dispatch_timeout_seconds` sets the dispatch timeout per class; a timed-out step leaves `dispatch/RESUME-<role>.md`, which the next dispatch of that role carries in its prompt.
+A plan with more scope paths than `pipelines.<CLASS>.max_scope_paths` (shipped values: TRIVIAL 2, STANDARD 15, COMPLEX 15, CRITICAL 12) does not freeze: `freeze` records a split question (task-author's split flow), and only the user's answer `proceed without splitting` lets it continue, recorded in the ledger (A171). `pipelines.<CLASS>.dispatch_timeout_seconds` sets the dispatch timeout per class; a timed-out step leaves `dispatch/RESUME-<role>.md`, which the next dispatch of that role carries in its prompt.
 
 `agent.sh decide <ID> <role> --dry` shows the execution decision without writing a decision file or ledger row; a bare `decide` ahead of a dispatch is refused, because `dispatch.sh` decides for itself (the dispatcher is Node code since A226 and records the decision in process; a call from another process is accepted only with a one-use nonce file under `.agents/local/dispatch/` that names a live ancestor of the caller, and never on Windows) and the Agent route records its decision once per step with `decide ... --agent-path` (a second one for the same role and focus waits for a recorded result). `agent.sh answer <ID> <N> --amend` replaces a recorded answer with a newer, unused user message and keeps the old record as `NNN.answer.amended-K.md`; the lead alone cannot amend.
 
@@ -42,7 +42,7 @@ plan relies on without a verified claim (id, text, source, risk `low|medium|high
 unverified high-risk assumption stands: the lead relays a recorded NEEDS_INPUT question bound to its id, and
 the assumption is accepted only by the user's own prompt, which must start with `accept AS-<n>` or
 `accepted AS-<n>` (any case; the id is `AS-<n>`). Several clauses may be joined with `,`, `;`, `&` or `and`, and
-the remainder must contain no refusal word (not, no, if, unless, but, or the Turkish equivalents); a prompt that
+the remainder must contain no refusal word (not, no, if, unless, but, or their equivalents in another language the checker lists); a prompt that
 merely contains the word accepts nothing. The stored answer becomes exactly `accept AS-<n>` and the assumption is
 listed as `accepted-by-user` with it as reference. `agent.sh verify-assumptions <TASK>` shows the register read-only. The
 completion report lists every unverified and accepted-by-user assumption.
@@ -76,7 +76,7 @@ plan-contract and qa-plan validators carry the same expressions and read `valida
 themselves (flat key lookup; `--entry-words` overrides `entry_words`; defaults when the file or key is missing), so a
 tuned project gets the same words at the freeze, in `validate-plan.mjs` and in `validate-qa.mjs`. The `[invalid-input]`
 scenario is adversarial by definition: `validate-qa.mjs` refuses a category on an acceptance scenario, so a QA plan that
-passes it has the scenario in `## Adversarial scenarios`; `agent.sh` accepts the tag in any section (the freeze checks
+passes it has the scenario in `## Adversarial scenarios`; the control plane accepts the tag in any section (the freeze checks
 that a named scenario exists, the validator checks the structure), so the two agree on every plan the validator accepts.
 
 What the check cannot see: an entry point the plan does not list in `## Contracts` (code is read only for
@@ -171,6 +171,8 @@ The computer must stay awake and the session open: on macOS the session offers `
 `proofline batch status` (`agent.sh batch-status`) prints the morning table (task, result, PR, merge time, park reason,
 pending question) from the records, never from a session log, with the friction report under it.
 
+Two defaults make an approved batch finish without asking about things only you could decide. Test exceptions: a task file may declare `## Test exceptions` lines (the task author proposes them when the acceptance criteria foreseeably need a protected test changed, A294); the summary lists each with its sha256, and your "approve batch" is what approves exactly those lines (A285). The knowledge step: a task with no knowledge page records `not_applicable` with the reason `batch default (A291)`, writes nothing under `docs/`, skills or rules, and shows a suggestion in the completion report and in `batch status` instead (A291); attended runs still refuse a missing page.
+
 ## Commands
 
 | Command | What it does |
@@ -208,9 +210,9 @@ A **local origin** (a path or `file://` URL, such as a bare repository on disk) 
 
 When a pull request has **no checks** (or the project has no CI), it is not refused: the build and test commands of `.agents/config.yaml` run in a clean export of exactly the commit to be merged (the build record), the pull request description and the delivery summary say "verified locally, no CI", and `proofline merge` posts the same note before it merges. Checks that exist but are red or pending still refuse. A CI-fix round (A169) reads the failed run through `gh` and so exists on GitHub only. Only the exact hosts `github.com`, `www.github.com`, `gitlab.com`, `bitbucket.org`, `dev.azure.com`, `ssh.dev.azure.com` and `*.visualstudio.com` are recognized (a lookalike such as `github.com.example` is `other`); `PROOFLINE_PLATFORM=github|gitlab|azure|bitbucket|other` names the platform of a self-hosted host.
 
-## Not tried (denenmedi)
+## Not tried
 
-**What runs on Windows (A272).** The nightly and manual CI run executes, on `windows-latest` with Node 22.13.0, the core's Node tests (four shards, `tests/core`), the Node Core-invariant suite (`tests/invariants-node`) and the hook tests, including the hook guards with drive, UNC and Git Bash path spellings (`hook-windows`, `windows-core`). A red leg fails the nightly run. Only the hook leg runs on a pull request, and only when the pull request changes path, hook or guard code (the path list of `tests/ci/windows-hook-paths.mjs`, A295); the core and invariant legs never run on a pull request (a leg takes about 27 minutes of Windows runner time), so a core change that breaks Windows is found the night after it merges, not before. A test that cannot run on Windows (a POSIX file mode, a shell fake) is skipped there by name; the last full run had 2,490 pass, 0 fail, 103 skipped. The skips are named per test, each with its reason, in the entries A261 to A270 (there is no single list); A272 has the totals.
+**What runs on Windows (A272).** The nightly and manual CI run executes, on `windows-latest` with Node 22.13.0, the core's Node tests (four shards, `tests/core`), the Node Core-invariant suite (`tests/invariants-node`) and the hook tests, including the hook guards with drive, UNC and Git Bash path spellings (`hook-windows`, `windows-core`). A red leg fails the nightly run. Only the hook leg runs on a pull request, and only when the pull request changes path, hook or guard code (the path list of `tests/ci/windows-hook-paths.mjs`, A295); the core and invariant legs never run on a pull request (the longest `windows-core` leg took 26 to 36 minutes: 1545 s in run 43672011273, 2175 s in run 43798071190; `hook-windows` took about 2 to 3 minutes, 119 to 161 s in five runs: 43551134283, 43672011273, 43798071190, 43832888807, 43863439518), so a core change that breaks Windows is found the night after it merges, not before. A test that cannot run on Windows (a POSIX file mode, a shell fake) is skipped there by name; the full run counted in A272 had 2,490 pass, 0 fail, 103 skipped. The skips are named per test, each with its reason, in the entries A261 to A270 (there is no single list); A272 has the totals.
 
 **What is not verified on Windows, and limits that stay (A260 to A271).** Written against fakes only, never against the real thing, or accepted as a limit:
 
@@ -293,7 +295,7 @@ repeat its product text, so these are exempt (A172), and only these:
   `reports/qa-evidence/` of a run (dispatch output, scratch, gates and the ledger were exempt already). This is an accepted channel that is not checked: a role allowed to write there could put text there.
 - the question block the script stores for you in `questions/NNN.md` (`agent.sh ask`, and a specialist's question recorded by `record`): it is addressed to you and printed in your language (A99), so it is not scanned (A178); the front-matter lines stay English. Only the files `questions/NNN.md` directly under the run folder are exempt (a file of that name in a deeper folder is checked), and the question text is never evidence. The text itself is not checked: a specialist's question reaches the file through `record`, so it could contain non-English text; it is shown only to you.
 
-Agents never transliterate product text to ASCII (no `ç` to `c`) and never ask you whether to translate; the refusal message says
+Agents never transliterate product text to ASCII (no accented letter to its plain form) and never ask you whether to translate; the refusal message says
 to quote the text the project has. Each file is checked once without the product text, and the text is gathered (`git grep` on `HEAD`, capped at 50 MB, cached per commit under `.agents/local/language/`, as a pre-filter only: every piece the cache accepts is confirmed with one `git grep` on `HEAD`, because the cache is a file) only
 when a file has a hit, so an English write costs one pass and a quote check one lookup, not one scan per quote.
 

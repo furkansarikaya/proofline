@@ -2,8 +2,8 @@
 
 An adapter is one small package that (1) renders the role sources in `roles/` into an agent's native
 format and (2) maps proofline's hooks onto that agent's hook mechanism. Enforcement itself never lives in an
-adapter: state, gates and the commit/push lock are in `control-plane/agents/scripts/agent.sh` and the git
-hooks, which work with any agent (D6). Supported: Claude Code and Codex (full). Others: send a PR (D8).
+adapter: state, gates and the commit/push lock are in the Node control plane (`control-plane/agents/scripts/proofline-core.mjs` and `core/`, ADR 0001), reached through the thin `agent.sh` launcher, and in the git
+hooks, which work with any agent (D6). Supported: Claude Code (full) and Codex (implementer role verified in real use; see the status table). Others: send a PR (D8).
 Untested adapters must be labelled "not tested".
 
 ## Support status (0.0.135)
@@ -70,7 +70,7 @@ body contains `'''` the generator falls back to a basic multi-line string with `
 2. Add a `render<Name>` function to `generate.mjs` (mirror `renderCodex`: frontmatter fields from the role
    source, body through `bodyFor(role, <skill-path-prefix>, '/SKILL.md')`), a target name, and tests in
    `tests/generator/generator.test.mjs` (structure, skill substitution, profile switch, escaping, `--check`).
-3. Map the hooks (section 4). The adapter writes only thin shims; every decision is made by `agent.sh`.
+3. Map the hooks (section 4). The adapter writes only thin shims; every decision is made by the Node control plane behind the `agent.sh` launcher.
 4. Run `node --test tests/generator/*.test.mjs` and `node adapters/generate.mjs --check`.
 
 ## 4. Hook mapping

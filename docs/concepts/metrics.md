@@ -1,5 +1,7 @@
 # Metrics and cost
 
+This page explains what proofline records about the cost of a run (time, runtime-reported tokens, turns, retries, tool calls), the exact record format, and how `proofline insights` reads it. It is for users who want to see what a run cost and for contributors who read or extend the records.
+
 The control plane records what each run and each specialist step cost, locally and best effort.
 Everything lives in `.agents/local/metrics/` (git-ignored); `metrics: off` in `.agents/config.yaml`
 disables all of it. A metrics failure never blocks a command.
@@ -77,7 +79,7 @@ record carries cost, the `step` record carries the gate verdict.
   inflate it, the runtime label is the runtime the step ran on, and Codex tokens are read from the log whatever the final message looked like.
 - **Evidence archive (A200).** `cleanup` and `worktree-remove` put a compressed copy of a run's records under `.agents/local/archive/<ID>/` (git-ignored) before
   they delete them; `archive.keep` in `config.yaml` (default 10, 0 turns it off) is the number of runs kept, and the deletion is refused when archiving fails.
-- **`metrics: off`** writes neither file, from `agent.sh` or `dispatch.sh`. Existing files are left alone.
+- **`metrics: off`** writes neither file, from the control plane or the dispatcher. Existing files are left alone.
 - **Metrics never change a decision.** The execution policy (`cli exec-policy` of the Node core) does not read them (A80):
   routing stays a pure function of class, tier, profile, role and signals, and quality and security rules cannot be
   traded for cost.

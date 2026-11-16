@@ -1,5 +1,7 @@
 # Night mode
 
+This page explains night mode: how one approval covers several tasks, what it does not cover, how the batch runs and resumes, and where its limits are. It is for users who want to start a batch before leaving the computer.
+
 Night mode (`/proofline batch <ID...|all>`, A157) works through several tasks with one approval, in the SAME session : the
 lead runs a task, delivers it, and only when it is merged goes on to the next. There is no background process and no headless
 session. This page holds the detail; the README keeps the short form. The mechanics are in [workflow](workflow.md#night-mode), the

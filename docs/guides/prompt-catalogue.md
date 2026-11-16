@@ -1,8 +1,8 @@
 # Prompt catalogue
 
-Prompts you can paste into your agent session. In Claude Code use `/proofline <subcommand>`; elsewhere run
-`proofline <subcommand>` in a terminal (it prints the exact instruction for your runtime) or say the same in
-plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
+Prompts you can paste into your agent session, grouped by what you want to do. In Claude Code use `/proofline <subcommand>`; elsewhere run
+`proofline <subcommand>` in a terminal (for the subcommands that need an agent it prints the exact instruction for your runtime) or say the same in
+plain words. `proofline help` lists every subcommand. Turkish translation (may lag behind this page): [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 
 ## Setup
 
@@ -13,6 +13,8 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | Check everything is enforced | `/proofline doctor` |
 | Update the control plane | `/proofline upgrade` |
 | Where am I? | `/proofline status` |
+| Find and prove the build, test and lint commands | `/proofline doctor --commands`, then answer yes to its one question (`--apply-commands` writes the proven proposal) |
+| Measure this machine and propose `timeouts.scale` | `proofline doctor --scale`, then `approve scale` |
 
 ## Tasks
 
@@ -34,6 +36,17 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | API contract | `/proofline design api` |
 | Design system from the UI | `/proofline design ui` |
 | Drift check | `/proofline design system --check` |
+| Polish one screen (modes: bolder quieter polish animate typeset colorize layout delight harden adapt) | `/proofline design ui polish the settings page` |
+
+## Documentation, explanations, trace
+
+| Goal | Prompt |
+|---|---|
+| Write, update from a diff, or audit documentation | `/proofline docs create`, `/proofline docs update`, `/proofline docs audit` |
+| One offline HTML page that explains a topic or a task | `/proofline explain TASK-001` |
+| Follow a requirement or task to its tests, run evidence and pull request (read-only) | `/proofline trace TASK-001` |
+| Keep a project wiki | `/proofline wiki ingest README.md`, `/proofline wiki query <question>`, `/proofline wiki lint` |
+| Write a product requirements document, review it, split it into tasks | `/proofline product prd <slug>`, `/proofline product review <slug>`, `/proofline product split <slug>` |
 
 ## Review, audit, debug (standalone)
 
@@ -71,7 +84,20 @@ plain words. Turkish: [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 | Approve that whole summary | `approve delivery` (or `I approve the delivery`) |
 | Commit | `I approve the commit for TASK-001` |
 | Push | `I approve the push for TASK-001` |
+| Merge a pull request (checks every check on its current head) | `proofline merge 42 --squash --delete-branch` |
 | Clean finished runs | `proofline clean --yes` |
+
+## Several tasks at once (night mode)
+
+| Goal | Prompt |
+|---|---|
+| Plan the batch: one summary, in dependency order | `/proofline batch TASK-001 TASK-002` or `/proofline batch all` |
+| Approve that whole summary (plan and delivery approvals of its tasks, nothing else) | `approve batch` |
+| Answer the pre-flight questions in the summary | `Q1 a, Q2 b` or `all recommended` (never for the list of expected known issues) |
+| Continue after an interruption | `/proofline batch` |
+| The morning table, from records only | `proofline batch status` |
+
+Details: [night mode](../concepts/night-mode.md).
 
 A reply must be one full sentence of the kind (`I approve the plan`, `I approve the commit`, `I approve the scope`, ...) or a short phrase such as `approve plan`; any extra clause makes it ambiguous and the question is asked again.
 

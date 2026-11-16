@@ -1,25 +1,27 @@
 # Roles
 
+This page lists the eleven roles, what each does and when it runs, the rules every role follows, and how runtime and model are chosen. It is for users who configure a team and contributors who change a role.
+
 Each role is defined once in `roles/<id>.md`; `adapters/generate.mjs` renders the Claude Code agents, the
 Codex agents and the prompt prefixes from it. The full generated table is in [the roles reference](../reference/roles.md).
 
 | Role | Does | Skills | When |
 |---|---|---|---|
-| `lead` | Owns the lifecycle; the only role that changes task state or declares DONE | proofline-lead, plan-contract, debug-proof | always (the main session) |
+| `lead` | Owns the lifecycle; the only role that changes task state or declares DONE | proofline-lead, plan-contract, debug-proof, llm-wiki | always (the main session) |
 | `task_author` | Turns a request into a standard task | task-author, intent-grill | no task exists |
 | `explorer` | Bounded investigation, compact verified evidence (the DONE report is a claims table, A184); impact mode: what a change reaches | evidence-map | not TRIVIAL |
-| `architect` | System and API design, ADRs | system-design, api-design | COMPLEX, CRITICAL or on request |
+| `architect` | System and API design, ADRs | system-design, api-design, docs-writer, explain-html | COMPLEX, CRITICAL or on request |
 | `data_architect` | Data model and migration plan | data-design | persistence changes or on request |
 | `designer` | UI design and `docs/design/DESIGN.md` (or one document per surface, [design surfaces](design-surfaces.md)); sets a visitor mode per surface (persuade, operate, read, experience) and, for persuade and experience, writes DESIGN.md first as the direction contract; marks which criteria need visual proof; never approves its own design (A81, A170) | ui-design | UI changes or on request |
 | `qa` | QA plan before, QA report after; the visual focus on UI runs | qa-plan, test-trust, visual-proof | STANDARD and up |
 | `implementer` | The frozen plan with RED/GREEN evidence | tdd-proof, debug-proof | always |
-| `reviewer` | One focus: plan, rules, tests, data (or rules+tests on the small tier), or a risk focus (contract, concurrency, performance, config, migration) | proof-review, test-trust, data-design, concurrency-proof, performance-proof, contract-proof | per tier |
+| `reviewer` | One focus: plan, rules, tests, data (or rules+tests on the small tier), or a risk focus (contract, concurrency, performance, config, migration) | proof-review, test-trust, data-design, concurrency-proof, performance-proof, contract-proof, product-spec | per tier |
 | `security_reviewer` | Exploitable findings only | exploit-proof | full tier |
 | `verifier` | Mechanical proof the plan is implemented; design drift | verify-proof, design-sync | always |
 
 ## Rules every role follows
 
-- The review roles (`qa`, `reviewer`, `security_reviewer`, `verifier`) and `explorer` only read and report: they never push, never create a branch or a tag, and do not commit (committing is not their job; A293, [enforcement layers](enforcement-layers.md)). They cannot comment on a pull request either (`gh pr comment` and `gh pr review` are write verbs, refused): they report to the lead, who posts.
+- The review roles (`qa`, `reviewer`, `security_reviewer`, `verifier`) and `explorer` only read and report: they never push, never create a branch or a tag, and do not commit (committing is not their job). The runtime hook and the git `pre-push` hook refuse these actions (A293), but that is a tripwire for honest mistakes in ordinary spellings, not a boundary against a determined agent; the boundary is branch protection on the host ([enforcement layers](enforcement-layers.md)). They cannot comment on a pull request either (`gh pr comment` and `gh pr review` are write verbs, refused): they report to the lead, who posts.
 - No swarm, no recursion: only the lead dispatches; specialists never spawn agents.
 - Communication is lead, bounded assignment, specialist, owned artifact plus a structured result, lead.
 - Results start with a fixed header (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`). A hook or `agent.sh record` parses and stores it; the lead can never write a verdict.

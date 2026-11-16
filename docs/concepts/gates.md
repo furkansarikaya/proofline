@@ -1,5 +1,7 @@
 # Gates
 
+This page explains how a change is judged: which gates a run needs, who records them, what a waiver or an approval is, and what happens after a failed review. It is for users who read a gate result and for contributors who change the gates.
+
 Gates decide whether a change holds. Each gate record binds the content fingerprint (a git tree id), the
 task-owned patch and the frozen hashes. If one byte changes, earlier passes go stale. Verdicts are computed from
 the reviewer's recorded result by script; the lead cannot write or waive one.
@@ -79,7 +81,7 @@ default), or from a flag the architect or data architect writes into PLAN.md (`#
 
 The `logging` focus (A162) opens when a line the diff adds is a log call (`logger.`, `log.`, `console.`, `print`,
 `printf`, `Log.` and the like) and names a sensitive-looking word: `password`, `token`, `secret`, `authorization`,
-`cookie`, `email`, `phone`, `card`, `iban`, `ssn`, `tckn` (config `risk.log_sensitive.content` and `.words`, both
+`cookie`, `email`, `phone`, `card`, `iban`, `ssn`, `tckn` (a national identity number; config `risk.log_sensitive.content` and `.words`, both
 extensible; case-insensitive, whole identifier parts, so `userPassword` matches and `discard` does not). The word
 match only opens a review: the security reviewer then checks the `[log]` sink of exploit-proof, whether a request
 body, an `Authorization` or `Cookie` header, a token, a password, a secret key or personal data reaches the changed
@@ -224,6 +226,6 @@ whose screenshots are byte-identical (measurement is always recomputed). The ver
 timestamps, `HH:MM:SS`, durations, the trailing duration of the `[build] Complete!` line); counts, names and exit status stay exact (`agent.sh repro-normalize`).
 A debug-proof is required by the task type or label (`bug`, `defect`) and `decision: fix`, not by the word "fix" in the text; a reviewer may still ask for it.
 `agent.sh design-rationales <ID>` lists the rationales and whether each is approved. `knowledge-done` checks the page, the secret scan and the wiki lint
-before DONE and refuses when the lint cannot run. The invariants these speed-ups must keep are the six "Core invariants" of CONTRIBUTING.md, tested in `tests/invariants-node/`.
+before DONE and refuses when the lint cannot run. In a task of an approved night batch with no knowledge page, `knowledge-done` records `not_applicable` with a visible reason instead of asking you (A291); see [night mode](night-mode.md). The invariants these speed-ups must keep are the six "Core invariants" of CONTRIBUTING.md, tested in `tests/invariants-node/`.
 
 Related: [workflow](workflow.md), [enforcement layers](enforcement-layers.md).

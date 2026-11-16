@@ -1,4 +1,4 @@
-> **Ported into proofline.** This is the decision log of the standalone [test-trust](https://github.com/furkansarikaya/test-trust) repository, carried over verbatim below the horizontal rule. The skill now lives in `skills/test-trust/` of proofline (team version 0.0.1, D30) and its fixtures in `fixtures/test-trust/`. Where a numbered decision below names a path or a behaviour that proofline changed (for example the `.test-trust/` output folder, decision 15), the section "Proofline extensions" at the end says what replaced it; everything else still holds. The source repository is archived only after proofline has been used on a real project (D30).
+> **Ported into proofline.** This is the design log of the `test-trust` skill: what it measures (flaky, hollow and slow tests), why it only audits, and how it behaves outside and inside a proofline run. For maintainers who change the skill; users read `skills/test-trust/SKILL.md`. The log is the decision record of the standalone [test-trust](https://github.com/furkansarikaya/test-trust) repository, carried over verbatim below the horizontal rule. The skill now lives in `skills/test-trust/` of proofline and its fixtures in `fixtures/test-trust/`; its `metadata.version` is the proofline version (the release script rewrites it, A168), not the 0.0.1 named in the entries below. Where a numbered decision below names a path or a behaviour that proofline changed (for example the `.test-trust/` output folder, decision 15), the section "Proofline extensions" says what replaced it, and the section "Later changes" at the end lists what differs from both today. Everything else still holds. The source repository is archived only after proofline has been used on a real project (D30).
 
 ---
 
@@ -184,3 +184,15 @@ Added when the skill was ported into proofline (phase 4). Each entry says what w
 ### Fixtures
 
 - `fixtures/test-trust/` holds the original `go/` and `ts/` projects and `EXPECTED.md` unchanged in substance (paths adjusted), plus `diff-setup.mjs` (Node) which builds a base commit and a working-tree "task" in two scenarios (`fail`, `pass`) for each language. `EXPECTED.md` has a "Diff mode" section: which planted test must fail the gate and why, which decoys must not be flagged, what counts as a failure. The mutants and flaky rates were checked by hand against the built repositories; no LLM run (phase 9).
+
+---
+
+## Later changes
+
+Where the text above no longer matches `skills/test-trust/SKILL.md`. The skill file wins; this list names the differences so the log is not read as current behaviour.
+
+- **The diff-mode gate has more kinds.** Besides a `confirmed` flaky or hollow finding, a `confirmed` finding of kind `real_wait`, `clock_not_injected`, `over_budget` or `not_measured` fails the gate (speed and determinism, A273 to A276; `skills/test-trust/references/FAST.md`). The control plane measures (`agent.sh build-record <ID> scan` and the double run of new and changed tests); the skill reads and judges. A wait or a budget is cleared only by a line of the plan's `## Test exceptions` that the user approved (A284, A285). `slow` findings stay informational.
+- **QA use.** The QA role can run the skill with output in `.agents/runs/<TASK-ID>/reviews/test-trust/qa/`; that folder is never a gate artifact. The review gate uses `reviews/test-trust/tests/`.
+- **Mutation budget floor.** In a team run `mutation_budget` is never below one mutant per `## Tests` criterion of the plan, unless the user approved an override (SKILL.md, "Thresholds").
+- **Layout.** The skill ships `references/DIFF.md` and `FAST.md`, `scripts/gate.mjs` and `validate-findings.mjs`; the fixtures for the speed and determinism kinds are in `fixtures/fast-tests/`.
+- **Version.** All skills carry the proofline version in `metadata.version`; `node tests/ci/bump-version.mjs` rewrites it.

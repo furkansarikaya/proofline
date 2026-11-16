@@ -1,5 +1,7 @@
 # ADR 0001 stages: the Node migration, one section per stage
 
+**Status:** all 15 stages are done (A252; the exit record is [Stage 15](#stage-15-exit-criteria-record-a251)). This file is kept as written: its stage plans were the source of the GitHub issues, and parts of it describe a two-engine migration that A210 replaced (no engine switch, no equivalence rig). Where it differs from the current layout, [the decision record](0001-node-control-plane.md) and `docs/decisions.md` win.
+
 Companion to [0001-node-control-plane.md](0001-node-control-plane.md) (the decision) and [0001-inventory.md](0001-inventory.md)
 (what exists). GitHub issues are generated from this file: the epic from [Epic](#epic), one issue per `## Stage N` section with the
 fields `Title`, `Version`, `Scope`, `Depends on`, `Acceptance criteria`, `Risks`, `Rollback`, `Estimate`.

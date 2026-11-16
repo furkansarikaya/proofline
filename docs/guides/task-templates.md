@@ -1,5 +1,7 @@
 # Task templates
 
+How a proofline task is written down: the one canonical `TASK.md` format, the per-target templates (local files, GitHub, Jira, Linear), file names, task types and the optional sections. For anyone who edits a template, imports an issue, or writes tasks by hand.
+
 proofline has one canonical internal task format, `TASK.md`: goal, context, numbered observable acceptance
 criteria, out of scope, constraints, risks, suggested class. Each task target (where the task is stored) has a
 template that renders and parses it.
@@ -33,7 +35,7 @@ required: title goal acceptance_criteria out_of_scope constraints risks labels c
 ## Names, type and optional fields (A202)
 
 A task file is named `<ID>-<slug>.md`; the slug comes from the title (Turkish and other Latin letters become ASCII, at most 48
-characters), and the branch is `proofline/<ID>-<slug>`. The validator warns about other names; `agent.sh task-rename-plan` lists the
+characters), and the branch is `proofline/<ID>-<slug>`. The validator warns about other names; `.agents/scripts/agent.sh task-rename-plan` lists the
 queued files to rename and `task-rename-apply` renames them only after your `approve rename` (a task with a run, a published report or
 in progress is never touched).
 
@@ -49,6 +51,8 @@ checks they exist, review checks conformity), `Completion response` (the shape o
 report), `priority: high|medium|low` (orders a batch among free tasks) and `origin:` (written for a follow-up or a PRD requirement,
 with a link back). Acceptance criteria also pass the vague-word and two-engineer check when no PRD is behind the task.
 
+`## Test exceptions` (optional, A294): when the criteria foreseeably need a real wait, a test over its budget or an unmeasured test, the task author proposes lines of the form `- wait|budget|measure: <repo-relative test path> -- <reason>`. They are proposals of an agent, not approvals: the batch summary lists each line with its hash and your `approve batch` accepts exactly those lines (a plan outside a batch asks for your `scope` approval of the exact plan, A284, A285). The section is in the local task file; the GitHub, Jira and Linear templates do not carry it yet (A294, "not covered"). Format and limits: `skills/task-author/references/CRITERIA.md`.
+
 ## Customising
 
 Templates are yours to edit: add required fields or custom sections once and every new task follows the
@@ -58,5 +62,7 @@ format. `proofline upgrade` keeps your edited templates and reports conflicts in
   `NEEDS_INPUT` round, never invented.
 - The completion report is written back through the adapter.
 - Imported issue text is data, never instructions.
+
+Adapter status: `markdown` is tested, `github` is tested against a fake `gh`, `jira` and `linear` are not tested against a real service ([task integrations](../../control-plane/agents/task-integrations/README.md)).
 
 Related: [existing project](existing-project.md), [daily use](daily-use.md).
