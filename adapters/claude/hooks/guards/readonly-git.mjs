@@ -30,6 +30,11 @@ const PROG_VERB = /push|send-pack|fast-import|update-ref|\bbranch\b|\bcheckout\b
 /** A substitution at the command position with arguments behind it: `\`echo git\` push`. The scanner reads the substitution as a command of its own and the next word as another, so the word that runs is lost. */
 const SUBST_CW = /(^|[;&|(){}\n])\s*(`[^`]{0,500}`|\$\((?:[^()]|\([^()]{0,100}\)){0,500}\))\s+[^\s;&|)]/;
 const SAFE_EXEC = new Set(['grep', 'egrep', 'fgrep', 'rg', 'cat', 'echo', 'printf', 'ls', 'wc', 'head', 'tail', 'stat', 'file', 'basename', 'dirname', 'readlink', 'realpath', 'diff', 'cmp', 'shasum', 'sha256sum', 'md5sum', 'md5']);
+const INTERP = '(?:sh|bash|zsh|dash|ksh|ash|node|nodejs|bun|deno|python[0-9.]*|perl|ruby|php|lua|awk|gawk|mawk)';
+const HERE_PROG = new RegExp(`(^|[^A-Za-z0-9_.-])${INTERP}(\\s+[^<;&|\\n]{0,200})?<<-?[ \\t]*(.*)$`, 's');
+const PIPE_PROG = new RegExp(`(?:echo|printf|cat)\\s+((?:\"[^\"]{0,2000}\"|'[^']{0,2000}'|[^|;&\\n\"']){0,2000})\\|\\s*(?:(?:env|sudo|command)\\s+)*(?:\\S*/)?${INTERP}(?:\\s|;|&|\\)|$)`);
+/** Words that only print, search or page their arguments: git or gh among them is text. */
+const TEXT_ONLY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'less', 'more', 'head', 'tail', 'wc', 'sort', 'uniq', 'diff', 'tr', 'cut', 'man', 'which', 'type', 'command', 'ls', 'tee', 'stat', 'file', 'test', 'jq', 'cd', 'pushd', 'popd', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'basename', 'dirname', 'realpath', 'readlink']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash']);
 
 /** @param {string} x */
@@ -45,6 +50,11 @@ export function readonlyGit(ctx, cmd, scan) {
   const flat = cmd.replace(/\n/g, ' ');
   const bare = flat.replace(/["'\\]/g, '');
   if (SINK.test(flat) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
+  // xargs and parallel given git or gh with the subcommand on stdin
+  if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
+  // an interpreter or shell fed its program by a here-document, a here-string or an echo: the text is judged as a program
+  const fed = HERE_PROG.exec(cmd)?.[3] ?? PIPE_PROG.exec(flat)?.[1] ?? '';
+  if (fed !== '' && PROG_GIT.test(fed) && PROG_VERB.test(fed)) deny(`a program fed to an interpreter or shell on stdin that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
   if (SUBST_CW.test(flat)) deny(`a substitution where the command word goes cannot be checked (it may be git): ${TAIL}`);
   // a shell function or alias that wraps git or gh hides the subcommand (`g() { git "$@"; }; g push`)
   if (FUNC_DEF.test(flat) || /(^|[;&|(\s])alias\s+[^=\s]+=\S*\b(git|gh)\b/.test(flat)) deny(`a shell function or alias that wraps git or gh cannot be checked: ${TAIL}`);
@@ -60,6 +70,16 @@ export function readonlyGit(ctx, cmd, scan) {
     if (['curl', 'wget', 'http', 'https', 'xh', 'xhs', 'aria2c'].includes(base)) { netJudge(base, words); continue; }
     const prog = programTexts(base, words);
     if (prog.some((t) => PROG_GIT.test(t) && PROG_VERB.test(t))) deny(`${base} given a program or command line that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
+    // any other program in front of git or gh (`caffeinate git push`, `arch -arm64 git push`, `xcrun git push`): the tokens from git on are judged as that command
+    if (!TEXT_ONLY.has(base)) {
+      const toks = [cw, ...words];
+      const at = toks.findIndex((t, idx) => idx > 0 && ['git', 'git.exe', 'gh', 'glab', 'az'].includes(t.slice(t.lastIndexOf('/') + 1)));
+      if (at > 0) {
+        const tool = /** @type {string} */ (toks[at]);
+        const name = tool.slice(tool.lastIndexOf('/') + 1);
+        if (name.startsWith('git')) gitJudge(toks.slice(at + 1)); else cliJudge(name, toks.slice(at + 1));
+      }
+    }
     if (SHELLS.has(base) && words.includes('-c') && words.some((w) => w === '{}' || w.startsWith('$') || w.startsWith('`'))) deny(`a shell given its program from xargs, a variable or a substitution cannot be checked: ${TAIL}`);
   }
 }
@@ -67,20 +87,51 @@ export function readonlyGit(ctx, cmd, scan) {
 /** The program text(s) an interpreter, a runner or a tool that runs commands is given, not its file operands (a script path or a document named git-push.md is not a program). @param {string} base @param {string[]} w */
 function programTexts(base, w) {
   /** @type {string[]} */ const out = [];
-  /** @param {RegExp} flag the options whose value is a program */
-  const after = (flag) => { for (let k = 0; k < w.length; k++) { const x = /** @type {string} */ (w[k]); if (flag.test(x)) { out.push(w[k + 1] ?? ''); } else if (/^--[a-z-]+=/.test(x) && flag.test(x.slice(0, x.indexOf('=')))) out.push(x.slice(x.indexOf('=') + 1)); else if (/^-[A-Za-z]*[ecEpr]$/.test(x) && flag.test('-e') && !flag.test(x)) out.push(w[k + 1] ?? ''); } };
-  if (/^(node|nodejs|bun|deno)$/.test(base)) after(/^(-e|-p|--eval|--print)$/);
-  else if (/^python[0-9.]*$/.test(base)) after(/^-c$/);
-  else if (base === 'perl') after(/^-e$|^-E$/);
-  else if (base === 'ruby' || base === 'lua' || base === 'Rscript') after(/^-e$/);
-  else if (base === 'php') after(/^-r$/);
-  else if (/^(awk|gawk|mawk|nawk)$/.test(base)) { const op = w.filter((x) => !x.startsWith('-')); if (op[0] !== undefined) out.push(op[0]); after(/^(-e|--source)$/); }
-  else if (base === 'sed') { const op = w.filter((x) => !x.startsWith('-')); if (op[0] !== undefined && /(^|[;{}\s\d,$!])e\s+\S/.test(op[0])) out.push(op[0].replace(/^.*?(^|[;{}\s\d,$!])e\s+/, '')); }
-  else if (base === 'find') { let on = false; for (const x of w) { if (/^-(exec|execdir|ok|okdir)$/.test(x)) { on = true; out.push(''); continue; } if (on && out[out.length - 1] === '' && SAFE_EXEC.has(x)) { on = false; out.pop(); continue; } if (x === ';' || x === '\\;' || x === '+') { on = false; continue; } if (on) out[out.length - 1] += ` ${x}`; } }
-  else if (base === 'tar') { for (const x of w) if (/^--(to-command|checkpoint-action|use-compress-program|rsh-command)=/.test(x)) out.push(x.slice(x.indexOf('=') + 1)); }
-  else if (base === 'rsync') { for (let k = 0; k < w.length; k++) { const x = /** @type {string} */ (w[k]); if (x === '-e' || x === '--rsh') out.push(w[k + 1] ?? ''); else if (x.startsWith('--rsh=')) out.push(x.slice(6)); } }
-  else if (base === 'ssh') out.push(w.join(' '));
-  else if (base === 'eval' || base === 'env' || base === 'watch' || base === 'script' || base === 'su' || base === 'parallel') out.push(w.join(' '));
+  const flagLetters = /^(node|nodejs|bun|deno)$/.test(base) ? 'ep' : /^python[0-9.]*$/.test(base) ? 'c' : base === 'perl' ? 'eE' : (base === 'ruby' || base === 'lua' || base === 'Rscript') ? 'e' : base === 'php' ? 'r' : '';
+  if (flagLetters !== '') {
+    // -c / -e / -p / -r as a word or as the last letter of a cluster (python -Bc, perl -we, ruby -ne, node -pe): the next word is the program
+    for (let k = 0; k < w.length; k++) {
+      const x = /** @type {string} */ (w[k]);
+      if (/^--(eval|print|command)$/.test(x)) out.push(w[k + 1] ?? '');
+      else if (/^--(eval|print)=/.test(x)) out.push(x.slice(x.indexOf('=') + 1));
+      else if (/^-[A-Za-z]+$/.test(x) && flagLetters.includes(x.slice(-1))) out.push(w[k + 1] ?? '');
+    }
+  } else if (/^(awk|gawk|mawk|nawk)$/.test(base)) {
+    // options that take a value are skipped before the program is taken; -f names a program file (not read: a gap)
+    const VAL = new Set(['-v', '-F', '-i', '-l', '-W', '--assign', '--field-separator', '--include', '--load']);
+    let fromOpt = false; let first = null;
+    for (let k = 0; k < w.length; k++) {
+      const x = /** @type {string} */ (w[k]);
+      if (x === '-e' || x === '--source') { out.push(w[k + 1] ?? ''); fromOpt = true; k++; } else if (x.startsWith('--source=')) { out.push(x.slice(9)); fromOpt = true; } else if (x === '-f' || x === '--file') { fromOpt = true; k++; } else if (VAL.has(x)) k++;
+      else if (x.startsWith('-') && x !== '-') continue;
+      else if (first === null) first = x;
+    }
+    if (!fromOpt && first !== null) out.push(first);
+  } else if (base === 'sed') {
+    let fromOpt = false; let first = null;
+    for (let k = 0; k < w.length; k++) {
+      const x = /** @type {string} */ (w[k]);
+      if (x === '-e' || x === '--expression') { out.push(w[k + 1] ?? ''); fromOpt = true; k++; } else if (x.startsWith('--expression=')) { out.push(x.slice(13)); fromOpt = true; } else if (x === '-f' || x === '--file') { fromOpt = true; k++; } else if (x.startsWith('-') && x !== '-') continue;
+      else if (first === null) first = x;
+    }
+    if (!fromOpt && first !== null) out.push(first);
+    // only the `e` command and the `e` flag of s/// run a command; any other script is text
+    for (let k = out.length - 1; k >= 0; k--) {
+      const t = /** @type {string} */ (out[k]);
+      const m = /(^|[;{}\s\d,$!])e\s+(.*)$/s.exec(t);
+      if (m) out[k] = m[2] ?? ''; else if (!/s(.).*\1.*\1[a-zA-Z]*e/s.test(t)) out.splice(k, 1);
+    }
+  } else if (base === 'find') {
+    let on = false;
+    for (const x of w) {
+      if (/^-(exec|execdir|ok|okdir)$/.test(x)) { on = true; out.push(''); continue; }
+      if (on && out[out.length - 1] === '' && SAFE_EXEC.has(x)) { on = false; out.pop(); continue; }
+      if (x === ';' || x === '\\;' || x === '+') { on = false; continue; }
+      if (on) out[out.length - 1] += ` ${x}`;
+    }
+  } else if (base === 'tar') { for (const x of w) if (/^--(to-command|checkpoint-action|use-compress-program|rsh-command)=/.test(x)) out.push(x.slice(x.indexOf('=') + 1)); } else if (base === 'rsync') {
+    for (let k = 0; k < w.length; k++) { const x = /** @type {string} */ (w[k]); if (x === '-e' || x === '--rsh') out.push(w[k + 1] ?? ''); else if (x.startsWith('--rsh=')) out.push(x.slice(6)); }
+  } else if (base === 'ssh' || base === 'eval' || base === 'env' || base === 'watch' || base === 'script' || base === 'su' || base === 'parallel') out.push(w.join(' '));
   return out;
 }
 
@@ -90,7 +141,7 @@ const HARMLESS_KEY = /^(color\.[a-z.]+|core\.quotepath|safe\.directory|advice\.[
 const opt = (x, full, min = 3) => { if (!x.startsWith('--')) return false; const n = x.slice(2).split('=')[0] ?? ''; return n.length >= min && full.startsWith(n); };
 
 /** The arguments of one `git` command, global options included. @param {string[]} a */
-function gitJudge(a) {
+function gitJudge(a, needSub = false) {
   let i = 0;
   let sub = '';
   while (i < a.length) {
@@ -106,7 +157,7 @@ function gitJudge(a) {
     sub = w; i++; break;
   }
   const rest = a.slice(i);
-  if (sub === '') return;
+  if (sub === '') { if (needSub) deny(`git given its subcommand by xargs or parallel cannot be checked: ${TAIL}`); return; }
   if (sub.includes('$') || sub.includes('`')) deny(`git with a variable or substitution as the subcommand cannot be checked (it may be push): ${TAIL}`);
   if (PUSHERS.has(sub) || sub === 'subtree') deny(`git ${sub} pushes or writes branches and is never run by a review role: ${TAIL}`);
   if (!BUILTIN.has(sub)) deny(`git ${sub} is not a git command of its own, so it is an alias or an external program that may push: ${TAIL}`);
@@ -144,7 +195,7 @@ function gitJudge(a) {
       if (pos[0] !== 'add') return;
       if (rest.some((x) => x === '-b' || x === '-B' || long('orphan') || (isShort(x) && /[bB]/.test(x)))) deny(`git worktree add creates a branch here; use git worktree add --detach <path> HEAD: ${TAIL}`);
       // a path and a name that exists only on the remote create a tracking branch, a path alone creates a branch named like the folder
-      if (!long('detach')) deny(`git worktree add without --detach may create a branch; use git worktree add --detach <path> HEAD: ${TAIL}`);
+      if (!detach) deny(`git worktree add without --detach may create a branch; use git worktree add --detach <path> HEAD: ${TAIL}`);
       return;
     }
     case 'update-ref': case 'replace': case 'replay':
@@ -153,10 +204,12 @@ function gitJudge(a) {
     case 'symbolic-ref':
       if (pos.length >= 2 || has('-d', '--delete')) deny(`git symbolic-ref sets a ref here: ${TAIL}`);
       return;
-    case 'fetch': case 'pull':
-      // `git fetch origin x:y` creates the local branch y (a refspec with a destination); a plain fetch is allowed
-      if (pos.slice(1).some((x) => x.includes(':'))) deny(`git ${sub} with a destination refspec creates or moves a branch here: ${TAIL}`);
+    case 'fetch': case 'pull': {
+      // a refspec with a destination creates or moves a local ref unless it lands under refs/remotes/; --refmap does the same
+      if (rest.some((x) => opt(x, 'refmap', 4) && x !== '--refmap=')) deny(`git ${sub} --refmap maps fetched refs onto local refs: ${TAIL}`);
+      if (pos.slice(1).some((x) => x.includes(':') && !x.slice(x.indexOf(':') + 1).startsWith('refs/remotes/'))) deny(`git ${sub} with a destination refspec creates or moves a local ref here: ${TAIL}`);
       return;
+    }
     case 'stash':
       if (pos[0] === 'branch') deny(`git stash branch creates a branch here: ${TAIL}`);
       return;
@@ -166,33 +219,36 @@ function gitJudge(a) {
     case 'remote':
       if (['add', 'rename', 'remove', 'rm', 'set-head', 'set-branches', 'set-url', 'prune'].includes(pos[0] ?? '')) deny(`git remote ${pos[0]} changes where a push goes or what a fetch creates: ${TAIL}`);
       return;
-    case 'config':
-      if (pos.length >= 2 && /^(alias\.|remote\.[^.]*\.(push|pushurl|fetch)$|push\.|branch\.)/i.test(pos[0] ?? '')) deny(`git config ${pos[0]} sets an alias, a push target or a fetch refspec: ${TAIL}`);
-      if (has('--unset', '--unset-all', '--replace-all', '--add') && pos.some((x) => /^(alias\.|remote\.[^.]*\.(push|fetch))/i.test(x))) deny(`git config ${pos[0]} changes an alias, a push target or a fetch refspec: ${TAIL}`);
+    case 'config': {
+      // every write is refused (a key can name a program, an alias, a push target or a fetch refspec); reads stay
+      const sc = pos[0] ?? '';
+      if (['set', 'unset', 'edit', 'rename-section', 'remove-section'].includes(sc) || has('--unset', '--unset-all', '--replace-all', '--add', '--edit', '-e', '--rename-section', '--remove-section')) deny(`git config writes the configuration here: ${TAIL}`);
+      if (sc !== 'get' && sc !== 'list' && pos.length >= 2 && !rest.some((x) => /^--(get|get-all|get-regexp|get-urlmatch|list|default|show-origin|type)$/.test(x) || x === '-l')) deny(`git config ${sc} sets a value here: ${TAIL}`);
       return;
+    }
     default:
   }
 }
 
-/** gh, glab and az: the verbs that push or create a branch or a tag, and a write through the API. @param {string} tool @param {string[]} a */
+/** The read verbs of gh and glab; anything else is a write (an allow-list, so a verb nobody listed is refused). */
+const READ_VERBS = new Set(['list', 'ls', 'view', 'diff', 'checks', 'status', 'get', 'check', 'watch', 'download', 'show']);
+
+/** gh and glab: only the read verbs; `api` is judged by apiJudge. az: the verbs that create a pull request or a ref. @param {string} tool @param {string[]} a */
 function cliJudge(tool, a) {
-  const w = a.map((x) => x.toLowerCase());
-  const nonOpt = w.filter((x) => !x.startsWith('-'));
-  const [v1 = '', v2 = ''] = nonOpt;
-  if (nonOpt.some((x) => x.startsWith('$') || x.startsWith('`'))) deny(`${tool} with a variable or substitution where the subcommand goes cannot be checked: ${TAIL}`);
-  if (tool === 'gh') {
-    if ((v1 === 'pr' && (v2 === 'create' || v2 === 'checkout')) || (v1 === 'repo' && ['sync', 'create', 'fork'].includes(v2)) || (v1 === 'release' && v2 === 'create') || (v1 === 'issue' && v2 === 'develop') || (v1 === 'alias' && ['set', 'import'].includes(v2))) deny(`gh ${v1} ${v2} pushes a branch, creates a branch or a tag, or hides a command: ${TAIL}`);
-    if (v1 === 'api') apiJudge(a);
-    return;
-  }
-  if (tool === 'glab') {
-    if ((v1 === 'mr' && v2 === 'create') || (v1 === 'repo' && ['create', 'fork', 'mirror'].includes(v2)) || (v1 === 'release' && v2 === 'create') || (v1 === 'alias' && v2 === 'set')) deny(`glab ${v1} ${v2} pushes a branch, creates a branch or a tag, or hides a command: ${TAIL}`);
-    if (v1 === 'api') apiJudge(a);
-    return;
+  /** @type {string[]} */ const n = [];
+  for (let k = 0; k < a.length; k++) { const x = /** @type {string} */ (a[k]); if (x === '-R' || x === '--repo' || x === '--hostname') { k++; continue; } if (!x.startsWith('-')) n.push(x.toLowerCase()); }
+  const [v1 = '', v2 = ''] = n;
+  if (n.some((x) => x.startsWith('$') || x.startsWith('`'))) deny(`${tool} with a variable or substitution where the subcommand goes cannot be checked: ${TAIL}`);
+  if (tool === 'gh' || tool === 'glab') {
+    if (v1 === 'api') { apiJudge(a); return; }
+    if (v1 === '' || ['search', 'status', 'help', 'version', 'browse', 'completion'].includes(v1)) return;
+    if ((v1 === 'auth' && v2 === 'status') || (v1 === 'config' && (v2 === 'get' || v2 === 'list')) || (v1 === 'repo' && v2 === 'clone')) return;
+    if (READ_VERBS.has(v2)) return;
+    deny(`${tool} ${v1} ${v2} is not a read verb (list, view, diff, checks, status, get, watch, download); it can push, create a branch, a tag or a pull request, or change the repository: ${TAIL}`);
   }
   // az repos pr create / az repos ref create|delete
-  if (v1 === 'repos' && ((v2 === 'pr' && w.includes('create')) || v2 === 'ref')) deny(`az repos ${v2} creates a pull request or a ref: ${TAIL}`);
-  if (nonOpt.includes('rest') || nonOpt.includes('invoke')) deny(`az rest / az devops invoke is a write to the platform: ${TAIL}`);
+  if (v1 === 'repos' && ((v2 === 'pr' && n.includes('create')) || v2 === 'ref')) deny(`az repos ${v2} creates a pull request or a ref: ${TAIL}`);
+  if (n.includes('rest') || n.includes('invoke')) deny(`az rest / az devops invoke is a write to the platform: ${TAIL}`);
 }
 
 /** `gh api` / `glab api`: GET reads; a write method, --input, or fields sent to a ref, branch, tag, commit, content, pull or release endpoint is refused. @param {string[]} a */
@@ -208,8 +264,9 @@ function apiJudge(a) {
   const fields = a.some((x) => ['-f', '-F', '--field', '--raw-field', '--input'].includes(x) || /^-[fF]./.test(x) || /^--(field|raw-field|input)=/.test(x));
   if (/mutation|createRef|createBranch|updateRef|deleteRef|createCommitOnBranch|createTag/i.test(txt)) deny(`gh api with a mutation of refs or commits is a write to the repository: ${TAIL}`);
   if (method !== '' && method !== 'GET') deny(`gh api -X ${method} writes to the platform: ${TAIL}`);
+  if (method === '' && fields && !/\bgraphql\b/.test(txt)) deny(`gh api with -f/-F fields is a POST unless -X GET is written: ${TAIL}`);
   if (a.includes('--input') || a.some((x) => x.startsWith('--input='))) deny(`gh api --input sends a request body: ${TAIL}`);
-  if (method === '' && fields && /git\/(refs|commits|trees|tags)|\/branches|\/contents\/|\/pulls|\/releases|\/tags|\/merges|\/forks|\/dispatches|\/protected_branches/i.test(txt)) deny(`gh api with fields is a POST to a ref, branch, tag, content, pull or release endpoint: ${TAIL}`);
+  if (method === '' && fields && /git\/(refs|commits|trees|tags)|\/branches|\/contents\/|\/pulls|\/releases|\/tags|\/merges|\/forks|\/dispatches|\/protected_branches|merge-upstream|update-branch/i.test(txt)) deny(`gh api with fields is a POST to a ref, branch, tag, content, pull or release endpoint: ${TAIL}`);
 }
 
 /** curl and its kin aimed at a platform endpoint with a body or a write method. @param {string} tool @param {string[]} a */
