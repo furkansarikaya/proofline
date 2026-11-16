@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.128 — 2026-11-16
+
+- Test speed (A290, Part of #266, package 3b): `tests/lib/harness.mjs` `buildState(fn)` runs state-building calls through the core's `run(argv, io)` in process (registered only by `tests/core/legacy-lib.mjs`), and `stage(parent, name, build)` shares staged templates; six spawn-heavy legacy/run4 tests build fixtures in process while every refusal, approval, waiver and freeze stays on the real `agent.sh`; no product change.
+
 ## 0.0.127 — 2026-11-16
 
 - Test speed (A289, Part of #266, package 3a): `tests/core/user-decisions-1108` runs doctor with `PROOFLINE_DOCTOR_PROBES=0`; `tests/core/lifecycle-s2-lib.mjs` builds the CODE_DONE run once per option set (`codeDone()`, copied per scenario) and runs the stdin-free verbs in process while a fixture is built; the approval test sends one request per kind. user-decisions-1108 233/268 s -> 88/107 s, lifecycle-s2 179/239 s -> 102/125 s; no assertion removed, the mutation review found no assurance loss.

@@ -7,7 +7,7 @@ import { readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { textHasApproval } from '../../control-plane/agents/scripts/core/approvals.mjs';
-import { A, IMPLEMENTED, accepted, project, refused, say, verbs } from './legacy-lib.mjs';
+import { A, accepted, copyOf, implementedOn, project, refused, say } from './legacy-lib.mjs';
 
 const bytes = (/** @type {string} */ s) => Buffer.from(s, 'utf8').toString('latin1');
 /** @param {string} dir */
@@ -64,7 +64,7 @@ test('approve refuses an ambiguous reply and leaves the request pending; the que
 
 test('tree recovery: a hand-written window of role user, not bound in the ledger by tree-accept, attests nothing', async () => {
   const { writeFileSync, readFileSync, readdirSync: ls } = await import('node:fs');
-  const d = project(`scaffold orchestrated; ${IMPLEMENTED}`);
+  const d = copyOf(implementedOn('scaffold orchestrated'));
   const before = A(d, ['patch-fingerprint', 'LC']).out.trim();
   writeFileSync(`${d}/impl.txt`, 'forged\n', { flag: 'a' });
   const after = A(d, ['patch-fingerprint', 'LC']).out.trim();
@@ -72,5 +72,5 @@ test('tree recovery: a hand-written window of role user, not bound in the ledger
   const n = ls(w).filter((f) => /^WINDOW-\d+\.yaml$/.test(f)).length + 1;
   writeFileSync(`${w}/WINDOW-${n}.yaml`, `task_id: "LC"\nseq: ${n}\nrole: "user"\ntopology: "orchestrated"\nbefore_sha256: "${before}"\nafter_sha256: "${after}"\nexit_status: "0"\n`);
   refused(A(d, ['handoff', 'LC', 'CODE_DONE']), 'a hand-written user window attested a change');
-  void readFileSync; void verbs;
+  void readFileSync;
 });

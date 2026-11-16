@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { A, accepted, gateStatus, project, read, refused, say, verbs } from './legacy-lib.mjs';
+import { A, accepted, copyOf, gateStatus, gfail, gpass, implemented, must, project, qaA, read, refused, say, stage, template } from './legacy-lib.mjs';
 
 const UNFROZEN = 'scaffold standalone no COMPLEX manual';
 const now = () => Math.floor(Date.now() / 1000);
@@ -32,7 +32,7 @@ test('approvals: request, capture freshness/phrase/hash, single use, commit bind
   refused(A(d, ['approve', 'LC', 'plan']), 'a prompt reused for a second approval', 'single-use');
   assert.match(read(d, '.agents/runs/LC/approvals/002-plan.yaml'), /^answered_by: "user"$/m);
   // commit approvals bind the content fingerprint and are consumed once
-  accepted(verbs(d, 'A freeze LC >/dev/null'), 'freeze');
+  accepted(qaA(d, 'freeze', 'LC'), 'freeze');
   assert.match(read(d, '.agents/runs/LC/approvals/002-plan.yaml'), /^consumed: "true"$/m, 'freeze did not consume the plan approval');
   accepted(A(d, ['request-approval', 'LC', 'commit']), 'commit request');
   say(d, 'commit it');
@@ -66,7 +66,7 @@ test('captures and approvals must be regular single-link files on a symlink-free
   refused(A(d, ['approve', 'LC', 'plan']), 'a capture under a symlinked prompts directory was accepted', 'single-link');
   rmSync(prompts); renameSync(`${away}/prompts`, prompts);
   accepted(A(d, ['approve', 'LC', 'plan']), 'the intact capture');
-  accepted(verbs(d, 'A freeze LC >/dev/null'), 'freeze');
+  accepted(qaA(d, 'freeze', 'LC'), 'freeze');
   // approval files: a symlinked or hard-linked approval is never consumed
   accepted(A(d, ['request-approval', 'LC', 'commit']), 'commit request');
   say(d, 'commit it');
@@ -81,8 +81,11 @@ test('captures and approvals must be regular single-link files on a symlink-free
   accepted(A(d, ['approval-consume', 'LC', 'commit', fp]), 'the intact approval');
 });
 
+/** @param {string} d */
+function failedSmall(d) { implemented(d); must(d, ['secret-scan', 'LC']); gfail(d, 'REVIEW_SMALL', 'impl.txt'); gpass(d, 'QA'); gpass(d, 'VERIFY'); }
+
 test('waivers: approval naming the finding, lead only', () => {
-  const d = project(`scaffold orchestrated; worker RED fail impl_test.txt 'test: lookup returns the stored value'; worker GREEN pass impl.txt 'impl: lookup returns the stored value'; A handoff LC IMPLEMENTED >/dev/null; A secret-scan LC >/dev/null; gfail REVIEW_SMALL impl.txt; gpass QA; gpass VERIFY`);
+  const d = copyOf(stage(template('scaffold orchestrated'), 'one failing REVIEW_SMALL finding, QA and VERIFY recorded', failedSmall));   // built once: the worker evidence, then the gates
   const reason = 'accepted risk: the default is documented upstream';
   refused(A(d, ['waive', 'LC', 'REVIEW_SMALL-1', '--reason', reason]), 'a waiver without approval', 'needs the user');
   refused(A(d, ['waive', 'LC', 'REVIEW_SMALL-1']), 'a waiver without a reason', 'reason');

@@ -6,10 +6,12 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { makeSymlink } from '../lib/winpath.mjs';
 import { test } from 'node:test';
-import { A, accepted, project, read, refused } from './legacy-lib.mjs';
+import { A, accepted, codeDoneStandalone, copyOf, must, project, qaA, read, refused, stage, template } from './legacy-lib.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 
-const MANUAL = 'scaffold standalone no STANDARD manual; A freeze LC >/dev/null; A handoff LC IMPLEMENTING >/dev/null';
+/** A manual standalone run, frozen and at IMPLEMENTING (the scaffold, then the freeze and the handoff), built once. @param {string} d */
+function frozenImplementing(d) { qaA(d, 'freeze', 'LC'); must(d, ['handoff', 'LC', 'IMPLEMENTING']); }
+const manual = () => copyOf(stage(template('scaffold standalone no STANDARD manual'), 'freeze, IMPLEMENTING', frozenImplementing));
 const tierOf = (/** @type {string} */ d, /** @type {string} */ role = 'lead') => A(d, ['tier', 'LC'], { role }).out.trim();
 const runValue = (/** @type {string} */ d, /** @type {string} */ s, /** @type {string} */ k, /** @type {string} */ id = 'LC') => {
   const m = new RegExp(`^${s}:\\n(?:  .*\\n)*?  ${k}: "?([^"\\n]*)"?$`, 'm').exec(read(d, `.agents/runs/${id}/RUN.yaml`));
@@ -18,7 +20,7 @@ const runValue = (/** @type {string} */ d, /** @type {string} */ s, /** @type {s
 const git = (/** @type {string} */ d, /** @type {string[]} */ ...a) => spawnSync('git', ['-C', d, ...a], { encoding: 'utf8' }).stdout.trim();
 
 test('tier: docs, code-like markdown, risky path; a non-lead never records; the tier never decreases; the ledger names every raise', () => {
-  const d = project(MANUAL);
+  const d = manual();
   assert.equal(tierOf(d), 'docs', 'no change is not tier docs');
   writeFileSync(`${d}/notes.md`, 'notes\n'); mkdirSync(`${d}/docs`, { recursive: true }); writeFileSync(`${d}/docs/guide.txt`, 'guide\n');
   assert.equal(tierOf(d), 'docs', 'plain documentation is not tier docs');
@@ -38,7 +40,7 @@ test('tier: docs, code-like markdown, risky path; a non-lead never records; the 
 });
 
 test('tier: size limits of code files, docs only by extension, dependency manifests are full', () => {
-  const d = project(MANUAL);
+  const d = manual();
   const t = (/** @type {string} */ p, /** @type {string} */ want) => {
     mkdirSync(`${d}/${p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.'}`, { recursive: true });
     writeFileSync(`${d}/${p}`, 'x = 1\n');
@@ -96,7 +98,7 @@ test('classify: a bug or a refactor is never TRIVIAL, an unreadable type is refu
   const destructive = project(NEW_RUN('', '\\n## Data\\n\\ndestructive: yes\\n'));
   refused(A(destructive, ['classify', 'LC', 'COMPLEX']), 'a destructive plan below CRITICAL', 'the class is CRITICAL');
   accepted(A(destructive, ['classify', 'LC', 'CRITICAL']), 'CRITICAL for a destructive plan');
-  const done = project('scaffold standalone; to_code_done standalone');
+  const done = copyOf(codeDoneStandalone());
   refused(A(done, ['classify', 'LC', 'TRIVIAL']), 'a completed run was reclassified', 'cannot reclassify a completed run');
 });
 
@@ -195,7 +197,7 @@ test('baseline: records the base sha and every changed or untracked path with it
 });
 
 test('baseline: refused on a CODE_DONE run and on the wrong branch', () => {
-  const done = project('scaffold standalone; to_code_done standalone');
+  const done = copyOf(codeDoneStandalone());
   refused(A(done, ['baseline', 'LC']), 'a baseline for CODE_DONE', 'cannot record a baseline for CODE_DONE run');
   const d = project(BRANCH_RUN);
   accepted(A(d, ['branch', 'BR']), 'branch');

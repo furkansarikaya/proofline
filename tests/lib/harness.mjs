@@ -80,7 +80,37 @@ export function tmp(prefix = 't') { return mkdtempSync(path.join(base(), `${pref
 export function A(dir, args, o = {}) {
   if (o.bind && (args[0] === 'freeze' || args[0] === 'refreeze')) qaBind(dir, args[1] ?? '');
   const env = cleanEnv({ ...(o.role ? { AGENT_ROLE: o.role } : {}), ...(o.env ?? {}) });
+  if (stateBuilding > 0 && coreRun && !o.input) return inProcess(coreRun, dir, args, env);
   return result(spawnSync('sh', ['.agents/scripts/agent.sh', ...args], { cwd: dir, env, input: o.input ?? '', encoding: 'utf8', timeout: o.timeout ?? 300000 }));
+}
+/** Depth of `buildState` calls: while it is above zero an `A` without stdin runs the core in this process (see `buildState`). */
+let stateBuilding = 0;
+/** @typedef {(args: string[], io: { env: NodeJS.ProcessEnv, cwd: string, stdout: { write(b: Buffer): unknown }, stderr: { write(b: Buffer): unknown }, scriptPath: string }) => number} CoreRun */
+/** @type {CoreRun | null} */ let coreRun = null;
+/**
+ * Hands the core's `run(argv, io)` to the harness for `buildState` (a file that wants in-process state building imports the core and registers it; the harness itself does not load the
+ * core, so the many tests that only import it do not pay for it). @param {CoreRun} run
+ */
+export function useCoreRun(run) { coreRun = run; }
+/**
+ * State building in process (A289). The calls `fn` makes through `A`/`must` and the helpers over them (worker, gpass, passAll, toCodeDone ...) run the core's own `run(argv, io)` in this
+ * process (registered with `useCoreRun`), over the project's real files and real git with the same hardened environment, instead of an `sh agent.sh` + node start per call; a call with
+ * stdin (worker-evidence, which the core reads from descriptor 0) still starts the real launcher, and so does every call when no runner is registered. It is for fixture STATE only: the
+ * call that a test ASSERTS (a refusal, an approval, a waiver, the command line) never runs inside it, it goes through `A` outside it. Synchronous: nothing else runs while it is on.
+ * @template T @param {() => T} fn @returns {T}
+ */
+export function buildState(fn) { stateBuilding++; try { return fn(); } finally { stateBuilding--; } }
+/** One command through the core in this process. @param {CoreRun} run @param {string} dir @param {string[]} args @param {Record<string, string | undefined>} env @returns {Result} */
+function inProcess(run, dir, args, env) {
+  const out = /** @type {Buffer[]} */ ([]); const err = /** @type {Buffer[]} */ ([]);
+  const before = process.cwd();
+  let status;
+  try {
+    process.chdir(dir);
+    status = run(args, { env: /** @type {NodeJS.ProcessEnv} */ (env), cwd: dir, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) }, scriptPath: path.join(dir, '.agents/scripts/agent.sh') });
+  } finally { process.chdir(before); }
+  const o = Buffer.concat(out).toString('utf8'); const e = Buffer.concat(err).toString('utf8');
+  return { status, out: o, err: e, text: o + e };
 }
 /** A as a role. @param {string} dir @param {string} role @param {string[]} args @param {{ input?: string, env?: Record<string, string> }} [o] */
 export const AS = (dir, role, args, o = {}) => A(dir, args, { ...o, role });
