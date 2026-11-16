@@ -183,9 +183,9 @@ test('git hooks: the shipped launchers run the core (identity guard, author alon
   assert.notEqual(git(remote, ['rev-parse', '--verify', '-q', 'refs/heads/main']).status, 0, 'the protected branch exists on the remote');
 });
 
-// A290: a review role never pushes. The shipped pre-push refuses a push of the qa, reviewer, security_reviewer, verifier and explorer roles whatever the branch is called, with no
+// A293: a review role never pushes. The shipped pre-push refuses a push of the qa, reviewer, security_reviewer, verifier and explorer roles whatever the branch is called, with no
 // run open and with push approval switched off (which lets the lead's push through), and the remote stays empty. A real `git push` against a real bare remote.
-test('git hooks: the shipped pre-push refuses every push of a review role (A290)', () => {
+test('git hooks: the shipped pre-push refuses every push of a review role (A293)', () => {
   const root = tmp('gr'); const r = path.join(root, 'repo'); const remote = path.join(root, 'remote.git');
   mkdirSync(r, { recursive: true }); git(r, ['init', '-q', '-b', 'work']); git(root, ['init', '-q', '--bare', remote]);
   mkdirSync(path.join(r, '.agents/scripts'), { recursive: true });

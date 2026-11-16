@@ -1,5 +1,5 @@
 // @ts-check
-// The attempts of tests/hook/readonly-git.test.mjs (A290): what a review role (qa, reviewer, security_reviewer, verifier, explorer) tries when it should only read and report.
+// The attempts of tests/hook/readonly-git.test.mjs (A293): what a review role (qa, reviewer, security_reviewer, verifier, explorer) tries when it should only read and report.
 // [spelling, command, verdict]: 'deny' = refused for every review role, 'allow' = the read-only form a review role really uses (never refused by this rule).
 const WT = '"$TMPDIR/ev"';
 

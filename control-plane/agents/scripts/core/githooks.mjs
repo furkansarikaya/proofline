@@ -170,15 +170,15 @@ export function preCommit(ctx) {
   });
 }
 
-/** The roles that only read and report (A290): they never push and never create a branch. The runtime hook refuses the commands (guards/readonly-git.mjs); this is the git side, for a push that reaches the hook with AGENT_ROLE set. */
+/** The roles that only read and report (A293): they never push and never create a branch. The runtime hook refuses the commands (guards/readonly-git.mjs); this is the git side, for a push that reaches the hook with AGENT_ROLE set. */
 export const NO_PUSH_ROLES = ['qa', 'reviewer', 'security_reviewer', 'verifier', 'explorer'];
 
 /** githooks/pre-push. @param {Context} ctx @param {string} stdin the lines git feeds the hook */
 export function prePush(ctx, stdin) {
   const H = 'pre-push';
   return guarded(ctx, () => {
-    // A290: no approval, no open run and no PROOFLINE_NO_TTY makes a push of a review role pass; it reports, it never pushes
-    if (NO_PUSH_ROLES.includes(ctx.role)) block(H, `the ${ctx.role} role only reads and reports: it never pushes and never creates a branch (A290)`);
+    // A293: no approval, no open run and no PROOFLINE_NO_TTY makes a push of a review role pass; it reports, it never pushes
+    if (NO_PUSH_ROLES.includes(ctx.role)) block(H, `the ${ctx.role} role only reads and reports: it never pushes and never creates a branch (A293)`);
     const config = readBytes(`${ctx.root}/.agents/config.yaml`) ?? '';
     const protectedList = protectedBranches(config);
     const runs = openRuns(ctx, H);

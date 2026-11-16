@@ -1,5 +1,5 @@
 // @ts-check
-// The program text(s) a review role hands to an interpreter, a shell, a runner or a tool that runs commands (A290), split out of readonly-git.mjs. Pure text work: no
+// The program text(s) a review role hands to an interpreter, a shell, a runner or a tool that runs commands (A293), split out of readonly-git.mjs. Pure text work: no
 // verdict is given here; the guard judges each text with its PROG_GIT / PROG_VERB classes. A tripwire for honest mistakes, not a boundary.
 //   programTexts(base, words)   the program texts of one command, [] when it runs no text
 

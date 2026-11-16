@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.131 — 2026-11-16
+
+- Review and security agents never push (A293, package 4a): the runtime hook (`adapters/claude/hooks/guards/readonly-git.mjs`) refuses pushes, branch, tag and ref creation, git config writes and platform write verbs for the roles qa, reviewer, security_reviewer, verifier and explorer, and the git `pre-push` hook refuses any push while `AGENT_ROLE` names one of them. A tripwire for honest mistakes; the boundary is branch protection (docs/concepts/enforcement-layers.md).
+
 ## 0.0.130 — 2026-11-16
 
 - Windows hook tests (A292): the Windows hook job, red since A278, passes again: the tests state the Windows expectation (case-insensitive, ASCII-only fold, no volume probe), the bench harness builds its event with `JSON.stringify`, and a Windows-only deny-only screen (`adapters/claude/hooks/lib/winabort.mjs`) gives a clear deny for tool input naming a path with U+10000 or U+10FFFF, the two code points that abort Node 22 on Windows; no change on other platforms
