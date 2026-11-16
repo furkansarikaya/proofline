@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.139 — 2026-11-16
+
+- Docs (A301): the Turkish guides (`docs/guides/tr`) follow the current English pages; approval phrases are documented as configurable (`approval.phrases`); a new static CI step (`tests/ci/translation-stale.mjs`) warns, without failing, when an English guide changes and its translation does not.
+
 ## 0.0.138 — 2026-11-16
 
 - Tests (A300): the windows-core legs are green again; the doctor-fresh .NET test uses a real dotnet.exe on Windows (`nodeTool` in `frontend-lib.mjs`), the test-scan Contexts get a PATH instead of `env: {}`, and the blinded-copy test compares the normalized folder spelling. No product change.

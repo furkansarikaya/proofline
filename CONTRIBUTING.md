@@ -62,7 +62,7 @@ scores recorded fixture and e2e results per skill; pull requests run only its ow
   sources' own strings. `tests/shared/check-static.mjs` reads the names from the notices file and fails when one
   (in any case or hyphenation) appears in any other file; it skips exactly the files listed there. Everywhere else refer to "source 1" and "source 2".
 - **Everything in the repository is English**, including comments, fixtures and test names; the only
-  exception is the Turkish translation of the user guides under `docs/guides/tr/`.
+  exception is the Turkish translation of the user guides under `docs/guides/tr/`. Each translation has, after its title, a header line `<!-- translated-from: <English file>; blob: <git blob id of that file> -->` (within 6 lines after the title, outside a code fence; no commit id, because a branch commit does not survive a squash merge) and a Turkish sentence naming the English page it follows (the English page is authoritative). Translation file names are limited to `[A-Za-z0-9._-]+.md`. `tests/ci/translation-stale.mjs` compares the blob id with the English file: a stale translation only warns in CI (it never fails a pull request), a missing or malformed header is an error. After you update a translation, put the new blob id (`git hash-object <English file>`) in its header.
 - The repository's own `.gitignore` ignores `.claude/` entirely (local agent state, progress notes, evaluations,
   worktrees). `proofline init` never adds `.claude/` to the `.gitignore` of an installed project; a CLI test checks it.
 - Enforcement lives in the control plane (Node code, started through the launcher `agent.sh`) and the git hooks; runtime hooks only block earlier. A new rule starts in the

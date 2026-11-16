@@ -2,7 +2,7 @@
 
 Prompts you can paste into your agent session, grouped by what you want to do. In Claude Code use `/proofline <subcommand>`; elsewhere run
 `proofline <subcommand>` in a terminal (for the subcommands that need an agent it prints the exact instruction for your runtime) or say the same in
-plain words. `proofline help` lists every subcommand. Turkish translation (may lag behind this page): [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
+plain words. `proofline help` lists every subcommand. Turkish translation (this English page is authoritative; the translation records which version it follows, and CI warns when it lags): [tr/prompt-katalogu.md](tr/prompt-katalogu.md).
 
 ## Setup
 
@@ -102,6 +102,6 @@ Details: [night mode](../concepts/night-mode.md).
 A reply must be one full sentence of the kind (`I approve the plan`, `I approve the commit`, `I approve the scope`, ...) or a short phrase such as `approve plan`; any extra clause makes it ambiguous and the question is asked again.
 
 Approvals only count from your own message (or a typed terminal answer), after the request, and are single-use.
-The accepted approval phrases are set in `approval.phrases` in `.agents/config.yaml`.
+The accepted approval phrases are set in `approval.phrases` in the project's `.agents/config.yaml` (a comma-separated list); the defaults are English and Turkish.
 
 Related: [daily use](daily-use.md).
