@@ -15,6 +15,7 @@ import { Deny, deny, foldCommands, foldCtx, foldWorld, grepq, scanFor, SP } from
 import { alwaysProtected, erasable, nrPathOk, relpath, roOperand, roTail, targetOk } from './paths.mjs';
 import { dbGuardCmd } from './db.mjs';
 import { killGuard } from './kill.mjs';
+import { readonlyGit } from './readonly-git.mjs';
 import { mergeGuard } from './merge.mjs';
 import { stashGuard } from './stash.mjs';
 import { leadTmpCheck, scratchDir, scratchGuard, strayTmpPath, tmpIsScratchRoot } from './scratch.mjs';
@@ -92,6 +93,8 @@ async function checkOne(ctx, cmd, folded = false) {
   let scan = scanFor(ctx, cmd);
   // A274: the scanner of the lead ends a `$'...'` string at its first `'`, so `echo $'a\'b'; touch X` hides the touch. The two roles are judged on the records of both readings
   if (strictRole && cmd.includes("$'")) { const alt = scanFor(ctx, rewriteAnsiC(cmd)); scan = { ...scan, records: [...scan.records, ...alt.records] }; }
+  // A290: the review roles never push and never create a branch or a tag, a run open or not, proofline installed or not
+  readonlyGit(ctx, cmd, scan);
   if (!ctx.installed) { await mergeGuard(ctx, cmd, scan); await killGuard(ctx, cmd, scan); return; }
   const act = ctx.act;
   const role = ctx.role;

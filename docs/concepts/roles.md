@@ -19,6 +19,7 @@ Codex agents and the prompt prefixes from it. The full generated table is in [th
 
 ## Rules every role follows
 
+- The review roles (`qa`, `reviewer`, `security_reviewer`, `verifier`) and `explorer` only read and report: they never push and never create a branch or a tag (A290, [enforcement layers](enforcement-layers.md)).
 - No swarm, no recursion: only the lead dispatches; specialists never spawn agents.
 - Communication is lead, bounded assignment, specialist, owned artifact plus a structured result, lead.
 - Results start with a fixed header (`ROLE`, `TASK`, `RESULT`, `CONFIDENCE`, `FINGERPRINT`, `ARTIFACT`). A hook or `agent.sh record` parses and stores it; the lead can never write a verdict.

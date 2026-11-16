@@ -182,3 +182,32 @@ test('git hooks: the shipped launchers run the core (identity guard, author alon
   assert.notEqual(p.status, 0, 'the shipped pre-push let an agent push a protected branch'); assert.ok(p.stderr.includes('protected_branches'), p.stderr);
   assert.notEqual(git(remote, ['rev-parse', '--verify', '-q', 'refs/heads/main']).status, 0, 'the protected branch exists on the remote');
 });
+
+// A290: a review role never pushes. The shipped pre-push refuses a push of the qa, reviewer, security_reviewer, verifier and explorer roles whatever the branch is called, with no
+// run open and with push approval switched off (which lets the lead's push through), and the remote stays empty. A real `git push` against a real bare remote.
+test('git hooks: the shipped pre-push refuses every push of a review role (A290)', () => {
+  const root = tmp('gr'); const r = path.join(root, 'repo'); const remote = path.join(root, 'remote.git');
+  mkdirSync(r, { recursive: true }); git(r, ['init', '-q', '-b', 'work']); git(root, ['init', '-q', '--bare', remote]);
+  mkdirSync(path.join(r, '.agents/scripts'), { recursive: true });
+  cpSync(path.join(repo, 'control-plane/agents/githooks'), path.join(r, '.agents/githooks'), { recursive: true });
+  cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(r, '.agents/scripts/proofline-core.mjs')); cpSync(path.join(scripts, 'core'), path.join(r, '.agents/scripts/core'), { recursive: true });
+  writeFileSync(path.join(r, '.agents/config.yaml'), 'git:\n  protected_branches: main\n  push_requires_approval: false\n');
+  writeFileSync(path.join(r, 'f.txt'), 'x\n'); git(r, ['add', 'f.txt']);
+  assert.equal(git(r, ['-c', 'user.name=T', '-c', 'user.email=a@example.org', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'x']).status, 0);
+  git(r, ['remote', 'add', 'origin', remote]);
+  const push = (/** @type {string} */ ref, /** @type {Record<string, string>} */ env) => git(r, ['-c', 'core.hooksPath=.agents/githooks', 'push', '-q', 'origin', ref], { ...BASE_ENV, ...env });
+  const refs = () => git(remote, ['for-each-ref']).stdout;
+  for (const role of ['reviewer', 'security_reviewer', 'qa', 'verifier', 'explorer']) {
+    for (const ref of ['work:Main', 'work:main', 'work:feature', 'HEAD:refs/heads/Main', 'work:refs/tags/v1']) {
+      const p = push(ref, { AGENT_ROLE: role });
+      assert.notEqual(p.status, 0, `the shipped pre-push let the ${role} push ${ref}`);
+      assert.ok(p.stderr.includes('only reads and reports'), `${role} ${ref}: ${p.stderr}`);
+    }
+  }
+  assert.equal(push('work:feature', { AGENT_ROLE: 'independent_reviewer' }).status === 0, false, 'the legacy name of the reviewer pushed');
+  assert.equal(refs(), '', `a review role created something on the remote: ${refs()}`);
+  // the lead (approval off) and a human are not touched
+  assert.equal(push('work:feature', { AGENT_ROLE: 'lead' }).status, 0, 'the lead could not push with approval switched off');
+  assert.equal(push('work:feature2', {}).status, 0, 'a human could not push');
+  assert.match(refs(), /refs\/heads\/feature\n/);
+});
