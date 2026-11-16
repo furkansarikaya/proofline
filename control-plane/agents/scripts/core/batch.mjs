@@ -15,7 +15,7 @@ import { realpathPosix, relUnder } from './pathin.mjs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { batchApproval, pendingRequest, sharedDirOf } from './approvals.mjs';
+import { approvedBatchTask, batchApproval, pendingRequest, sharedDirOf } from './approvals.mjs';
 import { approvalBound, nextNum, planTestAcs, requireLead, requireOpenRun, rationaleLine } from './approve.mjs';
 import { bytes } from './config.mjs';
 import { prView, deliverDir } from './deliver.mjs';
@@ -737,7 +737,9 @@ export function batchCover(ctx, args) {
   }
   if (batchApproval(ctx) === null) fail('no valid batch approval for the current summary');
   const bh = hashFile(`${bd}/SUMMARY.md`);
-  if (!rows(`${bd}/order.tsv`).some((f) => f[0] === id)) fail(`${id} is not in the batch (excluded or never planned)`);
+  const tk = approvedBatchTask(ctx, id);
+  if (tk.why !== '') fail(tk.why);
+  if (tk.cls === 'CRITICAL') fail(`${id} is CRITICAL in the approved batch summary: CRITICAL work is not covered by the batch approval`);
   requireRun(ctx, id); requireOpenRun(ctx, id);
   const cls = pipelineClass(ctx, runDir(ctx, id));
   if (!(pipelineClassValid(cls) && cls !== 'CRITICAL')) fail(`run ${id} is classified ${cls === '' ? 'unknown' : cls}: CRITICAL or unclassified work is not covered by the batch approval`);

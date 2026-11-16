@@ -92,6 +92,30 @@ export function batchApproval(ctx) {
   return src === 'prompt_capture' || src === 'tty' ? f : null;
 }
 
+/**
+ * The cross-check of a batch task against the summary the user approved (A303): `why` is '' when the task is listed in the Order table of the CURRENT SUMMARY.md (the bytes the valid
+ * `batch` approval is bound to) exactly once and order.tsv, which is not part of the approved bytes, carries the very same row (id, class, depends_on) exactly once; else the reason.
+ * Only the control plane writes order.tsv (batch-plan), but a file the approval does not cover is never the only evidence for what the user approved.
+ * @param {Context} ctx @param {string} id @returns {{ why: string, cls: string }} `cls` is the class the approved summary shows
+ */
+export function approvedBatchTask(ctx, id) {
+  const bd = sharedDirOf(ctx, 'batch');
+  const bad = (/** @type {string} */ why) => ({ why, cls: '' });
+  if (batchApproval(ctx) === null) return bad('no valid batch approval for the current summary');
+  const ord = textLines(readBytes(`${bd}/order.tsv`) ?? '').map((l) => l.split('\t')).filter((f) => f[0] === id);
+  if (ord.length === 0) return bad(`${id} is not in the batch (excluded or never planned)`);
+  /** @type {string[][]} */ const tab = [];
+  let inside = false;
+  for (const l of textLines(readBytes(`${bd}/SUMMARY.md`) ?? '')) {
+    if (l.startsWith('## ')) { inside = l.startsWith('## Order'); continue; }
+    const m = inside ? /^\| [0-9]+ \| (\S+) \| [^\n]* \| (\S+) \| (\S+) \|\r?$/.exec(l) : null;
+    if (m !== null && m[1] === id) tab.push([m[1], m[2], m[3]]);
+  }
+  if (tab.length === 0) return bad(`${id} is in order.tsv but not in the task table of the batch summary the user approved: order.tsv does not match the approved summary`);
+  if (tab.length !== 1 || ord.length !== 1 || ord[0].length !== 3 || ord[0][1] !== tab[0][1] || ord[0][2] !== tab[0][2]) return bad(`the order.tsv row of ${id} differs from the task table of the batch summary the user approved: order.tsv does not match the approved summary`);
+  return { why: '', cls: tab[0][1] };
+}
+
 // ---- DESIGN.md pattern justifications (A200) ---------------------------------------------------------------------------------
 
 /** `design_md_candidates` */

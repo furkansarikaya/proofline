@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.141 — 2026-11-16
+
+- Fix (A303): `batch-cover` and the batch knowledge default honour a task only when the user-approved SUMMARY.md lists it (one Order row) with the same class and depends_on row in order.tsv; a hand-edited order.tsv no longer widens what one approval covers, and a refusal writes nothing. The Order row is parsed tolerant of CRLF. The hook protection of `.agents/local/batch` is pinned by a new enforcement test.
+
 ## 0.0.140 — 2026-11-16
 
 - Fix (A302): the Codex wiring and the Claude project fragment keep the exit status of the PreToolUse hook; a deny, an abort or a crash is blocked (exit 2) with or without `.agents/config.yaml`, and node or the hook file missing blocks only in a proofline project; the plugin's yield check knows the new string and still the old one.

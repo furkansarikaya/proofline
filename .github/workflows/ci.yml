@@ -377,7 +377,7 @@ jobs:
           - name: batch-state
             mode: files
             pattern: 'none'
-            files: tests/core/batch-state.test.mjs tests/core/knowledge-batch.test.mjs tests/core/batch-cover.test.mjs tests/core/worktree.test.mjs
+            files: tests/core/batch-state.test.mjs tests/core/knowledge-batch.test.mjs tests/core/batch-cover.test.mjs tests/core/batch-cover-crosscheck.test.mjs tests/core/knowledge-batch-crlf.test.mjs tests/core/worktree.test.mjs
           - name: legacy-slow-a
             mode: files
             pattern: 'none'
@@ -469,7 +469,7 @@ jobs:
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'
-            files: tests/ci/*.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs tests/enforcement/pretool-exit-status.test.mjs
+            files: tests/ci/*.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/batch-files-protected.test.mjs tests/enforcement/wiring.test.mjs tests/enforcement/pretool-exit-status.test.mjs
           - name: harness
             mode: files
             pattern: 'none'

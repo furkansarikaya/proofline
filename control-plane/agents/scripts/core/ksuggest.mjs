@@ -1,9 +1,10 @@
 // @ts-check
 // A291: the knowledge step in an unattended batch never asks and never parks. In a run of the approved batch `knowledge-done` records the safe default (no page written, nothing
 // under docs/ or in skills/rules by an agent) and a `knowledge-suggestion` ledger row per proposal for the user; this module decides whether a run is such a run and reads the rows back.
+import { approvedBatchTask } from './approvals.mjs';
 import { deriveState } from './batch.mjs';
 import { batchMember } from './next.mjs';
-import { fileText, ledgerRows } from './records.mjs';
+import { ledgerRows } from './records.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { pipelineClass, pipelineClassValid } from './signals.mjs';
@@ -26,8 +27,8 @@ export function plainLine(s) {
  */
 export function batchKnowledgeRun(ctx, id) {
   if (!batchMember(ctx, id)) return false;
-  const summary = fileText(ctx, `${ctx.sharedMain()}/.agents/local/batch/SUMMARY.md`) ?? '';
-  if (!summary.split('\n').some((l) => new RegExp(`^\\| [0-9]+ \\| ${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|`).test(l))) return false;
+  const tk = approvedBatchTask(ctx, id);
+  if (tk.why !== '' || tk.cls === 'CRITICAL') return false;
   const cls = pipelineClass(ctx, runDir(ctx, id));
   if (!(pipelineClassValid(cls) && cls !== 'CRITICAL')) return false;
   // the batch must still have work left (a finished batch gives no default); a batch whose session stopped with work left is not told apart (no such record exists)
