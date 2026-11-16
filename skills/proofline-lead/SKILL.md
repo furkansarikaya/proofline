@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.122"
+  version: "0.0.123"
 ---
 
 # proofline-lead
