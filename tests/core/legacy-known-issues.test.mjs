@@ -371,7 +371,7 @@ describe('the batch accept answer', () => {
   function batchWith(d, letter, ...lines) {
     const b = `${d}/.agents/local/batch`;
     rmSync(b, { recursive: true, force: true }); mkdirSync(b, { recursive: true }); mkdirSync(`${d}/.agents/local/prompts/history`, { recursive: true });
-    writeFileSync(`${b}/SUMMARY.md`, `# Night batch\n\nnonce: t-fixed\n\n## Expected known issues and rationales (accept for this batch)\n\n${lines.map((x) => `- ${x}\n`).join('')}`);
+    writeFileSync(`${b}/SUMMARY.md`, `# Night batch\n\nnonce: t-fixed\n\n## Order (one task at a time, in this session)\n\n| # | task | title | class | depends_on |\n|---|------|-------|-------|------------|\n| 1 | LC | title of LC | STANDARD | - |\n\n## Expected known issues and rationales (accept for this batch)\n\n${lines.map((x) => `- ${x}\n`).join('')}`);
     writeFileSync(`${b}/order.tsv`, 'LC\tSTANDARD\t-\n');
     accepted(A(d, ['request-approval', '-', 'batch']), 'request the batch approval');
     say(d, 'approve batch');
