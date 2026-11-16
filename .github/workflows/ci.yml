@@ -1,7 +1,7 @@
 name: ci
 # A76: pull requests run the Linux checks only, split into parallel jobs and shards. A164 changes A76's matrix:
 # pushes to main are Linux only too; macOS (static, fixtures), visual-browser and the benchmark report
-# run only on the nightly schedule and manual runs, and so do the Windows gates `windows-core` (A272) and `hook-windows` (A250); exception (A290): `hook-windows` also runs on a pull request matching tests/ci/windows-hook-paths.mjs (`windows_hook` of `changes`) and gates `checks` there. A pull request that changes only plain documentation skips the heavy test
+# run only on the nightly schedule and manual runs, and so do the Windows gates `windows-core` (A272) and `hook-windows` (A250); exception (A295): `hook-windows` also runs on a pull request matching tests/ci/windows-hook-paths.mjs (`windows_hook` of `changes`) and gates `checks` there. A pull request that changes only plain documentation skips the heavy test
 # jobs (tests/ci/classify.mjs) but still runs the strict no-shell-logic check and the sync checks. The `checks` job always reports.
 # Node migration (docs/adr/0001-node-control-plane.md): `node-tests` (the Node tests of tests/core, tests/ci, tests/enforcement and tests/invariants-node on Node 22.13.0 and the active LTS) and `types` (pinned checker, jsconfig.json) are gates.
 # The temporary pull request shortcut (A205) and the legacy self-test shards are gone (A246, issue #176): a pull request runs what a push runs on Linux,
@@ -165,7 +165,7 @@ jobs:
 
   # A188, stage 3: the Node hook on Windows. It runs the hook tests (node:test) and the hook benchmark in its Node form (processes and time per event, the
   # table goes to the job summary). It replaces the Git Bash timing job for the hook: the hook no longer needs an `sh` of its own. Nightly and manual runs
-  # only (A164, A204). Since A250 it is a gate of those runs (no continue-on-error: a red Windows test fails the nightly workflow); A290: it also runs on a pull request whose changed files match tests/ci/windows-hook-paths.mjs (`windows_hook` of `changes`); `checks` waits for it, a skipped run passes there and a red one fails the pull request. Other pull requests and pushes to main do not run it.
+  # only (A164, A204). Since A250 it is a gate of those runs (no continue-on-error: a red Windows test fails the nightly workflow); A295: it also runs on a pull request whose changed files match tests/ci/windows-hook-paths.mjs (`windows_hook` of `changes`); `checks` waits for it, a skipped run passes there and a red one fails the pull request. Other pull requests and pushes to main do not run it.
   # The benchmark builds its fixture with the Node harness (tests/bench/hook-procs.mjs, the PATH shim files are small sh scripts that Git Bash runs); no step needs bash as its shell, so the job runs the runner's default shell.
   hook-windows:
     needs: [changes]

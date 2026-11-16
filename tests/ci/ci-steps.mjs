@@ -2,7 +2,7 @@
 // The logic of the inline steps of .github/workflows/ci.yml, as one-line `node` steps.
 //   node tests/ci/ci-steps.mjs classify [--event NAME] [--base SHA --head SHA]   (defaults: $GITHUB_EVENT_NAME, $BASE_SHA, $GITHUB_SHA)
 //       writes `code=true|false` and `windows_hook=true|false` to $GITHUB_OUTPUT and prints them: code is false for a pull request that changes only plain documentation (tests/ci/classify.mjs);
-//       windows_hook is true only for a pull request that changes a path of the Windows hook list (tests/ci/windows-hook-paths.mjs, A290), false for every other event
+//       windows_hook is true only for a pull request that changes a path of the Windows hook list (tests/ci/windows-hook-paths.mjs, A295), false for every other event
 //   node tests/ci/ci-steps.mjs skill-tests
 //       the `skill tests` step of the static job: tests/skills/ when it holds test files (else a SKIPPED line), then the benchmark's own tests; the first failing status ends it
 //   node tests/ci/ci-steps.mjs gate

@@ -29,7 +29,7 @@ test('the self-test shard job (16 shards of no unit) is gone', () => {
   assert.ok(!/selftest/.test(ci), 'no step runs or uploads self-test output');
 });
 
-test('checks needs every job except the nightly and manual gate windows-core (A290: hook-windows is waited for), and keeps the stable names', () => {
+test('checks needs every job except the nightly and manual gate windows-core (A295: hook-windows is waited for), and keeps the stable names', () => {
   const needs = /needs: \[([^\]]*)\]/.exec(job('checks'));
   assert.ok(needs);
   const listed = needs[1].split(',').map((s) => s.trim());
@@ -37,7 +37,7 @@ test('checks needs every job except the nightly and manual gate windows-core (A2
   assert.deepEqual(jobNames.filter((n) => !listed.includes(n) && n !== 'checks'), ['windows-core']);
 });
 
-test('A250: the Windows hook leg is a gate: no continue-on-error; A290: it also runs on a pull request, only through the windows_hook output', () => {
+test('A250: the Windows hook leg is a gate: no continue-on-error; A295: it also runs on a pull request, only through the windows_hook output', () => {
   const j = job('hook-windows');
   assert.ok(j !== '');
   assert.ok(!/continue-on-error/.test(j), 'hook-windows must not be a measurement any more');
@@ -45,7 +45,7 @@ test('A250: the Windows hook leg is a gate: no continue-on-error; A290: it also 
   assert.match(j, /github\.event_name == 'pull_request' && needs\.changes\.outputs\.windows_hook == 'true'/);
 });
 
-test('A290: the windows_hook output of `changes` is the one classify writes, and the classifier list names the workflow file and the hook code', async () => {
+test('A295: the windows_hook output of `changes` is the one classify writes, and the classifier list names the workflow file and the hook code', async () => {
   assert.match(job('changes'), /^      windows_hook: \$\{\{ steps\.classify\.outputs\.windows_hook \}\}$/m);
   assert.match(job('changes'), /id: classify[\s\S]*run: node tests\/ci\/ci-steps\.mjs classify\n/);
   const steps = readFileSync(join(repo, 'tests/ci/ci-steps.mjs'), 'utf8');

@@ -1,5 +1,5 @@
 // @ts-check
-// The path list that makes the Windows hook leg run on a pull request (A290): a table of changed-file lists, and the classify step's windows_hook output.
+// The path list that makes the Windows hook leg run on a pull request (A295): a table of changed-file lists, and the classify step's windows_hook output.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FILES, PREFIXES, matchesWindowsHook, windowsHook } from './windows-hook-paths.mjs';
