@@ -237,7 +237,7 @@ export function batchMember(ctx, id) {
 /** `batch_continue_note` after `batch_member`. @param {Context} ctx @param {string} id */
 function batchContinueNote(ctx, id) {
   if (!batchMember(ctx, id)) return '';
-  return `note=BATCH (A200): ${id} belongs to the approved batch. Do NOT stop at this state and do NOT hand the user a "Next step"; write ONE status line ("${id}: <state>, <what runs now>, next: <task>") and go on: finish the knowledge step, the report and DONE, then agent.sh batch-next (its NEXT: deliver covers the delivery with batch-cover, never a question). During a wait of a minute or more (a CI run, a dispatch) write one status line, then wait.\n`;
+  return `note=BATCH (A200): ${id} belongs to the approved batch. Do NOT stop at this state and do NOT hand the user a "Next step"; write ONE status line ("${id}: <state>, <what runs now>, next: <task>") and go on: finish the knowledge step (never ask where a note goes: agent.sh knowledge-done ${id} with no page records the safe default and a suggestion to the user, A291), the report and DONE, then agent.sh batch-next (its NEXT: deliver covers the delivery with batch-cover, never a question). During a wait of a minute or more (a CI run, a dispatch) write one status line, then wait.\n`;
 }
 
 /** `build_record_unmakeable`: the reason, or '' when a build record can be made. @param {Context} ctx */

@@ -1,9 +1,12 @@
 // @ts-check
 // Stage 4, package 4C: `knowledge-done` (agent.sh 0.0.47 `knowledge_done`, `knowledge_na_signal`, `wiki_lint_run`, `require_no_knowledge_drift`). Messages and
 // the order of the checks are those of the shell; a run that cannot be proven right is refused (the safe side).
-import { lessonsValidate } from './lessons.mjs';
-import { existsSync } from 'node:fs';
+import { lessonProposals, lessonsValidate } from './lessons.mjs';
+import { batchKnowledgeRun, DEFAULT_REASON, imitatesBatchDefault, plainLine } from './ksuggest.mjs';
+import { bdOf, tsvText } from './batch.mjs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { fail } from './errors.mjs';
+import { latin1Buf } from './wirebytes.mjs';
 import { forgetFiles, requireLead } from './approve.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { taskOwnedPaths } from './gates.mjs';
@@ -86,14 +89,28 @@ function wikiLintRun(ctx, owned) {
   }
 }
 
+/** The batch folder's list of suggestions (one `ID<TAB>text` row per suggestion), kept after the run's own folder is gone: the rows of this task are replaced. @param {Context} ctx @param {string} id @param {string[]} list */
+function recordSuggestions(ctx, id, list) {
+  const file = `${bdOf(ctx)}/suggestions.tsv`;
+  let old = '';
+  try { old = readFileSync(file, 'latin1'); } catch { old = ''; }
+  const keep = old.split('\n').filter((l) => l !== '' && l.split('\t')[0] !== id);
+  for (const t of list) keep.push(`${id}\t${tsvText(t)}`);
+  writeFileSync(`${file}.tmp`, latin1Buf(keep.length > 0 ? `${keep.join('\n')}\n` : ''));
+  renameSync(`${file}.tmp`, file);
+}
+
 /** `knowledge-done ID [KNOWLEDGE_DONE|not_applicable [REASON]]` @param {Context} ctx @param {string[]} args */
 export function knowledgeDoneCommand(ctx, args) {
   const id = need(args, 0);
-  const state = args[1] === undefined || args[1] === '' ? 'KNOWLEDGE_DONE' : args[1];
-  const reason = args[2] ?? '';
+  let state = args[1] === undefined || args[1] === '' ? 'KNOWLEDGE_DONE' : args[1];
+  let reason = args[2] ?? '';
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   requireLead(ctx);
+  const batchRun = batchKnowledgeRun(ctx, id);
+  /** @type {string[]} */ const suggestions = [];
+  let tookDefault = false;
   if (state !== 'KNOWLEDGE_DONE' && state !== 'not_applicable') fail(`invalid knowledge state: ${state}`);
   const rs = sectionValue(ctx, dir, 'execution', 'state');
   let term;
@@ -103,25 +120,37 @@ export function knowledgeDoneCommand(ctx, args) {
     if (!justificationOk(reason)) fail(`not_applicable needs a reason: agent.sh knowledge-done ${id} not_applicable "<one specific sentence: why the wiki and the design documents need nothing>" (>=20 chars, not a stock phrase)`);
     if (!sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) fail('run predates 0.0.17 (no knowledge_reason field): do the real knowledge step, then knowledge-done without not_applicable');
     if (/["\\#]/.test(reason)) fail('the not_applicable reason must not contain a double quote, a backslash or a #');
+    if (imitatesBatchDefault(reason)) fail(`the not_applicable reason must not start with 'batch default' (A291): omit that text; the script writes it only for the default of an approved batch`);
     const rl = reason.split('\n');
     if (rl.filter((l) => l !== '').length > 1 || rl.some((l) => /[.!?][ \t\n\v\f\r]+[^ \t\n\v\f\r]/.test(l))) fail('the not_applicable reason must be one sentence on one line');
     const sig = knowledgeNaSignal(ctx, id);
-    if (sig !== '') fail(`not_applicable refused: ${sig}. Run the knowledge step instead: a one-page note under docs/wiki/ is enough and does not change the tier or any gate (knowledge files the plan does not name are not task output); then 'agent.sh knowledge-done ${id}'`);
+    if (sig !== '') fail(`not_applicable refused: ${sig}.${batchRun ? ` This run is in the approved batch: nothing is asked here; run agent.sh knowledge-done ${id} (no reason, no page): the safe default records a suggestion to the user in the report and the batch goes on.` : ''} Run the knowledge step instead: a one-page note under docs/wiki/ is enough and does not change the tier or any gate (knowledge files the plan does not name are not task output); then 'agent.sh knowledge-done ${id}'`);
   } else if (reason !== '') fail('a reason is only for not_applicable');
   verifySeal(ctx, id, dir);
   requireNoKnowledgeDrift(ctx, id, 'knowledge-done blocked');
   if (!term && state === 'KNOWLEDGE_DONE') {
     const own = knowledgeOwnedPaths(ctx, id);
-    if (own.length === 0) fail(`knowledge-done blocked (A200): no knowledge page was written. KNOWLEDGE_DONE records pages: write the wiki page, the ADR or the design document change the step is for (under ${ctx.config().get('knowledge_scope_root', 'docs/design/ docs/adr/ docs/wiki/ docs/product/')}), run the wiki lint, then run knowledge-done again; or, when the task needs no knowledge, agent.sh knowledge-done ${id} not_applicable "<one specific sentence>" (refused with the signal when the task changed behaviour or a contract)`);
-    scanKnowledgeSecrets(ctx, id);
-    wikiLintRun(ctx, own);
-    forgetFiles(ctx); ctx.forget('changed:'); // the lint wrote its report into the wiki: the knowledge paths below are read again
+    if (own.length === 0 && batchRun && sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) {
+      // A291: the unattended batch never asks where a note should go and never parks: the safe default (no page, nothing under docs/ or in skills/rules) and a suggestion to the user
+      const sig = knowledgeNaSignal(ctx, id);
+      suggestions.push(plainLine(`${id}: no knowledge note was written and nothing was changed under docs/, in skills or in rules; ${sig !== '' ? `${sig}; ` : ''}if you want it kept, write a wiki page or a design-document change yourself, or ask for a documentation task`));
+      state = 'not_applicable'; reason = DEFAULT_REASON; tookDefault = true;
+    } else if (own.length === 0) fail(`knowledge-done blocked (A200): no knowledge page was written. KNOWLEDGE_DONE records pages: write the wiki page, the ADR or the design document change the step is for (under ${ctx.config().get('knowledge_scope_root', 'docs/design/ docs/adr/ docs/wiki/ docs/product/')}), run the wiki lint, then run knowledge-done again; or, when the task needs no knowledge, agent.sh knowledge-done ${id} not_applicable "<one specific sentence>" (refused with the signal when the task changed behaviour or a contract)`);
+    else {
+      scanKnowledgeSecrets(ctx, id);
+      wikiLintRun(ctx, own);
+      forgetFiles(ctx); ctx.forget('changed:'); // the lint wrote its report into the wiki: the knowledge paths below are read again
+    }
   }
   if (!term && localTaskSourceRun(ctx, id)) quietly(ctx, () => must(freshness(ctx, id)));
   {
     const v = lessonsValidate(ctx);
     if (v.err !== '') ctx.err(v.err);
     if (!v.ok) fail('knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)');
+  }
+  if (batchRun) {
+    // A291: a lesson worth proposing is a suggestion to the user too (the script lists it from the records; no approval is requested, nothing is promoted, no agent text is involved)
+    for (const p of lessonProposals(ctx, id)) suggestions.push(plainLine(`${id}: the finding kind ${p.kind} appeared in ${p.runs} runs; promoting it to a project rule in AGENTS.md needs your approval and was not requested here, nothing was promoted`));
   }
   setRunValue(ctx, id, 'execution', 'knowledge_state', state);
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) setRunValue(ctx, id, 'execution', 'knowledge_reason', reason);
@@ -132,6 +161,11 @@ export function knowledgeDoneCommand(ctx, args) {
       if (l.length > 0) led(ctx, id, 'knowledge-paths', '-', '-', l.join(' '));
     }
   }
+  // A291: written AFTER the knowledge-done row; the reader takes the rows after the LAST knowledge-done row, so a retry (or a later run in any mode) never shows a duplicate or an old one
+  const shown = gatesEnforced(ctx, dir) ? suggestions : []; // without gates there is no knowledge-done row, so no row that could start the list: none is written
+  if (tookDefault && gatesEnforced(ctx, dir)) led(ctx, id, 'knowledge-default', '-', '-', 'A291'); // only this path writes it: the report and batch-status key on it
+  for (const t of shown) led(ctx, id, 'knowledge-suggestion', '-', '-', t);
+  if (batchRun || existsSync(`${bdOf(ctx)}/suggestions.tsv`)) recordSuggestions(ctx, id, shown); // any mode replaces the task's rows
   ctx.out(`knowledge state recorded: ${id} ${state}\n`);
   return 0;
 }

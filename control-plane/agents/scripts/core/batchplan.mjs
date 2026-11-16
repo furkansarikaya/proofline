@@ -307,7 +307,7 @@ function plan(ctx, argv) {
   if (existsSync(`${bd}/state.tsv`) || nonEmpty(`${bd}/merged.tsv`) || existsSync(`${bd}/ci.tsv`) || existsSync(`${bd}/answers.tsv`)) {
     const hd = `${bd}/history/${isFile(`${bd}/SUMMARY.md`) ? bid(ctx) : 'previous'}`;
     mkdirSync(hd, { recursive: true });
-    for (const f of ['SUMMARY.md', 'order.tsv', 'state.tsv', 'merged.tsv', 'ci.tsv', 'lint.tsv', 'answers.tsv', 'paths.tsv', 'accept.tsv']) if (existsSync(`${bd}/${f}`)) renameSync(`${bd}/${f}`, `${hd}/${f}`);
+    for (const f of ['SUMMARY.md', 'order.tsv', 'state.tsv', 'merged.tsv', 'ci.tsv', 'lint.tsv', 'answers.tsv', 'paths.tsv', 'accept.tsv', 'suggestions.tsv']) if (existsSync(`${bd}/${f}`)) renameSync(`${bd}/${f}`, `${hd}/${f}`);
   }
   const cap = ctx.config().get('batch.mutation_budget_cap', '40');
   // A200: plan-lint and the commands proposal, before the summary (the approval is bound to the summary's hash, so to both)

@@ -48,7 +48,7 @@ with ONE question to the user. It applies to a CODE_DONE run only. A FAILED or B
 1. **Knowledge first, without a stop.** When the knowledge step, the completion report or DONE is missing,
    `A deliver-plan <ID>` prints no refusal and asks nothing; it prints what is left (`next=`). Do it now, without
    asking the user: the knowledge step ([LIFECYCLE.md](LIFECYCLE.md#7-knowledge)), the report and DONE (request
-   each `rule:<CAND>` promotion approval without stopping). The files the knowledge step changes are listed in the
+   each `rule:<CAND>` promotion approval without stopping; in a batch task none is requested, `knowledge-done` records the suggestion, A291). The files the knowledge step changes are listed in the
    one summary below, so the one approval covers them; nothing is committed before it. A run that is not CODE_DONE
    is reported with its `next=` step; STOP.
 2. **Prepare.** `A deliver-plan <ID> [--message "<type>(<scope>): <subject> (<ID>)"]` (the message follows

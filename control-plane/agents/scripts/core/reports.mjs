@@ -6,6 +6,7 @@ import { fail, ProoflineError, unsupported } from './errors.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
 import { listNames } from './ledger.mjs';
+import { DEFAULT_FALLBACK, knowledgeDefaultTaken, knowledgeSuggestions } from './ksuggest.mjs';
 import { gateFacts, knownIssuesListed } from './knownissues.mjs';
 import { frictionCount, gateReportIds, nextStep, nextWithoutRun } from './next.mjs';
 import { isFile } from './paths.mjs';
@@ -255,6 +256,9 @@ export function reportFacts(ctx, id) {
   const ks = sectionValue(ctx, d, 'execution', 'knowledge_state'); const kr = sectionValue(ctx, d, 'execution', 'knowledge_reason');
   ctx.out(`- Friction notes recorded (A200): proofline_bug ${frictionCount(ctx, d, 'proofline_bug')}, user-command ${frictionCount(ctx, d, 'user-command')}, user-shell ${frictionCount(ctx, d, 'user-shell')}\n`);
   ctx.out(`- Knowledge step: ${ks === '' ? 'not_started' : ks}${kr !== '' ? `; not_applicable reason: ${kr}` : ''}\n`);
+  const sugg = knowledgeSuggestions(ctx, d);
+  for (const t of sugg) ctx.out(`- Suggestion to the user (knowledge): ${t}\n`);
+  if (sugg.length === 0 && knowledgeDefaultTaken(ctx, d)) ctx.out(`- ${DEFAULT_FALLBACK}\n`); // A291: an unattended batch asks nothing; the proposal is shown here
   const refreezes = exists(`${d}/LEDGER.log`) ? String(ledgerRows(ctx, d, 'refreeze').length) : '';
   // `task_owned_paths ... 2>/dev/null`: its stderr is dropped
   const mark = ctx.chunks.length;

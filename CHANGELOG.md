@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.129 — 2026-11-16
+
+- Knowledge step in an approved batch (A291, item 2c): in a task of a user-approved batch, `knowledge-done <ID>` with no page records `not_applicable` with a `batch default (A291)` reason, writes nothing under docs/, skills or rules, and shows a script-composed 'Suggestion to the user (knowledge)' in the ledger, the completion report and `batch-status` (fixed fallback line if the rows are missing); the lead no longer asks where a note should go and no longer parks the task; attended runs and CRITICAL tasks are unchanged and reasons imitating the default are refused.
+
 ## 0.0.128 — 2026-11-16
 
 - Test speed (A290, Part of #266, package 3b): `tests/lib/harness.mjs` `buildState(fn)` runs state-building calls through the core's `run(argv, io)` in process (registered only by `tests/core/legacy-lib.mjs`), and `stage(parent, name, build)` shares staged templates; six spawn-heavy legacy/run4 tests build fixtures in process while every refusal, approval, waiver and freeze stays on the real `agent.sh`; no product change.
