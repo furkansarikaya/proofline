@@ -198,7 +198,7 @@ function count(ctx, want) {
 }
 
 /**
- * A290: the lesson promotions worth proposing for a run, decided by the script from the records (a finding kind of this run that repeated in another run and is not promoted yet).
+ * A291: the lesson promotions worth proposing for a run, decided by the script from the records (a finding kind of this run that repeated in another run and is not promoted yet).
  * Read-only: nothing is requested, written or promoted. @param {Context} ctx @param {string} id @returns {Array<{ kind: string, runs: number }>}
  */
 export function lessonProposals(ctx, id) {

@@ -55,10 +55,10 @@ report and a new fix-round budget are never covered: the lead records the questi
 that depend on it are skipped and the next independent task goes on. A red CI after the pull request is open is a CI-fix round
 (at most 2 attempts, same pull request branch); when that stops with its question the task is parked.
 
-The knowledge step never parks a task and never asks where a note should go (A290). In a task of the approved batch (the user
+The knowledge step never parks a task and never asks where a note should go (A291). In a task of the approved batch (the user
 approved the current summary and the summary's own task table lists the task; a CRITICAL task is not covered), `agent.sh
 knowledge-done <ID>` with no knowledge page records the safe default: nothing is written under `docs/` or into skills or rules, and
-the state is `not_applicable` with a `batch default (A290)` reason. What the script would have asked the user instead becomes a line
+the state is `not_applicable` with a `batch default (A291)` reason. What the script would have asked the user instead becomes a line
 `Suggestion to the user (knowledge): ...` in the task's completion report (Facts block) and in `batch-status`: a missing note, and a
 finding kind that repeated across runs and could become a project rule (the promotion needs your approval and is never requested or
 done in a batch). You decide afterwards. A run outside the approved batch is asked as before.

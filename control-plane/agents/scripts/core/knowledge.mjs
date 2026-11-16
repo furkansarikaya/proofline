@@ -120,7 +120,7 @@ export function knowledgeDoneCommand(ctx, args) {
     if (!justificationOk(reason)) fail(`not_applicable needs a reason: agent.sh knowledge-done ${id} not_applicable "<one specific sentence: why the wiki and the design documents need nothing>" (>=20 chars, not a stock phrase)`);
     if (!sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) fail('run predates 0.0.17 (no knowledge_reason field): do the real knowledge step, then knowledge-done without not_applicable');
     if (/["\\#]/.test(reason)) fail('the not_applicable reason must not contain a double quote, a backslash or a #');
-    if (imitatesBatchDefault(reason)) fail(`the not_applicable reason must not start with 'batch default' (A290): omit that text; the script writes it only for the default of an approved batch`);
+    if (imitatesBatchDefault(reason)) fail(`the not_applicable reason must not start with 'batch default' (A291): omit that text; the script writes it only for the default of an approved batch`);
     const rl = reason.split('\n');
     if (rl.filter((l) => l !== '').length > 1 || rl.some((l) => /[.!?][ \t\n\v\f\r]+[^ \t\n\v\f\r]/.test(l))) fail('the not_applicable reason must be one sentence on one line');
     const sig = knowledgeNaSignal(ctx, id);
@@ -131,7 +131,7 @@ export function knowledgeDoneCommand(ctx, args) {
   if (!term && state === 'KNOWLEDGE_DONE') {
     const own = knowledgeOwnedPaths(ctx, id);
     if (own.length === 0 && batchRun && sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) {
-      // A290: the unattended batch never asks where a note should go and never parks: the safe default (no page, nothing under docs/ or in skills/rules) and a suggestion to the user
+      // A291: the unattended batch never asks where a note should go and never parks: the safe default (no page, nothing under docs/ or in skills/rules) and a suggestion to the user
       const sig = knowledgeNaSignal(ctx, id);
       suggestions.push(plainLine(`${id}: no knowledge note was written and nothing was changed under docs/, in skills or in rules; ${sig !== '' ? `${sig}; ` : ''}if you want it kept, write a wiki page or a design-document change yourself, or ask for a documentation task`));
       state = 'not_applicable'; reason = DEFAULT_REASON; tookDefault = true;
@@ -149,7 +149,7 @@ export function knowledgeDoneCommand(ctx, args) {
     if (!v.ok) fail('knowledge-done blocked: a lesson candidate has no valid source (agent.sh lessons validate names it)');
   }
   if (batchRun) {
-    // A290: a lesson worth proposing is a suggestion to the user too (the script lists it from the records; no approval is requested, nothing is promoted, no agent text is involved)
+    // A291: a lesson worth proposing is a suggestion to the user too (the script lists it from the records; no approval is requested, nothing is promoted, no agent text is involved)
     for (const p of lessonProposals(ctx, id)) suggestions.push(plainLine(`${id}: the finding kind ${p.kind} appeared in ${p.runs} runs; promoting it to a project rule in AGENTS.md needs your approval and was not requested here, nothing was promoted`));
   }
   setRunValue(ctx, id, 'execution', 'knowledge_state', state);
@@ -161,9 +161,9 @@ export function knowledgeDoneCommand(ctx, args) {
       if (l.length > 0) led(ctx, id, 'knowledge-paths', '-', '-', l.join(' '));
     }
   }
-  // A290: written AFTER the knowledge-done row; the reader takes the rows after the LAST knowledge-done row, so a retry (or a later run in any mode) never shows a duplicate or an old one
+  // A291: written AFTER the knowledge-done row; the reader takes the rows after the LAST knowledge-done row, so a retry (or a later run in any mode) never shows a duplicate or an old one
   const shown = gatesEnforced(ctx, dir) ? suggestions : []; // without gates there is no knowledge-done row, so no row that could start the list: none is written
-  if (tookDefault && gatesEnforced(ctx, dir)) led(ctx, id, 'knowledge-default', '-', '-', 'A290'); // only this path writes it: the report and batch-status key on it
+  if (tookDefault && gatesEnforced(ctx, dir)) led(ctx, id, 'knowledge-default', '-', '-', 'A291'); // only this path writes it: the report and batch-status key on it
   for (const t of shown) led(ctx, id, 'knowledge-suggestion', '-', '-', t);
   if (batchRun || existsSync(`${bdOf(ctx)}/suggestions.tsv`)) recordSuggestions(ctx, id, shown); // any mode replaces the task's rows
   ctx.out(`knowledge state recorded: ${id} ${state}\n`);

@@ -1,5 +1,5 @@
 // @ts-check
-// A290: the knowledge step in an unattended batch never asks and never parks. In a run of the approved batch `knowledge-done` records the safe default (no page written, nothing
+// A291: the knowledge step in an unattended batch never asks and never parks. In a run of the approved batch `knowledge-done` records the safe default (no page written, nothing
 // under docs/ or in skills/rules by an agent) and a `knowledge-suggestion` ledger row per proposal for the user; this module decides whether a run is such a run and reads the rows back.
 import { deriveState } from './batch.mjs';
 import { batchMember } from './next.mjs';
@@ -48,7 +48,7 @@ export function knowledgeSuggestions(ctx, dir) {
 }
 
 /** The `knowledge_reason` that marks the batch default. */
-export const DEFAULT_REASON = 'batch default (A290): no knowledge page was written, the suggestion to the user is in the report';
+export const DEFAULT_REASON = 'batch default (A291): no knowledge page was written, the suggestion to the user is in the report';
 
 /** The line shown when a batch default has no suggestion row (the process died between the knowledge-done row and the suggestion rows): what was skipped never depends on the second write. */
 export const DEFAULT_FALLBACK = 'Suggestion to the user (knowledge): no knowledge page was written for this task (batch default); nothing under docs/, skills or rules was changed; consider writing one.';

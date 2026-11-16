@@ -1,5 +1,5 @@
 // @ts-check
-// A290: the knowledge step in an unattended batch never asks and never parks. In a run of the user-approved batch `knowledge-done` records the safe default (no page, nothing under
+// A291: the knowledge step in an unattended batch never asks and never parks. In a run of the user-approved batch `knowledge-done` records the safe default (no page, nothing under
 // docs/ or in skills/rules by an agent) and a suggestion to the user; an attended run keeps the real step (the question is the lead's, unchanged). Everything runs against the real
 // agent.sh; the ledger is read structurally (parseLedgerLine), never by substring.
 import assert from 'node:assert/strict';
@@ -37,7 +37,7 @@ test('a run of the approved batch finishes the knowledge step without a question
   const r = A(d, ['knowledge-done', 'LC']);
   accepted(r, 'knowledge-done in the approved batch');
   assert.equal(rv(d, 'execution', 'knowledge_state'), 'not_applicable');
-  assert.ok(rv(d, 'execution', 'knowledge_reason').startsWith('batch default (A290)'));
+  assert.ok(rv(d, 'execution', 'knowledge_reason').startsWith('batch default (A291)'));
   const sug = rowsOf(d, 'knowledge-suggestion');
   assert.equal(sug.length, 1);
   assert.ok(sug[0].detail.startsWith('LC: no knowledge note was written'), sug[0].detail);
@@ -191,7 +191,7 @@ test('a batch default whose suggestion rows are missing (the process died betwee
   assert.equal(A(d, ['batch-status']).out.split('\n').filter((l) => l.includes(fixed)).length, 1);
 });
 
-const DEFAULT_TEXT = 'batch default (A290): no knowledge page was written, the suggestion to the user is in the report';
+const DEFAULT_TEXT = 'batch default (A291): no knowledge page was written, the suggestion to the user is in the report';
 const FIXED_LINE = '- Suggestion to the user (knowledge): no knowledge page was written for this task (batch default); nothing under docs/, skills or rules was changed; consider writing one.';
 
 test('an attended run cannot pass the batch default text (or a case/spacing variant) as its not_applicable reason; the fallback line needs the script-written default', () => {

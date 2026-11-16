@@ -523,7 +523,7 @@ export function batchStatus(ctx) {
     const note = unapprovedNote(ctx, `${rroot(ctx, r.id)}/.agents/runs/${r.id}`, r.id);
     if (note !== '') ctx.out(`${note}\n`);
   }
-  // A290: what the knowledge step of a task proposed instead of asking (the user decides; nothing was written for it)
+  // A291: what the knowledge step of a task proposed instead of asking (the user decides; nothing was written for it)
   const sug = rows(`${bd}/suggestions.tsv`).filter((f) => f.length >= 2 && f[0] !== '');
   // a task that took the batch default but has no suggestion row (the process died between two writes) still shows the fixed line
   const bare = derive(ctx).filter((r) => hasRun(ctx, r.id) && knowledgeDefaultTaken(ctx, `${rroot(ctx, r.id)}/.agents/runs/${r.id}`) && !sug.some((f) => f[0] === r.id));
