@@ -14,7 +14,8 @@ console.log('HITS ' + hits.join(','));
 `;
 test('bisect the lstat crash', () => {
   const out = [];
-  for (const [lo, hi] of [[0x80, 0x7ff], [0x800, 0x1fff], [0x2000, 0x2fff], [0x3000, 0x7fff], [0x8000, 0xcfff], [0xd000, 0xffff], [0x10000, 0x1ffff], [0xe0000, 0xe0fff]]) {
+  const ranges = []; for (let lo = 0x10000; lo <= 0x1ffff; lo += 0x1000) ranges.push([lo, lo + 0xfff]);
+  for (const [lo, hi] of ranges) {
     const r = spawnSync(process.execPath, ['-e', child, String(lo), String(hi)], { encoding: 'utf8' });
     out.push(`${lo.toString(16)}-${hi.toString(16)} status=${r.status} ${(r.stdout || '').trim()} ${(r.stderr || '').slice(0, 200)}`);
   }

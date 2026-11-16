@@ -61,7 +61,8 @@ export function measureAll(o = {}) {
     };
     const hookRun = (/** @type {string} */ event, /** @type {string} */ json, /** @type {string} */ PATH) =>
       spawnSync('node', [hook, event, 'claude'], { cwd: d, env: env(PATH), input: json, encoding: 'utf8', timeout: 300000 });
-    const j = (/** @type {string} */ name, /** @type {string} */ extra) => `{"hook_event_name":"${name}","session_id":"s1","cwd":"${d}"${extra}}`;
+    // the event is built as JSON (a Windows project folder holds backslashes, which a template string would leave unescaped, and the hook rightly ignores an event that is not JSON)
+    const j = (/** @type {string} */ name, /** @type {string} */ extra) => JSON.stringify({ hook_event_name: name, session_id: 's1', cwd: d, ...JSON.parse(`{${extra.replace(/^,/, '')}}`) });
     const sub = ',"agent_type":"proofline-implementer","agent_id":"a1"';
     const realPath = process.env.PATH ?? '';
     hookRun('subagent-start', j('SubagentStart', sub), realPath);   // opens the implementer's window, so the write below is allowed

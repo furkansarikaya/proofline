@@ -10,6 +10,12 @@ import { nodeHook, cleanEnv } from './harness.mjs';
 import { createFsCase, fold, useFsCase } from '../../adapters/claude/hooks/lib/fscase.mjs';
 
 export const hookDir = dirname(nodeHook);
+/** A Windows host (A271): NTFS folds ASCII case by definition and the hook never asks the volume there, so no injected "keeps case" volume reaches a guard. A test that names a case-keeping volume states what Windows does instead, and still attempts the same action. */
+export const WIN = process.platform === 'win32';
+/** A path inside the text of a shell command: a backslash is the shell's escape character, so the command names the path with forward slashes (as Git Bash users write it). */
+export const slash = (/** @type {string} */ p) => p.replaceAll('\\', '/');
+/** The ASCII-only lower case of A271: what NTFS folds in the hook's Windows rule. */
+export const lowerAscii = (/** @type {string} */ x) => x.replace(/[A-Z]/g, (c) => c.toLowerCase());
 export const { buildContext, finish } = await import(pathToFileURL(join(hookDir, 'lib/context.mjs')).href);
 export const { handle } = await import(pathToFileURL(join(hookDir, 'events/pretool.mjs')).href);
 

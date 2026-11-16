@@ -9,11 +9,11 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, chmodSync, cpSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildTemplate, copyProject, rmSync, cleanEnv, runHook } from './harness.mjs';
 import { fold, realProbe } from '../../adapters/claude/hooks/lib/fscase.mjs';
-import { hookDir, FOLDS, KEEPS, onVolume, WHO, FIVE, pre, U, rng, aliasFolded, dropAliases } from './case-kit.mjs';
+import { hookDir, FOLDS, KEEPS, onVolume, WHO, FIVE, pre, U, rng, aliasFolded, dropAliases, WIN, slash } from './case-kit.mjs';
 
 const { foldCtx, foldWorld, stateOf } = await import(pathToFileURL(join(hookDir, 'guards/kit.mjs')).href);
 
@@ -41,7 +41,7 @@ before(() => {
   mkdirSync(join(rtkProj, '.claude'), { recursive: true });
   writeFileSync(join(rtkProj, '.claude/settings.json'), '{"hooks":{"PreToolUse":"rtk"}}');
   const bin = join(base, 'bin'); mkdirSync(bin); writeFileSync(join(bin, 'rtk'), '#!/bin/sh\n'); chmodSync(join(bin, 'rtk'), 0o755);
-  rtkEnv = { PATH: `${bin}:${process.env.PATH}` };
+  rtkEnv = { PATH: `${bin}${delimiter}${process.env.PATH}` };
 });
 after(() => { dropAliases(); rmSync(template, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
@@ -111,7 +111,8 @@ test('A278 round 4 divergence matrix (volume folds case): a case variant of a de
   });
   assert.ok(cells >= 3000, `the matrix has ${cells} cells`);
   assert.ok(deniedTwins >= 300, `the matrix contains denied twins (${deniedTwins})`);
-  for (const [family] of FAMILIES) assert.ok((familyDenied.get(family) ?? 0) > 0, `the family ${family} has a denied twin for some role and embedding (fix the table)`);
+  // Windows: the hook does not find rtk there (docs/concepts/workflow.md, A271), so that family has no denied twin and its variants are checked against allowed twins
+  for (const [family, , viaRtk] of FAMILIES) if (!(WIN && viaRtk)) assert.ok((familyDenied.get(family) ?? 0) > 0, `the family ${family} has a denied twin for some role and embedding (fix the table)`);
   assert.deepEqual(divergences.slice(0, 12), [], `${divergences.length} divergences of ${cells} cells`);
 });
 
@@ -119,9 +120,12 @@ test('A278 round 4 (volume folds case): the rtk bypass keeps its meaning in a ca
   const [, who, env] = WHO[0];
   const e = { ...env, ...rtkEnv };
   await onVolume(FOLDS(), async () => {
-    assert.ok(await pre('Bash', { command: 'npm test' }, who, e, rtkProj), 'the evidence command is refused without the bypass (fix the table)');
+    const refusedWithoutBypass = WIN ? null : await pre('Bash', { command: 'npm test' }, who, e, rtkProj);
+    if (WIN) assert.equal(await pre('Bash', { command: 'npm test' }, who, e, rtkProj), null, 'rtk is not found on Windows (documented gap, A271): the evidence command is not refused');
+    else assert.ok(refusedWithoutBypass, 'the evidence command is refused without the bypass (fix the table)');
     assert.equal(await pre('Bash', { command: 'RTK_DISABLED=1 npm test' }, who, e, rtkProj), null);
-    assert.ok(await pre('Bash', { command: 'Npm Test' }, who, e, rtkProj), 'a cased program is the program');
+    const cased = await pre('Bash', { command: 'Npm Test' }, who, e, rtkProj);
+    if (WIN) assert.equal(cased, null, 'a cased program is judged as the program (no rtk rule on Windows)'); else assert.ok(cased, 'a cased program is the program');
     assert.equal(await pre('Bash', { command: 'RTK_DISABLED=1 Npm Test' }, who, e, rtkProj), null);
   });
 });
@@ -131,7 +135,10 @@ test('(regression guard: passes without the fix) A278 round 4 (volume keeps case
     for (const [role, who, env] of FIVE) {
       for (const c of ['Make all', 'Python3 -c 1', 'Rscript x.R', 'JAVA -version', 'Git status', 'Manage.py migrate', 'Npx Prisma migrate reset', 'git log Main','Pkill foo', 'Touch s.txt']) {
         for (const [embName, wrap] of [EMBED[0], EMBED[5], EMBED[8], EMBED[10]]) {
-          assert.equal(await pre('Bash', { command: wrap(c) }, who, env, dir), null, `${role}, ${embName}: ${JSON.stringify(c)} is refused on a volume that keeps case`);
+          const v = await pre('Bash', { command: wrap(c) }, who, env, dir);
+          // Windows has no case-keeping volume for the hook (A271): there the cased spelling is judged as its lower-case twin
+          if (WIN) assert.equal(v === null, (await pre('Bash', { command: wrap(c.toLowerCase()) }, who, env, dir)) === null, `${role}, ${embName}: ${JSON.stringify(c)} is judged otherwise than its lower-case twin on Windows`);
+          else assert.equal(v, null, `${role}, ${embName}: ${JSON.stringify(c)} is refused on a volume that keeps case`);
         }
       }
     }
@@ -167,7 +174,7 @@ test('A278 round 4: foldWorld is fold of the whole text except the spellings eve
   const cases = /** @type {Array<[string, string]>} */ ([
     ['Git -C /Tmp/Wt-RO Checkout -- X', 'git -C /tmp/wt-ro checkout -- x'], ['RTK_DISABLED=1 Npm Test', 'RTK_DISABLED=1 npm test'], ['Cat $TMPDIR/X ${HOME}/Y', 'cat $TMPDIR/x ${HOME}/y'],
     ['Git Reset --hard HEAD~1', 'git reset --hard HEAD~1'], ['Git --Git-Dir=.AGENTS/Local Status', 'git --Git-Dir=.agents/local status'], ['Sed -iAGENT.SH X', 'sed -iagent.sh x'],
-    ['Echo ß ſh', 'echo ss sh'], ['Ls -R Src/X-C', 'ls -R src/x-c'],
+    ['Echo ß ſh', WIN ? 'echo ß ſh' : 'echo ss sh'], // the Windows fold stays ASCII-only (A271) ['Ls -R Src/X-C', 'ls -R src/x-c'],
     // structure: the same characters in the same places, whatever the parser makes of them
     ['Cat <<EOF\n$(Xx Y)\nEOF\r\nEcho ${x:-<<A}\nGit', 'cat <<eof\n$(xx y)\neof\r\necho ${x:-<<a}\ngit'],
   ]);
@@ -186,7 +193,7 @@ const WT_LEGIT = /** @type {Array<[string, string]>} */ ([
 /** the verdict with the second pass on (the folding volume) and, as the reference, the exact pass alone (the case-keeping volume) @param {string} c @param {number} wi */
 async function onOff(c, wi) {
   const [, who, env] = /** @type {typeof WHO[number]} */ (FIVE[wi]);
-  const e = { ...env, TMPDIR: wtBase };
+  const e = { ...env, TMPDIR: slash(wtBase) };
   const on = await onVolume(FOLDS(), () => pre('Bash', { command: c }, who, e, t3));
   const off = on === null ? null : await onVolume(KEEPS(), () => pre('Bash', { command: c }, who, e, t3));
   return { on, off };
@@ -202,13 +209,13 @@ test('(regression guard: passes without the fix) A278 round 4 legitimate writes 
       assert.ok(!must, `${FIVE[wi][0]}: ${JSON.stringify(c)} must be allowed (fix the table): ${on}`);
     }
   }
-  const wtCmds = WT_LEGIT.map(([n, c]) => [n, c.replaceAll('$W', wt)]);
+  const wtCmds = WT_LEGIT.map(([n, c]) => [n, c.replaceAll('$W', slash(wt))]);
   for (const [n, c] of wtCmds) {
     const { on, off } = await onOff(/** @type {string} */ (c), 4);
     assert.equal(on, off, `qa in the registered worktree, ${n}: with ${on === null ? 'allowed' : 'refused'}, without ${off === null ? 'allowed' : 'refused'} (${on})`);
   }
   assert.equal(flips, 0);
-  const wtOk = await onOff(`git -C ${wt} checkout -- README.md`, 4);
+  const wtOk = await onOff(`git -C ${slash(wt)} checkout -- README.md`, 4);
   assert.equal(wtOk.on, null, `qa: git -C in a registered evidence worktree is allowed with the second pass on (${wtOk.on})`);
   assert.ok(allowed >= 20 && roles.size === 5, `the table allows something for every role (${allowed} allowed, roles ${[...roles].join(',')})`);
 });
@@ -223,7 +230,7 @@ test('(regression guard: passes without the fix) A278 round 4 legitimate writes:
   assert.ok(n >= 150);
   await onVolume(FOLDS(), async () => {
     for (const [role, who, env] of FIVE) {
-      for (const c of ['echo x > .AGENTS/runs/T-3/CI-FIX/x.md', 'echo x > .agents/runs/T-3/Approvals/a', U('Pki@ll foo')]) assert.ok(await pre('Bash', { command: c }, who, { ...env, TMPDIR: wtBase }, t3), `${role}: ${c} is refused`);
+      for (const c of ['echo x > .AGENTS/runs/T-3/CI-FIX/x.md', 'echo x > .agents/runs/T-3/Approvals/a', U('Pki@ll foo')]) assert.ok(await pre('Bash', { command: c }, who, { ...env, TMPDIR: slash(wtBase) }, t3), `${role}: ${c} is refused`);
     }
   });
 });
