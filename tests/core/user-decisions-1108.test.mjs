@@ -8,6 +8,10 @@ import { spawnSync } from 'node:child_process';
 import { sandbox } from './frontend-lib.mjs';
 
 const sb = sandbox();
+// What these tests read from `doctor` is the `git hooks` and `claude hooks` lines, which come from the files and the git configuration. The live probes (a throwaway repository, a bare remote,
+// a commit and a push through the shipped hooks, about 20 processes) are not what is under test here (tests/core/githooks-trust.test.mjs and the doctor tests run them), and they
+// were two thirds of the time of every doctor call: skipped by the product's own switch, which reports `probes: skipped` as a WARN and changes no FAIL.
+sb.env.PROOFLINE_DOCTOR_PROBES = '0';
 const git = (/** @type {string} */ d, /** @type {string[]} */ a) => spawnSync('git', ['-C', d, ...a], { env: sb.env, encoding: 'utf8' });
 const hp = (/** @type {string} */ d) => git(d, ['config', '--local', '--get', 'core.hooksPath']).stdout.trim();
 const INIT = ['init', '--yes', '--runtimes', 'claude'];

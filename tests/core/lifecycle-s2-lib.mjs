@@ -3,11 +3,31 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { A, accepted, cached, cleanEnv, codeKey, copyOf, gateOwner, qaBind, say, scaffold, tmp, tsha } from '../lib/harness.mjs';
+import { run } from '../../control-plane/agents/scripts/proofline-core.mjs';
+import { A as processA, accepted, cached, cleanEnv, codeKey, copyOf, gateOwner, project, qaBind, say, scaffold, sha256, tmp, tsha } from '../lib/harness.mjs';
 
 /** @typedef {import('../lib/harness.mjs').Result} Result */
 
-export { A };
+/**
+ * While a cached fixture is BUILT (`building`), the verbs that read no stdin run in this process (`run` of the core, as tests/core/port-t2-lib.mjs does) instead of one `sh` + one `node`
+ * each (about 130 ms a call on a CI runner; a run driven to CODE_DONE is about 40 calls). Only state building does this: the scenario bodies call `A` outside `building`, so every verb a
+ * scenario is about, and every refusal it asserts, still goes through the real agent.sh as a process. A verb that reads stdin (worker-evidence, terminate, ...) always stays a process.
+ */
+const IN_PROCESS = new Set(['window-open', 'window-close', 'handoff', 'fingerprint', 'record', 'pipeline', 'secret-scan', 'publish-completion-report', 'knowledge-done']);
+let buildDepth = 0;
+/** The fixtures built here depend on this file too (the steps that build them): a change of it builds them again. */
+const libKey = tsha(import.meta.filename).slice(0, 10);
+/** @template T @param {() => T} fn @returns {T} */
+export function building(fn) { buildDepth++; try { return fn(); } finally { buildDepth--; } }
+/** `agent.sh ARGS` in DIR: one process, or the core in this process while a fixture is built. @param {string} dir @param {string[]} args @param {Parameters<typeof processA>[2]} [o] @returns {Result} */
+export function A(dir, args, o = {}) {
+  if (buildDepth === 0 || !IN_PROCESS.has(args[0] ?? '') || o.input || o.bind || o.timeout) return processA(dir, args, o);
+  /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
+  const env = /** @type {NodeJS.ProcessEnv} */ (cleanEnv({ ...(o.role ? { AGENT_ROLE: o.role } : {}), ...(o.env ?? {}) }));
+  const status = run(args, { env, cwd: dir, stdout: { write: (b) => out.push(Buffer.from(b)) }, stderr: { write: (b) => err.push(Buffer.from(b)) }, scriptPath: path.join(dir, '.agents/scripts/agent.sh') });
+  const so = Buffer.concat(out).toString('utf8'); const se = Buffer.concat(err).toString('utf8');
+  return { status, out: so, err: se, text: so + se };
+}
 /** A as a role. @param {string} dir @param {string} role @param {string[]} args @param {{ input?: string, env?: Record<string, string> }} [o] */
 export const AS = (dir, role, args, o = {}) => A(dir, args, { ...o, role });
 /** A that throws when refused. @param {string} dir @param {string[]} args @param {Parameters<typeof A>[2]} [o] */
@@ -148,15 +168,31 @@ export function gitRun(dir, args) {
   return { status: r.status, out: r.stdout ?? '', err: r.stderr ?? '', text: (r.stdout ?? '') + (r.stderr ?? '') };
 }
 
+/**
+ * A run driven to CODE_DONE (RED, GREEN, IMPLEMENTED, every gate), built once per option set and copied, as `failedRun` does: the many scenarios that start from "the code is done" and then test
+ * what comes after (the task contract, the report, DONE, the amendments) no longer redo about forty `agent.sh` calls each. What the scenario is about stays a real call on its own copy.
+ * @param {string} topology @param {Parameters<typeof project>[0]} [o]
+ */
+export function codeDone(topology, o = {}) {
+  const opts = { topology, ...o };
+  return copyOf(cached(`l2-cd-${codeKey()}-${libKey}-${sha256(JSON.stringify(Object.entries(opts).sort())).slice(0, 12)}`, (work) => {
+    const d = project(opts);
+    building(() => toCodeDone(d, topology));
+    cpSync(d, work, { recursive: true }); rmSync(d, { recursive: true, force: true });
+  }));
+}
+
 /** A FAILED orchestrated run (A152): QA and REVIEW_SMALL pass on the final content, VERIFY fails on it; built once and copied. */
 export function failedRun() {
-  return copyOf(cached(`l2b-failed-${codeKey()}`, (work) => {
+  return copyOf(cached(`l2b-failed-${codeKey()}-${libKey}`, (work) => {
     const d = scaffold({ topology: 'orchestrated', testCrit: 'AC-2', taskExtra: '- AC-2: second behavior' });
+    building(() => {
     worker(d, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value'); worker(d, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value');
     must(d, ['handoff', 'LC', 'IMPLEMENTED']); gfail(d, 'REVIEW_SMALL', 'impl_test.txt'); must(d, ['handoff', 'LC', 'IMPLEMENTING']);
     worker(d, 'FIX', 'pass', 'impl_test.txt', 'test: default for an empty key'); must(d, ['handoff', 'LC', 'IMPLEMENTED']); gfail(d, 'QA', 'impl.txt'); must(d, ['handoff', 'LC', 'IMPLEMENTING']);
     worker(d, 'FIX', 'pass', 'impl.txt', 'impl: second attempt'); must(d, ['handoff', 'LC', 'IMPLEMENTED']); gpass(d, 'REVIEW_SMALL'); gpass(d, 'QA'); gfail(d, 'VERIFY', 'impl.txt');
     must(d, ['terminate', 'LC', 'FAILED'], { input: 'reason: the empty-key contract cannot be met within the frozen plan scope\nevidence: gates/*-VERIFY.yaml fail on the third content\n' });
+    });
     cpSync(d, work, { recursive: true }); rmSync(d, { recursive: true, force: true });
   }));
 }
