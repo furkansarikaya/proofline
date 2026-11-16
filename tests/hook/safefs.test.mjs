@@ -106,11 +106,11 @@ test('safefs (hook process): a UserPromptSubmit event whose working directory is
 });
 
 test('safefs (child process, the installed layer): importing safefs-install first makes a path with U+10000 not exist and a listing skip it, on this host', () => {
-  const made = sh('mkdir -p "$2/li$n/x$n" && echo ok > "$2/li$n/y" && echo made');
+  const made = sh('mkdir -p "$2/lst" && echo ok > "$2/lst/y" && echo ok > "$2/lst/x$n" && mkdir -p "$2/lst/d$n" && echo made');
   assert.equal(made.stdout.trim(), 'made', made.stderr);
   const code = `import('${pathToFileURL(join(nodeHook, '../lib/safefs-install.mjs')).href}').then(async () => {
-    const fs = await import('node:fs'); const names = fs.readdirSync(process.argv[1] + '/' + fs.readdirSync(process.argv[1]).find((n) => n.startsWith('li')));
-    console.log(JSON.stringify({ names, exists: fs.existsSync(process.argv[1] + '/li\\u{10000}/y'), stat: fs.statSync(process.argv[1] + '/q\\u{10FFFF}', { throwIfNoEntry: false }) ?? null }));
+    const fs = await import('node:fs'); const dir = process.argv[1] + '/lst';
+    console.log(JSON.stringify({ names: fs.readdirSync(dir).sort(), exists: fs.existsSync(dir + '/x\\u{10000}'), stat: fs.statSync(dir + '/q\\u{10FFFF}', { throwIfNoEntry: false }) ?? null, rec: fs.readdirSync(dir, { recursive: true }).sort() }));
   });`;
   try {
     const r = spawnSync(process.execPath, ['-e', code, base], { encoding: 'utf8' });
@@ -118,6 +118,7 @@ test('safefs (child process, the installed layer): importing safefs-install firs
     const out = JSON.parse(r.stdout);
     assert.equal(out.exists, process.platform !== 'win32', 'on Windows the name does not exist; elsewhere it is an ordinary name');
     assert.equal(out.stat, null);
-    if (process.platform === 'win32') assert.deepEqual(out.names, ['y'], 'the listing does not return the name');
-  } finally { sh('rm -rf "$2/li$n"'); }
+    if (process.platform === 'win32') { assert.deepEqual(out.names, ['y'], 'the listing does not return the name'); assert.deepEqual(out.rec, ['y']); }
+    else assert.equal(out.names.length, 3, 'elsewhere the names are ordinary: y, x and d with the character');
+  } finally { sh('rm -rf "$2/lst"'); }
 });
