@@ -330,7 +330,8 @@ test('sc_summary_human_checks: the Human checks list is copied by script into th
   expectMsg('a summary without a Verify command was published', "needs exactly one line 'Verify:", A(d, ['publish-completion-report', 'LC', 'markdown']));
   // the report is a file: a Turkish Changed line is refused (every file of a run is English), the English line is published; the chat message carries the user's language
   mk('Changed: arama artik bos anahtar icin varsayilani donduruyor, çünkü şunu istediniz', V);
-  expectMsg('a Turkish summary line was published into the task file', 'language: run artifacts are English', A(d, ['publish-completion-report', 'LC', 'markdown']));
+  expectMsg('a Turkish summary line was published into the task file', "language: run artifacts are English", A(d, ['publish-completion-report', 'LC', 'markdown']));
+  expectMsg('the refusal does not name the Changed line', "The summary block's Changed: line must be English; only the chat message follows the user's language", A(d, ['publish-completion-report', 'LC', 'markdown']));
   assert.ok(!existsSync(path.join(d, '.agents/tasks/in-progress')) || !readdirSync(path.join(d, '.agents/tasks/in-progress')).some((f) => rd(d, `.agents/tasks/in-progress/${f}`).includes('varsayilani')), 'the Turkish line reached the task file');
   mk('Changed: the lookup returns the default for an empty key', V);
   accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), 'A202 an English summary was refused');

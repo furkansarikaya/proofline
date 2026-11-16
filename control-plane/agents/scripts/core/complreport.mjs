@@ -361,7 +361,7 @@ export function publishCompletionReport(ctx, id, given) {
   summaryApply(ctx, id);
   // the report is a file, so English whatever the user's language: the summary block is not exempt from the language check (the chat message is the user-language text)
   const langHits = languageScanFiles(ctx, [report]);
-  if (langHits.length > 0) fail(languageFailText(langHits.join(' ')));
+  if (langHits.length > 0) fail(`${languageFailText(langHits.join(' '))}. The summary block's Changed: line must be English; only the chat message follows the user's language`);
   validateStructure(ctx, id);
   claimsCheck(ctx, id, report);
   const facts = capture(ctx, () => reportFacts(ctx, id));
