@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.136 — 2026-11-16
+
+- Batch (A298): `batch-plan` refuses an invalid line of a task file's `## Test exceptions` (exit 1, before any write or approval request) and names task, line and reason instead of dropping it; the github, jira, linear and markdown task templates carry the optional section and an import keeps the lines byte for byte. The approval binding is unchanged.
+
 ## 0.0.135 — 2026-11-16
 
 - Tests (A297): the plan-exceptions invariant suite (`tests/invariants-node/rule-3-plan-exceptions.test.mjs`) and the `ledger-injection` and `argv-bytes` core suites build their fixture state once (in process, staged by `tests/core/fixtures-lib.mjs`) instead of spawning the launcher per test; pe-11 had reached 10258 ms against its 10 s budget on main CI. pe-11 11.8 s to 4.2 s, inj-10 9.96 s to 0.7 s, arg-3 9.85 s to 3.3 s cold. Every refusal and approval is still asserted through the real launcher. No product change.
