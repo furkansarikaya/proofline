@@ -17,12 +17,6 @@ import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 const SHIMMED = ['jq', 'awk', 'sed', 'tr', 'cat', 'dirname', 'basename', 'date', 'mkdir', 'find', 'git', 'grep', 'cut', 'shasum', 'sha256sum', 'head', 'tail', 'wc', 'mv', 'rm', 'cp', 'sort', 'mktemp', 'node', 'perl', 'sleep', 'kill', 'ps', 'ls', 'readlink', 'uname', 'id', 'touch', 'chmod', 'ln', 'xargs', 'expr', 'rmdir', 'stat', 'sh', 'tee', 'env', 'od', 'uniq'];
 export const EVENTS = ['pretool-write-impl', 'pretool-read', 'pretool-bash', 'posttool', 'prompt-plain', 'prompt-approval', 'stop', 'session', 'subagent-start', 'subagent-stop'];
 
-/** @param {string} p */
-function readdirSyncOr(p) { try { return readdirSync(p); } catch (e) { return `${/** @type {Error} */ (e).message}`; } }
-
-/** @param {string} p */
-function readOr(p) { try { return readFileSync(p, 'utf8'); } catch (e) { return `${/** @type {Error} */ (e).message}`; } }
-
 /** @typedef {{ event: string, execs: number, ms: number, top: string }} Row */
 
 /** A folder of shims that log their name to LOG (with the first 70 characters of the arguments when TRACE) and run the real program. @param {string} dir @param {string} log @param {boolean} trace */
@@ -61,7 +55,7 @@ export function measureAll(o = {}) {
     };
     const hookRun = (/** @type {string} */ event, /** @type {string} */ json, /** @type {string} */ PATH) =>
       spawnSync('node', [hook, event, 'claude'], { cwd: d, env: env(PATH), input: json, encoding: 'utf8', timeout: 300000 });
-    // the event is built as JSON (a Windows project folder holds backslashes, which a template string would leave unescaped, and the hook rightly ignores an event that is not JSON)
+    // the event is built as JSON: a Windows project folder holds backslashes, which a template string would leave unescaped (the hook rightly ignores an event that is not JSON)
     const j = (/** @type {string} */ name, /** @type {string} */ extra) => JSON.stringify({ hook_event_name: name, session_id: 's1', cwd: d, ...JSON.parse(`{${extra.replace(/^,/, '')}}`) });
     const sub = ',"agent_type":"proofline-implementer","agent_id":"a1"';
     const realPath = process.env.PATH ?? '';
@@ -95,7 +89,7 @@ export function measureAll(o = {}) {
         const run = hookRun(event, json, `${shims}${path.delimiter}${realPath}`);
         times.push(Math.round(performance.now() - t0));
         // the approval path is really taken: the measured run recorded the plan approval (a row measured on a hook that ignored the reply would count too few processes)
-        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after; hook status ${run.status}, stdout ${JSON.stringify((run.stdout ?? '').slice(0, 600))}, stderr ${JSON.stringify((run.stderr ?? '').slice(0, 600))}, ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/runs/LC/approvals')))}; request ${JSON.stringify(readOr(path.join(d, '.agents/runs/LC/approvals/002-request-plan.yaml')))}; approve.log ${JSON.stringify(readOr(path.join(d, '.agents/local/approve.log')))}; hook-times ${JSON.stringify(readOr(path.join(d, '.agents/local/hook-times')).slice(-1500))}; prompts ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/local/prompts')))}; hooklock ${JSON.stringify(readdirSyncOr(path.join(d, '.agents/local/hooklock')))})`);
+        if (name === 'prompt-approval' && approved() !== before + 1) throw new Error(`hook-procs: the measured prompt-approval run recorded no plan approval (${before} before, ${approved()} after; hook status ${run.status}, stderr ${JSON.stringify((run.stderr ?? '').slice(0, 400))})`);
         const used = readFileSync(log, 'utf8').split('\n').filter(Boolean);
         counts.push(used.length);
         if (o.trace) process.stderr.write(`--- ${name}\n${used.join('\n')}\n`);

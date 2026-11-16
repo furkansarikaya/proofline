@@ -116,16 +116,20 @@ test('A278 round 4 divergence matrix (volume folds case): a case variant of a de
   assert.deepEqual(divergences.slice(0, 12), [], `${divergences.length} divergences of ${cells} cells`);
 });
 
-test('A278 round 4 (volume folds case): the rtk bypass keeps its meaning in a cased command', async () => {
+test('A278 round 4 (volume folds case): the rtk bypass keeps its meaning in a cased command (on Windows the hook does not find rtk, a documented gap: the rule is not applied and the verdict is the non-rtk one)', async () => {
   const [, who, env] = WHO[0];
   const e = { ...env, ...rtkEnv };
   await onVolume(FOLDS(), async () => {
-    const refusedWithoutBypass = WIN ? null : await pre('Bash', { command: 'npm test' }, who, e, rtkProj);
-    if (WIN) assert.equal(await pre('Bash', { command: 'npm test' }, who, e, rtkProj), null, 'rtk is not found on Windows (documented gap, A271): the evidence command is not refused');
-    else assert.ok(refusedWithoutBypass, 'the evidence command is refused without the bypass (fix the table)');
-    assert.equal(await pre('Bash', { command: 'RTK_DISABLED=1 npm test' }, who, e, rtkProj), null);
+    const plain = await pre('Bash', { command: 'npm test' }, who, e, rtkProj);
     const cased = await pre('Bash', { command: 'Npm Test' }, who, e, rtkProj);
-    if (WIN) assert.equal(cased, null, 'a cased program is judged as the program (no rtk rule on Windows)'); else assert.ok(cased, 'a cased program is the program');
+    if (WIN) { // rtkOnPath reads only the `/` entries of PATH and the name rtk (docs/concepts/workflow.md, A271)
+      assert.equal(plain, null, 'rtk is not found on Windows: the evidence command is not refused');
+      assert.equal(cased, null, 'a cased program is judged as the program: not refused either');
+    } else {
+      assert.ok(plain, 'the evidence command is refused without the bypass (fix the table)');
+      assert.ok(cased, 'a cased program is the program');
+    }
+    assert.equal(await pre('Bash', { command: 'RTK_DISABLED=1 npm test' }, who, e, rtkProj), null);
     assert.equal(await pre('Bash', { command: 'RTK_DISABLED=1 Npm Test' }, who, e, rtkProj), null);
   });
 });
@@ -174,7 +178,8 @@ test('A278 round 4: foldWorld is fold of the whole text except the spellings eve
   const cases = /** @type {Array<[string, string]>} */ ([
     ['Git -C /Tmp/Wt-RO Checkout -- X', 'git -C /tmp/wt-ro checkout -- x'], ['RTK_DISABLED=1 Npm Test', 'RTK_DISABLED=1 npm test'], ['Cat $TMPDIR/X ${HOME}/Y', 'cat $TMPDIR/x ${HOME}/y'],
     ['Git Reset --hard HEAD~1', 'git reset --hard HEAD~1'], ['Git --Git-Dir=.AGENTS/Local Status', 'git --Git-Dir=.agents/local status'], ['Sed -iAGENT.SH X', 'sed -iagent.sh x'],
-    ['Echo ß ſh', WIN ? 'echo ß ſh' : 'echo ss sh'], // the Windows fold stays ASCII-only (A271) ['Ls -R Src/X-C', 'ls -R src/x-c'],
+    // the Windows fold stays ASCII-only (A271)
+    ['Echo ß ſh', WIN ? 'echo ß ſh' : 'echo ss sh'], ['Ls -R Src/X-C', 'ls -R src/x-c'],
     // structure: the same characters in the same places, whatever the parser makes of them
     ['Cat <<EOF\n$(Xx Y)\nEOF\r\nEcho ${x:-<<A}\nGit', 'cat <<eof\n$(xx y)\neof\r\necho ${x:-<<a}\ngit'],
   ]);
