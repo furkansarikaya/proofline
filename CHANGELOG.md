@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.130 — 2026-11-16
+
+- Windows hook tests (A292): the Windows hook job, red since A278, passes again: the tests state the Windows expectation (case-insensitive, ASCII-only fold, no volume probe), the bench harness builds its event with `JSON.stringify`, and a Windows-only deny-only screen (`adapters/claude/hooks/lib/winabort.mjs`) gives a clear deny for tool input naming a path with U+10000 or U+10FFFF, the two code points that abort Node 22 on Windows; no change on other platforms
+
 ## 0.0.129 — 2026-11-16
 
 - Knowledge step in an approved batch (A291, item 2c): in a task of a user-approved batch, `knowledge-done <ID>` with no page records `not_applicable` with a `batch default (A291)` reason, writes nothing under docs/, skills or rules, and shows a script-composed 'Suggestion to the user (knowledge)' in the ledger, the completion report and `batch-status` (fixed fallback line if the rows are missing); the lead no longer asks where a note should go and no longer parks the task; attended runs and CRITICAL tasks are unchanged and reasons imitating the default are refused.
