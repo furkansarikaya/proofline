@@ -1,5 +1,7 @@
 # Design surfaces
 
+This page explains how to give a product with several parts (for example a marketing site and an admin app) one design document per part, and how proofline decides which document applies to a file. It is for projects that use the designer role and `DESIGN.md`.
+
 `design_docs.design` in `.agents/config.yaml` has two forms.
 
 **One document** (the default, unchanged): a path.

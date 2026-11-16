@@ -1,5 +1,7 @@
 # ADR 0001 inventory: the shell and awk code of proofline 0.0.40
 
+**Status:** historical record of the state before the decision. The migration is finished (A252); the shell code described here no longer exists except the four launchers. Read this file for the numbers that justified the decision, not for the current layout.
+
 Companion to [0001-node-control-plane.md](0001-node-control-plane.md) and [0001-stages.md](0001-stages.md).
 This is a condensed form of four inventories made on `main` at 0.0.40 (commit 7acdba5) before the decision. Every
 number below comes from those inventories ("inventory"); a number marked "measured" was counted with a PATH shim that

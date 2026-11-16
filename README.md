@@ -1,34 +1,42 @@
 # proofline
 
-**No evidence, no claim.** A deterministic engineering team for coding agents: nothing is "done" because a model said so.
+**No evidence, no claim.** A deterministic engineering team for coding agents: a task is not "done" until scripts have checked the evidence, whatever the model says.
 
-## What it is
+proofline is for developers who let Claude Code or Codex change real code and want more than "trust me". Your main agent session becomes the **lead**: it takes each task through one fixed lifecycle (classify, freeze a plan, dispatch one implementer, run independent gates, report) and stops before commit and push to ask you. Eleven **roles** (the lead is one) and 28 **skills** (the `/proofline` entry skill, the lead's lifecycle skill and 26 method skills; the 26 method skills can each be installed alone) do the work; scripts and git hooks, not prompts, enforce the rules (runtime hooks are tripwires, see the limits below).
 
-- A **lead** (your main agent session) runs one deterministic lifecycle per task: classify, freeze a plan, dispatch, gate, report, stop before delivery.
-- Eleven **roles** (lead, task author, explorer, architect, data architect, designer, QA, implementer, reviewer, security reviewer, verifier); only the lead dispatches.
-- Twenty-four method **skills** plus the `/proofline` command entry skill, each usable on its own, each producing runnable or traceable evidence.
-- Independent **gates** (secrets, reviews, security, QA, verify) judged by scripts on the exact content, never by the lead.
-- **Risk signals** (contract, migration, UI, dependency and config paths, plan flags) add script-chosen checks inside those gates; one that cannot run is UNSUPPORTED, never a pass ([what tests each check](docs/concepts/testing.md)).
-- UI craft: each surface gets a visitor mode (persuade, operate, read, experience); persuade and experience surfaces need real imagery, motion and a characterful type voice, and generated-UI looks a written reason ([details](docs/concepts/design-surfaces.md#craft-by-visitor-mode)).
-- **Enforcement** lives in `agent.sh` and git hooks, so it works with any agent; runtime hooks only block earlier.
-- Claude Code is the primary runtime; any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier (see the [adapters](adapters/README.md)).
-- proofline works alongside ecosystem-specific skills; the gates verify the result whichever skill produced it ([details](docs/concepts/ecosystems.md#skills-specific-to-your-ecosystem)).
+## Why proofline
+
+With a plain session, "done" is the model's word. proofline makes it show why:
+
+- **No "done" without evidence.** A run cannot reach CODE_DONE until every required gate has passed for the current content, or you have explicitly waived it.
+- **The test fails first.** The implementer records RED, then GREEN evidence, and the gates reproduce it independently.
+- **Whoever wrote a change never reviews it.** Reviews, QA and security run in separate roles.
+- **Approvals come only from your own message.** The prompt hook records them; no agent can approve or waive for you.
+- **Secret and security gates cannot be waived.** They run on every round that changes code, dependencies or configuration.
+
+These restate five of the six [core invariants](CONTRIBUTING.md#core-invariants); each has at least one test that attempts the forbidden action against the real scripts, and the test headers name any part that is not yet mechanical.
+
+## Proof, not promises
+
+Every number below has its source on [docs/proof.md](docs/proof.md), with what it does not prove.
+
+- 5,723 test results (about 5,550 distinct tests) in one CI run of `main` (run 43883302769), counted from the run's duration reports.
+- 296 recorded design decisions, each saying what changed; 192 also mention what they rejected ([docs/decisions.md](docs/decisions.md)).
+- Control plane moved from 175 shell files (44,842 lines) to 4 launchers (42 lines); recording one gate result went from 7.56 s (shell form, measured on 0.0.48) to 0.21 s ([ADR 0001](docs/adr/0001-stages.md#stage-15-exit-criteria-record-a251)).
+- Independent security reviews found bypasses before release; one added layer was removed because the review showed it failed open (A292).
+- The real-session smoke run for a recent change failed on its first attempt, which exposed a false positive that parked a task (PR #293, A293).
 
 ## Status
 
 Version 0.0.135 is an early release.
-Scripts and hooks enforce the guarantees listed below; more than 900 automated tests and enforcement tests check them.
-Codex as implementer is supported (real use, 2026-10-23 to 25).
-Other Codex roles are not yet verified in real use; failover from Codex to Claude worked in real use.
-[tests/e2e/README.md](tests/e2e/README.md) lists the detailed full-team results.
-
-## What to expect from AI behaviour
-
-- **Guaranteed:** approvals, database safety, scope, evidence and cleanup: scripts and hooks refuse a step that breaks these rules ([limits](docs/concepts/enforcement-layers.md#what-is-guaranteed)).
-- **Model-dependent:** report wording, plan details and code quality; two runs of the same task can differ and both be valid. The end-to-end runs measure this as a rate.
-- **Lead model:** a cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
+It is not yet proven on real projects. End-to-end team runs last passed 2026-10-14 to 17; the newest run of each scenario failed one to five items, fixed since but not re-run, and none has run on the current `main` ([tests/e2e/README.md](tests/e2e/README.md)).
+Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
+A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
+Guaranteed: approvals, database safety, scope, evidence and cleanup. Model-dependent: report wording, plan details and code quality ([limits](docs/concepts/enforcement-layers.md#what-is-guaranteed)).
 
 ## Install
+
+Requirements: Git, Node.js 22.13 or newer; POSIX `sh` for the 4 launchers.
 
 **Claude Code (plugin marketplace)**
 
@@ -37,50 +45,42 @@ Other Codex roles are not yet verified in real use; failover from Codex to Claud
 /plugin install proofline@proofline
 ```
 
-Then, in your project (a git repository): `proofline init` (or `/proofline init` inside Claude Code). Requirements: Git, Node.js 22.13 or newer; POSIX `sh` for the 4 launchers.
-
 **Codex / terminal**
 
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 node proofline/adapters/codex/install.mjs       # links bin/proofline onto your PATH; options: --dir DIR, --yes
-cd your-project && proofline init
 ```
 
-**Skills only** (no team, no enforcement):
-
-```sh
-npx skills add furkansarikaya/proofline --skill <name>
-```
-
-Supported: macOS, Linux. Windows: core/invariant/hook tests nightly; hook tests also on hook PRs. Not tried (denenmedi): Codex sandbox, `.cmd` shims, `taskkill /T`, WSL, Git Bash as a shell, `glab`/`az`/Jira/Linear ([limits](docs/concepts/workflow.md#not-tried-denenmedi)).
+**Skills only** (no team, no enforcement): `npx skills add furkansarikaya/proofline --skill <name>`
 
 ## Quick start (5 minutes)
 
-```sh
-cd your-project
-proofline init            # asks runtimes, profile, task adapter, branch and push settings
-proofline doctor          # live probes of hooks, runtimes, config, identity, enforced rules, language versions
-proofline insights        # later: cost and recurring failures across runs (read-only report)
-```
-
-Run a role on another runtime with `proofline init --role implementer=codex` (repeatable; sets `runtime.roles.<role>`).
-
-- **Optional tools:** `ast-grep` (structural search) and `rtk` (output compression) are used when installed, never required; `doctor` shows them. With rtk, commands that produce evidence run with `RTK_DISABLED=1`. `doctor` also warns when the plugin and the project's install are different versions (`/proofline upgrade`).
-- **Codex:** open Codex once in the project folder and approve the hooks with `/hooks`. Without this, the Codex-side protections do not run. `proofline doctor` warns about it when Codex is a runtime.
-
-Give the agent a task in plain words, or write it first:
+In your project (a git repository):
 
 ```sh
-proofline task --grill "Add rate limiting to the login endpoint"
-proofline run TASK-001
+proofline init            # installs the control plane, agents, skills and hooks; --yes takes the defaults
+proofline doctor          # live probes of hooks, runtimes, config, identity, enforced rules
+proofline status          # no run yet; prints the next step
 ```
 
-What happens: the lead classifies the task (TRIVIAL to CRITICAL), gathers evidence on a task branch, freezes a
-`PLAN.md` with a `scope:` file list ([lifecycle](docs/concepts/workflow.md)), and dispatches one implementer
-that must show RED then GREEN evidence. Gates then run in parallel on the exact content; a FAIL goes back to the
-implementer for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks, and you
-approve every commit and push. A plan with an entry point taking external input (endpoint, form, CLI argument, queue consumer, webhook) must state how it is validated, and QA tries an invalid input there ([details](docs/concepts/workflow.md#input-validation-at-entry-points)). A log call naming a sensitive word opens a `logging` security review ([details](docs/concepts/gates.md#risk-signals)).
+`doctor` ends with `N FAIL, N WARN`; fix any FAIL before you go on. Then, in your Claude Code session (inside Claude Code: `/proofline init` does the first step):
+
+```text
+/proofline task --grill Add rate limiting to the login endpoint
+/proofline run TASK-001
+```
+
+From a terminal, `proofline task` and `proofline run` print these same two lines for your agent session. The lead classifies the task, freezes a `PLAN.md` with a `scope:` file list, and dispatches one implementer. Gates run on the exact content; a FAIL goes back for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks and every commit and push ([lifecycle](docs/concepts/workflow.md)).
+
+On Codex, open it once in the project and approve the hooks with `/hooks`; without this the Codex-side protections do not run (`doctor` warns). Run a role on another runtime with `proofline init --role implementer=codex`. `ast-grep` and `rtk` are used when installed, never required.
+
+## What it supports
+
+- **Runtimes:** Claude Code (primary); Codex (implementer verified); any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier ([adapters](adapters/README.md)).
+- **Ecosystems:** ten definitions (npm, Python, Go, JVM, Cargo, .NET, PHP, Ruby, Swift, Dart) in one data file. Test-output recognition was checked against the real runner for node:test, bun, vitest, jest, tsc, unittest, pytest, go test, Minitest, test-unit, swift test and the .NET SDK; mocha, Maven, Gradle, JUnit, cargo, PHPUnit, RSpec and dart/flutter test are from documentation only. The other touch points were read in code and tried on hand-made layouts ([matrix](docs/concepts/ecosystems.md#ecosystem-matrix)).
+- **Task trackers:** markdown files (default), GitHub, Jira, Linear; Jira, Linear, `glab` and `az` were tried against fakes only. **Hosts:** GitHub, GitLab, Azure DevOps; else you merge.
+- **Platforms:** macOS and Linux supported. Linux runs on every pull request; macOS and Windows run nightly, and the Windows hook leg also on pull requests touching hook code ([CI results](docs/proof.md#ci-legs)). Not tried: Codex sandbox on Windows, `.cmd` shims, `taskkill /T`, WSL, Git Bash as a shell ([limits](docs/concepts/workflow.md#not-tried)).
 
 ## Commands
 
@@ -105,36 +105,17 @@ debt                                  list the shortcut comments in the code (re
 clean, merge, insights                clean up, the only allowed merge, cost, failures, calibration
 ```
 
-**Platforms.** GitHub, GitLab, Azure DevOps; a private host is named by `git.platform_host`; else you merge ([details](docs/concepts/workflow.md#delivery-on-other-platforms)).
-
-**The next step.** Every command ends with `Next step: ...`, the one command (or action of yours) that follows. One table in the control plane (`core/nextuser.mjs`) holds it; the entry skill lists it; see [details](docs/concepts/workflow.md#the-next-step).
-
-**Night mode.** `/proofline batch <ID...|all>` shows one summary and takes one approval ("approve batch") for several tasks. The same session runs and delivers each in dependency order, each in its own git worktree. Keep the computer awake; `/proofline batch` continues after an interruption. What the approval does not cover parks that task; `proofline batch status` is the morning table ([night mode](docs/concepts/night-mode.md)).
-
-**Shortcut debt.** A corner cut on purpose is marked `shortcut: <limit>, <when to improve>` and listed by `proofline debt` ([workflow](docs/concepts/workflow.md#shortcut-debt)). **Observations.** Out-of-scope issues the implementer saw are listed, not fixed, and become tasks only after you approve ([workflow](docs/concepts/workflow.md#observations-and-unrelated-changes)). **Language.** Run files are English; other-language project text is quoted as is ([details](docs/concepts/workflow.md#language-of-run-files)).
-
-**Product skills.** `product-discovery`, `product-assess` and `product-spec` propose items you accept, change or reject; facts still need a source ([details](docs/concepts/product.md)).
-
-**Project layout.** No layout is assumed: one ecosystem definition drives `init` (a command per ecosystem, workspaces included); `commands.build|test|lint` may be a list; an ambiguous one gets none and the run asks once ([ecosystems](docs/concepts/ecosystems.md)).
-
-**Faster, not looser.** Gates re-run when their inputs changed, batch questions come before the approval, empty `commands.*` are proposed by `proofline doctor --commands` and written only after your yes. Six core invariants ([CONTRIBUTING](CONTRIBUTING.md#core-invariants)) bound every change and are tested ([gates](docs/concepts/gates.md#repeating-gates-after-a-fix-round-a200)). A waiver follows the finding and same-rule findings are one decision; a test exception clears a finding only with your approval, and a batch lists them ([gates](docs/concepts/gates.md#approvals)).
-
-**The task model (A202).** A task has a type (`feature|bug|refactor|content|docs|chore`; `bug` needs repro steps, `content` and `docs` a written test-first exemption that never covers code), a name `<ID>-<slug>.md` and optional scope limits, pattern references, `priority`, `origin`. One status block per task is updated in place; a finding the task does not touch can become a user-approved known issue; one message may hold several approvals; limits scale with `proofline doctor --scale` ([types](docs/guides/task-templates.md), [status](docs/concepts/workflow.md#live-status-block-a202), [known issues](docs/concepts/gates.md#known-issues-a202), [timeouts](docs/concepts/timeouts.md)).
-
-**Processes.** An agent stops only a process it started, by its PID; the hook denies kill-by-name and mass kills (a tripwire, not a sandbox: [process rules](docs/concepts/enforcement-layers.md#process-rules)).
+Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#the-next-step)). More: [night mode](docs/concepts/night-mode.md), [task model and types](docs/guides/task-templates.md), [known issues and waivers](docs/concepts/gates.md#approvals), [risk signals](docs/concepts/gates.md#risk-signals) and [what tests each check](docs/concepts/testing.md), [UI craft](docs/concepts/design-surfaces.md#craft-by-visitor-mode), [product skills](docs/concepts/product.md), [project layout and ecosystems](docs/concepts/ecosystems.md), [process rules](docs/concepts/enforcement-layers.md#process-rules).
 
 ## Documentation
 
-- Concepts: [workflow](docs/concepts/workflow.md), [night mode](docs/concepts/night-mode.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md), [ecosystems](docs/concepts/ecosystems.md), [product](docs/concepts/product.md)
-- Guides: [daily use](docs/guides/daily-use.md), [existing project](docs/guides/existing-project.md), [task templates](docs/guides/task-templates.md), [writing an adapter](docs/guides/writing-an-adapter.md), [prompt catalogue](docs/guides/prompt-catalogue.md); Turkish: [gunluk kullanim](docs/guides/tr/gunluk-kullanim.md), [prompt katalogu](docs/guides/tr/prompt-katalogu.md)
-- Other agents: small [adapters](adapters/README.md); PRs welcome, an untested adapter is labelled "not tested"
-- Real output (an unedited end-to-end final message): [workflow](docs/concepts/workflow.md#real-output); all results: [tests/e2e/README.md](tests/e2e/README.md)
+- Concepts: [workflow](docs/concepts/workflow.md), [roles](docs/concepts/roles.md), [gates](docs/concepts/gates.md), [evidence](docs/concepts/evidence.md), [metrics](docs/concepts/metrics.md), [failover](docs/concepts/failover.md), [enforcement layers](docs/concepts/enforcement-layers.md), [testing](docs/concepts/testing.md)
+- Guides: [daily use](docs/guides/daily-use.md), [existing project](docs/guides/existing-project.md), [writing an adapter](docs/guides/writing-an-adapter.md), [prompt catalogue](docs/guides/prompt-catalogue.md); Turkish translations: [daily use](docs/guides/tr/gunluk-kullanim.md), [prompt catalogue](docs/guides/tr/prompt-katalogu.md)
+- Evidence: [proof, not promises](docs/proof.md); real output of a run: [workflow](docs/concepts/workflow.md#real-output); end-to-end results: [tests/e2e/README.md](tests/e2e/README.md)
 - Reference: [skills](docs/reference/skills.md), [roles](docs/reference/roles.md), [design decisions](docs/decisions.md)
 
 ## Versioning and license
 
 Version **0.0.135**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
-MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE).
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.
+MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

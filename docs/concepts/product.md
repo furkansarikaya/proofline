@@ -1,5 +1,7 @@
 # Product documents
 
+This page explains the product documents of proofline (discovery, assessment, PRD, review, split, trace, outcome), the evidence rules their checkers enforce, and where the files live. It is for users who start from a product idea instead of a task.
+
 Before tasks exist, a product idea can become a product requirements document (PRD) that is checked, reviewed by someone else and only then split into tasks. The `product-spec` skill carries this; the commands are `/proofline product prd|review|split <slug>` and `/proofline trace <FR-n|TASK-ID>`. Before the PRD, the `product-discovery` skill (`product discover`) and the `product-assess` skill (`product assess`, `product outcome`) collect and test the evidence the PRD cites.
 
 Files live in `<product.dir>/<slug>/` (config `product.dir`, default `docs/product`): `PRD.md` and `REVIEW.md`. The folder is inside the default `knowledge_scope_root`, so the knowledge step may write it.

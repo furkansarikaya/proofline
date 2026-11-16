@@ -1,6 +1,6 @@
 # Evidence, assumptions and unsupported checks
 
-proofline claims only what it can show. This page explains the vocabulary that every gate and skill shares.
+proofline claims only what it can show. This page explains the vocabulary that every gate and skill shares (evidence classes, UNSUPPORTED, assumptions), for users who read a gate result and contributors who write a check.
 
 ## Evidence classes
 

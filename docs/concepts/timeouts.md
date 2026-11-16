@@ -1,5 +1,7 @@
 # Time limits
 
+This page lists every time limit of the control plane, the one multiplier that scales them, how the defaults were derived from real records, and what happens when a step takes long. It is for users on slow machines and for contributors who add a wait.
+
 Every wait in the control plane has a limit, and a limit is a last resort: a step that hits it **fails** (it is never a pass),
 the work it did is kept, and the next run of the step resumes from it. Bigger limits and the scale below only wait longer; they
 skip no gate and weaken no check.
@@ -26,7 +28,7 @@ and then refreshes the hook limits in the settings files.
 |---|---|---|---|
 | Dispatched step (default, when the run has no class) | 5400 s (was 1800) | `dispatch.timeout_seconds`, 30 to 28800 | `dispatch.sh`, `agent.sh` (stale marker), `check-result.mjs` |
 | Dispatched step per class | TRIVIAL 1800 (was 900), STANDARD 5400 (1800), COMPLEX 7200 (3600), CRITICAL 7200 (3600) | `pipelines.<CLASS>.dispatch_timeout_seconds`, 30 to 28800 | `dispatch.sh` |
-| Per-role step duration | none of its own: explorer, architect, qa, implementer, every reviewer focus, security reviewer, verifier and designer (including the full design audit) share the class limit | | |
+| Per-role step duration | none of its own: explorer, architect, qa, implementer, every reviewer focus, security reviewer, verifier and designer (including the full design audit) share the class limit. The `Timeout` line of the [roles reference](../reference/roles.md) (`timeout_seconds` in `roles/<id>.md`) is role metadata that only `adapters/generate.mjs` reads; the dispatcher does not (searched at 0.0.135) | | |
 | Stale dispatch marker | the step limit + 60 s | | `agent.sh` (`inflight_pid_alive`) |
 | Warning to the lead | 80 % of a step's limit | `timeouts.warn_percent`, 50 to 95 | `agent.sh next`, `agent.sh wait-line` |
 | Network retry wait | 15 s, doubling, 3 tries (not scaled: a pause, not a limit) | `dispatch.network_backoff_seconds`, `dispatch.network_retries` | `dispatch.sh` |
@@ -45,6 +47,8 @@ and then refreshes the hook limits in the settings files.
 | Visual audit | per page and browser start 30 s (`--timeout MS`, the caller passes it), native tools 120 s; the whole audit is a dispatched step under the class limit | | `measure.mjs`, `native.mjs` |
 | Trial run of a discovered command | 600 s | | `proofline doctor --commands` |
 | `claude plugin list` in doctor | 20 s | | `proofline doctor` |
+
+In the "Read by" column `agent.sh` and `dispatch.sh` stand for the Node control plane that these launchers start.
 
 The hook limits in the settings files come from the config: edit `hook.<event>_timeout_seconds` or `timeouts.scale`, then run
 `proofline upgrade`. Only the `timeout` of the hooks whose command names `proofline-hook.mjs` is written; every other setting and hook
