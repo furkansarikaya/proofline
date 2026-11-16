@@ -27,6 +27,19 @@ test('winabort: a path-bearing field with U+10000 aborts the screen, in any fiel
   assert.equal(abortingInput('x'), false);
 });
 
+test('winabort: any depth is scanned (no depth limit), a patch is judged by its file headers only, a text over the bound is refused', () => {
+  /** @type {any} */ let deep = { file_path: `a${LB}` };
+  for (let i = 0; i < 40; i++) deep = { x: [deep] };
+  assert.equal(abortingInput({ tool_input: deep }), true, 'forty levels down');
+  /** @type {any} */ const cyc = { a: 1 }; cyc.self = cyc;
+  assert.equal(abortingInput({ tool_input: cyc }), false, 'a cycle ends');
+  const patch = (/** @type {string} */ head, /** @type {string} */ body) => `*** Begin Patch\n*** Add File: ${head}\n+${body}\n*** End Patch`;
+  assert.equal(abortingInput({ tool_input: patch('src/a.txt', `text ${LB}`) }), false, 'the body of a patched file is not a path');
+  assert.equal(abortingInput({ tool_input: patch(`src/a${LB}.txt`, 'x') }), true, 'a file header is');
+  assert.equal(abortingInput({ tool_input: { input: patch(`src/a.txt`, LB) } }), false, 'a patch held in a field is read the same way');
+  assert.equal(abortingInput({ tool_input: { command: 'x'.repeat(9 * 1024 * 1024) } }), true, 'a path-bearing text over the bound fails closed');
+});
+
 test('winabort: the screen is Windows only; PreToolUse is denied, PostToolUse is not handled, other events and non-JSON go on', () => {
   const bad = ev({ tool_name: 'Write', tool_input: { file_path: `a${LB}` } });
   assert.equal(screenEvent('pretool', bad, false), null, 'off on another host');
