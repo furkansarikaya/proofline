@@ -206,6 +206,14 @@ test('git hooks: the shipped pre-push refuses every push of a review role (A290)
   }
   assert.equal(push('work:feature', { AGENT_ROLE: 'independent_reviewer' }).status === 0, false, 'the legacy name of the reviewer pushed');
   assert.equal(refs(), '', `a review role created something on the remote: ${refs()}`);
+  // a push the text guard of the runtime hook cannot read (a script the role wrote, a copied git binary) is a plain `git push` for git: the pre-push stops it when AGENT_ROLE reaches
+  // it (a headless specialist) and does not otherwise (an interactive sub-agent gets its role from agent_type; the hook cannot export it to the shell: docs/concepts/enforcement-layers.md)
+  writeFileSync(path.join(r, 's.sh'), 'git -c core.hooksPath=.agents/githooks push -q origin work:refs/heads/Y\n');
+  const viaScript = (/** @type {Record<string, string>} */ env) => spawnSync('sh', ['s.sh'], { cwd: r, env: { ...BASE_ENV, ...env }, encoding: 'utf8' });
+  assert.notEqual(viaScript({ AGENT_ROLE: 'reviewer' }).status, 0, 'a script run with AGENT_ROLE=reviewer pushed');
+  assert.equal(refs(), '', `a script run as a review role created something on the remote: ${refs()}`);
+  assert.equal(viaScript({}).status, 0, 'the known limit changed: a script run without AGENT_ROLE no longer pushes; update the enforcement-layers statement');
+  git(remote, ['update-ref', '-d', 'refs/heads/Y']);
   // the lead (approval off) and a human are not touched
   assert.equal(push('work:feature', { AGENT_ROLE: 'lead' }).status, 0, 'the lead could not push with approval switched off');
   assert.equal(push('work:feature2', {}).status, 0, 'a human could not push');

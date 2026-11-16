@@ -93,3 +93,10 @@ test('no other role is touched: the lead, the implementer, the designer and the 
     }
   }
 });
+
+test('the runtime guard and the git pre-push name the same roles', async () => {
+  const guard = await import(pathToFileURL(join(hookDir, 'guards/readonly-git.mjs')).href);
+  const core = await import(pathToFileURL(join(nodeHook, '../../../../control-plane/agents/scripts/core/githooks.mjs')).href);
+  assert.deepEqual([...guard.NO_PUSH_ROLES].sort(), [...core.NO_PUSH_ROLES].sort());
+  assert.deepEqual(ROLES.map(([r]) => r).sort(), [...core.NO_PUSH_ROLES].sort(), 'the cases drive every one of the roles');
+});

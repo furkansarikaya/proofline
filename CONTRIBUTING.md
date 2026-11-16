@@ -107,7 +107,7 @@ How work is split between agents in this repository.
 - Every change goes to a separate implementer sub-agent. A separate test sub-agent writes self-tests, skill
   tests and fixtures. A separate review sub-agent checks the diff against `docs/decisions.md` and the task.
   The author never reviews its own work; the reviewer never fixes.
-- Review and security agents never push and never create branches or tags: they only read and report, and the lead alone pushes. The roles' hooks refuse it (`adapters/claude/hooks/guards/readonly-git.mjs`, the git `pre-push`; A290).
+- Review and security agents never push, never create branches or tags and do not commit: they only read and report, and the lead alone pushes. The roles' hooks refuse it (`adapters/claude/hooks/guards/readonly-git.mjs`, the git `pre-push`; A290).
 - An e2e evaluator is always a different agent from the one that ran the scenario and from the one that
   wrote the fix.
 - Models: lead Opus; implementer, test and review Sonnet; Opus advises on hard design decisions.
