@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.133 — 2026-11-16
+
+- CI (A295, package 4b): the Windows hook leg (`hook-windows`), green again since A292, also runs on pull requests that touch path, hook or guard code. `classify` in `tests/ci/ci-steps.mjs` writes `windows_hook=` from the list in `tests/ci/windows-hook-paths.mjs` (a test checks the list against the imports of the hook tests); the leg is a need of the `checks` gate (skipped passes, failed fails) with a 60 minute timeout. The windows-core shards, invariant legs and probes stay nightly/manual; pushes to main are unchanged.
+
 ## 0.0.132 — 2026-11-16
 
 - The task author proposes foreseeable test exceptions (A294, package 2d): `skills/task-author` rule 11 and CRITERIA.md say when to write a `## Test exceptions` section in the task file; `validate-task.mjs` checks the lines with a copy of the batch's line grammar and limits (parity test), and the batch summary labels them as proposals written by the task author, accepted only by the user's approval of the batch. Undeclared exceptions still park the task.

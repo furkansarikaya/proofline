@@ -122,11 +122,11 @@ describe('ci-steps classify', () => {
     let printed = '';
     const write = (/** @type {string} */ s) => { printed += s; };
     assert.equal(steps(['classify', '--event', 'pull_request', '--base', 'b', '--head', 'h'], { env, write, changed: () => ['README.md', 'docs/a.md'] }), 0);
-    assert.equal(printed, 'code=false\n'); assert.equal(readFileSync(out, 'utf8'), 'code=false\n');
+    assert.equal(printed, 'code=false\nwindows_hook=false\n'); assert.equal(readFileSync(out, 'utf8'), 'code=false\nwindows_hook=false\n');
     assert.equal(steps(['classify', '--event', 'pull_request', '--base', 'b', '--head', 'h'], { env, write, changed: () => ['README.md', 'src/a.mjs'] }), 0);
-    assert.match(readFileSync(out, 'utf8'), /code=true\n$/);
+    assert.match(readFileSync(out, 'utf8'), /code=true\nwindows_hook=false\n$/);
     assert.equal(steps(['classify', '--event', 'push'], { env, write, changed: () => { throw new Error('not asked'); } }), 0);
-    assert.match(readFileSync(out, 'utf8'), /code=true\ncode=true\n$/);
+    assert.match(readFileSync(out, 'utf8'), /code=true\nwindows_hook=false\ncode=true\nwindows_hook=false\n$/);
   });
   test('a pull request without base and head, and an unknown step, are usage errors', () => {
     const origErr = console.error; console.error = () => {};
@@ -170,7 +170,7 @@ describe('non-ASCII paths (git quotes them unless told not to)', () => {
       let out = '';
       const outFile = path.join(T, 'u-out'); writeFileSync(outFile, '');
       assert.equal(steps(['classify', '--event', 'pull_request', '--base', base, '--head', head], { env: { GITHUB_OUTPUT: outFile }, write: (s) => { out += s; } }), 0);
-      assert.equal(out, 'code=true\n');
+      assert.equal(out, 'code=true\nwindows_hook=false\n');
     } finally { process.chdir(cwd); console.error = origErr; }
     // a pull request that adds only a non-ASCII documentation file is documentation
     writeFileSync(path.join(d, 'docs/ñ.md'), 'y'); g(['add', '-A']); g(['commit', '-q', '-m', 'c']);
@@ -178,7 +178,7 @@ describe('non-ASCII paths (git quotes them unless told not to)', () => {
     let out2 = ''; const outFile2 = path.join(T, 'u-out2'); writeFileSync(outFile2, '');
     process.chdir(d);
     try { assert.equal(steps(['classify', '--event', 'pull_request', '--base', head, '--head', head2], { env: { GITHUB_OUTPUT: outFile2 }, write: (s) => { out2 += s; } }), 0); } finally { process.chdir(cwd); }
-    assert.equal(out2, 'code=false\n');
+    assert.equal(out2, 'code=false\nwindows_hook=false\n');
   });
 });
 

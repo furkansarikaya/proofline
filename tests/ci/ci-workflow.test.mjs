@@ -29,19 +29,30 @@ test('the self-test shard job (16 shards of no unit) is gone', () => {
   assert.ok(!/selftest/.test(ci), 'no step runs or uploads self-test output');
 });
 
-test('checks needs every job except the nightly and manual gates hook-windows and windows-core, and keeps the stable names', () => {
+test('checks needs every job except the nightly and manual gate windows-core (A295: hook-windows is waited for), and keeps the stable names', () => {
   const needs = /needs: \[([^\]]*)\]/.exec(job('checks'));
   assert.ok(needs);
   const listed = needs[1].split(',').map((s) => s.trim());
-  for (const n of ['changes', 'static', 'fixtures', 'visual-browser', 'invariants', 'node-tests', 'hook-node', 'types']) assert.ok(listed.includes(n), n);
-  assert.deepEqual(jobNames.filter((n) => !listed.includes(n) && n !== 'checks'), ['hook-windows', 'windows-core']);
+  for (const n of ['changes', 'static', 'fixtures', 'visual-browser', 'invariants', 'node-tests', 'hook-node', 'hook-windows', 'types']) assert.ok(listed.includes(n), n);
+  assert.deepEqual(jobNames.filter((n) => !listed.includes(n) && n !== 'checks'), ['windows-core']);
 });
 
-test('A250: the Windows hook leg is a gate of the nightly and manual runs: no continue-on-error, not run on a pull request', () => {
+test('A250: the Windows hook leg is a gate: no continue-on-error; A295: it also runs on a pull request, only through the windows_hook output', () => {
   const j = job('hook-windows');
   assert.ok(j !== '');
   assert.ok(!/continue-on-error/.test(j), 'hook-windows must not be a measurement any more');
   assert.match(j, /github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/);
+  assert.match(j, /github\.event_name == 'pull_request' && needs\.changes\.outputs\.windows_hook == 'true'/);
+});
+
+test('A295: the windows_hook output of `changes` is the one classify writes, and the classifier list names the workflow file and the hook code', async () => {
+  assert.match(job('changes'), /^      windows_hook: \$\{\{ steps\.classify\.outputs\.windows_hook \}\}$/m);
+  assert.match(job('changes'), /id: classify[\s\S]*run: node tests\/ci\/ci-steps\.mjs classify\n/);
+  const steps = readFileSync(join(repo, 'tests/ci/ci-steps.mjs'), 'utf8');
+  assert.match(steps, /windows_hook=\$\{winHook\}/);   // the name the workflow reads
+  const { matchesWindowsHook } = await import('./windows-hook-paths.mjs');
+  for (const f of ['.github/workflows/ci.yml', 'adapters/claude/hooks/proofline-hook.mjs', 'tests/hook/harness.mjs']) assert.ok(matchesWindowsHook(f), f);
+  assert.match(ci, /timeout-minutes: 60\n    runs-on: windows-latest\n/);   // the pull request leg is bounded
 });
 
 test('A272: the Windows core and invariant legs are gates of the nightly and manual runs: schedule in the condition, no continue-on-error, not in checks, every leg reports', () => {
@@ -71,7 +82,6 @@ test('A272: windows-core takes no permissions of its own, no secret, the declare
 
 test('A272: hook-windows is unchanged by the Windows gates (same condition, runner, steps)', () => {
   const j = job('hook-windows');
-  assert.match(j, /^    if: \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && needs\.changes\.outputs\.code == 'true'$/m);
   assert.match(j, /runs-on: windows-latest/);
   assert.match(j, /run: node --test "tests\/hook\/\*\.test\.mjs"/);
   assert.match(j, /run: node tests\/ci\/ci-steps\.mjs windows-timing/);
@@ -99,10 +109,11 @@ test('CODEOWNERS puts .github/, tests/ci/ and tests/invariants-node/ under the r
 
 // A skipped job counts as passed in `checks`, so a job-level `if:` on a gate silently removes the gate from every pull request. The conditions that are allowed are pinned literally.
 const NIGHTLY = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.code == 'true'";
+const HOOK_WINDOWS = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.changes.outputs.windows_hook == 'true')) && needs.changes.outputs.code == 'true'";
 /** @type {Record<string, string | null>} job -> the one job-level condition it may have (null: none) */
 const ALLOWED_IF = {
   changes: null, static: null, 'node-tests': null, 'hook-node': null, types: null, invariants: null, 'windows-core': NIGHTLY,
-  fixtures: "needs.changes.outputs.code == 'true'", 'visual-browser': NIGHTLY, 'hook-windows': NIGHTLY, checks: 'always()',
+  fixtures: "needs.changes.outputs.code == 'true'", 'visual-browser': NIGHTLY, 'hook-windows': HOOK_WINDOWS, checks: 'always()',
 };
 /** The problems of a workflow text: a job with a condition it may not have, an unknown job, a step that can never run. @param {string} text @returns {string[]} */
 export function ifProblems(text) {
@@ -135,6 +146,8 @@ test('the pin goes red for each way of skipping a gate on a pull request', () =>
   assert.notEqual(fx, ci); assert.notDeepEqual(ifProblems(fx), [], 'fixtures: if: false');
   assert.notDeepEqual(ifProblems(ci.replace("needs.changes.outputs.code == 'true'\n    strategy", "github.event_name != 'pull_request'\n    strategy")), [], 'fixtures: other condition');
   assert.notDeepEqual(ifProblems(ci.replaceAll(NIGHTLY, "github.event_name != 'pull_request'")), [], 'nightly jobs: other condition');
+  assert.notDeepEqual(ifProblems(ci.replace(HOOK_WINDOWS, NIGHTLY)), [], 'hook-windows: back to nightly only');
+  assert.notDeepEqual(ifProblems(ci.replace("(github.event_name == 'pull_request' && needs.changes.outputs.windows_hook == 'true')", "github.event_name == 'pull_request'")), [], 'hook-windows: every pull request');
   assert.notDeepEqual(ifProblems(ci.replace('  checks:\n    if: always()', '  checks:\n    if: false')), [], 'checks');
   assert.notDeepEqual(ifProblems(`${ci}\n  extra:\n    runs-on: ubuntu-latest\n`), [], 'a job nobody pinned');
 });
