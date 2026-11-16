@@ -107,16 +107,17 @@ test('CRITICAL: five different open questions stop at the C-14 allowance of 3 re
 const plan = (/** @type {string} */ n, /** @type {string} */ bound) => ({ name: `${n}-request-plan.yaml`, kind: 'plan', bound });
 const scope = (/** @type {string} */ n, /** @type {string} */ bound) => ({ name: `${n}-request-scope.yaml`, kind: 'scope', bound });
 
-test('COMPLEX: the refreeze after failed gates raises a plan and a scope request; one reply answers both, within 3 + 1', () => {
+test('COMPLEX: the refreeze after failed gates raises a plan and a scope request; one reply approves the plan only, within 3 + 1', () => {
   const steps = [
     { text: real.complexPlan, create: [plan('001', 'A')] },
     { text: 'Gates failed.\n\nQUESTIONS:\n1. A tag that is exactly "." can be added but never removed. How should the fix round handle it?', answer: [{ kind: 'plan', request: '001-request-plan.yaml' }] },
     { text: real.complexRefreeze, create: [plan('003', 'B'), scope('004', 'B')] },
-    { text: 'Approvals recorded. Starting the fix round.', answer: [{ kind: 'plan', request: '003-request-plan.yaml' }, { kind: 'scope', request: '004-request-scope.yaml' }] },
+    { text: 'Approvals recorded. Starting the fix round.', answer: [{ kind: 'plan', request: '003-request-plan.yaml' }] },
   ];
   const { summary, log } = play('COMPLEX', { steps }, 'complex-refreeze');
   const texts = replyTexts(log);
   assert.equal(texts[2], replies('COMPLEX.txt')[2], `the refreeze reply: ${log}`);
+  assert.doesNotMatch(texts[2] ?? '', /scope/i, 'the refreeze reply must hold no scope approval');
   assert.match(summary, /^replies=3$/m, summary);
   assert.match(summary, /^plan_approval_replies=1$/m, summary);
   assert.match(summary, /^refreeze_approval_replies=1$/m, summary);
@@ -130,8 +131,8 @@ test('COMPLEX: a second refreeze is answered too (allowance 3 + 2)', () => {
     { text: real.complexPlan, create: [plan('001', 'A')] },
     { text: 'Q?', answer: [{ kind: 'plan', request: '001-request-plan.yaml' }] },
     { text: real.complexRefreeze, create: [plan('003', 'B'), scope('004', 'B')] },
-    { text: real.complexRefreeze, answer: [{ kind: 'plan', request: '003-request-plan.yaml' }, { kind: 'scope', request: '004-request-scope.yaml' }], create: [plan('007', 'C'), scope('008', 'C')] },
-    { text: 'done', answer: [{ kind: 'plan', request: '007-request-plan.yaml' }, { kind: 'scope', request: '008-request-scope.yaml' }] },
+    { text: real.complexRefreeze, answer: [{ kind: 'plan', request: '003-request-plan.yaml' }], create: [plan('007', 'C'), scope('008', 'C')] },
+    { text: 'done', answer: [{ kind: 'plan', request: '007-request-plan.yaml' }] },
   ];
   const { summary } = play('COMPLEX', { steps }, 'complex-two');
   assert.match(summary, /^replies=4$/m, summary);
@@ -179,7 +180,7 @@ test('lib: the question script is the lines of question.<SCENARIO>.txt, line 1 o
   assert.ok(existsSync(path.join(repo, 'tests/e2e/replies')));
 });
 
-test('the refreeze reply line is read by the real approval grammar as a plan AND a scope approval; the question lines hold no approval', () => {
+test('the refreeze reply line is read by the real approval grammar as a plan approval ONLY (the scope request stays open); the question lines hold no approval', () => {
   const d = project('scaffold standalone no TRIVIAL supervised');
   const ad = `${d}/.agents/runs/LC/approvals`;
   for (const k of ['plan', 'scope']) accepted(A(d, ['request-approval', 'LC', k]), `request ${k}`);
@@ -189,7 +190,9 @@ test('the refreeze reply line is read by the real approval grammar as a plan AND
     storePrompt(`${d}/.agents/local`, 's1', t0 + 1, replies(f)[2] ?? '');
     A(d, ['approve-pending', 'LC']);
     const got = readdirSync(ad).filter((n) => /^\d{3}-(plan|scope)\.yaml$/.test(n)).map((n) => n.replace(/^\d+-|\.yaml$/g, '')).sort();
-    assert.deepEqual(got, ['plan', 'scope'], `${f} line 3 is not read as two approvals`);
+    assert.deepEqual(got, ['plan'], `${f} line 3 must be read as the plan approval only`);
+    assert.doesNotMatch(replies(f)[2] ?? '', /scope/i);
+    assert.ok(readdirSync(ad).some((n) => /request-scope/.test(n)) && !got.includes('scope'), 'the scope request was satisfied');
   }
   const phrases = JSON.parse(readFileSync(path.join(repo, 'tests/golden/approvals/grammar.json'), 'utf8')).phrases.split('\n').filter(Boolean).map((x) => x.trim().toLowerCase());
   for (const line of replies('question.CRITICAL.txt').filter(Boolean)) {

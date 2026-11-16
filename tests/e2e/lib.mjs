@@ -111,7 +111,7 @@ export const replyBudget = (base, refreezes) => Math.min(HARD_REPLY_CAP, base + 
 
 /**
  * The decision at a stop with the whole set of open requests: a refreeze raises a `plan` and a `scope` request together (the amended plan and its
- * scope change) and exactly that pair is answered by one `refreeze` reply; a `scope` request alone (an unrequested fix, X-13) and every other kind stay
+ * scope change) and exactly that pair gets one `refreeze` reply, which approves the PLAN only (the scope request stays open, X-13); a `scope` request alone (an unrequested fix, X-13) and every other kind stay
  * unanswered. Else the single-kind rule of {@link replyDecision}.
  * @param {string} kind @param {{ kind: string }[]} open @param {string} [text]
  * @returns {'plan' | 'refreeze' | 'question' | 'stop'}
