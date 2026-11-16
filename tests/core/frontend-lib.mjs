@@ -83,6 +83,16 @@ export function sandbox(opts = {}) {
     else { mkdirSync(f, { recursive: true }); writeFileSync(`${f}/node`, `#!/bin/sh\ncase "\${1:-}" in --version) echo v${v} ;; *) exec "${process.execPath}" "$@" ;; esac\n`); chmodSync(`${f}/node`, 0o755); }
     return `${f}${path.delimiter}${env.PATH}`;
   };
+  /**
+   * A folder with a program NAME that runs the Node source SOURCE (a fake third-party tool). On Windows with `exeTools` it is a real NAME.exe in the checkout (the resolver runs nothing else, A252/A266);
+   * elsewhere an executable script whose shebang is the Node of this run. Returns the folder to put first on PATH. @param {string} sub @param {string} name @param {string} source
+   */
+  const nodeTool = (sub, name, source) => {
+    const f = exeTools ? path.join(toolRoot, sub) : `${T}/${sub}`;
+    if (exeTools) exeNode(f, name, source);
+    else { mkdirSync(f, { recursive: true }); writeFileSync(`${f}/${name}`, `#!${process.execPath}\n${source}`); chmodSync(`${f}/${name}`, 0o755); }
+    return f;
+  };
   let base = '';
   /** The initialised project every scenario starts from (built once per file); `copy(name)` is a private copy of it. */
   const copy = (/** @type {string} */ name) => {
@@ -95,7 +105,7 @@ export function sandbox(opts = {}) {
     const d = `${T}/${name}`; cpSync(base, d, { recursive: true, verbatimSymlinks: true });
     return d;
   };
-  return { T, env, mkrepo, pl, plAsync, copy, fakeNodePath };
+  return { T, env, mkrepo, pl, plAsync, copy, fakeNodePath, nodeTool };
 }
 
 /** The lines of a doctor run that start with WARN, PASS or FAIL. @param {string} out */
