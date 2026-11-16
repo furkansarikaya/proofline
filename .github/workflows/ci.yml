@@ -469,7 +469,7 @@ jobs:
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'
-            files: tests/ci/*.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs
+            files: tests/ci/*.test.mjs tests/enforcement/guards.test.mjs tests/enforcement/wiring.test.mjs tests/enforcement/pretool-exit-status.test.mjs
           - name: harness
             mode: files
             pattern: 'none'

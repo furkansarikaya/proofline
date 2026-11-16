@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" pretool claude || test ! -f \"$CLAUDE_PROJECT_DIR/.agents/config.yaml\" || { echo \"proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed\" >&2; exit 2; }",
+            "command": "if command -v node >/dev/null 2>&1 && test -f \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\"; then node \"$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs\" pretool claude; rc=$?; test $rc -eq 0 && exit 0; test $rc -eq 2 || echo \"proofline: the hook ended with status $rc; failing closed\" >&2; exit 2; fi; test ! -f \"$CLAUDE_PROJECT_DIR/.agents/config.yaml\" || { echo \"proofline: the hook did not start (node 22.13 or newer must be on PATH, and .agents/hooks/proofline-hook.mjs must exist); failing closed\" >&2; exit 2; }",
             "timeout": 30
           }
         ]
