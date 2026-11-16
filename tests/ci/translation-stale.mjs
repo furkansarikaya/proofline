@@ -1,11 +1,13 @@
 // @ts-check
 // The translation staleness check (user decisions A1/A2 of the Turkish guides): every file under docs/guides/tr/ carries, after its title, one machine-readable header line
-//   <!-- translated-from: <English file>; blob: <git blob id of that English file>; commit: <short sha> -->
+//   <!-- translated-from: <English file>; blob: <git blob id of the English file this translation follows> -->
+// (no commit id: a commit of a branch does not survive a squash merge, and the blob id is what is compared). The line sits within the 6 lines after the `# ` title, outside any code fence.
 // and this check compares the recorded blob id with the blob id of the English file as it is now.
 //   fresh      -> silent, exit 0.
 //   stale      -> a GitHub Actions warning annotation (`::warning file=<translation>::...`) plus a plain line, exit 0. A stale translation WARNS and never fails: failing would force
 //                 a translation into every pull request that touches a guide, and the English page is authoritative.
-//   an error   -> exit 1: a missing or malformed header, a header naming an English file that does not exist (or leaves docs/), or an unreadable file.
+//   an error   -> exit 1: a missing or malformed header, a header naming an English file that does not exist (or leaves docs/), an unreadable file, or a translation file name outside [A-Za-z0-9._-]+.md
+//                 (a pull request controls the file names, so a name is never printed unescaped: workflow commands could be injected through it).
 // The blob id is the git object id of the file content (sha1 of "blob <size>\0<bytes>"), computed in process after CRLF is read as LF, so it equals `git hash-object` on a
 // checkout with either line ending and needs no git, no shell and no network. The check only reads the files; nothing in them is ever executed or evaluated, and the header is
 // matched by a regular expression anchored to a whole line.
@@ -17,7 +19,11 @@ import { pathToFileURL } from 'node:url';
 
 export const TRANSLATION_DIR = 'docs/guides/tr';
 /** One whole line; the English path is a relative path of safe characters under docs/ (no `..`, checked again below). */
-export const HEADER_RE = /^<!-- translated-from: (docs\/[A-Za-z0-9._\/-]+\.md); blob: ([0-9a-f]{40}); commit: ([0-9a-f]{7,40}) -->$/;
+export const HEADER_RE = /^<!-- translated-from: (docs\/[A-Za-z0-9._\/-]+\.md); blob: ([0-9a-f]{40}) -->$/;
+/** The only file names a translation may have. */
+export const NAME_RE = /^[A-Za-z0-9._-]+\.md$/;
+/** How many lines after the title the header may sit. */
+export const HEADER_WINDOW = 6;
 
 /** The git blob id of a content: sha1("blob <bytes>\0" + bytes), with CRLF read as LF. @param {Buffer | string} content */
 export function blobId(content) {
@@ -27,21 +33,38 @@ export function blobId(content) {
 }
 
 /**
- * The header of a translation: exactly one line matching HEADER_RE.
+ * The header of a translation: exactly one line matching HEADER_RE outside code fences, within HEADER_WINDOW lines after the first `# ` title (outside fences).
  * @param {string} text
- * @returns {{ ok: true, english: string, blob: string, commit: string } | { ok: false, reason: string }}
+ * @returns {{ ok: true, english: string, blob: string } | { ok: false, reason: string }}
  */
 export function parseHeader(text) {
-  const hits = text.split(/\r?\n/).map((l) => HEADER_RE.exec(l)).filter((m) => m !== null);
-  if (hits.length === 0) return { ok: false, reason: 'no header line "<!-- translated-from: docs/...md; blob: <40 hex>; commit: <sha> -->" (the whole line, nothing else on it)' };
+  const lines = text.split(/\r?\n/);
+  let fenced = false;
+  let title = -1;
+  /** @type {{ at: number, m: RegExpExecArray }[]} */ const hits = [];
+  lines.forEach((l, i) => {
+    if (/^\s*(```|~~~)/.test(l)) { fenced = !fenced; return; }
+    if (fenced) return;
+    if (title < 0 && l.startsWith('# ')) title = i;
+    const m = HEADER_RE.exec(l);
+    if (m !== null) hits.push({ at: i, m });
+  });
+  if (title < 0) return { ok: false, reason: 'no "# " title line outside a code fence' };
+  if (hits.length === 0) return { ok: false, reason: 'no header line "<!-- translated-from: docs/...md; blob: <40 hex> -->" (the whole line, nothing else on it, outside a code fence)' };
   if (hits.length > 1) return { ok: false, reason: 'more than one translated-from header line' };
-  const [, english, blob, commit] = /** @type {RegExpExecArray} */ (hits[0]);
+  const { at, m } = /** @type {{ at: number, m: RegExpExecArray }} */ (hits[0]);
+  if (at <= title || at > title + HEADER_WINDOW) return { ok: false, reason: `the header must be within the ${HEADER_WINDOW} lines after the title` };
+  const [, english, blob] = m;
   if (english.split('/').includes('..')) return { ok: false, reason: `the English path "${english}" leaves docs/` };
-  return { ok: true, english, blob, commit };
+  return { ok: true, english, blob };
 }
 
-/** @param {string} s a message for a workflow command: no newline, no % */
-const flat = (s) => s.replace(/%/g, '%25').replace(/\r?\n/g, ' ');
+/** Message data of a workflow command (GitHub's rules): % CR LF. @param {string} s */
+const data = (s) => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+/** A property value of a workflow command: data plus the colon and the comma. @param {string} s */
+const prop = (s) => data(s).replace(/:/g, '%3A').replace(/,/g, '%2C');
+/** A name safe to print: every character outside [A-Za-z0-9._-] becomes '?', at most 100 characters. @param {string} s */
+export const safeName = (s) => s.replace(/[^A-Za-z0-9._-]/g, '?').slice(0, 100);
 
 /**
  * @param {{ list: () => string[], read: (rel: string) => Buffer | null }} fs `list`: the translation files (repo-relative); `read`: a file's bytes or null when it does not exist
@@ -51,16 +74,20 @@ export function check(fs) {
   /** @type {string[]} */ const lines = [];
   let code = /** @type {0 | 1} */ (0);
   for (const tr of fs.list()) {
+    if (!NAME_RE.test(path.posix.basename(tr)) || !tr.startsWith(`${TRANSLATION_DIR}/`)) {
+      const n = `${TRANSLATION_DIR}/${safeName(path.posix.basename(tr))}`;
+      lines.push(`::error file=${prop(n)}::${data('translation file name must match [A-Za-z0-9._-]+.md')}`, `ERROR ${n}: translation file name must match [A-Za-z0-9._-]+.md`); code = 1; continue;
+    }
     const text = fs.read(tr);
-    if (text === null) { lines.push(`::error file=${tr}::translation file is not readable`, `ERROR ${tr}: not readable`); code = 1; continue; }
+    if (text === null) { lines.push(`::error file=${prop(tr)}::translation file is not readable`, `ERROR ${tr}: not readable`); code = 1; continue; }
     const h = parseHeader(text.toString('utf8'));
-    if ('reason' in h) { lines.push(`::error file=${tr}::${flat(h.reason)}`, `ERROR ${tr}: ${h.reason}`); code = 1; continue; }
+    if ('reason' in h) { lines.push(`::error file=${prop(tr)}::${data(h.reason)}`, `ERROR ${tr}: ${h.reason}`); code = 1; continue; }
     const en = fs.read(h.english);
-    if (en === null) { lines.push(`::error file=${tr}::the header names ${h.english}, which does not exist`, `ERROR ${tr}: ${h.english} does not exist`); code = 1; continue; }
+    if (en === null) { lines.push(`::error file=${prop(tr)}::the header names ${h.english}, which does not exist`, `ERROR ${tr}: ${h.english} does not exist`); code = 1; continue; }
     const now = blobId(en);
     if (now !== h.blob) {
-      const msg = `${h.english} changed since this translation was made (recorded blob ${h.blob.slice(0, 12)}, now ${now.slice(0, 12)}, translated at commit ${h.commit}); update the translation and its header, or leave it: a stale translation only warns`;
-      lines.push(`::warning file=${tr}::${flat(msg)}`, `WARNING ${tr}: ${msg}`);
+      const msg = `${h.english} changed since this translation was made (recorded blob ${h.blob.slice(0, 12)}, now ${now.slice(0, 12)}); update the translation and its header, or leave it: a stale translation only warns`;
+      lines.push(`::warning file=${prop(tr)}::${data(msg)}`, `WARNING ${tr}: ${msg}`);
     }
   }
   return { code, lines };

@@ -180,7 +180,7 @@ finding of the same record and rule on your one approval. The detail stays in th
 Kinds: `plan`, `destructive`, `scope`, `budget`, `tree`, `commit`, `push`, `waive:<FINDING-ID>`. The lead requests an
 approval with `agent.sh request-approval`; the answer counts only if it comes from a terminal you typed in or from a
 prompt your runtime captured after the request. Approvals are single-use and ledgered as `answered_by: user`.
-The accepted approval phrases are configurable: `approval.phrases` in the project's `.agents/config.yaml`, a comma-separated list (a phrase may contain spaces) whose defaults are English and Turkish. A reply approves only when it contains one of the phrases and the kind word and no other word except fillers.
+The accepted approval phrases are configurable: `approval.phrases` in the project's `.agents/config.yaml`, a comma-separated list (a phrase may contain spaces) whose defaults are English and Turkish. A reply approves only when it contains one of the phrases and a kind word, and every word in it belongs to some phrase, is a kind word or is a filler.
 The `scope` approval also covers a change of the frozen plan's `## Test exceptions` at a refreeze (A284): it is bound to the
 hash of the exact new PLAN.md, so changing the line afterwards, or approving before writing it, leaves the refreeze refused.
 A line the lead wrote into `## Test exceptions` clears a finding of the tests review only when you approved that exact line (A285): your `scope` approval for the

@@ -1,11 +1,11 @@
 # Prompt kataloğu
 
-<!-- translated-from: docs/guides/prompt-catalogue.md; blob: 34bd46d388f88a91c364781bf11ffbf642772455; commit: f73b7b6f -->
+<!-- translated-from: docs/guides/prompt-catalogue.md; blob: 34bd46d388f88a91c364781bf11ffbf642772455 -->
 
-Bu belge, [prompt-catalogue.md](../prompt-catalogue.md) sayfasının `f73b7b6f` sürümünden yapılmış Türkçe çevirisidir; İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
+Bu belge, [prompt-catalogue.md](../prompt-catalogue.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
 Ajan oturumuna yapıştırabileceğin prompt'lar. Claude Code'da `/proofline <alt komut>` kullan; başka yerlerde terminalde
-`proofline <alt komut>` çalıştır (ajan gerektiren alt komutlar için runtime'ın için tam talimatı yazdırır) veya aynısını düz cümleyle söyle.
+`proofline <alt komut>` çalıştır (ajan gerektiren alt komutlar için senin runtime'ın için tam talimatı yazdırır) veya aynısını düz cümleyle söyle.
 `proofline help` her alt komutu listeler.
 
 ## Kurulum

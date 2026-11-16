@@ -1,8 +1,8 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 654564aa2560d226c98b47f1f1fa8ccb6dc5deaa; commit: f73b7b6f -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 55e90c3a2875e01f8c286d9fe7435edcbe486039 -->
 
-Bu belge, [daily-use.md](../daily-use.md) sayfasının `f73b7b6f` sürümünden yapılmış Türkçe çevirisidir; İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
+Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
 proofline kurulduktan sonra onunla çalışmanın komutları ve alışkanlıkları: bir istekten birleştirilmiş bir değişikliğe giden döngü, her komutun ne yaptığı ve nelere bakman gerektiği. `proofline init` çalıştırmış ve rutini öğrenmek isteyen herkes için; kurulum [existing project](../existing-project.md) sayfasında.
 
@@ -15,9 +15,9 @@ proofline kurulduktan sonra onunla çalışmanın komutları ve alışkanlıklar
 5. Run CODE_DONE'a geldiğinde tamamlanma raporunu oku, sonra `proofline deliver <TASK>` ile teslimin ne yapacağını gör.
 6. Ajan oturumunda `/proofline deliver <TASK>` tek bir özet gösterir (commit, push, pull request, yeşilse merge, temizlik). Her adımı onaylamak için `approve delivery` (veya `teslimatı onaylıyorum`) yaz; bir adımdan önce içerik değişirse zincir durur ve yeniden sorulur.
 
-Onay sayılan ifadeler yapılandırılabilir: projenin `.agents/config.yaml` dosyasındaki `approval.phrases` virgülle ayrılmış bir listedir ve varsayılanları İngilizce (`approve`, `yes`, `lgtm`, ...) ve Türkçedir (`onay`, `evet`, `tamam`, ...). Yanıtın ifadelerden birini ve tür kelimesini (`plan`, `commit`, `delivery`, ...) içermeli, `the` veya `please` gibi dolgu sözcükleri dışında başka sözcük içermemelidir; aksi halde yanıt belirsiz sayılır ve soru yeniden sorulur. `agent.sh config-get approval.phrases` geçerli listeyi yazdırır.
+Onay sayılan ifadeler yapılandırılabilir: projenin `.agents/config.yaml` dosyasındaki `approval.phrases` virgülle ayrılmış bir listedir ve varsayılanları İngilizce (`approve`, `yes`, `lgtm`, ...) ve Türkçedir (`onay`, `evet`, `tamam`, ...). Yanıtın ifadelerden birini ve bir tür kelimesini (`plan`, `commit`, `delivery`, ...) içermeli; içindeki her sözcük de bir ifadeye ait olmalı, tür kelimesi olmalı ya da `the` veya `please` gibi bir dolgu sözcüğü olmalıdır; aksi halde yanıt belirsiz sayılır ve soru yeniden sorulur. `agent.sh config-get approval.phrases` geçerli listeyi yazdırır.
 
-Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` ve benzeri biçimdedir. Terminalde bir ajan gerektiren komutlar (`task`, `run`, `design`, `review`, `audit`, `debug`, `docs`, `explain`, `wiki`, `knowledge`, `reopen`, `product`, `trace`, `batch`) runtime'ın için tam talimatı yazdırır ve başka bir şey yapmaz; aşağıdaki durum komutları kendi başlarına çalışır. `proofline 0.0.135` ile boş bir projede denendi: `task`, `run`, `review` ve `design system` `This step needs an agent session` yazdırdı; `status`, `queue`, `debt`, `insights`, `clean`, `doctor` ve `doctor --scale` çalıştı ve 0 ile çıktı.
+Claude Code içinde aynı komutlar `/proofline status`, `/proofline run <TASK>` ve benzeri biçimdedir. Terminalde bir ajan gerektiren komutlar (`task`, `run`, `design`, `review`, `audit`, `debug`, `docs`, `explain`, `wiki`, `knowledge`, `reopen`, `product`, `trace`, `batch`) senin runtime'ın için tam talimatı yazdırır ve başka bir şey yapmaz; aşağıdaki durum komutları kendi başlarına çalışır. `proofline 0.0.135` ile boş bir projede denendi: `task`, `run`, `review` ve `design system` `This step needs an agent session` yazdırdı; `status`, `queue`, `debt`, `insights`, `clean`, `doctor` ve `doctor --scale` çalıştı ve 0 ile çıktı.
 
 ## Komutlar
 
@@ -60,7 +60,7 @@ Ayrıntılar ve sınırlar: [night mode](../../concepts/night-mode.md).
 
 - Bir task, bir run, bir branch. Task'lar sıraya girer; paralel task'lar ayrı git worktree ister.
 - Merge'i yalnızca `proofline merge <PR>` ile yap. Pull request'in güncel head'indeki check'leri okur ve biri yeşil değilse reddeder; hiç check'i olmayan bir pull request yalnızca commit'inin temiz bir kopyasında build ve test geçtikten sonra birleştirilir.
-- COMPLEX bir görevi onaysız yürütmek için "bunu sormadan bitir" de; soru, yıkıcı işlem, kapsam değişikliği ve teslim durakları yine geçerlidir.
+- COMPLEX bir görevi otonom yürütmek için "bunu sormadan bitir" de; soru, yıkıcı işlem, kapsam değişikliği ve teslim durakları yine geçerlidir.
 - Bir gate FAIL olursa fix loop çalışsın (`review.max_fix_rounds`, varsayılan 2). Waiver için bulgu başına açık mesajın gerekir; güvenlik ve secret bulguları waive edilemez.
 - Bir test gerçek zamanı beklemek zorundaysa veya yavaş bir ölçüm kaçınılmazsa, plan bunu `## Test exceptions` içinde belirtir; bir satır bir bulguyu yalnızca tam o satırı onayladıysan temizler (A284, A285), plan onayında ya da batch özetinde.
 - Runtime limiti dolunca diğer runtime'ı aç ve `proofline resume` çalıştır. Bkz. [failover](../../concepts/failover.md).
