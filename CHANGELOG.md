@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.125 — 2026-11-16
+
+- Test speed (A287, Part of #266, package 3a): the visual-proof design browser tests run the audit waits at a quarter scale (`PROOFLINE_MOTION_TIME_SCALE`, only shortens, clamped to 0.05..1); the scale is recorded in `raw.design.time_scale`, `motion.time_scale` and `report.design.time_scale`, and `validate-visual.mjs` refuses scaled evidence (INCONCLUSIVE) unless a test passes `--accept-time-scale`. Suite 108 s -> 30 s.
+
 ## 0.0.124 — 2026-11-16
 
 - Test robustness (A286, Part of #266, package 3b): `tests/core/legacy-identity` and `legacy-language` spawn fewer processes (language checks in process, one record call for three spellings, fingerprint read once) so a stalled CI runner no longer pushes them over their budgets (main run 43793647225 went red at 26.6 s / 15.4 s / 38.5 s); warm total 10.4 s -> 4.5 s. No product change.

@@ -170,16 +170,16 @@ function helpersSource() {
       walk(root, "r");
       return out;
     },
-    async scrollThrough() {
+    async scrollThrough(scale = 1) {
       const step = Math.max(100, Math.round(innerHeight * 0.6));
       const max = () => Math.max(0, document.documentElement.scrollHeight - innerHeight);
       for (let y = 0, i = 0; i < 80; i++) {
         scrollTo({ top: y, behavior: "instant" });
-        await sleep(160);
+        await sleep(160 * scale);
         if (y >= max()) break;
         y = Math.min(max(), y + step);
       }
-      await sleep(900);
+      await sleep(900 * scale);
       // A transition or animation is only as far along as the browser has drawn frames; a runner that draws few (a macOS VM, headless,
       // no GPU) leaves a revealing block at opacity 0 and the normal-motion baseline misses it. Jump every finite clock-driven
       // animation to its end state so the sample is the settled page, not a frame count.
@@ -211,14 +211,19 @@ export const HELPERS = `(${helpersSource.toString()})()`;
 // --- orchestration ----------------------------------------------------------------------------------------------
 const sha = (buf) => createHash("sha256").update(buf).digest("hex");
 const defaultShotName = (...parts) => `screenshots/${parts.join("-").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const REDUCE = { features: [{ name: "prefers-reduced-motion", value: "reduce" }] };
 // "Normal motion" is emulated explicitly, never left to the host: an empty feature list falls back to the OS setting, and a runner whose
 // OS has reduce-motion on would then take the baseline under reduced motion, so a page that hides content there passed (a false negative).
 const NO_PREFERENCE = { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] };
 const first = (list, n = 5) => list.slice(0, n).map((x) => x.s || x.sel || x).join(", ");
 
-export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
+// timeScale (default 1 = the product windows: 2.1 s load window, 160/900 ms scroll dwell, 200/300/450 ms settles) shortens every
+// wait by the same factor; it never lengthens one. The tests of the fixture sites use a small factor (measure.mjs reads
+// PROOFLINE_MOTION_TIME_SCALE) because their animations last 0.7 s; a real audit always runs at 1.
+export const clampTimeScale = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.min(1, Math.max(0.05, n)) : 1; };
+export async function motionAudit({ p, url, config, outDir, shotName, timeScale } = {}) {
+  const scale = clampTimeScale(timeScale);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, Math.round(ms * scale)));
   const items = [], scenes = [], not_measured = [];
   const design = config?.design || {};
   const mode = design.visitor_mode;
@@ -270,12 +275,12 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
           ready = rendered;
           if (!rendered) throw new Error(`ready selector not visible in state ${st?.name || "default"}`);
           if (media.reduce) throw new Error("the browser still reports prefers-reduced-motion: reduce in normal-motion mode, so no baseline exists");
-          await p.ev("new Promise((r) => setTimeout(r, Math.max(0, 2100 - performance.now())))", true);
+          await p.ev(`new Promise((r) => setTimeout(r, Math.max(0, ${Math.round(2100 * scale)} - performance.now())))`, true);
           const loadRun = await p.ev("window.__vpm ? window.__vpm.summary() : null");
           if (!loadRun) throw new Error("motion recorder did not start");
           const shot = await viewportShot("design-motion", screen, vp.name);
           await p.ev("window.__vpm.reset()");
-          await p.ev("window.__vph.scrollThrough()", true);
+          await p.ev(`window.__vph.scrollThrough(${scale})`, true);
           const scrollRun = await p.ev("window.__vpm.summary()");
           shown = await p.ev("window.__vph.content()");
           diag.samples.push({ screen, viewport: vp.name, mode: "normal", matches_reduce: media.reduce, visible: shown.length, scroll_height: await p.ev("document.documentElement.scrollHeight"), running: scrollRun.length });
@@ -298,7 +303,7 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
         try {
           await reducedOn();
           await open(path, vp, st);
-          await p.ev("window.__vph.scrollThrough()", true);
+          await p.ev(`window.__vph.scrollThrough(${scale})`, true);
           const running = await p.ev("window.__vpm.summary()");
           const after = await p.ev("window.__vph.content()");
           if (!media.reduce) throw new Error("the reduced-motion emulation did not take effect (matchMedia reports no reduce)");
@@ -319,7 +324,7 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
           await p.s("Emulation.setScriptExecutionDisabled", { value: true });
           await open(path, vp, st);
           await scriptsOn(); // the document stays as it rendered without script; timers work again for the scroll
-          await p.ev("window.__vph.scrollThrough()", true);
+          await p.ev(`window.__vph.scrollThrough(${scale})`, true);
           const after = await p.ev("window.__vph.content()");
           await p.ev("scrollTo({ top: 0, behavior: 'instant' })");
           await sleep(200);
@@ -395,5 +400,5 @@ export async function motionAudit({ p, url, config, outDir, shotName } = {}) {
     try { writeFileSync(join(outDir, "motion-diagnostics.json"), JSON.stringify(diag, null, 1)); } catch (err) { /* diagnostics only */ }
     if (recorderId) await p.s("Page.removeScriptToEvaluateOnNewDocument", { identifier: recorderId }).catch(() => {});
   }
-  return { items, scenes, not_measured };
+  return { items, scenes, not_measured, time_scale: scale };
 }

@@ -312,6 +312,7 @@ export function assembleDesign(raw, c, sha, opts = {}) {
   const d = c.design, mode = d.visitor_mode, rd = raw?.design || {};
   const pages = designPages(c);
   const out = { status: "run", mode, viewports: DESIGN_VIEWPORTS.map((v) => ({ ...v })), pages: [], items: [], screenshots: [], scenes: [], images: [], not_measured: [],
+    time_scale: [rd.time_scale, rd.motion?.time_scale].filter((x) => x !== undefined).find((x) => x !== 1) ?? 1, // 1 = the product's own waits (test-only knob otherwise)
     image_ledger: d.image_ledger || null, scene_ids: (d.scenes || []).map((s) => s.id), motion_min: designMotionMin(d) };
   const shot = (p) => { if (!p) return undefined; if (typeof p === "object") return p.path && p.sha256 ? p : undefined; try { return { path: p, sha256: sha(p) }; } catch { return undefined; } };
   const push = (it) => out.items.push({ id: `D-${out.items.length + 1}`, ...it });
