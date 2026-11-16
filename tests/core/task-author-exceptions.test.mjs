@@ -157,17 +157,17 @@ function batchRun(/** @type {string} */ proposed, /** @type {string} */ planLine
   const F = fakes();
   const env = { PROOFLINE_TEST: '1' };
   const base = template(`${PRELUDE}\ntpl_tasks; scaffold orchestrated no STANDARD manual`);
-  const frozen = stage(base, `ta: plan line ${JSON.stringify(planLine)}, frozen, IMPLEMENTED`, (d) => {
+  const frozen = stage(base, `ta: plan text ${sha(SECTION(planLine) + TESTS)}, frozen, IMPLEMENTED`, (d) => {
     appendFileSync(planOf(d), SECTION(planLine) + TESTS);
     accepted(A(d, ['freeze', 'LC'], { bind: true }), 'freeze');
     must(d, ['handoff', 'LC', 'IMPLEMENTING']); implemented(d);
   });
-  const planned = stage(frozen, `ta: batch-plan with the task section ${JSON.stringify(proposed)}`, (d) => {
+  const planned = stage(frozen, `ta: batch-plan with the task text ${sha(proposed)}`, (d) => {
     if (proposed !== '') appendFileSync(path.join(d, '.agents/tasks/LC.md'), proposed);
     const p = A(d, ['batch-plan', 'all'], { env });
     assert.equal(p.status, 0, `batch-plan: ${p.text}`);
   });
-  const dir = copyOf(approve ? stage(planned, 'ta: approve batch', (d) => { batchApprove(d); }) : planned);
+  const dir = copyOf(approve ? stage(planned, `ta: approve batch, ${sha(String(batchApprove))}`, (d) => { batchApprove(d); }) : planned);
   return { F, dir };
 }
 
