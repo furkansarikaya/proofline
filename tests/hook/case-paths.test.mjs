@@ -158,7 +158,11 @@ test('A278 AC-6 (volume keeps case): the cased command words are other programs 
       if (WIN) { // NTFS and the Windows program lookup read the cased words as the exact ones (A271): the cased spelling gets the verdict of the exact one
         const a = await pre('Bash', { command: exact }, WHO[0][1], WHO[0][2], dir);
         assert.equal(b === null, a === null, `${what}: on Windows the cased spelling is judged as the exact one (${b ?? a})`);
-        if (why !== null) assert.ok(a !== null && why.test(a), `${what}: the exact spelling is refused on Windows for the expected reason (a both-allowed verdict would hide a lost rule): ${a}`);
+        if (why !== null) { // a both-allowed verdict would hide a lost rule: the exact spelling is refused for the expected reason for some role (the lead is not the one every rule binds)
+          let refused = false;
+          for (const [, who, env, projKey] of WHO) { const x = await pre('Bash', { command: exact }, who, env, projKey === 'run' ? dir : noRun); if (x !== null && why.test(x)) refused = true; }
+          assert.ok(refused, `${what}: the exact spelling is refused on Windows for no role`);
+        }
         continue;
       }
       if (b !== null && why !== null) assert.doesNotMatch(b, why, `${what}: the cased spelling must not be refused as the protected one: ${b}`);

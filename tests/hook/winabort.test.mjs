@@ -17,6 +17,8 @@ test('winabort: a path-bearing field with U+10000 aborts the screen, in any fiel
   assert.equal(abortingInput({ tool_input: { command: `cat a${LB}` } }), true);
   assert.equal(abortingInput({ tool_input: { paths: [{ p: `x${LB}` }] } }), true);
   assert.equal(abortingInput({ cwd: `C:/w${LB}` }), true);
+  assert.equal(abortingInput({ tool_input: { file_path: 'a\u{10FFFF}' } }), true, 'the last code point aborts Node on Windows as well');
+  assert.equal(abortingInput({ tool_input: { file_path: 'a\u{10FFFE}\u{10FFF0}\u{FFFF}' } }), false, 'its neighbours do not');
   assert.equal(screenEvent('pretool', Buffer.from('{"tool_input":{"file_path":"a\\ud800\\udc00b"}}'), true)?.includes('"deny"'), true, 'the JSON escape of U+10000 is the same character');
   assert.equal(abortingInput({ tool_input: { file_path: 'a.txt', content: `text ${LB}` } }), false, 'file content is not a path');
   assert.equal(abortingInput({ tool_input: { file_path: 'a.txt', new_string: LB, old_string: LB } }), false);

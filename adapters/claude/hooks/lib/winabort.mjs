@@ -1,12 +1,12 @@
 // @ts-check
 // A Windows host only (A271): Node 22.13 aborts the WHOLE process (exit code 0xC0000409, a libuv assertion in idna.c, not an exception) when a file system call (lstat, stat, realpath) is
-// given a path that holds the code point U+10000 (Linear B syllable). The runtime treats any exit code other than 2 from a PreToolUse hook as a NON-blocking error, so a file name chosen by an
+// given a path that holds the code point U+10000 (Linear B syllable) or U+10FFFF (the last code point). The runtime treats any exit code other than 2 from a PreToolUse hook as a NON-blocking error, so a file name chosen by an
 // agent could end the hook before any guard ran and let the tool call proceed. A native abort cannot be caught, so the input is screened BEFORE anything touches the file system: a PreToolUse
 // event whose path-bearing fields hold such a code point is denied (fail closed) and a PostToolUse event is not handled. The screen reads the decoded fields, so a JSON escape (𐀀) and the
-// literal character are one. `content` and the other text a tool writes are not paths and are not screened. The list is what was measured on the runner (tests/hook/winabort.test.mjs, docs/concepts/workflow.md).
+// literal character are one. `content` and the other text a tool writes are not paths and are not screened. The list is what a bisect on the windows-latest runner found (the first and last code point of every plane, every 4096-code-point chunk of planes 1, 2, 14, 15 and 16 and the first chunk of planes 3 to 13, single code points where a chunk aborted): only U+10000 and U+10FFFF abort; docs/concepts/workflow.md.
 
 /** The code points that abort Node on Windows when they reach a path call. */
-export const ABORTING = /\u{10000}/u;
+export const ABORTING = /[\u{10000}\u{10FFFF}]/u;
 
 /** Tool input fields that carry file content or prose, never a path. */
 const NOT_A_PATH = new Set(['content', 'new_string', 'old_string', 'new_source', 'new_content', 'description', 'prompt']);
