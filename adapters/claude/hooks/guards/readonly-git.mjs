@@ -40,6 +40,46 @@ const PIPE_PROG = new RegExp(`(?:echo|printf|cat)\\s+((?:\"[^\"]{0,2000}\"|'[^']
 /** Class: words that only print, search or page their arguments: git or gh among them is text. */
 const TEXT_ONLY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'less', 'more', 'head', 'tail', 'wc', 'sort', 'uniq', 'diff', 'tr', 'cut', 'man', 'which', 'type', 'command', 'ls', 'tee', 'stat', 'file', 'test', 'jq', 'cd', 'pushd', 'popd', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'basename', 'dirname', 'realpath', 'readlink']);
 
+/** Options of an interpreter that take a value (the word after them is not the script). */
+const VALUE_OPTS = new Set(['-W', '-X', '-r', '-I', '-O', '-o', '--require', '--import', '--loader', '--eval-file', '--rcfile', '--init-file']);
+/** Whether an interpreter given these arguments reads its program from stdin: no script operand (`sh <<EOF`, `python3 - <<EOF`, `bash -s <<EOF`); `sh agent.sh submit <<EOF` runs a file and the body is its input. @param {string} args */
+function argsReadStdin(args) {
+  const t = args.split(/\s+/).filter((x) => x !== '');
+  for (let k = 0; k < t.length; k++) {
+    const x = /** @type {string} */ (t[k]);
+    if (x === '-s' || x === '-' || x === '-c') return true;
+    if (VALUE_OPTS.has(x)) { k++; continue; }
+    if (!x.startsWith('-')) return false;
+  }
+  return true;
+}
+/** Whether a line with a here-document feeds its body to something that runs it as a program: an interpreter without a script operand, `eval`, `source /dev/stdin`, a pipe into a shell. @param {string} line */
+function heredocIsProgram(line) {
+  if (SINK.test(line) || /(^|[^A-Za-z0-9_.-])(eval|source|\.)\s+(\/dev\/stdin|-)?/.test(line) && /\/dev\/stdin|(^|[^A-Za-z0-9_.-])eval(\s|$)/.test(line)) return true;
+  const re = new RegExp(`(^|[^A-Za-z0-9_.-])${INTERP}(?![\\w.-])`, 'g');
+  for (const m of line.matchAll(re)) {
+    const rest = line.slice((m.index ?? 0) + m[0].length);
+    const args = rest.split(/<<|[;&|\n]/)[0] ?? '';
+    if (argsReadStdin(args)) return true;
+  }
+  return false;
+}
+/** The command with the bodies of here-documents removed unless the here-document feeds a program: a report written with `cat > file <<'EOF'`, `tee`, or `agent.sh submit --report - <<'EOF'` is data. @param {string} cmd */
+function withoutDataBodies(cmd) {
+  const lines = cmd.split('\n');
+  /** @type {string[]} */ const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = /** @type {string} */ (lines[i]);
+    out.push(l);
+    const m = /<<-?[ \t]*(['"]?)([A-Za-z_][\w-]*)\1/.exec(l.replace(/<<</g, '   '));
+    if (!m || heredocIsProgram(l)) continue;
+    let j = i + 1;
+    while (j < lines.length && /** @type {string} */ (lines[j]).trim() !== m[2]) j++;
+    i = j - 1;
+  }
+  return out.join('\n');
+}
+
 /** Class: git hosting CLIs judged by read verbs (gh, glab and their older wrappers hub and lab). */
 const HOSTS = new Set(['gh', 'glab', 'hub', 'lab']);
 /** The subcommand of a dashed git command (`git-push` -> `push`), or null. @param {string} b */
@@ -55,13 +95,15 @@ const isShort = (x) => x.length > 1 && x.startsWith('-') && !x.startsWith('--');
  */
 export function readonlyGit(ctx, cmd, scan) {
   if (!NO_PUSH_ROLES.includes(ctx.role)) return;
-  const flat = cmd.replace(/\n/g, ' ');
+  const flat = withoutDataBodies(cmd).replace(/\n/g, ' ');
   const bare = flat.replace(/["'\\]/g, '');
   if (SINK.test(flat) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
   // xargs and parallel given git or gh with the subcommand on stdin
   if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
   // an interpreter or shell fed its program by a here-document, a here-string or an echo: the text is judged as a program
-  const fed = HERE_PROG.exec(cmd)?.[3] ?? PIPE_PROG.exec(flat)?.[1] ?? '';
+  const cmdLines = cmd.split('\n');
+  const hereAt = cmdLines.findIndex((l) => l.includes('<<') && heredocIsProgram(l) && HERE_PROG.test(l));
+  const fed = (hereAt >= 0 ? HERE_PROG.exec(cmdLines.slice(hereAt).join('\n'))?.[3] : undefined) ?? PIPE_PROG.exec(flat)?.[1] ?? '';
   if (fed !== '' && PROG_GIT.test(fed) && PROG_VERB.test(fed)) deny(`a program fed to an interpreter or shell on stdin that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
   if (SUBST_CW.test(flat)) deny(`a substitution where the command word goes cannot be checked (it may be git): ${TAIL}`);
   // a shell function or alias that wraps git or gh hides the subcommand (`g() { git "$@"; }; g push`)
@@ -72,7 +114,8 @@ export function readonlyGit(ctx, cmd, scan) {
     const words = cmdSubst(rest.replace(/[\x03\x02]/g, '\n')).split('\n').filter((w) => w !== '');
     // a command word that is a variable, a substitution or a brace expansion cannot be read (`$g push`, `\`echo git\` push`, `git{,} push`)
     if (cw.startsWith('$') || cw.startsWith('`') || /[{}]/.test(cw)) deny(`a command word that is a variable, a substitution or a brace expansion cannot be checked (it may be git): ${TAIL}`);
-    const base = cw.slice(cw.lastIndexOf('/') + 1).replace(/\.exe$/, '');
+    // lower case: on a case-insensitive file system (macOS, Windows) `GIT push` runs git
+    const base = cw.slice(cw.lastIndexOf('/') + 1).replace(/\.exe$/i, '').toLowerCase();
     if (base === 'git') { gitJudge(words); continue; }
     // a dashed git command (`git-push`, `/usr/lib/git-core/git-push`) is `git push`
     const dashed = dashedSub(base);
@@ -80,7 +123,10 @@ export function readonlyGit(ctx, cmd, scan) {
     if (HOSTS.has(base) || base === 'az') { cliJudge(base, words); continue; }
     if (['curl', 'wget', 'http', 'https', 'xh', 'xhs', 'aria2c'].includes(base)) { netJudge(base, words); continue; }
     const prog = programTexts(base, words);
-    if (prog.some((t) => PROG_GIT.test(t) && PROG_VERB.test(t))) deny(`${base} given a program or command line that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
+    // find -exec git <args>: the exec'd line is a real git command line, judged as one (`-exec git checkout -- {}` restores files, it creates no branch)
+    const execGit = (/** @type {string} */ t) => base === 'find' && /^\s*git\s/.test(t) && !/[;&|`$(){}]/.test(t.replace(/\{\}/g, ''));
+    for (const t of prog) if (execGit(t)) gitJudge(t.trim().split(/\s+/).slice(1));
+    if (prog.some((t) => !execGit(t) && PROG_GIT.test(t) && PROG_VERB.test(t))) deny(`${base} given a program or command line that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
     // any other program in front of git or gh (`caffeinate git push`, `arch -arm64 git push`, `xcrun git push`): the tokens from git on are judged as that command
     if (!TEXT_ONLY.has(base)) {
       const toks = [cw, ...words];

@@ -39,7 +39,8 @@ export function programTexts(base, w) {
     const ib = inner.slice(inner.lastIndexOf('/') + 1);
     return SHELLS.has(ib) ? shellTexts(ib, w.slice(1)) : programTexts(ib, w.slice(1));
   }
-  const flagLetters = /^(node|nodejs|bun|deno)$/.test(base) ? 'ep' : /^python[0-9.]*$/.test(base) ? 'c' : base === 'perl' ? 'eE' : (base === 'ruby' || base === 'lua' || base === 'Rscript') ? 'e' : base === 'php' ? 'r' : '';
+  // eco-ok: these are interpreter program names (the -c/-e/-p/-r flag letter), not ecosystems
+  const flagLetters = /^(node|nodejs|bun|deno)$/.test(base) ? 'ep' : /^python[0-9.]*$/.test(base) ? 'c' : base === 'perl' ? 'eE' : (base === 'ruby' || base === 'lua' || base === 'rscript') ? 'e' : base === 'php' ? 'r' : '';
   if (flagLetters !== '') {
     // -c / -e / -p / -r as a word or as the last letter of a cluster (python -Bc, perl -we, ruby -ne, node -pe): the next word is the program
     for (let k = 0; k < w.length; k++) {
