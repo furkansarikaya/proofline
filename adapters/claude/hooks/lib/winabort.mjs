@@ -46,12 +46,17 @@ export function abortingInput(event) {
   return holds(e.cwd, false) || holds(e.tool_input, typeof e.tool_input === 'string');
 }
 
-/** The screen of a raw event: the refusal to print for PreToolUse, '' for an event to be left unhandled, null when the event may go on. @param {string} ev @param {Buffer} raw @param {boolean} win */
-export function screenEvent(ev, raw, win) {
+/** @param {string} reason */
+function deny(reason) { return `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } })}\n`; }
+
+/** The screen of a raw event: the refusal to print for PreToolUse, '' for an event to be left unhandled, null when the event may go on. Off Windows it is always null. An exception inside the scan fails closed (a deny). @param {string} ev @param {Buffer} raw @param {boolean} win @param {(event: unknown) => boolean} [scan] the scanner (a seam for the test) */
+export function screenEvent(ev, raw, win, scan = abortingInput) {
   if (!win || (ev !== 'pretool' && ev !== 'posttool')) return null;
   let parsed;
   try { const t = raw.toString('utf8'); parsed = JSON.parse(t.charCodeAt(0) === 0xfeff ? t.slice(1) : t); } catch { return null; }
-  if (!abortingInput(parsed)) return null;
+  let hit;
+  try { hit = scan(parsed); } catch { return ev === 'posttool' ? '' : deny('proofline: could not screen the tool input for U+10000 or U+10FFFF; denied'); }
+  if (!hit) return null;
   if (ev === 'posttool') return '';
-  return `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'proofline: a path in this tool call holds the character U+10000 or U+10FFFF, which makes Node abort on Windows before any guard can run (a native abort is not a block). The call is refused; name the file without that character.' } })}\n`;
+  return deny('proofline: a path in this tool call holds the character U+10000 or U+10FFFF, which makes Node abort on Windows before any guard can run (a native abort is not a block). The call is refused; name the file without that character.');
 }

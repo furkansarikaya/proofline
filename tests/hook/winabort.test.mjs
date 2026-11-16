@@ -108,3 +108,13 @@ test('winabort: the exact wrapper of hooks.json, run through sh, exits 2 (not 0)
     } else assert.equal(r.status, 0, r.stderr);
   } finally { sh('rm -rf "$1/.git/worktrees/ev$n"'); }
 });
+
+test('winabort: an exception inside the scan fails closed on Windows (deny) and the screen stays off elsewhere', () => {
+  const boom = () => { throw new Error('boom'); };
+  const raw = ev({ tool_input: { file_path: 'a.txt' } });
+  const out = screenEvent('pretool', raw, true, boom);
+  assert.equal(out?.includes('"deny"'), true);
+  assert.equal(out?.includes('could not screen the tool input for U+10000 or U+10FFFF; denied'), true);
+  assert.equal(screenEvent('posttool', raw, true, boom), '', 'a PostToolUse is left unhandled');
+  assert.equal(screenEvent('pretool', raw, false, boom), null, 'off Windows the scanner is never called');
+});
