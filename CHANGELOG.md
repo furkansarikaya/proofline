@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.137 — 2026-11-16
+
+- Tests (A299): the tree-recovery test in `legacy-approval-grammar` now forges a user window and runs the real `handoff IMPLEMENTED` window check; `task-author-exceptions` and `test-exceptions-refreeze` stage their state once per variant (dorm-1 5000-10000 ms to about 2.1 s warm); 17 files in `tests/ci/test-budgets.json` get lower budgets re-derived from three CI runs, none raised.
+
 ## 0.0.136 — 2026-11-16
 
 - Batch (A298): `batch-plan` refuses an invalid line of a task file's `## Test exceptions` (exit 1, before any write or approval request) and names task, line and reason instead of dropping it; the github, jira, linear and markdown task templates carry the optional section and an import keeps the lines byte for byte. The approval binding is unchanged.
