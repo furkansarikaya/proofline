@@ -59,7 +59,7 @@ for (const sc of ['destructive', 'single_step', 'scope', 'budget', 'commit', 'pu
     stubApprovals();
     const s = run('COMPLEX', sc, 6, sc);
     assert.match(s, /^replies=0$/m, `${sc} request was answered: ${s}`);
-    assert.doesNotMatch(s, /^stopped=/m, `${sc}: ${s}`);
+    assert.match(s, new RegExp(`^stopped=unanswered-${sc.replace(/[:-]/g, (c) => (sc.startsWith('waive') ? ':' : c)).replace(/^waive:F:1$/, 'waive:F-1')}$`, 'm'), `${sc}: ${s}`);
   });
 }
 

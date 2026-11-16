@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.144 — 2026-11-17
+
+- Tests (A313): the end-to-end reply loop reads every open approval request and answers a refreeze (plan plus scope) with the plan approval only, never a scope approval (COMPLEX X-13); the reply allowance is 3 plus 1 per distinct plan hash (cap 12), a repeated stop ends the loop, a stop on a request only the user may answer is reported as `stopped=unanswered-<kind>`, and the CRITICAL question reply is a script with one line per question stop instead of one sentence sent six times.
+
 ## 0.0.143 — 2026-11-16
 
 - Fix (A312): the `Changed:` line of the completion report is English whatever the user's language (the chat message follows the user's language); both templates and `REPORT.md` say so, the language check no longer exempts the summary block, and `publishCompletionReport` refuses a non-English report before the task adapter publishes. Amends A171 and A202 item 19.
