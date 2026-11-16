@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, test } from 'node:test';
+import { before, describe, test } from 'node:test';
 import { gunzipSync } from 'node:zlib';
 import { dataDir, replayer } from './port-t2-lib.mjs';
 import { git, gitInfo, runSteps, snapTree, summarise } from './port-t3-core.mjs';
@@ -20,7 +20,11 @@ export function loadGroup(name) { return JSON.parse(gunzipSync(readFileSync(path
 export function registerGroup(name, title) {
   const g = loadGroup(name);
   const rp = replayer({ blobs: g.blobs, states: g.states, calls: [] });
-  describe(title, { concurrency: 4 }, () => {
+  // A case body is synchronous, so a describe concurrency only queued the stamped starts of 4 tests behind each other: the CI duration of a ~1 s case read 7-8 s (A304). The
+  // base commit of each recorded state is made once, before the first case, so that the first case of a state does not carry that build either.
+  /** @type {Map<string, ReturnType<typeof gitInfo>>} */ const gitAtStart = new Map();
+  describe(title, () => {
+    before(() => { for (const k of new Set(g.cases.map((/** @type {any} */ c) => c.state))) rp.shaOf(k); });
     for (const c of g.cases) {
       test(c.name, () => {
         const root = realpathSync(rp.state(c.state));
@@ -30,7 +34,9 @@ export function registerGroup(name, title) {
           const home = path.join(work, 'home'); const tmp = path.join(work, 'tmp'); mkdirSync(home); mkdirSync(tmp);
           const initial = snapTree(root);
           const start = git(root, 'rev-parse', 'HEAD').trim();
-          const gitBefore = gitInfo(root, start);
+          // the git state of a restored recorded state is the same for every case of it (a copy of one master plus the same overlay): read once per state, the after-state is read per case
+          const gitBefore = gitAtStart.get(c.state + start) ?? gitInfo(root, start);
+          gitAtStart.set(c.state + start, gitBefore);
           const t0 = Math.floor(Date.now() / 1000);
           const outputs = runSteps(root, home, tmp, c.steps, aux);
           const t1 = Math.floor(Date.now() / 1000);
