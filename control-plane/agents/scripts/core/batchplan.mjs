@@ -361,18 +361,21 @@ function plan(ctx, argv) {
   for (const l of lt(agentCall(ctx, ['known-issue-list']).out)) if (!l.startsWith('known issues: none')) o(`- already on the known-issues list: ${l}\n`);
   // A285: the test exceptions the tasks declare. A line of a plan's `## Test exceptions` clears a finding in this batch only when it is listed here (task, sha256 of the exact bytes, the line
   // with every invisible character written out); the approval of this summary is bound to its hash, so it accepts exactly these lines and no agent can add one afterwards.
-  o(`\n${BATCH_EXC_HEADING}\n\n`);
-  o('A task file may carry a `## Test exceptions` section (`- wait|budget|measure: <target> -- <reason>`). A line of the PLAN.md of a task clears a finding of its tests review (a real wait, a test over its budget, an unmeasured test) only if it is listed below for that task, byte for byte; a line that is not listed clears nothing and the finding stays blocking. Your approval of this batch accepts exactly the listed lines.\n');
+  // The section exists only when at least one task declares an exception: a batch without one writes the summary it always wrote (same bytes, same digest), and a summary without the
+  // section lists no hash, so no plan exception clears anything (batchListed reads a missing section as the empty set).
   {
-    let any = false;
+    /** @type {string[]} */ const rows = [];
     for (const x of orderList) {
       const lines = exceptionLines(rd(/** @type {string} */ (tfile(td, x.id)))).filter((l) => parseException(l) !== null);
       if (lines.length === 0) continue;
-      any = true;
-      if (lines.length > BATCH_EXC_MAX_LINES || lines.some((l) => l.length > BATCH_EXC_MAX_LINE)) { o(`- ${x.id}: ${lines.length} test exception line(s), too many or too long to show in full: none of them is listed, so none clears a finding\n`); continue; }
-      for (const l of lines) o(`- test exception ${x.id} ${exceptionLineHash(l)}: ${shown(l)}\n`);
+      if (lines.length > BATCH_EXC_MAX_LINES || lines.some((l) => l.length > BATCH_EXC_MAX_LINE)) { rows.push(`- ${x.id}: ${lines.length} test exception line(s), too many or too long to show in full: none of them is listed, so none clears a finding\n`); continue; }
+      for (const l of lines) rows.push(`- test exception ${x.id} ${exceptionLineHash(l)}: ${shown(l)}\n`);
     }
-    if (!any) o('- none: no task declares a test exception; a line a plan adds later clears nothing\n');
+    if (rows.length > 0) {
+      o(`\n${BATCH_EXC_HEADING}\n\n`);
+      o('A task file may carry a `## Test exceptions` section (`- wait|budget|measure: <target> -- <reason>`). A line of the PLAN.md of a task clears a finding of its tests review (a real wait, a test over its budget, an unmeasured test) only if it is listed below for that task, byte for byte; a line that is not listed clears nothing and the finding stays blocking. Your approval of this batch accepts exactly the listed lines.\n');
+      for (const r of rows) o(r);
+    }
   }
   o('\n## Pre-flight questions (plan-lint, A200)\n\n');
   if (lintRows.length > 0) {

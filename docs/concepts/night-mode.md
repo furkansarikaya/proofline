@@ -26,7 +26,7 @@ whole list for this batch only: a listed finding stops no task of the batch that
 code path, and the lead delivers each task itself and goes on to the next one (it does not stop at CODE_DONE).
 
 Test exceptions (A285). A task file may carry a `## Test exceptions` section (`- wait|budget|measure: <target> -- <reason>`). The summary lists every such line under
-"Test exceptions declared by the tasks", per task, with the sha256 of its exact bytes and the line written out character by character (invisible characters as
+"Test exceptions declared by the tasks" (the section is there only when a task declares one; a batch without one has the summary it always had), per task, with the sha256 of its exact bytes and the line written out character by character (invisible characters as
 `\u{..}`), and your "approve batch" accepts exactly those lines. In the task's run, a line of the plan's `## Test exceptions` clears a finding only if it is one of
 them, byte for byte; a line the lead adds later, changes or mimics clears nothing, the finding stays blocking, and `batch-status` reports "exception not approved:
 stays blocking" for that task. A summary edited by hand, an approval of a previous batch and a task outside the batch accept nothing.

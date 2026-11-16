@@ -189,11 +189,24 @@ test('pe-9 (b): the pre-flight summary lists every declared exception of every t
   const s = summaryOf(dir);
   assert.ok(s.includes(`- test exception LC ${hashOfLine(LINE)}: ${LINE}\n`), s);
   const none = batch('');
-  assert.match(summaryOf(none.dir), /- none: no task declares a test exception/);
+  assert.ok(!summaryOf(none.dir).includes('Test exceptions declared'), 'no declared exception: no section at all (the summary is the pre-A285 one)');
+  assert.ok(!summaryOf(none.dir).includes('test exception '), 'no row');
   // a line with invisible characters is shown escaped, never as it is
   const odd = batch(`\n## Test exceptions\n\n${LINE}\u200b\n- budget: "slow one" -- the runner needs a real database here, nothing else\u00a0measures it\n`);
   assert.match(summaryOf(odd.dir), /\\u\{200b\}/);
   assert.match(summaryOf(odd.dir), /\\u\{a0\}/);
+});
+
+test('pe-9c (b): a batch in which no task declares an exception has no section, an appended section by hand breaks the approval, an undeclared plan line clears nothing', () => {
+  const { dir } = batchRun('', LINE);
+  const s = summaryOf(dir);
+  assert.equal(s.split('\n').filter((l) => l.startsWith('## ')).some((l) => l.startsWith('## Test exceptions')), false);
+  tests(dir, LINE);
+  blocks(submit(dir), 'a plan exception in a batch whose summary lists none');
+  // a section appended by hand after the approval: the approval is bound to the old hash
+  const sum = path.join(dir, '.agents/local/batch/SUMMARY.md');
+  writeFileSync(sum, `${s}\n## Test exceptions declared by the tasks (the approval of this summary accepts exactly these lines, A285)\n\n- test exception LC ${sha(LINE)}: x\n`);
+  blocks(submit(dir), 'a section appended by hand');
 });
 
 /** A batch whose task declares `declared`, approved or not, and the run LC with `planLine` in its frozen plan, implemented, with the tests review quoting `quote`. @param {string} declared @param {string} planLine @param {boolean} [approve] */
