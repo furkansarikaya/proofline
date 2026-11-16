@@ -385,7 +385,9 @@ test('scenario_approval_fail_closed: only an allowlisted phrase approves, every 
     assert.deepEqual(approvalOf('plan'), [], `an approval file exists after '${t}'`);
     assert.ok(files('^\\d{3}-request-plan\\.yaml$').length > 0, `the request is no longer pending after '${t}'`);
   }
-  // the request of the plan stays pending after an approval (only the approval record is removed below), so one request serves every phrase; each phrase is still a fresh capture and a real `approve`
+  // One request per kind serves every phrase: a request stays pending after an approval (only the approval record is removed below). Each phrase is still its own fresh capture (`sayNow`) and a real
+  // `agent.sh approve`, so what is tested (which words approve) is unchanged. That a capture is single-use and a stale capture is refused is not tested here; tests/core/legacy-approvals.test.mjs and
+  // tests/core/gates-s2.test.mjs cover it.
   for (const t of ['approve the plan', 'Plan approved.', 'yes, plan', 'ok plan', 'okay, plan', 'LGTM plan', 'go ahead with the plan', 'plan onaylandı', 'plan onayliyorum', 'Plan: evet', 'plan tamam', 'plan olur']) {
     sayNow(d, t); accepted(A(d, ['approve', 'LC', 'plan']), `an allowlisted answer was refused: '${t}'`);
     for (const n of approvalOf('plan')) rmSync(path.join(d, ad, n), { force: true });
@@ -426,10 +428,11 @@ test('scenario_approval_fail_closed: only an allowlisted phrase approves, every 
     }
   }
   must(d, ['request-approval', 'LC', 'plan']);
-  for (const t of ['', longq, 'I approve the plan I approve the plan']) { sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan']), `an empty or quoted answer approved: '${t}'`); }
+  for (const t of ['', longq, 'I approve the plan I approve the plan']) { sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan']), `an empty or quoted answer approved: '${t}'`); assert.deepEqual(approvalOf('plan'), [], `an approval file exists after '${t}'`); }
   // The grammar is locale independent (the harness runs under LC_ALL=C): the same refusals and a positive under UTF-8.
   for (const t of ["I shouldn't approve the plan", 'PLAN ONAYLIYORUM DEĞİL', 'plan onay yok', 'yes the plan is wrong']) {
     sayNow(d, t); expectFail(A(d, ['approve', 'LC', 'plan'], { env: { LC_ALL: 'en_US.UTF-8' } }), `an ambiguous answer approved under UTF-8: '${t}'`);
+    assert.deepEqual(approvalOf('plan'), [], `an approval file exists after '${t}' under UTF-8`);
   }
   must(d, ['request-approval', 'LC', 'plan']); sayNow(d, 'PLAN ONAYLIYORUM');
   accepted(A(d, ['approve', 'LC', 'plan'], { env: { LC_ALL: 'en_US.UTF-8' } }), 'an allowlisted answer was refused under UTF-8');

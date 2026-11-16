@@ -54,7 +54,9 @@ test('A238 hooksPath: a local value for another folder is not overwritten by ini
   const doc = sb.pl(d, ['doctor']);
   assert.match(doc.out, /^WARN git hooks: core\.hooksPath is '\.husky' \(local git config /m, doc.out);
   assert.match(doc.out, /^FAIL git hooks: core\.hooksPath is '\.husky', not \.agents\/githooks/m, doc.out);
-  assert.notEqual(doc.status, 0);
+  assert.match(doc.out, /^doctor: 1 FAIL, \d+ WARN$/m, doc.out);   // the one FAIL is the hooks finding above; the probes WARN does not decide the exit
+  assert.equal(doc.out.match(/^FAIL /gm)?.length, 1, doc.out);
+  assert.equal(doc.status, 1);
 });
 
 test('A238 hooksPath: a global value is not overwritten and not overridden by a local one; the message says global and where; doctor WARNs', () => {
