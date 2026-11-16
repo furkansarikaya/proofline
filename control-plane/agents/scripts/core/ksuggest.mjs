@@ -48,3 +48,6 @@ export function knowledgeSuggestions(ctx, dir) {
 
 /** The `knowledge_reason` that marks the batch default. */
 export const DEFAULT_REASON = 'batch default (A290): no knowledge page was written, the suggestion to the user is in the report';
+
+/** The line shown when a batch default has no suggestion row (the process died between the knowledge-done row and the suggestion rows): what was skipped never depends on the second write. */
+export const DEFAULT_FALLBACK = 'Suggestion to the user (knowledge): no knowledge page was written for this task (batch default); nothing under docs/, skills or rules was changed; consider writing one.';

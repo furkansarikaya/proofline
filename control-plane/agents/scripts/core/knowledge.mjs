@@ -160,8 +160,9 @@ export function knowledgeDoneCommand(ctx, args) {
     }
   }
   // A290: written AFTER the knowledge-done row; the reader takes the rows after the LAST knowledge-done row, so a retry (or a later run in any mode) never shows a duplicate or an old one
-  for (const t of suggestions) led(ctx, id, 'knowledge-suggestion', '-', '-', t);
-  if (batchRun || existsSync(`${bdOf(ctx)}/suggestions.tsv`)) recordSuggestions(ctx, id, suggestions); // any mode replaces the task's rows
+  const shown = gatesEnforced(ctx, dir) ? suggestions : []; // without gates there is no knowledge-done row, so no row that could start the list: none is written
+  for (const t of shown) led(ctx, id, 'knowledge-suggestion', '-', '-', t);
+  if (batchRun || existsSync(`${bdOf(ctx)}/suggestions.tsv`)) recordSuggestions(ctx, id, shown); // any mode replaces the task's rows
   ctx.out(`knowledge state recorded: ${id} ${state}\n`);
   return 0;
 }

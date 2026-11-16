@@ -3,7 +3,7 @@
 // docs/ or in skills/rules by an agent) and a suggestion to the user; an attended run keeps the real step (the question is the lead's, unchanged). Everything runs against the real
 // agent.sh; the ledger is read structurally (parseLedgerLine), never by substring.
 import assert from 'node:assert/strict';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
@@ -170,4 +170,23 @@ test('the lesson proposals are the finding kinds of the run that repeated in ano
   const ctx = new Context(io, io.scriptPath);
   assert.deepEqual(lessonProposals(ctx, 'R1'), [{ kind: 'QA:-', runs: 2 }]);
   assert.deepEqual(lessonProposals(ctx, 'R2'), [{ kind: 'QA:-', runs: 2 }]);
+});
+
+test('a batch default whose suggestion rows are missing (the process died between two writes) still shows the fixed line in the report and the batch status', () => {
+  const d = batchRun();
+  accepted(A(d, ['knowledge-done', 'LC']), 'the batch default');
+  // the suggestion row is the last line of the ledger: dropping it leaves a valid chain; the batch list loses its row too
+  const led = path.join(d, '.agents/runs/LC/LEDGER.log');
+  const all = readFileSync(led, 'utf8').split('\n').filter((l) => l !== '');
+  const kept = all.filter((l) => parseLedgerLine(l)?.event !== 'knowledge-suggestion');
+  assert.equal(kept.length, all.length - 1);
+  writeFileSync(led, `${kept.join('\n')}\n`);
+  rmSync(path.join(d, BD, 'suggestions.tsv'));
+  assert.equal(liveSuggestions(d).length, 0);
+  const fixed = 'Suggestion to the user (knowledge): no knowledge page was written for this task (batch default); nothing under docs/, skills or rules was changed; consider writing one.';
+  writeReport(d);
+  must(d, ['publish-completion-report', 'LC', 'markdown']);
+  const report = readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8');
+  assert.equal(report.split('\n').filter((l) => l === `- ${fixed}`).length, 1, report);
+  assert.equal(A(d, ['batch-status']).out.split('\n').filter((l) => l.includes(fixed)).length, 1);
 });

@@ -32,6 +32,7 @@ import { requireRun, runDir } from './runs.mjs';
 import { pipelineClass, pipelineClassValid } from './signals.mjs';
 import { CHECK_HANDLERS } from './commands/checks.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { DEFAULT_FALLBACK, DEFAULT_REASON } from './ksuggest.mjs';
 
 /** The program systemd-inhibit holds the lock for: it ends when the session pid is gone (signal 0 says ESRCH). Node code, so no shell is started (A251). */
 const INHIBIT_WATCH = "const p = Number(process.argv[1]); setInterval(() => { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') process.exit(0); } }, 5000);";
@@ -524,9 +525,12 @@ export function batchStatus(ctx) {
   }
   // A290: what the knowledge step of a task proposed instead of asking (the user decides; nothing was written for it)
   const sug = rows(`${bd}/suggestions.tsv`).filter((f) => f.length >= 2 && f[0] !== '');
-  if (sug.length > 0) {
+  // a task that took the batch default but has no suggestion row (the process died between two writes) still shows the fixed line
+  const bare = derive(ctx).filter((r) => hasRun(ctx, r.id) && rsec(ctx, r.id, 'execution', 'knowledge_reason') === DEFAULT_REASON && !sug.some((f) => f[0] === r.id));
+  if (sug.length > 0 || bare.length > 0) {
     ctx.out('Suggestions to the user (the batch asked nothing and wrote nothing for them):\n');
     for (const f of sug) ctx.out(`  Suggestion to the user (knowledge): ${f.slice(1).join(' ')}\n`);
+    for (const r of bare) ctx.out(`  ${DEFAULT_FALLBACK} (${r.id})\n`);
     ctx.out('\n');
   }
   const fr = frictionShowText(ctx);
