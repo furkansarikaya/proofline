@@ -147,7 +147,7 @@ test('verdicts: lead-authored verdicts, role-bound submits, worktree and scratch
   wt(a111, 'A111 fixture worktree');
   symlinkSync(d, a111l);
   /** @param {string} label @param {string[]} cmds @param {string} sub */
-  const allDenied = (label, cmds, sub) => { for (const c of cmds) denied(`${label}${c}`, B(c, 'proofline-qa', 'q1'), sub); };
+  const allDenied = (label, cmds, sub) => { for (const c of cmds) denied(`${label}${c}`, B(c, 'proofline-implementer', 'a7'), sub); };
   /** @param {string} label @param {string[]} cmds */
   const allAllowed = (label, cmds) => { for (const c of cmds) allowed(`${label}${c}`, B(c, 'proofline-qa', 'q1')); };
   allDenied('A111 a specialist runs: ', ['git stash list >/dev/null', 'git stash', 'git stash show -p', 'git stash push -u', 'git stash pop', 'git stash apply',
@@ -162,6 +162,8 @@ test('verdicts: lead-authored verdicts, role-bound submits, worktree and scratch
     'git --attr-source HEAD stash list', 'git --bogus-opt HEAD stash list', 'git -C src/.. stash list', 'git -C .. stash list',
     `git -C ${a111l} stash list`, `cd ${a111l} && git stash list`, `env -C ${d} git stash list`, 'command git stash list',
     '/usr/bin/git stash list', 'env git stash list', 'git -c a=b --no-pager -C . stash show'], 'evidence worktree');
+  // A111 and A132 are about every specialist and are driven with the implementer: the review roles are also bound by the A293 no-push/no-branch rule,
+  // which names itself first for the rows below that also create a branch or hide the subcommand (the A293 matrix covers those)
   // review R2: unquoted substitutions, wrappers, missing or later-made paths, a variable in subcommand position
   allDenied('A111 R2 a specialist runs: ', ['git -C $(git rev-parse --show-toplevel) stash list', 'git -C $(pwd) stash list', 'git -C `pwd` stash list',
     'git --work-tree=$(pwd) stash', 'git -c user.name=$(whoami) stash', 'git $(echo stash) list', 'git -C $(realpath .) stash show',
@@ -176,18 +178,22 @@ test('verdicts: lead-authored verdicts, role-bound submits, worktree and scratch
   // A132: a variable that is the VALUE of a git option is not a subcommand, but the net still counts a variable, quote or option where the subcommand goes
   allDenied('A132 bypass stays denied: ', ['git -C $W "$S" list', 'git -C -C $S', 'git -c -c $S', 'git -C $W -C $S', 'git -C $W $S list', 'git -C $W "$(echo stash)" list',
     "git -C $W '$S' list", 'git -C $W `echo stash` list'], 'evidence worktree');
-  allAllowed('A111 R2 no false positive: ', ['git log stash', 'git diff main..stash', 'git diff stash@{0}', 'git rev-parse stash-fix', 'git branch stash',
-    'git commit -m "stash"', 'git grep stash', 'git config stash.showPatch true', 'grep stash src/impl.txt', 'echo git stash list',
+  allAllowed('A111 R2 no false positive: ', ['git log stash', 'git diff main..stash', 'git diff stash@{0}', 'git rev-parse stash-fix',
+    'git commit -m "stash"', 'git grep stash', 'grep stash src/impl.txt', 'echo git stash list',
     'printf "git stash\\n"', 'cat notes | grep -n "git stash"']);
+  // a branch named stash or a stash.* config value is no stash command; a review role may neither create a branch nor set a config value (A293), so the implementer runs them
+  allowed('A111 R2 no false positive: git branch stash', B('git branch stash', 'proofline-implementer', 'a7'));
+  allowed('A111 R2 no false positive: git config stash.showPatch true', B('git config stash.showPatch true', 'proofline-implementer', 'a7'));
   // A132: `git -C $VAR <subcommand>` is not a stash; the three commands a COMPLEX run had denied (git worktree add ... then git -C $W status/apply)
   allAllowed('A132 no false positive: ', ['W=$TMPDIR/t1 && mkdir -p $W && git worktree add --detach $W/wt HEAD 2>&1 | tail -1 && git -C $W/wt status --short && (cd $W/wt && node --test 2>&1 | grep -E "^ok")',
     'R=.agents/runs/T-1; WT=$TMPDIR/rv/wt; git worktree add --detach $WT HEAD >/dev/null 2>&1; git -C $WT status --short; echo $WT',
     'W=$TMPDIR/rv/wt\ngit worktree add --detach $W HEAD >/dev/null 2>&1\ngit diff HEAD --binary | git -C $W diff --stat\ngit worktree remove --force $W',
-    'git -C $(pwd) status', 'git -C `pwd` log -1', 'git -c user.name=$X log -1']);
+    'git -C $(pwd) status', 'git -C `pwd` log -1']);
+  allowed('A132 no false positive: git -c user.name=$X log -1', B('git -c user.name=$X log -1', 'proofline-implementer', 'a7'));
   // A132: the three real command texts of the COMPLEX run (verbatim): none is a stash any more; still refused by a path rule (A97)
   for (const n of [1, 2, 3]) {
     const text = readFileSync(path.join(import.meta.dirname, 'a132-commands', `${n}.txt`), 'utf8').split('\n').map((l) => l.replace(/\/private\/tmp\/[^ ;]*\/project/, d)).join('\n');
-    const o = B(text, 'proofline-qa', 'q1');
+    const o = B(text, 'proofline-implementer', 'a7');
     assert.ok(!o.includes('git stash'), `A132 replay ${n}: still denied as a stash: ${o}`);
     assert.match(o, /"permissionDecision":"deny".*(cannot be resolved|mktemp would create|changes the project working tree)/s, `A132 replay ${n}: unexpected outcome: ${o}`);
   }
