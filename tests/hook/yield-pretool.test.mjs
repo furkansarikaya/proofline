@@ -1,6 +1,6 @@
 // @ts-check
-// A299: the plugin yields PreToolUse to the project's wiring (ADR 0001 section 9, one event is handled once) when .claude/settings.json holds the CURRENT project string
-// (the one that keeps the exit status of the hook), the string of the releases before A299 (an upgrade leaves it), or both; any other command, one character off, does not make it yield.
+// A302: the plugin yields PreToolUse to the project's wiring (ADR 0001 section 9, one event is handled once) when .claude/settings.json holds the CURRENT project string
+// (the one that keeps the exit status of the hook), the string of the releases before A302 (an upgrade leaves it), or both; any other command, one character off, does not make it yield.
 import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,7 +28,7 @@ function project(cmds) {
 }
 const yields = (/** @type {string[]} */ cmds, ev = 'pretool') => { const dir = project(cmds); return yieldsToOtherWiring(`${HOOKS}/`, ev, 'claude', { CLAUDE_PROJECT_DIR: dir }); };
 
-test('the shipped fragment string is a known project string, and so is the one before A299', () => {
+test('the shipped fragment string is a known project string, and so is the one before A302', () => {
   assert.ok(knownStrings('pretool', 'claude').newProject.includes(CURRENT));
   assert.ok(knownStrings('pretool', 'claude').newProject.includes(OLD));
   assert.deepEqual(knownStrings('pretool', 'codex').newProject, []);

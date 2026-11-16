@@ -1,5 +1,5 @@
 // @ts-check
-// B10 (A299): the PreToolUse command of the project and Codex wiring keeps the exit status of the hook. The old Codex string `node HOOK || test ! -f CONFIG || { ...; exit 2; }` turned EVERY
+// B10 (A302): the PreToolUse command of the project and Codex wiring keeps the exit status of the hook. The old Codex string `node HOOK || test ! -f CONFIG || { ...; exit 2; }` turned EVERY
 // non-zero exit of node into exit 0 (allow) in a project without `.agents/config.yaml`: a Node abort (Windows 0xC0000409), a signal (SEGV), a crash, and the hook's own deny (exit 2).
 // The rule, run here through `sh -c` against a fake `node` first on PATH (a shell script that exits with a chosen status), in a git repository with and without `.agents/config.yaml`:
 //   node ran, status 0                 -> exit 0 (allow)
@@ -32,7 +32,7 @@ const START = 'if command -v node >/dev/null 2>&1 && test -f "ROOT/.agents/hooks
 const CODEX_EXACT = `R=$(git rev-parse --show-toplevel 2>/dev/null); ${START.replaceAll('ROOT', '$R').replace('RT', 'codex')}`;
 const PROJECT_EXACT = START.replaceAll('ROOT', '$CLAUDE_PROJECT_DIR').replace('RT', 'claude');
 const PLUGIN_EXACT = 'node "${CLAUDE_PLUGIN_ROOT}/adapters/claude/hooks/proofline-hook.mjs" pretool claude || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }';
-// The Codex string before A299: the failing case, kept to show what the matrix below catches.
+// The Codex string before A302: the failing case, kept to show what the matrix below catches.
 const CODEX_OLD = 'node "$(git rev-parse --show-toplevel)/.agents/hooks/proofline-hook.mjs" pretool codex || test ! -f "$(git rev-parse --show-toplevel)/.agents/config.yaml" || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH); failing closed" >&2; exit 2; }';
 
 test('the exact PreToolUse command strings of the three wiring files', () => {

@@ -87,7 +87,7 @@ const pretool = (rel) => /** @type {string} */ (JSON.parse(readFileSync(join(rep
 test('winabort: both hooks.json files run the PreToolUse hook behind a wrapper that exits 2 when node does not end normally (an abort is a block)', () => {
   for (const rel of WIRINGS) {
     const c = pretool(rel);
-    // the plugin form is `node HOOK || { ...; exit 2; }`; the Codex form (A299) keeps the status of node itself (tests/enforcement/pretool-exit-status.test.mjs runs it with every status)
+    // the plugin form is `node HOOK || { ...; exit 2; }`; the Codex form (A302) keeps the status of node itself (tests/enforcement/pretool-exit-status.test.mjs runs it with every status)
     if (rel.includes('codex')) assert.match(c, /pretool codex; rc=\$\?; test \$rc -eq 0 && exit 0; test \$rc -eq 2 \|\| echo "[^"]*"[^;]*; exit 2; fi; /, rel);
     else assert.match(c, /^node "[^"]*proofline-hook\.mjs" pretool claude \|\| /, rel);
     assert.match(c, /exit 2; \}$/, `${rel}: the wrapper ends in exit 2`);

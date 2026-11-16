@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.140 — 2026-11-16
+
+- Fix (A302): the Codex wiring and the Claude project fragment keep the exit status of the PreToolUse hook; a deny, an abort or a crash is blocked (exit 2) with or without `.agents/config.yaml`, and node or the hook file missing blocks only in a proofline project; the plugin's yield check knows the new string and still the old one.
+
 ## 0.0.139 — 2026-11-16
 
 - Docs (A301): the Turkish guides (`docs/guides/tr`) follow the current English pages; approval phrases are documented as configurable (`approval.phrases`); a new static CI step (`tests/ci/translation-stale.mjs`) warns, without failing, when an English guide changes and its translation does not.

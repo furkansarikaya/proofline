@@ -22,7 +22,7 @@ export function knownStrings(ev, rt) {
   const newClaude = `node "$CLAUDE_PROJECT_DIR/.agents/hooks/proofline-hook.mjs" ${ev} claude${pre ? ` || test ! -f "$CLAUDE_PROJECT_DIR/.agents/config.yaml" || { ${MSG} }` : ''}`;
   // the matcher of the entry in the wiring file: the set of tools the entry fires for
   const matcher = ev === 'pretool' ? (rt === 'codex' ? '.*' : 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill') : ev === 'posttool' ? (rt === 'codex' ? '.*' : '*') : undefined;
-  // A299: the PreToolUse string that keeps the exit status of the hook (the current fragment). The string above stays known: a project that was upgraded keeps it beside the new one.
+  // A302: the PreToolUse string that keeps the exit status of the hook (the current fragment). The string above stays known: a project that was upgraded keeps it beside the new one.
   const R = '$CLAUDE_PROJECT_DIR';
   const current = `if command -v node >/dev/null 2>&1 && test -f "${R}/.agents/hooks/proofline-hook.mjs"; then node "${R}/.agents/hooks/proofline-hook.mjs" pretool claude; rc=$?; test $rc -eq 0 && exit 0; test $rc -eq 2 || echo "proofline: the hook ended with status $rc; failing closed" >&2; exit 2; fi; test ! -f "${R}/.agents/config.yaml" || { echo "proofline: the hook did not start (node 22.13 or newer must be on PATH, and .agents/hooks/proofline-hook.mjs must exist); failing closed" >&2; exit 2; }`;
   return { newProject: rt === 'codex' ? [] : pre ? [newClaude, current] : [newClaude], matcher };
