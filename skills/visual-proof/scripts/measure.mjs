@@ -40,7 +40,7 @@ export function asciiConfig(dirs) {
   }
   return {};
 }
-import { motionAudit } from "./motion-audit.mjs";
+import { motionAudit, clampTimeScale } from "./motion-audit.mjs";
 import { FONTS_PROBE, IMAGES_PROBE, ledgerItems } from "./ledger.mjs";
 
 const BROWSER_NAMES = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "microsoft-edge", "microsoft-edge-stable", "msedge", "brave-browser"];
@@ -1025,6 +1025,9 @@ async function measureSeo(p, config, reqLog, url) {
 
 // Design audit facts (A170): every design page is opened at 1440, 768 and 390 wide (a language-only page at 1440), scrolled once top to
 // bottom so lazy and scroll-revealed content exists, photographed, and probed; the ledger and the motion audit run on the same page object.
+// PROOFLINE_MOTION_TIME_SCALE (0.05 to 1, default 1): shortens the lazy-load scroll dwell and the motion audit waits by one factor; used by the
+// tests of the fixture sites, never lengthens a wait.
+const TIME_SCALE = clampTimeScale(process.env.PROOFLINE_MOTION_TIME_SCALE);
 async function measureDesign(p, config, url, outDir, repo, shotName) {
   const d = config.design, out = { pages: [] };
   const ledgerText = d.image_ledger ? (() => { try { return readFileSync(resolve(repo, d.image_ledger), "utf8"); } catch { return null; } })() : null;
@@ -1039,7 +1042,7 @@ async function measureDesign(p, config, url, outDir, repo, shotName) {
         await p.open(url(pg.path), vp, null, undefined);
         const type = await p.ev("document.contentType");
         if (!/^(text\/html|application\/xhtml\+xml)$/.test(type)) { rp.not_measured = `not an HTML response (${type})`; break; }
-        await p.ev(`(async () => { const h = document.documentElement.scrollHeight; for (let y = 0; y < h; y += Math.max(200, innerHeight * 0.8)) { scrollTo(0, y); await new Promise((r) => setTimeout(r, 120)); } scrollTo(0, 0); await document.fonts.ready; await new Promise((r) => setTimeout(r, 250)); return 1; })()`, true);
+        await p.ev(`(async () => { const h = document.documentElement.scrollHeight; for (let y = 0; y < h; y += Math.max(200, innerHeight * 0.8)) { scrollTo(0, y); await new Promise((r) => setTimeout(r, ${Math.round(120 * TIME_SCALE)})); } scrollTo(0, 0); await document.fonts.ready; await new Promise((r) => setTimeout(r, ${Math.round(250 * TIME_SCALE)})); return 1; })()`, true);
         rv.facts = await p.ev(`(${DESIGN_PROBE})()`); // before the full-page capture: it resizes the viewport the facts are measured in
         rv.screenshot = shotName(pg.screen, vp.name);
         writeFileSync(join(outDir, rv.screenshot), await p.shot());
@@ -1051,7 +1054,7 @@ async function measureDesign(p, config, url, outDir, repo, shotName) {
       } catch (e) { rv.error = e.message; delete rv.screenshot; delete rv.facts; }
     }
   }
-  try { out.motion = await motionAudit({ p, url, config, outDir, shotName: (...parts) => shotName(...parts).replace(/^screenshots\/design-/, "screenshots/") }); } catch (e) { out.motion = { error: e.message }; }
+  try { out.motion = await motionAudit({ p, url, config, outDir, timeScale: TIME_SCALE, shotName: (...parts) => shotName(...parts).replace(/^screenshots\/design-/, "screenshots/") }); } catch (e) { out.motion = { error: e.message }; }
   return out;
 }
 

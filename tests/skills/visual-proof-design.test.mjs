@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { validateReport, CORE, loadUxRules } from "../../skills/visual-proof/scripts/validate-visual.mjs";
 import { assemble, detect, asciiConfig, designCacheInputs } from "../../skills/visual-proof/scripts/measure.mjs";
 import { evaluateStatic, asciiTurkishWords, untranslatedBlocks, vacuumOf, designHolds, designThresholdError, CRITIQUE_IDS } from "../../skills/visual-proof/scripts/design-audit.mjs";
-import { decideMotionCount, decideReducedMotion, decideNoScript, decideSceneStarted, sceneRange } from "../../skills/visual-proof/scripts/motion-audit.mjs";
+import { clampTimeScale, decideMotionCount, decideReducedMotion, decideNoScript, decideSceneStarted, sceneRange } from "../../skills/visual-proof/scripts/motion-audit.mjs";
 import { parseLedger, ledgerItems } from "../../skills/visual-proof/scripts/ledger.mjs";
 import { pageContentKeys, designCacheDiff, reusableJudgments } from "../../skills/visual-proof/scripts/design-audit.mjs";
 import { lintText, applyJustifications, parseJustifications, lintProject, validateLint, approvedJustifications, rationaleHash } from "../../skills/visual-proof/scripts/lint-source.mjs";
@@ -58,6 +58,11 @@ test("auditor helpers: untranslated blocks, vacuum, thresholds", () => {
   assert.equal(designHolds(2.5, ">= 3"), false);
   assert.match(designThresholdError("design_heading_lines", "persuade", "wide", "<= 5"), /weaker/);
   assert.equal(designThresholdError("design_heading_lines", "persuade", "wide", "<= 1"), null);
+});
+
+test("motion time scale: the product windows are the default and a scale only shortens", () => {
+  assert.deepEqual([undefined, "", "abc", 0, -1, 2, 1].map(clampTimeScale), [1, 1, 1, 1, 1, 1, 1]);
+  assert.deepEqual([0.25, 0.001].map(clampTimeScale), [0.25, 0.05]);
 });
 
 test("motion decisions: counts, reduced motion keeps content, no-script, scene start", () => {
@@ -167,12 +172,16 @@ test("validator: critique and ux_review need reasons and have no numeric score (
 // ---- the one browser test --------------------------------------------------------------------------------------
 const BROWSER = detect({ repo: tmpdir() }).kind === "headless-browser";
 const skip = !BROWSER && "no browser installed (measure.mjs --detect)";
-async function measureSite(kind, browserArgs = []) {
+// The fixture animations last 0.7 s, so the audit's waits run at a quarter of the product windows (PROOFLINE_MOTION_TIME_SCALE, never
+// longer than the product's); `screens` narrows the motion fixture to the pages an assertion reads.
+const TIME_SCALE = "0.25";
+async function measureSite(kind, browserArgs = [], screens) {
   const out = mktmp();
-  const cfg = readFileSync(join(FIX, kind, "visual.json"), "utf8").replace("@SITE@", `file://${join(FIX, kind, "site")}/`);
-  writeFileSync(join(out, "visual.json"), cfg);
+  const cfg = JSON.parse(readFileSync(join(FIX, kind, "visual.json"), "utf8").replace("@SITE@", `file://${join(FIX, kind, "site")}/`));
+  if (screens) { cfg.screens = cfg.screens.filter((s) => screens.includes(s.id)); cfg.design.screens = cfg.design.screens.filter((p) => screens.includes(p.replace(".html", ""))); }
+  writeFileSync(join(out, "visual.json"), JSON.stringify(cfg));
   const args = [MEASURE, "--config", join(out, "visual.json"), "--out", out, "--repo", join(FIX, kind), ...browserArgs, ...(process.env.CI ? ["--no-sandbox"] : [])];
-  const r = await new Promise((ok) => { const c = spawn(process.execPath, args); let se = ""; c.stderr.on("data", (d) => { se += d; }); c.on("close", (code) => ok({ code, se })); });
+  const r = await new Promise((ok) => { const c = spawn(process.execPath, args, { env: { ...process.env, PROOFLINE_MOTION_TIME_SCALE: TIME_SCALE } }); let se = ""; c.stderr.on("data", (d) => { se += d; }); c.on("close", (code) => ok({ code, se })); });
   assert.equal(r.code, 0, `measure.mjs exited ${r.code} for the ${kind} fixture; ${diagnostics(out)}\nstderr: ${r.se}`);
   return { out, report: JSON.parse(readFileSync(join(out, "report.json"), "utf8")) };
 }
@@ -222,7 +231,7 @@ test("browser: a CSS-animated and a script-triggered entrance that reduced motio
 test("browser: an OS that already prefers reduced motion does not hide a failing page (the normal-motion baseline is emulated, not inherited)", { skip: skip || process.platform === "win32" && "needs a shell wrapper", timeout: 240000 }, async () => {
   const wrapper = join(mktmp(), "chrome-os-reduce.sh");
   writeFileSync(wrapper, `#!/bin/sh\nexec "${detect({ repo: tmpdir() }).path}" --force-prefers-reduced-motion "$@"\n`, { mode: 0o755 });
-  const m = await measureSite("motion", ["--browser", wrapper]);
+  const m = await measureSite("motion", ["--browser", wrapper], ["css-bad", "js-bad"]);
   for (const sc of ["css-bad", "js-bad"]) assert.ok(item(m.report, "design_reduced_motion", sc).some((i) => i.status === "fail"), `${sc} must still fail when the OS prefers reduced motion\n${why(m, "design_reduced_motion", sc)}`);
 });
 
