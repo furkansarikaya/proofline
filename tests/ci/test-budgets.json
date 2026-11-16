@@ -788,6 +788,10 @@
       "test_ms": 100000,
       "suite_ms": 190000
     },
+    "tests/e2e/reply-stops.test.mjs": {
+      "test_ms": 100000,
+      "suite_ms": 190000
+    },
     "tests/enforcement/approval-load.test.mjs": {
       "test_ms": 100000,
       "suite_ms": 120000

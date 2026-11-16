@@ -10,7 +10,7 @@ import { appendFileSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, op
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { pendingKind, questionOpen, replyDecision } from './lib.mjs';
+import { HARD_REPLY_CAP, openApprovals, pendingKind, questionOpen, questionScript, refreezeCount, replyBudget, stopDecision } from './lib.mjs';
 
 const here = import.meta.dirname;
 const repo = path.resolve(here, '../..');
@@ -186,7 +186,7 @@ export async function main(argv) {
       say(`lead resume: codex exec resume${codexCheap} -c 'sandbox_mode="danger-full-access"' -c 'approval_policy="never"' <thread> <reply>`);
     }
     if (scenario === 'FAILOVER') say('failover: poll implementer ledger every 10s; terminate Claude process group; resume under Codex with proofline resume');
-    say(`replies: up to ${env('E2E_MAX_REPLIES', '6')} lines from '${replyFile}' (question reply from '${qreplyFile}') when a plan or question stop is pending`);
+    say(`replies: up to ${env('E2E_MAX_REPLIES', '3')} (+1 per refreeze, hard cap ${HARD_REPLY_CAP}) lines from '${replyFile}' (question replies from '${qreplyFile}', one line per question stop) when a plan, refreeze or question stop is pending`);
     say('collect: git log/status/diff/branches, runs, metrics, agent status/next/pipeline, final messages, durations, exit codes, database probe');
     say('collect (A95): git-global-before/after.txt, replies-log.txt, agent-pipeline.txt, insights.txt, metrics/*, visual-artifacts.txt');
     say(`doctor=${out}/doctor.txt`);
@@ -263,7 +263,11 @@ export async function main(argv) {
   await runLead(lead, 1, request, false);
   let number = 1;
   if (scenario === 'FAILOVER' && killed) { number = 2; await runLead('codex', number, 'proofline resume', false); }
-  const max = Number(env('E2E_MAX_REPLIES', '6')); let replies = 0; let planReplies = 0; let questionReplies = 0; let stopped = ''; let stopState = '';
+  // C-14 (A133): 3 answers plus one for every refreeze (E2E_MAX_REPLIES replaces the 3), under a hard ceiling that no bug can lift.
+  const baseMax = Number(env('E2E_MAX_REPLIES', '3')); let replies = 0; let planReplies = 0; let questionReplies = 0; let refreezeReplies = 0; let stopped = ''; let stopState = ''; let budget = baseMax;
+  const qscript = questionScript(qreplyFile, qreplyFile === replyFile);
+  /** @type {string} */ let lastAnswered = '';
+  /** @type {Set<string>} */ const seenQuestions = new Set();
   w('replies-log.txt', '');
   const stateLines = (/** @type {string} */ s) => s.split('\n').filter((l) => /^(next|reason)=/.test(l)).map((l) => `${l} `).join('');
   for (;;) {
@@ -273,26 +277,35 @@ export async function main(argv) {
     if (/state=(DONE|FAILED|TERMINATED)|run DONE|terminated/i.test(state)) break;
     const pending = agent(['questions', id]).replace(/\n+$/, '');
     const lastFile = path.join(out, `lead-${number}.final.txt`);
-    // Which approval is the run waiting for? `agent.sh next` names it. A plan approval is answered every time it is asked (a refreeze asks again); a destructive, single_step,
-    // scope, budget, commit, push or waive request is never answered by the harness. Any other stop of the lead (a question) gets the scripted question reply.
-    const kind = pendingKind(state, path.join(project, `.agents/runs/${id}/approvals`));
-    const qline = line(qreplyFile, 1); const pline = line(replyFile, 2);
-    const decision = replyDecision(kind, `${state}\n${pending}\n${existsSync(lastFile) ? readFileSync(lastFile, 'utf8') : ''}`);
+    // Which approvals is the run waiting for? `agent.sh next` names one; the approvals/ folder holds every open request. A plan approval is answered every time it is
+    // asked; a refreeze raises a plan AND a scope request together and one reply answers both; a destructive, single_step, a scope alone, budget, commit, push or waive request
+    // is never answered by the harness. Any other stop of the lead (a question) gets the next line of the scripted question reply.
+    const approvalsDir = path.join(project, `.agents/runs/${id}/approvals`);
+    const kind = pendingKind(state, approvalsDir);
+    const open = openApprovals(approvalsDir);
+    const lastText = existsSync(lastFile) ? readFileSync(lastFile, 'utf8') : '';
+    const decision = stopDecision(kind, open, `${state}\n${pending}\n${lastText}`);
+    budget = replyBudget(baseMax, refreezeCount(approvalsDir));
+    // The stop as the harness sees it: the open requests, or the lead's message for a question. The same stop twice means the last reply changed nothing.
+    const signature = decision === 'question' ? `q:${createHash('sha256').update(lastText).digest('hex')}` : `a:${open.map((o) => o.name).join(',')}|${kind}`;
     let reply;
-    if (decision === 'plan') reply = pline;
+    if (decision === 'plan') reply = line(replyFile, 2);
+    else if (decision === 'refreeze') reply = line(replyFile, 3);
     else if (decision === 'stop') break;
     else {
       // A120: no open question, no reply (the lead waits for something a reply cannot give).
       if (!questionOpen(state, lastFile, id)) { stopped = 'no-open-question'; stopState = stateLines(state); break; }
-      reply = qline;
+      reply = qscript[Math.min(questionReplies, qscript.length - 1)] ?? '';
     }
-    if (reply === '') break;
+    if (reply === '') { if (decision === 'refreeze') { stopped = 'no-refreeze-reply'; stopState = stateLines(state); } break; }
+    if (signature === lastAnswered || (decision === 'question' && seenQuestions.has(signature))) { stopped = 'repeated-stop'; stopState = stateLines(state); break; }
     // The cap is a safety stop, reported when it (and not the run) ends the loop.
-    if (replies >= max) { stopped = 'max-replies'; stopState = stateLines(state); break; }
+    if (replies >= budget) { stopped = 'max-replies'; stopState = stateLines(state); break; }
     replies++; ap('replies.txt', `${reply}\n`);
-    // plan = an approval (the user's reply is the approval); question = a scripted question reply.
+    lastAnswered = signature; if (decision === 'question') seenQuestions.add(signature);
+    // plan = an approval (the user's reply is the approval); refreeze = plan and scope approval of an amended plan; question = a scripted question reply.
     let rkind = 'question';
-    if (kind === 'plan') { rkind = 'plan-approval'; planReplies++; } else questionReplies++;
+    if (decision === 'plan') { rkind = 'plan-approval'; planReplies++; } else if (decision === 'refreeze') { rkind = 'refreeze-approval'; refreezeReplies++; } else questionReplies++;
     const request1 = state.split('\n').find((l) => l.startsWith('next='))?.slice('next='.length) ?? '';
     ap('replies-log.txt', `reply=${replies} kind=${rkind} task=${id} request=${request1} | ${reply}\n`);
     number++;
@@ -300,7 +313,7 @@ export async function main(argv) {
     await runLead(lead, number, reply, true);
     if (timedOut) break;
   }
-  ap('summary.txt', `scenario=${scenario}\nconfig=${config}\nrun_dir=${run}\nreplies=${replies}\nplan_approval_replies=${planReplies}\nquestion_replies=${questionReplies}\n`);
+  ap('summary.txt', `scenario=${scenario}\nconfig=${config}\nrun_dir=${run}\nreplies=${replies}\nplan_approval_replies=${planReplies}\nrefreeze_approval_replies=${refreezeReplies}\nquestion_replies=${questionReplies}\nreply_budget=${budget}\n`);
   if (stopped !== '') ap('summary.txt', `stopped=${stopped}\nstopped_state=${stopState}\n`);
   const gitOut = (/** @type {string} */ name, /** @type {string[]} */ args) => { const fd = openSync(path.join(out, name), 'w'); try { spawnSync('git', ['-C', project, ...args], { stdio: ['ignore', fd, 'inherit'] }); } finally { closeSync(fd); } };
   gitOut('git-log.txt', ['log', '--oneline', '--all']);
