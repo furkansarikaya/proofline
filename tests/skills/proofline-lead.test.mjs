@@ -234,6 +234,20 @@ test("the completion report asset has the control-plane template's sections in o
   assert.deepEqual(heads(join(skill, "assets/COMPLETION_REPORT.md")), heads(join(repoRoot, "control-plane/agents/templates/COMPLETION_REPORT.md")));
 });
 
+test("the completion report template says the report file is English and only the chat message follows the user's language", () => {
+  for (const p of [join(skill, "assets/COMPLETION_REPORT.md"), join(repoRoot, "control-plane/agents/templates/COMPLETION_REPORT.md")]) {
+    const t = readFileSync(p, "utf8");
+    const changed = t.split("\n").find((l) => l.startsWith("Changed:"));
+    assert.match(changed, /English/, `${p}: the Changed line is not English`);
+    assert.doesNotMatch(changed, /user's language/, `${p}: the Changed line follows the user's language`);
+    assert.doesNotMatch(t, /(?:in|for) the user's language, at most/, `${p}: the summary block follows the user's language`);
+    assert.match(t, /every file the run writes is English/, `${p}: states no English rule for the file`);
+    assert.match(t, /your chat message to the user is in\s+the user's language/, `${p}: states no user-language rule for the chat message`);
+  }
+  const rep = readFileSync(join(skill, "references/REPORT.md"), "utf8");
+  assert.match(rep, /all of it, the summary block's `Changed:` line included, is English/);
+});
+
 test("SKILL.md maps every D23 command and the rules that keep the lead out of verdicts", () => {
   for (const c of ["`/proofline`", "`run <TASK>`", "`resume`", "`queue`", "`task [--grill]`", "`design system\\|data\\|api\\|ui [--check]`", "`review`", "`audit`", "`debug`", "`deliver <TASK>`", "`clean`"]) {
     assert.ok(SKILL.includes(`| ${c} |`), `command ${c} missing from the commands table`);

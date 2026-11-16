@@ -295,6 +295,8 @@ repeat its product text, so these are exempt (A172), and only these:
   `reports/qa-evidence/` of a run (dispatch output, scratch, gates and the ledger were exempt already). This is an accepted channel that is not checked: a role allowed to write there could put text there.
 - the question block the script stores for you in `questions/NNN.md` (`agent.sh ask`, and a specialist's question recorded by `record`): it is addressed to you and printed in your language (A99), so it is not scanned (A178); the front-matter lines stay English. Only the files `questions/NNN.md` directly under the run folder are exempt (a file of that name in a deeper folder is checked), and the question text is never evidence. The text itself is not checked: a specialist's question reaches the file through `record`, so it could contain non-English text; it is shown only to you.
 
+The completion report is a run file like the others, its top summary block (`Changed:`, `Verify:`) included, and `publish-completion-report` refuses a non-English line before it reaches the task file; the lead's chat message to you is in your language.
+
 Agents never transliterate product text to ASCII (no accented letter to its plain form) and never ask you whether to translate; the refusal message says
 to quote the text the project has. Each file is checked once without the product text, and the text is gathered (`git grep` on `HEAD`, capped at 50 MB, cached per commit under `.agents/local/language/`, as a pre-filter only: every piece the cache accepts is confirmed with one `git grep` on `HEAD`, because the cache is a file) only
 when a file has a hit, so an English write costs one pass and a quote check one lookup, not one scan per quote.

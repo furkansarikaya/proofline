@@ -1,7 +1,7 @@
 # Completion Report: <TASK-ID>
 
 <!-- proofline:summary:begin -->
-Changed: <one line, in the user's language: what changed>
+Changed: <one line, English: what changed>
 Verify: `<one command the user runs on their own machine>`
 <!-- proofline:summary:end -->
 
@@ -9,7 +9,9 @@ Owner: lead. Derived from run evidence only; published through the task adapter 
 requires the sections that apply to the run; a missing one FAILS `publish-completion-report`. Do not count tests, gates,
 fix rounds or refreezes yourself: publish appends the generated Facts block and refuses other numbers (A143).
 
-The summary block above is for the user, in the user's language, at most five lines in all: `Changed:` (what changed) and `Verify:`
+The summary block above is for the user to read at the top of this file, in English like the rest of the file (every file the run writes is English,
+whatever the user's language; the language check covers the block, and publish copies it into the task file); your chat message to the user is in
+the user's language. At most five lines in all: `Changed:` (what changed) and `Verify:`
 (exactly one command). Do not write `Look at:` lines: publish copies QA_REPORT.md `## Human checks` there, once. If the task has a
 `## Completion response`, the summary follows its format. The block is not evidence; everything below it stays English.
 
