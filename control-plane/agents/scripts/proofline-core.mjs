@@ -181,10 +181,14 @@ function dispatchMain(io, args) {
 
 /** The entry point: the arguments of the process, its descriptors, its environment. @param {string} scriptPath @returns {number | Promise<number>} */
 export function main(scriptPath) {
+  proc.setOwnEnv(process.env);
   const cwd = process.cwd();
   const split = splitArgv0(process.argv.slice(2), path.resolve(scriptPath), cwd);
   const io = {
-    env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), stdin: process.stdin, isProcess: true,
+    // stdin is a getter: touching `process.stdin` puts a pipe or terminal on descriptor 0 into non-blocking mode, and every command that reads its
+    // input with `readFileSync(0)` (answer, amend, record, submit -, ...) then gets EAGAIN when the writer is not there yet and takes that for an empty
+    // input (A315). No command uses `io.stdin`; whoever asks for it pays for it.
+    env: process.env, cwd, stdout: fdWriter(1), stderr: fdWriter(2), get stdin() { return process.stdin; }, isProcess: true,
     // from a run worktree the script that names the root is the worktree's agent.sh; the code that runs stays this core's
     scriptPath: split.rootScript ?? path.resolve(scriptPath), argv0: split.argv0,
     viaAgent: process.argv[2] === '--pl-argv0',

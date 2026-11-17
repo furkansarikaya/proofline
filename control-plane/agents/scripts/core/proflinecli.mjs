@@ -27,7 +27,7 @@ import { queue } from './queue.mjs';
 import { run as coreRun } from '../proofline-core.mjs';
 import { USAGE_LINES } from './cliusage.mjs';
 
-export const PROOFLINE_VERSION = '0.0.145';
+export const PROOFLINE_VERSION = '0.0.146';
 
 /** @typedef {{ write(chunk: Buffer): unknown }} Sink */
 /** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean }} Over */
@@ -437,6 +437,7 @@ const NEXT_AFTER = new Set(['init', 'upgrade', 'doctor', 'status', 'resume', 'qu
  * @param {string[]} argv the arguments after `proofline` @param {Over} [over] @returns {number}
  */
 export function main(argv, over = {}) {
+  proc.setOwnEnv(process.env);
   const args = argv.map(bytes);
   const cli = new Cli(over);
   const cmd = args[0] === undefined || args[0] === '' ? 'status' : args[0];

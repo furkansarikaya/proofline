@@ -15,6 +15,7 @@ import { accessSync, appendFileSync, constants, lstatSync, mkdirSync, readFileSy
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLine } from '../../control-plane/agents/scripts/core/cliio.mjs';
+import { setOwnEnv } from '../../control-plane/agents/scripts/core/proc.mjs';
 
 const USAGE = `Usage: node adapters/codex/install.mjs [--dir DIR] [--yes]
 
@@ -88,4 +89,4 @@ export function install(argv, o = {}) {
   return 0;
 }
 
-if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) process.exitCode = install(process.argv.slice(2));
+if (process.argv[1] && (() => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })()) { setOwnEnv(process.env); process.exitCode = install(process.argv.slice(2)); }

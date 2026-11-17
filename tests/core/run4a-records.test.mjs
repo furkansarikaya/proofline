@@ -576,6 +576,32 @@ test('answer: the status-block adapter runs after the locks are released, so a s
   assert.equal(stdinError, '', `the answer could not be handed to the command: ${report(end)}`);
 });
 
+test('answer: the answer written to a pipe after the command is already waiting for it is recorded, not read as empty (A315)', async (t) => {
+  const d = project('scaffold orchestrated');
+  accepted(A(d, ['ask', 'LC'], { input: '1. Which one?\n   options: a | b\n' }), 'ask');
+  const dir = tempDir('pl-answer-pipe-');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // a preload that says on stderr when the command starts to read descriptor 0: from that line on the pipe is known to be empty, so the write that
+  // follows comes after the read began (no sleep, no race: the test writes only on that signal)
+  const preload = `${dir}/signal.mjs`;
+  writeFileSync(preload, "import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';\nconst read = fs.readFileSync;\nfs.readFileSync = function (p, ...r) { if (p === 0) fs.writeSync(2, 'STDIN-READ\\n'); return read.call(this, p, ...r); };\nconst own = Object.getOwnPropertyDescriptor(process, 'stdin');\nObject.defineProperty(process, 'stdin', { configurable: true, get() { fs.writeSync(2, 'STDIN-TOUCH\\n'); return own.get.call(process); } });\nsyncBuiltinESMExports();\n");
+  const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({ NODE_OPTIONS: `--import=${preload}` }), stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => { child.kill(); });
+  let errText = ''; let outText = '';
+  child.stdin.on('error', () => {});
+  child.stdout.on('data', (x) => { outText += x; });
+  const reading = new Promise((res) => { child.stderr.on('data', (x) => { errText += x; if (errText.includes('STDIN-READ')) res(true); }); });
+  const exited = /** @type {Promise<number | null>} */ (new Promise((res) => { child.on('exit', (code) => res(code)); }));
+  const first = await Promise.race([reading, exited]);
+  assert.equal(first, true, `the command ended before it read its input: exit ${first}, stderr: ${errText.trim() || '(empty)'}`);
+  child.stdin.end('a\n');
+  const code = await exited;
+  assert.equal(code, 0, `exit ${code}, stderr: ${errText.replace('STDIN-READ\n', '').trim() || '(empty)'}`);
+  assert.ok(!errText.includes('STDIN-TOUCH'), 'the core touched process.stdin (an import of node:process or an eager io.stdin puts fd 0 in non-blocking mode)');
+  assert.match(outText, /^answer recorded: LC 001 /m);
+  assert.match(readFileSync(`${d}/.agents/runs/LC/questions/001.answer.md`, 'utf8'), /^a$/m);
+});
+
 test('delivery-check secret scan: in a run worktree the files of the worktree are scanned (the trusted scanner is the main tree\'s and must not look in the main tree)', () => {
   const d = realpathSync(project('scaffold standalone'));
   rmSync(`${d}/.agents/scripts/secret-scan.sh`, { force: true }); // the fixture's stub: without a project script the core's own scanner runs
