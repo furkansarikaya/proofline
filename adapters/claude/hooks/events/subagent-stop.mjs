@@ -47,6 +47,10 @@ export async function handle(ctx) {
     const r = await ctx.agent(['window-close', act, before, '0', prole]);
     if (r.status === 0) rmf(winFile);
     else append(out, `proofline: window-close rejected for proofline-${prole}: ${nlToSpace(r.stdout + r.stderr)}\n`);
+  } else if (prole === 'designer') {
+    // A329: a design document the designer wrote during PLANNING (A326.2, no window) is attested by path and content hash, so IMPLEMENTING does not stop on it
+    const r = await ctx.agent(['planning-attest', act, 'designer']);
+    if (r.status !== 0) append(out, `proofline: planning-attest rejected for proofline-designer: ${nlToSpace(r.stdout + r.stderr)}\n`);
   }
   if (state === 'ok') {
     const gate = firstValue(stText, 'gate');

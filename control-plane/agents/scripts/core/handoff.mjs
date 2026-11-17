@@ -15,6 +15,7 @@ import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { approvedMeasureTargets, evidenceRepairCovers } from './evidencerepair.mjs';
 import { planTestsWithoutDurationOf } from './testreview.mjs';
+import { ensurePlanningWindow } from './planningattest.mjs';
 import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
@@ -364,6 +365,7 @@ export function recordHandoff(ctx, id, phase) {
       verifyDebugResult(ctx, id);
       must(verifyWorkerEvidence(ctx, id));
       testMeasureAtImplemented(ctx, id, patch);
+      ensurePlanningWindow(ctx, dir, id);
       verifyMutationOwnership(ctx, dir, id, true);
       verifyFixBound(ctx, id);
       buildRecordAuto(ctx, id);

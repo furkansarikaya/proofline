@@ -552,6 +552,10 @@
       "test_ms": 25000,
       "suite_ms": 50000
     },
+    "tests/core/planning-attest.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 15000
+    },
     "tests/core/port-t2-drift.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000

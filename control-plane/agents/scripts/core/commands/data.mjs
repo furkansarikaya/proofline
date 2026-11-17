@@ -10,7 +10,7 @@ export const USAGE_LINES = [
   "  branch <ID> | baseline <ID> | freeze <ID> | refreeze <ID> <AMENDMENT-FILE>",
   "  handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> | worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>",
   "  tree-inspect <ID> | tree-accept <ID>   (recovery: a change entered the working tree outside every worker window; tree-inspect shows it read-only, tree-accept (lead) asks for the user's approval of exactly that tree (kind tree), attests it, sends the handoff back to IMPLEMENTING and so makes every gate run again; the run is not discarded)",
-  "  window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer)",
+  "  window-open <ID> [ROLE] | window-close <ID> <BEFORE> [EXIT-STATUS] [ROLE]   (ROLE implementer|designer) | planning-attest <ID> designer (runtime hook only, A329)",
   "  status-block <ID> [EVENT [PR]]   (lead, A202: rebuild the task's one status block from the records and place it through the task adapter; best effort, never fails a run)",
   "  worktree-add <ID> | worktree-path <ID> | worktree-remove <ID> [--force]   (A169, lead, main working tree: one worktree per run under .agents/local/worktrees/<ID>; night mode uses it for every task)",
   "  open-runs | discard-stray <ID> <FILE-NAME|evidence/FILE-NAME>   (lead: remove one stray, non-artifact regular file of the run directory or of its evidence/ folder, A219)",

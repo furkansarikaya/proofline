@@ -272,7 +272,7 @@ function agentRule(ctx, cmd, v, hasRole) {
   const role = ctx.role;
   if (lit !== '1') deny(`agent.sh subcommand '${sc}' is not literal. Allowed form: ID=T-1; sh .agents/scripts/agent.sh next $ID (a variable the same command assigns a plain literal) or write the subcommand out`);
   if (sc === 'record' || sc === 'gate') deny(`verdicts enter a run only through agent.sh submit, recorded for the SubagentStop hook or dispatch.sh (agent.sh ${sc} is never run by the lead or a subagent, D12)`);
-  if (sc === 'window-open' || sc === 'window-close') deny('implementer and designer windows are opened and closed only by the runtime hooks and dispatch.sh');
+  if (sc === 'window-open' || sc === 'window-close' || sc === 'planning-attest') deny('implementer and designer windows are opened and closed (and the designer planning attestation is recorded) only by the runtime hooks and dispatch.sh');
   if (!(ctx.sub || role !== 'lead')) return;
   if (sc === 'approve' || sc === 'waive' || sc === 'answer') deny('a subagent never approves, waives or answers; only the user does, through the lead (D13, D16)');
   if (['status', 'pipeline', 'fingerprint', 'build-record', 'plan-section', 'config-get'].includes(sc) || (sc === 'diff-digest' && role !== 'implementer') || sc.startsWith('verify-')) return; // build-record: `run` is refused for a non-lead role by the script itself; plan-section and config-get are read-only (the roles' texts send every role to plan-section; 7% of the calls of earlier runs were refused here, A235); diff-digest: the core's role gate decides the rest
