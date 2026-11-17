@@ -97,14 +97,19 @@ for (const [role, who] of OTHERS) {
 }
 
 // A327: the run-owned evidence worktree of the role texts: every role that may make one may also remove it with `git worktree remove --force`; the other way to remove it (rm) stays refused.
-for (const [role, type] of ROLES.filter(([r]) => r !== 'explorer')) {
-  test(`${role}: adds and removes its run-owned evidence worktree $TMPDIR/verify-<ID> with git; rm of it stays refused (A327)`, async () => {
-    assert.equal(await pre(dir, 'git worktree add --detach "$TMPDIR/verify-T-1" HEAD', sub(type)), null);
-    assert.equal(await pre(dir, 'git worktree remove --force "$TMPDIR/verify-T-1"', sub(type)), null);
-    const rm = await pre(dir, 'rm -rf "$TMPDIR/verify-T-1"', sub(type));
-    assert.ok(rm !== null, 'rm of an evidence worktree must stay refused');
-  });
-}
+// The whole hook (not only this rule) lets each role add and remove it; the rows of the matrix above cover what the rule refuses.
+test('every review role adds and removes its own $TMPDIR/verify-<ID> evidence worktree with git, and rm of it stays refused (A327)', async () => {
+  const wrong = [];
+  for (const [role, type] of ROLES.filter(([r]) => r !== 'explorer')) {
+    for (const c of ['git worktree add --detach "$TMPDIR/verify-T-1.tests" HEAD', 'git worktree remove --force "$TMPDIR/verify-T-1.tests"']) {
+      const r = await pre(dir, c, sub(type));
+      if (r !== null) wrong.push(`${role}: ${c} -> ${r.slice(0, 100)}`);
+    }
+    if ((await pre(dir, 'rm -rf "$TMPDIR/verify-T-1.tests"', sub(type))) === null) wrong.push(`${role}: rm of the worktree was allowed`);
+    if ((await pre(dir, 'git worktree remove --force "$TMPDIR/qa-ev"', sub(type))) === null) wrong.push(`${role}: another name was allowed`);
+  }
+  assert.deepEqual(wrong, []);
+});
 
 test('the runtime guard and the git pre-push name the same roles', async () => {
   const guard = await import(pathToFileURL(join(hookDir, 'guards/readonly-git.mjs')).href);

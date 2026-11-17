@@ -86,25 +86,30 @@ test('sc_debug_result: the debug-proof trigger is the task type, label or a fix 
   expectMsg('a declared defect with decision: fix needs a debug-proof result', NODEBUG, A(d, ['handoff', 'LC', 'IMPLEMENTED']));
 });
 
-test('A327: the run-owned evidence worktree verify-<ID> (detached, clean) is removed by CODE_DONE itself; every other scratch worktree stays a blocker', () => {
+test('A327: the run-owned evidence worktree verify-<ID>.<focus> (detached, clean) is removed by CODE_DONE itself; every other scratch worktree stays a blocker and the refusal does not sweep', () => {
   const d = scaffold({ cls: 'STANDARD' });
   redGreen(d); must(d, ['handoff', 'LC', 'IMPLEMENTED']); passAll(d);
   const fresh = (/** @type {string} */ prefix) => { const w = mkdtempSync(path.join(process.env.TMPDIR ?? tmpdir(), prefix)); rmSync(w, { recursive: true }); return w; };
   const other = fresh('qa-ev-');                        // a name the role texts do not give: a blocker
-  const foreign = fresh('verify-OTHER-');               // another run's name: a blocker
-  const dirty = fresh('verify-LC-');                    // this run's name but with an untracked file: a blocker
-  const onBranch = fresh('verify-LC-');                 // this run's name but on a branch: a blocker
-  for (const w of [other, foreign, dirty]) git(d, ['worktree', 'add', '-q', '--detach', w, 'HEAD']);
+  const foreign = fresh('verify-OTHER.');               // another run's name: a blocker
+  const sibling = fresh('verify-LC-2.');                // the concurrent run LC-2 (S3): a dot, not a dash, ends the id, so run LC never takes it
+  const old = fresh('verify-LC-');                      // the old dash form is not a run-owned name any more
+  const dirty = fresh('verify-LC.');                    // this run's name but with an untracked file: a blocker
+  const onBranch = fresh('verify-LC.');                 // this run's name but on a branch: a blocker
+  for (const w of [other, foreign, sibling, old, dirty]) git(d, ['worktree', 'add', '-q', '--detach', w, 'HEAD']);
   git(d, ['worktree', 'add', '-q', '-b', 'scratch-branch', onBranch, 'HEAD']);
   writeFileSync(path.join(dirty, 'note.txt'), 'x');
-  const mine = fresh('verify-LC-'); git(d, ['worktree', 'add', '-q', '--detach', mine, 'HEAD']);
+  const mine = fresh('verify-LC.tests-'); git(d, ['worktree', 'add', '-q', '--detach', mine, 'HEAD']);
+  const mineBase = fresh('verify-LC.qa-base-'); git(d, ['worktree', 'add', '-q', '--detach', mineBase, 'HEAD']);
   const r = A(d, ['handoff', 'LC', 'CODE_DONE']);
   expectMsg('the foreign and dirty worktrees still block', 'scratch git worktrees', r);
-  assert.ok(!existsSync(mine), 'the clean detached run-owned worktree was removed');
+  assert.ok(!existsSync(mine) && !existsSync(mineBase), 'the clean detached run-owned worktrees were removed');
   assert.match(r.text, /removed the run's own evidence worktree/);
   assert.match(r.text, /not a question for the user/);
-  for (const w of [other, foreign, dirty, onBranch]) { assert.ok(existsSync(w), `${w} must not be removed`); assert.ok(r.text.includes(path.basename(w)), `${w} is named as a blocker`); }
-  for (const w of [other, foreign, dirty, onBranch]) git(d, ['worktree', 'remove', '--force', w]);
+  assert.match(r.text, /Any other path was not made by this run's roles[^\n]*ask the user before removing it/, 'the refusal sends every other path to the user');
+  assert.doesNotMatch(r.text, /made by the review roles of this run/, 'the refusal no longer says that all listed worktrees are the roles\'');
+  for (const w of [other, foreign, sibling, old, dirty, onBranch]) { assert.ok(existsSync(w), `${w} must not be removed`); assert.ok(r.text.includes(path.basename(w)), `${w} is named as a blocker`); }
+  for (const w of [other, foreign, sibling, old, dirty, onBranch]) git(d, ['worktree', 'remove', '--force', w]);
   accepted(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE after the blockers were removed');
 });
 

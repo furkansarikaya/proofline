@@ -7,7 +7,7 @@
 // call `A` and look at the Result.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
@@ -252,9 +252,11 @@ function buildTemplate(dir) {
 /** @param {string} p @param {string} root @param {import('node:crypto').Hash} h */
 function hashTree(p, root, h) {
   let st; try { st = lstatSync(p); } catch { return; }
-  if (st.isSymbolicLink()) return;
-  if (st.isDirectory()) { for (const n of readdirSync(p).sort()) if (n !== '.git' && n !== 'node_modules') hashTree(path.join(p, n), root, h); return; }
-  h.update(`${path.relative(root, p).split(path.sep).join('/')}\n${st.size}\n`); h.update(readFileSync(p));
+  const rel = path.relative(root, p).split(path.sep).join('/');
+  // nothing is skipped (A327 S2): the template copies a `.git` or `node_modules` folder inside an input as well; a link is hashed by its target, a file by its executable bit and bytes
+  if (st.isSymbolicLink()) { h.update(`L ${rel}\n${readlinkSync(p)}\n`); return; }
+  if (st.isDirectory()) { h.update(`D ${rel}\n`); for (const n of readdirSync(p).sort()) hashTree(path.join(p, n), root, h); return; }
+  h.update(`F ${rel}\n${st.size}\n${st.mode & 0o111 ? 'x' : '-'}\n`); h.update(readFileSync(p));
 }
 /**
  * The content key of a set of files and folders (A327.2): a hash of the relative names and the bytes in sorted order, so the same content under another checkout path is the same key

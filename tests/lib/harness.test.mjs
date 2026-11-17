@@ -3,7 +3,7 @@
 // (since A244 without the shell library it replaced: the scaffold's state is asserted directly, and the recipe form (tests/lib/recipe.mjs over tests/lib/verbs.mjs) builds the same state as the functions).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -184,6 +184,33 @@ describe('the template cache key (A327.2)', () => {
     assert.notEqual(k2, k1, 'an added empty file changes the key');
     rmSync(path.join(a, 'adapters/claude/y.mjs'));
     assert.equal(contentKey(inputs(a), a), k1);
+  });
+  test('nothing inside an input is skipped: a planted node_modules or .git file, a link, its target and the executable bit all change the key (S2)', () => {
+    const a = tmp('key');
+    put(a, 'control-plane/core/x.mjs', 'x');
+    const ins = [path.join(a, 'control-plane')];
+    const k0 = contentKey(ins, a);
+    put(a, 'control-plane/core/node_modules/pkg/index.mjs', 'export {}');
+    const k1 = contentKey(ins, a);
+    assert.notEqual(k1, k0, 'a planted core/node_modules/pkg/index.mjs');
+    put(a, 'control-plane/core/node_modules/pkg/index.mjs', 'export const evil = 1');
+    const k2 = contentKey(ins, a);
+    assert.notEqual(k2, k1, 'a changed file inside node_modules');
+    put(a, 'control-plane/.git/config', 'x');
+    const k3 = contentKey(ins, a);
+    assert.notEqual(k3, k2, 'a .git file');
+    if (process.platform !== 'win32') {
+      symlinkSync('x.mjs', path.join(a, 'control-plane/core/link'));
+      const k4 = contentKey(ins, a);
+      assert.notEqual(k4, k3, 'a planted link');
+      rmSync(path.join(a, 'control-plane/core/link'));
+      symlinkSync('../../other', path.join(a, 'control-plane/core/link'));
+      assert.notEqual(contentKey(ins, a), k4, 'the same link name with another target');
+      chmodSync(path.join(a, 'control-plane/core/x.mjs'), 0o755);
+      const k5 = contentKey(ins, a);
+      chmodSync(path.join(a, 'control-plane/core/x.mjs'), 0o644);
+      assert.notEqual(contentKey(ins, a), k5, 'the executable bit');
+    }
   });
   test('the inputs of the real key name the adapters, the roles, the skills and the whole control plane', () => {
     const names = templateInputs().map((p) => path.relative(repo, p));

@@ -105,7 +105,7 @@ export function verifyDebugResult(ctx, id) {
 }
 
 /**
- * A327: the one scratch worktree the control plane removes itself: the evidence worktree a review role of THIS run makes, named by the role texts `$TMPDIR/verify-<ID>` (or `verify-<ID>-<x>`),
+ * A327: the one scratch worktree the control plane removes itself: the evidence worktree a review role of THIS run makes, named by the role texts `$TMPDIR/verify-<ID>` or `$TMPDIR/verify-<ID>.<focus>` (a dot cannot occur in a task id, so run `LC` never matches the worktree of run `LC-2`),
  * a direct child of the temp folder, detached, with no local change and no untracked file. Anything else (another name, a branch, a dirty tree, a lock, a user's worktree) stays a blocker.
  * The removal is `git worktree remove` WITHOUT --force, so a locked or modified worktree is refused by git as well.
  * @param {Context} ctx @param {string} id @param {string} t the temp folder @param {string} p the worktree path as git lists it
@@ -116,7 +116,7 @@ function removeRunOwnedScratch(ctx, id, t, p) {
   const slash = n.lastIndexOf('/');
   if (slash < 0 || n.slice(0, slash) !== t) return false;
   const base = n.slice(slash + 1);
-  if (base !== `verify-${id}` && !base.startsWith(`verify-${id}-`)) return false;
+  if (base !== `verify-${id}` && !base.startsWith(`verify-${id}.`)) return false;
   if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
   const st = git(ctx, ['-C', p, 'status', '--porcelain', '--untracked-files=all']);
   if (st.status !== 0 || st.out !== '') return false;
@@ -141,7 +141,7 @@ export function verifyNoScratchWorktrees(ctx, id = '') {
       extra += ` ${p}`;
     }
   }
-  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. They were made by the review roles of this run: this is not a question for the user, the lead removes each itself ('git worktree remove --force <path>') and runs CODE_DONE again`);
+  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. A path '${t}/verify-${id}' or '${t}/verify-${id}.<focus>' is an evidence worktree of this run's review roles and not a question for the user: the lead removes it itself ('git worktree remove --force <path>') and runs CODE_DONE again. Any other path was not made by this run's roles (another name, another run's, or somebody's own worktree, maybe with work in it): ask the user before removing it`);
 }
 
 /** `verify_fix_bound ID` (A123) @param {Context} ctx @param {string} id */
