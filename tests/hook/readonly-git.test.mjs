@@ -96,6 +96,16 @@ for (const [role, who] of OTHERS) {
   });
 }
 
+// A327: the run-owned evidence worktree of the role texts: every role that may make one may also remove it with `git worktree remove --force`; the other way to remove it (rm) stays refused.
+for (const [role, type] of ROLES.filter(([r]) => r !== 'explorer')) {
+  test(`${role}: adds and removes its run-owned evidence worktree $TMPDIR/verify-<ID> with git; rm of it stays refused (A327)`, async () => {
+    assert.equal(await pre(dir, 'git worktree add --detach "$TMPDIR/verify-T-1" HEAD', sub(type)), null);
+    assert.equal(await pre(dir, 'git worktree remove --force "$TMPDIR/verify-T-1"', sub(type)), null);
+    const rm = await pre(dir, 'rm -rf "$TMPDIR/verify-T-1"', sub(type));
+    assert.ok(rm !== null, 'rm of an evidence worktree must stay refused');
+  });
+}
+
 test('the runtime guard and the git pre-push name the same roles', async () => {
   const guard = await import(pathToFileURL(join(hookDir, 'guards/readonly-git.mjs')).href);
   const core = await import(pathToFileURL(join(nodeHook, '../../../../control-plane/agents/scripts/core/githooks.mjs')).href);

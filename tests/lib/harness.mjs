@@ -249,20 +249,29 @@ function buildTemplate(dir) {
   writeFileSync(path.join(dir, '.gitignore'), '.agents/runs/\n.agents/local/\n');
 }
 
-/** @param {string} p @param {import('node:crypto').Hash} h */
-function hashTree(p, h) {
-  if (!existsSync(p)) return;
-  const st = statSync(p);
-  if (st.isDirectory()) { for (const n of readdirSync(p).sort()) hashTree(path.join(p, n), h); return; }
-  h.update(`${p}\n`); h.update(readFileSync(p));
+/** @param {string} p @param {string} root @param {import('node:crypto').Hash} h */
+function hashTree(p, root, h) {
+  let st; try { st = lstatSync(p); } catch { return; }
+  if (st.isSymbolicLink()) return;
+  if (st.isDirectory()) { for (const n of readdirSync(p).sort()) if (n !== '.git' && n !== 'node_modules') hashTree(path.join(p, n), root, h); return; }
+  h.update(`${path.relative(root, p).split(path.sep).join('/')}\n${st.size}\n`); h.update(readFileSync(p));
 }
-/** @type {string | undefined} */ let codeKeyCache;
-/** The content hash of everything a template is made of: the control plane, the stubs and this file. */
-export function codeKey() {
-  if (codeKeyCache) return codeKeyCache;
+/**
+ * The content key of a set of files and folders (A327.2): a hash of the relative names and the bytes in sorted order, so the same content under another checkout path is the same key
+ * and one changed byte, a new or a removed file is another. A mutated copy of the code (a mutation run) therefore builds and reads its OWN template and cannot leave one that a normal
+ * run reuses. @param {string[]} paths @param {string} [root] the names are taken relative to it
+ */
+export function contentKey(paths, root = repo) {
   const h = createHash('sha256');
-  for (const p of [path.join(agentsSrc, 'config.yaml'), path.join(agentsSrc, 'modes'), path.join(agentsSrc, 'templates'), path.join(agentsSrc, 'ecosystems.json'), path.join(agentsSrc, 'ecosystems.mjs'), scripts, stubs, import.meta.filename, path.join(import.meta.dirname, 'verbs.mjs'), path.join(import.meta.dirname, 'recipe.mjs')]) hashTree(p, h);
-  return (codeKeyCache = h.digest('hex').slice(0, 20));
+  for (const p of paths) hashTree(p, root, h);
+  return h.digest('hex').slice(0, 20);
+}
+/** Everything a template and the tests around it read from the checkout: the whole control plane, the adapters and their generator, the roles and the skills, the stubs and the harness itself. */
+export const templateInputs = () => [agentsSrc, path.join(repo, 'adapters'), path.join(repo, 'roles'), path.join(repo, 'skills'), stubs, import.meta.filename, path.join(import.meta.dirname, 'verbs.mjs'), path.join(import.meta.dirname, 'recipe.mjs')];
+/** @type {string | undefined} */ let codeKeyCache;
+/** The content hash of everything a template is made of (see `templateInputs`); computed once per process. */
+export function codeKey() {
+  return (codeKeyCache ??= contentKey(templateInputs()));
 }
 const cacheRoot = () => path.join(tmpdir(), `proofline-harness-${process.getuid?.() ?? 0}`);
 /** The cache folder exists, is a real directory of this user and private (mode 0700): a template is code the tests run, so a folder (or a link) another user made first is refused. */

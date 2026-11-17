@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.154 — 2026-11-17
+
+- Fix (A327): the smoke batch scratch-worktree trigger is removed. The qa, reviewer, verifier and security-reviewer role texts name the evidence worktree `$TMPDIR/verify-<ID>` and tell the role to remove it with `git worktree remove --force` before it submits; `handoff CODE_DONE` removes a clean, detached worktree of that name for its own run (never a branch, a dirty tree or another name), and its refusal says the lead removes the listed scratch worktrees itself instead of asking the user. Test harness: the template cache key now covers the whole control plane, `adapters/`, `roles/`, `skills/`, the stubs and the harness by content, so a changed adapter or a mutated copy never reuses a stale template. The other batch FAILs are recorded as accepted limits (A327.3).
+
 ## 0.0.153 — 2026-11-17
 
 - Fix (A326): five product gaps of the final pass A324 are closed. (1) The user's own `/proofline run <text>` is the approval to start a TRIVIAL run (no "reply yes"); a bare "fix this" is still proposed and started on the user's yes, and commit, push and delivery approvals are unchanged (A324.2). (2) The AS-N question says the user answers `accept AS-N` before the freeze and that the destructive approval does not cover it; the designer may write the `design_docs` paths while the run is still PLANNED, no window needed, and every other stage and path is still refused (A324.3). (3) The GREEN recorder accepts a test name containing `=` and records it exactly (A324.4). (4) A verifier's own retry (VERIFY failed, then passed on the same content) is not a fix round; real fixes and evidence-only repairs still count (A324.5). (5) `knowledge-done` refuses a second NEW topic page unless the command gives a reason, recorded in the ledger (A322.5).

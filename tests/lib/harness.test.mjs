@@ -3,12 +3,12 @@
 // (since A244 without the shell library it replaced: the scaffold's state is asserted directly, and the recipe form (tests/lib/recipe.mjs over tests/lib/verbs.mjs) builds the same state as the functions).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import {
-  A, AS, accepted, cleanEnv, expectFail, expectMsg, git, gateStatus, gfail, gpass, solo, newRepo, passAll, pipe, project, qaBind, refused, rv, scaffold, scripts, sha256, toCodeDone, tsha, tmp, expectState,
+  A, AS, accepted, cached, cleanEnv, contentKey, repo, templateInputs, expectFail, expectMsg, git, gateStatus, gfail, gpass, solo, newRepo, passAll, pipe, project, qaBind, refused, rv, scaffold, scripts, sha256, toCodeDone, tsha, tmp, expectState,
 } from './harness.mjs';
 import { buildRecipe, runIn } from './recipe.mjs';
 
@@ -165,6 +165,43 @@ describe('the template cache', () => {
     chmodSync(dir, 0o777);
     assert.ok(newRepo());
     assert.equal(statSync(dir).mode & 0o077, 0, 'no access for group or others');
+  });
+});
+
+describe('the template cache key (A327.2)', () => {
+  const put = (/** @type {string} */ d, /** @type {string} */ f, /** @type {string} */ t) => { mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); writeFileSync(path.join(d, f), t); };
+  const inputs = (/** @type {string} */ d) => [path.join(d, 'adapters'), path.join(d, 'roles')];
+  test('is the same for the same content (under another path too) and another for a changed, added or removed file', () => {
+    const a = tmp('key'); const b = tmp('key');
+    for (const d of [a, b]) { put(d, 'adapters/claude/x.mjs', 'one'); put(d, 'roles/qa.md', 'qa'); }
+    assert.equal(contentKey(inputs(a), a), contentKey(inputs(b), b));
+    const k0 = contentKey(inputs(a), a);
+    put(a, 'adapters/claude/x.mjs', 'two');
+    const k1 = contentKey(inputs(a), a);
+    assert.notEqual(k1, k0, 'a changed adapters file changes the key');
+    put(a, 'adapters/claude/y.mjs', '');
+    const k2 = contentKey(inputs(a), a);
+    assert.notEqual(k2, k1, 'an added empty file changes the key');
+    rmSync(path.join(a, 'adapters/claude/y.mjs'));
+    assert.equal(contentKey(inputs(a), a), k1);
+  });
+  test('the inputs of the real key name the adapters, the roles, the skills and the whole control plane', () => {
+    const names = templateInputs().map((p) => path.relative(repo, p));
+    for (const want of ['adapters', 'roles', 'skills', path.join('control-plane', 'agents')]) assert.ok(names.includes(want), want);
+  });
+  test('identical content hits the cache (built once), a changed input builds another template, and a mutated input never replaces the normal one', () => {
+    const root = tmp('cache'); const src = tmp('src');
+    put(src, 'adapters/a.txt', 'normal');
+    const keyOf = () => contentKey([path.join(src, 'adapters')], src);
+    let builds = 0; const build = (/** @type {string} */ d) => { builds++; writeFileSync(path.join(d, 'f'), readFileSync(path.join(src, 'adapters/a.txt'))); };
+    const normal = cached(keyOf(), build, root);
+    assert.equal(cached(keyOf(), build, root), normal); assert.equal(builds, 1, 'the same content is a cache hit');
+    put(src, 'adapters/a.txt', 'MUTATED');
+    const mutated = cached(keyOf(), build, root);
+    assert.notEqual(mutated, normal); assert.equal(builds, 2);
+    assert.equal(readFileSync(path.join(normal, 'f'), 'utf8'), 'normal', 'the mutated build did not touch the normal template');
+    put(src, 'adapters/a.txt', 'normal');
+    assert.equal(cached(keyOf(), build, root), normal); assert.equal(builds, 2, 'the normal content finds its own template again');
   });
 });
 

@@ -104,8 +104,27 @@ export function verifyDebugResult(ctx, id) {
   fail(`IMPLEMENTED blocked: the task is typed or labelled as a defect ('${hit}' in its type, labels, suggested class or a decision: fix entry) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) (this always works, also after freeze); an UNRELATED pre-existing defect must instead be declared under '## Pre-existing defects' as '- <path:symbol>: <what> -- decision: report' BEFORE freeze: after freeze that needs an amendment and a refreeze (maybe another plan approval), so prefer the debug report`);
 }
 
-/** `verify_no_scratch_worktrees` @param {Context} ctx */
-export function verifyNoScratchWorktrees(ctx) {
+/**
+ * A327: the one scratch worktree the control plane removes itself: the evidence worktree a review role of THIS run makes, named by the role texts `$TMPDIR/verify-<ID>` (or `verify-<ID>-<x>`),
+ * a direct child of the temp folder, detached, with no local change and no untracked file. Anything else (another name, a branch, a dirty tree, a lock, a user's worktree) stays a blocker.
+ * The removal is `git worktree remove` WITHOUT --force, so a locked or modified worktree is refused by git as well.
+ * @param {Context} ctx @param {string} id @param {string} t the temp folder @param {string} p the worktree path as git lists it
+ */
+function removeRunOwnedScratch(ctx, id, t, p) {
+  if (id === '') return false;
+  const n = p.replace(/^\/private/, '');
+  const slash = n.lastIndexOf('/');
+  if (slash < 0 || n.slice(0, slash) !== t) return false;
+  const base = n.slice(slash + 1);
+  if (base !== `verify-${id}` && !base.startsWith(`verify-${id}-`)) return false;
+  if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
+  const st = git(ctx, ['-C', p, 'status', '--porcelain', '--untracked-files=all']);
+  if (st.status !== 0 || st.out !== '') return false;
+  return git(ctx, ['worktree', 'remove', p]).status === 0;
+}
+
+/** `verify_no_scratch_worktrees` (A327: with the run id it removes this run's own clean, detached `verify-<ID>` evidence worktree itself) @param {Context} ctx @param {string} [id] */
+export function verifyNoScratchWorktrees(ctx, id = '') {
   let t = (ctx.env.TMPDIR || '/tmp').replace(/\/$/, '');
   t = t.replace(/^\/private/, '');
   const list = git(ctx, ['worktree', 'list', '--porcelain']).out.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9));
@@ -117,9 +136,12 @@ export function verifyNoScratchWorktrees(ctx) {
     if (n === rootN) continue;
     if (n === main) continue;
     if (n.startsWith(`${main}/.agents/local/worktrees/`)) continue;
-    if (n.startsWith(`${t}/`) || n.startsWith('/tmp/') || n.startsWith('/var/folders/') || isScratchWorktreeWin(p, list[0] ?? '', ctx.root, [ctx.env.TEMP, ctx.env.TMP, ctx.env.TMPDIR])) extra += ` ${p}`;
+    if (n.startsWith(`${t}/`) || n.startsWith('/tmp/') || n.startsWith('/var/folders/') || isScratchWorktreeWin(p, list[0] ?? '', ctx.root, [ctx.env.TEMP, ctx.env.TMP, ctx.env.TMPDIR])) {
+      if (removeRunOwnedScratch(ctx, id, t, p)) { ctx.out(`removed the run's own evidence worktree: ${p}\n`); continue; }
+      extra += ` ${p}`;
+    }
   }
-  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. Remove each ('git worktree remove --force <path>'; the lead may run it) and run it again`);
+  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. They were made by the review roles of this run: this is not a question for the user, the lead removes each itself ('git worktree remove --force <path>') and runs CODE_DONE again`);
 }
 
 /** `verify_fix_bound ID` (A123) @param {Context} ctx @param {string} id */
@@ -319,7 +341,7 @@ export function recordHandoff(ctx, id, phase) {
       if (sectionValue(ctx, dir, 'handoff', 'implemented_patch_sha256') !== patch) fail('CODE_DONE blocked: the application tree changed since IMPLEMENTED');
       verifyClassification(ctx, id);
       dbGuardCheck(ctx, id);
-      verifyNoScratchWorktrees(ctx);
+      verifyNoScratchWorktrees(ctx, id);
       if (sectionValue(ctx, dir, 'execution', 'awaiting_input') === 'true') fail(`CODE_DONE blocked: questions are pending ('agent.sh questions ${id}')`);
       if (gatesEnforced(ctx, dir)) {
         verifyMutationOwnership(ctx, dir, id);
