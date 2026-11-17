@@ -40,7 +40,7 @@ If the project **already has a configured mutation tool** (config file present, 
 
 Mutations never touch the user's working directory.
 
-- With git: create a worktree from `HEAD` in a fresh directory under the system temp dir with a `test-trust-` prefix (for example `mktemp -d "${TMPDIR:-/tmp}/test-trust-XXXXXX"`), then copy in the user's uncommitted changes, including untracked files in scope, so the audit reflects the real code. **Record the worktree path in the ledger before applying any mutation.**
+- With git: create a worktree from `HEAD` in a fresh directory under the system temp dir with a `test-trust-` prefix (for example `mktemp -d "${TMPDIR:-/tmp}/test-trust-XXXXXX"`), then copy in the user's uncommitted changes, including untracked files in scope, so the audit reflects the real code. **Record the worktree path in the ledger before applying any mutation.** Run by a proofline review role, the role text wins: the worktree is `$TMPDIR/verify-<ID>.<focus>`, created in its own call and left registered for the control plane to remove at CODE_DONE (a review role runs no `git worktree remove`).
 - Without git: copy the scope (and what it needs to build) to a fresh `test-trust-`-prefixed directory under the system temp dir, and record that path instead.
 
 ### Link dependency folders, never build folders

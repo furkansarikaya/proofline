@@ -2,10 +2,10 @@
 // gates-test.sh scenarios sc_task_types .. sc_folded_defect (slice S4) as Node tests on the real control plane (tests/legacy-port-map.tsv): task types and the
 // debug-proof result, scratch worktrees, the worktree lock folder, document-scope warnings, selective gate repetition after a fix round or an amend (Core
 // invariants 1, 2, 5: a gate that must run again never carries over), scope kinds, summary and Human checks, visual rows, takeover without RED, defects.
-import { tempDir } from '../lib/tempdir.mjs';
+import { removeAtExit, tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, unlinkSync, watch, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, unlinkSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -89,7 +89,8 @@ test('sc_debug_result: the debug-proof trigger is the task type, label or a fix 
 test('A327: the run-owned evidence worktree verify-<ID>.<focus> (detached, clean) is removed by CODE_DONE itself; every other scratch worktree stays a blocker and the refusal does not sweep', () => {
   const d = scaffold({ cls: 'STANDARD' });
   redGreen(d); must(d, ['handoff', 'LC', 'IMPLEMENTED']); passAll(d);
-  const fresh = (/** @type {string} */ prefix) => { const w = mkdtempSync(path.join(process.env.TMPDIR ?? tmpdir(), prefix)); rmSync(w, { recursive: true }); return w; };
+  let n = 0;   // a direct child of the temp folder (the role texts name $TMPDIR/verify-<ID>.<focus>), unique by process and counter, removed at exit; no mkdtemp
+  const fresh = (/** @type {string} */ prefix) => { const w = path.join(process.env.TMPDIR ?? tmpdir(), `${prefix}${process.pid}-${++n}`); removeAtExit(w); return w; };
   const other = fresh('qa-ev-');                        // a name the role texts do not give: a blocker
   const foreign = fresh('verify-OTHER.');               // another run's name: a blocker
   const sibling = fresh('verify-LC-2.');                // the concurrent run LC-2 (S3): a dot, not a dash, ends the id, so run LC never takes it
