@@ -9,9 +9,6 @@ import { cmdSubst } from '../lib/text.mjs';
 import { cParts, deny } from './kit.mjs';
 import { programTexts, SHELLS, OTHER_SHELLS } from './readonly-git-programs.mjs';
 
-/** Set by readonlyGit for the command in hand: a directory change or a TMPDIR/GIT_* assignment is in it (A327). */
-let WT_GAMES = false;
-
 /** The roles that never push and never create a branch or a tag. core/githooks.mjs NO_PUSH_ROLES is the same list. */
 export const NO_PUSH_ROLES = ['qa', 'reviewer', 'security_reviewer', 'verifier', 'explorer'];
 
@@ -107,8 +104,6 @@ export function readonlyGit(ctx, cmd, scan) {
   const stripped = withoutDataBodies(cmd);
   const flat = stripped.replace(/\\\n/g, ' ').replace(/\n/g, ' ');
   const bare = flat.replace(/["'\\]/g, '');
-  // A327: what makes the target of a worktree remove unreadable: a directory change, or a TMPDIR / GIT_* assignment anywhere in the command
-  WT_GAMES = /(^|[\s;&|(])(cd|pushd|popd|chdir)(\s|;|&|$)|(^|[\s;&|(])(export\s+|declare\s+|typeset\s+|env\s+)?(TMPDIR|TMP|TEMP|GIT_[A-Z_]+)=/.test(flat) || scan.records.some((r) => r.kind === 'C' && ['cd', 'pushd', 'popd'].includes(cParts(r).cw));
   if ((SINK.test(flat) || SINK_EXT.test(flat)) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
   // xargs and parallel given git or gh with the subcommand on stdin
   if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/m.test(stripped) || /\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
@@ -161,7 +156,6 @@ const opt = (x, full, min = 3) => { if (!x.startsWith('--')) return false; const
 /** The arguments of one `git` command, global options included. @param {string[]} a */
 function gitJudge(a, needSub = false) {
   let i = 0;
-  let globalPath = false;
   let sub = '';
   while (i < a.length) {
     const w = /** @type {string} */ (a[i]);
@@ -171,8 +165,7 @@ function gitJudge(a, needSub = false) {
       if (!HARMLESS_KEY.test(key)) deny(`git -c ${key} can name a program that runs git push, or an alias: only color.*, core.quotepath, safe.directory and advice.* are set on the command line: ${TAIL}`);
       i += w === '-c' || w === '--config-env' ? 2 : 1; continue;
     }
-    if (['-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--attr-source'].includes(w)) { if (w === '-C' || w === '--git-dir' || w === '--work-tree') globalPath = true; i += 2; continue; }
-    if (w.startsWith('--git-dir=') || w.startsWith('--work-tree=') || (w.startsWith('-C') && w.length > 2)) globalPath = true;
+    if (['-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--attr-source'].includes(w)) { i += 2; continue; }
     if (w.startsWith('-')) { i++; continue; }
     sub = w; i++; break;
   }
@@ -212,18 +205,10 @@ function gitJudge(a, needSub = false) {
       if (!detach) deny(`git switch of a name may create a local branch from a remote one; use --detach <commit>: ${TAIL}`);
       return;
     case 'worktree': {
-      // A327 (S1): a review role removes ONLY its own evidence worktree, `$TMPDIR/verify-<name>`: exactly one path, no -C/--git-dir/--work-tree/cd/TMPDIR games. Every other verb that changes
-      // worktrees (prune, lock, unlock, move, repair, a remove of any other path) is refused: the project's and the implementer's worktrees are registered in the same repository.
-      if (['prune', 'lock', 'unlock', 'move', 'repair'].includes(pos[0] ?? '')) deny(`git worktree ${pos[0]} changes worktrees that are not yours; a review role only adds and removes its own $TMPDIR/verify-<name> evidence worktree: ${TAIL}`);
-      if (pos[0] === 'remove' || pos[0] === 'rm') {
-        const targets = pos.slice(1);
-        const flags = rest.filter((x) => x.startsWith('-'));
-        const okFlags = flags.length === 0 || (flags.length === 1 && (flags[0] === '--force' || flags[0] === '-f'));
-        const t = targets[0] ?? '';
-        const own = /^["']?(?:\$TMPDIR|\$\{TMPDIR\})\/verify-[A-Za-z0-9_][A-Za-z0-9_.-]*["']?$/.test(t) && !t.includes('..');
-        if (targets.length !== 1 || !okFlags || !own || globalPath || WT_GAMES) deny(`git worktree remove is allowed only for exactly one path of the form $TMPDIR/verify-<name> (your own evidence worktree), with at most --force, without -C, --git-dir, --work-tree, cd, a TMPDIR or GIT_* assignment, a substitution or a second path: ${TAIL}`);
-        return;
-      }
+      // A327: a review role REMOVES no worktree and changes none: remove, prune, lock, unlock, move and repair are refused. An allowance by the text of the path was tried and rejected:
+      // TMPDIR can be reassigned (read, printf -v, for, env -C, unset) and a link inside the role's own worktree can make git remove any registered worktree. The control plane removes the
+      // role's own `$TMPDIR/verify-<ID>.<focus>` worktree at CODE_DONE (core/handoff.mjs).
+      if (['remove', 'rm', 'prune', 'lock', 'unlock', 'move', 'repair'].includes(pos[0] ?? '')) deny(`git worktree ${pos[0]} is not for a review role: it can delete the work of another role or of the user. Leave your evidence worktree $TMPDIR/verify-<ID>.<focus> registered; the control plane removes it at CODE_DONE: ${TAIL}`);
       if (pos[0] !== 'add') return;
       if (rest.some((x) => x === '-b' || x === '-B' || long('orphan') || (isShort(x) && /[bB]/.test(x)))) deny(`git worktree add creates a branch here; use git worktree add --detach <path> HEAD: ${TAIL}`);
       // a path and a name that exists only on the remote create a tracking branch, a path alone creates a branch named like the folder

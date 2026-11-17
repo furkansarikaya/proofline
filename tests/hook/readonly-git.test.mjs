@@ -96,17 +96,16 @@ for (const [role, who] of OTHERS) {
   });
 }
 
-// A327: the run-owned evidence worktree of the role texts: every role that may make one may also remove it with `git worktree remove --force`; the other way to remove it (rm) stays refused.
-// The whole hook (not only this rule) lets each role add and remove it; the rows of the matrix above cover what the rule refuses.
-test('every review role adds and removes its own $TMPDIR/verify-<ID> evidence worktree with git, and rm of it stays refused (A327)', async () => {
+// A327: a review role adds its evidence worktree `$TMPDIR/verify-<ID>.<focus>` and removes NO worktree (the control plane does at CODE_DONE); the rows of the matrix above cover the forms.
+// The whole hook (not only this rule) lets each role add it and refuses every way of removing it.
+test('every review role adds its own $TMPDIR/verify-<ID>.<focus> evidence worktree with git; every remove of it, by git or by rm, is refused (A327)', async () => {
   const wrong = [];
   for (const [role, type] of ROLES.filter(([r]) => r !== 'explorer')) {
-    for (const c of ['git worktree add --detach "$TMPDIR/verify-T-1.tests" HEAD', 'git worktree remove --force "$TMPDIR/verify-T-1.tests"']) {
-      const r = await pre(dir, c, sub(type));
-      if (r !== null) wrong.push(`${role}: ${c} -> ${r.slice(0, 100)}`);
+    const add = await pre(dir, 'git worktree add --detach "$TMPDIR/verify-T-1.tests" HEAD', sub(type));
+    if (add !== null) wrong.push(`${role}: add -> ${add.slice(0, 100)}`);
+    for (const c of ['git worktree remove --force "$TMPDIR/verify-T-1.tests"', 'git worktree remove "$TMPDIR/verify-T-1.tests"', 'git worktree prune', 'rm -rf "$TMPDIR/verify-T-1.tests"']) {
+      if ((await pre(dir, c, sub(type))) === null) wrong.push(`${role}: ${c} was allowed`);
     }
-    if ((await pre(dir, 'rm -rf "$TMPDIR/verify-T-1.tests"', sub(type))) === null) wrong.push(`${role}: rm of the worktree was allowed`);
-    if ((await pre(dir, 'git worktree remove --force "$TMPDIR/qa-ev"', sub(type))) === null) wrong.push(`${role}: another name was allowed`);
   }
   assert.deepEqual(wrong, []);
 });

@@ -7,7 +7,7 @@ import { sha256 } from './hash.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
 import { consumeApproval, requireOpenRun } from './approve.mjs';
@@ -117,6 +117,11 @@ function removeRunOwnedScratch(ctx, id, t, p) {
   if (slash < 0 || n.slice(0, slash) !== t) return false;
   const base = n.slice(slash + 1);
   if (base !== `verify-${id}` && !base.startsWith(`verify-${id}.`)) return false;
+  // the path is the string git registered; it must still be that real folder: not a link (a link swapped in could point at another registered worktree), with a plain `.git` file inside
+  try {
+    if (!lstatSync(p).isDirectory() || !lstatSync(`${p}/.git`).isFile()) return false;
+    if (realpathSync(p) !== `${realpathSync(p.slice(0, p.lastIndexOf('/')))}/${p.slice(p.lastIndexOf('/') + 1)}`) return false;
+  } catch { return false; }
   if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
   const st = git(ctx, ['-C', p, 'status', '--porcelain', '--untracked-files=all']);
   if (st.status !== 0 || st.out !== '') return false;

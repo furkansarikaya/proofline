@@ -5,7 +5,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, unlinkSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -101,7 +101,13 @@ test('A327: the run-owned evidence worktree verify-<ID>.<focus> (detached, clean
   writeFileSync(path.join(dirty, 'note.txt'), 'x');
   const mine = fresh('verify-LC.tests-'); git(d, ['worktree', 'add', '-q', '--detach', mine, 'HEAD']);
   const mineBase = fresh('verify-LC.qa-base-'); git(d, ['worktree', 'add', '-q', '--detach', mineBase, 'HEAD']);
+  // a link swapped in for a registered run-owned worktree (it points at another registered, clean, detached worktree): nothing is removed through it
+  const swap = fresh('verify-LC.swap-'); git(d, ['worktree', 'add', '-q', '--detach', swap, 'HEAD']);
+  const aside = `${swap}-aside`; renameSync(swap, aside); symlinkSync(other, swap);
   const r = A(d, ['handoff', 'LC', 'CODE_DONE']);
+  assert.ok(existsSync(other) && existsSync(aside), 'the target of the link and the moved worktree are untouched');
+  assert.ok(r.text.includes(path.basename(swap)), 'the swapped link is named as a blocker');
+  unlinkSync(swap); renameSync(aside, swap);
   expectMsg('the foreign and dirty worktrees still block', 'scratch git worktrees', r);
   assert.ok(!existsSync(mine) && !existsSync(mineBase), 'the clean detached run-owned worktrees were removed');
   assert.match(r.text, /removed the run's own evidence worktree/);
@@ -109,7 +115,7 @@ test('A327: the run-owned evidence worktree verify-<ID>.<focus> (detached, clean
   assert.match(r.text, /Any other path was not made by this run's roles[^\n]*ask the user before removing it/, 'the refusal sends every other path to the user');
   assert.doesNotMatch(r.text, /made by the review roles of this run/, 'the refusal no longer says that all listed worktrees are the roles\'');
   for (const w of [other, foreign, sibling, old, dirty, onBranch]) { assert.ok(existsSync(w), `${w} must not be removed`); assert.ok(r.text.includes(path.basename(w)), `${w} is named as a blocker`); }
-  for (const w of [other, foreign, sibling, old, dirty, onBranch]) git(d, ['worktree', 'remove', '--force', w]);
+  for (const w of [other, foreign, sibling, old, dirty, onBranch, swap]) git(d, ["worktree", "remove", "--force", w]);
   accepted(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE after the blockers were removed');
 });
 
