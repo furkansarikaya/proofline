@@ -131,7 +131,9 @@ scenarios do not exercise yet" below).
 
 The campaign of 2026-11 scored the `N-` items as follows. TRIVIAL 5/5; STANDARD 3/4 against the old expectations (N-5, the knowledge page) and 4/4 against those of A310; STANDARD.tr 4/4 in both runs; CRITICAL 2/4 in the first run (harness: no task, no run, so N-2 and N-3 had nothing to read) and 4/4 in the re-run; FAILOVER 4/4 in the first run and 4/5 in the re-run (N-5 unmet: the two knowledge pages, A322.5); COMPLEX 6/6 in run 1 and 5/6 in runs 2 to 4, each time N-4 (the visual focus) unmet because the run stopped before QA. The visual focus ran in COMPLEX run 1 and failed with a real defect (QA-1, a clear control); no run of the campaign produced a measured visual pass.
 
-### Codex and mixed configurations (the checks below ran the lead on `gpt-6-luna`, before A135 required the base model; effort none; never full scenarios; the two scored FAILOVER runs of 2026-11 are the exception, see the last row)
+### Codex and mixed configurations (results below ran the lead on `gpt-6-luna`, before A135 required the base model; effort none; never full scenarios)
+
+The two scored FAILOVER runs of 2026-11 are the exception to the model note above: see the last row of the table.
 
 Hard call caps: attempt 1 five calls, restart three calls, rerun one call (nine model calls in total, no quota
 error in these checks). These are integration checks, not scored scenarios, so none of them is an `E2E: PASS`.
