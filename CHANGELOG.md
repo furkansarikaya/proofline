@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.155 — 2026-11-18
+
 - Test (A328): the e2e harness may send the user messages a scenario lists in `tests/e2e/replies/approvals.<SCENARIO>.txt` (owner decision; no privileged path). COMPLEX lists `approve scope` (twice at most) and `accept AS-1`; they are sent only while a request of that kind is open, logged as `listed-approval`, counted beside the C-14 allowance and under the hard cap of 12. A waiver, commit, push, delivery, merge, secrets or security approval is never listed or sent (the loader refuses such a file at startup). COMPLEX X-13 and C-14 are reworded accordingly; scenarios without a file behave as before.
 
 ## 0.0.154 — 2026-11-17
