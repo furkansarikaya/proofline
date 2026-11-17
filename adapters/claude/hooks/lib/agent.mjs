@@ -41,7 +41,7 @@ export class Agents {
 
   /** The project's proc.mjs (null when the project has none). */
   proc() {
-    if (!this._proc) this._proc = isFile(`${this.coreDir}/core/proc.mjs`) ? import(pathToFileURL(`${this.coreDir}/core/proc.mjs`).href).catch(() => null) : Promise.resolve(null);
+    if (!this._proc) this._proc = isFile(`${this.coreDir}/core/proc.mjs`) ? import(pathToFileURL(`${this.coreDir}/core/proc.mjs`).href).then((m) => { m.setOwnEnv?.(process.env); return m; }).catch(() => null) : Promise.resolve(null);
     return this._proc;
   }
 

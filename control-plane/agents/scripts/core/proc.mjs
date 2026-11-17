@@ -10,8 +10,18 @@ import { fileURLToPath } from 'node:url';
 import { posixForm } from './pathin.mjs';
 import { refuseUntrustedScript } from './tree.mjs';
 import { makeRefusedDir, resolveWindowsTool, shimMessage } from './wintool.mjs';
-// the global, not `import { env } from 'node:process'`: building the ESM facade of node:process reads `process.stdin`, which puts descriptor 0 (a pipe) into non-blocking mode and a later `readFileSync(0)` answers EAGAIN (A315)
-const ownEnv = process.env;
+// The environment of this process, handed in by the entry point through setOwnEnv, never read here: this module reads no environment itself (a test holds
+// that), and importing node:process would read process.stdin and leave descriptor 0 non-blocking (A315). It is the default where a caller gives no env (the
+// Windows program lookup, taskkill, the closer's copy). An entry point that did not hand it over is a bug, not an empty environment: ownEnvOrThrow says so.
+/** @type {NodeJS.ProcessEnv | null} */
+let ownEnv = null;
+/** @param {NodeJS.ProcessEnv} env the environment of this process */
+export function setOwnEnv(env) { ownEnv = env; }
+/** @returns {NodeJS.ProcessEnv} */
+function ownEnvOrThrow() {
+  if (ownEnv === null) throw new Error('proc: the entry point did not hand over the environment (setOwnEnv first)');
+  return ownEnv;
+}
 
 /** @type {Map<string, number>} */
 const counts = new Map();
@@ -234,7 +244,7 @@ export function resolveProgram(program, env, cwd, platform = process.platform, f
     real: (/** @type {string} */ f) => realpathSync.native(f),
     refusedDir: makeRefusedDir(/** @type {string[]} */ (here), (/** @type {string} */ f) => realpathSync.native(f)),
   };
-  const r = resolveWindowsTool(env ?? ownEnv, program, real);
+  const r = resolveWindowsTool(env ?? ownEnvOrThrow(), program, real);
   if ('path' in r) return { program: r.path };
   if ('shim' in r) return { refused: `${shimMessage(program, r.shim)}\n` };
   return { refused: `proofline: ${program} was not found on PATH outside the working folder; not started\n` };
@@ -251,7 +261,7 @@ export function taskkillArgs(pid, force) {
  * the real run on Windows is not tried (denenmedi).
  * @param {number} pid @param {boolean} force @param {typeof spawnSync} [spawn] @param {NodeJS.ProcessEnv} [env] @param {(text: string) => void} [warn]
  */
-export function killWindowsTree(pid, force, spawn = spawnSync, env = ownEnv, warn = warnLine) {
+export function killWindowsTree(pid, force, spawn = spawnSync, env = ownEnvOrThrow(), warn = warnLine) {
   count('taskkill');
   const r = spawn(systemTaskkill(env), taskkillArgs(pid, force), { stdio: 'ignore', windowsHide: true });
   // 0: killed; 128: the process was already gone (the normal end of a stop). Anything else, or a taskkill that did not start, is told (a warn line, no throw)
@@ -389,7 +399,7 @@ export function runCloser(argv) {
   const pgid = Number(argv[0]);
   const spec = parseSpec(argv[1] ?? '');
   if (spec === null || !Number.isInteger(pgid) || pgid <= 1) return;
-  /** @type {NodeJS.ProcessEnv} */ const env = { ...ownEnv };
+  /** @type {NodeJS.ProcessEnv} */ const env = { ...ownEnvOrThrow() };
   for (const k of spec.remove) delete env[k];
   Object.assign(env, spec.set);
   const nap = (/** @type {number} */ ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };

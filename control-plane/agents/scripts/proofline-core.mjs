@@ -181,6 +181,7 @@ function dispatchMain(io, args) {
 
 /** The entry point: the arguments of the process, its descriptors, its environment. @param {string} scriptPath @returns {number | Promise<number>} */
 export function main(scriptPath) {
+  proc.setOwnEnv(process.env);
   const cwd = process.cwd();
   const split = splitArgv0(process.argv.slice(2), path.resolve(scriptPath), cwd);
   const io = {

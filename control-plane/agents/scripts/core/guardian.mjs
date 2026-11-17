@@ -4,7 +4,9 @@
 // timeout), which runs no handler. When the dispatcher held an implementer's write window it also hands a closer (`node guardian.mjs --closer <pgid> <spec>`, the same
 // script, a process of its own) the job of closing that window once the group is dead (a user decision of 2026-11-07). The logic is runGuardian and runCloser in proc.mjs,
 // the only module that starts processes.
-import { runCloser, runGuardian } from './proc.mjs';
+import { runCloser, runGuardian, setOwnEnv } from './proc.mjs';
+
+setOwnEnv(process.env);
 
 if (process.argv[2] === '--closer') runCloser(process.argv.slice(3));
 else runGuardian(process.argv.slice(2));

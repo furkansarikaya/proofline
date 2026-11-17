@@ -4,7 +4,7 @@
 
 ## 0.0.146 — 2026-11-17
 
-- Fix (A315): the control plane no longer touches `process.stdin` at start-up (a lazy `io.stdin` getter, and `core/proc.mjs` uses the global `process.env` instead of importing `node:process`), so a command that reads piped input (`answer`, `amend`, `record`, `submit -`) waits for it instead of reading EAGAIN as an empty input (`empty answer`, exit 1); a regression test writes to the pipe only after the command started reading.
+- Fix (A315): the control plane no longer touches `process.stdin` at start-up (a lazy `io.stdin` getter, and `core/proc.mjs` no longer imports `node:process`; every entry point hands it the environment with `setOwnEnv`, and a missing hand-over is a clear error), so a command that reads piped input (`answer`, `amend`, `record`, `submit -`) waits for it instead of reading EAGAIN as an empty input (`empty answer`, exit 1); a regression test writes to the pipe only after the command started reading.
 
 ## 0.0.145 — 2026-11-17
 

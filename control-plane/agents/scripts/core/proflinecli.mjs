@@ -437,6 +437,7 @@ const NEXT_AFTER = new Set(['init', 'upgrade', 'doctor', 'status', 'resume', 'qu
  * @param {string[]} argv the arguments after `proofline` @param {Over} [over] @returns {number}
  */
 export function main(argv, over = {}) {
+  proc.setOwnEnv(process.env);
   const args = argv.map(bytes);
   const cli = new Cli(over);
   const cmd = args[0] === undefined || args[0] === '' ? 'status' : args[0];

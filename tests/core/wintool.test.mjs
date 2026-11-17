@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolveWindowsTool, candidates, plainToolName, isDriveAbsolute, shimMessage, makeRefusedDir } from '../../control-plane/agents/scripts/core/wintool.mjs';
 import { resolveToolWindows } from '../../control-plane/agents/scripts/core/platform.mjs';
-import { refusedLeader, startLeader, taskkillArgs, killWindowsTree, systemTaskkill, resolveProgram } from '../../control-plane/agents/scripts/core/proc.mjs';
+import { refusedLeader, startLeader, taskkillArgs, killWindowsTree, systemTaskkill, resolveProgram, setOwnEnv } from '../../control-plane/agents/scripts/core/proc.mjs';
 
 /** A fake Windows file system: FILES is the set of existing files (lower-case, backslashes); REFUSED the writable folders. */
 function fake(files, refused = [], links = {}) {
@@ -134,6 +134,7 @@ describe('A252 security round 1', () => {
     for (const explicit of ['C:\\x\\git.exe', 'sub/git', '.\\git.exe', 'a:b']) assert.deepEqual(resolveProgram(explicit, {}, 'C:\\proj', 'win32', fs('C:\\proj')), { program: explicit }, explicit);
     for (const plat of ['linux', 'darwin']) assert.deepEqual(resolveProgram('git', { PATH: '/usr/bin' }, '/proj', plat), { program: 'git' }, plat);
     // no environment, no folder: POSIX answers the bare name; a Windows host resolves it to an absolute program (or refuses), never the bare name, and never throws
+    setOwnEnv(process.env);   // the default environment is the entry point's (A315)
     const bare = resolveProgram('git', undefined, undefined);
     if (process.platform === 'win32') assert.ok('refused' in bare || (/** @type {any} */ (bare).program !== 'git' && /^[A-Za-z]:[\\/]/.test(/** @type {any} */ (bare).program)), JSON.stringify(bare));
     else assert.deepEqual(bare, { program: 'git' }, 'this host is POSIX in the test run; never throws');

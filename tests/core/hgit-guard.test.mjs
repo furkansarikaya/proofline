@@ -116,10 +116,10 @@ export const SPAWN_REG = /** @type {Record<string, Record<string, string>>} */ (
 /** Files that import something other than the namespace from proc.mjs, per name, with the reason. */
 export const NAMED_IMPORTS = /** @type {Record<string, Record<string, string>>} */ ({
   'budget.mjs': { runAsync: 'runWithBudget runs the program its caller names; the only caller is the Claude adapter (`sh`), outside the scan' },
-  'guardian.mjs': { runCloser: 'the guardian of a dispatched worker (A226)', runGuardian: 'the guardian of a dispatched worker (A226)' },
+  'guardian.mjs': { runCloser: 'the guardian of a dispatched worker (A226)', runGuardian: 'the guardian of a dispatched worker (A226)', setOwnEnv: 'hands the process environment to proc.mjs; starts nothing (A315)' },
 });
 /** The members of `proc` that start nothing. */
-const PROC_NO_SPAWN = new Set(['spawnLog', 'spawnCounts', 'resetSpawnCounts', 'killTree', 'runScript', 'userShellArgv']);   // runScript starts `sh <script file>` and userShellArgv only builds an argument vector (A251): neither names git
+const PROC_NO_SPAWN = new Set(['spawnLog', 'spawnCounts', 'resetSpawnCounts', 'killTree', 'runScript', 'userShellArgv', 'setOwnEnv']);   // runScript starts `sh <script file>` and userShellArgv only builds an argument vector (A251): neither names git; setOwnEnv hands the process environment to proc.mjs and starts nothing (A315)
 const TABLES = { EXCEPT_VIA, WRAPPERS, EXCEPT_SUBS, EXCEPT_FILES, DYN_SPAWNS, BIN_ALLOW, DYN_BIN, SPAWN_REG, NAMED_IMPORTS };
 
 /** Index of the end of the string, template or comment-free literal that starts at I (a quote), or -1. @param {string} s @param {number} i */
@@ -441,10 +441,12 @@ test('A248 guard (scanner): spawn shapes the first guard could not see (finding 
     ['spawnDetached', "proc.spawnDetached('git', ['ls-files'], env);", {}, IMPORT + FWD, /proc\.spawnDetached\( starts a process/],
     ['startLeader', "proc.startLeader('git', ['ls-files'], {});", {}, IMPORT + FWD, /proc\.startLeader\( starts a process/],
     ['runUserCommand', "proc.runUserCommand('git ls-files', {});", {}, IMPORT + FWD, /proc\.runUserCommand\( starts a process/],
+    ['a spawn function next to setOwnEnv', "proc.setOwnEnv({}); proc.runAsync('git', ['ls-files'], {});", {}, IMPORT + FWD, /proc\.runAsync\( starts a process and is not listed in SPAWN_REG/],
     ['child_process', "import { spawnSync } from 'node:child_process';", {}, IMPORT + FWD, /starts processes without proc\.mjs/],
   ]);
   for (const [name, src, over, head, re] of cases) assert.ok(scan(src, over, head).some((b) => re.test(b)), `${name}: not caught: ${JSON.stringify(scan(src, over, head))}`);
   // listed spawn functions and name imports pass, and an unlisted entry would be stale
+  assert.deepEqual(scan('proc.setOwnEnv({});'), [], 'setOwnEnv starts nothing');
   assert.deepEqual(scan("proc.runUserCommand('make', {});", { SPAWN_REG: { 'x.mjs': { runUserCommand: 'r' } } }), []);
   assert.deepEqual(scan('x();', { NAMED_IMPORTS: { 'x.mjs': { runAsync: 'r' } } }, "import { runAsync } from './proc.mjs';\n" + FWD), []);
   assert.deepEqual([...scanSource('x.mjs', IMPORT + FWD + "proc.run('sh', ['-c', 'true'], {});", T0).used], ['bin:x.mjs:sh'], 'the used set names the sh entry');
