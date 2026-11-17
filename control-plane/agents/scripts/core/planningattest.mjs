@@ -1,6 +1,6 @@
 // @ts-check
 // A329: the designer's planning-stage write of a design document (A326.2) is attested here, so the mutation-ownership check does not stop the
-// run at IMPLEMENTING. `planning-attest` (runtime hook at the designer's SubagentStop, lead role, denied to every model by the bash guard) records, for
+// run at IMPLEMENTING. `window-close <ID> planning 0 designer` (runtime hook at the designer's SubagentStop, lead role, denied to every model by the bash guard like every window-close) records, for
 // the designer-owned project files of .agents/owns.conf that lie in the knowledge scope, the path and its content fingerprint while handoff is
 // PLANNED. `ensurePlanningWindow` turns exactly the paths whose CURRENT content still has the attested fingerprint into the first attested window
 // (role designer, before = the empty tree); a path modified afterwards, any other path and any other role stay outside it and need tree-accept.

@@ -168,6 +168,7 @@ function windowClose(ctx, args) {
   requireLead(ctx);
   const id = args[0]; const before = args[1] ?? ''; const status = args[2] === undefined || args[2] === '' ? '0' : args[2];
   const role = windowRole(args[3] ?? '');
+  if (before === 'planning') return planningAttest(ctx, [id, role]);   // A329: the designer's planning-stage attestation is a form of window-close, so the command table stays as recorded
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   if (!gatesEnforced(ctx, dir)) return 0;
@@ -212,7 +213,6 @@ export const HOOKCMD_HANDLERS = {
   'friction-note': frictionNote,
   'window-open': windowOpen,
   'window-close': windowClose,
-  'planning-attest': planningAttest,
   'language-check': languageCheckCommand,
   answer: (/** @type {Context} */ ctx, /** @type {string[]} */ args) => answer(ctx, args),
 };

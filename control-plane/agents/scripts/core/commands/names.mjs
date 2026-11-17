@@ -117,7 +117,6 @@ export const COMMAND_NAMES = [
   "tree-inspect",
   "tree-accept",
   "window-close",
-  "planning-attest",
   "verify-gates",
   "verify-seal",
   "platform",

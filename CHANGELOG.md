@@ -4,7 +4,7 @@
 
 ## 0.0.156 — 2026-11-18
 
-- Fix (A329): the designer's allowed planning write of a design document no longer stops the run at IMPLEMENTING. The designer's SubagentStop records the path and content hash (`planning-attest`, hook only); the first `window-open` or `handoff IMPLEMENTED` turns it into an attested window for exactly those paths with exactly that content. A file changed afterwards, any other path, any other role and a forged row still stop and need `tree-accept`; the attestation file must match its ledger row.
+- Fix (A329): the designer's allowed planning write of a design document no longer stops the run at IMPLEMENTING. The designer's SubagentStop records the path and content hash (the hook-only form `window-close <ID> planning 0 designer`); the first `window-open` or `handoff IMPLEMENTED` turns it into an attested window for exactly those paths with exactly that content. A file changed afterwards, any other path, any other role and a forged row still stop and need `tree-accept`; the attestation file must match its ledger row.
 
 ## 0.0.155 — 2026-11-18
 
