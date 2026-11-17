@@ -189,4 +189,4 @@ none at all, is BLOCKED), else `--agents` JSON built from `.agents/roles/<role>.
 `.agents/tools.conf` (never `Agent`/`Task`). Codex roles run `codex exec -s workspace-write --add-dir <run>`.
 The implementer, and the designer while handoff is IMPLEMENTING, run inside `window-open`/`window-close`
 (`agent.sh window-open <ID> designer`); any other role that changes the product tree is BLOCKED; any role that
-changes `.git/config` or HEAD during its step is BLOCKED.
+changes `.git/config` or HEAD during its step is BLOCKED. A designer that writes a design document during PLANNING (hook, no window) is attested by the SubagentStop hook with `planning-attest` (path and content hash, A329); a headless `dispatch.sh` designer is bracketed only while IMPLEMENTING.

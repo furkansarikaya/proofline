@@ -2,7 +2,8 @@
 // A329: the designer's allowed planning-stage write of a design document is attested by path and content hash, so handoff IMPLEMENTING opens the
 // implementer window without a tree request; a modified file, another path, another role and a forged row still stop (tree-accept stays the way out).
 import assert from 'node:assert/strict';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, AS, expectFail, must, refused, scaffold, worker, wopen, wclose, wev } from '../lib/harness.mjs';
@@ -21,6 +22,8 @@ function planned() {
 }
 const fresh = () => planned();
 const write = (/** @type {string} */ d, /** @type {string} */ f, /** @type {string} */ t) => { mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); writeFileSync(path.join(d, f), t); };
+const hex = (/** @type {string} */ d, /** @type {string} */ f) => createHash('sha256').update(readFileSync(path.join(d, f))).digest('hex');
+const forge = (/** @type {string} */ d, /** @type {string} */ rows) => { mkdirSync(path.join(d, EV), { recursive: true }); writeFileSync(path.join(d, EV, 'PLANNING-ATTEST.tsv'), rows); };
 const attest = (/** @type {string} */ d) => A(d, ['planning-attest', 'LC', 'designer']);
 
 test('positive: a planning write by the designer is attested; IMPLEMENTING opens the window and the run reaches IMPLEMENTED', () => {
@@ -91,4 +94,59 @@ test('tree-accept stays the way out for a foreign change', () => {
   appendFileSync(path.join(d, 'impl.txt'), 'foreign\n');
   must(d, ['handoff', 'LC', 'IMPLEMENTING']);
   refused(A(d, ['window-open', 'LC']), 'a foreign change opened a window', 'tree-accept');
+});
+
+test('forged rows with the CORRECT hash attest nothing: a product path, a designer-owned path outside the knowledge scope, and a designer path with no ledger row', () => {
+  const d = fresh();
+  appendFileSync(path.join(d, 'impl.txt'), 'product\n');
+  forge(d, `impl.txt\t${hex(d, 'impl.txt')}\n`);
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(A(d, ['window-open', 'LC']), 'a product row with its right hash attested', 'not the last implementer-attested tree');
+  assert.ok(!existsSync(path.join(d, EV, 'WINDOW-1.yaml')));
+  // a designer-owned file outside the knowledge scope (DESIGN.md at the root; design_docs.design is docs/design/DESIGN.md): the real command attests nothing, a forged row nothing either
+  const e = fresh();
+  write(e, 'DESIGN.md', '# root design\n');
+  must(e, ['planning-attest', 'LC', 'designer']);
+  assert.ok(!existsSync(path.join(e, EV, 'PLANNING-ATTEST.tsv')), 'a file outside the knowledge scope was attested');
+  forge(e, `DESIGN.md\t${hex(e, 'DESIGN.md')}\n`);
+  refused(A(e, ['handoff', 'LC', 'IMPLEMENTING']), 'a path outside plan scope and knowledge scope passed', 'unexpected or unmapped task-introduced paths');   // the scope check already stops it
+  assert.ok(!existsSync(path.join(e, EV, 'WINDOW-1.yaml')));
+  // the designer path inside the scope, the right hash, but no `planning-attest` ledger row
+  const f = fresh();
+  write(f, DOC, '# Design\n');
+  forge(f, `${DOC}\t${hex(f, DOC)}\n`);
+  must(f, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(A(f, ['window-open', 'LC']), 'a hand-written file without a ledger row attested', 'not the last implementer-attested tree');
+  assert.ok(!existsSync(path.join(f, EV, 'WINDOW-1.yaml')));
+});
+
+test('a real attestation edited afterwards (a row added) no longer matches its ledger row', () => {
+  const d = fresh();
+  write(d, DOC, '# Design\n'); must(d, ['planning-attest', 'LC', 'designer']);
+  appendFileSync(path.join(d, EV, 'PLANNING-ATTEST.tsv'), `impl.txt\t${hex(d, 'impl.txt')}\n`);
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(A(d, ['window-open', 'LC']), 'an edited attestation file was accepted', 'not the last implementer-attested tree');
+});
+
+test('the attested file deleted afterwards stops; attesting twice overwrites the row and widens nothing', () => {
+  const d = fresh();
+  write(d, DOC, '# Design\n'); must(d, ['planning-attest', 'LC', 'designer']);
+  rmSync(path.join(d, DOC));
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(A(d, ['window-open', 'LC']), 'a deleted design file was accepted', 'not the last implementer-attested tree');
+  const e = fresh();
+  write(e, DOC, '# one\n'); must(e, ['planning-attest', 'LC', 'designer']);
+  write(e, DOC, '# two\n'); must(e, ['planning-attest', 'LC', 'designer']);
+  assert.equal(readFileSync(path.join(e, EV, 'PLANNING-ATTEST.tsv'), 'utf8'), `${DOC}\t${hex(e, DOC)}\n`, 'one row, the later content');
+  appendFileSync(path.join(e, 'impl.txt'), 'product after the second attestation\n');
+  must(e, ['planning-attest', 'LC', 'designer']);   // a product file widens nothing
+  assert.equal(readFileSync(path.join(e, EV, 'PLANNING-ATTEST.tsv'), 'utf8').split('\n').filter(Boolean).length, 1);
+  must(e, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(A(e, ['window-open', 'LC']), 'the product file rode along', 'not the last implementer-attested tree');
+});
+
+test('pin (accepted limit, A329 / limits.md): a headless dispatch.sh designer is bracketed only while IMPLEMENTING, so a PLANNING dispatch has no attestation', () => {
+  const src = readFileSync(path.join(import.meta.dirname, '../../control-plane/agents/scripts/core/dispatcher.mjs'), 'utf8');
+  assert.match(src, /this\.writesCode = role === 'implementer' \|\| \(role === 'designer' && this\.handoffState\(\) === 'IMPLEMENTING'\)/);
+  assert.doesNotMatch(src, /planning-attest/, 'if the dispatcher gains a PLANNING designer step, update the A329 accepted limit and this pin');
 });

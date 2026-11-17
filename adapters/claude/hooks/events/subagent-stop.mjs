@@ -50,7 +50,8 @@ export async function handle(ctx) {
   } else if (prole === 'designer') {
     // A329: a design document the designer wrote during PLANNING (A326.2, no window) is attested by path and content hash, so IMPLEMENTING does not stop on it
     const r = await ctx.agent(['planning-attest', act, 'designer']);
-    if (r.status !== 0) append(out, `proofline: planning-attest rejected for proofline-designer: ${nlToSpace(r.stdout + r.stderr)}\n`);
+    // outside PLANNED (a refused window, a later stage) there is nothing to attest: stay quiet
+    if (r.status !== 0 && !/only while handoff state is PLANNED/.test(r.stdout + r.stderr)) append(out, `proofline: planning-attest rejected for proofline-designer: ${nlToSpace(r.stdout + r.stderr)}\n`);
   }
   if (state === 'ok') {
     const gate = firstValue(stText, 'gate');

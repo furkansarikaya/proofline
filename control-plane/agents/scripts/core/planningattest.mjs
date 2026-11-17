@@ -14,6 +14,7 @@ import { trackedPaths, untrackedPaths } from './git.mjs';
 import { sha256 } from './hash.mjs';
 import { led } from './lifeutil.mjs';
 import { gatesEnforced, sectionValue } from './records.mjs';
+import { boundNames } from './ledger.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { inKnowledgeScope } from './scope.mjs';
 import { latin1Buf } from './wirebytes.mjs';
@@ -93,6 +94,8 @@ export function ensurePlanningWindow(ctx, dir, id) {
   if (!gatesEnforced(ctx, dir) || resolveTopology(ctx, dir) !== 'orchestrated') return;
   const ev = `${dir}/worker-evidence`;
   if (windowNames(ev).length > 0) return;
+  // fail closed: the file must be the one the `planning-attest` ledger row names (path and hash), so a hand-written or edited file attests nothing
+  if (boundNames(ctx, dir, 'worker-evidence', 'planning-attest$', [FILE]).length === 0) return;
   const rows = readAttest(dir);
   if (rows.size === 0) return;
   const own = new Set(designerFiles(ctx));
