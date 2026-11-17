@@ -7,19 +7,20 @@
 //  - `evidenceRepairRun`: the control plane runs the plan-listed commands itself and reads the per-test durations from their output itself. The agent supplies nothing.
 //  - `evidenceRepairCovers`: `handoff IMPLEMENTED` accepts an unchanged tree only for the finding that a repair row of the sealed ledger names, once.
 // The repair creates no approval, no waiver and no gate record: the reviewer judges the new evidence on the next dispatch (Core invariants 3 and 5).
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, readFileSync, readSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fail } from './errors.mjs';
-import { evidenceRepairRows, fixRoundsUsed, gateLatestFile, gateStatus, maxFixRounds, repairFinding, requiredGates, taskPatchFingerprint } from './gates.mjs';
+import { exceptionApproval } from './exceptionsapproval.mjs';
+import { blockingFindingIds, evidenceRepairRows, fixRoundsUsed, gateLatestFile, gateStatus, maxFixRounds, repairFinding, requiredGates, taskPatchFingerprint } from './gates.mjs';
 import { latestFindingFile } from './next.mjs';
 import * as proc from './proc.mjs';
-import { fieldOf, fileLines, fileText, gateField, gatesEnforced, ledgerRows, sectionValue } from './records.mjs';
+import { fieldOf, fileLines, gateField, gatesEnforced, ledgerRows, sectionValue } from './records.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
-import { planTestsWithoutDurationOf } from './testreview.mjs';
-import { greenRecords, measureRequired, planKinds } from './testmeasure.mjs';
+import { parseException, planTestsWithoutDurationOf } from './testreview.mjs';
+import { greenRecords, measureRequired } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -62,7 +63,8 @@ export function parseRunnerDurations(text) {
 }
 
 /**
- * For each plan-named test, the entry of the output that carries its duration: the entry with the same name, else the shortest entry whose name contains it. A plan name no entry covers is missing.
+ * For each plan-named test, the entry of the output that carries its duration: the entry with the same name, else the ONE entry whose name contains it (the rule
+ * `planTestsWithoutDurationOf` applies, minus its reverse direction). Two entries that contain the name are ambiguous and attribute nothing: the test stays missing (A325).
  * @param {string[]} planNames lower case @param {Array<{ name: string, ms: number }>} entries
  * @returns {{ found: Map<string, { name: string, ms: number }>, missing: string[] }}
  */
@@ -71,11 +73,21 @@ export function matchPlanDurations(planNames, entries) {
   /** @type {string[]} */ const missing = [];
   for (const n of planNames) {
     const exact = entries.find((e) => asciiLower(e.name) === n);
-    const part = entries.filter((e) => asciiLower(e.name).includes(n)).sort((a, b) => a.name.length - b.name.length)[0];
-    const hit = exact ?? part;
+    const part = entries.filter((e) => asciiLower(e.name).includes(n));
+    const hit = exact ?? (part.length === 1 ? part[0] : undefined);
     if (hit) found.set(n, hit); else missing.push(n);
   }
   return { found, missing };
+}
+
+/**
+ * The plan tests a user-approved `- measure:` line excuses (lower case): the lines of the plan's `## Test exceptions` that the user's scope approval or the approved batch summary covers
+ * (A285, the same decision `submit` uses), kind measure, target without quotes or backticks. An unapproved line excuses nothing.
+ * @param {Context} ctx @param {string} id @returns {string[]}
+ */
+export function approvedMeasureTargets(ctx, id) {
+  const a = exceptionApproval(ctx, runDir(ctx, id), id);
+  return a.lines.filter((l) => a.approved(l)).map(parseException).filter((e) => e !== null && e.kind === 'measure').map((e) => asciiLower(/** @type {{ target: string }} */ (e).target.replace(/[`"]/g, '').trim()));
 }
 
 // ---- which findings are open ------------------------------------------------------------------------------------------------------------
@@ -83,9 +95,10 @@ export function matchPlanDurations(planNames, entries) {
 /**
  * '' when every confirmed finding of the tests review's findings.json is a `not_measured` finding of reason `no_recorded_duration`, else why the repair is refused. A finding of any other kind
  * (a real wait, a clock read, a budget, flaky, hollow...), a `not_measured` finding of another reason (including `command_not_double_run`, whose cure is a different command, not other numbers),
- * a findings.json that cannot be read, or no confirmed finding at all, refuses it. @param {string} dir @returns {string}
+ * a findings.json that cannot be read, or no confirmed finding at all, refuses it. The file is also bound to the failing gate record REC: the record's blocking rows must be exactly as many as
+ * the confirmed findings, so a record that carries an extra blocking row (a hollow test, say) which findings.json does not show cannot be repaired by evidence. @param {Context} ctx @param {string} dir @param {string} rec @returns {string}
  */
-function findingsAreEvidenceOnly(dir) {
+function findingsAreEvidenceOnly(ctx, dir, rec) {
   let doc;
   try { doc = JSON.parse(readFileSync(FINDINGS(dir), 'utf8')); } catch { return 'reviews/test-trust/tests/findings.json cannot be read, so the open findings cannot be classified (safe side: change the tree, or ask)'; }
   const all = Array.isArray(doc?.findings) ? doc.findings : [];
@@ -93,6 +106,8 @@ function findingsAreEvidenceOnly(dir) {
   if (confirmed.length === 0) return 'the tests review has no confirmed finding to repair';
   const other = confirmed.filter((/** @type {any} */ f) => !(f.kind === 'not_measured' && f.observed?.reason === REPAIRABLE_REASON));
   if (other.length > 0) return `the open finding(s) ${other.map((/** @type {any} */ f) => `${String(f.id)} (${String(f.kind)}${f.observed?.reason ? `/${String(f.observed.reason)}` : ''})`).join(', ')} are not of the evidence class (a plan test with no recorded duration): they need a tree change, a plan decision or the user`;
+  const rows = blockingFindingIds(ctx, rec).length;
+  if (rows !== confirmed.length) return `the failing record ${rec.slice(rec.lastIndexOf('/') + 1)} carries ${rows} blocking row(s) and findings.json ${confirmed.length} confirmed finding(s): they are not the same findings, so the record is not shown to be of the evidence class`;
   return '';
 }
 
@@ -120,11 +135,13 @@ export function evidenceRepairPlan(ctx, id) {
   for (const g of requiredGates(ctx, dir)) if (g !== 'REVIEW_TESTS' && gateStatus(ctx, dir, id, g) === 'fail') no(`${g} has an open finding as well: only a REVIEW_TESTS finding of the evidence class can be closed without a tree change, so this round needs a tree change`);
   if (gateStatus(ctx, dir, id, 'REVIEW_TESTS') !== 'fail') no('the REVIEW_TESTS finding is not open on the current content (waived, or the content changed)');
   if (rec !== latestFindingFile(ctx, dir)) no('the latest finding of the run is not the REVIEW_TESTS record: another gate failed after it, so this round needs a tree change');
-  const bad = findingsAreEvidenceOnly(dir);
+  const bad = findingsAreEvidenceOnly(ctx, dir, rec);
   if (bad !== '') no(bad);
   if (evidenceRepairRows(ctx, dir).some((r) => r.seq > reopenSeq(ctx, dir))) no('a repair already ran in this fix round; the lead reopens the gate (handoff IMPLEMENTING) for another round, within max_fix_rounds');
   const missing = planTestsWithoutDurationOf(ctx, id);
-  if (missing.length === 0) no('every test the plan names already has a recorded duration, so re-recording would change nothing: the finding is not about the evidence');
+  const excused = approvedMeasureTargets(ctx, id);
+  const required = missing.filter((n) => !excused.includes(n));
+  if (required.length === 0) no('every test the plan names has a recorded duration or a user-approved `- measure:` exception, so re-recording would change nothing: the finding is not about the evidence');
   /** @type {any} */ let doc = null;
   try { doc = JSON.parse(readFileSync(FINDINGS(dir), 'utf8')); } catch { /* checked above */ }
   const stale = (doc?.findings ?? []).filter((/** @type {any} */ f) => f?.verdict === 'confirmed' && !missing.includes(String(f.observed?.subject ?? '')));
@@ -135,8 +152,14 @@ export function evidenceRepairPlan(ctx, id) {
   const last = greens[greens.length - 1];
   const target = last === undefined ? '' : fieldOf(fileLines(ctx, `${dir}/worker-evidence/${last.file}`), 'target');
   if (target === '') no('there is no GREEN record to take the target paths from: record GREEN the normal way first');
-  const names = planKinds(fileText(ctx, `${dir}/PLAN.md`) ?? '').names.map((n) => n.name);
-  return { rec, recName: rec.slice(rec.lastIndexOf('/') + 1), patch, target, commands, names: [...new Set(names)] };
+  return { rec, recName: rec.slice(rec.lastIndexOf('/') + 1), patch, target, commands, names: required };
+}
+
+/** The first 8 MiB of a file as text (a runner that prints more is cut; the durations of the plan tests are looked up in what is read). @param {string} file */
+function readCapped(file) {
+  const cap = 8 * 1024 * 1024;
+  const fd = openSync(file, 'r');
+  try { const buf = Buffer.alloc(cap); const n = readSync(fd, buf, 0, cap, 0); return buf.subarray(0, n).toString('utf8'); } finally { closeSync(fd); }
 }
 
 // ---- the run ----------------------------------------------------------------------------------------------------------------------------
@@ -153,18 +176,19 @@ export function evidenceRepairRun(ctx, id, plan) {
   /** @type {Array<{ command: string, entries: Array<{ name: string, ms: number }> }>} */ const outputs = [];
   for (const command of plan.commands) {
     const tmpd = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'proofline-repair-'));
-    const fd = openSync(`${tmpd}/out`, 'w');
-    let r;
+    let r; let text = '';
     try {
-      r = proc.runUserCommand(command, { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', fd, fd], timeoutMs: limit * 1000, group: true, killSignal: 'SIGKILL' });
-    } finally { closeSync(fd); }
-    let text = '';
-    try { text = readFileSync(`${tmpd}/out`, 'utf8'); } catch { /* none */ }
-    rmSync(tmpd, { recursive: true, force: true });
+      const fd = openSync(`${tmpd}/out`, 'w');
+      try {
+        r = proc.runUserCommand(command, { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', fd, fd], timeoutMs: limit * 1000, group: true, killSignal: 'SIGKILL' });
+      } finally { closeSync(fd); }
+      text = readCapped(`${tmpd}/out`);
+    } finally { rmSync(tmpd, { recursive: true, force: true }); }
     if (r.timedOut === true) fail(`evidence-only repair refused: \`${command}\` hit the time limit (${limit} s); nothing was recorded`);
     if (r.status !== 0) fail(`evidence-only repair refused: \`${command}\` exited ${r.status}; a GREEN record needs a passing run, nothing was recorded (a failing test is a normal fix)`);
     outputs.push({ command, entries: parseRunnerDurations(text) });
   }
+  ctx.forget('patch:'); // the fingerprint is memoised per invocation: read the tree again after the commands ran
   if (taskPatchFingerprint(ctx, dir) !== plan.patch) fail('evidence-only repair refused: a plan-listed command changed the application/test tree while it ran; nothing was recorded');
   const all = outputs.flatMap((o) => o.entries);
   const m = matchPlanDurations(plan.names, all);
@@ -194,5 +218,5 @@ export function evidenceRepairCovers(ctx, id, f, patch) {
   const row = evidenceRepairRows(ctx, dir).find((r) => r.seq > since && repairFinding(r.detail) === name && new RegExp(`(^| )patch=${patch}( |$)`).test(r.detail));
   if (row === undefined) return false;
   if (ledgerRows(ctx, dir, 'handoff:IMPLEMENTED').some((r) => r.seq > row.seq)) return false;
-  return findingsAreEvidenceOnly(dir) === '' && sectionValue(ctx, dir, 'handoff', 'state') === 'IMPLEMENTING';
+  return findingsAreEvidenceOnly(ctx, dir, f) === '' && sectionValue(ctx, dir, 'handoff', 'state') === 'IMPLEMENTING';
 }

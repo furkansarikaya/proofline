@@ -22,6 +22,8 @@ test('parseRunnerDurations reads the line shapes of runners, leaves out what can
   const m = matchPlanDurations(['first test', 'third'], parseRunnerDurations(out));
   assert.deepEqual([...m.found.values()].map((e) => e.name), ['first test', 'TestThird']);
   assert.deepEqual(matchPlanDurations(['absent'], parseRunnerDurations(out)).missing, ['absent']);
+  assert.deepEqual(matchPlanDurations(['test'], parseRunnerDurations(out)).missing, ['test'], 'two entries contain the name: ambiguous, attributed to none');
+  assert.deepEqual([...matchPlanDurations(['first test'], [{ name: 'first test', ms: 1 }, { name: 'first test again', ms: 2 }]).found.values()], [{ name: 'first test', ms: 1 }], 'the exact name wins');
 });
 
 test('the repair: an unchanged tree and an evidence finding; the control plane records the durations itself, it is a fix round, and it passes nothing', () => {
@@ -31,9 +33,9 @@ test('the repair: an unchanged tree and an evidence finding; the control plane r
   const name = r.out.match(/(GREEN-\d+)\)/)?.[1];
   assert.match(r.out, /evidence-only repair recorded: LC \(1 GREEN record\(s\): GREEN-\d+\)/);
   const ev = readFileSync(path.join(d, '.agents/runs/LC/worker-evidence', `${name}.yaml`), 'utf8');
-  assert.match(ev, /^test_durations: slow one=5\.5; fast one=0\.75$/m, 'the durations are the ones the control plane read from the output');
+  assert.match(ev, /^test_durations: fast one=0\.75$/m, 'the durations are the ones the control plane read from the output');
   assert.match(ev, /^role: "implementer"$/m);
-  assert.match(ledger(d), /event=evidence-repair role=implementer .* detail=finding=\d+-REVIEW_TESTS\.yaml patch=[0-9a-f]{64} commands=1 records=GREEN-\d+ tests=slow one, fast one$/m);
+  assert.match(ledger(d), /event=evidence-repair role=implementer .* detail=finding=\d+-REVIEW_TESTS\.yaml patch=[0-9a-f]{64} commands=1 records=GREEN-\d+ tests=fast one$/m);
   assert.equal(count(d, 'gates'), gatesBefore, 'no gate record was written');
   assert.equal(count(d, 'approvals'), 0, 'no approval');
   assert.equal(count(d, 'waivers'), 0, 'no waiver');
@@ -159,4 +161,32 @@ test('IMPLEMENTED refuses a plan-named test with no recorded duration before any
   const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
   refused(r, 'a plan test without a duration', 'the plan names "fast one" and no recorded GREEN duration matches');
   assert.match(r.text, /Back to the implementer: re-run the plan-listed Verification command/);
+});
+
+test('the failing record is bound to findings.json: a record with an extra blocking row (a hollow test) that findings.json does not show is not repaired by evidence', () => {
+  const d = reopened(['ROW']);
+  refused(rerun(d), 'a record with two blocking rows and one confirmed finding', 'carries 2 blocking row(s) and findings.json 1 confirmed finding(s)');
+  assert.doesNotMatch(ledger(d), /event=evidence-repair/);
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED on the unchanged tree', 'IMPLEMENTED blocked');
+});
+
+test('a plan-listed command that changes the tree while it runs records nothing (the tree is read again after the run)', () => {
+  const d = reopened();
+  setMode(d, 'dirty');
+  const before = greens(d);
+  refused(rerun(d), 'a command that edits the tree', 'changed the application/test tree while it ran; nothing was recorded');
+  assert.equal(greens(d), before);
+  assert.doesNotMatch(ledger(d), /event=evidence-repair/);
+});
+
+test('only the tests without a duration that no approved measure exception excuses must be shown by the runner: an approved exception excuses one, an unapproved line does not', () => {
+  const ok = reopened([], 'approved');
+  setMode(ok, 'nodur');   // the runner prints a duration for "slow one" only
+  const r = accepted(rerun(ok), 'repair with an approved exception for "fast one"');
+  const name = r.out.match(/(GREEN-\d+)\)/)?.[1];
+  assert.match(readFileSync(path.join(ok, '.agents/runs/LC/worker-evidence', `${name}.yaml`), 'utf8'), /^test_durations: slow one=5\.5$/m);
+  const no = reopened([], 'unapproved');
+  setMode(no, 'nodur');
+  refused(rerun(no), 'the same runner with an exception nobody approved', 'shows no duration for "fast one"');
+  assert.doesNotMatch(ledger(no), /event=evidence-repair/);
 });

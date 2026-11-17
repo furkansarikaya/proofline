@@ -13,8 +13,8 @@ import { findApproval } from './approvals.mjs';
 import { consumeApproval, requireOpenRun } from './approve.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
-import { evidenceRepairCovers } from './evidencerepair.mjs';
-import { planExceptions, planTestsWithoutDurationOf } from './testreview.mjs';
+import { approvedMeasureTargets, evidenceRepairCovers } from './evidencerepair.mjs';
+import { planTestsWithoutDurationOf } from './testreview.mjs';
 import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
@@ -183,6 +183,13 @@ function testMeasureAtImplemented(ctx, id, patch) {
   if (ledgerRows(ctx, dir, 'test-measure-block').some((r) => r.detail === token)) {
     fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
   }
+  // A325: a plan-named test with no recorded duration would be a blocking REVIEW_TESTS finding after every other gate was spent; refuse it here, before anything is measured or recorded, back to the implementer
+  // (only a `- measure:` exception the user approved, A285, excuses a test: the same decision the review uses)
+  if (measureRequired(ctx, id)) {
+    const excused = approvedMeasureTargets(ctx, id);
+    const lacking = planTestsWithoutDurationOf(ctx, id).filter((n) => !excused.includes(n));
+    if (lacking.length > 0) fail(`IMPLEMENTED blocked: the plan names ${lacking.map((n) => `"${n}"`).join(', ')} and no recorded GREEN duration matches. Back to the implementer: re-run the plan-listed Verification command (or the project test command) and re-record GREEN with the duration of EVERY plan-named test read from the real output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again. In a fix round for a REVIEW_TESTS finding of exactly this kind, with the tree unchanged, agent.sh worker-evidence ${id} GREEN rerun does the re-recording (the control plane runs the plan-listed commands and reads the durations itself)`);
+  }
   const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });
   for (const f of m.budgetFindings) ctx.err(`finding: ${f}\n`);
   for (const r of m.retries) ctx.err(`note: the project's own configuration retries a test (reported, proofline never retries): ${r}\n`);
@@ -196,13 +203,6 @@ function testMeasureAtImplemented(ctx, id, patch) {
   // A DURATIONS block comes from the GREEN evidence, not from the content under test: it is not latched, re-recording GREEN with the real durations clears it.
   if (m.durationBlocks.length > 0) fail(`IMPLEMENTED blocked: ${m.durationBlocks.join('; ')}. Re-record the GREEN evidence with the durations read from the real run output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again`);
   if (m.blockers.length > 0) fail(`IMPLEMENTED blocked: ${m.blockers.join('; ')}`);
-  // A325: a plan-named test with no recorded duration would be a blocking REVIEW_TESTS finding after every other gate was spent; refuse it here, back to the implementer (a plan `- measure:` exception for the test is the user's decision and is honoured)
-  if (measureRequired(ctx, id)) {
-    const strip = (/** @type {string} */ t) => asciiLower(t.replace(/[`"]/g, '').trim());
-    const excepted = planExceptions(fileText(ctx, `${dir}/PLAN.md`) ?? '').filter((e) => e.kind === 'measure').map((e) => strip(e.target));
-    const lacking = planTestsWithoutDurationOf(ctx, id).filter((n) => !excepted.includes(n));
-    if (lacking.length > 0) fail(`IMPLEMENTED blocked: the plan names ${lacking.map((n) => `"${n}"`).join(', ')} and no recorded GREEN duration matches. Back to the implementer: re-run the plan-listed Verification command (or the project test command) and re-record GREEN with the duration of EVERY plan-named test read from the real output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again. In a fix round for a REVIEW_TESTS finding of exactly this kind, with the tree unchanged, agent.sh worker-evidence ${id} GREEN rerun does the re-recording (the control plane runs the plan-listed commands and reads the durations itself)`);
-  }
 }
 
 /** `build_record_auto ID` (handoff IMPLEMENTED, lead) @param {Context} ctx @param {string} id */
