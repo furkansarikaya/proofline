@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, realpathSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { A, IMPLEMENTED, accepted, project, read, refused } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
@@ -585,7 +586,7 @@ test('answer: the answer written to a pipe after the command is already waiting 
   // follows comes after the read began (no sleep, no race: the test writes only on that signal)
   const preload = `${dir}/signal.mjs`;
   writeFileSync(preload, "import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';\nconst read = fs.readFileSync;\nfs.readFileSync = function (p, ...r) { if (p === 0) fs.writeSync(2, 'STDIN-READ\\n'); return read.call(this, p, ...r); };\nconst own = Object.getOwnPropertyDescriptor(process, 'stdin');\nObject.defineProperty(process, 'stdin', { configurable: true, get() { fs.writeSync(2, 'STDIN-TOUCH\\n'); return own.get.call(process); } });\nsyncBuiltinESMExports();\n");
-  const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({ NODE_OPTIONS: `--import=${preload}` }), stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn('sh', ['.agents/scripts/agent.sh', 'answer', 'LC', '1'], { cwd: d, env: cleanEnv({ NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` }), stdio: ['pipe', 'pipe', 'pipe'] });
   t.after(() => { child.kill(); });
   let errText = ''; let outText = '';
   child.stdin.on('error', () => {});

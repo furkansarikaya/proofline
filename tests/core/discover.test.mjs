@@ -5,6 +5,7 @@
 // timeout, and the Core invariant for secrets (a candidate line that carries a secret is never listed). Nothing here runs a project command except the trial-run tests, which
 // run `true`, `false` and `sleep`.
 import { tempDir } from '../lib/tempdir.mjs';
+import '../lib/own-env.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

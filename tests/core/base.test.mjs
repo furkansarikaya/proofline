@@ -1,6 +1,7 @@
 // @ts-check
 // proc.mjs (the only child_process importer, counted), errors, clock, hash, paths, context.
 import { tempDir } from '../lib/tempdir.mjs';
+import '../lib/own-env.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
