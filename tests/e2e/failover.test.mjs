@@ -65,10 +65,11 @@ function killRun(sub, extra) {
   writeFileSync(path.join(bin, 'claude'), `#!/bin/sh
 [ "$1" = -p ] || { echo 'claude 2.0.0'; exit 0; }   # doctor and install probe the binary
 d=.agents/runs/T-1; mkdir -p "$d"
-printf '%s\\n' 'seq=1 event=freeze role=lead' 'seq=2 event=decide role=lead detail=003-implementer.decision' > "$d/LEDGER.log"
+# everything the harness reads after it sees the ledger line below must exist before it: that line is written LAST
 printf 'state: IMPLEMENTING\\n' > "$d/RUN.yaml"
 printf '// edited at the kill\\n' >> src/service.js
 if [ -n "$STUB_UNREADABLE" ]; then mkdir -p "$d/zz" && echo x > "$d/zz/locked" && chmod 000 "$d/zz/locked"; fi
+printf '%s\\n' 'seq=1 event=freeze role=lead' 'seq=2 event=decide role=lead detail=003-implementer.decision' > "$d/LEDGER.log"
 printf '%s\\n' '{"type":"system","subtype":"init","session_id":"s1"}'
 exec sleep 60
 `);

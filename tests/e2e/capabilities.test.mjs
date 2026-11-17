@@ -112,4 +112,21 @@ test('the usage and the exit codes: 2 for a wrong call, FAILOVER needs mixed', (
   assert.equal(runE2e(['TRIVIAL', 'claude', '--bogus'], { E2E_ROOT: path.join(root, 'u') }).status, 2);
   assert.match(runE2e([]).out, /usage: .*<TRIVIAL\|STANDARD\|STANDARD\.tr\|COMPLEX\|CRITICAL\|FAILOVER> <claude\|codex\|mixed> \[--dry-run\] \[--keep\]/);
 });
+test('A318: only the COMPLEX project copy carries test_trust.mutation_budget 30; the other scenarios keep the shipped 20', () => {
+  /** @param {string} scenario @param {string} cfg */
+  const budget = (scenario, cfg) => {
+    const sub = path.join(root, `budget-${scenario}`);
+    const r = dry([scenario, cfg, '--keep'], { E2E_ROOT: sub, E2E_SKIP_DOCTOR: '1' });
+    assert.equal(r.status, 0, `${scenario} dry run failed: ${r.out}`);
+    if (scenario === 'COMPLEX') assert.match(r.out, /set test_trust\.mutation_budget to 30 in \.agents\/config\.yaml/);
+    else assert.doesNotMatch(r.out, /mutation_budget/);
+    const cf = findFile(sub, 'config.yaml');
+    assert.ok(cf, `${scenario}: no installed config.yaml`);
+    const m = /^test_trust:\n(?:  [^\n]*\n)*?  mutation_budget: (\d+)$/m.exec(read(cf));
+    assert.ok(m, `${scenario}: no test_trust.mutation_budget line`);
+    return m[1];
+  };
+  assert.equal(budget('COMPLEX', 'claude'), '30');
+  for (const [sc, cfg] of [['CRITICAL', 'claude'], ['STANDARD', 'claude'], ['TRIVIAL', 'claude'], ['FAILOVER', 'mixed']]) assert.equal(budget(/** @type {string} */ (sc), /** @type {string} */ (cfg)), '20', `${sc} must keep the default budget`);
+});
 void here;

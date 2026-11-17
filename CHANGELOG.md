@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.149 — 2026-11-17
+
+- Tests (A318): the COMPLEX end-to-end scenario project sets its own `test_trust.mutation_budget` to 30 (the other scenarios keep 20), so the plan's 21 criteria do not stop at a mutation-budget approval the harness never gives; the harness still never answers that request. The F-1 test of A317 no longer flakes: its stub lead writes the ledger line the harness polls for last. No product code changed.
+
 ## 0.0.148 — 2026-11-17
 
 - Tests (A317): the FAILOVER scenario runs under the Codex worker profile (its project copy gets an in-process test helper, since the profile refuses a loopback listener), copies the state at the kill to `out/at-kill/`, and removes the `CLAUDE_CODE*` variables from the Codex lead's environment; no permission profile, hook or expected file changed.
