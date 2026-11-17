@@ -10,7 +10,7 @@ import { appendFileSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, op
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { HARD_REPLY_CAP, openApprovals, pendingKind, questionOpen, questionScript, refreezeCount, replyBudget, stopDecision } from './lib.mjs';
+import { HARD_REPLY_CAP, productRequests, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, questionOpen, questionScript, refreezeCount, replyBudget, stopDecision } from './lib.mjs';
 
 const here = import.meta.dirname;
 const repo = path.resolve(here, '../..');
@@ -51,6 +51,11 @@ export async function main(argv) {
   // A131: a scenario may carry its own question reply; else line 1 of the generic file.
   let qreplyFile = path.join(here, 'replies', `question.${scenario}.txt`); if (!existsSync(qreplyFile)) qreplyFile = replyFile;
   if (!(existsSync(path.join(here, 'tasks', `${task}.md`)) && existsSync(replyFile))) { console.error('task or reply file missing'); return 2; }
+  // A328: the messages this scenario may send for a user-only approval, listed in advance (no file: none). A file that lists a forbidden kind or a waiver, commit or push
+  // phrase stops the harness here, before anything runs. E2E_APPROVALS_FILE replaces the path (tests only; the same loader judges it).
+  const approvalsFile = env('E2E_APPROVALS_FILE', path.join(here, 'replies', `approvals.${scenario}.txt`));
+  /** @type {ReturnType<typeof loadListedApprovals>} */ let listing;
+  try { listing = loadListedApprovals(approvalsFile); } catch (e) { console.error(`approvals listing refused: ${e instanceof Error ? e.message : String(e)}`); return 2; }
   const rootDir = env('E2E_ROOT', path.join(process.env.TMPDIR || '/tmp', 'proofline-e2e'));
   mkdirSync(rootDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
@@ -201,6 +206,7 @@ export async function main(argv) {
       say(`lead resume: codex exec resume${codexCheap} -c 'sandbox_mode="danger-full-access"' -c 'approval_policy="never"' <thread> <reply>`);
     }
     if (scenario === 'FAILOVER') say('failover: poll implementer ledger every 10s; terminate Claude process group; resume under Codex with proofline resume');
+    say(`listed approvals (A328): ${listing.length === 0 ? 'none' : listing.map((l) => `${l.kind} x${l.max}`).join(', ')} from '${approvalsFile}', sent only while a request of that kind is open`);
     say(`replies: up to ${env('E2E_MAX_REPLIES', '3')} (+1 per refreeze, hard cap ${HARD_REPLY_CAP}) lines from '${replyFile}' (question replies from '${qreplyFile}', one line per question stop) when a plan, refreeze or question stop is pending`);
     say('collect: git log/status/diff/branches, runs, metrics, agent status/next/pipeline, final messages, durations, exit codes, database probe');
     say('collect (A95): git-global-before/after.txt, replies-log.txt, agent-pipeline.txt, insights.txt, metrics/*, visual-artifacts.txt');
@@ -290,8 +296,10 @@ export async function main(argv) {
     number = 2; await runLead('codex', number, 'proofline resume', false);
   }
   // C-14 (A133): 3 answers plus one for every refreeze (E2E_MAX_REPLIES replaces the 3), under a hard ceiling that no bug can lift.
-  const baseMax = Number(env('E2E_MAX_REPLIES', '3')); let replies = 0; let planReplies = 0; let questionReplies = 0; let refreezeReplies = 0; let stopped = ''; let stopState = ''; let budget = baseMax;
+  const baseMax = Number(env('E2E_MAX_REPLIES', '3')); let replies = 0; let planReplies = 0; let questionReplies = 0; let refreezeReplies = 0; let listedReplies = 0; let stopped = ''; let stopState = ''; let budget = baseMax;
   const qscript = questionScript(qreplyFile, qreplyFile === replyFile);
+  /** @type {Set<string>[]} */ const listedUsed = listing.map(() => new Set());
+  /** @type {Set<string>} */ const withheldLogged = new Set();
   /** @type {string} */ let lastAnswered = '';
   /** @type {Set<string>} */ const seenQuestions = new Set();
   w('replies-log.txt', '');
@@ -311,11 +319,20 @@ export async function main(argv) {
     const open = openApprovals(approvalsDir);
     const lastText = existsSync(lastFile) ? readFileSync(lastFile, 'utf8') : '';
     const decision = stopDecision(kind, open, `${state}\n${pending}\n${lastText}`);
-    budget = replyBudget(baseMax, refreezeCount(approvalsDir));
+    budget = replyBudget(baseMax, refreezeCount(approvalsDir), listedReplies);
     // The stop as the harness sees it: the open requests, or the lead's message for a question. The same stop twice means the last reply changed nothing.
     const signature = decision === 'question' ? `q:${createHash('sha256').update(lastText).digest('hex')}` : `a:${open.map((o) => o.name).join(',')}|${kind}`;
+    // A328: a listed approval is a user message the scenario names in advance; it goes out only while a request of its kind is open, never in place of the plan reply.
+    // It is withheld (logged as listed-approval-withheld, not sent) when the text would also satisfy an open request of ANOTHER kind anywhere in the project (another run, the no-run folder, rationale:, rule:, reopen:).
+    const picked = decision === 'plan' || decision === 'refreeze' ? null : pickListed(listing, listedUsed, open, openAssumptions(pending), productRequests(project));
+    const listed = picked && 'pick' in picked ? picked.pick : null;
+    if (picked && 'withheld' in picked) {
+      const key = `${picked.withheld.kind}|${picked.withheld.reason}`;
+      if (!withheldLogged.has(key)) { withheldLogged.add(key); ap('replies-log.txt', `withheld kind=listed-approval-withheld task=${id} request=${picked.withheld.kind} reason=${picked.withheld.reason} | ${picked.withheld.message}\n`); }
+    }
     let reply;
-    if (decision === 'plan') reply = line(replyFile, 2);
+    if (listed) reply = listed.message;
+    else if (decision === 'plan') reply = line(replyFile, 2);
     else if (decision === 'refreeze') reply = line(replyFile, 3);
     else if (decision === 'stop') {
       // a request only the user may answer (scope, destructive, commit, ...): the run ends here and says which
@@ -327,22 +344,23 @@ export async function main(argv) {
       reply = qscript[Math.min(questionReplies, qscript.length - 1)] ?? '';
     }
     if (reply === '') { if (decision === 'refreeze') { stopped = 'no-refreeze-reply'; stopState = stateLines(state); } break; }
-    if (signature === lastAnswered || (decision === 'question' && seenQuestions.has(signature))) { stopped = 'repeated-stop'; stopState = stateLines(state); break; }
+    if (!listed && (signature === lastAnswered || (decision === 'question' && seenQuestions.has(signature)))) { stopped = 'repeated-stop'; stopState = stateLines(state); break; }
     // The cap is a safety stop, reported when it (and not the run) ends the loop.
-    if (replies >= budget) { stopped = 'max-replies'; stopState = stateLines(state); break; }
+    if (replies >= (listed ? replyBudget(baseMax, refreezeCount(approvalsDir), listedReplies + 1) : budget)) { stopped = 'max-replies'; stopState = stateLines(state); break; }
     replies++; ap('replies.txt', `${reply}\n`);
-    lastAnswered = signature; if (decision === 'question') seenQuestions.add(signature);
+    if (listed) { listedUsed[listed.index]?.add(listed.request); listedReplies++; lastAnswered = ''; } else { lastAnswered = signature; if (decision === 'question') seenQuestions.add(signature); }
     // plan = an approval (the user's reply is the approval); refreeze = plan and scope approval of an amended plan; question = a scripted question reply.
     let rkind = 'question';
-    if (decision === 'plan') { rkind = 'plan-approval'; planReplies++; } else if (decision === 'refreeze') { rkind = 'refreeze-approval'; refreezeReplies++; } else questionReplies++;
+    if (listed) rkind = 'listed-approval';
+    else if (decision === 'plan') { rkind = 'plan-approval'; planReplies++; } else if (decision === 'refreeze') { rkind = 'refreeze-approval'; refreezeReplies++; } else questionReplies++;
     const request1 = state.split('\n').find((l) => l.startsWith('next='))?.slice('next='.length) ?? '';
-    ap('replies-log.txt', `reply=${replies} kind=${rkind} task=${id} request=${request1} | ${reply}\n`);
+    ap('replies-log.txt', `reply=${replies} kind=${rkind} task=${id} request=${listed ? `${listed.kind} ${listed.request}` : request1} | ${reply}\n`);
     number++;
     if (scenario === 'FAILOVER') lead = 'codex';
     await runLead(lead, number, reply, true);
     if (timedOut) break;
   }
-  ap('summary.txt', `scenario=${scenario}\nconfig=${config}\nrun_dir=${run}\nreplies=${replies}\nplan_approval_replies=${planReplies}\nrefreeze_approval_replies=${refreezeReplies}\nquestion_replies=${questionReplies}\nreply_budget=${budget}\n`);
+  ap('summary.txt', `scenario=${scenario}\nconfig=${config}\nrun_dir=${run}\nreplies=${replies}\nplan_approval_replies=${planReplies}\nrefreeze_approval_replies=${refreezeReplies}\nquestion_replies=${questionReplies}\nlisted_approval_replies=${listedReplies}\nreply_budget=${budget}\n`);
   if (stopped !== '') ap('summary.txt', `stopped=${stopped}\nstopped_state=${stopState}\n`);
   const gitOut = (/** @type {string} */ name, /** @type {string[]} */ args) => { const fd = openSync(path.join(out, name), 'w'); try { spawnSync('git', ['-C', project, ...args], { stdio: ['ignore', fd, 'inherit'] }); } finally { closeSync(fd); } };
   gitOut('git-log.txt', ['log', '--oneline', '--all']);

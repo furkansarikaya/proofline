@@ -71,7 +71,7 @@ quality items; all others are invariant.
 - **C-13 No waiver.** [invariant] The ledger has no waiver (the harness never grants one).
 - **C-14 Stops and approvals.** [invariant] Every stop is one the class requires (D3) or a `NEEDS_INPUT` round;
   every approval in the ledger matches a harness reply in `replies.md` and has `answered_by: user`;
-  at most 3 answers were needed, +1 for every refreeze (answers are harness replies, plan approvals and question replies together; each refreeze after an amendment allows one more). intent-grill's multi-round interview is exempt from the one-round rule (A75).
+  at most 3 answers were needed, +1 for every refreeze (answers are harness replies, plan approvals and question replies together; each refreeze after an amendment allows one more); a LISTED approval (A328: a user message that the scenario file `replies/approvals.<SCENARIO>.txt` names in advance, logged with kind `listed-approval`, `summary.txt` `listed_approval_replies=`) is a user message too but is counted beside this allowance, one more for each one sent, bounded by the file's max-uses and by the harness cap of 12; a scenario without that file has none, and no waiver, commit, push, delivery, secrets or security approval is ever listed or sent. intent-grill's multi-round interview is exempt from the one-round rule (A75).
 
 ## Scope and hygiene
 

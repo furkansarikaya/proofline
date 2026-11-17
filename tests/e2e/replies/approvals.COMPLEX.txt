@@ -1,0 +1,10 @@
+# Listed approvals of the COMPLEX scenario (A328). Each line: kind | exact message the user would type | max-uses (default 1).
+# The harness has no privileged path: a line is sent through the same prompt path as every other reply, ONLY while a request of that kind is open.
+# Allowed kinds: scope, destructive, mutation_budget, assumption. Never listed: waiver, commit, push, delivery, merge, secrets, security (the loader refuses them).
+#
+# scope: a post-freeze change of PLAN ## Test exceptions (run COMPLEX-claude-20261117T064654Z, ledger approval-request scope) or the pre-existing paging fix the lead asks
+# for in its own words (X-13). Two uses: one per DISTINCT request (the same unchanged request is answered once). The grammar reads "approve scope" as the scope approval of the open request.
+scope | approve scope | 2
+# assumption: the high-risk assumption the intent interview asks the user to accept before the freeze (run COMPLEX-claude-20261117T085931Z, AS-1); the id is part of the phrase,
+# and the line is sent only while the lead's open question names AS-1. No other assumption is listed: an unlisted one stops the run and shows in the evaluation.
+assumption | accept AS-1

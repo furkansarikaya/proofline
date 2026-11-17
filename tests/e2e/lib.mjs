@@ -2,6 +2,8 @@
 // The decision helpers of the e2e harness (tests/e2e/run.mjs), the Node form of pending-kind.sh, question-open.sh and reply-decision.sh (176-C2).
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { APPROVAL_FILLERS, APPROVAL_PHRASES_DEFAULT, approvalNorm, approvalPendingPairs, approvalWords, kindSlug, kindWords, latestRequest, textHasApproval, validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
+import { fieldOf, readBytes, textLines } from '../../control-plane/agents/scripts/core/records.mjs';
 
 const KINDS = 'plan|destructive|single_step|scope|budget|commit|push|waive:[^ ]+';
 
@@ -106,10 +108,11 @@ export function refreezeCount(approvalsDir) {
 export const HARD_REPLY_CAP = 12;
 
 /**
- * The reply allowance (C-14): `base` answers (default 3) plus one for every refreeze, never above the hard cap.
- * @param {number} base @param {number} refreezes
+ * The reply allowance (C-14): `base` answers (default 3) plus one for every refreeze plus one for every listed approval sent (A328: a listed message is a user message
+ * the scenario file names in advance and bounds by max-uses, so it does not use up the answers of the other replies), never above the hard cap.
+ * @param {number} base @param {number} refreezes @param {number} [listed]
  */
-export const replyBudget = (base, refreezes) => Math.min(HARD_REPLY_CAP, base + refreezes);
+export const replyBudget = (base, refreezes, listed = 0) => Math.min(HARD_REPLY_CAP, base + refreezes + listed);
 
 /**
  * The decision at a stop with the whole set of open requests: a refreeze raises a `plan` and a `scope` request together (the amended plan and its
@@ -135,4 +138,221 @@ export function questionScript(file, generic) {
   let lines;
   try { lines = readFileSync(file, 'utf8').split('\n'); } catch { return []; }
   return generic ? [lines[0] ?? ''].filter((l) => l !== '') : lines.filter((l) => l.trim() !== '');
+}
+
+// ---- Listed approvals (A328) ----------------------------------------------------------------------------------------------------------------------
+// The harness has NO privileged path for an approval only the user gives. A scenario may, like a real user, SEND such a message through the same prompt path as every
+// other reply (the lead is resumed with the text as the user's prompt) when the scenario file `replies/approvals.<SCENARIO>.txt` LISTS that exact message for that
+// kind of request. Nothing outside the file is ever sent. A message is judged by the PRODUCT's own approval grammar (textHasApproval, the function the prompt hook's
+// scan uses per segment), never by a word list of the harness's own: the word list is only a second check.
+
+/** The kinds a listing may name: user-only approvals whose message is a plain approval, and the assumption acceptance (`accept AS-N`, a question, not an approvals/ request). */
+export const LISTABLE_KINDS = ['scope', 'destructive', 'mutation_budget', 'assumption'];
+/**
+ * Second check, by stem (not whole words): a waiver, commit, push, pull request, merge, delivery, secrets or security word, English and Turkish. The first check is the grammar.
+ */
+export const FORBIDDEN_STEMS = /(waiv|feragat|commit|push|pull|request|deliver|teslim|merg|secret|secur|\bpr\b)/i;
+/** The most lines and the most message uses one listing may hold: it stays well under the hard reply cap. */
+export const LISTING_MAX_LINES = 6;
+export const LISTING_MAX_USES = 6;
+
+/** The product's approval grammar needs only the configuration's defaults (`approval.phrases`); a listing is judged with those, as an installed project without an override. */
+const GRAMMAR_CTX = /** @type {any} */ ({ config: () => ({ get: (/** @type {string} */ _k, /** @type {string} */ d) => d }) });
+const bytes = (/** @type {string} */ s) => Buffer.from(s, 'utf8').toString('latin1');
+/** The request-id families of the product (`waive:ID`, `rule:ID`, `reopen:ID`, `rationale:ID`): the prefixes `validApprovalKind` accepts. */
+const FAMILIES = (() => {
+  const src = validApprovalKind.toString();
+  const g = /\/\^\((waive(?:\|[a-z]+)+)\):/.exec(src);
+  return g ? (g[1] ?? '').split('|') : [];
+})();
+/** The plain kinds of the product (read from the source of `validApprovalKind`, not written here) and the extra word sets `kindWords` knows (`delivery`, `known-issue`, ...). */
+export const PRODUCT_KINDS = (() => {
+  const g = /\/\^\(([a-z_|-]+)\)\$\/\.test\(k\)/.exec(validApprovalKind.toString());
+  const base = g ? (g[1] ?? '').split('|') : [];
+  const extra = [...kindWords.toString().matchAll(/case '([^']+)'/g)].map((m) => m[1] ?? '');
+  return [...new Set([...base, ...extra])];
+})();
+
+/** The words of the approval phrases and fillers: they are never taken as the id of a request family. */
+const COMMON_WORDS = new Set(`${APPROVAL_PHRASES_DEFAULT} ${APPROVAL_FILLERS}`.toLowerCase().replace(/[^a-z0-9_ -]/g, ' ').split(/\s+/).filter(Boolean));
+
+/**
+ * Every approval kind the message could satisfy: the product's plain kinds and word sets, plus the family kinds (`waive:`, `rule:`, `reopen:`, `rationale:`) whose id is a word of the
+ * message itself (so `approve review-1` is seen as the waiver `waive:REVIEW-1`). `except` are words of the listed kind (`scope`): a family request whose id is that word is judged
+ * at SEND time against the real open requests instead (`rationale:scope`, `rule:scope`, `reopen:scope` would otherwise make a plain `approve scope` unlistable).
+ * @param {string} message @param {string[]} [except] @returns {string[]}
+ */
+export function candidateKinds(message, except = []) {
+  const words = [...new Set(approvalNorm(`${message}\n`).split(' ').filter((w) => w !== '' && !COMMON_WORDS.has(w) && !except.includes(w) && /^[A-Za-z0-9_.+-]+$/.test(w)))];
+  const out = [...PRODUCT_KINDS];
+  for (const f of FAMILIES) for (const w of words) out.push(`${f}:${w}`);
+  return out;
+}
+
+/**
+ * The kinds the message satisfies under the product grammar (as a user prompt of one clause, alone and `for <run>`).
+ * @param {string} message @param {string[]} kinds @returns {string[]}
+ */
+export function satisfiedKinds(message, kinds) {
+  return kinds.filter((k) => textHasApproval(GRAMMAR_CTX, bytes(message), k, '') || textHasApproval(GRAMMAR_CTX, bytes(message), k, 'LC'));
+}
+
+/**
+ * Is this (kind, message) pair one a listing may carry? The loader and {@link pickListed} both ask, so a hand-built entry is judged the same way.
+ * @param {string} kind @param {string} message @returns {string} the reason it may not, or '' when it may
+ */
+export function listedProblem(kind, message) {
+  if (!LISTABLE_KINDS.includes(kind)) return `kind '${kind}' may never be listed (allowed: ${LISTABLE_KINDS.join(', ')}; a waiver, commit, push, delivery, merge, secrets and security approval, and plan, never come from the harness)`;
+  if (message.trim() === '' || message !== message.trim()) return 'the message is empty or has leading or trailing space';
+  if (!/^[A-Za-z0-9 _-]+$/.test(message)) return `the message '${message}' holds a character other than ASCII letters, digits, space, hyphen and underscore (no comma, semicolon, ampersand, bar, apostrophe, question mark or newline: one clause only)`;
+  if (/ {2,}/.test(message)) return 'the message holds a double space';
+  if (FORBIDDEN_STEMS.test(message) || FORBIDDEN_STEMS.test(approvalNorm(`${message}\n`))) return `the message '${message}' holds a waiver, commit, push, pull request, merge, delivery, secrets or security word`;
+  if (kind === 'assumption') {
+    if (!/^accept AS-[0-9]+$/.test(message)) return `the message '${message}' is not the exact acceptance form 'accept AS-<n>'`;
+    const hit = satisfiedKinds(message, candidateKinds(message));
+    return hit.length === 0 ? '' : `the message '${message}' also satisfies the approval kind(s) ${hit.join(', ')}`;
+  }
+  const own = approvalNorm(`${kindWords(kind)}\n`).split(' ');
+  const hit = satisfiedKinds(message, candidateKinds(message, own));
+  if (hit.length === 1 && hit[0] === kind) return '';
+  return hit.length === 0 ? `the message '${message}' is not an approval of ${kind} under the product grammar` : `the message '${message}' satisfies ${hit.join(', ')} under the product grammar, not exactly ${kind}`;
+}
+
+/**
+ * Load a listing file: `kind | exact message [| max-uses]` per line, `#` comments and blank lines ignored, max-uses defaults to 1. An absent file is an empty
+ * listing (a scenario without one behaves as before). Anything else wrong throws, so the harness fails at startup.
+ * @param {string} file @returns {{ kind: string, message: string, max: number }[]}
+ */
+export function loadListedApprovals(file) {
+  if (!existsSync(file)) return [];
+  const entries = [];
+  let n = 0;
+  for (const raw of readFileSync(file, 'utf8').split('\n')) {
+    n++;
+    if (raw.trim() === '' || raw.trim().startsWith('#')) continue;
+    const fail = (/** @type {string} */ why) => { throw new Error(`${file}:${n}: ${why}`); };
+    const parts = raw.replace(/\r$/, '').split(' | ');
+    if (parts.length < 2 || parts.length > 3) fail("expected 'kind | message' or 'kind | message | max-uses'");
+    const kind = (parts[0] ?? '').trim();
+    const message = parts[1] ?? '';
+    let max = 1;
+    if (parts.length === 3) {
+      const m = (parts[2] ?? '').trim();
+      if (!/^[1-9][0-9]*$/.test(m)) fail(`max-uses '${m}' is not a positive whole number`);
+      max = Number(m);
+    }
+    const why = listedProblem(kind, message);
+    if (why) fail(why);
+    entries.push({ kind, message, max });
+  }
+  if (entries.length > LISTING_MAX_LINES) throw new Error(`${file}: more than ${LISTING_MAX_LINES} lines`);
+  if (entries.reduce((s, e) => s + e.max, 0) > LISTING_MAX_USES) throw new Error(`${file}: the max-uses add up to more than ${LISTING_MAX_USES}`);
+  return entries;
+}
+
+/**
+ * The ids of the high-risk assumptions the lead's open questions ask the user to accept: the `ASSUMPTION: AS-<n>@<hash>` lines of `agent.sh questions <ID>`.
+ * @param {string} questionsText @returns {string[]}
+ */
+export function openAssumptions(questionsText) {
+  return [...new Set([...questionsText.matchAll(/^\s*ASSUMPTION: (AS-[0-9]+)@/gm)].map((m) => m[1] ?? ''))].filter(Boolean);
+}
+
+/**
+ * EVERY open approval request under a project, read with the PRODUCT's own functions (the ones the prompt hook's scan and `approve-pending` use), not with a regex of the harness:
+ * `approvalPendingPairs` for the no-run folder and for each run, and `approvalWords` for the words each request is answered with (a `joint:` or `delivery:` field changes them: a
+ * `kind: commit` request with `joint: scope` is answered by `approve scope`). `unclear` names every request file in any approvals/ folder the product cannot read unambiguously
+ * (unreadable, no or several `kind:`, `joint:` or `delivery:` lines, a kind it does not accept, a file name that is not the slug of its kind): a send is withheld while one exists.
+ * @param {string} project
+ * @returns {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[], runIds: string[] }}
+ */
+export function productRequests(project) {
+  /** @param {string} root the tree whose runs are read; the shared (no-run) folder is always the project's */
+  const ctxOf = (root) => /** @type {any} */ ({
+    root, cwd: root, env: {}, agents: path.join(root, '.agents'), config: () => ({ get: (/** @type {string} */ _k, /** @type {string} */ d) => d }),
+    sharedMain: () => project, runDir: (/** @type {string} */ id) => path.join(root, '.agents/runs', id), once: (/** @type {string} */ _k, /** @type {() => unknown} */ f) => f(),
+  });
+  // The trees the prompt hook walks (adapters/claude/hooks/events/prompt.mjs): the project itself and every `.agents/local/worktrees/<d>` (the run of a worktree is approved by THAT tree's
+  // data, found by its run id in the reply).
+  const wtRoot = path.join(project, '.agents/local/worktrees');
+  const trees = [project, ...listDir(wtRoot).sort(byteSort).map((d) => path.join(wtRoot, d))];
+  /** @type {{ name: string, kind: string, words: string, where: string }[]} */ const requests = [];
+  /** @type {Set<string>} */ const seen = new Set();
+  /** @type {Set<string>} */ const runIds = new Set();
+  /** @type {string[]} */ const unclear = [];
+  /** @type {[string, string][]} */ const dirs = [];
+  for (const tree of trees) {
+    const ctx = ctxOf(tree);
+    const runs = listDir(path.join(tree, '.agents/runs')).sort(byteSort);
+    for (const r of runs) runIds.add(r);
+    for (const r of tree === project ? ['', ...runs] : runs) {
+      let pairs = [];
+      try { pairs = approvalPendingPairs(ctx, r); } catch { pairs = []; }
+      for (const [target, kind] of pairs) {
+        if (tree !== project && target !== r) continue;   // the no-run folder is the project's, read once
+        const key = `${tree}|${target}|${kind}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let words = kind; let name = '';
+        try { words = approvalWords(ctx, target, kind); name = path.basename(latestRequest(ctx, target, kind) ?? ''); } catch { /* unclear below */ }
+        requests.push({ name, kind, words, where: target });
+      }
+    }
+    dirs.push([path.join(tree, '.agents/local/approvals'), `${path.relative(project, tree) || '.'}:-`]);
+    for (const r of runs) dirs.push([path.join(tree, '.agents/runs', r, 'approvals'), `${path.relative(project, tree) || '.'}:${r}`]);
+  }
+  for (const [dir, where] of dirs) {
+    for (const n of listDir(dir).sort(byteSort)) {
+      if (!/^[0-9]{3}-request-.*\.yaml$/.test(n)) continue;
+      const f = path.join(dir, n);
+      const text = readBytes(f);
+      const label = `${where}/${n}`;
+      if (text === null) { unclear.push(`${label}: unreadable`); continue; }
+      const lines = textLines(text);
+      const count = (/** @type {string} */ k) => lines.filter((l) => l.startsWith(`${k}:`)).length;
+      const kind = fieldOf(lines, 'kind');
+      if (count('kind') !== 1 || count('joint') > 1 || count('delivery') > 1) unclear.push(`${label}: ${count('kind')} kind lines`);
+      else if (!validApprovalKind(kind)) unclear.push(`${label}: kind '${kind}' is not a product kind`);
+      else if (kindSlug(kind) !== n.slice('000-request-'.length).replace(/\.yaml$/, '')) unclear.push(`${label}: the name is not the slug of kind '${kind}'`);
+    }
+  }
+  return { requests, unclear, runIds: [...runIds].sort(byteSort) };
+}
+
+/**
+ * The listed message to send at this stop. `{ pick }`: a line whose kind has an open request, with uses left (per DISTINCT request: a request is answered once by a line, so a second use
+ * is for another request, never the same unchanged one), and whose text satisfies, under the product grammar and with the words the product answers each request with, no open request
+ * of the project except requests of exactly the listed kind (and no extra `joint:` or `delivery:` words). `{ withheld }`: it would have been sent, but it also satisfies another open
+ * request (any run, the no-run folder, `rationale:`, `rule:`, `reopen:`, a `joint:` request) or a request file cannot be read unambiguously (`unclear`). Else null. Each entry is judged
+ * again by {@link listedProblem}.
+ * @param {{ kind: string, message: string, max: number }[]} entries
+ * @param {Set<string>[]} used per entry: the requests (names) or assumption ids it was sent for
+ * @param {{ name: string, kind: string }[]} open the open requests of the run's approvals folder @param {string[]} assumptions
+ * @param {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[], runIds?: string[] }} [project] {@link productRequests} (default: `open` only)
+ * @returns {{ pick: { index: number, kind: string, message: string, request: string } } | { withheld: { kind: string, message: string, reason: string } } | null}
+ */
+export function pickListed(entries, used, open, assumptions, project = { requests: open.map((o) => ({ name: o.name, kind: o.kind, words: o.kind, where: '' })), unclear: [] }) {
+  for (const [index, e] of entries.entries()) {
+    const spent = used[index] ?? new Set();
+    if (listedProblem(e.kind, e.message) !== '' || spent.size >= e.max) continue;
+    let request = '';
+    if (e.kind === 'assumption') {
+      const id = /^accept (AS-[0-9]+)$/.exec(e.message)?.[1] ?? '';
+      if (id === '' || !assumptions.includes(id) || spent.has(id)) continue;
+      request = id;
+    } else {
+      const hit = open.find((o) => o.kind === e.kind && !spent.has(o.name));
+      if (!hit) continue;
+      request = hit.name;
+    }
+    const withhold = (/** @type {string} */ reason) => ({ withheld: { kind: e.kind, message: e.message, reason } });
+    // the hook approves the run of a worktree when the reply names its id, so a message that holds a run id (anywhere) targets that run: withheld
+    const named = (project.runIds ?? []).filter((id) => id !== '' && approvalNorm(`${e.message}\n`).includes(id.toLowerCase()));
+    if (named.length > 0) return withhold(`the message holds the run id ${named.join(', ')}, so the prompt hook would also target that run`);
+    if (project.unclear.length > 0) return withhold(`a request file cannot be read unambiguously: ${project.unclear.join('; ')}`);
+    const other = project.requests.filter((r) => textHasApproval(GRAMMAR_CTX, bytes(e.message), r.words, r.where === '-' ? '' : r.where) && !(r.kind === e.kind && r.words === e.kind)).map((r) => (r.words === r.kind ? r.kind : `${r.kind} (answered with ${r.words})`));
+    if (other.length > 0) return withhold(`the message also satisfies the open request(s) ${[...new Set(other)].join(', ')}`);
+    return { pick: { index, kind: e.kind, message: e.message, request } };
+  }
+  return null;
 }

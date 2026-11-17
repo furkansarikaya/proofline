@@ -42,7 +42,7 @@ function findOut(dir) {
 function run(scenario, slug, max, sub) {
   const r = path.join(root, sub);
   rmSync(r, { recursive: true, force: true });
-  const res = runE2e([scenario, 'claude'], { STUB_SLUG: slug, E2E_MAX_REPLIES: String(max), E2E_ROOT: r, PATH: PATHENV });
+  const res = runE2e([scenario, 'claude'], { STUB_SLUG: slug, E2E_MAX_REPLIES: String(max), E2E_ROOT: r, PATH: PATHENV, E2E_APPROVALS_FILE: path.join(root, 'no-such-listing.txt') });
   assert.equal(res.status, 0, `run failed: ${res.out}`);
   return readFileSync(path.join(findOut(r), 'summary.txt'), 'utf8');
 }

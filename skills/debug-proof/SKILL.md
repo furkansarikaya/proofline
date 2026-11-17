@@ -4,7 +4,7 @@ description: Debugs a failure with proof instead of guesses. Reproduces the bug 
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.154"
+  version: "0.0.155"
 ---
 
 # debug-proof
