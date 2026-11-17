@@ -209,7 +209,7 @@ test("SKILL.md frontmatter and size follow the skill spec", () => {
   assert.match(fm, /^name: proofline-lead$/m);
   assert.match(fm, /^license: MIT$/m);
   assert.match(fm, /^disable-model-invocation: true$/m);
-  assert.match(fm, /^ {2}version: "0\.0\.152"$/m);
+  assert.match(fm, /^ {2}version: "0\.0\.153"$/m);
   const desc = /^description: (.*)$/m.exec(fm)[1];
   assert.ok(desc.length <= 900, `description is ${desc.length} chars`);
   assert.ok(SKILL.split("\n").length < 500);
@@ -489,4 +489,15 @@ test("delivery: the lead always watches the CI of a pull request it opened in th
   assert.match(delivery, /\*\*Always watch in the background\*\*/);
   assert.match(delivery, /with `run_in_background` right after the `pr` step/);
   assert.match(delivery, /the moment the background command finishes/);
+});
+
+// A326 (A324.2): the user's explicit `/proofline run <text>` is the approval to START a TRIVIAL run (no "reply yes", which scenario T-2 cannot give); a bare
+// "fix this" with no active run is still proposed and started only on the user's yes (A169); commit, push and delivery approvals stay separate.
+test("TRIVIAL: the run command is the start approval; a bare 'fix this' still needs the user's yes; later approvals are separate", () => {
+  const flat = SKILL.replace(/\s+/g, " ");
+  assert.match(flat, /start it as `\/proofline run <the user's text>` on their yes/);
+  assert.match(flat, /The user's own `\/proofline run <text>` command is already that yes for a TRIVIAL run \(A326\): start it at once and ask nothing; the commit, push and delivery approvals stay separate/);
+  const entry = readFileSync(join(repoRoot, "skills/proofline/SKILL.md"), "utf8").replace(/\s+/g, " ");
+  assert.match(entry, /"fix this" with no run active becomes a proposed light run/);
+  assert.match(entry, /Typing `\/proofline run <text>` is itself the approval to start a TRIVIAL run \(A326\): no "reply yes"; commit, push and delivery approvals stay separate/);
 });

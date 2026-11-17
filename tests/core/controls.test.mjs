@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { A, AS, accepted, expectFail, expectMsg, git, must, newRepo, commitAll } from '../lib/harness.mjs';
+import { A, AS, accepted, expectFail, expectMsg, git, must, newRepo, commitAll, project, toCodeDone } from '../lib/harness.mjs';
 
 const POLICY_KEYS = ['worker_evidence:', '  required: true', 'tdd:', '  required: true', 'completion_report:', '  required: true', '  adapter: PENDING', '  published: false', '  receipt: PENDING'];
 
@@ -191,6 +191,73 @@ test('sc_knowledge: the knowledge transaction scope at DONE, delivery-check and 
   git(d, ['checkout', '-q', '--', 'docs/design/ARCHITECTURE.md']);
   expectFail(A(d, ['handoff', 'K', 'DONE']), 'KNOWLEDGE_DONE with zero knowledge writes');
   expectFail(A(d, ['delivery-check', 'K']), 'delivery-check with KNOWLEDGE_DONE and zero writes');
+});
+
+/** A run at CODE_DONE with the completion report published, ready for the knowledge step (A326). @param {string} d */
+function atCodeDone(d) {
+  mkdirSync(path.join(d, 'tasks')); mkdirSync(path.join(d, 'docs/design'), { recursive: true });
+  layerRun(d, 'K', ['impl.txt'], { ...SRC('tasks/K.md'), extra: POLICY_KEYS });
+  w(d, 'tasks/K.md', '# K task\n'); w(d, 'impl.txt', ''); w(d, 'docs/design/ARCHITECTURE.md', '# Architecture\n'); commit(d, 'baseline');
+  must(d, ['baseline', 'K']); must(d, ['freeze', 'K']); must(d, ['handoff', 'K', 'IMPLEMENTING']);
+  accepted(ev(d, 'implementer', 'K', 'RED', 'fail', 'impl.txt'), 'RED'); w(d, 'impl.txt', 'implemented\n'); accepted(ev(d, 'implementer', 'K', 'GREEN', 'pass', 'impl.txt'), 'GREEN');
+  must(d, ['handoff', 'K', 'IMPLEMENTED']); must(d, ['handoff', 'K', 'CODE_DONE']);
+  report(d, 'K'); must(d, ['publish-completion-report', 'K', 'markdown']);
+}
+
+// A326 (A322.5): the knowledge step updates the page of its topic; a second NEW page needs a recorded reason.
+test('A326 sc_knowledge_pages: one new page and an updated existing page need no reason, and a reason without a second new page is refused', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/design/FIRST.md', '# First\n'); ap(d, 'docs/design/ARCHITECTURE.md', 'updated\n');
+  expectMsg('a reason with one new page', 'only for not_applicable, or for a step that opened more than one new page', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE', 'there is no second page but a reason is given']));
+  must(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']);
+});
+
+test('A326 sc_knowledge_pages: a new page that is staged or already committed on the task branch counts as opened; an updated existing page does not', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/design/FIRST.md', '# First\n'); w(d, 'docs/design/SECOND.md', '# Second\n'); ap(d, 'docs/design/ARCHITECTURE.md', 'updated\n');
+  git(d, ['add', 'docs/design/FIRST.md', 'docs/design/SECOND.md']);
+  expectMsg('two staged new pages', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+  git(d, ['commit', '-q', '-m', 'first page', 'docs/design/FIRST.md']);
+  expectMsg('one committed and one staged new page', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+});
+
+test('A326 sc_knowledge_pages: a bookkeeping name is exempt only at the wiki root; the same name in two other folders is two new pages', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/design/alpha/index.md', '# Alpha\n'); w(d, 'docs/design/beta/index.md', '# Beta\n');
+  expectMsg('two index.md pages outside the wiki root', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+  rmSync(path.join(d, 'docs/design/beta'), { recursive: true }); rmSync(path.join(d, 'docs/design/alpha'), { recursive: true });
+  w(d, 'docs/design/log.md', '# Log\n'); w(d, 'docs/design/sub/log.md', '# Log\n');
+  expectMsg('two log.md pages outside the wiki root', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+});
+
+test('A326 sc_knowledge_pages: the wiki root bookkeeping files next to one topic page are not counted', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/wiki/index.md', '---\ntitle: index\nstatus: current\nsource: impl.txt\n---\n\n# Index\n\n- [Retry](concepts/retry.md)\n');
+  w(d, 'docs/wiki/log.md', '# Log\n'); w(d, 'docs/design/FIRST.md', '# First\n');
+  const r = A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']);
+  assert.ok(!/opened \d+ new pages/.test(r.text), `index.md and log.md of the wiki root were counted: ${r.text}`);
+});
+
+test('A326 sc_knowledge_pages: the page count fails closed when the base commit is missing or git cannot diff against it', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/design/FIRST.md', '# First\n');
+  const ry = path.join(d, '.agents/runs/K/RUN.yaml');
+  const orig = readFileSync(ry, 'utf8');
+  writeFileSync(ry, orig.replace(/base_sha: .*/, 'base_sha: PENDING'));
+  expectMsg('no recorded base', 'cannot be counted', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+  writeFileSync(ry, orig.replace(/base_sha: .*/, `base_sha: ${'0'.repeat(40)}`));
+  expectMsg('an unresolvable base', 'cannot be counted', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+});
+
+test('A326 sc_knowledge_pages: with gates the reason of a second new page is a ledger row (the paths and the reason), and knowledge_reason stays empty', () => {
+  const d = project({ topology: 'orchestrated' }); toCodeDone(d);
+  w(d, 'docs/design/FIRST.md', '# First\n'); w(d, 'docs/design/SECOND.md', '# Second\n');
+  expectMsg('two new pages without a reason', 'opened 2 new pages', A(d, ['knowledge-done', 'LC', 'KNOWLEDGE_DONE']));
+  expectMsg('a stock reason', 'one specific sentence', A(d, ['knowledge-done', 'LC', 'KNOWLEDGE_DONE', 'n/a']));
+  expectMsg('a reason with a double quote', 'one specific sentence', A(d, ['knowledge-done', 'LC', 'KNOWLEDGE_DONE', 'the "second" page covers the API contract']));
+  must(d, ['knowledge-done', 'LC', 'KNOWLEDGE_DONE', 'the second page documents the HTTP contract, the first the storage layout']);
+  assert.match(rd(d, '.agents/runs/LC/LEDGER.log'), /knowledge-pages-reason[^\n]*docs\/design\/FIRST\.md docs\/design\/SECOND\.md: the second page documents/);
+  assert.match(rd(d, '.agents/runs/LC/RUN.yaml'), /knowledge_reason: ""/);
 });
 
 // Task branch isolation: <git.branch_prefix><ID>-<slug> from the canonical tip; every phase on that branch.

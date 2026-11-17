@@ -13,11 +13,12 @@ import { taskOwnedPaths } from './gates.mjs';
 import { verifySeal } from './ledger.mjs';
 import { localTaskSourceRun, setRunValue } from './lifecycle.mjs';
 import { justificationOk, led, must, need, quietly } from './lifeutil.mjs';
+import { git, untrackedPaths } from './git.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
 import { fileText, sectionKeyPresent, sectionValue, textLines, gatesEnforced } from './records.mjs';
-import { requireRun, runDir } from './runs.mjs';
-import { designDocPaths } from './scope.mjs';
+import { knownControlArtifact, requireRun, runDir } from './runs.mjs';
+import { designDocPaths, inKnowledgeScope } from './scope.mjs';
 import { knowledgeDrift, scanKnowledgeSecrets } from './commands/runcmds.mjs';
 import { freshness, knowledgeOwnedPaths } from './commands/verify.mjs';
 
@@ -100,6 +101,26 @@ function recordSuggestions(ctx, id, list) {
   renameSync(`${file}.tmp`, file);
 }
 
+/** The files of the wiki that the step and its scripts maintain, at the wiki's own root only (A139: `docs/wiki/`); the same name in any other folder is a topic page (A326). */
+const BOOKKEEPING = /^docs\/wiki\/(index\.md|log\.md|log-archive\.md|lint-report\.md|lessons\/observations\.md|concepts\/shortcut-debt\.md)$/;
+
+/**
+ * The topic pages this knowledge step OPENED (A326, A322.5): the knowledge-scope files ADDED since the run's base (staged or already committed on the task branch, `git diff --diff-filter=A`
+ * against `repository.base_sha`) and the untracked ones, without the wiki root's own bookkeeping files and the run's control artifacts. An existing page that was updated is not listed; a task
+ * whose topic already has a page updates it. FAILS CLOSED: a base that is not recorded or that git cannot diff against stops the command (the pages cannot be counted).
+ * @param {Context} ctx @param {string} id @returns {string[]}
+ */
+export function newKnowledgePages(ctx, id) {
+  const dir = runDir(ctx, id);
+  const base = sectionValue(ctx, dir, 'repository', 'base_sha');
+  if (!/^[0-9a-f]{7,64}$/.test(base)) fail(`knowledge-done blocked (A326): the run has no recorded base commit (repository.base_sha is '${base}'), so the pages this step opened cannot be counted; run agent.sh baseline ${id} first`);
+  const r = git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '--diff-filter=A', '-z', base, '--']);
+  if (r.status !== 0) fail(`knowledge-done blocked (A326): git could not compare the working tree with the run's base commit ${base}, so the pages this step opened cannot be counted`);
+  /** @type {Set<string>} */ const fresh = new Set(untrackedPaths(ctx));
+  for (const p of r.out.split('\0')) if (p !== '') fresh.add(p);
+  return [...fresh].sort().filter((p) => inKnowledgeScope(ctx, p) && !BOOKKEEPING.test(p) && !knownControlArtifact(ctx, id, p));
+}
+
 /** `knowledge-done ID [KNOWLEDGE_DONE|not_applicable [REASON]]` @param {Context} ctx @param {string[]} args */
 export function knowledgeDoneCommand(ctx, args) {
   const id = need(args, 0);
@@ -111,6 +132,7 @@ export function knowledgeDoneCommand(ctx, args) {
   const batchRun = batchKnowledgeRun(ctx, id);
   /** @type {string[]} */ const suggestions = [];
   let tookDefault = false;
+  let pageReason = '';
   if (state !== 'KNOWLEDGE_DONE' && state !== 'not_applicable') fail(`invalid knowledge state: ${state}`);
   const rs = sectionValue(ctx, dir, 'execution', 'state');
   let term;
@@ -125,11 +147,12 @@ export function knowledgeDoneCommand(ctx, args) {
     if (rl.filter((l) => l !== '').length > 1 || rl.some((l) => /[.!?][ \t\n\v\f\r]+[^ \t\n\v\f\r]/.test(l))) fail('the not_applicable reason must be one sentence on one line');
     const sig = knowledgeNaSignal(ctx, id);
     if (sig !== '') fail(`not_applicable refused: ${sig}.${batchRun ? ` This run is in the approved batch: nothing is asked here; run agent.sh knowledge-done ${id} (no reason, no page): the safe default records a suggestion to the user in the report and the batch goes on.` : ''} Run the knowledge step instead: a one-page note under docs/wiki/ is enough and does not change the tier or any gate (knowledge files the plan does not name are not task output); then 'agent.sh knowledge-done ${id}'`);
-  } else if (reason !== '') fail('a reason is only for not_applicable');
+  }
   verifySeal(ctx, id, dir);
   requireNoKnowledgeDrift(ctx, id, 'knowledge-done blocked');
   if (!term && state === 'KNOWLEDGE_DONE') {
     const own = knowledgeOwnedPaths(ctx, id);
+    if (own.length === 0 && reason !== '') fail('a reason is only for not_applicable, or for a step that opened more than one new page (A326)');
     if (own.length === 0 && batchRun && sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) {
       // A291: the unattended batch never asks where a note should go and never parks: the safe default (no page, nothing under docs/ or in skills/rules) and a suggestion to the user
       const sig = knowledgeNaSignal(ctx, id);
@@ -137,11 +160,19 @@ export function knowledgeDoneCommand(ctx, args) {
       state = 'not_applicable'; reason = DEFAULT_REASON; tookDefault = true;
     } else if (own.length === 0) fail(`knowledge-done blocked (A200): no knowledge page was written. KNOWLEDGE_DONE records pages: write the wiki page, the ADR or the design document change the step is for (under ${ctx.config().get('knowledge_scope_root', 'docs/design/ docs/adr/ docs/wiki/ docs/product/')}), run the wiki lint, then run knowledge-done again; or, when the task needs no knowledge, agent.sh knowledge-done ${id} not_applicable "<one specific sentence>" (refused with the signal when the task changed behaviour or a contract)`);
     else {
+      // A326 (A322.5): one new topic page per task. A second NEW page needs a recorded reason (update the existing page of the topic otherwise)
+      const opened = newKnowledgePages(ctx, id);
+      if (opened.length > 1) {
+        if (reason === '') fail(`knowledge-done blocked (A326): this step opened ${opened.length} new pages (${opened.join(' ')}). A task keeps one page per topic: update the existing page of the topic instead of opening a second one. When the second page is a different topic, say why: agent.sh knowledge-done ${id} KNOWLEDGE_DONE "<one sentence: why each new page is a separate topic>"`);
+        if (!justificationOk(reason) || /["\\#]/.test(reason) || reason.split('\n').filter((l) => l !== '').length > 1) fail('the reason for more than one new page must be one specific sentence of at least 20 characters without a double quote, a backslash or a #');
+      }
+      pageReason = opened.length > 1 ? `${opened.join(' ')}: ${reason}` : '';
       scanKnowledgeSecrets(ctx, id);
       wikiLintRun(ctx, own);
       forgetFiles(ctx); ctx.forget('changed:'); // the lint wrote its report into the wiki: the knowledge paths below are read again
     }
   }
+  if (state === 'KNOWLEDGE_DONE' && reason !== '' && pageReason === '') fail('a reason is only for not_applicable, or for a step that opened more than one new page (A326)');
   if (!term && localTaskSourceRun(ctx, id)) quietly(ctx, () => must(freshness(ctx, id)));
   {
     const v = lessonsValidate(ctx);
@@ -152,6 +183,7 @@ export function knowledgeDoneCommand(ctx, args) {
     // A291: a lesson worth proposing is a suggestion to the user too (the script lists it from the records; no approval is requested, nothing is promoted, no agent text is involved)
     for (const p of lessonProposals(ctx, id)) suggestions.push(plainLine(`${id}: the finding kind ${p.kind} appeared in ${p.runs} runs; promoting it to a project rule in AGENTS.md needs your approval and was not requested here, nothing was promoted`));
   }
+  if (state === 'KNOWLEDGE_DONE') reason = '';   // the page reason is recorded in its own ledger row; knowledge_reason stays the not_applicable reason
   setRunValue(ctx, id, 'execution', 'knowledge_state', state);
   if (sectionKeyPresent(ctx, dir, 'execution', 'knowledge_reason')) setRunValue(ctx, id, 'execution', 'knowledge_reason', reason);
   if (gatesEnforced(ctx, dir)) {
@@ -159,6 +191,7 @@ export function knowledgeDoneCommand(ctx, args) {
     if (state === 'KNOWLEDGE_DONE') {
       const l = knowledgeOwnedPaths(ctx, id).filter((p) => isFile(`${ctx.root}/${p}`)).map((p) => `${p}@${hashFile(`${ctx.root}/${p}`)}`);
       if (l.length > 0) led(ctx, id, 'knowledge-paths', '-', '-', l.join(' '));
+      if (pageReason !== '') led(ctx, id, 'knowledge-pages-reason', '-', '-', pageReason);
     }
   }
   // A291: written AFTER the knowledge-done row; the reader takes the rows after the LAST knowledge-done row, so a retry (or a later run in any mode) never shows a duplicate or an old one

@@ -6,7 +6,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildContext, finish } from '../../adapters/claude/hooks/lib/context.mjs';
 import { handle } from '../../adapters/claude/hooks/events/pretool.mjs';
-import { buildTemplate, haveJq, cleanEnv, copyProject, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync } from './harness.mjs';
+import { cpSync } from 'node:fs';
+import { readFileSync, buildTemplate, haveJq, cleanEnv, copyProject, mkdirSync, writeFileSync, rmSync, mkdtempSync, tmpdir, join, existsSync } from './harness.mjs';
 import { symlinkSync, linkSync, realpathSync } from 'node:fs';
 
 const skip = false;
@@ -16,6 +17,8 @@ const skip = false;
 /** @type {string} */ let outside = '';
 /** @type {string} */ let template = '';
 let caseSensitive = true;
+/** @type {string} */ let planningDir = '';
+/** @type {string} */ let implDir = '';
 
 const PLAN = '---\nscope:\n  - path: impl.txt\n  - path: lib/\n---\n';
 
@@ -50,6 +53,17 @@ before(() => {
   mkdirSync(outside);
   runDir = copyProject(template, base);
   prepare(runDir);
+  // A326: the same run twice with the installed owns.conf, once before the freeze (handoff PLANNED) and once while IMPLEMENTING
+  for (const k of ['planning', 'implementing']) {
+    const dd = copyProject(template, base);
+    prepare(dd);
+    cpSync(new URL('../../control-plane/agents/owns.conf', import.meta.url), join(dd, '.agents/owns.conf'));
+    if (k === 'planning') {
+      const ry = join(dd, '.agents/runs/LC/RUN.yaml');
+      writeFileSync(ry, readFileSync(ry, 'utf8').replace(/^(handoff:\n  state: )"?\w+"?/m, '$1"PLANNED"'));
+      planningDir = dd;
+    } else implDir = dd;
+  }
   rmSync(template, { recursive: true, force: true });
   template = buildTemplate({ run: false });
   noRunDir = copyProject(template, base);
@@ -254,4 +268,13 @@ test('file-tool guards: a case variant of a protected name is protected (case-in
   for (const p of ['.AGENTS/local/approvals/x.yaml', '.agents/LOCAL/approvals/x.yaml', '.agents/runs/LC/run.yaml', '.agents/runs/LC/Gates/001.yaml']) {
     assert.notEqual(reasonOf(await nodeOut(runDir, { tool_name: 'Write', tool_input: { file_path: p } }, {})), null, p);
   }
+});
+
+test('A326: the designer writes a design document during PLANNING without a window; a product path and any other stage still need one', async () => {
+  const w = (/** @type {string} */ dir, /** @type {string} */ p) => nodeOut(dir, { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: p }, agent_type: 'proofline-designer', agent_id: 'd1' }, {});
+  assert.equal(reasonOf(await w(planningDir, 'docs/design/DESIGN.md')), null, 'PLANNING: the design document is allowed');
+  assert.match(String(reasonOf(await w(planningDir, 'src/app.js'))), /outside the paths role designer owns/, 'PLANNING: product code is still refused');
+  assert.match(String(reasonOf(await w(implDir, 'docs/design/DESIGN.md'))), /no designer window/, 'outside PLANNING: refused');
+  const impl = await nodeOut(planningDir, { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: 'docs/design/DESIGN.md' }, agent_type: 'proofline-implementer', agent_id: 'i1' }, {});
+  assert.notEqual(reasonOf(impl), null, 'the implementer gets no such allowance');
 });

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { parseDurations } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
 import { A, accepted, project, refused, wclose, wev, wopen } from '../lib/harness.mjs';
 
 const BASE = 'command: go test ./...\ntarget: impl.txt,impl_test.txt\n';
@@ -34,6 +35,23 @@ test('GREEN with test_durations: the durations are written into the GREEN record
 
 test('GREEN with a malformed test_durations is refused: a word, a negative number and a missing name are not durations', () => {
   for (const bad of ['lookup=-3', '=5', 'lookup=1; ', 'lookup = 12']) {
+    const { d, w } = redThenFix();
+    refused(A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: `${BASE}test_durations: ${bad}\n` }), `test_durations "${bad}"`, 'test_durations');
+    wclose(d, w);
+  }
+});
+
+test('A326: a test name containing "=" is recorded under its own name and parses back to it', () => {
+  const name = 'GET /api/books?tag= filters with status and paging';
+  const { d, w } = redThenFix();
+  accepted(A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: `${BASE}test_durations: ${name}=12.5; a=b=c=3\n` }), 'GREEN with "=" in a name');
+  wclose(d, w);
+  const line = /^test_durations: (.*)$/m.exec(record(d, 'GREEN'))?.[1] ?? '';
+  assert.deepEqual(parseDurations(line), [{ name, ms: 12.5 }, { name: 'a=b=c', ms: 3 }]);
+});
+
+test('A326: a name with "=" still needs a number after the last "=", and an empty name is refused', () => {
+  for (const bad of ['GET /x?tag= filters', 'a=b=', 'a=b=x', ' =5']) {
     const { d, w } = redThenFix();
     refused(A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: `${BASE}test_durations: ${bad}\n` }), `test_durations "${bad}"`, 'test_durations');
     wclose(d, w);

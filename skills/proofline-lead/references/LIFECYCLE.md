@@ -118,7 +118,7 @@ endpoint, form handler, CLI argument, queue consumer, webhook) without a `## Val
   the plan and ask again.
 - An unverified `high`-risk assumption blocks the freeze (A79). `A freeze <ID>` refuses and records one
   question per such assumption (`ASSUMPTION: <id>@<hash>`, the D13 `ask` machinery); relay it verbatim
-  (`A questions <ID>`, RESULT NEEDS_INPUT). The user answers `accept <id>` (for example `accept AS-1`; the answer is recorded as theirs,
+  (`A questions <ID>`, RESULT NEEDS_INPUT). The user answers `accept <id>` BEFORE the freeze (the destructive, scope and delivery approvals come later and do not cover it; for example `accept AS-1`; the answer is recorded as theirs,
   the assumption becomes `accepted-by-user` with that answer file as reference) or gives the corrected fact
   (change the plan, or verify the assumption and update its row, then freeze again). The lead never
   answers for the user: an answer that is not the user's own words does not accept anything. A lower-risk
@@ -144,6 +144,8 @@ endpoint, form handler, CLI argument, queue consumer, webhook) without a `## Val
    says so.
 
 ## 7. Knowledge
+
+One page per topic (A326): update the existing page of the topic. `knowledge-done` refuses a step that opened a second NEW page (added since the base, staged or untracked) unless you pass the reason: `A knowledge-done <ID> KNOWLEDGE_DONE "<one sentence: why each new page is a separate topic>"`; it is recorded in the ledger.
 
 After CODE_DONE, and also for a run that ended FAILED or BLOCKED (`/proofline knowledge <ID>`; A147): `deliver` of a CODE_DONE run does this step itself when it is missing (a FAILED or BLOCKED run is delivered only after `/proofline reopen`, A152). The step always runs and evaluates the wiki and the design documents every time (one rule, A159, stated in `.agents/KNOWLEDGE.md`). Either update the configured `design_docs` (with design surfaces: the shared document and every surface document, `A design-surface <PATH>`) from the run's `design/`
 drafts (D26) and the wiki (A139: ingest and update it as the llm-wiki skill says, run its lint, resolve the errors), within `knowledge_scope_root`, then `A knowledge-done <ID>` (A200: it is refused until a knowledge page is written, the secret scan of those files passes and the wiki lint, which the script runs itself on the changed wiki folder, finds no error; handoff DONE is no longer the first to object); or `A knowledge-done <ID> not_applicable "<one sentence: why they need nothing>"`, which `agent.sh` refuses, naming the signal, when the task changed user-visible behaviour, a durable contract or something a design document describes (then do the real step). Never pass `not_applicable` on your own say-so. **In a task of the approved batch (A291) this step asks the user nothing and parks nothing**: do not ask where a note should go; write a knowledge page only if the task itself names one, otherwise run `A knowledge-done <ID>` with no page: the script records the safe default (nothing written under docs/ or into the agent's own instructions) and a `Suggestion to the user (knowledge): ...` line that the completion report and `batch-status` show. A lesson promotion is the same: run no `request-approval rule:<CAND>` in a batch (a rule promotion is not covered by the batch approval); the script lists the proposal as a suggestion. The runtime hook lets the lead write only these paths in this step; design documents are not product code and the lead writes them only here.

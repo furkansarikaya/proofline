@@ -8,7 +8,7 @@ Turkish translation (this English page is authoritative; the translation records
 
 1. `proofline status` - the active run and its next step (the default command).
 2. Describe the work. Small and clear: just say it. Vague or large: `proofline task --grill "<text>"` interviews you first and writes a task file.
-3. `proofline run <TASK>` - the lead takes the task through the full workflow.
+3. `proofline run <TASK>` - the lead takes the task through the full workflow. Typing the command is itself your approval to start a TRIVIAL run (no "reply yes"); a bare "fix this" with no run is still proposed first, and the commit, push and delivery approvals stay separate (A326).
 4. Answer the questions the lead relays (they are verbatim from the specialist). Approve the plan when asked (COMPLEX and CRITICAL).
 5. When the run reaches CODE_DONE, read the completion report, then `proofline deliver <TASK>` to see what delivery will do.
 6. `/proofline deliver <TASK>` in the agent session shows one summary (commit, push, pull request, merge when green, cleanup). Reply `approve delivery` to approve every step of it; any change before a step stops the chain and asks again.

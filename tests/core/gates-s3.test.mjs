@@ -450,7 +450,7 @@ test('sc_knowledge_gates_fresh: gates do not go stale after the knowledge step w
   for (const f of ['docs/design', 'docs/adr', 'docs/product']) mkdirSync(path.join(d, f), { recursive: true });
   installWikiLint(d);
   put(d, 'docs/design/DESIGN.md', '# Design\n'); put(d, 'docs/adr/0001-x.md', '# ADR 1\n'); put(d, 'docs/product/PRD.md', '# PRD\n');
-  accepted(A(d, ['knowledge-done', 'LC']), 'knowledge-done');
+  accepted(A(d, ['knowledge-done', 'LC', 'KNOWLEDGE_DONE', 'the ADR, the design document and the PRD are separate topics from the retry policy page']), 'knowledge-done (four new pages, A326: a recorded reason)');
   const after = gatesOf();
   assert.equal(after, before, `the knowledge step's files changed the gate statuses: before [${before}] after [${after}]`);
   A(d, ['delivery-check', 'LC']);
