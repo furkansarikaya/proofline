@@ -107,6 +107,7 @@ export function readonlyGit(ctx, cmd, scan) {
   if ((SINK.test(flat) || SINK_EXT.test(flat)) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
   // xargs and parallel given git or gh with the subcommand on stdin
   if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/m.test(stripped) || /\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
+  if (/(^|[\s;&|(])(export\s+|env\s+)?GIT_EXTERNAL_DIFF=/.test(flat)) deny(`GIT_EXTERNAL_DIFF names a program that git runs: ${TAIL}`);
   // an interpreter or shell fed its program by a here-document, a here-string or an echo: the text is judged as a program
   const fed = HERE_PROG.exec(stripped)?.[3] ?? PIPE_PROG.exec(flat)?.[1] ?? '';
   if (fed !== '' && PROG_GIT.test(fed) && PROG_VERB.test(fed)) deny(`a program fed to an interpreter or shell on stdin that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
@@ -116,6 +117,8 @@ export function readonlyGit(ctx, cmd, scan) {
   for (const rec of scan.records) {
     if (rec.kind !== 'C') continue;
     const { cw, rest } = cParts(rec);
+    // A327: an empty argument anywhere in a git command (`git -C "" push log`): git takes the next word as the value, so the subcommand it runs is not the one judged below, which drops empty words
+    if (rest !== '' && [cw, ...rest.split('\x03')].some((t) => /^(?:.*[\\/])?git(?:\.exe)?$/i.test(t) || dashedSub(t.slice(t.lastIndexOf('/') + 1)) !== null) && rest.split('\x03').includes('')) deny(`an empty argument in a git command cannot be checked (git takes the next word as its value): ${TAIL}`);
     const words = cmdSubst(rest.replace(/[\x03\x02]/g, '\n')).split('\n').filter((w) => w !== '');
     // a command word that is a variable, a substitution or a brace expansion cannot be read (`$g push`, `\`echo git\` push`, `git{,} push`)
     if (cw.startsWith('$') || cw.startsWith('`') || /[{}]/.test(cw)) deny(`a command word that is a variable, a substitution or a brace expansion cannot be checked (it may be git): ${TAIL}`);
@@ -214,9 +217,12 @@ function gitJudge(a, needSub = false) {
       // worktree can redirect git). The control plane removes the role's `$TMPDIR/verify-<ID>.<focus>` worktree at CODE_DONE (core/handoff.mjs). A tripwire for the common spellings, not a boundary.
       if (pos[0] !== 'add' && pos[0] !== 'list') deny(`git worktree ${pos[0] ?? ''} is not for a review role: only the literal verbs add (--detach) and list are allowed here. Leave your evidence worktree $TMPDIR/verify-<ID>.<focus> registered; the control plane removes it at CODE_DONE: ${TAIL}`);
       if (pos[0] === 'list') return;
-      if (rest.some((x) => x === '-b' || x === '-B' || long('orphan') || (isShort(x) && /[bB]/.test(x)))) deny(`git worktree add creates a branch here; use git worktree add --detach <path> HEAD: ${TAIL}`);
-      // a path and a name that exists only on the remote create a tracking branch, a path alone creates a branch named like the folder
-      if (!detach) deny(`git worktree add without --detach may create a branch; use git worktree add --detach <path> HEAD: ${TAIL}`);
+      // A327: `worktree add` takes ONLY: add, --detach, optionally --quiet/-q and --checkout/--no-checkout, one path and at most one commit-ish that does not start with '-'. Every other
+      // flag is refused, abbreviations and the short -d included: an option with a value (--reason, --lock) swallows the next word, so `add --lock --reason -d ../x` created a branch.
+      const wtTail = rest.slice(1);
+      const wtFlags = wtTail.filter((x) => x.startsWith('-'));
+      const wtWords = wtTail.filter((x) => !x.startsWith('-'));
+      if (rest[0] !== 'add' || !wtFlags.includes('--detach') || wtFlags.some((x) => !['--detach', '--quiet', '-q', '--checkout', '--no-checkout'].includes(x)) || wtWords.length < 1 || wtWords.length > 2) deny(`git worktree add is allowed only as: add --detach [--quiet|-q] [--checkout|--no-checkout] <path> [<commit>]; any other flag (-d, -f, -b, --lock, --reason, --orphan, --track ...) can create a branch: ${TAIL}`);
       return;
     }
     case 'update-ref': case 'replace': case 'replay':
@@ -231,18 +237,15 @@ function gitJudge(a, needSub = false) {
       if (pos.slice(1).some((x) => x.includes(':') && !x.slice(x.indexOf(':') + 1).startsWith('refs/remotes/'))) deny(`git ${sub} with a destination refspec creates or moves a local ref here: ${TAIL}`);
       return;
     }
-    // A327: the plumbing forms that overwrite or delete work in the live tree or the object store (a denylist of the plain spellings: a tripwire)
+    // A327: verbs that rewrite or delete work or history in the live tree or the object store are refused as verbs, not by flag (an abbreviated long option, `gc --pru=now`, defeats a flag match)
+    case 'gc': case 'prune': case 'prune-packed': case 'repack': case 'pack-refs': case 'maintenance': case 'update-index': case 'rerere': case 'sparse-checkout': case 'checkout-index':
+      deny(`git ${sub} rewrites or deletes work or objects here and is not a review command: ${TAIL}`);
+      break;
     case 'read-tree':
-      if (has('--reset') || long('reset') || cluster('u')) deny(`git read-tree with -u or --reset overwrites files of the working tree here: ${TAIL}`);
-      return;
-    case 'checkout-index':
-      if (has('--force') || long('force') || cluster('f')) deny(`git checkout-index --force overwrites files of the working tree here: ${TAIL}`);
-      return;
-    case 'gc':
-      if (rest.some((x) => /^--prune(=|$)/.test(x) || /^--aggressive$/.test(x))) deny(`git gc --prune deletes unreachable objects here: ${TAIL}`);
+      if (rest.some((x) => x.startsWith('-'))) deny(`git read-tree with an option (-u, --reset, ...) overwrites files of the working tree here: ${TAIL}`);
       return;
     case 'reflog':
-      if (['expire', 'delete'].includes(pos[0] ?? '')) deny(`git reflog ${pos[0]} deletes history here: ${TAIL}`);
+      if (pos[0] !== undefined && pos[0] !== 'show') deny(`git reflog ${pos[0]} deletes or rewrites history here; only the plain listing and show are allowed: ${TAIL}`);
       return;
     case 'submodule':
       // A327: `submodule deinit -f --all` and `update --force` wipe the uncommitted work of a submodule; `foreach` runs a command line. Only the literal read verbs are allowed (a bare `git submodule` is status).
