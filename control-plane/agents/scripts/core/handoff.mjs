@@ -5,7 +5,7 @@
 import { buildRecord } from './buildrecord.mjs';
 import { sha256 } from './hash.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
-import { measureRun, realRunner } from './testmeasure.mjs';
+import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fail } from './errors.mjs';
@@ -13,6 +13,8 @@ import { findApproval } from './approvals.mjs';
 import { consumeApproval, requireOpenRun } from './approve.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
+import { approvedMeasureTargets, evidenceRepairCovers } from './evidencerepair.mjs';
+import { planTestsWithoutDurationOf } from './testreview.mjs';
 import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
@@ -127,7 +129,11 @@ export function verifyFixBound(ctx, id) {
   const f = latestFindingFile(ctx, dir);
   if (f === '') return;
   const patch = taskPatchFingerprint(ctx, dir);
-  if (patch === gateField(ctx, f, 'patch_sha256')) fail(`no application/test change since the finding in ${f.slice(f.lastIndexOf('/') + 1)}: a fix must change the tree before it can be re-reviewed`);
+  if (patch === gateField(ctx, f, 'patch_sha256')) {
+    // A325: the one exception is an evidence-only repair (worker-evidence GREEN rerun) of a finding that only says a plan test has no recorded duration; the sealed ledger holds its row
+    if (evidenceRepairCovers(ctx, id, f, patch)) return;
+    fail(`no application/test change since the finding in ${f.slice(f.lastIndexOf('/') + 1)}: a fix must change the tree before it can be re-reviewed. Only when every open finding says a plan test has no recorded duration: agent.sh worker-evidence ${id} GREEN rerun (the control plane re-runs the plan-listed commands and records the durations; a fix round, no gate pass)`);
+  }
   const scope = fixScopeUnion(ctx, dir, f);
   if (scopeEntryPaths(scope).join('') === '*') return;
   const sib = fixScopeSiblings(ctx, dir, scope);
@@ -176,6 +182,13 @@ function testMeasureAtImplemented(ctx, id, patch) {
   const token = `patch=${sha256(Buffer.from(`${patch}\n${[...planVerificationCommands(ctx, id)].sort().join('\n')}`, 'utf8'))}`;
   if (ledgerRows(ctx, dir, 'test-measure-block').some((r) => r.detail === token)) {
     fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
+  }
+  // A325: a plan-named test with no recorded duration would be a blocking REVIEW_TESTS finding after every other gate was spent; refuse it here, before anything is measured or recorded, back to the implementer
+  // (only a `- measure:` exception the user approved, A285, excuses a test: the same decision the review uses)
+  if (measureRequired(ctx, id)) {
+    const excused = approvedMeasureTargets(ctx, id);
+    const lacking = planTestsWithoutDurationOf(ctx, id).filter((n) => !excused.includes(n));
+    if (lacking.length > 0) fail(`IMPLEMENTED blocked: the plan names ${lacking.map((n) => `"${n}"`).join(', ')} and no recorded GREEN duration matches. Back to the implementer: re-run the plan-listed Verification command (or the project test command) and re-record GREEN with the duration of EVERY plan-named test read from the real output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again. In a fix round for a REVIEW_TESTS finding of exactly this kind, with the tree unchanged, agent.sh worker-evidence ${id} GREEN rerun does the re-recording (the control plane runs the plan-listed commands and reads the durations itself)`);
   }
   const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });
   for (const f of m.budgetFindings) ctx.err(`finding: ${f}\n`);

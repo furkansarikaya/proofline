@@ -111,6 +111,7 @@ export const SPAWN_REG = /** @type {Record<string, Record<string, string>>} */ (
   'resultutil.mjs': { runUserCommand: 'the owner\'s own recorded command, re-run to compare (the reproduced-evidence check)' },
   'secretscan.mjs': { runUserCommand: 'the configured secret scanner command, the owner\'s own command' },
   'buildrecord.mjs': { runUserCommand: 'the configured build command, the owner\'s own command (round 6)' },
+  'evidencerepair.mjs': { runUserCommand: 'the plan-listed test command, run once by the evidence-only repair to read its per-test durations (the owner\'s own command, A325)' },
   'testmeasure.mjs': { runUserCommand: 'the plan-listed test command, run twice by the double run (the owner\'s own command, A275)' },
 });
 /** Files that import something other than the namespace from proc.mjs, per name, with the reason. */

@@ -153,6 +153,18 @@ export function exceptionsBaseLines(ctx, dir) {
 export function ecoPin(ctx) { try { return sha256(readFileSync(`${ctx.root}/.agents/ecosystems.json`)); } catch { return 'none'; } }
 
 /**
+ * The tests the frozen plan names (`## Tests`, quoted names) that no GREEN record gives a duration (A325: the one definition `handoff IMPLEMENTED`, the evidence-only repair and the REVIEW_TESTS
+ * input all use). A recorded name matches when it equals the plan name or one contains the other. Sorted, lower case.
+ * @param {Context} ctx @param {string} id @returns {string[]}
+ */
+export function planTestsWithoutDurationOf(ctx, id) {
+  const plan = fileText(ctx, `${runDir(ctx, id)}/PLAN.md`) ?? '';
+  const pk = planKinds(plan);
+  const recorded = greenRecords(ctx, id).flatMap((g) => g.durations.map((d) => asciiLower(d.name)));
+  return [...new Set(pk.names.map((n) => n.name).filter((n) => !recorded.some((r) => r === n || r.includes(n) || n.includes(r))))].sort();
+}
+
+/**
  * Everything the reviewer reads, and the list of what a findings.json has to answer.
  * @param {Context} ctx @param {string} id
  */
@@ -169,10 +181,8 @@ export function collect(ctx, id) {
   const plan = fileText(ctx, `${dir}/PLAN.md`) ?? '';
   const exceptions = planExceptions(plan);
   const m = measureRun(ctx, id);
-  const pk = planKinds(plan);
   const greens = greenRecords(ctx, id);
-  const recorded = greens.flatMap((g) => g.durations.map((d) => asciiLower(d.name)));
-  const planTestsWithoutDuration = [...new Set(pk.names.map((n) => n.name).filter((n) => !recorded.some((r) => r === n || r.includes(n) || n.includes(r))))].sort();
+  const planTestsWithoutDuration = planTestsWithoutDurationOf(ctx, id);
   const row = ledgerRows(ctx, dir, 'test-measure').pop();
   const detail = row === undefined ? '' : row.detail;
   const num = (/** @type {string} */ k) => { const v = new RegExp(`\\b${k}=(\\d+)`).exec(detail)?.[1]; return v === undefined ? null : Number(v); };

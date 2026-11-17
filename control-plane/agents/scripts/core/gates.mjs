@@ -12,7 +12,7 @@ import { catFile, git, objectExists, sortUnique, trackedPaths, untrackedPaths } 
 import { sha256 } from './hash.mjs';
 import { boundNames, listNames, verifySeal } from './ledger.mjs';
 import { isFile } from './paths.mjs';
-import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, planScope, planSectionPresent, sectionValue, textLines } from './records.mjs';
+import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, ledgerRows, planScope, planSectionPresent, sectionValue, textLines } from './records.mjs';
 import { knownControlArtifact, runDir } from './runs.mjs';
 import { findingBatchAccepted, findingKnownIssue } from './knownissues.mjs';
 import { pathMatches } from './scope.mjs';
@@ -412,6 +412,8 @@ export function gateFocusStatus(ctx, dir, id, gate, focus, mode, now) {
     case 'fail':
       if (failFullyWaived(ctx, dir, last)) return 'waived';
       if (Number(gateField(ctx, last, 'seq')) <= lastReopenSeq(ctx, dir, 'terminal')) return 'stale';
+      // A325: an evidence-only repair of exactly this finding, followed by a handoff IMPLEMENTED, makes the gate run again on the same content (the reviewer judges the new evidence; the repair is no pass)
+      if (evidenceRepairSupersedes(ctx, dir, last)) return 'stale';
       return 'fail';
     default: return 'stale';
   }
@@ -569,7 +571,33 @@ function gateCarryoverFree(ctx, dir, rec) {
 /** `max_fix_rounds` @param {Context} ctx */
 export function maxFixRounds(ctx) { const v = ctx.config().get('review.max_fix_rounds', '2'); return /^[0-9]+$/.test(v) ? Number(v) : 2; }
 
-/** `fix_rounds_used ID`: one round per distinct content that collected an unwaived blocking FAIL under the current contract since the last reopen. @param {Context} ctx @param {string} dir */
+/** The sequence number of the last ledger row of an event, or 0. @param {Context} ctx @param {string} dir @param {string | RegExp} event */
+function lastRowSeq(ctx, dir, event) { const r = ledgerRows(ctx, dir, event); return r.length === 0 ? 0 : r[r.length - 1].seq; }
+
+/**
+ * The `evidence-repair` rows of the run since its last amend (A325): each is one fix round that changed no tree. The ledger is sealed and only the control plane appends to it, so a row is
+ * the record that a repair really ran. @param {Context} ctx @param {string} dir
+ */
+export function evidenceRepairRows(ctx, dir) {
+  const since = lastRowSeq(ctx, dir, 'REOPEN');
+  return ledgerRows(ctx, dir, 'evidence-repair').filter((r) => r.seq > since);
+}
+
+/** The gate record a repair row names: `finding=<record file name>` at the start of its detail. @param {string} detail */
+export function repairFinding(detail) { return /^finding=(\S+)(?: |$)/.exec(detail)?.[1] ?? ''; }
+
+/**
+ * True when REC (a failing gate record) was the finding of an evidence-only repair that a later `handoff IMPLEMENTED` accepted. @param {Context} ctx @param {string} dir @param {string} rec
+ */
+function evidenceRepairSupersedes(ctx, dir, rec) {
+  const name = rec.slice(rec.lastIndexOf('/') + 1);
+  const handoffs = ledgerRows(ctx, dir, 'handoff:IMPLEMENTED');
+  if (handoffs.length === 0) return false;
+  const lastHandoff = handoffs[handoffs.length - 1].seq;
+  return evidenceRepairRows(ctx, dir).some((r) => repairFinding(r.detail) === name && r.seq < lastHandoff);
+}
+
+/** `fix_rounds_used ID`: one round per distinct content that collected an unwaived blocking FAIL under the current contract since the last reopen, plus one per evidence-only repair (A325). @param {Context} ctx @param {string} dir */
 export function fixRoundsUsed(ctx, dir) {
   const reopen = lastReopenSeq(ctx, dir, 'any');
   const set = new Set();
@@ -582,7 +610,7 @@ export function fixRoundsUsed(ctx, dir) {
     if (gateCarryoverFree(ctx, dir, f)) continue;
     set.add(gateField(ctx, f, 'fingerprint'));
   }
-  return set.size;
+  return set.size + evidenceRepairRows(ctx, dir).length;
 }
 
 // ---- reports the pipeline shows -------------------------------------------------------------------------------------------------

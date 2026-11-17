@@ -41,7 +41,9 @@ In `tdd.json`, each cycle's `green` carries:
 
 `tdd.json` is written with `schema_version: 2`, which requires the three fields. `schema_version: 1` (a recording made before the test measurement) keeps them optional; both are checked when present. The validator cannot check that the number matches the output: the control plane stores the durations in the build record, applies the budgets of `config.yaml` (`test_budgets`, a plan `## Test budgets` line wins) and runs the new tests twice on the same commit (`test_stability`); a different outcome or a duration outside the tolerance stops the handoff.
 
-In a run, the same durations go to the recorder: `test_durations: <test name>=<ms>[; <test name>=<ms>]` on stdin of `worker-evidence ... GREEN pass`.
+In a run, the same durations go to the recorder: `test_durations: <test name>=<ms>[; <test name>=<ms>]` on stdin of `worker-evidence ... GREEN pass`. Every test the plan names under `## Tests` needs a duration in some GREEN record: `handoff IMPLEMENTED` refuses the run otherwise (A325), and so does the REVIEW_TESTS gate (`no_recorded_duration`).
+
+A GREEN record that lacks the duration of a plan-named test is re-recorded, not argued: run a plan-listed `## Verification commands` entry (or the project test command) and record GREEN again with the duration of EVERY plan-named test, read from that real output. When the review already failed on exactly that (the only open finding is `no_recorded_duration`) and nothing in the tree needs to change, `agent.sh worker-evidence <ID> GREEN rerun` (after the lead's `handoff IMPLEMENTING`) does it for you: the control plane runs the plan-listed commands itself, reads the per-test durations from their output and records them; you supply nothing (a form on stdin is refused), it counts as a fix round, it passes no gate and the reviewer judges the evidence again. It is refused when any other finding is open, when the application or test tree differs from the reviewed one, or when the plan lists no command; those rounds need a tree change as before.
 
 ## 4. What the control plane measures, and which command
 

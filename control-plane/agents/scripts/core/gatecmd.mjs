@@ -26,7 +26,8 @@ import { expandWords } from './shellglob.mjs';
 import { runSecretScan } from './secretscan.mjs';
 import { exemptedPath, verifyFreeze } from './commands/verify.mjs';
 import { headSha } from './git.mjs';
-import { measureRequired } from './testmeasure.mjs';
+import { greenRecords, measureRequired } from './testmeasure.mjs';
+import { evidenceRepairPlan, evidenceRepairRun } from './evidencerepair.mjs';
 import { notRunRelative } from './pathin.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
@@ -146,12 +147,40 @@ export function workerEvidenceCommand(ctx, args) {
   const expected = topology === 'standalone' ? 'lead' : 'implementer';
   if (ctx.role !== expected) fail(`command requires AGENT_ROLE=${expected} for this run's execution topology (${topology})`);
   if (!['RED', 'GREEN', 'REFACTOR', 'FIX'].includes(phase)) fail(`invalid worker-evidence phase: ${phase}`);
-  if (result !== 'pass' && result !== 'fail') fail(`invalid worker-evidence result: ${result} (want pass|fail)`);
+  if (result !== 'pass' && result !== 'fail' && result !== 'rerun') fail(`invalid worker-evidence result: ${result} (want pass|fail)`);
+  if (result === 'rerun' && phase !== 'GREEN') fail(`worker-evidence ${phase} rerun: only GREEN can be re-run (the evidence-only repair of a plan test that has no recorded duration, A325)`);
   if (sectionValue(ctx, dir, 'handoff', 'state') !== 'IMPLEMENTING') fail('worker evidence may only be recorded while handoff state is IMPLEMENTING');
   verifyFreeze(ctx, id); // prints `freeze verified: ID`, as the shell did
   enforceTaskBranch(ctx, id);
   verifySeal(ctx, id, dir);
   const stdin = readStdin();
+  if (result === 'rerun') return evidenceRepair(ctx, id, dir, topology, stdin);
+  return recordEvidence(ctx, id, dir, topology, phase, result, stdin);
+}
+
+/**
+ * The evidence-only repair of a fix round (A325): `worker-evidence ID GREEN rerun`. The control plane runs the plan-listed Verification commands itself, reads the per-test durations
+ * from their output itself and records them as GREEN evidence; the agent supplies nothing (a stdin form is refused). It is allowed only when the open findings are all
+ * `no_recorded_duration` and the task patch is the one that was reviewed (see evidencerepair.mjs), counts as a fix round, and passes no gate: the reviewer judges the evidence again.
+ * @param {Context} ctx @param {string} id @param {string} dir @param {string} topology @param {string} stdin
+ */
+function evidenceRepair(ctx, id, dir, topology, stdin) {
+  if (stdin.trim() !== '') fail('worker-evidence GREEN rerun takes no input: the control plane runs the plan-listed commands and measures the durations itself; a form with command, target or test_durations is refused (record GREEN by hand with the normal form if you ran the tests yourself)');
+  const plan = evidenceRepairPlan(ctx, id);
+  const run = evidenceRepairRun(ctx, id, plan);
+  /** @type {string[]} */ const made = [];
+  for (const r of run.records) {
+    const before = new Set(greenRecords(ctx, id).map((g) => g.file));
+    recordEvidence(ctx, id, dir, topology, 'GREEN', 'pass', `command: ${r.command}\ntarget: ${plan.target}\ntest_durations: ${r.durations}\n`);
+    made.push(...greenRecords(ctx, id).map((g) => g.file).filter((f) => !before.has(f)).map((f) => f.replace(/\.yaml$/, '')));
+  }
+  ledgerIf(ctx, id, 'evidence-repair', 'IMPLEMENTING', 'IMPLEMENTING', `finding=${plan.recName} patch=${plan.patch} commands=${run.records.length} records=${made.join(',')} tests=${oneLine(run.names.join(', '))}`);
+  ctx.out(`evidence-only repair recorded: ${id} (${run.records.length} GREEN record(s): ${made.join(' ')}); it is a fix round and passes no gate: record IMPLEMENTED, then the REVIEW_TESTS reviewer judges the new durations\n`);
+  return 0;
+}
+
+/** The worker-evidence record itself, after the checks of the command (a form on stdin, or the control plane's own measurement in the repair). @param {Context} ctx @param {string} id @param {string} dir @param {string} topology @param {string} phase @param {string} result @param {string} stdin */
+function recordEvidence(ctx, id, dir, topology, phase, result, stdin) {
   const commandText = fieldFromText(stdin, 'command');
   const targetText = fieldFromText(stdin, 'target');
   const expectedFailure = fieldFromText(stdin, 'expected_failure');
