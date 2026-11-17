@@ -107,6 +107,7 @@ export function readonlyGit(ctx, cmd, scan) {
   if ((SINK.test(flat) || SINK_EXT.test(flat)) && PUSH_TEXT.test(bare)) deny(`push text passed to a shell, eval or a pipe cannot be checked: ${TAIL}`);
   // xargs and parallel given git or gh with the subcommand on stdin
   if (/\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/m.test(stripped) || /\b(xargs|parallel)\b[^|;&]*\s(git|gh|glab|hub|lab)(\s+(-C|-c|--git-dir|--work-tree)\s+\S+|\s+-\S+)*\s*($|[|;&)])/.test(flat)) deny(`xargs or parallel given git or gh without a subcommand takes it from stdin and cannot be checked: ${TAIL}`);
+  if (/(^|[\s;&|(])(export\s+|env\s+)?GIT_EXTERNAL_DIFF=/.test(flat)) deny(`GIT_EXTERNAL_DIFF names a program that git runs: ${TAIL}`);
   // an interpreter or shell fed its program by a here-document, a here-string or an echo: the text is judged as a program
   const fed = HERE_PROG.exec(stripped)?.[3] ?? PIPE_PROG.exec(flat)?.[1] ?? '';
   if (fed !== '' && PROG_GIT.test(fed) && PROG_VERB.test(fed)) deny(`a program fed to an interpreter or shell on stdin that runs git push, a branch or tag creator or gh pull request create cannot be checked: ${TAIL}`);
@@ -116,6 +117,8 @@ export function readonlyGit(ctx, cmd, scan) {
   for (const rec of scan.records) {
     if (rec.kind !== 'C') continue;
     const { cw, rest } = cParts(rec);
+    // A327: an empty argument anywhere in a git command (`git -C "" push log`): git takes the next word as the value, so the subcommand it runs is not the one judged below, which drops empty words
+    if (rest !== '' && [cw, ...rest.split('\x03')].some((t) => /^(?:.*[\\/])?git(?:\.exe)?$/i.test(t) || dashedSub(t.slice(t.lastIndexOf('/') + 1)) !== null) && rest.split('\x03').includes('')) deny(`an empty argument in a git command cannot be checked (git takes the next word as its value): ${TAIL}`);
     const words = cmdSubst(rest.replace(/[\x03\x02]/g, '\n')).split('\n').filter((w) => w !== '');
     // a command word that is a variable, a substitution or a brace expansion cannot be read (`$g push`, `\`echo git\` push`, `git{,} push`)
     if (cw.startsWith('$') || cw.startsWith('`') || /[{}]/.test(cw)) deny(`a command word that is a variable, a substitution or a brace expansion cannot be checked (it may be git): ${TAIL}`);
@@ -165,8 +168,11 @@ function gitJudge(a, needSub = false) {
       if (!HARMLESS_KEY.test(key)) deny(`git -c ${key} can name a program that runs git push, or an alias: only color.*, core.quotepath, safe.directory and advice.* are set on the command line: ${TAIL}`);
       i += w === '-c' || w === '--config-env' ? 2 : 1; continue;
     }
-    if (['-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--attr-source'].includes(w)) { i += 2; continue; }
-    if (w.startsWith('-')) { i++; continue; }
+    // A327: an ALLOWLIST of the global options. Skipping an unknown one by a single word put the judged subcommand at the wrong place (`git --shallow-file status worktree remove ...`: git takes
+    // `status` as the value of --shallow-file and runs `worktree`). The role texts need `-C <path>` and `-c <harmless>=<v>`; the rest are flags without a value. Every other leading option is refused.
+    if (w === '-C') { i += 2; continue; }
+    if (w === '--no-pager' || w === '-P' || w === '--no-optional-locks') { i++; continue; }
+    if (w.startsWith('-')) deny(`git ${w} before the subcommand is not one of the global options a review role uses (-C <path>, -c <harmless key>=<value>, --no-pager, -P, --no-optional-locks); an option with a value there moves the subcommand: ${TAIL}`);
     sub = w; i++; break;
   }
   const rest = a.slice(i);
@@ -205,10 +211,18 @@ function gitJudge(a, needSub = false) {
       if (!detach) deny(`git switch of a name may create a local branch from a remote one; use --detach <commit>: ${TAIL}`);
       return;
     case 'worktree': {
-      if (pos[0] !== 'add') return;
-      if (rest.some((x) => x === '-b' || x === '-B' || long('orphan') || (isShort(x) && /[bB]/.test(x)))) deny(`git worktree add creates a branch here; use git worktree add --detach <path> HEAD: ${TAIL}`);
-      // a path and a name that exists only on the remote create a tracking branch, a path alone creates a branch named like the folder
-      if (!detach) deny(`git worktree add without --detach may create a branch; use git worktree add --detach <path> HEAD: ${TAIL}`);
+      // A327: an ALLOWLIST (a denylist of verbs was bypassed by every expansion of the word: `$'remove'`, `$(printf prune)`, `{remove,}`, `${X:-remove}`, `$v`, `"$@"`, a glob): after `worktree` the next word
+      // must be the plain literal `add` (judged below) or `list`. Anything else, a plain verb or a word with an expansion, is refused, so a review role removes, prunes, locks, moves or repairs
+      // no worktree (they can delete the work of another role or of the user). A path allowance for `remove` was tried and rejected too (TMPDIR can be reassigned, a link in the role's own
+      // worktree can redirect git). The control plane removes the role's `$TMPDIR/verify-<ID>.<focus>` worktree at CODE_DONE (core/handoff.mjs). A tripwire for the common spellings, not a boundary.
+      if (pos[0] !== 'add' && pos[0] !== 'list') deny(`git worktree ${pos[0] ?? ''} is not for a review role: only the literal verbs add (--detach) and list are allowed here. Leave your evidence worktree $TMPDIR/verify-<ID>.<focus> registered; the control plane removes it at CODE_DONE: ${TAIL}`);
+      if (pos[0] === 'list') return;
+      // A327: `worktree add` takes ONLY: add, --detach, optionally --quiet/-q and --checkout/--no-checkout, one path and at most one commit-ish that does not start with '-'. Every other
+      // flag is refused, abbreviations and the short -d included: an option with a value (--reason, --lock) swallows the next word, so `add --lock --reason -d ../x` created a branch.
+      const wtTail = rest.slice(1);
+      const wtFlags = wtTail.filter((x) => x.startsWith('-'));
+      const wtWords = wtTail.filter((x) => !x.startsWith('-'));
+      if (rest[0] !== 'add' || !wtFlags.includes('--detach') || wtFlags.some((x) => !['--detach', '--quiet', '-q', '--checkout', '--no-checkout'].includes(x)) || wtWords.length < 1 || wtWords.length > 2) deny(`git worktree add is allowed only as: add --detach [--quiet|-q] [--checkout|--no-checkout] <path> [<commit>]; any other flag (-d, -f, -b, --lock, --reason, --orphan, --track ...) can create a branch: ${TAIL}`);
       return;
     }
     case 'update-ref': case 'replace': case 'replay':
@@ -223,6 +237,20 @@ function gitJudge(a, needSub = false) {
       if (pos.slice(1).some((x) => x.includes(':') && !x.slice(x.indexOf(':') + 1).startsWith('refs/remotes/'))) deny(`git ${sub} with a destination refspec creates or moves a local ref here: ${TAIL}`);
       return;
     }
+    // A327: verbs that rewrite or delete work or history in the live tree or the object store are refused as verbs, not by flag (an abbreviated long option, `gc --pru=now`, defeats a flag match)
+    case 'gc': case 'prune': case 'prune-packed': case 'repack': case 'pack-refs': case 'maintenance': case 'update-index': case 'rerere': case 'sparse-checkout': case 'checkout-index':
+      deny(`git ${sub} rewrites or deletes work or objects here and is not a review command: ${TAIL}`);
+      break;
+    case 'read-tree':
+      if (rest.some((x) => x.startsWith('-'))) deny(`git read-tree with an option (-u, --reset, ...) overwrites files of the working tree here: ${TAIL}`);
+      return;
+    case 'reflog':
+      if (pos[0] !== undefined && pos[0] !== 'show') deny(`git reflog ${pos[0]} deletes or rewrites history here; only the plain listing and show are allowed: ${TAIL}`);
+      return;
+    case 'submodule':
+      // A327: `submodule deinit -f --all` and `update --force` wipe the uncommitted work of a submodule; `foreach` runs a command line. Only the literal read verbs are allowed (a bare `git submodule` is status).
+      if (pos.length > 0 && pos[0] !== 'status' && pos[0] !== 'summary') deny(`git submodule ${pos[0]} can wipe the uncommitted work of a submodule or run a command line: only the literal verbs status and summary are allowed here: ${TAIL}`);
+      return;
     case 'stash':
       if (pos[0] === 'branch') deny(`git stash branch creates a branch here: ${TAIL}`);
       return;

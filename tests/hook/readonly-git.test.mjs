@@ -96,6 +96,20 @@ for (const [role, who] of OTHERS) {
   });
 }
 
+// A327: a review role adds its evidence worktree `$TMPDIR/verify-<ID>.<focus>` and removes NO worktree (the control plane does at CODE_DONE); the rows of the matrix above cover the forms.
+// The whole hook (not only this rule) lets each role add it and refuses every way of removing it.
+test('every review role adds its own $TMPDIR/verify-<ID>.<focus> evidence worktree with git; every remove of it, by git or by rm, is refused (A327)', async () => {
+  const wrong = [];
+  for (const [role, type] of ROLES.filter(([r]) => r !== 'explorer')) {
+    const add = await pre(dir, 'git worktree add --detach "$TMPDIR/verify-T-1.tests" HEAD', sub(type));
+    if (add !== null) wrong.push(`${role}: add -> ${add.slice(0, 100)}`);
+    for (const c of ['git worktree remove --force "$TMPDIR/verify-T-1.tests"', 'git worktree remove "$TMPDIR/verify-T-1.tests"', 'git worktree prune', 'rm -rf "$TMPDIR/verify-T-1.tests"']) {
+      if ((await pre(dir, c, sub(type))) === null) wrong.push(`${role}: ${c} was allowed`);
+    }
+  }
+  assert.deepEqual(wrong, []);
+});
+
 test('the runtime guard and the git pre-push name the same roles', async () => {
   const guard = await import(pathToFileURL(join(hookDir, 'guards/readonly-git.mjs')).href);
   const core = await import(pathToFileURL(join(nodeHook, '../../../../control-plane/agents/scripts/core/githooks.mjs')).href);

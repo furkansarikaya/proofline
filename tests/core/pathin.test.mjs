@@ -272,7 +272,8 @@ test('W10: relUnder keeps the POSIX batch-line rule exactly and finds a worktree
 test('W10: the call sites use the platform rules (a revert goes red here, the Windows probe is the only other check)', () => {
   const core = new URL('../../control-plane/agents/scripts/core/', import.meta.url);
   const src = (/** @type {string} */ f) => readSource(new URL(f, core), 'utf8');
-  assert.match(src('handoff.mjs'), /\|\| isScratchWorktreeWin\(p, list\[0\] \?\? '', ctx\.root, \[ctx\.env\.TEMP, ctx\.env\.TMP, ctx\.env\.TMPDIR\]\)\) extra \+=/);
+  // a worktree that the Windows rules call scratch is a blocker unless it is this run's own `verify-<ID>` one (A327): the removal comes first, `extra +=` (the blocker) stays for everything else
+  assert.match(src('handoff.mjs'), /\|\| isScratchWorktreeWin\(p, list\[0\] \?\? '', ctx\.root, \[ctx\.env\.TEMP, ctx\.env\.TMP, ctx\.env\.TMPDIR\]\)\) \{\n\s*if \(removeRunOwnedScratch\(ctx, id, t, p\)\) \{[^\n]*continue; \}\n\s*if \(otherOpenRunEvidence\([^\n]*continue;\n\s*extra \+= /);
   assert.match(src('worktree.mjs'), /process\.platform === 'win32'\) \{[^]*?winLinkAction\(t, physical\(path\.dirname\(l\)\) \?\? '', main, wt\)/);
   const hook = src('commands/hookcmds.mjs');
   assert.match(hook, /const p = posixForm\(args\[0\] \?\? ''\);/);

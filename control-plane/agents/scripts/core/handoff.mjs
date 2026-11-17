@@ -7,7 +7,7 @@ import { sha256 } from './hash.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
 import { consumeApproval, requireOpenRun } from './approve.mjs';
@@ -24,7 +24,7 @@ import { led, must } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gateField, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileText, gateField, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines, validTaskId } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pathMatches } from './scope.mjs';
 import { pipelineClass, pipelineClassValid, taskChangedPaths, tierEffective } from './signals.mjs';
@@ -104,8 +104,60 @@ export function verifyDebugResult(ctx, id) {
   fail(`IMPLEMENTED blocked: the task is typed or labelled as a defect ('${hit}' in its type, labels, suggested class or a decision: fix entry) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) (this always works, also after freeze); an UNRELATED pre-existing defect must instead be declared under '## Pre-existing defects' as '- <path:symbol>: <what> -- decision: report' BEFORE freeze: after freeze that needs an amendment and a refreeze (maybe another plan approval), so prefer the debug report`);
 }
 
-/** `verify_no_scratch_worktrees` @param {Context} ctx */
-export function verifyNoScratchWorktrees(ctx) {
+/**
+ * A327: the one scratch worktree the control plane removes itself: the evidence worktree a review role of THIS run makes, named by the role texts `$TMPDIR/verify-<ID>` or `$TMPDIR/verify-<ID>.<focus>` (a dot cannot occur in a task id, so run `LC` never matches the worktree of run `LC-2`),
+ * a direct child of the temp folder, detached, with no local change and no untracked file. Anything else (another name, a branch, a dirty tree, a lock, a user's worktree) stays a blocker.
+ * The removal is `git worktree remove` WITHOUT --force, so a locked or modified worktree is refused by git as well.
+ * @param {Context} ctx @param {string} id @param {string} t the temp folder @param {string} p the worktree path as git lists it
+ */
+function removeRunOwnedScratch(ctx, id, t, p) {
+  if (id === '') return false;
+  const n = p.replace(/^\/private/, '');
+  const slash = n.lastIndexOf('/');
+  if (slash < 0 || n.slice(0, slash) !== t) return false;
+  const base = n.slice(slash + 1);
+  if (base !== `verify-${id}` && !base.startsWith(`verify-${id}.`)) return false;
+  // the path is the string git registered; it must still be that real folder: not a link (a link swapped in could point at another registered worktree), with a plain `.git` file inside
+  try {
+    if (!lstatSync(p).isDirectory() || !lstatSync(`${p}/.git`).isFile()) return false;
+    if (realpathSync(p) !== `${realpathSync(p.slice(0, p.lastIndexOf('/')))}/${p.slice(p.lastIndexOf('/') + 1)}`) return false;
+  } catch { return false; }
+  if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
+  const st = git(ctx, ['-C', p, 'status', '--porcelain', '--untracked-files=all']);
+  if (st.status !== 0 || st.out !== '') return false;
+  return git(ctx, ['worktree', 'remove', p]).status === 0;
+}
+
+/**
+ * A327: the evidence worktree of ANOTHER run that is still open (a batch runs tasks side by side: T-2's QA made `$TMPDIR/verify-T-2.qa`, T-3's CODE_DONE must not be blocked by it, and the
+ * control plane does not remove it either, it is not this run's). It is skipped only when ALL hold: a direct child of the temp folder and a real folder (no link, not nested), named
+ * `verify-<X>` or `verify-<X>.<focus>` with X a valid task id other than this run's, detached, and X has a RUN.yaml (in the main tree, in its run worktree or here) whose state is not
+ * terminal (DONE, FAILED, BLOCKED). Every other name, an X without an open run, a branch-attached worktree and a lookalike stay blockers.
+ * @param {Context} ctx @param {string} id @param {string} t the temp folder @param {string} p the worktree path as git lists it @param {string} main the main tree
+ */
+function otherOpenRunEvidence(ctx, id, t, p, main) {
+  const n = p.replace(/^\/private/, '');
+  const slash = n.lastIndexOf('/');
+  if (slash < 0 || n.slice(0, slash) !== t) return false;
+  const m = /^verify-([A-Za-z0-9_-]+)(?:\.[A-Za-z0-9_.-]+)?$/.exec(n.slice(slash + 1));
+  const other = m?.[1] ?? '';
+  if (other === '' || other === id || !validTaskId(other)) return false;
+  try {
+    if (!lstatSync(p).isDirectory() || !lstatSync(`${p}/.git`).isFile()) return false;
+  } catch { return false; }
+  if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
+  for (const dir of [`${main}/.agents/runs/${other}`, `${main}/.agents/local/worktrees/${other}/.agents/runs/${other}`, `${ctx.root}/.agents/runs/${other}`]) {
+    let has = false;
+    try { has = statSync(`${dir}/RUN.yaml`).isFile(); } catch { /* none here */ }
+    if (!has) continue;
+    const st = sectionValue(ctx, dir, 'execution', 'state');
+    if (st !== '' && !['DONE', 'FAILED', 'BLOCKED'].includes(st)) return true;
+  }
+  return false;
+}
+
+/** `verify_no_scratch_worktrees` (A327: with the run id it removes this run's own clean, detached `verify-<ID>` evidence worktree itself) @param {Context} ctx @param {string} [id] */
+export function verifyNoScratchWorktrees(ctx, id = '') {
   let t = (ctx.env.TMPDIR || '/tmp').replace(/\/$/, '');
   t = t.replace(/^\/private/, '');
   const list = git(ctx, ['worktree', 'list', '--porcelain']).out.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice(9));
@@ -117,9 +169,13 @@ export function verifyNoScratchWorktrees(ctx) {
     if (n === rootN) continue;
     if (n === main) continue;
     if (n.startsWith(`${main}/.agents/local/worktrees/`)) continue;
-    if (n.startsWith(`${t}/`) || n.startsWith('/tmp/') || n.startsWith('/var/folders/') || isScratchWorktreeWin(p, list[0] ?? '', ctx.root, [ctx.env.TEMP, ctx.env.TMP, ctx.env.TMPDIR])) extra += ` ${p}`;
+    if (n.startsWith(`${t}/`) || n.startsWith('/tmp/') || n.startsWith('/var/folders/') || isScratchWorktreeWin(p, list[0] ?? '', ctx.root, [ctx.env.TEMP, ctx.env.TMP, ctx.env.TMPDIR])) {
+      if (removeRunOwnedScratch(ctx, id, t, p)) { ctx.out(`removed the run's own evidence worktree: ${p}\n`); continue; }
+      if (otherOpenRunEvidence(ctx, id, t, p, main)) continue;
+      extra += ` ${p}`;
+    }
   }
-  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. Remove each ('git worktree remove --force <path>'; the lead may run it) and run it again`);
+  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. A path '${t}/verify-${id}' or '${t}/verify-${id}.<focus>' is an evidence worktree of this run's review roles and not a question for the user: the lead removes it itself ('git worktree remove --force <path>', also when it holds changes: it is this run\'s own evidence copy) and runs CODE_DONE again. Any other path was not made by this run's roles (another name, another run's, or somebody's own worktree, maybe with work in it): ask the user before removing it`);
 }
 
 /** `verify_fix_bound ID` (A123) @param {Context} ctx @param {string} id */
@@ -319,7 +375,7 @@ export function recordHandoff(ctx, id, phase) {
       if (sectionValue(ctx, dir, 'handoff', 'implemented_patch_sha256') !== patch) fail('CODE_DONE blocked: the application tree changed since IMPLEMENTED');
       verifyClassification(ctx, id);
       dbGuardCheck(ctx, id);
-      verifyNoScratchWorktrees(ctx);
+      verifyNoScratchWorktrees(ctx, id);
       if (sectionValue(ctx, dir, 'execution', 'awaiting_input') === 'true') fail(`CODE_DONE blocked: questions are pending ('agent.sh questions ${id}')`);
       if (gatesEnforced(ctx, dir)) {
         verifyMutationOwnership(ctx, dir, id);

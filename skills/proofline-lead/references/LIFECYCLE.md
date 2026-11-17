@@ -141,7 +141,10 @@ endpoint, form handler, CLI argument, queue consumer, webhook) without a `## Val
 3. `A handoff <ID> IMPLEMENTED` (fails without RED/GREEN evidence per scope path or an attested window),
    `A tier <ID>`, `A pipeline <ID>`.
 4. Gates and fix loop: [GATES-AND-FIXES.md](GATES-AND-FIXES.md). `A handoff <ID> CODE_DONE` when `next`
-   says so.
+   says so. A CODE_DONE refusal that lists scratch git worktrees: a path `$TMPDIR/verify-<ID>` or `$TMPDIR/verify-<ID>.<focus>` with
+   this run's ID is an evidence worktree of the review roles of this run and NOT a question for the user (A327): run
+   `git worktree remove --force <path>` yourself and run CODE_DONE again. Any other listed path (another name, another run's ID, or
+   somebody's own worktree, which may hold work) is not this run's: ask the user before removing it.
 
 ## 7. Knowledge
 

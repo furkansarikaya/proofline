@@ -187,8 +187,10 @@ test('verdicts: lead-authored verdicts, role-bound submits, worktree and scratch
   // A132: `git -C $VAR <subcommand>` is not a stash; the three commands a COMPLEX run had denied (git worktree add ... then git -C $W status/apply)
   allAllowed('A132 no false positive: ', ['W=$TMPDIR/t1 && mkdir -p $W && git worktree add --detach $W/wt HEAD 2>&1 | tail -1 && git -C $W/wt status --short && (cd $W/wt && node --test 2>&1 | grep -E "^ok")',
     'R=.agents/runs/T-1; WT=$TMPDIR/rv/wt; git worktree add --detach $WT HEAD >/dev/null 2>&1; git -C $WT status --short; echo $WT',
-    'W=$TMPDIR/rv/wt\ngit worktree add --detach $W HEAD >/dev/null 2>&1\ngit diff HEAD --binary | git -C $W diff --stat\ngit worktree remove --force $W',
+    'W=$TMPDIR/rv/wt\ngit worktree add --detach $W HEAD >/dev/null 2>&1\ngit diff HEAD --binary | git -C $W diff --stat',
     'git -C $(pwd) status', 'git -C `pwd` log -1']);
+  // A327: a review role leaves its evidence worktree to the control plane (CODE_DONE) and removes none, whatever the path
+  denied('A327 a review role removes its worktree', B('W=$TMPDIR/rv/wt\ngit worktree remove --force $W', 'proofline-qa', 'q1'), 'A293');
   allowed('A132 no false positive: git -c user.name=$X log -1', B('git -c user.name=$X log -1', 'proofline-implementer', 'a7'));
   // A132: the three real command texts of the COMPLEX run (verbatim): none is a stash any more; still refused by a path rule (A97)
   for (const n of [1, 2, 3]) {
