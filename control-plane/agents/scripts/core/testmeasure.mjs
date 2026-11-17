@@ -68,6 +68,22 @@ export function greenRecords(ctx, id) {
 // ---- the plan: test kinds and budgets -------------------------------------------------------------------------------------------------
 
 /**
+ * Where the description of a `## Tests` bullet starts: the first dash separator (em dash, en dash, `--` or a spaced hyphen) outside double quotes and outside a code span, else the end of the line.
+ * The bullet is a code-span file, a quoted test name, a dash and what it asserts, then `(test_kind: ...)`; a quoted value in what it asserts (`["book club", "sci-fi"]`) is data, not a test name.
+ * @param {string} line @param {number} from where the scan starts: after the bullet marker and the `AC-n:` label, so the marker's own dash is never a separator
+ */
+function descriptionStart(line, from) {
+  let quoted = false; let code = false;
+  for (let i = from; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"' && !code) quoted = !quoted;
+    else if (c === '`' && !quoted) code = !code;
+    else if (c === ' ' && !quoted && !code && /^ (—|–|--|-) /.test(line.slice(i, i + 5))) return i;
+  }
+  return line.length;
+}
+
+/**
  * `## Tests` bullets with their `test_kind` and the quoted test names, and `## Test budgets` (`default` or numbers) of a PLAN.md.
  * @param {string} plan @returns {{ names: Array<{ name: string, kind: string }>, budgets: Map<string, { test: number, suite: number } | 'default'> }}
  */
@@ -80,7 +96,11 @@ export function planKinds(plan) {
     if (sec === 'Tests') {
       const k = /\btest_kind:\s*([A-Za-z0-9_-]+)/.exec(l);
       if (!k || !KINDS.includes(k[1]) || !/^\s*[-*]\s+AC-\d+:/i.test(l)) continue;
-      for (const m of l.matchAll(/"([^"]+)"/g)) names.push({ name: asciiLower(m[1].trim()), kind: k[1] });
+      const from = /^\s*[-*]\s+AC-\d+:/i.exec(l)?.[0].length ?? 0;
+      // names are the quoted strings before the first dash; a bullet that names none there reads every quoted string (a test is never hidden from measurement by a dash placed first)
+      let found = [...l.slice(from, descriptionStart(l, from)).matchAll(/"([^"]+)"/g)];
+      if (found.length === 0) found = [...l.slice(from).matchAll(/"([^"]+)"/g)];
+      for (const m of found) names.push({ name: asciiLower(m[1].trim()), kind: k[1] });
     } else if (sec === 'Test budgets') {
       const m = /^\s*-\s*([A-Za-z0-9_-]+):\s*(.*)$/.exec(l);
       if (!m || !KINDS.includes(m[1])) continue;

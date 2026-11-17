@@ -37,6 +37,54 @@ test('planKinds reads the test kinds and the budget lines; kindOf matches a reco
   assert.equal(kindOf('something else', pk.names, 'e2e'), 'e2e');
 });
 
+test('planKinds takes the test names before the description only: a quoted value in the description or in a code span is data, not a test (COMPLEX run, "book club" and "sci-fi")', () => {
+  const bullets = [
+    '- AC-2: `tests/api.test.js` "POST tags normalises and returns the book" — returns 200 with `["book club", "sci-fi"]`; a later GET returns the same (test_kind: integration)',
+    '- AC-3: `tests/api.test.js` "adding an existing tag in other case keeps one tag" -- adding "SCI-FI" to a book tagged "sci-fi" leaves one (test_kind: integration)',
+    '- AC-4: `a.test` "first name", "second name" and "third - name" – the tag "x" is stored (test_kind: unit)',
+    '- AC-5: `b.test` "no description at all" (test_kind: unit)',
+    '- AC-6: `c.test` "kept" - expects "data" (test_kind: unit)',
+    '- AC-7: `d - e.test` "dash in the file" — expects "data" (test_kind: unit)',
+  ];
+  const pk = planKinds(`## Tests\n\n${bullets.join('\n')}\n`);
+  assert.deepEqual(pk.names.map((x) => x.name), [
+    'post tags normalises and returns the book',
+    'adding an existing tag in other case keeps one tag',
+    'first name', 'second name', 'third - name',
+    'no description at all', 'kept', 'dash in the file',
+  ]);
+});
+
+test('planKinds: separators, quotes in code spans after the separator, and the limit of a bullet with no separator', () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  // the name list ends at an en dash, "--" or a spaced hyphen; everything after is description
+  assert.deepEqual(names('- AC-1: `a.test` "one", "two" – stores "x" (test_kind: unit)'), ['one', 'two']);
+  assert.deepEqual(names('- AC-1: `a.test` "one" -- stores "x" (test_kind: unit)'), ['one']);
+  assert.deepEqual(names('- AC-1: `a.test` "one" - stores "x" (test_kind: unit)'), ['one']);
+  // quotes inside code spans after the separator are data
+  assert.deepEqual(names('- AC-1: `a.test` "one" — returns `{"tags": ["a b"]}` and "c d" (test_kind: unit)'), ['one']);
+  // a quoted name containing a dash does not end the list
+  assert.deepEqual(names('- AC-1: `a.test` "one - two" — x (test_kind: unit)'), ['one - two']);
+  // documented limit: with no separator every quoted string is still read as a test name
+  assert.deepEqual(names('- AC-1: `a.test` "one" returns "data" (test_kind: unit)'), ['one', 'data']);
+});
+
+test('planKinds: indented, nested, star, tab and two-digit bullets keep their names; a bullet naming no test before the dash reads every quote', () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  const tail = '`a.test` "real one" — expects "x" (test_kind: unit)';
+  for (const marker of ['  - AC-1:', '    - AC-1:', '- AC-1:', '* AC-1:', '\t- AC-1:', '  * AC-12:', '- AC-12:']) assert.deepEqual(names(`${marker} ${tail}`), ['real one'], marker);
+  assert.deepEqual(names('    - AC-1: "real one" (test_kind: unit)'), ['real one']);
+  assert.deepEqual(names('  - AC-1: "only names", "two" (test_kind: unit)'), ['only names', 'two']);
+  // no name before the dash: the old behaviour for that bullet, every quoted string is a name
+  assert.deepEqual(names('- AC-1: `a.test` — "must run" (test_kind: unit)'), ['must run']);
+  assert.deepEqual(names('- AC-1: foo - "must run" (test_kind: unit)'), ['must run']);
+  assert.deepEqual(names('- AC-1: (test_kind: unit) — `a.test` "n" and "m"'), ['n', 'm']);
+  // the COMPLEX case is unchanged: names before the dash, data values after
+  assert.deepEqual(names('- AC-2: `t.js` "POST tags" — returns `["book club", "sci-fi"]` (test_kind: integration)'), ['post tags']);
+  // not covered: no name before the dash and quoted DATA after it still reads the data as names
+  assert.deepEqual(names('- AC-1: `a.test` — returns "book club" (test_kind: unit)'), ['book club']);
+});
+
 test('budgets: the plan wins over config, config over the built-in default, timeouts.scale scales both, default means config', () => {
   const none = new Map();
   assert.deepEqual(budgetTable(cfgOf(''), none).unit, { test: DEFAULTS.unit.test_ms, suite: DEFAULTS.unit.suite_ms, source: 'config' });

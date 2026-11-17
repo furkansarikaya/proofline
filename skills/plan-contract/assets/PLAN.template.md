@@ -31,6 +31,8 @@ scope:
 
 - AC-1: `<test file>` "<test name>" — <what it asserts> (test_kind: unit|integration|e2e)
 
+Test names are the quoted strings before the first dash; the text after the dash is description.
+
 ## Test budgets
 
 - unit: default
