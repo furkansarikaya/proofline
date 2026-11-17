@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.149 — 2026-11-17
+
 - Tests (A318): the COMPLEX end-to-end scenario project sets its own `test_trust.mutation_budget` to 30 (the other scenarios keep 20), so the plan's 21 criteria do not stop at a mutation-budget approval the harness never gives; the harness still never answers that request. No product code changed.
 
 ## 0.0.148 — 2026-11-17
