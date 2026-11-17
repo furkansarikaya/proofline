@@ -106,10 +106,11 @@ export function refreezeCount(approvalsDir) {
 export const HARD_REPLY_CAP = 12;
 
 /**
- * The reply allowance (C-14): `base` answers (default 3) plus one for every refreeze, never above the hard cap.
- * @param {number} base @param {number} refreezes
+ * The reply allowance (C-14): `base` answers (default 3) plus one for every refreeze plus one for every listed approval sent (A328: a listed message is a user message
+ * the scenario file names in advance and bounds by max-uses, so it does not use up the answers of the other replies), never above the hard cap.
+ * @param {number} base @param {number} refreezes @param {number} [listed]
  */
-export const replyBudget = (base, refreezes) => Math.min(HARD_REPLY_CAP, base + refreezes);
+export const replyBudget = (base, refreezes, listed = 0) => Math.min(HARD_REPLY_CAP, base + refreezes + listed);
 
 /**
  * The decision at a stop with the whole set of open requests: a refreeze raises a `plan` and a `scope` request together (the amended plan and its
@@ -135,4 +136,97 @@ export function questionScript(file, generic) {
   let lines;
   try { lines = readFileSync(file, 'utf8').split('\n'); } catch { return []; }
   return generic ? [lines[0] ?? ''].filter((l) => l !== '') : lines.filter((l) => l.trim() !== '');
+}
+
+// ---- Listed approvals (A328) ----------------------------------------------------------------------------------------------------------------------
+// The harness has NO privileged path for an approval only the user gives. A scenario may, like a real user, SEND such a message through the same prompt path as every
+// other reply (the lead is resumed with the text as the user's prompt) when the scenario file `replies/approvals.<SCENARIO>.txt` LISTS that exact message for that
+// kind of request. Nothing outside the file is ever sent; the kinds below are the only ones a file may name.
+
+/** The kinds a listing may name: user-only approvals whose message is a plain approval, and the assumption acceptance (`accept AS-N`, a question, not an approvals/ request). */
+export const LISTABLE_KINDS = ['scope', 'destructive', 'mutation_budget', 'assumption'];
+/**
+ * Never listed, never sent, whatever the file says: a waiver (a waiver must never come from the harness), commit, push, pull request, merge, delivery, anything of the
+ * SECRETS or SECURITY gates. `plan` is the scripted line 2 and 3 of the scenario's reply file, not a listing.
+ */
+export const FORBIDDEN_WORDS = /\b(waive|waived|waiver|waivers|commit|commits|committed|push|pushed|merge|merged|delivery|deliver|pr|pull request|pull-request|secret|secrets|security|feragat|teslimat|teslimatı|teslimati)\b/i;
+/** The words a message of each listable kind holds; a message names exactly one kind (assumption: only the form `accept AS-<n>`). */
+const KIND_PATTERN = { scope: /\bscope\b/i, destructive: /\bdestructive\b/i, mutation_budget: /\bmutation budget\b/i, assumption: /^accept AS-[0-9]+$/ };
+/** The most lines and the most message uses one listing may hold: it stays well under the hard reply cap. */
+export const LISTING_MAX_LINES = 6;
+export const LISTING_MAX_USES = 6;
+
+/**
+ * Is this (kind, message) pair one a listing may carry? The loader and {@link pickListed} both ask, so a hand-built entry is judged the same way.
+ * @param {string} kind @param {string} message @returns {string} the reason it may not, or '' when it may
+ */
+export function listedProblem(kind, message) {
+  if (!LISTABLE_KINDS.includes(kind)) return `kind '${kind}' may never be listed (allowed: ${LISTABLE_KINDS.join(', ')}; a waiver, commit, push, delivery, merge, secrets and security approval, and plan, never come from the harness)`;
+  if (message.trim() === '' || message !== message.trim()) return 'the message is empty or has leading or trailing space';
+  if (/[\n\r]/.test(message) || message.includes('?')) return 'the message must be one line without a question mark';
+  if (FORBIDDEN_WORDS.test(message)) return `the message '${message}' holds a waiver, commit, push, merge, delivery, secrets or security word`;
+  if (!KIND_PATTERN[/** @type {keyof typeof KIND_PATTERN} */ (kind)].test(message)) return `the message '${message}' is not a ${kind} approval (it must name the kind)`;
+  for (const k of LISTABLE_KINDS) if (k !== kind && KIND_PATTERN[/** @type {keyof typeof KIND_PATTERN} */ (k)].test(message)) return `the message '${message}' also names the ${k} kind`;
+  return '';
+}
+
+/**
+ * Load a listing file: `kind | exact message [| max-uses]` per line, `#` comments and blank lines ignored, max-uses defaults to 1. An absent file is an empty
+ * listing (a scenario without one behaves as before). Anything else wrong throws, so the harness fails at startup.
+ * @param {string} file @returns {{ kind: string, message: string, max: number }[]}
+ */
+export function loadListedApprovals(file) {
+  if (!existsSync(file)) return [];
+  const entries = [];
+  let n = 0;
+  for (const raw of readFileSync(file, 'utf8').split('\n')) {
+    n++;
+    if (raw.trim() === '' || raw.trim().startsWith('#')) continue;
+    const fail = (/** @type {string} */ why) => { throw new Error(`${file}:${n}: ${why}`); };
+    const parts = raw.replace(/\r$/, '').split(' | ');
+    if (parts.length < 2 || parts.length > 3) fail("expected 'kind | message' or 'kind | message | max-uses'");
+    const kind = (parts[0] ?? '').trim();
+    const message = parts[1] ?? '';
+    let max = 1;
+    if (parts.length === 3) {
+      const m = (parts[2] ?? '').trim();
+      if (!/^[1-9][0-9]*$/.test(m)) fail(`max-uses '${m}' is not a positive whole number`);
+      max = Number(m);
+    }
+    const why = listedProblem(kind, message);
+    if (why) fail(why);
+    entries.push({ kind, message, max });
+  }
+  if (entries.length > LISTING_MAX_LINES) throw new Error(`${file}: more than ${LISTING_MAX_LINES} lines`);
+  if (entries.reduce((s, e) => s + e.max, 0) > LISTING_MAX_USES) throw new Error(`${file}: the max-uses add up to more than ${LISTING_MAX_USES}`);
+  return entries;
+}
+
+/**
+ * The ids of the high-risk assumptions the lead's open questions ask the user to accept: the `ASSUMPTION: AS-<n>@<hash>` lines of `agent.sh questions <ID>`.
+ * @param {string} questionsText @returns {string[]}
+ */
+export function openAssumptions(questionsText) {
+  return [...new Set([...questionsText.matchAll(/^\s*ASSUMPTION: (AS-[0-9]+)@/gm)].map((m) => m[1] ?? ''))].filter(Boolean);
+}
+
+/**
+ * The listed message to send at this stop, or null. A line matches only while a request of its kind is open: an unanswered `scope`, `destructive` or `mutation_budget`
+ * request in approvals/, or (assumption) the question naming that exact id; and while its uses are not spent. Each entry is judged again by {@link listedProblem}.
+ * @param {{ kind: string, message: string, max: number }[]} entries @param {number[]} used uses spent per entry (same order)
+ * @param {{ name: string, kind: string }[]} open @param {string[]} assumptions
+ * @returns {{ index: number, kind: string, message: string, request: string } | null}
+ */
+export function pickListed(entries, used, open, assumptions) {
+  for (const [index, e] of entries.entries()) {
+    if (listedProblem(e.kind, e.message) !== '' || (used[index] ?? 0) >= e.max) continue;
+    if (e.kind === 'assumption') {
+      const id = /^accept (AS-[0-9]+)$/.exec(e.message)?.[1] ?? '';
+      if (id !== '' && assumptions.includes(id)) return { index, kind: e.kind, message: e.message, request: id };
+      continue;
+    }
+    const hit = open.find((o) => o.kind === e.kind);
+    if (hit) return { index, kind: e.kind, message: e.message, request: hit.name };
+  }
+  return null;
 }

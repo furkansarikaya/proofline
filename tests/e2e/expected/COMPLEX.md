@@ -1,7 +1,7 @@
 # COMPLEX — tags for books (UI + API + data)
 
 Task: `tasks/COMPLEX.md`. Plus every item of `COMMON.md`. Facts: FACTS.md "COMPLEX".
-Harness replies: `Plan approved.` once, plus any `NEEDS_INPUT` answers.
+Harness replies: `Plan approved.` once, plus any `NEEDS_INPUT` answers, plus the user messages that `replies/approvals.COMPLEX.txt` LISTS (A328: `approve scope`, at most twice, only while a `scope` request is open; `accept AS-1`, once, only while the lead's open question names AS-1; they are logged as `listed-approval` in `out/replies-log.txt`; there is no waiver line).
 
 ## Must
 
@@ -44,7 +44,7 @@ Harness replies: `Plan approved.` once, plus any `NEEDS_INPUT` answers.
 - **X-12 Contract.** [invariant] Existing endpoints keep every existing field; additions only (e.g. `tags` on a
   Book). PLAN `## Contracts` names the additions.
 - **X-13 Pre-existing pagination defect.** [invariant] `paginate` in `src/service.js` is unchanged, or changed only
-  after a recorded `scope` approval from the user (none is given by the harness). If the run hit the
+  after a recorded `scope` approval from the user (the harness has no privileged path: the only scope approval it can send is the listed user message `approve scope` of `replies/approvals.COMPLEX.txt`, A328, owner decision; the evaluator checks that the scope request the lead raised and the message it relayed named the paginate change, and a `scope` approval that covered something else does not make a paginate edit `met`). If the run hit the
   defect, the completion report or a `NEEDS_INPUT` question names it as pre-existing.
 
 ## Must not

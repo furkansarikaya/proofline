@@ -8,10 +8,10 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, st
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { after, describe, test } from 'node:test';
-import { here, repo } from './runner.mjs';
+import { here, repo, runE2e } from './runner.mjs';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
 import { A, accepted, project } from '../core/legacy-lib.mjs';
-import { HARD_REPLY_CAP, openApprovals, pendingKind, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
+import { HARD_REPLY_CAP, LISTABLE_KINDS, listedProblem, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
 
 const root = tempDir('e2e-stops-');
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -86,6 +86,10 @@ async function play(scenario, script, sub, env = {}) {
   const out = findOut(r);
   return { summary: readFileSync(path.join(out, 'summary.txt'), 'utf8'), log: readFileSync(path.join(out, 'replies-log.txt'), 'utf8') };
 }
+/** A listing path that does not exist: no listed approvals (the behaviour of a scenario without an approvals file). */
+const NO_LISTING = { E2E_APPROVALS_FILE: path.join(root, 'no-such-listing.txt') };
+/** @param {string} name @param {string} text the listing file, written under the temp root @returns {Record<string, string>} */
+const listing = (name, text) => { const f = path.join(root, name); writeFileSync(f, text); return { E2E_APPROVALS_FILE: f }; };
 const replyTexts = (/** @type {string} */ log) => log.split('\n').filter(Boolean).map((l) => l.slice(l.indexOf(' | ') + 3));
 
 describe('reply loop against the stub lead', { concurrency: true }, () => {
@@ -125,7 +129,7 @@ test('COMPLEX: the refreeze after failed gates raises a plan and a scope request
     { text: real.complexRefreeze, create: [plan('003', 'B'), scope('004', 'B')] },
     { text: 'Approvals recorded. Starting the fix round.', answer: [{ kind: 'plan', request: '003-request-plan.yaml' }] },
   ];
-  const { summary, log } = await play('COMPLEX', { steps }, 'complex-refreeze');
+  const { summary, log } = await play('COMPLEX', { steps }, 'complex-refreeze', NO_LISTING);
   const texts = replyTexts(log);
   assert.equal(texts[2], replies('COMPLEX.txt')[2], `the refreeze reply: ${log}`);
   assert.doesNotMatch(texts[2] ?? '', /scope/i, 'the refreeze reply must hold no scope approval');
@@ -145,7 +149,7 @@ test('COMPLEX: a second refreeze is answered too (allowance 3 + 2)', async () =>
     { text: real.complexRefreeze, answer: [{ kind: 'plan', request: '003-request-plan.yaml' }], create: [plan('007', 'C'), scope('008', 'C')] },
     { text: 'done', answer: [{ kind: 'plan', request: '007-request-plan.yaml' }] },
   ];
-  const { summary } = await play('COMPLEX', { steps }, 'complex-two');
+  const { summary } = await play('COMPLEX', { steps }, 'complex-two', NO_LISTING);
   assert.match(summary, /^replies=4$/m, summary);
   assert.match(summary, /^refreeze_approval_replies=2$/m, summary);
   assert.match(summary, /^reply_budget=5$/m, summary);
@@ -160,7 +164,7 @@ test('a lead that raises a new plan and scope request after every reply stops at
 });
 
 test('a scope request alone is never answered, also next to a commit request', async () => {
-  const { summary } = await play('COMPLEX', { steps: [{ text: 'Approve scope for T-1?', create: [scope('001', 'A')] }] }, 'scope-alone');
+  const { summary } = await play('COMPLEX', { steps: [{ text: 'Approve scope for T-1?', create: [scope('001', 'A')] }] }, 'scope-alone', NO_LISTING);
   assert.match(summary, /^replies=0$/m, summary);
   assert.match(summary, /^stopped=unanswered-scope$/m, summary);
 });
@@ -172,18 +176,132 @@ test('a scope request left open after the refreeze reply ends the run as stopped
     { text: real.complexRefreeze, create: [plan('003', 'B'), scope('004', 'B')] },
     { text: 'Plan recorded. Which option do you prefer for the test exceptions?', answer: [{ kind: 'plan', request: '003-request-plan.yaml' }] },
   ];
-  const { summary } = await play('COMPLEX', { steps }, 'scope-left');
+  const { summary } = await play('COMPLEX', { steps }, 'scope-left', NO_LISTING);
   assert.match(summary, /^replies=3$/m, summary);
   assert.match(summary, /^stopped=unanswered-scope$/m, summary);
 });
 
 for (const k of ['destructive', 'scope', 'commit']) {
   test(`a ${k} request that stays open ends the run as stopped=unanswered-${k}`, async () => {
-    const { summary } = await play('COMPLEX', { steps: [{ text: 'Waiting.', create: [{ name: `001-request-${k}.yaml`, kind: k, bound: 'A' }] }] }, `unanswered-${k}`);
+    const { summary } = await play('COMPLEX', { steps: [{ text: 'Waiting.', create: [{ name: `001-request-${k}.yaml`, kind: k, bound: 'A' }] }] }, `unanswered-${k}`, NO_LISTING);
     assert.match(summary, /^replies=0$/m, summary);
     assert.match(summary, new RegExp(`^stopped=unanswered-${k}$`, 'm'), summary);
   });
 }
+
+
+// ---- Listed approvals (A328) ----
+const SCOPE_ASK = 'Approve scope for T-1?\n\nQUESTIONS:\n1. Approve scope for T-1?\n   options: approve | reject';
+
+test('listed approval: a scope request that is open gets the listed message once, logged as listed-approval, counted beside the C-14 allowance', async () => {
+  const steps = [{ text: SCOPE_ASK, create: [scope('001', 'A')] }, { text: 'Scope recorded.', answer: [{ kind: 'scope', request: '001-request-scope.yaml' }] }];
+  const { summary, log } = await play('COMPLEX', { steps }, 'listed-scope', listing('l-scope.txt', 'scope | approve scope\n'));
+  assert.deepEqual(replyTexts(log), ['approve scope']);
+  assert.match(log, /^reply=1 kind=listed-approval task=none request=scope 001-request-scope\.yaml \| approve scope$/m, log);
+  assert.match(summary, /^replies=1$/m, summary);
+  assert.match(summary, /^listed_approval_replies=1$/m, summary);
+  assert.match(summary, /^question_replies=0$/m, summary);
+  assert.match(summary, /^reply_budget=4$/m, summary);   // 3 + 0 refreezes + 1 listed
+  assert.doesNotMatch(summary, /^stopped=(unanswered|max-replies|repeated-stop)/m, summary);
+});
+
+test('listed approval: nothing is sent while no request of the listed kind is open (a destructive, commit, push or waiver request; a question)', async () => {
+  const l = listing('l-other.txt', 'scope | approve scope\n');
+  const kinds = ['destructive', 'commit', 'waive-F-1'];
+  const [q, ...others] = await Promise.all([
+    play('CRITICAL', { steps: [{ text: real.critical[0] ?? 'Which option?' }, { text: 'done' }] }, 'listed-question', l),
+    ...kinds.map((k) => play('COMPLEX', { steps: [{ text: 'Waiting.', create: [{ name: `001-request-${k}.yaml`, kind: k, bound: 'A' }] }] }, `listed-other-${k}`, l)),
+  ]);
+  for (const { summary, log } of others) {
+    assert.match(summary, /^replies=0$/m, summary);
+    assert.match(summary, /^listed_approval_replies=0$/m, summary);
+    assert.doesNotMatch(log, /listed-approval/, log);
+    assert.match(summary, /^stopped=unanswered-/m, summary);
+  }
+  assert.doesNotMatch(q.log, /listed-approval/, q.log);
+  assert.match(q.summary, /^listed_approval_replies=0$/m, q.summary);
+});
+
+test('listed approval: max-uses is respected (default 1; a request that stays open is not answered a second time)', async () => {
+  const steps = [{ text: SCOPE_ASK, create: [scope('001', 'A')] }, { text: 'Still waiting for the scope.' }];
+  const [one, two] = await Promise.all([
+    play('COMPLEX', { steps }, 'listed-max1', listing('l-max1.txt', 'scope | approve scope\n')),
+    play('COMPLEX', { steps }, 'listed-max2', listing('l-max2.txt', 'scope | approve scope | 2\n')),
+  ]);
+  assert.match(one.summary, /^listed_approval_replies=1$/m, one.summary);
+  assert.match(one.summary, /^stopped=unanswered-scope$/m, one.summary);
+  assert.match(two.summary, /^listed_approval_replies=2$/m, two.summary);
+  assert.match(two.summary, /^replies=2$/m, two.summary);
+  assert.match(two.summary, /^stopped=unanswered-scope$/m, two.summary);
+});
+
+test('listed approval: a refreeze is still answered by the scripted plan lines, a listing never replaces them, and the scope waits until the pair is no longer open', async () => {
+  const steps = [
+    { text: real.complexPlan, create: [plan('001', 'A')] },
+    { text: real.complexRefreeze, answer: [{ kind: 'plan', request: '001-request-plan.yaml' }], create: [plan('003', 'B'), scope('004', 'B')] },
+    { text: 'Plan recorded.', answer: [{ kind: 'plan', request: '003-request-plan.yaml' }] },
+  ];
+  const { summary, log } = await play('COMPLEX', { steps }, 'listed-refreeze', listing('l-refreeze.txt', 'scope | approve scope\n'));
+  const texts = replyTexts(log);
+  assert.equal(texts[0], replies('COMPLEX.txt')[1]);   // the plan line
+  assert.equal(texts[1], replies('COMPLEX.txt')[2]);   // the refreeze line, a plan approval only
+  assert.equal(texts[2], 'approve scope');             // only then the listed scope
+  assert.match(summary, /^listed_approval_replies=1$/m, summary);
+  assert.match(summary, /^reply_budget=5$/m, summary);   // 3 + 1 refreeze + 1 listed
+});
+
+test('listed approval: a listing that names a forbidden kind or a waiver, commit or push phrase stops the harness at startup, dry run included', () => {
+  const bad = [
+    'waive:REVIEW_TESTS-1 | approve waive REVIEW_TESTS-1',
+    'waiver | approve the waiver',
+    'commit | approve commit',
+    'push | approve push',
+    'delivery | approve delivery',
+    'secrets | approve secrets',
+    'security | approve security',
+    'plan | approve plan',
+    'scope | approve scope and the waiver',
+    'scope | approve scope and commit it',
+    'scope | approve push of the scope',
+    'scope | approve scope for the security gate',
+    'scope | approve scope and destructive',
+    'scope | approve plan',
+    'assumption | accept AS-1 and commit',
+    'assumption | yes',
+    'scope | approve scope | 0',
+    'scope | approve scope | x',
+    'scope approve scope',
+    'scope | approve scope?',
+    'scope |  approve scope',
+  ];
+  for (const [i, line] of bad.entries()) {
+    const r = runE2e(['COMPLEX', 'claude', '--dry-run'], { E2E_ROOT: path.join(root, `bad-${i}`), ...listing(`bad-${i}.txt`, `${line}\n`) });
+    assert.equal(r.status, 2, `'${line}' was accepted: ${r.out}`);
+    assert.match(r.out, /approvals listing refused/, r.out);
+    assert.ok(!existsSync(path.join(root, `bad-${i}`)), `'${line}': the harness started before refusing`);
+  }
+  const many = runE2e(['COMPLEX', 'claude', '--dry-run'], { E2E_ROOT: path.join(root, 'bad-many'), ...listing('bad-many.txt', 'scope | approve scope | 4\nscope | approve the scope | 4\n') });
+  assert.equal(many.status, 2, many.out);
+});
+
+test('listed approval: a scenario without a listing file behaves as before (dry run says none; a scope request is not answered)', async () => {
+  assert.ok(!existsSync(path.join(here, 'replies', 'approvals.STANDARD.txt')) && !existsSync(path.join(here, 'replies', 'approvals.CRITICAL.txt')));
+  const dry = runE2e(['STANDARD', 'claude', '--dry-run'], { E2E_ROOT: path.join(root, 'dry-std'), E2E_APPROVALS_FILE: undefined });
+  assert.equal(dry.status, 0, dry.out);
+  assert.match(dry.out, /listed approvals \(A328\): none/, dry.out);
+  const { summary, log } = await play('STANDARD', { steps: [{ text: SCOPE_ASK, create: [scope('001', 'A')] }] }, 'std-scope');
+  assert.match(summary, /^replies=0$/m, summary);
+  assert.match(summary, /^listed_approval_replies=0$/m, summary);
+  assert.match(summary, /^stopped=unanswered-scope$/m, summary);
+  assert.equal(log, '');
+});
+
+test('listed approval: the COMPLEX file lists a scope approval and the AS-1 acceptance only', () => {
+  const dry = runE2e(['COMPLEX', 'claude', '--dry-run'], { E2E_ROOT: path.join(root, 'dry-cx'), E2E_APPROVALS_FILE: undefined });
+  assert.equal(dry.status, 0, dry.out);
+  assert.match(dry.out, /listed approvals \(A328\): scope x2, assumption x1 from /, dry.out);
+  assert.deepEqual(loadListedApprovals(path.join(here, 'replies', 'approvals.COMPLEX.txt')), [{ kind: 'scope', message: 'approve scope', max: 2 }, { kind: 'assumption', message: 'accept AS-1', max: 1 }]);
+});
 
 });
 
@@ -246,4 +364,53 @@ test('the refreeze reply line is read by the real approval grammar as a plan app
     const norm = ` ${line.toLowerCase().replace(/[^a-z0-9_-]/g, ' ').replace(/ +/g, ' ')} `;
     for (const ph of phrases) assert.ok(!norm.includes(` ${ph} `), `question line holds the approval phrase '${ph}': ${line}`);
   }
+});
+
+test('lib: pickListed matches only an open request of the line\'s kind, spends uses, and judges every entry again (a hand-built waiver, commit or push line is never picked)', () => {
+  const entries = [{ kind: 'scope', message: 'approve scope', max: 2 }, { kind: 'assumption', message: 'accept AS-1', max: 1 }];
+  const open = (/** @type {string[]} */ ...kinds) => kinds.map((kind, i) => ({ name: `00${i + 1}-request-${kind}.yaml`, kind }));
+  assert.equal(pickListed(entries, [0, 0], open('destructive', 'commit', 'waive:F-1'), []), null);
+  assert.equal(pickListed(entries, [0, 0], [], []), null);
+  assert.deepEqual(pickListed(entries, [0, 0], open('plan', 'scope'), []), { index: 0, kind: 'scope', message: 'approve scope', request: '002-request-scope.yaml' });
+  assert.equal(pickListed(entries, [2, 0], open('scope'), []), null, 'uses spent');
+  assert.equal(pickListed(entries, [0, 0], [], ['AS-2', 'AS-1'])?.request, 'AS-1');
+  assert.equal(pickListed(entries, [0, 0], [], ['AS-2']), null, 'the line names AS-1 only');
+  assert.equal(pickListed(entries, [0, 1], [], ['AS-1']), null);
+  const evil = [
+    { kind: 'waive:REVIEW_TESTS-1', message: 'approve waive REVIEW_TESTS-1', max: 1 },
+    { kind: 'scope', message: 'approve scope and waive F-1', max: 1 },
+    { kind: 'commit', message: 'approve commit', max: 1 },
+    { kind: 'push', message: 'approve push', max: 1 },
+    { kind: 'scope', message: 'approve commit', max: 1 },
+    { kind: 'delivery', message: 'approve delivery', max: 1 },
+  ];
+  const all = open('waive:REVIEW_TESTS-1', 'scope', 'commit', 'push', 'delivery');
+  assert.equal(pickListed(evil, evil.map(() => 0), all, ['AS-1']), null);
+  for (const k of ['waive:F-1', 'waive', 'commit', 'push', 'pr', 'merge', 'delivery', 'secrets', 'security', 'plan', 'single_step', 'budget']) assert.ok(!LISTABLE_KINDS.includes(k), k);
+  assert.match(listedProblem('assumption', 'accept AS-1 please'), /not a assumption approval/);
+  assert.equal(listedProblem('assumption', 'accept AS-12'), '');
+  assert.equal(listedProblem('mutation_budget', 'approve mutation budget'), '');
+  assert.equal(listedProblem('destructive', 'approve destructive'), '');
+});
+
+test('lib: openAssumptions reads the ASSUMPTION ids of the open question block, and a missing listing file is an empty listing', () => {
+  const q = '=== QUESTION 001 (from lead)\n1. High-risk assumption AS-1 is unverified: x\n   ASSUMPTION: AS-1@dc559ed4f7bc\n   options: "accept AS-1"\n2. y\n   ASSUMPTION: AS-3@aaaaaaaaaaaa\n';
+  assert.deepEqual(openAssumptions(q), ['AS-1', 'AS-3']);
+  assert.deepEqual(openAssumptions('Which option do you prefer? AS-1'), []);
+  assert.deepEqual(loadListedApprovals(path.join(root, 'absent-listing.txt')), []);
+});
+
+test('the listed COMPLEX scope line is read by the real approval grammar as the scope approval ONLY; the assumption line is the exact acceptance form', () => {
+  const lines = loadListedApprovals(path.join(here, 'replies', 'approvals.COMPLEX.txt'));
+  const scopeLine = lines.find((l) => l.kind === 'scope');
+  assert.ok(scopeLine);
+  const d = project('scaffold standalone no TRIVIAL supervised');
+  const ad = `${d}/.agents/runs/LC/approvals`;
+  for (const k of ['plan', 'scope']) accepted(A(d, ['request-approval', 'LC', k]), `request ${k}`);
+  const t0 = Math.max(...readdirSync(ad).filter((n) => n.includes('request')).map((n) => Number(/^requested_at: (\d+)/m.exec(readFileSync(`${ad}/${n}`, 'utf8'))?.[1])));
+  storePrompt(`${d}/.agents/local`, 's1', t0 + 1, scopeLine.message);
+  A(d, ['approve-pending', 'LC']);
+  const got = readdirSync(ad).filter((n) => /^\d{3}-(plan|scope)\.yaml$/.test(n)).map((n) => n.replace(/^\d+-|\.yaml$/g, '')).sort();
+  assert.deepEqual(got, ['scope'], 'the listed scope line must satisfy the scope request and not the plan request');
+  assert.equal(lines.find((l) => l.kind === 'assumption')?.message, 'accept AS-1');   // the hook records exactly "accept <id>" (tests/core/answer-user.test.mjs)
 });

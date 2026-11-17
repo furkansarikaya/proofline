@@ -98,7 +98,7 @@ The final pass on 900c2852 (no product change between its runs; the evaluator's 
 
 A later PASS does not erase an earlier FAIL: TRIVIAL passed once and failed once on the same commit, and no scenario passed every item in every run there. The pass found no new security or approval defect and loosened nothing; five findings are recorded and not changed in A324.
 
-Four COMPLEX runs ended at stops that only the user may answer (the plan and scope requests of a refreeze after three failed reviews, a mutation-budget request, a scope request, an assumption acceptance); a complete COMPLEX run to DONE is not demonstrated by this campaign. The per-run table, the classes of the unmet items (product, model, harness) and the fixes (PRs #305, #306, #310, #311, #312; A312, A313, A317, A318, A319) are in [tests/e2e/README.md](../tests/e2e/README.md); the accepted limits are A322 and A323 in [limits](limits.md).
+Four COMPLEX runs ended at stops that only the user may answer (the plan and scope requests of a refreeze after three failed reviews, a mutation-budget request, a scope request, an assumption acceptance); a complete COMPLEX run to DONE is not demonstrated by this campaign. Since A328 the COMPLEX scenario may send, like a user, the messages that `tests/e2e/replies/approvals.COMPLEX.txt` lists (a scope approval and the acceptance of AS-1; the harness has no privileged path and never sends a waiver, commit or push); no run on that change is recorded yet. The per-run table, the classes of the unmet items (product, model, harness) and the fixes (PRs #305, #306, #310, #311, #312; A312, A313, A317, A318, A319) are in [tests/e2e/README.md](../tests/e2e/README.md); the accepted limits are A322 and A323 in [limits](limits.md).
 
 ## CI legs
 
