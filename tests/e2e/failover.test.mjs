@@ -84,7 +84,7 @@ out=$(dirname "$o")
 printf '%s\\n' '{"type":"thread.started","thread_id":"t1"}'
 `);
   chmodSync(path.join(bin, 'claude'), 0o755); chmodSync(path.join(bin, 'codex'), 0o755);
-  const r = runE2e(['FAILOVER', 'mixed', '--keep'], { ...extra, E2E_ROOT: path.join(root, sub), E2E_FAILOVER_POLL_S: '1', E2E_MAX_REPLIES: '0', PATH: `${bin}${path.delimiter}${process.env.PATH}`, CLAUDE_CODE_SESSION_ID: 'outer-session', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' });
+  const r = runE2e(['FAILOVER', 'mixed', '--keep'], { ...extra, E2E_ROOT: path.join(root, sub), E2E_FAILOVER_POLL_S: '0.05', E2E_SKIP_DOCTOR: '1', E2E_MAX_REPLIES: '0', PATH: `${bin}${path.delimiter}${process.env.PATH}`, CLAUDE_CODE_SESSION_ID: 'outer-session', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' });
   assert.equal(r.status, 0, r.out);
   return { out: path.join(runDir(sub), 'out'), project: path.join(runDir(sub), 'project') };
 }

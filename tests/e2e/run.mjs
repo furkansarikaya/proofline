@@ -124,7 +124,7 @@ export async function main(argv) {
   if (ir.status !== 0) return ir.status ?? 1;
   baseline('chore: install proofline');
   const doctor = path.join(out, 'doctor.txt'); writeFileSync(doctor, '');
-  toFile(proofline, ['doctor'], { cwd: project }, doctor);
+  if (env('E2E_SKIP_DOCTOR', '') === '1') writeFileSync(doctor, 'skipped (E2E_SKIP_DOCTOR=1, a harness self-test)\n'); else toFile(proofline, ['doctor'], { cwd: project }, doctor);
 
   // A121: read-only database probe (db-probe.mjs probes a copy of the file bytes); `no database` when there is none. A failed probe leaves `probe failed: <reason>`.
   const onPath = (/** @type {string} */ cmd) => {
@@ -177,7 +177,7 @@ export async function main(argv) {
   if (cxE !== '') codexCheap += ` -c 'model_reasoning_effort="${cxE}"'`;
   const request = readFileSync(path.join(here, 'tasks', `${task}.md`), 'utf8');
   const maxTurns = env('E2E_MAX_TURNS', '250');
-  const pollS = Math.max(1, Number(env('E2E_FAILOVER_POLL_S', '10')) || 10);   // how often the failover watchdog reads the ledger
+  const pollMs = Math.max(10, Math.round(1000 * (Number(env('E2E_FAILOVER_POLL_S', '10')) || 10)));   // how often the failover watchdog reads the ledger (a test sets a fraction of a second)
   const line = (/** @type {string} */ f, /** @type {number} */ n) => (readFileSync(f, 'utf8').split('\n')[n - 1] ?? '');
   if (dry) {
     const say = (/** @type {string} */ s) => console.log(s);
@@ -227,10 +227,12 @@ export async function main(argv) {
       child.on('error', () => { rc = 127; exited = true; resolve(null); });
       child.on('close', (code, sig) => { rc = code ?? (sig ? 128 + (os.constants.signals[sig] ?? 0) : 1); exited = true; resolve(null); });
     });
-    let elapsed = 0; timedOut = false; killed = false;
+    let elapsedMs = 0; let nextPollMs = pollMs; timedOut = false; killed = false;
+    const tickMs = Math.min(1000, pollMs);
     const killGroup = () => { try { process.kill(-(/** @type {number} */ (child.pid)), 'SIGTERM'); } catch { try { child.kill('SIGTERM'); } catch { /* gone */ } } };
     while (!exited) {
-      if (scenario === 'FAILOVER' && runtime === 'claude' && elapsed > 0 && elapsed % pollS === 0) {
+      if (scenario === 'FAILOVER' && runtime === 'claude' && elapsedMs >= nextPollMs) {
+        nextPollMs += pollMs;
         // the implementer step has started: the ledger of any run has a freeze and then an implementer window, decision or dispatch note
         let frozen = false; let found = false;
         const runsDir = path.join(project, '.agents/runs');
@@ -241,8 +243,8 @@ export async function main(argv) {
         }
         if (found) { w('failover.txt', `${new Date().toISOString().replace(/\.\d+Z$/, 'Z')}\n`); killed = true; killGroup(); break; }
       }
-      if (elapsed >= Number(env('E2E_TIMEOUT', '5400'))) { timedOut = true; killGroup(); break; }
-      await Promise.race([done, sleep(1000).then(() => { elapsed++; })]);
+      if (elapsedMs >= 1000 * Number(env('E2E_TIMEOUT', '5400'))) { timedOut = true; killGroup(); break; }
+      await Promise.race([done, sleep(tickMs).then(() => { elapsedMs += tickMs; })]);
     }
     await done;
     leadPid = null;
