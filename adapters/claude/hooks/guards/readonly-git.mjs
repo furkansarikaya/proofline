@@ -165,8 +165,11 @@ function gitJudge(a, needSub = false) {
       if (!HARMLESS_KEY.test(key)) deny(`git -c ${key} can name a program that runs git push, or an alias: only color.*, core.quotepath, safe.directory and advice.* are set on the command line: ${TAIL}`);
       i += w === '-c' || w === '--config-env' ? 2 : 1; continue;
     }
-    if (['-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--attr-source'].includes(w)) { i += 2; continue; }
-    if (w.startsWith('-')) { i++; continue; }
+    // A327: an ALLOWLIST of the global options. Skipping an unknown one by a single word put the judged subcommand at the wrong place (`git --shallow-file status worktree remove ...`: git takes
+    // `status` as the value of --shallow-file and runs `worktree`). The role texts need `-C <path>` and `-c <harmless>=<v>`; the rest are flags without a value. Every other leading option is refused.
+    if (w === '-C') { i += 2; continue; }
+    if (w === '--no-pager' || w === '-P' || w === '--no-optional-locks') { i++; continue; }
+    if (w.startsWith('-')) deny(`git ${w} before the subcommand is not one of the global options a review role uses (-C <path>, -c <harmless key>=<value>, --no-pager, -P, --no-optional-locks); an option with a value there moves the subcommand: ${TAIL}`);
     sub = w; i++; break;
   }
   const rest = a.slice(i);
@@ -228,6 +231,19 @@ function gitJudge(a, needSub = false) {
       if (pos.slice(1).some((x) => x.includes(':') && !x.slice(x.indexOf(':') + 1).startsWith('refs/remotes/'))) deny(`git ${sub} with a destination refspec creates or moves a local ref here: ${TAIL}`);
       return;
     }
+    // A327: the plumbing forms that overwrite or delete work in the live tree or the object store (a denylist of the plain spellings: a tripwire)
+    case 'read-tree':
+      if (has('--reset') || long('reset') || cluster('u')) deny(`git read-tree with -u or --reset overwrites files of the working tree here: ${TAIL}`);
+      return;
+    case 'checkout-index':
+      if (has('--force') || long('force') || cluster('f')) deny(`git checkout-index --force overwrites files of the working tree here: ${TAIL}`);
+      return;
+    case 'gc':
+      if (rest.some((x) => /^--prune(=|$)/.test(x) || /^--aggressive$/.test(x))) deny(`git gc --prune deletes unreachable objects here: ${TAIL}`);
+      return;
+    case 'reflog':
+      if (['expire', 'delete'].includes(pos[0] ?? '')) deny(`git reflog ${pos[0]} deletes history here: ${TAIL}`);
+      return;
     case 'submodule':
       // A327: `submodule deinit -f --all` and `update --force` wipe the uncommitted work of a submodule; `foreach` runs a command line. Only the literal read verbs are allowed (a bare `git submodule` is status).
       if (pos.length > 0 && pos[0] !== 'status' && pos[0] !== 'summary') deny(`git submodule ${pos[0]} can wipe the uncommitted work of a submodule or run a command line: only the literal verbs status and summary are allowed here: ${TAIL}`);
