@@ -20,8 +20,9 @@ one IMPLEMENT restart). Without Codex installed the scenario is `not tested`.
   started under runtime `claude`, with no IMPLEMENTED handoff and no gate record.
 - **F-2 Resume point.** [invariant] The first `agent.sh next <ID>` (or `proofline resume` output) after the restart
   names the implementer step as the next step: not a later step, and not CLASSIFY, PLAN or FREEZE.
-- **F-3 Switch ledgered.** [invariant] Before any new transition, the ledger has an entry recording the lead runtime
-  change `claude` → `codex` with a reason (resume after the previous lead stopped).
+- **F-3 Interruption ledgered.** [invariant] Before the first new transition after the restart, the run ledger holds
+  the interruption of the killed step (`dispatch interrupted signal=...` and `dispatch resume note written`); the
+  resuming runtime is `summary.txt lead_2_runtime=codex`.
 - **F-4 Frozen contract untouched.** [invariant] TASK.md, PLAN.md, EVIDENCE.md and QA_PLAN.md have the same sha256
   in `$OUT/at-kill/` and at the end; there is no second FREEZE and no refreeze/amendment.
 - **F-5 Step restarts from its beginning.** [invariant] The ledger shows a new implementer dispatch (and

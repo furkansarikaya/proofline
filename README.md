@@ -20,8 +20,8 @@ These restate five of the six [core invariants](CONTRIBUTING.md#core-invariants)
 
 Every number below has its source on [docs/proof.md](docs/proof.md), with what it does not prove.
 
-- 5,723 test results (about 5,550 distinct tests) in one CI run of `main` (run 43883302769), counted from the run's duration reports.
-- 296 recorded design decisions, each saying what changed; 192 also mention what they rejected ([docs/decisions.md](docs/decisions.md)).
+- 5,837 test results (5,661 distinct tests) in one CI run of `main` (run 44051436515), counted from the run's duration reports.
+- 322 recorded design decisions, each saying what changed; 215 also mention what they rejected ([docs/decisions.md](docs/decisions.md)).
 - Control plane moved from 175 shell files (44,842 lines) to 4 launchers (42 lines); recording one gate result went from 7.56 s (shell form, measured on 0.0.48) to 0.21 s ([ADR 0001](docs/adr/0001-stages.md#stage-15-exit-criteria-record-a251)).
 - Independent security reviews found bypasses before release; one added layer was removed because the review showed it failed open (A292).
 - The real-session smoke run for a recent change failed on its first attempt, which exposed a false positive that parked a task (PR #293, A293).
@@ -29,10 +29,10 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 ## Status
 
 Version 0.0.151 is an early release.
-It is not yet proven on real projects. End-to-end team runs last passed 2026-10-14 to 17; the newest run of each scenario failed one to five items, fixed since but not re-run, and none has run on the current `main` ([tests/e2e/README.md](tests/e2e/README.md)).
+It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 and 17) five of six scenarios failed one to ten items, recorded as accepted limits or corrected in the expectations; one passes only against the corrected expectations; a complete COMPLEX run is not demonstrated; none has run on the current `main` ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
-Guaranteed: approvals, database safety, scope, evidence and cleanup. Model-dependent: report wording, plan details and code quality ([limits](docs/concepts/enforcement-layers.md#what-is-guaranteed)).
+Guaranteed: approvals, database safety, scope, evidence and cleanup. Model-dependent: report wording, plan details and code quality ([limits](docs/concepts/enforcement-layers.md#what-is-guaranteed)). Every accepted limit, with its reason: [docs/limits.md](docs/limits.md).
 
 ## Install
 

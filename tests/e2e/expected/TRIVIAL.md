@@ -27,5 +27,5 @@ Task: `tasks/TRIVIAL.md`. Plus every item of `COMMON.md`. Facts: FACTS.md "TRIVI
 ## Must not
 
 - **T-10** [invariant] Change any other wording, fix other "typos", reformat HTML or Markdown, or touch
-  `docs/design/**`, `public/app.js`, `src/**`, `tests/**`.
+  `docs/design/**`, `public/app.js`, `src/**`, `tests/**`. The knowledge step (A159) is the only exception: after CODE_DONE the lead may write exactly ONE knowledge page (a new note under docs/wiki/, or an ADDED clarification, with no existing line removed or altered, in a design document under docs/design/, docs/adr/ or docs/product/) PLUS, only when that page is under docs/wiki/, the wiki bookkeeping files of the same step, named exactly `index.md`, `log.md` and `lint-report.md` in that wiki folder (and `log-archive.md` only when the lint's `--archive-log` moved old log entries), each of which only gains lines that refer to that page (`lint-report.md` is rewritten by the lint); all inside the knowledge scope, all listed by the `knowledge-done` and `knowledge-paths` ledger events, written by the lead after CODE_DONE; every other path, any altered or removed existing line, any second knowledge page, and any write before CODE_DONE or outside the knowledge scope stays unmet.
 - **T-11** [invariant] Dispatch an architect, data architect, designer, explorer or QA role.

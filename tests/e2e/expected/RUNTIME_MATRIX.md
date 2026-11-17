@@ -16,6 +16,8 @@ differ" row makes the named items `unmet` in the deviating run.
 | Implementer sandbox | Claude tools limited by the role | `codex exec` workspace-write for every role that writes an artifact; writes only in the run folder, and the product tree is verified unchanged by fingerprint for every role but the implementer | Codex workspace-write for the implementer |
 | User-prompt capture for approvals | Claude UserPromptSubmit hook | Codex prompt capture (or TTY) | Claude hook |
 
+Lead edit block row: The knowledge step (A159) is the only exception: after CODE_DONE the lead may write exactly ONE knowledge page (a new note under docs/wiki/, or an ADDED clarification, with no existing line removed or altered, in a design document under docs/design/, docs/adr/ or docs/product/) PLUS, only when that page is under docs/wiki/, the wiki bookkeeping files of the same step, named exactly `index.md`, `log.md` and `lint-report.md` in that wiki folder (and `log-archive.md` only when the lint's `--archive-log` moved old log entries), each of which only gains lines that refer to that page (`lint-report.md` is rewritten by the lint); all inside the knowledge scope, all listed by the `knowledge-done` and `knowledge-paths` ledger events, written by the lead after CODE_DONE; every other path, any altered or removed existing line, any second knowledge page, and any write before CODE_DONE or outside the knowledge scope stays unmet.
+
 ## May differ
 
 | Aspect | Why it may differ | Limit |
