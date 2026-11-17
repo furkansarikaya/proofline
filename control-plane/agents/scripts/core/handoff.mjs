@@ -24,7 +24,7 @@ import { led, must } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
-import { fileText, gateField, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileText, gateField, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines, validTaskId } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pathMatches } from './scope.mjs';
 import { pipelineClass, pipelineClassValid, taskChangedPaths, tierEffective } from './signals.mjs';
@@ -128,6 +128,34 @@ function removeRunOwnedScratch(ctx, id, t, p) {
   return git(ctx, ['worktree', 'remove', p]).status === 0;
 }
 
+/**
+ * A327: the evidence worktree of ANOTHER run that is still open (a batch runs tasks side by side: T-2's QA made `$TMPDIR/verify-T-2.qa`, T-3's CODE_DONE must not be blocked by it, and the
+ * control plane does not remove it either, it is not this run's). It is skipped only when ALL hold: a direct child of the temp folder and a real folder (no link, not nested), named
+ * `verify-<X>` or `verify-<X>.<focus>` with X a valid task id other than this run's, detached, and X has a RUN.yaml (in the main tree, in its run worktree or here) whose state is not
+ * terminal (DONE, FAILED, BLOCKED). Every other name, an X without an open run, a branch-attached worktree and a lookalike stay blockers.
+ * @param {Context} ctx @param {string} id @param {string} t the temp folder @param {string} p the worktree path as git lists it @param {string} main the main tree
+ */
+function otherOpenRunEvidence(ctx, id, t, p, main) {
+  const n = p.replace(/^\/private/, '');
+  const slash = n.lastIndexOf('/');
+  if (slash < 0 || n.slice(0, slash) !== t) return false;
+  const m = /^verify-([A-Za-z0-9_-]+)(?:\.[A-Za-z0-9_.-]+)?$/.exec(n.slice(slash + 1));
+  const other = m?.[1] ?? '';
+  if (other === '' || other === id || !validTaskId(other)) return false;
+  try {
+    if (!lstatSync(p).isDirectory() || !lstatSync(`${p}/.git`).isFile()) return false;
+  } catch { return false; }
+  if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
+  for (const dir of [`${main}/.agents/runs/${other}`, `${main}/.agents/local/worktrees/${other}/.agents/runs/${other}`, `${ctx.root}/.agents/runs/${other}`]) {
+    let has = false;
+    try { has = statSync(`${dir}/RUN.yaml`).isFile(); } catch { /* none here */ }
+    if (!has) continue;
+    const st = sectionValue(ctx, dir, 'execution', 'state');
+    if (st !== '' && !['DONE', 'FAILED', 'BLOCKED'].includes(st)) return true;
+  }
+  return false;
+}
+
 /** `verify_no_scratch_worktrees` (A327: with the run id it removes this run's own clean, detached `verify-<ID>` evidence worktree itself) @param {Context} ctx @param {string} [id] */
 export function verifyNoScratchWorktrees(ctx, id = '') {
   let t = (ctx.env.TMPDIR || '/tmp').replace(/\/$/, '');
@@ -143,10 +171,11 @@ export function verifyNoScratchWorktrees(ctx, id = '') {
     if (n.startsWith(`${main}/.agents/local/worktrees/`)) continue;
     if (n.startsWith(`${t}/`) || n.startsWith('/tmp/') || n.startsWith('/var/folders/') || isScratchWorktreeWin(p, list[0] ?? '', ctx.root, [ctx.env.TEMP, ctx.env.TMP, ctx.env.TMPDIR])) {
       if (removeRunOwnedScratch(ctx, id, t, p)) { ctx.out(`removed the run's own evidence worktree: ${p}\n`); continue; }
+      if (otherOpenRunEvidence(ctx, id, t, p, main)) continue;
       extra += ` ${p}`;
     }
   }
-  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. A path '${t}/verify-${id}' or '${t}/verify-${id}.<focus>' is an evidence worktree of this run's review roles and not a question for the user: the lead removes it itself ('git worktree remove --force <path>') and runs CODE_DONE again. Any other path was not made by this run's roles (another name, another run's, or somebody's own worktree, maybe with work in it): ask the user before removing it`);
+  if (extra !== '') fail(`CODE_DONE blocked: scratch git worktrees created during the run are still registered:${extra}. A path '${t}/verify-${id}' or '${t}/verify-${id}.<focus>' is an evidence worktree of this run's review roles and not a question for the user: the lead removes it itself ('git worktree remove --force <path>', also when it holds changes: it is this run\'s own evidence copy) and runs CODE_DONE again. Any other path was not made by this run's roles (another name, another run's, or somebody's own worktree, maybe with work in it): ask the user before removing it`);
 }
 
 /** `verify_fix_bound ID` (A123) @param {Context} ctx @param {string} id */

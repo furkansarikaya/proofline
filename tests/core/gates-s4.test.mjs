@@ -120,6 +120,38 @@ test('A327: the run-owned evidence worktree verify-<ID>.<focus> (detached, clean
   accepted(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE after the blockers were removed');
 });
 
+test('A327: the dirty evidence worktree of ANOTHER open run does not block this run\'s CODE_DONE and is left alone; the lookalikes, a run without an open run and a terminal run still block', () => {
+  const d = scaffold({ cls: 'STANDARD' });
+  redGreen(d); must(d, ['handoff', 'LC', 'IMPLEMENTED']); passAll(d);
+  let n = 0;
+  const fresh = (/** @type {string} */ prefix) => { const w = path.join(process.env.TMPDIR ?? tmpdir(), `${prefix}${process.pid}-${++n}`); removeAtExit(w); return w; };
+  const runOf = (/** @type {string} */ id, /** @type {string} */ state) => wr(d, `.agents/runs/${id}/RUN.yaml`, `execution:\n  state: ${state}\n`);
+  runOf('OA', 'IMPLEMENTING'); runOf('OT', 'DONE'); runOf('OF', 'FAILED');
+  // the evidence worktree of the open run OA, dirty (a mutation in progress): not a blocker, not removed
+  const open = fresh('verify-OA.qa-'); git(d, ['worktree', 'add', '-q', '--detach', open, 'HEAD']); writeFileSync(path.join(open, 'mutant.txt'), 'x');
+  const blockers = [
+    fresh('verify-OZ.qa-'),        // a run that has no run folder
+    fresh('verify-OT.qa-'),        // a run that is DONE
+    fresh('verify-OF.qa-'),        // a run that is FAILED
+    fresh('qa-ev-'),               // another name
+  ];
+  for (const w of blockers) git(d, ['worktree', 'add', '-q', '--detach', w, 'HEAD']);
+  const onBranch = fresh('verify-OA.br-'); git(d, ['worktree', 'add', '-q', '-b', 'oa-branch', onBranch, 'HEAD']);   // the open run's name but on a branch
+  const sym = fresh('verify-OA.sym-'); git(d, ['worktree', 'add', '-q', '--detach', sym, 'HEAD']);
+  const aside = `${sym}-aside`; renameSync(sym, aside); symlinkSync(open, sym);   // a link where the registered folder was
+  const nestRoot = fresh('nest-'); mkdirSync(nestRoot); const nested = path.join(nestRoot, 'verify-OA.qa'); git(d, ['worktree', 'add', '-q', '--detach', nested, 'HEAD']);   // not a direct child
+  const r = A(d, ['handoff', 'LC', 'CODE_DONE']);
+  expectMsg('the lookalikes and the runs without an open run still block', 'scratch git worktrees', r);
+  for (const w of [...blockers, onBranch, sym, nested]) assert.ok(r.text.includes(w), `${w} is named as a blocker`);
+  assert.ok(!r.text.includes(open), 'the dirty evidence worktree of the open run OA is not named');
+  assert.ok(existsSync(path.join(open, 'mutant.txt')), 'and it is untouched');
+  unlinkSync(sym); renameSync(aside, sym);
+  for (const w of [...blockers, onBranch, sym, nested]) git(d, ['worktree', 'remove', '--force', w]);
+  accepted(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE with only the open run\'s evidence worktree left');
+  assert.ok(existsSync(path.join(open, 'mutant.txt')), 'the open run\'s worktree is still there after CODE_DONE');
+  git(d, ['worktree', 'remove', '--force', open]);
+});
+
 test('sc_scratch_worktrees: a registered scratch worktree blocks CODE_DONE; the worktree of another run is not scratch (A169)', () => {
   const d = scaffold({ cls: 'STANDARD' });
   redGreen(d); must(d, ['handoff', 'LC', 'IMPLEMENTED']); passAll(d);
