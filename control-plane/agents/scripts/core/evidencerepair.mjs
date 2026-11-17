@@ -188,7 +188,8 @@ export function evidenceRepairRun(ctx, id, plan) {
     if (r.status !== 0) fail(`evidence-only repair refused: \`${command}\` exited ${r.status}; a GREEN record needs a passing run, nothing was recorded (a failing test is a normal fix)`);
     outputs.push({ command, entries: parseRunnerDurations(text) });
   }
-  ctx.forget('patch:'); // the fingerprint is memoised per invocation: read the tree again after the commands ran
+  // the task patch is memoised per invocation, and so are the changed-path lists (git status), the content fingerprints and the file reads it rests on: drop all of them, so a path a command dirtied or created is seen
+  for (const k of ['patch:', 'changed:', 'fp:', 'file:', 'hash:', 'git:']) ctx.forget(k);
   if (taskPatchFingerprint(ctx, dir) !== plan.patch) fail('evidence-only repair refused: a plan-listed command changed the application/test tree while it ran; nothing was recorded');
   const all = outputs.flatMap((o) => o.entries);
   const m = matchPlanDurations(plan.names, all);

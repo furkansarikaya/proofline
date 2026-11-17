@@ -7,7 +7,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { matchPlanDurations, parseRunnerDurations } from '../../control-plane/agents/scripts/core/evidencerepair.mjs';
 import { A, gateStatus, refused } from '../lib/harness.mjs';
-import { accepted, count, gpass, ledger, must, passAllButTests, rec, reopened, rerun, setMode, stripDuration, writeFindings } from './evidence-repair-lib.mjs';
+import { accepted, count, gpass, ledger, must, passAllButTests, rec, reopened, rerun, runnerStarts, setMode, stripDuration, writeFindings } from './evidence-repair-lib.mjs';
+import { wclose, wopen } from '../lib/harness.mjs';
 
 const NOTREE = { source: 'no application/test change since the finding' };
 const greens = (/** @type {string} */ d) => readdirSync(path.join(d, '.agents/runs/LC/worker-evidence')).filter((n) => n.startsWith('GREEN-')).length;
@@ -189,4 +190,39 @@ test('only the tests without a duration that no approved measure exception excus
   setMode(no, 'nodur');
   refused(rerun(no), 'the same runner with an exception nobody approved', 'shows no duration for "fast one"');
   assert.doesNotMatch(ledger(no), /event=evidence-repair/);
+});
+
+test('a plan-listed command that dirties a previously CLEAN in-scope file, or creates a NEW in-scope file, records nothing (the changed-path lists are read again after the run)', () => {
+  for (const scope of ['clean', 'new']) {
+    const d = reopened([], '', scope);
+    setMode(d, 'touch');
+    const before = greens(d);
+    refused(rerun(d), `a command that writes an in-scope ${scope} file`, 'changed the application/test tree while it ran; nothing was recorded');
+    assert.equal(greens(d), before, scope);
+    assert.doesNotMatch(ledger(d), /event=evidence-repair/, scope);
+  }
+});
+
+test('the early check at IMPLEMENTED runs before anything is measured: a refusal starts no runner and leaves no test-measure row', () => {
+  const d = reopened();
+  appendFileSync(path.join(d, 'impl.txt'), 'impl: a real change\n');
+  const rows = (ledger(d).match(/event=test-measure /g) ?? []).length;
+  const starts = runnerStarts(d);
+  assert.ok(starts > 0, 'the runner ran at the first IMPLEMENTED');
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a plan test without a duration', 'no recorded GREEN duration matches');
+  assert.equal(runnerStarts(d), starts, 'no runner was started');
+  assert.equal((ledger(d).match(/event=test-measure /g) ?? []).length, rows, 'no test-measure row was written');
+});
+
+test('at IMPLEMENTED an approved `- measure:` exception for a test passes the early check, an unapproved one does not', () => {
+  for (const [exception, accept] of /** @type {Array<[string, boolean]>} */ ([['approved', true], ['unapproved', false]])) {
+    const d = reopened([], exception);
+    const w = wopen(d);
+    appendFileSync(path.join(d, 'impl.txt'), 'impl: a real change\n');
+    must(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: 'command: node .git/er-run.mjs\ntarget: impl.txt,impl_test.txt\ntest_durations: slow one=5.5\n' });
+    wclose(d, w);
+    const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+    if (accept) accepted(r, 'the exception the user approved excuses "fast one"');
+    else refused(r, 'an exception nobody approved', 'the plan names "fast one" and no recorded GREEN duration matches');
+  }
 });

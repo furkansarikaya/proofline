@@ -6,11 +6,11 @@ import { appendFileSync, cpSync, mkdirSync, readdirSync, readFileSync, rmSync, w
 import path from 'node:path';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
 import { testCmdPin } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
-import { A, accepted, approveAsUser, cached, codeKey, copyOf, gfail, gpass, must, pipe, project, rec, sha256, wclose, wev, wopen } from '../lib/harness.mjs';
+import { A, accepted, approveAsUser, cached, codeKey, copyOf, git, gfail, gpass, must, pipe, project, rec, sha256, wclose, wev, wopen } from '../lib/harness.mjs';
 
 export const RUN = 'node .git/er-run.mjs';
 export const PLAN = '\n## Tests\n\n- AC-1: `impl_test.txt` "slow one" — it is slow (test_kind: unit)\n- AC-2: `impl_test.txt` "fast one" — it is fast (test_kind: unit)\n\n## Verification commands\n\n- `node .git/er-run.mjs`\n';
-const SCRIPT = "import { appendFileSync, readFileSync } from 'node:fs';\nconst mode = readFileSync(new URL('er-mode', import.meta.url), 'utf8').trim();\nif (mode === 'dirty') appendFileSync('impl.txt', 'changed by the test command\\n');\nif (mode === 'fail') { console.log('not ok 1 - slow one'); process.exit(1); }\nconsole.log('\\u2714 slow one (5.5ms)');\nif (mode !== 'nodur') console.log('\\u2714 fast one (0.75ms)');\nelse console.log('\\u2714 something else (1ms)');\n";
+const SCRIPT = "import { appendFileSync, readFileSync } from 'node:fs';\nconst mode = readFileSync(new URL('er-mode', import.meta.url), 'utf8').trim();\nappendFileSync(new URL('er-runs', import.meta.url), 'x');\nif (mode === 'touch') appendFileSync('other.txt', 'changed by the test command\\n');\nif (mode === 'dirty') appendFileSync('impl.txt', 'changed by the test command\\n');\nif (mode === 'fail') { console.log('not ok 1 - slow one'); process.exit(1); }\nconsole.log('\\u2714 slow one (5.5ms)');\nif (mode !== 'nodur') console.log('\\u2714 fast one (0.75ms)');\nelse console.log('\\u2714 something else (1ms)');\n";
 
 /** @param {string} d @param {string} mode ok | fail | nodur */
 export const setMode = (d, mode) => writeFileSync(path.join(d, '.git/er-mode'), `${mode}\n`);
@@ -45,13 +45,15 @@ export function passAllButTests(d, alsoFail = []) {
 }
 
 /** The run at the start of a fix round that only has an evidence finding (also: more gates that failed on the same content). @param {string[]} [also] @returns {string} a fresh copy of the project */
-export function reopened(also = /** @type {string[]} */ ([]), exception = '') {
-  const key = `er-${codeKey()}-${sha256(PLAN + also.join(',') + exception).slice(0, 10)}`;
+export function reopened(also = /** @type {string[]} */ ([]), exception = '', scope = '') {
+  const key = `er-${codeKey()}-${sha256(PLAN + also.join(',') + exception + scope).slice(0, 10)}`;
   return copyOf(cached(key, (work) => {
     // exception: 'approved' | 'unapproved' puts a `- measure:` line for "fast one" in the plan, frozen after the user's scope approval (or without it)
+    // scope: 'clean' | 'new' adds other.txt to the plan scope (a previously clean in-scope file; 'new': not tracked, so a command that writes it creates a new in-scope file)
+    const wide = scope === '' ? {} : { scopeExtra: 'AC-1' };
     const b = exception === ''
-      ? project({ topology: 'orchestrated', cls: 'CRITICAL', planExtra: PLAN })
-      : project({ topology: 'orchestrated', cls: 'CRITICAL', autonomy: 'manual', planExtra: `${PLAN}\n## Test exceptions\n\n- measure: \`fast one\` -- the project runner prints no duration for this test\n` });
+      ? project({ topology: 'orchestrated', cls: 'CRITICAL', ...wide, planExtra: PLAN })
+      : project({ topology: 'orchestrated', cls: 'CRITICAL', ...wide, autonomy: 'manual', planExtra: `${PLAN}\n## Test exceptions\n\n- measure: \`fast one\` -- the project runner prints no duration for this test\n` });
     if (exception !== '') {
       if (exception === 'approved') approveAsUser(b, 'scope', 'approve scope');
       approveAsUser(b, 'plan', 'approve plan');
@@ -63,6 +65,7 @@ export function reopened(also = /** @type {string[]} */ ([]), exception = '') {
     writeFileSync(path.join(b, '.git/er-run.mjs'), SCRIPT);
     setMode(b, 'ok');
     const w = wopen(b);
+    if (scope === 'new') git(b, ['rm', '-q', 'other.txt']);   // staged deletion in scope: a file the command writes shows up as a NEW untracked in-scope path
     appendFileSync(path.join(b, 'impl_test.txt'), 'test: lookup returns the stored value\n');
     wev(b, 'RED', 'fail');
     appendFileSync(path.join(b, 'impl.txt'), 'impl: lookup returns the stored value\n');
@@ -87,3 +90,5 @@ export const ledger = (d) => readFileSync(path.join(d, '.agents/runs/LC/LEDGER.l
 /** @param {string} d @param {string} sub */
 export const count = (d, sub) => { try { return readdirSync(path.join(d, '.agents/runs/LC', sub)).length; } catch { return 0; } };
 export { accepted, gpass, must, rec };
+/** The number of times the fixed runner was started (it appends a byte per start). @param {string} d */
+export const runnerStarts = (d) => { try { return readFileSync(path.join(d, '.git/er-runs'), 'utf8').length; } catch { return 0; } };
