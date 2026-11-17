@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.151 — 2026-11-17
+
+- Tests (A320): the Windows gate found four test files reaching `core/proc.mjs` without the environment hand-over of A315 and a stdin regression test whose preload was a bare Windows path (a `file:` URL now); a helper hands the environment over in those tests, and a new win32-stub test makes the A315 class of break fail on a pull request, not only in the dispatch-only `windows-core` leg. No product change.
+
 ## 0.0.150 — 2026-11-17
 
 - Fix (A319): the description dash of a plan's `## Tests` bullet is found in the bytes the control plane reads (the UTF-8 em and en dash), so a quoted data value after it is no test name; A316 only worked on decoded text, and the COMPLEX run again failed REVIEW_TESTS with `not_measured` for `book club` and `sci-fi`. Test: a UTF-8 PLAN.md through `build-record scan`.

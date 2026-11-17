@@ -3,6 +3,7 @@
 // the closed pipe fails at once, which blanked the SessionStart hook's answer when `agent.sh next` was a failing stub.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import '../lib/own-env.mjs';
 import { runAsync } from '../../control-plane/agents/scripts/core/proc.mjs';
 
 test('runAsync reports the status of a child that never reads a large input', async () => {

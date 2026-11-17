@@ -3,6 +3,7 @@
 // in between, so the core runs the project's own code for a worktree's run instead. Only `allowEqualTree` (the hook's rollback mode) runs one, while
 // its whole tree equals the project's.
 import { tempDir } from '../lib/tempdir.mjs';
+import '../lib/own-env.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
