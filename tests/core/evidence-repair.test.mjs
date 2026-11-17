@@ -4,10 +4,13 @@
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { test } from 'node:test';
+import { before, test } from 'node:test';
 import { matchPlanDurations, parseRunnerDurations } from '../../control-plane/agents/scripts/core/evidencerepair.mjs';
 import { A, gateStatus, refused } from '../lib/harness.mjs';
-import { accepted, count, gpass, ledger, must, passAllButTests, rec, reopened, rerun, runnerStarts, setMode, stripDuration, writeFindings } from './evidence-repair-lib.mjs';
+import { accepted, count, gpass, ledger, must, passAllButTests, rec, reopened, rerun, runnerStarts, setMode, stripDuration, warm, writeFindings } from './evidence-repair-lib.mjs';
+
+// the cold build of each project variant is paid here, not inside the first test that uses it
+before(() => warm([[], [['SECURITY']], [['REVIEW_RULES', 'VERIFY']], [['ROW']], [[], 'approved'], [[], 'unapproved'], [[], '', 'clean'], [[], '', 'new']]));
 import { wclose, wopen } from '../lib/harness.mjs';
 
 const NOTREE = { source: 'no application/test change since the finding' };
@@ -85,19 +88,18 @@ test('a changed tree is a normal fix, not a repair: an application file or a tes
   }
 });
 
-test('an unrelated blocking finding keeps the rule: another failing gate (security, correctness, verifier) refuses the repair', () => {
-  for (const [what, also, msg] of /** @type {Array<[string, string[], string]>} */ ([
-    ['a SECURITY finding on the same content', ['SECURITY'], 'SECURITY has an open finding'],
-    ['a correctness finding of REVIEW_RULES', ['REVIEW_RULES'], 'REVIEW_RULES has an open finding'],
-    ['a VERIFY finding', ['VERIFY'], 'VERIFY has an open finding'],
-  ])) {
+for (const [what, also, msg] of /** @type {Array<[string, string[], string]>} */ ([
+  ['a SECURITY finding on the same content', ['SECURITY'], 'SECURITY has an open finding'],
+  ['a correctness finding of REVIEW_RULES (with a VERIFY finding)', ['REVIEW_RULES', 'VERIFY'], 'has an open finding'],
+])) {
+  test(`an unrelated blocking finding keeps the rule: ${what} refuses the repair`, () => {
     const d = reopened(also);
     refused(rerun(d), what, msg);
     assert.doesNotMatch(ledger(d), /event=evidence-repair/, what);
     must(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: 'command: node .git/er-run.mjs\ntarget: impl.txt,impl_test.txt\ntest_durations: slow one=5.5; fast one=0.75\n' });
     refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), `${what}: IMPLEMENTED on the unchanged tree`, NOTREE.source);
-  }
-});
+  });
+}
 
 test('a finding of another class next to the missing duration keeps the rule: a real wait, command_not_double_run, another not_measured reason, an unreadable or empty findings.json', () => {
   for (const [what, doc, msg] of /** @type {Array<[string, unknown, string]>} */ ([
@@ -127,10 +129,16 @@ test('the control plane measures and the run must really pass: a failing command
   assert.doesNotMatch(ledger(d), /event=evidence-repair/);
 });
 
-test('one repair per fix round, and the rounds are bounded: the second repair of a round is refused, and after max_fix_rounds the gate cannot be reopened', () => {
+test('one repair per fix round: the second repair before a new reopen is refused', () => {
   const d = reopened();
   accepted(rerun(d), 'repair 1');
   refused(rerun(d), 'a second repair in the same round', 'already ran in this fix round');
+  assert.equal((ledger(d).match(/event=evidence-repair /g) ?? []).length, 1);
+});
+
+test('the rounds are bounded: two repairs use max_fix_rounds and the gate cannot be reopened a third time', () => {
+  const d = reopened();
+  accepted(rerun(d), 'repair 1');
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED');
   // the reviewer fails the same content again (the same missing duration), the lead reopens, the implementer repairs once more
   stripDuration(d, 'fast one');
@@ -180,28 +188,31 @@ test('a plan-listed command that changes the tree while it runs records nothing 
   assert.doesNotMatch(ledger(d), /event=evidence-repair/);
 });
 
-test('only the tests without a duration that no approved measure exception excuses must be shown by the runner: an approved exception excuses one, an unapproved line does not', () => {
+test('a repair needs a runner duration for the tests no approved measure exception excuses only: an approved exception for "fast one" leaves "slow one" to show', () => {
   const ok = reopened([], 'approved');
   setMode(ok, 'nodur');   // the runner prints a duration for "slow one" only
   const r = accepted(rerun(ok), 'repair with an approved exception for "fast one"');
   const name = r.out.match(/(GREEN-\d+)\)/)?.[1];
   assert.match(readFileSync(path.join(ok, '.agents/runs/LC/worker-evidence', `${name}.yaml`), 'utf8'), /^test_durations: slow one=5\.5$/m);
+});
+
+test('a repair with a `- measure:` line nobody approved still needs the duration of that test', () => {
   const no = reopened([], 'unapproved');
   setMode(no, 'nodur');
   refused(rerun(no), 'the same runner with an exception nobody approved', 'shows no duration for "fast one"');
   assert.doesNotMatch(ledger(no), /event=evidence-repair/);
 });
 
-test('a plan-listed command that dirties a previously CLEAN in-scope file, or creates a NEW in-scope file, records nothing (the changed-path lists are read again after the run)', () => {
-  for (const scope of ['clean', 'new']) {
+for (const scope of ['clean', 'new']) {
+  test(`a plan-listed command that ${scope === 'clean' ? 'dirties a previously CLEAN' : 'creates a NEW'} in-scope file records nothing (the changed-path lists are read again after the run)`, () => {
     const d = reopened([], '', scope);
     setMode(d, 'touch');
     const before = greens(d);
     refused(rerun(d), `a command that writes an in-scope ${scope} file`, 'changed the application/test tree while it ran; nothing was recorded');
     assert.equal(greens(d), before, scope);
     assert.doesNotMatch(ledger(d), /event=evidence-repair/, scope);
-  }
-});
+  });
+}
 
 test('the early check at IMPLEMENTED runs before anything is measured: a refusal starts no runner and leaves no test-measure row', () => {
   const d = reopened();
@@ -214,8 +225,8 @@ test('the early check at IMPLEMENTED runs before anything is measured: a refusal
   assert.equal((ledger(d).match(/event=test-measure /g) ?? []).length, rows, 'no test-measure row was written');
 });
 
-test('at IMPLEMENTED an approved `- measure:` exception for a test passes the early check, an unapproved one does not', () => {
-  for (const [exception, accept] of /** @type {Array<[string, boolean]>} */ ([['approved', true], ['unapproved', false]])) {
+for (const [exception, accept] of /** @type {Array<[string, boolean]>} */ ([['approved', true], ['unapproved', false]])) {
+  test(`at IMPLEMENTED ${exception === 'approved' ? 'an approved' : 'an unapproved'} \`- measure:\` exception for a test ${accept ? 'passes' : 'does not pass'} the early check`, () => {
     const d = reopened([], exception);
     const w = wopen(d);
     appendFileSync(path.join(d, 'impl.txt'), 'impl: a real change\n');
@@ -224,5 +235,5 @@ test('at IMPLEMENTED an approved `- measure:` exception for a test passes the ea
     const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
     if (accept) accepted(r, 'the exception the user approved excuses "fast one"');
     else refused(r, 'an exception nobody approved', 'the plan names "fast one" and no recorded GREEN duration matches');
-  }
-});
+  });
+}

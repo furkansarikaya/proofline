@@ -4,9 +4,11 @@
 // Not yet mechanical (said here instead of faked): that the REVIEW_TESTS reviewer who judges the new durations is a different agent from the implementer is the lead's dispatch discipline plus
 // role-bound commands; the script enforces the role boundary, which is what is tested.
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { before, test } from 'node:test';
 import { A, accepted, refused } from '../lib/harness.mjs';
-import { count, ledger, must, reopened, rerun } from '../core/evidence-repair-lib.mjs';
+import { count, ledger, must, reopened, rerun, warm } from '../core/evidence-repair-lib.mjs';
+
+before(() => warm([[], [['SECURITY']], [['REVIEW_RULES']], [['VERIFY']]]));
 
 test('evidence repair, invariants 3 and 5: the repair writes no approval, waiver or gate record; the implementer cannot pass or waive the gate it repaired, and CODE_DONE waits for the reviewer', () => {
   const d = reopened();
@@ -22,12 +24,15 @@ test('evidence repair, invariants 3 and 5: the repair writes no approval, waiver
   refused(A(d, ['handoff', 'LC', 'CODE_DONE']), 'CODE_DONE before the reviewer judged the new evidence', 'CODE_DONE blocked');
 });
 
-test('evidence repair, invariant 6: in doubt the finding stays blocking: another failing gate, or a changed tree, cannot be closed by the repair', () => {
-  for (const also of [['SECURITY'], ['REVIEW_RULES'], ['VERIFY']]) {
+for (const also of [['SECURITY'], ['REVIEW_RULES'], ['VERIFY']]) {
+  test(`evidence repair, invariant 6: in doubt the finding stays blocking: a failing ${also[0]} cannot be closed by the repair`, () => {
     const d = reopened(also);
     refused(rerun(d), `a repair beside a failing ${also[0]}`, 'has an open finding');
     assert.doesNotMatch(ledger(d), /event=evidence-repair/);
-  }
+  });
+}
+
+test('evidence repair, invariant 6: in doubt the finding stays blocking: hand-recorded durations on an unchanged tree are no fix', () => {
   const d = reopened();
   must(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: 'command: node .git/er-run.mjs\ntarget: impl.txt,impl_test.txt\ntest_durations: slow one=5.5; fast one=0.75\n' });
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'an unchanged tree with hand-recorded durations', 'a fix must change the tree');

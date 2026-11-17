@@ -45,9 +45,9 @@ export function passAllButTests(d, alsoFail = []) {
 }
 
 /** The run at the start of a fix round that only has an evidence finding (also: more gates that failed on the same content). @param {string[]} [also] @returns {string} a fresh copy of the project */
-export function reopened(also = /** @type {string[]} */ ([]), exception = '', scope = '') {
+export function template(also = /** @type {string[]} */ ([]), exception = '', scope = '') {
   const key = `er-${codeKey()}-${sha256(PLAN + also.join(',') + exception + scope).slice(0, 10)}`;
-  return copyOf(cached(key, (work) => {
+  return cached(key, (work) => {
     // exception: 'approved' | 'unapproved' puts a `- measure:` line for "fast one" in the plan, frozen after the user's scope approval (or without it)
     // scope: 'clean' | 'new' adds other.txt to the plan scope (a previously clean in-scope file; 'new': not tracked, so a command that writes it creates a new in-scope file)
     const wide = scope === '' ? {} : { scopeExtra: 'AC-1' };
@@ -80,8 +80,14 @@ export function reopened(also = /** @type {string[]} */ ([]), exception = '', sc
     must(b, ['handoff', 'LC', 'IMPLEMENTING']);
     cpSync(b, work, { recursive: true });
     rmSync(b, { recursive: true, force: true });
-  }));
+  });
 }
+
+/** A fresh copy of the project of a variant (see `template`). @param {string[]} [also] @param {string} [exception] @param {string} [scope] */
+export function reopened(also = /** @type {string[]} */ ([]), exception = '', scope = '') { return copyOf(template(also, exception, scope)); }
+
+/** Build the templates of some variants in a `before` hook: the cold build is paid once, outside any test (the per-test budget is for the scenario, as in the port rig, A311). @param {Array<[string[]?, string?, string?]>} variants */
+export function warm(variants) { for (const v of variants) template(v[0] ?? [], v[1] ?? '', v[2] ?? ''); }
 
 /** @param {string} d @param {Record<string, unknown>} [o] */
 export const rerun = (d, o = {}) => A(d, ['worker-evidence', 'LC', 'GREEN', 'rerun'], { role: 'implementer', ...o });
