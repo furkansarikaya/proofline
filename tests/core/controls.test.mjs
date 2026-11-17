@@ -212,6 +212,15 @@ test('A326 sc_knowledge_pages: one new page and an updated existing page need no
   must(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']);
 });
 
+test('A326 sc_knowledge_pages: a new page that is staged or already committed on the task branch counts as opened; an updated existing page does not', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/design/FIRST.md', '# First\n'); w(d, 'docs/design/SECOND.md', '# Second\n'); ap(d, 'docs/design/ARCHITECTURE.md', 'updated\n');
+  git(d, ['add', 'docs/design/FIRST.md', 'docs/design/SECOND.md']);
+  expectMsg('two staged new pages', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+  git(d, ['commit', '-q', '-m', 'first page', 'docs/design/FIRST.md']);
+  expectMsg('one committed and one staged new page', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+});
+
 test('A326 sc_knowledge_pages: with gates the reason of a second new page is a ledger row (the paths and the reason), and knowledge_reason stays empty', () => {
   const d = project({ topology: 'orchestrated' }); toCodeDone(d);
   w(d, 'docs/design/FIRST.md', '# First\n'); w(d, 'docs/design/SECOND.md', '# Second\n');

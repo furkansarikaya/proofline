@@ -605,14 +605,19 @@ function evidenceRepairSupersedes(ctx, dir, rec) {
  */
 function verifierRetry(ctx, dir, rec) {
   if (gateField(ctx, rec, 'gate') !== 'VERIFY') return false;
-  const seq = Number(gateField(ctx, rec, 'seq'));
   const fp = gateField(ctx, rec, 'fingerprint');
   const repairs = evidenceRepairRows(ctx, dir);
+  // the gate records are numbered per folder, the repair rows by the ledger: both are compared by the ledger row the record wrote (`gate:<GATE>:<result>`, detail `gates/<file>@<hash> by <role>`)
+  const rows = ledgerRows(ctx, dir, /^gate:VERIFY:(fail|pass)$/);
+  /** @param {string} file */
+  const at = (file) => rows.find((r) => r.detail.startsWith(`gates/${file.slice(file.lastIndexOf('/') + 1)}@`))?.seq ?? -1;
+  const failAt = at(rec);
+  if (failAt < 0) return false;
   for (const n of gateNames(ctx, dir)) {
     const g = gf(ctx, dir, n);
-    if (gateField(ctx, g, 'gate') !== 'VERIFY' || gateField(ctx, g, 'result') !== 'pass') continue;
-    const gs = Number(gateField(ctx, g, 'seq'));
-    if (gs > seq && gateField(ctx, g, 'fingerprint') === fp && !repairs.some((r) => r.seq > seq && r.seq < gs)) return true;
+    if (gateField(ctx, g, 'gate') !== 'VERIFY' || gateField(ctx, g, 'result') !== 'pass' || gateField(ctx, g, 'fingerprint') !== fp) continue;
+    const passAt = at(g);
+    if (passAt > failAt && !repairs.some((r) => r.seq > failAt && r.seq < passAt)) return true;
   }
   return false;
 }

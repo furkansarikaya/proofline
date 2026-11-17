@@ -13,12 +13,12 @@ import { taskOwnedPaths } from './gates.mjs';
 import { verifySeal } from './ledger.mjs';
 import { localTaskSourceRun, setRunValue } from './lifecycle.mjs';
 import { justificationOk, led, must, need, quietly } from './lifeutil.mjs';
-import { untrackedPaths } from './git.mjs';
+import { git, untrackedPaths } from './git.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
 import { fileText, sectionKeyPresent, sectionValue, textLines, gatesEnforced } from './records.mjs';
-import { requireRun, runDir } from './runs.mjs';
-import { designDocPaths } from './scope.mjs';
+import { knownControlArtifact, requireRun, runDir } from './runs.mjs';
+import { designDocPaths, inKnowledgeScope } from './scope.mjs';
 import { knowledgeDrift, scanKnowledgeSecrets } from './commands/runcmds.mjs';
 import { freshness, knowledgeOwnedPaths } from './commands/verify.mjs';
 
@@ -105,13 +105,19 @@ function recordSuggestions(ctx, id, list) {
 const BOOKKEEPING = /(^|\/)(index\.md|log\.md|log-archive\.md|lint-report\.md|lessons\/observations\.md|concepts\/shortcut-debt\.md)$/;
 
 /**
- * The topic pages this knowledge step OPENED (A326, A322.5): the knowledge-owned paths that are new files (untracked), without the wiki's bookkeeping files. An existing page that was
- * updated is not listed; a task whose topic already has a page updates it.
- * @param {Context} ctx @param {string[]} owned @returns {string[]}
+ * The topic pages this knowledge step OPENED (A326, A322.5): the knowledge-scope files ADDED since the run's base (staged or already committed on the task branch, `git diff --diff-filter=A`
+ * against `repository.base_sha`) and the untracked ones, without the wiki's bookkeeping files and the run's own control artifacts. An existing page that was updated is not listed; a task
+ * whose topic already has a page updates it. A base that is not recorded yet counts the untracked files only.
+ * @param {Context} ctx @param {string} id @returns {string[]}
  */
-export function newKnowledgePages(ctx, owned) {
-  const fresh = new Set(untrackedPaths(ctx));
-  return owned.filter((p) => fresh.has(p) && !BOOKKEEPING.test(p));
+export function newKnowledgePages(ctx, id) {
+  const dir = runDir(ctx, id);
+  const base = sectionValue(ctx, dir, 'repository', 'base_sha');
+  /** @type {Set<string>} */ const fresh = new Set(untrackedPaths(ctx));
+  if (/^[0-9a-f]{7,64}$/.test(base)) {
+    for (const p of git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '--diff-filter=A', '-z', base, '--']).out.split('\0')) if (p !== '') fresh.add(p);
+  }
+  return [...fresh].sort().filter((p) => inKnowledgeScope(ctx, p) && !BOOKKEEPING.test(p) && !knownControlArtifact(ctx, id, p));
 }
 
 /** `knowledge-done ID [KNOWLEDGE_DONE|not_applicable [REASON]]` @param {Context} ctx @param {string[]} args */
@@ -154,7 +160,7 @@ export function knowledgeDoneCommand(ctx, args) {
     } else if (own.length === 0) fail(`knowledge-done blocked (A200): no knowledge page was written. KNOWLEDGE_DONE records pages: write the wiki page, the ADR or the design document change the step is for (under ${ctx.config().get('knowledge_scope_root', 'docs/design/ docs/adr/ docs/wiki/ docs/product/')}), run the wiki lint, then run knowledge-done again; or, when the task needs no knowledge, agent.sh knowledge-done ${id} not_applicable "<one specific sentence>" (refused with the signal when the task changed behaviour or a contract)`);
     else {
       // A326 (A322.5): one new topic page per task. A second NEW page needs a recorded reason (update the existing page of the topic otherwise)
-      const opened = newKnowledgePages(ctx, own);
+      const opened = newKnowledgePages(ctx, id);
       if (opened.length > 1) {
         if (reason === '') fail(`knowledge-done blocked (A326): this step opened ${opened.length} new pages (${opened.join(' ')}). A task keeps one page per topic: update the existing page of the topic instead of opening a second one. When the second page is a different topic, say why: agent.sh knowledge-done ${id} KNOWLEDGE_DONE "<one sentence: why each new page is a separate topic>"`);
         if (!justificationOk(reason) || /["\\#]/.test(reason) || reason.split('\n').filter((l) => l !== '').length > 1) fail('the reason for more than one new page must be one specific sentence of at least 20 characters without a double quote, a backslash or a #');

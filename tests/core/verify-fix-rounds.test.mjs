@@ -3,6 +3,7 @@
 // evidence-only repair in between, reports 0 fix rounds; a real fix, a failing review of unchanged content and the bound itself count as before.
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
+import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
 import { A, gfail, gpass, must, pipe, project, worker } from '../lib/harness.mjs';
 
 const recipe = { topology: 'orchestrated', testCrit: 'AC-2', taskExtra: '- AC-2: second behavior' };
@@ -47,4 +48,12 @@ test('a verifier retry takes nothing from the budget: after it, one failing revi
   gfail(d, 'QA', 'impl.txt');
   assert.equal(pipe(d, 'fix_round'), '1');
   assert.ok(report(d).includes('- Fix rounds: 1 of 2'), report(d));
+});
+
+test('an evidence-repair row between the failing and the passing VERIFY on the same content keeps the round (the retry rule needs no repair row)', () => {
+  const d = mk();
+  gfail(d, 'VERIFY', 'impl.txt');
+  ledgerAppend(`${d}/.agents/runs/LC`, 'implementer', 'evidence-repair', '-', '-', 'finding=1-REVIEW_TESTS.yaml patch=0 commands=1 records=GREEN-1 tests=x');
+  gpass(d, 'VERIFY');
+  assert.equal(pipe(d, 'fix_round'), '2', 'the failing VERIFY (1) and the repair row (1) both count');
 });
