@@ -3,10 +3,11 @@
 // clear error, never a silent empty environment. The census lists the entry points that reach proc.mjs and fails for a new one that does not call setOwnEnv.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tempDir } from '../lib/tempdir.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const procUrl = pathToFileURL(`${root}/control-plane/agents/scripts/core/proc.mjs`).href;
@@ -65,12 +66,40 @@ const ENTRIES = /** @type {Record<string, string>} */ ({
   'control-plane/agents/scripts/core/guardian.mjs': 'setOwnEnv(process.env)',
   'control-plane/agents/scripts/core/proflinecli.mjs': 'proc.setOwnEnv(process.env)',   // bin/proofline loads it and calls main
   'adapters/claude/hooks/lib/agent.mjs': 'm.setOwnEnv?.(process.env)',   // the hook imports the project's proc.mjs here
+  'adapters/claude/hooks/lib/worker.mjs': 'setOwnEnv?.(process.env)',   // a core command on a worker thread, which has its own copy of proc.mjs
   'adapters/codex/install.mjs': 'setOwnEnv(process.env)',
 });
 
 test('proc: every entry point that reaches proc.mjs hands the environment over', () => {
   for (const [f, call] of Object.entries(ENTRIES)) assert.ok(readFileSync(path.join(root, f), 'utf8').includes(call), `${f} does not call ${call}`);
   assert.match(readFileSync(path.join(root, 'bin/proofline'), 'utf8'), /core\/proflinecli\.mjs/);
+});
+
+test('proc: a hook or adapter file that runs core code without main() (core.run, or an import of proofline-core.mjs) hands the environment over', () => {
+  const files = mjsUnder('adapters').filter((f) => /^[^/*\n]*(?:\bcore\.run\(|import\([^)\n]*proofline-core\.mjs)/m.test(readFileSync(path.join(root, f), 'utf8')) && !f.endsWith('generate.mjs'));
+  assert.ok(files.length >= 2, `expected the hook files that run the core: ${files}`);
+  for (const f of files) assert.ok(readFileSync(path.join(root, f), 'utf8').includes('setOwnEnv'), `${f} runs core code without main() and does not call setOwnEnv`);
+});
+
+test('proc: the hook worker thread and the in-process core hand the environment to the core\'s proc.mjs', () => {
+  const dir = tempDir('pl-procenv-');
+  try {
+    mkdirSync(`${dir}/.agents/scripts/core`, { recursive: true });
+    writeFileSync(`${dir}/.agents/scripts/core/proc.mjs`, `export * from ${JSON.stringify(procUrl)};\n`);   // the same module instance as the real one
+    writeFileSync(`${dir}/.agents/scripts/proofline-core.mjs`, "import * as proc from './core/proc.mjs';\nexport function run() { try { proc.killWindowsTree(1, false, () => ({ status: 0 })); return 0; } catch { return 9; } }\n");
+    mkdirSync(`${dir}/.agents/scripts/core`, { recursive: true });
+    const coreUrl = pathToFileURL(`${dir}/.agents/scripts/proofline-core.mjs`).href;
+    const worker = pathToFileURL(`${root}/adapters/claude/hooks/lib/worker.mjs`).href;
+    const agent = pathToFileURL(`${root}/adapters/claude/hooks/lib/agent.mjs`).href;
+    const viaWorker = spawnSync(process.execPath, ['--input-type=module', '-e', `import { Worker } from 'node:worker_threads';
+const w = new Worker(new URL(${JSON.stringify(worker)}), { execArgv: [], workerData: { coreUrl: ${JSON.stringify(coreUrl)}, argv: [], io: {}, cancel: new SharedArrayBuffer(4) } });
+w.on('message', (m) => console.log('status', m.status));`], { encoding: 'utf8' });
+    assert.match(viaWorker.stdout, /status 0/, `worker: ${viaWorker.stdout}${viaWorker.stderr}`);
+    const inProc = spawnSync(process.execPath, ['--input-type=module', '-e', `import { Agents } from ${JSON.stringify(agent)};
+const a = new Agents({ root: ${JSON.stringify(dir)}, mainRoot: ${JSON.stringify(dir)}, agentPath: '', env: {}, lockWait: 1, cwd: ${JSON.stringify(dir)} });
+const core = await a.core(); console.log('status', core.run([], {}));`], { encoding: 'utf8' });
+    assert.match(inProc.stdout, /status 0/, `in process: ${inProc.stdout}${inProc.stderr}`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('proc: a new file that starts a process (a shebang or a main on process.argv) and reaches proc.mjs is in the entry list', () => {

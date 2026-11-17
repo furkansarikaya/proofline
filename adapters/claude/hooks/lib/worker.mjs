@@ -5,6 +5,8 @@ import { parentPort, workerData } from 'node:worker_threads';
 
 const { coreUrl, argv, io: given, cancel } = workerData;
 const core = await import(coreUrl);
+// this thread has its own copy of the core's proc.mjs (the same module the core imported): hand it the environment like every entry point (A315; optional, an older core has none)
+(await import(new URL('./core/proc.mjs', coreUrl).href).catch(() => null))?.setOwnEnv?.(process.env);
 /** @type {Buffer[]} */ const out = [];
 /** @type {Buffer[]} */ const err = [];
 const io = { ...given, cancel: new Int32Array(cancel), stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) } };

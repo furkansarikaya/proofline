@@ -49,7 +49,11 @@ export class Agents {
   core() {
     if (!this._core) {
       this._core = isFile(`${this.coreDir}/proofline-core.mjs`) && isDir(`${this.coreDir}/core`)
-        ? import(pathToFileURL(`${this.coreDir}/proofline-core.mjs`).href).catch(() => null) : Promise.resolve(null);
+        ? import(pathToFileURL(`${this.coreDir}/proofline-core.mjs`).href).then(async (c) => {
+          // the core runs in this process without its main(): hand its proc.mjs (the module the core imported) the environment (A315; optional, an older core has none)
+          (await import(pathToFileURL(`${this.coreDir}/core/proc.mjs`).href).catch(() => null))?.setOwnEnv?.(process.env);
+          return c;
+        }).catch(() => null) : Promise.resolve(null);
     }
     return this._core;
   }
