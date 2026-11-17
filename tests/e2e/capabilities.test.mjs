@@ -86,6 +86,7 @@ test('A117/A121: cleanup after a dry run, --keep, and the database probe evidenc
   assert.equal(dry(['TRIVIAL', 'claude', '--keep'], { E2E_ROOT: path.join(root, 'k') }).status, 0, 'dry run --keep failed');
   const k = path.join(root, 'k', readdirSync(path.join(root, 'k'))[0] ?? '');
   for (const d of ['project', 'codexhome', 'out']) assert.ok(existsSync(path.join(k, d)), `--keep did not keep ${d}`);
+  assert.equal(read(path.join(k, 'project/tests/helpers.js')), read(path.join(repo, 'playground/tests/helpers.js')), 'a scenario other than FAILOVER changed the playground test helper');
   for (const f of ['db-probe-before.txt', 'db-probe.txt', 'db-probe-diff.txt', 'summary.txt']) assert.ok(existsSync(path.join(out, f)) && statSync(path.join(out, f)).size > 0, `missing out/${f}`);
   assert.match(read(path.join(out, 'summary.txt')), /^db_unchanged=yes$/m, 'db_unchanged is not yes on an untouched copy');
   assert.equal(read(path.join(out, 'db-probe-before.txt')), read(path.join(out, 'db-probe.txt')), 'db probe differs on an untouched copy');

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.148 — 2026-11-17
+
+- Tests (A317): the FAILOVER scenario runs under the Codex worker profile (its project copy gets an in-process test helper, since the profile refuses a loopback listener), copies the state at the kill to `out/at-kill/`, and removes the `CLAUDE_CODE*` variables from the Codex lead's environment; no permission profile, hook or expected file changed.
+
 ## 0.0.147 — 2026-11-17
 
 - Fix (A316): a test name in a plan is a quoted string before the description dash; a quoted data value after the dash (`["book club", "sci-fi"]`) is no longer read as a test, which made REVIEW_TESTS fail with `not_measured` in the COMPLEX run; a bullet with no quoted name before the dash keeps the old reading, and the plan-contract template and SECTIONS.md state the rule.
