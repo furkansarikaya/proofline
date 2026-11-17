@@ -14,6 +14,9 @@ import { HARD_REPLY_CAP, openApprovals, pendingKind, questionOpen, questionScrip
 
 const here = import.meta.dirname;
 const repo = path.resolve(here, '../..');
+/** COMPLEX only (A318): the project's test_trust.mutation_budget; the line in the installed config.yaml that is replaced. */
+const COMPLEX_BUDGET = 30;
+const COMPLEX_BUDGET_FROM = /^(test_trust:\n(?:  [^\n]*\n)*?  mutation_budget: )20$/m;
 const SCENARIOS = ['TRIVIAL', 'STANDARD', 'STANDARD.tr', 'COMPLEX', 'CRITICAL', 'FAILOVER'];
 /** `${NAME:-def}`: an unset or empty variable gives the default. @param {string} name @param {string} def */
 const env = (name, def) => (process.env[name] ? /** @type {string} */ (process.env[name]) : def);
@@ -122,6 +125,15 @@ export async function main(argv) {
   const install = path.join(out, 'install.txt'); writeFileSync(install, '');
   const ir = toFile(proofline, ['init', '--yes', '--runtimes', cfg.runtimes, '--lead', cfg.lead, '--worker', cfg.worker, '--reviewers', cfg.reviewers, '--profile', profile, '--task-adapter', 'markdown'], { cwd: project }, install);
   if (ir.status !== 0) return ir.status ?? 1;
+  // COMPLEX: the project's own config carries test_trust.mutation_budget 30. The task naturally yields 21 criteria (AC-1..AC-21) against the default 20, and a plan above the budget stops at a
+  // `mutation_budget` approval that only the user gives; the harness never answers it (A318). The config value is the user's own setting and needs no approval; no other scenario gets it.
+  if (scenario === 'COMPLEX') {
+    const cf = path.join(project, '.agents/config.yaml');
+    const text = readFileSync(cf, 'utf8');
+    const set = text.replace(COMPLEX_BUDGET_FROM, `$1${COMPLEX_BUDGET}`);
+    if (set === text) { console.error(`COMPLEX setup: no 'mutation_budget: 20' line under test_trust in ${cf}`); return 1; }
+    writeFileSync(cf, set);
+  }
   baseline('chore: install proofline');
   const doctor = path.join(out, 'doctor.txt'); writeFileSync(doctor, '');
   if (env('E2E_SKIP_DOCTOR', '') === '1') writeFileSync(doctor, 'skipped (E2E_SKIP_DOCTOR=1, a harness self-test)\n'); else toFile(proofline, ['doctor'], { cwd: project }, doctor);
@@ -182,7 +194,7 @@ export async function main(argv) {
   if (dry) {
     const say = (/** @type {string} */ s) => console.log(s);
     say(`run_dir=${run}`); say(`project=${project}`); say(`scenario=${scenario} config=${config} task=${task}`); say('prepared=baseline,install,doctor,codex-isolation');
-    say(`setup: cp -R '${repo}/playground/.' '${project}/';${scenario === 'FAILOVER' ? ` cp '${here}/overlays/failover-helpers.js' '${project}/tests/helpers.js';` : ''} git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '${repo}/bin/proofline' init --yes --runtimes '${cfg.runtimes}' --lead '${cfg.lead}' --worker '${cfg.worker}' --reviewers '${cfg.reviewers}' --profile ${profile} --task-adapter markdown; baseline 'chore: install proofline'; '${repo}/bin/proofline' doctor`);
+    say(`setup: cp -R '${repo}/playground/.' '${project}/';${scenario === 'FAILOVER' ? ` cp '${here}/overlays/failover-helpers.js' '${project}/tests/helpers.js';` : ''} git init -q -b main; node src/migrate.js; node src/seed.js; baseline 'chore: baseline'; '${repo}/bin/proofline' init --yes --runtimes '${cfg.runtimes}' --lead '${cfg.lead}' --worker '${cfg.worker}' --reviewers '${cfg.reviewers}' --profile ${profile} --task-adapter markdown;${scenario === 'COMPLEX' ? ` set test_trust.mutation_budget to ${COMPLEX_BUDGET} in .agents/config.yaml;` : ''} baseline 'chore: install proofline'; '${repo}/bin/proofline' doctor`);
     if (lead === 'claude') say(`lead: (cd '${project}' && claude -p '<whole ${task} task file>' --setting-sources project,local --permission-mode bypassPermissions --model '${leadModel}' --output-format stream-json --verbose --max-turns '${maxTurns}') > '${out}/lead-1.jsonl' 2> '${out}/lead-1.err'`);
     else {
       say(`lead: HOME='${run}/codexhome' CODEX_HOME='${run}/codexhome/.codex' codex exec${codexCheap} --dangerously-bypass-hook-trust -C '${project}' -s danger-full-access -c 'approval_policy="never"' --json -o '${out}/lead-1.last.txt' '<whole ${task} task file>' > '${out}/lead-1.jsonl'`);
