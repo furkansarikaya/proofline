@@ -341,7 +341,7 @@ jobs:
           - name: controls
             mode: files
             pattern: 'none'
-            files: tests/core/controls.test.mjs tests/core/identity.test.mjs tests/core/green-duration.test.mjs tests/core/test-measure.test.mjs
+            files: tests/core/controls.test.mjs tests/core/identity.test.mjs tests/core/green-duration.test.mjs tests/core/test-measure.test.mjs tests/core/evidence-repair.test.mjs
           - name: task-debt-perf
             mode: files
             pattern: 'none'
@@ -465,7 +465,7 @@ jobs:
           - name: invariants-node-4
             mode: files
             pattern: 'none'
-            files: tests/invariants-node/rules-5-6.test.mjs
+            files: tests/invariants-node/rules-5-6.test.mjs tests/invariants-node/rules-evidence-repair.test.mjs
           - name: ci-bench-enforcement
             mode: files
             pattern: 'none'

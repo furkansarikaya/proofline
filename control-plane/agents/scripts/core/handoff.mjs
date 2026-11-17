@@ -5,7 +5,7 @@
 import { buildRecord } from './buildrecord.mjs';
 import { sha256 } from './hash.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
-import { measureRun, realRunner } from './testmeasure.mjs';
+import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fail } from './errors.mjs';
@@ -13,6 +13,8 @@ import { findApproval } from './approvals.mjs';
 import { consumeApproval, requireOpenRun } from './approve.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
+import { evidenceRepairCovers } from './evidencerepair.mjs';
+import { planExceptions, planTestsWithoutDurationOf } from './testreview.mjs';
 import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
@@ -127,7 +129,11 @@ export function verifyFixBound(ctx, id) {
   const f = latestFindingFile(ctx, dir);
   if (f === '') return;
   const patch = taskPatchFingerprint(ctx, dir);
-  if (patch === gateField(ctx, f, 'patch_sha256')) fail(`no application/test change since the finding in ${f.slice(f.lastIndexOf('/') + 1)}: a fix must change the tree before it can be re-reviewed`);
+  if (patch === gateField(ctx, f, 'patch_sha256')) {
+    // A325: the one exception is an evidence-only repair (worker-evidence GREEN rerun) of a finding that only says a plan test has no recorded duration; the sealed ledger holds its row
+    if (evidenceRepairCovers(ctx, id, f, patch)) return;
+    fail(`no application/test change since the finding in ${f.slice(f.lastIndexOf('/') + 1)}: a fix must change the tree before it can be re-reviewed. Only when every open finding says a plan test has no recorded duration: agent.sh worker-evidence ${id} GREEN rerun (the control plane re-runs the plan-listed commands and records the durations; a fix round, no gate pass)`);
+  }
   const scope = fixScopeUnion(ctx, dir, f);
   if (scopeEntryPaths(scope).join('') === '*') return;
   const sib = fixScopeSiblings(ctx, dir, scope);
@@ -190,6 +196,13 @@ function testMeasureAtImplemented(ctx, id, patch) {
   // A DURATIONS block comes from the GREEN evidence, not from the content under test: it is not latched, re-recording GREEN with the real durations clears it.
   if (m.durationBlocks.length > 0) fail(`IMPLEMENTED blocked: ${m.durationBlocks.join('; ')}. Re-record the GREEN evidence with the durations read from the real run output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again`);
   if (m.blockers.length > 0) fail(`IMPLEMENTED blocked: ${m.blockers.join('; ')}`);
+  // A325: a plan-named test with no recorded duration would be a blocking REVIEW_TESTS finding after every other gate was spent; refuse it here, back to the implementer (a plan `- measure:` exception for the test is the user's decision and is honoured)
+  if (measureRequired(ctx, id)) {
+    const strip = (/** @type {string} */ t) => asciiLower(t.replace(/[`"]/g, '').trim());
+    const excepted = planExceptions(fileText(ctx, `${dir}/PLAN.md`) ?? '').filter((e) => e.kind === 'measure').map((e) => strip(e.target));
+    const lacking = planTestsWithoutDurationOf(ctx, id).filter((n) => !excepted.includes(n));
+    if (lacking.length > 0) fail(`IMPLEMENTED blocked: the plan names ${lacking.map((n) => `"${n}"`).join(', ')} and no recorded GREEN duration matches. Back to the implementer: re-run the plan-listed Verification command (or the project test command) and re-record GREEN with the duration of EVERY plan-named test read from the real output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again. In a fix round for a REVIEW_TESTS finding of exactly this kind, with the tree unchanged, agent.sh worker-evidence ${id} GREEN rerun does the re-recording (the control plane runs the plan-listed commands and reads the durations itself)`);
+  }
 }
 
 /** `build_record_auto ID` (handoff IMPLEMENTED, lead) @param {Context} ctx @param {string} id */

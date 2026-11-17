@@ -58,7 +58,7 @@ re-run it on a weaker model (D7).
    `ALLOWED_SCOPE:` the union `fix_scope` of those rows (a row without a path allows any frozen scope
    path), plus the frozen plan scope paths that share an acceptance criterion with a path of those rows (A123).
    `next` prints that computed list as `fix_path=<path>` lines (`fix_path=*`: any frozen scope path); paste them
-   into `ALLOWED_SCOPE`, do not work them out by hand. The fix must change the tree and stay inside that scope. A path
+   into `ALLOWED_SCOPE`, do not work them out by hand. The fix must change the tree and stay inside that scope. One exception (A325): when the only open finding is a REVIEW_TESTS `not_measured` finding `no_recorded_duration` (a plan-named test has no recorded duration) and the task patch is the reviewed one, the implementer runs `A worker-evidence <ID> GREEN rerun` instead of editing: the control plane runs the plan-listed commands and records the durations itself (a fix round, one per `handoff IMPLEMENTING`, no approval, no gate pass), `A handoff <ID> IMPLEMENTED` is then accepted on the unchanged tree and the reviewer dispatches again. Any other finding (security, secrets, correctness, `command_not_double_run`, verifier, scope) still needs a tree change. A path
    the plan never scoped needs the user's scope approval (`A ask` with the D13 block), then a PLAN.md amendment and
    `A refreeze`; `amend` is for CODE_DONE/DONE runs only.
 4. `A handoff <ID> IMPLEMENTED`, `A tier <ID>`, `A pipeline <ID>`. Every gate is now `stale` or `missing`
