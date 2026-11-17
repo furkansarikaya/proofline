@@ -52,6 +52,20 @@ test('scan prints the measurement facts: a run nothing was measured for says NOT
   assert.match(r.out, /^ {2}NOT MEASURED: the plan names the test "retries after the delay" and no recorded duration matches it$/m);
 });
 
+test('scan reads PLAN.md as UTF-8 text bytes: an em dash, an en dash and a non-ASCII test name end the name list the same as their ASCII forms (COMPLEX run 3: the A316 split missed the latin1 form of the dash)', () => {
+  const bullets = [
+    '- AC-2: `tests/api.test.js` "POST tags normalises" \u2014 returns `["book club", "sci-fi"]` and "sci-fi, book club" (test_kind: integration)',
+    '- AC-3: `tests/api.test.js` "caf\u00e9 au lait is kept" \u2013 the tag "sci-fi" is stored (test_kind: unit)',
+    '- AC-4: `tests/api.test.js` "ge\u00e7ersiz etiket reddedilir" \u2014 the value "book club" is refused (test_kind: unit)',
+  ];
+  const d = project({ topology: 'orchestrated', scopeNamed: 'tests/sleepy.test.js', scopeExtra: 'AC-1', planExtra: `\n## Tests\n\n${bullets.join('\n')}\n` });
+  const r = A(d, ['build-record', 'LC', 'scan'], { role: 'reviewer' });
+  const named = [...r.out.matchAll(/^ {2}NOT MEASURED: the plan names the test "(.*)" and no recorded duration matches it$/gm)].map((m) => m[1]);
+  assert.deepEqual(named, ['caf\u00e9 au lait is kept', 'ge\u00e7ersiz etiket reddedilir', 'post tags normalises'], r.out);
+  const j = JSON.parse(A(d, ['build-record', 'LC', 'scan', '--json'], { role: 'reviewer' }).out);
+  assert.deepEqual(j.measurement.plan_tests_without_duration.length, 3);
+});
+
 test('scan --json has the same facts as JSON; a bad argument is a usage error', () => {
   const d = run();
   const r = A(d, ['build-record', 'LC', 'scan', '--json'], { role: 'reviewer' });

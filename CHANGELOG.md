@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.150 — 2026-11-17
+
+- Fix (A319): the description dash of a plan's `## Tests` bullet is found in the bytes the control plane reads (the UTF-8 em and en dash), so a quoted data value after it is no test name; A316 only worked on decoded text, and the COMPLEX run again failed REVIEW_TESTS with `not_measured` for `book club` and `sci-fi`. Test: a UTF-8 PLAN.md through `build-record scan`.
+
 ## 0.0.149 — 2026-11-17
 
 - Tests (A318): the COMPLEX end-to-end scenario project sets its own `test_trust.mutation_budget` to 30 (the other scenarios keep 20), so the plan's 21 criteria do not stop at a mutation-budget approval the harness never gives; the harness still never answers that request. The F-1 test of A317 no longer flakes: its stub lead writes the ledger line the harness polls for last. No product code changed.

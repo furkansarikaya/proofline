@@ -67,6 +67,9 @@ export function greenRecords(ctx, id) {
 
 // ---- the plan: test kinds and budgets -------------------------------------------------------------------------------------------------
 
+/** A separator: a spaced em dash, en dash, `--` or hyphen. The control plane reads PLAN.md as a byte string (latin1, one char per byte), so the dashes also come as their UTF-8 bytes (E2 80 94, E2 80 93); the JS-string form is kept for callers that pass decoded text. */
+const reSeparator = /^ (—|–|\u00e2\u0080\u0094|\u00e2\u0080\u0093|--|-) /;
+
 /**
  * Where the description of a `## Tests` bullet starts: the first dash separator (em dash, en dash, `--` or a spaced hyphen) outside double quotes and outside a code span, else the end of the line.
  * The bullet is a code-span file, a quoted test name, a dash and what it asserts, then `(test_kind: ...)`; a quoted value in what it asserts (`["book club", "sci-fi"]`) is data, not a test name.
@@ -78,7 +81,7 @@ function descriptionStart(line, from) {
     const c = line[i];
     if (c === '"' && !code) quoted = !quoted;
     else if (c === '`' && !quoted) code = !code;
-    else if (c === ' ' && !quoted && !code && /^ (—|–|--|-) /.test(line.slice(i, i + 5))) return i;
+    else if (c === ' ' && !quoted && !code && reSeparator.test(line.slice(i, i + 5))) return i;
   }
   return line.length;
 }
