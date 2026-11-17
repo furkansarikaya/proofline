@@ -21,7 +21,7 @@ These restate five of the six [core invariants](CONTRIBUTING.md#core-invariants)
 Every number below has its source on [docs/proof.md](docs/proof.md), with what it does not prove.
 
 - 5,837 test results (5,661 distinct tests) in one CI run of `main` (run 44051436515), counted from the run's duration reports.
-- 322 recorded design decisions, each saying what changed; 215 also mention what they rejected ([docs/decisions.md](docs/decisions.md)).
+- 323 recorded design decisions, each saying what changed; 216 also mention what they rejected ([docs/decisions.md](docs/decisions.md)).
 - Control plane moved from 175 shell files (44,842 lines) to 4 launchers (42 lines); recording one gate result went from 7.56 s (shell form, measured on 0.0.48) to 0.21 s ([ADR 0001](docs/adr/0001-stages.md#stage-15-exit-criteria-record-a251)).
 - Independent security reviews found bypasses before release; one added layer was removed because the review showed it failed open (A292).
 - The real-session smoke run for a recent change failed on its first attempt, which exposed a false positive that parked a task (PR #293, A293).

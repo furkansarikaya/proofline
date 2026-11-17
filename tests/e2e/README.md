@@ -36,23 +36,24 @@ economy`, Sonnet lead for TRIVIAL, STANDARD and STANDARD.tr; `balanced`, Opus le
 in copies of `playground/` outside the repository, installed with `proofline init`, headless. Dates are UTC dates
 of the run; "main" is the commit the run was made on. The newest campaign (2026-11-16 and 2026-11-17, section "The
 campaign on main 6830eae6 and its re-runs") ran on `6830eae6` (0.0.141) and, for the re-runs, on `87dd66a0`, `773f00d6`,
-`8a2cbea5` and `8f84d850`. The current `main` is `ed7a0e31` (0.0.151, A320, a change to tests and CI only after
-`8f84d850`): no scenario has been run on it.
+`8a2cbea5` and `8f84d850`. The current `main` is `900c2852` (0.0.151, no product change after `8f84d850` other than tests, CI and records): the section "The final pass on main 900c2852" below holds the run of all six scenarios on it.
 
 ### Last passing run per scenario
 
 "Merged after" lists the decisions in `docs/decisions.md` merged after that run's commit
 (`git log <commit>..main`). Some of them changed only CI, the e2e harness or tests (A109, A121, A128, A131); A100 is the harness plus a `none` step in the shipped Codex effort ladder, A110 is a CI job plus `skills/visual-proof/scripts/measure.mjs`; A117 changed the harness and the repository's ignore file, A125 is mostly a test (plus front matter edits), and A118 changed `agent.sh` (a lock race); the rest changed the control plane, the hooks or the skills. A scenario may only be called plainly
-"passing" if it passed on the current `main`; none did.
+"passing" if it passed on the current `main` every time it was run there; none did (TRIVIAL passed once and failed once on `900c2852`).
 
 | Scenario | Last passing run | main commit | Evaluator verdict | Decisions merged after that run |
 |---|---|---|---|---|
-| TRIVIAL | 2026-10-16 | `7eeeeb4` | PASS 33/33, CAPABILITIES 5/5 | A121 to A323 |
+| TRIVIAL | 2026-11-17 (second run) | `900c2852` (0.0.151) | PASS 33/33, CAPABILITIES 5/5; the first run on the same commit scored FAIL 14/30 (a model sample, A324.2); the earlier pass: 2026-10-16, `7eeeeb4`, 33/33 | none (A324 is docs only) |
 | STANDARD | 2026-11-16 | `6830eae6` (0.0.141) | PASS 37/37, CAPABILITIES 4/4, scored against the expectations as corrected by A310; the same run scored FAIL 31/36 against the old ones (earlier pass: 2026-10-14, `b515110`, PASS 40/40) | A311 to A323 |
 | STANDARD.tr | 2026-10-17 | `f75d1f5` | PASS 41/41, twice in a row (runs A1 and A2) | A126 to A323 |
 | COMPLEX | 2026-10-17 | `128e516` | PASS 39/39, CAPABILITIES 6/6 (an earlier pass: 2026-10-14, `b515110`, 39/39) | A129 to A323 |
 | CRITICAL | 2026-10-14 | `b515110` | PASS 60/60 (earlier: `00c2e9c` 35/35; 2026-10-13 36/36, commit not recorded in the notes) | A99 to A323 |
 | FAILOVER (mixed) | none | none | FAIL 37/47 on `6830eae6`; FAIL 40/48 (41/48 with F-3 as corrected by A321) on `773f00d6`, capabilities 4/5 | not applicable |
+
+On 900c2852 none of STANDARD (run 2 FAIL 36/37), STANDARD.tr (FAIL 43/44), CRITICAL (FAIL 31/34), COMPLEX (FAIL 30/37) and FAILOVER (invariant 48/48, quality 0/1, FAIL) passed fully (see the final-pass section below); TRIVIAL run 2 passed.
 
 ### The campaign on main 6830eae6 and its re-runs (2026-11-16 and 2026-11-17)
 
@@ -75,6 +76,23 @@ One run of each scenario on `6830eae6` (0.0.141), then re-runs after fixes, all 
 | COMPLEX #4 | `8f84d850` (0.0.150) | `E2E: FAIL (invariant 25/35, quality 1/2 = 50%)` | `CAPABILITIES: FAIL (invariant 5/6, quality 0/0 = 100%)` | stopped in the intent interview before the freeze: the pending question asked for `accept AS-1`, three question replies were spent; MODEL (a checkable assumption rated unverified) with HARNESS (a blanket reply cannot satisfy `accept AS-N`); PRODUCT, minor: the question stayed pending after the lead verified AS-1 | accepted, A322.8 |
 
 What the campaign shows and does not show. STANDARD passes on `6830eae6` only under the expectations of A310, and the fix that made it pass was in the expectations, not in the product. STANDARD.tr, CRITICAL and TRIVIAL each ended one item short on their latest run, and each of those items is a model behaviour recorded as an accepted limit (A322). FAILOVER reached DONE once, with two accepted limits and a spec correction (A321). COMPLEX did not reach DONE in any of the four runs, because the harness cannot give the user-only approvals that run needed at the point where it stopped (A322.8); a complete COMPLEX run is not demonstrated by this campaign. Evaluation note: the file of COMPLEX #4 gives `invariant 25/35` in its verdict line and `26/37` in one sentence of its text; the verdict line is quoted. Accepted limits: [docs/limits.md](../../docs/limits.md).
+
+### The final pass on main 900c2852 (2026-11-17)
+
+After the final records pull request (#314) every scenario was run once more on `900c2852` (0.0.151), and TRIVIAL and STANDARD a second time. No product change was made between the runs. Claude-only runs as above, except FAILOVER (mixed). "Lead" is the `lead_N_duration` in each run's `summary.txt` (seconds; several leads are added with `+`). The verdict lines are copied from the evaluation files; the class (PRODUCT, MODEL, HARNESS) is the evaluator's. Run directories are under `$TMPDIR/proofline-e2e/` on the maintainer's machine and are not in the repository.
+
+| Run (directory) | Lead | Verdict line | Capabilities | Unmet items, class, limit |
+|---|---|---|---|---|
+| TRIVIAL run 1 (`TRIVIAL-claude-20261117T114356Z`) | 11 s | `E2E: FAIL (invariant 14/30, quality 0/0 = 100%)` | `CAPABILITIES: FAIL (invariant 2/4, quality 0/0 = 100%)` | The lead asked the user to reply "yes" (A169) and nothing ran: C-1, C-2, C-4, C-8, C-9, C-11, C-12, C-14, T-1, T-2, T-3, T-5, T-6, T-7, T-8, T-9 (COMMON and TRIVIAL), all MODEL (C-14 and T-2 with a latent conflict between A169 and T-2); capabilities N-2 and N-3 unmet for the same reason; A324.2 |
+| TRIVIAL run 2 (`TRIVIAL-claude-20261117T132824Z`) | 152 s | `E2E: PASS (invariant 33/33, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 5/5, quality 0/0 = 100%)` | none; the lead started directly. Note: "Fix rounds: 1 of 2" with no fix in the ledger (a verifier retry), A324.5 |
+| STANDARD run 1 (`STANDARD-claude-20261117T114413Z`) | 499 s | `E2E: FAIL (invariant 29/36, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | C-5, C-10, C-14, S-9, S-11: MODEL cause (GREEN record with durations for 3 of the 5 plan-named tests) with a PRODUCT dead end (detection only at REVIEW_TESTS; `advance` refused an evidence-only repair; the lead asked the user), A324.1; C-18: MODEL (three QA scratch worktrees), A322.4 and A323.4; S-6: MODEL, A322.1 |
+| STANDARD run 2 (`STANDARD-claude-20261117T133103Z`) | 817 s | `E2E: FAIL (invariant 36/37, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | S-6 only: MODEL, A322.1. CODE_DONE and DONE, 7 gates passed on the first attempt, one knowledge page |
+| STANDARD.tr (`STANDARD.tr-claude-20261117T115239Z`) | 557 s | `E2E: FAIL (invariant 43/44, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | S-6 only: MODEL, A322.1. DONE, one knowledge paragraph, English `Changed:` line, Turkish final message |
+| CRITICAL (`CRITICAL-claude-20261117T120203Z`) | 765 + 24 + 13 + 26 s (four leads) | `E2E: FAIL (invariant 31/34, quality 1/1 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | K-2: MODEL, A322.2 (third occurrence); K-5, K-6: HARNESS/scenario (the freeze was refused over the unverified high-risk assumption AS-2 and `accept AS-2` is a user-only approval), A322.8; the AS-N question text, A324.3. Replies 3 of 3, all questions; no approval of any kind |
+| COMPLEX (`COMPLEX-claude-20261117T121600Z`) | 192 + 806 + 2244 + 29 s (four leads) | `E2E: FAIL (invariant 30/37, quality 2/2 = 100%)` | `CAPABILITIES: FAIL (invariant 5/6, quality 0/0 = 100%)` | Stopped at REVIEW_TESTS (fix round 2 pending) on two waiver requests: C-5, C-10, X-4, X-10, X-11 (PRODUCT A323.3 plus the recovery dead end A324.1, MODEL cause; waivers are user-only, A322.8); C-7: MODEL (the lead tried `agent.sh waive`; the product refused, no waiver exists); X-13: HARNESS/scenario text (`paginate` changed after a NEEDS_INPUT answered with "Use your recommended option"); N-4: no completion report. A product finding: the GREEN recorder rejects a `=` in a test name, A324.4 |
+| FAILOVER (`FAILOVER-mixed-20261117T131042Z`) | 241 s (Claude, killed) + 784 s (Codex) | `E2E: FAIL (invariant 48/48, quality 0/1 = 0%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | F-9 (the only quality item): PRODUCT, the completion report's Execution table has no lead runtime per phase, A322.6. CODE_DONE and DONE, 7 gates, one knowledge page; F-1 and F-3 met; the first FAILOVER run with every invariant met |
+
+What the final pass shows and does not show. A later PASS does not erase an earlier FAIL: TRIVIAL run 2 passed 33/33, but run 1 on the same commit failed 14/30 because the lead asked for a confirmation that the scenario cannot give, so TRIVIAL is not plainly passing on `900c2852`; the two runs are two samples of one model and one prompt (A324.2). STANDARD run 2 met everything except S-6 (36 of 37); the same S-6 is the only unmet item of STANDARD.tr, and it is the verdict-deciding one for both because a scenario needs every invariant. STANDARD run 1 failed on a product dead end that run 2 did not meet (A324.1). No scenario passed all of its items in every run on this commit, and no COMPLEX run reached DONE; the harness cannot grant the user-only approvals that run needs (A322.8). The final pass found no new security or approval defect and loosened nothing; the findings are recorded and not changed in A324 ([docs/limits.md](../../docs/limits.md)).
 
 ### Latest regression round (2026-10-17, main `9e70f03`, all five scenarios, one run each)
 
