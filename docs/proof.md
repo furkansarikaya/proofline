@@ -22,7 +22,7 @@ The total is test results, not distinct tests: a few files run in two jobs (for 
 
 ## Decisions on record
 
-- `docs/decisions.md` holds 322 numbered decisions, A1 to A323 with one number never assigned, counted with `grep -c '^- \*\*A[0-9]\+\.'`. Each states what changed and why; 215 of the decision lines also contain the word "rejected" (`grep '^- \*\*A[0-9]*\.' docs/decisions.md | grep -ci rejected`; it counts the word, so a few of them use it for something other than a list of discarded alternatives). Every behaviour change is a decision ([CONTRIBUTING](../CONTRIBUTING.md)). The records below show what the reviews found:
+- `docs/decisions.md` holds 323 numbered decisions, A1 to A324 with one number never assigned, counted with `grep -c '^- \*\*A[0-9]\+\.'`. Each states what changed and why; 216 of the decision lines also contain the word "rejected" (`grep '^- \*\*A[0-9]*\.' docs/decisions.md | grep -ci rejected`; it counts the word, so a few of them use it for something other than a list of discarded alternatives). Every behaviour change is a decision ([CONTRIBUTING](../CONTRIBUTING.md)). The records below show what the reviews found:
 
 - **A284 (a change to test exceptions at a refreeze), five security review rounds** (CHANGELOG entries "A284, review round 1" to "round 5"). Round 1 found a ledger-row injection: a free-text reason ending in a forged row could be read as a genuine baseline, so no approval was asked and a refreeze passed. It was fixed at the reader and at the writer. Round 2 found the same class in the readers of gate, waiver and approval bindings. Tests inj-1, inj-2 and inj-6 cover them; the record states that inj-6 fails before its fix.
 - **A292 (Windows hook tests):** a "safe fs layer" built in a review round was removed after the security review showed that its own error was turned into an ALLOW when no run was active, which let a lead write product files the hook would deny; the proof of concept was reproduced. The existing hook wrapper already fails closed, so the layer was dropped (A292, "REVIEW HISTORY").
@@ -81,16 +81,22 @@ The first smoke of [PR #312](https://github.com/furkansarikaya/proofline/pull/31
 
 ## End-to-end team runs
 
-The end-to-end scenarios run a real lead and real specialists in a copy of a small project (`tests/e2e/README.md`). Each run is scored by an independent evaluator session against expected files in the repository. The campaign of 2026-11-16 and 2026-11-17 ran every scenario on 6830eae6 (0.0.141) and re-ran four of them (STANDARD.tr, CRITICAL, FAILOVER, COMPLEX) on later commits. The latest run of each scenario, by the evaluator's own verdict line:
+The end-to-end scenarios run a real lead and real specialists in a copy of a small project (`tests/e2e/README.md`). Each run is scored by an independent evaluator session against expected files in the repository. The campaign of 2026-11-16 and 2026-11-17 ran every scenario on 6830eae6 (0.0.141) and re-ran four of them (STANDARD.tr, CRITICAL, FAILOVER, COMPLEX) on later commits; the table that follows is that campaign. After it, all six scenarios were run on the final main, 900c2852 (0.0.151), TRIVIAL and STANDARD twice. The latest run of each scenario in the campaign, by the evaluator's own verdict line:
 
-| Scenario | Latest run (main, version) | Verdict | Capabilities |
-|---|---|---|---|
-| TRIVIAL | 6830eae6 (0.0.141) | FAIL, invariant 32/33 (C-22, model) | PASS 5/5 |
-| STANDARD | 6830eae6 | FAIL 31/36 against the old expectations, PASS 37/37 against the expectations of A310 (same run) | PASS 4/4 |
-| STANDARD.tr | 87dd66a0 (0.0.143) | FAIL, invariant 42/43 (S-6, model) | PASS 4/4 |
-| CRITICAL | 773f00d6 (0.0.148) | FAIL, invariant 33/34 (K-2, model) | PASS 4/4 |
-| FAILOVER (Claude lead stopped, Codex lead resumes) | 773f00d6 | FAIL, invariant 40/48 (41/48 with F-3 as corrected by A321); reached DONE with all 7 gates | FAIL 4/5 |
-| COMPLEX | 8f84d850 (0.0.150) | FAIL, invariant 25/35; stopped in the intent interview at an assumption the harness cannot accept | FAIL 5/6 |
+The final pass on 900c2852 (no product change between its runs; the evaluator's own verdict lines; run directories and evaluation files are on the maintainer's machine, the per-run table with classes is in [tests/e2e/README.md](../tests/e2e/README.md), section "The final pass on main 900c2852"):
+
+| Run on 900c2852 | Verdict | Capabilities |
+|---|---|---|
+| TRIVIAL run 1 | FAIL, invariant 14/30 (the lead asked "reply yes" under A169 and nothing ran; model, A324.2) | FAIL 2/4 |
+| TRIVIAL run 2 | PASS, invariant 33/33 | PASS 5/5 |
+| STANDARD run 1 | FAIL, invariant 29/36 (stopped at REVIEW_TESTS on a plan-named test with no recorded duration; A324.1) | PASS 4/4 |
+| STANDARD run 2 | FAIL, invariant 36/37 (S-6 only; whole lifecycle to DONE) | PASS 4/4 |
+| STANDARD.tr | FAIL, invariant 43/44 (S-6 only; DONE) | PASS 4/4 |
+| CRITICAL | FAIL, invariant 31/34 (K-2; K-5 and K-6 because `accept AS-2` is a user-only approval; A322.8) | PASS 4/4 |
+| COMPLEX | FAIL, invariant 30/37 (stopped at REVIEW_TESTS on two waiver requests; A323.3, A324.1, A322.8) | FAIL 5/6 |
+| FAILOVER (mixed) | FAIL, invariant 48/48, quality 0/1 (F-9; DONE with all 7 gates) | PASS 4/4 |
+
+A later PASS does not erase an earlier FAIL: TRIVIAL passed once and failed once on the same commit, and no scenario passed every item in every run there. The pass found no new security or approval defect and loosened nothing; five findings are recorded and not changed in A324.
 
 Four COMPLEX runs ended at stops that only the user may answer (the plan and scope requests of a refreeze after three failed reviews, a mutation-budget request, a scope request, an assumption acceptance); a complete COMPLEX run to DONE is not demonstrated by this campaign. The per-run table, the classes of the unmet items (product, model, harness) and the fixes (PRs #305, #306, #310, #311, #312; A312, A313, A317, A318, A319) are in [tests/e2e/README.md](../tests/e2e/README.md); the accepted limits are A322 and A323 in [limits](limits.md).
 
@@ -124,7 +130,7 @@ The ecosystem matrix ([ecosystems.md](concepts/ecosystems.md#ecosystem-matrix)) 
 
 - That proofline works on your project. The status of the release is "not yet proven on real projects" (README, CHANGELOG).
 - That a model's code is correct. Gates check evidence and rules; report wording, plan details and code quality stay model-dependent ([enforcement layers](concepts/enforcement-layers.md#what-is-guaranteed)).
-- That the end-to-end team runs are current. In the campaign of 2026-11-16 and 2026-11-17 the newest run of each scenario is a FAIL except STANDARD, which passes only against the expectations of A310 (the same run failed 5 items against the old ones); the unmet items are model behaviour (TRIVIAL, STANDARD.tr, CRITICAL), product documentation gaps (FAILOVER) and harness limits (COMPLEX), each accepted in A322, and a complete COMPLEX run to DONE is not demonstrated. None has run on the present `main` ([tests/e2e/README.md](../tests/e2e/README.md)).
+- That the end-to-end team runs are current. In the campaign of 2026-11-16 and 2026-11-17 the newest run of each scenario is a FAIL except STANDARD, which passes only against the expectations of A310 (the same run failed 5 items against the old ones); the unmet items are model behaviour (TRIVIAL, STANDARD.tr, CRITICAL), product documentation gaps (FAILOVER) and harness limits (COMPLEX), each accepted in A322, and a complete COMPLEX run to DONE is not demonstrated. On the final `main`, 900c2852, all six scenarios ran once more: TRIVIAL passed 33/33 in its second run and failed 14/30 in its first, and every other scenario's newest run is a FAIL (see "The final pass on main 900c2852" in [tests/e2e/README.md](../tests/e2e/README.md)).
 - That Codex works in every role. Only the implementer role is verified in real use (2026-10-23 to 25); the other Codex roles are not.
 - That Jira, Linear, `glab` and `az` work: they were tried against fakes only ([workflow](concepts/workflow.md#not-tried)).
 - That Windows is supported, or that the Windows legs are green today: every Windows job passed in a whole-matrix dispatch run before A315 (43933981728 on 6830eae6; a reduced run on a branch, 43907888898, was also green), three `windows-core` shards failed after A315 (nightly 44009657772, dispatch 44054247041), and the dispatch run on ed7a0e31 (44063495839, after A320) passed every Windows job once (see CI legs above).
