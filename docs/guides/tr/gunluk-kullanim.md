@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 55e90c3a2875e01f8c286d9fe7435edcbe486039 -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 63606a83788971a1ada89515bb008c32cc701e2b -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -10,7 +10,7 @@ proofline kurulduktan sonra onunla çalışmanın komutları ve alışkanlıklar
 
 1. `proofline status` - aktif run ve bir sonraki adım (varsayılan komut).
 2. İşi anlat. Küçük ve netse doğrudan söylemen yeterli. Belirsiz veya büyükse `proofline task --grill "<metin>"` önce seninle konuşur, sonra bir task dosyası yazar.
-3. `proofline run <TASK>` - lead görevi tüm workflow boyunca yürütür.
+3. `proofline run <TASK>` - lead görevi tüm workflow boyunca yürütür. Komutu yazmak, TRIVIAL bir koşuyu başlatmak için verdiğin onayın kendisidir ("yes" yanıtı beklenmez); koşu yokken sade bir "şunu düzelt" yine önce önerilir ve commit, push ve teslim onayları ayrı kalır (A326).
 4. Lead'in aktardığı soruları cevapla (sorular uzmandan olduğu gibi gelir). COMPLEX ve CRITICAL görevlerde planı onayla.
 5. Run CODE_DONE'a geldiğinde tamamlanma raporunu oku, sonra `proofline deliver <TASK>` ile teslimin ne yapacağını gör.
 6. Ajan oturumunda `/proofline deliver <TASK>` tek bir özet gösterir (commit, push, pull request, yeşilse merge, temizlik). Her adımı onaylamak için `approve delivery` (veya `teslimatı onaylıyorum`) yaz; bir adımdan önce içerik değişirse zincir durur ve yeniden sorulur.

@@ -287,6 +287,18 @@ async function knowledgeStage(ctx) {
   return s.startsWith('CODE_DONE ') || s.startsWith('FAILED ') || s.startsWith('BLOCKED ');
 }
 
+/** `planning_stage` (A326): is the active run still PLANNING (design phase, before the freeze opens IMPLEMENTING)? Any doubt: no. @param {import('../lib/context.mjs').HookContext} ctx */
+async function planningStage(ctx) {
+  const r = await ctx.agent(['summary', ctx.act], { keepRole: true });
+  if (r.status !== 0 && r.stdout === '') mcFlag(ctx, 'summary', r.status);
+  const found = [];
+  for (const l of r.stdout.split('\n')) {
+    const m = /^STATUS: ([A-Z_]*) \(handoff ([A-Za-z_]*),/.exec(l);
+    if (m) found.push(`${m[1]} ${m[2]}`);
+  }
+  return found.length === 1 && found[0] === 'PLANNING PLANNED';
+}
+
 /** tasks.dir, once: hook-config, else config-get (a failing config-get is flagged). @param {import('../lib/context.mjs').HookContext} ctx */
 export async function tasksDir(ctx) {
   const st = stateOf(ctx);
@@ -362,7 +374,14 @@ export async function pathOk(ctx, po) {
   if ((role === 'implementer' || role === 'designer') && ctx.sub && !inRun) {
     // A headless specialist (dispatch.sh, also the failover codex -> claude) has AGENT_ROLE in the hook's environment
     const envrole = canon(ctx.env.AGENT_ROLE ?? '');
-    if (!isFile(`${ctx.localDir}/windows/${ctx.aidf}`) && envrole !== role) return `no ${role} window is open for this subagent (SubagentStart window-open failed or was skipped); the change would be unattributed`;
+    if (!isFile(`${ctx.localDir}/windows/${ctx.aidf}`) && envrole !== role) {
+      // A326: the designer writes the design documents (design_docs paths, inside the knowledge scope) during PLANNING, when no worker window can be open (windows open only at IMPLEMENTING); a product path still needs a window
+      if (role === 'designer' && await planningStage(ctx)) {
+        const ks = await ctx.agent(['in-knowledge-scope', po], { keepRole: true });
+        if (ks.status === 0) return null;
+      }
+      return `no ${role} window is open for this subagent (SubagentStart window-open failed or was skipped); the change would be unattributed`;
+    }
   }
   return null;
 }

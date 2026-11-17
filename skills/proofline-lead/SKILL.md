@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.152"
+  version: "0.0.153"
 ---
 
 # proofline-lead
@@ -152,7 +152,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
 yourself, however small. Propose a light run (TRIVIAL or STANDARD, by the indicators in LIFECYCLE.md) and start it
 as `/proofline run <the user's text>` on their yes; the implementer makes the change, so the commit and push
 approvals bind to a run and `--no-verify` is never needed. A hook denial that says "no run is active" means
-exactly this: propose the run.
+exactly this: propose the run. The user's own `/proofline run <text>` command is already that yes for a TRIVIAL run
+(A326): start it at once and ask nothing; the commit, push and delivery approvals stay separate.
 
 ## Flow (translate each `next=` line)
 

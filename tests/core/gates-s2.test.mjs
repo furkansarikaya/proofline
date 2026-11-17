@@ -199,6 +199,9 @@ test('sc_assumptions: shape, trap, low-risk pass, bound question, no silent acce
   assert.equal(qmd(d).length, 2, 'freeze did not record one question per high-risk assumption');
   assert.match(rf(d, 'questions/001.md'), /^ *ASSUMPTION: AS-1@[0-9a-f]{12}$/m, 'question 001 is not bound to AS-1');
   assert.match(rf(d, 'questions/002.md'), /^ *ASSUMPTION: AS-2@[0-9a-f]{12}$/m, 'question 002 is not bound to AS-2');
+  // A326: the question states the truth: the user answers before the freeze and the later approvals do not cover it (no circular "confirmed by the destructive approval")
+  assert.match(rf(d, 'questions/001.md'), /Only you answer this, before the freeze; the destructive, scope and delivery approvals come later and do not cover it/);
+  assert.doesNotMatch(rf(d, 'questions/001.md'), /confirmed by the destructive approval/);
   expectState(d, 'execution', 'awaiting_input', 'true');
   assert.match(a(d, ['next', 'LC']).out, /^next=agent\.sh questions LC/m, 'next does not stop for the assumption questions');
   refused(a(d, ['verify-assumptions', 'LC']), 'verify-assumptions listed a blocked register as fine', 'never accepted silently');

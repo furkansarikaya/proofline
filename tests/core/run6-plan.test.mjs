@@ -121,7 +121,7 @@ test('deliver-plan is ready after four wiki pages written at CODE_DONE (the know
     + "solo GREEN pass app.go 'package x' impl.txt,impl_test.txt,app.go; A handoff LC IMPLEMENTED >/dev/null; pass_all; A handoff LC CODE_DONE >/dev/null; "
     + 'mkdir -p docs/wiki .agents/skills/llm-wiki/scripts; cp "$tl_agents/../../skills/llm-wiki/scripts/validate-wiki.mjs" .agents/skills/llm-wiki/scripts/; '
     + "for i in 1 2 3 4; do printf -- '---\\ntitle: page %s\\nstatus: current\\nsource: .agents/config.yaml\\n---\\n\\n# Page %s\\n\\nThe lookup returns the stored value.\\n' \"$i\" \"$i\" > \"docs/wiki/page$i.md\"; done; "
-    + 'A knowledge-done LC >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null');
+    + 'A knowledge-done LC KNOWLEDGE_DONE "four wiki pages of four separate topics in this synthetic run" >/dev/null; write_report; A publish-completion-report LC markdown >/dev/null; A handoff LC DONE >/dev/null');
   hooks(d);
   assert.equal(A(d, ['tier', 'LC'], { role: 'reviewer' }).out.trim(), 'small', 'four knowledge files at CODE_DONE moved the tier');
   const plan = accepted(A(d, ['deliver-plan', 'LC']), 'deliver-plan after the knowledge files').out;

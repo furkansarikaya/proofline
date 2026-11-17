@@ -597,7 +597,27 @@ function evidenceRepairSupersedes(ctx, dir, rec) {
   return evidenceRepairRows(ctx, dir).some((r) => repairFinding(r.detail) === name && r.seq < lastHandoff);
 }
 
-/** `fix_rounds_used ID`: one round per distinct content that collected an unwaived blocking FAIL under the current contract since the last reopen, plus one per evidence-only repair (A325). @param {Context} ctx @param {string} dir */
+/**
+ * True when REC, a failing VERIFY record, was a verifier's own retry (A326): a later VERIFY record passed on the very same content (fingerprint) and no evidence-only repair
+ * row lies between the two. Nothing was fixed in between, because a fix changes the content or is a repair row, so the failure is not a fix round. Only VERIFY (the mechanical
+ * gate a script re-runs) has this form: a failing review of unchanged content stays a round, so the bound is not loosened for the reviewers.
+ * @param {Context} ctx @param {string} dir @param {string} rec
+ */
+function verifierRetry(ctx, dir, rec) {
+  if (gateField(ctx, rec, 'gate') !== 'VERIFY') return false;
+  const seq = Number(gateField(ctx, rec, 'seq'));
+  const fp = gateField(ctx, rec, 'fingerprint');
+  const repairs = evidenceRepairRows(ctx, dir);
+  for (const n of gateNames(ctx, dir)) {
+    const g = gf(ctx, dir, n);
+    if (gateField(ctx, g, 'gate') !== 'VERIFY' || gateField(ctx, g, 'result') !== 'pass') continue;
+    const gs = Number(gateField(ctx, g, 'seq'));
+    if (gs > seq && gateField(ctx, g, 'fingerprint') === fp && !repairs.some((r) => r.seq > seq && r.seq < gs)) return true;
+  }
+  return false;
+}
+
+/** `fix_rounds_used ID`: one round per distinct content that collected an unwaived blocking FAIL under the current contract since the last reopen (a verifier's own retry on the same content excepted, A326), plus one per evidence-only repair (A325). @param {Context} ctx @param {string} dir */
 export function fixRoundsUsed(ctx, dir) {
   const reopen = lastReopenSeq(ctx, dir, 'any');
   const set = new Set();
@@ -608,6 +628,7 @@ export function fixRoundsUsed(ctx, dir) {
     if (!gateBoundToContract(ctx, dir, f)) continue;
     if (failFullyWaived(ctx, dir, f)) continue;
     if (gateCarryoverFree(ctx, dir, f)) continue;
+    if (verifierRetry(ctx, dir, f)) continue;
     set.add(gateField(ctx, f, 'fingerprint'));
   }
   return set.size + evidenceRepairRows(ctx, dir).length;

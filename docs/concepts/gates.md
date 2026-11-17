@@ -219,6 +219,8 @@ status block; the gate record keeps it. `known-issue-list` and `known-issue-cand
 
 ## Repeating gates after a fix round (A200)
 
+A fix round is counted once for each distinct content that collected a blocking FAIL, plus one for each evidence-only repair (A325). A verifier's own retry is not a round (A326): a failing VERIFY followed by a passing VERIFY on the very same content, with no repair between them, counts as none; a failing review of unchanged content, a real fix and the bound itself (`max_fix_rounds`) are unchanged.
+
 After a fix round or an amendment a gate re-runs when the fingerprint of its inputs changed. A `pass` REVIEW_PLAN, RULES, DATA or SECURITY record is
 carried over only when every changed path is a test path; SECURITY also runs when a changed test touches security behaviour (identity, authorization,
 input validation, secrets). SECRETS, REVIEW_SMALL, REVIEW_TESTS, QA and VERIFY always run, and any product, dependency or configuration change, or a
