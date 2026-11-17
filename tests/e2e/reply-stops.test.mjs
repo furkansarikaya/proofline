@@ -9,9 +9,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { after, describe, test } from 'node:test';
 import { here, repo, runE2e } from './runner.mjs';
+import { validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
 import { A, accepted, project } from '../core/legacy-lib.mjs';
-import { HARD_REPLY_CAP, LISTABLE_KINDS, listedProblem, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
+import { HARD_REPLY_CAP, LISTABLE_KINDS, PRODUCT_KINDS, allOpenRequests, candidateKinds, listedProblem, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
 
 const root = tempDir('e2e-stops-');
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -222,18 +223,35 @@ test('listed approval: nothing is sent while no request of the listed kind is op
   assert.match(q.summary, /^listed_approval_replies=0$/m, q.summary);
 });
 
-test('listed approval: max-uses is respected (default 1; a request that stays open is not answered a second time)', async () => {
-  const steps = [{ text: SCOPE_ASK, create: [scope('001', 'A')] }, { text: 'Still waiting for the scope.' }];
-  const [one, two] = await Promise.all([
-    play('COMPLEX', { steps }, 'listed-max1', listing('l-max1.txt', 'scope | approve scope\n')),
-    play('COMPLEX', { steps }, 'listed-max2', listing('l-max2.txt', 'scope | approve scope | 2\n')),
+test('listed approval: max-uses is per DISTINCT request (the same unchanged request is answered once even with max-uses 2; a second request gets the second use)', async () => {
+  const same = [{ text: SCOPE_ASK, create: [scope('001', 'A')] }, { text: 'Still waiting for the scope.' }];
+  const other = [{ text: SCOPE_ASK, create: [scope('001', 'A')] }, { text: 'A second scope request.', create: [scope('002', 'A')] }, { text: 'Still waiting.' }];
+  const [one, two, three] = await Promise.all([
+    play('COMPLEX', { steps: same }, 'listed-max1', listing('l-max1.txt', 'scope | approve scope\n')),
+    play('COMPLEX', { steps: same }, 'listed-max2', listing('l-max2.txt', 'scope | approve scope | 2\n')),
+    play('COMPLEX', { steps: other }, 'listed-max2b', listing('l-max2b.txt', 'scope | approve scope | 2\n')),
   ]);
   assert.match(one.summary, /^listed_approval_replies=1$/m, one.summary);
   assert.match(one.summary, /^stopped=unanswered-scope$/m, one.summary);
-  assert.match(two.summary, /^listed_approval_replies=2$/m, two.summary);
-  assert.match(two.summary, /^replies=2$/m, two.summary);
+  assert.match(two.summary, /^listed_approval_replies=1$/m, two.summary);
   assert.match(two.summary, /^stopped=unanswered-scope$/m, two.summary);
+  assert.match(three.summary, /^listed_approval_replies=2$/m, three.summary);
+  assert.match(three.log, /request=scope 001-request-scope\.yaml/, three.log);
+  assert.match(three.log, /request=scope 002-request-scope\.yaml/, three.log);
 });
+
+test('listed approval: a plain "approve scope" is withheld (logged listed-approval-withheld, nothing sent) while a rationale:scope request is open, and a no-run scope request next to it is read too', async () => {
+  const steps = [{ text: SCOPE_ASK, create: [scope('001', 'A'), { name: '002-request-rationale-scope.yaml', kind: 'rationale:scope', bound: 'A' }] }];
+  const { summary, log } = await play('COMPLEX', { steps }, 'listed-withheld', listing('l-withheld.txt', 'scope | approve scope\n'));
+  assert.match(summary, /^listed_approval_replies=0$/m, summary);
+  assert.match(summary, /^replies=0$/m, summary);
+  assert.match(log, /^withheld kind=listed-approval-withheld task=none request=scope reason=the message also satisfies the open request\(s\) rationale:scope \| approve scope$/m, log);
+  assert.doesNotMatch(log, /^reply=/m, log);
+  assert.match(summary, /^stopped=unanswered-/m, summary);
+});
+
+// GAP (documented in A328): the assumption path is not driven through run.mjs. `agent.sh questions <ID>` needs a real run (require_run: RUN.yaml, task, ledger), which the stub lead
+// cannot create; the block it parses is covered by the openAssumptions and pickListed tests below, which use the text of the real question (run COMPLEX-claude-20261117T085931Z).
 
 test('listed approval: a refreeze is still answered by the scripted plan lines, a listing never replaces them, and the scope waits until the pair is no longer open', async () => {
   const steps = [
@@ -273,6 +291,11 @@ test('listed approval: a listing that names a forbidden kind or a waiver, commit
     'scope approve scope',
     'scope | approve scope?',
     'scope |  approve scope',
+    "scope | approve scope, approve com'mit",
+    'scope | approve review-1',
+    'scope | approve scope waiving',
+    'scope | approve cleanup',
+    'scope | approve tree',
   ];
   for (const [i, line] of bad.entries()) {
     const r = runE2e(['COMPLEX', 'claude', '--dry-run'], { E2E_ROOT: path.join(root, `bad-${i}`), ...listing(`bad-${i}.txt`, `${line}\n`) });
@@ -366,31 +389,87 @@ test('the refreeze reply line is read by the real approval grammar as a plan app
   }
 });
 
-test('lib: pickListed matches only an open request of the line\'s kind, spends uses, and judges every entry again (a hand-built waiver, commit or push line is never picked)', () => {
+const none = (/** @type {number} */ n) => Array.from({ length: n }, () => new Set());
+const pick = (/** @type {any} */ r) => (r && 'pick' in r ? r.pick : null);
+
+test('lib: pickListed matches only an open request of the line\'s kind, spends uses per DISTINCT request, and judges every entry again (a hand-built waiver, commit or push line is never picked)', () => {
   const entries = [{ kind: 'scope', message: 'approve scope', max: 2 }, { kind: 'assumption', message: 'accept AS-1', max: 1 }];
   const open = (/** @type {string[]} */ ...kinds) => kinds.map((kind, i) => ({ name: `00${i + 1}-request-${kind}.yaml`, kind }));
-  assert.equal(pickListed(entries, [0, 0], open('destructive', 'commit', 'waive:F-1'), []), null);
-  assert.equal(pickListed(entries, [0, 0], [], []), null);
-  assert.deepEqual(pickListed(entries, [0, 0], open('plan', 'scope'), []), { index: 0, kind: 'scope', message: 'approve scope', request: '002-request-scope.yaml' });
-  assert.equal(pickListed(entries, [2, 0], open('scope'), []), null, 'uses spent');
-  assert.equal(pickListed(entries, [0, 0], [], ['AS-2', 'AS-1'])?.request, 'AS-1');
-  assert.equal(pickListed(entries, [0, 0], [], ['AS-2']), null, 'the line names AS-1 only');
-  assert.equal(pickListed(entries, [0, 1], [], ['AS-1']), null);
+  assert.equal(pickListed(entries, none(2), open('destructive', 'commit', 'waive:F-1'), []), null);
+  assert.equal(pickListed(entries, none(2), [], []), null);
+  assert.deepEqual(pick(pickListed(entries, none(2), open('plan', 'scope'), [])), { index: 0, kind: 'scope', message: 'approve scope', request: '002-request-scope.yaml' });
+  // the same unchanged request is never answered a second time, though max-uses is 2; a different request is
+  const used = none(2); used[0]?.add('002-request-scope.yaml');
+  assert.equal(pickListed(entries, used, open('plan', 'scope'), []), null, 'the same request twice');
+  assert.equal(pick(pickListed(entries, used, [...open('plan', 'scope'), { name: '005-request-scope.yaml', kind: 'scope' }], []))?.request, '005-request-scope.yaml');
+  used[0]?.add('005-request-scope.yaml');
+  assert.equal(pickListed(entries, used, [{ name: '009-request-scope.yaml', kind: 'scope' }], []), null, 'uses spent');
+  assert.equal(pick(pickListed(entries, none(2), [], ['AS-2', 'AS-1']))?.request, 'AS-1');
+  assert.equal(pickListed(entries, none(2), [], ['AS-2']), null, 'the line names AS-1 only');
+  const spent = none(2); spent[1]?.add('AS-1');
+  assert.equal(pickListed(entries, spent, [], ['AS-1']), null);
   const evil = [
     { kind: 'waive:REVIEW_TESTS-1', message: 'approve waive REVIEW_TESTS-1', max: 1 },
     { kind: 'scope', message: 'approve scope and waive F-1', max: 1 },
     { kind: 'commit', message: 'approve commit', max: 1 },
     { kind: 'push', message: 'approve push', max: 1 },
     { kind: 'scope', message: 'approve commit', max: 1 },
+    { kind: 'scope', message: "approve scope, approve com'mit", max: 1 },
     { kind: 'delivery', message: 'approve delivery', max: 1 },
   ];
   const all = open('waive:REVIEW_TESTS-1', 'scope', 'commit', 'push', 'delivery');
-  assert.equal(pickListed(evil, evil.map(() => 0), all, ['AS-1']), null);
+  assert.equal(pickListed(evil, none(evil.length), all, ['AS-1']), null);
   for (const k of ['waive:F-1', 'waive', 'commit', 'push', 'pr', 'merge', 'delivery', 'secrets', 'security', 'plan', 'single_step', 'budget']) assert.ok(!LISTABLE_KINDS.includes(k), k);
-  assert.match(listedProblem('assumption', 'accept AS-1 please'), /not a assumption approval/);
   assert.equal(listedProblem('assumption', 'accept AS-12'), '');
-  assert.equal(listedProblem('mutation_budget', 'approve mutation budget'), '');
+  assert.equal(listedProblem('mutation_budget', 'i approve the mutation budget'), '');
   assert.equal(listedProblem('destructive', 'approve destructive'), '');
+  assert.match(listedProblem('assumption', 'accept AS-1 please'), /exact acceptance form/);
+});
+
+test('lib: the exact payloads of the security report (apostrophes, commas, stems, ids, plan, tree, cleanup) never pass the loader, which asks the product grammar', () => {
+  const payloads = [
+    "approve scope, approve com'mit", "approve scope, approve pu'sh", "approve scope, approve mer'ge", "approve scope, approve deli'very",
+    'approve review-1', 'approve REVIEW_TESTS-1', 'approve request', 'approve pull', 'approve plan', 'approve tree', 'approve cleanup',
+    'approve scope; approve plan', 'approve scope & approve plan', 'approve scope\napprove plan', 'approve scope waiving', 'approve scope committing', 'approve scope pushing',
+    'approve scope delivering', 'approve scope merging', 'approve scope securing', 'approve scope teslimat', 'approve scope ’commit', 'kapsamı onaylıyorum',
+    'approve scope plan', 'approve scope tree', 'approve scope and cleanup',
+  ];
+  for (const m of payloads) assert.notEqual(listedProblem('scope', m), '', `'${m}' was accepted for scope`);
+  assert.equal(listedProblem('scope', 'approve scope'), '');
+  assert.equal(listedProblem('scope', 'i approve the scope'), '');
+});
+
+test('lib: the kinds the grammar is asked about are read from the product source, and a kind the product learns later fails this test until the table is read again', () => {
+  for (const k of ['plan', 'destructive', 'single_step', 'scope', 'budget', 'mutation_budget', 'tree', 'commit', 'push', 'pr', 'merge', 'cleanup', 'report', 'batch', 'commands', 'rename', 'known-issue', 'scale', 'delivery']) assert.ok(PRODUCT_KINDS.includes(k), `${k} missing from the derived kinds`);
+  const kinds = candidateKinds('approve review-1');
+  for (const f of ['waive', 'rule', 'reopen', 'rationale']) assert.ok(kinds.includes(`${f}:review-1`), `${f} family missing`);
+  // every plain kind the product accepts is in the table: probe the validator itself with the names of the sentences and words it knows
+  for (const k of [...PRODUCT_KINDS, 'waive:X-1', 'rule:R-7', 'reopen:LC', 'rationale:Card-Flip']) assert.ok(typeof k === 'string' && k !== '');
+  assert.ok(PRODUCT_KINDS.length >= 19, `only ${PRODUCT_KINDS.length} kinds were derived: the product source changed shape`);
+  assert.deepEqual(PRODUCT_KINDS.filter((k) => k !== 'delivery' && !validApprovalKind(k)), [], 'a derived kind the product does not accept');
+});
+
+test('lib: a plain "approve scope" is withheld while a rationale:scope, rule:scope or reopen:scope request is open, in any run or the no-run folder; allOpenRequests reads them all', () => {
+  const entries = [{ kind: 'scope', message: 'approve scope', max: 1 }];
+  const proj = path.join(root, 'allopen');
+  const w = (/** @type {string} */ rel, /** @type {string} */ kind) => { mkdirSync(path.join(proj, path.dirname(rel)), { recursive: true }); writeFileSync(path.join(proj, rel), `kind: "${kind}"\nbound: "A"\nrequested_at: 1\n`); };
+  w('.agents/runs/T-1/approvals/003-request-scope.yaml', 'scope');
+  let all = allOpenRequests(proj);
+  assert.deepEqual(all.map((o) => o.kind), ['scope']);
+  assert.equal(pick(pickListed(entries, none(1), openApprovals(path.join(proj, '.agents/runs/T-1/approvals')), [], all))?.request, '003-request-scope.yaml');
+  for (const [rel, kind] of [['.agents/runs/T-1/approvals/004-request-rationale-scope.yaml', 'rationale:scope'], ['.agents/runs/T-2/approvals/001-request-rule-scope.yaml', 'rule:scope'], ['.agents/local/approvals/001-request-reopen-scope.yaml', 'reopen:scope']]) {
+    rmSync(proj, { recursive: true, force: true });
+    w('.agents/runs/T-1/approvals/003-request-scope.yaml', 'scope'); w(/** @type {string} */ (rel), /** @type {string} */ (kind));
+    all = allOpenRequests(proj);
+    assert.ok(all.some((o) => o.kind === kind), `${kind} not read: ${JSON.stringify(all)}`);
+    const r = /** @type {any} */ (pickListed(entries, none(1), openApprovals(path.join(proj, '.agents/runs/T-1/approvals')).filter((o) => o.kind === 'scope'), [], all));
+    assert.ok(r && 'withheld' in r, `${kind}: ${JSON.stringify(r)}`);
+    assert.match(r.withheld.reason, new RegExp(kind.replace(':', ':')));
+  }
+  // a no-run scope request next to the run's scope request is of the same kind: not a reason to withhold
+  rmSync(proj, { recursive: true, force: true });
+  w('.agents/runs/T-1/approvals/003-request-scope.yaml', 'scope'); w('.agents/local/approvals/001-request-scope.yaml', 'scope');
+  assert.ok(pick(pickListed(entries, none(1), openApprovals(path.join(proj, '.agents/runs/T-1/approvals')), [], allOpenRequests(proj))));
 });
 
 test('lib: openAssumptions reads the ASSUMPTION ids of the open question block, and a missing listing file is an empty listing', () => {

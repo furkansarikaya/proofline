@@ -10,7 +10,7 @@ import { appendFileSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, op
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { HARD_REPLY_CAP, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, questionOpen, questionScript, refreezeCount, replyBudget, stopDecision } from './lib.mjs';
+import { HARD_REPLY_CAP, allOpenRequests, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, questionOpen, questionScript, refreezeCount, replyBudget, stopDecision } from './lib.mjs';
 
 const here = import.meta.dirname;
 const repo = path.resolve(here, '../..');
@@ -298,7 +298,8 @@ export async function main(argv) {
   // C-14 (A133): 3 answers plus one for every refreeze (E2E_MAX_REPLIES replaces the 3), under a hard ceiling that no bug can lift.
   const baseMax = Number(env('E2E_MAX_REPLIES', '3')); let replies = 0; let planReplies = 0; let questionReplies = 0; let refreezeReplies = 0; let listedReplies = 0; let stopped = ''; let stopState = ''; let budget = baseMax;
   const qscript = questionScript(qreplyFile, qreplyFile === replyFile);
-  /** @type {number[]} */ const listedUsed = listing.map(() => 0);
+  /** @type {Set<string>[]} */ const listedUsed = listing.map(() => new Set());
+  /** @type {Set<string>} */ const withheldLogged = new Set();
   /** @type {string} */ let lastAnswered = '';
   /** @type {Set<string>} */ const seenQuestions = new Set();
   w('replies-log.txt', '');
@@ -322,7 +323,13 @@ export async function main(argv) {
     // The stop as the harness sees it: the open requests, or the lead's message for a question. The same stop twice means the last reply changed nothing.
     const signature = decision === 'question' ? `q:${createHash('sha256').update(lastText).digest('hex')}` : `a:${open.map((o) => o.name).join(',')}|${kind}`;
     // A328: a listed approval is a user message the scenario names in advance; it goes out only while a request of its kind is open, never in place of the plan reply.
-    const listed = decision === 'plan' || decision === 'refreeze' ? null : pickListed(listing, listedUsed, open, openAssumptions(pending));
+    // It is withheld (logged as listed-approval-withheld, not sent) when the text would also satisfy an open request of ANOTHER kind anywhere in the project (another run, the no-run folder, rationale:, rule:, reopen:).
+    const picked = decision === 'plan' || decision === 'refreeze' ? null : pickListed(listing, listedUsed, open, openAssumptions(pending), allOpenRequests(project));
+    const listed = picked && 'pick' in picked ? picked.pick : null;
+    if (picked && 'withheld' in picked) {
+      const key = `${picked.withheld.kind}|${picked.withheld.reason}`;
+      if (!withheldLogged.has(key)) { withheldLogged.add(key); ap('replies-log.txt', `withheld kind=listed-approval-withheld task=${id} request=${picked.withheld.kind} reason=${picked.withheld.reason} | ${picked.withheld.message}\n`); }
+    }
     let reply;
     if (listed) reply = listed.message;
     else if (decision === 'plan') reply = line(replyFile, 2);
@@ -341,7 +348,7 @@ export async function main(argv) {
     // The cap is a safety stop, reported when it (and not the run) ends the loop.
     if (replies >= (listed ? replyBudget(baseMax, refreezeCount(approvalsDir), listedReplies + 1) : budget)) { stopped = 'max-replies'; stopState = stateLines(state); break; }
     replies++; ap('replies.txt', `${reply}\n`);
-    if (listed) { listedUsed[listed.index] = (listedUsed[listed.index] ?? 0) + 1; listedReplies++; lastAnswered = ''; } else { lastAnswered = signature; if (decision === 'question') seenQuestions.add(signature); }
+    if (listed) { listedUsed[listed.index]?.add(listed.request); listedReplies++; lastAnswered = ''; } else { lastAnswered = signature; if (decision === 'question') seenQuestions.add(signature); }
     // plan = an approval (the user's reply is the approval); refreeze = plan and scope approval of an amended plan; question = a scripted question reply.
     let rkind = 'question';
     if (listed) rkind = 'listed-approval';
