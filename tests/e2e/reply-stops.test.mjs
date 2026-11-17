@@ -12,7 +12,7 @@ import { here, repo, runE2e } from './runner.mjs';
 import { validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
 import { A, accepted, project } from '../core/legacy-lib.mjs';
-import { HARD_REPLY_CAP, LISTABLE_KINDS, PRODUCT_KINDS, allOpenRequests, candidateKinds, listedProblem, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
+import { HARD_REPLY_CAP, LISTABLE_KINDS, PRODUCT_KINDS, candidateKinds, listedProblem, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, productRequests, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
 
 const root = tempDir('e2e-stops-');
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -449,27 +449,49 @@ test('lib: the kinds the grammar is asked about are read from the product source
   assert.deepEqual(PRODUCT_KINDS.filter((k) => k !== 'delivery' && !validApprovalKind(k)), [], 'a derived kind the product does not accept');
 });
 
-test('lib: a plain "approve scope" is withheld while a rationale:scope, rule:scope or reopen:scope request is open, in any run or the no-run folder; allOpenRequests reads them all', () => {
+test('lib: a plain "approve scope" is sent only if the PRODUCT reads every open request as a plain scope request; rationale:/rule:/reopen:, a joint: request, a forged or malformed file withhold it', () => {
   const entries = [{ kind: 'scope', message: 'approve scope', max: 1 }];
   const proj = path.join(root, 'allopen');
-  const w = (/** @type {string} */ rel, /** @type {string} */ kind) => { mkdirSync(path.join(proj, path.dirname(rel)), { recursive: true }); writeFileSync(path.join(proj, rel), `kind: "${kind}"\nbound: "A"\nrequested_at: 1\n`); };
-  w('.agents/runs/T-1/approvals/003-request-scope.yaml', 'scope');
-  let all = allOpenRequests(proj);
-  assert.deepEqual(all.map((o) => o.kind), ['scope']);
-  assert.equal(pick(pickListed(entries, none(1), openApprovals(path.join(proj, '.agents/runs/T-1/approvals')), [], all))?.request, '003-request-scope.yaml');
+  const w = (/** @type {string} */ rel, /** @type {string} */ text) => { mkdirSync(path.join(proj, path.dirname(rel)), { recursive: true }); writeFileSync(path.join(proj, rel), text); };
+  const req = (/** @type {string} */ kind, /** @type {string} */ extra = '') => `kind: "${kind}"\n${extra}bound: "A"\nrequested_at: 1\n`;
+  const SCOPE = '.agents/runs/T-1/approvals/003-request-scope.yaml';
+  const decide = () => /** @type {any} */ (pickListed(entries, none(1), openApprovals(path.join(proj, '.agents/runs/T-1/approvals')).filter((o) => o.kind === 'scope'), [], productRequests(proj)));
+  const fresh = () => { rmSync(proj, { recursive: true, force: true }); w(SCOPE, req('scope')); };
+  fresh();
+  assert.deepEqual(productRequests(proj).requests.map((o) => `${o.where}:${o.kind}:${o.words}`), ['T-1:scope:scope']);
+  assert.equal(pick(decide())?.request, '003-request-scope.yaml');
   for (const [rel, kind] of [['.agents/runs/T-1/approvals/004-request-rationale-scope.yaml', 'rationale:scope'], ['.agents/runs/T-2/approvals/001-request-rule-scope.yaml', 'rule:scope'], ['.agents/local/approvals/001-request-reopen-scope.yaml', 'reopen:scope']]) {
-    rmSync(proj, { recursive: true, force: true });
-    w('.agents/runs/T-1/approvals/003-request-scope.yaml', 'scope'); w(/** @type {string} */ (rel), /** @type {string} */ (kind));
-    all = allOpenRequests(proj);
-    assert.ok(all.some((o) => o.kind === kind), `${kind} not read: ${JSON.stringify(all)}`);
-    const r = /** @type {any} */ (pickListed(entries, none(1), openApprovals(path.join(proj, '.agents/runs/T-1/approvals')).filter((o) => o.kind === 'scope'), [], all));
+    fresh(); w(/** @type {string} */ (rel), req(/** @type {string} */ (kind)));
+    const r = decide();
     assert.ok(r && 'withheld' in r, `${kind}: ${JSON.stringify(r)}`);
-    assert.match(r.withheld.reason, new RegExp(kind.replace(':', ':')));
+    assert.ok(r.withheld.reason.includes(/** @type {string} */ (kind)), r.withheld.reason);
   }
-  // a no-run scope request next to the run's scope request is of the same kind: not a reason to withhold
-  rmSync(proj, { recursive: true, force: true });
-  w('.agents/runs/T-1/approvals/003-request-scope.yaml', 'scope'); w('.agents/local/approvals/001-request-scope.yaml', 'scope');
-  assert.ok(pick(pickListed(entries, none(1), openApprovals(path.join(proj, '.agents/runs/T-1/approvals')), [], allOpenRequests(proj))));
+  // forged 1: a commit request with joint: scope is answered by "approve scope" (approvalWords); the harness must not read it by its kind line
+  fresh(); w('.agents/runs/T-1/approvals/004-request-commit.yaml', req('commit', 'joint: "scope"\n'));
+  assert.deepEqual(productRequests(proj).requests.map((o) => `${o.kind}:${o.words}`).sort(), ['commit:scope', 'scope:scope']);
+  let r = decide();
+  assert.ok(r && 'withheld' in r && /commit \(answered with scope\)/.test(r.withheld.reason), JSON.stringify(r));
+  fresh(); w('.agents/runs/T-1/approvals/004-request-commit.yaml', req('commit', 'delivery: "yes"\n'));   // a delivery commit is answered with the delivery words, which "approve scope" does not satisfy
+  assert.ok(pick(decide()), 'a delivery commit request is not satisfied by approve scope');
+  // forged 2 and a duplicate kind: the product reads the FIRST kind line, a regex of the harness read the last
+  fresh(); w('.agents/runs/T-1/approvals/004-request-budget.yaml', 'kind: "waive:scope"\nkind: "budget"\nbound: "A"\n');
+  r = decide();
+  assert.ok(r && 'withheld' in r && /cannot be read unambiguously/.test(r.withheld.reason), JSON.stringify(r));
+  fresh(); w('.agents/runs/T-1/approvals/004-request-scope.yaml', 'kind: "scope"\nkind: "scope"\n');
+  r = decide();
+  assert.ok(r && 'withheld' in r && /2 kind lines/.test(r.withheld.reason), JSON.stringify(r));
+  // malformed: no kind, a kind the product does not accept, a name that is not the slug of the kind, a directory where a file should be
+  for (const [name, text] of [['004-request-plan.yaml', 'bound: "A"\n'], ['004-request-bogus.yaml', 'kind: "bogus"\n'], ['004-request-plan.yaml', 'kind: "commit"\n'], ['004-request-plan.yaml', '']]) {
+    fresh(); w(`.agents/runs/T-1/approvals/${name}`, /** @type {string} */ (text));
+    r = decide();
+    assert.ok(r && 'withheld' in r, `${name}: ${JSON.stringify(r)}`);
+  }
+  fresh(); mkdirSync(path.join(proj, '.agents/runs/T-1/approvals/004-request-plan.yaml'));
+  r = decide();
+  assert.ok(r && 'withheld' in r && /unreadable/.test(r.withheld.reason), JSON.stringify(r));
+  // a no-run scope request next to the run's scope request is of the same kind and words: not a reason to withhold
+  fresh(); w('.agents/local/approvals/001-request-scope.yaml', req('scope'));
+  assert.ok(pick(decide()));
 });
 
 test('lib: openAssumptions reads the ASSUMPTION ids of the open question block, and a missing listing file is an empty listing', () => {

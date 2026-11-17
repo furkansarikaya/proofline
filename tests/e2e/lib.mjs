@@ -2,7 +2,8 @@
 // The decision helpers of the e2e harness (tests/e2e/run.mjs), the Node form of pending-kind.sh, question-open.sh and reply-decision.sh (176-C2).
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { APPROVAL_FILLERS, APPROVAL_PHRASES_DEFAULT, approvalNorm, kindWords, textHasApproval, validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
+import { APPROVAL_FILLERS, APPROVAL_PHRASES_DEFAULT, approvalNorm, approvalPendingPairs, approvalWords, kindSlug, kindWords, latestRequest, textHasApproval, validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
+import { gateField, readBytes, textLines } from '../../control-plane/agents/scripts/core/records.mjs';
 
 const KINDS = 'plan|destructive|single_step|scope|budget|commit|push|waive:[^ ]+';
 
@@ -258,36 +259,65 @@ export function openAssumptions(questionsText) {
 }
 
 /**
- * EVERY unanswered approval request under a project: the `.agents/runs/<ID>/approvals` folders and the no-run folder `.agents/local/approvals` (the `-` target), with the kind read from the
- * request file's own `kind:` line (the slug is only a fallback), so `rationale:scope`, `rule:*` and `reopen:*` requests are seen. The prompt hook records every open pair a text satisfies,
- * these included.
- * @param {string} project @returns {{ name: string, kind: string, where: string }[]}
+ * EVERY open approval request under a project, read with the PRODUCT's own functions (the ones the prompt hook's scan and `approve-pending` use), not with a regex of the harness:
+ * `approvalPendingPairs` for the no-run folder and for each run, and `approvalWords` for the words each request is answered with (a `joint:` or `delivery:` field changes them: a
+ * `kind: commit` request with `joint: scope` is answered by `approve scope`). `unclear` names every request file in any approvals/ folder the product cannot read unambiguously
+ * (unreadable, no or several `kind:`, `joint:` or `delivery:` lines, a kind it does not accept, a file name that is not the slug of its kind): a send is withheld while one exists.
+ * @param {string} project
+ * @returns {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[] }}
  */
-export function allOpenRequests(project) {
-  /** @type {{ name: string, kind: string, where: string }[]} */ const out = [];
-  const dirs = [[path.join(project, '.agents/local/approvals'), '-']];
-  for (const r of listDir(path.join(project, '.agents/runs'))) dirs.push([path.join(project, '.agents/runs', r, 'approvals'), r]);
-  for (const [dir, where] of dirs) {
-    for (const o of openApprovals(dir)) {
-      let kind = o.kind;
-      try { kind = /^kind: "?([^"\n]+?)"?\s*$/m.exec(readFileSync(path.join(dir, o.name), 'utf8'))?.[1] ?? kind; } catch { /* the slug kind stays */ }
-      out.push({ name: o.name, kind, where });
+export function productRequests(project) {
+  const ctx = /** @type {any} */ ({
+    root: project, cwd: project, env: {}, agents: path.join(project, '.agents'), config: () => ({ get: (/** @type {string} */ _k, /** @type {string} */ d) => d }),
+    sharedMain: () => project, runDir: (/** @type {string} */ id) => path.join(project, '.agents/runs', id), once: (/** @type {string} */ _k, /** @type {() => unknown} */ f) => f(),
+  });
+  const runs = listDir(path.join(project, '.agents/runs')).sort(byteSort);
+  /** @type {{ name: string, kind: string, words: string, where: string }[]} */ const requests = [];
+  /** @type {Set<string>} */ const seen = new Set();
+  for (const r of ['', ...runs]) {
+    let pairs = [];
+    try { pairs = approvalPendingPairs(ctx, r); } catch { pairs = []; }
+    for (const [target, kind] of pairs) {
+      if (seen.has(`${target}|${kind}`)) continue;
+      seen.add(`${target}|${kind}`);
+      let words = kind; let name = '';
+      try { words = approvalWords(ctx, target, kind); name = path.basename(latestRequest(ctx, target, kind) ?? ''); } catch { /* unclear below */ }
+      requests.push({ name, kind, words, where: target });
     }
   }
-  return out;
+  /** @type {string[]} */ const unclear = [];
+  const dirs = [[path.join(project, '.agents/local/approvals'), '-'], ...runs.map((r) => [path.join(project, '.agents/runs', r, 'approvals'), r])];
+  for (const [dir, where] of dirs) {
+    for (const n of listDir(/** @type {string} */ (dir)).sort(byteSort)) {
+      if (!/^[0-9]{3}-request-.*\.yaml$/.test(n)) continue;
+      const f = path.join(/** @type {string} */ (dir), n);
+      const text = readBytes(f);
+      const label = `${where}/${n}`;
+      if (text === null) { unclear.push(`${label}: unreadable`); continue; }
+      const lines = textLines(text);
+      const count = (/** @type {string} */ k) => lines.filter((l) => l.startsWith(`${k}:`)).length;
+      const kind = gateField(ctx, f, 'kind');
+      if (count('kind') !== 1 || count('joint') > 1 || count('delivery') > 1) unclear.push(`${label}: ${count('kind')} kind lines`);
+      else if (!validApprovalKind(kind)) unclear.push(`${label}: kind '${kind}' is not a product kind`);
+      else if (kindSlug(kind) !== n.slice('000-request-'.length).replace(/\.yaml$/, '')) unclear.push(`${label}: the name is not the slug of kind '${kind}'`);
+    }
+  }
+  return { requests, unclear };
 }
 
 /**
  * The listed message to send at this stop. `{ pick }`: a line whose kind has an open request, with uses left (per DISTINCT request: a request is answered once by a line, so a second use
- * is for another request, never the same unchanged one), and that satisfies no open request of another kind. `{ withheld }`: it would have been sent, but the message also satisfies an
- * open request of another kind (any run, the no-run folder, `rationale:`, `rule:`, `reopen:` included), so it is not sent. Else null. Each entry is judged again by {@link listedProblem}.
+ * is for another request, never the same unchanged one), and whose text satisfies, under the product grammar and with the words the product answers each request with, no open request
+ * of the project except requests of exactly the listed kind (and no extra `joint:` or `delivery:` words). `{ withheld }`: it would have been sent, but it also satisfies another open
+ * request (any run, the no-run folder, `rationale:`, `rule:`, `reopen:`, a `joint:` request) or a request file cannot be read unambiguously (`unclear`). Else null. Each entry is judged
+ * again by {@link listedProblem}.
  * @param {{ kind: string, message: string, max: number }[]} entries
  * @param {Set<string>[]} used per entry: the requests (names) or assumption ids it was sent for
  * @param {{ name: string, kind: string }[]} open the open requests of the run's approvals folder @param {string[]} assumptions
- * @param {{ name: string, kind: string, where: string }[]} [all] every open request of the project (default: `open`)
+ * @param {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[] }} [project] {@link productRequests} (default: `open` only)
  * @returns {{ pick: { index: number, kind: string, message: string, request: string } } | { withheld: { kind: string, message: string, reason: string } } | null}
  */
-export function pickListed(entries, used, open, assumptions, all = open.map((o) => ({ ...o, where: '' }))) {
+export function pickListed(entries, used, open, assumptions, project = { requests: open.map((o) => ({ name: o.name, kind: o.kind, words: o.kind, where: '' })), unclear: [] }) {
   for (const [index, e] of entries.entries()) {
     const spent = used[index] ?? new Set();
     if (listedProblem(e.kind, e.message) !== '' || spent.size >= e.max) continue;
@@ -301,8 +331,10 @@ export function pickListed(entries, used, open, assumptions, all = open.map((o) 
       if (!hit) continue;
       request = hit.name;
     }
-    const other = satisfiedKinds(e.message, [...new Set(all.map((o) => o.kind))]).filter((k) => k !== e.kind);
-    if (other.length > 0) return { withheld: { kind: e.kind, message: e.message, reason: `the message also satisfies the open request(s) ${other.join(', ')}` } };
+    const withhold = (/** @type {string} */ reason) => ({ withheld: { kind: e.kind, message: e.message, reason } });
+    if (project.unclear.length > 0) return withhold(`a request file cannot be read unambiguously: ${project.unclear.join('; ')}`);
+    const other = project.requests.filter((r) => textHasApproval(GRAMMAR_CTX, bytes(e.message), r.words, r.where === '-' ? '' : r.where) && !(r.kind === e.kind && r.words === e.kind)).map((r) => (r.words === r.kind ? r.kind : `${r.kind} (answered with ${r.words})`));
+    if (other.length > 0) return withhold(`the message also satisfies the open request(s) ${[...new Set(other)].join(', ')}`);
     return { pick: { index, kind: e.kind, message: e.message, request } };
   }
   return null;
