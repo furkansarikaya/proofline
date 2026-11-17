@@ -205,11 +205,12 @@ function gitJudge(a, needSub = false) {
       if (!detach) deny(`git switch of a name may create a local branch from a remote one; use --detach <commit>: ${TAIL}`);
       return;
     case 'worktree': {
-      // A327: a review role REMOVES no worktree and changes none: remove, prune, lock, unlock, move and repair are refused. An allowance by the text of the path was tried and rejected:
-      // TMPDIR can be reassigned (read, printf -v, for, env -C, unset) and a link inside the role's own worktree can make git remove any registered worktree. The control plane removes the
-      // role's own `$TMPDIR/verify-<ID>.<focus>` worktree at CODE_DONE (core/handoff.mjs).
-      if (['remove', 'rm', 'prune', 'lock', 'unlock', 'move', 'repair'].includes(pos[0] ?? '')) deny(`git worktree ${pos[0]} is not for a review role: it can delete the work of another role or of the user. Leave your evidence worktree $TMPDIR/verify-<ID>.<focus> registered; the control plane removes it at CODE_DONE: ${TAIL}`);
-      if (pos[0] !== 'add') return;
+      // A327: an ALLOWLIST (a denylist of verbs was bypassed by every expansion of the word: `$'remove'`, `$(printf prune)`, `{remove,}`, `${X:-remove}`, `$v`, `"$@"`, a glob): after `worktree` the next word
+      // must be the plain literal `add` (judged below) or `list`. Anything else, a plain verb or a word with an expansion, is refused, so a review role removes, prunes, locks, moves or repairs
+      // no worktree (they can delete the work of another role or of the user). A path allowance for `remove` was tried and rejected too (TMPDIR can be reassigned, a link in the role's own
+      // worktree can redirect git). The control plane removes the role's `$TMPDIR/verify-<ID>.<focus>` worktree at CODE_DONE (core/handoff.mjs). A tripwire for the common spellings, not a boundary.
+      if (pos[0] !== 'add' && pos[0] !== 'list') deny(`git worktree ${pos[0] ?? ''} is not for a review role: only the literal verbs add (--detach) and list are allowed here. Leave your evidence worktree $TMPDIR/verify-<ID>.<focus> registered; the control plane removes it at CODE_DONE: ${TAIL}`);
+      if (pos[0] === 'list') return;
       if (rest.some((x) => x === '-b' || x === '-B' || long('orphan') || (isShort(x) && /[bB]/.test(x)))) deny(`git worktree add creates a branch here; use git worktree add --detach <path> HEAD: ${TAIL}`);
       // a path and a name that exists only on the remote create a tracking branch, a path alone creates a branch named like the folder
       if (!detach) deny(`git worktree add without --detach may create a branch; use git worktree add --detach <path> HEAD: ${TAIL}`);
@@ -227,6 +228,10 @@ function gitJudge(a, needSub = false) {
       if (pos.slice(1).some((x) => x.includes(':') && !x.slice(x.indexOf(':') + 1).startsWith('refs/remotes/'))) deny(`git ${sub} with a destination refspec creates or moves a local ref here: ${TAIL}`);
       return;
     }
+    case 'submodule':
+      // A327: `submodule deinit -f --all` and `update --force` wipe the uncommitted work of a submodule; `foreach` runs a command line. Only the literal read verbs are allowed (a bare `git submodule` is status).
+      if (pos.length > 0 && pos[0] !== 'status' && pos[0] !== 'summary') deny(`git submodule ${pos[0]} can wipe the uncommitted work of a submodule or run a command line: only the literal verbs status and summary are allowed here: ${TAIL}`);
+      return;
     case 'stash':
       if (pos[0] === 'branch') deny(`git stash branch creates a branch here: ${TAIL}`);
       return;
