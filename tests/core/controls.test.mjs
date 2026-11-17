@@ -221,6 +221,34 @@ test('A326 sc_knowledge_pages: a new page that is staged or already committed on
   expectMsg('one committed and one staged new page', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
 });
 
+test('A326 sc_knowledge_pages: a bookkeeping name is exempt only at the wiki root; the same name in two other folders is two new pages', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/design/alpha/index.md', '# Alpha\n'); w(d, 'docs/design/beta/index.md', '# Beta\n');
+  expectMsg('two index.md pages outside the wiki root', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+  rmSync(path.join(d, 'docs/design/beta'), { recursive: true }); rmSync(path.join(d, 'docs/design/alpha'), { recursive: true });
+  w(d, 'docs/design/log.md', '# Log\n'); w(d, 'docs/design/sub/log.md', '# Log\n');
+  expectMsg('two log.md pages outside the wiki root', 'opened 2 new pages', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+});
+
+test('A326 sc_knowledge_pages: the wiki root bookkeeping files next to one topic page are not counted', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/wiki/index.md', '---\ntitle: index\nstatus: current\nsource: impl.txt\n---\n\n# Index\n\n- [Retry](concepts/retry.md)\n');
+  w(d, 'docs/wiki/log.md', '# Log\n'); w(d, 'docs/design/FIRST.md', '# First\n');
+  const r = A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']);
+  assert.ok(!/opened \d+ new pages/.test(r.text), `index.md and log.md of the wiki root were counted: ${r.text}`);
+});
+
+test('A326 sc_knowledge_pages: the page count fails closed when the base commit is missing or git cannot diff against it', () => {
+  const d = newRepo(); atCodeDone(d);
+  w(d, 'docs/design/FIRST.md', '# First\n');
+  const ry = path.join(d, '.agents/runs/K/RUN.yaml');
+  const orig = readFileSync(ry, 'utf8');
+  writeFileSync(ry, orig.replace(/base_sha: .*/, 'base_sha: PENDING'));
+  expectMsg('no recorded base', 'cannot be counted', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+  writeFileSync(ry, orig.replace(/base_sha: .*/, `base_sha: ${'0'.repeat(40)}`));
+  expectMsg('an unresolvable base', 'cannot be counted', A(d, ['knowledge-done', 'K', 'KNOWLEDGE_DONE']));
+});
+
 test('A326 sc_knowledge_pages: with gates the reason of a second new page is a ledger row (the paths and the reason), and knowledge_reason stays empty', () => {
   const d = project({ topology: 'orchestrated' }); toCodeDone(d);
   w(d, 'docs/design/FIRST.md', '# First\n'); w(d, 'docs/design/SECOND.md', '# Second\n');

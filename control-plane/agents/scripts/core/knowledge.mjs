@@ -101,22 +101,23 @@ function recordSuggestions(ctx, id, list) {
   renameSync(`${file}.tmp`, file);
 }
 
-/** The files of the wiki that the step and its scripts maintain; they are never a topic page (A326). */
-const BOOKKEEPING = /(^|\/)(index\.md|log\.md|log-archive\.md|lint-report\.md|lessons\/observations\.md|concepts\/shortcut-debt\.md)$/;
+/** The files of the wiki that the step and its scripts maintain, at the wiki's own root only (A139: `docs/wiki/`); the same name in any other folder is a topic page (A326). */
+const BOOKKEEPING = /^docs\/wiki\/(index\.md|log\.md|log-archive\.md|lint-report\.md|lessons\/observations\.md|concepts\/shortcut-debt\.md)$/;
 
 /**
  * The topic pages this knowledge step OPENED (A326, A322.5): the knowledge-scope files ADDED since the run's base (staged or already committed on the task branch, `git diff --diff-filter=A`
- * against `repository.base_sha`) and the untracked ones, without the wiki's bookkeeping files and the run's own control artifacts. An existing page that was updated is not listed; a task
- * whose topic already has a page updates it. A base that is not recorded yet counts the untracked files only.
+ * against `repository.base_sha`) and the untracked ones, without the wiki root's own bookkeeping files and the run's control artifacts. An existing page that was updated is not listed; a task
+ * whose topic already has a page updates it. FAILS CLOSED: a base that is not recorded or that git cannot diff against stops the command (the pages cannot be counted).
  * @param {Context} ctx @param {string} id @returns {string[]}
  */
 export function newKnowledgePages(ctx, id) {
   const dir = runDir(ctx, id);
   const base = sectionValue(ctx, dir, 'repository', 'base_sha');
+  if (!/^[0-9a-f]{7,64}$/.test(base)) fail(`knowledge-done blocked (A326): the run has no recorded base commit (repository.base_sha is '${base}'), so the pages this step opened cannot be counted; run agent.sh baseline ${id} first`);
+  const r = git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '--diff-filter=A', '-z', base, '--']);
+  if (r.status !== 0) fail(`knowledge-done blocked (A326): git could not compare the working tree with the run's base commit ${base}, so the pages this step opened cannot be counted`);
   /** @type {Set<string>} */ const fresh = new Set(untrackedPaths(ctx));
-  if (/^[0-9a-f]{7,64}$/.test(base)) {
-    for (const p of git(ctx, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '--diff-filter=A', '-z', base, '--']).out.split('\0')) if (p !== '') fresh.add(p);
-  }
+  for (const p of r.out.split('\0')) if (p !== '') fresh.add(p);
   return [...fresh].sort().filter((p) => inKnowledgeScope(ctx, p) && !BOOKKEEPING.test(p) && !knownControlArtifact(ctx, id, p));
 }
 
