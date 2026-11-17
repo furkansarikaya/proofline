@@ -1,6 +1,6 @@
 # Independent end-to-end evaluation
 
-Evaluate one completed run without participating in it. Inputs are the run's `out/` directory and `tests/e2e/expected/COMMON.md`, `tests/e2e/expected/<SCENARIO>.md`, `tests/e2e/expected/FACTS.md`, and `tests/e2e/expected/RUNTIME_MATRIX.md`. For FAILOVER, use `FAILOVER.md` and the STANDARD task facts. For a runtime comparison, inspect the other configurations' `out/` directories too.
+Evaluate one completed run without participating in it. Expected items are versioned by the A record that changed them (for example A310). Inputs are the run's `out/` directory and `tests/e2e/expected/COMMON.md`, `tests/e2e/expected/<SCENARIO>.md`, `tests/e2e/expected/FACTS.md`, and `tests/e2e/expected/RUNTIME_MATRIX.md`. For FAILOVER, use `FAILOVER.md` and the STANDARD task facts. For a runtime comparison, inspect the other configurations' `out/` directories too.
 
 Read every numbered expectation and each applicable runtime matrix row. Check the collected run artifacts, source diff, database probe, ledger, gates, and transcripts directly. Evidence must be an artifact path and line number or a command with its output. A lead's claim, plan, or stated intent alone earns no credit. A missing artifact is unmet. Mark an item not-applicable only when the expectation explicitly allows that result. A timeout or unavailable runtime is not a pass. A difference in a matrix “must not differ” row makes its named item unmet in the deviating run.
 

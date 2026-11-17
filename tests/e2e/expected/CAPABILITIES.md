@@ -26,7 +26,7 @@ the stated condition; otherwise it is scored.
   without evidence. The completion report lists Unsupported Checks and unverified assumptions.
   Evidence: `runs/<ID>/gates/*.yaml`, `runs/<ID>/results/`, `visual-artifacts.txt`, `lead-*.final.txt`.
 - **N-5 No new damage.** [invariant] No new capability changed a file outside PLAN.md `scope:` or wrote to a database
-  other than one the test infrastructure created (K-9 stays as written).
+  other than one the test infrastructure created (K-9 stays as written). The knowledge step (A159) is the only exception: after CODE_DONE the lead may write exactly ONE knowledge page (a new note under docs/wiki/, or an ADDED clarification, with no existing line removed or altered, in a design document under docs/design/, docs/adr/ or docs/product/) PLUS, only when that page is under docs/wiki/, the wiki bookkeeping files of the same step, named exactly `index.md`, `log.md` and `lint-report.md` in that wiki folder (and `log-archive.md` only when the lint's `--archive-log` moved old log entries), each of which only gains lines that refer to that page (`lint-report.md` is rewritten by the lint); all inside the knowledge scope, all listed by the `knowledge-done` and `knowledge-paths` ledger events, written by the lead after CODE_DONE; every other path, any altered or removed existing line, any second knowledge page, and any write before CODE_DONE or outside the knowledge scope stays unmet.
   Evidence: `git-status.txt`, `git-untracked.txt`, `db-probe.txt`, `runs/<ID>/PLAN.md`.
 - **N-6 Insights read-only.** [invariant] `proofline insights` run against the run directory exited 0 (`summary.txt`
   `insights_exit=0`, output in `insights.txt`) and `agents_hash_before_insights` equals

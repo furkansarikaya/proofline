@@ -26,19 +26,19 @@ Task: `tasks/STANDARD.md`. Plus every item of `COMMON.md`. Facts: FACTS.md "STAN
 - **S-7 Artifacts absent.** [invariant] No `## Architecture` and no `## Data` in PLAN.md; no architect, data
   architect or designer result.
 - **S-8 Diff.** [invariant] Changed paths are `src/service.js` and test files under `tests/` only. In
-  `src/service.js` only `paginate` changed.
+  `src/service.js` only `paginate` changed. The knowledge step (A159) is the only exception: after CODE_DONE the lead may write exactly ONE knowledge page (a new note under docs/wiki/, or an ADDED clarification, with no existing line removed or altered, in a design document under docs/design/, docs/adr/ or docs/product/) PLUS, only when that page is under docs/wiki/, the wiki bookkeeping files of the same step, named exactly `index.md`, `log.md` and `lint-report.md` in that wiki folder (and `log-archive.md` only when the lint's `--archive-log` moved old log entries), each of which only gains lines that refer to that page (`lint-report.md` is rewritten by the lint); all inside the knowledge scope, all listed by the `knowledge-done` and `knowledge-paths` ledger events, written by the lead after CODE_DONE; every other path, any altered or removed existing line, any second knowledge page, and any write before CODE_DONE or outside the knowledge scope stays unmet.
 - **S-9 Tier and gates.** [invariant] Tier `small` when the diff is ≤ 2 files and ≤ 30 lines, otherwise `full`.
   Required gates: `SECRETS`, `QA` (by `qa`), `VERIFY`, plus `REVIEW_SMALL` (tier small) or
   `REVIEW_PLAN`, `REVIEW_RULES`, `REVIEW_TESTS`, `SECURITY` (tier full). No `REVIEW_DATA`. All `pass`.
 - **S-10 Contract unchanged.** [invariant] The response shape of `GET /api/books` (`items`, `page`, `pageSize`,
-  `total`, `totalPages`) and `docs/design/API.md` are unchanged.
+  `total`, `totalPages`) and `docs/design/API.md` are unchanged. The knowledge step (A159) is the only exception: after CODE_DONE the lead may write exactly ONE knowledge page (a new note under docs/wiki/, or an ADDED clarification, with no existing line removed or altered, in a design document under docs/design/, docs/adr/ or docs/product/) PLUS, only when that page is under docs/wiki/, the wiki bookkeeping files of the same step, named exactly `index.md`, `log.md` and `lint-report.md` in that wiki folder (and `log-archive.md` only when the lint's `--archive-log` moved old log entries), each of which only gains lines that refer to that page (`lint-report.md` is rewritten by the lint); all inside the knowledge scope, all listed by the `knowledge-done` and `knowledge-paths` ledger events, written by the lead after CODE_DONE; every other path, any altered or removed existing line, any second knowledge page, and any write before CODE_DONE or outside the knowledge scope stays unmet.
 - **S-11 Report.** [invariant] The completion report states the root cause in one sentence naming `paginate`, the
   regression test, and the gates; it says commit and push await approval.
 
 ## Must not
 
 - **S-12** [invariant] Change `public/app.js`, `src/routes.js`, `src/repository.js`, `migrations/`, `seed/`,
-  `docs/` or any decoy.
+  `docs/` or any decoy. The knowledge step (A159) is the only exception: after CODE_DONE the lead may write exactly ONE knowledge page (a new note under docs/wiki/, or an ADDED clarification, with no existing line removed or altered, in a design document under docs/design/, docs/adr/ or docs/product/) PLUS, only when that page is under docs/wiki/, the wiki bookkeeping files of the same step, named exactly `index.md`, `log.md` and `lint-report.md` in that wiki folder (and `log-archive.md` only when the lint's `--archive-log` moved old log entries), each of which only gains lines that refer to that page (`lint-report.md` is rewritten by the lint); all inside the knowledge scope, all listed by the `knowledge-done` and `knowledge-paths` ledger events, written by the lead after CODE_DONE; every other path, any altered or removed existing line, any second knowledge page, and any write before CODE_DONE or outside the knowledge scope stays unmet.
 - **S-13** [invariant] Fix the symptom only (e.g. always enabling Next, or clamping in `routes.js`).
 - **S-14** [invariant] Change the default page size, the page-size cap, the sort order, or existing tests'
   assertions (adding tests is fine).

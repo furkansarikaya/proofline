@@ -34,8 +34,10 @@ unchanged EXPECTED files. Evaluators were separate sessions that never saw the r
 separate table and are not part of that count. All scored runs below are the Claude-only configuration (the Codex and mixed integration checks have their own section; `--profile
 economy`, Sonnet lead for TRIVIAL, STANDARD and STANDARD.tr; `balanced`, Opus lead for COMPLEX and CRITICAL),
 in copies of `playground/` outside the repository, installed with `proofline init`, headless. Dates are UTC dates
-of the run; "main" is the commit the run was made on. The current `main` is `de4efd8` (A132): no scenario has been
-run on it.
+of the run; "main" is the commit the run was made on. The newest campaign (2026-11-16 and 2026-11-17, section "The
+campaign on main 6830eae6 and its re-runs") ran on `6830eae6` (0.0.141) and, for the re-runs, on `87dd66a0`, `773f00d6`,
+`8a2cbea5` and `8f84d850`. The current `main` is `ed7a0e31` (0.0.151, A320, a change to tests and CI only after
+`8f84d850`): no scenario has been run on it.
 
 ### Last passing run per scenario
 
@@ -45,11 +47,34 @@ run on it.
 
 | Scenario | Last passing run | main commit | Evaluator verdict | Decisions merged after that run |
 |---|---|---|---|---|
-| TRIVIAL | 2026-10-16 | `7eeeeb4` | PASS 33/33, CAPABILITIES 5/5 | A121 to A132 |
-| STANDARD | 2026-10-14 | `b515110` | PASS 40/40, CAPABILITIES 4/4 (the same on `00c2e9c`) | A99 to A132 |
-| STANDARD.tr | 2026-10-17 | `f75d1f5` | PASS 41/41, twice in a row (runs A1 and A2) | A126 to A132 |
-| COMPLEX | 2026-10-17 | `128e516` | PASS 39/39, CAPABILITIES 6/6 (an earlier pass: 2026-10-14, `b515110`, 39/39) | A129 to A132 |
-| CRITICAL | 2026-10-14 | `b515110` | PASS 60/60 (earlier: `00c2e9c` 35/35; 2026-10-13 36/36, commit not recorded in the notes) | A99 to A132 |
+| TRIVIAL | 2026-10-16 | `7eeeeb4` | PASS 33/33, CAPABILITIES 5/5 | A121 to A323 |
+| STANDARD | 2026-11-16 | `6830eae6` (0.0.141) | PASS 37/37, CAPABILITIES 4/4, scored against the expectations as corrected by A310; the same run scored FAIL 31/36 against the old ones (earlier pass: 2026-10-14, `b515110`, PASS 40/40) | A311 to A323 |
+| STANDARD.tr | 2026-10-17 | `f75d1f5` | PASS 41/41, twice in a row (runs A1 and A2) | A126 to A323 |
+| COMPLEX | 2026-10-17 | `128e516` | PASS 39/39, CAPABILITIES 6/6 (an earlier pass: 2026-10-14, `b515110`, 39/39) | A129 to A323 |
+| CRITICAL | 2026-10-14 | `b515110` | PASS 60/60 (earlier: `00c2e9c` 35/35; 2026-10-13 36/36, commit not recorded in the notes) | A99 to A323 |
+| FAILOVER (mixed) | none | none | FAIL 37/47 on `6830eae6`; FAIL 40/48 (41/48 with F-3 as corrected by A321) on `773f00d6`, capabilities 4/5 | not applicable |
+
+### The campaign on main 6830eae6 and its re-runs (2026-11-16 and 2026-11-17)
+
+One run of each scenario on `6830eae6` (0.0.141), then re-runs after fixes, all by the independent evaluator against the expectations in this repository. Claude-only runs (economy, Sonnet lead for TRIVIAL, STANDARD and STANDARD.tr; balanced, Opus lead for COMPLEX and CRITICAL), except FAILOVER (mixed: a Claude lead, stopped mid-IMPLEMENT, resumed by a Codex lead). The verdict lines are the evaluator's own; "class" is the evaluator's classification of the unmet items (PRODUCT, MODEL, HARNESS). Every run directory is under `$TMPDIR/proofline-e2e/` on the maintainer's machine, named `<SCENARIO>-<config>-<UTC timestamp>`; they are not in the repository. Nothing here was run on the current `main`.
+
+| Run | main (version) | Verdict line | Capabilities | Unmet items and class | Fix or accepted limit |
+|---|---|---|---|---|---|
+| TRIVIAL | `6830eae6` (0.0.141) | `E2E: FAIL (invariant 32/33, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 5/5, quality 0/0 = 100%)` | C-22: MODEL (the final message said the review result was reused, the ledger shows a new reviewer) | accepted, A322.3 |
+| STANDARD, expectations before A310 | `6830eae6` | `E2E: FAIL (invariant 31/36, quality 0/0 = 100%)` | `CAPABILITIES: FAIL (invariant 3/4, quality 0/0 = 100%)` | C-6, C-15, S-8, S-10, S-12, N-5: MODEL with a PRODUCT contributor (the lead wrote `docs/design/API.md` in the knowledge step after CODE_DONE; the product allowed it, the expectations forbade every write outside the plan scope) | A310 (expectations account for the knowledge step) |
+| STANDARD, the same run, expectations after A310 | `6830eae6` | `E2E: PASS (invariant 37/37, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | none | n/a |
+| STANDARD.tr, first | `6830eae6` | `E2E: FAIL (invariant 39/43, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | C-20, TR-3, TR-7: PRODUCT (the shipped completion-report template said the `Changed:` line is in the user's language, the expectations demand English files); S-6: MODEL (a model-level expectation: the guard of A200/A202 fires only for `type: bug`, a defect label or a `decision: fix` entry) | PR #305, A312 (0.0.143); S-6 accepted, A322.1 |
+| STANDARD.tr, re-run | `87dd66a0` (0.0.143) | `E2E: FAIL (invariant 42/43, quality 0/0 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | S-6: MODEL, a model-level expectation (the guard fires only for `type: bug`, a label or a `decision: fix` entry, A200/A202) (no `reports/NNN-debug.md`); the report check of PR #305 accepted an English report on the first call | accepted, A322.1 |
+| CRITICAL, first | `6830eae6` | `E2E: FAIL (invariant 23/34, quality 0/1 = 0%)` | `CAPABILITIES: FAIL (invariant 2/4, quality 0/0 = 100%)` | C-1, C-2, C-4, C-11, C-14, K-1 to K-6, K-10, N-2, N-3: HARNESS (the scripted interview reply was sent six times and answered one question; no task, run or plan existed) | PR #306, A313 (0.0.144) |
+| CRITICAL, re-run | `773f00d6` (0.0.148) | `E2E: FAIL (invariant 33/34, quality 1/1 = 100%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | K-2: MODEL (`EVIDENCE.md` does not say that the 3 existing rows hold `legacy_notes` data); the run ended at the destructive-approval request, the designed stop | accepted, A322.2 |
+| FAILOVER, first | `6830eae6` | `E2E: FAIL (invariant 37/47, quality 0/1 = 0%)` | `CAPABILITIES: PASS (invariant 4/4, quality 0/0 = 100%)` | C-5, C-10, C-19, F-6, F-8: HARNESS (the Codex worker profile refused the loopback listener the tests need, the run ended BLOCKED); F-1: HARNESS (no `out/at-kill/`); F-3: classed PRODUCT by this evaluation, SPEC OUTDATED by the next; F-9: MODEL | PR #310, A317 (0.0.148); A321; A322.6 |
+| FAILOVER, re-run | `773f00d6` (0.0.148) | `E2E: FAIL (invariant 40/48, quality 0/1 = 0%)`; 41/48 with F-3 as corrected | `CAPABILITIES: FAIL (invariant 4/5, quality 0/0 = 100%)` | reached CODE_DONE and DONE with all 7 gates and 17 of 17 tests. C-6, C-15, C-23, S-8, S-10, S-12, N-5, F-8: PRODUCT (documentation gap) with a MODEL choice (two knowledge pages); F-3: SPEC OUTDATED; F-9: PRODUCT gap (no source for the lead runtime per phase) | A321; accepted, A322.5, A322.6, A322.7 |
+| COMPLEX #1 | `6830eae6` | `E2E: FAIL (invariant 31/37, quality 2/2 = 100%)` | `CAPABILITIES: PASS (invariant 6/6, quality 0/0 = 100%)` | C-5, C-10, X-4, X-10, X-11: HARNESS (the plan and scope requests of a refreeze left unanswered; root causes MODEL: the dot-tag defect found by REVIEW_RULES and the clear-control defect found by QA; PRODUCT: the quoted values `book club` and `sci-fi` read as test names); C-18: MODEL (leftover worktree) | PR #306 A313; PR #309 A316; accepted, A322.4 |
+| COMPLEX #2 | `773f00d6` | `E2E: FAIL (invariant 25/37, quality 1/2 = 50%)` | `CAPABILITIES: FAIL (invariant 5/6, quality 0/0 = 100%)` | stopped at PLANNED on a `mutation_budget` request (21 criteria, budget 20): C-5, C-10, C-11, C-19, X-4 to X-12, N-4 all HARNESS | PR #311, A318 (0.0.149) |
+| COMPLEX #3 | `8a2cbea5` (0.0.149) | `E2E: FAIL (invariant 32/37, quality 2/2 = 100%)` | `CAPABILITIES: FAIL (invariant 5/6, quality 0/0 = 100%)` | reached IMPLEMENTED with 9 gate records (6 gates; REVIEW_RULES and REVIEW_TESTS failed, QA and VERIFY never ran), then an unanswered `scope` request: C-5, C-10, X-4, X-10, X-11, N-4. Root causes: PRODUCT (the UTF-8 em dash of a plan bullet was not found in the bytes the control plane reads, so the data values `book club` and `sci-fi` were test names again; the superseded GREEN command of F007), MODEL (a listener added inside `load()`; three browser tests listed as `## Tests` without a `measure:` exception) and the scenario (a scope approval is never granted) | PR #312, A319 (0.0.150); accepted, A323.3, A322.8 |
+| COMPLEX #4 | `8f84d850` (0.0.150) | `E2E: FAIL (invariant 25/35, quality 1/2 = 50%)` | `CAPABILITIES: FAIL (invariant 5/6, quality 0/0 = 100%)` | stopped in the intent interview before the freeze: the pending question asked for `accept AS-1`, three question replies were spent; MODEL (a checkable assumption rated unverified) with HARNESS (a blanket reply cannot satisfy `accept AS-N`); PRODUCT, minor: the question stayed pending after the lead verified AS-1 | accepted, A322.8 |
+
+What the campaign shows and does not show. STANDARD passes on `6830eae6` only under the expectations of A310, and the fix that made it pass was in the expectations, not in the product. STANDARD.tr, CRITICAL and TRIVIAL each ended one item short on their latest run, and each of those items is a model behaviour recorded as an accepted limit (A322). FAILOVER reached DONE once, with two accepted limits and a spec correction (A321). COMPLEX did not reach DONE in any of the four runs, because the harness cannot give the user-only approvals that run needed at the point where it stopped (A322.8); a complete COMPLEX run is not demonstrated by this campaign. Evaluation note: the file of COMPLEX #4 gives `invariant 25/35` in its verdict line and `26/37` in one sentence of its text; the verdict line is quoted. Accepted limits: [docs/limits.md](../../docs/limits.md).
 
 ### Latest regression round (2026-10-17, main `9e70f03`, all five scenarios, one run each)
 
@@ -76,11 +101,16 @@ self-tests only; A131 by the reply-loop tests.
 | 2026-10-14 | `97ad4fc` | COMPLEX FAIL 50/59; STANDARD.tr FAIL 41/42 (C-3: `git stash list`, A111) |
 | 2026-10-15 | `707beb7` | STANDARD.tr FAIL 39/41 (TRIVIAL freeze with executable scope: A115) |
 | 2026-10-16 | `7b963a1` | COMPLEX FAIL 31/59 (`sed -i -E` left a stray file and deadlocked the run: A119) |
-| 2026-10-16 | `7eeeeb4` | TRIVIAL PASS 33/33; STANDARD FAIL 35/36 and STANDARD.tr FAIL 40/41 (S-6: no debug report: A122); COMPLEX FAIL 48/59; CRITICAL FAIL 33/35 (K-9: a harness probe gap, A121; K-2 model) |
+| 2026-10-16 | `7eeeeb4` | TRIVIAL PASS 33/33; STANDARD FAIL 35/36 and STANDARD.tr FAIL 40/41 (S-6: no debug report; before A200); COMPLEX FAIL 48/59; CRITICAL FAIL 33/35 (K-9: a harness probe gap, A121; K-2 model) |
 | 2026-10-17 | `d2efc01` | COMPLEX FAIL 33/39 (the second plan approval after a refreeze was never answered by the harness: A128) |
 | 2026-10-17 | `f75d1f5` | COMPLEX FAIL 45/59; STANDARD.tr PASS 41/41 twice |
 | 2026-10-17 | `128e516` | COMPLEX PASS 39/39 |
 | 2026-10-17 | `9e70f03` | the regression round above |
+| 2026-11-16 | `6830eae6` | TRIVIAL FAIL 32/33 (C-22); STANDARD FAIL 31/36 against the old expectations and PASS 37/37 against those of A310; STANDARD.tr FAIL 39/43 (report language: A312; S-6); CRITICAL FAIL 23/34 (interview replies: A313); COMPLEX FAIL 31/37; FAILOVER (mixed, not Claude-only) FAIL 37/47 (Codex worker profile: A317) |
+| 2026-11-16 | `87dd66a0` | STANDARD.tr FAIL 42/43 (S-6 only) |
+| 2026-11-17 | `773f00d6` | CRITICAL FAIL 33/34 (K-2); FAILOVER (mixed) FAIL 40/48 (41/48 with F-3 as corrected by A321); COMPLEX FAIL 25/37 (mutation budget request: A318) |
+| 2026-11-17 | `8a2cbea5` | COMPLEX FAIL 32/37 (an unanswered scope request; the dash in the bytes: A319) |
+| 2026-11-17 | `8f84d850` | COMPLEX FAIL 25/35 (the assumption acceptance of the interview) |
 
 ### Capabilities (the `N-` items)
 
@@ -99,7 +129,11 @@ UNSUPPORTED reporting (A98, A102) and the database-unchanged check (A121). Not e
 project's prose contract, no throwaway database), which the report lists as not proven (see "Capabilities the
 scenarios do not exercise yet" below).
 
+The campaign of 2026-11 scored the `N-` items as follows. TRIVIAL 5/5; STANDARD 3/4 against the old expectations (N-5, the knowledge page) and 4/4 against those of A310; STANDARD.tr 4/4 in both runs; CRITICAL 2/4 in the first run (harness: no task, no run, so N-2 and N-3 had nothing to read) and 4/4 in the re-run; FAILOVER 4/4 in the first run and 4/5 in the re-run (N-5 unmet: the two knowledge pages, A322.5); COMPLEX 6/6 in run 1 and 5/6 in runs 2 to 4, each time N-4 (the visual focus) unmet because the run stopped before QA. The visual focus ran in COMPLEX run 1 and failed with a real defect (QA-1, a clear control); no run of the campaign produced a measured visual pass.
+
 ### Codex and mixed configurations (results below ran the lead on `gpt-6-luna`, before A135 required the base model; effort none; never full scenarios)
+
+The two scored FAILOVER runs of 2026-11 are the exception to the model note above: see the last row of the table.
 
 Hard call caps: attempt 1 five calls, restart three calls, rerun one call (nine model calls in total, no quota
 error in these checks). These are integration checks, not scored scenarios, so none of them is an `E2E: PASS`.
@@ -111,7 +145,8 @@ error in these checks). These are integration checks, not scored scenarios, so n
 | `proofline doctor` and hook probes on Codex | PASS, 0 model calls (thinner evidence than the other rows: there was no separate run for this check, the evaluator took the doctor output from the other two checks) |
 | Lead failover Claude to Codex (`resume`) | partially tested: resume and freshness verified, a headless Claude verifier dispatched (A114 mode recorded), the A124 `wait:` line, and the A127 token with a single status file verified on `128e516`; the route printed after the VERIFY failure was only partly right (it named `## Verification commands` while the right edit was `criteria:` on the scope entries), and plan validation was a product gap (nothing enforced AC-to-scope coverage before freeze), both addressed afterwards by A127 and A129 and not re-run; the run did not reach DONE: the cheap Codex lead stopped to ask for authorization in prose, and the plan had an acceptance criterion mapped to no scope path (A129 now refuses that at freeze, not re-run) |
 | Codex-only TRIVIAL scored run (2026-10-14, `354f348`) | FAIL 26/43: the model wrote a plan scope without criteria and nothing was implemented; the unparseable scope that the first freeze accepted is fixed (A101) |
-| Codex-only STANDARD, STANDARD.tr, COMPLEX, CRITICAL; mixed STANDARD, STANDARD.tr, COMPLEX, CRITICAL; failover as a scored scenario | no scored run (see "Real use" below for unscored use) |
+| Codex-only STANDARD, STANDARD.tr, COMPLEX, CRITICAL; mixed STANDARD, STANDARD.tr, COMPLEX, CRITICAL | no scored run (see "Real use" below for unscored use) |
+| FAILOVER (mixed) as a scored scenario, 2026-11-16 and 2026-11-17 | first run on `6830eae6`: FAIL 37/47, the Codex implementer was BLOCKED because its worker profile refuses a loopback listener (A317 gave the scenario an in-process test helper). Re-run on `773f00d6`: FAIL 40/48 (41/48 with F-3 as corrected by A321), capabilities 4/5: the Claude lead was stopped in IMPLEMENT (SIGTERM, exit 143), the Codex lead resumed from `proofline resume`, the ledger holds `dispatch interrupted signal=TERM` and `dispatch resume note written`, the implementer finished RED and GREEN under `workspace-write` (17 of 17 tests), 7 gates passed, the run reached DONE; the unmet items are the two knowledge pages (A322.5) and the lead runtime per phase in the report (A322.6). The Codex lead and the Codex implementer are the only Codex roles scored |
 
 Real use (2026-10-23 to 2026-10-25, a user's project, records in `.agents/local/metrics`; its config says `proofline_version: 0.0.28`, the `main` commit was not recorded; not scored runs, no evaluator): 26 dispatch records, 17 with Codex as implementer (13 submitted, 2 failed, 2 timed out) and 9 with Claude as implementer (8 submitted, 1 timed out). Codex appears in 13 step records, all in the implementer role (9 done, 4 blocked); the other 140 step records and every lead record are Claude. Four tasks (TASK-007 to TASK-010, PRs #12 to #15) had Codex implementer work that passed the gates and was merged, TASK-008 and TASK-009 entirely by Codex dispatches. Failover from Codex to Claude happened in TASK-006, TASK-007 and TASK-010 (2 runtime failovers in the friction report); the records do not name the cause of the failures. Codex as lead, reviewer, qa, architect, designer, explorer, verifier or security reviewer does not appear in them, and Claude to Codex failover is covered only by the dispatch test.
 
@@ -122,17 +157,18 @@ that was not a question (A120, A131); the database probe was too thin (A121); th
 generic and steered the interview (A131); runs left files outside their run directory (A117, A120). None of
 these changed an EXPECTED file.
 
+In the campaign of 2026-11: the interview reply was sent six times, and in the COMPLEX run the plan and scope requests of a refreeze were left unanswered (A313); the Codex worker profile refused the loopback listener, the scenario kept no snapshot at the kill and the Codex lead inherited `CLAUDE_CODE*` variables (A317); the COMPLEX project stopped at a mutation-budget request the harness never answers (A318). The expectations changed twice: the knowledge step and C-23 (A310) and F-3 of FAILOVER (A321).
+
 ### Known limits
 
 - Run-to-run model variance remains: the accuracy of the lead's final report (C-22) and the contents of
   `EVIDENCE.md` in CRITICAL (K-2) differed between runs (the failing runs were on different commits).
 - COMPLEX has passed twice (2026-10-14 on `b515110`, 2026-10-17 on `128e516`) and failed in every other
   run of the campaign; a COMPLEX pass is therefore not yet a stable result.
-- The Codex-lead behaviour was tested with the cheapest model only; its stop to ask for authorization in prose is
+- The Codex-lead behaviour of the earlier checks was tested with the cheapest model only (the 2026-11 FAILOVER runs fall under the base-model rule of A135; the evaluations do not record the model); its stop to ask for authorization in prose is
   model behaviour that `agent.sh next` cannot prevent.
-- No scenario was re-verified after A130 to A132, and none after A129 (COMPLEX `128e516` passed before A129, and its run on `9e70f03`
-  failed). Tests that do run on every change: the Node tests (`node tests/affected.mjs`), the skill tests (`node --test tests/skills/`) and the fixtures
-  (`node tests/fixtures/check-fixtures.mjs`): more than 900 tests in all, as counted on 2026-10-17.
+- The campaign of 2026-11 ran every scenario on `6830eae6` and re-ran STANDARD.tr, CRITICAL, FAILOVER and COMPLEX (see "The campaign on main 6830eae6 and its re-runs"). The newest run of each scenario is a FAIL except STANDARD, which passes only under the expectations of A310, and none ran on the current `main`. The accepted limits with their evidence are A322 and A323, indexed in [docs/limits.md](../../docs/limits.md). A complete COMPLEX run to DONE is not demonstrated by that campaign (A322.8).
+- Tests that do run on every change: the Node tests (`node tests/affected.mjs`), the skill tests (`node --test tests/skills/`) and the fixtures (`node tests/fixtures/check-fixtures.mjs`); the current count is in [docs/proof.md](../../docs/proof.md).
 
 ### Reply limit and item tags (decided, A133)
 
