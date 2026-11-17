@@ -489,6 +489,25 @@ test('lib: a plain "approve scope" is sent only if the PRODUCT reads every open 
   fresh(); mkdirSync(path.join(proj, '.agents/runs/T-1/approvals/004-request-plan.yaml'));
   r = decide();
   assert.ok(r && 'withheld' in r && /unreadable/.test(r.withheld.reason), JSON.stringify(r));
+  // worktree runs (the prompt hook walks .agents/local/worktrees/<d>/.agents/runs/<run>/approvals and approves the run whose id the reply names)
+  const WT = '.agents/local/worktrees/d1/.agents/runs';
+  fresh(); w(`${WT}/scope/approvals/001-request-rationale-scope.yaml`, req('rationale:scope'));   // report payload 1: the run id is the word "scope"
+  assert.deepEqual(productRequests(proj).runIds, ['T-1', 'scope']);
+  r = decide();
+  assert.ok(r && 'withheld' in r && /run id scope/.test(r.withheld.reason), JSON.stringify(r));
+  fresh(); w(`${WT}/WT-2/approvals/001-request-budget.yaml`, req('budget', 'joint: "scope"\n'));   // report payload 2: a budget request with joint: scope in a worktree run
+  assert.ok(productRequests(proj).requests.some((o) => o.where === 'WT-2' && o.kind === 'budget' && o.words === 'scope'), JSON.stringify(productRequests(proj).requests));
+  r = decide();
+  assert.ok(r && 'withheld' in r && /budget \(answered with scope\)/.test(r.withheld.reason), JSON.stringify(r));
+  fresh(); w(`${WT}/WT-1/approvals/001-request-scope.yaml`, req('scope'));   // control: a plain scope request of a worktree run named WT-1 is the listed kind and words
+  assert.ok(pick(decide()), 'a plain scope request in a worktree run is not a reason to withhold');
+  fresh(); w(`${WT}/WT-1/approvals/001-request-plan.yaml`, 'kind: "plan"\nkind: "scope"\n');   // a malformed request in a worktree run
+  r = decide();
+  assert.ok(r && 'withheld' in r && /cannot be read unambiguously/.test(r.withheld.reason), JSON.stringify(r));
+  fresh(); w('.agents/local/worktrees/d1/.agents/local/approvals/001-request-rule-scope.yaml', req('rule:scope'));   // the worktree's own no-run folder is scanned for unreadable files too
+  w('.agents/local/worktrees/d1/.agents/local/approvals/002-request-plan.yaml', 'kind: "scope"\n');
+  r = decide();
+  assert.ok(r && 'withheld' in r, JSON.stringify(r));
   // a no-run scope request next to the run's scope request is of the same kind and words: not a reason to withhold
   fresh(); w('.agents/local/approvals/001-request-scope.yaml', req('scope'));
   assert.ok(pick(decide()));

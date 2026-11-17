@@ -3,7 +3,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { APPROVAL_FILLERS, APPROVAL_PHRASES_DEFAULT, approvalNorm, approvalPendingPairs, approvalWords, kindSlug, kindWords, latestRequest, textHasApproval, validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
-import { gateField, readBytes, textLines } from '../../control-plane/agents/scripts/core/records.mjs';
+import { fieldOf, readBytes, textLines } from '../../control-plane/agents/scripts/core/records.mjs';
 
 const KINDS = 'plan|destructive|single_step|scope|budget|commit|push|waive:[^ ]+';
 
@@ -264,45 +264,59 @@ export function openAssumptions(questionsText) {
  * `kind: commit` request with `joint: scope` is answered by `approve scope`). `unclear` names every request file in any approvals/ folder the product cannot read unambiguously
  * (unreadable, no or several `kind:`, `joint:` or `delivery:` lines, a kind it does not accept, a file name that is not the slug of its kind): a send is withheld while one exists.
  * @param {string} project
- * @returns {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[] }}
+ * @returns {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[], runIds: string[] }}
  */
 export function productRequests(project) {
-  const ctx = /** @type {any} */ ({
-    root: project, cwd: project, env: {}, agents: path.join(project, '.agents'), config: () => ({ get: (/** @type {string} */ _k, /** @type {string} */ d) => d }),
-    sharedMain: () => project, runDir: (/** @type {string} */ id) => path.join(project, '.agents/runs', id), once: (/** @type {string} */ _k, /** @type {() => unknown} */ f) => f(),
+  /** @param {string} root the tree whose runs are read; the shared (no-run) folder is always the project's */
+  const ctxOf = (root) => /** @type {any} */ ({
+    root, cwd: root, env: {}, agents: path.join(root, '.agents'), config: () => ({ get: (/** @type {string} */ _k, /** @type {string} */ d) => d }),
+    sharedMain: () => project, runDir: (/** @type {string} */ id) => path.join(root, '.agents/runs', id), once: (/** @type {string} */ _k, /** @type {() => unknown} */ f) => f(),
   });
-  const runs = listDir(path.join(project, '.agents/runs')).sort(byteSort);
+  // The trees the prompt hook walks (adapters/claude/hooks/events/prompt.mjs): the project itself and every `.agents/local/worktrees/<d>` (the run of a worktree is approved by THAT tree's
+  // data, found by its run id in the reply).
+  const wtRoot = path.join(project, '.agents/local/worktrees');
+  const trees = [project, ...listDir(wtRoot).sort(byteSort).map((d) => path.join(wtRoot, d))];
   /** @type {{ name: string, kind: string, words: string, where: string }[]} */ const requests = [];
   /** @type {Set<string>} */ const seen = new Set();
-  for (const r of ['', ...runs]) {
-    let pairs = [];
-    try { pairs = approvalPendingPairs(ctx, r); } catch { pairs = []; }
-    for (const [target, kind] of pairs) {
-      if (seen.has(`${target}|${kind}`)) continue;
-      seen.add(`${target}|${kind}`);
-      let words = kind; let name = '';
-      try { words = approvalWords(ctx, target, kind); name = path.basename(latestRequest(ctx, target, kind) ?? ''); } catch { /* unclear below */ }
-      requests.push({ name, kind, words, where: target });
-    }
-  }
+  /** @type {Set<string>} */ const runIds = new Set();
   /** @type {string[]} */ const unclear = [];
-  const dirs = [[path.join(project, '.agents/local/approvals'), '-'], ...runs.map((r) => [path.join(project, '.agents/runs', r, 'approvals'), r])];
+  /** @type {[string, string][]} */ const dirs = [];
+  for (const tree of trees) {
+    const ctx = ctxOf(tree);
+    const runs = listDir(path.join(tree, '.agents/runs')).sort(byteSort);
+    for (const r of runs) runIds.add(r);
+    for (const r of tree === project ? ['', ...runs] : runs) {
+      let pairs = [];
+      try { pairs = approvalPendingPairs(ctx, r); } catch { pairs = []; }
+      for (const [target, kind] of pairs) {
+        if (tree !== project && target !== r) continue;   // the no-run folder is the project's, read once
+        const key = `${tree}|${target}|${kind}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let words = kind; let name = '';
+        try { words = approvalWords(ctx, target, kind); name = path.basename(latestRequest(ctx, target, kind) ?? ''); } catch { /* unclear below */ }
+        requests.push({ name, kind, words, where: target });
+      }
+    }
+    dirs.push([path.join(tree, '.agents/local/approvals'), `${path.relative(project, tree) || '.'}:-`]);
+    for (const r of runs) dirs.push([path.join(tree, '.agents/runs', r, 'approvals'), `${path.relative(project, tree) || '.'}:${r}`]);
+  }
   for (const [dir, where] of dirs) {
-    for (const n of listDir(/** @type {string} */ (dir)).sort(byteSort)) {
+    for (const n of listDir(dir).sort(byteSort)) {
       if (!/^[0-9]{3}-request-.*\.yaml$/.test(n)) continue;
-      const f = path.join(/** @type {string} */ (dir), n);
+      const f = path.join(dir, n);
       const text = readBytes(f);
       const label = `${where}/${n}`;
       if (text === null) { unclear.push(`${label}: unreadable`); continue; }
       const lines = textLines(text);
       const count = (/** @type {string} */ k) => lines.filter((l) => l.startsWith(`${k}:`)).length;
-      const kind = gateField(ctx, f, 'kind');
+      const kind = fieldOf(lines, 'kind');
       if (count('kind') !== 1 || count('joint') > 1 || count('delivery') > 1) unclear.push(`${label}: ${count('kind')} kind lines`);
       else if (!validApprovalKind(kind)) unclear.push(`${label}: kind '${kind}' is not a product kind`);
       else if (kindSlug(kind) !== n.slice('000-request-'.length).replace(/\.yaml$/, '')) unclear.push(`${label}: the name is not the slug of kind '${kind}'`);
     }
   }
-  return { requests, unclear };
+  return { requests, unclear, runIds: [...runIds].sort(byteSort) };
 }
 
 /**
@@ -314,7 +328,7 @@ export function productRequests(project) {
  * @param {{ kind: string, message: string, max: number }[]} entries
  * @param {Set<string>[]} used per entry: the requests (names) or assumption ids it was sent for
  * @param {{ name: string, kind: string }[]} open the open requests of the run's approvals folder @param {string[]} assumptions
- * @param {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[] }} [project] {@link productRequests} (default: `open` only)
+ * @param {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[], runIds?: string[] }} [project] {@link productRequests} (default: `open` only)
  * @returns {{ pick: { index: number, kind: string, message: string, request: string } } | { withheld: { kind: string, message: string, reason: string } } | null}
  */
 export function pickListed(entries, used, open, assumptions, project = { requests: open.map((o) => ({ name: o.name, kind: o.kind, words: o.kind, where: '' })), unclear: [] }) {
@@ -332,6 +346,9 @@ export function pickListed(entries, used, open, assumptions, project = { request
       request = hit.name;
     }
     const withhold = (/** @type {string} */ reason) => ({ withheld: { kind: e.kind, message: e.message, reason } });
+    // the hook approves the run of a worktree when the reply names its id, so a message that holds a run id (anywhere) targets that run: withheld
+    const named = (project.runIds ?? []).filter((id) => id !== '' && approvalNorm(`${e.message}\n`).includes(id.toLowerCase()));
+    if (named.length > 0) return withhold(`the message holds the run id ${named.join(', ')}, so the prompt hook would also target that run`);
     if (project.unclear.length > 0) return withhold(`a request file cannot be read unambiguously: ${project.unclear.join('; ')}`);
     const other = project.requests.filter((r) => textHasApproval(GRAMMAR_CTX, bytes(e.message), r.words, r.where === '-' ? '' : r.where) && !(r.kind === e.kind && r.words === e.kind)).map((r) => (r.words === r.kind ? r.kind : `${r.kind} (answered with ${r.words})`));
     if (other.length > 0) return withhold(`the message also satisfies the open request(s) ${[...new Set(other)].join(', ')}`);
