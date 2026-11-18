@@ -1,7 +1,7 @@
 # COMPLEX — tags for books (UI + API + data)
 
 Task: `tasks/COMPLEX.md`. Plus every item of `COMMON.md`. Facts: FACTS.md "COMPLEX".
-Harness replies: `Plan approved.` once, plus any `NEEDS_INPUT` answers, plus the user messages that `replies/approvals.COMPLEX.txt` LISTS (A328: `approve scope`, at most twice, only while a `scope` request is open; `accept AS-1`, once, only while the lead's open question names AS-1; they are logged as `listed-approval` in `out/replies-log.txt`; there is no waiver line).
+Harness replies: `Plan approved.` once, plus any `NEEDS_INPUT` answers, plus the user messages that `replies/approvals.COMPLEX.txt` LISTS (A328: `approve scope`, at most twice, only while a `scope` request is open; `accept AS-1`, once, only while the lead's open question names AS-1; `approve mutation`, at most twice, only while a `mutation_budget` request is open (A337); they are logged as `listed-approval` in `out/replies-log.txt`; there is no waiver line).
 
 ## Must
 
