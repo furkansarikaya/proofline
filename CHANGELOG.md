@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.157 — 2026-11-18
+
+- Fix (A330): an evidence record's `target:` list may have spaces or tabs after the commas (`a, b`) and empty elements; each path is trimmed before the exact comparison, so the RED/GREEN record covers the path it names. No prefix, glob, case or path-normalization matching.
+
 ## 0.0.156 — 2026-11-18
 
 - Fix (A329): the designer's allowed planning write of a design document no longer stops the run at IMPLEMENTING. The designer's SubagentStop records the path and content hash (the hook-only form `window-close <ID> planning 0 designer`); the first `window-open` or `handoff IMPLEMENTED` turns it into an attested window for exactly those paths with exactly that content. A file changed afterwards, any other path, any other role and a forged row still stop and need `tree-accept`; the attestation file must match its ledger row.

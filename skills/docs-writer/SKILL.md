@@ -4,7 +4,7 @@ description: Writes and maintains project documentation that matches the code an
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.156"
+  version: "0.0.157"
 ---
 
 # docs-writer

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
-import { authorizedPath, fieldFrom, fieldOf, gateField, parseLedgerLine, parseManifest, parseTsv, planDestructive, planSectionPresent, runYaml, scopeMappings, scopePaths } from '../../control-plane/agents/scripts/core/records.mjs';
+import { authorizedPath, evidenceTargets, fieldFrom, fieldOf, gateField, parseLedgerLine, parseManifest, parseTsv, planDestructive, planSectionPresent, runYaml, scopeMappings, scopePaths } from '../../control-plane/agents/scripts/core/records.mjs';
 import { inKnowledgeScope, knowledgeScopeEntries, pathMatches, stripProoflineBlock, blockOnlyText, installedControlPath } from '../../control-plane/agents/scripts/core/scope.mjs';
 import { makeFixture } from './fixture.mjs';
 
@@ -117,5 +117,26 @@ describe('scope helpers give what the shell gave', () => {
       assert.equal(stripProoflineBlock(t), want.out, JSON.stringify(t));
       assert.equal(blockOnlyText(t), want.only, JSON.stringify(t));
     }
+  });
+});
+
+describe('evidence target list (A330)', () => {
+  const covers = (/** @type {string} */ line, /** @type {string} */ p) => evidenceTargets(line).includes(p);
+  test('comma, comma with spaces, tabs, trailing and empty elements all give the same exact paths', () => {
+    const want = ['src/service.js', 'tests/service.test.js'];
+    for (const l of ['target: src/service.js,tests/service.test.js', 'target: src/service.js, tests/service.test.js', 'target:src/service.js ,\t tests/service.test.js\t', 'target:   src/service.js,  tests/service.test.js,', 'target: ,src/service.js,, tests/service.test.js ,  ,']) {
+      assert.deepEqual(evidenceTargets(l), want, l);
+    }
+    assert.deepEqual(evidenceTargets('target:'), []);
+    assert.deepEqual(evidenceTargets('target:  , \t,'), []);
+  });
+  test('matching stays exact: prefix, other directory, dot-dot, case and glob do not match', () => {
+    const l = 'target: src/service.js, tests/service.test.js';
+    assert.ok(covers(l, 'tests/service.test.js'));
+    for (const p of ['tests/service.test', 'tests', 'tests/', 'src/service.js2', 'other/src/service.js', 'src/../tests/service.test.js', './tests/service.test.js', 'Tests/service.test.js', 'tests/Service.test.js', 'src/*.js', '', ' ']) {
+      assert.equal(covers(l, p), false, JSON.stringify(p));
+    }
+    assert.equal(covers('target: src/a/../b.js', 'src/b.js'), false);
+    assert.equal(covers('target: src/a b.js, x', 'src/a b.js'), true, 'inner spaces of a path are kept');
   });
 });

@@ -30,7 +30,7 @@ not a FAIL. The verifier never edits the implementation; failure follows the fix
 Recorded by the topology's owner (`implementer` under `orchestrated`, `lead` under `standalone`):
 
 ```sh
-printf 'command: <exact test command>\ntarget: <comma-separated scope paths>\nexpected_failure: <RED only: the specific behavioural reason>\n' \
+printf 'command: <exact test command>\ntarget: <comma-separated scope paths; spaces after commas are fine>\nexpected_failure: <RED only: the specific behavioural reason>\n' \
   | AGENT_ROLE=implementer .agents/scripts/agent.sh worker-evidence <ID> <RED|GREEN|REFACTOR|FIX> <pass|fail>
 ```
 

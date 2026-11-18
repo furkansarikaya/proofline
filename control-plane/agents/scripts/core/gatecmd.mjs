@@ -20,7 +20,7 @@ import { isFile } from './paths.mjs';
 import { adapterExists, runTaskAdapter } from './adapters/index.mjs';
 import * as proc from './proc.mjs';
 import { ledgerToken } from './questions.mjs';
-import { fieldOf, fileLines, fileText, gateField, gatesEnforced, planScope, scopePaths, authorizedPath, sectionValue } from './records.mjs';
+import { evidenceTargets, fieldOf, fileLines, fileText, gateField, gatesEnforced, planScope, scopePaths, authorizedPath, sectionValue } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { expandWords } from './shellglob.mjs';
 import { runSecretScan } from './secretscan.mjs';
@@ -104,7 +104,7 @@ function latestEvidence(ctx, evdir, phase, p) {
     if (!n.startsWith(`${phase}-`) || !n.endsWith('.yaml')) continue;
     const f = `${evdir}/${n}`;
     const target = fileLines(ctx, f).find((l) => l.startsWith('target:'));
-    if (target === undefined || !target.slice('target:'.length).replace(/^ */, '').split(',').includes(p)) continue;
+    if (target === undefined || !evidenceTargets(target).includes(p)) continue;
     const s = n.slice(phase.length + 1, -'.yaml'.length);
     if (!/^[0-9]+$/.test(s)) continue;
     if (Number(s) > bestN) { bestN = Number(s); best = f; }

@@ -10,6 +10,11 @@ import { readFileSync } from 'node:fs';
 /** POSIX [[:space:]] in the C locale (not JavaScript's \s, which also matches non-breaking spaces of a byte string) */
 export const WS = '[ \\t\\n\\v\\f\\r]';
 
+/** The paths of an evidence record's `target:` line (A330): comma separated, each trimmed of spaces and tabs, empty elements dropped; matching stays exact (no prefix, glob or normalization). @param {string} line the whole `target:` line @returns {string[]} */
+export function evidenceTargets(line) {
+  return line.slice('target:'.length).split(',').map((x) => x.replace(/^[ \t]+/, '').replace(/[ \t]+$/, '')).filter((x) => x !== '');
+}
+
 /** The text of a file as a byte string, or null when it cannot be read. @param {string} file @returns {string | null} */
 export function readBytes(file) {
   try { return readFileSync(file, 'latin1'); } catch { return null; }
