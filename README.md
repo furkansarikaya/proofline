@@ -29,9 +29,7 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 ## Status
 
 Version 0.0.165 is an early release.
-It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 and 17) five of six scenarios failed one to ten items, recorded as accepted limits or corrected in the expectations; one passes only against the corrected expectations; a complete COMPLEX run is not demonstrated; none has run on the current `main` ([tests/e2e/README.md](tests/e2e/README.md)).
-Version 0.0.164 is an early release.
-It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE (a single sample, 37 of 38 invariants) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
+It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE on `98f49400` (a single sample, FAIL 37/38 invariants, C-22 only) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
 Guaranteed: approvals, database safety, scope, evidence and cleanup. Model-dependent: report wording, plan details and code quality ([limits](docs/concepts/enforcement-layers.md#what-is-guaranteed)). Every accepted limit, with its reason: [docs/limits.md](docs/limits.md).
