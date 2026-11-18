@@ -493,14 +493,25 @@ function evidenceCovers(ctx, file, p) {
   return false;
 }
 
-/** @param {Context} ctx @param {string} id */
-export function verifyWorkerEvidence(ctx, id) {
-  ctx.fpMode = 'refresh';
-  requireRun(ctx, id);
+/**
+ * The commands that record worker evidence, named in every message that says it is missing (A332): the implementer records RED (the new behaviour's test failing) and GREEN (passing)
+ * with `agent.sh worker-evidence`; scratch output, a tdd.json and `validate-tdd.mjs` are not worker evidence.
+ * @param {string} id @param {string} [paths]
+ */
+export function workerEvidenceHowTo(id, paths = '') {
+  return `record it with: printf 'command: <test command>\\ntarget: <path>\\nexpected_failure: <what fails>\\n' | AGENT_ROLE=implementer .agents/scripts/agent.sh worker-evidence ${id} RED fail, then the same with GREEN pass (files .agents/runs/${id}/worker-evidence/RED-*.yaml and GREEN-*.yaml; one target per path${paths !== '' ? `:${paths}` : ''}). Output saved in scratch/ or a tdd.json is not worker evidence, and validate-tdd.mjs is not this check`;
+}
+
+/**
+ * The cheap worker-evidence check (A332), shared by verify-worker-evidence (handoff IMPLEMENTED), `next` and the implementer's DONE submit: for every non-exempt scope path, a valid RED
+ * and a valid GREEN or FIX record of the expected role. Reads only; no freeze or exemption validation (the handoff does both). `enforced` is false when the policy does not require
+ * worker evidence for the run.
+ * @param {Context} ctx @param {string} id
+ * @returns {{ enforced: boolean, topology: string, expected: string, missing: string }}
+ */
+export function workerEvidenceMissing(ctx, id) {
   const dir = runDir(ctx, id);
-  if (!sectionKeyPresent(ctx, dir, 'worker_evidence', 'required')) { ctx.out(`worker-evidence not policy-enforced for ${id}\n`); return 0; }
-  checkFreeze(ctx, id);
-  validateTddExemptions(ctx, dir);
+  if (!sectionKeyPresent(ctx, dir, 'worker_evidence', 'required')) return { enforced: false, topology: '', expected: '', missing: '' };
   let topology = sectionValue(ctx, dir, 'execution', 'topology');
   if (topology !== 'standalone' && topology !== 'orchestrated') {
     topology = ctx.config().get('default_topology', '');
@@ -520,8 +531,20 @@ export function verifyWorkerEvidence(ctx, id) {
     const greenOk = green.some((f) => evidenceCovers(ctx, f, p) && validEvidenceFile(ctx, id, dir, f, expected));
     if (!(redOk && greenOk)) missing += ` ${p}`;
   }
-  if (missing !== '') fail(`worker-evidence verification failed: ${id}: missing valid RED+GREEN implementation evidence (topology=${topology}, expected role=${expected}; or TDD exemption) for:${missing}`);
-  ctx.out(`worker-evidence verified: ${id} (topology=${topology})\n`);
+  return { enforced: true, topology, expected, missing };
+}
+
+/** @param {Context} ctx @param {string} id */
+export function verifyWorkerEvidence(ctx, id) {
+  ctx.fpMode = 'refresh';
+  requireRun(ctx, id);
+  const dir = runDir(ctx, id);
+  if (!sectionKeyPresent(ctx, dir, 'worker_evidence', 'required')) { ctx.out(`worker-evidence not policy-enforced for ${id}\n`); return 0; }
+  checkFreeze(ctx, id);
+  validateTddExemptions(ctx, dir);
+  const w = workerEvidenceMissing(ctx, id);
+  if (w.missing !== '') fail(`worker-evidence verification failed: ${id}: missing valid RED+GREEN implementation evidence (topology=${w.topology}, expected role=${w.expected}; or TDD exemption) for:${w.missing}`);
+  ctx.out(`worker-evidence verified: ${id} (topology=${w.topology})\n`);
   return 0;
 }
 

@@ -8,7 +8,7 @@ import { planVerificationCommands } from './resultutil.mjs';
 import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
-import { fail } from './errors.mjs';
+import { ProoflineError, fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
 import { consumeApproval, requireOpenRun } from './approve.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
@@ -31,7 +31,7 @@ import { pathMatches } from './scope.mjs';
 import { pipelineClass, pipelineClassValid, taskChangedPaths, tierEffective } from './signals.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
 import { scanKnowledgeSecrets } from './commands/runcmds.mjs';
-import { freshness, verifyKnowledgeScope, verifyScope, verifyWorkerEvidence } from './commands/verify.mjs';
+import { freshness, verifyKnowledgeScope, verifyScope, verifyWorkerEvidence, workerEvidenceHowTo } from './commands/verify.mjs';
 import { EXECUTABLE_CODE_DEFAULT } from './pathkind.mjs';
 import { planDestructive } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -363,7 +363,11 @@ export function recordHandoff(ctx, id, phase) {
       verifyClassification(ctx, id);
       dbGuardCheck(ctx, id);
       verifyDebugResult(ctx, id);
-      must(verifyWorkerEvidence(ctx, id));
+      // A332: the refusal of the handoff names the recording command and the folder (the standalone verify-worker-evidence command keeps its recorded text)
+      try { must(verifyWorkerEvidence(ctx, id)); } catch (e) {
+        if (e instanceof ProoflineError && e.message.startsWith('worker-evidence verification failed:')) throw new ProoflineError(`${e.message}. To fix: ${workerEvidenceHowTo(id)}`, e.exitCode, e.code);
+        throw e;
+      }
       testMeasureAtImplemented(ctx, id, patch);
       ensurePlanningWindow(ctx, dir, id);
       verifyMutationOwnership(ctx, dir, id, true);

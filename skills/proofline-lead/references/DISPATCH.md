@@ -88,6 +88,7 @@ Rules:
   diff, file contents, or an opinion about the expected verdict. Artifacts are named, not pasted.
 - `FINDINGS` carries only table rows (never a reviewer's prose). A re-run gate role gets its own previous
   rows; the implementer gets the union of the failing gates' rows.
+- Never override the template's WRITE line or invent another evidence place: the implementer's RED and GREEN evidence goes through `agent.sh worker-evidence` only (not scratch/, not a tdd.json), and `submit` DONE is refused without it (A332).
 - An assignment is English throughout and carries no user language: a specialist writes every file, report and
   question in English (A33); only the lead talks to the user, in the user's language.
 - Defaults per role (from the role sources):
