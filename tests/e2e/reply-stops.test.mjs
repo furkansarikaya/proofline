@@ -12,7 +12,7 @@ import { here, repo, runE2e } from './runner.mjs';
 import { validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
 import { A, accepted, project } from '../core/legacy-lib.mjs';
-import { HARD_REPLY_CAP, LISTABLE_KINDS, PRODUCT_KINDS, candidateKinds, listedProblem, loadListedApprovals, oddApprovalNames, openApprovals, openAssumptions, pendingKind, pickListed, productRequests, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
+import { HARD_REPLY_CAP, satisfiedKinds, LISTABLE_KINDS, PRODUCT_KINDS, candidateKinds, listedProblem, loadListedApprovals, oddApprovalNames, openApprovals, openAssumptions, pendingKind, pickListed, productRequests, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
 
 const root = tempDir('e2e-stops-');
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -104,6 +104,20 @@ test('CRITICAL: the real intent interview (three questions, then three again) co
   assert.match(summary, /^question_replies=2$/m, summary);
   assert.doesNotMatch(summary, /^stopped=max-replies$/m, summary);
   assert.notEqual(want[0], want[1], 'the second question reply repeats the first');
+});
+
+test('COMPLEX (A334): the question reply is the scripted question file, the second question stop gets the last line repeated, and no line satisfies any approval kind of the real grammar', async () => {
+  const want = replies('question.COMPLEX.txt').filter(Boolean);
+  assert.ok(want.length >= 1);
+  for (const line of want) assert.deepEqual(satisfiedKinds(line, candidateKinds(line)), [], `a question line satisfies an approval kind: ${line}`);
+  assert.notEqual(want[0], replies('COMPLEX.txt')[0], 'line 1 of COMPLEX.txt is no longer the question reply');
+  const [q1, q2] = real.critical;
+  const done = 'Understood. Nothing is pending.';
+  const { summary, log } = await play('COMPLEX', { steps: [{ text: q1 }, { text: q2 }, { text: done }] }, 'complex-question');
+  assert.deepEqual(replyTexts(log), [want[0], want.at(1) ?? want[0]], `the lines sent: ${log}`);
+  assert.match(summary, /^question_replies=2$/m, summary);
+  assert.equal(replies('COMPLEX.txt')[1], 'Plan approved.', 'plan line unchanged');
+  assert.equal(replies('COMPLEX.txt')[2], 'approve plan', 'refreeze line unchanged');
 });
 
 test('CRITICAL: a lead that repeats the same message gets one reply, then stopped=repeated-stop', async () => {

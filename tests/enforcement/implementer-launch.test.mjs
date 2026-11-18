@@ -4,14 +4,30 @@
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { test } from 'node:test';
-import { A, must, project, gfail, gpass, rec } from '../lib/harness.mjs';
+import { before, test } from 'node:test';
+import { A, copyOf, must, project, gfail, gpass, rec } from '../lib/harness.mjs';
 import { implemented } from '../core/gates-s1-lib.mjs';
 import { fixture as dispatchFixture } from '../core/dispatch-lib.mjs';
 import { launchRole, launchVerdict } from '../../adapters/claude/hooks/guards/launch.mjs';
 import { H, allowed, denied, fixture } from './lib.mjs';
 
 const RUN = '.agents/runs/LC/RUN.yaml';
+/**
+ * The fix-round tests (2 and 3) start from an implemented orchestrated run with failing gates: about 3.5 s of `agent.sh` calls, 11 s on a loaded CI box. Built once in
+ * `before` (the hook's time is no test's time), the secret scan and the implemented run shared, then one copy per test state; each test runs its own assertions on the real state.
+ * @type {{ fixRound: string, longNext: string }}
+ */
+const runs = /** @type {any} */ ({});
+before(() => {
+  const base = project({ topology: 'orchestrated' });
+  implemented(base, 'orchestrated');
+  must(base, ['secret-scan', 'LC']);
+  const derive = (/** @type {(d: string) => void} */ steps) => { const d = copyOf(base); steps(d); return d; };
+  runs.fixRound = derive((d) => { gfail(d, 'REVIEW_SMALL', 'impl.txt'); gpass(d, 'QA'); gpass(d, 'VERIFY'); });
+  runs.longNext = derive((d) => { for (const g of ['REVIEW_SMALL', 'QA', 'VERIFY'])
+    rec(d, g, 'FAIL', [1, 2, 3].map((n) => `${g}-${n}|blocking|impl.txt:${n}|lookup returns the wrong value for an empty key|traced: empty key -> nil; scan: grep -n lookup impl.txt; instances: single`), { confidence: 'high' }); });
+});
+
 /** PreToolUse of the Agent tool. @param {string} dir @param {string} type @param {string} [tool] @param {string} [callerType] */
 const launch = (dir, type, tool = 'Agent', callerType = undefined) => H(dir, 'pretool', JSON.stringify({
   hook_event_name: 'PreToolUse', session_id: 's1', cwd: dir, tool_name: tool, tool_input: { subagent_type: type, description: 'x', prompt: 'x' },
@@ -42,9 +58,7 @@ test('A333 hook: the implementer is launched only while its window can be opened
 });
 
 test('A333 hook: a fix round names the exact `next` line, and the launch is allowed once that handoff is made', () => {
-  const d = project({ topology: 'orchestrated' });
-  implemented(d, 'orchestrated');
-  must(d, ['secret-scan', 'LC']); gfail(d, 'REVIEW_SMALL', 'impl.txt'); gpass(d, 'QA'); gpass(d, 'VERIFY');
+  const d = runs.fixRound;
   const out = launch(d, 'proofline:proofline-implementer');
   denied('implementer launched at IMPLEMENTED with a failing gate', out, 'the implementer is not launched');
   assert.ok(out.includes('exactly: agent.sh handoff LC IMPLEMENTING (fix round 1; findings of: REVIEW_SMALL)'), `the fix round line is not named: ${out.slice(0, 900)}`);
@@ -55,10 +69,7 @@ test('A333 hook: a fix round names the exact `next` line, and the launch is allo
 });
 
 test('A333 next: a long answer ends with its first step, so a tail cannot lose the handoff line; a short one is unchanged', () => {
-  const d = project({ topology: 'orchestrated' });
-  implemented(d, 'orchestrated');
-  must(d, ['secret-scan', 'LC']); for (const g of ['REVIEW_SMALL', 'QA', 'VERIFY'])
-    rec(d, g, 'FAIL', [1, 2, 3].map((n) => `${g}-${n}|blocking|impl.txt:${n}|lookup returns the wrong value for an empty key|traced: empty key -> nil; scan: grep -n lookup impl.txt; instances: single`), { confidence: 'high' });
+  const d = runs.longNext;
   const lines = A(d, ['next', 'LC']).out.split('\n').filter((l) => l !== '');
   assert.ok(lines.length > 13, `the fixture answer is not long: ${lines.length} lines`);
   const first = /** @type {string} */ (lines.find((l) => l.startsWith('next=')));

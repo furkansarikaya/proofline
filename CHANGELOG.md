@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.0.162 — 2026-11-18
+
+- Test (A335): the A333 fix-round tests in `tests/enforcement/implementer-launch.test.mjs` build their implemented run once in `before` and use a copy per test; the test that took 11.7 s and 13.5 s on CI now takes under 1 s. Every assertion kept; no budget raised.
+
+## 0.0.161 — 2026-11-18
+
+- Test (A334): COMPLEX gets a scripted question reply file `tests/e2e/replies/question.COMPLEX.txt` (A131): line 1 is a standing answer a real user could write once (`Use your recommended option for every open question, and for every question you ask later in this interview too.`), so an intent interview of four batches no longer spends the 3-reply allowance (`stopped=max-replies` before any task or plan). No approval phrase or kind in it; C-14 unchanged; plan and refreeze lines of `COMPLEX.txt` unchanged. Harness only; no product rule changes.
+
 ## 0.0.160 — 2026-11-18
 
 - Fix (A333): the lead cannot launch the implementer subagent (PreToolUse on `Agent` and `Task`) while its write window cannot be opened; the denial names the missing step (`agent.sh handoff <ID> IMPLEMENTING`, in a fix round the exact `next` line). A real COMPLEX run launched it after a `next | tail -14` had cut that line; the subagent wrote through a `python3 -` heredoc with no window and the run stopped on a `tree` approval. `agent.sh next` repeats its first step as a last `NEXT:` line when the answer has more than 13 lines. The PreToolUse matcher gains `Agent|Task`: an existing project runs `proofline upgrade` (doctor reports the narrower matcher). Headless `dispatch.sh` already refused; now pinned.
