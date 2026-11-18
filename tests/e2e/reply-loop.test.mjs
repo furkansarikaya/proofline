@@ -63,7 +63,7 @@ for (const sc of ['destructive', 'single_step', 'scope', 'budget', 'commit', 'pu
   });
 }
 
-test('question-file: the question reply is chosen per scenario (CRITICAL file, others generic) and holds no approval phrase', () => {
+test('question-file: the question reply is chosen per scenario (CRITICAL and COMPLEX files, others generic) and holds no approval phrase', () => {
   writeFileSync(stub, `${SH_HEAD}printf '%s\\n' '{"type":"system","subtype":"init","session_id":"s1"}' '{"type":"result","result":"Which option do you prefer?"}'\n`);
   chmodSync(stub, 0o755);
   // A131: the question reply comes from replies/question.<SCENARIO>.txt when it exists, else line 1 of the generic file; no approval phrase of the
@@ -79,15 +79,16 @@ test('question-file: the question reply is chosen per scenario (CRITICAL file, o
     if (existsSync(path.join(here, 'replies', `question.${scn}.txt`))) want = path.join(here, 'replies', `question.${scn}.txt`);
     const sent = (/^reply=1 .* \| (.*)$/m.exec(readFileSync(path.join(out, 'replies-log.txt'), 'utf8')) ?? [])[1];
     assert.equal(sent, readFileSync(want, 'utf8').split('\n')[0], `${scn} sent '${sent}', want line 1 of ${want}`);
-    if (scn === 'CRITICAL') assert.equal(want, path.join(here, 'replies', 'question.CRITICAL.txt'), 'CRITICAL file not used');
-    else assert.equal(want, path.join(here, 'replies', `${scn}.txt`), `${scn} did not use the generic file`);
+    assert.equal(want, path.join(here, 'replies', `question.${scn}.txt`), `${scn} question file not used`);
   }
-  const reply = readFileSync(path.join(here, 'replies', 'question.CRITICAL.txt'), 'utf8').replace(/\n+$/, '');
-  assert.ok(!reply.includes('?'), 'question reply holds a question mark');
-  const norm = ` ${reply.toLowerCase().replace(/[^a-z0-9_-]/g, ' ').replace(/ +/g, ' ')} `;
-  for (const raw of phrases.split(',')) {
-    const ph = raw.toLowerCase().trim();
-    if (ph === '') continue;
-    assert.ok(!norm.includes(` ${ph} `), `question.CRITICAL.txt holds the approval phrase '${ph}'`);
+  for (const scn of ['CRITICAL', 'COMPLEX']) {
+    const reply = readFileSync(path.join(here, 'replies', `question.${scn}.txt`), 'utf8').replace(/\n+$/, '');
+    assert.ok(!reply.includes('?'), 'question reply holds a question mark');
+    const norm = ` ${reply.toLowerCase().replace(/[^a-z0-9_-]/g, ' ').replace(/ +/g, ' ')} `;
+    for (const raw of phrases.split(',')) {
+      const ph = raw.toLowerCase().trim();
+      if (ph === '') continue;
+      assert.ok(!norm.includes(` ${ph} `), `question.${scn}.txt holds the approval phrase '${ph}'`);
+    }
   }
 });
