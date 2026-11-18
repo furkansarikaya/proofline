@@ -28,7 +28,7 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 
 ## Status
 
-Version 0.0.162 is an early release.
+Version 0.0.163 is an early release.
 It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 and 17) five of six scenarios failed one to ten items, recorded as accepted limits or corrected in the expectations; one passes only against the corrected expectations; a complete COMPLEX run is not demonstrated; none has run on the current `main` ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
@@ -116,6 +116,6 @@ Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#th
 
 ## Versioning and license
 
-Version **0.0.162**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.163**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

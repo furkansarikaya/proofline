@@ -14,6 +14,8 @@ import { Config, configLines } from '../../control-plane/agents/scripts/core/con
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
 import { DEFAULTS, KINDS, budgetCheck, budgetTable, doubleRun, durationsExceedWall, greenRecords, kindOf, parseDurations, planKinds, realRunner, testCmdPin, toleranceOf, withinTolerance } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
 import { A, accepted, cached, codeKey, copyOf, project, refused, sha256, tmp, wclose, wev, wopen } from '../lib/harness.mjs';
+import { supersededGreens } from '../../control-plane/agents/scripts/core/testmeasure.mjs';
+import { missingFindings } from '../../control-plane/agents/scripts/core/testreview.mjs';
 import { posix } from '../lib/winpath.mjs';
 import { setCmd } from './helper-lib.mjs';
 
@@ -275,7 +277,7 @@ test('IMPLEMENTED with a stable test passes, records one ledger row, and runs th
   wclose(d, w);
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a stable test');
   assert.equal(c.runs(), 3, 'the double run (2) and the build record that IMPLEMENTED makes (1)');
-  assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure .* detail=tests=1 double_run=1 not_run=0 budget_findings=0 stability_findings=0 blockers=0 retries=0$/m);
+  assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=test-measure .* detail=tests=1 double_run=1 not_run=0 budget_findings=0 stability_findings=0 blockers=0 retries=0 greens=1$/m);
 });
 
 test('a measured run blocks on a GREEN command that is neither configured nor in the plan; listed in the plan it is run twice; an older run only gets a note', () => {
@@ -514,4 +516,88 @@ test('realRunner: a command that ignores TERM is killed at the limit with its ch
   assert.match(pid, /^[0-9]+$/);
   const st = spawnSync('ps', ['-o', 'stat=', '-p', pid], { encoding: 'utf8' }).stdout.trim();
   assert.ok(st === '' || st.startsWith('Z'), `the child of the killed command is gone (ps says "${st}")`);
+});
+
+// ---- A336: one supersession rule for the IMPLEMENTED handoff and the REVIEW_TESTS demand ------------------------------------------------
+
+/** @param {string} command @param {string} durations `name=ms; ...` @param {boolean} [genuine] */
+const rec = (command, durations, genuine = true) => ({ file: 'x', command, durations: durations === '' ? [] : durations.split(';').map((e) => ({ name: e.split('=')[0].trim(), ms: Number(e.split('=')[1]) })), genuine });
+/** @param {ReturnType<typeof rec>[]} gs @returns {ReturnType<typeof rec>[]} the records named GREEN-1.. in order */
+const numbered = (gs) => gs.map((g, i) => ({ ...g, file: `GREEN-${i + 1}.yaml` }));
+const allowOnly = (/** @type {string} */ ...ok) => (/** @type {string} */ c) => ok.includes(c);
+
+test('A336 supersededGreens: the COMPLEX sequence (a narrow command, then the allowed one that covers the same tests) is superseded; every negative stays a finding', () => {
+  const T = 'a=1; b=2; c=3';
+  const sup = (/** @type {ReturnType<typeof rec>[]} */ gs, /** @type {(c: string) => boolean} */ ok = allowOnly('npm test'), /** @type {any} */ can = undefined) => supersededGreens(numbered(gs), ok, can);
+  assert.deepEqual([...sup([rec('node --test x', T), rec('npm test', T)])], [['node --test x', ['GREEN-2']]], 'positive');
+  assert.deepEqual([...sup([rec('node --test x', 'a=1; B=2'), rec('npm test', 'b=5; A=6; extra=1')])], [['node --test x', ['GREEN-2']]], 'case-insensitive names, the later record may cover more');
+  assert.deepEqual([...sup([rec('node --test x', 'a=1; b=2'), rec('npm test', 'a=1'), rec('npm test', 'b=2')])], [['node --test x', ['GREEN-2', 'GREEN-3']]], 'covered by two later records together');
+  assert.equal(sup([rec('node --test x', T)]).size, 0, 'no later record: the only coverage');
+  assert.equal(sup([rec('node --test x', T), rec('npm test', 'a=1; b=2')]).size, 0, 'the later record covers fewer tests');
+  assert.equal(sup([rec('node --test x', T), rec('node --test y', T)]).size, 0, 'the later record has a command that is not allowed');
+  assert.equal(sup([rec('npm test', T), rec('node --test x', T)]).size, 0, 'order reversed: the allowed record is earlier');
+  assert.equal(sup([rec('node --test x', T), rec('npm test', T), rec('node --test x', 'a=1')]).size, 0, 'the narrow command recorded again after the covering one is the latest');
+  assert.equal(sup([rec('node --test x', ''), rec('npm test', T)]).size, 0, 'a record with no duration claims nothing that could be covered: stays a finding');
+  assert.equal(sup([rec('node --test x', T), rec('npm test', '')]).size, 0, 'a later record with no durations covers nothing');
+  assert.equal(sup([rec('node --test x', T), rec('npm test', T)], allowOnly('npm test'), () => false).size, 0, 'a later record the caller does not accept (repair, forged, not double-run)');
+  assert.equal(sup([rec('node --test x', T), rec('npm test', T)], allowOnly('node --test x', 'npm test')).size, 0, 'an allowed command is never superseded');
+  assert.equal(sup([rec('node --test x', T), rec('', T)], () => true).size, 0, 'a record without a command is not a superseder');
+});
+
+test('A336 handoff: an earlier unlisted command is superseded only when the later listed record covers its tests; one that is the only coverage of a test blocks', () => {
+  const a = counterProject('0');
+  accepted(green(a.d, 'node -e 0', 'test_durations: lookup=1; other=2\n'), 'GREEN-1, an unlisted direct runner with two tests');
+  wclose(a.d, a.w);
+  const w2 = wopen(a.d);
+  accepted(green(a.d, a.c.command, 'test_durations: lookup=1\n'), 'GREEN-2, the listed command covers only one');
+  wclose(a.d, w2);
+  const r = A(a.d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r, 'the narrow command is the only coverage of "other"', 'the GREEN command `node -e 0` is neither an entry');
+
+  const b = counterProject('0');
+  accepted(green(b.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN-1');
+  wclose(b.d, b.w);
+  const w3 = wopen(b.d);
+  accepted(green(b.d, 'node -e 1', 'test_durations: lookup=1\n'), 'GREEN-2, another unlisted command');
+  wclose(b.d, w3);
+  const rb = A(b.d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(rb, 'the later record has a command that is not allowed', 'is neither an entry');
+  assert.match(rb.text, /`node -e [01]`/);
+});
+
+test('A336 REVIEW_TESTS: the superseded narrow command is shown as such and is not demanded as a finding; the demand returns for every tampered, repaired, uncounted or unclean case', () => {
+  const ledgerOf = (/** @type {string} */ d) => path.join(d, '.agents/runs/LC/LEDGER.log');
+  const base = () => {
+    const a = counterProject('0');
+    accepted(green(a.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN-1, the narrow command');
+    wclose(a.d, a.w);
+    const w2 = wopen(a.d);
+    accepted(green(a.d, a.c.command, 'test_durations: lookup=1\n'), 'GREEN-2, the listed command');
+    wclose(a.d, w2);
+    accepted(A(a.d, ['handoff', 'LC', 'IMPLEMENTED']), 'the narrow command is superseded');
+    return a.d;
+  };
+  const ctxOf = (/** @type {string} */ d) => new Context({ env: { PATH: process.env.PATH ?? '' }, cwd: d, stdout: { write: () => true }, stderr: { write: () => true }, scriptPath: `${d}/.agents/scripts/agent.sh` }, `${d}/.agents/scripts/agent.sh`);
+  const demands = (/** @type {string} */ d) => missingFindings(ctxOf(d), 'LC', { findings: [] }).filter((m) => /that the control plane did not run twice/.test(m));
+  const d = base();
+  const built = copyOf(d);
+  assert.deepEqual(demands(d), [], 'no finding is demanded for the superseded narrow command');
+  const inputs = A(d, ['build-record', 'LC', 'scan'], { role: 'reviewer' }).out;
+  assert.match(inputs, /green-command: `node -e 0` source=superseded by GREEN-2 /);
+  assert.match(inputs, new RegExp(`green-command: \`${COUNTER}\` source=plan-listed`));
+  const json = JSON.parse(A(d, ['build-record', 'LC', 'scan', '--json'], { role: 'reviewer' }).out);
+  assert.deepEqual(json.measurement.green_commands.find((/** @type {any} */ g) => g.command === 'node -e 0'), { command: 'node -e 0', source: 'superseded', superseded_by: ['GREEN-2'] });
+
+  const mutate = (/** @type {string} */ what, /** @type {(dir: string) => void} */ f) => { const x = copyOf(built); f(x); assert.equal(demands(x).length, 1, what); assert.match(demands(x)[0], /node -e 0/, what); };
+  mutate('a row from before the count existed supersedes nothing', (x) => writeFileSync(ledgerOf(x), readFileSync(ledgerOf(x), 'utf8').replace(/ greens=\d+/, '')));
+  mutate('a record made after the last row (count 1) cannot supersede', (x) => writeFileSync(ledgerOf(x), readFileSync(ledgerOf(x), 'utf8').replace(/ greens=2/, ' greens=1')));
+  mutate('a row that says nothing was run twice', (x) => writeFileSync(ledgerOf(x), readFileSync(ledgerOf(x), 'utf8').replace('double_run=1', 'double_run=0')));
+  mutate('a row with a stability finding', (x) => writeFileSync(ledgerOf(x), readFileSync(ledgerOf(x), 'utf8').replace('stability_findings=0', 'stability_findings=1')));
+  mutate('a row with a blocker', (x) => writeFileSync(ledgerOf(x), readFileSync(ledgerOf(x), 'utf8').replace(/blockers=0/, 'blockers=1')));
+  mutate('a superseding record that an evidence-only repair row names', (x) => ledgerAppend(path.join(x, '.agents/runs/LC'), 'lead', 'evidence-repair', 'IMPLEMENTING', 'IMPLEMENTING', 'finding=011-reviewer-tests.yaml patch=x commands=1 records=GREEN-2 tests=x'));
+  mutate('a superseding record with a forged plan hash', (x) => { const f = path.join(x, '.agents/runs/LC/worker-evidence/GREEN-2.yaml'); writeFileSync(f, readFileSync(f, 'utf8').replace(/plan_sha256: "[0-9a-f]+"/, `plan_sha256: "${'0'.repeat(64)}"`)); });
+  mutate('a superseding record for another task', (x) => { const f = path.join(x, '.agents/runs/LC/worker-evidence/GREEN-2.yaml'); writeFileSync(f, readFileSync(f, 'utf8').replace('task_id: "LC"', 'task_id: "OTHER"')); });
+  mutate('a superseding record whose result is not pass', (x) => { const f = path.join(x, '.agents/runs/LC/worker-evidence/GREEN-2.yaml'); writeFileSync(f, readFileSync(f, 'utf8').replace('result: "pass"', 'result: "fail"')); });
+  mutate('a superseding record that no longer gives the duration of the claimed test', (x) => { const f = path.join(x, '.agents/runs/LC/worker-evidence/GREEN-2.yaml'); writeFileSync(f, readFileSync(f, 'utf8').replace('lookup=1', 'other=1')); });
+  mutate('no later record at all', (x) => rmSync(path.join(x, '.agents/runs/LC/worker-evidence/GREEN-2.yaml')));
 });

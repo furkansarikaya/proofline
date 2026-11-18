@@ -250,9 +250,9 @@ function testMeasureAtImplemented(ctx, id, patch) {
   const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });
   for (const f of m.budgetFindings) ctx.err(`finding: ${f}\n`);
   for (const r of m.retries) ctx.err(`note: the project's own configuration retries a test (reported, proofline never retries): ${r}\n`);
-  for (const c of m.superseded) ctx.err(`note: superseded: the earlier GREEN command \`${c}\` is not plan-listed or pinned, but a later GREEN record replaced it (only the latest GREEN record decides)\n`);
+  for (const c of m.supersededBy) ctx.err(`note: superseded: the earlier GREEN command \`${c.command}\` is not plan-listed or pinned, but later GREEN records (${c.by.join(', ')}) with an allowed command give a duration to every test it claimed (A336)\n`);
   for (const c of m.notRun) ctx.err(`note: not run twice: \`${c}\` is neither a configured command nor an entry of the plan's Verification commands (list the command that runs the new tests there to have it double-run)\n`);
-  ledgerIf(ctx, id, 'test-measure', '-', '-', `tests=${m.tests.length} double_run=${m.ran.length} not_run=${m.notRun.length} budget_findings=${m.budgetFindings.length} stability_findings=${m.stability.length} blockers=${m.blockers.length} retries=${m.retries.length}`);
+  ledgerIf(ctx, id, 'test-measure', '-', '-', `tests=${m.tests.length} double_run=${m.ran.length} not_run=${m.notRun.length} budget_findings=${m.budgetFindings.length} stability_findings=${m.stability.length} blockers=${m.blockers.length} retries=${m.retries.length} greens=${m.greenCount}`);
   if (m.stability.length > 0) {
     ledgerIf(ctx, id, 'test-measure-block', '-', '-', token);
     fail(`IMPLEMENTED blocked: ${m.stability.join('; ')}. The new tests must give the same outcome and about the same duration on every run: find the cause (shared state, order, a real wait, the clock, randomness) and fix the test; there is no retry`);
