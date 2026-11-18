@@ -34,7 +34,7 @@ function findFile(dir, name) {
   return '';
 }
 const read = (/** @type {string} */ f) => readFileSync(f, 'utf8');
-const dry = (/** @type {string[]} */ args, /** @type {Record<string, string | undefined>} */ env = {}) => runE2e([...args, '--dry-run'], env);
+const dry = (/** @type {string[]} */ args, /** @type {Record<string, string | undefined>} */ env = {}) => runE2e([...args, '--dry-run'], { E2E_SKIP_DOCTOR: '1', ...env });
 const policy = (/** @type {string[]} */ a) => execFileSync(process.execPath, [path.join(repo, 'control-plane/agents/scripts/proofline-core.mjs'), 'cli', 'exec-policy', '--config', path.join(repo, 'control-plane/agents/config.yaml'), ...a], { encoding: 'utf8' }).trim();
 
 test('a dry run records the global git config before and after and creates the collected files', () => {

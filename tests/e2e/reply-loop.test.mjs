@@ -42,7 +42,7 @@ function findOut(dir) {
 function run(scenario, slug, max, sub) {
   const r = path.join(root, sub);
   rmSync(r, { recursive: true, force: true });
-  const res = runE2e([scenario, 'claude'], { STUB_SLUG: slug, E2E_MAX_REPLIES: String(max), E2E_ROOT: r, PATH: PATHENV, E2E_APPROVALS_FILE: path.join(root, 'no-such-listing.txt') });
+  const res = runE2e([scenario, 'claude'], { STUB_SLUG: slug, E2E_MAX_REPLIES: String(max), E2E_ROOT: r, E2E_SKIP_DOCTOR: '1', PATH: PATHENV, E2E_APPROVALS_FILE: path.join(root, 'no-such-listing.txt') });
   assert.equal(res.status, 0, `run failed: ${res.out}`);
   return readFileSync(path.join(findOut(r), 'summary.txt'), 'utf8');
 }
@@ -72,7 +72,7 @@ test('question-file: the question reply is chosen per scenario (CRITICAL and COM
   assert.ok(phrases, 'approval phrases not found in the recorded grammar');
   for (const scn of ['CRITICAL', 'COMPLEX']) {
     const r = path.join(root, `q-${scn}`);
-    const res = runE2e([scn, 'claude'], { E2E_MAX_REPLIES: '1', E2E_ROOT: r, PATH: PATHENV });
+    const res = runE2e([scn, 'claude'], { E2E_MAX_REPLIES: '1', E2E_ROOT: r, E2E_SKIP_DOCTOR: '1', PATH: PATHENV });
     assert.equal(res.status, 0, `run failed: ${res.out}`);
     const out = findOut(r);
     let want = path.join(here, 'replies', `${scn}.txt`);
