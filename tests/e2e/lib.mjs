@@ -82,7 +82,14 @@ export function openApprovals(approvalsDir) {
     const m = /^request: "?([^"\n]+?)"?\s*$/m.exec(read(n));
     if (m) answered.add(m[1]);
   }
-  return names.filter((n) => /^[0-9]+-request-.+\.yaml$/.test(n) && !answered.has(n)).map((name) => ({
+  // A331: the product's own rule (`pendingRequest`): only the LATEST request of a kind can be open, and an approval file of that kind numbered at or after it closes it. An older
+  // request of the same kind (the COMPLEX run of 2026-11-18 had 001-request-plan and 002-request-plan with one bound; the user's reply answered 002) is superseded, never a second open plan.
+  const num = (/** @type {string} */ n) => Number(/^([0-9]+)-/.exec(n)?.[1] ?? '0');
+  const slugOf = (/** @type {string} */ n) => n.slice(n.indexOf('-request-') + '-request-'.length).replace(/\.yaml$/, '');
+  const latest = new Map();
+  for (const n of names) if (/^[0-9]+-request-.+\.yaml$/.test(n)) latest.set(slugOf(n), n);
+  const closed = (/** @type {string} */ n) => names.some((a) => !a.includes('-request-') && a.endsWith('.yaml') && a === `${a.slice(0, a.indexOf('-'))}-${slugOf(n)}.yaml` && num(a) >= num(n));
+  return names.filter((n) => /^[0-9]+-request-.+\.yaml$/.test(n) && !answered.has(n) && latest.get(slugOf(n)) === n && !closed(n)).map((name) => ({
     name,
     kind: slugKind(name.slice(name.indexOf('-request-') + '-request-'.length).replace(/\.yaml$/, '')),
     bound: /^bound: "?([^"\n]*?)"?\s*$/m.exec(read(name))?.[1] ?? '',

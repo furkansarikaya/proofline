@@ -330,6 +330,15 @@ export async function main(argv) {
       const key = `${picked.withheld.kind}|${picked.withheld.reason}`;
       if (!withheldLogged.has(key)) { withheldLogged.add(key); ap('replies-log.txt', `withheld kind=listed-approval-withheld task=${id} request=${picked.withheld.kind} reason=${picked.withheld.reason} | ${picked.withheld.message}\n`); }
     }
+    // A331: every stop where a listing exists and nothing was sent says why (once per stop), so a missing listed approval is never silent.
+    if (listing.length > 0 && !listed && !(picked && 'withheld' in picked)) {
+      const openKinds = [...new Set(open.map((o) => o.kind))];
+      const why = decision === 'plan' || decision === 'refreeze' ? `${decision}-reply-first (open=${openKinds.join('+')})`
+        : openKinds.some((k) => listing.some((l) => l.kind === k)) ? `uses-spent-or-refused (open=${openKinds.join('+')})`
+        : `no-open-request-of-a-listed-kind (open=${openKinds.join('+') || 'none'}, listed=${[...new Set(listing.map((l) => l.kind))].join('+')})`;
+      const key = `skip|${signature}|${why}`;
+      if (!withheldLogged.has(key)) { withheldLogged.add(key); ap('replies-log.txt', `skipped kind=listed-approval-skipped task=${id} reason=${why}\n`); }
+    }
     let reply;
     if (listed) reply = listed.message;
     else if (decision === 'plan') reply = line(replyFile, 2);
