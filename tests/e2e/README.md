@@ -36,7 +36,7 @@ economy`, Sonnet lead for TRIVIAL, STANDARD and STANDARD.tr; `balanced`, Opus le
 in copies of `playground/` outside the repository, installed with `proofline init`, headless. Dates are UTC dates
 of the run; "main" is the commit the run was made on. The newest campaign (2026-11-16 and 2026-11-17, section "The
 campaign on main 6830eae6 and its re-runs") ran on `6830eae6` (0.0.141) and, for the re-runs, on `87dd66a0`, `773f00d6`,
-`8a2cbea5` and `8f84d850`. The section "The final pass on main 900c2852" holds the run of all six scenarios on `900c2852` (0.0.151). The current `main` is `98f49400` (0.0.164): the section "The closing campaign on main (2026-11-18)" below holds the COMPLEX and STANDARD runs of 2026-11-18 on commits from `2cdd6746` to `98f49400`. On `98f49400` one COMPLEX run reached DONE (FAIL 37/38, C-22 only) and one STANDARD run reached DONE (FAIL 36/37, S-6 only); there is still no E2E PASS for either scenario, and the other four scenarios were not run again after `900c2852`.
+`8a2cbea5` and `8f84d850`. The section "The final pass on main 900c2852" holds the run of all six scenarios on `900c2852` (0.0.151). The current `main` is `98f49400` (0.0.164): the section "The closing campaign on main (2026-11-18)" below holds the COMPLEX and STANDARD runs of 2026-11-18 on commits from `2cdd6746` to `98f49400`. A339 (0.0.165) came after these runs and touches only the Windows path comparison of the scratch-worktree removal, no POSIX behaviour. On `98f49400` one COMPLEX run reached DONE (FAIL 37/38, C-22 only) and one STANDARD run reached DONE (FAIL 36/37, S-6 only); there is still no E2E PASS for either scenario, and the other four scenarios were not run again after `900c2852`.
 
 ### Last passing run per scenario
 
