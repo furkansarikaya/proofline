@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.160 — 2026-11-18
+
+- Fix (A333): the lead cannot launch the implementer subagent (PreToolUse on `Agent` and `Task`) while its write window cannot be opened; the denial names the missing step (`agent.sh handoff <ID> IMPLEMENTING`, in a fix round the exact `next` line). A real COMPLEX run launched it after a `next | tail -14` had cut that line; the subagent wrote through a `python3 -` heredoc with no window and the run stopped on a `tree` approval. `agent.sh next` repeats its first step as a last `NEXT:` line when the answer has more than 13 lines. The PreToolUse matcher gains `Agent|Task`: an existing project runs `proofline upgrade` (doctor reports the narrower matcher). Headless `dispatch.sh` already refused; now pinned.
+
 ## 0.0.159 — 2026-11-18
 
 - Fix (A332): an implementer's `submit` DONE is rejected when a non-exempt scope path lacks valid worker-evidence RED and GREEN (the same cheap check as the IMPLEMENTED handoff, exemptions honoured), with the exact `agent.sh worker-evidence` command, the folder and the note that scratch output, a tdd.json and `validate-tdd.mjs` are not evidence; the `handoff IMPLEMENTED` refusal names the same command; `next` re-dispatches the implementer when the DONE row has no evidence behind it instead of saying to record IMPLEMENTED. `references/DISPATCH.md` gets a rule line: never override the template's WRITE/evidence line.

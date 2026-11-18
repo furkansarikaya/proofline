@@ -351,7 +351,7 @@ test('version_skew (A194): the SessionStart hook warns about a plugin and projec
 // ---- database_guard, the part the recorded corpus does not carry (DB-33b, DB-37 .. DB-41) -------------------------------------------------
 test('database_guard (DB-33b, DB-37 .. DB-41): the Claude PreToolUse matchers reach Read, Grep, Glob and Skill; start records the database baseline; a changed, new database file blocks db-check and freeze', () => {
   for (const wf of ['adapters/claude/settings.fragment.json', 'adapters/claude/hooks/hooks.json']) {
-    assert.ok(readFileSync(path.join(repo, wf), 'utf8').includes('"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill"'), `DB-33b the PreToolUse matcher of ${wf} does not reach Read, Grep, Glob and Skill`);
+    assert.ok(readFileSync(path.join(repo, wf), 'utf8').includes('"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill|Agent|Task"'), `DB-33b the PreToolUse matcher of ${wf} does not reach Read, Grep, Glob and Skill`);
   }
   const d = newRepo();
   mkdirSync(path.join(d, 'data'), { recursive: true }); writeFileSync(path.join(d, 'data/app.db'), 'x'); appendFileSync(path.join(d, '.gitignore'), 'data/\n');

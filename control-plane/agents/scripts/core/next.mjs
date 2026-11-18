@@ -272,6 +272,22 @@ function knowledgeDriftNote(ctx, id) {
  * @param {Context} ctx @param {string} id @param {(text: string) => void} emit
  */
 export function nextStep(ctx, id, emit) {
+  // A333: a long answer repeats its first step as the last line, so `agent.sh next | tail -N` cannot lose it (the lead once cut a fix round's handoff line).
+  // Only an answer of more than TAIL_ECHO_OVER lines gets it: every recorded short answer (tests/core/golden/next-order.txt) stays as it is.
+  /** @type {string[]} */ const chunks = [];
+  nextStepLines(ctx, id, (t) => { chunks.push(t); emit(t); });
+  const text = chunks.join('');
+  const lines = text.split('\n').filter((l) => l !== '');
+  if (lines.length <= TAIL_ECHO_OVER) return;
+  const first = lines.find((l) => l.startsWith('next='));
+  if (first !== undefined) emit(`NEXT: ${first.slice(5)}\n`);
+}
+
+/** An answer of more lines than this repeats its first `next=` step as a last `NEXT:` line (A333). */
+const TAIL_ECHO_OVER = 13;
+
+/** @param {Context} ctx @param {string} id @param {(text: string) => void} emit */
+function nextStepLines(ctx, id, emit) {
   requireRun(ctx, id);
   const d = runDir(ctx, id);
   const st = sectionValue(ctx, d, 'execution', 'state');
