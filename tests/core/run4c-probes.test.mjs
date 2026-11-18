@@ -5,14 +5,14 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
-import { test } from 'node:test';
+import { before, test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { browserFiles, pathEntries, probePerformance, probeVisual } from '../../control-plane/agents/scripts/core/probes.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
-import { project } from './legacy-lib.mjs';
+import { copyOf, project, stage, template } from './legacy-lib.mjs';
 
 const HOST_BROWSER = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge', 'Brave Browser.app/Contents/MacOS/Brave Browser']
   .some((a) => existsSync(`/Applications/${a}`));
@@ -64,36 +64,53 @@ test('probeVisual: an installed project browser-test dependency (from the ecosys
   assert.equal(probeVisual(ctxOf(d, b)), 'project browser-test dependency playwright (package.json, node_modules)');
 });
 
-/** @param {string} d */
-const commit = (d) => spawnSync('sh', ['-c', 'git add -A && git commit -qm probe'], { cwd: d, env: cleanEnv({}) });
+/**
+ * The base of every probePerformance case (A342): a copy of the new_repo project whose control-plane files are already committed. It is built once per content hash and shared by every
+ * run (stage); a case copies it, writes its one file and stages that file, so no case commits the whole control plane again (that commit was about 75 ms of the 850 ms the one big test took).
+ * @param {string} d
+ */
+const committed = (d) => { for (const a of [['add', '-A'], ['commit', '-qm', 'probe']]) spawnSync('git', a, { cwd: d, env: cleanEnv({}) }); };
+const perfBase = () => copyOf(stage(template('new_repo'), 'a342 probe base committed', committed));
+/** Stage what the case wrote: `ls-files` (tracked files only) reads the index. @param {string} d */
+const track = (d) => { spawnSync('git', ['add', '-A'], { cwd: d, env: cleanEnv({}) }); };
 
-test('probePerformance: a tracked bench script, a Makefile target, a benchmark directory, a config file and a content marker are capabilities; nothing is none', () => {
-  const none = project('new_repo');
-  commit(none);
-  assert.equal(probePerformance(ctxOf(none, sys())), '');
+// Warm the shared templates once, outside any test: on a cold runner the first case would otherwise carry the template build (the new_repo install, then the base commit).
+before(() => { perfBase(); });
 
-  const s = project('new_repo');
+test('probePerformance: a project with no benchmark setup is none', () => {
+  assert.equal(probePerformance(ctxOf(perfBase(), sys())), '');
+});
+
+test('probePerformance: a tracked package.json bench script is a capability', () => {
+  const s = perfBase();
   writeFileSync(`${s}/package.json`, '{"name":"x","scripts":{"test":"t","benchmark":"node b.js"}}\n');
-  commit(s);
+  track(s);
   assert.equal(probePerformance(ctxOf(s, sys())), 'package.json script bench/benchmark/perf*');
+});
 
-  const m = project('new_repo');
+test('probePerformance: a Makefile bench target is a capability', () => {
+  const m = perfBase();
   writeFileSync(`${m}/Makefile`, 'all:\n\techo\nbench:\n\techo b\n');
-  commit(m);
+  track(m);
   assert.equal(probePerformance(ctxOf(m, sys())), 'Makefile target bench/benchmark');
+});
 
-  const g = project('new_repo');
+test('probePerformance: a Go Benchmark func in a tracked _test.go file is a capability', () => {
+  const g = perfBase();
   writeFileSync(`${g}/lookup_test.go`, 'package x\nfunc BenchmarkLookup(b *testing.B) {}\n');
-  commit(g);
+  track(g);
   assert.match(probePerformance(ctxOf(g, sys())), /^Go func Benchmark in \*_test\.go \(lookup_test\.go\)$/);
+});
 
-  const u = project('new_repo');
+test('probePerformance: a package.json without a bench script is none', () => {
+  const u = perfBase();
   writeFileSync(`${u}/package.json`, '{"name":"x","scripts":{"test":"t"}}\n');
-  commit(u);
+  track(u);
   assert.equal(probePerformance(ctxOf(u, sys())), '', 'a package.json without a bench script');
+});
 
-  const untracked = project('new_repo');
+test('probePerformance: an untracked Makefile is none (tracked files only)', () => {
+  const untracked = project('new_repo');   // nothing committed: the probe returns before it reads the Makefile (a Makefile is read from disk once any file is tracked)
   writeFileSync(`${untracked}/Makefile`, 'bench:\n\techo b\n');
   assert.equal(probePerformance(ctxOf(untracked, sys())), '', 'without a tracked file nothing is reported (tracked files only)');
-  void symlinkSync;
 });

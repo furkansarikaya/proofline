@@ -38,10 +38,18 @@ const setHandoff = (dir, state) => {
   writeFileSync(f, readFileSync(f, 'utf8').replace(/(handoff:\n {2}state: )"[A-Z_]+"/, `$1"${state}"`));
 };
 
-test('A333 hook: the implementer is launched only while its window can be opened; the other roles are never judged', () => {
-  const d = fixture();
+/** The fixture of the three launch tests, built (and its template warmed) once in `before`; a test takes a copy. @type {string} */
+let launchBase = '';
+before(() => { launchBase = fixture(); });
+
+test('A333 hook: the implementer is launched at IMPLEMENTING, by either tool name', () => {
+  const d = copyOf(launchBase);
   for (const [tool, type] of [['Agent', 'proofline:proofline-implementer'], ['Task', 'proofline-implementer'], ['Agent', 'proofline:proofline-implementer']])
     allowed(`${tool} ${type} at IMPLEMENTING`, launch(d, type, tool));
+});
+
+test('A333 hook: the implementer is denied at PLANNED with the missing step named, and allowed again after the handoff', () => {
+  const d = copyOf(launchBase);
   setHandoff(d, 'PLANNED');
   for (const [tool, type] of [['Agent', 'proofline:proofline-implementer'], ['Task', 'proofline-implementer']]) {
     const out = launch(d, type, tool);
@@ -49,12 +57,17 @@ test('A333 hook: the implementer is launched only while its window can be opened
     assert.ok(out.includes('agent.sh handoff LC IMPLEMENTING first'), `the missing step is not named: ${out.slice(0, 700)}`);
     assert.ok(out.includes('only while handoff state is IMPLEMENTING'), `the reason of window-open is not shown: ${out.slice(0, 700)}`);
   }
+  setHandoff(d, 'IMPLEMENTING');
+  allowed('the implementer after the handoff', launch(d, 'proofline:proofline-implementer'));
+});
+
+test('A333 hook: the other roles are never judged at PLANNED, and a subagent is not the lead', () => {
+  const d = copyOf(launchBase);
+  setHandoff(d, 'PLANNED');
   // designer, QA, explorer, reviewer, verifier, any other subagent, and a subagent that launches: not judged
   for (const t of ['proofline:proofline-designer', 'proofline:proofline-qa', 'proofline:proofline-explorer', 'proofline:proofline-reviewer', 'proofline:proofline-verifier', 'general-purpose', 'Explore'])
     allowed(`${t} at PLANNED`, launch(d, t));
   allowed('a subagent is not the lead', launch(d, 'proofline:proofline-implementer', 'Agent', 'proofline-explorer'));
-  setHandoff(d, 'IMPLEMENTING');
-  allowed('the implementer after the handoff', launch(d, 'proofline:proofline-implementer'));
 });
 
 test('A333 hook: a fix round names the exact `next` line, and the launch is allowed once that handoff is made', () => {

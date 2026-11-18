@@ -4,10 +4,22 @@
 // evidence write, the knowledge-transaction scope at DONE / delivery-check / validate, and task branch isolation. Every assertion, attack input and
 // message of the shell scenarios is kept. The control plane under test is the real one on the live Node path (A242); one test per shell scenario.
 import assert from 'node:assert/strict';
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { test } from 'node:test';
-import { A, AS, accepted, expectFail, expectMsg, git, must, newRepo, commitAll, project, toCodeDone } from '../lib/harness.mjs';
+import { before, test } from 'node:test';
+import { A, AS, accepted, cached, codeKey, copyOf, expectFail, expectMsg, git, must, newRepo, commitAll, project, toCodeDone } from '../lib/harness.mjs';
+
+/**
+ * An orchestrated run driven to CODE_DONE, built once per content hash of the code and shared by every run (A342): the set-up of the one test that needs it was about 5 s of `agent.sh`
+ * calls inside the test. `before` warms it; a test takes a copy.
+ */
+const codeDoneRun = () => copyOf(cached(`ctl-codedone-${codeKey()}`, (work) => {
+  const built = project({ topology: 'orchestrated' });
+  toCodeDone(built);
+  cpSync(built, work, { recursive: true });
+  rmSync(built, { recursive: true, force: true });
+}));
+before(() => { rmSync(codeDoneRun(), { recursive: true, force: true }); });
 
 const POLICY_KEYS = ['worker_evidence:', '  required: true', 'tdd:', '  required: true', 'completion_report:', '  required: true', '  adapter: PENDING', '  published: false', '  receipt: PENDING'];
 
@@ -250,7 +262,7 @@ test('A326 sc_knowledge_pages: the page count fails closed when the base commit 
 });
 
 test('A326 sc_knowledge_pages: with gates the reason of a second new page is a ledger row (the paths and the reason), and knowledge_reason stays empty', () => {
-  const d = project({ topology: 'orchestrated' }); toCodeDone(d);
+  const d = codeDoneRun();
   w(d, 'docs/design/FIRST.md', '# First\n'); w(d, 'docs/design/SECOND.md', '# Second\n');
   expectMsg('two new pages without a reason', 'opened 2 new pages', A(d, ['knowledge-done', 'LC', 'KNOWLEDGE_DONE']));
   expectMsg('a stock reason', 'one specific sentence', A(d, ['knowledge-done', 'LC', 'KNOWLEDGE_DONE', 'n/a']));

@@ -80,7 +80,7 @@ async function play(scenario, script, sub, env = {}) {
   const custom = process.env.E2E_RUNNER ? process.env.E2E_RUNNER.split(' ') : null;
   const [cmd, ...pre] = custom ?? [process.execPath, path.join(here, 'run.mjs')];
   const status = await new Promise((resolve) => {
-    const c = spawn(/** @type {string} */ (cmd), [...pre.map((x) => (x.startsWith('tests/') ? path.join(repo, x) : x)), scenario, 'claude'], { cwd: repo, env: { ...process.env, STUB_SCRIPT: sf, E2E_ROOT: r, PATH: PATHENV, ...env }, stdio: 'ignore' });
+    const c = spawn(/** @type {string} */ (cmd), [...pre.map((x) => (x.startsWith('tests/') ? path.join(repo, x) : x)), scenario, 'claude'], { cwd: repo, env: { ...process.env, STUB_SCRIPT: sf, E2E_ROOT: r, E2E_SKIP_DOCTOR: '1', PATH: PATHENV, ...env }, stdio: 'ignore' });
     c.on('close', resolve);
   });
   assert.equal(status, 0, `run failed (${sub})`);
