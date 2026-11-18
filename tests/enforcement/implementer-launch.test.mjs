@@ -2,12 +2,13 @@
 // A333: the lead cannot launch the implementer subagent while its write window cannot be opened, and a long `next` answer ends with its first step.
 // The real hook (PreToolUse on the Agent tool) and the real dispatcher run on real projects; no runtime is started for a refused launch.
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, must, project, gfail, gpass, rec } from '../lib/harness.mjs';
 import { implemented } from '../core/gates-s1-lib.mjs';
 import { fixture as dispatchFixture } from '../core/dispatch-lib.mjs';
+import { launchRole, launchVerdict } from '../../adapters/claude/hooks/guards/launch.mjs';
 import { H, allowed, denied, fixture } from './lib.mjs';
 
 const RUN = '.agents/runs/LC/RUN.yaml';
@@ -79,4 +80,35 @@ test('A333 headless: dispatch.sh refuses the implementer without an openable win
   assert.equal(fx.has('.agents/local/codex.argv', ''), false, 'a runtime was started');
   setHandoff(fx.dir, 'IMPLEMENTING');
   assert.equal((await fx.dispatch(['LC', 'implementer'])).code, 0, 'the dispatch after the handoff');
+});
+
+test('A333 hook: a plain PLANNED denial says nothing of a fix round; the aliases SubagentStart reads as the implementer are judged; a destructive plan names only its approval', () => {
+  const d = fixture();
+  setHandoff(d, 'PLANNED');
+  const out = launch(d, 'proofline:proofline-implementer');
+  denied('plain PLANNED', out, 'agent.sh handoff LC IMPLEMENTING first');
+  assert.ok(!out.includes('fix round'), `a plain denial talks of a fix round: ${out.slice(0, 700)}`);
+  for (const t of ['proofline:proofline-implementation-worker', 'proofline-implementation_worker']) denied(`alias ${t}`, launch(d, t), 'the implementer is not launched');
+  assert.equal(launchRole('proofline:proofline-implementation-worker'), 'implementer');
+  assert.equal(launchRole('proofline:proofline-qa'), '');
+  assert.equal(launchRole('implementer'), '');
+  appendFileSync(path.join(d, '.agents/runs/LC/PLAN.md'), '\n## Data\n\ndestructive: yes\n');
+  const dd = launch(d, 'proofline:proofline-implementer');
+  denied('destructive plan at PLANNED', dd, 'the implementer is not launched');
+  assert.ok(dd.includes('request-approval LC destructive'), `the approval step is not named: ${dd.slice(0, 900)}`);
+  assert.ok(!dd.includes('handoff LC IMPLEMENTING first'), 'the handoff is named for a destructive plan');
+});
+
+test('A333 hook: a window-open that does not answer in the budget denies the launch (fail closed)', async () => {
+  const ctx = /** @type {any} */ ({
+    installed: true, sub: false, act: 'LC', nextBudget: 1, agents: { coreDir: path.join(import.meta.dirname, '../../control-plane/agents/scripts') }, input: {},
+    get: (/** @type {string} */ k) => (k === 'tool_name' ? 'Agent' : 'proofline:proofline-implementer'),
+    agent: () => new Promise(() => {}),   // never answers
+  });
+  const v = await launchVerdict({ tool_name: 'Agent' }, ctx, 0.05);
+  assert.equal(v?.decision, 'deny');
+  assert.match(v?.reason ?? '', /ran out of time/);
+  // an answer in time is passed through
+  ctx.agent = async () => ({ status: 0, stdout: 'fp\n', stderr: '', timedOut: false });
+  assert.equal(await launchVerdict({ tool_name: 'Agent' }, ctx, 5), null);
 });

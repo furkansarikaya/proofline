@@ -150,6 +150,11 @@ test('A238 settings: a narrowed matcher FAILs and names the event; init adds the
   assert.match(doctor(w).out, /^PASS claude hooks: /m);
   settings(w, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].matcher = 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob'; });
   assert.match(doctor(w).out, /^FAIL claude hooks: .*narrower matcher.*PreToolUse/m);
+  // A333: the matcher before Agent|Task joined it (0.0.159) no longer covers the shipped tools; doctor says so and upgrade adds the shipped group beside it
+  settings(w, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].matcher = 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill'; });
+  assert.match(doctor(w).out, /^FAIL claude hooks: .*narrower matcher.*PreToolUse/m);
+  assert.match(sb.pl(w, ['upgrade', '--yes']).out, /PreToolUse has a narrower matcher|PreToolUse.*narrower matcher/);
+  assert.match(doctor(w).out, /^PASS claude hooks: /m);
 });
 
 test('A238 settings: disableAllHooks true in settings.json or settings.local.json FAILs; false does not; a command that is not text FAILs', () => {

@@ -129,7 +129,7 @@ export async function handle(ctx) {
     else if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
       verdict = await (await import(pathToFileURL(`${here}guards/read.mjs`).href)).readGuard(input, ctx);
     } else if (tool === 'Agent' || tool === 'Task') {
-      verdict = await (await import(pathToFileURL(`${here}guards/launch.mjs`).href)).launchGuard(input, ctx);
+      verdict = await (await import(pathToFileURL(`${here}guards/launch.mjs`).href)).launchVerdict(input, ctx, secs);
     } else if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool) || /[Pp]atch/.test(tool)) {
       verdict = await (await import(pathToFileURL(`${here}guards/write.mjs`).href)).writeGuard(input, ctx);
     }
