@@ -19,7 +19,7 @@ import { fileText, ledgerLines, ledgerRows, parseLedgerLine, textLines } from '.
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
-import { greenRecords, measureRequired, measureRun, planKinds, recordedTestPin, testCmdPin } from './testmeasure.mjs';
+import { greenRecords, measureRequired, measureRun, planKinds, recordedTestPin, supersededGreens, supersederFilter, testCmdPin } from './testmeasure.mjs';
 import { claimedBy, isTestFile, reportJson, reportText, scanFiles, scanRules, testPathGlobs } from './waitscan.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
@@ -189,7 +189,15 @@ export function collect(ctx, id) {
   const pinned = new Set((recordedTestPin(ctx, id) ?? '').split(',').filter((h) => h !== ''));
   const listed = new Set(planVerificationCommands(ctx, id));
   const cmds = [...new Set(greens.map((g) => g.command).filter((c) => c !== ''))].sort();
-  const commands = cmds.map((c) => ({ command: c, source: listed.has(c) ? 'plan-listed' : pinned.has(testCmdPin([c])) ? 'project test command' : 'neither' }));
+  // A336: a command that is neither plan-listed nor the pinned project test command is SUPERSEDED, and not demanded as a finding, when the one rule `supersededGreens` (the one the IMPLEMENTED handoff
+  // uses) says later GREEN records with an allowed command give a duration to every test it claimed. The record count and the clean double run come from the LAST test-measure row (no row, double_run=0,
+  // a stability finding or a blocker, or a row from before the count existed: nothing supersedes), and a record made after that row, a repair record or a record with a foreign header cannot supersede.
+  const allowedHere = (/** @type {string} */ c) => listed.has(c) || pinned.has(testCmdPin([c]));
+  const rowGreens = num('greens');
+  const rowClean = row !== undefined && (num('double_run') ?? 0) >= 1 && num('stability_findings') === 0 && num('blockers') === 0 && rowGreens !== null;
+  const base = supersederFilter(ctx, id);
+  const sup = rowClean ? supersededGreens(greens, allowedHere, (g) => base(g) && greens.indexOf(/** @type {any} */ (g)) < (rowGreens ?? 0)) : new Map();
+  const commands = cmds.map((c) => ({ command: c, source: listed.has(c) ? 'plan-listed' : pinned.has(testCmdPin([c])) ? 'project test command' : sup.has(c) ? 'superseded' : 'neither', superseded_by: sup.get(c) ?? [] }));
   const double = num('double_run');
   const measurement = {
     test_measure_row: row === undefined ? 'none' : detail,
@@ -245,7 +253,7 @@ export function reviewInputs(ctx, id, json) {
   if (json) {
     const base = JSON.parse(reportJson(report));
     const cl = (/** @type {string} */ x) => clean(x);
-    return { status, out: `${JSON.stringify({ ...base, task_test_files: c.testFiles.map(cl), plan_exceptions: c.exceptions.map((e) => ({ kind: e.kind, target: cl(e.target), reason: cl(e.reason) })), measurement: { ...m, green_commands: m.green_commands.map((g) => ({ command: cl(g.command), source: g.source })), plan_tests_without_duration: m.plan_tests_without_duration.map(cl), durations: m.durations.map((d) => ({ ...d, name: cl(d.name) })), budget_findings: m.budget_findings.map(cl), unscanned: m.unscanned.map(cl), test_measure_row: cl(m.test_measure_row) } }, null, 2)}\n` };
+    return { status, out: `${JSON.stringify({ ...base, task_test_files: c.testFiles.map(cl), plan_exceptions: c.exceptions.map((e) => ({ kind: e.kind, target: cl(e.target), reason: cl(e.reason) })), measurement: { ...m, green_commands: m.green_commands.map((g) => ({ command: cl(g.command), source: g.source, ...(g.source === 'superseded' ? { superseded_by: g.superseded_by } : {}) })), plan_tests_without_duration: m.plan_tests_without_duration.map(cl), durations: m.durations.map((d) => ({ ...d, name: cl(d.name) })), budget_findings: m.budget_findings.map(cl), unscanned: m.unscanned.map(cl), test_measure_row: cl(m.test_measure_row) } }, null, 2)}\n` };
   }
   let t = reportText(report);
   t += `task-test-files: ${c.testFiles.length === 0 ? 'none' : c.testFiles.map(clean).join(' ')}\n`;
@@ -254,7 +262,7 @@ export function reviewInputs(ctx, id, json) {
   t += `  test-measure-row: ${m.test_measure_row === 'none' ? 'none (the control plane has not measured this run)' : clean(m.test_measure_row)}\n`;
   if (m.not_measured) t += '  NOT MEASURED: no GREEN command was run twice (double_run=0 or no row); the durations below are the recorder\'s word, so every duration and every budget below is unconfirmed\n';
   if (m.definition_changed) t += '  NOT MEASURED: ecosystems.json changed since the run started; the names the scan used may not be the ones the run began with\n';
-  for (const g of m.green_commands) t += `  green-command: \`${clean(g.command)}\` source=${g.source}${g.source === 'neither' ? ' (the control plane did not run it twice)' : ''}; confirm that it executes the task's test files${c.testFiles.length > 0 ? ` (${c.testFiles.map(clean).join(' ')})` : ''}\n`;
+  for (const g of m.green_commands) t += `  green-command: \`${clean(g.command)}\` source=${g.source === 'superseded' ? `superseded by ${g.superseded_by.join(', ')} (every test it claimed has a duration in a later record with an allowed command; nothing to report)` : g.source}${g.source === 'neither' ? ' (the control plane did not run it twice)' : ''}; confirm that it executes the task's test files${c.testFiles.length > 0 ? ` (${c.testFiles.map(clean).join(' ')})` : ''}\n`;
   for (const n of m.plan_tests_without_duration) t += `  NOT MEASURED: the plan names the test "${clean(n)}" and no recorded duration matches it\n`;
   for (const d of m.durations) t += `  duration: ${clean(d.name)} (${d.kind}) ${d.ms} ms\n`;
   for (const f of m.budget_findings) t += `  finding: ${clean(f)}\n`;

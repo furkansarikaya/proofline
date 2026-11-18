@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { git, headSha } from './git.mjs';
 import { listNames } from './ledger.mjs';
 import * as proc from './proc.mjs';
-import { fieldOf, fileLines, fileText, ledgerLines, ledgerRows, textLines } from './records.mjs';
+import { fieldOf, fileLines, fileText, ledgerLines, ledgerRows, sectionValue, textLines } from './records.mjs';
 import { planVerificationCommands, reproduceAllowed } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower, pathMatches } from './shellglob.mjs';
@@ -53,16 +53,76 @@ export function parseDurations(line) {
 
 /**
  * The GREEN records of a run: their command and their durations. Every GREEN record counts (a later one for the same test replaces the earlier one by name).
- * @param {Context} ctx @param {string} id @returns {Array<{ file: string, command: string, durations: Array<{ name: string, ms: number }> }>}
+ * `genuine` is true when the record's header is the one the recorder writes for this run: this task, phase GREEN, result pass and the plan hash the run is frozen on (a hand-edited or foreign file is not).
+ * @param {Context} ctx @param {string} id @returns {Array<{ file: string, command: string, durations: Array<{ name: string, ms: number }>, genuine: boolean }>}
  */
 export function greenRecords(ctx, id) {
   const evdir = `${runDir(ctx, id)}/worker-evidence`;
+  const frozen = sectionValue(ctx, runDir(ctx, id), 'freeze', 'plan_sha256');
   // numeric order of the recorder's sequence (GREEN-2 before GREEN-10): "the latest record wins" must not follow the text order
   const seq = (/** @type {string} */ n) => Number(/^GREEN-0*([0-9]+)/.exec(n)?.[1] ?? Number.MAX_SAFE_INTEGER);
   return listNames(evdir, /^GREEN-.*\.yaml$/).sort((a, b) => seq(a) - seq(b) || (a < b ? -1 : a > b ? 1 : 0)).map((n) => {
     const lines = fileLines(ctx, `${evdir}/${n}`);
-    return { file: n, command: fieldOf(lines, 'command'), durations: parseDurations(fieldOf(lines, 'test_durations')) };
+    const genuine = /^[0-9a-f]{64}$/.test(frozen) && fieldOf(lines, 'task_id') === id && fieldOf(lines, 'phase') === 'GREEN' && fieldOf(lines, 'result') === 'pass' && fieldOf(lines, 'plan_sha256') === frozen;
+    return { file: n, command: fieldOf(lines, 'command'), durations: parseDurations(fieldOf(lines, 'test_durations')), genuine };
   });
+}
+
+/**
+ * THE supersession rule (A336), shared by `measureRun` (the IMPLEMENTED handoff) and the REVIEW_TESTS input, so the two cannot disagree. A GREEN command that is not allowed (not plan-listed, not
+ * the pinned project test command) is superseded when EVERY test name its records claim has a duration in a LATER record (ledger order: a higher GREEN-<n> than the last record of that command)
+ * whose command is allowed and which `canSupersede` accepts. A command with no recorded duration claims nothing to cover and is never superseded; a command recorded again after the covering record is
+ * the latest and is not superseded. Names compare case-insensitively and exactly. Returns command -> the covering records (`GREEN-<n>`), in order.
+ * @param {Array<{ file: string, command: string, durations: Array<{ name: string, ms: number }> }>} greens in ledger order
+ * @param {(command: string) => boolean} isAllowed @param {(g: { file: string, command: string, durations: Array<{ name: string, ms: number }> }) => boolean} [canSupersede]
+ * @returns {Map<string, string[]>}
+ */
+export function supersededGreens(greens, isAllowed, canSupersede = () => true) {
+  const key = (/** @type {string} */ n) => asciiLower(n.trim());
+  /** @type {Map<string, string[]>} */ const out = new Map();
+  for (const c of new Set(greens.map((g) => g.command).filter((x) => x !== ''))) {
+    if (isAllowed(c)) continue;
+    let last = -1;
+    const left = new Set();
+    greens.forEach((g, i) => { if (g.command === c) { last = i; for (const d of g.durations) left.add(key(d.name)); } });
+    if (left.size === 0) continue;
+    /** @type {string[]} */ const by = [];
+    greens.forEach((g, i) => {
+      if (i <= last || g.command === '' || !isAllowed(g.command) || !canSupersede(g)) return;
+      let used = false;
+      for (const d of g.durations) if (left.delete(key(d.name))) used = true;
+      if (used) by.push(g.file.replace(/\.yaml$/, ''));
+    });
+    if (left.size === 0) out.set(c, by);
+  }
+  return out;
+}
+
+/**
+ * The test names (as the earliest record spelled them) of a not-allowed GREEN command that no later accepted record with an allowed command gives a duration to (A336): what the implementer must record again.
+ * @param {Array<{ file: string, command: string, durations: Array<{ name: string, ms: number }> }>} greens @param {string} command @param {(command: string) => boolean} isAllowed @param {(g: { file: string, command: string, durations: Array<{ name: string, ms: number }> }) => boolean} [canSupersede]
+ * @returns {string[]}
+ */
+export function uncoveredTests(greens, command, isAllowed, canSupersede = () => true) {
+  const key = (/** @type {string} */ n) => asciiLower(n.trim());
+  /** @type {Map<string, string>} */ const left = new Map();
+  let last = -1;
+  greens.forEach((g, i) => { if (g.command === command) { last = i; for (const d of g.durations) if (!left.has(key(d.name))) left.set(key(d.name), d.name.trim()); } });
+  greens.forEach((g, i) => { if (i > last && g.command !== '' && isAllowed(g.command) && canSupersede(g)) for (const d of g.durations) left.delete(key(d.name)); });
+  return [...left.values()];
+}
+
+/** The GREEN files that an evidence-only repair (A325) recorded: the control plane's own re-run, never a record that can supersede an earlier command. @param {Context} ctx @param {string} id @returns {Set<string>} */
+function repairRecordFiles(ctx, id) {
+  /** @type {Set<string>} */ const out = new Set();
+  for (const r of ledgerRows(ctx, runDir(ctx, id), 'evidence-repair')) for (const n of (/(?:^| )records=(\S*)/.exec(r.detail)?.[1] ?? '').split(',')) if (n !== '') out.add(`${n}.yaml`);
+  return out;
+}
+
+/** Which GREEN records may supersede an earlier command: genuine headers, and not a repair row's record. @param {Context} ctx @param {string} id @returns {(g: { file: string, genuine?: boolean }) => boolean} */
+export function supersederFilter(ctx, id) {
+  const repaired = repairRecordFiles(ctx, id);
+  return (g) => g.genuine === true && !repaired.has(g.file);
 }
 
 // ---- the plan: test kinds and budgets -------------------------------------------------------------------------------------------------
@@ -332,6 +392,7 @@ export function measureRun(ctx, id, opt = {}) {
   /** @type {string[]} */ const durationBlocks = [];
   /** @type {string[]} */ const notRun = [];
   /** @type {string[]} */ const superseded = [];
+  /** @type {Array<{ command: string, by: string[] }>} */ const supersededBy = [];
   /** @type {string[]} */ let ran = [];
   /** @type {string[]} */ const blockers = [];
   if (opt.runner) {
@@ -348,16 +409,21 @@ export function measureRun(ctx, id, opt = {}) {
     const allowed = { has: (/** @type {string} */ c) => (stamped ? isPinned(c) || listed.has(c) : legacy.has(c)) };
     const cmds = [...new Set(greens.map((g) => g.command).filter((c) => c !== ''))];
     const todo = cmds.filter((c) => allowed.has(c));
-    // only the LATEST GREEN record decides (highest GREEN-<n>): a command recorded earlier and since replaced is superseded, noted and never a block; the run still has to end on a plan-listed or pinned command
-    const latestCmd = [...greens].reverse().map((g) => g.command).find((c) => c !== '') ?? '';
+    // a command that is not allowed is SUPERSEDED (noted, never a block) when later GREEN records with an allowed command give a duration to every test it claimed (A336, the one rule `supersededGreens`
+    // the REVIEW_TESTS input uses too); otherwise it is a block (stamped run) or a note (legacy run)
+    const sup = supersededGreens(greens, (c) => allowed.has(c), supersederFilter(ctx, id));
     for (const c of cmds) {
       if (allowed.has(c)) continue;
-      if (c !== latestCmd) { superseded.push(c); continue; }
+      if (sup.has(c)) { superseded.push(c); supersededBy.push({ command: c, by: sup.get(c) ?? [] }); continue; }
       // a run that carries the measurement stamp is measured on a plan-listed command or the configured test command: the implementer's own string never decides
       if (stamped) {
-        const doThis = configuredTests.length > 0 || (pinned.size > 0 && !changed && pin !== null)
+        const uncovered = uncoveredTests(greens, c, (x) => allowed.has(x), supersederFilter(ctx, id));
+        const why = uncovered.length > 0
+          ? `no later accepted record with an allowed command covers these tests of it: ${uncovered.map((n) => `"${n}"`).join(', ')}; record a GREEN with a plan-listed or project test command that reports durations for these tests. In detail: `
+          : '';
+        const doThis = why + (configuredTests.length > 0 || (pinned.size > 0 && !changed && pin !== null)
           ? `re-record GREEN with the project test command (${configuredTests.length > 0 ? configuredTests.map((t) => `\`${t}\``).join(' or ') : 'the commands.test the run started with'}) or a command the plan lists under ## Verification commands; no plan amendment is needed for that`
-          : "no test command is configured (commands.test) and the plan lists none for this command, so a plan amendment and a refreeze must list the narrow command that runs the new or changed tests in ## Verification commands";
+          : "no test command is configured (commands.test) and the plan lists none for this command, so a plan amendment and a refreeze must list the narrow command that runs the new or changed tests in ## Verification commands");
         const note = changed ? ` (commands.test changed since the run started${live.length > 0 ? ` to \`${live.join('` or `')}\`` : ''}; only the command the run started with counts)` : '';
         blockers.push(`the GREEN command \`${c}\` is neither an entry of the plan's ## Verification commands nor the configured test command (a configured build or lint command does not count: it does not run the new tests), so it cannot be run twice${note}: ${doThis}`);
       } else notRun.push(c);
@@ -382,5 +448,5 @@ export function measureRun(ctx, id, opt = {}) {
     }
     if (stamped && greens.length > 0 && ran.length === 0 && blockers.length === 0) blockers.push('no GREEN command of this run could be run twice: record GREEN with the project test command or a command the plan lists under ## Verification commands');
   }
-  return { tests: bc.tests, budgetFindings: bc.findings, stability, durationBlocks, blockers, notRun, superseded, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
+  return { tests: bc.tests, budgetFindings: bc.findings, stability, durationBlocks, blockers, notRun, superseded, supersededBy, greenCount: greens.length, ran, retries: opt.runner ? retriesInProject(ctx) : [], table: bc.table, limit: verifyCommandTimeout(cfg) };
 }
