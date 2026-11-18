@@ -16,7 +16,7 @@ import {
   taskSourceBookkeepingOnly, taskSourceContractHash, validateControlArtifacts, verifyTaskSourceStatus,
 } from '../lifecycle.mjs';
 import { isFile } from '../paths.mjs';
-import { WS, authorizedPath, fieldOf, fileLines, fileText, gateField, gatesEnforced, ledgerRows, planScope, scopePaths, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
+import { WS, authorizedPath, evidenceTargets, fieldOf, fileLines, fileText, gateField, gatesEnforced, ledgerRows, planScope, scopePaths, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
 import { knownControlArtifact, requireRun, runDir } from '../runs.mjs';
 import { controlPlaneOnly, pipelineClass, pipelineDeclared, pipelineNeeds, pipelineReview, pipelineClassValid, planEntries, riskFreezeOk } from '../signals.mjs';
 import { inKnowledgeScope } from '../scope.mjs';
@@ -488,7 +488,7 @@ function procRun(prog, args, ctx) { return proc.run(prog, args, { cwd: ctx.cwd, 
 /** `evidence_covers_path FILE PATH`: PATH is one of the comma separated targets of the first `target:` line. @param {Context} ctx @param {string} file @param {string} p */
 function evidenceCovers(ctx, file, p) {
   for (const l of fileLines(ctx, file)) {
-    if (l.startsWith('target:')) return l.slice('target:'.length).replace(/^ */, '').split(',').includes(p);
+    if (l.startsWith('target:')) return evidenceTargets(l).includes(p);
   }
   return false;
 }
