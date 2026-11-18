@@ -429,7 +429,7 @@ jobs:
           - name: enforcement-recorded-roles
             mode: files
             pattern: 'none'
-            files: tests/enforcement/enforcement-recorded-roles.test.mjs
+            files: tests/enforcement/enforcement-recorded-roles.test.mjs tests/enforcement/implementer-launch.test.mjs
           - name: enforcement-ported-a
             mode: files
             pattern: 'none'

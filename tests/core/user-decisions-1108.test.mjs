@@ -146,7 +146,7 @@ test('A238 settings: a narrowed matcher FAILs and names the event; init adds the
   settings(w, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].matcher = '.*'; });
   assert.match(doctor(w).out, /^PASS claude hooks: /m);
   // a pipe list that contains the shipped tools plus more is fine, one that lacks a tool is not
-  settings(w, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].matcher = 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill|WebFetch'; });
+  settings(w, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].matcher = 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|Skill|Agent|Task|WebFetch'; });
   assert.match(doctor(w).out, /^PASS claude hooks: /m);
   settings(w, '.claude/settings.json', (j) => { j.hooks.PreToolUse[0].matcher = 'Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob'; });
   assert.match(doctor(w).out, /^FAIL claude hooks: .*narrower matcher.*PreToolUse/m);

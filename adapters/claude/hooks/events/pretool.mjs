@@ -4,6 +4,7 @@
 //   Bash (shell, local_shell, exec_command, unified_exec)  -> guards/bash.mjs   export async function bashGuard(input, ctx)
 //   Read, Glob, Grep                                        -> guards/read.mjs   export async function readGuard(input, ctx)
 //   Write, Edit, MultiEdit, NotebookEdit, *patch* (Codex)   -> guards/write.mjs  export async function writeGuard(input, ctx)
+//   Agent, Task                                             -> guards/launch.mjs export async function launchGuard(input, ctx)  (A333: no implementer launch without an openable window)
 //
 // A guard returns null (allow) or { decision: 'deny' | 'ask', reason }. The reason has no "proofline: " prefix: the router adds the prefix, the
 // one-line alternative (alt_hint of the shell hook) and the note of a failed moved command (guards/kit.mjs mcFlag), then prints
@@ -127,6 +128,8 @@ export async function handle(ctx) {
     } else if (!ctx.installed) return undefined;
     else if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
       verdict = await (await import(pathToFileURL(`${here}guards/read.mjs`).href)).readGuard(input, ctx);
+    } else if (tool === 'Agent' || tool === 'Task') {
+      verdict = await (await import(pathToFileURL(`${here}guards/launch.mjs`).href)).launchGuard(input, ctx);
     } else if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool) || /[Pp]atch/.test(tool)) {
       verdict = await (await import(pathToFileURL(`${here}guards/write.mjs`).href)).writeGuard(input, ctx);
     }

@@ -108,6 +108,8 @@ the window fail every later step. The lead never writes product code in the defa
 
 An implementer's `submit` DONE is accepted only with the worker evidence the IMPLEMENTED handoff asks for (valid RED and GREEN or FIX records for every non-exempt scope path, recorded with `agent.sh worker-evidence`; output left in scratch/ or a tdd.json is not evidence); the refusal, the handoff refusal and `next` name the command (A332).
 
+The lead launches the implementer subagent only while its write window can be opened: the PreToolUse hook on the `Agent` and `Task` tools asks `window-open` first and, on a refusal, denies the launch and names `agent.sh handoff <ID> IMPLEMENTING` (in a fix round the exact line `agent.sh next` prints first). `agent.sh next` repeats its first step as a last `NEXT:` line when its answer is long, so a `tail` keeps it (A333).
+
 ## Gates and the fix loop
 
 See [gates](gates.md). Reviews run in parallel on the exact content; any change makes earlier passes stale.
