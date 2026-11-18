@@ -324,11 +324,20 @@ export async function main(argv) {
     const signature = decision === 'question' ? `q:${createHash('sha256').update(lastText).digest('hex')}` : `a:${open.map((o) => o.name).join(',')}|${kind}`;
     // A328: a listed approval is a user message the scenario names in advance; it goes out only while a request of its kind is open, never in place of the plan reply.
     // It is withheld (logged as listed-approval-withheld, not sent) when the text would also satisfy an open request of ANOTHER kind anywhere in the project (another run, the no-run folder, rationale:, rule:, reopen:).
-    const picked = decision === 'plan' || decision === 'refreeze' ? null : pickListed(listing, listedUsed, open, openAssumptions(pending), productRequests(project));
+    const picked = decision === 'plan' || decision === 'refreeze' ? null : pickListed(listing, listedUsed, open, openAssumptions(pending), { ...productRequests(project), run: id });
     const listed = picked && 'pick' in picked ? picked.pick : null;
     if (picked && 'withheld' in picked) {
       const key = `${picked.withheld.kind}|${picked.withheld.reason}`;
       if (!withheldLogged.has(key)) { withheldLogged.add(key); ap('replies-log.txt', `withheld kind=listed-approval-withheld task=${id} request=${picked.withheld.kind} reason=${picked.withheld.reason} | ${picked.withheld.message}\n`); }
+    }
+    // A331: every stop where a listing exists and nothing was sent says why (once per stop), so a missing listed approval is never silent.
+    if (listing.length > 0 && !listed && !(picked && 'withheld' in picked)) {
+      const openKinds = [...new Set(open.map((o) => o.kind))];
+      const why = decision === 'plan' || decision === 'refreeze' ? `${decision}-reply-first (open=${openKinds.join('+')})`
+        : openKinds.some((k) => listing.some((l) => l.kind === k)) ? `uses-spent-or-refused (open=${openKinds.join('+')})`
+        : `no-open-request-of-a-listed-kind (open=${openKinds.join('+') || 'none'}, listed=${[...new Set(listing.map((l) => l.kind))].join('+')})`;
+      const key = `skip|${signature}|${why}`;
+      if (!withheldLogged.has(key)) { withheldLogged.add(key); ap('replies-log.txt', `skipped kind=listed-approval-skipped task=${id} reason=${why}\n`); }
     }
     let reply;
     if (listed) reply = listed.message;

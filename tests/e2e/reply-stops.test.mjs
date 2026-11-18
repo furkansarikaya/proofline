@@ -12,7 +12,7 @@ import { here, repo, runE2e } from './runner.mjs';
 import { validApprovalKind } from '../../control-plane/agents/scripts/core/approvals.mjs';
 import { storePrompt } from '../../control-plane/agents/scripts/core/capture.mjs';
 import { A, accepted, project } from '../core/legacy-lib.mjs';
-import { HARD_REPLY_CAP, LISTABLE_KINDS, PRODUCT_KINDS, candidateKinds, listedProblem, loadListedApprovals, openApprovals, openAssumptions, pendingKind, pickListed, productRequests, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
+import { HARD_REPLY_CAP, LISTABLE_KINDS, PRODUCT_KINDS, candidateKinds, listedProblem, loadListedApprovals, oddApprovalNames, openApprovals, openAssumptions, pendingKind, pickListed, productRequests, refreezeCount, replyBudget, stopDecision, questionScript } from './lib.mjs';
 
 const root = tempDir('e2e-stops-');
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -91,7 +91,7 @@ async function play(scenario, script, sub, env = {}) {
 const NO_LISTING = { E2E_APPROVALS_FILE: path.join(root, 'no-such-listing.txt') };
 /** @param {string} name @param {string} text the listing file, written under the temp root @returns {Record<string, string>} */
 const listing = (name, text) => { const f = path.join(root, name); writeFileSync(f, text); return { E2E_APPROVALS_FILE: f }; };
-const replyTexts = (/** @type {string} */ log) => log.split('\n').filter(Boolean).map((l) => l.slice(l.indexOf(' | ') + 3));
+const replyTexts = (/** @type {string} */ log) => log.split('\n').filter((l) => l.startsWith('reply=')).map((l) => l.slice(l.indexOf(' | ') + 3));
 
 describe('reply loop against the stub lead', { concurrency: true }, () => {
 test('CRITICAL: the real intent interview (three questions, then three again) completes within 3 replies with distinct scripted lines', async () => {
@@ -216,10 +216,10 @@ test('listed approval: nothing is sent while no request of the listed kind is op
   for (const { summary, log } of others) {
     assert.match(summary, /^replies=0$/m, summary);
     assert.match(summary, /^listed_approval_replies=0$/m, summary);
-    assert.doesNotMatch(log, /listed-approval/, log);
+    assert.doesNotMatch(log, /kind=listed-approval /, log);
     assert.match(summary, /^stopped=unanswered-/m, summary);
   }
-  assert.doesNotMatch(q.log, /listed-approval/, q.log);
+  assert.doesNotMatch(q.log, /kind=listed-approval /, q.log);
   assert.match(q.summary, /^listed_approval_replies=0$/m, q.summary);
 });
 
@@ -252,6 +252,82 @@ test('listed approval: a plain "approve scope" is withheld (logged listed-approv
 
 // GAP (documented in A328): the assumption path is not driven through run.mjs. `agent.sh questions <ID>` needs a real run (require_run: RUN.yaml, task, ledger), which the stub lead
 // cannot create; the block it parses is covered by the openAssumptions and pickListed tests below, which use the text of the real question (run COMPLEX-claude-20261117T085931Z).
+
+test('listed approval (A331): a superseded older plan request is not a second open plan, so the scope request raised after the plan approval gets the listed message at the next stop, not repeated-stop', async () => {
+  // The COMPLEX run of 2026-11-18: 001-request-plan and 002-request-plan (one bound), the reply answered 002, then the lead raised 004-request-scope. 001 looked open, so the pair
+  // plan+scope read as a refreeze, "approve plan" was sent for a scope question, and the same stop twice ended the run.
+  const steps = [
+    { text: real.complexPlan, create: [plan('001', 'A'), plan('002', 'A')] },
+    { text: SCOPE_ASK, answer: [{ kind: 'plan', request: '002-request-plan.yaml' }], create: [scope('004', 'S')] },
+    { text: 'Scope recorded.', answer: [{ kind: 'scope', request: '004-request-scope.yaml' }] },
+  ];
+  const { summary, log } = await play('COMPLEX', { steps }, 'listed-superseded', listing('l-super.txt', 'scope | approve scope\n'));
+  assert.deepEqual(replyTexts(log), [replies('COMPLEX.txt')[1], 'approve scope'], log);
+  assert.match(log, /^reply=2 kind=listed-approval .*request=scope 004-request-scope\.yaml \| approve scope$/m, log);
+  assert.match(summary, /^listed_approval_replies=1$/m, summary);
+  assert.match(summary, /^refreeze_approval_replies=0$/m, summary);
+  assert.doesNotMatch(summary, /^stopped=(repeated-stop|unanswered|max-replies)/m, summary);
+});
+
+test('listed approval (A331): a stop where nothing is sent says why in replies-log (skipped kind=listed-approval-skipped)', async () => {
+  const steps = [{ text: 'I need a decision.', create: [{ name: '001-request-destructive.yaml', kind: 'destructive', bound: 'A' }] }];
+  const { log } = await play('COMPLEX', { steps }, 'listed-skipped', listing('l-skip.txt', 'scope | approve scope\n'));
+  assert.match(log, /^skipped kind=listed-approval-skipped task=none reason=no-open-request-of-a-listed-kind \(open=destructive, listed=scope\)$/m, log);
+  assert.deepEqual(replyTexts(log), []);
+});
+
+test('lib (A331): names the product never writes (a number that is not exactly three digits) are not read as requests or answers, and a listed send is withheld while one exists', () => {
+  const proj = path.join(root, 'odd-names');
+  const dir = path.join(proj, '.agents/runs/T-1/approvals');
+  const w = (/** @type {string} */ rel, /** @type {string} */ text) => { mkdirSync(path.dirname(path.join(proj, rel)), { recursive: true }); writeFileSync(path.join(proj, rel), text); };
+  const req = (/** @type {string} */ k) => `kind: "${k}"\nbound: "A"\nrequested_at: 1\n`;
+  const decide = () => /** @type {any} */ (pickListed([{ kind: 'scope', message: 'approve scope', max: 1 }], none(1), openApprovals(dir).filter((o) => o.kind === 'scope'), [], { ...productRequests(proj), run: 'T-1' }));
+  rmSync(proj, { recursive: true, force: true });
+  // 1. reproduction: 003 plan request, 004 scope request and a one-digit answer `5-plan.yaml` that the product never counts: the harness must not read the plan as answered
+  w('.agents/runs/T-1/approvals/003-request-plan.yaml', req('plan')); w('.agents/runs/T-1/approvals/004-request-scope.yaml', req('scope')); w('.agents/runs/T-1/approvals/5-plan.yaml', 'kind: "plan"\nanswered_by: "user"\n');
+  assert.deepEqual(openApprovals(dir).map((o) => o.kind), ['plan', 'scope']);
+  assert.equal(stopDecision('scope', openApprovals(dir)), 'refreeze');
+  assert.deepEqual(oddApprovalNames(dir), ['5-plan.yaml']);
+  let r = decide();
+  assert.ok(r && 'withheld' in r && /5-plan\.yaml: not a name the product writes/.test(r.withheld.reason), JSON.stringify(r));
+  // 2. reproduction: request names of any number length are not requests (the product ignores them), and withhold
+  for (const name of ['1-request-scope.yaml', '0004-request-scope.yaml']) {
+    rmSync(proj, { recursive: true, force: true }); w(`.agents/runs/T-1/approvals/${name}`, req('scope'));
+    assert.deepEqual(openApprovals(dir), [], name);
+    assert.deepEqual(productRequests(proj).requests, [], name);
+    assert.deepEqual(oddApprovalNames(dir), [name]);
+    r = /** @type {any} */ (pickListed([{ kind: 'scope', message: 'approve scope', max: 1 }], none(1), [{ name: '001-request-scope.yaml', kind: 'scope' }], [], { ...productRequests(proj), run: 'T-1' }));
+    assert.ok(r && 'withheld' in r, JSON.stringify(r));
+  }
+  // 3. the product lists a request in two places: one reply would be recorded against both
+  rmSync(proj, { recursive: true, force: true }); w('.agents/runs/T-1/approvals/003-request-scope.yaml', req('scope'));
+  assert.equal(pick(decide())?.request, '003-request-scope.yaml');
+  w('.agents/local/approvals/001-request-scope.yaml', req('scope'));
+  r = decide();
+  assert.ok(r && 'withheld' in r && /also open in the no-run folder/.test(r.withheld.reason), JSON.stringify(r));
+  rmSync(path.join(proj, '.agents/local'), { recursive: true, force: true }); w('.agents/runs/T-2/approvals/001-request-scope.yaml', req('scope'));
+  r = decide();
+  assert.ok(r && 'withheld' in r && /also open in run T-2/.test(r.withheld.reason), JSON.stringify(r));
+  // 4. the product's list is the truth: a request the harness reads as open but the product does not list (it is answered there) withholds
+  rmSync(proj, { recursive: true, force: true }); w('.agents/runs/T-1/approvals/003-request-scope.yaml', req('scope')); w('.agents/runs/T-1/approvals/004-scope.yaml', 'kind: "scope"\nanswered_by: "user"\n');
+  r = /** @type {any} */ (pickListed([{ kind: 'scope', message: 'approve scope', max: 1 }], none(1), [{ name: '003-request-scope.yaml', kind: 'scope' }], [], { ...productRequests(proj), run: 'T-1' }));
+  assert.ok(r && 'withheld' in r && /the product lists \[\]/.test(r.withheld.reason), JSON.stringify(r));
+});
+
+test('lib (A331): only the latest request of a kind is open, and an approval of that kind numbered after it closes it (the product rule)', () => {
+  const d = path.join(root, 'approvals-latest');
+  mkdirSync(d);
+  const w = (/** @type {string} */ n, /** @type {string} */ body) => writeFileSync(path.join(d, n), body);
+  w('001-request-plan.yaml', 'kind: "plan"\nbound: "A"\n'); w('002-request-plan.yaml', 'kind: "plan"\nbound: "A"\n');
+  assert.deepEqual(openApprovals(d).map((o) => o.name), ['002-request-plan.yaml']);
+  w('003-plan.yaml', 'kind: "plan"\nrequest: "002-request-plan.yaml"\nanswered_by: "user"\n');
+  assert.deepEqual(openApprovals(d), []);
+  w('004-request-scope.yaml', 'kind: "scope"\nbound: "S"\n');
+  assert.deepEqual(openApprovals(d).map((o) => o.kind), ['scope']);
+  assert.equal(stopDecision('scope', openApprovals(d)), 'stop');
+  w('005-scope.yaml', 'kind: "scope"\nanswered_by: "user"\n');   // no request: line, still closed by number
+  assert.deepEqual(openApprovals(d), []);
+});
 
 test('listed approval: a refreeze is still answered by the scripted plan lines, a listing never replaces them, and the scope waits until the pair is no longer open', async () => {
   const steps = [

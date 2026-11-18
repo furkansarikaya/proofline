@@ -189,7 +189,7 @@ describe('where a separate command refuses, advance refuses the same way', () =>
     assert.deepEqual(events(b), events(a));
   });
 
-  test('handoff IMPLEMENTED refused (the worker evidence is missing): same status, same message, the handoff stays IMPLEMENTING', () => {
+  test('handoff IMPLEMENTED refused (the worker evidence is missing): the typed handoff refuses with the recording command; advance no longer tries it, it stops at the re-dispatch step (A332), the handoff stays IMPLEMENTING', () => {
     const base = fresh();
     must(base, ['classify', 'LC', 'STANDARD']); must(base, ['advance', 'LC']);
     implement(base);
@@ -198,11 +198,14 @@ describe('where a separate command refuses, advance refuses the same way', () =>
     const a = copyOf(base); const b = copyOf(base);
     const typed = A(a, ['handoff', 'LC', 'IMPLEMENTED']);
     const adv = A(b, ['advance', 'LC']);
-    assert.notEqual(typed.status, 0, typed.text);
-    assert.equal(adv.status, typed.status);
-    assert.ok(adv.text.includes(typed.err.trim()), `${adv.text}\n---\n${typed.text}`);
+    // the contract: the typed handoff exits 1 (refusal); advance does not run it, it stops at the re-dispatch step and exits 0 with the step in its output
+    assert.equal(typed.status, 1, typed.text);
+    assert.equal(adv.status, 0, adv.text);
+    assert.match(typed.text, /To fix: record it with: printf .*agent\.sh worker-evidence LC RED fail/);
+    assert.match(adv.text, /next=dispatch\.sh LC implementer/);
+    assert.match(adv.text, /DONE recorded without worker-evidence RED\/GREEN/);
     assert.equal(runValue(b, 'handoff', 'state'), 'IMPLEMENTING');
-    assert.deepEqual(events(b), events(a));
+    assert.equal(runValue(a, 'handoff', 'state'), 'IMPLEMENTING');
   });
 });
 

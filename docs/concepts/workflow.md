@@ -106,6 +106,8 @@ One implementer per run, inside an attested window, writes each scope path test-
 (a failing, specific assertion) and GREEN evidence, or a specific `tdd_exemption` in the plan. Changes outside
 the window fail every later step. The lead never writes product code in the default `orchestrated` topology.
 
+An implementer's `submit` DONE is accepted only with the worker evidence the IMPLEMENTED handoff asks for (valid RED and GREEN or FIX records for every non-exempt scope path, recorded with `agent.sh worker-evidence`; output left in scratch/ or a tdd.json is not evidence); the refusal, the handoff refusal and `next` name the command (A332).
+
 ## Gates and the fix loop
 
 See [gates](gates.md). Reviews run in parallel on the exact content; any change makes earlier passes stale.

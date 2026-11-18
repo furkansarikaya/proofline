@@ -8,6 +8,7 @@ import { lstatSync, statSync } from 'node:fs';
 import { batchApproval } from './approvals.mjs';
 import { ciProgress } from './deliver.mjs';
 import { knowledgeDrift } from './commands/runcmds.mjs';
+import { workerEvidenceHowTo, workerEvidenceMissing } from './commands/verify.mjs';
 import { approvalWaitO } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import {
@@ -405,7 +406,17 @@ function implementing(ctx, id, d, o, r, emit) {
   // A200: an implementer DONE recorded after the last IMPLEMENTING handoff means the work is delivered
   let done = false;
   for (const r of ledgerRows(ctx, d, /^(handoff:IMPLEMENTING|record:implementer:DONE)$/)) done = r.event === 'record:implementer:DONE';
-  if (done) { o(`agent.sh handoff ${id} IMPLEMENTED`); r("the implementer's DONE result is recorded: record IMPLEMENTED now, do not wait and do not dispatch it again"); return; }
+  if (done) {
+    // A332: the DONE row alone is not enough; when the cheap worker-evidence check fails, IMPLEMENTED would be refused, so the implementer goes back (with the recording command)
+    /** @type {ReturnType<typeof workerEvidenceMissing> | null} */ let w = null;
+    try { w = workerEvidenceMissing(ctx, id); } catch { w = null; }
+    if (w && w.enforced && w.missing !== '') {
+      o(`dispatch.sh ${id} implementer`);
+      r(`DONE recorded without worker-evidence RED/GREEN for${w.missing}: re-dispatch and tell it to record them with agent.sh worker-evidence (${workerEvidenceHowTo(id)}); do not record IMPLEMENTED yet`);
+      return;
+    }
+    o(`agent.sh handoff ${id} IMPLEMENTED`); r("the implementer's DONE result is recorded: record IMPLEMENTED now, do not wait and do not dispatch it again"); return;
+  }
   o(`dispatch.sh ${id} implementer`); o(`agent.sh handoff ${id} IMPLEMENTED`); emit(fixPathsLines(ctx, id, d)); r('implementation in progress');
 }
 

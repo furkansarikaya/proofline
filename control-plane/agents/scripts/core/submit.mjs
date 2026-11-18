@@ -21,6 +21,7 @@ import {
   resultKind, riskFocusReport, skillValidator,
 } from './resultutil.mjs';
 import { gateDefaultArtifact } from './gatewrite.mjs';
+import { workerEvidenceHowTo, workerEvidenceMissing } from './commands/verify.mjs';
 import * as proc from './proc.mjs';
 import { notRunRelative, reportNamesAgent } from './pathin.mjs';
 import { requireRun, runDir } from './runs.mjs';
@@ -320,6 +321,15 @@ export function submitResult(ctx, id, args) {
     if (role === 'explorer' && res === 'DONE' && isFileFollow(`${d}/${norm}`)
       && !textLines(readFileSync(`${d}/${norm}`, 'latin1')).some((l) => new RegExp(`^\\|${WSC}*id${WSC}*\\|${WSC}*severity${WSC}*\\|${WSC}*path:line`).test(l))) {
       ctx.err(`NOTE: the explorer report ${norm} has no claims table (| id | severity | path:line | finding | evidence |, evidence-map's format). The lead must not turn it into EVIDENCE.md itself: send the SAME explorer (or the same assignment again) back to redo it as that table, one verified path:symbol per row\n`);
+    }
+    // A332: an implementer's DONE is accepted only with the worker evidence the IMPLEMENTED handoff will ask for (the same cheap check, TDD exemptions honoured identically), so a lead's
+    // free-prose prompt that sent RED/GREEN output to scratch/ or a tdd.json is found in the implementer's own turn, with the command to run, not at the lead's handoff.
+    if (role === 'implementer' && res === 'DONE') {
+      /** @type {ReturnType<typeof workerEvidenceMissing> | null} */ let w = null;
+      try { w = workerEvidenceMissing(ctx, id); } catch (e) { if (!(e instanceof ProoflineError)) throw e; }
+      if (w && w.enforced && w.expected === 'implementer' && w.missing !== '') {
+        submitFail(`DONE needs worker evidence first: no valid RED+GREEN record for:${w.missing}. ${workerEvidenceHowTo(id, w.missing.trim().split(' ').join(','))}. Then submit DONE again (a TDD exemption in PLAN.md replaces it for an exempt path)`);
+      }
     }
     if (role === 'verifier' && res !== 'BLOCKED' && res !== 'NEEDS_INPUT') { const m = verifyDesignSync(ctx, id); if (m !== '') submitFail(m); }
     if (role === 'reviewer' && focus === 'tests' && res !== 'BLOCKED' && res !== 'NEEDS_INPUT') { const m = verifyTestsFindings(ctx, id); if (m !== '') submitFail(`findings.json of the tests review is not valid: ${m}`); }

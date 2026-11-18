@@ -384,6 +384,10 @@
       "test_ms": 90000,
       "suite_ms": 330000
     },
+    "tests/core/submit-worker-evidence.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 60000
+    },
     "tests/core/gates-s5.test.mjs": {
       "test_ms": 40000,
       "suite_ms": 120000
