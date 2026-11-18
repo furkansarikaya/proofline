@@ -553,6 +553,8 @@ test('A336 handoff: an earlier unlisted command is superseded only when the late
   wclose(a.d, w2);
   const r = A(a.d, ['handoff', 'LC', 'IMPLEMENTED']);
   refused(r, 'the narrow command is the only coverage of "other"', 'the GREEN command `node -e 0` is neither an entry');
+  assert.match(r.text, /no later accepted record with an allowed command covers these tests of it: "other"; record a GREEN with a plan-listed or project test command that reports durations for these tests/);
+  assert.doesNotMatch(r.text, /"lookup"/, 'the covered test is not listed');
 
   const b = counterProject('0');
   accepted(green(b.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN-1');
@@ -563,6 +565,29 @@ test('A336 handoff: an earlier unlisted command is superseded only when the late
   const rb = A(b.d, ['handoff', 'LC', 'IMPLEMENTED']);
   refused(rb, 'the later record has a command that is not allowed', 'is neither an entry');
   assert.match(rb.text, /`node -e [01]`/);
+});
+
+test('A336 handoff: a covering record that an evidence-repair row names, or with a forged plan hash, does not supersede the narrow command', () => {
+  const make = () => {
+    const a = counterProject('0');
+    accepted(green(a.d, 'node -e 0', 'test_durations: lookup=1\n'), 'GREEN-1, the narrow command');
+    wclose(a.d, a.w);
+    const w2 = wopen(a.d);
+    accepted(green(a.d, a.c.command, 'test_durations: lookup=1\n'), 'GREEN-2, the listed command');
+    wclose(a.d, w2);
+    return a.d;
+  };
+  const d1 = make();
+  ledgerAppend(path.join(d1, '.agents/runs/LC'), 'lead', 'evidence-repair', 'IMPLEMENTING', 'IMPLEMENTING', 'finding=011-reviewer-tests.yaml patch=x commands=1 records=GREEN-2 tests=x');
+  const r1 = A(d1, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r1, 'the covering record is a repair row record', 'the GREEN command `node -e 0` is neither an entry');
+  assert.match(r1.text, /covers these tests of it: "lookup"/);
+  const d2 = make();
+  const f = path.join(d2, '.agents/runs/LC/worker-evidence/GREEN-2.yaml');
+  writeFileSync(f, readFileSync(f, 'utf8').replace(/plan_sha256: "[0-9a-f]+"/, `plan_sha256: "${'0'.repeat(64)}"`));
+  const r2 = A(d2, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r2, 'the covering record has a forged plan hash', 'the GREEN command `node -e 0` is neither an entry');
+  assert.match(r2.text, /covers these tests of it: "lookup"/);
 });
 
 test('A336 REVIEW_TESTS: the superseded narrow command is shown as such and is not demanded as a finding; the demand returns for every tampered, repaired, uncounted or unclean case', () => {

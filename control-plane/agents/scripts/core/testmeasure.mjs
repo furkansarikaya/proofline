@@ -98,6 +98,20 @@ export function supersededGreens(greens, isAllowed, canSupersede = () => true) {
   return out;
 }
 
+/**
+ * The test names (as the earliest record spelled them) of a not-allowed GREEN command that no later accepted record with an allowed command gives a duration to (A336): what the implementer must record again.
+ * @param {Array<{ file: string, command: string, durations: Array<{ name: string, ms: number }> }>} greens @param {string} command @param {(command: string) => boolean} isAllowed @param {(g: { file: string, command: string, durations: Array<{ name: string, ms: number }> }) => boolean} [canSupersede]
+ * @returns {string[]}
+ */
+export function uncoveredTests(greens, command, isAllowed, canSupersede = () => true) {
+  const key = (/** @type {string} */ n) => asciiLower(n.trim());
+  /** @type {Map<string, string>} */ const left = new Map();
+  let last = -1;
+  greens.forEach((g, i) => { if (g.command === command) { last = i; for (const d of g.durations) if (!left.has(key(d.name))) left.set(key(d.name), d.name.trim()); } });
+  greens.forEach((g, i) => { if (i > last && g.command !== '' && isAllowed(g.command) && canSupersede(g)) for (const d of g.durations) left.delete(key(d.name)); });
+  return [...left.values()];
+}
+
 /** The GREEN files that an evidence-only repair (A325) recorded: the control plane's own re-run, never a record that can supersede an earlier command. @param {Context} ctx @param {string} id @returns {Set<string>} */
 function repairRecordFiles(ctx, id) {
   /** @type {Set<string>} */ const out = new Set();
@@ -403,9 +417,13 @@ export function measureRun(ctx, id, opt = {}) {
       if (sup.has(c)) { superseded.push(c); supersededBy.push({ command: c, by: sup.get(c) ?? [] }); continue; }
       // a run that carries the measurement stamp is measured on a plan-listed command or the configured test command: the implementer's own string never decides
       if (stamped) {
-        const doThis = configuredTests.length > 0 || (pinned.size > 0 && !changed && pin !== null)
+        const uncovered = uncoveredTests(greens, c, (x) => allowed.has(x), supersederFilter(ctx, id));
+        const why = uncovered.length > 0
+          ? `no later accepted record with an allowed command covers these tests of it: ${uncovered.map((n) => `"${n}"`).join(', ')}; record a GREEN with a plan-listed or project test command that reports durations for these tests. In detail: `
+          : '';
+        const doThis = why + (configuredTests.length > 0 || (pinned.size > 0 && !changed && pin !== null)
           ? `re-record GREEN with the project test command (${configuredTests.length > 0 ? configuredTests.map((t) => `\`${t}\``).join(' or ') : 'the commands.test the run started with'}) or a command the plan lists under ## Verification commands; no plan amendment is needed for that`
-          : "no test command is configured (commands.test) and the plan lists none for this command, so a plan amendment and a refreeze must list the narrow command that runs the new or changed tests in ## Verification commands";
+          : "no test command is configured (commands.test) and the plan lists none for this command, so a plan amendment and a refreeze must list the narrow command that runs the new or changed tests in ## Verification commands");
         const note = changed ? ` (commands.test changed since the run started${live.length > 0 ? ` to \`${live.join('` or `')}\`` : ''}; only the command the run started with counts)` : '';
         blockers.push(`the GREEN command \`${c}\` is neither an entry of the plan's ## Verification commands nor the configured test command (a configured build or lint command does not count: it does not run the new tests), so it cannot be run twice${note}: ${doThis}`);
       } else notRun.push(c);
