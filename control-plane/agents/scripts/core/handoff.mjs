@@ -7,7 +7,8 @@ import { sha256 } from './hash.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
-import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { ProoflineError, fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
 import { consumeApproval, requireOpenRun } from './approve.mjs';
@@ -35,7 +36,7 @@ import { freshness, verifyKnowledgeScope, verifyScope, verifyWorkerEvidence, wor
 import { EXECUTABLE_CODE_DEFAULT } from './pathkind.mjs';
 import { planDestructive } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
-import { isScratchWorktreeWin } from './pathin.mjs';
+import { isScratchWorktreeWin, isUnlinkedFolder, scratchChildName } from './pathin.mjs';
 import { taskType } from './taskfile.mjs';
 import { metricsRun } from './runend.mjs';
 import { verifyCompletionReport } from './complreport.mjs';
@@ -105,6 +106,11 @@ export function verifyDebugResult(ctx, id) {
   fail(`IMPLEMENTED blocked: the task is typed or labelled as a defect ('${hit}' in its type, labels, suggested class or a decision: fix entry) but there is no debug-proof result: write reports/NNN-debug.md with the debug-proof skill (reproduction, root cause, regression test) (this always works, also after freeze); an UNRELATED pre-existing defect must instead be declared under '## Pre-existing defects' as '- <path:symbol>: <what> -- decision: report' BEFORE freeze: after freeze that needs an amendment and a refreeze (maybe another plan approval), so prefer the debug report`);
 }
 
+/** A339: the temp folders a scratch worktree may be a direct child of: T (the POSIX rule, unchanged) and, on win32 only, TEMP, TMP and TMPDIR as the environment gives them @param {Context} ctx @param {string} t */
+function tmpRoots(ctx, t) {
+  return process.platform === 'win32' ? [t, ctx.env.TEMP, ctx.env.TMP, ctx.env.TMPDIR, tmpdir()] : [t];
+}
+
 /**
  * A327: the one scratch worktree the control plane removes itself: the evidence worktree a review role of THIS run makes, named by the role texts `$TMPDIR/verify-<ID>` or `$TMPDIR/verify-<ID>.<focus>` (a dot cannot occur in a task id, so run `LC` never matches the worktree of run `LC-2`),
  * a direct child of the temp folder, detached, with no local change and no untracked file. Anything else (another name, a branch, a dirty tree, a lock, a user's worktree) stays a blocker.
@@ -113,15 +119,13 @@ export function verifyDebugResult(ctx, id) {
  */
 function removeRunOwnedScratch(ctx, id, t, p) {
   if (id === '') return false;
-  const n = p.replace(/^\/private/, '');
-  const slash = n.lastIndexOf('/');
-  if (slash < 0 || n.slice(0, slash) !== t) return false;
-  const base = n.slice(slash + 1);
+  const base = scratchChildName(p, tmpRoots(ctx, t));
+  if (base === null) return false;
   if (base !== `verify-${id}` && !base.startsWith(`verify-${id}.`)) return false;
   // the path is the string git registered; it must still be that real folder: not a link (a link swapped in could point at another registered worktree), with a plain `.git` file inside
   try {
     if (!lstatSync(p).isDirectory() || !lstatSync(`${p}/.git`).isFile()) return false;
-    if (realpathSync(p) !== `${realpathSync(p.slice(0, p.lastIndexOf('/')))}/${p.slice(p.lastIndexOf('/') + 1)}`) return false;
+    if (!isUnlinkedFolder(p)) return false;
   } catch { return false; }
   if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
   const st = git(ctx, ['-C', p, 'status', '--porcelain', '--untracked-files=all']);
@@ -137,10 +141,9 @@ function removeRunOwnedScratch(ctx, id, t, p) {
  * @param {Context} ctx @param {string} id @param {string} t the temp folder @param {string} p the worktree path as git lists it @param {string} main the main tree
  */
 function otherOpenRunEvidence(ctx, id, t, p, main) {
-  const n = p.replace(/^\/private/, '');
-  const slash = n.lastIndexOf('/');
-  if (slash < 0 || n.slice(0, slash) !== t) return false;
-  const m = /^verify-([A-Za-z0-9_-]+)(?:\.[A-Za-z0-9_.-]+)?$/.exec(n.slice(slash + 1));
+  const name = scratchChildName(p, tmpRoots(ctx, t));
+  if (name === null) return false;
+  const m = /^verify-([A-Za-z0-9_-]+)(?:\.[A-Za-z0-9_.-]+)?$/.exec(name);
   const other = m?.[1] ?? '';
   if (other === '' || other === id || !validTaskId(other)) return false;
   try {

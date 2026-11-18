@@ -178,6 +178,45 @@ export function isScratchWorktreeWin(p, main, root, tempRoots, io = {}) {
 }
 
 /**
+ * A339: the name of the worktree P when it is a DIRECT child of one of the temp folders TMPS, else null (the one comparison of the run-owned removal and the other-open-run skip of A327).
+ * Off Windows exactly what those callers did: a leading `/private` dropped from P, the text before the last `/` equal to the (already `/private`-stripped) temp folder TMPS[0]; only TMPS[0] is read.
+ * On win32 git lists `D:/a/_temp/verify-LC.x` while the temp folder is `C:\Users\RUNNER~1\AppData\Local\Temp` (backslashes, an 8.3 name, another drive-letter case): both sides go through `canonPosix`
+ * (the long real name when the folder exists), a trailing separator does not matter, ASCII case is ignored, and the parent must be the whole temp folder (`samePath`): a sibling folder, a nested path,
+ * another drive or `..` is no direct child. The name is taken from the canonical form too. @param {string} p @param {(string | undefined)[]} tmps
+ * @param {{ platform?: string, real?: (p: string) => string }} [io] @returns {string | null}
+ */
+export function scratchChildName(p, tmps, io = {}) {
+  const platform = io.platform ?? process.platform;
+  if (platform !== 'win32') {
+    const n = p.replace(/^\/private/, '');
+    const slash = n.lastIndexOf('/');
+    return slash < 0 || n.slice(0, slash) !== (tmps[0] ?? '') ? null : n.slice(slash + 1);
+  }
+  const c = (/** @type {string} */ x) => canonPosix(x, { platform, real: io.real }).replace(/\/+$/, '');
+  const n = c(p);
+  const slash = n.lastIndexOf('/');
+  if (slash <= 0) return null;
+  const base = n.slice(slash + 1);
+  if (base === '' || base === '.' || base === '..' || p.split(/[\\/]/).includes('..')) return null;
+  const parent = n.slice(0, slash);
+  return tmps.some((t) => t !== undefined && t !== '' && samePath(parent, c(t), platform)) ? base : null;
+}
+
+/**
+ * A339: is the registered worktree P still that very folder, not reached through a link (the check of the run-owned removal)? Off Windows exactly `realpath(P) === realpath(dirname) + '/' + name`.
+ * On win32 the same through `realpathPosix` (long names, forward slashes) and `samePath` (ASCII case), so a junction or link swapped in still differs. Throws when P does not exist.
+ * @param {string} p @param {{ platform?: string, real?: (p: string) => string }} [io]
+ */
+export function isUnlinkedFolder(p, io = {}) {
+  const platform = io.platform ?? process.platform;
+  const cut = Math.max(p.lastIndexOf('/'), platform === 'win32' ? p.lastIndexOf('\\') : -1);
+  const parent = p.slice(0, cut), name = p.slice(cut + 1);
+  if (platform !== 'win32') return (io.real ?? realpathSync)(p) === `${(io.real ?? realpathSync)(parent)}/${name}`;
+  const rp = (/** @type {string} */ x) => realpathPosix(x, { platform, real: io.real });
+  return samePath(rp(p), `${rp(parent).replace(/\/+$/, '')}/${name}`, platform);
+}
+
+/**
  * What to do with a symbolic link of a copied dependency folder on Windows (W10): `keep`, `repoint` at the same path of the worktree (`target`), or `remove`. TARGET is what `readlink` answered
  * (`C:\proj\shared\tool.js`, `..\..\x`, `\?\C:\...`), LINKDIR the real folder that holds the link, MAIN and WT the real project and worktree folders (all in the POSIX form of `realpathPosix`).
  * The POSIX rule of the caller reads only a leading `/` and `/` separators, so on Windows no link ever matched and a write through a copied link reached the main tree. Here: the target is
