@@ -142,8 +142,9 @@ test('A327: the dirty evidence worktree of ANOTHER open run does not block this 
   const nestRoot = fresh('nest-'); mkdirSync(nestRoot); const nested = path.join(nestRoot, 'verify-OA.qa'); git(d, ['worktree', 'add', '-q', '--detach', nested, 'HEAD']);   // not a direct child
   const r = A(d, ['handoff', 'LC', 'CODE_DONE']);
   expectMsg('the lookalikes and the runs without an open run still block', 'scratch git worktrees', r);
-  for (const w of [...blockers, onBranch, sym, nested]) assert.ok(r.text.includes(w), `${w} is named as a blocker`);
-  assert.ok(!r.text.includes(open), 'the dirty evidence worktree of the open run OA is not named');
+  // git lists the path in its own spelling (forward slashes, long names on Windows): the unique file name (pid and counter) is what is compared
+  for (const w of [...blockers, onBranch, sym, nested]) assert.ok(r.text.includes(w === nested ? path.basename(nestRoot) : path.basename(w)), `${w} is named as a blocker`);
+  assert.ok(!r.text.includes(path.basename(open)), 'the dirty evidence worktree of the open run OA is not named');
   assert.ok(existsSync(path.join(open, 'mutant.txt')), 'and it is untouched');
   unlinkSync(sym); renameSync(aside, sym);
   for (const w of [...blockers, onBranch, sym, nested]) git(d, ['worktree', 'remove', '--force', w]);

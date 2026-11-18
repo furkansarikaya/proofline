@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.165 — 2026-11-18
+
+- Fix (A339): on Windows CODE_DONE removes the run's own clean detached `verify-<ID>.<focus>` worktree and skips the evidence worktree of another open run again (A327): the worktree path git lists (`C:/Users/.../Temp/verify-LC.x`) and the temp folder (backslashes, 8.3 name, drive-letter case) are compared through one helper (`scratchChildName`, `isUnlinkedFolder`), with every safety check unchanged; POSIX behaviour is identical. New test `tests/core/scratch-path-win.test.mjs`.
+
 ## 0.0.164 — 2026-11-18
 
 - Test (A337): the COMPLEX end-to-end listing `tests/e2e/replies/approvals.COMPLEX.txt` gains `mutation_budget | approve mutation` (at most twice), the message a user types for the user-only mutation budget request. The harness still has no privileged path: the line is sent only while that request is open and withheld when another open request would also be satisfied. No product change.

@@ -309,7 +309,7 @@ jobs:
           - name: gates-s4
             mode: files
             pattern: 'none'
-            files: tests/core/gates-s4.test.mjs tests/core/submit-worker-evidence.test.mjs
+            files: tests/core/gates-s4.test.mjs tests/core/submit-worker-evidence.test.mjs tests/core/scratch-path-win.test.mjs
           - name: gates-s5
             mode: files
             pattern: 'none'
