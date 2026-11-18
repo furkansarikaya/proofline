@@ -201,7 +201,7 @@ invariant items are met and at least 90% of the applicable quality items are met
 
 The harness gets no special privilege for an approval only the user gives (scope, destructive, mutation budget, the acceptance of a high-risk assumption). A scenario may, as a real user would,
 SEND such a message: the harness resumes the lead with the text as the user's prompt, the same delivery as a plan approval or a question reply, so the hook sees an ordinary user message.
-Which messages a scenario may send is written down in `replies/approvals.<SCENARIO>.txt`; today only `approvals.COMPLEX.txt` exists, and a scenario without the file behaves as before (it answers none of these requests).
+Which messages a scenario may send is written down in `replies/approvals.<SCENARIO>.txt`; today only `approvals.COMPLEX.txt` exists (three messages: `approve scope` up to twice, `accept AS-1`, and `approve mutation` up to twice (one per distinct request, a later round can raise it again) for the user-only `mutation_budget` request, A337: the lead's request text says `Reply "approve mutation"`; the config budget of the scenario project stays 30, A318), and a scenario without the file behaves as before (it answers none of these requests).
 
 - Format: one line per message, `kind | exact message | max-uses`; `max-uses` is optional (default 1); blank lines and `#` comments are ignored. At most 6 lines and 6 uses in all.
 - Kinds a file may name: `scope`, `destructive`, `mutation_budget` (an unanswered `NNN-request-<kind>.yaml` in the run's `approvals/` folder) and `assumption` (the message is exactly `accept AS-<n>`, sent only while `agent.sh questions` lists `ASSUMPTION: AS-<n>@...` as open).

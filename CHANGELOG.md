@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.164 — 2026-11-18
+
+- Test (A337): the COMPLEX end-to-end listing `tests/e2e/replies/approvals.COMPLEX.txt` gains `mutation_budget | approve mutation` (at most twice), the message a user types for the user-only mutation budget request. The harness still has no privileged path: the line is sent only while that request is open and withheld when another open request would also be satisfied. No product change.
+
 ## 0.0.163 — 2026-11-18
 
 - Fix (A336, closes A323.3): the REVIEW_TESTS demand and `handoff IMPLEMENTED` use one supersession rule (`supersededGreens`). An earlier GREEN command that is neither plan-listed nor the project test command (the COMPLEX run's narrow `node --test ...` re-recorded with `npm test`) is superseded, shown as `source=superseded by GREEN-n` and no longer demanded as a `command_not_double_run` finding, when later genuine records with an allowed command give a duration to every test it claimed and the last `test-measure` row (now ending `greens=<n>`) is a clean double run that counts them. A command that is the only coverage of a test, a repair record, a forged header and a record after the row never supersede. Stricter at the handoff: an earlier unlisted command whose tests a later record does not all cover now blocks instead of being a silent note, and the block names the uncovered tests and the cure (record a GREEN with a plan-listed or project test command that reports durations for them).

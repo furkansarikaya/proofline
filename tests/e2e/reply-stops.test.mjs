@@ -409,11 +409,38 @@ test('listed approval: a scenario without a listing file behaves as before (dry 
   assert.equal(log, '');
 });
 
-test('listed approval: the COMPLEX file lists a scope approval and the AS-1 acceptance only', () => {
+test('listed approval (A337): the COMPLEX file lists a scope approval, the AS-1 acceptance and the mutation budget approval only', () => {
   const dry = runE2e(['COMPLEX', 'claude', '--dry-run'], { E2E_ROOT: path.join(root, 'dry-cx'), E2E_APPROVALS_FILE: undefined });
   assert.equal(dry.status, 0, dry.out);
-  assert.match(dry.out, /listed approvals \(A328\): scope x2, assumption x1 from /, dry.out);
-  assert.deepEqual(loadListedApprovals(path.join(here, 'replies', 'approvals.COMPLEX.txt')), [{ kind: 'scope', message: 'approve scope', max: 2 }, { kind: 'assumption', message: 'accept AS-1', max: 1 }]);
+  assert.match(dry.out, /listed approvals \(A328\): scope x2, assumption x1, mutation_budget x2 from /, dry.out);
+  assert.deepEqual(loadListedApprovals(path.join(here, 'replies', 'approvals.COMPLEX.txt')), [{ kind: 'scope', message: 'approve scope', max: 2 }, { kind: 'assumption', message: 'accept AS-1', max: 1 }, { kind: 'mutation_budget', message: 'approve mutation', max: 2 }]);
+  assert.equal(listedProblem('mutation_budget', 'approve mutation'), '');
+  assert.deepEqual(satisfiedKinds('approve mutation', candidateKinds('approve mutation', ['mutation', 'budget'])), ['mutation_budget']);
+});
+
+const COMPLEX_FILE = path.join(here, 'replies', 'approvals.COMPLEX.txt');
+
+test('listed approval (A337): an open mutation_budget request gets the listed "approve mutation" once; a destructive request open beside it is not answered by it; a request the message would also satisfy (rationale:mutation) withholds it; other kinds get nothing from that line', async () => {
+  const mb = { name: '001-request-mutation_budget.yaml', kind: 'mutation_budget', bound: 'A' };
+  const de = { name: '002-request-destructive.yaml', kind: 'destructive', bound: 'A' };
+  const ra = { name: '002-request-rationale-mutation.yaml', kind: 'rationale:mutation', bound: 'A' };
+  const [sent, held, both, other] = await Promise.all([
+    play('COMPLEX', { steps: [{ text: 'Waiting for the mutation budget.', create: [mb] }, { text: 'Recorded.', answer: [{ kind: 'mutation_budget', request: '001-request-mutation_budget.yaml' }] }] }, 'listed-mb', { E2E_APPROVALS_FILE: COMPLEX_FILE }),
+    play('COMPLEX', { steps: [{ text: 'Waiting.', create: [mb, ra] }] }, 'listed-mb-rationale', { E2E_APPROVALS_FILE: COMPLEX_FILE }),
+    play('COMPLEX', { steps: [{ text: 'Waiting.', create: [mb, de] }] }, 'listed-mb-destructive', { E2E_APPROVALS_FILE: COMPLEX_FILE }),
+    play('COMPLEX', { steps: [{ text: 'Waiting.', create: [de] }] }, 'listed-mb-other', { E2E_APPROVALS_FILE: COMPLEX_FILE }),
+  ]);
+  assert.deepEqual(replyTexts(sent.log), ['approve mutation'], sent.log);
+  assert.match(sent.log, /kind=listed-approval .*request=mutation_budget 001-request-mutation_budget\.yaml \| approve mutation$/m, sent.log);
+  assert.match(sent.summary, /^listed_approval_replies=1$/m, sent.summary);
+  assert.match(held.summary, /^listed_approval_replies=0$/m, held.summary);
+  assert.match(held.log, /^withheld kind=listed-approval-withheld /m, held.log);
+  assert.match(held.log, /reason=the message also satisfies the open request\(s\) rationale:mutation/, held.log);
+  assert.doesNotMatch(held.log, /^reply=/m, held.log);
+  assert.deepEqual(replyTexts(both.log), ['approve mutation'], both.log);   // 'approve mutation' does not satisfy destructive, which stays open
+  assert.match(both.summary, /^stopped=unanswered-mutation_budget\+destructive$/m, both.summary);
+  assert.match(other.summary, /^listed_approval_replies=0$/m, other.summary);
+  assert.doesNotMatch(other.log, /kind=listed-approval /, other.log);
 });
 
 });

@@ -8,3 +8,6 @@ scope | approve scope | 2
 # assumption: the high-risk assumption the intent interview asks the user to accept before the freeze (run COMPLEX-claude-20261117T085931Z, AS-1); the id is part of the phrase,
 # and the line is sent only while the lead's open question names AS-1. No other assumption is listed: an unlisted one stops the run and shows in the evaluation.
 assumption | accept AS-1
+# mutation_budget: the user-only request the lead raises when test_trust.mutation_budget is below the criteria of PLAN ## Tests (run COMPLEX-claude-20261118T122721Z: the scenario budget is 30, A318, and the plan lists more
+# criteria; the request text says 'Reply "approve mutation"'). The user decides the raise for this run only; the project config is not edited. The grammar reads 'approve mutation' as the mutation_budget approval and nothing else (A337). Two uses: the mutant budget is spent across rounds, so the request can come up again in a later round (a distinct request each time).
+mutation_budget | approve mutation | 2
