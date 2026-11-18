@@ -324,7 +324,7 @@ export async function main(argv) {
     const signature = decision === 'question' ? `q:${createHash('sha256').update(lastText).digest('hex')}` : `a:${open.map((o) => o.name).join(',')}|${kind}`;
     // A328: a listed approval is a user message the scenario names in advance; it goes out only while a request of its kind is open, never in place of the plan reply.
     // It is withheld (logged as listed-approval-withheld, not sent) when the text would also satisfy an open request of ANOTHER kind anywhere in the project (another run, the no-run folder, rationale:, rule:, reopen:).
-    const picked = decision === 'plan' || decision === 'refreeze' ? null : pickListed(listing, listedUsed, open, openAssumptions(pending), productRequests(project));
+    const picked = decision === 'plan' || decision === 'refreeze' ? null : pickListed(listing, listedUsed, open, openAssumptions(pending), { ...productRequests(project), run: id });
     const listed = picked && 'pick' in picked ? picked.pick : null;
     if (picked && 'withheld' in picked) {
       const key = `${picked.withheld.kind}|${picked.withheld.reason}`;

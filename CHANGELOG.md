@@ -4,7 +4,7 @@
 
 ## 0.0.158 — 2026-11-18
 
-- Test (A331): the e2e harness reads an open approval request the way the product does (only the LATEST request of a kind can be open; an approval of that kind numbered at or after it closes it). A superseded older plan request (COMPLEX run 2026-11-18: 001 and 002 with one bound, the reply answered 002) made the later scope request look like a refreeze pair, so `approve plan` was sent for a scope question and the listed `approve scope` never went out (`stopped=repeated-stop`, `listed_approval_replies=0`). Every stop where a listing exists and nothing is sent now logs `skipped kind=listed-approval-skipped ... reason=...` in `out/replies-log.txt`. Harness only; no product rule changes.
+- Test (A331): the e2e harness reads an open approval request the way the product does (only the LATEST request of a kind can be open; an approval of that kind numbered at or after it closes it). A superseded older plan request (COMPLEX run 2026-11-18: 001 and 002 with one bound, the reply answered 002) made the later scope request look like a refreeze pair, so `approve plan` was sent for a scope question and the listed `approve scope` never went out (`stopped=repeated-stop`, `listed_approval_replies=0`). Every stop where a listing exists and nothing is sent now logs `skipped kind=listed-approval-skipped ... reason=...` in `out/replies-log.txt`. A name with a number that is not exactly three digits, a mismatch with the product's open-request list, or the same kind open in another run or the no-run folder withholds every listed send, with a logged reason. Harness only; no product rule changes.
 
 ## 0.0.157 — 2026-11-18
 

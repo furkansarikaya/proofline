@@ -67,31 +67,45 @@ function listDir(dir) { try { return readdirSync(dir); } catch { return []; } }
 const byteSort = (/** @type {string} */ x, /** @type {string} */ y) => (x < y ? -1 : x > y ? 1 : 0);
 
 /**
- * Every approval request of the run nobody answered: `NNN-request-<kind>.yaml` files that no answer file names in its `request:` line. This is the
- * whole stop, not only the newest request: a refreeze raises a plan AND a scope request at once (the COMPLEX run of 2026-11-16 had 003-request-plan and
- * 004-request-scope open, and the newest-file rule saw only `scope`).
+ * Files of an approvals/ folder that look like a request or an answer but that the product never writes or reads: its numbering is exactly three digits (`nextNum` pads to 3;
+ * `approvalFiles` and `approval_pending_pairs` only see `^[0-9]{3}-`), so `5-plan.yaml`, `0004-request-scope.yaml`, `1-request-scope.yaml` or a `-request-` name without a three-digit number
+ * are ones the product ignores while a looser reader would count them. The harness cannot tell what the product does with them, so a listed send is withheld while one exists (A331).
+ * @param {string} [approvalsDir] @returns {string[]}
+ */
+export function oddApprovalNames(approvalsDir) {
+  if (!approvalsDir || !existsSync(approvalsDir)) return [];
+  return listDir(approvalsDir).sort(byteSort).filter((n) => (/^[0-9]+-/.test(n) || n.includes('-request-')) && !/^[0-9]{3}-[^/]+\.yaml$/.test(n));
+}
+
+/**
+ * The approval requests of the run nobody answered: `NNN-request-<kind>.yaml` files (exactly three digits, as the product writes them). This is the whole stop, not only the newest request:
+ * a refreeze raises a plan AND a scope request at once (the COMPLEX run of 2026-11-16 had 003-request-plan and 004-request-scope open, and the newest-file rule saw only `scope`).
+ * It follows the product's `pendingRequest` (A331): only the LATEST request of a kind can be open, and an approval file `NNN-<slug>.yaml` of that kind numbered at or after it closes it
+ * (a superseded older request of the same kind, as in the COMPLEX run of 2026-11-18, is never a second open plan). Two differences remain, both on purpose: (1) the harness ALSO closes a
+ * request that an answer file names in its `request:` line (the product does not read that line), and (2) it reads only one run's folder, so a request of another run or the no-run folder
+ * is not seen here (`productRequests` and `pickListed` compare with the product's own list and withhold on any difference). Names with a number that is not exactly three digits are not
+ * read here at all; {@link oddApprovalNames} reports them and a listed send is withheld while one exists.
  * @param {string} [approvalsDir] @returns {{ name: string, kind: string, bound: string }[]}
  */
 export function openApprovals(approvalsDir) {
   if (!approvalsDir || !existsSync(approvalsDir)) return [];
   const names = listDir(approvalsDir).sort(byteSort);
   const read = (/** @type {string} */ n) => { try { return readFileSync(path.join(approvalsDir, n), 'utf8'); } catch { return ''; } };
+  const isRequest = (/** @type {string} */ n) => /^[0-9]{3}-request-.+\.yaml$/.test(n);
   const answered = new Set();
   for (const n of names) {
-    if (!/^[0-9]+-/.test(n) || n.includes('-request-') || !n.endsWith('.yaml')) continue;
+    if (!/^[0-9]{3}-/.test(n) || n.includes('-request-') || !n.endsWith('.yaml')) continue;
     const m = /^request: "?([^"\n]+?)"?\s*$/m.exec(read(n));
     if (m) answered.add(m[1]);
   }
-  // A331: the product's own rule (`pendingRequest`): only the LATEST request of a kind can be open, and an approval file of that kind numbered at or after it closes it. An older
-  // request of the same kind (the COMPLEX run of 2026-11-18 had 001-request-plan and 002-request-plan with one bound; the user's reply answered 002) is superseded, never a second open plan.
-  const num = (/** @type {string} */ n) => Number(/^([0-9]+)-/.exec(n)?.[1] ?? '0');
-  const slugOf = (/** @type {string} */ n) => n.slice(n.indexOf('-request-') + '-request-'.length).replace(/\.yaml$/, '');
+  const num = (/** @type {string} */ n) => Number(n.slice(0, 3));
+  const slugOf = (/** @type {string} */ n) => n.slice('000-request-'.length).replace(/\.yaml$/, '');
   const latest = new Map();
-  for (const n of names) if (/^[0-9]+-request-.+\.yaml$/.test(n)) latest.set(slugOf(n), n);
-  const closed = (/** @type {string} */ n) => names.some((a) => !a.includes('-request-') && a.endsWith('.yaml') && a === `${a.slice(0, a.indexOf('-'))}-${slugOf(n)}.yaml` && num(a) >= num(n));
-  return names.filter((n) => /^[0-9]+-request-.+\.yaml$/.test(n) && !answered.has(n) && latest.get(slugOf(n)) === n && !closed(n)).map((name) => ({
+  for (const n of names) if (isRequest(n)) latest.set(slugOf(n), n);
+  const closed = (/** @type {string} */ n) => names.some((a) => /^[0-9]{3}-/.test(a) && !a.includes('-request-') && a === `${a.slice(0, 3)}-${slugOf(n)}.yaml` && num(a) >= num(n));
+  return names.filter((n) => isRequest(n) && !answered.has(n) && latest.get(slugOf(n)) === n && !closed(n)).map((name) => ({
     name,
-    kind: slugKind(name.slice(name.indexOf('-request-') + '-request-'.length).replace(/\.yaml$/, '')),
+    kind: slugKind(slugOf(name)),
     bound: /^bound: "?([^"\n]*?)"?\s*$/m.exec(read(name))?.[1] ?? '',
   }));
 }
@@ -309,6 +323,7 @@ export function productRequests(project) {
     for (const r of runs) dirs.push([path.join(tree, '.agents/runs', r, 'approvals'), `${path.relative(project, tree) || '.'}:${r}`]);
   }
   for (const [dir, where] of dirs) {
+    for (const n of oddApprovalNames(dir)) unclear.push(`${where}/${n}: not a name the product writes (exactly three digits)`);
     for (const n of listDir(dir).sort(byteSort)) {
       if (!/^[0-9]{3}-request-.*\.yaml$/.test(n)) continue;
       const f = path.join(dir, n);
@@ -335,7 +350,7 @@ export function productRequests(project) {
  * @param {{ kind: string, message: string, max: number }[]} entries
  * @param {Set<string>[]} used per entry: the requests (names) or assumption ids it was sent for
  * @param {{ name: string, kind: string }[]} open the open requests of the run's approvals folder @param {string[]} assumptions
- * @param {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[], runIds?: string[] }} [project] {@link productRequests} (default: `open` only)
+ * @param {{ requests: { name: string, kind: string, words: string, where: string }[], unclear: string[], runIds?: string[], run?: string }} [project] {@link productRequests} (default: `open` only); `run` is the id of the run whose folder `open` was read from
  * @returns {{ pick: { index: number, kind: string, message: string, request: string } } | { withheld: { kind: string, message: string, reason: string } } | null}
  */
 export function pickListed(entries, used, open, assumptions, project = { requests: open.map((o) => ({ name: o.name, kind: o.kind, words: o.kind, where: '' })), unclear: [] }) {
@@ -357,6 +372,14 @@ export function pickListed(entries, used, open, assumptions, project = { request
     const named = (project.runIds ?? []).filter((id) => id !== '' && approvalNorm(`${e.message}\n`).includes(id.toLowerCase()));
     if (named.length > 0) return withhold(`the message holds the run id ${named.join(', ')}, so the prompt hook would also target that run`);
     if (project.unclear.length > 0) return withhold(`a request file cannot be read unambiguously: ${project.unclear.join('; ')}`);
+    if (project.run !== undefined) {
+      // the product's list is the truth (A331): the harness's open set of this run must be the same set of kinds, and a request of the listed kind must exist nowhere else
+      const mine = [...new Set(open.map((o) => kindSlug(o.kind)))].sort(byteSort).join(',');
+      const theirs = [...new Set(project.requests.filter((r) => r.where === project.run).map((r) => kindSlug(r.kind)))].sort(byteSort).join(',');
+      if (mine !== theirs) return withhold(`the harness reads the open requests of run ${project.run} as [${mine}] but the product lists [${theirs}]`);
+      const elsewhere = project.requests.filter((r) => r.kind === e.kind && r.where !== project.run);
+      if (elsewhere.length > 0) return withhold(`a request of kind ${e.kind} is also open in ${[...new Set(elsewhere.map((r) => (r.where === '-' ? 'the no-run folder' : `run ${r.where}`)))].join(', ')}, so one reply would be recorded against both`);
+    }
     const other = project.requests.filter((r) => textHasApproval(GRAMMAR_CTX, bytes(e.message), r.words, r.where === '-' ? '' : r.where) && !(r.kind === e.kind && r.words === e.kind)).map((r) => (r.words === r.kind ? r.kind : `${r.kind} (answered with ${r.words})`));
     if (other.length > 0) return withhold(`the message also satisfies the open request(s) ${[...new Set(other)].join(', ')}`);
     return { pick: { index, kind: e.kind, message: e.message, request } };
