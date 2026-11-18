@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.162 — 2026-11-18
+
+- Test (A335): the A333 fix-round tests in `tests/enforcement/implementer-launch.test.mjs` build their implemented run once in `before` and use a copy per test; the test that took 11.7 s and 13.5 s on CI now takes under 1 s. Every assertion kept; no budget raised.
+
 ## 0.0.161 — 2026-11-18
 
 - Test (A334): COMPLEX gets a scripted question reply file `tests/e2e/replies/question.COMPLEX.txt` (A131): line 1 is a standing answer a real user could write once (`Use your recommended option for every open question, and for every question you ask later in this interview too.`), so an intent interview of four batches no longer spends the 3-reply allowance (`stopped=max-replies` before any task or plan). No approval phrase or kind in it; C-14 unchanged; plan and refreeze lines of `COMPLEX.txt` unchanged. Harness only; no product rule changes.
