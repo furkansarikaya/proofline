@@ -5,6 +5,7 @@
 ## 0.0.165 — 2026-11-18
 
 - Fix (A339): on Windows CODE_DONE removes the run's own clean detached `verify-<ID>.<focus>` worktree and skips the evidence worktree of another open run again (A327): the worktree path git lists (`C:/Users/.../Temp/verify-LC.x`) and the temp folder (backslashes, 8.3 name, drive-letter case) are compared through one helper (`scratchChildName`, `isUnlinkedFolder`), with every safety check unchanged; POSIX behaviour is identical. New test `tests/core/scratch-path-win.test.mjs`.
+- Docs (A338, no release, no code change): the closing campaign of 2026-11-18 is recorded in `tests/e2e/README.md` ("The closing campaign on main") with the evaluators' verdict lines: one COMPLEX run reached DONE on `98f49400` (FAIL 37/38, C-22 only; a single sample, with three user approvals supplied by the harness), STANDARD reached DONE (FAIL 36/37, S-6 only), there is no E2E PASS for either, and the runs an account usage limit interrupted are listed and not counted. `docs/limits.md` gets ten accepted rows (A338.1 to A338.10) and a corrected A322.8; `docs/proof.md` has the pull request list to #327, the smoke history, the recomputed test counts and the Windows dispatch run; two documentation gaps are closed (the `target:` list with spaces, the `verify-<ID>.<focus>` evidence worktrees). Part of #316.
 
 ## 0.0.164 — 2026-11-18
 
