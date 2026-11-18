@@ -139,6 +139,7 @@ test('agent_sh_forms (H3/H4, A171): agent.sh and AGENT_ROLE are matched on dequo
   [D, "H3 bash -c write", "pre_bash", ["bash -c 'echo x > impl.txt'"], "product changes go through the implementer"],
   [D, "H3 command substitution in double quotes", "pre_bash", ["echo \"$(sh .agents/scripts/agent.sh record LC)\""], "SubagentStop hook"],
   [D, "H3 backticks in double quotes", "pre_bash", ["echo \"`sh .agents/scripts/agent.sh window-open LC`\""], "windows are opened"],
+  [D, "H3b window-close planning form (A329)", "pre_bash", ["sh .agents/scripts/agent.sh window-close LC planning 0 designer"], "windows are opened"],
   [D, "H3 eval during a run", "pre_bash", ["eval \"true\""], "eval"],
   [D, "H3 shell reading stdin", "pre_bash", ["sh < cmds.txt"], "stdin"],
   [D, "H3 nesting beyond one level", "pre_bash", ["sh -c \"sh -c 'true'\""], "nested"],

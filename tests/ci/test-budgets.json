@@ -552,6 +552,10 @@
       "test_ms": 25000,
       "suite_ms": 50000
     },
+    "tests/core/planning-attest.test.mjs": {
+      "test_ms": 9000,
+      "suite_ms": 50000
+    },
     "tests/core/port-t2-drift.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
@@ -807,6 +811,10 @@
     "tests/enforcement/enforcement-b.test.mjs": {
       "test_ms": 85000,
       "suite_ms": 120000
+    },
+    "tests/enforcement/enforcement-planning-attest.test.mjs": {
+      "test_ms": 4500,
+      "suite_ms": 10000
     },
     "tests/enforcement/enforcement-recorded-lead.test.mjs": {
       "test_ms": 20000,

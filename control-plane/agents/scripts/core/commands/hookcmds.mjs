@@ -9,6 +9,7 @@ import { requireLead, requireOpenRun } from '../approve.mjs';
 import { nextUser } from '../nextuser.mjs';
 import { fail } from '../errors.mjs';
 import { verifyMutationOwnership } from '../gates.mjs';
+import { ensurePlanningWindow, planningAttest } from '../planningattest.mjs';
 import { sha256 } from '../hash.mjs';
 import { languageCheck } from '../language.mjs';
 import { ledgerAppend, verifySeal } from '../ledger.mjs';
@@ -156,6 +157,7 @@ function windowOpen(ctx, args) {
   if (hs === 'PLANNED' && planDestructive(readBytes(`${dir}/PLAN.md`) ?? '') === 'yes') fail(`worker windows are opened only while handoff state is IMPLEMENTING: this destructive plan is frozen at PLANNED and needs a destructive approval bound to the current PLAN.md first ('agent.sh next ${id}', 'agent.sh request-approval ${id} destructive', then 'agent.sh handoff ${id} IMPLEMENTING')`);
   if (hs !== 'IMPLEMENTING') fail('worker windows are opened only while handoff state is IMPLEMENTING');
   verifySeal(ctx, id, dir);
+  ensurePlanningWindow(ctx, dir, id);
   verifyMutationOwnership(ctx, dir, id, true);
   ctx.out(`${taskPatchFingerprint(ctx, dir)}\n`);
   return 0;
@@ -166,6 +168,7 @@ function windowClose(ctx, args) {
   requireLead(ctx);
   const id = args[0]; const before = args[1] ?? ''; const status = args[2] === undefined || args[2] === '' ? '0' : args[2];
   const role = windowRole(args[3] ?? '');
+  if (before === 'planning') return planningAttest(ctx, [id, role]);   // A329: the designer's planning-stage attestation is a form of window-close, so the command table stays as recorded
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   if (!gatesEnforced(ctx, dir)) return 0;
