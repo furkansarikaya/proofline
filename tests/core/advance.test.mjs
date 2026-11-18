@@ -198,7 +198,9 @@ describe('where a separate command refuses, advance refuses the same way', () =>
     const a = copyOf(base); const b = copyOf(base);
     const typed = A(a, ['handoff', 'LC', 'IMPLEMENTED']);
     const adv = A(b, ['advance', 'LC']);
-    assert.notEqual(typed.status, 0, typed.text);
+    // the contract: the typed handoff exits 1 (refusal); advance does not run it, it stops at the re-dispatch step and exits 0 with the step in its output
+    assert.equal(typed.status, 1, typed.text);
+    assert.equal(adv.status, 0, adv.text);
     assert.match(typed.text, /To fix: record it with: printf .*agent\.sh worker-evidence LC RED fail/);
     assert.match(adv.text, /next=dispatch\.sh LC implementer/);
     assert.match(adv.text, /DONE recorded without worker-evidence RED\/GREEN/);

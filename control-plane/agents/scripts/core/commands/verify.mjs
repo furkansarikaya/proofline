@@ -499,7 +499,8 @@ function evidenceCovers(ctx, file, p) {
  * @param {string} id @param {string} [paths]
  */
 export function workerEvidenceHowTo(id, paths = '') {
-  return `record it with: printf 'command: <test command>\\ntarget: <path>\\nexpected_failure: <what fails>\\n' | AGENT_ROLE=implementer .agents/scripts/agent.sh worker-evidence ${id} RED fail, then the same with GREEN pass (files .agents/runs/${id}/worker-evidence/RED-*.yaml and GREEN-*.yaml; one target per path${paths !== '' ? `:${paths}` : ''}). Output saved in scratch/ or a tdd.json is not worker evidence, and validate-tdd.mjs is not this check`;
+  const cmd = `AGENT_ROLE=implementer .agents/scripts/agent.sh worker-evidence ${id}`;
+  return `record it with: printf 'command: <the test command>\\ntarget: ${paths !== '' ? paths : '<path>[,<path>...]'}\\nexpected_failure: <what fails, at least 20 characters, not a stock phrase>\\n' | ${cmd} RED fail while the new test fails, BEFORE the fix; then make the change and record GREEN the same way, without the expected_failure line, with ${cmd} GREEN pass (GREEN is refused when no implementation file changed since RED; when the run was started with test measurement it also needs a line test_durations: <test name>=<milliseconds>[; ...] read from the run output). target lists scope paths, comma-separated (spaces after commas are fine; one record may cover several paths). The records are .agents/runs/${id}/worker-evidence/RED-*.yaml and GREEN-*.yaml. Output saved in scratch/ or a tdd.json is not worker evidence, and validate-tdd.mjs is not this check`;
 }
 
 /**

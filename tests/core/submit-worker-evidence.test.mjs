@@ -3,7 +3,7 @@
 // real control plane, orchestrated topology; nothing is mocked. The cause class: a lead's free-prose prompt sent RED/GREEN output to scratch/ and a tdd.json, the implementer's
 // DONE was accepted, and only the lead's handoff refused it, without naming the command.
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { A, AS, accepted, expectMsg, scaffold } from '../lib/harness.mjs';
@@ -22,7 +22,9 @@ test('an implementer DONE without worker evidence is rejected in its own turn, n
   const text = `${r.out}${r.err}`;
   assert.match(text, /submit rejected: DONE needs worker evidence first: no valid RED\+GREEN record for: impl\.txt impl_test\.txt/);
   assert.match(text, /agent\.sh worker-evidence LC RED fail/);
-  assert.match(text, /then the same with GREEN pass/);
+  assert.match(text, /target: impl\.txt,impl_test\.txt/);
+  assert.match(text, /at least 20 characters/);
+  assert.match(text, /GREEN pass/);
   assert.match(text, /worker-evidence\/RED-\*\.yaml and GREEN-\*\.yaml/);
   assert.match(text, /scratch\/ or a tdd\.json is not worker evidence, and validate-tdd\.mjs is not this check/);
 });
@@ -58,4 +60,19 @@ test('the handoff refusal names the command and the folder; next re-dispatches w
   expectMsg('the handoff without evidence', 'To fix: record it with: printf', A(d, ['handoff', 'LC', 'IMPLEMENTED']));
   expectMsg('the handoff without evidence (folder)', 'worker-evidence/RED-*.yaml and GREEN-*.yaml', A(d, ['handoff', 'LC', 'IMPLEMENTED']));
   expectMsg('the handoff without evidence (validate-tdd)', 'validate-tdd.mjs is not this check', A(d, ['handoff', 'LC', 'IMPLEMENTED']));
+});
+
+test('a literal follower of the printed command shape is not rejected: the RED and the GREEN it describes are recorded, and the DONE is then accepted', () => {
+  const d = scaffold({});
+  const text = `${sub(d).err}${sub(d).out}`;
+  const fmt = /printf '([^']*)'/.exec(text)?.[1] ?? '';
+  assert.ok(fmt.includes('\\n'), text);
+  // fill the placeholders exactly as the hint tells (the target line is already the missing paths, comma-separated)
+  const form = (/** @type {boolean} */ red) => fmt.split('\\n').filter((l) => l !== '' && (red || !l.startsWith('expected_failure:')))
+    .map((l) => l.replace('<the test command>', 'node --test tests/lookup.test.mjs').replace(/<what fails[^>]*>/, 'lookup returns undefined instead of the stored value')).join('\n') + '\n';
+  assert.doesNotMatch(form(true), /[<>]/);
+  accepted(A(d, ['worker-evidence', 'LC', 'RED', 'fail'], { role: 'implementer', input: form(true) }), 'RED in the printed shape');
+  appendFileSync(path.join(d, 'impl.txt'), `${IL}\n`);
+  accepted(A(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: form(false) }), 'GREEN in the printed shape');
+  accepted(sub(d), 'DONE after the printed commands');
 });
