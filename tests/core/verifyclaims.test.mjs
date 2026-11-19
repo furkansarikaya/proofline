@@ -9,14 +9,14 @@ import { before, describe, test } from 'node:test';
 import { A, accepted, expectMsg, writeReport } from '../lib/harness.mjs';
 import { sha256 } from '../../control-plane/agents/scripts/core/hash.mjs';
 import { CLAIM_VOCABULARY } from '../../control-plane/agents/scripts/core/claimwords.mjs';
-import { auditClaims, checkClaimsBlock, CLAIMS_BEGIN, CLAIMS_END } from '../../control-plane/agents/scripts/core/verifyclaims.mjs';
+import { auditClaims, checkClaimsBlock, CLAIMS_BEGIN, CLAIMS_END, duplicateBlocks } from '../../control-plane/agents/scripts/core/verifyclaims.mjs';
 import { apparatus } from './verifyclaims-lib.mjs';
 
 const REPORT = '.agents/runs/LC/COMPLETION_REPORT.md';
 const rd = (/** @type {string} */ d) => readFileSync(path.join(d, REPORT), 'utf8');
 const NO = { visualOk: false, visual: 'not run (gate QA:visual)' };
 const YES = { visualOk: true, visual: 'ran on the final tree: pass' };
-const none = { lookAt: /** @type {string[]} */ ([]), execution: /** @type {string[] | null} */ (null), generatedLines: /** @type {string[]} */ ([]) };
+const none = { lookAt: /** @type {string[]} */ ([]), execution: /** @type {string[] | null} */ (null), generatedLines: /** @type {string[]} */ ([]), claims: /** @type {string[] | null} */ (null), factsHash: /** @type {string | null} */ (null) };
 /** The words found in one or more lines. @param {...string} l */
 const found = (...l) => [...auditClaims(l, NO).matchAll(/^line \d+: "(.*)"$/gm)].map((m) => m[1]);
 
@@ -43,15 +43,31 @@ describe('the vocabulary audit as pure functions', () => {
     assert.match(auditClaims(['Chrome'], NO), /Remove or rephrase the sentence without these words/);
   });
 
-  test('exempt: the generated blocks, the exact script-copied Look at lines, the Execution section equal to the generated one and the exact generated lines; nothing else', () => {
+  test('exempt: the claims block equal to the generated one, the Facts block with the ledger hash, the exact Look at lines, the generated Execution section and the exact generated lines; nothing else', () => {
     const gen = ['## Execution', '', '| role | focus |', '|---|---|', '| qa | visual |'];
-    const lines = ['# R', CLAIMS_BEGIN, 'a Chrome run', CLAIMS_END, '<!-- proofline:facts:begin -->', 'screenshot', '<!-- proofline:facts:end -->', 'Look at: Open it in a browser', ...gen, '', '## Unsupported Checks', '- QA:visual: no tool here; not proven: the layout'];
-    const g = { lookAt: ['Open it in a browser'], execution: gen, generatedLines: ['- QA:visual: no tool here; not proven: the layout'] };
+    const claimsBlock = [CLAIMS_BEGIN, 'a Chrome run', CLAIMS_END];
+    const facts = ['<!-- proofline:facts:begin -->', 'screenshot', '<!-- proofline:facts:end -->'];
+    const lines = ['# R', ...claimsBlock, ...facts, 'Look at: Open it in a browser', ...gen, '', '## Unsupported Checks', '- QA:visual: no tool here; not proven: the layout'];
+    const g = { lookAt: ['Open it in a browser'], execution: gen, generatedLines: ['- QA:visual: no tool here; not proven: the layout'], claims: claimsBlock, factsHash: sha256(`${facts.join('\n')}\n`) };
     assert.equal(auditClaims(lines, NO, g), '');
     assert.match(auditClaims(lines, NO, { ...g, lookAt: ['Open it'] }), /line 8: "browser"/);
     assert.match(auditClaims(lines, NO, { ...g, execution: null }), /line 13: "visual"/);
     assert.match(auditClaims(lines, NO, { ...g, generatedLines: [] }), /line 16: "visual"/);
+    assert.match(auditClaims(lines, NO, { ...g, claims: null }), /line 3: "chrome"/);
+    assert.match(auditClaims(lines, NO, { ...g, factsHash: null }), /line 6: "screenshot"/);
+    assert.match(auditClaims(lines, NO, { ...g, factsHash: sha256('other\n') }), /line 6: "screenshot"/);
     assert.equal(auditClaims(['Chrome'], YES, none), '');
+  });
+
+  test('a fake or edited marker block, a block with extra lines and a second copy are read like normal text', () => {
+    const claimsBlock = [CLAIMS_BEGIN, 'a run', CLAIMS_END];
+    const facts = ['<!-- proofline:facts:begin -->', 'x', '<!-- proofline:facts:end -->'];
+    const g = { ...none, claims: claimsBlock, factsHash: sha256(`${facts.join('\n')}\n`) };
+    assert.equal(auditClaims([...claimsBlock, ...facts], NO, g), '');
+    assert.match(auditClaims([...claimsBlock, '<!-- proofline:facts:begin -->', 'checked in a real browser', '<!-- proofline:facts:end -->'], NO, g), /line 5: "browser"/);
+    assert.match(auditClaims([CLAIMS_BEGIN, 'a run', 'checked in Chrome', CLAIMS_END], NO, g), /line 3: "chrome"/);
+    assert.match(auditClaims([...claimsBlock, 'x', CLAIMS_BEGIN, 'Chrome ran it', CLAIMS_END], NO, g), /line 6: "chrome"/);
+    assert.match(auditClaims([CLAIMS_BEGIN, 'Chrome ran it'], NO, g), /line 2: "chrome"/);
   });
 
   test('a second Execution section is read; so is a changed copy of the generated one; the gate token is no exemption on any line', () => {
@@ -66,10 +82,13 @@ describe('the vocabulary audit as pure functions', () => {
 
   test('encoded, split and look-alike words are read through: entity, emphasis, comment, link, tag, soft hyphen, zero-width joiner, Cyrillic and Greek letters, stems', () => {
     for (const w of ['&#98;rowser', '&#x62;rowser', 'br&amp;#111;wser', '**brow**ser', 'brow<!-- x -->ser', 'brow<!--\nx\n-->ser', '[brow](x)ser', '[brow][1]ser', '<b>brow</b>ser', 'brow\u00adser', 'brow\u200dser', 'brow\u2060ser', 'brow\ufeffser',
-      'br\u043ewser', 'BR\u041ewser', '\u0412rowser', 'Chr\u039fme', 'ch\u0433ome'.replace('\u0433', '\u0433') && 'Chr\u043eme', '\u0432rowser', 'br\u03bfwser', 'Br\uff4fwser', '`brow`ser', '~~brow~~ser', 'render', 'rendering', 'renderer', 'visuals', 'visualisation', 'screenshotted', 'e2e', 'End-To-End', 'dev server']) {
-      assert.ok(found(w.replace(/\\n/g, '\n')).length >= 1, JSON.stringify(w));
+      'br\u043ewser', 'BR\u041ewser', '\u0412rowser', 'Chr\u039fme', 'ch\u0433ome'.replace('\u0433', '\u0433') && 'Chr\u043eme', '\u0432rowser', 'br\u03bfwser', 'Br\uff4fwser', '`brow`ser', '~~brow~~ser', '&#xff56;isual', '&#x1D42F;isual', '<Chrome 120, no errors>', '&ZeroWidthSpace;browser', 'vis\ufe0fual', 'render', 'rendering', 'renderer', 'visuals', 'visualisation', 'screenshotted', 'e2e', 'End-To-End', 'dev server']) {
+      assert.ok(found(...w.replace(/\\n/g, '\n').split('\n')).length >= 1, JSON.stringify(w));
     }
+    assert.deepEqual(found('we looked at', '> the page'), ['looked at the page']);
+    assert.deepEqual(found('> > we opened', '> > the page'), ['opened the page']);
     assert.deepEqual(found('ordinary text about a lookup', 'with a second line'), []);
+    assert.deepEqual(found('a <p> tag and a <br/> and <kbd>x</kbd> are not words'), []);
   });
 
   test('the vocabulary is English data: lower case, no duplicates; the report templates a lead may keep hold none of it', () => {
@@ -78,6 +97,12 @@ describe('the vocabulary audit as pure functions', () => {
     for (const f of ['control-plane/agents/templates/COMPLETION_REPORT.md', 'skills/proofline-lead/assets/COMPLETION_REPORT.md']) {
       assert.equal(auditClaims(readFileSync(path.join(import.meta.dirname, '../..', f), 'utf8').split('\n'), NO), '', f);
     }
+  });
+
+  test('a repeated generated block is an error', () => {
+    assert.equal(duplicateBlocks([CLAIMS_BEGIN, CLAIMS_END]), '');
+    assert.match(duplicateBlocks([CLAIMS_BEGIN, CLAIMS_END, CLAIMS_BEGIN, CLAIMS_END]), /more than once/);
+    assert.match(duplicateBlocks(['<!-- proofline:facts:begin -->', '<!-- proofline:facts:end -->', '<!-- proofline:facts:begin -->']), /more than once/);
   });
 
   test('a block without a hash, with a wrong hash or without a closing marker is refused; a text without a block is not', () => {
@@ -205,6 +230,49 @@ describe('the publish step', () => {
     writeFileSync(path.join(d, REPORT), good.replace('## Known Limitations / Follow-up', 'The page was checked in a real browser after the last change.\n\n## Known Limitations / Follow-up'));
     expectMsg('a claim added after publish verified', 'words of a visual, browser or screenshot check outside the generated blocks', A(d, ['verify-completion-report', 'LC']));
     expectMsg('handoff DONE accepted a claim added after publish', 'words of a visual, browser or screenshot check outside the generated blocks', A(d, ['handoff', 'LC', 'DONE']));
+  });
+
+  test('a fake Facts block or a second claims block added after publish, with a claim inside, is refused by verify, handoff DONE and the audit the delivery step uses', () => {
+    const d = ui.earlierPublished();
+    const good = rd(d);
+    const fakeFacts = `${good}\n<!-- proofline:facts:begin -->\nThe page was checked in a real browser after the last change.\n<!-- proofline:facts:end -->\n`;
+    writeFileSync(path.join(d, REPORT), fakeFacts);
+    expectMsg('a second Facts block verified', 'appears more than once', A(d, ['verify-completion-report', 'LC']));
+    expectMsg('a second Facts block passed DONE', 'appears more than once', A(d, ['handoff', 'LC', 'DONE']));
+    const lines = good.split('\n'); const b = lines.indexOf(CLAIMS_BEGIN); const e = lines.indexOf(CLAIMS_END);
+    writeFileSync(path.join(d, REPORT), `${good}\n${lines.slice(b, e + 1).join('\n').replace('## Verification claims', '## Verification claims\n\nThe page was checked in a real browser.')}\n`);
+    expectMsg('a second claims block verified', 'appears more than once', A(d, ['verify-completion-report', 'LC']));
+    // an edited Facts block (same markers, one claim line more) is not the block the ledger hashed
+    writeFileSync(path.join(d, REPORT), good.replace('<!-- proofline:facts:end -->', 'The page was checked in a real browser.\n<!-- proofline:facts:end -->'));
+    expectMsg('an edited Facts block verified', 'Facts block is missing or differs', A(d, ['verify-completion-report', 'LC']));
+    writeFileSync(path.join(d, REPORT), good);
+    accepted(A(d, ['verify-completion-report', 'LC']), 'the restored report did not verify');
+  });
+
+  test('a Look at line is exempt only while QA_REPORT.md is the file the QA gate record hashed', () => {
+    const d = ui.plain();
+    const summary = (/** @type {string} */ item) => {
+      writeReport(d);
+      const body = rd(d).split('\n'); body.pop();
+      writeFileSync(path.join(d, REPORT), `${['# Completion Report: LC', '', '<!-- proofline:summary:begin -->', 'Changed: the lookup returns the default for an empty key', 'Verify: `sh test.sh`', '<!-- proofline:summary:end -->', ...body.slice(1)].join('\n')}\n`);
+      void item;
+    };
+    summary('x');
+    accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), 'the recorded Human checks were refused');
+    const qa = path.join(d, '.agents/runs/LC/QA_REPORT.md');
+    writeFileSync(qa, readFileSync(qa, 'utf8').replace('Open the settings page in a browser and confirm the badge colour', 'Open the other page in Chrome and confirm the badge colour'));
+    summary('y');
+    expectMsg('a Look at line from an edited QA report was exempt', 'words of a visual, browser or screenshot check outside the generated blocks', A(d, ['publish-completion-report', 'LC', 'markdown']));
+  });
+
+  test('a run whose visual pass re-ran nothing publishes: the script writes the A130 line, the lead line is replaced', () => {
+    const d = ui.notRerun();
+    writeReport(d, '', '- QA: QA-1 info row, the page files are unchanged.');
+    writeFileSync(path.join(d, REPORT), rd(d).replace('## QA Result\n', '## QA Result\n- QA:visual: not reproduced (NOT_RERUN) and the page was checked in Chrome\n'));
+    const r = A(d, ['publish-completion-report', 'LC', 'markdown']);
+    accepted(r, 'a report for a NOT_RERUN visual pass was refused');
+    assert.match(rd(d), /^- QA:visual: not reproduced \(NOT_RERUN\)$/m);
+    assert.ok(!rd(d).includes('checked in Chrome'), 'the lead line was kept');
   });
 
   test('a refusal after the checks (the plan changed since freeze) leaves the report byte-identical', () => {

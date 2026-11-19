@@ -13,17 +13,18 @@ import { isFile } from './paths.mjs';
 import { adapterExists, runTaskAdapter } from './adapters/index.mjs';
 import * as proc from './proc.mjs';
 import { assumptionStates } from './questions.mjs';
-import { fileLines, fileText, gatesEnforced, ledgerRows, sectionValue } from './records.mjs';
+import { fileLines, fileText, gateField, gatesEnforced, ledgerRows, sectionValue } from './records.mjs';
 import { evidenceRunCounts, fixRoundsDone, reportExecution, reportFacts } from './reports.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { asciiLower } from './shellglob.mjs';
-import { fixRoundsUsed, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported } from './gates.mjs';
+import { fixRoundsUsed, gateLatestFile, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported } from './gates.mjs';
+import { sha256, sha256File } from './hash.mjs';
 import { humanChecks, records, sectionLines } from './taskfile.mjs';
 import { freshness } from './commands/verify.mjs';
 import { listNames } from './ledger.mjs';
 import { latin1Buf } from './wirebytes.mjs';
-import { auditClaims, checkClaimsBlock, claimsBlock, CLAIMS_BEGIN, CLAIMS_END, verifyClaimsBlock } from './verifyclaims.mjs';
+import { auditClaims, checkClaimsBlock, claimsBlock, CLAIMS_BEGIN, CLAIMS_END, duplicateBlocks, verifyClaimsBlock } from './verifyclaims.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -339,11 +340,52 @@ function unsupportedApply(ctx, id) {
   ctx.forget('file:');
 }
 
-/** What the script generated in a report, for the vocabulary audit to leave out. @param {Context} ctx @param {string} id @param {string} dir */
-function generatedParts(ctx, id, dir) {
-  const qa = fileText(ctx, `${dir}/QA_REPORT.md`);
+/**
+ * The Human checks the QA gate record vouches for: the items of QA_REPORT.md, but only when that file still has the hash the QA gate record took. A changed file vouches for nothing.
+ * @param {Context} ctx @param {string} dir @returns {string[]}
+ */
+function vouchedHumanChecks(ctx, dir) {
+  const rec = gateLatestFile(ctx, dir, 'QA', '-');
+  if (rec === '') return [];
+  const art = gateField(ctx, rec, 'artifact');
+  if (art !== 'QA_REPORT.md' || gateField(ctx, rec, 'artifact_sha256') !== sha256File(`${dir}/${art}`)) return [];
+  const qa = fileText(ctx, `${dir}/${art}`);
+  return qa === null ? [] : humanChecks(qa).filter((x) => x !== '');
+}
+
+/**
+ * The line the script writes for a visual check that re-ran nothing (A130 demands '- QA:visual: not reproduced (NOT_RERUN)'); the lead's own line for it is replaced.
+ * @param {Context} ctx @param {string} dir @returns {string[]}
+ */
+function notRerunLines(ctx, dir) {
+  return [...new Set(riskNotRerun(ctx, dir).map((x) => x.split(' ')[0]).filter((n) => n === 'QA:visual'))].map((n) => `- ${n}: not reproduced (NOT_RERUN)`);
+}
+
+/** A341: the script's NOT_RERUN line replaces every `- QA:visual:` line of the QA Result and Review Result sections and goes under '## QA Result'. @param {Context} ctx @param {string} id */
+function notRerunApply(ctx, id) {
+  const dir = runDir(ctx, id);
+  const gen = notRerunLines(ctx, dir);
+  if (gen.length === 0) return;
+  const file = `${dir}/COMPLETION_REPORT.md`;
+  const text = fileText(ctx, file);
+  if (text === null) return;
+  /** @type {string[]} */ const out = [];
+  let section = '';
+  for (const l of records(text)) {
+    const h = /^## (.*?)[ \t]*$/.exec(l);
+    if (h !== null) section = h[1];
+    if ((section === 'QA Result' || section === 'Review Result') && l.startsWith('- QA:visual:')) continue;
+    out.push(l);
+    if (h !== null && h[1] === 'QA Result') out.push(...gen);
+  }
+  writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
+  ctx.forget('file:');
+}
+
+/** What the script generated in a report, for the vocabulary audit to leave out. @param {Context} ctx @param {string} id @param {string} dir @param {{ claims?: string[] | null, factsHash?: string | null }} [blocks] */
+function generatedParts(ctx, id, dir, blocks = {}) {
   const hasDecisions = listNames(`${dir}/decisions`, /^[0-9]{3}-.*\.decision$/).length > 0;
-  return { lookAt: (qa === null ? [] : humanChecks(qa)).filter((x) => x !== ''), execution: hasDecisions ? executionLines(ctx, id) : null, generatedLines: unsupportedLines(ctx, dir) };
+  return { lookAt: vouchedHumanChecks(ctx, dir), execution: hasDecisions ? executionLines(ctx, id) : null, generatedLines: [...unsupportedLines(ctx, dir), ...notRerunLines(ctx, dir)], claims: blocks.claims ?? null, factsHash: blocks.factsHash ?? null };
 }
 
 /**
@@ -353,7 +395,12 @@ function generatedParts(ctx, id, dir) {
  */
 export function completionAudit(ctx, id, lines) {
   const dir = runDir(ctx, id);
-  return auditClaims(lines, claimsBlock(ctx, dir, id), generatedParts(ctx, id, dir));
+  const dup = duplicateBlocks(lines);
+  if (dup !== '') return dup;
+  const claims = claimsBlock(ctx, dir, id);
+  const rows = ledgerRows(ctx, dir, 'completion-claims');
+  const factsHash = rows.length > 0 ? (rows[rows.length - 1].detail.split(' ')[1] ?? null) : null;
+  return auditClaims(lines, claims, generatedParts(ctx, id, dir, { claims: claims.block.replace(/\n$/, '').split('\n'), factsHash }));
 }
 
 /** `report_execution_apply ID`: the generated section replaces the lead's `## Execution` section (or goes before `## Known Limitations`, or last). @param {Context} ctx @param {string} id */
@@ -419,6 +466,7 @@ function prepare(ctx, id, dir, report) {
   stripFacts(ctx, report);
   executionApply(ctx, id); // A203: the Execution table is generated from the decision records, whatever the lead wrote there
   unsupportedApply(ctx, id); // A341
+  notRerunApply(ctx, id); // A341
   summaryApply(ctx, id);
   // the report is a file, so English whatever the user's language: the summary block is not exempt from the language check (the chat message is the user-language text)
   const langHits = languageScanFiles(ctx, [report]);
@@ -432,7 +480,7 @@ function prepare(ctx, id, dir, report) {
   const facts = capture(ctx, () => reportFacts(ctx, id));
   // the trailing blank lines of the lead's text are normalised, so a second publish writes the same bytes
   writeFileSync(report, latin1Buf(`${(fileText(ctx, report) ?? '').replace(/\n+$/, '')}\n\n${claims.block}\n${facts}`));
-  return claims;
+  return { ...claims, factsHash: sha256(facts) };
 }
 
 /** `publish_completion_report ID [ADAPTER]` @param {Context} ctx @param {string} id @param {string} given */
@@ -448,7 +496,7 @@ export function publishCompletionReport(ctx, id, given) {
   // and a fresh block generated from them is appended verbatim.
   // A341: a refused publish leaves the report as it was (the checks below edit it in place)
   const original = existsSync(report) ? readFileSync(report) : null;
-  /** @type {ReturnType<typeof claimsBlock>} */ let claims;
+  /** @type {ReturnType<typeof claimsBlock> & { factsHash: string }} */ let claims;
   try {
     claims = prepare(ctx, id, dir, report);
   } catch (e) {
@@ -497,7 +545,7 @@ export function publishCompletionReport(ctx, id, given) {
   setRunValue(ctx, id, 'completion_report', 'published', 'true');
   setRunValue(ctx, id, 'completion_report', 'receipt', receipt);
   if (gatesEnforced(ctx, dir)) {
-    led(ctx, id, 'completion-claims', 'CODE_DONE', 'CODE_DONE', claims.hash); // A341: verify-completion-report compares the block with this hash
+    led(ctx, id, 'completion-claims', 'CODE_DONE', 'CODE_DONE', `${claims.hash} ${claims.factsHash}`); // A341: verify-completion-report compares the block with this hash
     led(ctx, id, 'publish-completion-report', 'CODE_DONE', 'CODE_DONE', `${adapter} ${receipt}`);
   }
   ctx.out(`completion report published: ${id} via ${adapter} -> ${receipt}\n`);

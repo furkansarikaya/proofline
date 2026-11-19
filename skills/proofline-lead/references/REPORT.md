@@ -72,9 +72,9 @@ at the page", "opened the page", e2e, end-to-end, "real device", "dev server" (t
 Unless the block says the check ran on the final tree, publish refuses the report and lists the words with their
 lines; rephrase the sentence without them (an honest sentence with such a word is refused too). A second `## Execution`
 section of your own is read like any other text. `verify-completion-report`, `handoff DONE` and the delivery step read the
-report, its copy in the task file and the pull request body again, so a sentence added after publish is refused too. The
-`- QA:visual:` line under `## Unsupported Checks` is written by the script from the gate record; your own line for it is
-replaced. Publish prints the `Final message line`; paste it unchanged into
+report and its copy in the task file again, and the delivery step the report it copies into the pull request body, so a sentence added after publish is refused too; a repeated or edited generated block is refused. The
+`- QA:visual:` lines under `## Unsupported Checks` (an unsupported check) and `## QA Result` (a check that re-ran nothing, `not reproduced (NOT_RERUN)`) are written by the script from the gate record; your own line for it is
+replaced. A path or URL that contains a listed word is refused too: describe the file without the path. Publish prints the `Final message line`; paste it unchanged into
 your final message to the user (it stays English) and state no visual, browser, screenshot or UI check of your own there. The final chat message is only guided, not intercepted.
 
 ### Assumptions (A79)

@@ -12,7 +12,7 @@ export const CLAIM_VOCABULARY = [
 // A `*` at the end of an entry means any letters after the stem (render, renders, rendering, renderer).
 
 /** Named HTML entities the audit decodes before it reads the text (numeric ones are always decoded). */
-export const CLAIM_ENTITIES = /** @type {Record<string, string>} */ ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', shy: '', zwj: '', zwnj: '', lrm: '', rlm: '' });
+export const CLAIM_ENTITIES = /** @type {Record<string, string>} */ ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', shy: '', zwj: '', zwnj: '', lrm: '', rlm: '', zerowidthspace: '', newline: ' ', tab: ' ', nonbreakingspace: ' ' });
 
 /** Look-alike Cyrillic and Greek letters (both cases, listed one by one: the core maps case for ASCII only) read as the Latin letter they imitate. Other scripts and languages are not read (English-only rule: a documented limit). */
 export const CLAIM_CONFUSABLES = /** @type {Record<string, string>} */ ({
@@ -21,3 +21,6 @@ export const CLAIM_CONFUSABLES = /** @type {Record<string, string>} */ ({
   '\u0410': 'a', '\u0415': 'e', '\u041e': 'o', '\u0420': 'p', '\u0421': 'c', '\u0423': 'y', '\u0425': 'x', '\u0406': 'i', '\u0405': 's', '\u0408': 'j', '\u041a': 'k', '\u041c': 'm', '\u0422': 't', '\u041d': 'h', '\u0412': 'b',
   '\u039f': 'o', '\u0391': 'a', '\u0395': 'e', '\u039d': 'n', '\u0399': 'i', '\u039a': 'k', '\u03a1': 'p', '\u03a4': 't', '\u03a5': 'y', '\u03a7': 'x', '\u0392': 'b', '\u0397': 'h', '\u039c': 'm', '\u0396': 'z',
 });
+
+/** The HTML tag names the audit removes before it reads the text (a `<` followed by any other word is text). */
+export const HTML_TAGS = ['a', 'abbr', 'b', 'blockquote', 'br', 'cite', 'code', 'del', 'details', 'div', 'dd', 'dl', 'dt', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'ins', 'kbd', 'li', 'mark', 'ol', 'p', 'pre', 'q', 's', 'samp', 'small', 'span', 'strike', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u', 'ul', 'var', 'wbr'];

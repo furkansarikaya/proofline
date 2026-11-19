@@ -14,7 +14,7 @@ import { fileLines, gateField, sectionValue } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { fixRoundsDone } from './reports.mjs';
 import { riskGateFocuses } from './signals.mjs';
-import { CLAIM_CONFUSABLES, CLAIM_ENTITIES, CLAIM_VOCABULARY } from './claimwords.mjs';
+import { CLAIM_CONFUSABLES, CLAIM_ENTITIES, CLAIM_VOCABULARY, HTML_TAGS } from './claimwords.mjs';
 import { lifecycleFolderStatus } from './runs.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -159,14 +159,24 @@ export function checkClaimsBlock(lines) {
   return '';
 }
 
+/** The message when a generated block (Verification claims or Facts) appears more than once: the publish step writes each exactly once. @param {string[]} lines */
+export function duplicateBlocks(lines) {
+  const count = (/** @type {string} */ m) => lines.filter((l) => l === m).length;
+  return count(CLAIMS_BEGIN) > 1 || count(CLAIMS_END) > 1 || count(FACTS_BEGIN) > 1 || count(FACTS_END) > 1
+    ? 'completion report: a generated block (Verification claims or Facts) appears more than once; the publish step writes each exactly once, so the text was edited after publish. Publish the report again (A341)' : '';
+}
+
 /**
  * verify-completion-report: the block of the report in the run folder equals the one the records give now, and the hash recorded at publish.
  * @param {Context} ctx @param {string} dir @param {string} id @param {string} recordedHash the hash the ledger holds ('' for a report published before A341)
  * @returns {string} the message to fail with, else ''
  */
-export function verifyClaimsBlock(ctx, dir, id, recordedHash) {
-  if (recordedHash === '') return '';
+export function verifyClaimsBlock(ctx, dir, id, recordedDetail) {
+  if (recordedDetail === '') return '';
+  const [recordedHash, factsHash = ''] = recordedDetail.split(' ');
   const lines = fileLines(ctx, `${dir}/COMPLETION_REPORT.md`);
+  const dup = duplicateBlocks(lines);
+  if (dup !== '') return dup;
   if (!lines.includes(CLAIMS_BEGIN)) return `completion report: the Verification claims block is missing (the ledger holds its hash ${recordedHash.slice(0, 12)}); publish the report again (A341)`;
   const bad = checkClaimsBlock(lines);
   if (bad !== '') return bad;
@@ -174,10 +184,14 @@ export function verifyClaimsBlock(ctx, dir, id, recordedHash) {
   const have = `${lines.slice(b, e + 1).join('\n')}\n`;
   const now = claimsBlock(ctx, dir, id);
   if (have !== now.block || now.hash !== recordedHash) return `completion report: the Verification claims block differs from what the gate records give now or from the hash recorded at publish; it was changed after publish or the records changed. Now: ${now.line} Publish the report again (A341)`;
+  if (factsHash !== '') {
+    const fb = lines.indexOf(FACTS_BEGIN); const fe = lines.indexOf(FACTS_END, fb);
+    if (fb < 0 || fe < 0 || sha256(`${lines.slice(fb, fe + 1).join('\n')}\n`) !== factsHash) return 'completion report: the Facts block is missing or differs from the one the publish step wrote (the ledger holds its hash); it was changed after publish. Publish the report again (A341)';
+  }
   return '';
 }
 
-/** @typedef {{ lookAt: string[], execution: string[] | null, generatedLines: string[] }} Generated */
+/** @typedef {{ lookAt: string[], execution: string[] | null, generatedLines: string[], claims?: string[] | null, factsHash?: string | null }} Generated */
 
 /**
  * The lead's own text as characters with their line numbers. Left out: the generated blocks (Verification claims, Facts), the Execution section that equals the one the script
@@ -191,9 +205,17 @@ function ownChars(lines, g) {
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (l === CLAIMS_BEGIN || l === FACTS_BEGIN) {
+      // a marker pair is exempt only when its bytes are the ones the script generated: the claims block as the records give it now, the Facts block as the ledger's hash says;
+      // any other content between markers (a second block, an edited or invented one) is read like normal text
       const end = l === CLAIMS_BEGIN ? CLAIMS_END : FACTS_END;
-      while (i < lines.length && lines[i] !== end) i++;
-      continue;
+      const e = lines.indexOf(end, i);
+      if (e > i) {
+        const seg = lines.slice(i, e + 1);
+        const same = l === CLAIMS_BEGIN
+          ? g.claims != null && seg.length === g.claims.length && seg.every((x, k) => x === g.claims?.[k])
+          : g.factsHash != null && sha256(`${seg.join('\n')}\n`) === g.factsHash;
+        if (same) { i = e; continue; }
+      }
     }
     if (/^## Execution[ \t]*$/.test(l) && genExec !== null) {
       let j = i + 1;
@@ -203,7 +225,7 @@ function ownChars(lines, g) {
     }
     if (l.startsWith('Look at: ') && g.lookAt.includes(l.slice('Look at: '.length))) continue;
     if (g.generatedLines.includes(l)) continue;
-    for (const c of l) out.push([c, i + 1]);
+    for (const c of l.replace(/^(?:[ \t]*>)+[ \t]?/, '')) out.push([c, i + 1]);
     out.push(['\n', i + 1]);
   }
   return out;
@@ -251,13 +273,18 @@ function decodeEntities(cs) {
  * @param {Array<[string, number]>} cs @returns {Array<Array<[string, number]>>}
  */
 function readable(cs) {
-  let c = rewrite(cs, /[^]/gu, (m) => m[0].normalize('NFKC'));
-  const fmt = /[\p{Cf}\u034f\u180e]/gu;
-  c = rewrite(c, fmt, () => '');
-  c = decodeEntities(c);
-  c = rewrite(c, fmt, () => '');
+  const fmt = /[\p{Cf}\p{Variation_Selector}\u034f\u180e]/gu;
+  let c = cs;
+  // entities, compatibility forms and invisible characters can hide one another: decode, normalise and strip until nothing changes (at most three rounds)
+  for (let n = 0; n < 3; n++) {
+    const before = c.map((x) => x[0]).join('');
+    c = decodeEntities(c);
+    c = rewrite(c, /[^]/gu, (m) => m[0].normalize('NFKC'));
+    c = rewrite(c, fmt, () => '');
+    if (c.map((x) => x[0]).join('') === before) break;
+  }
   c = rewrite(c, /<!--[^]*?-->/g, () => '');
-  c = rewrite(c, /<\/?[A-Za-z][^>\n]*>/g, () => '');
+  c = rewrite(c, new RegExp(`</?(?:${HTML_TAGS.join('|')})(?:\\s[^>\\n]*)?/?>`, 'gi'), () => ''); // real HTML tags only: "<Chrome 120, no errors>" is text
   c = rewrite(c, /\]\([^)\n]*\)|\]\[[^\]\n]*\]|[[\]]/g, () => '');
   c = rewrite(c, /[^]/gu, (m) => CLAIM_CONFUSABLES[m[0]] ?? asciiLower(m[0]));
   return [rewrite(c, /[*_\\`~]/g, () => ''), rewrite(c, /[*_\\`~]/g, () => ' ')];

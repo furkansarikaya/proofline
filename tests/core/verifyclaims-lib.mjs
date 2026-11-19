@@ -14,11 +14,11 @@ function passOthers(d) {
 }
 
 /** A UI run in which the visual focus passed on the tree that was handed over. @param {boolean} later a fix round after the visual pass, then every other gate again */
-function build(later) {
+function build(later, notRerun = false) {
   const d = rrun('COMPLEX', 'web/index.html', UI);
   frozen(d); implement(d, 'web/index.html', '<main></main>');
   passOthers(d);
-  rec(d, 'QA', 'PASS', [], { focus: 'visual' });
+  rec(d, 'QA', 'PASS', notRerun ? ['QA-1|info|web/index.html:1|NOT_RERUN: QA:visual the page files are unchanged since the earlier run|read the diff'] : [], { focus: 'visual' });
   if (later) {
     // a fix round: a review fails on this tree, the implementer changes a file the visual focus does not watch, and every other gate runs again
     gfail(d, 'REVIEW_RULES', 'impl.txt');
@@ -51,8 +51,8 @@ function buildPublished(earlier) {
   return d;
 }
 
-/** @returns {{ visualFinal: () => string, visualEarlier: () => string, plain: () => string, earlierPublished: () => string }} */
+/** @returns {{ visualFinal: () => string, visualEarlier: () => string, plain: () => string, earlierPublished: () => string, notRerun: () => string }} */
 export function apparatus() {
-  const final = build(false); const earlier = build(true); const plain = buildPlain(); const published = buildPublished(earlier);
-  return { visualFinal: () => copyOf(final), visualEarlier: () => copyOf(earlier), plain: () => copyOf(plain), earlierPublished: () => copyOf(published) };
+  const final = build(false); const earlier = build(true); const plain = buildPlain(); const published = buildPublished(earlier); const nr = build(true, true);
+  return { visualFinal: () => copyOf(final), visualEarlier: () => copyOf(earlier), plain: () => copyOf(plain), earlierPublished: () => copyOf(published), notRerun: () => copyOf(nr) };
 }
