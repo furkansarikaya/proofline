@@ -14,7 +14,8 @@ const names = readdirSync(traceDir).filter((f) => f.endsWith('.json.gz')).map((f
 /** The text with the volatile parts of the project spelled the same on both sides. @param {string} s @param {string} base */
 const mask = (s, base) => (base === '' ? s : s.split(base).join('<BASE>'));
 
-describe('legacy scenarios, moved commands', { concurrency: 4 }, () => {
+// No describe concurrency: a test body is synchronous (spawnSync), so concurrency 4 only queued the stamped starts of 4 tests behind each other and a reported duration was up to 4 tests long (A304, A311, A345).
+describe('legacy scenarios, moved commands', () => {
   for (const name of names) {
     test(name, () => {
       const tr = loadTrace(name);
