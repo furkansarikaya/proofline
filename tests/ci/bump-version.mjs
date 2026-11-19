@@ -20,8 +20,8 @@ const re = (v) => v.replace(/\./g, '\\.');
 const jsLit = (v) => v.replace(/\./g, '\\.');
 
 /**
- * @typedef {{ file: string, pre: string, post: string, js: boolean, range?: 'frontmatter' }} Site
- * file: the file; pre and post: ERE anchoring the version; js: the file spells the version as a regex literal; range: confine the rewrite to the
+ * @typedef {{ file: string, pre: string, post: string, js: boolean, range?: 'frontmatter', single?: true }} Site
+ * single: exactly one line of the file may match (a second one is a stale duplicate, as two merged pull requests left in README.md at 0.0.171); file: the file; pre and post: ERE anchoring the version; js: the file spells the version as a regex literal; range: confine the rewrite to the
  * front matter of a SKILL.md (lines 1 up to the second `---`).
  */
 /** The version-holding sites (listed in CONTRIBUTING.md). @param {string} root @returns {Site[]} */
@@ -41,9 +41,9 @@ export function sites(root) {
     { file: 'skills/exploit-proof/scripts/diff-manifests.mjs', pre: '^export const SKILL_VERSION = "', post: '";$', js: false },
     { file: 'skills/proof-review/scripts/check-config.mjs', pre: '^export const SKILL_VERSION = "', post: '";$', js: false },
     { file: 'skills/proof-review/references/REPORTING.md', pre: '^  "skill_version": "', post: '",$', js: false },
-    { file: 'README.md', pre: '^Version ', post: ' is an early release\\.$', js: false },
-    { file: 'README.md', pre: '^Version \\*\\*', post: '\\*\\*: full scope', js: false },
-    { file: 'adapters/README.md', pre: '^## Support status \\(', post: '\\)$', js: false },
+    { file: 'README.md', pre: '^Version ', post: ' is an early release\\.$', js: false, single: true },
+    { file: 'README.md', pre: '^Version \\*\\*', post: '\\*\\*: full scope', js: false, single: true },
+    { file: 'adapters/README.md', pre: '^## Support status \\(', post: '\\)$', js: false, single: true },
     { file: 'fixtures/concurrency-proof/selfcheck.mjs', pre: 'skill_version: "', post: '"', js: false },
     { file: 'fixtures/insights/setup.mjs', pre: 'proofline_version: ', post: '\\\\nmetrics', js: false },
     { file: 'tests/skills/concurrency-proof.test.mjs', pre: 'schema_version: 1, skill_version: "', post: '"', js: false },
@@ -86,10 +86,18 @@ function site(root, s, mode, cur, next) {
   const text = readFileSync(f, 'utf8');
   const lines = text.split('\n');
   const grep = (/** @type {string} */ v) => lines.some((l) => new RegExp(`${s.pre}${v}${s.post}`).test(l));
-  if (mode === 'probe') { if (!grep(oldv)) die(`site not found in ${s.file}: ${s.pre}`); return []; }
+  const count = (/** @type {string} */ v) => lines.filter((l) => new RegExp(`${s.pre}${v}${s.post}`).test(l)).length;
+  if (mode === 'probe') {
+    if (!grep(oldv)) die(`site not found in ${s.file}: ${s.pre}`);
+    if (s.single && count(anyv) > 1) die(`site found more than once in ${s.file}: ${s.pre} (remove the stale duplicate line first)`);
+    return [];
+  }
   if (mode === 'check') {
-    if (grep(anyv)) return grep(oldv) ? [] : [`mismatch: ${s.file} (${s.pre}) is not ${cur}`];
-    return [`missing: ${s.file} (${s.pre})`];
+    if (!grep(anyv)) return [`missing: ${s.file} (${s.pre})`];
+    // a line of the site that names another version is a stale leftover (a mismatch even when another line is current); a single site may match once only
+    if (count(anyv) !== count(oldv)) return [`mismatch: ${s.file} (${s.pre}) is not ${cur}`];
+    if (s.single && count(anyv) > 1) return [`duplicate: ${s.file} (${s.pre}) matches ${count(anyv)} lines, expected 1`];
+    return [];
   }
   const rx = new RegExp(`(${s.pre})${oldv}(${s.post})`);
   const ok = inRange(lines, s);

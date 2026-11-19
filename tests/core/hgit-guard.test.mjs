@@ -61,13 +61,18 @@ export const EXCEPT_SUBS = /** @type {Record<string, Record<string, string>>} */
     commit: 'the probe commit in that scratch repository: it exists to run the project\'s hook',
     push: 'the probe push from that scratch repository to its own bare remote',
   },
+  'merge.mjs': {
+    fetch: 'the release tag step (A349) reads the base branch tip before and after the merge (`ls-remote` names the tip, `git fetch --no-tags origin <sha>` brings that commit; no FETCH_HEAD): a remote operation like the delivery push, no index and no work tree, run with the cleaned tool environment',
+    push: 'the release tag step pushes `refs/tags/v<version>` to origin, never forced: a remote operation, no index and no work tree',
+    tag: 'the release tag step creates the lightweight tag `v<version>` on a commit: it writes one ref, reads no index and no work tree',
+  },
   'proflinecli.mjs': { status: 'the local `git` wrapper sends `status` to hgit (the `a[0] === \'status\'` branch); the other subcommands are refs only' },
 });
 /** Single subcommands whose exception holds only for calls through these wrappers (the private proof repository's `gp`/`gps`): a raw `proc.run('git', [..., 'diff'])` in the same file is not covered. */
 export const EXCEPT_VIA = /** @type {Record<string, Record<string, string[]>>} */ ({ 'deliver.mjs': { diff: ['gp', 'gps'], log: ['gp', 'gps'] } });
 /** The local functions (per file) that forward their argument list to a raw git spawn: their calls are checked too. Regular expression sources. */
 export const WRAPPERS = /** @type {Record<string, string[]>} */ ({
-  'merge.mjs': ['gitOut'],
+  'merge.mjs': ['gitOut', 'gitRemote'],
   'gitstate.mjs': ['git'],
   'install.mjs': ['g', 'this\\.git'],
   'doctor.mjs': ['git', 'this\\.gitOut', 'pg', 'init'],
@@ -78,7 +83,7 @@ export const WRAPPERS = /** @type {Record<string, string[]>} */ ({
 });
 /** How many raw git spawns per file take a list that is not a literal (the forwarding functions). A new local forwarding function changes the count and is found. */
 export const DYN_SPAWNS = /** @type {Record<string, number>} */ ({
-  'deliver.mjs': 1, 'doctor.mjs': 3, 'gitstate.mjs': 1, 'install.mjs': 2, 'merge.mjs': 1, 'platform.mjs': 1, 'proflinecli.mjs': 1, 'worktree.mjs': 1,
+  'deliver.mjs': 1, 'doctor.mjs': 3, 'gitstate.mjs': 1, 'install.mjs': 2, 'merge.mjs': 2, 'platform.mjs': 1, 'proflinecli.mjs': 1, 'worktree.mjs': 1,
 });
 /** Programs other than git that a file may start by name (`proc.run('ps', ...)`), with the reason. No shell or awk is listed: since A251 only core/proc.mjs names them (tests/ci/no-shell-logic.mjs). A call that names git inside its text is refused whatever the program. */
 export const BIN_ALLOW = /** @type {Record<string, Record<string, string>>} */ ({

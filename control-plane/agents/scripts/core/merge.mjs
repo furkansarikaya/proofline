@@ -6,11 +6,13 @@
 // project's build and test pass in a clean copy of the commit ("verified locally, no CI"). Bitbucket, an unrecognized host and a missing tool are not merged by
 // proofline: the branch is pushed, the link is printed and the USER merges (exit 1). The tool (gh, glab, az) comes from an absolute PATH entry and is refused when
 // it resolves into the working directory, the project or a temporary folder; no environment value lifts that (D14). The tools get argument arrays; their JSON is
-// read in process (no jq).
+// read in process (no jq). After a merge into the base branch of THIS repository's own release flow (tests/ci/bump-version.mjs exists), a pull request that changed the
+// version of .claude-plugin/plugin.json (the site bump-version.mjs reads) gets the lightweight tag v<version> on the commit that changed it, pushed to origin (A349).
 import { existsSync } from 'node:fs';
 import { buildRecord } from './buildrecord.mjs';
 import { Context } from './context.mjs';
 import { ProoflineError } from './errors.mjs';
+import { hooksOff } from './hooksoff.mjs';
 import { cleanToolEnv, detectPlatform, linkText, parseJson, mergeToolDecision, platformEnv } from './platform.mjs';
 import * as proc from './proc.mjs';
 
@@ -21,11 +23,17 @@ class Stop extends Error {
   constructor(code) { super(''); this.name = 'Stop'; this.code = code; }
 }
 
+/** The version of .claude-plugin/plugin.json in a commit (the same line bump-version.mjs reads), or '' when the commit or the file is not there. @param {Context} ctx @param {string} commit @param {string} cwd */
+function versionAt(ctx, commit, cwd) {
+  const m = /^ {2}"version": "([0-9]+\.[0-9]+\.[0-9]+)",$/m.exec(gitOut(ctx, ['cat-file', 'blob', `${commit}:.claude-plugin/plugin.json`], cwd));
+  return m ? m[1] : '';
+}
+
 const USAGE = 'usage: proofline merge <PR-NUMBER> [--merge|--squash|--rebase] [--delete-branch] [-R OWNER/REPO]';
 
-/** `git` in the working directory; the output without the trailing newline, or ''. @param {Context} ctx @param {string[]} args */
-function gitOut(ctx, args) {
-  const r = proc.run('git', args, { cwd: ctx.cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
+/** `git` in the working directory (or CWD); the output without the trailing newline, or ''. @param {Context} ctx @param {string[]} args @param {string} [cwd] */
+function gitOut(ctx, args, cwd = ctx.cwd) {
+  const r = proc.run('git', args, { cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'] });
   return r.status === 0 ? r.stdout.toString('utf8').replace(/\n+$/, '') : '';
 }
 
@@ -124,7 +132,7 @@ function run(ctx, argv) {
   if (cli === 'az') { if (repo !== '') refuse('-R is not supported with az; run proofline merge inside the clone'); return mergeAz(); }
 
   // ---- GitHub (gh) -------------------------------------------------------------------------------------------------------------
-  const v1 = call(['pr', 'view', pr, '--json', 'number,state,isDraft,headRefOid,statusCheckRollup']);
+  const v1 = call(['pr', 'view', pr, '--json', 'number,state,isDraft,headRefOid,baseRefName,statusCheckRollup']);
   if (v1.status !== 0) refuse(`gh pr view ${pr} failed (offline, not logged in or no such pull request): ${both(v1)}`);
   const j = parseJson(v1.out);
   if (!j || typeof j !== 'object' || Array.isArray(j) || (j.statusCheckRollup !== null && j.statusCheckRollup !== undefined && !Array.isArray(j.statusCheckRollup))) refuse(`gh pr view output is not parseable JSON of the expected shape: ${head200(v1.out)}`);
@@ -171,11 +179,66 @@ function run(ctx, argv) {
   const v2 = call(['pr', 'view', pr, '--json', 'headRefOid']);
   const now = str(parseJson(v2.out)?.headRefOid);
   if (now !== sha) refuse(`the head of pull request ${pr} moved after the check (checked ${sha}, now ${now !== '' ? now : 'unreadable'}); run the merge again`);
+  // the release tag (A349): the tip of the base branch before the merge, read only in this repository's own release flow
+  const release = existsSync(`${top}/tests/ci/bump-version.mjs`) && existsSync(`${top}/.claude-plugin/plugin.json`);
+  const baseName = /^[A-Za-z0-9_./-]+$/.test(str(j.baseRefName)) && !str(j.baseRefName).startsWith('-') ? str(j.baseRefName) : 'main';
+  /** Git in the top folder for the remote steps of the tag: hooks off (core.hooksPath, as the delivery push), the cleaned tool environment (SSH_AUTH_SOCK kept). @param {string[]} a */
+  const gitRemote = (a) => proc.run('git', ['-C', top, '-c', `core.hooksPath=${hooksOff()}`, ...a], { cwd: top, env: cleanToolEnv(ctx, { remote: true }), input: '', stdio: ['pipe', 'pipe', 'pipe'], timeoutMs: 120000 });
+  /** The tip of the base branch on origin, race-free: asked from origin (ls-remote), then fetched BY that commit, never through FETCH_HEAD that a concurrent fetch can overwrite. '' when unreadable. */
+  const tipOf = () => {
+    const ls = gitRemote(['ls-remote', 'origin', `refs/heads/${baseName}`]);
+    const tip = ls.status === 0 ? (ls.stdout.toString('utf8').split('\n')[0] ?? '').split(/\s+/)[0] ?? '' : '';
+    if (!/^[0-9a-f]{40}$/.test(tip)) return '';
+    if (gitRemote(['fetch', '--no-tags', '-q', 'origin', tip]).status !== 0) return '';
+    return gitOut(ctx, ['rev-parse', '-q', '--verify', `${tip}^{commit}`], top);
+  };
+  const tipBefore = release ? tipOf() : '';
   if (vnote !== '') {
     if (call(['pr', 'comment', pr, '--body', vnote]).status !== 0) refuse(`could not record "verified locally, no CI" on pull request ${pr} (gh pr comment failed); nothing was merged`);
     say(`proofline merge: pull request ${pr} has no checks; ${vnote}; merging (${method})`);
   } else say(`proofline merge: pull request ${pr} is green at ${sha} (${n} checks); merging (${method})`);
-  return finish(call(['pr', 'merge', pr, method, '--match-head-commit', sha, ...(del !== '' ? ['--delete-branch'] : [])]));
+  finish(call(['pr', 'merge', pr, method, '--match-head-commit', sha, ...(del !== '' ? ['--delete-branch'] : [])]));
+  if (release) tagRelease(tipBefore, tipOf());
+  else say("proofline merge: no release tag was made: this is not proofline's own repository (no tests/ci/bump-version.mjs or .claude-plugin/plugin.json here)");
+  return undefined;
+
+  /**
+   * The release tag (A349): the merge is done and stays done; this only adds the tag. A version PR is a merge whose commits on the base branch (first parent, oldest first, between
+   * the tip before and the tip after) change the version of plugin.json. Each new version gets `v<version>` on the commit that changed it (lightweight, so no identity is needed).
+   * A tag that exists at the same commit is fine; at another commit it is refused and never moved; a push is never forced. Any failure is reported with the exact commands, exit 1.
+   * @param {string} before @param {string} after
+   */
+  function tagRelease(before, after) {
+    if (before === '' || after === '') { ctx.err(`proofline merge: pull request ${pr} IS MERGED, but origin/${baseName} could not be read, so the release tag was not checked. If this was a version pull request, find the commit that changed the version and run: git tag v<version> <commit> && git push origin refs/tags/v<version>\n`); throw new Stop(1); }
+    if (before === after) { say(`proofline merge: no release tag was made: origin/${baseName} did not move, so the merge may only be queued; if it completes later and was a version pull request, tag it by hand`); return; }
+    /** @type {Array<{ version: string, commit: string }>} */ const changes = [];
+    for (const c of gitOut(ctx, ['rev-list', '--first-parent', '--reverse', `${before}..${after}`], top).split('\n').filter((x) => x !== '')) {
+      const v = versionAt(ctx, c, top); const parent = gitOut(ctx, ['rev-parse', '-q', '--verify', `${c}^`], top);
+      if (v !== '' && parent !== '' && v !== versionAt(ctx, parent, top)) changes.push({ version: v, commit: c });
+    }
+    let failed = false;
+    for (const { version, commit } of changes) {
+      const tag = `v${version}`; const ref = `refs/tags/${tag}`;
+      let tagged = false; // the local tag exists at the commit: the hint then holds the push only (a repeated `git tag` would fail the chain exactly when it is needed)
+      const finishBy = () => `${tagged ? '' : `git tag ${tag} ${commit} && `}git push origin ${ref}`;
+      const fail = (/** @type {string} */ why) => { failed = true; ctx.err(`proofline merge: pull request ${pr} IS MERGED, but the release tag ${tag} was NOT ${tagged ? 'pushed (it exists locally)' : 'created'}: ${why}\n`); };
+      const localTag = gitOut(ctx, ['rev-parse', '-q', '--verify', `${ref}^{commit}`], top);
+      tagged = localTag === commit;
+      if (localTag !== '' && localTag !== commit) { fail(`the tag exists locally at ${localTag}, not at the version commit ${commit}. proofline never moves a tag; decide by hand`); continue; }
+      const ls = gitRemote(['ls-remote', 'origin', ref, `${ref}^{}`]);
+      if (ls.status !== 0) { fail(`origin could not be asked for its tags (${head200(ls.stderr.toString('utf8').trim())}). To finish: ${finishBy()}`); continue; }
+      const rows = ls.stdout.toString('utf8').split('\n').filter((x) => x !== '').map((x) => x.split(/\s+/));
+      const remoteTag = (rows.find((r) => r[1] === `${ref}^{}`) ?? rows.find((r) => r[1] === ref))?.[0] ?? '';
+      if (remoteTag !== '' && remoteTag !== commit) { fail(`origin already has ${tag} at ${remoteTag}, not at the version commit ${commit}. proofline never moves a tag; decide by hand`); continue; }
+      if (remoteTag === commit) { say(`proofline merge: release tag ${tag} is already on origin at ${commit}`); continue; }
+      if (!tagged && gitRemote(['tag', tag, commit]).status !== 0) { fail(`git tag ${tag} ${commit} failed. To finish: ${finishBy()}`); continue; }
+      tagged = true;
+      const push = gitRemote(['push', 'origin', `${ref}:${ref}`]);
+      if (push.status !== 0) { fail(`git push origin ${ref} failed (${head200(push.stderr.toString('utf8').trim())}). To finish: ${finishBy()}`); continue; }
+      say(`proofline merge: release tag ${tag} created at ${commit} and pushed to origin`);
+    }
+    if (failed) throw new Stop(1);
+  }
 
   /** The merge call's own output and status are the command's. @param {{ status: number, out: string, err: string }} r */
   function finish(r) {
