@@ -13,10 +13,11 @@ import { baselineFingerprint, pathFingerprint } from './fingerprint.mjs';
 import { git, addedLines, catBatch, diffNames, numstat, objectExists, show, untrackedPaths, sortUnique } from './git.mjs';
 import { ecosystemRows } from './ecodata.mjs';
 import { sha256 } from './hash.mjs';
+import { asciiLower } from './shellglob.mjs';
 import { isFile } from './paths.mjs';
 import * as proc from './proc.mjs';
 import { WS, authorizedPath, fileText, gatesEnforced, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
-import { blockOnlyText, firstGlob, inKnowledgeScope, installedControlPath, isBlockFile, pathMatches, stripProoflineBlock, words } from './scope.mjs';
+import { blockOnlyText, designSurfaceNames, firstGlob, inKnowledgeScope, installedControlPath, isBlockFile, pathMatches, stripProoflineBlock, words } from './scope.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -25,19 +26,24 @@ import { blockOnlyText, firstGlob, inKnowledgeScope, installedControlPath, isBlo
 /**
  * `eco_sets`: the risky set and the dependency set, space-joined, from the flat ecosystem definition. `loaded` is false when the
  * definition is not readable (the config globs alone apply, and `pipeline` prints a warning).
- * @param {Context} ctx @returns {{ loaded: boolean, risky: string, dependency: string }}
+ * @param {Context} ctx @returns {{ loaded: boolean, risky: string, dependency: string, ui: string, uiAmbiguous: string, uiDirs: string, uiConfig: string, uiExclude: string }}
  */
 export function ecosystemSets(ctx) {
   return ctx.once('eco-sets', () => {
     const rows = ecosystemRows(ctx);
-    if (!rows) return { loaded: false, risky: '', dependency: '' };
-    const r = new Set(); const d = new Set();
-    /** @type {string[]} */ const rl = []; /** @type {string[]} */ const dl = [];
+    if (!rows) return { loaded: false, risky: '', dependency: '', ui: '', uiAmbiguous: '', uiDirs: '', uiConfig: '', uiExclude: '' };
+    const r = new Set(); const d = new Set(); const u = new Set(); const ua = new Set(); const ud = new Set(); const uc = new Set(); const ux = new Set();
+    /** @type {string[]} */ const rl = []; /** @type {string[]} */ const dl = []; /** @type {string[]} */ const ul = []; /** @type {string[]} */ const ual = []; /** @type {string[]} */ const udl = []; /** @type {string[]} */ const ucl = []; /** @type {string[]} */ const uxl = [];
     for (const [id, key, val] of rows) {
       if ((id === '*' && key === 'risky_paths') || (id !== '*' && (key === 'risky_paths' || key === 'manifests' || key === 'locks' || key === 'settings'))) { if (!r.has(val)) { r.add(val); rl.push(val); } }
       if (id !== '*' && (key === 'manifests' || key === 'locks' || key === 'settings')) { if (!d.has(val)) { d.add(val); dl.push(val); } }
+      if (id === '*' && key === 'ui_paths.always' && !u.has(val)) { u.add(val); ul.push(val); }
+      if (id === '*' && key === 'ui_paths.ambiguous' && !ua.has(val)) { ua.add(val); ual.push(val); }
+      if (id === '*' && key === 'ui_exclude' && !ux.has(val)) { ux.add(val); uxl.push(val); }
+      if (id === '*' && key === 'ui_config' && !uc.has(val)) { uc.add(val); ucl.push(val); }
+      if (id === '*' && key === 'ui_dirs' && !ud.has(val)) { ud.add(val); udl.push(val); }
     }
-    return { loaded: true, risky: rl.join(' '), dependency: dl.join(' ') };
+    return { loaded: true, risky: rl.join(' '), dependency: dl.join(' '), ui: ul.join(' '), uiAmbiguous: ual.join(' '), uiDirs: udl.join(' '), uiConfig: ucl.join(' '), uiExclude: uxl.join(' ') };
   });
 }
 
@@ -370,6 +376,58 @@ export function riskLegacyFrozen(ctx, dir) {
   return h !== hashLines(all) && h !== hashLines(noeco) && (h === hashLines(legacy) || h === hashLines(legacyNoeco));
 }
 
+/**
+ * A340: a path that is test code for the visual decisions. Deliberately STRICTER than `testCodePath` (which also reads `*Test.*` and any `test/` folder): `ABTest.tsx`, `HearingTest.vue` and
+ * `src/app/test/page.tsx` are product UI. Test code is a file named `*.test.*` or `*.spec.*`, a file named `*_test.*` unless it is an unambiguous UI type (`speed_test.tsx`, `hearing_test.vue`
+ * are UI), a path under a root-level `tests/`, `test/`, `__tests__/`, `spec/`, `e2e/` or `cypress/` folder, or one with a `__tests__/` segment. The comparison ignores case.
+ * @param {Context} ctx @param {string} p
+ */
+export function strictTestPath(ctx, p) {
+  return strictTestWith(uiData(ctx), p);
+}
+
+/**
+ * The UI data of ecosystems.json and the surface paths as lists and lower-cased strings, built once per invocation (`ctx.once`): `uiPathHit` runs for every changed path, and the
+ * surface lookup walks the whole config. @param {Context} ctx
+ */
+function uiData(ctx) {
+  return ctx.once('ui-data', () => {
+    const eco = ecosystemSets(ctx);
+    return { always: words(eco.ui), ambiguous: words(eco.uiAmbiguous), front: asciiLower(`${eco.uiDirs} ${designSurfacePaths(ctx)}`), exclude: eco.uiExclude };
+  });
+}
+
+/** @param {{ always: string[] }} d @param {string} p */
+function strictTestWith(d, p) {
+  const l = asciiLower(p);
+  const b = l.slice(l.lastIndexOf('/') + 1);
+  if (/\.(test|spec)\.[^/]*$/.test(b)) return true;
+  if (/_test\.[^/]*$/.test(b) && firstGlob(l, d.always) === null) return true;
+  return /^(tests|test|__tests__|spec|e2e|cypress)\//.test(l) || l.includes('/__tests__/');
+}
+
+/**
+ * A340, the ONE predicate behind the `ui_path` signal and the stale decision of the visual focus: the glob that makes PATH a UI file, or null. An unambiguous frontend type
+ * (`global.ui_paths.always`) always; a script type (`ui_paths.ambiguous`) only under a `global.ui_dirs` directory or a design-surface path and not under a `global.ui_exclude` backend route folder (`pages/api`); never a strict test path. Case is ignored.
+ * @param {Context} ctx @param {string} p @returns {string | null}
+ */
+export function uiPathHit(ctx, p) {
+  const d = uiData(ctx);
+  if (strictTestWith(d, p)) return null;
+  const l = asciiLower(p);
+  const hit = firstGlob(l, d.always);
+  if (hit !== null) return hit;
+  if (d.front.trim() === '' || !pathMatches(l, d.front)) return null;
+  return d.exclude !== '' && pathMatches(l, d.exclude) ? null : firstGlob(l, d.ambiguous);
+}
+
+/** The `paths` globs of every design surface of the config, space-joined (A340). @param {Context} ctx */
+export function designSurfacePaths(ctx) {
+  let out = '';
+  for (const s of designSurfaceNames(ctx)) out += ` ${ctx.config().get(`design_docs.design.surfaces.${s}.paths`, '')}`;
+  return out.trim();
+}
+
 /** `risk_paths ID NAME`: the globs of one signal, plus the ecosystem set when its check is `dependencies`. @param {Context} ctx @param {string} dir @param {string} name */
 export function riskPaths(ctx, dir, name) {
   const cfg = ctx.config();
@@ -479,6 +537,14 @@ function riskCompute(ctx, dir) {
       const globs = words(g);
       for (const [src, p] of tagged) {
         const hit = firstGlob(p, globs);
+        if (hit !== null) out.push({ name: n, source: src, path: p, why: hit });
+      }
+    }
+    // A340: the frontend file types of ecosystems.json raise the visual signal (uiPathHit: script types only in a frontend directory or a design surface; a strict test path never)
+    if (cfg.get(`risk.${n}.check`, '') === 'visual') {
+      for (const [src, p] of tagged) {
+        if (g !== '' && pathMatches(p, g)) continue;
+        const hit = uiPathHit(ctx, p);
         if (hit !== null) out.push({ name: n, source: src, path: p, why: hit });
       }
     }
