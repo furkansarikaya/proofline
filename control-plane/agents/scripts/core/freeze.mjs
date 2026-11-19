@@ -34,6 +34,7 @@ import { exemptedPath, checkTypeExemptions, pipelineSignature, verifyQaPlanBound
 import { pathsExecutable, requireTaskDefects } from './handoff.mjs';
 import { sharedDirOf, sortedNames } from './approvals.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { bytes } from './config.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -249,13 +250,13 @@ export function pipelineCheck(ctx, id) {
     const n = scopePaths(planScope(ctx, dir).rows).filter((p) => pk.pathKind(p) === 'code').length;
     const max = Number(maxText);
     if (n > max) {
-      if (cls === 'TRIVIAL') fail(`the ${cls} pipeline allows at most ${maxText} code paths (content and document paths are not counted); this plan has ${n} — reclassify`);
+      if (cls === 'TRIVIAL') fail(`the ${cls} pipeline allows at most ${maxText} code paths (content and document paths are not counted); this plan has ${n} ${bytes('—')} reclassify`);
       splitCheck(ctx, id, cls, n, max);
     }
   }
   if (cls === 'TRIVIAL') {
     const code = pathsExecutable(ctx, planScope(ctx, dir).ok ? scopePaths(planScope(ctx, dir).rows) : []);
-    if (code.length > 0) fail(`the TRIVIAL pipeline covers text and configuration only; scope has executable code:${code.map((c) => ` ${c}`).join('')} — classify STANDARD ('agent.sh classify ${id} STANDARD', write the evidence and QA plan it requires, then amend and 'agent.sh refreeze ${id} <AMENDMENT>' on a frozen run)`);
+    if (code.length > 0) fail(`the TRIVIAL pipeline covers text and configuration only; scope has executable code:${code.map((c) => ` ${c}`).join('')} ${bytes('—')} classify STANDARD ('agent.sh classify ${id} STANDARD', write the evidence and QA plan it requires, then amend and 'agent.sh refreeze ${id} <AMENDMENT>' on a frozen run)`);
   }
 }
 

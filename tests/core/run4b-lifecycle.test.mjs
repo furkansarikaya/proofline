@@ -159,7 +159,7 @@ test('amend: reopens a CODE_DONE run with a specific form; a path outside the fr
   refused(A(d, ['amend', 'LC'], { input: form('extra.txt') }), 'a path outside the plan', 'fix_scope names a path outside the frozen scope: extra.txt');
   refused(A(d, ['amend', 'LC'], { input: form(), role: 'reviewer' }), 'a non-lead', 'command denied for reviewer: amend');
   const r = accepted(A(d, ['amend', 'LC'], { input: form() }), 'amend');
-  assert.match(r.out, /^run reopened: LC \(\d{3}-REOPEN\); handoff IMPLEMENTING, execution AMENDING/m);
+  assert.match(r.out, /^run reopened: LC \(\d{3}-REOPEN\); handoff IMPLEMENTING, execution AMENDING — implement the bounded fix/m);   // the dash is UTF-8 on the wire (A347)
   assert.equal(runValue(d, 'execution', 'state'), 'AMENDING');
   assert.equal(runValue(d, 'handoff', 'state'), 'IMPLEMENTING');
   assert.equal(runValue(d, 'handoff', 'implemented_patch_sha256'), 'PENDING');

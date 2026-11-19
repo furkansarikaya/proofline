@@ -25,7 +25,9 @@ test("task-author SKILL.md: tasks.dir, adr_dir, team.yaml asked once, local .git
   assert.match(s, /no team info is recorded, ask ONE question/);
   assert.match(s, /\.agents\/local\/team\.yaml/);
   assert.match(s, /Do not ask again in later grills/);
-  assert.match(s, /create `\.agents\/local\/\.gitignore` containing `\*`/);
+  // A348: init and upgrade create the file; the lead never writes it (the hook refuses) and asks the user to run upgrade when it is missing
+  assert.match(s, /`\.agents\/local\/\.gitignore` \(`\*`\) is made by `proofline init`\/`upgrade`; never write it \(the hook refuses\): if missing, ask the user to run `proofline upgrade`/);
+  assert.doesNotMatch(s, /create `\.agents\/local\/\.gitignore`/);
 });
 
 test("DESIGN.md default is docs/design/DESIGN.md (config, knowledge scope, CLI fallback)", () => {

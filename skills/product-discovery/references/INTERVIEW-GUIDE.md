@@ -13,7 +13,7 @@ Use it to prepare questions and to write the synthesis. The user runs the interv
 
 ## After the interview
 
-1. The user pastes the notes or transcript. Write it unchanged to `.agents/local/product-discovery/<slug>/interviews/INT-<n>.txt`. Create `.agents/local/.gitignore` with `*` first when it is missing.
+1. The user pastes the notes or transcript. Write it unchanged to `.agents/local/product-discovery/<slug>/interviews/INT-<n>.txt`. First check that `.agents/local/.gitignore` exists (`proofline init` and `proofline upgrade` create it); when it is missing, tell the user to run `proofline upgrade` and do not write the file yourself.
 2. In `INTERVIEWS.md` add `- INT-<n> <role>, <YYYY-MM-DD>` and the claims drawn from it: `- C-<n> <paraphrase> [fact: interview INT-<n> "<exact quote>"]`. Copy quotes exactly; shorten with `...` only.
 3. Run `check-quotes.mjs <slug>` and `check-quotes.mjs <slug> --privacy`. Fix a quote, never the raw text.
 4. A theme heard once is one claim, not a pattern. Say how many interviews support it.

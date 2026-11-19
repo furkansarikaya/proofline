@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.0.172 — 2026-11-20
+
+- Fix (A347): in a Turkish project the user's answer to an option question was never recorded: `matchesAcceptedForm` searched the byte-string question text with `seçenekler:` as UTF-16 text. The options line and the message are now decoded from bytes, folded the Turkish way (ç ğ ı İ ş ö ü, I/i) and matched with a Unicode word boundary; the negation check stays on bytes. When a short one-line message does not match, the prompt hook now says so in one line (language-aware) with the accepted forms instead of staying silent. The same defect class elsewhere: `reopen`, two `freeze` refusals and the secret-scan error wrote an em dash or Turkish text through the latin1 output as control characters or invalid bytes; the evidence-only repair compared non-ASCII test names as text with the plan's byte strings. See A347 in docs/decisions.md.
+- Fix (A348): the skills told the lead to create `.agents/local/.gitignore` before the first write under `.agents/local/`, but the PreToolUse hook refuses the lead that file. `proofline init` and `proofline upgrade` now create it (`*`; never rewritten, not with `local_state: off`), and the shared section, explain-html, product-discovery and its interview guide say to ask the user for `proofline upgrade` when it is missing. See A348 in docs/decisions.md.
+
 - Docs (no release), A346: the second closing records of the campaign: the e2e runs of 2026-11-19 on d09c5b07 (STANDARD FAIL 36/37, COMPLEX FAIL 30/37, one STANDARD attempt never started), the answers #330 to #334, proof page rows, CI and Windows facts, accepted limits A346.1 to A346.5, and small additions to the testing and night-mode concept pages
 
 ## 0.0.171 — 2026-11-19

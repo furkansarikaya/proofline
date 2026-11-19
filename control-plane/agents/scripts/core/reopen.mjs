@@ -18,6 +18,7 @@ import { requireRun, runDir } from './runs.mjs';
 import { ledgerToken } from './questions.mjs';
 import { freshness, verifyHandoff, verifyScope } from './commands/verify.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { bytes } from './config.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -97,7 +98,7 @@ export function amendRun(ctx, id, input) {
   setRunValue(ctx, id, 'handoff', 'code_done_patch_sha256', 'PENDING');
   if (sectionKeyPresent(ctx, dir, 'completion_report', 'published')) { setRunValue(ctx, id, 'completion_report', 'published', 'false'); setRunValue(ctx, id, 'completion_report', 'receipt', 'PENDING'); }
   led(ctx, id, 'REOPEN', prevHs, 'IMPLEMENTING', `${ledgerToken(dir, `gates/${name}.yaml`)} authorized_by=${auth}: ${reason}`);
-  ctx.out(`run reopened: ${id} (${name}); handoff IMPLEMENTING, execution AMENDING — implement the bounded fix, then every required gate runs again\n`);
+  ctx.out(`run reopened: ${id} (${name}); handoff IMPLEMENTING, execution AMENDING ${bytes('—')} implement the bounded fix, then every required gate runs again\n`);
   return 0;
 }
 
@@ -117,9 +118,9 @@ function reopenQuestion(ctx, id, ph, n, st, prev) {
   }
   const b = mutationBudget(ctx, id);
   if (runLanguage(ctx, id) === 'tr') {
-    ctx.out(`YENİDEN AÇMA ÖZETİ (${id})\n  koşu: ${id}, açılışta dönülecek durum: ${prev}\n  plan: dondurulmuş (sha256 ${ph}), kapsam yeniden denetlendi\n  mutasyon bütçesi: ${b} -> ${n} (PLAN ## Tests ${n} ölçüt adlandırıyor; yalnızca bu koşuda artar)\n  kapılar: değişmemiş girdilerle geçenler kalır, geçmeyenler ve girdisi değişenler yeniden çalışır; düzeltme turu hakkı sıfırlanır\n`);
-    ctx.out(`\nQUESTIONS:\n1. Bütçeyi ${n} değerine çıkarıp ${id} koşusunu yeniden açalım mı?\n`);
-    ctx.out(`   seçenekler: approve | reject\n   kabul edilen yanıtlar: ${approvalExample(`reopen:${id}`)} (tek yanıt iki kararı da kaydeder: bütçe artışı ve yeniden açma; başka sözcük onay sayılmaz)\n   önerilen: yok (karar sizin)\n`);
+    ctx.out(bytes(`YENİDEN AÇMA ÖZETİ (${id})\n  koşu: ${id}, açılışta dönülecek durum: ${prev}\n  plan: dondurulmuş (sha256 ${ph}), kapsam yeniden denetlendi\n  mutasyon bütçesi: ${b} -> ${n} (PLAN ## Tests ${n} ölçüt adlandırıyor; yalnızca bu koşuda artar)\n  kapılar: değişmemiş girdilerle geçenler kalır, geçmeyenler ve girdisi değişenler yeniden çalışır; düzeltme turu hakkı sıfırlanır\n`));
+    ctx.out(bytes(`\nQUESTIONS:\n1. Bütçeyi ${n} değerine çıkarıp ${id} koşusunu yeniden açalım mı?\n`));
+    ctx.out(`${bytes('   seçenekler: approve | reject\n   kabul edilen yanıtlar: ')}${approvalExample(`reopen:${id}`)}${bytes(` (tek yanıt iki kararı da kaydeder: bütçe artışı ve yeniden açma; başka sözcük onay sayılmaz)\n   önerilen: yok (karar sizin)\n`)}`);
   } else {
     ctx.out(`REOPEN SUMMARY (${id})\n  run: ${id}, state it returns to: ${prev}\n  plan: frozen (sha256 ${ph}), scope checked again\n  mutation budget: ${b} -> ${n} (PLAN ## Tests names ${n} criteria; raised for this run only)\n  gates: those that passed on unchanged inputs stay, the others run again; the fix-round allowance restarts\n`);
     ctx.out(`\nQUESTIONS:\n1. Raise the budget to ${n} and reopen the run ${id}?\n`);

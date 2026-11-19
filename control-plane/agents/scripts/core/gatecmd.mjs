@@ -30,6 +30,7 @@ import { greenRecords, measureRequired } from './testmeasure.mjs';
 import { evidenceRepairPlan, evidenceRepairRun } from './evidencerepair.mjs';
 import { notRunRelative } from './pathin.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { bytes } from './config.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -64,7 +65,7 @@ export function secretScanCommand(ctx, args) {
     result = 'fail';
     if (rows.length === 0) rows = ['SECRETS-1|blocking|-|secret scanner reported findings without locations|secret-scan.sh'];
   } else {
-    fail(`secret scan error (exit ${rc}): ${err.split('\n').slice(0, 3).join(' ')} — nothing recorded (BLOCKED)`);
+    fail(`secret scan error (exit ${rc}): ${err.split('\n').slice(0, 3).join(' ')} ${bytes('—')} nothing recorded (BLOCKED)`);
   }
   writeGate(ctx, { id, gate: 'SECRETS', result, role: 'secret-scan', confidence: 'high', focus: '', artifact: '', findings: rows, resultFile: '', fingerprint: gateFingerprint(ctx) });
   if (result !== 'pass') for (const r of rows) ctx.out(`  ${r}\n`);
