@@ -168,7 +168,7 @@ export function duplicateBlocks(lines) {
 
 /**
  * verify-completion-report: the block of the report in the run folder equals the one the records give now, and the hash recorded at publish.
- * @param {Context} ctx @param {string} dir @param {string} id @param {string} recordedHash the hash the ledger holds ('' for a report published before A341)
+ * @param {Context} ctx @param {string} dir @param {string} id @param {string} recordedDetail what the ledger row holds: the claims hash and the Facts hash ('' for a report published before A341)
  * @returns {string} the message to fail with, else ''
  */
 export function verifyClaimsBlock(ctx, dir, id, recordedDetail) {

@@ -320,7 +320,11 @@ function unsupportedLines(ctx, dir) {
   return riskUnsupported(ctx, dir).filter((x) => x[0] === 'QA:visual').map((x) => `- QA:visual: ${String(x[2] ?? '').replace(/^UNSUPPORTED /, '').replace(/[\s]+/g, ' ').trim()}; not proven: whether the changed interface behaves as the acceptance criteria describe when a user operates it`);
 }
 
-/** A341: the script's line replaces every lead-written `- QA:visual:` line of '## Unsupported Checks'. @param {Context} ctx @param {string} id */
+/**
+ * A341: after the structure checks (the lead had to name the check and say 'not proven: <what>' in at least three words), the script's line replaces the lead's `- QA:visual:` line of
+ * '## Unsupported Checks'; the lead's reason and wording never reach the vocabulary audit. A line the lead did not write is not added.
+ * @param {Context} ctx @param {string} id
+ */
 function unsupportedApply(ctx, id) {
   const dir = runDir(ctx, id);
   const gen = unsupportedLines(ctx, dir);
@@ -329,12 +333,11 @@ function unsupportedApply(ctx, id) {
   const text = fileText(ctx, file);
   if (text === null) return;
   /** @type {string[]} */ const out = [];
-  let inside = false;
+  let inside = false; let done = false;
   for (const l of records(text)) {
-    if (inside && l.startsWith('## ')) inside = false;
-    if (inside && l.startsWith('- QA:visual:')) continue;
+    if (/^## /.test(l)) inside = /^## Unsupported Checks[ \t]*$/.test(l);
+    if (inside && l.startsWith('- QA:visual:')) { if (!done) out.push(...gen); done = true; continue; }
     out.push(l);
-    if (/^## Unsupported Checks[ \t]*$/.test(l)) { inside = true; out.push(...gen); }
   }
   writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
   ctx.forget('file:');
@@ -354,32 +357,11 @@ function vouchedHumanChecks(ctx, dir) {
 }
 
 /**
- * The line the script writes for a visual check that re-ran nothing (A130 demands '- QA:visual: not reproduced (NOT_RERUN)'); the lead's own line for it is replaced.
+ * The one line A130 demands for a visual check that re-ran nothing: the lead writes exactly this line, and only this exact line is left out of the vocabulary audit.
  * @param {Context} ctx @param {string} dir @returns {string[]}
  */
 function notRerunLines(ctx, dir) {
   return [...new Set(riskNotRerun(ctx, dir).map((x) => x.split(' ')[0]).filter((n) => n === 'QA:visual'))].map((n) => `- ${n}: not reproduced (NOT_RERUN)`);
-}
-
-/** A341: the script's NOT_RERUN line replaces every `- QA:visual:` line of the QA Result and Review Result sections and goes under '## QA Result'. @param {Context} ctx @param {string} id */
-function notRerunApply(ctx, id) {
-  const dir = runDir(ctx, id);
-  const gen = notRerunLines(ctx, dir);
-  if (gen.length === 0) return;
-  const file = `${dir}/COMPLETION_REPORT.md`;
-  const text = fileText(ctx, file);
-  if (text === null) return;
-  /** @type {string[]} */ const out = [];
-  let section = '';
-  for (const l of records(text)) {
-    const h = /^## (.*?)[ \t]*$/.exec(l);
-    if (h !== null) section = h[1];
-    if ((section === 'QA Result' || section === 'Review Result') && l.startsWith('- QA:visual:')) continue;
-    out.push(l);
-    if (h !== null && h[1] === 'QA Result') out.push(...gen);
-  }
-  writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
-  ctx.forget('file:');
 }
 
 /** What the script generated in a report, for the vocabulary audit to leave out. @param {Context} ctx @param {string} id @param {string} dir @param {{ claims?: string[] | null, factsHash?: string | null }} [blocks] */
@@ -465,8 +447,6 @@ function prepare(ctx, id, dir, report) {
   stripClaims(ctx, report); // A341: before the Facts strip, so a hand edit of the claims block is seen
   stripFacts(ctx, report);
   executionApply(ctx, id); // A203: the Execution table is generated from the decision records, whatever the lead wrote there
-  unsupportedApply(ctx, id); // A341
-  notRerunApply(ctx, id); // A341
   summaryApply(ctx, id);
   // the report is a file, so English whatever the user's language: the summary block is not exempt from the language check (the chat message is the user-language text)
   const langHits = languageScanFiles(ctx, [report]);
@@ -474,6 +454,7 @@ function prepare(ctx, id, dir, report) {
   // A341: the verification claims come from the gate records; a visual, browser or screenshot claim in the lead's own text needs a record for the final tree
   const claims = claimsBlock(ctx, dir, id);
   validateStructure(ctx, id); // the structure messages come first; the vocabulary audit reads the text that passed them
+  unsupportedApply(ctx, id); // A341: the lead named the check and said what is not proven; the script's line replaces the lead's wording
   const audit = auditClaims(records(fileText(ctx, report) ?? ''), claims, generatedParts(ctx, id, dir));
   if (audit !== '') fail(audit);
   claimsCheck(ctx, id, report);

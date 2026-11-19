@@ -265,14 +265,16 @@ describe('the publish step', () => {
     expectMsg('a Look at line from an edited QA report was exempt', 'words of a visual, browser or screenshot check outside the generated blocks', A(d, ['publish-completion-report', 'LC', 'markdown']));
   });
 
-  test('a run whose visual pass re-ran nothing publishes: the script writes the A130 line, the lead line is replaced', () => {
+  test('a run whose visual pass re-ran nothing: the exact A130 line publishes, a variant of it is read as text, a report without it keeps the A130 refusal', () => {
     const d = ui.notRerun();
+    const put = (/** @type {string} */ line) => { writeReport(d, '', '- QA: QA-1 info row, the page files are unchanged.'); writeFileSync(path.join(d, REPORT), rd(d).replace('## QA Result\n', `## QA Result\n${line}\n`)); };
     writeReport(d, '', '- QA: QA-1 info row, the page files are unchanged.');
-    writeFileSync(path.join(d, REPORT), rd(d).replace('## QA Result\n', '## QA Result\n- QA:visual: not reproduced (NOT_RERUN) and the page was checked in Chrome\n'));
-    const r = A(d, ['publish-completion-report', 'LC', 'markdown']);
-    accepted(r, 'a report for a NOT_RERUN visual pass was refused');
+    expectMsg('a report without the not reproduced line was published', 'not reproduced (NOT_RERUN)', A(d, ['publish-completion-report', 'LC', 'markdown']));
+    put('- QA:visual: not reproduced (NOT_RERUN) and the page was checked in Chrome');
+    expectMsg('a variant of the NOT_RERUN line was exempt', 'words of a visual, browser or screenshot check outside the generated blocks', A(d, ['publish-completion-report', 'LC', 'markdown']));
+    put('- QA:visual: not reproduced (NOT_RERUN)');
+    accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), 'the exact NOT_RERUN line was refused');
     assert.match(rd(d), /^- QA:visual: not reproduced \(NOT_RERUN\)$/m);
-    assert.ok(!rd(d).includes('checked in Chrome'), 'the lead line was kept');
   });
 
   test('a refusal after the checks (the plan changed since freeze) leaves the report byte-identical', () => {

@@ -206,13 +206,13 @@ test('sc_unsupported_inconclusive: INCONCLUSIVE blocks until the user waives it;
   accepted(A(d, ['waive', 'LC', fid, '--reason', 'unstable rendering in this environment; the user accepts the visual gap']), 'waive');
   assert.equal(gateSt(d, 'QA'), 'waived', `waived INCONCLUSIVE gate: ${gateSt(d, 'QA')}`);
   accepted(A(d, ['handoff', 'LC', 'CODE_DONE']), 'handoff CODE_DONE'); accepted(A(d, ['knowledge-done', 'LC', 'not_applicable', 'nothing durable changed in this synthetic test run']), 'knowledge-done');
-  // A341: the script writes the line for the unsupported interface check itself, so a report that does not name it still names it, and the lead's own line for it is replaced
-  writeReport(d, '', '## Waivers', 'The user waived the INCONCLUSIVE finding.', '', '## Unsupported Checks', 'The check was skipped.');
-  accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), 'publish without a line for the unsupported check');
-  assert.match(readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8'), /^- QA:visual: .*; not proven: whether the changed interface behaves as the acceptance criteria describe when a user operates it$/m);
+  writeReport(d, '', '## Waivers', 'The user waived the INCONCLUSIVE finding.', '', '## Unsupported Checks', 'Visual check skipped.');
+  expectMsg('a waived INCONCLUSIVE not named', 'must name the UNSUPPORTED check QA:visual', A(d, ['publish-completion-report', 'LC', 'markdown']));
+  // A341: the lead names the check (A130); the script's line then replaces the lead's wording
   writeReport(d, '', '## Waivers', 'The user waived the INCONCLUSIVE finding.', '', '## Unsupported Checks', '- QA:visual: visual INCONCLUSIVE, waived by the user; not proven: the badge layout.');
   accepted(A(d, ['publish-completion-report', 'LC', 'markdown']), 'publish');
-  assert.ok(!readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8').includes('the badge layout'), 'the lead line for the unsupported check was kept');
+  const kept = readFileSync(path.join(d, '.agents/runs/LC/COMPLETION_REPORT.md'), 'utf8');
+  assert.ok(!kept.includes('the badge layout') && /^- QA:visual: .*; not proven: whether the changed interface behaves as the acceptance criteria describe when a user operates it$/m.test(kept), 'the lead line for the unsupported check was kept');
 });
 
 test("sc_unsupported_rows: another focus's INCONCLUSIVE prefix is refused; a defect row plus UNSUPPORTED fails and goes to a fix round", () => {
