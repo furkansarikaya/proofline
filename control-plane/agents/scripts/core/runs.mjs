@@ -125,6 +125,8 @@ export function deliveredMode(ctx, id) {
 export function requireRun(ctx, id) {
   if (!validTaskId(id)) fail('invalid task id');
   if (!isDirectory(runDir(ctx, id))) fail(`run not found: ${id}`);
+  // A344: a folder without RUN.yaml is not a run (a role wrote there from the wrong directory)
+  if (!isFile(`${runDir(ctx, id)}/RUN.yaml`)) fail(`run not found: ${id}: ${runDir(ctx, id)} exists without RUN.yaml: not a run; a role wrote there from the wrong directory: remove it or work in the run worktree`);
   if (isFile(`${deliverDir(ctx, id)}/SUMMARY.md`)) deliveredMode(ctx, id);
 }
 

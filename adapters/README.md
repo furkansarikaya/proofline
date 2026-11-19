@@ -6,7 +6,7 @@ adapter: state, gates and the commit/push lock are in the Node control plane (`c
 hooks, which work with any agent (D6). Supported: Claude Code (full) and Codex (implementer role verified in real use; see the status table). Others: send a PR (D8).
 Untested adapters must be labelled "not tested".
 
-## Support status (0.0.169)
+## Support status (0.0.170)
 ## Support status (0.0.166)
 
 Rendering and hooks are covered by `tests/generator/generator.test.mjs`, the enforcement tests and the self-tests.

@@ -124,7 +124,7 @@ function queued(ctx) {
   /** @type {string[]} */ const out = [];
   for (const f of taskFiles(ctx)) {
     const q = taskId(f);
-    if (isDir(`${ctx.root}/.agents/runs/${q}`) || isDir(`${ctx.root}/.agents/local/worktrees/${q}/.agents/runs/${q}`)) continue;
+    if (isFile(`${ctx.root}/.agents/runs/${q}/RUN.yaml`) || isDir(`${ctx.root}/.agents/local/worktrees/${q}/.agents/runs/${q}`)) continue;
     out.push(q);
   }
   return out;
@@ -163,8 +163,8 @@ const batchState = (/** @type {string[]} */ lines) => { const f = (lines[0] ?? '
 /** `run_state ID` @param {Context} ctx @param {string} id @returns {RunState} */
 function runState(ctx, id) {
   let state = 'none'; let ks = ''; let inwt = false; let rsr = ctx.root;
-  if (id !== '' && !isDir(`${ctx.root}/.agents/runs/${id}`) && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`)) { rsr = `${ctx.root}/.agents/local/worktrees/${id}`; inwt = true; }
-  if (id !== '' && isDir(`${rsr}/.agents/runs/${id}`)) {
+  if (id !== '' && !isFile(`${ctx.root}/.agents/runs/${id}/RUN.yaml`) && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`)) { rsr = `${ctx.root}/.agents/local/worktrees/${id}`; inwt = true; }
+  if (id !== '' && (inwt ? isDir(`${rsr}/.agents/runs/${id}`) : isFile(`${rsr}/.agents/runs/${id}/RUN.yaml`))) {
     let st = ''; let hs = '';
     for (const l of agent(ctx, ['summary', id, '--status']).split('\n')) {
       const m = /^STATUS: ([A-Z_a-z]*) \(handoff ([A-Za-z_]*), knowledge ([A-Za-z_]*)\)/.exec(l);
