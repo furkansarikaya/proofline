@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Docs (no release), A346: the second closing records of the campaign: the e2e runs of 2026-11-19 on d09c5b07 (STANDARD FAIL 36/37, COMPLEX FAIL 30/37, one STANDARD attempt never started), the answers #330 to #334, proof page rows, CI and Windows facts, accepted limits A346.1 to A346.5, and small additions to the testing and night-mode concept pages
+
 ## 0.0.171 — 2026-11-19
 
 - Fix (A345): the port-t2-replay and port-t3-replay tests no longer run in a `describe` with `concurrency: 4` over synchronous bodies, which made every reported duration the length of up to four tests (108 s for a 6 s scenario on a slow runner; main run 44534873456 failed the duration gate of `port-replays` on it). Tests only; budgets unchanged. See A345 in docs/decisions.md.
