@@ -61,7 +61,7 @@ const text = (s) => Buffer.from(s, 'latin1').toString('utf8').normalize('NFC');
 /** @param {string} s */
 const bytes = (s) => Buffer.from(s, 'utf8').toString('latin1');
 /** Case folding for answer forms: Turkish İ, I, ı and i all compare as i (an English "FIX IT" and a Turkish "KIZ" both match), then lower case. @param {string} s */
-const fold = (s) => s.replace(/[İIı]/g, 'i').toLowerCase();
+const fold = (s) => s.replace(/[İIı]/g, 'i').toLocaleLowerCase('en-US');   // on DECODED text, never on a byte string (verify-fixes: ASCII-only case mapping of bytes); en-US so the locale cannot change the mapping
 
 /** The options line of a question as text, or null. @param {string[]} lines */
 function optionsLine(lines) {
