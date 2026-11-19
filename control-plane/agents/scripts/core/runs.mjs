@@ -27,6 +27,8 @@ export function activeRun(ctx) {
   const task = rows[0];
   if (!validTaskId(task)) fail('invalid active task id');
   if (!isDirectory(runDir(ctx, task))) fail(`active run not found: ${task}`);
+  // A344: a folder without RUN.yaml is not a run
+  if (!isFile(`${runDir(ctx, task)}/RUN.yaml`)) fail(`active run not found: ${task}: ${runDir(ctx, task)} exists without RUN.yaml: not a run`);
   return task;
 }
 
@@ -35,13 +37,21 @@ function runFolders(ctx) {
   try { return readdirSync(`${ctx.root}/.agents/runs`).filter((n) => !n.startsWith('.')).sort(); } catch { return []; }
 }
 
+/**
+ * A344: the folders of `.agents/runs` that hold no RUN.yaml file (not runs: a role wrote there from the wrong directory, or a cleanup was cut short). For `doctor` to report; nothing else counts them.
+ * @param {Context} ctx @returns {string[]} absolute paths
+ */
+export function strayRunFolders(ctx) {
+  return runFolders(ctx).map((id) => runDir(ctx, id)).filter((d) => isDirectory(d) && !isFile(`${d}/RUN.yaml`));
+}
+
 /** `open_runs`: "<ID> <task branch|->" for every run that is not terminated. @param {Context} ctx @returns {string[]} */
 export function openRuns(ctx) {
   /** @type {string[]} */ const out = [];
   for (const id of runFolders(ctx)) {
     const d = runDir(ctx, id);
     if (!isDirectory(d)) continue;
-    if (!isFile(`${d}/RUN.yaml`)) { out.push(`${id} -`); continue; }
+    if (!isFile(`${d}/RUN.yaml`)) continue;   // A344: not a run (see strayRunFolders)
     const st = sectionValue(ctx, d, 'execution', 'state');
     if (st === 'FAILED' || st === 'BLOCKED') continue;
     let b = sectionValue(ctx, d, 'repository', 'task_branch');
@@ -126,7 +136,7 @@ export function requireRun(ctx, id) {
   if (!validTaskId(id)) fail('invalid task id');
   if (!isDirectory(runDir(ctx, id))) fail(`run not found: ${id}`);
   // A344: a folder without RUN.yaml is not a run (a role wrote there from the wrong directory)
-  if (!isFile(`${runDir(ctx, id)}/RUN.yaml`)) fail(`run not found: ${id}: ${runDir(ctx, id)} exists without RUN.yaml: not a run; a role wrote there from the wrong directory: remove it or work in the run worktree`);
+  if (!isFile(`${runDir(ctx, id)}/RUN.yaml`)) fail(`run not found: ${id}: ${runDir(ctx, id)} exists without RUN.yaml: not a run; a role wrote there from the wrong directory, or a cleanup was cut short: remove it (rm -rf ${runDir(ctx, id)}) or work in the run worktree`);
   if (isFile(`${deliverDir(ctx, id)}/SUMMARY.md`)) deliveredMode(ctx, id);
 }
 

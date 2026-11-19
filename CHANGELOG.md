@@ -4,7 +4,7 @@
 
 ## 0.0.170 — 2026-11-19
 
-- Fix (A344): a run exists only with a `RUN.yaml` file. A stray `.agents/runs/<ID>/` folder in the main tree (a role that ran `mkdir -p` from the wrong directory) no longer switches off the A169 routing of a worktree run (`deliver-merged`, `batch-next`, `submit` stayed on the empty main-tree folder and a merged task could not be recorded); `requireRun` refuses such a folder with a message that names the cause; `next-user` ignores it.
+- Fix (A344): a run exists only with a `RUN.yaml` file. A stray `.agents/runs/<ID>/` folder in the main tree (a role that ran `mkdir -p` from the wrong directory) no longer switches off the A169 routing of a worktree run (`deliver-merged`, `batch-next`, `submit` stayed on the empty main-tree folder and a merged task could not be recorded); `requireRun` refuses such a folder with a message that names the cause; `next-user`, `open-runs` and `start` ignore it, and `doctor` reports it with the remedy.
 
 ## 0.0.169 — 2026-11-19
 

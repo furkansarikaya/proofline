@@ -590,4 +590,22 @@ test('A344: a stray folder .agents/runs/<ID>/scratch in the main tree is not a r
   refused(A(dir, ['ask', 'W-7', '--file', 'none']), 'a stray folder', 'exists without RUN.yaml: not a run');
   // the normal run of the main tree still works
   assert.equal(A(dir, ['next', 'W-1']).status, 0);
+  // next-user: the stray folder neither hides the run in the worktree nor a queued task
+  const nuWt = A(wt, ['next-user', 'W-2']).out;
+  assert.equal(A(dir, ['next-user', 'W-2']).out, nuWt, 'A344: next-user from the main tree reads the stray folder, not the worktree run');
+  mkdirSync(`${main}/.agents/runs/W-9/scratch`, { recursive: true });
+  mktask(dir, 'W-9', 'STANDARD');
+  const nu = A(dir, ['next-user', 'merge']);
+  assert.match(nu.out, /\/proofline run W-9\b/, `A344: a stray folder hid the queued task: ${nu.text}`);
+});
+
+test('A344: a stray folder without RUN.yaml does not count as an open run, does not block start', () => {
+  const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  mkdirSync(`${main}/.agents/runs/T-9/scratch`, { recursive: true });
+  assert.equal(A(dir, ['open-runs']).out.trim(), '', 'the stray folder is listed as an open run');
+  const r = ac(dir, ['start', 'T-5', '--title', 'five'], wbody('five'));
+  assert.equal(r.status, 0, `the stray folder blocked start: ${r.text}`);
+  assert.equal(A(dir, ['open-runs']).out.trim(), 'T-5 -');
 });
