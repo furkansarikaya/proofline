@@ -16,7 +16,7 @@ import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, ledgerRo
 import { knownControlArtifact, runDir } from './runs.mjs';
 import { findingBatchAccepted, findingKnownIssue } from './knownissues.mjs';
 import { pathMatches } from './scope.mjs';
-import { ecosystemSets, pipelineClassValid, pipelineClass, pipelineDeclared, pipelineNeeds, riskGateFocuses, riskNames, riskPaths, tierEffective } from './signals.mjs';
+import { designSurfacePaths, strictTestPath, uiPathHit, ecosystemSets, pipelineClassValid, pipelineClass, pipelineDeclared, pipelineNeeds, riskGateFocuses, riskNames, riskPaths, tierEffective } from './signals.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -326,6 +326,7 @@ function treeDiff(ctx, a, b) {
 function focusUntouched(ctx, dir, rec, focus, mode, now) {
   if (focus === '-' || focus === '') return false;
   if (gateField(ctx, rec, 'gate') === 'SECRETS') return false;
+  if (focus === 'visual') return visualUntouched(ctx, dir, rec, mode, now);
   let pats = '';
   for (const n of riskNames(ctx)) {
     if (ctx.config().get(`risk.${n}.check`, '') !== focus) continue;
@@ -336,6 +337,36 @@ function focusUntouched(ctx, dir, rec, focus, mode, now) {
   const delta = manifestDelta(ctx, dir, rec);
   if (delta === null || delta.length === 0) return false;
   for (const p of delta) if (pathMatches(p, pats)) return false;
+  if (mode !== 'reuse') return true;
+  const tree = treeDiff(ctx, gateField(ctx, rec, 'fingerprint'), now);
+  if (tree === null || tree.length === 0) return false;
+  return tree.every((p) => delta.includes(p));
+}
+
+/**
+ * A340: the `visual` focus of a QA record stays carried over a fix round only when every changed path is provably not UI; in doubt the gate runs again (Core invariant 6). A path is ignored when it is
+ * test code (`strictTestPath`) or a run file. Every other path makes the pass stale when it is under a design-surface path, under a `global.ui_dirs` directory (any file type, a document too), a UI file
+ * by the very predicate of the signal (`uiPathHit`), a `visual` signal glob, a UI-driving file (`global.ui_config`) or, a dependency manifest or lock file (decided before the document skip, both modes). Outside those, a document
+ * (`md rst adoc txt`; `.mdx` is JSX) passes, and so does any other file when the project maps surfaces (a backend file outside every surface); without surfaces any other file makes it stale. Missing
+ * or empty ecosystem UI data makes it stale. @param {Context} ctx @param {string} dir @param {string} rec @param {string} mode @param {string} now
+ */
+function visualUntouched(ctx, dir, rec, mode, now) {
+  const delta = manifestDelta(ctx, dir, rec);
+  if (delta === null || delta.length === 0) return false;
+  const eco = ecosystemSets(ctx);
+  if (!eco.loaded || eco.ui === '' || eco.uiAmbiguous === '' || eco.uiDirs === '' || eco.uiConfig === '') return false;
+  const cfg = ctx.config();
+  const surf = designSurfacePaths(ctx);
+  let sig = '';
+  for (const n of riskNames(ctx)) if (cfg.get(`risk.${n}.check`, '') === 'visual') sig += ` ${riskPaths(ctx, dir, n)}`;
+  for (const p of delta) {
+    if (p.startsWith('.agents/') || strictTestPath(ctx, p)) continue;
+    const l = asciiLower(p);
+    if ((surf !== '' && pathMatches(l, asciiLower(surf))) || pathMatches(l, eco.uiDirs) || pathMatches(p, sig) || pathMatches(l, sig) || uiPathHit(ctx, p) !== null || pathMatches(l, eco.uiConfig)) return false;
+    if (pathMatches(l, asciiLower(eco.dependency))) return false;   // a manifest or lock file (requirements.txt is one) is decided before the document skip
+    if (pathMatches(l, '*.md *.rst *.adoc *.txt')) continue;
+    if (surf === '') return false;
+  }
   if (mode !== 'reuse') return true;
   const tree = treeDiff(ctx, gateField(ctx, rec, 'fingerprint'), now);
   if (tree === null || tree.length === 0) return false;

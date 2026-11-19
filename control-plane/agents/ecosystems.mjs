@@ -189,6 +189,11 @@ export function validate(data = loadEcosystems()) {
   for (const k of ["tools", "build", "test", "lint"]) need(g.ci_scan && k in g.ci_scan, `global.ci_scan.${k} missing`);
   // #265 (A275): where the project's own CI or test-runner configuration retries a test (reported, never used). file is a glob, pattern a line pattern.
   need(Array.isArray(g.test_paths) && g.test_paths.length > 0 && g.test_paths.every((x) => typeof x === "string" && x !== ""), "global.test_paths must be a non-empty array of path globs (the folders and names that mark a test file)");
+  const globs = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x !== "");
+  need(g.ui_paths && globs(g.ui_paths.always) && globs(g.ui_paths.ambiguous), "global.ui_paths needs the non-empty arrays always (unambiguous frontend file types) and ambiguous (script types that count only in a frontend directory, A340)");
+  need(globs(g.ui_dirs), "global.ui_dirs must be a non-empty array of path globs (the frontend directories, A340)");
+  need(globs(g.ui_config), "global.ui_config must be a non-empty array of path globs (the files that drive the look of the UI: theme, tokens, tailwind, postcss, vite, A340)");
+  need(globs(g.ui_exclude), "global.ui_exclude must be a non-empty array of path globs (backend route folders such as pages/api that never make a script a UI file, A340)");
   need(Array.isArray(g.test_retry) && g.test_retry.length > 0, "global.test_retry must be a non-empty array");
   for (const x of g.test_retry ?? []) {
     need(typeof x.file === "string" && x.file !== "" && typeof x.pattern === "string" && x.pattern !== "" && typeof x.what === "string" && x.what !== "", "global.test_retry entries need file, pattern and what");

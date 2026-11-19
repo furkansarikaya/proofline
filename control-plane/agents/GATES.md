@@ -110,7 +110,7 @@ Deterministic risk signals add focuses inside the gates above; they never add a 
 |---|---|---|---|---|
 | `contract_file` | changed or planned path (OpenAPI, AsyncAPI, Swagger, proto, GraphQL, Avro, JSON Schema files), or added text `^(openapi\|asyncapi\|swagger):`, `"$schema"`, `^syntax = "proto` | `## Risk` `contract_change: yes` | `contract` | REVIEW_RULES (REVIEW_SMALL on tier small) |
 | `migration` | path under `migrations/`, `migration/`, `db/migrate/`, `alembic/versions/`, or `*.sql` | a `## Data` section | `migration` | REVIEW_DATA |
-| `ui_path` | `*.html *.css *.scss *.jsx *.tsx *.vue *.svelte` and similar | a `## UI` section | `visual` | QA |
+| `ui_path` | `*.html *.css *.scss *.jsx *.tsx *.vue *.svelte` plus the frontend types of `ecosystems.json` `global.ui_paths.always` (`.astro .styl` and the rest) and the scripts `.js .mjs .cjs .ts` under a `global.ui_dirs` directory (`public`, `assets`, `pages`, `components`, ...) or a mapped design surface; a strict test path never counts and extensions ignore case, A340 | a `## UI` section | `visual` | QA |
 | `dependency_manifest` | a dependency manifest or lock file | none (`## Dependencies` is checked by the focus) | `dependencies` | SECURITY |
 | `log_sensitive` | text the diff adds: a log call line naming a word of `risk.log_sensitive.words` (password, token, secret, authorization, cookie, email, phone, card, iban, ssn, tckn; extensible); opens a review, no finding | none | `logging` | SECURITY |
 | `config_env` | `.env*`, `config/*.yaml`, `*.ini`, `*.properties`, `appsettings*.json` | none | `config` | REVIEW_RULES / REVIEW_SMALL |

@@ -333,7 +333,7 @@ jobs:
           - name: risk-s1
             mode: files
             pattern: 'none'
-            files: tests/core/risk-s1.test.mjs
+            files: tests/core/risk-s1.test.mjs tests/core/visual-stale.test.mjs
           - name: risk-s2
             mode: files
             pattern: 'none'
