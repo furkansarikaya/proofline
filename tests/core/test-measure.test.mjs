@@ -57,6 +57,49 @@ test('planKinds takes the test names before the description only: a quoted value
   ]);
 });
 
+test('planKinds (A343): a bullet with no dash and no quoted name takes no name; a quote inside a code span is code, not a name', () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  // the real bullet of the smoke batch: no dash, no quoted name, quotes only inside code spans
+  assert.deepEqual(names('- AC-1: `tests/whisper.test.js` asserts `whisper("Hello")` equals `"hello..."` (test_kind: unit)'), []);
+  // a code span with quotes before the dash, then a dash: the fallback reads quotes after the dash only
+  assert.deepEqual(names('- AC-1: `t.test` `f("a")` — returns "b" (test_kind: unit)'), ['b']);
+  assert.deepEqual(names('- AC-1: `t.test` `f("a")` — returns `x` (test_kind: unit)'), []);
+  // a quoted name with code spans (quotes inside) in the description keeps exactly the name
+  assert.deepEqual(names('- AC-1: `t.test` "whisper lowers" — `whisper("Hello")` equals `"hello..."` (test_kind: unit)'), ['whisper lowers']);
+  // a name before the code span and no dash keeps the name (documented limit of A316 unchanged)
+  assert.deepEqual(names('- AC-1: `t.test` "whisper" asserts `f("x")` (test_kind: unit)'), ['whisper']);
+});
+
+test('planKinds (A343): a quoted name keeps the backticks inside it; a star bullet is read; the validator copy of the scan and of the bullet predicate is identical', async () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  assert.deepEqual(names('- AC-1: `t.test` "`--json` prints json" — x (test_kind: unit)'), ['`--json` prints json']);
+  assert.deepEqual(names('- AC-1: `t.test` "`--json`" — x (test_kind: unit)'), ['`--json`']);
+  assert.deepEqual(names('- AC-1: `t.test` "has `code` in" — x (test_kind: unit)'), ['has `code` in']);
+  assert.deepEqual(names('* AC-1: `t.test` "zero at threshold" asserts `f("x")` (test_kind: unit)'), ['zero at threshold']);
+  assert.deepEqual(names('* AC-1: `t.test` asserts `test("zero at threshold")` (test_kind: unit)'), []);
+  // a backtick span that opens first hides its quotes, a quote that opens first hides its backticks
+  assert.deepEqual(names('- AC-1: `t.test` `a "b" c` "d" — x (test_kind: unit)'), ['d']);
+  const { readFileSync } = await import('node:fs');
+  const grab = (/** @type {string} */ f) => { const t = readFileSync(new URL(f, import.meta.url), 'utf8'); const a = t.indexOf('function scanTestBullet'); return { fn: t.slice(a, t.indexOf('\n}\n', a)), sep: /const reSeparator = .*/.exec(t)?.[0], bullet: /\/\^\\s\*\[-\*\]\\s\+AC-\\d\+:\/i/.exec(t)?.[0] }; };
+  const a1 = grab('../../control-plane/agents/scripts/core/testmeasure.mjs'); const a2 = grab('../../skills/plan-contract/scripts/validate-plan.mjs');
+  assert.ok(a1.fn.length > 200 && a1.bullet !== undefined);
+  assert.deepEqual(a2, a1, 'the validator keeps an identical copy of the scan, the separator and the bullet predicate');
+  const v = await import('../../skills/plan-contract/scripts/validate-plan.mjs');
+  const lines = ['- AC-1: `t` "`--json`" — x (test_kind: unit)', '* AC-1: `t` `f("a")` — "b" (test_kind: unit)', '- AC-1: `t` asserts `f("a")` (test_kind: unit)', '- AC-1: `t` "has `code` in" and "z - y" - q (test_kind: unit)'];
+  // the validator accepts a line exactly when the parser reads a name before the dash
+  for (const l of lines) assert.equal(v.hasTestName(l), /^\s*[-*]\s+AC-\d+:\s*(?:`[^`]*`\s*)*(?:"[^"]*[^"\s][^"]*")/.test(l), l);
+});
+
+test('planKinds (A343 round 2): an unmatched backtick is text; a double-backtick span is code; adjacent quotes keep the old name', () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  assert.deepEqual(names('- AC-1: `tests/a.test.js "zero at threshold" — x (test_kind: unit)'), ['zero at threshold']);
+  assert.deepEqual(names('- AC-1: `a.test` ``ship("5000")`` — x (test_kind: unit)'), []);
+  assert.deepEqual(names('- AC-1: `a.test` ``a ` b "c"`` "d" — x (test_kind: unit)'), ['d']);
+  assert.deepEqual(names('- AC-1: `a.test` ```x``` "e" — y (test_kind: unit)'), ['e']);
+  assert.deepEqual(names('- AC-1: `a.test` ``x` "f" — y (test_kind: unit)'), ['f']);
+  assert.deepEqual(names('- AC-1: `a.test` ""edge"" — y (test_kind: unit)'), ['edge']);
+});
+
 test('planKinds: separators, quotes in code spans after the separator, and the limit of a bullet with no separator', () => {
   const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
   // the name list ends at an en dash, "--" or a spaced hyphen; everything after is description

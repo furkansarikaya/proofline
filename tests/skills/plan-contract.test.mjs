@@ -440,6 +440,45 @@ test("AC-8: a Tests line without test_kind is warned, never an error, and a plan
   assert.deepEqual(errs(plan()), []);
   assert.ok(!lint(plan({ body: KINDED }), TASK, { root: repo, cls: "STANDARD" }).some((x) => x.includes("test_kind")));
 });
+test("A343: a Tests bullet with a test_kind but no quoted name before the dash is an error that shows the required form; the named form is accepted", () => {
+  const bad = { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` asserts `ship(\"5000\")` equals `\"0\"` (test_kind: unit)", KINDED.Tests[1]] };
+  const e = errs(plan({ body: bad }));
+  has(e, "AC-1 declares a test_kind but names no test");
+  has(e, '"<test name>" — <what it asserts> (test_kind: unit)');
+  // the quotes of a code span before the dash are code, not a name
+  has(errs(plan({ body: { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` `ship(\"5\")` — returns 0 (test_kind: unit)", KINDED.Tests[1]] } })), "names no test");
+  // a quote only after the dash is description, not a name
+  has(errs(plan({ body: { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` — returns \"zero\" (test_kind: unit)", KINDED.Tests[1]] } })), "names no test");
+  // a name, then code spans with quotes in the description: accepted
+  const ok = { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` \"free at the threshold\" — `ship(\"5000\")` equals `\"0\"` (test_kind: unit)", KINDED.Tests[1]] };
+  assert.deepEqual(errs(plan({ body: ok })), []);
+});
+test("A343: the validator reads the same bullets as the parser: a star bullet, backticks inside a quoted name, a bullet written without the space", () => {
+  const T = (l) => ({ ...KINDED, Tests: [l, KINDED.Tests[1]] });
+  has(errs(plan({ body: T("* AC-1: `test/shipping.test.js` asserts `test(\"zero at threshold\")` (test_kind: unit)") })), "names no test");
+  assert.deepEqual(errs(plan({ body: T("* AC-1: `test/shipping.test.js` \"zero at threshold\" — x (test_kind: unit)") })), []);
+  assert.deepEqual(errs(plan({ body: T("- AC-1: `test/shipping.test.js` \"`--json` prints json\" — x (test_kind: unit)") })), []);
+  assert.deepEqual(errs(plan({ body: T("- AC-1: `test/shipping.test.js` \"has `code` in\" — x (test_kind: unit)") })), []);
+  has(errs(plan({ body: T("-AC-1: `test/shipping.test.js` \"a\" — x (test_kind: unit)") })), "not a plan test bullet");
+  has(errs(plan({ body: T("1. AC-1: `test/shipping.test.js` \"a\" — x (test_kind: unit)") })), "not a plan test bullet");
+});
+test("A343 round 2: every Tests line that declares a test_kind must be a bullet the control plane reads, byte for byte (markers, bold, checkbox, AC-1.1, Unicode whitespace)", async () => {
+  const T = (l) => ({ ...KINDED, Tests: [l, KINDED.Tests[1]] });
+  const tail = ' `test/shipping.test.js` "zero at threshold" — x (test_kind: unit)';
+  const bad = ["- **AC-1**:", "- [ ] AC-1:", "+ AC-1:", "- AC-1.1:", "-\u00a0AC-1:", "\u00a0- AC-1:", "\u3000- AC-1:", "\ufeff- AC-1:", "1) AC-1:"];
+  for (const head of bad) { try { has(errs(plan({ body: T(head + tail) })), "not a plan test bullet the control plane reads"); } catch (e) { throw new Error(JSON.stringify(head) + " " + JSON.stringify(errs(plan({ body: T(head + tail) })))); } }
+  // the same bytes through the control plane's parser: it reads none of these lines either (no name, so nothing would be measured)
+  const { planKinds } = await import("../../control-plane/agents/scripts/core/testmeasure.mjs");
+  for (const head of bad) assert.deepEqual(planKinds(Buffer.from(`## Tests\n${head}${tail}\n`, "utf8").toString("latin1")).names, [], head);
+  assert.deepEqual(errs(plan({ body: T("- AC-1:" + tail) })), []);
+  assert.deepEqual(planKinds("## Tests\n- AC-1:" + tail + "\n").names.map((x) => x.name), ["zero at threshold"]);
+});
+test("A343 round 2: an unmatched backtick is plain text, a double-backtick span is code", async () => {
+  const { hasTestName } = await import("../../skills/plan-contract/scripts/validate-plan.mjs");
+  assert.equal(hasTestName('- AC-1: `test/shipping.test.js "zero at threshold" — x (test_kind: unit)'), true);
+  assert.equal(hasTestName('- AC-1: `t` ``ship("5000")`` — x (test_kind: unit)'), false);
+  assert.equal(hasTestName('- AC-1: `t` ""edge"" — x (test_kind: unit)'), true);
+});
 test("AC-8: the template and the sections reference describe the kinds and the budgets section", () => {
   const dir = join(dirname(fileURLToPath(import.meta.url)), "../../skills/plan-contract");
   for (const f of ["assets/PLAN.template.md", "references/SECTIONS.md"]) {

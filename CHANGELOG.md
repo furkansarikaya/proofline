@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.167 — 2026-11-19
+
+- Fix (A343): a `## Tests` bullet must start with the quoted test name; `planKinds` ignores quotes in code spans and takes no name from a dashless nameless bullet, validate-plan refuses a bullet with a test_kind and no quoted name before the dash, and the `handoff IMPLEMENTED` refusal for a test matching no title names the plan wording as the likely fault and the refreeze remedy (the smoke batch T-2 false block). Round 2: every `## Tests` line with `test_kind:` must be the exact bullet the control plane reads (checked on the same latin1 bytes: markers, bold, checkbox, `AC-1.1`, Unicode whitespace are errors), an unmatched backtick is text, a double-backtick span is code.
+
 - Docs (A338, no release, no code change): the closing campaign of 2026-11-18 is recorded in `tests/e2e/README.md` ("The closing campaign on main") with the evaluators' verdict lines: one COMPLEX run reached DONE on `98f49400` (FAIL 37/38, C-22 only; a single sample, with three user approvals supplied by the harness), STANDARD reached DONE (FAIL 36/37, S-6 only), there is no E2E PASS for either, and the runs an account usage limit interrupted are listed and not counted. `docs/limits.md` gets eleven rows A338.1 to A338.11 (eight new limits, A338.11 holding the low notes of the review of A339; A338.5, A338.6 and A338.8 extend or cross-reference earlier ones) and a corrected A322.8; `docs/proof.md` has the pull request list to #329, the smoke history, the recomputed test counts and the three green whole-matrix Windows dispatch runs and the red one; two documentation gaps are closed (the `target:` list with spaces, the `verify-<ID>.<focus>` evidence worktrees). Part of #316.
 
 ## 0.0.166 — 2026-11-18
