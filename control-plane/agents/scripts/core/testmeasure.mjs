@@ -127,23 +127,30 @@ export function supersederFilter(ctx, id) {
 
 // ---- the plan: test kinds and budgets -------------------------------------------------------------------------------------------------
 
+/** The bullet of a `## Tests` line that the plan reads: marker, space, `AC-n:` (the validator reads the same predicate). */
+export const reTestBullet = /^\s*[-*]\s+AC-\d+:/i;
+
 /** A separator: a spaced em dash, en dash, `--` or hyphen. The control plane reads PLAN.md as a byte string (latin1, one char per byte), so the dashes also come as their UTF-8 bytes (E2 80 94, E2 80 93); the JS-string form is kept for callers that pass decoded text. */
 const reSeparator = /^ (—|–|\u00e2\u0080\u0094|\u00e2\u0080\u0093|--|-) /;
 
 /**
- * Where the description of a `## Tests` bullet starts: the first dash separator (em dash, en dash, `--` or a spaced hyphen) outside double quotes and outside a code span, else the end of the line.
- * The bullet is a code-span file, a quoted test name, a dash and what it asserts, then `(test_kind: ...)`; a quoted value in what it asserts (`["book club", "sci-fi"]`) is data, not a test name.
- * @param {string} line @param {number} from where the scan starts: after the bullet marker and the `AC-n:` label, so the marker's own dash is never a separator
+ * Scan a `## Tests` bullet once, left to right (A343): a double quote that opens first reads the quoted name to its closing quote, backticks inside included; a backtick span that opens first is code, quotes inside it are ignored;
+ * the first dash separator (em dash, en dash, `--` or a spaced hyphen) outside both ends the names. The bullet is a code-span file, a quoted test name, a dash and what it asserts, then `(test_kind: ...)`; a quoted value in what it asserts is data.
+ * An identical copy lives in skills/plan-contract/scripts/validate-plan.mjs (a skill is installable alone); a test compares them.
+ * @param {string} line @param {number} from after the bullet marker and the `AC-n:` label @returns {{ names: string[], end: number }} the quoted names before the separator and where the description starts (line end when none)
  */
-function descriptionStart(line, from) {
-  let quoted = false; let code = false;
+function scanTestBullet(line, from) {
+  const names = [];
+  let quoted = false, code = false, start = 0;
   for (let i = from; i < line.length; i++) {
     const c = line[i];
-    if (c === '"' && !code) quoted = !quoted;
-    else if (c === '`' && !quoted) code = !code;
-    else if (c === ' ' && !quoted && !code && reSeparator.test(line.slice(i, i + 5))) return i;
+    if (c === '"' && !code) {
+      if (!quoted) start = i + 1; else if (i > start) names.push(line.slice(start, i));
+      quoted = !quoted;
+    } else if (c === '`' && !quoted) code = !code;
+    else if (c === ' ' && !quoted && !code && reSeparator.test(line.slice(i, i + 5))) return { names, end: i };
   }
-  return line.length;
+  return { names, end: line.length };
 }
 
 /**
@@ -158,14 +165,15 @@ export function planKinds(plan) {
     if (l.startsWith('## ')) { sec = l.slice(3).trim(); continue; }
     if (sec === 'Tests') {
       const k = /\btest_kind:\s*([A-Za-z0-9_-]+)/.exec(l);
-      if (!k || !KINDS.includes(k[1]) || !/^\s*[-*]\s+AC-\d+:/i.test(l)) continue;
-      const from = /^\s*[-*]\s+AC-\d+:/i.exec(l)?.[0].length ?? 0;
+      if (!k || !KINDS.includes(k[1]) || !reTestBullet.test(l)) continue;
+      const from = reTestBullet.exec(l)?.[0].length ?? 0;
       // names are the quoted strings before the first dash, outside code spans (A343: `whisper("Hello")` in a code span is code, not a test name). A bullet that names none before a dash reads every quoted string (a test is never hidden from
       // measurement by a dash placed first, A316). A bullet with NO dash and no quoted name takes no name at all: its whole text is the assertion, and the contract (validate-plan, A343) refuses it at FREEZE.
-      const end = descriptionStart(l, from);
-      let found = [...l.slice(from, end).replace(/`[^`]*`/g, ' ').matchAll(/"([^"]+)"/g)];
-      if (found.length === 0 && end < l.length) found = [...l.slice(end).matchAll(/"([^"]+)"/g)];
-      for (const m of found) names.push({ name: asciiLower(m[1].trim()), kind: k[1] });
+      const scan = scanTestBullet(l, from);
+      const end = scan.end;
+      let found = scan.names.filter((n) => n.trim() !== '');
+      if (found.length === 0 && end < l.length) found = [...l.slice(end).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+      for (const n of found) names.push({ name: asciiLower(n.trim()), kind: k[1] });
     } else if (sec === 'Test budgets') {
       const m = /^\s*-\s*([A-Za-z0-9_-]+):\s*(.*)$/.exec(l);
       if (!m || !KINDS.includes(m[1])) continue;

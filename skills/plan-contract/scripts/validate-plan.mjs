@@ -26,27 +26,36 @@ export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
 export const TEST_KINDS = ["unit", "integration", "e2e"];
 const KIND_MARK = /\btest_kind:\s*([A-Za-z0-9_-]+)/;
 const BUDGET_LINE = /^test (\d+) ms; suite (\d+) ms$/;
-// A343: a `## Tests` bullet that states a test_kind must NAME its test: a quoted string (outside code spans) before the description dash, read the way the control plane reads it (`planKinds`).
-// A bullet such as "- AC-1: `t.test.js` asserts `f("x")` equals y (test_kind: unit)" names none: the quotes inside its code span are code, not a test title.
-const SEP = /^ (—|–|â\u0080\u0094|â\u0080\u0093|--|-) /;
-export function hasTestName(line) {
-  const from = /^\s*[-*]\s+AC-\d+:/i.exec(line)?.[0].length ?? 0;
-  let quoted = false, code = false, end = line.length;
+// A343: a `## Tests` bullet that states a test_kind must NAME its test: a quoted string, outside code spans, before the description dash, read exactly the way the control plane reads it
+// (`scanTestBullet` and `reTestBullet` are identical copies of core/testmeasure.mjs; a test compares them). A backtick span that opens first is code (quotes inside are ignored); a quote that opens first
+// reads the name to its closing quote, backticks included.
+const TEST_BULLET = /^\s*[-*]\s+AC-\d+:/i;
+const reSeparator = /^ (—|–|\u00e2\u0080\u0094|\u00e2\u0080\u0093|--|-) /;
+function scanTestBullet(line, from) {
+  const names = [];
+  let quoted = false, code = false, start = 0;
   for (let i = from; i < line.length; i++) {
     const c = line[i];
-    if (c === '"' && !code) quoted = !quoted;
-    else if (c === "`" && !quoted) code = !code;
-    else if (c === " " && !quoted && !code && SEP.test(line.slice(i, i + 5))) { end = i; break; }
+    if (c === '"' && !code) {
+      if (!quoted) start = i + 1; else if (i > start) names.push(line.slice(start, i));
+      quoted = !quoted;
+    } else if (c === '`' && !quoted) code = !code;
+    else if (c === ' ' && !quoted && !code && reSeparator.test(line.slice(i, i + 5))) return { names, end: i };
   }
-  return /"[^"]+"/.test(line.slice(from, end).replace(/`[^`]*`/g, " "));
+  return { names, end: line.length };
+}
+export function hasTestName(line) {
+  const from = TEST_BULLET.exec(line)?.[0].length ?? 0;
+  return scanTestBullet(line, from).names.some((n) => n.trim() !== "");
 }
 export function testKindProblems(testLines, budgetLines) {
   const errors = [];
   const used = new Set();
   for (const l of testLines || []) {
-    const m = /^\s*-\s*(AC-\d+):/i.exec(l);
+    const m = /^\s*[-*]\s*(AC-\d+):/i.exec(l) ?? /^\s*\d+[.)]\s+(AC-\d+):/i.exec(l);
     const k = KIND_MARK.exec(l);
     if (!m || !k) continue;
+    if (!TEST_BULLET.test(l)) { errors.push(`Tests: ${m[1]} is not a plan test bullet the control plane reads: start it with a dash or star, a space, then AC-n:`); continue; }
     if (!hasTestName(l)) errors.push(`Tests: ${m[1]} declares a test_kind but names no test: a bullet MUST start with the quoted test name before the dash, in the form \`- ${m[1]}: \`<test file>\` "<test name>" — <what it asserts> (test_kind: unit)\` (the text after the dash is description; quotes inside a code span are code, not a name)`);
     if (!TEST_KINDS.includes(k[1])) errors.push(`Tests: ${m[1]} test_kind must be one of ${TEST_KINDS.join("|")}, got ${k[1]}`);
     else used.add(k[1]);
@@ -373,7 +382,7 @@ export function lint(planMd, taskMd, { root, cls } = {}) {
   const noEx = content.filter((e) => !("tdd_exemption" in e)).map((e) => e.path);
   if (noEx.length) out.push(`scope: document or content path(s) without a tdd_exemption: ${noEx.slice(0, 5).join(", ")}${noEx.length > 5 ? ", ..." : ""}; a document has no RED/GREEN to show, so add 'tdd_exemption: <specific reason, 20+ characters>' to each, or a test that proves it (the freeze only warns, the implementer cannot finish without it)`);
   const secs = sections(planMd.split(/\r?\n/).slice(fm.bodyStart || 0));
-  const testLines = (secs.get("Tests") || []).filter((l) => /^\s*-\s*AC-\d+:/i.test(l) && !KIND_MARK.test(l));
+  const testLines = (secs.get("Tests") || []).filter((l) => /^\s*[-*]\s*AC-\d+:/i.test(l) && !KIND_MARK.test(l));
   if (testLines.length) out.push(`Tests: ${testLines.length} line(s) name no test_kind (unit|integration|e2e); write "(test_kind: unit)" after each, so the plan states the kind and its budget (## Test budgets) before the tests run`);
   const dep = (secs.get("Dependencies") || []).filter((l) => l.trim() !== "");
   if (dep.length && !(dep.length === 1 && /^none\b/i.test(dep[0].trim()))) out.push("Dependencies: a new dependency needs the user's own approval (a night batch does not cover it); say so in the plan before the freeze");
@@ -451,7 +460,7 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
 
   const tests = body.get("Tests") || [];
   for (const l of tests) {
-    const m = /^\s*-\s*(AC-\d+):\s*(.*)$/i.exec(l);
+    const m = /^\s*[-*]\s*(AC-\d+):\s*(.*)$/i.exec(l);
     if (!m) continue;
     if (!taskHas(m[1])) { errors.push(`Tests: unknown criterion ${m[1]}`); continue; }
     const refs = [...m[2].matchAll(/`([^`\s:]+)(?::[^`\s]+)?`/g)].map((x) => x[1]);

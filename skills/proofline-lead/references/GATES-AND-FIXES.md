@@ -43,7 +43,7 @@ re-run it on a weaker model (D7).
    plan or evidence defect (a row on PLAN.md or another control artifact, e.g. the plan's `## Verification
    commands` do not cover an AC) -> `next` prints `amend PLAN.md ## Verification commands` instead of a fix
    round: write `amendments/<NNN>.md`, edit PLAN.md (the lead owns both; `amend` works from CODE_DONE only),
-   `agent.sh refreeze <ID> <AMENDMENT>`. A plan test name that matches no test title (`handoff IMPLEMENTED` refuses with "the plan wording is probably wrong") has the same remedy, also from IMPLEMENTING (the `amend` command is CODE_DONE only; the `GREEN rerun` applies only after a REVIEW_TESTS failure): put the real quoted test name before the dash. A `scope` approval is needed only if the amendment adds scope
+   `agent.sh refreeze <ID> <AMENDMENT>`. A plan test name that still has no duration after GREEN is re-recorded with the project test command (`handoff IMPLEMENTED` says the plan wording is probably wrong) has the same remedy, also from IMPLEMENTING (the `amend` command is CODE_DONE only; the `GREEN rerun` applies only after a REVIEW_TESTS failure): put the real quoted test title before the dash. A `scope` approval is needed only if the amendment adds scope
    paths. The refreeze is not the end: the new plan hash voids the worker evidence and every gate, so
    `dispatch.sh <ID> implementer` re-records RED and GREEN (a real failing test, then a real change; a path
    with a `tdd_exemption` needs none), then `handoff <ID> IMPLEMENTED`, then every gate again, VERIFY

@@ -453,6 +453,15 @@ test("A343: a Tests bullet with a test_kind but no quoted name before the dash i
   const ok = { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` \"free at the threshold\" — `ship(\"5000\")` equals `\"0\"` (test_kind: unit)", KINDED.Tests[1]] };
   assert.deepEqual(errs(plan({ body: ok })), []);
 });
+test("A343: the validator reads the same bullets as the parser: a star bullet, backticks inside a quoted name, a bullet written without the space", () => {
+  const T = (l) => ({ ...KINDED, Tests: [l, KINDED.Tests[1]] });
+  has(errs(plan({ body: T("* AC-1: `test/shipping.test.js` asserts `test(\"zero at threshold\")` (test_kind: unit)") })), "names no test");
+  assert.deepEqual(errs(plan({ body: T("* AC-1: `test/shipping.test.js` \"zero at threshold\" — x (test_kind: unit)") })), []);
+  assert.deepEqual(errs(plan({ body: T("- AC-1: `test/shipping.test.js` \"`--json` prints json\" — x (test_kind: unit)") })), []);
+  assert.deepEqual(errs(plan({ body: T("- AC-1: `test/shipping.test.js` \"has `code` in\" — x (test_kind: unit)") })), []);
+  has(errs(plan({ body: T("-AC-1: `test/shipping.test.js` \"a\" — x (test_kind: unit)") })), "not a plan test bullet");
+  has(errs(plan({ body: T("1. AC-1: `test/shipping.test.js` \"a\" — x (test_kind: unit)") })), "not a plan test bullet");
+});
 test("AC-8: the template and the sections reference describe the kinds and the budgets section", () => {
   const dir = join(dirname(fileURLToPath(import.meta.url)), "../../skills/plan-contract");
   for (const f of ["assets/PLAN.template.md", "references/SECTIONS.md"]) {
