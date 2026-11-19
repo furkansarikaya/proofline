@@ -31,7 +31,7 @@ scope:
 
 - AC-1: `<test file>` "<test name>" — <what it asserts> (test_kind: unit|integration|e2e)
 
-Test names are the quoted strings before the first dash; the text after the dash is description.
+Every bullet MUST start with the quoted test name (the title in the test file) before the first dash: `"<test name>" — <what it asserts>`. The names are the quoted strings before the first dash outside code spans; the text after the dash is description. A bullet with a test_kind and no quoted name is a freeze error (A343).
 
 ## Test budgets
 

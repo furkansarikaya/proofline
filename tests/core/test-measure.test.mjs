@@ -57,6 +57,19 @@ test('planKinds takes the test names before the description only: a quoted value
   ]);
 });
 
+test('planKinds (A343): a bullet with no dash and no quoted name takes no name; a quote inside a code span is code, not a name', () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  // the real bullet of the smoke batch: no dash, no quoted name, quotes only inside code spans
+  assert.deepEqual(names('- AC-1: `tests/whisper.test.js` asserts `whisper("Hello")` equals `"hello..."` (test_kind: unit)'), []);
+  // a code span with quotes before the dash, then a dash: the fallback reads quotes after the dash only
+  assert.deepEqual(names('- AC-1: `t.test` `f("a")` — returns "b" (test_kind: unit)'), ['b']);
+  assert.deepEqual(names('- AC-1: `t.test` `f("a")` — returns `x` (test_kind: unit)'), []);
+  // a quoted name with code spans (quotes inside) in the description keeps exactly the name
+  assert.deepEqual(names('- AC-1: `t.test` "whisper lowers" — `whisper("Hello")` equals `"hello..."` (test_kind: unit)'), ['whisper lowers']);
+  // a name before the code span and no dash keeps the name (documented limit of A316 unchanged)
+  assert.deepEqual(names('- AC-1: `t.test` "whisper" asserts `f("x")` (test_kind: unit)'), ['whisper']);
+});
+
 test('planKinds: separators, quotes in code spans after the separator, and the limit of a bullet with no separator', () => {
   const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
   // the name list ends at an en dash, "--" or a spaced hyphen; everything after is description

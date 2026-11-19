@@ -26,6 +26,20 @@ export const CLASSES = ["TRIVIAL", "STANDARD", "COMPLEX", "CRITICAL"];
 export const TEST_KINDS = ["unit", "integration", "e2e"];
 const KIND_MARK = /\btest_kind:\s*([A-Za-z0-9_-]+)/;
 const BUDGET_LINE = /^test (\d+) ms; suite (\d+) ms$/;
+// A343: a `## Tests` bullet that states a test_kind must NAME its test: a quoted string (outside code spans) before the description dash, read the way the control plane reads it (`planKinds`).
+// A bullet such as "- AC-1: `t.test.js` asserts `f("x")` equals y (test_kind: unit)" names none: the quotes inside its code span are code, not a test title.
+const SEP = /^ (—|–|â\u0080\u0094|â\u0080\u0093|--|-) /;
+export function hasTestName(line) {
+  const from = /^\s*[-*]\s+AC-\d+:/i.exec(line)?.[0].length ?? 0;
+  let quoted = false, code = false, end = line.length;
+  for (let i = from; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"' && !code) quoted = !quoted;
+    else if (c === "`" && !quoted) code = !code;
+    else if (c === " " && !quoted && !code && SEP.test(line.slice(i, i + 5))) { end = i; break; }
+  }
+  return /"[^"]+"/.test(line.slice(from, end).replace(/`[^`]*`/g, " "));
+}
 export function testKindProblems(testLines, budgetLines) {
   const errors = [];
   const used = new Set();
@@ -33,6 +47,7 @@ export function testKindProblems(testLines, budgetLines) {
     const m = /^\s*-\s*(AC-\d+):/i.exec(l);
     const k = KIND_MARK.exec(l);
     if (!m || !k) continue;
+    if (!hasTestName(l)) errors.push(`Tests: ${m[1]} declares a test_kind but names no test: a bullet MUST start with the quoted test name before the dash, in the form \`- ${m[1]}: \`<test file>\` "<test name>" — <what it asserts> (test_kind: unit)\` (the text after the dash is description; quotes inside a code span are code, not a name)`);
     if (!TEST_KINDS.includes(k[1])) errors.push(`Tests: ${m[1]} test_kind must be one of ${TEST_KINDS.join("|")}, got ${k[1]}`);
     else used.add(k[1]);
   }

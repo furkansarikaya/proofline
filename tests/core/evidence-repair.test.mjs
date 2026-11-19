@@ -170,6 +170,10 @@ test('IMPLEMENTED refuses a plan-named test with no recorded duration before any
   const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
   refused(r, 'a plan test without a duration', 'the plan names "fast one" and no recorded GREEN duration matches');
   assert.match(r.text, /Back to the implementer: re-run the plan-listed Verification command/);
+  // A343: "fast one" is no title in the task's files: the message says the plan wording is probably wrong and names the real remedy
+  assert.match(r.text, /"fast one" matches no test title[^]*plan wording is probably wrong/);
+  assert.match(r.text, /amendments\/<NNN>\.md[^]*agent\.sh refreeze LC <NNN>\.md[^]*record RED and GREEN again/);
+  assert.match(r.text, /GREEN rerun applies only after a REVIEW_TESTS failure/);
 });
 
 test('the failing record is bound to findings.json: a record with an extra blocking row (a hollow test) that findings.json does not show is not repaired by evidence', () => {

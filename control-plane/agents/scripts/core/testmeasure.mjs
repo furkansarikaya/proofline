@@ -160,9 +160,11 @@ export function planKinds(plan) {
       const k = /\btest_kind:\s*([A-Za-z0-9_-]+)/.exec(l);
       if (!k || !KINDS.includes(k[1]) || !/^\s*[-*]\s+AC-\d+:/i.test(l)) continue;
       const from = /^\s*[-*]\s+AC-\d+:/i.exec(l)?.[0].length ?? 0;
-      // names are the quoted strings before the first dash; a bullet that names none there reads every quoted string (a test is never hidden from measurement by a dash placed first)
-      let found = [...l.slice(from, descriptionStart(l, from)).matchAll(/"([^"]+)"/g)];
-      if (found.length === 0) found = [...l.slice(from).matchAll(/"([^"]+)"/g)];
+      // names are the quoted strings before the first dash, outside code spans (A343: `whisper("Hello")` in a code span is code, not a test name). A bullet that names none before a dash reads every quoted string (a test is never hidden from
+      // measurement by a dash placed first, A316). A bullet with NO dash and no quoted name takes no name at all: its whole text is the assertion, and the contract (validate-plan, A343) refuses it at FREEZE.
+      const end = descriptionStart(l, from);
+      let found = [...l.slice(from, end).replace(/`[^`]*`/g, ' ').matchAll(/"([^"]+)"/g)];
+      if (found.length === 0 && end < l.length) found = [...l.slice(end).matchAll(/"([^"]+)"/g)];
       for (const m of found) names.push({ name: asciiLower(m[1].trim()), kind: k[1] });
     } else if (sec === 'Test budgets') {
       const m = /^\s*-\s*([A-Za-z0-9_-]+):\s*(.*)$/.exec(l);

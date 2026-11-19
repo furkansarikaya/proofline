@@ -440,6 +440,19 @@ test("AC-8: a Tests line without test_kind is warned, never an error, and a plan
   assert.deepEqual(errs(plan()), []);
   assert.ok(!lint(plan({ body: KINDED }), TASK, { root: repo, cls: "STANDARD" }).some((x) => x.includes("test_kind")));
 });
+test("A343: a Tests bullet with a test_kind but no quoted name before the dash is an error that shows the required form; the named form is accepted", () => {
+  const bad = { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` asserts `ship(\"5000\")` equals `\"0\"` (test_kind: unit)", KINDED.Tests[1]] };
+  const e = errs(plan({ body: bad }));
+  has(e, "AC-1 declares a test_kind but names no test");
+  has(e, '"<test name>" — <what it asserts> (test_kind: unit)');
+  // the quotes of a code span before the dash are code, not a name
+  has(errs(plan({ body: { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` `ship(\"5\")` — returns 0 (test_kind: unit)", KINDED.Tests[1]] } })), "names no test");
+  // a quote only after the dash is description, not a name
+  has(errs(plan({ body: { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` — returns \"zero\" (test_kind: unit)", KINDED.Tests[1]] } })), "names no test");
+  // a name, then code spans with quotes in the description: accepted
+  const ok = { ...KINDED, Tests: ["- AC-1: `test/shipping.test.js` \"free at the threshold\" — `ship(\"5000\")` equals `\"0\"` (test_kind: unit)", KINDED.Tests[1]] };
+  assert.deepEqual(errs(plan({ body: ok })), []);
+});
 test("AC-8: the template and the sections reference describe the kinds and the budgets section", () => {
   const dir = join(dirname(fileURLToPath(import.meta.url)), "../../skills/plan-contract");
   for (const f of ["assets/PLAN.template.md", "references/SECTIONS.md"]) {
