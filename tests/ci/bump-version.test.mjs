@@ -91,4 +91,23 @@ describe('bump-version', () => {
     writeFileSync(ch, readFileSync(ch, 'utf8').replace(/^- test entry$/m, ''));
     assert.match(bump(['9.9.9']).stderr, /no Unreleased entries/);
   });
+  test('a stale or repeated line of a single-line site (README status, adapters heading) fails --check and refuses a bump', () => {
+    git(['checkout', '-q', '--', '.']);
+    const f = path.join(T, 'README.md');
+    const keep = readFileSync(f, 'utf8');
+    const line = keep.split('\n').find((l) => /^Version [0-9.]+ is an early release\.$/.test(l)) ?? '';
+    assert.notEqual(line, '');
+    writeFileSync(f, keep.replace(`${line}\n`, `${line}\nVersion 0.0.1 is an early release.\n`));   // the leftover two merged pull requests once produced
+    const stale = bump(['--check']);
+    assert.notEqual(stale.status, 0);
+    assert.match(stale.stdout, /^mismatch: README\.md \(\^Version \)/m);
+    writeFileSync(f, keep.replace(`${line}\n`, `${line}\n${line}\n`));
+    const twice = bump(['--check']);
+    assert.notEqual(twice.status, 0);
+    assert.match(twice.stdout, /^duplicate: README\.md .* matches 2 lines, expected 1$/m);
+    assert.match(bump(['9.9.9']).stderr, /site found more than once in README\.md/);
+    assert.equal(git(['diff', '--name-only']).trim(), 'README.md', 'the refused bump changed nothing else');
+    writeFileSync(f, keep);
+    assert.equal(bump(['--check']).status, 0);
+  });
 });
