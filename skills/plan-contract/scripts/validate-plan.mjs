@@ -33,14 +33,23 @@ const TEST_BULLET = /^\s*[-*]\s+AC-\d+:/i;
 const reSeparator = /^ (—|–|\u00e2\u0080\u0094|\u00e2\u0080\u0093|--|-) /;
 function scanTestBullet(line, from) {
   const names = [];
-  let quoted = false, code = false, start = 0;
+  let quoted = false, open = -1;
   for (let i = from; i < line.length; i++) {
     const c = line[i];
-    if (c === '"' && !code) {
-      if (!quoted) start = i + 1; else if (i > start) names.push(line.slice(start, i));
-      quoted = !quoted;
-    } else if (c === '`' && !quoted) code = !code;
-    else if (c === ' ' && !quoted && !code && reSeparator.test(line.slice(i, i + 5))) return { names, end: i };
+    if (c === '"') {
+      if (open < 0) open = i; else if (i > open + 1) { names.push(line.slice(open + 1, i)); open = -1; } else open = i;
+      quoted = open >= 0;
+    } else if (c === '`' && !quoted) {
+      let n = 1; while (line[i + n] === '`') n++;
+      let close = -1;
+      for (let j = i + n; j < line.length;) {
+        if (line[j] !== '`') { j++; continue; }
+        let m = 1; while (line[j + m] === '`') m++;
+        if (m === n) { close = j + m; break; }
+        j += m;
+      }
+      if (close >= 0) i = close - 1; else i += n - 1;
+    } else if (c === ' ' && !quoted && reSeparator.test(line.slice(i, i + 5))) return { names, end: i };
   }
   return { names, end: line.length };
 }
@@ -52,11 +61,15 @@ export function testKindProblems(testLines, budgetLines) {
   const errors = [];
   const used = new Set();
   for (const l of testLines || []) {
-    const m = /^\s*[-*]\s*(AC-\d+):/i.exec(l) ?? /^\s*\d+[.)]\s+(AC-\d+):/i.exec(l);
+    // A LOOSE detector: any line of `## Tests` that declares a kind (`test_kind:`), whatever its markers or whitespace, must be a bullet the control plane reads. The control plane reads the file as latin1 bytes, so the
+    // predicate runs on the same bytes (a UTF-8 non-breaking space, an ideographic space or a byte order mark is not whitespace there, and the bullet would never be measured).
     const k = KIND_MARK.exec(l);
-    if (!m || !k) continue;
-    if (!TEST_BULLET.test(l)) { errors.push(`Tests: ${m[1]} is not a plan test bullet the control plane reads: start it with a dash or star, a space, then AC-n:`); continue; }
-    if (!hasTestName(l)) errors.push(`Tests: ${m[1]} declares a test_kind but names no test: a bullet MUST start with the quoted test name before the dash, in the form \`- ${m[1]}: \`<test file>\` "<test name>" — <what it asserts> (test_kind: unit)\` (the text after the dash is description; quotes inside a code span are code, not a name)`);
+    if (!/test_kind\s*:/i.test(l) || !k) continue;
+    const b = Buffer.from(l, "utf8").toString("latin1");
+    const m = /AC-\d+/i.exec(l) ?? ["a line"];
+    if (!TEST_BULLET.test(b)) { errors.push(`Tests: ${m[0]} is not a plan test bullet the control plane reads: write \`- AC-n: \`<test file>\` "<test name>" — <what it asserts> (test_kind: unit)\` (a dash or star, one space, AC-n:, no other marker, bold, checkbox, number or non-ASCII whitespace before it)`); continue; }
+    m[1] = m[0];
+    if (!hasTestName(b)) errors.push(`Tests: ${m[1]} declares a test_kind but names no test: a bullet MUST start with the quoted test name before the dash, in the form \`- ${m[1]}: \`<test file>\` "<test name>" — <what it asserts> (test_kind: unit)\` (the text after the dash is description; quotes inside a code span are code, not a name)`);
     if (!TEST_KINDS.includes(k[1])) errors.push(`Tests: ${m[1]} test_kind must be one of ${TEST_KINDS.join("|")}, got ${k[1]}`);
     else used.add(k[1]);
   }

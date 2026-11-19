@@ -90,6 +90,16 @@ test('planKinds (A343): a quoted name keeps the backticks inside it; a star bull
   for (const l of lines) assert.equal(v.hasTestName(l), /^\s*[-*]\s+AC-\d+:\s*(?:`[^`]*`\s*)*(?:"[^"]*[^"\s][^"]*")/.test(l), l);
 });
 
+test('planKinds (A343 round 2): an unmatched backtick is text; a double-backtick span is code; adjacent quotes keep the old name', () => {
+  const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
+  assert.deepEqual(names('- AC-1: `tests/a.test.js "zero at threshold" — x (test_kind: unit)'), ['zero at threshold']);
+  assert.deepEqual(names('- AC-1: `a.test` ``ship("5000")`` — x (test_kind: unit)'), []);
+  assert.deepEqual(names('- AC-1: `a.test` ``a ` b "c"`` "d" — x (test_kind: unit)'), ['d']);
+  assert.deepEqual(names('- AC-1: `a.test` ```x``` "e" — y (test_kind: unit)'), ['e']);
+  assert.deepEqual(names('- AC-1: `a.test` ``x` "f" — y (test_kind: unit)'), ['f']);
+  assert.deepEqual(names('- AC-1: `a.test` ""edge"" — y (test_kind: unit)'), ['edge']);
+});
+
 test('planKinds: separators, quotes in code spans after the separator, and the limit of a bullet with no separator', () => {
   const names = (/** @type {string} */ b) => planKinds(`## Tests\n${b}\n`).names.map((x) => x.name);
   // the name list ends at an en dash, "--" or a spaced hyphen; everything after is description

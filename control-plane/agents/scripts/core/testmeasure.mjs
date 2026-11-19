@@ -141,14 +141,23 @@ const reSeparator = /^ (—|–|\u00e2\u0080\u0094|\u00e2\u0080\u0093|--|-) /;
  */
 function scanTestBullet(line, from) {
   const names = [];
-  let quoted = false, code = false, start = 0;
+  let quoted = false, open = -1;
   for (let i = from; i < line.length; i++) {
     const c = line[i];
-    if (c === '"' && !code) {
-      if (!quoted) start = i + 1; else if (i > start) names.push(line.slice(start, i));
-      quoted = !quoted;
-    } else if (c === '`' && !quoted) code = !code;
-    else if (c === ' ' && !quoted && !code && reSeparator.test(line.slice(i, i + 5))) return { names, end: i };
+    if (c === '"') {
+      if (open < 0) open = i; else if (i > open + 1) { names.push(line.slice(open + 1, i)); open = -1; } else open = i;
+      quoted = open >= 0;
+    } else if (c === '`' && !quoted) {
+      let n = 1; while (line[i + n] === '`') n++;
+      let close = -1;
+      for (let j = i + n; j < line.length;) {
+        if (line[j] !== '`') { j++; continue; }
+        let m = 1; while (line[j + m] === '`') m++;
+        if (m === n) { close = j + m; break; }
+        j += m;
+      }
+      if (close >= 0) i = close - 1; else i += n - 1;
+    } else if (c === ' ' && !quoted && reSeparator.test(line.slice(i, i + 5))) return { names, end: i };
   }
   return { names, end: line.length };
 }
