@@ -2,7 +2,7 @@
 // Stage 4, package 4C: `publish-completion-report` and `verify-completion-report` with everything only they used in agent.sh 0.0.47 (the structure
 // checks, the claims-against-records check, the summary block, the Execution table, the Facts block). The task adapter's `publish` and `verify`
 // operations stay shell code (stage 7) and run as clean children. Messages, the order of the checks and the bytes of the report are those of the shell.
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { fail, ProoflineError } from './errors.mjs';
 import { requireLead } from './approve.mjs';
 import { verifySeal } from './ledger.mjs';
@@ -23,6 +23,7 @@ import { humanChecks, records, sectionLines } from './taskfile.mjs';
 import { freshness } from './commands/verify.mjs';
 import { listNames } from './ledger.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { auditClaims, checkClaimsBlock, claimsBlock, CLAIMS_BEGIN, CLAIMS_END, verifyClaimsBlock } from './verifyclaims.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -288,6 +289,73 @@ function stripFacts(ctx, file) {
   ctx.forget('file:');
 }
 
+/** A341: a Verification claims block of an earlier publish is checked against its own hash (a hand edit is refused), then removed; publish writes a fresh one. @param {Context} ctx @param {string} file */
+function stripClaims(ctx, file) {
+  const t = fileText(ctx, file);
+  if (t === null) return;
+  const all = records(t);
+  const bad = checkClaimsBlock(all);
+  if (bad !== '') fail(bad);
+  /** @type {string[]} */ const out = [];
+  let skip = false;
+  for (const l of all) {
+    if (l === CLAIMS_BEGIN) { skip = true; continue; }
+    if (skip && l === CLAIMS_END) { skip = false; continue; }
+    if (!skip) out.push(l);
+  }
+  writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
+  ctx.forget('file:');
+}
+
+/** A341: the generated Execution section as lines, or null when the run has no decision record. @param {Context} ctx @param {string} id @returns {string[]} */
+function executionLines(ctx, id) { return records(capture(ctx, () => reportExecution(ctx, id))); }
+
+/**
+ * A341: the line the script writes for an unsupported visual check under '## Unsupported Checks'. The reason is the one recorded by the gate; what is not proven is a fixed
+ * sentence. The lead's own line for that check is replaced by it, so the vocabulary audit can exempt this exact line and nothing else that names the check.
+ * @param {Context} ctx @param {string} dir @returns {string[]}
+ */
+function unsupportedLines(ctx, dir) {
+  return riskUnsupported(ctx, dir).filter((x) => x[0] === 'QA:visual').map((x) => `- QA:visual: ${String(x[2] ?? '').replace(/^UNSUPPORTED /, '').replace(/[\s]+/g, ' ').trim()}; not proven: whether the changed interface behaves as the acceptance criteria describe when a user operates it`);
+}
+
+/** A341: the script's line replaces every lead-written `- QA:visual:` line of '## Unsupported Checks'. @param {Context} ctx @param {string} id */
+function unsupportedApply(ctx, id) {
+  const dir = runDir(ctx, id);
+  const gen = unsupportedLines(ctx, dir);
+  if (gen.length === 0) return;
+  const file = `${dir}/COMPLETION_REPORT.md`;
+  const text = fileText(ctx, file);
+  if (text === null) return;
+  /** @type {string[]} */ const out = [];
+  let inside = false;
+  for (const l of records(text)) {
+    if (inside && l.startsWith('## ')) inside = false;
+    if (inside && l.startsWith('- QA:visual:')) continue;
+    out.push(l);
+    if (/^## Unsupported Checks[ \t]*$/.test(l)) { inside = true; out.push(...gen); }
+  }
+  writeFileSync(file, latin1Buf(out.map((l) => `${l}\n`).join('')));
+  ctx.forget('file:');
+}
+
+/** What the script generated in a report, for the vocabulary audit to leave out. @param {Context} ctx @param {string} id @param {string} dir */
+function generatedParts(ctx, id, dir) {
+  const qa = fileText(ctx, `${dir}/QA_REPORT.md`);
+  const hasDecisions = listNames(`${dir}/decisions`, /^[0-9]{3}-.*\.decision$/).length > 0;
+  return { lookAt: (qa === null ? [] : humanChecks(qa)).filter((x) => x !== ''), execution: hasDecisions ? executionLines(ctx, id) : null, generatedLines: unsupportedLines(ctx, dir) };
+}
+
+/**
+ * A341: the refusal message when the lead's own text in these report lines holds a word of the visual-check vocabulary without the ledger holding that check for the final tree; '' otherwise.
+ * Used by publish, by verify-completion-report (a text edited after publish) and by the delivery step.
+ * @param {Context} ctx @param {string} id @param {string[]} lines
+ */
+export function completionAudit(ctx, id, lines) {
+  const dir = runDir(ctx, id);
+  return auditClaims(lines, claimsBlock(ctx, dir, id), generatedParts(ctx, id, dir));
+}
+
 /** `report_execution_apply ID`: the generated section replaces the lead's `## Execution` section (or goes before `## Known Limitations`, or last). @param {Context} ctx @param {string} id */
 function executionApply(ctx, id) {
   const dir = runDir(ctx, id);
@@ -295,7 +363,7 @@ function executionApply(ctx, id) {
   if (listNames(`${dir}/decisions`, /^[0-9]{3}-.*\.decision$/).length === 0) return;
   const text = fileText(ctx, file);
   if (text === null) return;
-  const gen = records(capture(ctx, () => reportExecution(ctx, id)));
+  const gen = executionLines(ctx, id);
   /** @type {string[]} */ const out = [];
   let skip = false; let done = false;
   const emit = () => { out.push(...gen, ''); done = true; };
@@ -345,6 +413,28 @@ function summaryApply(ctx, id) {
 /** The receipt and the adapter name go into RUN.yaml: one plain line. @param {string} s */
 function plain(s) { return !/[\x00-\x1f\x7f"\\]/.test(s); }
 
+/** The checks and the generated parts of a publish, before the task adapter runs; they edit the report in place, the caller restores it when one refuses. @param {Context} ctx @param {string} id @param {string} dir @param {string} report */
+function prepare(ctx, id, dir, report) {
+  stripClaims(ctx, report); // A341: before the Facts strip, so a hand edit of the claims block is seen
+  stripFacts(ctx, report);
+  executionApply(ctx, id); // A203: the Execution table is generated from the decision records, whatever the lead wrote there
+  unsupportedApply(ctx, id); // A341
+  summaryApply(ctx, id);
+  // the report is a file, so English whatever the user's language: the summary block is not exempt from the language check (the chat message is the user-language text)
+  const langHits = languageScanFiles(ctx, [report]);
+  if (langHits.length > 0) fail(`${languageFailText(langHits.join(' '))}. The summary block's Changed: line must be English; only the chat message follows the user's language`);
+  // A341: the verification claims come from the gate records; a visual, browser or screenshot claim in the lead's own text needs a record for the final tree
+  const claims = claimsBlock(ctx, dir, id);
+  validateStructure(ctx, id); // the structure messages come first; the vocabulary audit reads the text that passed them
+  const audit = auditClaims(records(fileText(ctx, report) ?? ''), claims, generatedParts(ctx, id, dir));
+  if (audit !== '') fail(audit);
+  claimsCheck(ctx, id, report);
+  const facts = capture(ctx, () => reportFacts(ctx, id));
+  // the trailing blank lines of the lead's text are normalised, so a second publish writes the same bytes
+  writeFileSync(report, latin1Buf(`${(fileText(ctx, report) ?? '').replace(/\n+$/, '')}\n\n${claims.block}\n${facts}`));
+  return claims;
+}
+
 /** `publish_completion_report ID [ADAPTER]` @param {Context} ctx @param {string} id @param {string} given */
 export function publishCompletionReport(ctx, id, given) {
   const adapter = given !== '' ? given : ctx.config().get('tasks.adapter', 'markdown');
@@ -356,27 +446,32 @@ export function publishCompletionReport(ctx, id, given) {
   const report = `${dir}/COMPLETION_REPORT.md`;
   // A143: the Facts block of an earlier publish is removed first so it never satisfies a check, the text is checked against the records,
   // and a fresh block generated from them is appended verbatim.
-  stripFacts(ctx, report);
-  executionApply(ctx, id); // A203: the Execution table is generated from the decision records, whatever the lead wrote there
-  summaryApply(ctx, id);
-  // the report is a file, so English whatever the user's language: the summary block is not exempt from the language check (the chat message is the user-language text)
-  const langHits = languageScanFiles(ctx, [report]);
-  if (langHits.length > 0) fail(`${languageFailText(langHits.join(' '))}. The summary block's Changed: line must be English; only the chat message follows the user's language`);
-  validateStructure(ctx, id);
-  claimsCheck(ctx, id, report);
-  const facts = capture(ctx, () => reportFacts(ctx, id));
-  appendFileSync(report, latin1Buf(`\n${facts}`));
-  ctx.forget('file:');
-  const script = adapterScript(ctx, adapter);
-  /** @type {{ file: string, data: Buffer, mode: number, atime: Date, mtime: Date } | null} */ let backup = null;
-  if (localTaskSourceRun(ctx, id)) {
-    quietly(ctx, () => must(freshness(ctx, id)));
-    const file = localTaskSource(ctx, dir);
-    const st = statSync(file);
-    backup = { file, data: readFileSync(file), mode: st.mode & 0o7777, atime: st.atime, mtime: st.mtime };
+  // A341: a refused publish leaves the report as it was (the checks below edit it in place)
+  const original = existsSync(report) ? readFileSync(report) : null;
+  /** @type {ReturnType<typeof claimsBlock>} */ let claims;
+  try {
+    claims = prepare(ctx, id, dir, report);
+  } catch (e) {
+    if (original !== null) writeFileSync(report, original);
+    ctx.forget('file:');
+    throw e;
   }
+  ctx.forget('file:');
+  const restoreReport = () => { if (original !== null) writeFileSync(report, original); ctx.forget('file:'); };
+  /** @type {string} */ let script;
+  /** @type {{ file: string, data: Buffer, mode: number, atime: Date, mtime: Date } | null} */ let backup = null;
+  try {
+    script = adapterScript(ctx, adapter);
+    if (localTaskSourceRun(ctx, id)) {
+      quietly(ctx, () => must(freshness(ctx, id)));
+      const file = localTaskSource(ctx, dir);
+      const st = statSync(file);
+      backup = { file, data: readFileSync(file), mode: st.mode & 0o7777, atime: st.atime, mtime: st.mtime };
+    }
+  } catch (e) { restoreReport(); throw e; } // A341: every refusal before the adapter runs leaves the report as it was
   const restore = () => {
-    if (backup === null) return;
+    if (original !== null) writeFileSync(report, original); // A341: a publish the adapter refuses leaves the report as it was before the checks
+    if (backup === null) { ctx.forget('file:'); return; }
     writeFileSync(backup.file, backup.data);
     try { chmodSync(backup.file, backup.mode); utimesSync(backup.file, backup.atime, backup.mtime); } catch { /* best effort, like cp -p */ }
     ctx.forget('');
@@ -401,8 +496,12 @@ export function publishCompletionReport(ctx, id, given) {
   setRunValue(ctx, id, 'completion_report', 'adapter', adapter);
   setRunValue(ctx, id, 'completion_report', 'published', 'true');
   setRunValue(ctx, id, 'completion_report', 'receipt', receipt);
-  if (gatesEnforced(ctx, dir)) led(ctx, id, 'publish-completion-report', 'CODE_DONE', 'CODE_DONE', `${adapter} ${receipt}`);
+  if (gatesEnforced(ctx, dir)) {
+    led(ctx, id, 'completion-claims', 'CODE_DONE', 'CODE_DONE', claims.hash); // A341: verify-completion-report compares the block with this hash
+    led(ctx, id, 'publish-completion-report', 'CODE_DONE', 'CODE_DONE', `${adapter} ${receipt}`);
+  }
   ctx.out(`completion report published: ${id} via ${adapter} -> ${receipt}\n`);
+  ctx.out(`final message: paste this line unchanged (A341), and state no visual, browser, screenshot or UI check of your own:\n${claims.line}\n`);
   return 0;
 }
 
@@ -420,6 +519,23 @@ export function verifyCompletionReport(ctx, id) {
   if (r.stdout.length > 0) ctx.out(r.stdout.toString('latin1'));
   if (r.stderr.length > 0) ctx.err(r.stderr.toString('latin1'));
   if (r.status !== 0) fail(`completion report publication could not be verified: ${id}`);
+  // A341: the Verification claims block is made again from the records and compared with the published block and the hash the ledger holds
+  const rows = ledgerRows(ctx, dir, 'completion-claims');
+  const bad = verifyClaimsBlock(ctx, dir, id, rows.length > 0 ? rows[rows.length - 1].detail : '');
+  if (bad !== '') fail(bad);
+  if (rows.length > 0) {
+    // the lead's own text may have been edited after publish: the run's report and the copy in the task file are read again for the vocabulary
+    const own = completionAudit(ctx, id, fileLines(ctx, `${dir}/COMPLETION_REPORT.md`));
+    if (own !== '') fail(own);
+    if (localTaskSourceRun(ctx, id)) {
+      const t = fileText(ctx, localTaskSource(ctx, dir));
+      const b = `<!-- COMPLETION-REPORT:BEGIN:${id} -->`; const e = `<!-- COMPLETION-REPORT:END:${id} -->`;
+      if (t !== null && t.includes(b) && t.includes(e)) {
+        const copy = completionAudit(ctx, id, records(t.slice(t.indexOf(b) + b.length, t.indexOf(e))));
+        if (copy !== '') fail(copy);
+      }
+    }
+  }
   ctx.out(`completion report publication verified: ${id}\n`);
   return 0;
 }

@@ -24,6 +24,7 @@ import { fullFingerprint, hashFile } from './fingerprint.mjs';
 import { git } from './git.mjs';
 import { asciiUpper } from './shellglob.mjs';
 import { verifySeal } from './ledger.mjs';
+import { completionAudit } from './complreport.mjs';
 import { enforceTaskBranch, ledgerIf, localTaskSource, localTaskSourceRun, setRunValue, taskSourceContractHash } from './lifecycle.mjs';
 import { must, quietly } from './lifeutil.mjs';
 import { nextStep } from './next.mjs';
@@ -439,6 +440,11 @@ export function deliverPlan(ctx, id, rest) {
   if (paths.length === 0) steps = (steps ?? '').replace(/^commit /, '');
   let kn = '';
   try { kn = knowledgeOwnedPaths(ctx, id).join('\n'); } catch (e) { if (!(e instanceof ProoflineError)) throw e; }
+  // A341: the pull request body is the report; a text edited after publish is read for the visual-check vocabulary again
+  if (ledgerRows(ctx, dir, 'completion-claims').length > 0) {
+    const bad = completionAudit(ctx, id, fileLines(ctx, `${dir}/COMPLETION_REPORT.md`));
+    if (bad !== '') fail(bad);
+  }
   mkdirSync(ddir, { recursive: true });
   rmSync(`${ddir}/PR`, { force: true });
   writeFileSync(`${ddir}/COMMIT_MSG`, latin1Buf(fullMessage));

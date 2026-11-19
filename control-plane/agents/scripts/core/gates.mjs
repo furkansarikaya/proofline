@@ -317,7 +317,7 @@ function manifestDelta(ctx, dir, rec) {
 }
 
 /** `git diff-tree -r --name-only A B` -> the set of paths, or null when git fails. @param {Context} ctx @param {string} a @param {string} b */
-function treeDiff(ctx, a, b) {
+export function treeDiff(ctx, a, b) {
   const r = git(ctx, ['diff-tree', '-r', '--name-only', a, b]);
   return r.status === 0 ? r.out.split('\n').filter((x) => x !== '') : null;
 }

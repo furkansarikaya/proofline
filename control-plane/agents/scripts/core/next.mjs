@@ -553,7 +553,7 @@ function codeDone(ctx, id, d, emit, o, r) {
       emit(unsupportedNext(ctx, id, d)); emit(notRerunNext(ctx, id, d));
       o(`write COMPLETION_REPORT.md (top: the summary block of the template in the user's language, no Look-at lines, publish copies QA_REPORT.md Human checks; no counts of tests, gates, fix rounds or refreezes in your text unless they equal 'agent.sh report-facts ${id}'; publish appends that Facts block); agent.sh publish-completion-report ${id}`);
       r('completion report not published');
-    } else { o(`agent.sh handoff ${id} DONE`); r('report published'); }
+    } else { o(`agent.sh handoff ${id} DONE`); o("your final message to the user: paste the 'Final message line' of the report's Verification claims block unchanged and state no visual, browser, screenshot or UI check of your own (A341)"); r('report published'); }
   } else {
     emit(knowledgeDriftNote(ctx, id));
     o(`agent.sh knowledge-done ${id} [not_applicable "<reason>"]`); r('knowledge transaction not recorded');
