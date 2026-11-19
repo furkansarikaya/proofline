@@ -565,3 +565,47 @@ test('worktree-root: the answer for each spelling of a path is the one the code 
     assert.equal(r.out, out, `worktree-root ${JSON.stringify(p)} output`);
   }
 });
+
+test('A344: a stray folder .agents/runs/<ID>/scratch in the main tree is not a run: the commands for a worktree run are still routed to the worktree, requireRun refuses the folder, a normal run still works', () => {
+  const F = fakes(); const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  assert.equal(ac(dir, ['start', 'W-1', '--title', 'first'], wbody('first')).status, 0);
+  const wt = AB(F, dir, ['worktree-add', 'W-2']).out.trim();
+  assert.equal(ac(wt, ['start', 'W-2', '--title', 'second'], wbody('second')).status, 0, 'start W-2 in its own worktree');
+  const before = { next: A(dir, ['next', 'W-2']), merged: A(dir, ['deliver-merged', 'W-2', '--check']) };
+  // a role wrote from the wrong directory: mkdir -p <main>/.agents/runs/W-2/scratch
+  mkdirSync(`${main}/.agents/runs/W-2/scratch`, { recursive: true });
+  const inWt = A(wt, ['next', 'W-2']);
+  const viaMain = A(dir, ['next', 'W-2']);
+  assert.equal(viaMain.status, inWt.status, viaMain.text);
+  assert.equal(viaMain.out, inWt.out, 'A344: next from the main tree is not served by the worktree');
+  assert.equal(viaMain.out, before.next.out, 'the stray folder changed the answer');
+  const dm = A(dir, ['deliver-merged', 'W-2', '--check']);
+  assert.equal(dm.text, A(wt, ['deliver-merged', 'W-2', '--check']).text, 'A344: deliver-merged from the main tree is not routed to the worktree');
+  assert.equal(dm.text, before.merged.text);
+  assert.ok(!has(`${main}/.agents/runs/W-2/RUN.yaml`), 'a command wrote RUN.yaml into the stray folder');
+  // a folder without RUN.yaml, for a run that lives nowhere else, is refused by name
+  mkdirSync(`${main}/.agents/runs/W-7/scratch`, { recursive: true });
+  refused(A(dir, ['ask', 'W-7', '--file', 'none']), 'a stray folder', 'exists without RUN.yaml: not a run');
+  // the normal run of the main tree still works
+  assert.equal(A(dir, ['next', 'W-1']).status, 0);
+  // next-user: the stray folder neither hides the run in the worktree nor a queued task
+  const nuWt = A(wt, ['next-user', 'W-2']).out;
+  assert.equal(A(dir, ['next-user', 'W-2']).out, nuWt, 'A344: next-user from the main tree reads the stray folder, not the worktree run');
+  mkdirSync(`${main}/.agents/runs/W-9/scratch`, { recursive: true });
+  mktask(dir, 'W-9', 'STANDARD');
+  const nu = A(dir, ['next-user', 'merge']);
+  assert.match(nu.out, /\/proofline run W-9\b/, `A344: a stray folder hid the queued task: ${nu.text}`);
+});
+
+test('A344: a stray folder without RUN.yaml does not count as an open run, does not block start', () => {
+  const dir = bnew();
+  binstall(dir, { remote: false });
+  const main = real(dir);
+  mkdirSync(`${main}/.agents/runs/T-9/scratch`, { recursive: true });
+  assert.equal(A(dir, ['open-runs']).out.trim(), '', 'the stray folder is listed as an open run');
+  const r = ac(dir, ['start', 'T-5', '--title', 'five'], wbody('five'));
+  assert.equal(r.status, 0, `the stray folder blocked start: ${r.text}`);
+  assert.equal(A(dir, ['open-runs']).out.trim(), 'T-5 -');
+});

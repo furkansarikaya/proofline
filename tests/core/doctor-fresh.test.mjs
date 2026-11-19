@@ -179,3 +179,10 @@ test('foreign context hooks and overlapping skills are WARN lines with the exit 
     assert.ok(r.out.includes('\ndoctor: 0 FAIL, 5 WARN\n'), 'the summary counts the foreign lines');
   } finally { rmSync(`${sb.T}/home/.claude`, { recursive: true, force: true }); }
 });
+
+test('A344: a run folder without RUN.yaml is reported by doctor with the remedy (rm -rf), not counted as a run', () => {
+  const d = sb.copy('d-stray');
+  mkdirSync(`${d}/.agents/runs/T-9/scratch`, { recursive: true });
+  const r = sb.pl(d, ['doctor']);
+  assert.ok(/^WARN runs: .*\/\.agents\/runs\/T-9 has no RUN\.yaml, so it is not a run.*rm -rf .*\/\.agents\/runs\/T-9$/m.test(r.out), r.out);
+});

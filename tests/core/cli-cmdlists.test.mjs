@@ -13,7 +13,7 @@ const base = sb.copy('cmdl');
 const setc = (/** @type {string} */ d, /** @type {string} */ key, /** @type {string} */ value) => assert.ok(cfgSet(`${d}/.agents/config.yaml`, `commands.${key}`, value));
 /** The record of `agent.sh build-record BR run` and its exit status. @param {string} d */
 function br(d) {
-  mkdirSync(`${d}/.agents/runs/BR`, { recursive: true });
+  mkdirSync(`${d}/.agents/runs/BR`, { recursive: true }); writeFileSync(`${d}/.agents/runs/BR/RUN.yaml`, '');   // A344: a run is a folder with RUN.yaml
   const r = spawnSync('sh', ['.agents/scripts/agent.sh', 'build-record', 'BR', 'run'], { cwd: d, env: sb.env, encoding: 'utf8' });
   return { code: r.status, out: r.stdout + r.stderr };
 }

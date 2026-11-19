@@ -8,6 +8,7 @@ Verify: `<one command the user runs on their own machine>`
 Owner: lead. Derived from run evidence only; published through the task adapter before DONE. agent.sh
 requires the sections that apply to the run; a missing one FAILS `publish-completion-report`. Do not count tests, gates,
 fix rounds or refreezes yourself: publish appends the generated Facts block and refuses other numbers (A143).
+Publish also appends the generated Verification claims block (A341); use no word of the interface-check vocabulary of `core/claimwords.mjs` in your text (publish refuses them, also in a denial) unless the generated block says that check ran on the final tree.
 
 The summary block above is for the user to read at the top of this file, in English like the rest of the file (every file the run writes is English,
 whatever the user's language; the language check covers the block, and publish copies it into the task file); your chat message to the user is in
@@ -38,7 +39,7 @@ the user's language. At most five lines in all: `Changed:` (what changed) and `V
 
 ## QA Result
 
-(STANDARD and up) QA result; when the `visual` focus ran, the visual-proof `SUMMARY:` line.
+(STANDARD and up) QA result; the interface-check summary line only when the Verification claims block says that check ran on the final tree (A341).
 
 ## Unsupported Checks
 

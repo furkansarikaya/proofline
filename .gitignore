@@ -3,3 +3,4 @@ node_modules/
 # local agent state, progress notes, evaluations and worktrees: never committed
 .claude/
 .agents/local/
+test-durations/

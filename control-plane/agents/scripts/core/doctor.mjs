@@ -19,6 +19,7 @@ import { emailOf, forbidden } from './githooks.mjs';
 import { sha256File } from './hash.mjs';
 import { leftoverWorktrees } from './leftover.mjs';
 import { isDir, isFile } from './paths.mjs';
+import { strayRunFolders } from './runs.mjs';
 import { eolText, nullDevice, realpathPosix, samePath } from './pathin.mjs';
 import { detectPlatform, droppedNetVars, warnText } from './platform.mjs';
 import * as proc from './proc.mjs';
@@ -285,6 +286,11 @@ class Doctor {
     try { text = readFileSync(`${this.root}/${MANIFEST_REL}`, 'utf8'); } catch { return ''; }
     for (const l of text.split('\n')) { const m = new RegExp(`^# ${key}: *(.*)$`).exec(l); if (m) return m[1]; }
     return '';
+  }
+
+  /** A344: run folders without RUN.yaml are not runs; they are reported with the remedy. */
+  doctorStrayRuns() {
+    for (const d of strayRunFolders(this.ctx)) this.warn(`runs: ${d} has no RUN.yaml, so it is not a run (a role wrote there from the wrong directory, or a cleanup was cut short); remove it: rm -rf ${d}`);
   }
 
   doctorPlatform() {
@@ -877,6 +883,7 @@ class Doctor {
     this.doctorNetenv();
     this.doctorCi();
     this.doctorWorktrees();
+    this.doctorStrayRuns();
     this.doctorContext();
     this.doctorRules();
     this.doctorVersion();

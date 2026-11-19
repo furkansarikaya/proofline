@@ -59,7 +59,7 @@ For each `not_rerun.<GATE>:<focus>=` line of `A pipeline <ID>` (the gate re-ran 
 ## QA Result
 
 (STANDARD and up) QA: <PASS|FAIL> (<confidence>); scenarios <passed>/<total>.
-Visual (when the `visual` focus ran): <the `SUMMARY:` line of `reviews/visual-proof/REPORT.md`>.
+Only when the Verification claims block says the interface check ran on the final tree (A341; otherwise leave this line out, publish refuses its words): <the `SUMMARY:` line of the interface-check report>.
 
 ## Unsupported Checks
 

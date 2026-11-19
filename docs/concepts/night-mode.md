@@ -93,7 +93,9 @@ to `in-progress/` and the open-run check of the commit and push hooks all belong
 - a task that is parked, waiting for its merge or in a CI-fix round blocks no task that does not depend on it (before,
   the next task failed with `another open run exists in this worktree` and its dependents were skipped);
 - the main working tree stays clean: no run, no moved task file, nothing to commit or stash, and `git status` there shows
-  what it showed before the batch;
+  what it showed before the batch. A run exists in a tree only with a `RUN.yaml` file: a stray `.agents/runs/<ID>/` folder
+  in the main tree (a role that wrote there from the wrong directory) is not a run, so commands for the task still go to its
+  worktree and `agent.sh` names the folder as not a run (A344);
 - a task starts only when every task it depends on is merged (a record in `merged.tsv`). A dependency that is parked, skipped
   or awaiting its merge keeps the dependent skipped; the next `/proofline batch` judges it again, so it follows the merge
   and starts from the new canonical tip;

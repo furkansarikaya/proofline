@@ -293,7 +293,7 @@ jobs:
           - name: run4c-report
             mode: files
             pattern: 'none'
-            files: tests/core/run4c-report.test.mjs
+            files: tests/core/run4c-report.test.mjs tests/core/verifyclaims.test.mjs
           - name: gates-s1
             mode: files
             pattern: 'none'

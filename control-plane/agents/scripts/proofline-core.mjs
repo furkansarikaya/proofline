@@ -105,10 +105,11 @@ function dispatch(ctx, locks, argv) {
   // agent.sh parses the config at its start: a config that exists but cannot be read is the shell's (awk's) error
   if (handler && isFile(ctx.configFile)) { try { accessSync(ctx.configFile, constants.R_OK); } catch { throw new ProoflineError('proofline: the configuration file is not readable', 1); } }
   if (!validRole(ctx.role)) throw new ProoflineError(`invalid execution role: ${bytes(ctx.rawRole)}`, 1);
-  // A169: a run that lives in its own worktree is served by that worktree's agent.sh (only for a command this core owns)
+  // A169: a run that lives in its own worktree is served by that worktree's agent.sh (only for a command this core owns). A344: a run exists in the main tree only
+  // with a RUN.yaml FILE; a stray folder a role made from the wrong directory (mkdir -p .agents/runs/T-2/scratch) does not switch the routing off
   const id = args[0];
   // (the worktree and batch commands name a task but run in the folder they are given, as in agent.sh)
-  if (handler && command !== 'start' && !/^(worktree-add|worktree-path|worktree-remove|batch-.*)$/.test(command) && id !== undefined && validTaskId(id) && !isExisting(`${ctx.root}/.agents/runs/${id}`)
+  if (handler && command !== 'start' && !/^(worktree-add|worktree-path|worktree-remove|batch-.*)$/.test(command) && id !== undefined && validTaskId(id) && !isFile(`${ctx.root}/.agents/runs/${id}/RUN.yaml`)
     && isDir(`${ctx.root}/.agents/local/worktrees/${id}/.agents/runs/${id}`) && isFile(`${ctx.root}/.agents/local/worktrees/${id}/.agents/scripts/agent.sh`)) {
     // served in process by THIS core with the worktree as the root (its agent.sh is only the path that names the root; nothing of it is run: its
     // proofline-core.mjs and scripts are tracked content a task could have rewritten)
@@ -133,9 +134,6 @@ function dispatch(ctx, locks, argv) {
   ctx.flush();
   return code;
 }
-
-/** `[ -e PATH ]` @param {string} p */
-function isExisting(p) { try { realpathSync(p); return true; } catch { return false; } }
 
 /** The path in the / spelling the rest of the core compares with (Windows hands back backslashes from realpath; A250). @param {string} p */
 function fwd(p) { return process.platform === 'win32' ? p.replaceAll('\\', '/') : p; }
