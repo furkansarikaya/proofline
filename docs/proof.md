@@ -28,9 +28,9 @@ The total is test results, not distinct tests: a few files run in two jobs (for 
 - **A292 (Windows hook tests):** a "safe fs layer" built in a review round was removed after the security review showed that its own error was turned into an ALLOW when no run was active, which let a lead write product files the hook would deny; the proof of concept was reproduced. The existing hook wrapper already fails closed, so the layer was dropped (A292, "REVIEW HISTORY").
 - **A293 (review and security roles never push):** four security rounds found bypasses that were closed class by class. The result is stated as a tripwire for honest mistakes, not a boundary against a determined agent; the real boundaries are named (branch protection and the git pre-push hook). The test matrix `tests/hook/readonly-git-cases.mjs` has 487 rows (324 deny, 163 allow), counted from the file at 03c110a0. The record itself quotes 440 rows (290 and 150) from an earlier state of the matrix.
 
-## Pull requests #278 to #334 and this one
+## Pull requests #278 to #335
 
-Every pull request in this range except the last row (this pull request) was merged (checked with `gh pr view <n> --json title,mergedAt`). "Decision" is the number in the pull request title; the version is the CHANGELOG heading that carries that decision. PR #289 carries A290 in its title, its record and its CHANGELOG entry are A295. The decisions A304 to A310 and A321 to A323 were merged in the final records pull request #314 and A324 in #315 (docs-only records: accepted limits and the end-to-end expectations; checked with `git show <merge commit> -- docs/decisions.md`). #316 is an issue, not a pull request. Rows #314 to #329 were added by A338 and #330 to #334 by A346; every title in them is what `gh pr list --state all --json number,title` printed when the rows were written (#329 was shown as unmerged in the earlier version of this page and is merged).
+Every pull request in this range was merged except #335, this one (the last row) (checked with `gh pr view <n> --json title,mergedAt`). "Decision" is the number in the pull request title; the version is the CHANGELOG heading that carries that decision. PR #289 carries A290 in its title, its record and its CHANGELOG entry are A295. The decisions A304 to A310 and A321 to A323 were merged in the final records pull request #314 and A324 in #315 (docs-only records: accepted limits and the end-to-end expectations; checked with `git show <merge commit> -- docs/decisions.md`). #316 is an issue, not a pull request. Rows #314 to #329 were added by A338 and #330 to #335 by A346 (#335 is docs only); every title in them is what `gh pr list --state all --json number,title` printed when the rows were written (#329 was shown as unmerged in the earlier version of this page and is merged).
 
 | PR | Merged (UTC date) | Decision | Version | Title |
 |---|---|---|---|---|
@@ -90,7 +90,7 @@ Every pull request in this range except the last row (this pull request) was mer
 | [#332](https://github.com/furkansarikaya/proofline/pull/332) | 2026-11-19 | A343 | 0.0.167 | fix: a plan bullet's quoted data is not read as test names; the refusal names the refreeze remedy (A343) |
 | [#333](https://github.com/furkansarikaya/proofline/pull/333) | 2026-11-19 | A341, A344 | 0.0.169, 0.0.170 | fix: the completion report's verification claims come from the gate records (A341); a run exists only with a RUN.yaml (A344) |
 | [#334](https://github.com/furkansarikaya/proofline/pull/334) | 2026-11-19 | A345 | 0.0.171 | test: the replay tests' duration reports are not inflated by their own concurrency (A345) |
-| this pull request | not merged at the time of this record | A346 | no release | docs: the second closing records of the campaign: e2e runs of 2026-11-19, accepted limits, CI and Windows facts (A346) |
+| [#335](https://github.com/furkansarikaya/proofline/pull/335) | not merged at the time of this record | A346 | no release | docs: the closing campaign II of 2026-11-19: final records, accepted limits, e2e results (A346) |
 
 ## Real-session smoke test
 
