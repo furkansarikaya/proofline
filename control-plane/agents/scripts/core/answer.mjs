@@ -8,7 +8,6 @@ import { approvalNormSpace, latestCapture, quoteLines, sortedNames } from './app
 import { captureField, safeSession } from './capture.mjs';
 import { requireLead } from './approve.mjs';
 import { fail } from './errors.mjs';
-import { asciiLower } from './shellglob.mjs';
 import { setRunValue } from './lifecycle.mjs';
 import { ledgerAppend } from './ledger.mjs';
 import { fileLines, gateField, gatesEnforced, readBytes, sectionKeyPresent } from './records.mjs';
@@ -19,8 +18,16 @@ import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
-const NEGATION = /(^|[^A-Za-z])(not|never|no|nope|n't|don't|dont|do not|only if|if|unless|but|except|until|yet|wait|without|maybe|reject|rejected|decline|declined|or|actually|instead|rather|değil|degil|hayır|hayir|reddet|reddediyorum|yerine|olmasın|olmasin|sadece eğer|sadece eger|ama|eğer|eger)([^A-Za-z]|$)/;
-const NEGATION_BYTES = new RegExp(Buffer.from(NEGATION.source, 'utf8').toString('latin1'));
+// A347: the hedge check runs on decoded, folded TEXT (fold below), not on bytes. Whole words (the English list as before, and the Turkish whole words), then Turkish STEMS matched as
+// prefixes of a word (a Turkish word is inflected: değil, değildir; istemi, istemiyorum). A finite list, not language understanding; a "?" anywhere is a question, not an answer.
+const NEG_WORDS = "not|never|no|nope|n't|don't|dont|do not|only if|if|unless|but|except|until|yet|wait|without|maybe|reject|rejected|decline|declined|or|actually|instead|rather|değil|degil|hayır|hayir|reddet|reddediyorum|yerine|olmasın|olmasin|sadece eğer|sadece eger|ama|eğer|eger";
+const NEG_STEMS = 'değil|degil|istemi|istemem|yapma|etme|asla|fakat|ancak|bekle|bekli|iptal|vazgeç|vazgec|sanmam|emin|belki|hayir|reddet|olmasin|yerine|henüz|henuz';
+const NEG_WORD_RE = new RegExp(`(^|[^\\p{L}\\p{M}])(${NEG_WORDS})([^\\p{L}\\p{M}]|$)`, 'u');
+const NEG_STEM_RE = new RegExp(`(^|[^\\p{L}\\p{M}])(${NEG_STEMS})`, 'u');
+/** Does folded text hold a negation, a condition, a hedge or a question mark? @param {string} t */
+const hedgedText = (t) => t.includes('?') || NEG_WORD_RE.test(` ${t} `) || NEG_STEM_RE.test(` ${t} `);
+/** The same for a byte string (the form the core holds text in). @param {string} b */
+const hedged = (b) => hedgedText(fold(text(b)));
 
 /** `assumption_prompt_accepts PROMPT ID` @param {string} prompt @param {string} id */
 export function assumptionPromptAccepts(prompt, id) {
@@ -30,7 +37,7 @@ export function assumptionPromptAccepts(prompt, id) {
   if (rest === p) return false;
   const head = p.endsWith(rest) ? p.slice(0, p.length - rest.length) : p;
   try { if (!new RegExp(`(accept|accepted) ${lower(id)}([^0-9]|$)`).test(head)) return false; } catch { return false; }
-  return !NEGATION_BYTES.test(` ${rest} `);
+  return !hedged(` ${rest} `);
 }
 
 /** The user-only kind a question carries: SPLIT (the split override of freeze, A171), USER_ONLY (an intent scope or batch pre-flight question). @param {string[]} lines */
@@ -49,22 +56,43 @@ function openUserOnly(ctx, dir) {
   return c;
 }
 
+/** A latin1 byte string (how the core holds text) as real text, and back. @param {string} s */
+const text = (s) => Buffer.from(s, 'latin1').toString('utf8').normalize('NFC');
+/** @param {string} s */
+const bytes = (s) => Buffer.from(s, 'utf8').toString('latin1');
+/** Case folding for answer forms: Turkish İ, I, ı and i all compare as i (an English "FIX IT" and a Turkish "KIZ" both match), then lower case. @param {string} s */
+const fold = (s) => s.replace(/[İIı]/g, 'i').toLowerCase();
+
+/** The options line of a question as text, or null. @param {string[]} lines */
+function optionsLine(lines) {
+  for (const l of lines) { const t = text(l); if (/^[ \t]*(options|seçenekler|secenekler):/iu.test(t)) return t; }
+  return null;
+}
+/** The listed forms of a question as text, as written (quotes and a leading `a)` removed). @param {string[]} lines */
+function formsOf(lines) {
+  const opt = optionsLine(lines);
+  if (opt === null) return [];
+  return [...new Set(opt.slice(opt.indexOf(':') + 1).split(/\|/).map((x) => (/"([^"]+)"/.exec(x)?.[1] ?? x.trim().replace(/^[a-z]\)\s*/i, '').replace(/^['`]|['`]$/g, '')).trim()).filter((x) => x !== ''))];
+}
+/** The answer forms a question lists, as byte strings (for a message to the user). @param {string[]} lines */
+export function acceptedForms(lines) { return formsOf(lines).map(bytes); }
+
 /**
- * The answer forms a question lists: the items of its `options:` / `seçenekler:` line (separated by | or ,, quotes and a leading `a)` removed). A
- * message is an accepted answer when, in lower case with the white space folded, it starts with exactly ONE listed form (followed by the end or a
- * non-letter) and the rest holds no negation or condition. Anything else (two forms, none, a hedge) records nothing.
+ * The answer forms a question lists: the items of its `options:` / `seçenekler:` line (separated by |, quotes and a leading `a)` removed). A
+ * message is an accepted answer when, with case folded the Turkish way (A347) and the white space folded, it starts with exactly ONE listed form
+ * (followed by the end or a non-letter) and the rest holds no negation or condition. Anything else (two forms, none, a hedge) records nothing.
+ * Question and message are byte strings (A210 design): both are decoded to text for the comparison; the negation check runs on the bytes again.
  * @param {string} norm @param {string[]} lines
  */
-function matchesAcceptedForm(norm, lines) {
-  const opt = lines.find((l) => /^[ \t]*(options|seçenekler|secenekler):/i.test(l));
-  if (!opt) return false;
-  const forms = [...new Set(opt.slice(opt.indexOf(':') + 1).split(/\|/).map((x) => (/"([^"]+)"/.exec(x)?.[1] ?? x.trim().replace(/^[a-z]\)\s*/i, '').replace(/^['`]|['`]$/g, '')).trim()).map(asciiLower).filter((x) => x !== ''))];
-  const msg = asciiLower(norm).replace(/^[ \t\n]+/, '').replace(/[.!]+$/, '');
-  const hits = forms.filter((f) => msg === f || (msg.startsWith(f) && !/[a-zçğıöşü0-9]/i.test(msg.charAt(f.length))));
+export function matchesAcceptedForm(norm, lines) {
+  const forms = [...new Set(formsOf(lines).map(fold))];
+  if (forms.length === 0 || norm.includes('?')) return false;
+  const msg = fold(text(norm)).replace(/^[ \t\n]+/, '').replace(/[.!]+$/, '');
+  const hits = forms.filter((f) => msg === f || (msg.startsWith(f) && !/[\p{L}\p{N}\p{M}]/u.test(msg.charAt(f.length))));
   if (hits.length !== 1) return false;
   // no OTHER listed form may be named anywhere in the message ("report it and fix it" gives neither decision)
   if (forms.some((f) => f !== hits[0] && !hits[0].includes(f) && msg.includes(f))) return false;
-  return !NEGATION_BYTES.test(` ${msg.slice(hits[0].length)} `);
+  return !hedgedText(` ${msg.slice(hits[0].length)} `);
 }
 
 const TOKEN_LINE = /^[ \t\n\v\f\r]*ASSUMPTION: ([^ \t\n\v\f\r]*)[ \t\n\v\f\r]*$/;
@@ -129,7 +157,7 @@ export function answer(ctx, args) {
     else if (tok === '' && userOnlyKind(qtext) !== '') {
       // a split override or another user-only question: the single open one, answered by one of the forms the question lists
       if (openUserOnly(ctx, dir) !== 1) fail(`question ${n} is not the only open user-only question: ask the user again`);
-      if (!matchesAcceptedForm(norm, qtext)) fail(`this message is not one of the accepted answers of question ${n} (nothing is recorded; ask the user again)`);
+      if (!matchesAcceptedForm(norm, qtext)) fail(`this message is not one of the accepted answers of question ${n} (accepted: ${acceptedForms(qtext).map((f) => `"${f}"`).join(' | ')}; nothing is recorded; ask the user again)`);
       acc = true;
     } else if (tok === '') fail(`question ${n} is not a question the user answers through the prompt hook (the lead types the answer; it is recorded as the lead's)`);
     // the prompt hook tries every open user-only question with each message it handles: it records an acceptance or an accepted form and nothing else

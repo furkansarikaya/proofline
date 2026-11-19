@@ -403,6 +403,19 @@ class Install {
     this.plog('merged', `${rel} (+ ${line})`);
   }
 
+  /**
+   * A348: `.agents/local/.gitignore` holding `*`, so nothing a skill writes under `.agents/local/` appears in `git status` (the lead cannot write that file itself: the
+   * PreToolUse hook keeps `.agents/local/` runtime state). Created when missing, never rewritten (a file that exists, whatever it holds, is the project's); not created with
+   * `local_state: off` (nothing is written under `.agents/local/` then), judged on the configuration this run installs.
+   */
+  ensureLocalIgnore() {
+    const rel = '.agents/local/.gitignore';
+    if (Config.load(`${this.stage}/config.yaml`).get('local_state', 'on') === 'off') return;
+    if (existsSync(`${this.root}/${rel}`)) return;
+    if (this.p.dry) { if (!pathSafe(this.root, rel)) this.unsafe(rel); else this.plog('merged', `${rel} (created)`); return; }
+    if (this.writeSafe(rel, '*\n')) this.plog('merged', `${rel} (created)`);
+  }
+
   /** @param {string} file @param {string} key @param {string} value set only when the current value differs */
   cfgSetIf(file, key, value) {
     if (Config.load(file).get(key, '') === value) return;
@@ -600,6 +613,7 @@ class Install {
       if (this.has('claude')) this.mergeBlock('CLAUDE.md', `${f}/control-plane/CLAUDE.md`);
       this.ensureLine('.gitignore', '.agents/local/');
       this.ensureLine('.gitignore', '.agents/runs/');
+      this.ensureLocalIgnore();
       this.doGithooksPath();
       this.writeManifest();
       const r = this.report();

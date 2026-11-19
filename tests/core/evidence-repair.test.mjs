@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { before, test } from 'node:test';
-import { matchPlanDurations, parseRunnerDurations } from '../../control-plane/agents/scripts/core/evidencerepair.mjs';
+import { matchPlanDurations, parseRunnerDurations, runnerEntries } from '../../control-plane/agents/scripts/core/evidencerepair.mjs';
 import { A, gateStatus, refused } from '../lib/harness.mjs';
 import { accepted, count, gpass, ledger, must, passAllButTests, rec, reopened, rerun, runnerStarts, setMode, stripDuration, warm, writeFindings } from './evidence-repair-lib.mjs';
 
@@ -19,6 +19,14 @@ const finding = (/** @type {string} */ kind, /** @type {string} */ reason) => ({
   { id: 'F001', kind: 'not_measured', verdict: 'confirmed', test: { file: 'impl_test.txt', name: 'fast one' }, observed: { reason: 'no_recorded_duration', subject: 'fast one', detail: 'x' } },
   { id: 'F002', kind, verdict: 'confirmed', test: { file: 'impl_test.txt', name: 'fast one' }, observed: { reason, subject: 'node --test x', detail: 'x' } },
 ] });
+
+test('runnerEntries gives names as byte strings, so a plan test name with Turkish letters (also held as bytes) is matched (A347)', () => {
+  const b = (/** @type {string} */ s) => Buffer.from(s, 'utf8').toString('latin1');
+  const entries = runnerEntries('✔ Bölüm çalışır (4ms)\n✔ other (1ms)\n');
+  assert.deepEqual(entries[0], { name: b('Bölüm çalışır'), ms: 4 });
+  const plan = b('bölüm çalışır');   // the plan's names are lower-cased ASCII-wise, as bytes
+  assert.deepEqual([...matchPlanDurations([plan], entries).found.keys()], [plan]);
+});
 
 test('parseRunnerDurations reads the line shapes of runners, leaves out what cannot be recorded, and matchPlanDurations prefers the exact name', () => {
   const out = '\u001b[32m✔ first test (12.5ms)\u001b[0m\n  ✓ second test (3 ms)\n--- PASS: TestThird (0.25s)\nok 4 - fourth test\n  ---\n  duration_ms: 7.25\n  ...\n✔ has = sign (1ms)\n✔ has; semi (1ms)\nnot ok 5 - broken\n  duration_ms: 99\n✔ first test (99ms)\n';

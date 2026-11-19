@@ -58,7 +58,7 @@ export function checkPrivacy(root, slug) {
     const rel = relative(root, join(dir, n));
     const f = { file: rel, line: 0, id: n.replace(/\.txt$/, "") };
     if (git(["ls-files", "--error-unmatch", "--", rel]).status === 0) findings.push({ ...f, rule: "privacy", message: "raw interview text is tracked by git; remove it from the index (git rm --cached)" });
-    else if (git(["check-ignore", "-q", "--", rel]).status !== 0) findings.push({ ...f, rule: "privacy", message: "raw interview text is not ignored by git; .agents/local/.gitignore must contain *" });
+    else if (git(["check-ignore", "-q", "--", rel]).status !== 0) findings.push({ ...f, rule: "privacy", message: "raw interview text is not ignored by git; .agents/local/.gitignore must contain * (run proofline upgrade)" });
   }
   return findings;
 }

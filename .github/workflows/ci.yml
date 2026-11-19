@@ -241,7 +241,7 @@ jobs:
           - name: legacy-approvals
             mode: files
             pattern: 'none'
-            files: tests/core/answer-user.test.mjs tests/core/legacy-approval-grammar.test.mjs tests/core/legacy-approval-multi.test.mjs tests/core/legacy-approvals.test.mjs tests/core/legacy-questions.test.mjs tests/core/legacy-waivers.test.mjs
+            files: tests/core/answer-forms.test.mjs tests/core/answer-user.test.mjs tests/core/legacy-approval-grammar.test.mjs tests/core/legacy-approval-multi.test.mjs tests/core/legacy-approvals.test.mjs tests/core/legacy-questions.test.mjs tests/core/legacy-waivers.test.mjs
           - name: port-rig-a
             mode: files
             pattern: 'none'

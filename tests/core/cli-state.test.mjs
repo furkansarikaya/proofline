@@ -118,6 +118,7 @@ test('status, resume, queue, run, task, design, review, audit and debug on a pro
   assert.equal(r.status, 0, r.text);
   assert.ok(!existsSync(`${st}/.agents/local/prompts/s.json`));
   assert.ok(existsSync(`${st}/.agents/local/worktrees/T-9/keep`), 'clean --yes keeps the run worktrees (A169)');
+  assert.equal(readFileSync(`${st}/.agents/local/.gitignore`, 'utf8'), '*\n', 'clean --yes keeps the folder\'s own .gitignore, which init made (A348)');
 });
 /** @param {string} st */
 function rmDone(st) { spawnSync('rm', ['-rf', `${st}/.agents/tasks/done`]); }

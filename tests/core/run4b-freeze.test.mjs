@@ -155,7 +155,7 @@ test('freeze: TRIVIAL covers text and configuration only - executable code in th
   const d = project('scaffold standalone no TRIVIAL supervised');
   writeFileSync(`${d}/.agents/runs/LC/PLAN.md`, read(d, '.agents/runs/LC/PLAN.md').replaceAll('impl.txt', 'impl.go'));
   writeFileSync(`${d}/impl.go`, 'package x\n');
-  refused(AF(d, ['freeze', 'LC']), 'executable code in a TRIVIAL scope', 'the TRIVIAL pipeline covers text and configuration only; scope has executable code: impl.go');
+  refused(AF(d, ['freeze', 'LC']), 'executable code in a TRIVIAL scope', 'the TRIVIAL pipeline covers text and configuration only; scope has executable code: impl.go — classify STANDARD');   // the dash leaves the core as UTF-8 bytes, not as one control character (A347)
 });
 
 test('handoff: the ladder is strict, an implementer may only start implementing, IMPLEMENTED needs the worker evidence, CODE_DONE needs the gates and an unchanged tree', () => {

@@ -19,6 +19,7 @@ import { fieldOf, fileLines, gateField, gatesEnforced, ledgerRows, sectionValue 
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
+import { bytes } from './config.mjs';
 import { parseException, planTestsWithoutDurationOf } from './testreview.mjs';
 import { greenRecords, measureRequired } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
@@ -61,6 +62,9 @@ export function parseRunnerDurations(text) {
   }
   return out;
 }
+
+/** The durations of a runner's output (decoded text) with the names as byte strings, the form of the plan's test names and of every record the core writes. @param {string} text */
+export function runnerEntries(text) { return parseRunnerDurations(text).map((e) => ({ name: bytes(e.name), ms: e.ms })); }
 
 /**
  * For each plan-named test, the entry of the output that carries its duration: the entry with the same name, else the ONE entry whose name contains it (the rule
@@ -186,7 +190,7 @@ export function evidenceRepairRun(ctx, id, plan) {
     } finally { rmSync(tmpd, { recursive: true, force: true }); }
     if (r.timedOut === true) fail(`evidence-only repair refused: \`${command}\` hit the time limit (${limit} s); nothing was recorded`);
     if (r.status !== 0) fail(`evidence-only repair refused: \`${command}\` exited ${r.status}; a GREEN record needs a passing run, nothing was recorded (a failing test is a normal fix)`);
-    outputs.push({ command, entries: parseRunnerDurations(text) });
+    outputs.push({ command, entries: runnerEntries(text) });
   }
   // the task patch is memoised per invocation, and so are the changed-path lists (git status), the content fingerprints and the file reads it rests on: drop all of them, so a path a command dirtied or created is seen
   for (const k of ['patch:', 'changed:', 'fp:', 'file:', 'hash:', 'git:']) ctx.forget(k);

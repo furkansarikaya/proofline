@@ -151,8 +151,10 @@ export async function handle(ctx) {
     msgs = approvalMessages(all, msgs);
   }
   rmf(marker);
-  if (ctx.act !== '' && ctx.act !== 'INVALID') await recordAcceptances(ctx, promptCapture);
+  let hint = '';
+  if (ctx.act !== '' && ctx.act !== 'INVALID') hint = await recordAcceptances(ctx, promptCapture);
   await ctx.flush();
+  if (hint !== '') msgs = `${msgs !== '' ? `${msgs} ` : ''}${hint}`;
   if (warn !== '') msgs = `${warn}${msgs !== '' ? ` ${msgs}` : ''}`;
   if (msgs === '') return undefined;
   return `{"systemMessage":"${jesc(msgs)}","hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"${jesc(msgs)}"}}\n`;
@@ -177,14 +179,28 @@ function trimSpool(file) {
  * or batch pre-flight question) is recorded as the user's by THIS hook, from the message it is handling: the core records nothing as the user's from a
  * file (answer.mjs, A210, #187). Only questions that carry such a marker are tried; the core refuses (and records nothing) when the message is not an
  * acceptance of that token or one of the answer forms the question lists.
+ * Not silent (A347): when the core says a SHORT one-line message (an answer is short; chat is not) is not one of the forms of the single open question, the
+ * user gets ONE line with the accepted forms; a longer message, a question, or a message for an assumption token gets no line.
+ * Returns that line, or ''.
  * @param {import('../lib/context.mjs').HookContext} ctx @param {{ session: string, time: number, sha256: string, text: string }} promptCapture
  */
 async function recordAcceptances(ctx, promptCapture) {
   const dir = `${ctx.sroot}/.agents/runs/${ctx.act}/questions`;
   const list = names(dir);
+  let hint = '';
+  const short = promptCapture.text.trim().length <= 80 && !promptCapture.text.trim().includes('\n');
   for (const n of list) {
     const m = /^([0-9]{3})\.md$/.exec(n);
     if (!m || list.includes(`${m[1]}.answer.md`) || !/^[ \t]*(ASSUMPTION: [^ \t]+|SPLIT: .*|USER_ONLY: .*)[ \t]*$/m.test(readText(`${dir}/${n}`))) continue;
-    await ctx.agent(['answer', ctx.act, String(Number(m[1])), '--captured'], { promptCapture });
+    const r = await ctx.agent(['answer', ctx.act, String(Number(m[1])), '--captured'], { promptCapture });
+    const miss = /not one of the accepted answers of question ([0-9]+) \(accepted: ([^\n]*?); nothing is recorded/.exec(r.stderr);
+    if (miss && short && hint === '') {
+      miss[2] = miss[2].replace(/[\u0000-\u001f\u007f]/g, ' ');   // jesc (shared with the byte-exact capture) does not escape other control characters: a stray one in a form must not make the JSON invalid
+      const lang = await ctx.agent(['run-language', ctx.act]);   // only on a miss: one more process, never on the normal path
+      hint = lang.status === 0 && lang.stdout.trim() === 'tr'
+        ? `proofline: ${miss[1]}. soru yanıtınızı bekliyor ve bu mesaj kabul edilen yanıtlardan biri değil, bu yüzden hiçbir şey kaydedilmedi. Tam olarak şunlardan biriyle yanıtlayın: ${miss[2]}.`
+        : `proofline: question ${miss[1]} waits for your answer, and this message is not one of its accepted answers, so nothing was recorded. Answer with exactly one of: ${miss[2]}.`;
+    }
   }
+  return hint;
 }

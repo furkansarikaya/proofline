@@ -27,7 +27,7 @@ import { queue } from './queue.mjs';
 import { run as coreRun } from '../proofline-core.mjs';
 import { USAGE_LINES } from './cliusage.mjs';
 
-export const PROOFLINE_VERSION = '0.0.171';
+export const PROOFLINE_VERSION = '0.0.172';
 
 /** @typedef {{ write(chunk: Buffer): unknown }} Sink */
 /** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean }} Over */
@@ -257,7 +257,7 @@ class Cli {
     // S1 (fix round 1): `find -P` counts and deletes (argument array, no shell). It never follows a link and decides per entry as it goes, so a folder swapped for a
     // link while clean runs is removed as a link; a walk in Node lists a folder by path after deciding it is one, and could be led into the link's target.
     const localOk = existsSync(local) && lstatSync(local).isDirectory();
-    const keep = ['!', '-name', 'ACTIVE_RUN', '!', '-path', `${local}/worktrees`, '!', '-path', `${local}/worktrees/*`];
+    const keep = ['!', '-name', 'ACTIVE_RUN', '!', '-path', `${local}/.gitignore`, '!', '-path', `${local}/worktrees`, '!', '-path', `${local}/worktrees/*`];
     /** @param {string[]} extra @returns {string} */
     const findLocal = (extra) => proc.run('find', ['-P', local, '-mindepth', '1', ...keep, ...extra], { cwd: this.root, env: this.env, stdio: ['ignore', 'pipe', 'ignore'] }).stdout.toString('latin1');
     /** win32 has no find(1) of this kind: the walk stays there (no link is followed by readdir/unlink of a Dirent, but it is not race-free) */
@@ -266,7 +266,7 @@ class Cli {
       try { ents = readdirSync(dir, { withFileTypes: true }); } catch { return; }
       for (const e of ents) {
         if (e.name === 'ACTIVE_RUN') continue;
-        if (top && e.name === 'worktrees') continue;
+        if (top && (e.name === 'worktrees' || e.name === '.gitignore')) continue;   // the folder's own .gitignore (A348) stays, as the selector does
         const f = `${dir}/${e.name}`;
         if (e.isDirectory()) { walkLocal(f, false, onFile, onDir); onDir(f); } else onFile(f);
       }

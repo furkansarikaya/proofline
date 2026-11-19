@@ -260,3 +260,38 @@ test('a manifest cannot make upgrade delete or touch a file outside the project:
   assert.equal(read(`${linkTarget}/inner.txt`), 'keep me too\n');
   assert.equal((r.out.match(/! WARN .*is not a plain path inside the project; not touched/g) ?? []).length, 4, r.out);
 });
+
+test('init creates .agents/local/.gitignore with "*" (the lead cannot write it: the PreToolUse hook keeps .agents/local runtime state); a second init and an upgrade keep it, a file that exists is never rewritten (A348)', () => {
+  const d = sb.mkrepo('localignore');
+  const r = sb.pl(d, ['init', '--yes', '--runtimes', 'claude']);
+  assert.equal(r.status, 0, r.text);
+  assert.equal(read(`${d}/.agents/local/.gitignore`), '*\n');
+  assert.ok(r.out.includes('+ merged    .agents/local/.gitignore (created)'), r.out);
+  assert.equal(spawnSync('git', ['-C', d, 'check-ignore', '-q', '--', '.agents/local/product-discovery/x/interviews/INT-1.txt'], { env: sb.env }).status, 0);
+  const again = sb.pl(d, ['init', '--yes', '--runtimes', 'claude']);
+  assert.ok(!again.out.includes('.agents/local/.gitignore'), again.out);
+  assert.equal(read(`${d}/.agents/local/.gitignore`), '*\n');
+  // the project's own file stays, whatever it holds; an upgrade that finds it missing creates it
+  writeFileSync(`${d}/.agents/local/.gitignore`, '# mine\n*\n');
+  assert.equal(upgrade(d).status, 0);
+  assert.equal(read(`${d}/.agents/local/.gitignore`), '# mine\n*\n');
+  rmSync(`${d}/.agents/local/.gitignore`);
+  const up = upgrade(d);
+  assert.equal(up.status, 0, up.text);
+  assert.equal(read(`${d}/.agents/local/.gitignore`), '*\n');
+});
+
+test('with local_state: off, upgrade creates nothing under .agents/local/; init --dry-run writes nothing and says what it would create (A348)', () => {
+  const dry = sb.mkrepo('localignore-dry');
+  const rd = sb.pl(dry, ['init', '--yes', '--runtimes', 'claude', '--dry-run']);
+  assert.equal(rd.status, 0, rd.text);
+  assert.ok(rd.out.includes('.agents/local/.gitignore'), rd.out);
+  assert.ok(!existsSync(`${dry}/.agents`), 'dry run wrote files');
+  const d = sb.mkrepo('localignore-off');
+  assert.equal(sb.pl(d, ['init', '--yes', '--runtimes', 'claude']).status, 0);
+  rmSync(`${d}/.agents/local`, { recursive: true, force: true });
+  edit(`${d}/.agents/config.yaml`, (t) => t.replace(/^local_state: on$/m, 'local_state: off'));
+  const up = upgrade(d);
+  assert.equal(up.status, 0, up.text);
+  assert.ok(!existsSync(`${d}/.agents/local`), up.text);
+});
