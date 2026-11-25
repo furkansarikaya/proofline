@@ -8,7 +8,7 @@
 export const CLAIM_VOCABULARY = [
   'browser', 'browsers', 'browserstack', 'chrome', 'chromium', 'firefox', 'safari', 'webkit', 'playwright', 'puppeteer', 'cypress', 'selenium',
   'screenshot', 'screenshots', 'screenshotted', 'screenshotting',
-  'visual', 'visuals', 'visually', 'visualize', 'visualizes', 'visualized', 'visualizing', 'visualization', 'visualizations', 'visualise', 'visualises', 'visualised', 'visualising', 'visualisation', 'visualisations',
+  'visual', 'visuals', 'visually', 'visualize', 'visualizes', 'visualized', 'visualizing', 'visualizer', 'visualizers', 'visualization', 'visualizations', 'visualise', 'visualises', 'visualised', 'visualising', 'visualiser', 'visualisers', 'visualisation', 'visualisations',
   'render', 'renders', 'rendered', 'rendering', 'renderer', 'renderers', 'eyeball', 'eyeballs', 'eyeballed', 'eyeballing', 'looked at the page', 'opened the page', 'e2e', 'end-to-end', 'real device', 'dev server',
 ];
 // A `*` at the end of an entry means any letters after the stem. A352: no entry uses it any more, the inflections are listed, so an identifier that glues a word on

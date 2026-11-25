@@ -65,6 +65,13 @@ test("auditor helpers: untranslated blocks, vacuum, thresholds", () => {
   assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"], task).length, 0);
   assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"], "# Task\n\nnothing\n").length, 1, "allow_text absent from TASK.md is flagged");
   assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"]).length, 1, "allow_text without a task is flagged");
+  // a short or part-of-a-word entry exempts nothing: at least 4 non-space characters, on word boundaries
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the", "is it", "uick brown f"], task).length, 1, "short and mid-word allow_text entries are flagged");
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: "the" }], [], "the").length, 0, "a block under 4 words is never a finding anyway");
+  // the count of exemptions is recorded in stats
+  const stats = { task_exemptions: 0 };
+  untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], task, stats);
+  assert.equal(stats.task_exemptions, 1);
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Merhaba dünya, bugün hava çok güzel" }]).length, 0);
   assert.equal(vacuumOf([{ top: 0, bottom: 100, selector: "a" }, { top: 1000, bottom: 1100, selector: "b" }], 800).ratio, 1.13);
   assert.equal(designHolds(2.5, ">= 3"), false);

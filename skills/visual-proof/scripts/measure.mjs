@@ -997,7 +997,7 @@ export function assemble(raw, outDir, opt = {}) {
   }
   if (c.design) {
     const unreadable = (p) => { throw new Error(`cannot read ${p}`); };
-    report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)), { ascii: asciiConfig([process.cwd(), outDir]), task: opt.task ?? null });
+    report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)), { ascii: asciiConfig([process.cwd(), outDir]), task: opt.task ?? null, taskSha: opt.taskSha ?? null });
   }
   const v = validateReport({ ...report, result: "PASS" }, { root: outDir, allowTimeScale: opt.allowTimeScale });
   report.result = v.computed;
@@ -1158,9 +1158,9 @@ async function main(argv) {
     if (errs.length) { errs.forEach((e) => console.error(`config: ${e}`)); return 2; }
     mkdirSync(out, { recursive: true });
     const acceptScale = argv.includes("--accept-time-scale");
-    let task = null; // A352: the task's TASK.md, the one source of English text a criterion requires (lang="en", allow_text)
-    if (arg(argv, "--task")) { try { task = readFileSync(arg(argv, "--task"), "utf8"); } catch { console.error(`measure: cannot read --task ${arg(argv, "--task")}`); return 2; } }
-    const report = assemble(raw, out, { allowTimeScale: acceptScale, task });
+    let task = null, taskSha = null; // A352: the task's TASK.md, the one source of English text a criterion requires (lang="en", allow_text)
+    if (arg(argv, "--task")) { try { const buf = readFileSync(arg(argv, "--task")); task = buf.toString("utf8"); taskSha = createHash("sha256").update(buf).digest("hex"); } catch { console.error(`measure: cannot read --task ${arg(argv, "--task")}`); return 2; } }
+    const report = assemble(raw, out, { allowTimeScale: acceptScale, task, taskSha });
     let prev = null; // A200: the report of the last run in this folder (or --prev-report) is the design-audit cache
     try { prev = read(arg(argv, "--prev-report") || join(out, "report.json")); } catch { prev = null; }
     if (report.design && report.design.status === "run") report.design.inputs = designCacheInputs(repo);
