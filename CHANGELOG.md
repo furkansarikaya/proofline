@@ -4,7 +4,7 @@
 
 ## 0.0.176 — 2026-11-25
 
-- Fix (A352, issue 338 B3): the language check compares a JSON string in its decoded form (escaped quotes, `\n`, `\uXXXX`), so a Turkish sentence quoted inside `findings.json` is no longer refused for its escapes; the refusal names the role that owns the file and its path; `design_untranslated` skips blocks inside an element with `lang="en"` and matches `allow_text` across white space runs. The completion-report vocabulary audit (A341) is deliberately unchanged.
+- Fix (A352, issue 338 B3): the language check compares a JSON string in its decoded form (escaped quotes, `\n`, `\uXXXX`), so a Turkish sentence quoted inside `findings.json` is no longer refused for its escapes; the refusal names the role that owns the file and its path; `design_untranslated` skips a block inside `lang="en"` and an `allow_text` entry only when TASK.md (`measure.mjs --task`) holds that text; a fully \u-escaped invented sentence in a JSON file is refused; the completion-report vocabulary has exact inflections instead of open stems (`rendermarkdown` is no claim, `rendered` still is; A341 not loosened).
 
 ## 0.0.175 — 2026-11-25
 

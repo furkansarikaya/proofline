@@ -91,6 +91,11 @@ describe('the vocabulary audit as pure functions', () => {
     assert.deepEqual(found('a <p> tag and a <br/> and <kbd>x</kbd> are not words'), []);
   });
 
+  test('A352: the open stems are exact inflections, so an identifier that holds a stem is no claim, while the inflections of a real claim word are still refused', () => {
+    for (const s of ['Calls `rendermarkdown` with the text.', 'The helper renderMarkdown is unchanged.', 'Uses a browserlist file and visualstudio settings.', 'The screenshotter module is renamed.']) assert.deepEqual(found(s), [], s);
+    for (const s of ['The template rendered fine.', 'It renders the list.', 'The renderer ran.', 'It is rendering now.', 'Browsers differ.', 'Screenshots confirm it.', 'It was screenshotted.', 'I eyeballed it.', 'The visuals look fine.', 'Visually fine.', 'Visualized the data.']) assert.ok(found(s).length >= 1, s);
+  });
+
   test('the vocabulary is English data: lower case, no duplicates; the report templates a lead may keep hold none of it', () => {
     assert.equal(new Set(CLAIM_VOCABULARY).size, CLAIM_VOCABULARY.length);
     for (const w of CLAIM_VOCABULARY) assert.match(w, /^[a-z0-9][a-z0-9 -]*\*?$/);

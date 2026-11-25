@@ -53,12 +53,18 @@ test("auditor: an empty hero, an untitled section, a system font and untranslate
 
 test("auditor helpers: untranslated blocks, vacuum, thresholds", () => {
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Bu sayfa the quick brown fox" }], ["the quick brown fox"]).length, 0);
-  // A352: English a criterion requires is declared (lang="en" on its element) or named in allow_text (white space of the criterion does not matter)
+  // A352: English a criterion requires is exempt (lang="en" on its element, or allow_text) only when TASK.md holds that text, white space squeezed, case-sensitive
   const fox = "the quick brown fox jumps over the lazy dog and this is it";
-  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }]).length, 0);
-  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en-GB", text: fox }]).length, 0);
-  assert.equal(untranslatedBlocks([{ selector: "p", lang: "tr", text: fox }]).length, 1);
-  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"]).length, 0);
+  const task = `# Task\n\n- AC-7: the page shows "the quick brown\nfox jumps over the lazy dog and this is it" in English.\n`;
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], task).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en-GB", text: fox }], [], task).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "tr", text: fox }], [], task).length, 1);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], "# Task\n\nnothing quoted here\n").length, 1, "lang=en of a text TASK.md does not hold stays a finding");
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }]).length, 1, "no task text, no exemption");
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], task.replace("the quick", "The quick")).length, 1, "case-sensitive");
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"], task).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"], "# Task\n\nnothing\n").length, 1, "allow_text absent from TASK.md is flagged");
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"]).length, 1, "allow_text without a task is flagged");
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Merhaba dünya, bugün hava çok güzel" }]).length, 0);
   assert.equal(vacuumOf([{ top: 0, bottom: 100, selector: "a" }, { top: 1000, bottom: 1100, selector: "b" }], 800).ratio, 1.13);
   assert.equal(designHolds(2.5, ">= 3"), false);

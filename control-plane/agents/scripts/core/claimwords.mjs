@@ -6,10 +6,13 @@
 // hyphenated entry a hyphen or a space matches. Language rule: English only (the report is an English run file, A312). Extend the list here.
 // An honest sentence that uses one of these words is refused too (accepted: the safe side); a paraphrase this list does not hold passes (a limit).
 export const CLAIM_VOCABULARY = [
-  'browser*', 'chrome', 'chromium', 'firefox', 'safari', 'webkit', 'playwright', 'puppeteer', 'cypress', 'selenium',
-  'screenshot*', 'visual*', 'render*', 'eyeball*', 'looked at the page', 'opened the page', 'e2e', 'end-to-end', 'real device', 'dev server',
+  'browser', 'browsers', 'browserstack', 'chrome', 'chromium', 'firefox', 'safari', 'webkit', 'playwright', 'puppeteer', 'cypress', 'selenium',
+  'screenshot', 'screenshots', 'screenshotted', 'screenshotting',
+  'visual', 'visuals', 'visually', 'visualize', 'visualizes', 'visualized', 'visualizing', 'visualization', 'visualizations', 'visualise', 'visualises', 'visualised', 'visualising', 'visualisation', 'visualisations',
+  'render', 'renders', 'rendered', 'rendering', 'renderer', 'renderers', 'eyeball', 'eyeballs', 'eyeballed', 'eyeballing', 'looked at the page', 'opened the page', 'e2e', 'end-to-end', 'real device', 'dev server',
 ];
-// A `*` at the end of an entry means any letters after the stem (render, renders, rendering, renderer).
+// A `*` at the end of an entry means any letters after the stem. A352: no entry uses it any more, the inflections are listed, so an identifier that glues a word on
+// (`rendermarkdown`) is no claim; the entry stays supported for a future word.
 
 /** Named HTML entities the audit decodes before it reads the text (numeric ones are always decoded). */
 export const CLAIM_ENTITIES = /** @type {Record<string, string>} */ ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', shy: '', zwj: '', zwnj: '', lrm: '', rlm: '', zerowidthspace: '', newline: ' ', tab: ' ', nonbreakingspace: ' ' });

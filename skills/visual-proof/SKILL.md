@@ -124,7 +124,7 @@ rows before the next step.
    two), screens with each state's path and ready selector, interactions the spec describes (form validation,
    modal, dropdown, long content), the criteria with the checks that prove them and, for a project that
    produces public HTML pages, the `seo` block (`"seo": { "public_html": false }` when it produces none).
-5. **Measure.** `node <skill-dir>/scripts/measure.mjs --config visual.json --out <output>` (browser) or, with a
+5. **Measure.** `node <skill-dir>/scripts/measure.mjs --config visual.json --out <output> --task .agents/runs/<ID>/TASK.md` (browser; `--task` is what lets `lang="en"` and `allow_text` exempt an English quote that a criterion requires: only text TASK.md holds, A352) or, with a
    project tool or runtime adapter, the probe and `--assemble` path ([TOOLING.md](references/TOOLING.md#adapters)).
    It writes `report.json` and `screenshots/`. Never edit a measured item.
 6. **Judge** (COMPLEX/CRITICAL only): add `judged[]` items per [JUDGED.md](references/JUDGED.md); with a design group also the 14-item `critique[]` and `ux_review[]` (the judged high-severity rules of `ux-rules.json`; a chart on the surface adds `chart_type`, see [CHARTS.md](references/CHARTS.md), load when the surface shows a chart), and run `lint-source.mjs --root <repo> --out <output>` for a UI that produces source. Add the

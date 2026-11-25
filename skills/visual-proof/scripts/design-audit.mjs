@@ -129,12 +129,17 @@ const ENGLISH = new Set(("the and for are with that this you your our from how w
   "we will every let use make learn read very after before while because where through between without many such started it's don't you're we're").split(" "));
 const words = (t) => String(t).toLowerCase().match(/[\p{L}']+/gu) || [];
 // Text blocks ({selector, text}) of >= 4 words whose words are at least a quarter English function words, after removing allow_text.
-export function untranslatedBlocks(blocks, allow = []) {
+// A352: lang="en" and allow_text exempt only text that occurs in `task` (the task's TASK.md, which the acceptance criteria live in): white space squeezed,
+// case-sensitive. The page markup and the project config say nothing by themselves; without a task text nothing is exempt.
+const squeeze = (t) => String(t ?? "").replace(/\s+/g, " ").trim();
+export function untranslatedBlocks(blocks, allow = [], task = null) {
   const out = [];
+  const T = task === null || task === undefined ? null : squeeze(task);
+  const inTask = (s) => T !== null && s !== "" && T.includes(s);
   for (const b of blocks || []) {
-    if (/^en(-|$)/i.test(String(b.lang || ""))) continue; // A352: English declared on purpose (a criterion requires the quote): the element says lang="en"
+    if (/^en(-|$)/i.test(String(b.lang || "")) && inTask(squeeze(b.text))) continue; // English declared on purpose AND required by a criterion
     let t = String(b.text || "");
-    for (const a of allow) if (String(a || "").trim()) t = t.split(new RegExp(String(a).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"), "i")).join(" ");
+    for (const a of allow) { const s = squeeze(a); if (inTask(s)) t = t.split(new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"))).join(" "); }
     const w = words(t);
     if (w.length < 4) continue;
     const hits = w.filter((x) => ENGLISH.has(x)).length;
@@ -244,7 +249,7 @@ export function evaluateStatic(f, ctx) {
     if (!lang) nm("design_untranslated", "the page language is unknown");
     else if (/^en(-|$)/i.test(lang)) na("design_untranslated", ENGLISH_PAGE_NOTE);
     else {
-      const bs = untranslatedBlocks(f.textBlocks, ctx.language.allow_text || []);
+      const bs = untranslatedBlocks(f.textBlocks, ctx.language.allow_text || [], ctx.language.task ?? null);
       add("design_untranslated", bs[0]?.selector || "body", bs.length, bs.length === 0, bs.length ? list(bs.map((b) => `${b.selector}: "${b.text}"`)) : `no English text block on a ${lang} page`);
     }
   }
@@ -332,7 +337,7 @@ export function assembleDesign(raw, c, sha, opts = {}) {
         for (const check of expectedChecks(pg, mode, vp.name)) push({ check, screen: pg.screen, viewport: vp.name, selector: "body", threshold: designThreshold(check, mode, vp.name), status: "not_measured", reason: rv?.error || "viewport not measured" });
         continue;
       }
-      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
+      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language && { ...pg.language, task: opts.task ?? null } })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
       if (pg.language && vp.name === "wide" && /^tr(-|$)/i.test(String(pg.language.lang))) {   // A172: information only
         const hits = asciiTurkishWords(rv.facts.textBlocks, opts.ascii);
         if (hits.length) (out.language_notes ||= []).push({ screen: pg.screen, path: pg.path, lang: String(pg.language.lang), kind: "ascii_turkish", words: hits });

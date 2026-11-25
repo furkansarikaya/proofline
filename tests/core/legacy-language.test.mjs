@@ -154,6 +154,16 @@ test('language: an invented sentence in a JSON string is still refused, escaped 
   refused(check(d, Q), 'a \\u escape was decoded in a Markdown file', REFUSED);
 });
 
+test('language: a fully \\u-escaped invented sentence in a JSON file is refused; the same escaped text is accepted when TASK.md holds it (A352 round 1)', () => {
+  const d = project(LANG_RUN);
+  const esc = (/** @type {string} */ s) => s.replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  const other = 'Hesabınız silindi, lütfen tekrar giriş yapın şimdi';
+  putJ(d, `{"a":"${esc(other)}"}`);
+  refused(check(d, J), 'a fully escaped invented sentence passed', REFUSED);
+  putJ(d, `{"a":"${esc(TR)}"}`);
+  accepted(check(d, J), 'a fully escaped product sentence was refused');
+});
+
 test('language: the refusal names the owning role and the path of the hit (A352)', () => {
   const d = project(LANG_RUN);
   const other = 'Hesabınız silindi, lütfen tekrar giriş yapın şimdi';

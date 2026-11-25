@@ -104,7 +104,7 @@ export function scanLine(text, file, hint, history, ok = null, collect = null) {
       if (own) skip = true;
       else { t = t.replace(new RegExp(`^${WSP}*>${WSP}?`), ''); if (quoted(t) || inprod(t)) skip = true; }
     }
-    if (skip || count(t) === 0) continue;
+    if (skip || count(json ? jsonDecode(t) : t) === 0) continue; // A352: a \uXXXX escape is the letter it stands for
     const c = count(stripSpans(t));
     if (c > 0) { total += c; if (total >= 3 && !collect) return i + 1; }
   }
