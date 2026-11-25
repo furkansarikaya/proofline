@@ -3,19 +3,20 @@
 // plans would raise at freeze (plan-lint), write .agents/local/batch/SUMMARY.md, order.tsv, lint.tsv, paths.tsv and accept.tsv, and request the `batch` approval.
 // The same approved batch that is not finished is continued instead (nothing written, no new approval); --replace plans anew.
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { batchApproval, sharedDirOf } from './approvals.mjs';
 import { requestApproval, requireLead, shown } from './approve.mjs';
 import { BATCH_EXC_HEADING } from './exceptionsapproval.mjs';
 import { exceptionLineHash, exceptionLineIssues, exceptionLines } from './testreview.mjs';
 import { fail } from './errors.mjs';
-import { sha256File } from './hash.mjs';
+import { sha256File, sha256 as sha256Text } from './hash.mjs';
 import { isFile } from './paths.mjs';
 import { PathKinds } from './pathkind.mjs';
 import { readBytes, textLines } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { scopeEntries, scopeEntryCovers, taskType } from './taskfile.mjs';
-import { PLUG_LINE, agentCall, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
+import { PLUG_LINE, agentCall, answerLetter, saysAllRecommended, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
 import { now } from './clock.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
@@ -34,19 +35,42 @@ function clsOf(text) {
   }
   return '';
 }
-/** `deps_of FILE`: the depends_on front matter value, comma-joined. @param {string} text */
-function depsOf(text) {
-  let fm = false;
+/**
+ * `deps_of FILE` (A355): the depends_on front matter value, comma-joined. The value is an inline list (`[A, "B"]` or `A, B`, a `[` list may continue on the next lines up to
+ * its `]`), a block list (`- A` lines under the key), with a trailing `# comment` or a remark in parentheses (a value that is only parenthesised is a list); every word that
+ * is an ID (letters, digits, `_`, `-`) is a dependency. The words none, null and na, and n/a, say there is none.
+ * @param {string} text
+ */
+export function depsOf(text) {
+  let fm = false; let inKey = false; let open = false;
+  /** @type {string[]} */ const words = [];
+  const take = (/** @type {string} */ v) => {
+    let t = v.replace(/#.*$/, '').trim();
+    if (/^\([^()]*\)$/.test(t)) t = t.slice(1, -1);
+    t = t.replace(/\([^)]*\)/g, ' ').replace(/\bn\/a\b/gi, ' ');
+    for (const w of t.matchAll(/[A-Za-z0-9][A-Za-z0-9_-]*/g)) words.push(w[0]);
+    if (t.includes('[')) open = !t.includes(']');
+    else if (open && t.includes(']')) open = false;
+  };
   const rows = lt(text);
   for (let i = 0; i < rows.length; i++) {
     const l = rows[i];
-    if (i > 0 && l.startsWith('## ')) return '';
-    if (/^---[ \t\n\v\f\r]*$/.test(l)) { fm = !fm; continue; }
-    if (fm && l.startsWith('depends_on:')) {
-      return l.replace(/^depends_on:[ \t\n\v\f\r]*/, '').replace(/["[\]]/g, '').replace(/[,\s]+/g, ',').replace(/^,/, '').replace(/,$/, '');
+    if (i > 0 && l.startsWith('## ')) break;
+    if (/^---[ \t\n\v\f\r]*$/.test(l)) { if (inKey) break; fm = !fm; continue; }
+    if (!fm) continue;
+    if (open) {
+      // an open `[` list ends at the next key or the closing `---`: what is left of it is read as written
+      if (/^[A-Za-z_][\w-]*:/.test(l)) open = false; else { take(l); continue; }
     }
+    if (inKey) {
+      const m = /^[ \t]*-[ \t]+(.*)$/.exec(l);
+      if (m) { take(m[1]); continue; }
+      if (/^[ \t]*(#.*)?$/.test(l)) continue;
+      break;
+    }
+    if (l.startsWith('depends_on:')) { take(l.slice('depends_on:'.length)); inKey = true; }
   }
-  return '';
+  return [...new Set(words.filter((w) => !/^(none|null|na)$/i.test(w)))].join(',');
 }
 /** `prio_of FILE` (A202): front matter `priority: high|medium|low` as a rank (1 high, 2 medium, 3 low); medium when absent. @param {string} text */
 function prioOf(text) {
@@ -77,6 +101,40 @@ function lintPaths(text) {
   }
   return [...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
+/** The headings whose bullets list the files a task changes (A355): `Expected scope`, and the older `Allowed scope` and `Scope` (exact). */
+const SCOPE_LISTS = /** @type {Array<[string, boolean]>} */ ([['Expected scope', true], ['Allowed scope', true], ['Scope', false]]);
+/** The entries of the task's scope lists, sorted and unique: the ONLY source of what two tasks share (A355). @param {string} text */
+function scopeList(text) {
+  /** @type {Set<string>} */ const out = new Set();
+  for (const [h, prefix] of SCOPE_LISTS) for (const e of scopeEntries(text, h, prefix)) out.add(e);
+  return [...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+/**
+ * The binding of a task's pre-flight answers (A355): the sha256 of its scope list and the sha256 of its whole task file but for the `**Status:**` line and the completion-report
+ * blocks (so a Goal, a criterion, a risk or a Context that grows is a different task), joined by a tab; '' for a task without a scope list, which binds nothing.
+ * @param {string} text
+ */
+export function scopeBinding(text) {
+  const l = scopeList(text);
+  if (l.length === 0) return '';
+  const rows = lt(text);
+  /** @type {string[]} */ const keep = [];
+  let status = false;
+  for (let i = 0; i < rows.length; i++) {
+    const ln = rows[i];
+    // a report block is left out only when its BEGIN:<id> has an END:<id> later; an unterminated or mismatched block stays in the hash (a task that grew is a different task)
+    const m = /^<!-- COMPLETION-REPORT:BEGIN:([^ ]+) -->[ \t]*$/.exec(ln);
+    if (m) {
+      const end = rows.findIndex((x, j) => j > i && x.replace(/[ \t]+$/, '') === `<!-- COMPLETION-REPORT:END:${m[1]} -->`);
+      if (end > i) { i = end; continue; }
+    }
+    // only the header `**Status:**` line (the first one) is not part of the task
+    if (!status && /^\*\*Status:\*\*/.test(ln)) { status = true; continue; }
+    keep.push(ln.replace(/[ \t]+$/, ''));
+  }
+  return `${sha256Text(l.join('\n'))}\t${sha256Text(keep.join('\n'))}`;
+}
+
 /** Is the section HEAD of the text present with at least one non-empty line? @param {string} text @param {string} head */
 function sectionFilled(text, head) {
   let g = false; let f = false;
@@ -189,6 +247,57 @@ export function batchPlan(ctx, argv) {
   return 0;
 }
 
+
+/** The pre-flight kinds whose answer is carried to a re-planned batch: the answer is about the task and its scope list, not about its size or the plan's hash (A355). */
+const CARRIED_KINDS = ['split', 'scope'];
+/** @typedef {{ id: string, at: number, answers: string[][], scopes: Map<string, string>, lint: string[][] }} Previous */
+/**
+ * The batch in force before this plan: its id, the user's answers recorded for it, the scope binding of each task and its questions. Empty when it has no scope record
+ * (a batch planned before A355 carries nothing: fail safe). @param {Context} ctx @param {string} bd @returns {Previous}
+ */
+function previousAnswers(ctx, bd) {
+  /** @type {Previous} */ const none = { id: '', at: 0, answers: [], scopes: new Map(), lint: [] };
+  if (!(isFile(`${bd}/SUMMARY.md`) && isFile(`${bd}/answers.tsv`) && isFile(`${bd}/scopes.tsv`))) return none;
+  const id = bid(ctx);
+  const rows = (/** @type {string} */ f) => textLines(rd(f)).map((l) => l.split('\t'));
+  return { id, at: Math.floor(statSync(`${bd}/SUMMARY.md`).mtimeMs / 1000), answers: rows(`${bd}/answers.tsv`).filter((f) => f[0] === id), scopes: new Map(rows(`${bd}/scopes.tsv`).map((f) => [f[0], `${f[1] ?? ''}\t${f[2] ?? ''}`])), lint: rows(`${bd}/lint.tsv`) };
+}
+/**
+ * The answers of the previous batch that still hold for this plan (A355), by question number of this plan. An answer is carried only when ALL of this holds: its kind is
+ * split or scope; the task has a scope list and it is byte for byte the list the answer was given for; for a scope question the question names the same paths; the
+ * recorded option still exists; the task file (but for its status and report) is the one the answer was given for; and the user's message it came from is still in the recorded
+ * prompt history, is not older than the summary that asked, and read by the `batch-answer` parser gives the same option to THAT question. Anything else is asked again at freeze.
+ * @param {Context} ctx @param {Previous} prev @param {string[][]} lintRows @param {Map<string, string>} bindings
+ * @returns {Map<string, { id: string, kind: string, letter: string, param: string, msg: string }>}
+ */
+function carryAnswers(ctx, prev, lintRows, bindings) {
+  /** @type {Map<string, { id: string, kind: string, letter: string, param: string, msg: string }>} */ const out = new Map();
+  if (prev.id === '') return out;
+  const hist = `${sharedDirOf(ctx, 'prompts')}/history`;
+  for (const [qn, id, kind, text, opts] of lintRows) {
+    if (!CARRIED_KINDS.includes(kind)) continue;
+    const bind = bindings.get(id) ?? '';
+    if (bind === '' || prev.scopes.get(id) !== bind) continue;
+    /** @type {string[] | null} */ let a = null;
+    for (const f of prev.answers) if (f[1] === id && f[3] === kind) a = f;
+    if (a === null) continue;
+    const letter = a[4] ?? ''; const msg = a[6] ?? '';
+    if (!/^[a-e]$/.test(letter) || !opts.includes(`${letter})`)) continue;
+    if (msg === '' || /[/\\]/.test(msg) || !isFile(`${hist}/${msg}`)) continue;
+    const q = prev.lint.find((f) => f[0] === a[2] && f[1] === id && f[2] === kind);
+    if (q === undefined) continue;
+    if (kind === 'scope' && q[3] !== text) continue;
+    const at = Number(msg.slice(0, msg.indexOf('-')));
+    if (!Number.isInteger(at) || at < prev.at) continue;
+    const raw = rd(`${hist}/${msg}`);
+    if (!/[^ \t\n\v\f\r]/.test(raw) || raw.startsWith('<task-notification>')) continue;
+    const low = asciiLower(raw).replace(/\n/g, ' ').replace(/ +/g, ' ');
+    if (answerLetter(low, saysAllRecommended(low), q) !== letter) continue;
+    out.set(qn, { id, kind, letter, param: a[5] ?? '-', msg });
+  }
+  return out;
+}
+
 /** @param {string} m @returns {never} */
 const die = (m) => fail(`batch: ${m}`);
 /** @param {string} s */
@@ -243,6 +352,16 @@ function plan(ctx, argv) {
     const t = /^# Task: *[^ ]* *[-â\u0080\u0094]* */.exec(first);
     return { id, cls: clsOf(text) || '-', dep: depsOf(text) || '-', title: (t ? first.slice(t[0].length) : '').replace(/\t/g, ' '), pri: prioOf(text) };
   });
+  // A355: a dependency may be written as the task file's name (T-2-converter) as well as its ID
+  {
+    /** @type {Map<string, string>} */ const alias = new Map();
+    for (const f of mdFiles(`${td}/done`)) alias.set(path.basename(f, '.md'), tid(f));
+    for (const id of sel) alias.set(path.basename(/** @type {string} */ (tfile(td, id)), '.md'), id);
+    for (const x of info) {
+      if (x.dep === '-') continue;
+      x.dep = x.dep.split(',').map((v) => (sel.includes(v) || done.has(v) ? v : (alias.get(v) ?? v))).filter((v, i, a) => a.indexOf(v) === i && v !== x.id).join(',') || '-';
+    }
+  }
   // a dependency cycle among the selected tasks refuses the whole batch
   {
     const isSel = new Set(sel);
@@ -316,13 +435,15 @@ function plan(ctx, argv) {
     if (best < 0) die('the batch is refused; nothing was written');
     emitted.add(kept[best].id); orderList.push(kept[best]);
   }
+  // A355: what the batch in force knew when it was planned, read before it is archived: the user's pre-flight answers and the scope list each was given for
+  const prev = previousAnswers(ctx, bd);
   // a batch that did work goes to history; an unworked plan is simply replaced
   mkdirSync(bd, { recursive: true });
   const nonEmpty = (/** @type {string} */ f) => { try { return statSync(f).size > 0; } catch { return false; } };
   if (existsSync(`${bd}/state.tsv`) || nonEmpty(`${bd}/merged.tsv`) || existsSync(`${bd}/ci.tsv`) || existsSync(`${bd}/answers.tsv`)) {
     const hd = `${bd}/history/${isFile(`${bd}/SUMMARY.md`) ? bid(ctx) : 'previous'}`;
     mkdirSync(hd, { recursive: true });
-    for (const f of ['SUMMARY.md', 'order.tsv', 'state.tsv', 'merged.tsv', 'ci.tsv', 'lint.tsv', 'answers.tsv', 'paths.tsv', 'accept.tsv', 'suggestions.tsv']) if (existsSync(`${bd}/${f}`)) renameSync(`${bd}/${f}`, `${hd}/${f}`);
+    for (const f of ['SUMMARY.md', 'order.tsv', 'state.tsv', 'merged.tsv', 'ci.tsv', 'lint.tsv', 'answers.tsv', 'paths.tsv', 'accept.tsv', 'scopes.tsv', 'suggestions.tsv']) if (existsSync(`${bd}/${f}`)) renameSync(`${bd}/${f}`, `${hd}/${f}`);
   }
   const cap = ctx.config().get('batch.mutation_budget_cap', '40');
   // A200: plan-lint and the commands proposal, before the summary (the approval is bound to the summary's hash, so to both)
@@ -347,8 +468,12 @@ function plan(ctx, argv) {
   }
   // A200: the code paths each task names (content and document paths are left out): a task that shares one with an earlier task that is not merged waits for it
   /** @type {string[]} */ const pathRows = [];
-  for (const x of kept) for (const p of lintPaths(rd(/** @type {string} */ (tfile(td, x.id))))) if (pk.pathKind(p) === 'code') pathRows.push(`${x.id}\t${p}`);
+  // A355: only the files of each task's scope list (`## Expected scope`); an extension, an address or a document the Context names shares nothing
+  for (const x of kept) for (const p of scopeList(rd(/** @type {string} */ (tfile(td, x.id))))) if (pk.pathKind(p) === 'code') pathRows.push(`${x.id}\t${p}`);
+  /** @type {Map<string, string>} the scope binding of each task of this plan */
+  const bindings = new Map(kept.map((x) => [x.id, scopeBinding(rd(/** @type {string} */ (tfile(td, x.id))))]));
   const lintRows = raw.map((r, i) => ['Q' + (i + 1), ...r]);
+  const carried = carryAnswers(ctx, prev, lintRows, bindings);
   const pf = `${sharedDirOf(ctx, 'commands')}/PROPOSAL.tsv`;
   const cmdEmpty = ['build', 'test', 'lint'].filter((k) => (ctx.config().getRaw(`commands.${k}`) ?? '') === '');
   const cfgv = (/** @type {string} */ k, /** @type {string} */ d) => ctx.config().get(k, d);
@@ -394,7 +519,7 @@ function plan(ctx, argv) {
   o('\n## Pre-flight questions (plan-lint, A200)\n\n');
   if (lintRows.length > 0) {
     o('These are the questions the plan of each task would raise at freeze, asked now so that no task parks on them overnight. Answer with the letters ("Q1 a, Q2 b"), in your own words ("Q1: do not split", "Q3 hayir"), or "all recommended". Your message is recorded as it is (agent.sh batch-answer) and applied when each plan freezes; a question you leave open is asked again at freeze, as before. An answer is never an approval of anything else.\n\n');
-    for (const r of lintRows) { o(`- ${r[0]} [${r[1]}, ${r[2]}] ${r[3]}\n`); for (const opt of r[4].split('|')) o(`    ${opt}\n`); }
+    for (const r of lintRows) { o(`- ${r[0]} [${r[1]}, ${r[2]}] ${r[3]}\n`); for (const opt of r[4].split('|')) o(`    ${opt}\n`); const c = carried.get(r[0]); if (c) o(`    answered by you earlier (option ${c.letter}, carried from batch ${prev.id}, your message ${c.msg}): not asked again\n`); }
   } else o('- none: no task raises a question that can be told from its task file\n');
   o('\n## Verification commands (A200)\n\n');
   const names = cmdEmpty.join(', commands.');
@@ -425,6 +550,9 @@ function plan(ctx, argv) {
   put('lint.tsv', lintRows.map((r) => `${r.join('\t')}\n`).join(''));
   put('paths.tsv', pathRows.map((r) => `${r}\n`).join(''));
   put('accept.tsv', accept.map((r) => `${r.join('\t')}\n`).join(''));
+  put('scopes.tsv', [...bindings].filter((b) => b[1] !== '').map((b) => `${b[0]}\t${b[1]}\n`).join(''));
+  // A355: the answers carried over are recorded for the new batch id, with the user's original message; they are the user's own answers, not an approval
+  for (const [qn, c] of carried) appendFileSync(`${bd}/answers.tsv`, `${bid(ctx)}\t${c.id}\t${qn}\t${c.kind}\t${c.letter}\t${c.param}\t${c.msg}\tcarried:${prev.id}\tanswered_by=user\n`);
   ctx.out(s);
   ctx.out(`\nbatch id: ${bid(ctx)}\n\n`);
   return 0;

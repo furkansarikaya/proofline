@@ -58,7 +58,7 @@ Schema `visual-proof.native/1`: `platform` (`android|ios|flutter|react-native|de
 
 ## Capabilities and what tests them
 
-"Tested" below means a test that runs in CI (on every code pull request; documentation-only pull requests skip the test jobs) or in `node tests/affected.mjs`. "Tested on fixtures" means planted data with known answers (`fixtures/*/EXPECTED.md`) exercises the check, together with its validator or helper scripts. The end-to-end team runs and their results are in [tests/e2e/README.md](../../tests/e2e/README.md#capabilities-the-n--items).
+"Tested" below means a test that runs in CI (on every code pull request; documentation-only pull requests skip the test jobs) or in the full run of `node tests/affected.mjs` that CI and the owner make (not run locally by agents, A356). "Tested on fixtures" means planted data with known answers (`fixtures/*/EXPECTED.md`) exercises the check, together with its validator or helper scripts. The end-to-end team runs and their results are in [tests/e2e/README.md](../../tests/e2e/README.md#capabilities-the-n--items).
 
 | Capability | Status |
 |---|---|

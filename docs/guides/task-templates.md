@@ -45,7 +45,7 @@ for a debug-proof); `refactor` needs a "behaviour does not change" statement and
 `content` and `docs` start with a written test-first exemption reason in the plan, which never covers a path that holds code. No type
 removes a gate.
 
-Optional sections and fields: `Allowed scope` and `Forbidden scope` (a plan path in Forbidden is refused at freeze, a path outside
+Optional sections and fields: `Expected scope` (the files the task changes, one bullet per file, folder or glob in backticks; `proofline batch` decides from it, and only from it, which tasks share a file and so wait for each other, and binds your pre-flight answers to it, A355), `Allowed scope` and `Forbidden scope` (a plan path in Forbidden is refused at freeze, a path outside
 Allowed is asked in the batch pre-flight), `Existing pattern references` ("do it like this file"; the explorer reads them, freeze
 checks they exist, review checks conformity), `Completion response` (the shape of the closing message, `## Requested Response` in the
 report), `priority: high|medium|low` (orders a batch among free tasks) and `origin:` (written for a follow-up or a PRD requirement,

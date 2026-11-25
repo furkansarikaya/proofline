@@ -8,12 +8,12 @@ on whether it keeps that property.
 Requirements: Git, Node.js 22.13 or newer (a runtime requirement of proofline itself, not only of the skill tests) and a POSIX `sh` for the four launchers (`agent.sh`, `dispatch.sh` and the two git hooks; no other shell file exists, A251). `agent.sh` also asks `git` where the main tree is, to choose the core it starts; the rest is Node. The hooks run in Node too: with Node missing or older, the PreToolUse hook blocks (fail closed). Nothing is installed into
 the project; there is no build step.
 
-Run locally (the `CI` variable unset), `node tests/affected.mjs` runs its test files under `nice`, so the machine stays usable; with `CI` set (GitHub Actions does) it runs at normal priority.
+Locally you run only the new and changed test files (`node --test <files>`, twice), the Core invariants suite and the static checks listed below; the full test run is GitHub CI's job and a pull request is merged when CI is green (A356). `node tests/affected.mjs` exists for CI and the owner; it takes about an hour and is never run locally by an agent or a contributor.
 
 ```sh
 git clone https://github.com/furkansarikaya/proofline
 cd proofline
-node tests/affected.mjs                       # runs only the Node test files your changes can affect (--list prints them, --all selects everything)
+node --test <your new and changed test files>  # run each twice; `node tests/ci/test-durations.mjs --twice -- <files>` does exactly that
 node --test tests/skills/                    # skill validators and fixtures' known answers (1078 tests when last counted)
 node tests/fixtures/check-fixtures.mjs        # builds every fixtures/*/setup.mjs and runs its selfcheck.mjs (42 passed, 1 skipped without vitest)
 node --test tests/benchmark/benchmark.test.mjs            # benchmark report known-answer test (seconds)
@@ -149,8 +149,7 @@ How the lead works with sub-agents. Later releases cite this section.
 
 ## Test policy
 
-- Agents run only `node tests/affected.mjs` locally. The full test run is CI's job, and a pull request is merged
-  when CI is green.
+- Agents run locally only the new and changed test files of their change, directly with `node --test`, twice (results and durations must agree), plus the Core invariants suite (`node --test "tests/invariants-node/*.test.mjs"`) and the static checks. They never run `node tests/affected.mjs` or the full suite (about an hour; A356). The full test run is CI's job, and a pull request is merged when CI is green. A failed CI job is fixed at its cause, never re-run hoping it passes.
 - The Core invariants suite, the Node tests and the static checks are never skipped. There is no CI fast mode any more (A246): a pull request runs what a push runs, the legacy shell self-test shards that made it necessary are gone.
 - A new test is a Node test (`node --test`). Its helpers are in `tests/lib/harness.mjs` (A236, issue #176): the hardened environment of every child (no real HOME, gh, git configuration or network, fixed identity), `A`/`AS` (a call of `agent.sh`), `expectFail`/`expectMsg`/`refused`, `newRepo` (the control plane installed in a throwaway repository, built once per content hash and copied), `scaffold`/`project`/`toCodeDone` and the gate and evidence verbs (`rec`, `gpass`, `gfail`, `passAll`, `worker`, `solo`, `approveAsUser`); do not write a second helper. The project is a real install (A244): agent.sh as shipped (a launcher since A245: it only finds the project's core and starts it; there is no shell body) with the Node core beside it, so every command runs in the core. A project built from a few lines of sh text over the fixture verbs (`scaffold orchestrated no COMPLEX; worker RED fail ...`) is `project(recipe)` of `tests/core/legacy-lib.mjs` (`tests/lib/recipe.mjs` over `tests/lib/verbs.mjs`). No shell suite is left.
 - The Node hook has a process-count budget per event (`tests/bench/hook-budgets.tsv`); raise one only with a decision that says why. The dispatcher and the execution decision have a process budget too (`tests/bench/dispatch-budgets.tsv`, A226), checked by `tests/bench/dispatch-budgets.test.mjs`. The helper commands (`build-record`, `friction report`, `calibrate`, `lessons`, `rules`) have one too (`tests/bench/helper-budgets.tsv`, A229), checked by `tests/bench/helper-budgets.test.mjs`. `next` and `digest` have one too (`tests/bench/next-digest-budgets.tsv`, A243), checked by `tests/core/perf.test.mjs`. The commands of the Node core are tested by absolute golden recordings (`tests/fixtures/port-t3`, `tests/core/golden`), not by comparison with a shell engine (A210).
@@ -176,7 +175,7 @@ How the lead works with sub-agents. Later releases cite this section.
 
 Pull request checklist:
 
-- [ ] CI is green (the full test run, skill tests and fixtures are CI's job; locally run `node tests/affected.mjs`)
+- [ ] CI is green (the full test run, skill tests and fixtures are CI's job; locally only the new and changed test files twice, the invariants suite and the static checks)
 - [ ] generated files are in sync (`--check` commands above)
 - [ ] a decision entry in `docs/decisions.md` for every behaviour change
 - [ ] a test that fails without the change

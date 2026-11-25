@@ -207,11 +207,12 @@ export function fakeRun(F, dir, id) {
   const b = behOf(F, id);
   if (b === 'question') askQuestion(dir, id);
   else if (b === 'fail') { const f = `${wt}/.agents/runs/${id}/RUN.yaml`; writeFileSync(f, read(f).replace(/^ {2}state: PLANNING/m, '  state: FAILED')); }
+  else if (b === 'blocked') { const f = `${wt}/.agents/runs/${id}/RUN.yaml`; writeFileSync(f, read(f).replace(/^ {2}state: PLANNING/m, '  state: BLOCKED')); }
   else setHandoff(dir, id, 'CODE_DONE');
 }
 export function fakeResume(F, dir, id) {
   appendFileSync(path.join(F.FAKE, 'calls.log'), `resume ${id}\n`);
-  if (!['question', 'fail'].includes(behOf(F, id))) setHandoff(dir, id, 'CODE_DONE');
+  if (!['question', 'fail', 'blocked'].includes(behOf(F, id))) setHandoff(dir, id, 'CODE_DONE');
 }
 export function fakeDeliver(F, dir, id) {
   appendFileSync(path.join(F.FAKE, 'calls.log'), `deliver ${id}\n`);

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.178 — 2026-11-25
+
+- Fix (A355, issue 338 B5): the batch plan follows the task files. `depends_on` is read as an inline list, a block list, with a comment or a remark in parentheses, and by file name; two tasks share a path only through the files of their `## Expected scope` list (an extension, an address or a document of the Context shares nothing, so a park no longer skips independent tasks); a parked task stops only what depends on it or shares a listed file; and a re-plan with `--replace` carries your recorded split and scope answers to the new batch when the task and its scope list are unchanged (the record keeps your original message and `carried:<old batch id>`), and asks again when not (also when the task body grew, or the original message no longer gives that option). Globs in the scope lists are compared by their literal directory, a flow-style `depends_on` list may continue on the next line, and tasks named `A` or `N` are kept. Tests: `tests/core/batch-b5.test.mjs`.
+
+- Docs (A356): CONTRIBUTING no longer asks anyone to run `node tests/affected.mjs` locally (about an hour; CI runs the same). Locally: the new and changed test files twice, the invariants suite and the static checks; the merge condition is green CI, and a failed CI job is fixed at its cause.
+
 ## 0.0.177 — 2026-11-25
 
 - Fix (A354): the CI budget wrapper times its reference workload again after node exits and uses the slower of the two measurements for the runner-speed factor (a runner stall during a leg was invisible to the budget gate: the 22.13.0 dispatch leg of PR 342 ran 3 to 7 times slower than the `lts` leg of the same commit and failed on `OVER BUDGET`). The JSON carries `calibration_after_ms`; the cap of 5, the fail-closed paths and the budgets are unchanged.

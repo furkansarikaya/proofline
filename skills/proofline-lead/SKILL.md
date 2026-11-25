@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.177"
+  version: "0.0.178"
 ---
 
 # proofline-lead
@@ -237,7 +237,7 @@ After the user's "approve batch" (A157) you run the batch yourself, in this sess
 
 0. Once, at the start: when the machine has `caffeinate` (macOS) or `systemd-inhibit` (Linux), offer to keep the computer awake and on a yes run `A batch-awake`: it ties `caffeinate -i -w <this session's pid>` to the life of this session. Relay its output, including `Keep the computer awake (plugged in, lid open) and this session open.`
 0b. **Never stop at CODE_DONE or DONE inside a batch (A200).** A task of the approved batch is delivered by you, in this session: after the gates pass run the knowledge step, the completion report, `A handoff <ID> DONE`, then `A batch-next` (its `NEXT: deliver` is covered by `A batch-cover <ID> delivery`). Do not end the turn with a "Next step: /proofline deliver" and do not ask whether to continue; `A next <ID>` prints a `note=BATCH (A200)` line saying the same. Give ONE status line at each hand-over and each wait of a minute or more (`T-1: CODE_DONE, delivering, next: T-2`; `A wait-line`). Stop only at `NEXT: finished`, `wait` or `approve`.
-1. Before EVERY task, and after any context compaction or restart, run `A batch-next`. It prints the state from files only (merged, parked, skipped, waiting, open) and one `NEXT: ...` line. A task waits (it is never `open`) until every task it depends on is merged AND every earlier unmerged task of the batch that names the same code path is merged (A200: content and document paths do not count; the digest says `shares <path> with <ID>`). Never advance a task branch into the canonical branch yourself (`git branch -f`, `git fetch . task:main`, `git reset`, `git cherry-pick`, `git pull .` on it): the hook denies it and `proofline merge` is the only way. Follow the digest, not memory:
+1. Before EVERY task, and after any context compaction or restart, run `A batch-next`. It prints the state from files only (merged, parked, skipped, waiting, open) and one `NEXT: ...` line. A task waits (it is never `open`) until every task it depends on is merged AND every earlier unmerged task of the batch that lists the same file in its Expected scope is merged (A200: content and document paths do not count; the digest says `shares <path> with <ID>`). Never advance a task branch into the canonical branch yourself (`git branch -f`, `git fetch . task:main`, `git reset`, `git cherry-pick`, `git pull .` on it): the hook denies it and `proofline merge` is the only way. Follow the digest, not memory:
    - `NEXT: commands`: the approved summary named a proven commands proposal that is not written yet: run `proofline doctor --apply-commands` now, before any task (the batch approval covers exactly that proposal), then `A batch-next` again. Never ask the user to reply "approve commands" for it.
    - `NEXT: run <ID>`: `A worktree-add <ID>` (A169: `.agents/local/worktrees/<ID>`; the run, ACTIVE_RUN and the task-file move live there; the batch, approvals, metrics, friction and prompts folders are links to the main tree's). Work for that task in that folder (`cd` there for every command, give it to sub-agents as their working folder), then `/proofline run <ID>`. If the worktree cannot be made, `A batch-park <ID> "<reason>"` and go on.
    - `NEXT: resume <ID>`: the run exists: continue it (`A next <ID>`), in its worktree.
