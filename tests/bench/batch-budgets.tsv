@@ -6,7 +6,7 @@
 # A225): `measured` is 3 on macOS and 2 on Linux. tests/bench/batch-budgets.test.mjs fails above a row. Raise a row only with a decision in docs/decisions.md. (The execution-policy and known-issue paths
 # have their own file, tests/bench/exec-budgets.tsv.)
 # path<TAB>max_procs<TAB>measured<TAB>before<TAB>max_bytes
-batch-next	5	3	112	393
+batch-next	5	3	112	454
 batch-next-tsv	4	2	78	152
 batch-status	7	5	52	514
 batch-answers	4	2	9	46

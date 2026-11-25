@@ -8,6 +8,7 @@ T-2 | skipped | depends on T-1 (parked) | -
 T-3 | merged | - | -
 T-4 | PARKED | awaiting merge | pull request 77: its state cannot be read (platform tool missing, not logged in or not supported); look at it yourself
 T-5 | PARKED | tab here and newline | -
+waiting for the user: T-1: 1. Which cache do we use for T-1?
 NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)
 --- stderr
 

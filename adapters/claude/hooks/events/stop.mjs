@@ -3,9 +3,11 @@
 // cannot edit the assistant's message, so the hook supplies the missing lines itself, taken verbatim from `agent.sh summary`, as a systemMessage shown
 // next to the report (A154: no block, no loop). A159: every /proofline command ends with one "Next step:" line; when the lead left it out the hook adds
 // it from the user's last prompt (the command) and the run state (`agent.sh next-user`). A171, A193, A203: a message that asks the user to run an
-// internal command or a command the lead can run itself is sent back once (and noted as friction).
+// internal command or a command the lead can run itself is sent back once (and noted as friction). A358: while the control plane waits for the user (an open
+// question, or a parked task of the batch with a recorded question and nothing runnable left) the hook adds ONE line, `waiting for the user: <ID>: <question>`,
+// instead of the Next step line, and every message it sends back is one line (a repeated nudge costs the lead's context, issue 338 B8).
 import { readFileSync } from 'node:fs';
-import { isFile, readText, rmf } from '../lib/fsx.mjs';
+import { isFile, names, readText, rmf } from '../lib/fsx.mjs';
 import { jesc, safe, textHasWord, hasWord } from '../lib/text.mjs';
 
 // asks(): the line asks the user to do something (fr: also edit/modify/change)
@@ -119,7 +121,17 @@ export async function handle(ctx) {
       if (nl >= 0) pc = pc.slice(0, nl);
     }
   }
-  if (pc.startsWith('/proofline ') || pc.startsWith('$proofline ')) {
+  // A358: `agent.sh next-user --waiting` prints the line only when the lead has nothing runnable and the user's answer is what is missing.
+  // The process is started only when a wait is possible at all (a planned batch, or a run whose record says `awaiting_input: true`): every other Stop costs no extra process (issue 338 B8, the CI budgets).
+  let mayWait = isFile(`${ctx.sharedLocal}/batch/order.tsv`);
+  if (!mayWait) {
+    const dirs = [`${ctx.root}/.agents/runs`, ...names(`${ctx.sharedLocal}/worktrees`).map((t) => `${ctx.sharedLocal}/worktrees/${t}/.agents/runs`)];
+    mayWait = dirs.some((d) => names(d).some((r) => /^ {2}awaiting_input: "?true/m.test(readText(`${d}/${r}/RUN.yaml`))));
+  }
+  const w = mayWait ? await ctx.agent(['next-user', '--waiting']) : { status: 0, stdout: '' };
+  const waiting = w.status === 0 ? w.stdout.replace(/\n+$/, '') : '';
+  if (waiting.startsWith('waiting for the user:')) out = `${out !== '' ? `${out}\n` : ''}proofline: ${waiting}`;
+  if (waiting === '' && (pc.startsWith('/proofline ') || pc.startsWith('$proofline '))) {
     const words = pc.split(/[ \t\n]+/).filter((w) => w !== '');
     const pcmd = words[1] ?? '';
     let pid = words[2] ?? '';
@@ -136,7 +148,7 @@ export async function handle(ctx) {
   if ((msg.includes('disable-model-invocation') || msg.includes('/proofline:proofline-')) && !again) {
     const plugin = ctx.env.CLAUDE_PLUGIN_ROOT ?? '';
     const rf = plugin !== '' ? `${plugin}/skills` : `${ctx.root}/.agents/skills`;
-    return block(`proofline: do not ask the user to run a proofline skill and do not stop at the Skill tool error: every proofline skill is disable-model-invocation. Read the skill file (${rf}/<name>/SKILL.md, for example ${rf}/proofline-lead/SKILL.md) and continue with the same step.`);
+    return block(`proofline: do not ask the user to run a proofline skill: read ${rf}/<name>/SKILL.md (every proofline skill is disable-model-invocation) and continue the step.`);
   }
   // A193: the request is also refused (the message is sent back once) and it covers --no-verify, the edit of a file under .agents/ and a command
   // started with "!"; a command that is the user's own work (git push, gh auth login, a plugin update) is never matched.
@@ -149,12 +161,12 @@ export async function handle(ctx) {
   if (/[Rr]un|[Ee]xecute|terminal/.test(msg)) scHit = requested(msg, ASKS_SC, (t) => NAMED_SC.test(lower(t)));
   if (scHit && !frHit) {
     if (!again && actOk) await ctx.agent(['friction-note', act, 'user-shell']);
-    if (!again) return block('proofline: do not make the user run a command you can run yourself (uptime, ps, df, git status, gh pr view ...): run it with your own Bash tool and use its output. Only the user\'s own work is theirs (git push, gh auth login, a plugin update, a login). A171, A203.');
+    if (!again) return block('proofline: do not make the user run a command you can run yourself (uptime, ps, git status ...): run it with your Bash tool (A203).');
     out = `${out !== '' ? `${out}\n` : ''}proofline: this message asks the user to run a command the lead can run itself. That is friction (A203), noted in the friction report.`;
   }
   if (frHit) {
     if (!again && actOk) await ctx.agent(['friction-note', act, 'user-command']);
-    if (!again) return block('proofline: Do not make the user do this: this message asks the user to run an internal command (agent.sh, approve, answer, --no-verify) or to edit a file under .agents/ by hand. Either do it yourself through the right path, or report it in one line as a proofline bug and write it to the friction report (A171, A193). The user\'s own work (git push, gh auth login, a plugin update) may stay in the message.');
+    if (!again) return block('proofline: Do not make the user do this: run the internal command (agent.sh, approve, answer, --no-verify) or edit under .agents/ yourself through the right path (A193).');
     out = `${out !== '' ? `${out}\n` : ''}proofline: this message asks the user to run an internal command (agent.sh ...). That is a proofline bug (A171), noted in the friction report. The lead runs internal commands itself and tells the user only the one-line state and a /proofline next step.`;
   }
   if (out === '') return undefined;

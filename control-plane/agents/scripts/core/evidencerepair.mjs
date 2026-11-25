@@ -37,14 +37,15 @@ const FINDINGS = (dir) => `${dir}/reviews/test-trust/tests/findings.json`;
 /**
  * The passing tests of a runner's output with their milliseconds, from the line shapes runners print: `<mark> name (12.5ms)` / `(12 ms)` / `(0.01s)` after a pass mark, `--- PASS: name (0.01s)`,
  * and a TAP `ok N - name` line followed by a `duration_ms:` line. Terminal colour codes are dropped first. A name with `=` or `;` cannot be recorded and is left out. The first line of a name wins.
- * @param {string} text @returns {Array<{ name: string, ms: number }>}
+ * `keepDuplicates` keeps every line of a name (A358 counts them).
+ * @param {string} text @param {boolean} [keepDuplicates] @returns {Array<{ name: string, ms: number }>}
  */
-export function parseRunnerDurations(text) {
+export function parseRunnerDurations(text, keepDuplicates = false) {
   /** @type {Array<{ name: string, ms: number }>} */ const out = [];
   const seen = new Set();
   const add = (/** @type {string} */ rawName, /** @type {number} */ ms) => {
     const name = rawName.trim();
-    if (name === '' || name.includes('=') || name.includes(';') || !Number.isFinite(ms) || ms < 0 || seen.has(name)) return;
+    if (name === '' || name.includes('=') || name.includes(';') || !Number.isFinite(ms) || ms < 0 || (!keepDuplicates && seen.has(name))) return;
     seen.add(name);
     out.push({ name, ms: Number(ms.toFixed(3)) });
   };
@@ -62,6 +63,9 @@ export function parseRunnerDurations(text) {
   }
   return out;
 }
+
+/** Every result line of a runner's output, duplicates kept, names as byte strings (a test body can echo a line that looks like a result: A358 refuses a name that shows twice). @param {string} text */
+export function runnerEntriesAll(text) { return parseRunnerDurations(text, true).map((e) => ({ name: bytes(e.name), ms: e.ms })); }
 
 /** The durations of a runner's output (decoded text) with the names as byte strings, the form of the plan's test names and of every record the core writes. @param {string} text */
 export function runnerEntries(text) { return parseRunnerDurations(text).map((e) => ({ name: bytes(e.name), ms: e.ms })); }
@@ -166,6 +170,22 @@ function readCapped(file) {
   try { const buf = Buffer.alloc(cap); const n = readSync(fd, buf, 0, cap, 0); return buf.subarray(0, n).toString('utf8'); } finally { closeSync(fd); }
 }
 
+/**
+ * One plan-listed command, once, in the project root: its exit status, whether it hit the limit and its output (the first 8 MiB), kept in a private folder that is removed. A358 (B9) uses it too.
+ * @param {Context} ctx @param {string} command @param {number} limit seconds @returns {{ status: number | null, timedOut: boolean, text: string }}
+ */
+export function runPlanCommand(ctx, command, limit) {
+  const tmpd = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'proofline-repair-'));
+  try {
+    const fd = openSync(`${tmpd}/out`, 'w');
+    let r;
+    try {
+      r = proc.runUserCommand(command, { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', fd, fd], timeoutMs: limit * 1000, group: true, killSignal: 'SIGKILL' });
+    } finally { closeSync(fd); }
+    return { status: r.status, timedOut: r.timedOut === true, text: readCapped(`${tmpd}/out`) };
+  } finally { rmSync(tmpd, { recursive: true, force: true }); }
+}
+
 // ---- the run ----------------------------------------------------------------------------------------------------------------------------
 
 /**
@@ -179,18 +199,10 @@ export function evidenceRepairRun(ctx, id, plan) {
   const limit = verifyCommandTimeout(ctx.config());
   /** @type {Array<{ command: string, entries: Array<{ name: string, ms: number }> }>} */ const outputs = [];
   for (const command of plan.commands) {
-    const tmpd = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'proofline-repair-'));
-    let r; let text = '';
-    try {
-      const fd = openSync(`${tmpd}/out`, 'w');
-      try {
-        r = proc.runUserCommand(command, { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', fd, fd], timeoutMs: limit * 1000, group: true, killSignal: 'SIGKILL' });
-      } finally { closeSync(fd); }
-      text = readCapped(`${tmpd}/out`);
-    } finally { rmSync(tmpd, { recursive: true, force: true }); }
-    if (r.timedOut === true) fail(`evidence-only repair refused: \`${command}\` hit the time limit (${limit} s); nothing was recorded`);
+    const r = runPlanCommand(ctx, command, limit);
+    if (r.timedOut) fail(`evidence-only repair refused: \`${command}\` hit the time limit (${limit} s); nothing was recorded`);
     if (r.status !== 0) fail(`evidence-only repair refused: \`${command}\` exited ${r.status}; a GREEN record needs a passing run, nothing was recorded (a failing test is a normal fix)`);
-    outputs.push({ command, entries: runnerEntries(text) });
+    outputs.push({ command, entries: runnerEntries(r.text) });
   }
   // the task patch is memoised per invocation, and so are the changed-path lists (git status), the content fingerprints and the file reads it rests on: drop all of them, so a path a command dirtied or created is seen
   for (const k of ['patch:', 'changed:', 'fp:', 'file:', 'hash:', 'git:']) ctx.forget(k);

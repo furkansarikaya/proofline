@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.0.180 — 2026-11-25
+
+- Fix (A358, issue 338 B8): a wait for the user is named in one line. `agent.sh next` of a run with an open question and `agent.sh batch-next` (parked task with a recorded question, nothing runnable left) print `waiting for the user: <ID>: <question>`; `agent.sh next-user --waiting` prints it for the Stop hook, which adds only that line, and the messages the Stop hook sends back are one line each. A runnable task still keeps the lead going.
+- Fix (A358, issue 338 B9): `handoff IMPLEMENTED` runs the plan-listed Verification commands itself once and records the per-test durations as GREEN evidence keyed by the plan's test names; it refuses only when a listed command fails or times out. A command that exits 0 but shows no duration for a plan test is not GREEN and the earlier checks apply. An agent's own unlisted GREEN command no longer blocks once the control plane's run covers the content.
+
 ## 0.0.179 — 2026-11-25
 
 - Fix (A357, issue 338 B6): `gate.mjs mutant` keeps its counter in the run folder (never the repository root: a stray `r7/` made every gate stale), and the lead has `agent.sh discard-untracked <ID> <path>...` to remove the untracked paths a run created outside its plan scope (never a tracked, baseline or scope path, never through a link; ledgered).

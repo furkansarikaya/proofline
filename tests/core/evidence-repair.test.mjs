@@ -173,6 +173,7 @@ test('a repair row serves its own finding only: another gate failing afterwards 
 
 test('IMPLEMENTED refuses a plan-named test with no recorded duration before any reviewer is spent (early check)', () => {
   const d = reopened();
+  setMode(d, 'nodur');   // A358: a runner that shows the duration is read by the control plane itself; only a duration nobody can read reaches the early check
   // a fresh round: strip the duration while the state is IMPLEMENTING, then try to hand off with a changed tree so only the early check is in the way
   appendFileSync(path.join(d, 'impl.txt'), 'impl: a real change\n');
   const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
@@ -228,18 +229,20 @@ for (const scope of ['clean', 'new']) {
 
 test('the early check at IMPLEMENTED runs before anything is measured: a refusal starts no runner and leaves no test-measure row', () => {
   const d = reopened();
+  setMode(d, 'nodur');   // A358: the control plane's own single run of the plan command reads the durations first; this runner shows none for "fast one"
   appendFileSync(path.join(d, 'impl.txt'), 'impl: a real change\n');
   const rows = (ledger(d).match(/event=test-measure /g) ?? []).length;
   const starts = runnerStarts(d);
   assert.ok(starts > 0, 'the runner ran at the first IMPLEMENTED');
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a plan test without a duration', 'no recorded GREEN duration matches');
-  assert.equal(runnerStarts(d), starts, 'no runner was started');
+  assert.equal(runnerStarts(d), starts + 1, 'only the control plane\'s own single run started (no double run)');
   assert.equal((ledger(d).match(/event=test-measure /g) ?? []).length, rows, 'no test-measure row was written');
 });
 
 for (const [exception, accept] of /** @type {Array<[string, boolean]>} */ ([['approved', true], ['unapproved', false]])) {
   test(`at IMPLEMENTED ${exception === 'approved' ? 'an approved' : 'an unapproved'} \`- measure:\` exception for a test ${accept ? 'passes' : 'does not pass'} the early check`, () => {
     const d = reopened([], exception);
+    setMode(d, 'nodur');   // A358: the control plane reads the durations the runner shows; this scenario is about the one it cannot show
     const w = wopen(d);
     appendFileSync(path.join(d, 'impl.txt'), 'impl: a real change\n');
     must(d, ['worker-evidence', 'LC', 'GREEN', 'pass'], { role: 'implementer', input: 'command: node .git/er-run.mjs\ntarget: impl.txt,impl_test.txt\ntest_durations: slow one=5.5\n' });

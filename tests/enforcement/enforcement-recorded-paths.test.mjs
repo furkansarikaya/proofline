@@ -60,7 +60,7 @@ test('skill_detour (A193): a proofline skill is redirected to its file; a messag
   mkdirSync(join(dir, '.agents/skills/qa-plan'), { recursive: true }); writeFileSync(join(dir, '.agents/skills/qa-plan/SKILL.md'), '');
   mkdirSync(join(base, 'home/.claude/skills/tdd-proof'), { recursive: true });
   const steps = corpus('skill_detour');
-  Object.assign(steps[7], { label: 'A193 a message that gives up at the Skill error is sent back with the file to read', sub: 'proofline-lead/SKILL.md' });
+  Object.assign(steps[7], { label: 'A193 a message that gives up at the Skill error is sent back with the file to read', sub: '.agents/skills/<name>/SKILL.md' });
   Object.assign(steps[8], { label: 'A193 the retry (stop_hook_active) is not blocked again' });
   Object.assign(steps[9], { label: 'A193 an ordinary message is not blocked' });
   assert.deepEqual(steps.slice(7).map((s) => s.verdict), ['block', 'allow', 'allow']);

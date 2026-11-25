@@ -6,6 +6,7 @@ import { buildRecord } from './buildrecord.mjs';
 import { sha256 } from './hash.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
+import { controlPlaneGreen } from './greenrun.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 import { tmpdir } from 'node:os';
 import { lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -245,6 +246,8 @@ function testMeasureAtImplemented(ctx, id, patch) {
   if (ledgerRows(ctx, dir, 'test-measure-block').some((r) => r.detail === token)) {
     fail('IMPLEMENTED blocked: the new tests were found unstable on exactly this content (the ledger records it). A second run on the same tree proves nothing: change the content (fix the test, then commit or edit) and record IMPLEMENTED again');
   }
+  // A358 (B9): the control plane runs the plan-listed commands once itself and records the plan-named tests' durations; only a failing listed command refuses here
+  const controlGreen = controlPlaneGreen(ctx, id, patch);
   // A325: a plan-named test with no recorded duration would be a blocking REVIEW_TESTS finding after every other gate was spent; refuse it here, before anything is measured or recorded, back to the implementer
   // (only a `- measure:` exception the user approved, A285, excuses a test: the same decision the review uses)
   if (measureRequired(ctx, id)) {
@@ -256,7 +259,7 @@ function testMeasureAtImplemented(ctx, id, patch) {
     const wrongWording = absent.length > 0 ? ` NOTE: ${absent.map((n) => `"${n}"`).join(', ')} is not found as text in the files this task changed. If re-recording GREEN with the project test command (or a plan-listed command) still produces no duration for ${absent.length === 1 ? 'this name' : 'these names'}, the plan wording is probably wrong (a ## Tests bullet must start with the quoted test name, as the test file titles it, before the dash; a code span or a sentence is not a name). Remedy, from IMPLEMENTING: write amendments/<NNN>.md, edit PLAN.md so the bullet quotes the real test title, run agent.sh refreeze ${id} <NNN>.md; the new plan hash voids the worker evidence, so record RED and GREEN again, then IMPLEMENTED. The GREEN rerun applies only after a REVIEW_TESTS failure` : '';
     if (lacking.length > 0) fail(`IMPLEMENTED blocked: the plan names ${lacking.map((n) => `"${n}"`).join(', ')} and no recorded GREEN duration matches. Back to the implementer: re-run the plan-listed Verification command (or the project test command) and re-record GREEN with the duration of EVERY plan-named test read from the real output (agent.sh worker-evidence ${id} GREEN pass), then record IMPLEMENTED again. In a fix round for a REVIEW_TESTS finding of exactly this kind, with the tree unchanged, agent.sh worker-evidence ${id} GREEN rerun does the re-recording (the control plane runs the plan-listed commands and reads the durations itself)${wrongWording}`);
   }
-  const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())) });
+  const m = measureRun(ctx, id, { runner: realRunner(ctx, verifyCommandTimeout(ctx.config())), controlGreen });
   for (const f of m.budgetFindings) ctx.err(`finding: ${f}\n`);
   for (const r of m.retries) ctx.err(`note: the project's own configuration retries a test (reported, proofline never retries): ${r}\n`);
   for (const c of m.supersededBy) ctx.err(`note: superseded: the earlier GREEN command \`${c.command}\` is not plan-listed or pinned, but later GREEN records (${c.by.join(', ')}) with an allowed command give a duration to every test it claimed (A336)\n`);
