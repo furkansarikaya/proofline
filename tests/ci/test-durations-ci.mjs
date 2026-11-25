@@ -15,8 +15,8 @@
 // is not a positive whole number) exits 2 with a message, never a silent green; in enforce mode a leg whose events cannot be read or whose budgets cannot be applied also
 // exits 1. There is no retry: the wrapper starts `node --test` once (twice only with TEST_DURATIONS_TWICE=true, a manual measuring run whose unstable report is only
 // informational: a failed second run keeps its own status). RUNNER-SPEED CALIBRATION (fix round 2): a degraded runner (one leg ran 4.9 times slower than its twin) must not
-// fail an unrelated pull request, so BEFORE node starts, in this process, the wrapper times a small fixed reference workload (15 `node -e 0` spawns, 40 sha256 rounds over a
-// fixed 1 MiB buffer, 300 file create/stat/unlink in a fresh private folder) and `speed_factor = clamp(measured / calibration.nominal_ms, 1, 5)` multiplies every budget (on top of
+// fail an unrelated pull request, so BEFORE node starts and again AFTER node exits (A354: a stall during the run is seen; the slower of the two counts), in this process, the wrapper times a small fixed reference workload (15 `node -e 0` spawns, 40 sha256 rounds over a
+// fixed 1 MiB buffer, 300 file create/stat/unlink in a fresh private folder) and `speed_factor = clamp(max(before, after) / calibration.nominal_ms, 1, 5)` multiplies every budget (on top of
 // timeouts_scale); the nominal is the median over CI runs (derive-budgets.mjs). A factor never makes a budget stricter than the table. A raw ratio above 5 (a broken runner) fails
 // ONLY when a budget is violated, with the message 'runner too slow to judge budgets'. The tests under test run after the calibration, cannot reach its folder or its clock reads.
 // The tool reads the clock for this and for nothing else; the test milliseconds are Node's.
@@ -155,12 +155,12 @@ const r1 = (/** @type {number} */ n) => (Math.round(n * 10) / 10).toFixed(1);
 /**
  * The job-summary text: the 10 slowest tests, the per-file totals (the 15 largest; the JSON has them all), the grand total, the budget lines, the unstable tests.
  * @param {string} leg @param {ReturnType<typeof analyse>} a @param {ReturnType<typeof overBudget>} over @param {boolean} enforce @param {boolean} twice
- * @param {{ ms: number, nominal: number, raw: number, factor: number, rows: Array<{ file: string, test: number, suite: number }> } | null} [cal]
+ * @param {{ ms: number, after?: number, nominal: number, raw: number, factor: number, rows: Array<{ file: string, test: number, suite: number }> } | null} [cal]
  */
 export function renderSummary(leg, a, over, enforce, twice, cal) {
   const L = [`### Test durations: ${clean(leg)}`, '', `${a.tests} tests in ${a.files.length} files; grand total ${a.total_max_ms} ms; budgets ${enforce ? 'ENFORCED' : 'report-only'}${twice ? '; run twice' : ''}`, ''];
   if (cal) {
-    L.push(`runner speed: calibration ${r1(cal.ms)} ms against ${cal.nominal} ms nominal; factor ${f2(cal.factor)}${cal.raw !== cal.factor ? ` (raw ${f2(cal.raw)})` : ''}; every budget below is multiplied by it`, '');
+    L.push(`runner speed: calibration ${r1(cal.ms)} ms before and ${cal.after === undefined ? 'n/a' : `${r1(cal.after)} ms after`} the run (the slower counts) against ${cal.nominal} ms nominal; factor ${f2(cal.factor)}${cal.raw !== cal.factor ? ` (raw ${f2(cal.raw)})` : ''}; every budget below is multiplied by it`, '');
     L.push('| effective budgets (slowest files) | test ms | suite ms |', '| --- | ---: | ---: |');
     for (const r of cal.rows) L.push(`| ${clean(r.file)} | ${r.test} | ${r.suite} |`);
     L.push('');
@@ -205,12 +205,11 @@ export function main(argv, io = {}) {
   const dir = env.TEST_DURATIONS_DIR || (env.RUNNER_TEMP ? path.join(env.RUNNER_TEMP, 'test-durations') : 'test-durations');
   // the calibration comes first, in this process, before any test code exists
   const nominal = budgets.calibration?.nominal_ms;
-  /** @type {{ ms: number, nominal: number, raw: number, factor: number, rows: Array<{ file: string, test: number, suite: number }> } | null} */ let cal = null;
+  /** @type {{ ms: number, after?: number, nominal: number, raw: number, factor: number, rows: Array<{ file: string, test: number, suite: number }> } | null} */ let cal = null;
   if (typeof nominal === 'number') {
     const ms = io.calibrate ? io.calibrate() : timedWorkload();
     cal = { ms, nominal, ...speedFactor(ms, nominal), rows: [] };
   }
-  const speed = cal?.factor ?? 1;
   const run = io.run ?? ((/** @type {string[]} */ a) => realRun(a, io.stderr ?? 'inherit'));
   const cwd = io.cwd ?? process.cwd();
   /** @type {Array<{ status: number, events: import('./test-durations.mjs').Event[] }>} */ const runs = [];
@@ -220,6 +219,12 @@ export function main(argv, io = {}) {
     if (r.events === null) unreadable = true;   // the stream could not be read: the status still counts, the verdict cannot be made
     runs.push({ status: r.status, events: parseEvents(r.events ?? '') });
   }
+  // A354: a runner can stall DURING the run (a calibration before node starts cannot see it), so the reference workload is timed again after node exits; the slower of the two decides
+  if (cal) {
+    const after = io.calibrate ? io.calibrate() : timedWorkload();
+    cal = { ...cal, after, ...speedFactor(Math.max(cal.ms, after), cal.nominal) };
+  }
+  const speed = cal?.factor ?? 1;
   const nodeStatus = runs.map((r) => r.status).find((s) => s !== 0) ?? 0;
   /** @type {ReturnType<typeof overBudget> | null} */ let over = null;
   try { over = overBudget(budgets, runs, speed); } catch (e) { write(`test-durations-ci: the budgets could not be applied (${/** @type {Error} */ (e).message})\n`); }
@@ -229,7 +234,7 @@ export function main(argv, io = {}) {
     if (cal) cal.rows = a.files.slice(0, 5).map((f) => ({ file: f.file, ...(({ test, suite }) => ({ test, suite }))(budgetOf(budgets, f.file, speed)) }));
     const safe = leg.replace(/[^A-Za-z0-9._-]+/g, '-');
     const { load: _load, ...rest } = a;   // no load average: the report is the same on any machine
-    const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, calibration_ms: cal ? Math.round(cal.ms * 100) / 100 : null, calibration_nominal_ms: nominal ?? null, speed_factor: cal ? Math.round(cal.factor * 1000) / 1000 : 1, twice, node_status: nodeStatus, ...rest,
+    const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, calibration_ms: cal ? Math.round(cal.ms * 100) / 100 : null, calibration_after_ms: cal?.after === undefined ? null : Math.round(cal.after * 100) / 100, calibration_nominal_ms: nominal ?? null, speed_factor: cal ? Math.round(cal.factor * 1000) / 1000 : 1, twice, node_status: nodeStatus, ...rest,
       tests_detail: summarize(runs[0].events).tests, over_budget: o };
     writeOut(path.join(dir, `test-durations-${safe}.json`), `${JSON.stringify(json, null, 2)}\n`);
     const text = renderSummary(leg, a, o, enforce, twice, cal);

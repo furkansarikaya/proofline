@@ -4,6 +4,8 @@
 
 ## 0.0.177 — 2026-11-25
 
+- Fix (A354): the CI budget wrapper times its reference workload again after node exits and uses the slower of the two measurements for the runner-speed factor (a runner stall during a leg was invisible to the budget gate: the 22.13.0 dispatch leg of PR 342 ran 3 to 7 times slower than the `lts` leg of the same commit and failed on `OVER BUDGET`). The JSON carries `calibration_after_ms`; the cap of 5, the fail-closed paths and the budgets are unchanged.
+
 - Fix (A353, issue 338 B4 and C2): every gate record carries the read-set the control plane derived (`readset_sha256`, `<record>.readset`); a gate keeps its pass when its read-set is unchanged, an edited or forged read-set re-runs it. A reopened run opens its fix round from the findings recorded before the reopen (no gate is dispatched to say the content is unchanged), and `agent.sh handoff <ID> IMPLEMENTED --re-review` sends the same tree to review again (reason on stdin, once per finding).
 
 ## 0.0.176 — 2026-11-25
