@@ -9,7 +9,7 @@ import { A, approveAsUser, expectMsg, gateStatus, must, refused, say, scaffold }
 import { accepted, rec, reopened, rerun, stripDuration, warm } from './evidence-repair-lib.mjs';
 
 // the cold build of the project variant is paid here, not inside the first test that uses it
-before(() => warm([[]]));
+before(() => warm([[], [[], '', 'clean']]));
 import { mutantNeed, parseReviewBudget } from '../../control-plane/agents/scripts/core/testreviewbudget.mjs';
 import { planMutantNeed, reviewBudget } from '../../skills/test-trust/scripts/gate.mjs';
 
@@ -121,4 +121,12 @@ test('a changed product file re-runs its mutants', () => {
   appendFileSync(path.join(d, 'impl.txt'), 'impl: changed\n');
   assert.match(BR(d, ['mutant-known', 'impl.txt', 'm1']).out, /^NEW/);
   refused(BR(d, ['mutant-known', '../x', 'm1']), 'a path outside the repository');
+});
+
+test('a change of ANOTHER owned file (a multi-file unit) invalidates a kill recorded for this one', () => {
+  const d = reopened([], '', 'clean');
+  accepted(BR(d, ['mutant-record', 'impl.txt', 'm1', 'killed', '--unit', 'lookup']), 'record');
+  assert.match(BR(d, ['mutant-known', 'impl.txt', 'm1']).out, /^KNOWN killed/);
+  appendFileSync(path.join(d, 'other.txt'), 'changed helper\n');
+  assert.match(BR(d, ['mutant-known', 'impl.txt', 'm1']).out, /^NEW/, 'the helper the test also exercises changed');
 });

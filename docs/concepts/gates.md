@@ -167,9 +167,9 @@ classification from round to round. A mutation budget overrun in the tests revie
 
 Hours of the loop were lost to mutation results that were thrown away and re-run, survivors that appeared one round at a
 time, and caps the user had to type late. Now: (1) the mutation results of the tests review are rows of the sealed run ledger, written by the control plane for the
-reviewer only (`agent.sh build-record <ID> mutant-record`), keyed on the product file AND the task's test files:
+reviewer only (`agent.sh build-record <ID> mutant-record`), keyed on the product file AND every file the task owns:
 `mutant-known` answers `KNOWN killed|survived` for a mutant that already ran on the same code and the same tests and
-spends no budget; a changed file or a weakened or added test runs again, and no file an agent can write counts. (2) The first survivor of a unit makes the reviewer run that unit's other
+spends no budget; a change of any owned file or a weakened or added test runs again, and no file an agent can write counts. (2) The first survivor of a unit makes the reviewer run that unit's other
 mutants in the same round, so one round lists all its survivors. (3) The plan may carry an optional `## Test review budget`
 (`rounds`, `minutes`, `mutants`, `units`, `lines`): the round and time caps, and the mutation budget derived from the changed
 units and lines (4 per unit, 1 per 25 lines; never only the criteria count). A number above `test_trust.mutation_budget` is

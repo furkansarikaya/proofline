@@ -4,17 +4,16 @@
 //   agent.sh build-record <ID> mutant-record <file> <mutant-id> killed|survived [--unit U] [--class base|new]   (the reviewer only)
 //   agent.sh build-record <ID> mutant-summary                        per unit what ran, and the ADEQUACY line (any role; read only)
 // A record is a row of the run's SEALED ledger (event `mutant-result`, role as the control plane saw it); a plain file is never read. The KEY of a result is the sha256 of
-//   (the product file's bytes, every test file the task owns with its fingerprint): changing the product file or any test of the task (weakening or adding the killing test) is
-// a new key, so a recorded kill is never trusted for different code or different tests, and a survivor is re-evaluated once the tests changed. A row counts only with role reviewer.
+//   (the product file's bytes, EVERY file the task owns, product and test, as `path|fingerprint` lines): changing the product file or any owned file of the task (a helper the test also runs, weakening or adding the killing test) is
+// a new key (conservative: a test that exercises another file of a multi-file unit is covered too), so a recorded kill is never trusted for different code or different tests, and a survivor is re-evaluated once the tests changed. A row counts only with role reviewer.
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
 import { fail } from './errors.mjs';
-import { TEST_PATH_GLOBS, taskOwnedPaths } from './gates.mjs';
+import { taskOwnedPaths } from './gates.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { led } from './lifeutil.mjs';
 import { gatesEnforced, ledgerRows } from './records.mjs';
 import { runDir } from './runs.mjs';
-import { pathMatches } from './scope.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -28,7 +27,7 @@ export function mutantKey(ctx, id, file) {
   try { st = lstatSync(full); } catch { fail(`mutant: ${file} does not exist`); }
   if (!st.isFile()) fail(`mutant: ${file} is not a regular file (a link or a folder is not a unit's source)`);
   const dir = runDir(ctx, id);
-  const tests = taskOwnedPaths(ctx, dir).filter(([p]) => pathMatches(p, TEST_PATH_GLOBS)).map(([p, h]) => `${p}|${h}`).sort().join('\n');
+  const tests = taskOwnedPaths(ctx, dir).map(([p, h]) => `${p}|${h}`).sort().join('\n');
   return sha256(`${sha256File(full)}\n${tests}`).slice(0, 32);
 }
 
