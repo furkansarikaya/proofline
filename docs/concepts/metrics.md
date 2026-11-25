@@ -23,7 +23,7 @@ lead-only command, but `AGENT_ROLE` is a declared claim, so the trust is the sam
 
 | `kind` | Written by | When |
 |---|---|---|
-| `dispatch` | `dispatch.sh` through `agent.sh metrics-dispatch` | one per `dispatch.sh` call once its first attempt has started (submitted, failed, timeout, blocked, needs_input); a call that exits on a usage error before any attempt writes none |
+| `dispatch` | `dispatch.sh` through `agent.sh metrics-dispatch`; the SubagentStop hook for a resumed specialist (A351) | one per `dispatch.sh` call once its first attempt has started (submitted, failed, timeout, blocked, needs_input), and one with result `resumed` (duration only, no tokens) for a resumed specialist that stopped without a new `submit`; a call that exits on a usage error before any attempt writes none |
 | `step` | `agent.sh` (`submit` / `record`) | one per recorded specialist result |
 | `run` | `agent.sh` (`handoff DONE`, `terminate`) | once when the run ends |
 

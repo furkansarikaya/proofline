@@ -433,7 +433,7 @@ jobs:
           - name: enforcement-ported-a
             mode: files
             pattern: 'none'
-            files: tests/enforcement/enforcement-a1.test.mjs tests/enforcement/enforcement-a2.test.mjs
+            files: tests/enforcement/enforcement-a1.test.mjs tests/enforcement/enforcement-a2.test.mjs tests/enforcement/window-settle.test.mjs
           - name: enforcement-ported-b
             mode: files
             pattern: 'none'

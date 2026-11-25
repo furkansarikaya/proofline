@@ -820,6 +820,10 @@
       "test_ms": 85000,
       "suite_ms": 120000
     },
+    "tests/enforcement/window-settle.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 12000
+    },
     "tests/enforcement/enforcement-planning-attest.test.mjs": {
       "test_ms": 4500,
       "suite_ms": 10000

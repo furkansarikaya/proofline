@@ -17,6 +17,7 @@ import { hashFile } from './fingerprint.mjs';
 import { approvedMeasureTargets, evidenceRepairCovers } from './evidencerepair.mjs';
 import { planTestsWithoutDurationOf } from './testreview.mjs';
 import { ensurePlanningWindow } from './planningattest.mjs';
+import { settleSpecialists } from './specialists.mjs';
 import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
@@ -367,6 +368,7 @@ export function recordHandoff(ctx, id, phase) {
       break;
     case 'IMPLEMENTED':
       if (current !== 'IMPLEMENTING' && current !== 'IMPLEMENTED') illegal();
+      if (current === 'IMPLEMENTING') settleSpecialists(ctx, id, 'close');   // B2/B11: a running specialist is named; a window whose close timed out is closed here
       verifyClassification(ctx, id);
       dbGuardCheck(ctx, id);
       verifyDebugResult(ctx, id);
@@ -395,6 +397,7 @@ export function recordHandoff(ctx, id, phase) {
         verifyRequiredGates(ctx, dir, id, 'reuse', 'CODE_DONE blocked');
       }
       setRunValue(ctx, id, 'handoff', 'code_done_patch_sha256', patch);
+      settleSpecialists(ctx, id, 'clean');   // B2: a window file of a stopped specialist is stale now
       break;
     default: // DONE
       if (current !== 'CODE_DONE' && current !== 'DONE') illegal();
