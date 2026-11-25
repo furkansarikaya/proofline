@@ -345,7 +345,7 @@ jobs:
           - name: controls
             mode: files
             pattern: 'none'
-            files: tests/core/controls.test.mjs tests/core/identity.test.mjs tests/core/green-duration.test.mjs tests/core/test-measure.test.mjs tests/core/evidence-repair.test.mjs tests/core/green-control.test.mjs tests/core/verify-fix-rounds.test.mjs
+            files: tests/core/controls.test.mjs tests/core/identity.test.mjs tests/core/green-duration.test.mjs tests/core/test-measure.test.mjs tests/core/evidence-repair.test.mjs tests/core/green-control.test.mjs tests/core/green-decl.test.mjs tests/core/verify-fix-rounds.test.mjs
           - name: task-debt-perf
             mode: files
             pattern: 'none'

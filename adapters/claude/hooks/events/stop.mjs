@@ -7,7 +7,7 @@
 // question, or a parked task of the batch with a recorded question and nothing runnable left) the hook adds ONE line, `waiting for the user: <ID>: <question>`,
 // instead of the Next step line, and every message it sends back is one line (a repeated nudge costs the lead's context, issue 338 B8).
 import { readFileSync } from 'node:fs';
-import { isFile, readText, rmf } from '../lib/fsx.mjs';
+import { isFile, names, readText, rmf } from '../lib/fsx.mjs';
 import { jesc, safe, textHasWord, hasWord } from '../lib/text.mjs';
 
 // asks(): the line asks the user to do something (fr: also edit/modify/change)
@@ -122,7 +122,13 @@ export async function handle(ctx) {
     }
   }
   // A358: `agent.sh next-user --waiting` prints the line only when the lead has nothing runnable and the user's answer is what is missing.
-  const w = await ctx.agent(['next-user', '--waiting']);
+  // The process is started only when a wait is possible at all (a planned batch, or a run whose record says `awaiting_input: true`): every other Stop costs no extra process (issue 338 B8, the CI budgets).
+  let mayWait = isFile(`${ctx.sharedLocal}/batch/order.tsv`);
+  if (!mayWait) {
+    const dirs = [`${ctx.root}/.agents/runs`, ...names(`${ctx.sharedLocal}/worktrees`).map((t) => `${ctx.sharedLocal}/worktrees/${t}/.agents/runs`)];
+    mayWait = dirs.some((d) => names(d).some((r) => /^ {2}awaiting_input: "?true/m.test(readText(`${d}/${r}/RUN.yaml`))));
+  }
+  const w = mayWait ? await ctx.agent(['next-user', '--waiting']) : { status: 0, stdout: '' };
   const waiting = w.status === 0 ? w.stdout.replace(/\n+$/, '') : '';
   if (waiting.startsWith('waiting for the user:')) out = `${out !== '' ? `${out}\n` : ''}proofline: ${waiting}`;
   if (waiting === '' && (pc.startsWith('/proofline ') || pc.startsWith('$proofline '))) {
