@@ -72,3 +72,28 @@ test('B9: a result line for a name that is no test title in any file of the task
   refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'names that are no title', 'no recorded GREEN duration');
   assert.ok(!greens(d).some((g) => /^role: "lead"/m.test(g)), 'the control plane recorded a name it cannot find as a test title');
 });
+
+/** A runner whose source declares exactly the given tests; it prints both result lines. @param {string} decls */
+const runner = (decls) => `import { appendFileSync } from 'node:fs';\nappendFileSync(new URL('er-runs', import.meta.url), 'x');\nfunction test() {}\ntest.skip = test;\nconst it = test;\n${decls}console.log('\\u2714 slow one (5.5ms)');\nconsole.log('\\u2714 fast one (0.75ms)');\n`;
+const SLOW = "test('slow one', () => {});\n";
+const ownRecords = (/** @type {string} */ d) => greens(d).filter((g) => /^role: "lead"/m.test(g));
+
+test('B9: a printed result line and a quoted comment are no test declaration: "fast one" is not recorded and the note says why', () => {
+  const d = ready('ok', '', runner(`${SLOW}// test('fast one', () => {})\n/* test("fast one") */\nconsole.log("test('fast one')");\n`));
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  refused(r, 'a name that is only printed or commented', 'no recorded GREEN duration');
+  assert.ok(!ownRecords(d).some((g) => g.includes('fast one')), 'a duration was taken for a test that is not declared');
+  assert.match(r.text, /does not stand for "fast one" \(it is not declared exactly once as a test/);
+});
+
+test('B9: a real declaration is accepted, also with a template literal title', () => {
+  const d = ready('ok', '', runner(`${SLOW}test.skip(\`fast one\`, () => {});\n`));
+  accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED with declared tests');
+  assert.match(ownRecords(d)[0] ?? '', /^test_durations: slow one=5\.5; fast one=0\.75$/m);
+});
+
+test('B9: a title declared twice is ambiguous and is not recorded', () => {
+  const d = ready('ok', '', runner(`${SLOW}test('fast one', () => {});\nit('fast one', () => {});\n`));
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'a title declared twice', 'no recorded GREEN duration');
+  assert.ok(!ownRecords(d).some((g) => g.includes('fast one')));
+});

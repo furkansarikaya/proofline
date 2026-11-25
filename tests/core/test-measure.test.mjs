@@ -8,7 +8,7 @@ import { appendFileSync, cpSync, mkdirSync, readdirSync, readFileSync, rmSync, w
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { test } from 'node:test';
+import { before, test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { Config, configLines } from '../../control-plane/agents/scripts/core/config.mjs';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
@@ -292,6 +292,15 @@ function counterProject(second, extraScaffold = {}) {
   const { d, w } = seeded({ scaffold: { planExtra: verif(COUNTER), ...extraScaffold } });
   return { d, w, c: counterIn(d, second) };
 }
+
+// The cold build of a seed (a code change makes every seed new) is paid here, once, outside any test: the first test that used a variant was 4 times slower than its second run (A311 pattern).
+before(() => {
+  for (const o of [
+    {}, { stamped: false }, { scaffold: { planExtra: PLAN } }, { scaffold: { planExtra: verif(COUNTER) } }, { scaffold: { planExtra: verif(COUNTER), scopeNamed: '.gitlab-ci.yml' } },
+    { scaffold: { planExtra: '\n## Verification commands\n\n- `node -e 0`\n' } }, { scaffold: { planExtra: verif('node --version') } },
+    { testCmd: COUNTER, scaffold: { planExtra: verif('node --version') } }, { testCmd: 'node --version' },
+  ]) rmSync(seeded(o).d, { recursive: true, force: true });
+});
 
 test('IMPLEMENTED runs the new tests twice: a test that passes once and fails once stops the handoff, and nothing is retried', () => {
   const { d, w, c } = counterProject('1');

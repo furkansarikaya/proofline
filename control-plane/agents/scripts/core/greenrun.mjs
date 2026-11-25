@@ -18,17 +18,33 @@ import { verifyCommandTimeout } from './timeouts.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
-/** Is `name` (lower case) inside a quoted string of one line of `text` (lower case)? A test title is a string literal; a bare word of a comment or a printed line is not. @param {string} text @param {string} name */
-function titleLiteral(text, name) {
-  for (const line of text.split('\n')) {
-    let from = line.indexOf(name);
-    while (from >= 0) {
-      const before = line.slice(0, from); const after = line.slice(from + name.length);
-      for (const q of ['"', "'", '`']) if (before.includes(q) && after.includes(q) && !before.slice(before.lastIndexOf(q) + 1).includes(q) && (before.split(q).length - 1) % 2 === 1) return true;
-      from = line.indexOf(name, from + 1);
-    }
+/** `//` and block comments dropped (conservative: a `//` inside a string drops the rest of that line, which can only make a title go unseen). @param {string} text */
+function withoutComments(text) { return text.replace(/\/\*[^]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ''); }
+
+/**
+ * How many times `name` (lower case) is DECLARED as a test in `text` (lower case): the first argument of `it(`, `test(`, `describe(`, `suite(` or `t.test(` (also `.only`, `.skip`, `.todo`), a quoted
+ * title of exactly that name, comments ignored. A string a test prints, a bare quoted word and a comment are no declaration (A358).
+ * @param {string} text @param {string} name
+ */
+function declarations(text, name) {
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`\\b(?:it|test|describe|suite|t\\.test)(?:\\.(?:only|skip|todo))?\\s*\\(\\s*(['"\`])${esc}\\1`, 'g');
+  const clean = withoutComments(text);
+  let n = 0;
+  for (const m of clean.matchAll(re)) {
+    const line = clean.slice(clean.lastIndexOf('\n', m.index) + 1, m.index);
+    // a match that starts inside a quoted string of its line (an odd number of quote marks before it) is printed text, not a call
+    if (['"', "'", '`'].some((q) => line.split(q).length % 2 === 0)) continue;
+    n++;
   }
-  return false;
+  return n;
+}
+
+/** The files the plan command runs: the existing files its words name, else the changed test files. @param {string[]} commands @param {string[]} changed @param {(f: string) => boolean} exists */
+function runFiles(commands, changed, exists) {
+  const named = commands.flatMap((c) => c.split(/\s+/)).filter((w) => w !== '' && !w.startsWith('-') && exists(w));
+  if (named.length > 0) return [...new Set(named)];
+  return changed.filter((f) => /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.|_test\./.test(f));
 }
 
 /**
@@ -48,10 +64,12 @@ export function controlPlaneGreen(ctx, id, patch) {
   const owed = names.filter((n) => !excused.includes(n));
   const want = owed.filter((n) => !n.includes('=') && !n.includes(';'));
   if (want.length === 0) return false;
-  // a plan name counts only when it is a string literal (a test title) in a file the task changed or the command names: a line a test prints is not a test
-  const files = [...new Set([...patchManifest(ctx, dir).map((l) => l.slice(0, l.indexOf('|'))), ...commands.flatMap((c) => c.split(/\s+/))])].filter((f) => f !== '');
+  // a plan name counts only when it is DECLARED as a test (the first argument of a test call, exactly one declaration) in the files the command runs: a line a test prints, a quoted word or a
+  // comment in a file, or a title in another file is no test
+  const changed = patchManifest(ctx, dir).map((l) => l.slice(0, l.indexOf('|'))).filter((p) => p !== '');
+  const files = runFiles(commands, changed, (f) => fileText(ctx, `${ctx.root}/${f}`) !== null);
   const texts = files.map((f) => asciiLower(fileText(ctx, `${ctx.root}/${f}`) ?? ''));
-  const titled = (/** @type {string} */ n) => texts.some((t) => titleLiteral(t, n));
+  const titled = (/** @type {string} */ n) => texts.reduce((k, t) => k + declarations(t, n), 0) === 1;
   const greens = greenRecords(ctx, id);
   const last = greens[greens.length - 1];
   const target = last === undefined ? '' : fieldOf(fileLines(ctx, `${dir}/worker-evidence/${last.file}`), 'target');
@@ -77,7 +95,11 @@ export function controlPlaneGreen(ctx, id, patch) {
     // keyed by the plan's own quoted name: the later steps (budgets, the double run, REVIEW_TESTS) match by that name
     if (part.size > 0) records.push({ command: o.command, durations: [...part].map(([n, e]) => `${n}=${e.ms}`).join('; ') });
   }
+  const left = owed.filter((n) => !taken.has(n));
+  const why = (/** @type {string} */ n) => (n.includes('=') || n.includes(';') ? 'its name has = or ;' : !titled(n) ? 'it is not declared exactly once as a test in the files the command runs' : 'no single result line shows it');
+  const note = left.length === 0 ? '' : `note: the control plane's own GREEN does not stand for ${left.map((n) => `"${n}" (${why(n)})`).join(', ')}\n`;
   if (records.length === 0) {
+    ctx.err(note);
     ctx.err(`note: the control plane ran the plan-listed command(s) once, but their output shows no per-test duration for a plan-named test (a command that runs no test is not GREEN); the recorded GREEN evidence is checked as before\n`);
     return false;
   }
@@ -89,6 +111,7 @@ export function controlPlaneGreen(ctx, id, patch) {
     return false;
   }
   ctx.forget('file:');
+  if (note !== '') ctx.err(note);
   // all or nothing: only a run that gave a duration to EVERY plan test the user did not excuse makes the control plane's GREEN the evidence for the content; a partial run leaves the
   // tests it did not cover to the older checks (an agent's claim for them is still no evidence)
   const full = taken.size === owed.length;
