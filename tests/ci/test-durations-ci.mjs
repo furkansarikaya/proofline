@@ -254,7 +254,7 @@ export function main(argv, io = {}) {
   if (twice) { try { const u = analyse(runs, { top: 1, ratio: 4, floorMs: 2000 }).unstable.length; write(`UNSTABLE TESTS: ${u}\n`); } catch { /* informational only */ } }
   if (nodeStatus !== 0) return nodeStatus;
   if (!enforce) return 0;
-  if (inconclusive) { write(`${verdictLine}\n`); return 0; }
+  if (inconclusive) { write(`${verdictLine}\n::warning title=BUDGET INCONCLUSIVE::${verdictLine}\n`); return 0; }
   if (over === null || unreadable) { write('test-durations-ci: budgets are enforced but the measured durations are not available; failing closed\n'); return 1; }
   for (const r of runs) {
     if (r.events.length === 0) { write('test-durations-ci: the event stream is empty (no test was reported); failing closed\n'); return 1; }

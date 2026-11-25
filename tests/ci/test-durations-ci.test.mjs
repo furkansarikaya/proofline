@@ -391,6 +391,7 @@ test('C11 (A360): above the cap the budget verdict is inconclusive (exit 0) on p
   const a = go({});
   assert.equal(a.st, 0, '(1) 6x nominal and a test over even the scaled budget: inconclusive, not red');
   assert.match(a.out, /BUDGET INCONCLUSIVE: runner too slow to judge \(calibration 6\.00 x nominal, cap 5\): 1 over-budget test\(s\) not judged; the nightly run judges again\n/);
+  assert.match(a.out, /\n::warning title=BUDGET INCONCLUSIVE::BUDGET INCONCLUSIVE: runner too slow/, 'a GitHub annotation makes it visible on a green check');
   assert.equal(a.json.budget_verdict, 'inconclusive');
   assert.equal(a.json.unjudged_over_budget.tests.length, 1);
   assert.match(a.summary, /BUDGET INCONCLUSIVE/);
@@ -398,6 +399,8 @@ test('C11 (A360): above the cap the budget verdict is inconclusive (exit 0) on p
   assert.equal(b.st, 1, '(2) strict (nightly, manual): judged as before');
   assert.match(b.out, /runner too slow to judge budgets/);
   assert.equal(b.json.budget_verdict, 'judged');
+  assert.doesNotMatch(b.out, /::warning/);
+  assert.doesNotMatch(go({ cal: 1000 }).out, /::warning/);
   const c = go({ status: 1 });
   assert.equal(c.st, 1, '(3) a failing test still fails');
   assert.doesNotMatch(c.out, /INCONCLUSIVE/);
