@@ -10,6 +10,7 @@ import path from 'node:path';
 import { monoMs } from './clock.mjs';
 import { ecosystemRows } from './ecodata.mjs';
 import { createHash } from 'node:crypto';
+import { taskPatchFingerprint } from './gates.mjs';
 import { git, headSha } from './git.mjs';
 import { listNames } from './ledger.mjs';
 import * as proc from './proc.mjs';
@@ -386,6 +387,28 @@ export function recordedTestPin(ctx, id) {
   return m ? m[1] : null;
 }
 
+// ---- the control plane's own GREEN (A358, issue 338 B9) ---------------------------------------------------------------------------------
+
+/** The token of one content and one plan: the task patch, the plan-listed Verification commands and the plan-named tests (sorted). A `green-control` row of the sealed ledger carries it. @param {Context} ctx @param {string} id @param {string} patch */
+export function controlGreenToken(ctx, id, patch) {
+  const names = [...new Set(planKinds(fileText(ctx, `${runDir(ctx, id)}/PLAN.md`) ?? '').names.map((n) => n.name))].sort();
+  const commands = [...planVerificationCommands(ctx, id)].sort();
+  return createHash('sha256').update(Buffer.from(`${patch}\n${commands.join('\n')}\n${names.join('\n')}`, 'utf8')).digest('hex');
+}
+
+/**
+ * Did the control plane run the plan-listed commands itself for the CURRENT content and record the durations (a `green-control` row naming this content's token)? Then an agent's own GREEN command
+ * that is neither plan-listed nor the pinned test command is not evidence (invariant 4) and is no longer a block: the control plane's own run is.
+ * @param {Context} ctx @param {string} id @param {string} [patch] the task patch fingerprint; computed when left out
+ */
+export function controlGreenFor(ctx, id, patch) {
+  const dir = runDir(ctx, id);
+  const rows = ledgerRows(ctx, dir, 'green-control');
+  if (rows.length === 0) return false;
+  const tok = controlGreenToken(ctx, id, patch ?? taskPatchFingerprint(ctx, dir));
+  return rows.some((r) => new RegExp(`(^| )token=${tok}( |$)`).test(r.detail));
+}
+
 // ---- the run: one report ----------------------------------------------------------------------------------------------------------------
 
 /** Does this run carry the measurement stamp (`measure=1` on the start row of its sealed ledger)? A run started before the stamp existed does not. @param {Context} ctx @param {string} id */
@@ -397,7 +420,7 @@ export function measureRequired(ctx, id) {
 /**
  * The measurement of a run: the durations and budget findings (needs no process), and the double run when `stability` is given.
  * @param {Context} ctx @param {string} id
- * @param {{ runner?: (command: string) => RunResult }} [opt] runner: when given, the allowed GREEN commands run twice through it
+ * @param {{ runner?: (command: string) => RunResult, controlGreen?: boolean }} [opt] runner: when given, the allowed GREEN commands run twice through it; controlGreen: the control plane ran the plan-listed commands itself for this content (A358)
  */
 export function measureRun(ctx, id, opt = {}) {
   const dir = runDir(ctx, id);
@@ -434,6 +457,8 @@ export function measureRun(ctx, id, opt = {}) {
     for (const c of cmds) {
       if (allowed.has(c)) continue;
       if (sup.has(c)) { superseded.push(c); supersededBy.push({ command: c, by: sup.get(c) ?? [] }); continue; }
+      // A358: the control plane ran the plan-listed commands itself and recorded the durations: an agent's own command is a claim, not evidence, and no longer blocks
+      if (opt.controlGreen === true) { notRun.push(c); continue; }
       // a run that carries the measurement stamp is measured on a plan-listed command or the configured test command: the implementer's own string never decides
       if (stamped) {
         const uncovered = uncoveredTests(greens, c, (x) => allowed.has(x), supersederFilter(ctx, id));

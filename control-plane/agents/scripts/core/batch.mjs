@@ -512,8 +512,12 @@ export function nextReport(ctx, tsv = false) {
     else if (act === 'deliver cleanup') ctx.out(`NEXT: deliver ${id} cleanup ${open.question}   (pull request ${open.question} is merged but not recorded: agent.sh deliver-step ${id} cleanup ${open.question} records the merge and cleans up)\n`);
     else if (act === 'deliver merged') ctx.out(`NEXT: deliver ${id} merged   (the user merged it on origin: agent.sh deliver-merged ${id} proves that from git, records the merge and cleans up the run and its worktree)\n`);
     else if (act === 'deliver') ctx.out(`NEXT: deliver ${id}   (the whole delivery of the lead skill; the approval is covered by batch-cover ${id} delivery)\n`);
-  } else if (state === 'finished-parked') ctx.out('NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)\n');
-  else ctx.out('NEXT: finished\n');
+  } else if (state === 'finished-parked') {
+    // A358: a parked task with a recorded question is a wait for the user's answer, named on one line (the Stop hook and a goal read it)
+    const wq = rs.find((r) => r.state === 'parked' && r.question !== '' && r.detail !== 'awaiting merge');
+    if (wq) ctx.out(`waiting for the user: ${wq.id}: ${wq.question.replace(/`/g, '').replace(/[\t\n\v\f\r]+/g, ' ').trim().slice(0, 120)}\n`);
+    ctx.out('NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)\n');
+  } else ctx.out('NEXT: finished\n');
 }
 
 /** `batch-next [--tsv]`: read-only (but the owner claim), every role may read the digest. @param {Context} ctx @param {string[]} args */

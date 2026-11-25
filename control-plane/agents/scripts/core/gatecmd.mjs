@@ -181,7 +181,7 @@ function evidenceRepair(ctx, id, dir, topology, stdin) {
 }
 
 /** The worker-evidence record itself, after the checks of the command (a form on stdin, or the control plane's own measurement in the repair). @param {Context} ctx @param {string} id @param {string} dir @param {string} topology @param {string} phase @param {string} result @param {string} stdin */
-function recordEvidence(ctx, id, dir, topology, phase, result, stdin) {
+function recordEvidence(ctx, id, dir, topology, phase, result, stdin, quiet = false) {
   const commandText = fieldFromText(stdin, 'command');
   const targetText = fieldFromText(stdin, 'target');
   const expectedFailure = fieldFromText(stdin, 'expected_failure');
@@ -247,8 +247,17 @@ function recordEvidence(ctx, id, dir, topology, phase, result, stdin) {
   try { size = statSync(out).size; } catch { /* none */ }
   if (size === 0) { rmSync(out, { force: true }); fail(`worker evidence file was not actually written (empty or missing after redirect): ${out}`); }
   ctx.forget('file:');
-  ctx.out(`worker evidence recorded: ${id} ${phase}-${seq} (${result})\n`);
+  if (!quiet) ctx.out(`worker evidence recorded: ${id} ${phase}-${seq} (${result})\n`);
   return 0;
+}
+
+/**
+ * A358 (B9): the control plane's own GREEN record, made at `handoff IMPLEMENTED` from its own run of a plan-listed command. Same checks and the same file as the agent's record; nothing printed.
+ * @param {Context} ctx @param {string} id @param {string} command @param {string} target @param {string} durations `name=ms; name=ms`
+ */
+export function recordControlGreen(ctx, id, command, target, durations) {
+  const dir = runDir(ctx, id);
+  recordEvidence(ctx, id, dir, resolveTopology(ctx, dir), 'GREEN', 'pass', `command: ${command}\ntarget: ${target}\ntest_durations: ${durations}\n`, true);
 }
 
 // ---- raise-budget --------------------------------------------------------------------------------------------------------------------

@@ -232,6 +232,14 @@
       "test_ms": 10000,
       "suite_ms": 25000
     },
+    "tests/core/waiting-b8.test.mjs": {
+      "test_ms": 11500,
+      "suite_ms": 15300
+    },
+    "tests/core/green-control.test.mjs": {
+      "test_ms": 6100,
+      "suite_ms": 10000
+    },
     "tests/core/batch-b5.test.mjs": {
       "test_ms": 6400,
       "suite_ms": 21000

@@ -4,7 +4,7 @@
 // `note=`, `missing_step=`, `finding=` and `fix_path=` lines the lead and the hooks parse. It removes stale dispatch markers like the shell.
 import { buildRecord } from './buildrecord.mjs';
 import { asciiLower } from './shellglob.mjs';
-import { lstatSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
 import { batchApproval } from './approvals.mjs';
 import { ciProgress } from './deliver.mjs';
 import { knowledgeDrift } from './commands/runcmds.mjs';
@@ -18,6 +18,7 @@ import {
 import { budgetNote, inflightDispatch, inflightParts, removeMarkers, staleMarkers } from './dispatch.mjs';
 import { boundNames, listNames } from './ledger.mjs';
 import { isFile } from './paths.mjs';
+import { afterFrontMatter } from './taskfile.mjs';
 import { assumptionBlocked, assumptionShapeErrors, planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
 import { fileLines, fileText, gateField, gatesEnforced, ledgerRows, planDestructive, planScope, planSectionPresent, sectionKeyPresent, sectionValue, textLines, WS } from './records.mjs';
@@ -243,6 +244,18 @@ function batchContinueNote(ctx, id) {
   return `note=BATCH (A200): ${id} belongs to the approved batch. Do NOT stop at this state and do NOT hand the user a "Next step"; write ONE status line ("${id}: <state>, <what runs now>, next: <task>") and go on: finish the knowledge step (never ask where a note goes: agent.sh knowledge-done ${id} with no page records the safe default and a suggestion to the user, A291), the report and DONE, then agent.sh batch-next (its NEXT: deliver covers the delivery with batch-cover, never a question). During a wait of a minute or more (a CI run, a dispatch) write one status line, then wait.\n`;
 }
 
+/** The first open question of a run as `<N>: <its first line>` (backticks dropped, 120 bytes at most), or ''. @param {Context} ctx @param {string} d */
+function openQuestionGist(ctx, d) {
+  /** @type {string[]} */ let names = [];
+  try { names = readdirSync(`${d}/questions`, { encoding: 'latin1' }).filter((n) => /^[0-9]{3}\.md$/.test(n)).sort(); } catch { return ''; }
+  for (const n of names) {
+    if (existsSync(`${d}/questions/${n.slice(0, -3)}.answer.md`)) continue;
+    const first = (afterFrontMatter(fileText(ctx, `${d}/questions/${n}`) ?? '').find((l) => l.trim() !== '') ?? '').replace(/`/g, '').trim().slice(0, 120);
+    return `${n.slice(0, 3)}: ${first}`;
+  }
+  return '';
+}
+
 /** `build_record_unmakeable`: the reason, or '' when a build record can be made. @param {Context} ctx */
 export function buildRecordUnmakeable(ctx) {
   return configEmptyCmds(ctx) ? 'commands.build and commands.test are empty, so no build record can be made for this tree and the reviewers and the verifier have none to read' : '';
@@ -299,6 +312,7 @@ function nextStepLines(ctx, id, emit) {
   const r = (/** @type {string} */ m) => emit(`reason=${m}\n`);
   if (st === 'FAILED' || st === 'BLOCKED') { o(`report the evidence, then: agent.sh cleanup ${id}`); r(`run is terminal (${st})`); return; }
   if (sectionValue(ctx, d, 'execution', 'awaiting_input') === 'true') {
+    emit(`waiting for the user: ${id}: ${openQuestionGist(ctx, d) || 'a question is open'}${batchMember(ctx, id) ? ' (the other tasks of the batch go on first: agent.sh batch-next)' : ''}\n`);
     o(`agent.sh questions ${id}`); o(`relay verbatim and ask the user to answer in their next message (the prompt hook records it when it matches an accepted form; a typed agent.sh answer ${id} <N> is recorded as yours)`); r("a question is pending (a specialist's NEEDS_INPUT or the lead's ask)"); return;
   }
   const stale = staleMarkers(ctx, d);

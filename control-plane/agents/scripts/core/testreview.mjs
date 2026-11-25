@@ -19,7 +19,7 @@ import { fileText, ledgerLines, ledgerRows, parseLedgerLine, textLines } from '.
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
-import { greenRecords, measureRequired, measureRun, planKinds, recordedTestPin, supersededGreens, supersederFilter, testCmdPin } from './testmeasure.mjs';
+import { greenRecords, measureRequired, measureRun, planKinds, recordedTestPin, supersededGreens, supersederFilter, testCmdPin, controlGreenFor } from './testmeasure.mjs';
 import { claimedBy, isTestFile, reportJson, reportText, scanFiles, scanRules, testPathGlobs } from './waitscan.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
@@ -230,7 +230,7 @@ export function collect(ctx, id) {
   else if (double === 0) need.push({ text: 'double_run=0, no GREEN command was run twice (subject: not_double_run)', kind: 'not_measured', match: nm('not_double_run', 'not_double_run') });
   if (row !== undefined && ((num('stability_findings') ?? 0) > 0 || (num('blockers') ?? 0) > 0)) need.push({ text: `a stability or duration finding in the test-measure row (${detail}) (subject: measurement_finding)`, kind: 'not_measured', match: nm('measurement_finding', 'measurement_finding') });
   for (const n of planTestsWithoutDuration) need.push({ text: `the plan test "${n}" that has no recorded duration (subject: ${n})`, kind: 'not_measured', match: nm('no_recorded_duration', n) });
-  for (const c of commands) if (c.source === 'neither') need.push({ text: `the GREEN command \`${c.command}\` that the control plane did not run twice (subject: the command)`, kind: 'not_measured', match: nm('command_not_double_run', c.command) });
+  for (const c of commands) if (c.source === 'neither' && !controlGreenFor(ctx, id)) need.push({ text: `the GREEN command \`${c.command}\` that the control plane did not run twice (subject: the command)`, kind: 'not_measured', match: nm('command_not_double_run', c.command) });
   // the definition the scan read must be the one the run started with (the start recorded its hash): a changed copy could have removed the very names that would have found a wait
   const pin = ledgerRows(ctx, dir, 'eco-pin')[0];
   const pinned0 = pin === undefined ? null : (/^sha=([0-9a-f]*|none)$/.exec(pin.detail)?.[1] ?? null);

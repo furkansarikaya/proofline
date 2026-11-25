@@ -179,11 +179,37 @@ function runState(ctx, id) {
   return { state, ks, inwt };
 }
 
+/** The text of the question a user must answer, one short line: backticks and tabs dropped, 120 bytes at most. @param {string} q */
+const gist = (q) => q.replace(/`/g, '').replace(/[\t\n\v\f\r]+/g, ' ').trim().slice(0, 120);
+
+/**
+ * `next-user --waiting` (A358): the one line `waiting for the user: <ID>: <question>` when the control plane has an open question of the user
+ * (the lead's `ask`, a specialist's NEEDS_INPUT) or a parked task of the approved batch with a recorded question and NOTHING runnable is left; else ''.
+ * A batch task that is open, resumable or deliverable keeps the lead going: only a state that needs the user's answer is a wait.
+ * @param {Context} ctx
+ */
+function waitingLine(ctx) {
+  if (!isFile(`${ctx.root}/.agents/config.yaml`) || !isFile(`${ctx.scripts}/agent.sh`)) return '';
+  const bl = batchNext(ctx);
+  const bs = batchState(bl);
+  if (bs === 'approved' || bs === 'finished-parked') {
+    const rows = bl.slice(1).map((l) => l.split('\t'));
+    if (rows.some((f) => f[1] === 'open')) return '';
+    const row = rows.find((f) => f[1] === 'parked' && (f[3] ?? '') !== '' && f[2] !== 'awaiting merge');
+    return row ? `waiting for the user: ${row[0]}: ${gist(row[3] ?? '')}\n` : '';
+  }
+  const line = agent(ctx, ['status']).split('\n').find((l) => l.startsWith('active_task='));
+  const id = cleanId(line ? line.slice('active_task='.length) : '');
+  if (id === '' || id === 'none' || runState(ctx, id).state !== 'question') return '';
+  return `waiting for the user: ${id}: ${gist(question(ctx, id))}\n`;
+}
+
 /** @param {Context} ctx @param {string[]} args */
 export function nextUser(ctx, args) {
   let cmd = ''; let id = ''; let id2 = ''; let id3 = ''; let err = false; let kind = '';
   for (const a of args) {
     if (a === '--commands') { ctx.out(`${commands().join('\n')}\n`); return 0; }
+    if (a === '--waiting') { ctx.out(waitingLine(ctx)); return 0; }
     if (a === '--error') err = true;
     else if (a.startsWith('--error=')) { err = true; kind = a.slice(8); } else if (cmd === '') cmd = a; else if (id === '') id = a; else if (id2 === '') id2 = a; else if (id3 === '') id3 = a;
   }

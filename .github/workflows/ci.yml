@@ -345,7 +345,7 @@ jobs:
           - name: controls
             mode: files
             pattern: 'none'
-            files: tests/core/controls.test.mjs tests/core/identity.test.mjs tests/core/green-duration.test.mjs tests/core/test-measure.test.mjs tests/core/evidence-repair.test.mjs tests/core/verify-fix-rounds.test.mjs
+            files: tests/core/controls.test.mjs tests/core/identity.test.mjs tests/core/green-duration.test.mjs tests/core/test-measure.test.mjs tests/core/evidence-repair.test.mjs tests/core/green-control.test.mjs tests/core/verify-fix-rounds.test.mjs
           - name: task-debt-perf
             mode: files
             pattern: 'none'
@@ -381,7 +381,7 @@ jobs:
           - name: batch-state
             mode: files
             pattern: 'none'
-            files: tests/core/batch-state.test.mjs tests/core/knowledge-batch.test.mjs tests/core/batch-cover.test.mjs tests/core/batch-cover-crosscheck.test.mjs tests/core/knowledge-batch-crlf.test.mjs tests/core/worktree.test.mjs tests/core/approval-runs.test.mjs
+            files: tests/core/waiting-b8.test.mjs tests/core/batch-state.test.mjs tests/core/knowledge-batch.test.mjs tests/core/batch-cover.test.mjs tests/core/batch-cover-crosscheck.test.mjs tests/core/knowledge-batch-crlf.test.mjs tests/core/worktree.test.mjs tests/core/approval-runs.test.mjs
           - name: legacy-slow-a
             mode: files
             pattern: 'none'
