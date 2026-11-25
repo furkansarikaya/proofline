@@ -4,6 +4,8 @@
 
 ## 0.0.178 — 2026-11-25
 
+- Docs (A356): CONTRIBUTING no longer asks anyone to run `node tests/affected.mjs` locally (about an hour; CI runs the same). Locally: the new and changed test files twice, the invariants suite and the static checks; the merge condition is green CI, and a failed CI job is fixed at its cause.
+
 - Fix (A355, issue 338 B5): the batch plan follows the task files. `depends_on` is read as an inline list, a block list, with a comment or a remark in parentheses, and by file name; two tasks share a path only through the files of their `## Expected scope` list (an extension, an address or a document of the Context shares nothing, so a park no longer skips independent tasks); a parked task stops only what depends on it or shares a listed file; and a re-plan with `--replace` carries your recorded split and scope answers to the new batch when the task and its scope list are unchanged (the record keeps your original message and `carried:<old batch id>`), and asks again when not (also when the task body grew, or the original message no longer gives that option). Globs in the scope lists are compared by their literal directory, a flow-style `depends_on` list may continue on the next line, and tasks named `A` or `N` are kept. Tests: `tests/core/batch-b5.test.mjs`.
 
 ## 0.0.177 — 2026-11-25
