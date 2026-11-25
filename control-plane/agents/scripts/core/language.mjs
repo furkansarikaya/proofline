@@ -20,6 +20,25 @@ const trim = (/** @type {string} */ t) => t.replace(new RegExp(`^${WSP}+|${WSP}+
 const norm = (/** @type {string} */ t) => trim(t.replace(new RegExp(`${WSP}+`, 'g'), ' '));
 const nchars = (/** @type {string} */ t) => t.replace(/[\x80-\xbf]/g, '').length;
 
+/** The index of the first `"` of a text that no backslash escapes (JSON), -1 for none. @param {string} t */
+function jsonQuote(t) {
+  for (let i = 0; i < t.length; i++) { if (t[i] === '\\') i++; else if (t[i] === '"') return i; }
+  return -1;
+}
+
+/** The text a JSON string holds (A352): the escapes decoded, a `\uXXXX` (a surrogate pair too) written as the UTF-8 bytes the files carry; bytes that are not escapes stay as they are. @param {string} t */
+function jsonDecode(t) {
+  const simple = /** @type {Record<string, string>} */ ({ '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' });
+  const utf8 = (/** @type {string} */ u) => Buffer.from(u, 'utf8').toString('latin1');
+  return t.replace(/\\(?:u([0-9a-fA-F]{4})\\u([0-9a-fA-F]{4})|u([0-9a-fA-F]{4})|(["\\/bfnrt]))/g, (m, hi, lo, one, ch) => {
+    if (ch !== undefined) return simple[ch];
+    if (one !== undefined) return utf8(String.fromCharCode(parseInt(one, 16)));
+    const h = parseInt(hi, 16); const l = parseInt(lo, 16);
+    if (h >= 0xd800 && h < 0xdc00 && l >= 0xdc00 && l < 0xe000) return utf8(String.fromCharCode(h, l));
+    return utf8(String.fromCharCode(h)) + m.slice(6);
+  });
+}
+
 /** `language_question_file PATH` @param {string} p */
 function questionFile(p) {
   let r = `/${p}`;
@@ -40,6 +59,7 @@ function questionFile(p) {
 export function scanLine(text, file, hint, history, ok = null, collect = null) {
   if (/\/runs\/[^]*\/reviews\/visual-proof\/|\/runs\/[^]*\/reports\/qa-evidence\//.test(file)) return 0; // machine output (A172)
   if (questionFile(file)) return 0;
+  const json = /\.jsonl?$/.test(file); // A352: the strings of a JSON file are compared decoded
   const own = /\/questions\/[^]*\.answer\.md$|\/questions\/[^]*\.answer\.amended-[^]*\.md$|\/approvals\/|\/runs\/[^]*\/TASK\.md$/.test(file);
   const lines = textLines(text);
   // one message at a time: the history files carry no line end (capture.mjs), so a line must never join the end of one message to the start of the next (A247)
@@ -52,18 +72,24 @@ export function scanLine(text, file, hint, history, ok = null, collect = null) {
   };
   const quoted = (/** @type {string} */ t0) => { const t = trim(t0); return t === '' || blob.has(t); };
   const count = (/** @type {string} */ t) => (t.match(FOREIGN) ?? []).length;
-  const stripSpans = (/** @type {string} */ t) => {
+  /** @param {string} t @param {boolean} js whether the text is a line of a JSON file (its quotes may be escaped) @returns {string} */
+  const stripSpans = (t, js = json) => {
     let out = ''; let rest = t;
     for (;;) {
       let b = 0; let bo = '';
-      for (const open of ['`', '"', '\xe2\x80\x9c']) { const i = rest.indexOf(open); if (i >= 0 && (b === 0 || i + 1 < b)) { b = i + 1; bo = open; } }
+      for (const open of ['`', '"', '\xe2\x80\x9c']) {
+        const i = js && open === '"' ? jsonQuote(rest) : rest.indexOf(open);
+        if (i >= 0 && (b === 0 || i + 1 < b)) { b = i + 1; bo = open; }
+      }
       if (b === 0) break;
       const closer = bo === '\xe2\x80\x9c' ? '\xe2\x80\x9d' : bo;
       const after = rest.slice(b - 1 + bo.length);
-      const j = after.indexOf(closer);
+      const jsq = js && bo === '"';
+      const j = jsq ? jsonQuote(after) : after.indexOf(closer);
       if (j < 0) break;
-      const inner = after.slice(0, j);
+      const inner = jsq ? jsonDecode(after.slice(0, j)) : after.slice(0, j);
       if (inprod(inner)) out += `${rest.slice(0, b - 1)} `;
+      else if (jsq) out += `${rest.slice(0, b - 1)} ${stripSpans(inner, false)} `; // the decoded value: a quote inside it is a quote of its own
       else out += rest.slice(0, b - 1 + bo.length + j + closer.length);
       rest = after.slice(j + closer.length);
     }
@@ -78,7 +104,7 @@ export function scanLine(text, file, hint, history, ok = null, collect = null) {
       if (own) skip = true;
       else { t = t.replace(new RegExp(`^${WSP}*>${WSP}?`), ''); if (quoted(t) || inprod(t)) skip = true; }
     }
-    if (skip || count(t) === 0) continue;
+    if (skip || count(json ? jsonDecode(t) : t) === 0) continue; // A352: a \uXXXX escape is the letter it stands for
     const c = count(stripSpans(t));
     if (c > 0) { total += c; if (total >= 3 && !collect) return i + 1; }
   }
@@ -102,6 +128,28 @@ function inCorpus(corpus, piece) {
 }
 
 const FAIL_TEXT = (/** @type {string} */ where) => `language: run artifacts are English, but ${where} holds non-English text. Do NOT transliterate it to ASCII (never turn the Turkish letters into plain c, s, g, i, u, o: product text and quotes stay as the project writes them) and do NOT ask the user: quote the text that exists in the project instead. A quote is exempt when it is inline code (\`...\`), a double-quoted span ("..."), a '> ' quote line or a JSON string value and its exact text (whitespace normalized, at least 4 characters) occurs in this run's TASK.md or in a product file COMMITTED to git (HEAD; never a staged, modified or untracked file) outside .agents/, on word boundaries; the user's own messages are quoted verbatim in a '> ' block. Text that this task writes into new or changed files cannot be quoted until it is committed, except through TASK.md: put the text in TASK.md to quote it (A171, A172). Write everything else in English`;
+
+/**
+ * The role that owns a run file and must rewrite it (A352), from the path of a hit (`.agents/runs/ID/<path>`): who reports where is `artifactPaths` of `resultutil.mjs`.
+ * @param {string} hit a path, or a `path:line` hit
+ */
+export function languageOwner(hit) {
+  const m = /(?:^|\/)\.agents\/runs\/[^/]+\/(.+?)(?::[0-9]+)?$/.exec(hit);
+  if (m === null) return '';
+  const rel = m[1];
+  const roles = /** @type {Array<[RegExp, string]>} */ ([
+    [/^(TASK\.md|design\/INTENT\.md)$/, 'task_author'],
+    [/^(QA_PLAN\.md|QA_REPORT\.md|reviews\/visual-proof\/|reviews\/test-trust\/qa\/)/, 'qa'],
+    [/^(VERIFY\.md|design\/SYNC\.md)$/, 'verifier'],
+    [/^security\//, 'security_reviewer'],
+    [/^reviews\//, 'reviewer'],
+    [/^design\//, 'architect, data_architect or designer (whoever wrote that file)'],
+    [/^(reports|worker-evidence)\//, 'implementer'],
+    [/^(PLAN\.md|EVIDENCE\.md|COMPLETION_REPORT\.md|results\/)/, 'lead'],
+  ]);
+  for (const [re, role] of roles) if (re.test(rel)) return role;
+  return '';
+}
 
 /**
  * The line of the third foreign letter of one text that is not quoted product text, 0 when there is none (the core of `language_scan` for one file).
@@ -146,7 +194,11 @@ export function languageScanFiles(ctx, files, hint = '') {
 }
 
 /** `language_fail_text WHERE` @param {string} where */
-export function languageFailText(where) { return FAIL_TEXT(where); }
+export function languageFailText(where) {
+  // A352: who must fix which file; the owner rewrites it, no other role edits it and nobody transliterates it
+  const owners = [...new Set(where.split(/\s+/).map((h) => { const r = languageOwner(h); return r === '' ? '' : `the ${r} role must rewrite ${h.replace(/:[0-9]+$/, '')}`; }).filter((x) => x !== ''))];
+  return `${FAIL_TEXT(where)}${owners.length > 0 ? `. owner: ${owners.join('; ')} (the lead does not edit another role's file; a sentence that is not product text is written in English, or its text is put in TASK.md first)` : ''}`;
+}
 
 /**
  * `language_check FILE|- [PATH]`: exit 0 when the text is English (or its non-English part is quoted product text), else exit 1 and the refusal on
@@ -163,6 +215,7 @@ export function languageCheck(ctx, args, stdin) {
   const history = sortedNames(prompts, /\.txt$/).map((n) => readBytes(`${prompts}/${n}`) ?? '');
   const hit = languageHit(ctx, file, text, hint, history);
   if (hit === 0) return 0;
-  ctx.out(`${FAIL_TEXT(`line ${hit}`)}\n`);
+  const owner = languageOwner(f);
+  ctx.out(`${FAIL_TEXT(`line ${hit}`)}${owner === '' ? '' : `. owner: the ${owner} role must rewrite ${f.startsWith(`${ctx.root}/`) ? f.slice(ctx.root.length + 1) : f}`}\n`);
   return 1;
 }

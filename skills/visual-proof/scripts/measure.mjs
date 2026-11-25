@@ -997,7 +997,7 @@ export function assemble(raw, outDir, opt = {}) {
   }
   if (c.design) {
     const unreadable = (p) => { throw new Error(`cannot read ${p}`); };
-    report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)), { ascii: asciiConfig([process.cwd(), outDir]) });
+    report.design = assembleDesign(raw, c, (p) => (existsSync(join(outDir, p)) ? sha(p) : unreadable(p)), { ascii: asciiConfig([process.cwd(), outDir]), task: opt.task ?? null });
   }
   const v = validateReport({ ...report, result: "PASS" }, { root: outDir, allowTimeScale: opt.allowTimeScale });
   report.result = v.computed;
@@ -1132,7 +1132,7 @@ async function measure(config, outDir, tool, timeoutMs, noSandbox, repo = proces
 function arg(argv, name) { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; }
 
 async function main(argv) {
-  const usage = "usage: measure.mjs --detect [--repo DIR] | --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox] | --print-probe | --print-design-probe | --assemble raw.json --out DIR";
+  const usage = "usage: measure.mjs --detect [--repo DIR] | --config visual.json --out DIR [--repo DIR] [--browser PATH] [--timeout MS] [--no-sandbox] [--task TASK.md] | --print-probe | --print-design-probe | --assemble raw.json --out DIR";
   const repo = resolve(arg(argv, "--repo") || process.cwd());
   if (argv.includes("--print-probe")) { console.log(PROBE); return 0; }
   if (argv.includes("--print-design-probe")) { console.log(`${DESIGN_PROBE}()`); return 0; }
@@ -1158,7 +1158,9 @@ async function main(argv) {
     if (errs.length) { errs.forEach((e) => console.error(`config: ${e}`)); return 2; }
     mkdirSync(out, { recursive: true });
     const acceptScale = argv.includes("--accept-time-scale");
-    const report = assemble(raw, out, { allowTimeScale: acceptScale });
+    let task = null; // A352: the task's TASK.md, the one source of English text a criterion requires (lang="en", allow_text); a convenience, not a verified fact: the report is written by the QA agent
+    if (arg(argv, "--task")) { try { const buf = readFileSync(arg(argv, "--task")); task = buf.toString("utf8"); } catch { console.error(`measure: cannot read --task ${arg(argv, "--task")}`); return 2; } }
+    const report = assemble(raw, out, { allowTimeScale: acceptScale, task });
     let prev = null; // A200: the report of the last run in this folder (or --prev-report) is the design-audit cache
     try { prev = read(arg(argv, "--prev-report") || join(out, "report.json")); } catch { prev = null; }
     if (report.design && report.design.status === "run") report.design.inputs = designCacheInputs(repo);

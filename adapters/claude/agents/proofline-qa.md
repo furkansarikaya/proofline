@@ -50,7 +50,7 @@ Report step (once IMPLEMENTED):
 4. Apply the gate rule, compute the sha256 of `QA_REPORT.md`, return the result. Stop.
 
 Visual focus (A78; when `agent.sh pipeline <ID>` lists `focus.QA.visual`, from a UI path or the PLAN `## UI`
-section): a separate assignment with FOCUS `visual` in the same QA gate. Follow ${CLAUDE_PLUGIN_ROOT}/skills/visual-proof/SKILL.md (A82) with
+section): a separate assignment with FOCUS `visual` in the same QA gate. Follow ${CLAUDE_PLUGIN_ROOT}/skills/visual-proof/SKILL.md (A82; run `measure.mjs` with `--task .agents/runs/<ID>/TASK.md`, A352) with
 the project's own browser tooling or an installed headless browser only: measured checks per changed screen,
 state and viewport (STANDARD: default state x 2 viewports, measured only; COMPLEX/CRITICAL: every spec state x 3
 viewports, measured and judged; with design surfaces (`design_docs.design` as a mapping) the document that applies to a changed file is `agent.sh design-surface <PATH>`: its surface document plus the shared base, and a screen that contradicts the shared base is a finding; a surface with no document yet is judged against the designer's spec on the shared base, never against another surface; a `design` group and the 14-point critique when the task has a visitor mode: the group is measured as written and can fail, the critique is judged as written and never closes the gate; the UX rules checklist in `skills/visual-proof/ux-rules.json` is covered by measured `design_ux_*` checks and the judged `ux_review` items), screenshots with sha256 in `reviews/visual-proof/`, `report.json` validated by

@@ -19,7 +19,7 @@ import { setRunValue } from './lifecycle.mjs';
 import { led } from './lifeutil.mjs';
 import { inside, isAbsoluteInput, onDiskLocal } from './pathin.mjs';
 import * as proc from './proc.mjs';
-import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { gatesEnforced, sectionKeyPresent, textLines } from './records.mjs';
 import {
   artifactAllowed, artifactPaths, classificationFlip, evidenceCiteCheck, findingPrefix, gateOf, idKey, isGateRole, lineValue, metricsStep,
   parseFindings, parseHeader, plainFile, realOf, resultKind, unsupportedBlocks, unsupportedEvidenceCheck, unsupportedReasonOk,

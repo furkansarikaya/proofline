@@ -126,3 +126,49 @@ test('language: the history files carry no line end, so a line or a quoted piece
   put(d, 'Expect `silindi, lütfen tekrar giriş yapın` on the page.');
   refused(check(d, Q), 'an inline piece spanning two messages was accepted', REFUSED);
 });
+
+// A352: a JSON string is compared in its decoded form (the escapes of the file are not the text of the product)
+const J = '.agents/runs/LC/findings.json';
+const putJ = (/** @type {string} */ d, /** @type {string} */ body) => writeFileSync(`${d}/${J}`, `${body}\n`);
+
+test('language: a JSON string value with escaped quotes or \\u escapes is compared decoded, so a quoted product sentence in it passes (A352)', () => {
+  const d = project(LANG_RUN);
+  putJ(d, `{"note": "Expect \\"${TR}\\" on the page"}`);
+  accepted(check(d, J), 'a product sentence between JSON-escaped quotes was refused');
+  putJ(d, '{"note": "Sipari\\u015fleriniz ba\\u015far\\u0131yla kaydedildi, te\\u015fekk\\u00fcrler"}');
+  accepted(check(d, J), 'an all-escaped product sentence was refused');
+  putJ(d, '{"note": "Sipari\\u015fleriniz başarıyla kaydedildi, teşekkürler"}');
+  accepted(check(d, J), 'a product sentence with a \\u escape and raw letters was refused');
+  putJ(d, `{"note": "line one\\n\\"${TR}\\"\\\\"}`);
+  accepted(check(d, J), 'a product sentence next to \\n and \\\\ escapes was refused');
+});
+
+test('language: an invented sentence in a JSON string is still refused, escaped or not, and the escapes of a non-JSON file are not decoded (A352)', () => {
+  const d = project(LANG_RUN);
+  const other = 'Hesabınız silindi, lütfen tekrar giriş yapın şimdi';
+  putJ(d, `{"note": "Expect \\"${other}\\" on the page"}`);
+  refused(check(d, J), 'an invented sentence between escaped quotes passed', REFUSED);
+  putJ(d, '{"note": "Hesab\\u0131n\\u0131z silindi, l\\u00fctfen tekrar giri\\u015f yap\\u0131n \\u015fimdi çok"}');
+  refused(check(d, J), 'an invented sentence with raw letters and \\u escapes passed', REFUSED);
+  put(d, 'Expect "Sipari\\u015fleriniz başarıyla kaydedildi, teşekkürler" on the page.');
+  refused(check(d, Q), 'a \\u escape was decoded in a Markdown file', REFUSED);
+});
+
+test('language: a fully \\u-escaped invented sentence in a JSON file is refused; the same escaped text is accepted when TASK.md holds it (A352 round 1)', () => {
+  const d = project(LANG_RUN);
+  const esc = (/** @type {string} */ s) => s.replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  const other = 'Hesabınız silindi, lütfen tekrar giriş yapın şimdi';
+  putJ(d, `{"a":"${esc(other)}"}`);
+  refused(check(d, J), 'a fully escaped invented sentence passed', REFUSED);
+  putJ(d, `{"a":"${esc(TR)}"}`);
+  accepted(check(d, J), 'a fully escaped product sentence was refused');
+});
+
+test('language: the refusal names the owning role and the path of the hit (A352)', () => {
+  const d = project(LANG_RUN);
+  const other = 'Hesabınız silindi, lütfen tekrar giriş yapın şimdi';
+  put(d, `Expect \`${other}\` on the page.`);
+  const r = check(d, Q);
+  refused(r, 'an invented sentence passed', REFUSED);
+  assert.match(r.text, /owner: the qa role must rewrite \.agents\/runs\/LC\/QA_PLAN\.md/);
+});

@@ -129,11 +129,22 @@ const ENGLISH = new Set(("the and for are with that this you your our from how w
   "we will every let use make learn read very after before while because where through between without many such started it's don't you're we're").split(" "));
 const words = (t) => String(t).toLowerCase().match(/[\p{L}']+/gu) || [];
 // Text blocks ({selector, text}) of >= 4 words whose words are at least a quarter English function words, after removing allow_text.
-export function untranslatedBlocks(blocks, allow = []) {
+// A352: lang="en" and allow_text exempt only text that occurs in `task` (the task's TASK.md, which the acceptance criteria live in): white space squeezed,
+// case-sensitive. The page markup and the project config say nothing by themselves; without a task text nothing is exempt.
+const squeeze = (t) => String(t ?? "").replace(/\s+/g, " ").trim();
+export function untranslatedBlocks(blocks, allow = [], task = null) {
   const out = [];
+  const T = task === null || task === undefined ? null : squeeze(task);
+  // the text must be at least 4 non-space characters and stand on word boundaries in TASK.md ("the" or a piece of a word exempts nothing)
+  const inTask = (s) => T !== null && s.replace(/\s/g, "").length >= 4 && new RegExp(`(?<![\\p{L}\\p{N}_])${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "u").test(T);
   for (const b of blocks || []) {
+    if (/^en(-|$)/i.test(String(b.lang || "")) && inTask(squeeze(b.text))) continue; // English declared on purpose AND required by a criterion
     let t = String(b.text || "");
-    for (const a of allow) if (a) t = t.split(new RegExp(String(a).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")).join(" ");
+    for (const a of allow) {
+      const s = squeeze(a); if (!inTask(s)) continue;
+      const re = new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+      t = t.split(re).join(" ");
+    }
     const w = words(t);
     if (w.length < 4) continue;
     const hits = w.filter((x) => ENGLISH.has(x)).length;
@@ -243,7 +254,7 @@ export function evaluateStatic(f, ctx) {
     if (!lang) nm("design_untranslated", "the page language is unknown");
     else if (/^en(-|$)/i.test(lang)) na("design_untranslated", ENGLISH_PAGE_NOTE);
     else {
-      const bs = untranslatedBlocks(f.textBlocks, ctx.language.allow_text || []);
+      const bs = untranslatedBlocks(f.textBlocks, ctx.language.allow_text || [], ctx.language.task ?? null);
       add("design_untranslated", bs[0]?.selector || "body", bs.length, bs.length === 0, bs.length ? list(bs.map((b) => `${b.selector}: "${b.text}"`)) : `no English text block on a ${lang} page`);
     }
   }
@@ -331,7 +342,7 @@ export function assembleDesign(raw, c, sha, opts = {}) {
         for (const check of expectedChecks(pg, mode, vp.name)) push({ check, screen: pg.screen, viewport: vp.name, selector: "body", threshold: designThreshold(check, mode, vp.name), status: "not_measured", reason: rv?.error || "viewport not measured" });
         continue;
       }
-      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
+      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language && { ...pg.language, task: opts.task ?? null } })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
       if (pg.language && vp.name === "wide" && /^tr(-|$)/i.test(String(pg.language.lang))) {   // A172: information only
         const hits = asciiTurkishWords(rv.facts.textBlocks, opts.ascii);
         if (hits.length) (out.language_notes ||= []).push({ screen: pg.screen, path: pg.path, lang: String(pg.language.lang), kind: "ascii_turkish", words: hits });
@@ -557,7 +568,7 @@ export function designProbeSource() {
   if (cells.length) { const bad = cells.filter((e) => !/tabular-nums/.test(cs(e).fontVariantNumeric) && !/tnum/.test(cs(e).fontFeatureSettings)); surfaces.push({ surface: "tabular-numerals", selector: bad[0] ? sel(bad[0]) : sel(cells[0]), problems: bad.length, note: `${bad.length} of ${cells.length} numeric table cell(s) lack tabular numerals` }); }
 
   // text blocks for the untranslated check
-  const textBlocks = texts.filter((e) => !e.closest("code,pre,kbd,samp,textarea,[translate=no]")).slice(0, 600).map((e) => ({ selector: sel(e), text: own(e).slice(0, 300) })).filter((b) => b.text.split(" ").length >= 4);
+  const textBlocks = texts.filter((e) => !e.closest("code,pre,kbd,samp,textarea,[translate=no]")).slice(0, 600).map((e) => ({ selector: sel(e), text: own(e).slice(0, 300), lang: e.closest("[lang]") && e.closest("[lang]") !== document.documentElement ? e.closest("[lang]").getAttribute("lang") || "" : "" })).filter((b) => b.text.split(" ").length >= 4);
 
   // ux (the high-severity rules a page can prove): alt text, form labels, control names, viewport meta
   const textOf = (id) => (document.getElementById(id)?.textContent || "").trim();

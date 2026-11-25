@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.176 — 2026-11-25
+
+- Fix (A352, issue 338 B3): the language check compares a JSON string in its decoded form (escaped quotes, `\n`, `\uXXXX`), so a Turkish sentence quoted inside `findings.json` is no longer refused for its escapes; the refusal names the role that owns the file and its path; `design_untranslated` skips a block inside `lang="en"` and an `allow_text` entry only when TASK.md (`measure.mjs --task`) holds that text; a fully \u-escaped invented sentence in a JSON file is refused; the completion-report vocabulary has exact inflections instead of open stems (`rendermarkdown` is no claim, `rendered` still is; A341 not loosened). `measure.mjs --task` is handed to the QA visual step by the QA role and the skill; the exemption is a documented convenience, not independently verified by the gate (the report is agent-written; no hash is recorded or checked); an exempting text needs 4 non-space characters on word boundaries.
+
 ## 0.0.175 — 2026-11-25
 
 - Docs (no release), A346: the second closing records of the campaign: the e2e runs of 2026-11-19 on d09c5b07 (STANDARD FAIL 36/37, COMPLEX FAIL 30/37, one STANDARD attempt never started), the answers #330 to #334, proof page rows, CI and Windows facts, accepted limits A346.1 to A346.5, and small additions to the testing and night-mode concept pages

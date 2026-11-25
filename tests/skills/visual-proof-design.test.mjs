@@ -53,6 +53,21 @@ test("auditor: an empty hero, an untitled section, a system font and untranslate
 
 test("auditor helpers: untranslated blocks, vacuum, thresholds", () => {
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Bu sayfa the quick brown fox" }], ["the quick brown fox"]).length, 0);
+  // A352: English a criterion requires is exempt (lang="en" on its element, or allow_text) only when TASK.md holds that text, white space squeezed, case-sensitive
+  const fox = "the quick brown fox jumps over the lazy dog and this is it";
+  const task = `# Task\n\n- AC-7: the page shows "the quick brown\nfox jumps over the lazy dog and this is it" in English.\n`;
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], task).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en-GB", text: fox }], [], task).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "tr", text: fox }], [], task).length, 1);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], "# Task\n\nnothing quoted here\n").length, 1, "lang=en of a text TASK.md does not hold stays a finding");
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }]).length, 1, "no task text, no exemption");
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], task.replace("the quick", "The quick")).length, 1, "case-sensitive");
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"], task).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"], "# Task\n\nnothing\n").length, 1, "allow_text absent from TASK.md is flagged");
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"]).length, 1, "allow_text without a task is flagged");
+  // a short or part-of-a-word entry exempts nothing: at least 4 non-space characters, on word boundaries
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the", "is it", "uick brown f"], task).length, 1, "short and mid-word allow_text entries are flagged");
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: "the" }], [], "the").length, 0, "a block under 4 words is never a finding anyway");
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Merhaba dünya, bugün hava çok güzel" }]).length, 0);
   assert.equal(vacuumOf([{ top: 0, bottom: 100, selector: "a" }, { top: 1000, bottom: 1100, selector: "b" }], 800).ratio, 1.13);
   assert.equal(designHolds(2.5, ">= 3"), false);
@@ -146,6 +161,9 @@ test("validator: a design block of a healthy page is valid; a weaker threshold, 
   const v = check();
   assert.equal(v.valid, true, v.errors.join("\n"));
   assert.equal(v.computed, "PASS");
+  // A352 round 3: the report carries no task hash or exemption count; they were the agent's own claim and the gate never verified them
+  assert.equal("task_sha256" in report.design, false);
+  assert.equal("task_exemptions" in report.design, false);
   const bare = build("STANDARD", good(), { motion: false });
   assert.equal(bare.check().valid, true);
   assert.equal(bare.check().computed, "INCONCLUSIVE", "motion checks that were not measured leave the verdict inconclusive");
