@@ -18,7 +18,7 @@
 // fail an unrelated pull request, so BEFORE node starts and again AFTER node exits (A354: a stall during the run is seen; the slower of the two counts), in this process, the wrapper times a small fixed reference workload (15 `node -e 0` spawns, 40 sha256 rounds over a
 // fixed 1 MiB buffer, 300 file create/stat/unlink in a fresh private folder) and `speed_factor = clamp(max(before, after) / calibration.nominal_ms, 1, 5)` multiplies every budget (on top of
 // timeouts_scale); the nominal is the median over CI runs (derive-budgets.mjs). A factor never makes a budget stricter than the table. A raw ratio above 5 (a broken runner) fails
-// ONLY when a budget is violated, with the message 'runner too slow to judge budgets'. The tests under test run after the calibration, cannot reach its folder or its clock reads.
+// ONLY when a budget is violated, with the message 'runner too slow to judge budgets'. The tests under test run after the first calibration and cannot reach its folder or its clock reads; the second calibration runs in this same process once node and its children have exited, so a process a test of the leg leaves running (a detached busy loop) can raise the factor (bounded by x5; the gate is a regression guard, not a sandbox).
 // The tool reads the clock for this and for nothing else; the test milliseconds are Node's.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, rmSync, statSync as stat0, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
