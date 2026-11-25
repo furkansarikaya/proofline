@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 94e3fcba5aaaa08c9abab71ace9d6bca16956bbc -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 90ec803cbf882a33628dd0709aacd0d3d97e074e -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -50,6 +50,7 @@ Control plane Node kodudur; `.agents/scripts/agent.sh` onu başlatan ince bir la
 
 `/proofline batch <ID...|all>` listelenen task'ların tek bir özetini bağımlılık sırasıyla gösterir. O özete bağlı tek bir yanıt, `approve batch`, bu task'ların plan ve teslim onaylarının yerini tutar; CRITICAL task'lar dışarıda bırakılır, waiver, kapsam genişletme, yeni bağımlılık, reopen veya yıkıcı veri değişikliği hiçbir zaman kapsanmaz (task park edilir, ona bağlı olanlar atlanır, bağımsız task'lar devam eder). Lead senin oturumunda çalışır; bu yüzden bilgisayarı uyanık ve oturumu açık tut; bir kesintiden sonra `/proofline batch` kaldığı yerden devam eder ve birleştirilmiş bir task'ı asla yeniden çalıştırmaz. `proofline batch status` sabah tablosunu yalnızca kayıtlardan yazdırır.
 
+- Batch, `depends_on` değerini task dosyalarından okur ve iki task'ı yalnızca ikisi de aynı dosyayı `## Expected scope` listesinde yazmışsa aynı dosyayı paylaşıyor sayar (Context metnindeki bir belge veya adres hiçbir zaman sayılmaz); park edilen bir task yalnızca ona bağlı olanları ve listelenmiş bir dosyayı onunla paylaşanları durdurur. Değişen bir batch'i `--replace` ile yeniden planladığında, task ve kapsam listesi aynıysa bölme ve kapsam sorularına verdiğin kendi cevapların yeni batch'e taşınır, değiştiyse yeniden sorulur (A355).
 - Özet, task dosyalarının bildirdiği `## Test exceptions` satırlarını da listeler; batch'i onaylamak tam olarak bu satırları kabul eder (A285), kimsenin bildirmediği bir istisna task'ı park ettirir.
 - Bir batch task'ının knowledge adımı notun nereye gideceğini asla sormaz: knowledge sayfası yoksa `batch default (A291)` gerekçesiyle `not_applicable` kaydeder ve sabah tablosuna bir öneri ekler (A291).
 - Pull request'lerde CI check'i olmayan bir proje de batch çalıştırır: her pull request yalnızca commit'inin temiz bir kopyasında build ve test geçtikten sonra birleştirilir ve "verified locally, no CI" der.

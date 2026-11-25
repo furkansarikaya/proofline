@@ -38,7 +38,7 @@ import { DEFAULT_FALLBACK, knowledgeDefaultTaken } from './ksuggest.mjs';
 const INHIBIT_WATCH = "const p = Number(process.argv[1]); setInterval(() => { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') process.exit(0); } }, 5000);";
 import { batchAnswerRow } from './knownissues.mjs';
 import { now } from './clock.mjs';
-import { afterFrontMatter } from './taskfile.mjs';
+import { afterFrontMatter, scopeEntryCovers } from './taskfile.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 /** @typedef {{ id: string, state: string, detail: string, question: string, pr: string, epoch: string }} Row */
@@ -292,9 +292,11 @@ export function derive(ctx) {
         }
       }
       if (s === '' && hasPaths) {
-        const mine = new Set(paths.filter((x) => x[0] === id).map((x) => x[1]));
+        // A355: the rows are scope entries (a file, a folder or a glob): two entries overlap when they are equal or one covers the other
+        const mine = paths.filter((x) => x[0] === id).map((x) => x[1]);
+        const overlap = (/** @type {string} */ e) => mine.some((m) => m === e || scopeEntryCovers(m, e) || scopeEntryCovers(e, m));
         for (const x of paths) {
-          if (x[0] === id || !mine.has(x[1])) continue;
+          if (x[0] === id || !overlap(x[1])) continue;
           // only a task that comes EARLIER in the order and is not merged
           const xi = orderIndex(x[0]); const me = orderIndex(id);
           if (xi >= 0 && xi < me && mergedPr(ctx, x[0]) === null) {

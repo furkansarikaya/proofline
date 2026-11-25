@@ -79,9 +79,9 @@ const PATH_RE = /[\][/*?]|\.[A-Za-z0-9]/;
 
 /**
  * `task_scope_entries FILE HEADING`: one path, folder or glob per line (mode ok of task_scope_parse).
- * @param {string} text @param {string} heading
+ * @param {string} text @param {string} heading @param {boolean} [prefix] false: the heading must equal (A355)
  */
-export function scopeEntries(text, heading) {
+export function scopeEntries(text, heading, prefix = true) {
   /** @type {string[]} */ const out = [];
   /** @param {string} tok @param {boolean} ticked */
   const emit = (tok, ticked) => {
@@ -91,7 +91,7 @@ export function scopeEntries(text, heading) {
     t = t.replace(/^\.\//, '').replace(/^\//, '');
     out.push(t);
   };
-  for (const raw of sectionLines(text, heading).map((l) => l)) {
+  for (const raw of sectionLines(text, heading, prefix).map((l) => l)) {
     const line = raw.replace(/\r/g, '');
     if (/^[ \t]*$/.test(line)) continue;
     const bullet = /^[ \t]*(?:[-*]|[0-9]+[.)])[ \t]+/.exec(line);
