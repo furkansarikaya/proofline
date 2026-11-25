@@ -56,6 +56,9 @@ export const EXCEPT_SUBS = /** @type {Record<string, Record<string, string>>} */
     diff: 'the `gps` reader of the private bare proof repository (`--git-dir` a temporary folder, global and system configuration nulled, a configuration we wrote): no index, no work tree, `--no-ext-diff --no-textconv`',
     log: 'the same private bare proof repository, whose configuration is ours (no `log.showSignature`, no gpg program)',
   },
+  'basesync.mjs': {
+    fetch: 'A357: one branch of `origin` into its own tracking ref (`+refs/heads/<b>:refs/remotes/origin/<b>`) before `worktree-add` and after `proofline merge` fast-forward the local canonical branch: a remote operation like the delivery push, with `core.hooksPath` off, the cleaned tool environment and no prompt; it reads no index and no work tree (the fast-forward itself goes through hgit)',
+  },
   'doctor.mjs': {
     init: 'the probe repositories in doctor\'s own temporary folder, with a cleaned environment',
     commit: 'the probe commit in that scratch repository: it exists to run the project\'s hook',

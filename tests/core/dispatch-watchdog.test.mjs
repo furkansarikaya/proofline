@@ -125,6 +125,17 @@ describe('TERM at the timeout, KILL after the grace', { skip: posixOnly }, () =>
       assert.equal(alive(pidOf(fx)), false);
     } finally { clk.restore(); }
   });
+  test('A357: a worker that ends by itself leaves nothing running: what it started in its process group (a test server) is stopped, by group, with the dispatch', { timeout: 100000 }, async () => {
+    const fx = fixture();
+    fx.setConfig({ timeout: 3600 });
+    const r = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'leaveserver' });
+    assert.equal(r.code, 0, r.err);
+    const pids = grandPids(fx);
+    assert.equal(pids.length, 1, 'the server started');
+    // the dispatch returns only when its group is empty: no waiting here (a zombie that nothing has reaped yet counts as gone, as in `groupLive`)
+    const state = spawnSync('ps', ['-o', 'stat=', '-p', String(pids[0])], { encoding: 'utf8' }).stdout.trim();
+    assert.ok(state === '' || state.startsWith('Z'), `the server the worker left is still running (state ${state})`);
+  });
   test('the runtime runs in a process group of its own, led by its guardian (a signal to the dispatcher\'s group does not reach it by itself)', { timeout: 100000 }, async () => {
     const fx = fixture();
     fx.setConfig({ timeout: 3600 });

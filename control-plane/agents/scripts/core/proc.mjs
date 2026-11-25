@@ -444,7 +444,7 @@ function groupLive(pgid) {
  * runGuardian, which starts the real program in that group and kills the group if this process dies; Windows: a tree, stopped with `taskkill /T`, no guardian),
  * for the dispatcher's watchdog (A226). stdio is given by the caller (files, never pipes, so the child never blocks on a reader). `stop()` signals the whole group
  * and every descendant found by a `ps` listing (a grandchild that started a session of its own is not in the group), waits `graceMs` and then kills what is
- * still there with SIGKILL; `exited` resolves once the leader is gone and the group is empty or killed. A child that ends by itself leaves its group alone.
+ * still there with SIGKILL; `exited` resolves once the leader is gone and the group is empty or killed. A child that ends by itself has what is left in its group stopped the same way (TERM, the grace, KILL; A357: a test server a role left behind).
  * `onOrphan` (POSIX only): the guardian's orphan spec, see runCloser.
  * @param {string} program @param {string[]} args @param {{ cwd?: string, env?: NodeJS.ProcessEnv, stdio: Array<'ignore'|number>, graceMs?: number, onOrphan?: OrphanSpec, platform?: string, warn?: (text: string) => void }} options
  * (`platform` is process.platform unless a test simulates another; `warn` takes the refusal text, default stderr) @returns {Leader}
@@ -502,6 +502,9 @@ export function startLeader(program, args, options) {
     child.on('close', (code, signal) => {
       leaderGone = true;
       result = { status: code ?? 128 + signalNumber(signal), signal };
+      // A357: a worker that ended by itself may have left what it started (a test server): it is in the worker's process group, and only that group is stopped (by group, never by
+      // name or port): the same TERM, grace and KILL as a stop
+      if (!stopped && !win && groupAlive()) { stopped = true; stopAt = Date.now(); signalGroup('SIGTERM'); }
       if (!stopped || !groupAlive()) { settle(); return; }
       // stopped, and something of the group is still running: it has had its TERM; wait for it, KILL at the end of the grace
       timers.push(setInterval(() => { if (!groupAlive()) settle(); }, 20));

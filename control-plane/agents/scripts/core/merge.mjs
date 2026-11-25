@@ -15,6 +15,7 @@ import { ProoflineError } from './errors.mjs';
 import { hooksOff } from './hooksoff.mjs';
 import { cleanToolEnv, detectPlatform, linkText, parseJson, mergeToolDecision, platformEnv } from './platform.mjs';
 import * as proc from './proc.mjs';
+import { syncCanonical } from './basesync.mjs';
 
 
 /** The end of the command with an exit code (output already written). */
@@ -198,9 +199,23 @@ function run(ctx, argv) {
     say(`proofline merge: pull request ${pr} has no checks; ${vnote}; merging (${method})`);
   } else say(`proofline merge: pull request ${pr} is green at ${sha} (${n} checks); merging (${method})`);
   finish(call(['pr', 'merge', pr, method, '--match-head-commit', sha, ...(del !== '' ? ['--delete-branch'] : [])]));
+  refreshLocalBase(baseName);
   if (release) tagRelease(tipBefore, tipOf());
   else say("proofline merge: no release tag was made: this is not proofline's own repository (no tests/ci/bump-version.mjs or .claude-plugin/plugin.json here)");
   return undefined;
+
+  /**
+   * A357: the merge is done and stays done; the LOCAL base branch is brought to the remote one (fast-forward only, never a reset), so the next worktree does not start on a stale base.
+   * A diverged branch, a local change in the way or an unreadable remote only prints what to do; the exit code is not touched.
+   * @param {string} name the base branch
+   */
+  function refreshLocalBase(name) {
+    try {
+      const r = syncCanonical(ctx, top, name);
+      for (const n of r.notes) say(`proofline merge: local ${name} ${n.startsWith('fast-forwarded ') ? n.replace(/^fast-forwarded [^ ]+ to /, 'fast-forwarded to ') : n}`);
+      if (!r.ok) ctx.err(`proofline merge: pull request ${pr} IS MERGED, but the local ${name} was NOT updated: ${r.message}\n`);
+    } catch { /* best effort: the next worktree-add refuses to start behind origin */ }
+  }
 
   /**
    * The release tag (A349): the merge is done and stays done; this only adds the tag. A version PR is a merge whose commits on the base branch (first parent, oldest first, between

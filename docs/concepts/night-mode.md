@@ -91,7 +91,7 @@ half done goes on from its run. `/proofline batch --replace <ID...|all>` plans a
 ## One worktree per task (A169)
 
 Every task runs in a git worktree of its own, `.agents/local/worktrees/<ID>` (git-ignored), made from the
-canonical branch just before the task starts (`agent.sh worktree-add <ID>`). The run, its `ACTIVE_RUN`, the task-file move
+canonical branch just before the task starts (`agent.sh worktree-add <ID>`; it first fetches the branch from `origin` and fast-forwards the local one, and refuses to start behind it or on a diverged branch, so a merged task never leaves the next one on a stale base, A357). The run, its `ACTIVE_RUN`, the task-file move
 to `in-progress/` and the open-run check of the commit and push hooks all belong to that worktree, so:
 
 - a task that is parked, waiting for its merge or in a CI-fix round blocks no task that does not depend on it (before,

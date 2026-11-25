@@ -11,7 +11,7 @@ import { dbGuardCheck } from '../dbguard.mjs';
 import { fail, unsupported } from '../errors.mjs';
 import { findApproval } from '../approvals.mjs';
 import { consumeApproval, requestApproval, requireLead, requireOpenRun } from '../approve.mjs';
-import { hashFile, pathFingerprint } from '../fingerprint.mjs';
+import { baselineMap, hashFile, pathFingerprint } from '../fingerprint.mjs';
 import { currentBranch, git, headSha, trackedPaths, untrackedPaths } from '../git.mjs';
 import { taskPatchFingerprint, taskOwnedPaths } from '../gates.mjs';
 import { ledgerAppend, verifySeal } from '../ledger.mjs';
@@ -20,13 +20,14 @@ import { isFile } from '../paths.mjs';
 import { notRunRelative, realpathPosix } from '../pathin.mjs';
 import * as proc from '../proc.mjs';
 import { askCommand, verifyAssumptions } from '../questions.mjs';
-import { fileText, gateField, gatesEnforced, parseLedgerLine, planDestructive, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
+import { fileText, gateField, gatesEnforced, parseLedgerLine, planDestructive, planScope, scopePaths, sectionKeyPresent, sectionValue, textLines } from '../records.mjs';
 import { lifecycleFolderStatus, requireRun, runDir } from '../runs.mjs';
 import { inKnowledgeScope } from '../scope.mjs';
 import { ECO_WARNING, ecosystemSets, pipelineClass, pipelineClassValid, pipelineDeclared, pipelineValue, runAutonomy, tierEffective } from '../signals.mjs';
 import { slug } from '../slug.mjs';
 import { statusBlockCommand } from '../statusblock.mjs';
-import { taskType } from '../taskfile.mjs';
+import { scopeEntryCovers, taskType } from '../taskfile.mjs';
+import { asciiLower } from '../shellglob.mjs';
 import { freshness, knowledgeOwnedPaths, verifyFreeze, verifyHandoff, verifyKnowledgeScope, verifyScope } from './verify.mjs';
 import { topology, windowFiles } from './hookcmds.mjs';
 import { forgetFiles } from '../approve.mjs';
@@ -180,6 +181,84 @@ function discardStray(ctx, args) {
   rmSync(file, { force: true });
   if (gatesEnforced(ctx, d0)) { const s = sectionValue(ctx, d0, 'handoff', 'state'); led(ctx, id, 'discard-stray', s, s, `path=${rel} sha256=${sha}`); }
   ctx.out(`discarded stray run file: ${rel} (sha256 ${sha})\n`);
+  return 0;
+}
+
+// ---- discard-untracked (A357, issue 338 B6) -----------------------------------------------------------------------------------------
+
+/** The files below a folder (relative to ROOT), or the reason it cannot be removed: a link, a special file or a nested repository. @param {string} root @param {string} rel @returns {{ files: string[] } | { why: string }} */
+function untrackedFilesBelow(root, rel) {
+  /** @type {string[]} */ const files = [];
+  /** @param {string} r @returns {string} */
+  const walk = (r) => {
+    const st = lstatSync(`${root}/${r}`);
+    if (st.isSymbolicLink()) return `${r} is a link`;
+    if (st.isFile()) { files.push(r); return ''; }
+    if (!st.isDirectory()) return `${r} is not a plain file or folder`;
+    for (const n of readdirSync(`${root}/${r}`).sort()) {
+      if (n === '.git') return `${r}/.git: a nested repository is not an untracked stray`;
+      const why = walk(`${r}/${n}`);
+      if (why !== '') return why;
+    }
+    return '';
+  };
+  const why = walk(rel);
+  return why === '' ? { files } : { why };
+}
+
+/**
+ * `discard-untracked <ID> <path>...` (lead): remove exactly the listed untracked files or folders the run created, e.g. the `r7/` a role's tool left in the repository root, which
+ * is part of the content fingerprint and made every gate stale. Refused, nothing removed, when any listed path: is not a plain relative name; is under .git, .agents, .claude
+ * or .codex; goes through a link (any component, and nothing inside it is a link); has a file that git tracks or ignores (only untracked files count); was already untracked
+ * when the run's baseline was taken (the user's own file); or is, or holds, a path of the run's plan scope. One ledger row per path.
+ * @param {Context} ctx @param {string[]} args
+ */
+function discardUntracked(ctx, args) {
+  ctx.fpMode = 'refresh';
+  requireLead(ctx);
+  const id = need(args, 0);
+  const rels = args.slice(1).map((a) => bytes(a));
+  requireRun(ctx, id);
+  requireOpenRun(ctx, id);
+  const d0 = runDir(ctx, id);
+  const usage = 'usage: agent.sh discard-untracked <ID> <path>... (project-relative untracked files or folders the run created, outside its plan scope)';
+  if (rels.length === 0) fail(usage);
+  if (sectionValue(ctx, d0, 'completion_report', 'published') === 'true') fail('discard-untracked refused: the run is sealed (completion report published)');
+  if (sectionValue(ctx, d0, 'baseline', 'status') !== 'captured') fail('discard-untracked refused: the run has no baseline, so what it created cannot be told from what was there before');
+  const root = ctx.root;
+  const base = baselineMap(ctx, d0);
+  const scope = scopePaths(planScope(ctx, d0).rows).filter((e) => e !== '');
+  const stray = new Set(untrackedPaths(ctx));
+  /** @type {Array<{ rel: string, files: string[] }>} */ const plan = [];
+  for (const rel of rels) {
+    const segs = rel.split('/');
+    if (rel === '' || !/^[A-Za-z0-9._/-]+$/.test(rel) || rel.startsWith('/') || rel.startsWith('-') || segs.some((s) => s === '' || s === '.' || s === '..')) fail(`discard-untracked refused: '${rel}' must be a plain project-relative path (A-Z a-z 0-9 . _ - and /, no '.', '..' or trailing slash)`);
+    if (['.git', '.agents', '.claude', '.codex'].includes(segs[0])) fail(`discard-untracked refused: '${rel}' is under ${segs[0]}, which is not a repository stray`);
+    for (let i = 1; i < segs.length; i++) {
+      const part = segs.slice(0, i).join('/');
+      let st;
+      try { st = lstatSync(`${root}/${part}`); } catch { fail(`discard-untracked refused: '${rel}' is not untracked here (${part} does not exist)`); }
+      if (st.isSymbolicLink()) fail(`discard-untracked refused: '${rel}' goes through the link ${part}`);
+      if (!st.isDirectory()) fail(`discard-untracked refused: '${rel}' is not untracked here (${part} is not a folder)`);
+    }
+    try { lstatSync(`${root}/${rel}`); } catch { fail(`discard-untracked refused: '${rel}' is not untracked: nothing is there`); }
+    const got = untrackedFilesBelow(root, rel);
+    if ('why' in got) fail(`discard-untracked refused: '${rel}': ${got.why}; a link is never followed or removed here`);
+    for (const f of got.files) {
+      if (base.has(`untracked|${f}`)) fail(`discard-untracked refused: '${f}' was already untracked before the run (it is in the baseline): it is not the run's file`);
+      if (scope.some((e) => scopeEntryCovers(asciiLower(e), asciiLower(f)))) fail(`discard-untracked refused: '${f}' is inside the plan scope: it is the run's product, not a stray`);
+      if (!stray.has(f)) fail(`discard-untracked refused: '${f}' is not untracked (git tracks or ignores it): only untracked files are removed`);
+    }
+    if (scope.some((e) => asciiLower(e).startsWith(`${asciiLower(rel)}/`))) fail(`discard-untracked refused: '${rel}' holds a path of the plan scope`);
+    plan.push({ rel, files: got.files });
+  }
+  for (const { rel, files } of plan) {
+    const digest = sha256(files.map((f) => `${f} ${hashFile(`${root}/${f}`)}\n`).join(''));
+    rmSync(`${root}/${rel}`, { recursive: true, force: true });
+    if (gatesEnforced(ctx, d0)) { const s = sectionValue(ctx, d0, 'handoff', 'state'); led(ctx, id, 'discard-untracked', s, s, `path=${rel} files=${files.length} sha256=${digest}`); }
+    ctx.out(`discarded untracked: ${rel} (${files.length} file${files.length === 1 ? '' : 's'}, sha256 ${digest})\n`);
+  }
+  ctx.forget('changed:'); ctx.forget('fp:');
   return 0;
 }
 
@@ -597,6 +676,7 @@ export function deliveryCheck(ctx, args) {
 export const RUNCMD_HANDLERS = {
   baseline,
   'discard-stray': discardStray,
+  'discard-untracked': discardUntracked,
   branch,
   classify,
   tier,

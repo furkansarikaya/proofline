@@ -38,6 +38,7 @@ export const USAGE_LINES = Object.freeze([
   "                            In proofline's own repository (GitHub), a merged version pull request (it changed the version in",
   "                            .claude-plugin/plugin.json) also gets the tag v<version> on that commit, pushed to origin; a tag that",
   "                            exists elsewhere is never moved, a failed tag step does not undo the merge and prints the commands",
+  "                            After a GitHub merge the local base branch is fast-forwarded from origin (a diverged one is only reported)",
   "  insights [--run ID] [--json]",
   "                          read-only report: cost per run, role and model (tokens only where the runtime",
   "                            reported them), tool calls per role and run, recurring failures; changes nothing",
