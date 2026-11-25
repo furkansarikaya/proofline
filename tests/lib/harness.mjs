@@ -6,6 +6,7 @@
 // A helper that builds STATE throws when the control plane refuses (the shell suites ran under `set -e`); the asserted action is the caller's:
 // call `A` and look at the Result.
 import { spawnSync } from 'node:child_process';
+import { before } from 'node:test';
 import { createHash } from 'node:crypto';
 import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -354,6 +355,14 @@ export function copyOf(template, opts = {}) {
 export function newRepo() { return copyOf(defaultTemplate()); }
 /** The template repository of this code state (built once, shared by every process). */
 export function defaultTemplate() { return cached(`ctl-${codeKey()}`, buildTemplate); }
+
+// A359 (generic warm-up): under `node --test`, the default template is built in a root `before` hook of every test file that imports this harness, so a cold cache (every CI run
+// starts with one: the control plane's content hash changes with each commit) is paid OUTSIDE any test's duration and never lands in whichever test of a file happens to need it
+// first. The build is the same `cached()` build as before (once per key, atomic publish, shared by every process and pruned as before); a file that never needs the template pays only
+// the check that it exists. Variants made on top of it (legacy-lib `template`/`stage`, evidence-repair-lib `warm`) are warmed by the file that uses them.
+if (process.env.NODE_TEST_CONTEXT !== undefined) {
+  try { before(() => { defaultTemplate(); }); } catch { /* not inside a test file: nothing to warm */ }
+}
 
 /**
  * Git hooks for a fixture: `pre-commit` and `pre-push` that run the project's core as the shipped launchers do (`cli pre-commit|pre-push`), but name the agent.sh of the repository the

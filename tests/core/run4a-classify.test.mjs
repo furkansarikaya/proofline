@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { makeSymlink } from '../lib/winpath.mjs';
-import { test } from 'node:test';
+import { before, test } from 'node:test';
 import { A, accepted, codeDoneStandalone, copyOf, must, project, qaA, read, refused, stage, template } from './legacy-lib.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
 
@@ -211,3 +211,6 @@ test('baseline: a repository without a commit stops like the shell did (rev-pars
   refused(A(d, ['baseline', 'NC']), 'baseline without a commit', 'baseline needs a commit');
   assert.equal(read(d, '.agents/runs/NC/RUN.yaml'), before);
 });
+
+// the cold build of every project variant this file copies is paid here, not inside the first test that uses it (A311, A359)
+before(() => { manual(); for (const r of ['scaffold standalone no STANDARD', BRANCH_RUN, NEW_RUN('', ''), NEW_RUN('\\n## Suggested class\\n\\nSTANDARD — one module\\n'), NEW_RUN('', '\\n## Data\\n\\ndestructive: yes\\n')]) template(r); });
