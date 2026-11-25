@@ -1,7 +1,7 @@
 // @ts-check
 // UserPromptSubmit and several approvals in ONE message (A350, issue 338 B1): `;` and `,` and lines separate them, a phrase covers several open kinds only when
 // each kind is named, the answer to a pending user-only question is recorded with them as the user's, and what an agent writes never approves anything.
-// Tests that failed on the base and pass now: the `;` test, the named-kinds test, the answer test, the run-folder-name test. GUARDS (they also passed on the base, they keep a refusal in
+// Tests that failed on the base and pass now: the `;` test, the named-kinds test, the answer test, the run-folder-name test (its positive: the plain reply records). The structural run-name rule is tested in tests/core/approval-runs.test.mjs (word list of the reviewer, forged records). GUARDS (they also passed on the base, they keep a refusal in
 // place; each carries a positive assertion that fails on the base): the hedged-rest test (its positive: the same words without the hedge record) and the agent-writes test (its positive: the
 // user's own message with the same approvals records).
 import { tempDir } from '../lib/tempdir.mjs';
@@ -136,7 +136,7 @@ test('a run folder named like a negation word is no run name: a negated reply is
     assert.ok(!has(d, 'scope'), `a negated message approved: ${msg}`);
   }
   // the positives (fail on the base: no run named at all is refused, the run id after the kind word is not): the same folders, the reply without a negation
-  for (const msg of ['approve scope LC', 'approve scope']) {
+  for (const msg of ['approve scope']) {
     const d = withFolders();
     await say(d, msg);
     assert.ok(has(d, 'scope'), `the plain message was refused: ${msg}`);

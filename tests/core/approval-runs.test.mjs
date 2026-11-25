@@ -4,9 +4,11 @@
 // an unnamed reply approve nothing.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { A, AB, bnew, binstall, fakes, mktask, path, put, readIf, real, repo, wtp } from './batch-lib.mjs';
+import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
+import { textHasApproval } from '../../control-plane/agents/scripts/core/approvals.mjs';
 import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 
 const PLAN_X = '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n';
@@ -73,4 +75,64 @@ test('a run is named as a whole word: with W-1 and W-10 waiting, "approve scope 
   const log = readIf(`${dir}/.agents/local/approve.log`);
   assert.ok(log.includes('target=W-10 '), `no line for W-10: ${log}`);
   assert.ok(!log.includes('target=W-1 '), `the approval step of W-1 ran for a reply that names W-10: ${log}`);
+});
+
+// ---- which words are run names (A350 round 2): a structural rule, not a word list ------------------------------------------------------------------------------------------
+const CAPTURE = { session: 's1', time: 1700000001, sha256: 'ab'.repeat(32) };
+const CAPTURE_ID = `${CAPTURE.session}:${CAPTURE.time}:${CAPTURE.sha256}`;
+const REQ = 'kind: "scope"\nbound: "x"\nrequested_at: 1000\n';
+/** A project folder and a context for it; the run folders are written by the test (what an agent can do). */
+function names() {
+  const d = real(bnew());
+  const ctx = new Context({ env: { ...process.env }, cwd: d, stdout: { write() {} }, stderr: { write() {} }, promptCapture: CAPTURE }, `${d}/.agents/scripts/agent.sh`);
+  /** @param {string} id @param {{ run?: boolean, request?: boolean, files?: Record<string, string> }} [o] */
+  const folder = (id, o = {}) => {
+    const ad = `${d}/.agents/runs/${id}/approvals`;
+    mkdirSync(ad, { recursive: true });
+    if (o.run) writeFileSync(`${d}/.agents/runs/${id}/RUN.yaml`, `task:\n  id: ${id}\nexecution:\n  state: IMPLEMENTING\n`);
+    if (o.request !== false) writeFileSync(`${ad}/001-request-scope.yaml`, REQ);
+    for (const [n, t] of Object.entries(o.files ?? {})) writeFileSync(`${ad}/${n}`, t);
+  };
+  const ok = (/** @type {string} */ msg, /** @type {string} */ id) => textHasApproval(ctx, Buffer.from(msg, 'utf8').toString('latin1'), 'scope', id);
+  return { folder, ok };
+}
+const HEDGE_WORDS = 'nothing nobody none nor neither didnt doesnt wouldnt couldnt havent hasnt wasnt arent aint dun nay later skip postpone defer pending nein non nicht nunca never not dont no do n0t not- no_ cant wont isnt maybe wait hayir degil'.split(' ');
+
+test('a word is never a run name because a folder carries it: agent-made folders with open requests for any word approve nothing, whatever the word', () => {
+  const { folder, ok } = names();
+  folder('W-1', { run: true });
+  for (const w of HEDGE_WORDS) folder(w);                         // no RUN.yaml: not a run at all
+  for (const w of ['nothing', 'skip', 'never']) folder(`${w}`, { run: true });   // a RUN.yaml too: still no digit in the id, so still an ordinary word
+  for (const w of HEDGE_WORDS) {
+    assert.equal(ok(`${w} approve scope W-1`, 'W-1'), false, `'${w} approve scope W-1' approved`);
+    assert.equal(ok(`approve scope ${w} W-1`, 'W-1'), false, `'approve scope ${w} W-1' approved`);
+  }
+  assert.equal(ok('never approve the scope W-1', 'W-1'), false);
+  assert.equal(ok('do not approve scope W-1', 'W-1'), false);
+  assert.equal(ok('approve scope W-1', 'W-1'), true, 'the plain reply that names the run is refused');
+});
+
+test('a forged record makes no run: a record with the capture id in a hedge-named folder, or a run without the control plane\'s RUN.yaml or request', () => {
+  const { folder, ok } = names();
+  folder('W-1', { run: true });
+  const forged = `kind: "scope"\nanswered_by: "user"\nsource: "prompt_capture"\ncapture_id: "${CAPTURE_ID}"\n`;
+  folder('skip', { request: false, files: { '002-x.yaml': forged } });
+  folder('ghost-1', { request: false, files: { '002-x.yaml': forged } });                        // a digit in the id, but no RUN.yaml
+  folder('ghost-2', { run: true, request: false, files: { '002-x.yaml': forged } });             // RUN.yaml, but the record names no valid request and has a wrong file name
+  folder('ghost-3', { run: true, request: false, files: { '002-scope.yaml': forged.replace('answered_by: "user"', 'answered_by: "lead"') } });
+  folder('ghost-4', { run: false });                                                              // a valid request, no RUN.yaml
+  for (const w of ['skip', 'ghost-1', 'ghost-2', 'ghost-3', 'ghost-4']) assert.equal(ok(`approve scope ${w} W-1`, 'W-1'), false, `a forged folder '${w}' became a run name`);
+  // the positive: a run the control plane made, with a valid request and a record of THIS message
+  const good = `kind: "scope"\nrequest: "001-request-scope.yaml"\nanswered_by: "user"\nsource: "prompt_capture"\ncapture_id: "${CAPTURE_ID}"\n`;
+  folder('W-2', { run: true, files: { '002-scope.yaml': good } });
+  assert.equal(ok('approve scope W-1 W-2', 'W-1'), true, 'a real run approved by this message is not a name');
+});
+
+test('run ids with digits are names when the run is real and waits: W-1 and W-10, and a reply that names other runs and not this one approves nothing', () => {
+  const { folder, ok } = names();
+  folder('W-1', { run: true }); folder('W-10', { run: true }); folder('TASK-004', { run: true }); folder('TASK-010', { run: true });
+  assert.equal(ok('approve scope W-1 W-10', 'W-1'), true);
+  assert.equal(ok('approve scope TASK-004 TASK-010', 'TASK-010'), true);
+  assert.equal(ok('approve scope W-10', 'W-1'), false, 'a reply that names W-10 approved W-1');
+  assert.equal(ok('approve scope W-1 W-99', 'W-1'), false, 'an unknown run id was accepted');
 });

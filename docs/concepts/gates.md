@@ -201,7 +201,7 @@ approves none. A rejected segment prints `not recorded: <segment>: <reason>`; a 
 vetoes the whole message. A segment that is the answer to a pending user-only question (one of its listed forms, or `soru 1: a` / `question 1: a` for the option labelled `a)`) may stand beside the approvals: the
 hook records it as your answer (`answered_by: user`) from the same message; a hedged rest ("böl, but wait") records nothing.
 Only a request that no approval answers yet counts as waiting. When several runs wait, name the run: a run id may follow the kind word ("approve scope TASK-004 TASK-010"
-approves those two runs); a name that is not a run, or a reply that names other runs and not this one, approves nothing. Recording comes first: the hook copies your message to `.agents/local/prompts/intake/` before any parse, git or
+approves those two runs); a word that is not the id of a real, waiting run (the id must contain a digit and the control plane's `RUN.yaml` must name it; a folder name alone proves nothing), or a reply that names other runs and not this one, approves nothing. Recording comes first: the hook copies your message to `.agents/local/prompts/intake/` before any parse, git or
 scan, so the size of a run cannot lose an approval (`hook.approve_budget_seconds`, `doctor` times it). Limits: [timeouts](timeouts.md).
 
 ## Recovering a tree that changed outside the run

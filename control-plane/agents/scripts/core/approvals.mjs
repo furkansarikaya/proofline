@@ -10,7 +10,7 @@ import * as proc from './proc.mjs';
 import { isDir as isDirectory, isFile } from './paths.mjs';
 import { captureField } from './capture.mjs';
 import { now } from './clock.mjs';
-import { WS, gateField, gatesEnforced, readBytes, textLines } from './records.mjs';
+import { WS, fileLines, gateField, gatesEnforced, readBytes, textLines } from './records.mjs';
 import { runDir } from './runs.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -272,52 +272,97 @@ export function approvalExample(kind) {
   return `"${cap(all[0] ?? '')}" | "${cap(tr)}"`;
 }
 
-/**
- * Words that negate, condition, hedge or retract (the segment veto of the multi-approval scan, A202, plus the words of the answer check). They are never a run name, whatever
- * a folder under `.agents/runs` is called: a folder name is written by whoever can create a folder, and "never approve the scope W-1" must stay refused.
- */
-export const NEGATION_WORDS = new Set(`not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin cancel undo stop ignore nope nah revoke reject withdraw abort halt disregard cannot isnt shouldnt negative refuse deny denied oppose jk iptal vazgectim hmm or actually instead rather without except until yet only decline declined do dont`.split(' '));
+/** A regular file that is not a symbolic link. @param {string} f */
+function plainFile(f) { try { return lstatSync(f).isFile(); } catch { return false; } }
 
 /**
- * Is a request really open in this approvals folder? The newest request of a kind (`NNN-request-<slug>.yaml`) is open while no approval file `MMM-<slug>.yaml` has MMM >= NNN
- * (the rule of `pendingRequest`, by file names only).
- * @param {string} dir
+ * Is this folder a REAL run (A350, round 2)? A folder name proves nothing (an agent can create any folder), so a run is named in a reply only when the control plane's own record
+ * is there: `RUN.yaml` is a regular file whose `task:` section carries `  id: <the folder name>` (the line `start` writes, runstart.mjs) and a request that passes the check below is open.
+ * @param {Context} ctx @param {string} dir the run folder @param {string} id
  */
-export function hasOpenRequestIn(dir) {
+function realRun(ctx, dir, id) {
+  const f = `${dir}/RUN.yaml`;
+  if (!plainFile(f)) return false;
+  let inTask = false;
+  for (const l of fileLines(ctx, f)) {
+    if (/^[A-Za-z_]/.test(l)) inTask = l === 'task:';
+    else if (inTask && l === `  id: ${id}`) return true;
+  }
+  return false;
+}
+
+/**
+ * Is this request file one `request-approval` wrote: a regular file named `NNN-request-<slug>.yaml` whose `kind` is a valid approval kind with that slug, with a `bound` and a numeric
+ * `requested_at` (the three lines `request-approval` writes)? The same shape test as the known-issue approval check (kirules.mjs `approvalOk`).
+ * @param {Context} ctx @param {string} dir @param {string} name
+ */
+function validRequestFile(ctx, dir, name) {
+  const m = /^[0-9]{3}-request-(.+)\.yaml$/.exec(name);
+  if (!m || !plainFile(`${dir}/${name}`)) return false;
+  const kind = gateField(ctx, `${dir}/${name}`, 'kind');
+  return validApprovalKind(kind) && kindSlug(kind) === m[1] && gateField(ctx, `${dir}/${name}`, 'bound') !== '' && /^[0-9]+$/.test(gateField(ctx, `${dir}/${name}`, 'requested_at'));
+}
+
+/**
+ * Does this approvals folder hold a valid request that no approval answers yet (`pendingRequest` rule: the newest request of a kind is open while no approval file of that kind has a number at or above it)?
+ * @param {Context} ctx @param {string} dir
+ */
+function hasValidOpenRequest(ctx, dir) {
   const all = sortedNames(dir, /^[0-9]{3}-.*\.yaml$/);
   /** @type {Map<string, string>} */ const newest = new Map();
   for (const n of all) {
     const m = /^([0-9]{3})-request-(.*)\.yaml$/.exec(n);
     if (m && m[1] > (newest.get(m[2]) ?? '')) newest.set(m[2], m[1]);
   }
-  for (const [slug, num] of newest) if (!all.some((n) => { const a = /^([0-9]{3})-(.*)\.yaml$/.exec(n); return a !== null && a[2] === slug && a[1] >= num; })) return true;
+  for (const [slug, num] of newest) {
+    if (!validRequestFile(ctx, dir, `${num}-request-${slug}.yaml`)) continue;
+    if (!all.some((n) => { const a = /^([0-9]{3})-(.*)\.yaml$/.exec(n); return a !== null && a[2] === slug && a[1] >= num; })) return true;
+  }
   return false;
 }
 
 /**
- * The run ids a reply may name (A350): the run being checked (RUNID), the runs that have a request still open and the runs this very message has already approved (this tree, the main tree, the worktrees under it), normalised like the
- * reply (one word each). A run folder is no proof of anything by itself (an agent can create one with any name), so a folder that is neither is not a name, and a run whose id is
- * a negation or hedge word (NEGATION_WORDS) is never one, not even when it waits.
+ * Did THIS message approve here already? A record that `approve` wrote for this capture: regular file `NNN-<slug>.yaml`, kind valid with that slug, answered_by user, source prompt_capture,
+ * the capture id of this message and a request that is a valid request file (the shape test of kirules.mjs `approvalOk`).
+ * @param {Context} ctx @param {string} dir @param {string} captureId
+ */
+function approvedByThisMessage(ctx, dir, captureId) {
+  for (const n of sortedNames(dir, /^[0-9]{3}-(?!request-).*\.yaml$/)) {
+    const f = `${dir}/${n}`;
+    if (!plainFile(f)) continue;
+    const kind = gateField(ctx, f, 'kind');
+    if (!validApprovalKind(kind) || `${n.slice(0, 3)}-${kindSlug(kind)}.yaml` !== n) continue;
+    if (gateField(ctx, f, 'answered_by') !== 'user' || gateField(ctx, f, 'source') !== 'prompt_capture' || gateField(ctx, f, 'capture_id') !== captureId) continue;
+    if (validRequestFile(ctx, dir, gateField(ctx, f, 'request'))) return true;
+  }
+  return false;
+}
+
+/**
+ * The run ids a reply may name besides the kind's own words (A350). A STRUCTURAL rule, no word list (a list of "negation words" is a losing game: the reviewer found twenty more): an
+ * id counts only when it contains a digit (so no ordinary English or Turkish word is ever a run name) and it is (a) the run being checked (RUNID) or (b) a REAL run (`realRun`: the control
+ * plane's RUN.yaml names it) that has a valid request still open or that this very message has already approved (each run is checked in its own process, so an earlier run of the same reply
+ * must still count). Every other word of the reply stays an ordinary word, judged by the phrase, filler and kind lists like before. The words are normalised like the reply.
  * @param {Context} ctx @param {string} runId @returns {Set<string>}
  */
 export function knownRunWords(ctx, runId) {
   /** @type {Set<string>} */ const out = new Set();
   if (typeof ctx.root !== 'string' || typeof ctx.sharedMain !== 'function') return out;   // a lexical check without a project (the e2e grammar probe) knows no runs
-  /** @param {string} n */
-  const add = (n) => { const w = approvalNorm(n); if (!NEGATION_WORDS.has(w)) out.add(w); };
-  if (/^[A-Za-z0-9_-]+$/.test(runId)) add(runId);
-  // a run that THIS message already approved (an earlier run of the same reply, one process each) is still named by it: its record carries the capture id of this very message
+  if (/^[A-Za-z0-9_-]*[0-9][A-Za-z0-9_-]*$/.test(runId)) out.add(approvalNorm(runId));
   const cap = /** @type {{ promptCapture?: { session: string, time: number, sha256: string } }} */ (ctx.io).promptCapture;
-  const mark = cap ? `capture_id: "${cap.session}:${cap.time}:${cap.sha256}"` : '';
-  /** @param {string} dir */
-  const approvedByThis = (dir) => mark !== '' && sortedNames(dir, /^[0-9]{3}-(?!request-).*\.yaml$/).some((f) => (readBytes(`${dir}/${f}`) ?? '').split('\n').includes(mark));
+  const captureId = cap ? `${cap.session}:${cap.time}:${cap.sha256}` : '';
   /** @param {string} d */
-  const addOpen = (d) => { for (const n of sortedNames(d, /^[A-Za-z0-9_-]+$/)) if (hasOpenRequestIn(`${d}/${n}/approvals`) || approvedByThis(`${d}/${n}/approvals`)) add(n); };
-  addOpen(`${ctx.root}/.agents/runs`);
+  const addReal = (d) => {
+    for (const n of sortedNames(d, /^[A-Za-z0-9_-]*[0-9][A-Za-z0-9_-]*$/)) {
+      const ad = `${d}/${n}/approvals`;
+      if (realRun(ctx, `${d}/${n}`, n) && (hasValidOpenRequest(ctx, ad) || (captureId !== '' && approvedByThisMessage(ctx, ad, captureId)))) out.add(approvalNorm(n));
+    }
+  };
+  addReal(`${ctx.root}/.agents/runs`);
   const main = ctx.sharedMain();
-  addOpen(`${main}/.agents/runs`);
+  addReal(`${main}/.agents/runs`);
   const wt = `${main}/.agents/local/worktrees`;
-  for (const w of sortedNames(wt, /^[A-Za-z0-9_.-]+$/)) addOpen(`${wt}/${w}/.agents/runs`);
+  for (const w of sortedNames(wt, /^[A-Za-z0-9_.-]+$/)) addReal(`${wt}/${w}/.agents/runs`);
   return out;
 }
 
@@ -325,7 +370,7 @@ export function knownRunWords(ctx, runId) {
  * `text_has_approval TEXTFILE KIND [RUNID]` on the text itself: a positive grammar (A108). After normalisation every word must be a word of an
  * allowlisted phrase, of the kind's own words or a filler; the reply holds a whole phrase and a kind word, and no question mark. Any other word
  * makes it ambiguous. A reply equal to a full approval sentence of the kind approves as it is.
- * A350: (a) a word that is the id of the run checked or of a run with an open request (`knownRunWords`; never a negation word) may stand in the reply, but only when the reply names the run it is checked for (RUNID): a reply that names
+ * A350: (a) a word that is a run id by the structural rule of `knownRunWords` (digit in the id; the run checked, or a real run with a valid open request) may stand in the reply, but only when the reply names the run it is checked for (RUNID): a reply that names
  * other runs and not this one approves nothing here; a RUNID of `-` (no run) allows no run name; RUNID '' (a lexical check) allows any run name. (b) WITHKINDS: the words of other
  * open kinds are allowed beside the kind's own, so one phrase may approve several open kinds ("approve plan and scope"), but each kind must be named: its own word is still required.
  * @param {Context} ctx @param {string} rawText the text as read from the file (a byte string) @param {string} kind @param {string} [runId] @param {string[]} [withKinds]
