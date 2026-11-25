@@ -765,8 +765,25 @@ export function fixRoundsUsed(ctx, dir) {
 export function testReviewCap(ctx, dir) {
   const r = parseReviewBudget(fileText(ctx, `${dir}/PLAN.md`) ?? '').rounds;
   if (r !== null) return r;
-  const v = ctx.config().get('test_trust.review_rounds', '4');
-  return /^[0-9]+$/.test(v) && Number(v) >= 1 ? Number(v) : 4;
+  return testReviewConfigCaps(ctx)[0];
+}
+
+/** The config defaults of the test review caps: [rounds, minutes]. @param {Context} ctx @returns {[number, number]} */
+export function testReviewConfigCaps(ctx) {
+  const n = (/** @type {string} */ k, /** @type {number} */ d) => { const v = ctx.config().get(k, String(d)); return /^[0-9]+$/.test(v) && Number(v) >= 1 ? Number(v) : d; };
+  return [n('test_trust.review_rounds', 4), n('test_trust.review_minutes', 120)];
+}
+
+/**
+ * The caps of the plan's `## Test review budget` that exceed the config defaults, as text ('' when none does) (A359, Core invariant 3): a plan author must not raise the loop's bound on its
+ * own, so such a plan freezes only with the user's `scope` approval for that PLAN.md. A lower value needs none. @param {Context} ctx @param {string} plan
+ */
+export function reviewBudgetAboveDefaults(ctx, plan) {
+  const b = parseReviewBudget(plan); const [r, m] = testReviewConfigCaps(ctx);
+  const out = [];
+  if (b.rounds !== null && b.rounds > r) out.push(`rounds ${b.rounds} (default ${r})`);
+  if (b.minutes !== null && b.minutes > m) out.push(`minutes ${b.minutes} (default ${m})`);
+  return out.join(', ');
 }
 
 /** The REVIEW_TESTS rounds since the last reopen: one per REVIEW_TESTS record (each costs a reviewer dispatch, also on an unchanged tree). @param {Context} ctx @param {string} dir */

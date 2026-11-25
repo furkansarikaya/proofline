@@ -2,10 +2,10 @@
 // A359 (issue 338 C1): the test review loop is bounded by the plan. Pure parts of the plan's `## Test review budget`, the round cap on the real control plane (the gate
 // stays failed, the user is asked once, nothing passes), and the approved mutation budget applied by the control plane at handoff.
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { before, test } from 'node:test';
-import { A, expectMsg, gateStatus, must, refused, say, scaffold } from '../lib/harness.mjs';
+import { A, approveAsUser, expectMsg, gateStatus, must, refused, say, scaffold } from '../lib/harness.mjs';
 import { accepted, rec, reopened, rerun, stripDuration, warm } from './evidence-repair-lib.mjs';
 
 // the cold build of the project variant is paid here, not inside the first test that uses it
@@ -65,7 +65,7 @@ test('under the cap the loop goes on as before', () => {
 });
 
 test('the budget comes from the units of the plan, not the criteria; the approved budget is applied by the freeze, and the plan field alone raises nothing', () => {
-  const planExtra = '\n## Tests\n\n- AC-1: `impl_test.txt` "case 1"\n- AC-2: `impl_test.txt` "case 2"\n\n## Test review budget\n\n- units: 10\n- rounds: 5\n';
+  const planExtra = '\n## Tests\n\n- AC-1: `impl_test.txt` "case 1"\n- AC-2: `impl_test.txt` "case 2"\n\n## Test review budget\n\n- units: 10\n- rounds: 3\n';
   const d = scaffold({ topology: 'standalone', cls: 'STANDARD', autonomy: 'manual', planExtra });
   expectMsg('a freeze for 10 units (40 mutants) over budget 20', 'mutation budget is 20', A(d, ['freeze', 'LC'], { bind: true }));
   assert.ok(!readdirSync(path.join(d, '.agents/runs/LC')).includes('mutation_budget'), 'the plan field raised the budget without the user');
@@ -74,4 +74,51 @@ test('the budget comes from the units of the plan, not the criteria; the approve
   assert.equal(fr.status, 0, `the freeze did not apply the approved budget: ${fr.text}`);
   assert.equal(readFileSync(path.join(d, '.agents/runs/LC/mutation_budget'), 'utf8').trim(), '40');
   assert.match(readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /event=raise-budget .*test_trust\.mutation_budget 40 for this run, approval /);
+});
+
+const planWith = (/** @type {string} */ budget) => `\n## Tests\n\n- AC-1: \`impl_test.txt\` "case 1"\n\n## Test review budget\n\n${budget}\n`;
+
+test('a cap above the config defaults is not the plan author\'s to set: it needs the user\'s scope approval for that PLAN.md (Core invariant 3)', () => {
+  const d = scaffold({ topology: 'standalone', cls: 'STANDARD', autonomy: 'manual', planExtra: planWith('- rounds: 9999\n- minutes: 99999') });
+  expectMsg('a freeze with rounds 9999', 'Test review budget', A(d, ['freeze', 'LC'], { bind: true }));
+  expectMsg('still refused without the user', 'scope approval', A(d, ['freeze', 'LC'], { bind: true }));
+  approveAsUser(d, 'scope', 'approve the scope');
+  assert.equal(A(d, ['freeze', 'LC'], { bind: true }).status, 0, 'the approved cap froze');
+  const lower = scaffold({ topology: 'standalone', cls: 'STANDARD', autonomy: 'manual', planExtra: planWith('- rounds: 2\n- minutes: 30') });
+  assert.equal(A(lower, ['freeze', 'LC'], { bind: true }).status, 0, 'a lower cap needs no approval');
+});
+
+const BR = (/** @type {string} */ d, /** @type {string[]} */ args, role = 'reviewer') => A(d, ['build-record', 'LC', ...args], { role });
+const rowsOf = (/** @type {string} */ d) => readFileSync(path.join(d, '.agents/runs/LC/LEDGER.log'), 'utf8').split('\n').filter((l) => l.includes('event=mutant-result'));
+
+test('mutant results are the control plane\'s ledger rows, keyed on the product file AND the task\'s tests; a seeded plain line counts for nothing; only the reviewer records', () => {
+  const d = reopened();
+  for (const role of ['implementer', 'lead', 'qa']) refused(BR(d, ['mutant-record', 'impl.txt', 'm1', 'killed', '--unit', 'lookup'], role), `${role} recorded a result`, 'reviewer');
+  assert.equal(rowsOf(d).length, 0);
+  assert.match(must(d, ['build-record', 'LC', 'mutant-known', 'impl.txt', 'm1']).out, /^NEW/);
+  accepted(BR(d, ['mutant-record', 'impl.txt', 'm1', 'killed', '--unit', 'lookup']), 'record');
+  accepted(BR(d, ['mutant-record', 'impl.txt', 'm2', 'survived', '--unit', 'lookup', '--class', 'new']), 'record 2');
+  assert.equal(rowsOf(d).length, 2); assert.ok(rowsOf(d).every((l) => / role=reviewer /.test(l)));
+  assert.match(BR(d, ['mutant-known', 'impl.txt', 'm1']).out, /^KNOWN killed lookup/);
+  // a plain file beside the counter, or a hand-appended ledger-looking line, decides nothing
+  const rev = path.join(d, '.agents/runs/LC/reviews/test-trust/tests'); mkdirSync(rev, { recursive: true });
+  writeFileSync(path.join(rev, 'mutants.count.results'), 'x\tm9\tlookup\tkilled\tbase\t1\n');
+  assert.match(BR(d, ['mutant-known', 'impl.txt', 'm9']).out, /^NEW/);
+  // one more result for a second unit, then the summary
+  accepted(BR(d, ['mutant-record', 'impl.txt', 'c1', 'killed', '--unit', 'other']), 'record 3');
+  const sum = BR(d, ['mutant-summary']).out;
+  assert.match(sum, /unit lookup: 2 run, 1 killed, 1 survived, 1 of class new/);
+  assert.match(sum, /ADEQUACY: 1 unit\(s\) closed \(other\); 1 with survivors \(lookup\); 1 survivor\(s\) found by widening/);
+  // weakening the killing test (it changes the task's test files): the recorded kill no longer stands
+  appendFileSync(path.join(d, 'impl_test.txt'), 'test: weaker\n');
+  assert.match(BR(d, ['mutant-known', 'impl.txt', 'm1']).out, /^NEW/, 'a weakened test re-runs the mutant');
+  assert.match(BR(d, ['mutant-known', 'impl.txt', 'm2']).out, /^NEW/, 'a survivor is re-evaluated once the tests changed');
+});
+
+test('a changed product file re-runs its mutants', () => {
+  const d = reopened();
+  accepted(BR(d, ['mutant-record', 'impl.txt', 'm1', 'killed', '--unit', 'lookup']), 'record');
+  appendFileSync(path.join(d, 'impl.txt'), 'impl: changed\n');
+  assert.match(BR(d, ['mutant-known', 'impl.txt', 'm1']).out, /^NEW/);
+  refused(BR(d, ['mutant-known', '../x', 'm1']), 'a path outside the repository');
 });

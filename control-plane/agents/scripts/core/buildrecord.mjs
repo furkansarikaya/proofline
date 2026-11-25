@@ -16,6 +16,7 @@
 // A stale lock is reclaimed when its process is dead or after BUILD_RECORD_WAIT seconds (default 1800 times timeouts.scale). Every command stops after
 // verification.command_timeout_seconds (times the scale); a stopped command leaves no sealed record (A202); two waiters reclaiming at the very same moment is
 // not guarded.
+import { mutantCommand } from './testreviewresults.mjs';
 import { appendFileSync, closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -308,7 +309,7 @@ export function buildRecord(ctx, op, rev = '', runId = '') {
   }
 }
 
-const USAGE = 'usage: agent.sh build-record <ID> [run|show|scan [--json]]';
+const USAGE = 'usage: agent.sh build-record <ID> [run|show|scan [--json]|mutant-known <file> <id>|mutant-record <file> <id> killed|survived|mutant-summary]';
 
 /** `agent.sh build-record <ID> [run|show]`. @param {Context} ctx @param {string[]} args */
 export function buildRecordCommand(ctx, args) {
@@ -324,6 +325,7 @@ export function buildRecordCommand(ctx, args) {
     ctx.out(r.out);
     return r.status;
   }
+  if (op === 'mutant-known' || op === 'mutant-record' || op === 'mutant-summary') return mutantCommand(ctx, id, op, args.slice(2));   // A359
   if (op !== 'run' && op !== 'show') { ctx.err(`${USAGE}\n`); return 2; }
   const r = buildRecord(ctx, op, '', id);
   ctx.out(r.out); ctx.err(r.err);
