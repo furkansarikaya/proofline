@@ -41,7 +41,7 @@ function clsOf(text) {
  * is an ID (letters, digits, `_`, `-`) is a dependency. The words none, null and na, and n/a, say there is none.
  * @param {string} text
  */
-function depsOf(text) {
+export function depsOf(text) {
   let fm = false; let inKey = false; let open = false;
   /** @type {string[]} */ const words = [];
   const take = (/** @type {string} */ v) => {
@@ -58,7 +58,10 @@ function depsOf(text) {
     if (i > 0 && l.startsWith('## ')) break;
     if (/^---[ \t\n\v\f\r]*$/.test(l)) { if (inKey) break; fm = !fm; continue; }
     if (!fm) continue;
-    if (open) { take(l); continue; }
+    if (open) {
+      // an open `[` list ends at the next key or the closing `---`: what is left of it is read as written
+      if (/^[A-Za-z_][\w-]*:/.test(l)) open = false; else { take(l); continue; }
+    }
     if (inKey) {
       const m = /^[ \t]*-[ \t]+(.*)$/.exec(l);
       if (m) { take(m[1]); continue; }
@@ -111,15 +114,22 @@ function scopeList(text) {
  * blocks (so a Goal, a criterion, a risk or a Context that grows is a different task), joined by a tab; '' for a task without a scope list, which binds nothing.
  * @param {string} text
  */
-function scopeBinding(text) {
+export function scopeBinding(text) {
   const l = scopeList(text);
   if (l.length === 0) return '';
-  let skip = false;
+  const rows = lt(text);
   /** @type {string[]} */ const keep = [];
-  for (const ln of lt(text)) {
-    if (/^<!-- COMPLETION-REPORT:BEGIN/.test(ln)) { skip = true; continue; }
-    if (/^<!-- COMPLETION-REPORT:END/.test(ln)) { skip = false; continue; }
-    if (skip || /^\*\*Status:\*\*/.test(ln)) continue;
+  let status = false;
+  for (let i = 0; i < rows.length; i++) {
+    const ln = rows[i];
+    // a report block is left out only when its BEGIN:<id> has an END:<id> later; an unterminated or mismatched block stays in the hash (a task that grew is a different task)
+    const m = /^<!-- COMPLETION-REPORT:BEGIN:([^ ]+) -->[ \t]*$/.exec(ln);
+    if (m) {
+      const end = rows.findIndex((x, j) => j > i && x.replace(/[ \t]+$/, '') === `<!-- COMPLETION-REPORT:END:${m[1]} -->`);
+      if (end > i) { i = end; continue; }
+    }
+    // only the header `**Status:**` line (the first one) is not part of the task
+    if (!status && /^\*\*Status:\*\*/.test(ln)) { status = true; continue; }
     keep.push(ln.replace(/[ \t]+$/, ''));
   }
   return `${sha256Text(l.join('\n'))}\t${sha256Text(keep.join('\n'))}`;

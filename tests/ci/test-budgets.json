@@ -225,8 +225,8 @@
       "suite_ms": 25000
     },
     "tests/core/batch-b5.test.mjs": {
-      "test_ms": 11000,
-      "suite_ms": 29000
+      "test_ms": 6400,
+      "suite_ms": 21000
     },
     "tests/core/batch-golden.test.mjs": {
       "test_ms": 15000,
