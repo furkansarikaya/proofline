@@ -132,8 +132,9 @@ const words = (t) => String(t).toLowerCase().match(/[\p{L}']+/gu) || [];
 export function untranslatedBlocks(blocks, allow = []) {
   const out = [];
   for (const b of blocks || []) {
+    if (/^en(-|$)/i.test(String(b.lang || ""))) continue; // A352: English declared on purpose (a criterion requires the quote): the element says lang="en"
     let t = String(b.text || "");
-    for (const a of allow) if (a) t = t.split(new RegExp(String(a).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")).join(" ");
+    for (const a of allow) if (String(a || "").trim()) t = t.split(new RegExp(String(a).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"), "i")).join(" ");
     const w = words(t);
     if (w.length < 4) continue;
     const hits = w.filter((x) => ENGLISH.has(x)).length;
@@ -557,7 +558,7 @@ export function designProbeSource() {
   if (cells.length) { const bad = cells.filter((e) => !/tabular-nums/.test(cs(e).fontVariantNumeric) && !/tnum/.test(cs(e).fontFeatureSettings)); surfaces.push({ surface: "tabular-numerals", selector: bad[0] ? sel(bad[0]) : sel(cells[0]), problems: bad.length, note: `${bad.length} of ${cells.length} numeric table cell(s) lack tabular numerals` }); }
 
   // text blocks for the untranslated check
-  const textBlocks = texts.filter((e) => !e.closest("code,pre,kbd,samp,textarea,[translate=no]")).slice(0, 600).map((e) => ({ selector: sel(e), text: own(e).slice(0, 300) })).filter((b) => b.text.split(" ").length >= 4);
+  const textBlocks = texts.filter((e) => !e.closest("code,pre,kbd,samp,textarea,[translate=no]")).slice(0, 600).map((e) => ({ selector: sel(e), text: own(e).slice(0, 300), lang: e.closest("[lang]") && e.closest("[lang]") !== document.documentElement ? e.closest("[lang]").getAttribute("lang") || "" : "" })).filter((b) => b.text.split(" ").length >= 4);
 
   // ux (the high-severity rules a page can prove): alt text, form labels, control names, viewport meta
   const textOf = (id) => (document.getElementById(id)?.textContent || "").trim();

@@ -53,6 +53,12 @@ test("auditor: an empty hero, an untitled section, a system font and untranslate
 
 test("auditor helpers: untranslated blocks, vacuum, thresholds", () => {
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Bu sayfa the quick brown fox" }], ["the quick brown fox"]).length, 0);
+  // A352: English a criterion requires is declared (lang="en" on its element) or named in allow_text (white space of the criterion does not matter)
+  const fox = "the quick brown fox jumps over the lazy dog and this is it";
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: fox }]).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "en-GB", text: fox }]).length, 0);
+  assert.equal(untranslatedBlocks([{ selector: "p", lang: "tr", text: fox }]).length, 1);
+  assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the quick  brown fox\njumps over the lazy dog and this is it"]).length, 0);
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Merhaba dünya, bugün hava çok güzel" }]).length, 0);
   assert.equal(vacuumOf([{ top: 0, bottom: 100, selector: "a" }, { top: 1000, bottom: 1100, selector: "b" }], 800).ratio, 1.13);
   assert.equal(designHolds(2.5, ">= 3"), false);
