@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
+import { scopeEntriesOverlap } from '../../control-plane/agents/scripts/core/batch.mjs';
 import { test } from 'node:test';
 import {
   AB, batchApprove, behave, bnew, binstall, drive, fakes, lines, orderIds, put, readIf, summaryOf, writeFileSync,
@@ -98,24 +99,29 @@ function userSays(dir, name, text) {
   return `${at}-${name}.txt`;
 }
 
-test('B5 (d): a re-plan carries the user\'s split answer when the task and its scope list are the same, with its origin; a changed scope list asks again', () => {
+/** W-1 (wide, with a scope list) and W-2 planned; the user answered Q1 "do not split" in a captured message. @param {string} [reply] */
+function answered(reply = 'Q1: do not split\n') {
   const F = fakes(); const dir = bnew();
   task(dir, 'W-1', { scope: wide(18), context: 'First text.' });
   task(dir, 'W-2', { scope: ['src/p.js'] });
   planned(F, dir, ['W-1', 'W-2']);
   assert.match(summaryOf(dir), /\[W-1, split\]/);
   batchApprove(dir);
-  const msg = userSays(dir, 'aaaa0001', 'Q1: do not split\n');
+  const msg = userSays(dir, 'aaaa0001', reply);
   assert.equal(AB(F, dir, ['batch-answer']).status, 0);
-  const first = readIf(`${bdir(dir)}/SUMMARY.md`);
-  const oldId = sha(first).slice(0, 12);
-  // the plan is edited (Context text, so the plan hash and the number of paths named change) and planned again: a new batch id
-  task(dir, 'W-1', { scope: wide(18), context: 'Second text that is longer and names `src/extra.js` as well.' });
+  return { F, dir, msg, oldId: sha(summaryOf(dir)).slice(0, 12) };
+}
+const carriedRow = (/** @type {string} */ dir) => lines(`${bdir(dir)}/answers.tsv`).map((l) => l.split('\t')).find((f) => f[1] === 'W-1' && f[3] === 'split');
+
+test('B5 (d): a re-plan carries the user\'s split answer when the task file and its scope list are the same, with its origin', () => {
+  const { F, dir, msg, oldId } = answered();
+  // another task is edited and planned again: a new plan hash, a new batch id
+  task(dir, 'W-2', { scope: ['src/p.js', 'src/q.js'], context: 'Second text.' });
   const r = BP(F, dir, ['--replace', 'W-1', 'W-2']);
   assert.equal(r.status, 0, r.text);
   const newSum = summaryOf(dir);
   assert.notEqual(sha(newSum).slice(0, 12), oldId, 'the plan did not change');
-  const row = lines(`${bdir(dir)}/answers.tsv`).map((l) => l.split('\t')).find((f) => f[1] === 'W-1' && f[3] === 'split');
+  const row = carriedRow(dir);
   assert.ok(row, 'the answer was not carried to the new batch');
   assert.notEqual(row[0], oldId, 'the carried row is bound to the new batch id');
   assert.equal(row[4], 'b'); assert.equal(row[6], msg, 'the carried answer keeps the user\'s original message');
@@ -123,12 +129,74 @@ test('B5 (d): a re-plan carries the user\'s split answer when the task and its s
   assert.match(AB(F, dir, ['batch-answers', 'W-1']).out, /Q1 W-1 split: option b/);
   assert.match(newSum, new RegExp(`\\[W-1, split\\][^\\n]*\\n(?:    [^\\n]*\\n)*    answered by you earlier \\(option b, carried from batch ${oldId}`), 'the summary does not say the answer was carried');
   assert.match(readIf(`${bdir(dir)}/history/${oldId}/scopes.tsv`), /^W-1\t/m, 'the scope bindings of the old batch are archived');
-  // the scope list changes: the answer is not carried, the question is asked again
-  task(dir, 'W-1', { scope: [...wide(18), 'src/new.js'], context: 'Second text that is longer and names `src/extra.js` as well.' });
+});
+
+test('B5 (d): the answer is not carried when the scope list changes or when the task body grows although the scope list stays; a status line or report block does not matter', () => {
+  const { F, dir } = answered();
+  task(dir, 'W-1', { scope: [...wide(18), 'src/new.js'], context: 'First text.' });
   assert.equal(BP(F, dir, ['--replace', 'W-1', 'W-2']).status, 0);
-  assert.ok(!lines(`${bdir(dir)}/answers.tsv`).some((l) => l.split('\t')[1] === 'W-1'), 'an answer was carried over a changed scope list');
-  assert.match(summaryOf(dir), /\[W-1, split\]/);
-  assert.ok(!summaryOf(dir).includes('answered by you earlier'));
+  assert.ok(!carriedRow(dir), 'an answer was carried over a changed scope list');
+  assert.match(summaryOf(dir), /\[W-1, split\]/); assert.ok(!summaryOf(dir).includes('answered by you earlier'));
+  // the same on a fresh batch: the Goal, Acceptance criteria, Risks or Context grow while the list stays
+  const g = answered();
+  task(g.dir, 'W-1', { scope: wide(18), context: 'First text. It now also rewrites the whole renderer and adds a second converter.' });
+  assert.equal(BP(g.F, g.dir, ['--replace', 'W-1', 'W-2']).status, 0);
+  assert.ok(!carriedRow(g.dir), 'an answer was carried although the task body grew');
+  assert.ok(!summaryOf(g.dir).includes('answered by you earlier'));
+  // a Status line and a completion report block are not part of the task: the answer is carried
+  const h = answered();
+  const f = `${h.dir}/.agents/tasks/W-1.md`;
+  const t = readIf(f);
+  writeFileSync(f, t.replace('— title of W-1\n', '— title of W-1\n**Status:** in progress\n') + '<!-- COMPLETION-REPORT:BEGIN:W-1 -->\nreport\n<!-- COMPLETION-REPORT:END:W-1 -->\n');
+  assert.equal(BP(h.F, h.dir, ['--replace', 'W-1', 'W-2']).status, 0);
+  assert.ok(carriedRow(h.dir), 'a status line or a report block stopped the carry');
+});
+
+test('B5 (d): the original message is read again at carry time: it must still answer THAT question, and not be older than the summary that asked', () => {
+  // the recorded message file now says something that answers no question
+  const a = answered();
+  writeFileSync(`${a.dir}/.agents/local/prompts/history/${a.msg}`, 'thanks, looks fine\n');
+  assert.equal(BP(a.F, a.dir, ['--replace', 'W-1', 'W-2']).status, 0);
+  assert.ok(!carriedRow(a.dir), 'an answer was carried from a message that no longer answers the question');
+  // the message now gives another option to the question
+  const b = answered();
+  writeFileSync(`${b.dir}/.agents/local/prompts/history/${b.msg}`, 'Q1 a\n');
+  assert.equal(BP(b.F, b.dir, ['--replace', 'W-1', 'W-2']).status, 0);
+  assert.ok(!carriedRow(b.dir), 'an answer was carried from a message that says another option');
+  // a row that names a message older than the summary
+  const c = answered();
+  put(`${c.dir}/.agents/local/prompts/history/5-old00001.txt`, 'Q1: do not split\n');
+  const f = `${bdir(c.dir)}/answers.tsv`;
+  writeFileSync(f, readIf(f).replace(c.msg, '5-old00001.txt'));
+  assert.equal(BP(c.F, c.dir, ['--replace', 'W-1', 'W-2']).status, 0);
+  assert.ok(!carriedRow(c.dir), 'an answer was carried from a message older than the summary');
+});
+
+test('B5 (3): scope entries overlap when a glob and another entry may name one file: the literal directory before the first wildcard decides', () => {
+  const yes = [['src/**/*.ts', 'src/lib'], ['src/a*', '*.ts'], ['src/*/x.ts', 'src/lib/*.ts'], ['src/lib/', 'src/lib/a.ts'], ['src/a.ts', 'src/a.ts'], ['src/**', 'src/deep/er/f.go'], ['src/lib/a.js', 'src/lib/*.ts']];
+  const no = [['src/a.ts', 'src/b.ts'], ['docs/**/*.md', 'src/lib'], ['src/*.ts', 'test/*.ts'], ['src/lib/', 'src/libx/a.ts']];
+  for (const [a, b] of yes) { assert.equal(scopeEntriesOverlap(a, b), true, `${a} and ${b} may name one file`); assert.equal(scopeEntriesOverlap(b, a), true, `${b} and ${a}`); }
+  for (const [a, b] of no) { assert.equal(scopeEntriesOverlap(a, b), false, `${a} and ${b} cannot name one file`); assert.equal(scopeEntriesOverlap(b, a), false, `${b} and ${a}`); }
+  const F = fakes(); const dir = bnew();
+  task(dir, 'G-1', { scope: ['src/**/*.ts'] }); task(dir, 'G-2', { scope: ['src/lib/'] }); task(dir, 'G-3', { scope: ['docs/**/*.md', 'ops/run.sh'] });
+  planned(F, dir, ['G-1', 'G-2', 'G-3']); batchApprove(dir);
+  const t = nxt(F, dir);
+  assert.match(t, /^G-2 waiting shares src\/\*\*\/\*\.ts with G-1/m); assert.match(t, /^G-3 open/m);
+});
+
+test('B5 (4, 5): a flow list continued on the next line is read to its ], a whole-value parenthesis is a list, ids named A and N are kept, none and n/a mean none', () => {
+  const F = fakes(); const dir = bnew();
+  for (const id of ['A', 'N', 'T-1', 'T-2']) task(dir, id);
+  task(dir, 'T-3', { front: ['depends_on: [T-1,', '  T-2]'] });
+  task(dir, 'T-4', { front: ['depends_on: (T-1)'] });
+  task(dir, 'T-5', { front: ['depends_on: [A, N]'] });
+  task(dir, 'T-6', { front: ['depends_on: none'] });
+  task(dir, 'T-7', { front: ['depends_on: n/a'] });
+  task(dir, 'T-8', { front: ['depends_on: T-1 (the converter), N # why', 'priority: high'] });
+  planned(F, dir, ['A', 'N', 'T-1', 'T-2', 'T-3', 'T-4', 'T-5', 'T-6', 'T-7', 'T-8']);
+  const dep = Object.fromEntries(lines(`${bdir(dir)}/order.tsv`).map((l) => { const f = l.split('\t'); return [f[0], f[2]]; }));
+  assert.equal(dep['T-3'], 'T-1,T-2'); assert.equal(dep['T-4'], 'T-1'); assert.equal(dep['T-5'], 'A,N');
+  assert.equal(dep['T-6'], '-'); assert.equal(dep['T-7'], '-'); assert.equal(dep['T-8'], 'T-1,N');
 });
 
 test('B5 (d): nothing is carried without the user\'s recorded message, for another task, for another kind or when the task has no scope list', () => {

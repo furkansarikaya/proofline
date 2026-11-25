@@ -253,6 +253,24 @@ function ownState(ctx, id) {
 }
 
 /**
+ * Can two scope entries (a file, a folder or a glob) name the same file (A355)? Two plain entries: equal or one covers the other. When one is a glob, the literal
+ * directory before its first wildcard is compared with the other entry's (its own literal directory for a glob) and a prefix relation either way is an overlap: this
+ * serializes more than needed (`src/a*` against `*.ts` can be disjoint) and never runs two tasks that may touch one file side by side.
+ * @param {string} a @param {string} b
+ */
+export function scopeEntriesOverlap(a, b) {
+  const wild = (/** @type {string} */ e) => /[*?[]/.test(e);
+  if (!wild(a) && !wild(b)) return a === b || scopeEntryCovers(a, b) || scopeEntryCovers(b, a);
+  const dir = (/** @type {string} */ e) => {
+    const w = e.search(/[*?[]/);
+    const lit = w < 0 ? e : e.slice(0, w);
+    return (w < 0 ? lit : lit.slice(0, lit.lastIndexOf('/') + 1)).replace(/^\/+|\/+$/g, '');
+  };
+  const x = dir(a); const y = dir(b);
+  return x === '' || y === '' || x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
+}
+
+/**
  * `derive`: one row per task of order.tsv, in order: ID state detail question PR merge-epoch. State: merged, parked, skipped (a dependency is parked or
  * skipped), waiting (a dependency is still open) or open (detail: the action).
  * @param {Context} ctx @returns {Row[]}
@@ -294,7 +312,7 @@ export function derive(ctx) {
       if (s === '' && hasPaths) {
         // A355: the rows are scope entries (a file, a folder or a glob): two entries overlap when they are equal or one covers the other
         const mine = paths.filter((x) => x[0] === id).map((x) => x[1]);
-        const overlap = (/** @type {string} */ e) => mine.some((m) => m === e || scopeEntryCovers(m, e) || scopeEntryCovers(e, m));
+        const overlap = (/** @type {string} */ e) => mine.some((m) => scopeEntriesOverlap(m, e));
         for (const x of paths) {
           if (x[0] === id || !overlap(x[1])) continue;
           // only a task that comes EARLIER in the order and is not merged
@@ -561,6 +579,42 @@ function segmentOf(low, qn) {
   }
 }
 
+/** Does the lower-cased message say "all recommended"? @param {string} low */
+export function saysAllRecommended(low) {
+  const T = bytes('tümü'); const O = bytes('önerilen');
+  return new RegExp(`(all|every|hepsi|${T}|tumu)[^.]{0,20}(recommended|${O}|onerilen)|(recommended|${O}|onerilen)[^.]{0,12}(all|for all|hepsi|${T}|tumu)`).test(low);
+}
+/**
+ * The option letter a lower-cased user message gives to one pre-flight question (a row of lint.tsv), or '' when it answers none in a form this script understands or the
+ * letter is not one of the question's options. The one parser of `batch-answer` and of the check that a carried answer (A355) is still the user's answer to that question.
+ * @param {string} low @param {boolean} all @param {string[]} row
+ */
+export function answerLetter(low, all, row) {
+  const [qn, , qkind, , qopts, qrec] = row;
+  const O = bytes('önerilen');
+  const seg = segmentOf(low, qn);
+  let l = '';
+  if (seg !== '') {
+    const t = seg.replace(/^[ :.)=,-]*/, '');
+    const one = t.replace(new RegExp(`^(option|answer|choose|${bytes('seçenek')}|secenek) *`), '').replace(/[ ,.;)(-]*$/, '');
+    if (/^[a-e]$/.test(one)) l = one;
+    if (l === '') {
+      if (qkind === 'split') {
+        const BO = bytes('bölme'); const BOL = bytes('böl'); const HI = bytes('hayır');
+        if (new RegExp(`proceed without splitting|do not split|dont split|don.t split|no split|(^|[^a-z])(${BO}|bolme)([^a-z]|$)|${bytes('bölmeden')}|bolmeden`).test(t)) l = 'b';
+        else if (new RegExp(`^(no|${HI}|hayir)([^a-z]|$)`).test(t)) {
+          // a leading "no" that also says to split ("no problem, split it") is ambiguous: left unanswered, asked again at freeze
+          l = new RegExp(`(^|[^a-z])(split|${BOL}|bol)`).test(t) ? '' : 'b';
+        } else if (new RegExp(`(^|[^a-z])(split|${BOL}|bol|yes|evet|recommended|${O}|onerilen)([^a-z]|$)`).test(t) && !NEG_RE.test(t)) l = 'a';
+      } else if (new RegExp(`^(recommended|your recommendation|${O}|onerilen|yes|evet|ok|okay|keep)([^a-z]|$)`).test(t) && !NEG_RE.test(t)) l = qrec;
+      // question c of class: "standard" or "complex" in words
+      if (l === '' && qkind === 'class' && t.startsWith('standard')) l = 'b';
+    }
+  } else if (all) l = qrec;
+  if (l === '') return '';
+  return qopts.includes(`${l})`) ? l : '';
+}
+
 /** `batch-answer` (A200): record the user's answers from their newest captured message that is newer than the summary and not used by another answer. @param {Context} ctx */
 export function batchAnswer(ctx) {
   requireLead(ctx);
@@ -589,32 +643,12 @@ export function batchAnswer(ctx) {
   }
   if (pick === '') fail("batch: no captured user message since the summary answers a question (the user answers Q1, Q2 ... or says 'all recommended'; then run this again)");
   const low = asciiLower(rd(`${hist}/${Buffer.from(pick, 'latin1').toString('utf8')}`)).replace(/\n/g, ' ').replace(/ +/g, ' ');
-  const T = bytes('tümü'); const O = bytes('önerilen');
-  const all = new RegExp(`(all|every|hepsi|${T}|tumu)[^.]{0,20}(recommended|${O}|onerilen)|(recommended|${O}|onerilen)[^.]{0,12}(all|for all|hepsi|${T}|tumu)`).test(low);
+  const all = saysAllRecommended(low);
   let count = 0;
   for (const row of textLines(rd(`${bd}/lint.tsv`)).map((l) => l.split('\t'))) {
-    const [qn, qid, qkind, , qopts, qrec, qparam] = row;
-    const seg = segmentOf(low, qn);
-    let l = '';
-    if (seg !== '') {
-      const t = seg.replace(/^[ :.)=,-]*/, '');
-      const one = t.replace(new RegExp(`^(option|answer|choose|${bytes('seçenek')}|secenek) *`), '').replace(/[ ,.;)(-]*$/, '');
-      if (/^[a-e]$/.test(one)) l = one;
-      if (l === '') {
-        if (qkind === 'split') {
-          const BO = bytes('bölme'); const BOL = bytes('böl'); const HI = bytes('hayır');
-          if (new RegExp(`proceed without splitting|do not split|dont split|don.t split|no split|(^|[^a-z])(${BO}|bolme)([^a-z]|$)|${bytes('bölmeden')}|bolmeden`).test(t)) l = 'b';
-          else if (new RegExp(`^(no|${HI}|hayir)([^a-z]|$)`).test(t)) {
-            // a leading "no" that also says to split ("no problem, split it") is ambiguous: left unanswered, asked again at freeze
-            l = new RegExp(`(^|[^a-z])(split|${BOL}|bol)`).test(t) ? '' : 'b';
-          } else if (new RegExp(`(^|[^a-z])(split|${BOL}|bol|yes|evet|recommended|${O}|onerilen)([^a-z]|$)`).test(t) && !NEG_RE.test(t)) l = 'a';
-        } else if (new RegExp(`^(recommended|your recommendation|${O}|onerilen|yes|evet|ok|okay|keep)([^a-z]|$)`).test(t) && !NEG_RE.test(t)) l = qrec;
-        // question c of class: "standard" or "complex" in words
-        if (l === '' && qkind === 'class' && t.startsWith('standard')) l = 'b';
-      }
-    } else if (all) l = qrec;
+    const [qn, qid, qkind, , , , qparam] = row;
+    const l = answerLetter(low, all, row);
     if (l === '') continue;
-    if (!qopts.includes(`${l})`)) continue;
     const param = qkind === 'split' && l === 'b' ? qparam : '-';
     appendFileSync(`${bd}/answers.tsv`, `${b}\t${qid}\t${qn}\t${qkind}\t${l}\t${param}\t${pick}\n`);
     count++;

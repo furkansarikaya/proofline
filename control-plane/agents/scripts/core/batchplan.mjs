@@ -16,7 +16,7 @@ import { PathKinds } from './pathkind.mjs';
 import { readBytes, textLines } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { scopeEntries, scopeEntryCovers, taskType } from './taskfile.mjs';
-import { PLUG_LINE, agentCall, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
+import { PLUG_LINE, agentCall, answerLetter, saysAllRecommended, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
 import { now } from './clock.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
@@ -36,20 +36,29 @@ function clsOf(text) {
   return '';
 }
 /**
- * `deps_of FILE` (A355): the depends_on front matter value, comma-joined. The value is an inline list (`[A, "B"]` or `A, B`), a block list (`- A` lines under the key), with a
- * trailing `# comment` or a remark in parentheses; every word that is an ID (letters, digits, `_`, `-`) is a dependency.
+ * `deps_of FILE` (A355): the depends_on front matter value, comma-joined. The value is an inline list (`[A, "B"]` or `A, B`, a `[` list may continue on the next lines up to
+ * its `]`), a block list (`- A` lines under the key), with a trailing `# comment` or a remark in parentheses (a value that is only parenthesised is a list); every word that
+ * is an ID (letters, digits, `_`, `-`) is a dependency. The words none, null and na, and n/a, say there is none.
  * @param {string} text
  */
 function depsOf(text) {
-  let fm = false; let inKey = false;
+  let fm = false; let inKey = false; let open = false;
   /** @type {string[]} */ const words = [];
-  const take = (/** @type {string} */ v) => { for (const w of v.replace(/#.*$/, '').replace(/\([^)]*\)/g, ' ').matchAll(/[A-Za-z0-9][A-Za-z0-9_-]*/g)) words.push(w[0]); };
+  const take = (/** @type {string} */ v) => {
+    let t = v.replace(/#.*$/, '').trim();
+    if (/^\([^()]*\)$/.test(t)) t = t.slice(1, -1);
+    t = t.replace(/\([^)]*\)/g, ' ').replace(/\bn\/a\b/gi, ' ');
+    for (const w of t.matchAll(/[A-Za-z0-9][A-Za-z0-9_-]*/g)) words.push(w[0]);
+    if (t.includes('[')) open = !t.includes(']');
+    else if (open && t.includes(']')) open = false;
+  };
   const rows = lt(text);
   for (let i = 0; i < rows.length; i++) {
     const l = rows[i];
     if (i > 0 && l.startsWith('## ')) break;
     if (/^---[ \t\n\v\f\r]*$/.test(l)) { if (inKey) break; fm = !fm; continue; }
     if (!fm) continue;
+    if (open) { take(l); continue; }
     if (inKey) {
       const m = /^[ \t]*-[ \t]+(.*)$/.exec(l);
       if (m) { take(m[1]); continue; }
@@ -58,7 +67,7 @@ function depsOf(text) {
     }
     if (l.startsWith('depends_on:')) { take(l.slice('depends_on:'.length)); inKey = true; }
   }
-  return [...new Set(words.filter((w) => !/^(none|null|n|a|na)$/i.test(w)))].join(',');
+  return [...new Set(words.filter((w) => !/^(none|null|na)$/i.test(w)))].join(',');
 }
 /** `prio_of FILE` (A202): front matter `priority: high|medium|low` as a rank (1 high, 2 medium, 3 low); medium when absent. @param {string} text */
 function prioOf(text) {
@@ -97,10 +106,23 @@ function scopeList(text) {
   for (const [h, prefix] of SCOPE_LISTS) for (const e of scopeEntries(text, h, prefix)) out.add(e);
   return [...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
-/** The binding of a task's pre-flight answers to its scope list (A355): the sha256 of the list; '' for a task without a list, which binds nothing. @param {string} text */
+/**
+ * The binding of a task's pre-flight answers (A355): the sha256 of its scope list and the sha256 of its whole task file but for the `**Status:**` line and the completion-report
+ * blocks (so a Goal, a criterion, a risk or a Context that grows is a different task), joined by a tab; '' for a task without a scope list, which binds nothing.
+ * @param {string} text
+ */
 function scopeBinding(text) {
   const l = scopeList(text);
-  return l.length === 0 ? '' : sha256Text(l.join('\n'));
+  if (l.length === 0) return '';
+  let skip = false;
+  /** @type {string[]} */ const keep = [];
+  for (const ln of lt(text)) {
+    if (/^<!-- COMPLETION-REPORT:BEGIN/.test(ln)) { skip = true; continue; }
+    if (/^<!-- COMPLETION-REPORT:END/.test(ln)) { skip = false; continue; }
+    if (skip || /^\*\*Status:\*\*/.test(ln)) continue;
+    keep.push(ln.replace(/[ \t]+$/, ''));
+  }
+  return `${sha256Text(l.join('\n'))}\t${sha256Text(keep.join('\n'))}`;
 }
 
 /** Is the section HEAD of the text present with at least one non-empty line? @param {string} text @param {string} head */
@@ -218,22 +240,23 @@ export function batchPlan(ctx, argv) {
 
 /** The pre-flight kinds whose answer is carried to a re-planned batch: the answer is about the task and its scope list, not about its size or the plan's hash (A355). */
 const CARRIED_KINDS = ['split', 'scope'];
-/** @typedef {{ id: string, answers: string[][], scopes: Map<string, string>, lint: string[][] }} Previous */
+/** @typedef {{ id: string, at: number, answers: string[][], scopes: Map<string, string>, lint: string[][] }} Previous */
 /**
  * The batch in force before this plan: its id, the user's answers recorded for it, the scope binding of each task and its questions. Empty when it has no scope record
  * (a batch planned before A355 carries nothing: fail safe). @param {Context} ctx @param {string} bd @returns {Previous}
  */
 function previousAnswers(ctx, bd) {
-  /** @type {Previous} */ const none = { id: '', answers: [], scopes: new Map(), lint: [] };
+  /** @type {Previous} */ const none = { id: '', at: 0, answers: [], scopes: new Map(), lint: [] };
   if (!(isFile(`${bd}/SUMMARY.md`) && isFile(`${bd}/answers.tsv`) && isFile(`${bd}/scopes.tsv`))) return none;
   const id = bid(ctx);
   const rows = (/** @type {string} */ f) => textLines(rd(f)).map((l) => l.split('\t'));
-  return { id, answers: rows(`${bd}/answers.tsv`).filter((f) => f[0] === id), scopes: new Map(rows(`${bd}/scopes.tsv`).map((f) => [f[0], f[1] ?? ''])), lint: rows(`${bd}/lint.tsv`) };
+  return { id, at: Math.floor(statSync(`${bd}/SUMMARY.md`).mtimeMs / 1000), answers: rows(`${bd}/answers.tsv`).filter((f) => f[0] === id), scopes: new Map(rows(`${bd}/scopes.tsv`).map((f) => [f[0], `${f[1] ?? ''}\t${f[2] ?? ''}`])), lint: rows(`${bd}/lint.tsv`) };
 }
 /**
  * The answers of the previous batch that still hold for this plan (A355), by question number of this plan. An answer is carried only when ALL of this holds: its kind is
  * split or scope; the task has a scope list and it is byte for byte the list the answer was given for; for a scope question the question names the same paths; the
- * recorded option still exists; and the user's message it came from is still in the recorded prompt history. Anything else is asked again at freeze, as before.
+ * recorded option still exists; the task file (but for its status and report) is the one the answer was given for; and the user's message it came from is still in the recorded
+ * prompt history, is not older than the summary that asked, and read by the `batch-answer` parser gives the same option to THAT question. Anything else is asked again at freeze.
  * @param {Context} ctx @param {Previous} prev @param {string[][]} lintRows @param {Map<string, string>} bindings
  * @returns {Map<string, { id: string, kind: string, letter: string, param: string, msg: string }>}
  */
@@ -251,7 +274,15 @@ function carryAnswers(ctx, prev, lintRows, bindings) {
     const letter = a[4] ?? ''; const msg = a[6] ?? '';
     if (!/^[a-e]$/.test(letter) || !opts.includes(`${letter})`)) continue;
     if (msg === '' || /[/\\]/.test(msg) || !isFile(`${hist}/${msg}`)) continue;
-    if (kind === 'scope') { const q = prev.lint.find((f) => f[0] === a[2] && f[1] === id && f[2] === kind); if (q === undefined || q[3] !== text) continue; }
+    const q = prev.lint.find((f) => f[0] === a[2] && f[1] === id && f[2] === kind);
+    if (q === undefined) continue;
+    if (kind === 'scope' && q[3] !== text) continue;
+    const at = Number(msg.slice(0, msg.indexOf('-')));
+    if (!Number.isInteger(at) || at < prev.at) continue;
+    const raw = rd(`${hist}/${msg}`);
+    if (!/[^ \t\n\v\f\r]/.test(raw) || raw.startsWith('<task-notification>')) continue;
+    const low = asciiLower(raw).replace(/\n/g, ' ').replace(/ +/g, ' ');
+    if (answerLetter(low, saysAllRecommended(low), q) !== letter) continue;
     out.set(qn, { id, kind, letter, param: a[5] ?? '-', msg });
   }
   return out;
