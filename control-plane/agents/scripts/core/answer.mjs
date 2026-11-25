@@ -4,7 +4,7 @@
 import { statusBlockUpdate } from './statusblock.mjs';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
-import { approvalNormSpace, latestCapture, quoteLines, sortedNames } from './approvals.mjs';
+import { approvalNormSpace, latestCapture, quoteLines, sortedNames, textHasApproval, validApprovalKind } from './approvals.mjs';
 import { captureField, safeSession } from './capture.mjs';
 import { requireLead } from './approve.mjs';
 import { fail } from './errors.mjs';
@@ -95,7 +95,84 @@ export function matchesAcceptedForm(norm, lines) {
   return !hedgedText(` ${msg.slice(hits[0].length)} `);
 }
 
-const TOKEN_LINE = /^[ \t\n\v\f\r]*ASSUMPTION: ([^ \t\n\v\f\r]*)[ \t\n\v\f\r]*$/;
+// ---- an answer beside approvals in one message (A350) -------------------------------------------------------------------------------------------------------
+
+const PLAIN_KINDS = ['plan', 'destructive', 'single_step', 'scope', 'budget', 'mutation_budget', 'tree', 'commit', 'push', 'pr', 'merge', 'cleanup', 'report', 'commands', 'rename', 'known-issue', 'scale', 'delivery'];
+/** `soru 1:`, `question 1:`, `q1)` at the start of a segment: the answer is for that question number. */
+const QPREFIX = /^(?:soru|question|q)[ \t]*([0-9]+)[ \t]*[:.)-][ \t]*/i;
+
+/** The kinds a segment may approve: the plain kinds and the kinds of the requests on record (`kind:` of every request file of the run and of the shared folder). @param {Context} ctx @param {string} runId */
+function approvalKindsOf(ctx, runId) {
+  const kinds = new Set(PLAIN_KINDS);
+  const dirs = [`${sharedDirOf(ctx, 'approvals')}`];
+  if (runId !== '' && runId !== '-') dirs.push(`${runDir(ctx, runId)}/approvals`);
+  for (const d of dirs) for (const n of sortedNames(d, /^[0-9]{3}-request-.*\.yaml$/)) { const k = gateField(ctx, `${d}/${n}`, 'kind'); if (validApprovalKind(k)) kinds.add(k); }
+  return [...kinds];
+}
+
+/** Is this segment one approval phrase of some kind (every word is a phrase, a filler or a kind word, a kind word is present)? A lexical test: it records nothing. @param {Context} ctx @param {string} runId @param {string} seg */
+export function isApprovalSegment(ctx, runId, seg) {
+  const kinds = approvalKindsOf(ctx, runId);
+  return kinds.some((k) => textHasApproval(ctx, `${seg}\n`, k, '', kinds));
+}
+
+/** The form an option letter stands for (`a) "böl" | b) "devam"` gives "böl" for `a`), or null. @param {string[]} lines @param {string} letter folded, one letter */
+function labelForm(lines, letter) {
+  const opt = optionsLine(lines);
+  if (opt === null) return null;
+  for (const x of opt.slice(opt.indexOf(':') + 1).split('|')) {
+    const m = /^\s*([a-z])\)\s*(.*)$/i.exec(x);
+    if (m && fold(m[1]) === letter) { const f = (/"([^"]+)"/.exec(m[2])?.[1] ?? m[2].trim().replace(/^['`]|['`]$/g, '')).trim(); return f === '' ? null : f; }
+  }
+  return null;
+}
+
+/** The part of a segment after its `soru N:` prefix, and the form a letter stands for: null when the prefix names another question. @param {string} seg byte string @param {string[]} lines @param {number} n */
+function afterPrefix(seg, lines, n) {
+  const t = seg.trim();
+  const m = QPREFIX.exec(t);
+  if (!m) return { rest: t, prefixed: false };
+  if (Number(m[1]) !== n) return null;
+  const rest = t.slice(m[0].length).trim();
+  const f = labelForm(lines, fold(text(rest)));
+  return { rest: f === null ? rest : bytes(f), prefixed: true };
+}
+
+/** Does this segment answer an open user-only question of the run (an accepted form, or `soru N: <form or option letter>`)? @param {Context} ctx @param {string} runId @param {string} seg */
+export function answersOpenQuestion(ctx, runId, seg) {
+  if (runId === '' || runId === '-') return false;
+  const dir = runDir(ctx, runId);
+  for (const f of sortedNames(`${dir}/questions`, /^[0-9]{3}\.md$/)) {
+    if (existsSync(`${dir}/questions/${f.slice(0, -3)}.answer.md`)) continue;
+    const lines = fileLines(ctx, `${dir}/questions/${f}`);
+    if (userOnlyKind(lines) === '') continue;
+    const a = afterPrefix(seg, lines, Number(f.slice(0, 3)));
+    if (a !== null && matchesAcceptedForm(approvalNormSpace(a.rest), lines)) return true;
+  }
+  return false;
+}
+
+/**
+ * A message that holds approvals beside the answer: the approval segments (split on `;`, `,` and lines) are dropped and a `soru N:` prefix is removed; what is left is checked
+ * like any answer (one accepted form, no hedge). Null when nothing changed or nothing is left. The message is the user's own text; nothing is recorded from here.
+ * @param {Context} ctx @param {string} runId @param {string} message byte string @param {string[]} lines @param {number} n
+ */
+export function reduceToAnswer(ctx, runId, message, lines, n) {
+  const parts = message.split(/([;,\n])/);
+  /** @type {Array<{ sep: string, piece: string }>} */ const kept = [];
+  let changed = false;
+  for (let i = 0; i < parts.length; i += 2) {
+    if (parts[i].trim() === '' || isApprovalSegment(ctx, runId, parts[i])) { changed = true; continue; }
+    kept.push({ sep: i > 0 ? parts[i - 1] : '', piece: parts[i] });
+  }
+  if (kept.length === 0) return null;
+  const joined = kept.map((k, i) => (i === 0 ? '' : k.sep) + k.piece).join('');
+  const a = afterPrefix(joined, lines, n);
+  if (a === null) return null;
+  return changed || a.prefixed ? a.rest : null;
+}
+
+const TOKEN_LINE =/^[ \t\n\v\f\r]*ASSUMPTION: ([^ \t\n\v\f\r]*)[ \t\n\v\f\r]*$/;
 
 /** `epoch_iso` @param {string} e */
 function epochIso(e) { return /^[0-9]+$/.test(e) ? new Date(Number(e) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z') : e; }
@@ -147,7 +224,7 @@ export function answer(ctx, args) {
   const tokLine = fileLines(ctx, q).map((l) => TOKEN_LINE.exec(l)).find((m) => m !== null);
   const tok = tokLine ? tokLine[1] : '';
   const tokId = tok.includes('@') ? tok.slice(0, tok.lastIndexOf('@')) : tok;
-  let acc = false; let by = 'lead';
+  let acc = false; let by = 'lead'; let resolved = '';   // resolved: the answer that was found inside a message that also held approvals (A350)
   let asked = gateField(ctx, q, 'asked_at'); if (!/^[0-9]+$/.test(asked)) asked = '';
   const norm = approvalNormSpace(text);
   const qtext = fileLines(ctx, q);
@@ -157,7 +234,10 @@ export function answer(ctx, args) {
     else if (tok === '' && userOnlyKind(qtext) !== '') {
       // a split override or another user-only question: the single open one, answered by one of the forms the question lists
       if (openUserOnly(ctx, dir) !== 1) fail(`question ${n} is not the only open user-only question: ask the user again`);
-      if (!matchesAcceptedForm(norm, qtext)) fail(`this message is not one of the accepted answers of question ${n} (accepted: ${acceptedForms(qtext).map((f) => `"${f}"`).join(' | ')}; nothing is recorded; ask the user again)`);
+      // A350: the message may hold approvals beside the answer ("approve scope; böl", "approve plan, soru 1: b"): the approval segments are not part of the answer
+      const reduced = matchesAcceptedForm(norm, qtext) ? norm : reduceToAnswer(ctx, id, text, qtext, Number(n.replace(/^0+/, '') || '0'));
+      if (reduced !== norm && reduced !== null) resolved = reduced;
+      if (reduced === null || !matchesAcceptedForm(approvalNormSpace(reduced), qtext)) fail(`this message is not one of the accepted answers of question ${n} (accepted: ${acceptedForms(qtext).map((f) => `"${f}"`).join(' | ')}; nothing is recorded; ask the user again)`);
       acc = true;
     } else if (tok === '') fail(`question ${n} is not a question the user answers through the prompt hook (the lead types the answer; it is recorded as the lead's)`);
     // the prompt hook tries every open user-only question with each message it handles: it records an acceptance or an accepted form and nothing else
@@ -166,7 +246,7 @@ export function answer(ctx, args) {
   let body = text;
   if (tok !== '' && /^accept/i.test(norm)) {
     if (acc) body = `accept ${tokId}\n`; else by = 'lead';
-  } else if (by === 'user') body = quoteLines(text);
+  } else if (by === 'user') body = `${quoteLines(text)}${resolved !== '' ? `${text.endsWith('\n') ? '' : '\n'}answer: ${resolved.replace(/[\n\r]+/g, ' ')}\n` : ''}`;
   let amends = '';
   if (amend) {
     let k = 1;

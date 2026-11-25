@@ -273,12 +273,33 @@ export function approvalExample(kind) {
 }
 
 /**
+ * The run ids a reply may name (A350): the runs of this tree, of the main tree and of the worktrees under it, normalised like the reply (one word each; a hyphen and an
+ * underscore stay). Folder names only: a run is named by its id, never by anything an agent wrote.
+ * @param {Context} ctx @returns {Set<string>}
+ */
+export function knownRunWords(ctx) {
+  /** @type {Set<string>} */ const out = new Set();
+  /** @param {string} d */
+  const add = (d) => { for (const n of sortedNames(d, /^[A-Za-z0-9_-]+$/)) out.add(approvalNorm(n)); };
+  if (typeof ctx.root !== 'string' || typeof ctx.sharedMain !== 'function') return out;   // a lexical check without a project (the e2e grammar probe) knows no runs
+  add(`${ctx.root}/.agents/runs`);
+  const main = ctx.sharedMain();
+  add(`${main}/.agents/runs`);
+  const wt = `${main}/.agents/local/worktrees`;
+  for (const w of sortedNames(wt, /^[A-Za-z0-9_.-]+$/)) add(`${wt}/${w}/.agents/runs`);
+  return out;
+}
+
+/**
  * `text_has_approval TEXTFILE KIND [RUNID]` on the text itself: a positive grammar (A108). After normalisation every word must be a word of an
  * allowlisted phrase, of the kind's own words or a filler; the reply holds a whole phrase and a kind word, and no question mark. Any other word
  * makes it ambiguous. A reply equal to a full approval sentence of the kind approves as it is.
- * @param {Context} ctx @param {string} rawText the text as read from the file (a byte string) @param {string} kind @param {string} [runId]
+ * A350: (a) a word that is the id of a run (a folder name, `knownRunWords`) may stand in the reply, but only when the reply names the run it is checked for (RUNID): a reply that names
+ * other runs and not this one approves nothing here; a RUNID of `-` (no run) allows no run name; RUNID '' (a lexical check) allows any run name. (b) WITHKINDS: the words of other
+ * open kinds are allowed beside the kind's own, so one phrase may approve several open kinds ("approve plan and scope"), but each kind must be named: its own word is still required.
+ * @param {Context} ctx @param {string} rawText the text as read from the file (a byte string) @param {string} kind @param {string} [runId] @param {string[]} [withKinds]
  */
-export function textHasApproval(ctx, rawText, kind, runId = '') {
+export function textHasApproval(ctx, rawText, kind, runId = '', withKinds = []) {
   const raw = rawText.replace(/\n+$/, '');
   if (raw.includes('?')) return false;
   const n = approvalNorm(`${raw}\n`);
@@ -288,10 +309,18 @@ export function textHasApproval(ctx, rawText, kind, runId = '') {
   if (full.includes(n)) return true;
   const pl = approvalPhrases(ctx).split(',').map(approvalNorm);
   const kw = approvalNorm(`${kindWords(kind)}\n`);
-  const ok = ` ${pl.join(' ').replace(/ +$/, '')} ${kw} ${approvalNorm(`${FILLERS_BYTES}\n`)} `;
+  const more = withKinds.map((k) => approvalNorm(`${kindWords(k)}\n`)).join(' ');
+  const ok = ` ${pl.join(' ').replace(/ +$/, '')} ${kw} ${more} ${approvalNorm(`${FILLERS_BYTES}\n`)} `;
   // `tha_pl` is a command substitution: trailing newlines are gone, so a trailing empty phrase vanishes with them
   const okWords = new Set(ok.split(' ').filter((w) => w !== ''));
-  for (const t of n.split(' ')) if (!okWords.has(t)) return false;
+  /** @type {Set<string> | null} */ let runs = null;
+  /** @type {Set<string>} */ const named = new Set();
+  for (const t of n.split(' ')) {
+    if (okWords.has(t)) continue;
+    if (runId !== '-') { runs ??= knownRunWords(ctx); if (runs.has(t)) { named.add(t); continue; } }
+    return false;
+  }
+  if (named.size > 0 && runId !== '' && !named.has(approvalNorm(runId))) return false;
   let hit = false;
   for (const p of pl) { if (p !== '' && low.includes(` ${p} `)) { hit = true; break; } }
   if (!hit) return false;

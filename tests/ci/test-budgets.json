@@ -1223,6 +1223,14 @@
     "tests/skills/visual-proof.test.mjs": {
       "test_ms": 45000,
       "suite_ms": 50000
+    },
+    "tests/core/approval-runs.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 40000
+    },
+    "tests/hook/prompt-approval-multi.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 40000
     }
   }
 }

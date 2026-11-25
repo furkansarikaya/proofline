@@ -16,6 +16,7 @@ import {
   findApproval, kindSlug, kindWords, latestCapture, latestRequest, promptsDir, safeStateFile, seq3, sharedDirOf, sortedNames, textHasApproval, validApprovalKind,
   APPROVAL_FILLERS, rationaleLineIn, DESIGN_MD_CANDIDATES,
 } from './approvals.mjs';
+import { answersOpenQuestion } from './answer.mjs';
 import { blockingFindingIds, gateFocusStatus, gateLatestFile, requiredGates, taskPatchFingerprint } from './gates.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { sha256, sha256File } from './hash.mjs';
@@ -266,14 +267,14 @@ export function approvalMultiScan(ctx, text, runId, sha) {
     if (/^(```|~~~)/.test(t)) { if (!fence) { fence = true; seg.push(['Q', t.slice(0, 40)]); } else fence = false; continue; }
     if (fence) continue;
     if (t.startsWith('>')) { seg.push(['Q', t.slice(0, 40)]); continue; }
-    for (const part of line.split(',')) {
+    for (const part of line.split(/[,;]/)) {   // A350: `;` separates like `,` and a line
       const s = trimSp(part);
       if (s === '') continue;
       seg.push([s.split(/ +/).filter((w) => w !== '').length > 16 ? 'L' : 'T', s.slice(0, 200)]);
     }
   }
   const no = `M${TAB}no${TAB}${sha}\n`;
-  if (seg.length < 2) return no;
+  if (seg.length < 1) return no;   // A350: ONE segment may name several open kinds ("approve plan and scope"); a lone segment that approves fewer than two is left to the plain path below
   /** @type {string[]} */ const pg = [];
   const pairs = [...new Set(approvalPendingPairs(ctx, runId).map(([t, k]) => `${t} ${k}`))].sort();
   for (const p of pairs) { const [t, k] = [p.slice(0, p.indexOf(' ')), p.slice(p.indexOf(' ') + 1)]; if (k !== '') pg.push(`${t}|${approvalWords(ctx, t, k)}|${k}`); }
@@ -283,6 +284,8 @@ export function approvalMultiScan(ctx, text, runId, sha) {
   const pl = approvalPhrases(ctx).split(',').map(approvalNorm);
   let i = 0; let nok = 0; let nnop = 0; let over = 0; let out = ''; let acc = ''; let rj = ''; let veto = false;
   const parse = (/** @type {string} */ p) => { const pt = p.slice(0, p.indexOf('|')); const pr = p.slice(p.indexOf('|') + 1); return { pt, pw: pr.slice(0, pr.indexOf('|')), pk: pr.slice(pr.indexOf('|') + 1) }; };
+  // the words of every open kind: a segment may name several of them, each by its own word (never a blanket "approve everything")
+  const named = [...new Set(pg.map((p) => parse(p).pw))];
   for (const [ty, s] of seg) {
     if (ty === 'Q') { out += `S${TAB}no${TAB}quoted or pasted text is never an approval${TAB}${s}\n`; continue; }
     i++;
@@ -294,11 +297,13 @@ export function approvalMultiScan(ctx, text, runId, sha) {
         const { pt, pw, pk } = parse(p);
         const key = `${pt}|${pw}`;
         let r = cache.get(key);
-        if (r === undefined) { r = textHasApproval(ctx, `${s}\n`, pw, pt); cache.set(key, r); }
+        if (r === undefined) { r = textHasApproval(ctx, `${s}\n`, pw, pt, named); cache.set(key, r); }
         if (r) hit += ` ${pt}|${pk}`;
       }
     }
     if (hit !== '') { nok++; acc += hit; out += `S${TAB}ok${TAB}${hit.slice(1)}${TAB}${s}\n`; continue; }
+    // A350: the answer to a pending user-only question ("böl", "soru 1: a") beside approvals is neither an approval nor a hedge: it is recorded as the user's answer by the hook's own `answer --captured`
+    if (ty === 'T' && !s.includes('?') && answersOpenQuestion(ctx, runId, s)) { out += `S${TAB}ans${TAB}answer to a pending question${TAB}${s}\n`; continue; }
     const n = approvalNorm(`${s}\n`);
     const neg = n.split(' ').some((w) => w !== '' && HEDGE.includes(` ${w} `));
     const low = ` ${n} `;
@@ -321,6 +326,7 @@ export function approvalMultiScan(ctx, text, runId, sha) {
     out += `S${TAB}no${TAB}${why}${TAB}${s}\n`;
   }
   if (over > 0) out += `S${TAB}no${TAB}more than ${maxN} approvals in one message (limit ${maxN})${TAB}${over} extra segment(s)\n`;
+  if (seg.length === 1 && new Set(acc.split(/[ \t\n]+/).filter((x) => x !== '')).size < 2) return no;
   let mode = 'no'; let quiet = '';
   for (const a of acc.split(/[ \t\n]+/).filter((x) => x !== '')) if (`\n${rj}`.includes(` ${a}`) || `\n${rj}`.includes(`\n${a}`)) veto = true;
   if (veto) { /* no */ } else if (nok >= 2 || (nok >= 1 && nnop === 0)) mode = 'yes';
@@ -349,7 +355,7 @@ export function approvalScanReport(scan, nrec) {
   /** @type {string[]} */ const m = [];
   for (const l of scan.split('\n')) {
     const f = l.split(TAB);
-    if (f[0] !== 'S') continue;
+    if (f[0] !== 'S' || f[1] === 'ans') continue;
     t++;
     if (f[1] === 'ok') k++; else m.push(`multi: not recorded: ${(f[3] ?? '').slice(0, 60)}: ${f[2] ?? ''}`);
   }

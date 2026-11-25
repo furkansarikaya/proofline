@@ -194,10 +194,14 @@ Further kinds (A200): `rationale:<pattern-id>` approves one design rationale and
 recorded only from your reply. Only such an approved rationale can downgrade a visual finding; an agent-written one never does. A visual PASS also needs an
 independent `reviews/visual-proof/report.json` that says PASS, and a FAIL or INCONCLUSIVE report never counts as PASS.
 
-**Several approvals in one message (A202).** When the whole message is not one approval, it is split only on commas and newlines and
-each segment goes through the same strict check; every approved segment is its own record bound to the same captured message (at most
-`approval.max_per_message`, 8). A rejected segment prints `not recorded: <segment>: <reason>`; a negated, hedged or retracting segment
-vetoes the whole message. Recording comes first: the hook copies your message to `.agents/local/prompts/intake/` before any parse, git or
+**Several approvals in one message (A202, A350).** When the whole message is not one approval, it is split only on commas, semicolons and newlines
+("approve scope; approve budget") and each segment goes through the same strict check; every approved segment is its own record bound to the same captured message (at most
+`approval.max_per_message`, 8). One phrase may approve several open kinds only when it names each kind ("approve plan and scope"); "approve everything" or "approve all"
+approves none. A rejected segment prints `not recorded: <segment>: <reason>`; a negated, hedged or retracting segment
+vetoes the whole message. A segment that is the answer to a pending user-only question (one of its listed forms, or `soru 1: a` / `question 1: a` for the option labelled `a)`) may stand beside the approvals: the
+hook records it as your answer (`answered_by: user`) from the same message; a hedged rest ("böl, but wait") records nothing.
+Only a request that no approval answers yet counts as waiting. When several runs wait, name the run: a run id may follow the kind word ("approve scope TASK-004 TASK-010"
+approves those two runs); a name that is not a run, or a reply that names other runs and not this one, approves nothing. Recording comes first: the hook copies your message to `.agents/local/prompts/intake/` before any parse, git or
 scan, so the size of a run cannot lose an approval (`hook.approve_budget_seconds`, `doctor` times it). Limits: [timeouts](timeouts.md).
 
 ## Recovering a tree that changed outside the run

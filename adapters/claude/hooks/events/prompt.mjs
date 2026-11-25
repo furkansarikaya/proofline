@@ -10,6 +10,36 @@ import { jesc, jgetRaw, safe, sha256 } from '../lib/text.mjs';
 
 const REQUEST = /^[0-9]{3}-request-.*\.yaml$/;
 
+/**
+ * Is a request really open in this approvals folder (A350)? A request counts only while no approval of its kind answers it: the newest request file of a kind
+ * (`NNN-request-<slug>.yaml`) is open when no approval file `MMM-<slug>.yaml` has MMM >= NNN (the rule of the core's `pendingRequest`). An answered request file
+ * stays on disk as history and is not waiting for anything.
+ * @param {string} dir
+ */
+function hasOpenRequest(dir) {
+  const all = names(dir);
+  /** @type {Map<string, string>} */ const newest = new Map();   // slug -> highest request number
+  for (const n of all) {
+    const m = /^([0-9]{3})-request-(.*)\.yaml$/.exec(n);
+    if (!m || !isFile(`${dir}/${n}`)) continue;
+    if (m[1] > (newest.get(m[2]) ?? '')) newest.set(m[2], m[1]);
+  }
+  for (const [slug, num] of newest) {
+    const answered = all.some((n) => { const a = /^([0-9]{3})-(.*)\.yaml$/.exec(n); return a !== null && a[2] === slug && a[1] >= num; });
+    if (!answered) return true;
+  }
+  return false;
+}
+
+/** Does the reply name the run as a whole word (case folded; a run id is letters, digits, `-` and `_`)? `W-1` is not named by `W-10`. @param {string} reply @param {string} run */
+function namesRun(reply, run) {
+  const low = reply.toLowerCase(); const id = run.toLowerCase();
+  for (let i = low.indexOf(id); i !== -1; i = low.indexOf(id, i + 1)) {
+    if (!/[a-z0-9_-]/.test(low[i - 1] ?? ' ') && !/[a-z0-9_-]/.test(low[i + id.length] ?? ' ')) return true;
+  }
+  return false;
+}
+
 /** Does any file under one of the folders hold the text? (`grep -rlF`) @param {string[]} dirs @param {string} needle */
 function anyFileHolds(dirs, needle) {
   /** @param {string} d @returns {boolean} */
@@ -82,7 +112,7 @@ export async function handle(ctx) {
   let msgs = '';
   const budgetMs = ctx.approveBudget * 1000;
   let used = 0; // milliseconds of the approval budget spent so far
-  const requestOpen = [`${ctx.sroot}/.agents/runs/${ctx.act}/approvals`, `${ctx.sharedLocal}/approvals`].some((d) => names(d).some((n) => REQUEST.test(n) && isFile(`${d}/${n}`)));
+  const requestOpen = [`${ctx.sroot}/.agents/runs/${ctx.act}/approvals`, `${ctx.sharedLocal}/approvals`].some(hasOpenRequest);
   /** @param {string} run @param {string} tree */
   const timeoutMsg = (run, tree) => (anyFileHolds([`${tree}/.agents/runs/${run}/approvals`, `${ctx.sharedLocal}/approvals`], `capture_id: "${sess}:${capS}:${h}"`)
     ? "proofline: your approval was recorded (the approval step ran past the hook's time budget but finished writing it)."
@@ -109,7 +139,7 @@ export async function handle(ctx) {
   for (const d of names(wtRoot)) {
     const wlD = `${wtRoot}/${d}`;
     for (const run of names(`${wlD}/.agents/runs`)) {
-      if (!names(`${wlD}/.agents/runs/${run}/approvals`).some((n) => REQUEST.test(n) && isFile(`${wlD}/.agents/runs/${run}/approvals/${n}`))) continue;
+      if (!hasOpenRequest(`${wlD}/.agents/runs/${run}/approvals`)) continue;
       if (wlD === ctx.sroot || run === '' || /[^A-Za-z0-9_-]/.test(run)) continue;
       if (wl.some(([a, b]) => a === wlD && b === run)) continue;
       wl.push([wlD, run]);
@@ -121,7 +151,7 @@ export async function handle(ctx) {
     const n = wl.length + (requestOpen ? 1 : 0);
     if (n > 1) {
       const all = wl;
-      wl = all.filter(([, run]) => pt.includes(run));
+      wl = all.filter(([, run]) => namesRun(pt, run));
       if (!wl.length) msgs = `${msgs !== '' ? `${msgs} ` : ''}proofline: several runs wait for an approval (${all.map(([, run]) => `${run} `).join('')}); an approval records for the run named in your reply: say which run you approve (for example "approve scope <ID>").`;
     }
   }
