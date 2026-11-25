@@ -203,15 +203,16 @@ test('speedFactor: measured / nominal clamped to 1..5, never stricter than the t
 
 test('runner-speed calibration: a slow runner passes, a normal runner with a really slow test still fails, a fast runner is never stricter, calibration runs before node', () => {
   const budgets = { enforce: true, calibration: { nominal_ms: 1000 }, kinds: { unit: { test_ms: 2000, suite_ms: 100000 } } };
-  const go = (/** @type {number} */ testMs, /** @type {number} */ calibrationMs, /** @type {string[]} */ order = []) => {
+  const go = (/** @type {number} */ testMs, /** @type {number} */ calibrationMs, /** @type {string[]} */ order = [], /** @type {number} */ afterMs = calibrationMs) => {
     let out = '';
+    let calls = 0;
     const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: {}, write: (s) => { out += s; }, writeFile: () => {}, append: () => {},
-      calibrate: () => { order.push('calibrate'); return calibrationMs; }, run: () => { order.push('run'); return { status: 0, events: one(testMs) }; } });
+      calibrate: () => { order.push('calibrate'); return calls++ === 0 ? calibrationMs : afterMs; }, run: () => { order.push('run'); return { status: 0, events: one(testMs) }; } });
     return { st, out };
   };
   const order = /** @type {string[]} */ ([]);
   assert.equal(go(5000, 3000, order).st, 0, 'a test of 5000 ms on a runner 3 times slower than nominal: the budget is 6000');
-  assert.deepEqual(order, ['calibrate', 'run'], 'measured before node starts, so the tests under test cannot influence it');
+  assert.deepEqual(order, ['calibrate', 'run', 'calibrate'], 'measured before node starts (the tests under test cannot influence it) and again after node exits (A354)');
   const normal = go(5000, 1000);
   assert.equal(normal.st, 1, 'the same test on a normal runner is over its 2000 ms');
   assert.match(normal.out, /OVER BUDGET: tests\/ci\/x\.test\.mjs :: t took 5000\.0 ms over 2000\n/);
@@ -347,4 +348,33 @@ test('ci.yml: every Linux Node test run goes through the duration wrapper (only 
 test('ci.yml: the manual run has a boolean input `twice`, default false; the Windows legs are untouched', () => {
   assert.match(ci, /\n {6}twice:\n {8}description: [^\n]*\n {8}required: false\n {8}default: false\n {8}type: boolean\n/);
   assert.ok(!/test-durations/.test(job('hook-windows')) && !/test-durations/.test(job('windows-core')));
+});
+
+test('A354: a stall during the run is seen by the calibration after node exits; the slower of the two counts, the cap of 5 and the fail-closed paths stay', () => {
+  const budgets = { enforce: true, calibration: { nominal_ms: 300 }, kinds: { unit: { test_ms: 2000, suite_ms: 100000 } } };
+  /** @param {number} testMs @param {number} before @param {number} after */
+  const go = (testMs, before, after) => {
+    let out = ''; let calls = 0; /** @type {any} */ let json = null;
+    const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: { TEST_DURATIONS_DIR: 'out' }, write: (s) => { out += s; }, writeFile: (_p, t) => { json = JSON.parse(t); }, append: () => {},
+      calibrate: () => (calls++ === 0 ? before : after), run: () => ({ status: 0, events: one(testMs) }) });
+    return { st, out, json };
+  };
+  const stalled = go(5000, 300, 1500);
+  assert.equal(stalled.st, 0, 'normal before, 5 times slower after: the 2000 ms budget is 10000 and a test of 5000 ms passes');
+  assert.equal(stalled.json.speed_factor, 5);
+  assert.equal(stalled.json.calibration_ms, 300);
+  assert.equal(stalled.json.calibration_after_ms, 1500);
+  const normal = go(5000, 300, 300);
+  assert.equal(normal.st, 1, 'both measurements normal: the same test is over its 2000 ms');
+  assert.match(normal.out, /OVER BUDGET: tests\/ci\/x\.test\.mjs :: t took 5000\.0 ms over 2000\n/);
+  assert.equal(go(20000, 300, 1500).st, 1, 'a genuinely slow test fails even with the stall (10000)');
+  const broken = go(20000, 300, 3000);
+  assert.equal(broken.st, 1);
+  assert.match(broken.out, /runner too slow to judge budgets \(the calibration took 10\.00 times the nominal/);
+  assert.equal(go(1500, 300, 150).st, 0, 'a fast runner is never stricter');
+  assert.equal(go(5000, 1500, 300).st, 0, 'a slow start is still counted (the slower of the two)');
+  // fail closed stays: no event, no verdict
+  let out = '';
+  assert.equal(main(['leg', '--', '--test-name-pattern=.'], { budgets, env: {}, write: (s) => { out += s; }, writeFile: () => {}, append: () => {}, calibrate: () => 300, run: () => ({ status: 0, events: '' }) }), 1);
+  assert.match(out, /event stream is empty/);
 });

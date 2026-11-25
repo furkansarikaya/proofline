@@ -18,12 +18,12 @@ import { approvedMeasureTargets, evidenceRepairCovers } from './evidencerepair.m
 import { planTestsWithoutDurationOf } from './testreview.mjs';
 import { ensurePlanningWindow } from './planningattest.mjs';
 import { settleSpecialists } from './specialists.mjs';
-import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
+import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, reopenedFindings, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, ledgerIf, setRunValue } from './lifecycle.mjs';
-import { led, must } from './lifeutil.mjs';
+import { fieldFromText, justificationOk, led, must, readStdin } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
@@ -221,7 +221,8 @@ function reopenForFix(ctx, id) {
   const dir = runDir(ctx, id);
   let any = false;
   for (const g of requiredGates(ctx, dir)) if (gateStatus(ctx, dir, id, g) === 'fail') any = true;
-  if (!any) fail('no open gate finding on the current content: nothing to fix, and a run does not return to IMPLEMENTING without one');
+  // B4 (A353): after a terminal reopen the findings recorded before it still count for the unchanged content (no gate is dispatched only to record them again)
+  if (!any && reopenedFindings(ctx, dir, id).length === 0) fail('no open gate finding on the current content: nothing to fix, and a run does not return to IMPLEMENTING without one');
   const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
   if (!(used <= max)) fail(`fix rounds exhausted (${used} failing rounds, max_fix_rounds ${max}): end the run with 'agent.sh terminate ${id} FAILED' (a refreeze with a new budget needs the user's 'budget' approval)`);
   setRunValue(ctx, id, 'handoff', 'implemented_patch_sha256', 'PENDING');
@@ -342,12 +343,34 @@ export function requireTaskDefects(ctx, id) {
   if (e !== '') fail(`TASK.md ## Pre-existing defects (A105): ${e}. List each defect the request does not ask for as '- <path:symbol>: <what> -- decision: report' (left unchanged, named in the completion report); 'decision: fix' only when the user asked for it in their own words, and then the user's scope approval ('agent.sh request-approval ${id} scope') is needed. A delegated answer such as 'use your recommended option' never makes a defect fix requested`);
 }
 
-/** `record_handoff ID PHASE` @param {Context} ctx @param {string} id @param {string} phase */
-export function recordHandoff(ctx, id, phase) {
+/**
+ * B4 (A353) `handoff ID IMPLEMENTED --re-review` (the lead; the reason on stdin): the run goes back to IMPLEMENTED on the very tree a gate rejected, so the gate can review it again without a code change (the finding was
+ * judged wrong, or only evidence or a non-code input changed). Nothing is skipped: the handoff checks all hold, only the "a fix must change the tree" bound is replaced by this form, which needs a recorded finding on
+ * unchanged content, a reason of at least 20 characters, and is allowed once per finding record (a second look at the same finding needs a change). The sealed ledger row of the handoff names the finding and the reason.
+ * @param {Context} ctx @param {string} id @param {string} dir @param {string} current @param {string} patch @returns {string} the detail of the ledger row
+ */
+function reReviewCheck(ctx, id, dir, current, patch) {
+  if (!gatesEnforced(ctx, dir)) fail('--re-review needs the lifecycle_gates policy');
+  if (current !== 'IMPLEMENTING') fail(`--re-review returns an IMPLEMENTING run to IMPLEMENTED on an unchanged tree (the handoff is ${current}; in IMPLEMENTED a gate can simply be recorded again)`);
+  const f = latestFindingFile(ctx, dir);
+  if (f === '') fail('--re-review: the run holds no recorded finding to review again');
+  const name = f.slice(f.lastIndexOf('/') + 1);
+  if (patch !== gateField(ctx, f, 'patch_sha256')) fail(`--re-review: the tree changed since the finding in ${name}; run 'agent.sh handoff ${id} IMPLEMENTED' without --re-review`);
+  const reason = fieldFromText(readStdin(), 'reason');
+  if (!justificationOk(reason)) fail("--re-review requires a specific 'reason:' on stdin (>=20 chars: why the same tree deserves another review)");
+  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
+  if (used + 1 > max) fail(`--re-review counts as a fix round and the rounds are used (${used} of max_fix_rounds ${max}): a further review of the same tree needs a change of the tree, or end the run with 'agent.sh terminate ${id} FAILED'`);
+  if (ledgerRows(ctx, dir, 'handoff:IMPLEMENTED').some((r) => r.detail.includes(`re-review finding=${name} `))) fail(`--re-review was already used for ${name}: a second review of the same finding needs a change of the tree`);
+  return `re-review finding=${name} reason=${reason.replace(/[\n\r]/g, ' ').slice(0, 200)}`;
+}
+
+/** `record_handoff ID PHASE` @param {Context} ctx @param {string} id @param {string} phase @param {boolean} [reReview] */
+export function recordHandoff(ctx, id, phase, reReview = false) {
   requireRun(ctx, id);
   const dir = runDir(ctx, id);
   enforceTaskBranch(ctx, id); requireOpenRun(ctx, id);
   if (!['IMPLEMENTING', 'IMPLEMENTED', 'CODE_DONE', 'DONE'].includes(phase)) fail('invalid handoff phase');
+  if (reReview && phase !== 'IMPLEMENTED') fail('--re-review belongs to handoff IMPLEMENTED only');
   const allowKnowledge = phase === 'DONE';
   must(freshness(ctx, id));
   must(verifyScope(ctx, id, allowKnowledge));
@@ -380,7 +403,7 @@ export function recordHandoff(ctx, id, phase) {
       testMeasureAtImplemented(ctx, id, patch);
       ensurePlanningWindow(ctx, dir, id);
       verifyMutationOwnership(ctx, dir, id, true);
-      verifyFixBound(ctx, id);
+      if (reReview) detail = reReviewCheck(ctx, id, dir, current, patch); else verifyFixBound(ctx, id);
       buildRecordAuto(ctx, id);
       setRunValue(ctx, id, 'handoff', 'implemented_patch_sha256', patch);
       setRunValue(ctx, id, 'handoff', 'code_done_patch_sha256', 'PENDING');

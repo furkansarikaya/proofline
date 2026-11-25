@@ -64,4 +64,6 @@ Each row names a decision (`A<n>` in [decisions.md](decisions.md)); the decision
 
 Closed by the second closing records: A338.1 (removed by A340; the closing rests on the tests and independent reviews of #331, not on the COMPLEX final run, whose fix round changed `public/index.html` and so did not exercise the new paths, though the visual check did re-run on the fixed tree with 45 screenshots), A322.3 (made enforceable by A341; exercised by STANDARD attempt 2 only, the COMPLEX final run published no completion report), A323.1 (A343), the run4c-probes budget (A342) and the replay concurrency inflation (A345).
 
+| **A353.1** The read-set of a gate is the conservative superset: the task-owned patch minus test code for the plan, rules, data and security reviews, the whole patch for every other gate. A gate does not skip on a document-only change, and the plan hash is in every gate's input. | A gate that cannot prove its inputs unchanged runs again (Core invariant 6); the set is derived by the control plane from the manifest, never from an agent's claim (invariant 4). | [A353](decisions.md) | A measured per-file read trace of the reviewers recorded by the control plane. |
+
 For what was never tried (Codex sandbox on Windows, `.cmd` shims, `taskkill /T`, WSL, Git Bash as a shell) see [workflow](concepts/workflow.md#not-tried).

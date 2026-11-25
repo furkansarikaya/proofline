@@ -37,7 +37,7 @@ re-run it on a weaker model (D7).
 
 ## 3. Fix loop
 
-`next` prints `agent.sh handoff <ID> IMPLEMENTING (fix round <n>; findings of: <GATES>)`.
+`next` prints `agent.sh handoff <ID> IMPLEMENTING (fix round <n>; findings of: <GATES>)`. After a `reopen`, `next` prints a `note=` line instead: the findings recorded before the reopen still describe the unchanged content, and the same `handoff <ID> IMPLEMENTING` opens the fix round from them without dispatching those gates again (A353). To have the same tree reviewed again without a code change, `A handoff <ID> IMPLEMENTED --re-review` with a `reason:` on stdin (once per finding record).
 
 1. **Diagnose** each blocking finding from its row only: implementation defect -> fix round;
    plan or evidence defect (a row on PLAN.md or another control artifact, e.g. the plan's `## Verification
