@@ -16,6 +16,7 @@ import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, ledgerRo
 import { knownControlArtifact, runDir } from './runs.mjs';
 import { findingBatchAccepted, findingKnownIssue } from './knownissues.mjs';
 import { pathMatches } from './scope.mjs';
+import { parseReviewBudget } from './testreviewbudget.mjs';
 import { designSurfacePaths, strictTestPath, uiPathHit, ecosystemSets, pipelineClassValid, pipelineClass, pipelineDeclared, pipelineNeeds, riskGateFocuses, riskNames, riskPaths, tierEffective } from './signals.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -755,6 +756,38 @@ export function fixRoundsUsed(ctx, dir) {
     set.add(gateField(ctx, f, 'fingerprint'));
   }
   return set.size + evidenceRepairRows(ctx, dir).length + reReviewRows(ctx, dir).length;
+}
+
+/**
+ * The most REVIEW_TESTS rounds before the loop stops (A359, issue 338 C1): the plan's `## Test review budget` `rounds:`, else `test_trust.review_rounds`. The plan is the user's
+ * approved text, so the cap is set before the loop starts and nobody types one at hour 6. @param {Context} ctx @param {string} dir
+ */
+export function testReviewCap(ctx, dir) {
+  const r = parseReviewBudget(fileText(ctx, `${dir}/PLAN.md`) ?? '').rounds;
+  if (r !== null) return r;
+  const v = ctx.config().get('test_trust.review_rounds', '4');
+  return /^[0-9]+$/.test(v) && Number(v) >= 1 ? Number(v) : 4;
+}
+
+/** The REVIEW_TESTS rounds since the last reopen: one per REVIEW_TESTS record (each costs a reviewer dispatch, also on an unchanged tree). @param {Context} ctx @param {string} dir */
+export function testReviewRounds(ctx, dir) {
+  const reopen = lastReopenSeq(ctx, dir, 'any');
+  let used = 0;
+  for (const n of gateNames(ctx, dir)) {
+    if (!n.endsWith('-REVIEW_TESTS.yaml')) continue;
+    if (Number(gateField(ctx, gf(ctx, dir, n), 'seq')) > reopen) used++;
+  }
+  return used;
+}
+
+/**
+ * True when the test review has used its rounds and the gate still fails: the gate does NOT pass (a cap never turns a FAIL into a PASS; Core invariants 1 and 6). What happens next
+ * is the user's decision: a larger cap (a plan amendment), a written waiver of the specific residual survivors (never SECURITY or SECRETS), or stopping the run.
+ * @param {Context} ctx @param {string} dir @param {string} id
+ */
+export function testReviewCapReached(ctx, dir, id) {
+  if (!requiredGates(ctx, dir).includes('REVIEW_TESTS')) return false;
+  return testReviewRounds(ctx, dir) >= testReviewCap(ctx, dir) && gateStatus(ctx, dir, id, 'REVIEW_TESTS') === 'fail';
 }
 
 // ---- reports the pipeline shows -------------------------------------------------------------------------------------------------

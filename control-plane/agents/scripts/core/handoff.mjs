@@ -19,15 +19,17 @@ import { approvedMeasureTargets, evidenceRepairCovers } from './evidencerepair.m
 import { planTestsWithoutDurationOf } from './testreview.mjs';
 import { ensurePlanningWindow } from './planningattest.mjs';
 import { settleSpecialists } from './specialists.mjs';
-import { fixRoundsUsed, gateStatus, maxFixRounds, patchManifest, reopenedFindings, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
+import { fixRoundsUsed, gateStatus, maxFixRounds, testReviewCap, testReviewCapReached, testReviewRounds, patchManifest, reopenedFindings, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
-import { verifySeal } from './ledger.mjs';
+import { ledgerAppend, verifySeal } from './ledger.mjs';
+import { askQuestion } from './questions.mjs';
 import { enforceTaskBranch, ledgerIf, setRunValue } from './lifecycle.mjs';
 import { fieldFromText, justificationOk, led, must, readStdin } from './lifeutil.mjs';
 import { BUILD_STEP, buildRecordMissing, buildRecordUnmakeable, fixAllowedPaths, fixScopeSiblings, fixScopeUnion, latestFindingFile, scopeEntryPaths } from './next.mjs';
 import { planMigrationShape, taskDefectError, taskDefectFixes } from './plancheck.mjs';
 import * as proc from './proc.mjs';
+import { applyApprovedBudget } from './gatecmd.mjs';
 import { fileText, gateField, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines, validTaskId } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { pathMatches } from './scope.mjs';
@@ -217,9 +219,26 @@ export function verifyFixBound(ctx, id) {
   if (bad !== '') fail(`fix changed paths outside the finding's fix_scope (${f.slice(f.lastIndexOf('/') + 1)}):${bad}\nallowed fix paths (finding paths plus frozen plan scope paths sharing an acceptance criterion with them):\n${fixAllowedPaths(ctx, id, dir).map((p) => `  ${p}`).join('\n')}\na path the plan never scoped needs the user's scope approval: the lead asks (agent.sh ask, D13 block), then amends PLAN.md and runs agent.sh refreeze`);
 }
 
+/**
+ * A359: the test review loop is bounded by the plan (`## Test review budget` rounds, else test_trust.review_rounds). At the cap the gate stays failed and the run stops with one line;
+ * the user's decision is asked once per round count through the question mechanism. @param {Context} ctx @param {string} id @param {string} dir
+ */
+function testReviewCapStop(ctx, id, dir) {
+  if (!testReviewCapReached(ctx, dir, id)) return;
+  const used = testReviewRounds(ctx, dir);
+  const key = `rounds=${used}`;
+  if (!ledgerRows(ctx, dir, 'test-review-cap').some((r) => r.detail === key)) {
+    askQuestion(ctx, id, `QUESTIONS:\n1. test review cap reached: REVIEW_TESTS still fails after ${used} rounds (cap ${testReviewCap(ctx, dir)}). What now?\n   options: (a) continue with a larger cap (amend PLAN ## Test review budget rounds, one scope approval); (b) accept the residual survivors in writing, naming each mutant (a waiver of those specific mutants; SECURITY and SECRETS are never waived); (c) stop the run\n   recommended: none (the user decides)\n`);
+    ledgerAppend(dir, ctx.role, 'test-review-cap', '-', '-', key);
+    ctx.forget('file:');
+  }
+  fail(`test review cap reached (${used} rounds, cap ${testReviewCap(ctx, dir)}): REVIEW_TESTS still fails; the question for the user is recorded ('agent.sh questions ${id}')`);
+}
+
 /** `reopen_for_fix ID` @param {Context} ctx @param {string} id */
 function reopenForFix(ctx, id) {
   const dir = runDir(ctx, id);
+  testReviewCapStop(ctx, id, dir);
   let any = false;
   for (const g of requiredGates(ctx, dir)) if (gateStatus(ctx, dir, id, g) === 'fail') any = true;
   // B4 (A353): after a terminal reopen the findings recorded before it still count for the unchanged content (no gate is dispatched only to record them again)
@@ -361,6 +380,7 @@ function reReviewCheck(ctx, id, dir, current, patch) {
   if (patch !== gateField(ctx, f, 'patch_sha256')) fail(`--re-review: the tree changed since the finding in ${name}; run 'agent.sh handoff ${id} IMPLEMENTED' without --re-review`);
   const reason = fieldFromText(readStdin(), 'reason');
   if (!justificationOk(reason)) fail("--re-review requires a specific 'reason:' on stdin (>=20 chars: why the same tree deserves another review)");
+  testReviewCapStop(ctx, id, dir);
   const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
   if (used + 1 > max) fail(`--re-review counts as a fix round and the rounds are used (${used} of max_fix_rounds ${max}): a further review of the same tree needs a change of the tree, or end the run with 'agent.sh terminate ${id} FAILED'`);
   if (ledgerRows(ctx, dir, 'handoff:IMPLEMENTED').some((r) => r.detail.includes(`re-review finding=${name} `))) fail(`--re-review was already used for ${name}: a second review of the same finding needs a change of the tree`);
@@ -404,6 +424,7 @@ export function recordHandoff(ctx, id, phase, reReview = false) {
         throw e;
       }
       testMeasureAtImplemented(ctx, id, patch);
+      if (gatesEnforced(ctx, dir)) applyApprovedBudget(ctx, id);   // A359
       ensurePlanningWindow(ctx, dir, id);
       verifyMutationOwnership(ctx, dir, id, true);
       if (reReview) detail = reReviewCheck(ctx, id, dir, current, patch); else verifyFixBound(ctx, id);

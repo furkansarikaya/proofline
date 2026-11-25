@@ -7,7 +7,8 @@ import { existsSync, lstatSync, readdirSync, renameSync, writeFileSync } from 'n
 import { fail } from './errors.mjs';
 import { findApproval, latestRequest } from './approvals.mjs';
 import { batchAnswerRow } from './knownissues.mjs';
-import { approvalBound, consumeApproval, mutationBudget, planTestAcs, requestApproval, requireOpenRun, runLanguage } from './approve.mjs';
+import { approvalBound, consumeApproval, mutationBudget, planMutantNeed, planTestAcs, requestApproval, requireOpenRun, runLanguage } from './approve.mjs';
+import { applyApprovedBudget } from './gatecmd.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { fixRoundsUsed, maxFixRounds } from './gates.mjs';
@@ -289,12 +290,13 @@ export function verifyScopeExistence(ctx, id, mode) {
 /** `require_mutation_budget ID` @param {Context} ctx @param {string} id */
 function requireMutationBudget(ctx, id) {
   const dir = runDir(ctx, id);
-  const n = planTestAcs(fileText(ctx, `${dir}/PLAN.md`) ?? '');
+  const n = planMutantNeed(fileText(ctx, `${dir}/PLAN.md`) ?? '');
   const b = mutationBudget(ctx, id);
   if (!(BigInt(n) > BigInt(b))) return;
+  if (applyApprovedBudget(ctx, id)) return;   // A359: the budget the user already approved for this plan is applied here
   const r = latestRequest(ctx, id, 'mutation_budget');
   if (!(r !== null && gateField(ctx, r, 'bound') === approvalBound(ctx, id, 'mutation_budget'))) requestApproval(ctx, id, 'mutation_budget');
-  fail(`PLAN ## Tests names ${n} criteria but the mutation budget is ${b} (one claim mutant per criterion is the minimum): relay the approval request above once; after the user's approval run 'agent.sh raise-budget ${id} ${n}' and freeze again (or cut criteria from the plan)`);
+  fail(`${n === planTestAcs(fileText(ctx, `${dir}/PLAN.md`) ?? '') ? `PLAN ## Tests names ${n} criteria` : `the plan needs a mutation budget of ${n} (its ## Test review budget)`} but the mutation budget is ${b} (one claim mutant per criterion is the minimum): relay the approval request above once; after the user's approval run 'agent.sh raise-budget ${id} ${n}' and freeze again (or cut criteria from the plan)`);
 }
 
 /** `verify_plan_validation ID` (A162) @param {Context} ctx @param {string} id */

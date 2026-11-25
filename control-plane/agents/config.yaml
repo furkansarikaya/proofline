@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.180
+proofline_version: 0.0.181
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -137,10 +137,14 @@ product:
   dir: docs/product
   vague_words:
   stale_days: 90
+# review_rounds / review_minutes (A359): the most REVIEW_TESTS rounds and the most minutes of the test review loop when the plan has no `## Test review budget` (its `rounds:` and
+# `minutes:` win). At the round cap the gate stays failed and the user decides (a larger cap, a written waiver of the named survivors, or stop).
 test_trust:
   repeat: 5
   mutation_budget: 20
   slow_ratio: 3
+  review_rounds: 4
+  review_minutes: 120
 # Test speed and determinism (A275, issue 265). test_budgets: per test kind (unit, integration, e2e) the longest ONE test may take (test_ms) and the longest
 # the tests of that kind in a run may take together (suite_ms), in milliseconds, times timeouts.scale. The defaults come from a measurement of this repository's
 # own suites (docs/decisions.md A275) and are generous. A PLAN.md `## Test budgets` line with numbers wins over these values for its kind (plan, then config).

@@ -163,6 +163,24 @@ line that was already in the previously reviewed revision (and was not cited bef
 use up a round. Blocking or info follows a written rule (`GATES.md`), and the same observation keeps its
 classification from round to round. A mutation budget overrun in the tests review (21 of 20) is a warning, not a block. The cap is enforced while the mutants run: `gate.mjs mutant <review-folder>/mutants.count ...` refuses a mutant past the budget, and the validator fails a finding that records more executed mutants than the budget (A203).
 
+### The tests review loop is bounded (A359)
+
+Hours of the loop were lost to mutation results that were thrown away and re-run, survivors that appeared one round at a
+time, and caps the user had to type late. Now: (1) the mutation results of the tests review are kept per source FILE HASH
+(`gate.mjs mutant ... --file F --id M` answers `KNOWN killed|survived` for a mutant that already ran on the same bytes and
+spends no budget; a changed file runs again). (2) The first survivor of a unit makes the reviewer run that unit's other
+mutants in the same round, so one round lists all its survivors. (3) The plan may carry an optional `## Test review budget`
+(`rounds`, `minutes`, `mutants`, `units`, `lines`): the round and time caps, and the mutation budget derived from the changed
+units and lines (4 per unit, 1 per 25 lines; never only the criteria count). A number above `test_trust.mutation_budget` is
+still your `mutation_budget` approval, once; the control plane then applies it at the freeze and at every `handoff
+IMPLEMENTED`, so the reviewer never stops on an approval already given, and a reopen carries the new budget with its one
+approval. Without the section the config defaults `test_trust.review_rounds` (4) and `review_minutes` (120) apply. (4) The loop
+ends with an `ADEQUACY:` line (units closed, units with survivors, survivors found only by widening the mutant set, which are
+labelled `new class` and are not new findings). When the round cap is reached with REVIEW_TESTS still failing, the gate does
+NOT pass: the state is `test review cap reached` and you are asked once to choose between a larger cap (an amended plan), a
+written waiver of the named residual survivors (your message only; SECURITY and SECRETS findings are never waived), or
+stopping the run.
+
 ## Waivers
 
 Security and secret findings can never be waived. Another blocking finding is waived only by the user's explicit

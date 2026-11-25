@@ -26,6 +26,7 @@ import * as proc from './proc.mjs';
 import { Context } from './context.mjs';
 import { LockSet, takeCommandLocks } from './lock.mjs';
 import { isDir, isFile } from './paths.mjs';
+import { mutantNeed } from './testreviewbudget.mjs';
 import { WS, fileLines, gateField, ledgerRows, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
@@ -472,6 +473,9 @@ export function planTestAcs(plan) {
   return seen.size;
 }
 
+/** The mutation budget a plan needs (A359): the criteria floor, or what its `## Test review budget` states or derives. @param {string} plan */
+export function planMutantNeed(plan) { return mutantNeed(plan, planTestAcs(plan)); }
+
 /** `mutation_budget ID` @param {Context} ctx @param {string} id */
 export function mutationBudget(ctx, id) {
   let b = ctx.config().get('test_trust.mutation_budget', '20');
@@ -519,7 +523,7 @@ export function requestApproval(ctx, id0, kind0) {
   }
   if (kind === 'scope' && plan !== null) rows = scopeExceptionRows(ctx, id, plan);
   if (kind === 'scope' && plan !== null && rows === '' && exceptionLines(plan).length > 0 && exceptionsRow(ctx, runDir(ctx, id))?.approval === '') rows = unapprovedExceptionRows(plan);
-  if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}`;
+  if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}, needed by the plan (criteria, ## Test review budget): ${planMutantNeed(plan ?? '')}`;
   let out = '';
   if (kind === 'batch') out += `QUESTIONS:\n1. Approve the night batch shown above (batch ${bound.slice(0, 12)})?\n`;
   else if (tr) out += bs(`QUESTIONS:\n1. ${id} için ${kind} onaylansın mı?\n`);
