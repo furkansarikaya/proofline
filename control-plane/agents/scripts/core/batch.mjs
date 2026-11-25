@@ -260,7 +260,7 @@ function ownState(ctx, id) {
  */
 export function scopeEntriesOverlap(a, b) {
   // case-insensitive (a macOS or Windows checkout names one file with two spellings); `{` is a wildcard too (`src/{a,b}/*.ts`)
-  a = a.toLowerCase(); b = b.toLowerCase();
+  a = asciiLower(a); b = asciiLower(b);
   const wild = (/** @type {string} */ e) => /[*?[{]/.test(e);
   if (!wild(a) && !wild(b)) return a === b || scopeEntryCovers(a, b) || scopeEntryCovers(b, a);
   const dir = (/** @type {string} */ e) => {
