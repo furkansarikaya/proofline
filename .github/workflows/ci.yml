@@ -277,7 +277,7 @@ jobs:
           - name: run4b-lifecycle
             mode: files
             pattern: 'none'
-            files: tests/core/run4b-lifecycle.test.mjs
+            files: tests/core/run4b-lifecycle.test.mjs tests/core/cleanup-b6.test.mjs tests/core/base-refresh.test.mjs
           - name: run4b-freeze
             mode: files
             pattern: 'none'

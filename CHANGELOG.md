@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.0.179 — 2026-11-25
+
+- Fix (A357, issue 338 B6): `gate.mjs mutant` keeps its counter in the run folder (never the repository root: a stray `r7/` made every gate stale), and the lead has `agent.sh discard-untracked <ID> <path>...` to remove the untracked paths a run created outside its plan scope (never a tracked, baseline or scope path, never through a link; ledgered).
+- Fix (A357, issue 338 B7): `handoff CODE_DONE` removes the run's own evidence worktree also when the trials left changes in it; a worker that ends by itself no longer leaves what it started in its process group (a test server) running; `cleanup` and `worktree-remove` remove empty folders under `.agents/runs`.
+- Fix (A357, issue 338 B10): `worktree-add` fast-forwards the local canonical branch from `origin` and refuses to start behind it or on a diverged branch; `proofline merge` fast-forwards the local base branch after a GitHub merge.
+
 ## 0.0.178 — 2026-11-25
 
 - Fix (A355, issue 338 B5): the batch plan follows the task files. `depends_on` is read as an inline list, a block list, with a comment or a remark in parentheses, and by file name; two tasks share a path only through the files of their `## Expected scope` list (an extension, an address or a document of the Context shares nothing, so a park no longer skips independent tasks); a parked task stops only what depends on it or shares a listed file; and a re-plan with `--replace` carries your recorded split and scope answers to the new batch when the task and its scope list are unchanged (the record keeps your original message and `carried:<old batch id>`), and asks again when not (also when the task body grew, or the original message no longer gives that option). Globs in the scope lists are compared by their literal directory, a flow-style `depends_on` list may continue on the next line, and tasks named `A` or `N` are kept. Tests: `tests/core/batch-b5.test.mjs`.

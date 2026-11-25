@@ -114,8 +114,8 @@ function tmpRoots(ctx, t) {
 
 /**
  * A327: the one scratch worktree the control plane removes itself: the evidence worktree a review role of THIS run makes, named by the role texts `$TMPDIR/verify-<ID>` or `$TMPDIR/verify-<ID>.<focus>` (a dot cannot occur in a task id, so run `LC` never matches the worktree of run `LC-2`),
- * a direct child of the temp folder, detached, with no local change and no untracked file. Anything else (another name, a branch, a dirty tree, a lock, a user's worktree) stays a blocker.
- * The removal is `git worktree remove` WITHOUT --force, so a locked or modified worktree is refused by git as well.
+ * a direct child of the temp folder and detached; since A357 a dirty one is removed too (the trials change it). Anything else (another name, a branch, a lock, a user's worktree) stays a blocker.
+ * The removal is `git worktree remove --force` (one force: git still refuses a locked worktree).
  * @param {Context} ctx @param {string} id @param {string} t the temp folder @param {string} p the worktree path as git lists it
  */
 function removeRunOwnedScratch(ctx, id, t, p) {
@@ -129,9 +129,9 @@ function removeRunOwnedScratch(ctx, id, t, p) {
     if (!isUnlinkedFolder(p)) return false;
   } catch { return false; }
   if (git(ctx, ['-C', p, 'symbolic-ref', '-q', 'HEAD']).status === 0) return false;
-  const st = git(ctx, ['-C', p, 'status', '--porcelain', '--untracked-files=all']);
-  if (st.status !== 0 || st.out !== '') return false;
-  return git(ctx, ['worktree', 'remove', p]).status === 0;
+  // A357: the mutation trials of a review role leave changes in its evidence worktree (that is what the worktree is for): a dirty one is removed too, with a single --force (git
+  // still refuses a LOCKED worktree and a path it does not know); the changes are the trial's, the evidence is in the role's report and results
+  return git(ctx, ['worktree', 'remove', '--force', p]).status === 0;
 }
 
 /**

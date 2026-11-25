@@ -204,6 +204,10 @@
       "test_ms": 4500,
       "suite_ms": 10000
     },
+    "tests/core/base-refresh.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 20000
+    },
     "tests/core/base.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
@@ -215,6 +219,10 @@
     "tests/core/batch-cover.test.mjs": {
       "test_ms": 25000,
       "suite_ms": 60000
+    },
+    "tests/core/cleanup-b6.test.mjs": {
+      "test_ms": 20000,
+      "suite_ms": 20000
     },
     "tests/core/knowledge-batch-crlf.test.mjs": {
       "test_ms": 15000,

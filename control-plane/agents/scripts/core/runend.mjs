@@ -26,6 +26,7 @@ import { asciiLower } from './shellglob.mjs';
 import { hookTime } from './commands/hookcmds.mjs';
 import { freshness, verifyHandoff, verifyKnowledgeScope } from './commands/verify.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
+import { pruneEmptyRunFolders } from './tidy.mjs';
 import { leadToolsRecord } from './leadlog.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
@@ -321,6 +322,9 @@ export function cleanupRun(ctx, id, mergeProved = false) {
   rmSync(dir, { recursive: true, force: true });
   ctx.forget('file:');
   ctx.out(`run cleaned up: ${id} (runtime artifacts and .agents/local/assignments/${id} removed; ACTIVE_RUN cleared)\n`);
+  // A357: folders under .agents/runs that hold nothing at all (an empty scratch folder of a role) go with the run
+  const empty = pruneEmptyRunFolders(`${ctx.root}/.agents/runs`);
+  if (empty.length > 0) ctx.out(`removed empty run folders: ${empty.join(' ')}\n`);
   cleanupWorktree(ctx, id, term, mergeProved);
   return 0;
 }

@@ -36,7 +36,7 @@ Run creation, in this order (an interrupted creation restarts from the first ste
 1. `A start <ID> --task-file <path>` for an existing canonical task under `tasks.dir`, or
    `A start <ID> --title "<title>"` with the canonical TASK.md body on stdin. The markdown adapter
    creates or moves the task file to `in-progress/`; `start` writes RUN.yaml, TASK.md, ACTIVE_RUN and the
-   start ledger entry. A second open run in the worktree is refused (D4); it needs a worktree of its own (`A worktree-add <ID>`, A169). Missing required task fields
+   start ledger entry. A second open run in the worktree is refused (D4); it needs a worktree of its own (`A worktree-add <ID>`, A169; it first fast-forwards the local canonical branch from `origin` and refuses to start behind it or on a diverged one, A357). Missing required task fields
    are printed and creation stops with exit 3.
 2. `A classify <ID> <CLASS> [review]`, `A branch <ID>` (creates `<git.branch_prefix><ID>-<slug>` from the
    canonical tip; `baseline` refuses before it), `A baseline <ID>`: the order `A next` prints.
@@ -188,3 +188,5 @@ document as a path in the frozen plan scope. No document is left stale.
 3. Delivery stop ([DELIVERY.md](DELIVERY.md)).
 4. `A cleanup <ID>` (removes the run directory and `.agents/local/assignments/<ID>/`, PR_BODY.md included, so only after delivery) after delivery or when the user declines delivery; terminal runs (`FAILED`,
    `BLOCKED`) after their evidence is reported. Then the final report and STOP.
+
+**Strays and leftovers (A357).** An untracked path a role left (a folder in the repository root; it is part of the content fingerprint) is removed by the lead with `A discard-untracked <ID> <path>...`, never by hand: it removes only untracked files or folders the run created, outside the plan scope, never through a link, and ledgers each one; it refuses anything else and the user decides. `handoff CODE_DONE` removes the run's own `verify-<ID>.<focus>` evidence worktrees itself, also dirty ones; `cleanup` removes empty folders under `.agents/runs`.

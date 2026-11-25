@@ -226,3 +226,26 @@ test('merge: a merge that left the base branch where it was (queued) prints that
     assert.match(r.out, /no release tag was made: origin\/main did not move/);
   } finally { t.done(); }
 });
+
+test('merge (A357): the local base branch is fast-forwarded to the merged tip, in the working tree that has it; diverged, it is left alone with the commands, and the merge still counts', () => {
+  const t = setup();
+  try {
+    const r = t.merge();
+    assert.equal(r.status, 0, r.text);
+    const tip = t.originMain();
+    assert.notEqual(tip, t.base);
+    assert.equal(t.git(t.proj, 'rev-parse', 'main'), tip, 'the local main stayed behind the merged pull request');
+    assert.equal(readFileSync(`${t.proj}/notes.txt`, 'utf8'), 'change\n', 'the working tree did not follow its branch');
+    assert.match(r.out, /local main fast-forwarded to origin\/main/);
+  } finally { t.done(); }
+  const d = setup();
+  try {
+    wf(`${d.proj}/local.txt`, 'unpushed\n'); d.git(d.proj, 'add', '-A'); d.git(d.proj, 'commit', '-q', '-m', 'unpushed');
+    const local = d.git(d.proj, 'rev-parse', 'HEAD');
+    const r = d.merge();
+    assert.equal(r.status, 0, r.text);
+    assert.notEqual(d.originMain(), d.base, 'the merge did not happen');
+    assert.equal(d.git(d.proj, 'rev-parse', 'main'), local, 'a diverged local branch was moved');
+    assert.match(r.text, /IS MERGED, but the local main was NOT updated: .*diverged/);
+  } finally { d.done(); }
+});

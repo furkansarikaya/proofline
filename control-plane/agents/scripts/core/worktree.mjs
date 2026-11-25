@@ -23,6 +23,8 @@ import { archiveRun } from './runend.mjs';
 import { pathMatches } from './scope.mjs';
 import { requireLead } from './approve.mjs';
 import { textLines } from './records.mjs';
+import { pruneEmptyRunFolders } from './tidy.mjs';
+import { syncCanonical } from './basesync.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -298,7 +300,7 @@ export function dropHalfWorktree(ctx, d) {
 
 // ---- the commands ---------------------------------------------------------------------------------------------------------------------------
 
-/** `worktree-add ID`: a detached worktree at the canonical branch's local tip, prepared; prints its folder. An existing one is reused. @param {Context} ctx @param {string[]} args */
+/** `worktree-add ID`: a detached worktree at the canonical branch's local tip (fast-forwarded from origin first, A357), prepared; prints its folder. An existing one is reused. @param {Context} ctx @param {string[]} args */
 export function worktreeAdd(ctx, args) {
   requireLead(ctx);
   const id = args[0] ?? '';
@@ -312,8 +314,12 @@ export function worktreeAdd(ctx, args) {
   if (existsSync(d)) fail(`${bytes(d)} exists but is not a registered worktree; remove that folder, then run worktree-add again`);
   const branch = ctx.config().get('canonical_branch', '');
   if (branch === '') fail('canonical_branch not configured');
+  if (git(ctx, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`]).status !== 0) fail(`canonical branch not found locally: ${branch}`);
+  // A357: the base is the canonical branch of the remote: a local branch that a merge left behind is fast-forwarded first, and a worktree is never started behind it or on a diverged one
+  const synced = syncCanonical(ctx, rwMain(ctx), branch);
+  for (const n of synced.notes) ctx.err(`worktree-add: ${n}\n`);
+  if (!synced.ok) fail(`worktree-add refused: ${synced.state === 'diverged' ? '' : `the base is behind origin/${branch}: `}${synced.message}`);
   const sha = git(ctx, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`]);
-  if (sha.status !== 0) fail(`canonical branch not found locally: ${branch}`);
   mkdirSync(path.dirname(d), { recursive: true });
   // A264: a record left by an earlier worktree of this id (removed by hand) is deleted BEFORE the new worktree exists, so a failed write of the new record cannot leave the old one to name
   // a git folder that the new worktree may come to own; when it cannot be deleted nothing is added (fail closed)
@@ -372,6 +378,8 @@ export function worktreeRemove(ctx, args) {
   hgit(ctx, ctx.root, ['worktree', 'prune']);
   dropEntryRecord(d);
   try { rmdirSync(path.dirname(d)); } catch { /* not empty */ }
+  const empty = pruneEmptyRunFolders(`${rwMain(ctx)}/.agents/runs`);   // A357
+  if (empty.length > 0) ctx.out(`removed empty run folders: ${empty.join(' ')}\n`);
   ctx.out(`worktree removed: ${id}\n`);
   return 0;
 }

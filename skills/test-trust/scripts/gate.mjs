@@ -5,10 +5,12 @@
 //   node gate.mjs gate <path-to-findings.json>               prints PASS, or FAIL and the failing ids
 //   node gate.mjs mutant <count-file> [config.yaml] [run-dir] the mutation budget as a cap: run it BEFORE every mutant. It counts the call in
 //     <count-file> and prints `OK n/budget`, or `REFUSED n/budget` with exit 1 once the budget is spent (the count does not move): run no mutant then.
+//     With a run dir the counter lives INSIDE it: a relative name that is not already below the run dir is taken relative to the run dir (never to the working directory, which
+//     is the repository root: a counter there left an untracked `r7/` that made every gate stale, issue 338 B6), and a name outside the run dir or through a link is refused (exit 2).
 // Exit codes: 0 ok (gate: PASS), 1 gate FAIL or mutant REFUSED, 2 usage or read error.
 
-import { readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { lstatSync, readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULTS = { repeat: 5, mutation_budget: 20, slow_ratio: 3 };
@@ -74,6 +76,24 @@ export function effectiveThresholds(configPath, runDir) {
   return t;
 }
 
+// The counter file. Outside a run (no run dir) it is the name given. With a run dir it must be inside it: a relative name is used as given when that is already below the run dir,
+// else it is taken relative to the run dir; a name outside the run dir, or a link on the way below it, throws (exit 2, nothing written).
+export function countFile(name, runDir) {
+  if (!runDir) return resolve(name);
+  const run = resolve(runDir);
+  const inside = (f) => { const r = relative(run, f); return r !== "" && r !== ".." && !r.startsWith(`..${sep}`) && !isAbsolute(r); };
+  let file = resolve(name);
+  if (!isAbsolute(name) && !inside(file)) file = resolve(run, name);
+  if (!inside(file)) throw new Error(`the count file ${name} must be inside the run folder ${runDir}`);
+  for (let d = dirname(file); d !== run && inside(d); d = dirname(d)) {
+    let st = null;
+    try { st = lstatSync(d); } catch { /* not made yet */ }
+    if (st?.isSymbolicLink()) throw new Error(`the count file ${name} is below a link (${d}): a counter is never written through a link`);
+  }
+  try { if (lstatSync(file).isSymbolicLink()) throw new Error(`the count file ${name} is a link`); } catch (e) { if (e instanceof Error && /is a link/.test(e.message)) throw e; }
+  return file;
+}
+
 function main(argv) {
   const [cmd, arg] = argv;
   try {
@@ -85,7 +105,7 @@ function main(argv) {
     }
     if (cmd === "mutant" && argv.length >= 2 && argv.length <= 4) {
       const budget = effectiveThresholds(argv[2], argv[3]).mutation_budget;
-      const file = resolve(arg);
+      const file = countFile(arg, argv[3]);
       let used = 0;
       try { used = Number(readFileSync(file, "utf8").trim()) || 0; } catch { /* first mutant */ }
       if (used >= budget) { console.log(`REFUSED ${used}/${budget}: the mutation budget is spent, run no more mutants (units left over go to not_examined with reason "mutation budget")`); return 1; }
