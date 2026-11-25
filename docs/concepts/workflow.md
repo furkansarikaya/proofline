@@ -110,6 +110,8 @@ An implementer's `submit` DONE is accepted only with the worker evidence the IMP
 
 The lead launches the implementer subagent only while its write window can be opened: the PreToolUse hook on the `Agent` and `Task` tools asks `window-open` first and, on a refusal, denies the launch and names `agent.sh handoff <ID> IMPLEMENTING` (in a fix round the exact line `agent.sh next` prints first). `agent.sh next` repeats its first step as a last `NEXT:` line when its answer is long, so a `tail` keeps it (A333).
 
+The lead may run any `agent.sh` command while a worker's window closes (A351): the SubagentStop hook tries a close that timed out on the lock again (four tries), and `agent.sh handoff <ID> IMPLEMENTED` closes the window of a specialist that has stopped but whose close failed, so the tree is attested and no tree-accept question follows. While the specialist still runs, `handoff IMPLEMENTED` prints `specialist still running: <role> (<token>)` and records nothing. A resumed specialist (a `SendMessage` resume) that stops without a new `submit` gets a `dispatch` metrics row with result `resumed` and a ledger note `specialist-resumed`; a window file left behind is removed at CODE_DONE.
+
 ## Gates and the fix loop
 
 See [gates](gates.md). Reviews run in parallel on the exact content; any change makes earlier passes stale.

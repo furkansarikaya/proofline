@@ -16,6 +16,7 @@ export async function handle(ctx) {
     if (stp !== '') stp = `${stp.endsWith('.jsonl') ? stp.slice(0, -6) : stp}/subagents/agent-${aid}.jsonl`;
   }
   try { put(`${localDir}/submissions/${aidf}.started`, `${stp}\n${Math.floor(Date.now() / 1000)}\n`); } catch { /* the shell hook ignored this too */ }
+  try { put(`${localDir}/submissions/${aidf}.run`, `${act} ${prole}\n`); } catch { /* the control plane then cannot name this specialist */ }
   if (prole === 'implementer' || prole === 'designer') {
     const r = await ctx.agent(['window-open', act, prole]);
     if (r.status === 0) {

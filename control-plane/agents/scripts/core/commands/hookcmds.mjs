@@ -164,7 +164,7 @@ function windowOpen(ctx, args) {
 }
 
 /** `window_close ID BEFORE [EXIT-STATUS] [ROLE]` @param {Context} ctx @param {string[]} args */
-function windowClose(ctx, args) {
+export function windowClose(ctx, args) {
   requireLead(ctx);
   const id = args[0]; const before = args[1] ?? ''; const status = args[2] === undefined || args[2] === '' ? '0' : args[2];
   const role = windowRole(args[3] ?? '');
