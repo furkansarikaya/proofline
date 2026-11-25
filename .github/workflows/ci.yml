@@ -310,6 +310,10 @@ jobs:
             mode: files
             pattern: 'none'
             files: tests/core/gates-s4.test.mjs tests/core/submit-worker-evidence.test.mjs tests/core/scratch-path-win.test.mjs
+          - name: gate-readset
+            mode: files
+            pattern: 'none'
+            files: tests/core/gate-readset.test.mjs
           - name: gates-s5
             mode: files
             pattern: 'none'

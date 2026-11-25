@@ -380,6 +380,10 @@
       "test_ms": 70000,
       "suite_ms": 240000
     },
+    "tests/core/gate-readset.test.mjs": {
+      "test_ms": 40000,
+      "suite_ms": 160000
+    },
     "tests/core/gates-s4.test.mjs": {
       "test_ms": 90000,
       "suite_ms": 330000

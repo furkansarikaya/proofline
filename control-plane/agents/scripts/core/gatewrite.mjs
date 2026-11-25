@@ -7,7 +7,7 @@ import { now } from './clock.mjs';
 import { fail } from './errors.mjs';
 import { requireOpenRun } from './approve.mjs';
 import { hashFile } from './fingerprint.mjs';
-import { patchManifest, requiredGates, gatesDir, resolveTopology, taskPatchFingerprint, verifyMutationOwnership } from './gates.mjs';
+import { gateReadSetLines, patchManifest, requiredGates, gatesDir, resolveTopology, taskPatchFingerprint, verifyMutationOwnership } from './gates.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch } from './lifecycle.mjs';
 import { led, must, quietly } from './lifeutil.mjs';
@@ -93,14 +93,18 @@ export function writeGate(ctx, g) {
     scope = [...set].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',');
   }
   const manifest = `${gd}/${name}.manifest`;
-  try { writeFileSync(manifest, latin1Buf(patchManifest(ctx, dir).map((r) => `${r}\n`).join(''))); } catch { fail('could not write gate manifest'); }
+  const rows = patchManifest(ctx, dir);
+  try { writeFileSync(manifest, latin1Buf(rows.map((r) => `${r}\n`).join(''))); } catch { fail('could not write gate manifest'); }
+  // A353: the read-set of the gate, derived here from the manifest (never from what the agent says it read), with the hash of each file
+  const readset = `${gd}/${name}.readset`;
+  try { writeFileSync(readset, latin1Buf(gateReadSetLines(ctx, dir, g.gate, rows).map((r) => `${r}\n`).join(''))); } catch { fail('could not write gate read-set'); }
   const sv = (/** @type {string} */ s, /** @type {string} */ k) => sectionValue(ctx, dir, s, k);
   const n = now();
   const patch = taskPatchFingerprint(ctx, dir);
   let t = `task_id: "${g.id}"\nseq: ${seq}\ngate: "${g.gate}"\nresult: "${g.result}"\nrole: "${g.role}"\nconfidence: "${g.confidence}"\nfocus: "${g.focus}"\n`;
   const topo = resolveTopology(ctx, dir);
   t += `topology: "${topo}"\ntier: "${tierEffective(ctx, dir)}"\n`;
-  t += `fingerprint: "${g.fingerprint}"\npatch_sha256: "${patch}"\nmanifest_sha256: "${hashFile(manifest)}"\n`;
+  t += `fingerprint: "${g.fingerprint}"\npatch_sha256: "${patch}"\nmanifest_sha256: "${hashFile(manifest)}"\nreadset_sha256: "${hashFile(readset)}"\n`;
   if (g.artifact !== '') t += `artifact: "${g.artifact}"\nartifact_sha256: "${hashFile(`${dir}/${g.artifact}`)}"\n`;
   t += `task_sha256: "${sv('freeze', 'task_sha256')}"\nevidence_sha256: "${sv('freeze', 'evidence_sha256')}"\nplan_sha256: "${sv('freeze', 'plan_sha256')}"\nqa_plan_sha256: "${sv('freeze', 'qa_plan_sha256')}"\n`;
   t += `policy_sha256: "${sv('freeze', 'policy_sha256')}"\npipeline: "${sv('freeze', 'pipeline')}"\n`;
@@ -121,7 +125,7 @@ export function writeGate(ctx, g) {
   try { writeFileSync(file, latin1Buf(t)); } catch { fail('could not write gate record'); }
   let size = 0;
   try { size = statSync(file).size; } catch { /* missing */ }
-  if (size === 0) { rmSync(file, { force: true }); rmSync(manifest, { force: true }); fail('gate record was not written'); }
+  if (size === 0) { rmSync(file, { force: true }); rmSync(manifest, { force: true }); rmSync(readset, { force: true }); fail('gate record was not written'); }
   led(ctx, g.id, `gate:${g.gate}:${g.result}`, 'IMPLEMENTED', 'IMPLEMENTED', `${ledgerToken(dir, `gates/${name}.yaml`)} by ${g.role}`);
   ctx.out(`gate recorded: ${g.id} ${name} (${g.result})\n`);
 }

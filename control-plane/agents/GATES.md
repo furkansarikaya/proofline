@@ -196,7 +196,8 @@ After CODE_DONE the knowledge step and the report publication change the tree, s
   Commit and push stay locked because the gates never pass. Nothing resets the budget on the lead's
   word: a refreeze of a run whose budget is exhausted requires a `budget` approval (the user's explicit
   instruction) bound to the amended PLAN.md.
-- Any change makes every earlier pass `stale`; `next` lists exactly the gates that are not `pass`/`waived`.
+- Any change makes every earlier pass `stale` unless the gate's read-set is unchanged (A353): every record carries the read-set the control plane derived from the task-owned patch (`readset_sha256`, `<record>.readset`; REVIEW_PLAN, RULES, DATA and SECURITY read the task-owned paths except test code, every other gate the whole patch). A forged or edited read-set is not believed and the gate runs again; SECRETS and SECURITY are never waived and run whenever product code, dependencies or configuration changed. `next` lists exactly the gates that are not `pass`/`waived`.
+- A run reopened with `reopen` opens its fix round from the findings recorded before the reopen (they still describe unchanged content); no gate is dispatched only to say the content is unchanged. `handoff <ID> IMPLEMENTED --re-review` (lead, `reason:` on stdin) sends the same tree to review again, once per finding record (A353).
 - An amendment that changes a frozen artifact starts a fresh budget (after exhaustion only with the
   `budget` approval above).
 

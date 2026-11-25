@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.177 — 2026-11-25
+
+- Fix (A353, issue 338 B4 and C2): every gate record carries the read-set the control plane derived (`readset_sha256`, `<record>.readset`); a gate keeps its pass when its read-set is unchanged, an edited or forged read-set re-runs it. A reopened run opens its fix round from the findings recorded before the reopen (no gate is dispatched to say the content is unchanged), and `agent.sh handoff <ID> IMPLEMENTED --re-review` sends the same tree to review again (reason on stdin, once per finding).
+
 ## 0.0.176 — 2026-11-25
 
 - Fix (A352, issue 338 B3): the language check compares a JSON string in its decoded form (escaped quotes, `\n`, `\uXXXX`), so a Turkish sentence quoted inside `findings.json` is no longer refused for its escapes; the refusal names the role that owns the file and its path; `design_untranslated` skips a block inside `lang="en"` and an `allow_text` entry only when TASK.md (`measure.mjs --task`) holds that text; a fully \u-escaped invented sentence in a JSON file is refused; the completion-report vocabulary has exact inflections instead of open stems (`rendermarkdown` is no claim, `rendered` still is; A341 not loosened). `measure.mjs --task` is handed to the QA visual step by the QA role and the skill; the exemption is a documented convenience, not independently verified by the gate (the report is agent-written; no hash is recorded or checked); an exempting text needs 4 non-space characters on word boundaries.

@@ -12,7 +12,7 @@ import { workerEvidenceHowTo, workerEvidenceMissing } from './commands/verify.mj
 import { approvalWaitO } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import {
-  findingWaived, fixRoundsUsed, gateBlockingRows, gateDeps, gateFocus, gateFocusStatus, gateLatestFile, gateNames, gateOwner, gateSatisfied, gateStatus, gatesDirOf, maxFixRounds,
+  findingWaived, fixRoundsUsed, gateBlockingRows, gateDeps, gateFocus, gateFocusStatus, gateLatestFile, gateNames, gateOwner, gateSatisfied, gateStatus, gatesDirOf, maxFixRounds, reopenedFindings,
   requiredGates, riskNotRerun, riskUnsupported, taskPatchFingerprint, unsupportedLabel, gateBoundToContract,
 } from './gates.mjs';
 import { budgetNote, inflightDispatch, inflightParts, removeMarkers, staleMarkers } from './dispatch.mjs';
@@ -126,6 +126,8 @@ export function latestFindingFile(ctx, dir) {
     const f = `${gatesDirOf(dir)}/${n}`;
     if (!gateBoundToContract(ctx, dir, f)) continue;
     const r = gateField(ctx, f, 'result');
+    // B4 (A353): a terminal reopen (reopened_from) is not itself a finding: the fix round of a reopened run follows the findings recorded before it
+    if (r === 'reopen' && gateField(ctx, f, 'reopened_from') !== '') continue;
     if (r === 'reopen' || r === 'fail') hit = f;
   }
   return hit;
@@ -446,7 +448,11 @@ function implemented(ctx, id, d, emit, o, r) {
     if (s === 'fail') fail += ` ${g}`; else todo += ` ${g}:${s}`;
   }
   if (fail !== '') { failing(ctx, id, d, fail, emit, o, r); return; }
-  if (todo !== '') { gatesTodo(ctx, id, d, todo, fp, emit, o, r); return; }
+  if (todo !== '') {
+    const rf = reopenedFindings(ctx, d, id);
+    if (rf.length > 0) emit(`note=reopened run (A353): the findings recorded before the reopen still describe this content (${rf.map((f) => f.slice(f.lastIndexOf('/') + 1)).join(' ')}); agent.sh handoff ${id} IMPLEMENTING opens the fix round from them without dispatching those gates again\n`);
+    gatesTodo(ctx, id, d, todo, fp, emit, o, r); return;
+  }
   emit(unsupportedNext(ctx, id, d)); emit(notRerunNext(ctx, id, d)); emit(frictionReminder(ctx, id, d));
   o(`agent.sh handoff ${id} CODE_DONE`); r('every required gate passes');
 }

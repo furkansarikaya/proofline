@@ -31,7 +31,8 @@ function refreeze(ctx, args) { ctx.fpMode = 'refresh'; requireLead(ctx); const i
 function handoff(ctx, args) {
   ctx.fpMode = 'refresh';
   if (ctx.role !== 'lead' && args[1] !== 'IMPLEMENTING') fail(`handoff phase denied for ${ctx.role}`);
-  return recordHandoff(ctx, need(args, 0), need(args, 1));
+  if (args.length > 2 && !(args.length === 3 && args[2] === '--re-review')) fail('usage: agent.sh handoff <ID> <IMPLEMENTING|IMPLEMENTED|CODE_DONE|DONE> [--re-review (IMPLEMENTED; reason on stdin)]');
+  return recordHandoff(ctx, need(args, 0), need(args, 1), args[2] === '--re-review');
 }
 
 /** @param {Context} ctx @param {string[]} args */

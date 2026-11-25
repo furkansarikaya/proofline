@@ -111,7 +111,66 @@ export function validGateFile(ctx, dir, id, rec) {
   if (art !== '' && !(isFile(`${dir}/${art}`) && gateField(ctx, rec, 'artifact_sha256') === hashOnce(ctx, `${dir}/${art}`))) return false;
   const ue = gateField(ctx, rec, 'unsupported_evidence').replace(/@[^@]*$/, '');
   if (ue !== '' && !(isFile(`${dir}/${ue}`) && gateField(ctx, rec, 'unsupported_evidence_sha256') === hashOnce(ctx, `${dir}/${ue}`))) return false;
+  if (!recordedReadSetHolds(ctx, rec)) return false;
   return true;
+}
+
+// ---- the read-set of a gate (A353) -----------------------------------------------------------------------------------------------
+
+/** The gates whose read-set is narrower than the whole task-owned patch: they judge the plan and the product code, not the tests (A200 item 5). Every other gate reads the whole patch. */
+const NARROW_READERS = ['REVIEW_PLAN', 'REVIEW_RULES', 'REVIEW_DATA', 'SECURITY'];
+
+/**
+ * True when a path of the task-owned patch is NOT in the read-set of a gate: the gate is one of NARROW_READERS, the path is test code (no manifest, lock, environment, configuration or contract file) that the plan does not claim as
+ * another kind, and, for SECURITY, its name carries no security word. The control plane decides this from the path and the frozen plan; an agent's statement of what it read plays no part (Core invariant 4).
+ * @param {Context} ctx @param {string} dir @param {string} gate @param {string} p
+ */
+function outsideReadSet(ctx, dir, gate, p) {
+  if (!NARROW_READERS.includes(gate)) return false;
+  if (!testCodePath(ctx, p)) return false;
+  const k = planPathClaim(ctx, dir, p);
+  if (k !== '' && k !== 'test') return false;
+  return !(gate === 'SECURITY' && new RegExp(SECURITY_TEST_WORDS, 'i').test(p));
+}
+
+/**
+ * `gate_read_set`: the "path|fingerprint" lines of the task-owned patch (a patch manifest) that the gate reads, sorted. This is the conservative superset: every changed path the gate is not provably blind to
+ * (outsideReadSet), with the content hash of the manifest line, so a changed byte of any of them changes the set. The frozen contract (task, evidence, plan, QA plan, policy, pipeline) is bound by every record apart.
+ * @param {Context} ctx @param {string} dir @param {string} gate @param {string[]} manifest "path|fingerprint" lines
+ */
+export function gateReadSetLines(ctx, dir, gate, manifest) {
+  return sortUnique(manifest.filter((l) => l !== '' && !outsideReadSet(ctx, dir, gate, l.includes('|') ? l.slice(0, l.indexOf('|')) : l)));
+}
+
+/** The record's own read-set file (`<name>.readset`). @param {string} rec */
+const readSetFile = (rec) => `${rec.replace(/\.yaml$/, '')}.readset`;
+
+/**
+ * The read-set a record holds is the one the control plane derives from the record's own manifest (itself bound by manifest_sha256): a record whose read-set file is missing, was edited (its hash is in the record), or lists
+ * fewer or other files than the derivation gives is not trusted (fail safe: the gate runs again). A record written before the read-set existed has none and is derived at the comparison.
+ * @param {Context} ctx @param {string} rec
+ */
+function recordedReadSetHolds(ctx, rec) {
+  const want = gateField(ctx, rec, 'readset_sha256');
+  if (want === '') return true;
+  const dir = rec.slice(0, rec.lastIndexOf('/gates/'));
+  const f = readSetFile(rec);
+  if (!isFile(f) || hashOnce(ctx, f) !== want) return false;
+  const stored = textLines(fileText(ctx, f) ?? '').filter((l) => l !== '');
+  const derived = gateReadSetLines(ctx, dir, gateField(ctx, rec, 'gate'), textLines(fileText(ctx, `${rec.replace(/\.yaml$/, '')}.manifest`) ?? '').filter((l) => l !== ''));
+  return stored.length === derived.length && stored.every((l, i) => l === derived[i]);
+}
+
+/**
+ * True when the read-set of the gate is the same in the record and in the current task-owned patch (path and content hash of each file it reads). Both sides are derived by the control plane from a manifest; a gate that
+ * claimed another set is not believed. @param {Context} ctx @param {string} dir @param {string} rec @param {string} gate
+ */
+function readSetUnchanged(ctx, dir, rec, gate) {
+  const mt = fileText(ctx, `${rec.replace(/\.yaml$/, '')}.manifest`);
+  if (mt === null) return false;
+  const before = gateReadSetLines(ctx, dir, gate, textLines(mt));
+  const after = gateReadSetLines(ctx, dir, gate, patchManifest(ctx, dir));
+  return before.length === after.length && before.every((l, i) => l === after[i]);
 }
 
 // ---- findings and waivers -------------------------------------------------------------------------------------------------------
@@ -379,12 +438,10 @@ function gateInputsUnchanged(ctx, dir, rec, gate, mode, now) {
   if (!['REVIEW_PLAN', 'REVIEW_RULES', 'REVIEW_DATA', 'SECURITY'].includes(gate)) return false;
   if (gateField(ctx, rec, 'result') !== 'pass') return false;
   const delta = manifestDelta(ctx, dir, rec);
-  if (delta === null || delta.length === 0) return false;
-  for (const p of delta) {
-    if (!testCodePath(ctx, p)) return false;
-    const k = planPathClaim(ctx, dir, p);
-    if (k !== '' && k !== 'test') return false;
-  }
+  if (delta === null) return false;
+  // A353: the gate keeps its pass when the files IT reads are byte-identical (a set the control plane derives from both manifests), not only when every changed path is a test
+  if (!readSetUnchanged(ctx, dir, rec, gate)) return false;
+  if (delta.length === 0) return mode === 'patch';   // the patch is byte-identical: nothing changed that a diff could show (the whole-tree modes still need a changed path to explain a different tree)
   const recFp = gateField(ctx, rec, 'fingerprint');
   let cur = now;
   if (mode === 'reuse') {
@@ -597,6 +654,27 @@ function gateCarryoverFree(ctx, dir, rec) {
     if (cited.has(`${base}\t${txt}`)) return false;
   }
   return rows > 0;
+}
+
+/**
+ * B4 (A353): the failing records a terminal `reopen` voided (their status is `stale` so that every gate can run again) which still describe the CURRENT content: the latest record of a required gate and focus is a valid, unwaived
+ * FAIL written before the last reopen, for the very fingerprint now. They are the recorded findings a reopened run opens its fix round from, without a gate being dispatched only to say the content is unchanged.
+ * A finding of another content is not listed (fail safe: that gate runs again). @param {Context} ctx @param {string} dir @param {string} id @returns {string[]}
+ */
+export function reopenedFindings(ctx, dir, id) {
+  const term = lastReopenSeq(ctx, dir, 'terminal');
+  if (!(term > 0)) return [];
+  const fp = gateFingerprint(ctx);
+  /** @type {string[]} */ const out = [];
+  for (const g of requiredGates(ctx, dir)) {
+    for (const fc of ['-', ...riskGateFocuses(ctx, dir, g)]) {
+      const f = gateLatestFile(ctx, dir, g, fc);
+      if (f === '' || gateField(ctx, f, 'result') !== 'fail' || !(Number(gateField(ctx, f, 'seq')) <= term)) continue;
+      if (!validGateFile(ctx, dir, id, f) || gateField(ctx, f, 'fingerprint') !== fp || failFullyWaived(ctx, dir, f)) continue;
+      out.push(f);
+    }
+  }
+  return out;
 }
 
 /** `max_fix_rounds` @param {Context} ctx */
