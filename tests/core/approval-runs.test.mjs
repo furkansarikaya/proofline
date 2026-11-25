@@ -136,3 +136,39 @@ test('run ids with digits are names when the run is real and waits: W-1 and W-10
   assert.equal(ok('approve scope W-10', 'W-1'), false, 'a reply that names W-10 approved W-1');
   assert.equal(ok('approve scope W-1 W-99', 'W-1'), false, 'an unknown run id was accepted');
 });
+
+// ---- digitless run ids (A350 round 3): the run being checked is a name without a digit, when real, open and made of ordinary non-hedge parts ------------------------------
+test('digitless real runs: "approve scope add-login" approves only add-login; other digitless runs named beside it stay ordinary words', () => {
+  const { folder, ok } = names();
+  folder('add-login', { run: true }); folder('fix-header', { run: true });
+  assert.equal(ok('approve scope add-login', 'add-login'), true, 'a digitless run id is not accepted as a name');
+  assert.equal(ok('approve scope add-login', 'fix-header'), false, 'a reply naming add-login approved fix-header');
+  assert.equal(ok('approve scope add-login', 'W-1'), false, 'a reply naming add-login approved an unrelated run');
+  assert.equal(ok('Approve scope Add-Login', 'add-login'), true);
+  assert.equal(ok('approve scope add-login fix-header', 'add-login'), false, 'a second digitless run is an unknown word');
+  assert.equal(ok('approve scope add-login fix-header', 'fix-header'), false, 'a second digitless run is an unknown word');
+  assert.equal(ok('approve scope add', 'add-login'), false, 'a part of the id is no name');
+  folder('ghost-run');                                                  // a valid request but no RUN.yaml
+  assert.equal(ok('approve scope ghost-run', 'ghost-run'), false, 'a folder that is no real run became a name');
+});
+
+test('digitless run ids made of hedge or grammar words never make an approval, forged or real', () => {
+  const { folder, ok } = names();
+  const ids = ['no-way', 'not-now', 'never_again', 'skip-it', 'do-not', 'approve-it', 'the-scope'];
+  for (const id of ids) folder(id, { run: true });
+  for (const id of ids) {
+    assert.equal(ok(`${id} approve scope`, id), false, `'${id} approve scope' approved`);
+    assert.equal(ok(`approve scope ${id}`, id), false, `'approve scope ${id}' approved`);
+  }
+  folder('add-login', { run: true });
+  assert.equal(ok('do-not approve scope add-login', 'add-login'), false);
+});
+
+test('end to end: several open requests with digitless run ids; the reply names the run and approves exactly it', () => {
+  const { main, wts } = waiting(['add-login', 'fix-header']);
+  older(...wts, main); let out = hook(main, 'approve scope');
+  assert.ok(!approved(wts[0], 'add-login') && !approved(wts[1], 'fix-header') && out.includes('say which run you approve'), out);
+  older(...wts, main); out = hook(main, 'approve scope add-login');
+  assert.ok(approved(wts[0], 'add-login'), `approve scope add-login did not approve add-login: ${out}`);
+  assert.ok(!approved(wts[1], 'fix-header'), 'the reply naming add-login approved fix-header');
+});

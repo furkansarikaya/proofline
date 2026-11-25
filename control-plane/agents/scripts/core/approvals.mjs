@@ -166,6 +166,8 @@ export function rationaleLineIn(id, text) {
 // normalisation is ASCII only and locale independent, exactly as the `LC_ALL=C tr | sed` pipelines were.
 
 export const APPROVAL_PHRASES_DEFAULT = 'approve, approved, yes, ok, okay, go ahead, lgtm, commit it, push it, onay, onaylıyorum, onayliyorum, onaylandı, onaylandi, onayladım, onayladim, evet, tamam, olur';
+/** Words of refusal, doubt and delay (the multi-approval scan, approve.mjs, uses the same list): never part of a run name that is accepted without a digit (A350 round 3). */
+export const HEDGE_WORDS = ' not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin cancel undo stop ignore nope nah revoke reject withdraw abort halt disregard cannot isnt shouldnt negative refuse deny denied oppose jk iptal vazgectim hmm ';
 export const APPROVAL_FILLERS = 'the, a, an, it, this, please, for, with, to, and, lütfen, lutfen, bu, planı, plani, için, icin';
 const FILLERS_BYTES = Buffer.from(APPROVAL_FILLERS, 'utf8').toString('latin1');
 
@@ -343,9 +345,11 @@ function approvedByThisMessage(ctx, dir, captureId) {
  * id counts only when it contains a digit (so no ordinary English or Turkish word is ever a run name) and it is (a) the run being checked (RUNID) or (b) a REAL run (`realRun`: the control
  * plane's RUN.yaml names it) that has a valid request still open or that this very message has already approved (each run is checked in its own process, so an earlier run of the same reply
  * must still count). Every other word of the reply stays an ordinary word, judged by the phrase, filler and kind lists like before. The words are normalised like the reply.
- * @param {Context} ctx @param {string} runId @returns {Set<string>}
+ * Round 3: run ids are task ids and need no digit (`add-login`), so the run BEING CHECKED is also a name without a digit, when it is a real run with a valid open request and neither the whole id nor any
+ * part split on `-` and `_` is an ordinary grammar word (`plain`: phrase, kind, filler or hedge word). Other runs still need a digit.
+ * @param {Context} ctx @param {string} runId @param {(w: string) => boolean} [plain] @returns {Set<string>}
  */
-export function knownRunWords(ctx, runId) {
+export function knownRunWords(ctx, runId, plain = () => true) {
   /** @type {Set<string>} */ const out = new Set();
   if (typeof ctx.root !== 'string' || typeof ctx.sharedMain !== 'function') return out;   // a lexical check without a project (the e2e grammar probe) knows no runs
   if (/^[A-Za-z0-9_-]*[0-9][A-Za-z0-9_-]*$/.test(runId)) out.add(approvalNorm(runId));
@@ -358,11 +362,20 @@ export function knownRunWords(ctx, runId) {
       if (realRun(ctx, `${d}/${n}`, n) && (hasValidOpenRequest(ctx, ad) || (captureId !== '' && approvedByThisMessage(ctx, ad, captureId)))) out.add(approvalNorm(n));
     }
   };
-  addReal(`${ctx.root}/.agents/runs`);
+  const checked = approvalNorm(runId);
+  const digitless = /^[A-Za-z0-9_-]+$/.test(runId) && !/[0-9]/.test(runId) && !plain(checked) && !checked.split(/[-_]/).some((p) => p !== '' && plain(p));
+  /** @param {string} d */
+  const addChecked = (d) => {
+    const ad = `${d}/${runId}/approvals`;
+    if (realRun(ctx, `${d}/${runId}`, runId) && (hasValidOpenRequest(ctx, ad) || (captureId !== '' && approvedByThisMessage(ctx, ad, captureId)))) out.add(checked);
+  };
+  /** @param {string} d */
+  const addAll = (d) => { addReal(d); if (digitless) addChecked(d); };
+  addAll(`${ctx.root}/.agents/runs`);
   const main = ctx.sharedMain();
-  addReal(`${main}/.agents/runs`);
+  addAll(`${main}/.agents/runs`);
   const wt = `${main}/.agents/local/worktrees`;
-  for (const w of sortedNames(wt, /^[A-Za-z0-9_.-]+$/)) addReal(`${wt}/${w}/.agents/runs`);
+  for (const w of sortedNames(wt, /^[A-Za-z0-9_.-]+$/)) addAll(`${wt}/${w}/.agents/runs`);
   return out;
 }
 
@@ -393,7 +406,7 @@ export function textHasApproval(ctx, rawText, kind, runId = '', withKinds = []) 
   /** @type {Set<string>} */ const named = new Set();
   for (const t of n.split(' ')) {
     if (okWords.has(t)) continue;
-    if (runId !== '-') { runs ??= knownRunWords(ctx, runId); if (runs.has(t)) { named.add(t); continue; } }
+    if (runId !== '-') { runs ??= knownRunWords(ctx, runId, (w) => okWords.has(w) || HEDGE_WORDS.includes(` ${w} `)); if (runs.has(t)) { named.add(t); continue; } }
     return false;
   }
   if (named.size > 0 && runId !== '' && !named.has(approvalNorm(runId))) return false;

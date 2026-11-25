@@ -14,7 +14,7 @@ import { contentFingerprint } from './fingerprint.mjs';
 import {
   approvalExample, approvalFiles, approvalNorm, approvalPendingPairs, approvalPhrases, approvalSay, approvalSentences, approvalWords, approvalsDirOf, captureFieldOf,
   findApproval, kindSlug, kindWords, latestCapture, latestRequest, promptsDir, safeStateFile, seq3, sharedDirOf, sortedNames, textHasApproval, validApprovalKind,
-  APPROVAL_FILLERS, rationaleLineIn, DESIGN_MD_CANDIDATES,
+  APPROVAL_FILLERS, HEDGE_WORDS, rationaleLineIn, DESIGN_MD_CANDIDATES,
 } from './approvals.mjs';
 import { answersOpenQuestion } from './answerforms.mjs';
 import { blockingFindingIds, gateFocusStatus, gateLatestFile, requiredGates, taskPatchFingerprint } from './gates.mjs';
@@ -242,7 +242,7 @@ export function runLanguage(ctx, id) {
 
 // ---- several approvals in one message (A202 item 31) ---------------------------------------------------------------------------------
 
-const HEDGE = ' not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin cancel undo stop ignore nope nah revoke reject withdraw abort halt disregard cannot isnt shouldnt negative refuse deny denied oppose jk iptal vazgectim hmm ';
+const HEDGE = HEDGE_WORDS;
 
 /** The trimmed text of awk's `trim`. @param {string} s */
 const trimSp = (s) => s.replace(/^ +| +$/g, '');
