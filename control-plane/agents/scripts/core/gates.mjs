@@ -731,6 +731,15 @@ function verifierRetry(ctx, dir, rec) {
   return false;
 }
 
+/**
+ * The `handoff:IMPLEMENTED` rows of the run since its last reopen that were a `--re-review` (A353): each one is a fix round (the same tree sent to review again), so a loop of re-reviews meets `max_fix_rounds`.
+ * The sealed ledger holds them; a reviewer's new FAIL record name or the same tree fingerprint cannot reset the count. @param {Context} ctx @param {string} dir
+ */
+export function reReviewRows(ctx, dir) {
+  const since = lastRowSeq(ctx, dir, 'REOPEN');
+  return ledgerRows(ctx, dir, 'handoff:IMPLEMENTED').filter((r) => r.seq > since && r.detail.startsWith('re-review '));
+}
+
 /** `fix_rounds_used ID`: one round per distinct content that collected an unwaived blocking FAIL under the current contract since the last reopen (a verifier's own retry on the same content excepted, A326), plus one per evidence-only repair (A325). @param {Context} ctx @param {string} dir */
 export function fixRoundsUsed(ctx, dir) {
   const reopen = lastReopenSeq(ctx, dir, 'any');
@@ -745,7 +754,7 @@ export function fixRoundsUsed(ctx, dir) {
     if (verifierRetry(ctx, dir, f)) continue;
     set.add(gateField(ctx, f, 'fingerprint'));
   }
-  return set.size + evidenceRepairRows(ctx, dir).length;
+  return set.size + evidenceRepairRows(ctx, dir).length + reReviewRows(ctx, dir).length;
 }
 
 // ---- reports the pipeline shows -------------------------------------------------------------------------------------------------

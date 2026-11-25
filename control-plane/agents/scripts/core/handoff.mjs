@@ -358,6 +358,8 @@ function reReviewCheck(ctx, id, dir, current, patch) {
   if (patch !== gateField(ctx, f, 'patch_sha256')) fail(`--re-review: the tree changed since the finding in ${name}; run 'agent.sh handoff ${id} IMPLEMENTED' without --re-review`);
   const reason = fieldFromText(readStdin(), 'reason');
   if (!justificationOk(reason)) fail("--re-review requires a specific 'reason:' on stdin (>=20 chars: why the same tree deserves another review)");
+  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
+  if (used + 1 > max) fail(`--re-review counts as a fix round and the rounds are used (${used} of max_fix_rounds ${max}): a further review of the same tree needs a change of the tree, or end the run with 'agent.sh terminate ${id} FAILED'`);
   if (ledgerRows(ctx, dir, 'handoff:IMPLEMENTED').some((r) => r.detail.includes(`re-review finding=${name} `))) fail(`--re-review was already used for ${name}: a second review of the same finding needs a change of the tree`);
   return `re-review finding=${name} reason=${reason.replace(/[\n\r]/g, ' ').slice(0, 200)}`;
 }

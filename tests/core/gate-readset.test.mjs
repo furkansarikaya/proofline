@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { A, accepted, gateStatus, must, passAll, rec, refused, say, scaffold } from '../lib/harness.mjs';
+import { A, AS, accepted, gateStatus, must, passAll, rec, refused, say, scaffold } from '../lib/harness.mjs';
 import { worker2 } from './gates-s4-lib.mjs';
 
 const RUN = '.agents/runs/LC';
@@ -107,5 +107,18 @@ test('a re-review needs no code change: once per finding, with a reason, on the 
   accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: the finding cites a line the plan declares out of scope\n' }), 're-review');
   assert.equal(gateStatus(d, 'REVIEW_RULES'), 'fail', 'the finding stays until a reviewer says otherwise');
   must(d, ['handoff', 'LC', 'IMPLEMENTING']);
-  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: a second look at the very same finding please\n' }), 'a second re-review of one finding', 'already used');
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: a second look at the very same finding please\n' }), 'a second re-review of one finding', 'fix round');
+});
+
+test('a re-review is a fix round: a loop with a new FAIL record each time, on one tree, stops at max_fix_rounds; a non-lead role is refused', () => {
+  const d = passed();
+  rec(d, 'REVIEW_RULES', 'FAIL', [RULES]);
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(AS(d, 'implementer', ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: the implementer asks for a new review of the tree\n' }), 're-review by a non-lead role', 'denied');
+  refused(AS(d, 'reviewer', ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: the reviewer asks for a new review of the tree\n' }), 're-review by the reviewer', 'denied');
+  accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: the first re-review of the unchanged tree\n' }), 'the first re-review');
+  assert.match(A(d, ['pipeline', 'LC']).out, /fix_round=2/, 'the re-review is not counted as a round');
+  rec(d, 'REVIEW_RULES', 'FAIL', [RULES]);   // a new record name, the very same tree fingerprint
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: the second re-review of the unchanged tree\n' }), 'a re-review loop on one tree', 'fix round');
 });
