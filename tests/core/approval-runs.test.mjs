@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { test } from 'node:test';
-import { A, AB, bnew, binstall, fakes, mktask, path, put, real, repo, wtp } from './batch-lib.mjs';
+import { A, AB, bnew, binstall, fakes, mktask, path, put, readIf, real, repo, wtp } from './batch-lib.mjs';
 import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 
 const PLAN_X = '---\nscope:\n  - path: x.txt\n    criteria: [AC-1]\n---\n# Plan\n';
@@ -62,4 +62,15 @@ test('a reply may name several runs after the kind word; each named run is appro
   older(...wts, main); const out = hook(main, 'approve scope W-1 W-3');
   assert.ok(approved(wts[0], 'W-1') && approved(wts[2], 'W-3'), `the named runs were not approved: ${out}`);
   assert.ok(!approved(wts[1], 'W-2'), 'a run the reply does not name was approved');
+});
+
+test('a run is named as a whole word: with W-1 and W-10 waiting, "approve scope W-10" approves W-10 and never starts the approval step of W-1', () => {
+  const { dir, main, wts } = waiting(['W-1', 'W-10']);
+  older(...wts, main); const out = hook(main, 'approve scope W-10');
+  assert.ok(approved(wts[1], 'W-10'), `W-10 was not approved: ${out}`);
+  assert.ok(!approved(wts[0], 'W-1'), 'W-1 was approved by a reply that names W-10');
+  // the hook ran only the run the reply names: a substring match would have started the approval step of W-1 too (the core refuses it, but the step ran and logged)
+  const log = readIf(`${dir}/.agents/local/approve.log`);
+  assert.ok(log.includes('target=W-10 '), `no line for W-10: ${log}`);
+  assert.ok(!log.includes('target=W-1 '), `the approval step of W-1 ran for a reply that names W-10: ${log}`);
 });

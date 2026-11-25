@@ -16,7 +16,7 @@ import {
   findApproval, kindSlug, kindWords, latestCapture, latestRequest, promptsDir, safeStateFile, seq3, sharedDirOf, sortedNames, textHasApproval, validApprovalKind,
   APPROVAL_FILLERS, rationaleLineIn, DESIGN_MD_CANDIDATES,
 } from './approvals.mjs';
-import { answersOpenQuestion } from './answer.mjs';
+import { answersOpenQuestion } from './answerforms.mjs';
 import { blockingFindingIds, gateFocusStatus, gateLatestFile, requiredGates, taskPatchFingerprint } from './gates.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { sha256, sha256File } from './hash.mjs';

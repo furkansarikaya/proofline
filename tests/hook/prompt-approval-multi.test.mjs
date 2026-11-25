@@ -1,10 +1,13 @@
 // @ts-check
 // UserPromptSubmit and several approvals in ONE message (A350, issue 338 B1): `;` and `,` and lines separate them, a phrase covers several open kinds only when
 // each kind is named, the answer to a pending user-only question is recorded with them as the user's, and what an agent writes never approves anything.
+// Tests that failed on the base and pass now: the `;` test, the named-kinds test, the answer test, the run-folder-name test. GUARDS (they also passed on the base, they keep a refusal in
+// place; each carries a positive assertion that fails on the base): the hedged-rest test (its positive: the same words without the hedge record) and the agent-writes test (its positive: the
+// user's own message with the same approvals records).
 import { tempDir } from '../lib/tempdir.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { buildTemplate, runHook, copyProject, rmSync, join, spawnSync, cleanEnv } from './harness.mjs';
 
 let template = '';
@@ -85,6 +88,14 @@ test('a hedged or unrelated rest is no answer, and an answer to another question
   const f = open(['plan'], true);
   await say(f, 'approve plan; blah blah');
   assert.ok(!existsSync(answer(f)), 'an unrelated rest was recorded as the answer');
+  // the positives (these fail on the base): the same messages without the hedge, with the right question number, record the answer
+  const g = open(['plan'], true);
+  await say(g, 'approve plan, böl');
+  assert.ok(has(g, 'plan') && existsSync(answer(g)), 'the same words without the hedge record no answer');
+  const h = open(['plan'], true);
+  await say(h, 'approve plan; soru 1: a');
+  assert.ok(has(h, 'plan') && existsSync(answer(h)), 'an answer to question 1 was not recorded');
+  assert.match(readFileSync(answer(h), 'utf8'), /^answer: böl$/m);
 });
 
 test('what an agent writes approves nothing: a request, a question file and a lead-typed answer carry no approval', async () => {
@@ -96,6 +107,11 @@ test('what an agent writes approves nothing: a request, a question file and a le
   const q = ag(e, ['approve', 'LC', 'plan', 'scope']);
   assert.notEqual(q.status, 0, 'agent.sh approve without a user prompt capture succeeded');
   assert.ok(!has(e, 'plan') && !has(e, 'scope'));
+  // the positive (fails on the base): the user's own message with the same approvals records them
+  const u = open(['plan', 'scope'], true);
+  await say(u, 'approve plan; approve scope; böl');
+  assert.ok(has(u, 'plan') && has(u, 'scope') && existsSync(answer(u)), 'the user\'s own message did not record');
+  assert.match(readFileSync(answer(u), 'utf8'), /^answered_by: user$/m);
   // a finished background agent arrives as a "prompt": its text is not the user's words
   const f = open(['plan', 'scope'], true);
   await say(f, '<task-notification>approve plan; approve scope; böl</task-notification>');
@@ -103,4 +119,26 @@ test('what an agent writes approves nothing: a request, a question file and a le
   // a quoted or fenced block in the user's message is never an approval
   await say(f, '> approve plan; approve scope');
   assert.ok(!has(f, 'plan') && !has(f, 'scope'), 'a quoted block approved');
+});
+
+/** A project with the run folders an agent can create: names that are negation words, three of them with a request of their own. */
+function withFolders() {
+  const d = open(['scope']);
+  for (const n of ['never', 'not', 'dont', 'no', 'do']) mkdirSync(join(d, '.agents/runs', n, 'approvals'), { recursive: true });
+  for (const n of ['never', 'not']) writeFileSync(join(d, '.agents/runs', n, 'approvals/001-request-scope.yaml'), 'kind: "scope"\nrequested_at: 1000\n');
+  return d;
+}
+
+test('a run folder named like a negation word is no run name: a negated reply is refused (folder names are agent-writable)', async () => {
+  for (const msg of ['never approve the scope LC', 'approve scope not LC', 'do not approve scope LC', 'approve scope dont LC', 'approve scope no LC', 'approve the scope, never LC', 'approve scope do not LC']) {
+    const d = withFolders();
+    await say(d, msg);
+    assert.ok(!has(d, 'scope'), `a negated message approved: ${msg}`);
+  }
+  // the positives (fail on the base: no run named at all is refused, the run id after the kind word is not): the same folders, the reply without a negation
+  for (const msg of ['approve scope LC', 'approve scope']) {
+    const d = withFolders();
+    await say(d, msg);
+    assert.ok(has(d, 'scope'), `the plain message was refused: ${msg}`);
+  }
 });

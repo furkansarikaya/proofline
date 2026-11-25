@@ -2,10 +2,11 @@
 
 ## Unreleased
 
+- Docs (no release), A346: the second closing records of the campaign: the e2e runs of 2026-11-19 on d09c5b07 (STANDARD FAIL 36/37, COMPLEX FAIL 30/37, one STANDARD attempt never started), the answers #330 to #334, proof page rows, CI and Windows facts, accepted limits A346.1 to A346.5, and small additions to the testing and night-mode concept pages
+
 ## 0.0.174 — 2026-11-25
 
 - Fix (A350, issue 338 B1): the approval hook. An answered `request-*` file no longer counts as a waiting run (the hook asked "say which run" with one run open); with several runs waiting a run id may follow the kind word ("approve scope TASK-004 TASK-010"; only existing run ids are allowed words, and the reply must name the run it approves); a reply is split on `;` as well as `,` and lines, one phrase may approve several open kinds only when it names each ("approve plan and scope"; "approve all" approves none), and the answer to a pending user-only question (`böl`, `soru 1: a`) beside approvals is recorded as the user's answer. Nothing an agent writes can approve; hedged answers record nothing.
-- Docs (no release), A346: the second closing records of the campaign: the e2e runs of 2026-11-19 on d09c5b07 (STANDARD FAIL 36/37, COMPLEX FAIL 30/37, one STANDARD attempt never started), the answers #330 to #334, proof page rows, CI and Windows facts, accepted limits A346.1 to A346.5, and small additions to the testing and night-mode concept pages
 
 ## 0.0.173 — 2026-11-20
 

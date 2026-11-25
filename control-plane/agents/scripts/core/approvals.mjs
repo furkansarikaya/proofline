@@ -273,20 +273,51 @@ export function approvalExample(kind) {
 }
 
 /**
- * The run ids a reply may name (A350): the runs of this tree, of the main tree and of the worktrees under it, normalised like the reply (one word each; a hyphen and an
- * underscore stay). Folder names only: a run is named by its id, never by anything an agent wrote.
- * @param {Context} ctx @returns {Set<string>}
+ * Words that negate, condition, hedge or retract (the segment veto of the multi-approval scan, A202, plus the words of the answer check). They are never a run name, whatever
+ * a folder under `.agents/runs` is called: a folder name is written by whoever can create a folder, and "never approve the scope W-1" must stay refused.
  */
-export function knownRunWords(ctx) {
+export const NEGATION_WORDS = new Set(`not no never dont cant wont if unless but maybe wait hold however hayir degil yok ama eger ancak fakat sonra bekle emin cancel undo stop ignore nope nah revoke reject withdraw abort halt disregard cannot isnt shouldnt negative refuse deny denied oppose jk iptal vazgectim hmm or actually instead rather without except until yet only decline declined do dont`.split(' '));
+
+/**
+ * Is a request really open in this approvals folder? The newest request of a kind (`NNN-request-<slug>.yaml`) is open while no approval file `MMM-<slug>.yaml` has MMM >= NNN
+ * (the rule of `pendingRequest`, by file names only).
+ * @param {string} dir
+ */
+export function hasOpenRequestIn(dir) {
+  const all = sortedNames(dir, /^[0-9]{3}-.*\.yaml$/);
+  /** @type {Map<string, string>} */ const newest = new Map();
+  for (const n of all) {
+    const m = /^([0-9]{3})-request-(.*)\.yaml$/.exec(n);
+    if (m && m[1] > (newest.get(m[2]) ?? '')) newest.set(m[2], m[1]);
+  }
+  for (const [slug, num] of newest) if (!all.some((n) => { const a = /^([0-9]{3})-(.*)\.yaml$/.exec(n); return a !== null && a[2] === slug && a[1] >= num; })) return true;
+  return false;
+}
+
+/**
+ * The run ids a reply may name (A350): the run being checked (RUNID), the runs that have a request still open and the runs this very message has already approved (this tree, the main tree, the worktrees under it), normalised like the
+ * reply (one word each). A run folder is no proof of anything by itself (an agent can create one with any name), so a folder that is neither is not a name, and a run whose id is
+ * a negation or hedge word (NEGATION_WORDS) is never one, not even when it waits.
+ * @param {Context} ctx @param {string} runId @returns {Set<string>}
+ */
+export function knownRunWords(ctx, runId) {
   /** @type {Set<string>} */ const out = new Set();
-  /** @param {string} d */
-  const add = (d) => { for (const n of sortedNames(d, /^[A-Za-z0-9_-]+$/)) out.add(approvalNorm(n)); };
   if (typeof ctx.root !== 'string' || typeof ctx.sharedMain !== 'function') return out;   // a lexical check without a project (the e2e grammar probe) knows no runs
-  add(`${ctx.root}/.agents/runs`);
+  /** @param {string} n */
+  const add = (n) => { const w = approvalNorm(n); if (!NEGATION_WORDS.has(w)) out.add(w); };
+  if (/^[A-Za-z0-9_-]+$/.test(runId)) add(runId);
+  // a run that THIS message already approved (an earlier run of the same reply, one process each) is still named by it: its record carries the capture id of this very message
+  const cap = /** @type {{ promptCapture?: { session: string, time: number, sha256: string } }} */ (ctx.io).promptCapture;
+  const mark = cap ? `capture_id: "${cap.session}:${cap.time}:${cap.sha256}"` : '';
+  /** @param {string} dir */
+  const approvedByThis = (dir) => mark !== '' && sortedNames(dir, /^[0-9]{3}-(?!request-).*\.yaml$/).some((f) => (readBytes(`${dir}/${f}`) ?? '').split('\n').includes(mark));
+  /** @param {string} d */
+  const addOpen = (d) => { for (const n of sortedNames(d, /^[A-Za-z0-9_-]+$/)) if (hasOpenRequestIn(`${d}/${n}/approvals`) || approvedByThis(`${d}/${n}/approvals`)) add(n); };
+  addOpen(`${ctx.root}/.agents/runs`);
   const main = ctx.sharedMain();
-  add(`${main}/.agents/runs`);
+  addOpen(`${main}/.agents/runs`);
   const wt = `${main}/.agents/local/worktrees`;
-  for (const w of sortedNames(wt, /^[A-Za-z0-9_.-]+$/)) add(`${wt}/${w}/.agents/runs`);
+  for (const w of sortedNames(wt, /^[A-Za-z0-9_.-]+$/)) addOpen(`${wt}/${w}/.agents/runs`);
   return out;
 }
 
@@ -294,7 +325,7 @@ export function knownRunWords(ctx) {
  * `text_has_approval TEXTFILE KIND [RUNID]` on the text itself: a positive grammar (A108). After normalisation every word must be a word of an
  * allowlisted phrase, of the kind's own words or a filler; the reply holds a whole phrase and a kind word, and no question mark. Any other word
  * makes it ambiguous. A reply equal to a full approval sentence of the kind approves as it is.
- * A350: (a) a word that is the id of a run (a folder name, `knownRunWords`) may stand in the reply, but only when the reply names the run it is checked for (RUNID): a reply that names
+ * A350: (a) a word that is the id of the run checked or of a run with an open request (`knownRunWords`; never a negation word) may stand in the reply, but only when the reply names the run it is checked for (RUNID): a reply that names
  * other runs and not this one approves nothing here; a RUNID of `-` (no run) allows no run name; RUNID '' (a lexical check) allows any run name. (b) WITHKINDS: the words of other
  * open kinds are allowed beside the kind's own, so one phrase may approve several open kinds ("approve plan and scope"), but each kind must be named: its own word is still required.
  * @param {Context} ctx @param {string} rawText the text as read from the file (a byte string) @param {string} kind @param {string} [runId] @param {string[]} [withKinds]
@@ -317,7 +348,7 @@ export function textHasApproval(ctx, rawText, kind, runId = '', withKinds = []) 
   /** @type {Set<string>} */ const named = new Set();
   for (const t of n.split(' ')) {
     if (okWords.has(t)) continue;
-    if (runId !== '-') { runs ??= knownRunWords(ctx); if (runs.has(t)) { named.add(t); continue; } }
+    if (runId !== '-') { runs ??= knownRunWords(ctx, runId); if (runs.has(t)) { named.add(t); continue; } }
     return false;
   }
   if (named.size > 0 && runId !== '' && !named.has(approvalNorm(runId))) return false;
