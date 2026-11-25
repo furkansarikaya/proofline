@@ -5,17 +5,31 @@
 // by the plan's quoted test names. The control plane's own run is the evidence (Core invariant 4); an agent's claim is not. The only refusals here are a plan-listed command that FAILS or times
 // out (a listed test fails). A command that exits 0 but ran no test (its output has no per-test line) is not GREEN: nothing is recorded for it and the older checks apply unchanged.
 import { fail, ProoflineError } from './errors.mjs';
-import { approvedMeasureTargets, matchPlanDurations, runnerEntries, runPlanCommand } from './evidencerepair.mjs';
+import { approvedMeasureTargets, matchPlanDurations, runnerEntries, runnerEntriesAll, runPlanCommand } from './evidencerepair.mjs';
 import { recordControlGreen } from './gatecmd.mjs';
-import { taskPatchFingerprint } from './gates.mjs';
+import { patchManifest, taskPatchFingerprint } from './gates.mjs';
 import { ledgerIf } from './lifecycle.mjs';
 import { fieldOf, fileLines, fileText, gatesEnforced } from './records.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
+import { asciiLower } from './shellglob.mjs';
 import { controlGreenFor, controlGreenToken, greenRecords, measureRequired, planKinds } from './testmeasure.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
+
+/** Is `name` (lower case) inside a quoted string of one line of `text` (lower case)? A test title is a string literal; a bare word of a comment or a printed line is not. @param {string} text @param {string} name */
+function titleLiteral(text, name) {
+  for (const line of text.split('\n')) {
+    let from = line.indexOf(name);
+    while (from >= 0) {
+      const before = line.slice(0, from); const after = line.slice(from + name.length);
+      for (const q of ['"', "'", '`']) if (before.includes(q) && after.includes(q) && !before.slice(before.lastIndexOf(q) + 1).includes(q) && (before.split(q).length - 1) % 2 === 1) return true;
+      from = line.indexOf(name, from + 1);
+    }
+  }
+  return false;
+}
 
 /**
  * Run the plan-listed commands once and record the durations of the plan-named tests. Returns true when the control plane's own GREEN covers this content (recorded now or before).
@@ -31,8 +45,13 @@ export function controlPlaneGreen(ctx, id, patch) {
   if (names.length === 0 || commands.length === 0) return false;
   if (controlGreenFor(ctx, id, patch)) return true;
   const excused = approvedMeasureTargets(ctx, id);
-  const want = names.filter((n) => !excused.includes(n) && !n.includes('=') && !n.includes(';'));
+  const owed = names.filter((n) => !excused.includes(n));
+  const want = owed.filter((n) => !n.includes('=') && !n.includes(';'));
   if (want.length === 0) return false;
+  // a plan name counts only when it is a string literal (a test title) in a file the task changed or the command names: a line a test prints is not a test
+  const files = [...new Set([...patchManifest(ctx, dir).map((l) => l.slice(0, l.indexOf('|'))), ...commands.flatMap((c) => c.split(/\s+/))])].filter((f) => f !== '');
+  const texts = files.map((f) => asciiLower(fileText(ctx, `${ctx.root}/${f}`) ?? ''));
+  const titled = (/** @type {string} */ n) => texts.some((t) => titleLiteral(t, n));
   const greens = greenRecords(ctx, id);
   const last = greens[greens.length - 1];
   const target = last === undefined ? '' : fieldOf(fileLines(ctx, `${dir}/worker-evidence/${last.file}`), 'target');
@@ -43,7 +62,9 @@ export function controlPlaneGreen(ctx, id, patch) {
     const r = runPlanCommand(ctx, command, limit);
     if (r.timedOut) fail(`IMPLEMENTED blocked: the control plane ran the plan-listed command \`${command}\` itself and it hit the time limit (${limit} s); nothing was recorded`);
     if (r.status !== 0) fail(`IMPLEMENTED blocked: the control plane ran the plan-listed command \`${command}\` itself and it exited ${r.status}: a listed test fails. Fix it (a failing test is a normal fix), then record IMPLEMENTED again`);
-    outputs.push({ command, entries: runnerEntries(r.text) });
+    // a name that shows on two result lines is ambiguous (an echoed line next to the real one): it is left out
+    const all = runnerEntriesAll(r.text);
+    outputs.push({ command, entries: runnerEntries(r.text).filter((e) => all.filter((a) => a.name === e.name).length === 1) });
   }
   // the memoised patch, change lists and reads are dropped, so a path a command dirtied or created is seen
   for (const k of ['patch:', 'changed:', 'fp:', 'file:', 'hash:', 'git:']) ctx.forget(k);
@@ -51,7 +72,7 @@ export function controlPlaneGreen(ctx, id, patch) {
   /** @type {Array<{ command: string, durations: string }>} */ const records = [];
   const taken = new Set();
   for (const o of outputs) {
-    const part = matchPlanDurations(want.filter((n) => !taken.has(n)), o.entries).found;
+    const part = matchPlanDurations(want.filter((n) => !taken.has(n) && titled(n)), o.entries).found;
     for (const n of part.keys()) taken.add(n);
     // keyed by the plan's own quoted name: the later steps (budgets, the double run, REVIEW_TESTS) match by that name
     if (part.size > 0) records.push({ command: o.command, durations: [...part].map(([n, e]) => `${n}=${e.ms}`).join('; ') });
@@ -68,7 +89,10 @@ export function controlPlaneGreen(ctx, id, patch) {
     return false;
   }
   ctx.forget('file:');
-  ledgerIf(ctx, id, 'green-control', '-', '-', `token=${controlGreenToken(ctx, id, patch)} commands=${records.length} tests=${taken.size}/${want.length}`);
-  ctx.err(`GREEN recorded by the control plane: ${taken.size} of ${want.length} plan-named test(s) from its own run of ${records.length} plan-listed command(s) (durations keyed by the plan's test names)\n`);
-  return true;
+  // all or nothing: only a run that gave a duration to EVERY plan test the user did not excuse makes the control plane's GREEN the evidence for the content; a partial run leaves the
+  // tests it did not cover to the older checks (an agent's claim for them is still no evidence)
+  const full = taken.size === owed.length;
+  if (full) ledgerIf(ctx, id, 'green-control', '-', '-', `token=${controlGreenToken(ctx, id, patch)} commands=${records.length} tests=${taken.size}/${owed.length}`);
+  ctx.err(`GREEN recorded by the control plane: ${taken.size} of ${owed.length} plan-named test(s) from its own run of ${records.length} plan-listed command(s) (durations keyed by the plan's test names)${full ? '' : '; the others are checked as before'}\n`);
+  return full;
 }

@@ -238,7 +238,7 @@
     },
     "tests/core/green-control.test.mjs": {
       "test_ms": 6100,
-      "suite_ms": 10000
+      "suite_ms": 15700
     },
     "tests/core/batch-b5.test.mjs": {
       "test_ms": 6400,

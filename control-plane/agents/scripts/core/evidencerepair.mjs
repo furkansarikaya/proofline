@@ -37,14 +37,15 @@ const FINDINGS = (dir) => `${dir}/reviews/test-trust/tests/findings.json`;
 /**
  * The passing tests of a runner's output with their milliseconds, from the line shapes runners print: `<mark> name (12.5ms)` / `(12 ms)` / `(0.01s)` after a pass mark, `--- PASS: name (0.01s)`,
  * and a TAP `ok N - name` line followed by a `duration_ms:` line. Terminal colour codes are dropped first. A name with `=` or `;` cannot be recorded and is left out. The first line of a name wins.
- * @param {string} text @returns {Array<{ name: string, ms: number }>}
+ * `keepDuplicates` keeps every line of a name (A358 counts them).
+ * @param {string} text @param {boolean} [keepDuplicates] @returns {Array<{ name: string, ms: number }>}
  */
-export function parseRunnerDurations(text) {
+export function parseRunnerDurations(text, keepDuplicates = false) {
   /** @type {Array<{ name: string, ms: number }>} */ const out = [];
   const seen = new Set();
   const add = (/** @type {string} */ rawName, /** @type {number} */ ms) => {
     const name = rawName.trim();
-    if (name === '' || name.includes('=') || name.includes(';') || !Number.isFinite(ms) || ms < 0 || seen.has(name)) return;
+    if (name === '' || name.includes('=') || name.includes(';') || !Number.isFinite(ms) || ms < 0 || (!keepDuplicates && seen.has(name))) return;
     seen.add(name);
     out.push({ name, ms: Number(ms.toFixed(3)) });
   };
@@ -62,6 +63,9 @@ export function parseRunnerDurations(text) {
   }
   return out;
 }
+
+/** Every result line of a runner's output, duplicates kept, names as byte strings (a test body can echo a line that looks like a result: A358 refuses a name that shows twice). @param {string} text */
+export function runnerEntriesAll(text) { return parseRunnerDurations(text, true).map((e) => ({ name: bytes(e.name), ms: e.ms })); }
 
 /** The durations of a runner's output (decoded text) with the names as byte strings, the form of the plan's test names and of every record the core writes. @param {string} text */
 export function runnerEntries(text) { return parseRunnerDurations(text).map((e) => ({ name: bytes(e.name), ms: e.ms })); }
