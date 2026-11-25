@@ -56,7 +56,7 @@ export async function handle(ctx) {
     const c = await closeWithRetry(() => ctx.agent(['window-close', act, before, '0', prole]), () => isFile(winFile));
     const r = c.last;
     if (c.closed) rmf(winFile);
-    else append(out, `proofline: window-close rejected for proofline-${prole}: ${nlToSpace(r.stdout + r.stderr)}\n`);
+    else append(out, `proofline: window-close rejected for proofline-${prole} (after ${c.tries} ${c.tries === 1 ? 'try' : 'tries'}): ${nlToSpace(r.stdout + r.stderr)}\n`);
   } else if (prole === 'designer') {
     // A329: a design document the designer wrote during PLANNING (A326.2, no window) is attested by path and content hash, so IMPLEMENTING does not stop on it
     const r = await ctx.agent(['window-close', act, 'planning', '0', 'designer']);

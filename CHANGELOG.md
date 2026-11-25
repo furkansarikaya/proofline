@@ -5,10 +5,7 @@
 ## 0.0.175 — 2026-11-25
 
 - Docs (no release), A346: the second closing records of the campaign: the e2e runs of 2026-11-19 on d09c5b07 (STANDARD FAIL 36/37, COMPLEX FAIL 30/37, one STANDARD attempt never started), the answers #330 to #334, proof page rows, CI and Windows facts, accepted limits A346.1 to A346.5, and small additions to the testing and night-mode concept pages
-
-## 0.0.175 — 2026-11-25
-
-- Fix (A351, issue 338 B2 and B11): a write window whose close timed out on the lock is no longer left unattested. The SubagentStop hook retries the close (four tries, lock timeouts only); `handoff IMPLEMENTED` closes the window of a stopped specialist itself and prints `specialist still running` instead of the unattested-tree refusal while the specialist runs; `handoff CODE_DONE` removes stale window files. A resumed specialist that stops without a new `submit` gets a `dispatch` metrics row (result `resumed`) and a ledger note `specialist-resumed` instead of a stale "submitted" line. No new command.
+- Fix (A351, issue 338 B2 and B11): a write window whose close timed out on the lock is no longer left unattested. The SubagentStop hook retries the close (four tries, lock timeouts only); `handoff IMPLEMENTED` closes the window of a stopped specialist itself and prints `specialist still running` instead of the unattested-tree refusal while the specialist runs; `handoff CODE_DONE` removes stale window files. If a specialist's stop hook never ran, the refusal names the way out: the user's `tree-inspect` and `tree-accept` (a user acceptance after the marker ends the claim). A resumed specialist that stops without a new `submit` gets a `dispatch` metrics row (result `resumed`) and a ledger note `specialist-resumed` instead of a stale "submitted" line. No new command.
 
 ## 0.0.174 — 2026-11-25
 

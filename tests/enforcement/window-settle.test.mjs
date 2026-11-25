@@ -7,7 +7,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync
 import path from 'node:path';
 import { test } from 'node:test';
 import { closeWithRetry } from '../../adapters/claude/hooks/lib/windowclose.mjs';
-import { passAll, worker, must } from '../lib/harness.mjs';
+import { spawn } from 'node:child_process';
+import { approveAsUser, passAll, refused, worker, must } from '../lib/harness.mjs';
+import { Hr } from './lib.mjs';
 import { A, V, fixture, subStart, subStop } from './enforcement-a-lib.mjs';
 
 const IMPL = 'proofline:proofline-implementer';
@@ -42,14 +44,64 @@ test('B11: handoff IMPLEMENTED names a specialist that is still running and reco
   assert.ok(!existsSync(path.join(d, '.agents/runs/LC/worker-evidence/WINDOW-1.yaml')));
 });
 
-test('B2: a window file left behind by a stopped specialist is cleaned at CODE_DONE', () => {
+test('B2: at CODE_DONE the stale window files of this run go; another run, a running specialist and a malformed registration stay', () => {
   const d = fixture();
   worker(d, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value'); worker(d, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value');
   must(d, ['handoff', 'LC', 'IMPLEMENTED']); passAll(d);
   mkdirSync(path.dirname(win(d, 'zz')), { recursive: true }); mkdirSync(path.dirname(sub(d, 'zz.run')), { recursive: true });
-  writeFileSync(win(d, 'zz'), 'deadbeef\n'); writeFileSync(sub(d, 'zz.run'), 'LC implementer\n');
+  /** @param {string} token @param {string | null} run @param {boolean} started */
+  const plant = (token, run, started) => { writeFileSync(win(d, token), 'deadbeef\n'); if (run !== null) writeFileSync(sub(d, `${token}.run`), run); if (started) writeFileSync(sub(d, `${token}.started`), '/x.jsonl\n1\n'); };
+  plant('zz', 'LC implementer\n', false);        // stale: this run, stopped
+  plant('other', 'OTHER implementer\n', false);  // another run
+  plant('live', 'LC implementer\n', true);       // still running
+  plant('bad', 'garbage without a run\n', false); // malformed registration
+  assert.ok(existsSync(win(d, 'zz')) && existsSync(sub(d, 'zz.run')));
   must(d, ['handoff', 'LC', 'CODE_DONE']);
   assert.ok(!existsSync(win(d, 'zz')) && !existsSync(sub(d, 'zz.run')), 'the stale window file survived CODE_DONE');
+  assert.ok(existsSync(win(d, 'other')) && existsSync(sub(d, 'other.run')), 'the window of another run was removed');
+  assert.ok(existsSync(win(d, 'live')) && existsSync(sub(d, 'live.run')), 'the window of a running specialist was removed');
+  assert.ok(existsSync(win(d, 'bad')) && existsSync(sub(d, 'bad.run')), 'a malformed registration was acted on');
+});
+
+test('B11: a specialist whose stop hook never ran: the refusal names the way out, and only the user\'s tree-accept ends it', () => {
+  const d = fixture();
+  implement(d, 'a7');   // never stopped: the marker stays
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.text, /specialist still running: implementer \(a7\)/);
+  assert.match(r.text, /ask the USER: agent\.sh tree-inspect LC .*agent\.sh tree-accept LC/);
+  refused(A(d, ['tree-accept', 'LC']), 'tree-accept without the user\'s approval', 'needs your approval');
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'handoff still refused before the approval', 'specialist still running');
+  approveAsUser(d, 'tree', 'approve the tree');
+  must(d, ['tree-accept', 'LC']);
+  const h = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  assert.equal(h.status, 0, h.text);
+  assert.ok(!existsSync(win(d, 'a7')) && !existsSync(sub(d, 'a7.run')), 'the stale registration was kept');
+});
+
+test('B2: a no-change window record of an earlier specialist is not mistaken for the close of a later one', () => {
+  const d = fixture();
+  subStart(d, IMPL, 'a6'); subStop(d, IMPL, 'a6', true);   // opens and closes without a change: WINDOW-1 begins and ends at the same tree
+  assert.ok(existsSync(path.join(d, '.agents/runs/LC/worker-evidence/WINDOW-1.yaml')));
+  implement(d, 'a8');
+  rmSync(sub(d, 'a8.started'));
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED']);
+  assert.equal(r.status, 0, r.text);
+  assert.ok(existsSync(path.join(d, '.agents/runs/LC/worker-evidence/WINDOW-2.yaml')), 'the later specialist\'s window was not recorded');
+  assert.match(r.text, /closed the write window of the stopped implementer \(a8\)/);
+});
+
+test('B2: the hook calls window-close again after a lock timeout (end to end through the hook)', async () => {
+  const d = fixture();
+  subStart(d, IMPL, 'a9');
+  const holder = spawn('sleep', ['40'], { stdio: 'ignore' });
+  mkdirSync(path.join(d, '.agents/local/locks/shared.lock'), { recursive: true });
+  writeFileSync(path.join(d, '.agents/local/locks/shared.lock/pid'), `${holder.pid}\n`);
+  try {
+    Hr(d, 'subagent-stop', JSON.stringify({ hook_event_name: 'SubagentStop', session_id: 's1', cwd: d, stop_hook_active: true, agent_type: IMPL, agent_id: 'a9', last_assistant_message: 'done' }), { env: { PROOFLINE_HOOK_LOCK_WAIT: '0' } });
+  } finally { holder.kill(); rmSync(path.join(d, '.agents/local/locks/shared.lock'), { recursive: true, force: true }); }
+  assert.match(readFileSync(path.join(d, '.agents/local/records/a9.txt'), 'utf8'), /window-close rejected for proofline-implementer \(after 4 tries\): .*lock timeout/, 'the hook did not try the close four times');
+  assert.ok(existsSync(win(d, 'a9')), 'the window file of a failed close must stay for handoff');
 });
 
 test('B2: the hook retries a close that timed out on the lock, and not a real refusal', async () => {
