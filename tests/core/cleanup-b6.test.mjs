@@ -10,6 +10,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { A, IMPLEMENTED, accepted, project, read, refused } from './legacy-lib.mjs';
 import { repo } from './helpers.mjs';
+import { recheckRemovable } from '../../control-plane/agents/scripts/core/commands/runcmds.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { verifyNoScratchWorktrees } from '../../control-plane/agents/scripts/core/handoff.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
@@ -102,6 +103,9 @@ test('discard-untracked: a path the run created outside its scope is removed (th
   rmSync(`${d}/user-notes.txt`);
   // the real one
   const ok = accepted(A(d, ['discard-untracked', 'LC', 'r7']), 'discard-untracked r7');
+  const will = ok.out.indexOf('will remove r7');
+  assert.ok(will >= 0 && will < ok.out.indexOf('discarded untracked: r7'), 'the files are named before the removal');
+  assert.match(ok.out, /^ {2}r7\/deep\/x\.txt$/m);
   assert.match(ok.out, /^discarded untracked: r7 \(2 files, sha256 [0-9a-f]{64}\)$/m);
   assert.equal(existsSync(`${d}/r7`), false);
   assert.equal(fp(d), before, 'the gates are fresh again: the fingerprint is the one before the stray folder');
@@ -110,11 +114,39 @@ test('discard-untracked: a path the run created outside its scope is removed (th
   refused(A(d, ['discard-untracked', 'LC', 'r7']), 'removing it twice', 'not untracked');
 });
 
-test('discard-untracked: a run that is sealed or not open is refused', () => {
+test('discard-untracked: an unknown run is refused; a run whose gates are not enforced still gets the ledger row', () => {
   const d = project('scaffold standalone');
+  // a run whose gates are not enforced: the lifecycle_gates section of RUN.yaml is gone
+  const ry = read(d, '.agents/runs/LC/RUN.yaml');
+  writeFileSync(`${d}/.agents/runs/LC/RUN.yaml`, ry.replace(/^lifecycle_gates:\n(?: .*\n)*/m, ''));
+  assert.doesNotMatch(read(d, '.agents/runs/LC/RUN.yaml'), /^lifecycle_gates:/m);
+  assert.match(ry, /^lifecycle_gates:/m, 'the fixture run had enforced gates');
   writeFileSync(`${d}/stray.txt`, 'x\n');
-  refused(A(d, ['discard-untracked', 'NOPE', 'stray.txt']), 'an unknown run', 'NOPE');
+  refused(A(d, ['discard-untracked', 'NOPE', 'stray.txt']), 'an unknown run');
   assert.ok(existsSync(`${d}/stray.txt`));
+  const r = accepted(A(d, ['discard-untracked', 'LC', 'stray.txt']), 'discard-untracked in a standalone run');
+  assert.match(r.out, /will remove stray\.txt/);
+  assert.equal(existsSync(`${d}/stray.txt`), false);
+  assert.match(read(d, '.agents/runs/LC/LEDGER.log'), /event=discard-untracked .*path=stray\.txt files=1 sha256=[0-9a-f]{64}/);
+});
+
+test('recheckRemovable: a parent that became a link, a leaf that became a link and a folder that left the project are refused right before the removal', () => {
+  const t = tempDir('b6-recheck-');
+  const root = path.join(t, 'proj');
+  const outside = path.join(t, 'outside');
+  mkdirSync(path.join(root, 'a/b'), { recursive: true }); mkdirSync(outside);
+  writeFileSync(path.join(root, 'a/b/f.txt'), 'x\n'); writeFileSync(path.join(outside, 'keep.txt'), 'k\n');
+  assert.equal(recheckRemovable(root, 'a/b'), '');
+  assert.equal(recheckRemovable(root, 'a/b/f.txt'), '');
+  rmSync(path.join(root, 'a'), { recursive: true });                 // the parent is swapped for a link to a folder outside the project
+  symlinkSync(outside, path.join(root, 'a'));
+  assert.match(recheckRemovable(root, 'a/keep.txt'), /a became a link/);
+  rmSync(path.join(root, 'a'));
+  mkdirSync(path.join(root, 'a'));
+  symlinkSync(outside, path.join(root, 'a/b'));                       // the leaf swapped for a link
+  assert.match(recheckRemovable(root, 'a/b'), /a\/b became a link/);
+  assert.match(recheckRemovable(root, 'a/gone'), /is gone/);
+  assert.equal(existsSync(path.join(outside, 'keep.txt')), true);
 });
 
 // ---- the evidence worktree of the run, also dirty -------------------------------------------------------------------------------------

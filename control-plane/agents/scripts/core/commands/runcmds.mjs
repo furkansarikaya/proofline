@@ -207,6 +207,29 @@ function untrackedFilesBelow(root, rel) {
 }
 
 /**
+ * The last look before a removal (TOCTOU): every parent of REL below ROOT is still a plain folder that is not a link and resolves to itself below the real project, the leaf is not
+ * a link, and nothing inside it is a link. Returns the reason, or '' when it is fine to remove.
+ * @param {string} root @param {string} rel
+ */
+export function recheckRemovable(root, rel) {
+  let real;
+  try { real = realpathSync(root); } catch { return 'the project folder cannot be resolved'; }
+  const segs = rel.split('/');
+  for (let i = 1; i <= segs.length; i++) {
+    const part = segs.slice(0, i).join('/');
+    let st;
+    try { st = lstatSync(`${root}/${part}`); } catch { return `${part} is gone`; }
+    if (st.isSymbolicLink()) return `${part} became a link`;
+    if (i < segs.length && !st.isDirectory()) return `${part} is no longer a folder`;
+    let at = '';
+    try { at = realpathSync(`${root}/${part}`); } catch { return `${part} cannot be resolved`; }
+    if (at !== `${real}/${part}`) return `${part} resolves outside the project (${at})`;
+  }
+  const below = untrackedFilesBelow(root, rel);
+  return 'why' in below ? below.why : '';
+}
+
+/**
  * `discard-untracked <ID> <path>...` (lead): remove exactly the listed untracked files or folders the run created, e.g. the `r7/` a role's tool left in the repository root, which
  * is part of the content fingerprint and made every gate stale. Refused, nothing removed, when any listed path: is not a plain relative name; is under .git, .agents, .claude
  * or .codex; goes through a link (any component, and nothing inside it is a link); has a file that git tracks or ignores (only untracked files count); was already untracked
@@ -254,8 +277,15 @@ function discardUntracked(ctx, args) {
   }
   for (const { rel, files } of plan) {
     const digest = sha256(files.map((f) => `${f} ${hashFile(`${root}/${f}`)}\n`).join(''));
+    // the files are named BEFORE anything is removed
+    ctx.out(`discard-untracked: will remove ${rel}${files.length > 0 ? `:\n${files.map((f) => `  ${f}\n`).join('')}` : ' (an empty folder)\n'}`);
+    // the checks above are minutes old by now in the worst case: look at every component again right before the removal
+    const bad = recheckRemovable(root, rel);
+    if (bad !== '') fail(`discard-untracked refused: ${bad} (it changed after the checks); nothing more was removed`);
     rmSync(`${root}/${rel}`, { recursive: true, force: true });
-    if (gatesEnforced(ctx, d0)) { const s = sectionValue(ctx, d0, 'handoff', 'state'); led(ctx, id, 'discard-untracked', s, s, `path=${rel} files=${files.length} sha256=${digest}`); }
+    // the row is written for every deletion, also in a run whose gates are not enforced
+    const s = sectionValue(ctx, d0, 'handoff', 'state');
+    led(ctx, id, 'discard-untracked', s, s, `path=${rel} files=${files.length} sha256=${digest}`);
     ctx.out(`discarded untracked: ${rel} (${files.length} file${files.length === 1 ? '' : 's'}, sha256 ${digest})\n`);
   }
   ctx.forget('changed:'); ctx.forget('fp:');
