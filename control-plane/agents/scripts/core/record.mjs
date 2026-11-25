@@ -19,7 +19,7 @@ import { setRunValue } from './lifecycle.mjs';
 import { led } from './lifeutil.mjs';
 import { inside, isAbsoluteInput, onDiskLocal } from './pathin.mjs';
 import * as proc from './proc.mjs';
-import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { gatesEnforced, sectionKeyPresent, textLines } from './records.mjs';
 import {
   artifactAllowed, artifactPaths, classificationFlip, evidenceCiteCheck, findingPrefix, gateOf, idKey, isGateRole, lineValue, metricsStep,
   parseFindings, parseHeader, plainFile, realOf, resultKind, unsupportedBlocks, unsupportedEvidenceCheck, unsupportedReasonOk,
@@ -75,12 +75,6 @@ function recordVisualCheck(ctx, id, result) {
   const rep = json(`${d}/report.json`);
   const res = rep !== undefined && rep !== null ? String(rep.result || '') : '';
   if (res !== 'PASS') reject(`visual PASS contradicts reviews/visual-proof/report.json (RESULT: ${res === '' ? 'unreadable' : res}): a report that is FAIL or INCONCLUSIVE is never a gate PASS (submit FAIL with its blocking rows, or UNSUPPORTED for INCONCLUSIVE)`);
-  // A352: the English text a criterion exempts from design_untranslated is read from the --task file; it must be the TASK.md this run froze (an exemption read from another file is no PASS)
-  const dz = rep.design;
-  if (dz !== null && typeof dz === 'object' && (dz.task_sha256 != null || Number(dz.task_exemptions) > 0)) {
-    const pinned = sectionValue(ctx, runDir(ctx, id), 'freeze', 'task_sha256');
-    if (String(dz.task_sha256 ?? '') !== pinned) reject(`visual PASS refused: design.task_sha256 of reviews/visual-proof/report.json (${String(dz.task_sha256 ?? 'none').slice(0, 12)}) is not the TASK.md pinned at freeze (${pinned.slice(0, 12)}): measure again with --task ${`.agents/runs/${id}/TASK.md`}, never with another file (A352)`);
-  }
   const script = `${ctx.root}/.agents/skills/visual-proof/scripts/lint-source.mjs`;
   if (!existsSync(script)) reject('visual PASS cannot be checked: .agents/skills/visual-proof/scripts/lint-source.mjs is missing, so the source lint cannot be rerun (install the visual-proof skill, or submit UNSUPPORTED with the reason)');
   const tmp = mkdtempSync(path.join(tmpdir(), 'proofline-lint.'));

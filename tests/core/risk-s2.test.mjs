@@ -389,9 +389,6 @@ test('sc_gate_deps: VERIFY is not offered, decided or recorded before QA visual,
   refused(AS(d, 'qa', ['record', 'LC', '--file', rf]), 'a visual PASS without report.json', 'visual PASS needs reviews/visual-proof/report.json');
   wr(d, R('reviews/visual-proof/report.json'), '{"schema":"visual-proof/1","result":"FAIL"}\n');
   refused(AS(d, 'qa', ['record', 'LC', '--file', rf]), 'a visual PASS against a FAIL report.json', 'contradicts reviews/visual-proof/report.json');
-  // A352: the English text a criterion exempts is read from the task the run froze; a report measured against another file is not a PASS
-  wr(d, R('reviews/visual-proof/report.json'), `{"schema":"visual-proof/1","result":"PASS","design":{"task_sha256":"${'0'.repeat(64)}","task_exemptions":1}}\n`);
-  refused(AS(d, 'qa', ['record', 'LC', '--file', rf]), 'a visual PASS measured against another task file', 'design.task_sha256');
   // A200 review: the record reruns the source lint itself; the agent-written lint.json (or none) decides nothing
   wr(d, R('reviews/visual-proof/report.json'), '{"schema":"visual-proof/1","result":"PASS"}\n');
   rmSync(path.join(d, '.agents/skills/visual-proof'), { recursive: true, force: true });   // resultFor installed the fixture's copy; the next resultFor installs it again

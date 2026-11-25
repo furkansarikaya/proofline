@@ -132,19 +132,18 @@ const words = (t) => String(t).toLowerCase().match(/[\p{L}']+/gu) || [];
 // A352: lang="en" and allow_text exempt only text that occurs in `task` (the task's TASK.md, which the acceptance criteria live in): white space squeezed,
 // case-sensitive. The page markup and the project config say nothing by themselves; without a task text nothing is exempt.
 const squeeze = (t) => String(t ?? "").replace(/\s+/g, " ").trim();
-export function untranslatedBlocks(blocks, allow = [], task = null, stats = null) {
+export function untranslatedBlocks(blocks, allow = [], task = null) {
   const out = [];
   const T = task === null || task === undefined ? null : squeeze(task);
   // the text must be at least 4 non-space characters and stand on word boundaries in TASK.md ("the" or a piece of a word exempts nothing)
   const inTask = (s) => T !== null && s.replace(/\s/g, "").length >= 4 && new RegExp(`(?<![\\p{L}\\p{N}_])${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "u").test(T);
-  const used = () => { if (stats) stats.task_exemptions = (stats.task_exemptions || 0) + 1; };
   for (const b of blocks || []) {
-    if (/^en(-|$)/i.test(String(b.lang || "")) && inTask(squeeze(b.text))) { used(); continue; } // English declared on purpose AND required by a criterion
+    if (/^en(-|$)/i.test(String(b.lang || "")) && inTask(squeeze(b.text))) continue; // English declared on purpose AND required by a criterion
     let t = String(b.text || "");
     for (const a of allow) {
       const s = squeeze(a); if (!inTask(s)) continue;
       const re = new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
-      if (re.test(t)) { t = t.split(re).join(" "); used(); }
+      t = t.split(re).join(" ");
     }
     const w = words(t);
     if (w.length < 4) continue;
@@ -255,7 +254,7 @@ export function evaluateStatic(f, ctx) {
     if (!lang) nm("design_untranslated", "the page language is unknown");
     else if (/^en(-|$)/i.test(lang)) na("design_untranslated", ENGLISH_PAGE_NOTE);
     else {
-      const bs = untranslatedBlocks(f.textBlocks, ctx.language.allow_text || [], ctx.language.task ?? null, ctx.language.stats ?? null);
+      const bs = untranslatedBlocks(f.textBlocks, ctx.language.allow_text || [], ctx.language.task ?? null);
       add("design_untranslated", bs[0]?.selector || "body", bs.length, bs.length === 0, bs.length ? list(bs.map((b) => `${b.selector}: "${b.text}"`)) : `no English text block on a ${lang} page`);
     }
   }
@@ -325,7 +324,6 @@ export function assembleDesign(raw, c, sha, opts = {}) {
   const pages = designPages(c);
   const out = { status: "run", mode, viewports: DESIGN_VIEWPORTS.map((v) => ({ ...v })), pages: [], items: [], screenshots: [], scenes: [], images: [], not_measured: [],
     time_scale: [rd.time_scale, rd.motion?.time_scale].filter((x) => x !== undefined).find((x) => x !== 1) ?? 1, // 1 = the product's own waits (test-only knob otherwise)
-    task_sha256: typeof opts.taskSha === "string" ? opts.taskSha : null, task_exemptions: 0, // A352: the task text the exemptions were read from, pinned by the gate against the frozen TASK.md
     image_ledger: d.image_ledger || null, scene_ids: (d.scenes || []).map((s) => s.id), motion_min: designMotionMin(d) };
   const shot = (p) => { if (!p) return undefined; if (typeof p === "object") return p.path && p.sha256 ? p : undefined; try { return { path: p, sha256: sha(p) }; } catch { return undefined; } };
   const push = (it) => out.items.push({ id: `D-${out.items.length + 1}`, ...it });
@@ -344,7 +342,7 @@ export function assembleDesign(raw, c, sha, opts = {}) {
         for (const check of expectedChecks(pg, mode, vp.name)) push({ check, screen: pg.screen, viewport: vp.name, selector: "body", threshold: designThreshold(check, mode, vp.name), status: "not_measured", reason: rv?.error || "viewport not measured" });
         continue;
       }
-      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language && { ...pg.language, task: opts.task ?? null, stats: out } })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
+      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language && { ...pg.language, task: opts.task ?? null } })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
       if (pg.language && vp.name === "wide" && /^tr(-|$)/i.test(String(pg.language.lang))) {   // A172: information only
         const hits = asciiTurkishWords(rv.facts.textBlocks, opts.ascii);
         if (hits.length) (out.language_notes ||= []).push({ screen: pg.screen, path: pg.path, lang: String(pg.language.lang), kind: "ascii_turkish", words: hits });

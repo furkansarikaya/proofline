@@ -68,10 +68,6 @@ test("auditor helpers: untranslated blocks, vacuum, thresholds", () => {
   // a short or part-of-a-word entry exempts nothing: at least 4 non-space characters, on word boundaries
   assert.equal(untranslatedBlocks([{ selector: "p", text: `Bu sayfa ${fox}` }], ["the", "is it", "uick brown f"], task).length, 1, "short and mid-word allow_text entries are flagged");
   assert.equal(untranslatedBlocks([{ selector: "p", lang: "en", text: "the" }], [], "the").length, 0, "a block under 4 words is never a finding anyway");
-  // the count of exemptions is recorded in stats
-  const stats = { task_exemptions: 0 };
-  untranslatedBlocks([{ selector: "p", lang: "en", text: fox }], [], task, stats);
-  assert.equal(stats.task_exemptions, 1);
   assert.equal(untranslatedBlocks([{ selector: "p", text: "Merhaba dünya, bugün hava çok güzel" }]).length, 0);
   assert.equal(vacuumOf([{ top: 0, bottom: 100, selector: "a" }, { top: 1000, bottom: 1100, selector: "b" }], 800).ratio, 1.13);
   assert.equal(designHolds(2.5, ">= 3"), false);
@@ -165,6 +161,9 @@ test("validator: a design block of a healthy page is valid; a weaker threshold, 
   const v = check();
   assert.equal(v.valid, true, v.errors.join("\n"));
   assert.equal(v.computed, "PASS");
+  // A352 round 3: the report carries no task hash or exemption count; they were the agent's own claim and the gate never verified them
+  assert.equal("task_sha256" in report.design, false);
+  assert.equal("task_exemptions" in report.design, false);
   const bare = build("STANDARD", good(), { motion: false });
   assert.equal(bare.check().valid, true);
   assert.equal(bare.check().computed, "INCONCLUSIVE", "motion checks that were not measured leave the verdict inconclusive");
