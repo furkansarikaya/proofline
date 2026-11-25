@@ -231,7 +231,7 @@ test('runner-speed calibration: a slow runner passes, a normal runner with a rea
 test('runner-speed calibration: above 5 times nominal the factor is capped and a violation says "runner too slow to judge budgets"; a green leg is never failed by a high calibration', () => {
   const budgets = { enforce: true, calibration: { nominal_ms: 1000 }, kinds: { unit: { test_ms: 2000, suite_ms: 100000 } } };
   /** @param {number} testMs */
-  const go = (testMs) => { let out = ''; const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: {}, write: (s) => { out += s; }, writeFile: () => {}, append: () => {}, calibrate: () => 9000, run: () => ({ status: 0, events: one(testMs) }) }); return { st, out }; };
+  const go = (testMs) => { let out = ''; const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: { BUDGET_STRICT: '1' }, write: (s) => { out += s; }, writeFile: () => {}, append: () => {}, calibrate: () => 9000, run: () => ({ status: 0, events: one(testMs) }) }); return { st, out }; };
   const green = go(9000);
   assert.equal(green.st, 0, 'under the capped budget 10000');
   assert.doesNotMatch(green.out, /runner too slow/);
@@ -355,7 +355,7 @@ test('A354: a stall during the run is seen by the calibration after node exits; 
   /** @param {number} testMs @param {number} before @param {number} after */
   const go = (testMs, before, after) => {
     let out = ''; let calls = 0; /** @type {any} */ let json = null;
-    const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: { TEST_DURATIONS_DIR: 'out' }, write: (s) => { out += s; }, writeFile: (_p, t) => { json = JSON.parse(t); }, append: () => {},
+    const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: { TEST_DURATIONS_DIR: 'out', BUDGET_STRICT: '1' }, write: (s) => { out += s; }, writeFile: (_p, t) => { json = JSON.parse(t); }, append: () => {},
       calibrate: () => (calls++ === 0 ? before : after), run: () => ({ status: 0, events: one(testMs) }) });
     return { st, out, json };
   };
@@ -377,4 +377,41 @@ test('A354: a stall during the run is seen by the calibration after node exits; 
   let out = '';
   assert.equal(main(['leg', '--', '--test-name-pattern=.'], { budgets, env: {}, write: (s) => { out += s; }, writeFile: () => {}, append: () => {}, calibrate: () => 300, run: () => ({ status: 0, events: '' }) }), 1);
   assert.match(out, /event stream is empty/);
+});
+
+test('C11 (A360): above the cap the budget verdict is inconclusive (exit 0) on pull requests and pushes; BUDGET_STRICT=1, a failing test, a calibration within the cap, an unreadable calibration and an empty stream all keep failing', () => {
+  const budgets = { enforce: true, calibration: { nominal_ms: 1000 }, kinds: { unit: { test_ms: 2000, suite_ms: 100000 } } };
+  /** @param {{ cal?: number, status?: number, events?: string, env?: Record<string, string> }} o */
+  const go = (o) => {
+    let out = ''; /** @type {any} */ let json = null; let summary = '';
+    const st = main(['leg', '--', '--test-name-pattern=.'], { budgets, env: { TEST_DURATIONS_DIR: 'out', GITHUB_STEP_SUMMARY: 's.md', ...o.env }, write: (s) => { out += s; }, writeFile: (_p, t) => { json = JSON.parse(t); }, append: (_p, t) => { summary += t; },
+      calibrate: () => o.cal ?? 6000, run: () => ({ status: o.status ?? 0, events: o.events ?? one(30000) }) });
+    return { st, out, json, summary };
+  };
+  const a = go({});
+  assert.equal(a.st, 0, '(1) 6x nominal and a test over even the scaled budget: inconclusive, not red');
+  assert.match(a.out, /BUDGET INCONCLUSIVE: runner too slow to judge \(calibration 6\.00 x nominal, cap 5\): 1 over-budget test\(s\) not judged; the nightly run judges again\n/);
+  assert.equal(a.json.budget_verdict, 'inconclusive');
+  assert.equal(a.json.unjudged_over_budget.tests.length, 1);
+  assert.match(a.summary, /BUDGET INCONCLUSIVE/);
+  const b = go({ env: { BUDGET_STRICT: '1' } });
+  assert.equal(b.st, 1, '(2) strict (nightly, manual): judged as before');
+  assert.match(b.out, /runner too slow to judge budgets/);
+  assert.equal(b.json.budget_verdict, 'judged');
+  const c = go({ status: 1 });
+  assert.equal(c.st, 1, '(3) a failing test still fails');
+  assert.doesNotMatch(c.out, /INCONCLUSIVE/);
+  const d = go({ cal: 1000 });
+  assert.equal(d.st, 1, '(4) within the cap: over budget fails');
+  assert.equal(d.json.budget_verdict, 'judged');
+  const e = go({ cal: Number.NaN });
+  assert.equal(e.st, 1, '(5) an unreadable calibration is not excused');
+  assert.doesNotMatch(e.out, /INCONCLUSIVE/);
+  const f = go({ events: '' });
+  assert.equal(f.st, 1, '(6) an empty stream fails closed');
+  assert.match(f.out, /event stream is empty/);
+  assert.notEqual(f.json.budget_verdict, 'inconclusive');
+  assert.equal(go({ events: one(1500) }).json.budget_verdict, 'judged', 'nothing over budget: judged, no line');
+  const wf = readFileSync(path.join(import.meta.dirname, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+  assert.match(wf, /^env:\n(?:  #.*\n)?  BUDGET_STRICT: \$\{\{ \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && '1' \|\| '0' \}\}$/m, 'the nightly and manual runs are strict, pull requests and pushes are not');
 });

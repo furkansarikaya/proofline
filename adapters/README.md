@@ -7,6 +7,7 @@ hooks, which work with any agent (D6). Supported: Claude Code (full) and Codex (
 Untested adapters must be labelled "not tested".
 
 ## Support status (0.0.181)
+## Support status (0.0.182)
 
 Rendering and hooks are covered by `tests/generator/generator.test.mjs`, the enforcement tests and the self-tests.
 End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, with the commit of every run, are in
