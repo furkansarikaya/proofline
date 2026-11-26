@@ -11,6 +11,7 @@ import { AS, resultFor, gpass } from '../lib/harness.mjs';
 import { A, accepted, approveAsUser, gateStatus, project, refused, say, template, verbs } from './legacy-lib.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { standingWaiverKey } from '../../control-plane/agents/scripts/core/knownissues.mjs';
+import { standingSaid } from '../../control-plane/agents/scripts/core/standing.mjs';
 import { memoryIo } from './helpers.mjs';
 import { AB, binstall, bnew, fakes, mktask, summaryOf } from './batch-lib.mjs';
 import { repo } from './helpers.mjs';
@@ -150,6 +151,41 @@ describe('only the user\'s explicit decision and only a registry rule is kept', 
     const bare = project(RUN_LINT);   // the visual-proof registry is not installed here: nothing is a registry rule
     waiveOnce(bare, 'approve qa-1 standing', false);
     assert.deepEqual(store(bare), []);
+  });
+});
+
+describe('a standing decision is a plain yes, and a row names its own thing', () => {
+  test('a negation, a hedge or a question never says standing (checked in standingSaid itself); the plain phrases do', () => {
+    const d = proj(RUN_LINT);
+    const { io } = memoryIo(d);
+    const ctx = new Context(io, io.scriptPath);
+    for (const bad of ['approve rationale x. Not standing.', 'approve rationale x standing but not standing', 'approve rationale x standing, kalici degil', 'approve rationale x, do not make it standing',
+      'approve rationale x kalıcı olmasın', 'approve rationale x kalici olmasin', 'approve rationale x standing?', 'approve rationale x if standing', 'no, approve rationale x standing', '> approve rationale x standing'])
+      assert.equal(standingSaid(ctx, Buffer.from(bad, 'utf8').toString('latin1'), 'x'), false, bad);
+    for (const good of ['approve rationale x standing', 'Approve rationale x STANDING', 'approve rationale x kalici', 'approve rationale x kalıcı', 'ok, approve rationale x standing; approve y'])
+      assert.equal(standingSaid(ctx, Buffer.from(good, 'utf8').toString('latin1'), 'x'), true, good);
+  });
+
+  test('a planted row cannot cite another rule\'s real approval message: a rationale row must name its own rule, a waiver row a finding id of its own or its rule', () => {
+    const d = proj(RUN_LINT);
+    writeFileSync(path.join(d, 'DESIGN.md'), DESIGN);
+    accepted(A(d, ['request-approval', 'LC', 'rationale:mono-labels']), 'request');
+    say(d, 'approve rationale mono-labels standing');
+    accepted(A(d, ['approve', 'LC', 'rationale:mono-labels']), 'approve');
+    const row = store(d)[0].split('\t');
+    const line = 'numbered-steps: the steps are a real sequence';
+    const planted = [...row];
+    planted[1] = 'numbered-steps'; planted[3] = createHash('sha256').update(line, 'latin1').digest('hex');   // another rule's content, the real message of mono-labels, the row's named still mono-labels
+    writeFileSync(path.join(d, STORE), `${planted.join('\t')}\n`);
+    assert.equal(accepted(A(d, ['design-rationales', '-']), 'list').out.split('\n').find((l) => l.startsWith('numbered-steps'))?.split('\t')[1], 'unapproved', 'a rationale row cited the message of another rule');
+    const w0 = proj(RUN_LINT); waiveOnce(w0);
+    const w = proj(RUN_LINT); carryStore(w0, w);
+    assert.equal(gateStatus(w, 'QA'), 'waived', 'the control: the genuine row carries');
+    const wr2 = store(w0)[0].split('\t');
+    const m = say(w, 'approve numbered-steps standing');   // a real message about another thing
+    wr2[4] = m.id; wr2[8] = 'numbered-steps';
+    writeFileSync(path.join(w, STORE), `${wr2.join('\t')}\n`);
+    assert.equal(gateStatus(w, 'QA'), 'fail', 'a waiver row named a thing that is neither a finding id nor its rule');
   });
 });
 

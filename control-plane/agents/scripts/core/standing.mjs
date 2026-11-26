@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, appendF
 import { now } from './clock.mjs';
 import { captureField } from './capture.mjs';
 import { fail } from './errors.mjs';
-import { approvalNorm, approvalPhrases, latestCapture, promptsDir, safeStateFile, sharedDirOf } from './approvals.mjs';
+import { HEDGE_WORDS, approvalNorm, approvalPhrases, latestCapture, promptsDir, safeStateFile, sharedDirOf } from './approvals.mjs';
 import { sha256 } from './hash.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
@@ -34,6 +34,8 @@ const filePath = (ctx) => `${standingDir(ctx)}/STANDING.tsv`;
 const clean = (s) => s !== '' && !/[\t\r\n]/.test(s);
 
 const bs = (/** @type {string} */ x) => Buffer.from(x, 'utf8').toString('latin1');
+/** Turkish refusals the shared hedge list does not carry (ASCII and UTF-8 spellings, normalised like the reply). */
+const HEDGE_EXTRA = ` olmasin olmasın ${approvalNorm(bs('olmasın\n'))} degildir hayir `;
 const STAND_WORDS = [' standing ', ' kalici ', ` ${approvalNorm(bs('kalıcı\n'))} `];
 
 /**
@@ -45,6 +47,8 @@ export function standingSaid(ctx, text, named) {
   const pl = approvalPhrases(ctx).split(',').map(approvalNorm).filter((w) => w !== '');
   for (const line of text.split('\n')) {
     if (/^\s*(>|~~~|\x60\x60\x60)/.test(line)) continue;
+    // a negation or a hedge anywhere in the LINE ("not standing", "standing, kalici degil", "olmasin", "but ...") is no decision to keep: checked here, not left to the grammar of the approval
+    if (approvalNorm(`${line}\n`).split(' ').some((w) => w !== '' && (HEDGE_WORDS.includes(` ${w} `) || HEDGE_EXTRA.includes(` ${w} `)))) continue;
     for (const seg of line.split(/[,;]/)) {
       if (seg.includes('?')) continue;
       const n = ` ${approvalNorm(`${seg}\n`)} `;
@@ -67,6 +71,8 @@ function messageText(ctx, id) {
 
 /** A row counts only when the user's message it cites still says the approval and `standing` for the thing named. @param {Context} ctx @param {StandingRow} r */
 function verifyRow(ctx, r) {
+  // the name the message must carry is the row's own: a rationale row names its rule; a waiver row names a finding id (`qa-1`, `review_rules-3`) or its rule. A row cannot cite another rule's real message.
+  if (r.scope === 'rationale' ? r.named !== approvalNorm(`${r.rule}\n`) : !(r.named === approvalNorm(`${r.rule}\n`) || /^[a-z][a-z0-9_]*-[0-9]+$/.test(r.named))) return false;
   const t = messageText(ctx, r.message);
   return t !== null && standingSaid(ctx, t, r.named);
 }
