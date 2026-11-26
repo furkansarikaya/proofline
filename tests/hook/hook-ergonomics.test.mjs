@@ -56,6 +56,15 @@ test('C9a: a here-document that feeds a shell, runs a substitution or sits besid
   for (const c of denied) assert.notEqual(await bash(d, IMPL, c), null, `allowed for the implementer: ${JSON.stringify(c)}`);
   assert.notEqual(await bash(d, REVIEWER, 'sh <<EOF\ngit push origin main\nEOF'), null);
   assert.notEqual(await bash(d, REVIEWER, "cat <<'EOF' | sh\ngit push origin main\nEOF"), null);
+  // A363 attack review: the consumer of a body that runs text makes it a script for every caller (the implementer was allowed to pipe a push through xargs sh -c on 27ab7d34)
+  const scripts = [
+    "cat <<'EOF' | xargs -I{} sh -c {}", "cat <<'EOF' | xargs sh -c", "cat <<'EOF' | xargs -n1 bash -c", "cat <<'EOF' | env xargs sh -c", "cat <<'EOF' | source /dev/stdin", "cat <<'EOF' | . /dev/stdin",
+    "cat <<'EOF' | env sh", "cat <<'EOF' | command bash", "cat <<'EOF' | exec sh", "cat <<'EOF' | python3 -c 'x'", "cat <<'EOF' | python3", "cat <<'EOF' | node -e 'x'", "cat <<'EOF' | perl -e 'x'",
+    "cat <<'EOF' | ruby -e 'x'", "cat <<'EOF' | eval",
+  ];
+  for (const open of scripts) {
+    for (const who of [IMPL, LEAD]) assert.notEqual(await bash(d, who, `${open}\ngit push origin main\nEOF`), null, `${who.agent_type ?? 'lead'}: ${open}`);
+  }
   // the same words as a plain command are denied for the specialist, as before
   assert.notEqual(await bash(d, IMPL, 'git reset --hard'), null);
   assert.notEqual(await bash(d, REVIEWER, 'git stash'), null);

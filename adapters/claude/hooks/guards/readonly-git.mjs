@@ -41,7 +41,7 @@ const PIPE_PROG = new RegExp(`(?:echo|printf|cat)\\s+((?:\"[^\"]{0,2000}\"|'[^']
 const TEXT_ONLY = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'echo', 'printf', 'cat', 'less', 'more', 'head', 'tail', 'wc', 'sort', 'uniq', 'diff', 'tr', 'cut', 'man', 'which', 'type', 'command', 'ls', 'tee', 'stat', 'file', 'test', 'jq', 'cd', 'pushd', 'popd', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'basename', 'dirname', 'realpath', 'readlink']);
 
 /** A pipe into any interpreter of the table, `source`/`.` of stdin: the text before it is run (SINK covers the shells). */
-const SINK_EXT = new RegExp(`\\|\\s*((env|sudo|command|exec)\\s+)*(\\S*/)?${INTERP}(\\s|;|&|\\)|$)|(^|[;&|(\\s])(source|\\.)\\s+(/dev/stdin|/dev/fd/0|/proc/self/fd/0|-)(\\s|;|&|\\)|$)`);
+const SINK_EXT = new RegExp(`\\|\\s*((env|sudo|command|exec)\\s+)*(\\S*/)?${INTERP}(\\s|;|&|\\)|$)|\\|\\s*((env|sudo|command|exec)\\s+)*xargs\\b[^|;&]*\\s(\\S*/)?(${INTERP}|eval)(\\s|;|&|\\)|$)|(^|[;&|(\\s])(source|\\.)\\s+(/dev/stdin|/dev/fd/0|/proc/self/fd/0|-)(\\s|;|&|\\)|$)`);
 const FILE = '[^\\s|;&<>`()]+';
 /** The only consumers whose here-document body is DATA: `cat [> file]`, `tee [-a] file`, `sh <path>/agent.sh <subcommand> ...`. Anything else (an interpreter, an unknown program, any option list) is scanned. */
 const DATA_CAT = new RegExp(`^(\\w+=\\S+\\s+)*cat(\\s+-\\w+)*(\\s*>>?\\s*${FILE})?$`);

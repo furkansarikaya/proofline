@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { now } from './clock.mjs';
+import { DENIAL_WORDS } from './denialwords.mjs';
 import { isLocalAbsolute } from './pathin.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -35,7 +36,7 @@ export function denialClass(t) {
   const bar = r.indexOf(' | ');
   if (bar >= 0) r = r.slice(0, bar);
   r = r.replace(/'[^']*'|"[^"]*"|`[^`]*`|\([^)]*\)/g, ' ');
-  const words = r.split(/[\s,;:.]+/).filter((w) => /^[a-z]+(?:-[a-z]+)*$/.test(w) || /^A[0-9]{1,4}$/.test(w)).slice(0, MAX_DENIAL_WORDS);
+  const words = r.split(/[\s,;:.]+/).filter((w) => DENIAL_WORDS.has(w) || /^A[0-9]{1,4}$/.test(w)).slice(0, MAX_DENIAL_WORDS);
   return words.length === 0 ? 'no-reason' : words.join('-').slice(0, MAX_STRING);
 }
 

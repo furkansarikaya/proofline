@@ -197,22 +197,34 @@ describe('C8a denialClass', () => {
     assert.equal(denialClass('PreToolUse:Bash hook error: proofline: merging a pull request goes only through `proofline merge 7` (A136) | Instead: x'), 'merging-a-pull-request-goes-only-through');
     // the bracketed command, quoted and parenthesised values, paths and mixed-case identifiers never reach the record
     assert.equal(denialClass('PreToolUse:Bash hook error: [curl -H "Authorization: hunter2" https://x/y]: proofline: the command writes \'/home/u/sk-secretvalue\' (token=abc): outside the project'), 'the-command-writes-outside-the-project');
+    // a plain lower-case word the hook echoes unquoted (a bare file name, a token-like word) is not the hook's prose and never reaches the record
+    assert.equal(denialClass('PreToolUse:Write hook error: proofline: Write zxqvbn is outside the paths role implementer owns'), 'is-outside-the-paths-role-implementer-owns');
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: the command writes secretsauce hunter2 outside the project'), 'the-command-writes-outside-the-project');
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: zxqvbn secretsauce'), 'no-reason');
     assert.equal(denialClass('PreToolUse:Bash hook error: '), 'no-reason');
     assert.equal(denialClass('PreToolUse:Bash hook error: proofline: Sk9QweRtY /tmp/x 42'), 'no-reason');
-    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: git hook bypass is never allowed per A41'), 'git-hook-bypass-is-never-allowed-per-A41');
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: git hook bypass is never allowed per A41'), 'git-hook-bypass-is-never-allowed-A41');
     assert.ok(denialClass(`PreToolUse:Bash hook error: proofline: ${'word '.repeat(500)}`).length <= 64);
+  });
+  test('the word list is the one derived from the hook text (a changed hook sentence needs `node tests/ci/denial-words.mjs`), and holds no file name, path or value', async () => {
+    const { derive, render } = await import('../ci/denial-words.mjs');
+    const { DENIAL_WORDS } = await import('../../control-plane/agents/scripts/core/denialwords.mjs');
+    assert.deepEqual([...DENIAL_WORDS], derive());
+    assert.equal(readFileSync(path.join(repo, 'control-plane/agents/scripts/core/denialwords.mjs'), 'utf8'), render(derive()));
+    for (const w of DENIAL_WORDS) assert.match(w, /^[a-z]+(?:-[a-z]+)*$/);
+    for (const w of ['zxqvbn', 'hunter', 'secretsauce', 'readme', 'password']) assert.ok(!DENIAL_WORDS.has(w), w);
   });
   test('the denials table of a step counts classes, keeps at most 8 and sums the rest as other', () => {
     const dir = makeProject();
     /** @type {unknown[]} */ const entries = [];
     for (let i = 0; i < 10; i++) {
-      const word = 'abcdefghij'[i] ?? 'a';
-      for (let k = 0; k <= i; k++) { entries.push(use(`u${i}-${k}`, 'Bash')); entries.push(res(`u${i}-${k}`, `PreToolUse:Bash hook error: proofline: rule ${word.repeat(3)}`)); }
+      const word = ['outside', 'project', 'command', 'writes', 'never', 'allowed', 'role', 'owns', 'paths', 'implementer'][i] ?? 'a';
+      for (let k = 0; k <= i; k++) { entries.push(use(`u${i}-${k}`, 'Bash')); entries.push(res(`u${i}-${k}`, `PreToolUse:Bash hook error: proofline: ${word}`)); }
     }
     const s = readToolStats(writeLog(dir, entries));
     assert.equal(s.denied, 55);
     assert.equal(Object.keys(s.denials ?? {}).length, 9);
     assert.equal(s.denials?.other, 1 + 2);
-    assert.equal(s.denials?.['rule-jjj'], 10);
+    assert.equal(s.denials?.implementer, 10);
   });
 });
