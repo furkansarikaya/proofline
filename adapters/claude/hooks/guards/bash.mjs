@@ -76,6 +76,36 @@ function grepFile(file, word) {
 
 const EV_RE = new RegExp(`agent[.]sh${SP}+(build-record|verify-[a-z-]+)|(^|[;&|(]|${SP})((npm|pnpm|yarn|bun)${SP}+(run${SP}+)?(test|build|lint)|pytest|go${SP}+(test|build|vet)|cargo${SP}+(test|build|clippy)|dotnet${SP}+(test|build)|mvn|gradle|jest|vitest|make${SP}+(test|build|check)|node${SP}+--test|sh${SP}+tests/)(${SP}|$)`);
 const GIT_DIFF_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(-C${SP}+[^ \\t\\n\\v\\f\\r]+${SP}+)?(diff|show)(${SP}|$)`);
+/** A371: words that run another command (wrappers, runners, shells); `proofline upgrade` after one of them, or alone, is the user's command. */
+const UP_WRAP = new Set(['env', 'sudo', 'doas', 'command', 'exec', 'nohup', 'time', 'nice', 'ionice', 'timeout', 'setsid', 'stdbuf', 'xargs', 'npx', 'pnpx', 'bunx', 'pnpm', 'npm', 'yarn', 'dlx', 'exec', 'node', 'nodejs', 'bash', 'sh', 'zsh', 'dash', 'ksh']);
+/**
+ * A371: does a command text run `proofline upgrade` (also --check and --rollback)? The text is read with quotes, backslashes and `$(` removed, cut into simple commands at `; & | ( ) { }` and newlines, each into words.
+ * A segment qualifies when its first word (after bare VAR=x assignments) is `proofline` (or `proofline.mjs`, with any path) or a wrapper (env, sudo, timeout, nice, nohup, xargs, npx, pnpm dlx, node, sh -c, bash -lc ...)
+ * followed, anywhere, by `proofline`, and the next word that is not an option (or an option's value) is `upgrade`. A tripwire: variables, aliases, base64 piped to a shell and other obfuscation are not closed;
+ * the boundary is the user's own terminal. @param {string} text
+ */
+function runsUpgrade(text) {
+  const bn = (/** @type {string} */ x) => x.slice(x.lastIndexOf('/') + 1);
+  const isPl = (/** @type {string} */ x) => /^proofline(\.mjs)?$/.test(bn(x));
+  for (const seg of text.replace(/\$\(/g, ' ').replace(/['"\\]/g, '').split(/[;&|\n(){}`]/)) {
+    const w = seg.split(/[ \t]+/).filter((x) => x !== '');
+    let i = 0;
+    while (i < w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i])) i++;
+    if (i >= w.length) continue;
+    let j = i;
+    if (!isPl(w[i])) {
+      if (!UP_WRAP.has(bn(w[i]))) continue;
+      j = w.findIndex((x, k) => k > i && isPl(x));
+      if (j < 0) continue;
+    }
+    for (let k = j + 1; k < w.length && k <= j + 9; k++) {
+      if (w[k] === 'upgrade') return true;
+      if (w[k].startsWith('-') || w[k - 1].startsWith('-')) continue;
+      break;
+    }
+  }
+  return false;
+}
 const SPEC_GIT_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout${SP}+--)(${SP}|$)`);
 const SPEC_GIT_EXEMPT = new RegExp(`git${SP}+-C${SP}+|git${SP}+worktree|--work-tree`);
 const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents/local/[^/ \\t\\n\\v\\f\\r]*[*?[]|find${SP}[^;&|]*\\.agents(/local)?/?(${SP}|$)`);
@@ -126,6 +156,10 @@ async function checkOne(ctx, cmd, folded = false) {
     }
   }
   const specialist = ctx.sub || role !== 'lead';
+  // A371: `proofline upgrade` replaces the control plane and the files that enforce the rules; it is the user's command, never a specialist's
+  if (specialist && (runsUpgrade(withoutDataBodies(cmd)) || runsUpgrade(norm))) {
+    deny("proofline upgrade (also --check and --rollback) replaces the control plane and the files that enforce the rules, so it is the user's command: a specialist never runs it (A371). Report to the lead that the user should run it from the terminal");
+  }
   // A specialist never mutates the live tree with git: mutation evidence runs in a separate worktree
   if (act !== '' && !ctx.ro && specialist && grepq(SPEC_GIT_RE, withoutDataBodies(cmd)) && !grepq(SPEC_GIT_EXEMPT, cmd)) {
     deny(`git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it${roTail(ctx)}`);

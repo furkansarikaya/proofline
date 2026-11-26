@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.193 — 2026-11-26
+
+- Feature (A371, issue 338 U6): a safe upgrade path with runs in flight. `proofline upgrade --check` writes nothing and reports the versions, the state format, the open runs, the batch, the config keys it would add and whether the upgrade would be refused; the real upgrade refuses while a specialist runs, a write window is open or a command holds the lock (parked runs and an open batch do not block), refuses a newer state format, backs up what it replaces under `.agents/local/upgrade-backup/<old>-to-<new>/` (the last 2 are kept), writes an `upgrade` ledger row per run, lists the runs whose gate results came from the older core and ends with the cheap self-checks; `upgrade --rollback` restores the backup. `proofline status` shows that the active run crossed an upgrade. The state added since 0.0.173 is additive (docs/concepts/upgrading.md).
+
 ## 0.0.192 — 2026-11-26
 
 - Feature (A370, issue 338 U8 = R1-18, R2-19, R3-14, R4-12): `proofline retro [<batch-id|run-id>] [--since YYYY-MM-DD] [--json] [--full]`, a read-only report of finished runs from their ledgers (live, or the newest run archive, read in process by a minimal tar.gz reader: nothing extracted or written, a `../` entry, link or device refused, bomb and entry limits), `records.jsonl`, `tools.jsonl` and `batch/*.tsv`: task time with first pass, rework and the rest, agent minutes and tokens per role, fix rounds and reopens, gate re-runs per fix round, user waits, questions and approvals by kind, hook denials by class, friction, a Resumed runs section, and the sources it could not read; counts only, no score, `not recorded` where a number cannot be derived. Listed in `proofline help`, the README and the daily-use guide (and its Turkish page).
@@ -9,7 +13,6 @@
 ## 0.0.191 — 2026-11-26
 
 - Fix (A369, issue 338 U3): a GitHub issue is the recommended task source and the completion report no longer grows the task. `proofline task --import <issue-url|number>` prints the flow; `github publish` posts the report as one comment (a report holding a secret is refused whole, every possible `@mention` broken, remote content written as text, cut at 60000 bytes, the issue body never edited, a run from another repository's issue refused, verify needs our own account's comment with the exact body); `markdown publish` writes the report to `<tasks.dir>/<ID>/COMPLETION_REPORT.md` and keeps a three-line pointer in the task file (older inline reports still verify). New page `docs/concepts/task-sources.md`.
-
 ## 0.0.190 — 2026-11-26
 
 - Fix (A368, issue 338 U7 = R3-11): raw Markdown left in visible text (`**bold**`, a backtick span, a `# ` heading, a `- ` list marker, a `[text](url)` link, an unrendered `{{ }}`) is a blocking visual finding: `design_raw_markup` on the rendered page and `raw-markup-in-text` in the source lint of page templates (exempt only where TASK.md quotes the text verbatim). The visual report lists a human check per page that is not English (`design.human_checks[]`, made from the page facts) and the completion report Facts block prints `Human checks (not evaluated by QA): N`; nothing blocks on them and no approval kind is added. Left: the text-only page profile.

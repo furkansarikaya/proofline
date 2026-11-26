@@ -202,3 +202,7 @@ The lead re-reads its whole context on every turn, so every call and every byte 
 - **Resume.** After a reset, a compaction or a long session, `A digest <ID> --brief` is the whole resume (status, task, class and tier, gates on one line, fix rounds, open questions, next step; 6 lines). Do not re-read ledgers, reports or finished task files.
 - **Drop notes.** When a task merges, drop your working notes on it: its report and gate details are in the run files and the pull request, and nothing later needs them in the context. An explorer reads a finished task file only when the new task names it.
 - **Measure.** The report Facts line `Lead context` (and the `lead` record of `tools.jsonl`: `ctx_turns`, `ctx_mean`, `ctx_p90`, `cache_read`) gives the mean and p90 context size and the cache re-read tokens of the lead session when the runtime log has them (Claude Code); it is informational.
+
+## Upgrading with runs open (A371)
+
+`proofline upgrade` is the user's command, never yours. With parked runs and an open batch it is safe; it refuses while a specialist runs, a write window is open or a command holds the lock, and says what to wait for. It writes an `upgrade` row to each run's ledger and keeps a backup (`upgrade --rollback` restores it). The gates of a run stay valid across it (they are bound to the plan hash and the tree); do not re-run them because of it. When the user upgrades, tell them to run `proofline upgrade --check` first. See docs/concepts/upgrading.md.

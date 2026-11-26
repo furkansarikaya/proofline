@@ -854,17 +854,38 @@ class Doctor {
   }
 
   /** The whole report; the status is 1 on any FAIL. */
+  /** The runtimes of the install: the manifest's, else the ones the config names. */
+  initRuntimes() {
+    this.runtimes = this.manifestMeta('runtimes');
+    if (this.runtimes === '') {
+      const words = `${this.val('runtime.lead', 'claude')} ${this.val('runtime.worker', '')} ${this.val('runtime.reviewers', '')}`.split(' ').filter((x) => x !== '');
+      this.runtimes = [...new Set(words)].sort().join(' ');
+    }
+  }
+
+  /** A371: the cheap checks `proofline upgrade` runs when it is done: the engine files, the manifest, the config check and the hook wiring (no probes, no tool runs). */
+  quick() {
+    this.initRuntimes();
+    // only the WARN and FAIL lines are printed (a PASS line would be taken for a doctor verdict of its own); the PASS lines are counted
+    let passes = 0;
+    const say = this.write.bind(this);
+    this.write = (/** @type {string} */ line) => { if (line.startsWith('PASS ')) passes++; else say(line); };
+    this.doctorEngine();
+    this.doctorManifest();
+    const c = runMerged(proc.SCRIPT_SHELL, [this.agent, 'config-check'], { cwd: this.root, env: this.ctx.env });
+    if (c.status === 0) { say('self-check: config valid'); passes++; } else this.fail(`config: agent.sh config-check failed: ${headJoined(c.text, 2)}`);
+    this.doctorHooks();
+    say(`self-check: ${passes} passed, ${this.fails} FAIL, ${this.warns} WARN (proofline doctor runs the full set)`);
+    return this.fails === 0 ? 0 : 1;
+  }
+
   report() {
     if (!isFile(this.cfgFile) || !isFile(this.agent)) {
       this.fail(`installed: .agents/config.yaml or .agents/scripts/agent.sh missing in ${this.root} (run: proofline init)`);
       this.write(`doctor: ${this.fails} FAIL, ${this.warns} WARN`);
       return 1;
     }
-    this.runtimes = this.manifestMeta('runtimes');
-    if (this.runtimes === '') {
-      const words = `${this.val('runtime.lead', 'claude')} ${this.val('runtime.worker', '')} ${this.val('runtime.reviewers', '')}`.split(' ').filter((x) => x !== '');
-      this.runtimes = [...new Set(words)].sort().join(' ');
-    }
+    this.initRuntimes();
     this.pass(`installed: proofline ${this.val('proofline_version', '?')} in ${this.root} (runtimes: ${this.runtimes}, profile ${this.val('profile', 'balanced')})`);
     this.code = codeAudit(this.root, this.plHome, this.ctx.env);
     this.doctorNode();
@@ -897,6 +918,9 @@ class Doctor {
     return this.fails === 0 ? 0 : 1;
   }
 }
+
+/** The cheap self-check after an upgrade (A371). @param {Context} ctx */
+export function quickCheck(ctx) { return new Doctor(ctx).quick(); }
 
 /** `proofline: MSG`, status 1 (the front end appends the user's next step). @param {string} msg */
 const die = (msg) => new ProoflineError(`proofline: ${msg}`, 1);
