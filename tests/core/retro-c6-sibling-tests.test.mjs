@@ -34,3 +34,21 @@ test('c6_freeze: sibling tests are in the frozen scope and are not counted by ma
   const frozen = rv(d, 'freeze', 'scope_paths');
   for (const p of ['impl.txt', 'impl_test.txt', 'old_a.test.txt', 'old_b.test.txt']) assert.ok(frozen.split(',').includes(p), `${p} is not in the frozen scope: ${frozen}`);
 });
+
+test('c6_freeze_kind: a product file under Sibling tests is a freeze error; a test and a fixture file are accepted and uncounted', () => {
+  const setup = (/** @type {string} */ list) => {
+    const d = rrun('STANDARD', '', `\n## Sibling tests\n\n${list}\n`);
+    wr(d, 'src/x.js', 'x\n'); wr(d, 'tests/x.test.js', 'x\n'); wr(d, 'tests/fixtures/data.json', '{}\n');
+    const cfg = path.join(d, '.agents/config.yaml');
+    writeFileSync(cfg, readFileSync(cfg, 'utf8').replace(/^( {4}max_scope_paths:) 15$/m, '$1 2'));
+    commitAll(d, 'siblings'); rebase(d);
+    accepted(A(d, ['classify', 'LC', 'STANDARD', 'review']), 'classify');
+    return d;
+  };
+  const bad = setup('- `src/x.js`: product code\n- `tests/x.test.js`: asserts the old output');
+  const m = Z(bad, ['freeze', 'LC']);
+  assert.notEqual(m.status, 0, 'a product file under Sibling tests froze');
+  assert.match(m.text, /Sibling tests' lists a path that is not a test or fixture file: src\/x\.js/);
+  const ok = setup('- `tests/x.test.js`: asserts the old output\n- `tests/fixtures/data.json`: pins the old output');
+  accepted(Z(ok, ['freeze', 'LC']), 'a test and a fixture file are uncounted');
+});

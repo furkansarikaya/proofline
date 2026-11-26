@@ -106,6 +106,9 @@ export class PathKinds {
     return allow.some((g) => caseMatch(g, b));
   }
 
+  /** A362: a path that may be listed under `## Sibling tests`: a test file or a fixture / test-data file (never product code). @param {string} p */
+  siblingOk(p) { return pathMatches(p, `${TEST_PATH_GLOBS} **/fixtures/** fixtures/** **/testdata/** testdata/** **/__snapshots__/** **/__fixtures__/**`); }
+
   /** `derived_kind PATH` @param {string} p */
   derivedKind(p) { return this.testCodePath(p) ? 'test' : this.pathKind(p); }
 

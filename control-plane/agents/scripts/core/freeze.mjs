@@ -23,7 +23,7 @@ import { PathKinds, scopeKindRows } from './pathkind.mjs';
 import { planMigrationShape } from './plancheck.mjs';
 import * as proc from './proc.mjs';
 import { askQuestion, verifyAssumptions } from './questions.mjs';
-import { fileLines, fileText, gateField, ledgerRows, gatesEnforced, ledgerLines, planDestructive, planScope, planSectionPresent, scopePaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
+import { fileLines, fileText, gateField, ledgerRows, gatesEnforced, ledgerLines, planDestructive, planScope, planSectionPresent, scopePaths, siblingTestPaths, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { planEntries, pipelineClass, pipelineClassValid, pipelineDeclared, pipelineNeeds, pipelineValue, riskConfigHash, runAutonomy, validationCandidates, planValidationMissing, RISK_PLAN_FLAGS } from './signals.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -249,7 +249,9 @@ export function pipelineCheck(ctx, id) {
   if (maxText !== '') {
     const pk = new PathKinds(ctx);
     // A362: a sibling test (row criteria SIBLING) is a scope path but is not counted against the code-path limit
-    const n = scopePaths(planScope(ctx, dir).rows.filter(([, c]) => c !== 'SIBLING')).filter((p) => pk.pathKind(p) === 'code').length;
+    const badSib = siblingTestPaths(fileText(ctx, `${dir}/PLAN.md`)).filter((p) => !pk.siblingOk(p));
+    if (badSib.length > 0) fail(`PLAN.md '## Sibling tests' lists a path that is not a test or fixture file: ${badSib.join(' ')}. Sibling tests are existing tests and test data only (they are scoped but not counted against max_scope_paths); move product code to the normal scope list`);
+    const n = scopePaths(planScope(ctx, dir).rows.filter(([p, c]) => c !== 'SIBLING' || !pk.siblingOk(p))).filter((p) => pk.pathKind(p) === 'code').length;
     const max = Number(maxText);
     if (n > max) {
       if (cls === 'TRIVIAL') fail(`the ${cls} pipeline allows at most ${maxText} code paths (content and document paths are not counted); this plan has ${n} ${bytes('—')} reclassify`);

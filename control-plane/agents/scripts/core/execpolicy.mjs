@@ -318,6 +318,7 @@ export function resolve(pol, argv) {
 
   // escalation: any signal raises one step (model first, effort when the model is pinned or at the top)
   let escalated = 'no'; let xreason = 'NO_SIGNAL';
+  const preEscModel = model;
   if (rest.length > 0) {
     if (used >= maxEsc) xreason = 'ESCALATION_BUDGET_EXHAUSTED';
     else {
@@ -341,7 +342,11 @@ export function resolve(pol, argv) {
     if (lim > 0 && idx(model, ladder) > lim) {
       let m = ladder[lim - 1];
       if (pol.mustTier(rt, m) < floor) m = pol.modelAtTier(rt, ladder, floor) ?? m;
-      if (m !== model) { model = m; mreason = `${mreason},REPEAT_CAPPED`; }
+      if (m !== model) {
+        model = m; mreason = `${mreason},REPEAT_CAPPED`;
+        // the cap took an escalation back (the model is not above the one it had before the signal): it is not an escalation and spends no budget (A362)
+        if (escalated === 'yes' && xreason === 'ESCALATED_MODEL' && idx(model, ladder) <= idx(preEscModel, ladder)) { escalated = 'no'; xreason = 'REPEAT_CAPPED'; mreason = mreason.replace(',ESCALATED', ''); }
+      }
     }
   }
   const effort = efforts[ei - 1];

@@ -22,23 +22,31 @@ function project(withCap) {
   const { io } = memoryIo(root, {});
   return new Context(io, io.scriptPath);
 }
+const pick = (/** @type {{ model: string, reason: string }} */ r) => ({ model: r.model, reason: r.reason });
 /** @param {Context} ctx @param {string[]} extra */
 function resolve(ctx, extra) {
   const r = policyCommand(ctx, ['resolve', '--tier', 'full', '--class', 'COMPLEX', ...extra]);
   assert.equal(r.status, 0, r.err);
   const get = (/** @type {string} */ k) => (new RegExp(`^${k}=(.*)$`, 'm').exec(r.out) ?? [])[1];
-  return { model: get('model'), reason: get('model_reason') };
+  return { model: get('model'), reason: get('model_reason'), escalated: get('escalated'), xreason: get('escalation_reason') };
 }
 
 test('c2_repeat: the first attempt keeps its model, a repeat is capped by the ladder cap and by the first attempt', () => {
   const ctx = project(true);
-  assert.deepEqual(resolve(ctx, ['--role', 'architect']), { model: 'opus', reason: 'ROLE_PROFILE' });
-  assert.deepEqual(resolve(ctx, ['--role', 'architect', '--repeat-of', 'opus']), { model: 'sonnet', reason: 'ROLE_PROFILE,REPEAT_CAPPED' });
+  assert.deepEqual(pick(resolve(ctx, ['--role', 'architect'])), { model: 'opus', reason: 'ROLE_PROFILE' });
+  assert.deepEqual(pick(resolve(ctx, ['--role', 'architect', '--repeat-of', 'opus'])), { model: 'sonnet', reason: 'ROLE_PROFILE,REPEAT_CAPPED' });
   // never above the first attempt, whatever the cap says
   assert.equal(resolve(ctx, ['--role', 'explorer', '--profile', 'economy', '--repeat-of', 'haiku']).model, 'haiku');
   assert.equal(resolve(ctx, ['--role', 'reviewer', '--profile', 'max', '--repeat-of', 'sonnet']).model, 'sonnet');
   // an escalation signal does not lift a repeat above the cap
-  assert.equal(resolve(ctx, ['--role', 'reviewer', '--signal', 'fix_round_2', '--repeat-of', 'sonnet']).model, 'sonnet');
+  const esc = resolve(ctx, ['--role', 'reviewer', '--signal', 'fix_round_2', '--repeat-of', 'sonnet']);
+  assert.equal(esc.model, 'sonnet');
+  // the cap took the escalation back: it is no escalation and spends no budget
+  assert.equal(esc.escalated, 'no');
+  assert.equal(esc.xreason, 'REPEAT_CAPPED');
+  assert.equal(esc.reason, 'ROLE_PROFILE,REPEAT_CAPPED');
+  // without the cap the same signal is an escalation (the first attempt on sonnet may go up)
+  assert.equal(resolve(ctx, ['--role', 'reviewer', '--signal', 'fix_round_2']).escalated, 'yes');
 });
 
 test('c2_repeat_floor: a security reviewer is never lowered below its tier floor; an explicit operator model wins', () => {
