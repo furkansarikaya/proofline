@@ -3,11 +3,11 @@
 // dispatcher.mjs `codexProfileArgs`): no outbound network and no loopback listener by default. A project may widen exactly those two things, deliberately, with three keys of
 // `.agents/config.yaml`:
 //   codex.sandbox.network: off | on        outbound network for the Codex workers of this project (the profile has one switch: no domain list is modelled here)
-//   codex.sandbox.local_server: off | on   a loopback listener (a test that starts a local server)
+//   codex.sandbox.local_server: off | on   names a loopback listener (a test that starts a local server); on Codex 0.172 it grants NONE by itself, the listener is allowed by `network: on` only
 //   codex.sandbox.failover: off | claude   a Codex implementer stopped by the sandbox is handed to the Claude implementer (reason `sandbox_block`, D7/A203)
 // Every default is off, and ANYTHING but the exact word `on` (or `claude`) reads as off: the safe side (invariant 6). Nothing in this module writes the config. The file is the
-// user's: the runtime hook refuses every agent write to `.agents/config.yaml` and the profile grants a Codex worker `.agents` read only, so only the user can switch a key on
-// (invariant 3); `init` and `upgrade` add a missing key with its default `off` and never change a value. A permission set to `on` changes NOTHING else of the profile: no
+// user's: the runtime hook denies the Write and Edit tools and the common Bash spellings on `.agents/config.yaml` and the profile grants a Codex worker `.agents` read only (a tripwire,
+// not a boundary: the user's review of config changes is) (invariant 3); `init` and `upgrade` add a missing key with its default `off` and never change a value. A permission set to `on` changes NOTHING else of the profile: no
 // filesystem grant is added, no secrets path, no deny dropped (the filesystem argument is byte-equal on and off; a test pins it).
 import { roleGroup } from './execpolicy.mjs';
 
@@ -74,14 +74,14 @@ export function sandboxNeeds(text) {
  * @param {SandboxPermission} p @param {{ network: string[], localServer: string[] }} needs
  */
 export function preflightWarning(p, needs) {
-  /** @type {string[]} */ const keys = [];
-  if (needs.network.length > 0 && !p.network) keys.push('codex.sandbox.network');
-  if (needs.localServer.length > 0 && !p.localServer) keys.push('codex.sandbox.local_server');
-  if (keys.length === 0) return '';
+  // verified with Codex 0.172 (`codex sandbox` and `codex exec`, A372): a loopback listener is allowed by `network.enabled` only; `allow_local_binding` alone grants none
+  const localNeedsNetwork = needs.localServer.length > 0 && !p.network;
+  if (!(needs.network.length > 0 && !p.network) && !localNeedsNetwork) return '';
   const e = needs.network.length > 0 && !p.network ? needs.network[0] : needs.localServer[0];
+  const why = localNeedsNetwork ? ' (on Codex 0.172 a loopback listener is allowed by that key only, which also opens outbound network; codex.sandbox.local_server alone grants none)' : '';
   const next = p.failover ? 'if the sandbox stops it, the step is handed to the Claude implementer (codex.sandbox.failover: claude)'
-    : 'if the sandbox stops it, it is BLOCKED with the guidance: run this role with --runtime claude, or decide yourself to set codex.sandbox.failover: claude (hand it to the Claude implementer) or the key(s) above in .agents/config.yaml (it lets a Codex worker reach the network or listen on loopback)';
-  return `preflight: the plan of this task has commands the Codex sandbox refuses by default (${e}); ${keys.join(' and ')} is off; ${next}`;
+    : 'if the sandbox stops it, it is BLOCKED with the guidance: run this role with --runtime claude, or decide yourself to set codex.sandbox.failover: claude (hand it to the Claude implementer) or codex.sandbox.network: on in .agents/config.yaml (it lets a Codex worker reach the network and listen on loopback)';
+  return `preflight: the plan of this task has commands the Codex sandbox refuses by default (${e}); codex.sandbox.network is off${why}; ${next}`;
 }
 
 /**

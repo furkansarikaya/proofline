@@ -59,9 +59,10 @@ describe('the permission value', () => {
     assert.deepEqual(sandboxNeeds('- node --test tests/a.test.mjs\n- prose about nothing\n'), { network: [], localServer: [] });
     const off = sandboxPermission(cfg({}));
     const w = preflightWarning(off, n);
-    assert.match(w, /^preflight: .*codex\.sandbox\.network and codex\.sandbox\.local_server is off/); assert.match(w, /BLOCKED with the guidance/); assert.match(w, /--runtime claude/);
+    assert.match(w, /^preflight: .*codex\.sandbox\.network is off \(on Codex 0\.172 a loopback listener is allowed by that key only/); assert.match(w, /BLOCKED with the guidance/); assert.match(w, /--runtime claude/);
     assert.match(preflightWarning(sandboxPermission(cfg({ 'codex.sandbox.failover': 'claude' })), n), /handed to the Claude implementer/);
     assert.equal(preflightWarning(sandboxPermission(cfg({ 'codex.sandbox.network': 'on', 'codex.sandbox.local_server': 'on' })), n), '');
+    assert.match(preflightWarning(sandboxPermission(cfg({ 'codex.sandbox.local_server': 'on' })), { network: [], localServer: ['x'] }), /local_server alone grants none/, 'verified with a real Codex 0.172: allow_local_binding alone grants no listener');
     assert.doesNotMatch(preflightWarning(sandboxPermission(cfg({ 'codex.sandbox.network': 'on' })), n), /codex\.sandbox\.network/, 'a granted key is not named again');
   });
   test('a sandbox refusal in a log: a refused listener or lookup, not an ordinary failure', () => {
@@ -109,11 +110,15 @@ describe('the profile and the dispatch', () => {
   });
   fakeTest('a Codex implementer whose sandbox blocks its API: BLOCKED with the guidance by default; handed to Claude when the user granted it (reason sandbox_block)', async () => {
     fx.reset();
-    const d = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'network' });
+    const d = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'sandboxapi' });
     assert.equal(d.code, 6); assert.equal(existsSync(loc(fx, 'claude.argv')), false);
     fx.setConfig({ sandbox: { failover: 'claude' } });
     fx.reset();
-    const g = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'network' });
+    const p = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'network' });
+    assert.equal(p.code, 6, 'a plain API outage is not a sandbox block: BLOCKED as before even with the grant'); assert.match(p.out, /enable network access/);
+    assert.equal(existsSync(loc(fx, 'claude.argv')), false); assert.doesNotMatch(fx.ledger(), /reason=sandbox_block/);
+    fx.reset();
+    const g = await fx.dispatch(['LC', 'implementer'], { FAKE_CODEX: 'sandboxapi' });
     assert.equal(g.code, 0, g.err + g.out);
     assert.equal(readFileSync(loc(fx, 'claude.role'), 'utf8').trim(), 'implementer');
     assert.match(fx.ledger(), /failover from=codex to=claude reason=sandbox_block worker=implementer/);
@@ -198,10 +203,12 @@ describe('doctor and the status block', () => {
     edit(`${a}/.agents/config.yaml`, (t) => t.replace(/^ {2}worker: codex/m, '  worker: claude'));   // the sandbox project uses Codex for its workers; this one does not
     edit(`${c}/.agents/config.yaml`, (t) => t.replace(/^ {4}network: off$/m, '    network: on').replace(/^ {4}failover: off$/m, '    failover: claude'));
     edit(`${d}/.agents/config.yaml`, (t) => t.replace(/^ {4}local_server: off$/m, '    local_server: yes'));
-    const [ra, rb, rc, rd] = await Promise.all([a, b, c, d].map((x) => sb.plAsync(x, ['doctor'], env)));
+    const e = sb.copy('cs-f'); edit(`${e}/.agents/config.yaml`, (t) => t.replace(/^ {4}local_server: off$/m, '    local_server: on'));
+    const [ra, rb, rc, rd, re] = await Promise.all([a, b, c, d, e].map((x) => sb.plAsync(x, ['doctor'], env)));
     assert.doesNotMatch(ra.out, /codex sandbox:/);
     assert.match(rb.out, /^PASS codex sandbox: codex network: off, local server: off, failover to the Claude implementer on a sandbox block: off \(the default/m);
     assert.match(rc.out, /^WARN codex sandbox: codex network: ON, local server: off, failover to the Claude implementer on a sandbox block: ON\. You turned this on in \.agents\/config\.yaml: .*send repository content out/m);
+    assert.match(re.out, /^WARN codex sandbox: codex\.sandbox\.local_server is on, but on Codex 0\.172 a loopback listener is allowed by codex\.sandbox\.network: on only/m);
     assert.match(rd.out, /^WARN codex sandbox: codex\.sandbox\.local_server: yes \(want on\|off; read as off\)/m);
   });
   test('the status block shows a widened permission and keeps its bytes when nothing is widened', () => {

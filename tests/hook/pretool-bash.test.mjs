@@ -28,6 +28,15 @@ test('fail closed: unparsable input during a run denies, without a run it passes
   assert.equal(q.status, 0);
 });
 
+test('A372: the common Bash spellings that write the Codex sandbox switch are denied to the lead and the implementer (a tripwire; interpreter programs are not read, A327.4)', { skip }, async () => {
+  const d = copyProject(withRun, base);
+  const cmds = ["sed -i 's/off/on/' .agents/config.yaml", 'echo x >> .agents/config.yaml', 'echo x | tee .agents/config.yaml', "sed -i 's/a/b/' .codex/config.toml", 'echo x > .codex/config.toml', 'printf x | tee -a .codex/config.toml'];
+  for (const who of [{}, { agent_type: 'proofline-implementer', agent_id: 'a1' }]) for (const c of cmds) {
+    const r = await pre('node', d, c, who, {});
+    assert.match(r.stdout, /"permissionDecision":"deny"/, `${JSON.stringify(who)} ${c}`);
+  }
+});
+
 test('fail closed: a malformed ACTIVE_RUN denies', { skip }, async () => {
   const d = copyProject(withRun, base);
   writeFileSync(join(d, '.agents/local/ACTIVE_RUN'), 'bad id!\n');

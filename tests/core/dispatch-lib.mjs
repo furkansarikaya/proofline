@@ -49,6 +49,7 @@ case "\${FAKE_CODEX:-ok}" in
   leaveserver) printf 'x\\n' > "$o"; sh -c 'echo $$ >> "'"$loc"'/grandchildren.pids"; exec sleep 30' & while [ ! -s "$loc/grandchildren.pids" ]; do :; done; sub DONE ;;   # a server the role started and left: the worker itself ends normally
   recordsig) echo $$ > "$loc/codex.pid"; for s in HUP INT TERM; do trap "echo $s > \\"$loc/got.sig\\"; exit 0" $s; done; echo ready > "$loc/codex.ready"; while :; do sleep 0.1; done ;;   # codex.ready: the traps are set
   setsidchild) echo $$ > "$loc/codex.pid"; node -e "const c=require('child_process').spawn('sleep',['30'],{detached:true,stdio:'ignore'});require('fs').appendFileSync(process.argv[1],c.pid+'\\n');require('net').createServer().listen(0)" "$loc/grandchildren.pids" & wait ;;
+  sandboxapi) echo 'workspace routing discovery failed' >&2; echo 'sandbox: network access denied by the sandbox' >&2; exit 1 ;;
   listenblock) printf 'x\\n' > "$o"; echo 'Error: listen EPERM: operation not permitted 127.0.0.1:0' >&2 ;;
   early) echo "stopped before reading the prompt" >&2; exit 3 ;;
   edit) echo tampered >> "$FAKE_ROOT/product.txt"; printf 'x\\n' > "$o"; sub PASS ;;

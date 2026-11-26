@@ -556,7 +556,7 @@ function plan(ctx, argv) {
     const onCodex = codexRoles(ctx.config());
     if (onCodex.length > 0 || anyOn(perm)) {
       o('\n## Codex sandbox permission (A372)\n\n');
-      o(`- ${permissionLine(perm)} (default off; only you set it, in .agents/config.yaml: no agent can write that file)\n`);
+      o(`- ${permissionLine(perm)} (default off; you set it, in .agents/config.yaml; the hook denies agent writes to that file as a tripwire, your review of config changes is the boundary)\n`);
       for (const r of onCodex) o(`- role ${r} runs on Codex: ${perm.network ? 'outbound network ON' : 'no outbound network'}, ${perm.localServer ? 'loopback listener ON' : 'no loopback listener'}\n`);
       if (perm.network || perm.localServer) o('- WARNING: a permission is ON: a Codex worker can reach the network or listen on loopback in every task of this batch; your approval of this batch does not change it, and it is not part of what the approval covers\n');
       if (onCodex.includes('implementer')) {

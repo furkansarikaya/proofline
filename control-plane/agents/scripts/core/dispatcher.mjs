@@ -306,8 +306,8 @@ class Dispatcher {
     if (this.status !== 0 && this.status !== 124) {
       /** @type {string} */ let reason = dt.runtimeFailureReason(this.logText());
       if (this.status === 127) reason = 'missing_binary';
-      // A372: a Codex implementer that cannot reach its API because of the sandbox is handed to Claude when the user granted it (codex.sandbox.failover: claude); the default is the BLOCKED guidance
-      if (reason === 'runtime_unavailable:network' && this.rt === 'codex' && this.role === 'implementer' && sandboxPermission(cfg).failover) reason = 'sandbox_block';
+      // A372: a Codex implementer whose log names a sandbox refusal is handed to Claude when the user granted it (codex.sandbox.failover: claude); a plain API outage keeps the BLOCKED guidance
+      if (reason === 'runtime_unavailable:network' && this.rt === 'codex' && this.role === 'implementer' && sandboxPermission(cfg).failover && sandboxBlockLines(dt.tailLines(this.logText(), 60))) reason = 'sandbox_block';
       else if (reason === 'runtime_unavailable:network') throw this.blocked(`runtime_unavailable:network: ${this.rt} worker could not reach its API (after ${netTry} automatic retries); enable network access for the lead workspace-write sandbox and retry this step`);
       if (reason !== 'none') await this.failover(reason);
     }
