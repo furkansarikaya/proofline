@@ -8,7 +8,7 @@ import { git, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { blockingFindingIds, gateLatestFile, requiredGates } from './gates.mjs';
 import { canon, listable, lookup, placePath } from './kirules.mjs';
 import { sha256 } from './hash.mjs';
-import { findStanding } from './standing.mjs';
+import { findStanding, readStanding } from './standing.mjs';
 import { isFile } from './paths.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -133,7 +133,11 @@ export function standingWaiverKey(ctx, id, rec, fid) {
   if (gate === 'SECRETS' || gate === 'SECURITY') return null;
   if (/secret|secur/.test(asciiLower(gateField(ctx, rec, 'focus')))) return null;
   const c = canon(ctx, rec, fid);
-  if (c === null || /secret|secur/.test(asciiLower(c.gate)) || listable(ctx, c.gate, c.place) !== null) return null;
+  if (c === null || /secret|secur/.test(asciiLower(c.gate))) return null;
+  // the cheap tests first (a text and a cached file read), the git ones (tracked file, untouched, blob) only for a finding that can have a key at all
+  const m = /^lint ([a-z][a-z0-9-]*): /.exec(c.text);
+  if (m === null || !registryIds(ctx).includes(m[1])) return null;
+  if (listable(ctx, c.gate, c.place) !== null) return null;
   const file = placePath(c.place);
   const dir = `${ctx.root}/.agents/runs/${id}`;
   if (!kiUntouched(ctx, dir, file)) return null;
@@ -142,10 +146,8 @@ export function standingWaiverKey(ctx, id, rec, fid) {
   const blob = git(ctx, ['rev-parse', '--verify', '-q', `${base}:${file}`]);
   const kind = git(ctx, ['cat-file', '-t', `${base}:${file}`]);
   if (blob.status !== 0 || kind.status !== 0 || kind.out.trim() !== 'blob') return null;
-  // only a REGISTRY rule has a stable identity: the text names `lint <id>:` and the id is one of the installed visual-proof registry's. A free-form finding of a reviewer or any agent
+  // only a REGISTRY rule has a stable identity (above): the text names `lint <id>:` and the id is one of the installed visual-proof registry's. A free-form finding of a reviewer or any agent
   // (it may be caused by THIS task's change elsewhere) never gets a key; it stays a per-run waiver
-  const m = /^lint ([a-z][a-z0-9-]*): /.exec(c.text);
-  if (m === null || !registryIds(ctx).includes(m[1])) return null;
   const rule = m[1];
   return { rule, surface: file, fp: sha256(`${c.gate}\n${rule}\n${c.text}\n${file}\n${blob.out.trim()}\n`) };
 }
@@ -156,6 +158,7 @@ export function standingWaiverKey(ctx, id, rec, fid) {
  * @param {Context} ctx @param {string} id @param {string} rec @param {string} fid
  */
 export function findingStandingWaived(ctx, id, rec, fid) {
+  if (readStanding(ctx).length === 0) return false;   // nothing stands (the usual case): no key to compute, no git call
   const k = standingWaiverKey(ctx, id, rec, fid);
   return k !== null && findStanding(ctx, 'waiver', k.rule, k.surface, k.fp) !== null;
 }
