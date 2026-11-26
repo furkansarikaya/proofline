@@ -69,6 +69,8 @@ const SPELLINGS = (/** @type {string} */ k, /** @type {string} */ v) => [
   `bin/p[[:alpha:]]oofline c[[:lower:]]nfig ${k} ${v}`, `bin/p[[:alpha:]]oofline config ${k} ${v}`, `bin/proofline c[[:lower:]]nfig ${k} ${v}`, `bin/[[:lower:]]roofline config ${k} ${v}`,
   `bin/p[[.r.]]oofline c[[=o=]]nfig ${k} ${v}`, `pr[[:lower:]x]ofline config ${k} ${v}`, `bin/p[]r]oofline config ${k} ${v}`, `bin/p[!]x]oofline conf[]i]g ${k} ${v}`,
   `bin/p[roofline config ${k} ${v}`, `bin/proofline c[onfig ${k} ${v}`, `bin/p[[:alpha:]oofline c[[:lower:]nfig ${k} ${v}`, `bin/p[^x]oofline config ${k} ${v}`,
+  // final review: a glob path whose component can be config (zsh turns `**/config` into `s/config`)
+  `cd s && bin/proofline **/config ${k} ${v}`, `bin/proofline **/config ${k} ${v}`, `proofline s/conf* ${k} ${v}`, `proofline */config ${k} ${v}`, `bin/proofline ./c?nfig ${k} ${v}`,
 ];
 /** security review round 2: a terminal wrapper or a cleared environment with a command that names either word (the e2e probe wrote commands.test through these) */
 const WRAPPED = (/** @type {string} */ k, /** @type {string} */ v) => [
@@ -90,7 +92,7 @@ const OTHERS = ['proofline status', 'proofline doctor --config', 'git config use
   // CI round: the operand-rule spellings of tests/enforcement/guards.test.mjs (`pro*.mjs` cannot spell `proofline`; `{}` is no brace expansion) are not this rule's business
   'ls .agents/scripts/pro*.mjs | xargs node {} debt page', "find .agents/scripts -name 'pro*.mjs' -exec node {} debt page \\;", 'cd .agents; cd scripts; node pro*.mjs debt page',
   'D=.agents; node $D/scripts/pro*.mjs debt page', 'command node pro*.mjs', 'echo {} {x} {', '[ -f x ] && ls', 'ls proofline-*.md conf*.yaml', '[[ -f x ]] && ls', 'ls [ab]*.md',
-  'grep -E "[[:space:]]+" docs/x.md'];
+  'grep -E "[[:space:]]+" docs/x.md', 'ls */config.yaml', 'cat .git/conf*', 'ls */*'];
 const DENIED = /names proofline (and|or) config/;
 
 test('configCommandVerdict: every set spelling is refused for a specialist and for the lead; the plain reads and agent-key sets pass; other commands are not judged', () => {

@@ -196,8 +196,9 @@ function globNames(w) {
     const test = (/** @type {string} */ part, /** @type {string[]} */ names) => { try { const r = rx(part); return names.some((x) => r.test(x)); } catch { return true; } };
     const plParts = g.split('/').filter((p) => p !== '' && test(p, ['proofline']));
     const pl = plParts.length > 0 || test(g, ['proofline']);
-    const cfg = test(g, ['config']);
-    const bare = !/[A-Za-z0-9]/.test(plParts.join('') + (cfg ? g : ''));
+    const cfgParts = g.split('/').filter((p) => p !== '' && test(p, ['config']));   // final review: a glob path whose last part can be config counts, as for proofline
+    const cfg = cfgParts.length > 0 || test(g, ['config']);
+    const bare = !/[A-Za-z0-9]/.test(plParts.join('') + cfgParts.join('') + (cfg && cfgParts.length === 0 ? g : ''));
     return { pl, cfg, bare, word: g };
   });
 }
