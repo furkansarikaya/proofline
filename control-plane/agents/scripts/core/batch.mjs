@@ -38,6 +38,7 @@ import { DEFAULT_FALLBACK, knowledgeDefaultTaken } from './ksuggest.mjs';
 const INHIBIT_WATCH = "const p = Number(process.argv[1]); setInterval(() => { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') process.exit(0); } }, 5000);";
 import { batchAnswerRow } from './knownissues.mjs';
 import { now } from './clock.mjs';
+import { limitRows } from './outputshape.mjs';
 import { afterFrontMatter, scopeEntryCovers } from './taskfile.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -486,9 +487,13 @@ export function nextReport(ctx, tsv = false) {
   ctx.out(`batch ${bid(ctx)}, approved at ${approvedAt(ctx)}\n`);
   ctx.out(awakeLine(ctx));
   const wait = claimOwner(ctx);
-  ctx.out('task | state | detail | pending question\n');
   // A202: a parked task is written PARKED (not "parked", not a running state) and the reason leads its detail; the pending question stays last
-  for (const r of rs) ctx.out(`${r.id} | ${r.state === 'parked' ? 'PARKED' : r.state} | ${r.detail === '' ? '-' : r.detail} | ${r.question === '' ? '-' : r.question}\n`);
+  const rowLine = (/** @type {{ id: string, state: string, detail: string, question: string }} */ r) => `${r.id} | ${r.state === 'parked' ? 'PARKED' : r.state} | ${r.detail === '' ? '-' : r.detail} | ${r.question === '' ? '-' : r.question}\n`;
+  const lim = limitRows(ctx, 'batch-next', rs, rowLine);
+  ctx.out(lim.head);
+  ctx.out('task | state | detail | pending question\n');
+  for (const r of lim.shown) ctx.out(rowLine(r));
+  ctx.out(lim.tail);
   const ci = ciPending(ctx);
   const open = rs.find((r) => r.state === 'open');
   if (wait !== '') {
@@ -536,13 +541,17 @@ export function batchStatus(ctx) {
   if (!(isFile(`${bd}/SUMMARY.md`) && isFile(`${bd}/order.tsv`))) { ctx.out('no batch planned (agent.sh batch-plan <ID...|all>)\n'); return 0; }
   ctx.out(`batch ${bid(ctx)}, approved at ${approvedAt(ctx)}\n`);
   ctx.out(awakeLine(ctx));
-  ctx.out('\ntask | result | PR | merge | park reason | pending question\n');
-  for (const r of derive(ctx)) {
+  const statusLine = (/** @type {{ id: string, state: string, detail: string, question: string, pr: string, epoch: string }} */ r) => {
     let s = r.state; let d = r.detail;
     if (s === 'open' || s === 'waiting') { s = 'pending'; d = ''; } else if (s === 'parked') s = 'PARKED'; // A202: a parked task never reads like a running or pending one
     const t = r.epoch === '' ? '' : fmtTs(r.epoch);
-    ctx.out(`${r.id} | ${s} | ${r.pr === '' ? '-' : r.pr} | ${t === '' ? '-' : t} | ${d === '' ? '-' : d} | ${r.question === '' ? '-' : r.question}\n`);
-  }
+    return `${r.id} | ${s} | ${r.pr === '' ? '-' : r.pr} | ${t === '' ? '-' : t} | ${d === '' ? '-' : d} | ${r.question === '' ? '-' : r.question}\n`;
+  };
+  const lim = limitRows(ctx, 'batch-status', derive(ctx), statusLine);
+  ctx.out(lim.head);
+  ctx.out('\ntask | result | PR | merge | park reason | pending question\n');
+  for (const r of lim.shown) ctx.out(statusLine(r));
+  ctx.out(lim.tail);
   ctx.out('\n');
   for (const r of derive(ctx)) {
     if (!hasRun(ctx, r.id)) continue;

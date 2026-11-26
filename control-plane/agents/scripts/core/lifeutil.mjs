@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 4, package 4B: the small helpers the lifecycle commands share (start, freeze, refreeze, handoff, terminate, amend, reopen, cleanup).
 // Each one is the shell function of agent.sh 0.0.47 of the same name, without its process starts.
+import { withFull } from './outputshape.mjs';
 import { readFileSync } from 'node:fs';
 import { asciiLower } from './shellglob.mjs';
 import { bytes } from './config.mjs';
@@ -67,7 +68,7 @@ export function quietly(ctx, fn) {
  */
 export function shellChild(ctx, argv, o = {}) {
   ctx.flush();
-  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...argv], {
+  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...withFull(argv)], {
     cwd: ctx.cwd, env: ctx.childEnv(), input: o.input ?? '', stdio: ['pipe', 'pipe', 'pipe'], allowEqualTree: true,
   });
   return { status: r.status, out: r.stdout.toString('latin1'), err: r.stderr.toString('latin1') };

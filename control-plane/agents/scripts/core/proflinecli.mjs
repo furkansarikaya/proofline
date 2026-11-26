@@ -6,6 +6,7 @@
 //
 // Text is a byte string like the rest of the core (one char per byte); the arguments are turned into byte strings at the start and written back as bytes, so a UTF-8 task
 // text or path is printed as it was typed. The project's own `agent.sh` is started for the run state (the plugin and the project may be of different versions, A194).
+import { withFull } from './outputshape.mjs';
 import './node-check.mjs';
 import { existsSync, lstatSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
@@ -101,7 +102,7 @@ class Cli {
    * @param {string[]} args @param {{ quiet?: boolean, all?: boolean, inherit?: boolean }} [o] @returns {{ status: number, out: string }}
    */
   agent(args, o = {}) {
-    const a = args.map(raw);
+    const a = withFull(args).map(raw);
     if (o.inherit === true) { const r = proc.runScript([this.agentSh, ...a], { cwd: this.root, env: this.env, stdio: 'inherit' }); return { status: r.status, out: '' }; }
     if (o.all === true) {
       const r = proc.runMerged(proc.SCRIPT_SHELL, [this.agentSh, ...a], { cwd: this.root, env: this.env, stdin: 'inherit' });

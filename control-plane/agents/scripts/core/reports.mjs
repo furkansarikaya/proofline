@@ -118,7 +118,7 @@ export function briefRun(ctx, id) {
   ctx.out(`CLASS: ${val('CLASS/TOPOLOGY')}${val('TIER') !== '' ? ` tier ${val('TIER')}` : ''}\n`);
   if (gates.length > 0) ctx.out(`GATES: ${cut(gates.join('; '), 400)}\n`);
   ctx.out(`FIX ROUNDS: ${val('FIX ROUNDS') || 'n/a'}; OPEN QUESTIONS: ${val('OPEN QUESTIONS') || '0'}\n`);
-  ctx.out(`NEXT: ${cut(val('NEXT'), 300)}\n`);
+  ctx.out(`NEXT: ${cut(val('NEXT'), 600)}\n`);
 }
 
 /** `next [ID]` @param {Context} ctx @param {string} id */

@@ -1,6 +1,7 @@
 // @ts-check
 // `proofline queue` (bin/proofline cmd_queue): task files and runs, as the shell front end printed them. The state of a run comes from
 // `agent.sh next` (a child per run, as before; it is served by the core once `next` moves: NEEDS-LATER, an in-process call).
+import { withFull } from './outputshape.mjs';
 import { openSync, readdirSync, readSync, closeSync, statSync } from 'node:fs';
 import * as proc from './proc.mjs';
 
@@ -53,7 +54,7 @@ function agentOut(ctx, argv) {
     ctx.runner(argv, { env: ctx.env, cwd: ctx.root, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: () => true }, scriptPath: ctx.scriptPath, isProcess: false });
     return Buffer.concat(out).toString('latin1');
   }
-  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
+  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...withFull(argv)], { cwd: ctx.root, env: ctx.env, stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
   return r.stdout.toString('latin1');
 }
 

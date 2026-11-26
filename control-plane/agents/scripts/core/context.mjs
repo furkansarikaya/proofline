@@ -56,6 +56,7 @@ export class Context {
     /** @type {string | null} */ this._shared = null;
     /** @type {Array<['out' | 'err', Buffer]>} */ this.chunks = [];
     /** @type {Map<string, unknown>} */ this.memo = new Map();
+    /** the bytes a table command may print (A365, outputshape.mjs prepare); null = no limit @type {number | null} */ this.rowBudget = null;
     /** fp_fast of agent.sh: 'no' (always hash), 'yes' (read-only commands: use the fingerprint cache), 'refresh' (sealing commands: hash, then store) */
     this.fpMode = 'no';
     /** ctp_base of agent.sh: set by delivered mode; task paths are then measured from this commit instead of HEAD */

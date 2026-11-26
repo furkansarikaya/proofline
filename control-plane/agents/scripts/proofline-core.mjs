@@ -13,7 +13,7 @@ import { PRELOCK } from './core/commands/delivercmds.mjs';
 import { USAGE_LINES } from './core/commands/data.mjs';
 import { COMMAND_NAMES, READ_ONLY_COMMANDS } from './core/commands/names.mjs';
 import { fdWriter } from './core/cliio.mjs';
-import { shapeOutput, splitShape } from './core/outputshape.mjs';
+import { prepare, shapeOutput, splitShape } from './core/outputshape.mjs';
 import { bytes } from './core/config.mjs';
 import { Context, validRole } from './core/context.mjs';
 import { ProoflineError } from './core/errors.mjs';
@@ -132,6 +132,7 @@ function dispatch(ctx, locks, argv) {
   if (Object.hasOwn(PRELOCK, command) && ctx.role === 'lead') PRELOCK[command](ctx, args);
   if (takesLocks(command, args, ctx.role, READ_ONLY.has(command))) takeCommandLocks(locks, ctx, command, args);
   const shape = splitShape(command, args);
+  prepare(ctx, shape);
   const code = handler(ctx, shape.args);
   if (code === 0) shapeOutput(ctx, command, shape);
   ctx.flush();

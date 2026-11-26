@@ -34,9 +34,10 @@ test('digest over the cap prints the head, one hint line, and --full prints it a
   assert.equal(cut.status, 0);
   assert.ok(cut.out.length < 6400, `capped: ${cut.out.length}`);
   const lines = cut.out.trimEnd().split('\n');
-  const hint = lines.at(-1) ?? '';
-  assert.match(hint, /^\.\.\.\d+ more bytes: agent\.sh digest LC --full$/);
-  const head = lines.slice(0, -1).join('\n');
+  const hi = lines.findIndex((l) => /^\.\.\.\d+ more bytes: agent\.sh digest LC --full$/.test(l));
+  assert.ok(hi > 0, cut.out);
+  const hint = lines[hi];
+  const head = lines.slice(0, hi).join('\n');
   assert.ok(full.out.startsWith(head));
   const left = Number(hint.match(/\d+/)?.[0]);
   assert.ok(left > 14000 && left < full.out.length, String(left));
@@ -83,6 +84,56 @@ test('digest --brief is at most 6 lines and names the next step', () => {
   assert.match(lines[0], /^STATUS: /);
   assert.ok(lines.some((l) => l.startsWith('NEXT: ')));
   assert.ok(b.out.length < 1500, String(b.out.length));
+});
+
+test('questions is never capped: every pending question is printed whole', () => {
+  const d = scaffold({ topology: 'orchestrated', cls: 'COMPLEX' });
+  const qd = path.join(d, '.agents/runs/LC/questions');
+  mkdirSync(qd, { recursive: true });
+  for (let i = 1; i <= 5; i++) writeFileSync(path.join(qd, `00${i}.md`), `---\nfrom: lead\n---\n\nQUESTION-${i}: ${'y'.repeat(2500)}\n`);
+  const r = A(d, ['questions', 'LC']);
+  assert.equal(r.status, 0);
+  assert.ok(r.out.length > 12000, String(r.out.length));
+  assert.ok(!/more bytes/.test(r.out));
+  for (let i = 1; i <= 5; i++) assert.ok(r.out.includes(`QUESTION-${i}:`), `question ${i} is missing`);
+});
+
+test('next, status and pipeline keep their first lines when the cap is small', () => {
+  const d = bigRun(100);
+  setCap(d, '500');
+  const nx = A(d, ['next', 'LC']);
+  assert.ok(/^task=LC\nstate=\w+\nhandoff=\w+\nnext=/.test(nx.out), nx.out);
+  assert.ok(A(d, ['status']).out.startsWith('active_task=LC\n'));
+  const full = A(d, ['pipeline', 'LC', '--full']).out;
+  assert.ok(A(d, ['pipeline', 'LC']).out.startsWith(full.split('\n')[0]));
+});
+
+test('a NEXT: line in the cut part is printed after the hint', () => {
+  const d = bigRun(20000);
+  const f = path.join(d, '.agents/runs/LC/TASK.md');
+  assert.ok(readFileSync(f, 'utf8').length > 20000);
+  setCap(d, '600');
+  const r = A(d, ['digest', 'LC']);
+  const lines = r.out.trimEnd().split('\n');
+  assert.ok(lines.some((l) => /^\.\.\.\d+ more bytes: agent\.sh digest LC --full$/.test(l)), r.out);
+  assert.match(lines.at(-1) ?? '', /^NEXT: /, 'the next step is the last line');
+});
+
+test('--full and --since are flags only in a flag position; --since needs a value', () => {
+  const d = scaffold({ topology: 'orchestrated', cls: 'COMPLEX' });
+  const a = A(d, ['digest', '--full']);
+  const b = A(d, ['digest', '--fulx']);
+  assert.notEqual(a.status, 0);
+  assert.equal(a.text.replaceAll('--full', 'X'), b.text.replaceAll('--fulx', 'X'), 'a task named --full is a task');
+  const r = A(d, ['next', 'LC', '--since']);
+  assert.equal(r.status, 2);
+  assert.match(r.text, /usage: agent\.sh next <ID> --since <token>/);
+});
+
+test('digest --brief prints the next step whole up to 600 bytes', () => {
+  const d = scaffold({ topology: 'orchestrated', cls: 'COMPLEX' });
+  const nx = /^next=(.*)$/m.exec(A(d, ['next', 'LC']).out)?.[1] ?? '';
+  assert.ok(A(d, ['digest', 'LC', '--brief']).out.includes(`NEXT: ${nx}\n`));
 });
 
 test('claudeContext: mean, p90 and cache re-read of a session log, each message once', () => {

@@ -2,6 +2,7 @@
 // Stage 3: `next-user` (scripts/next-user.sh, A159): the ONE table from (command, project or run state) to the line that ends every
 // /proofline command. Read-only, any role. It reads the run state through the commands `status`, `summary --status` and `questions` (run in
 // process, each with a context of its own, as separate agent.sh calls were) and the batch through `batch-next --tsv` (still the shell's).
+import { withFull } from './outputshape.mjs';
 import { readdirSync, statSync } from 'node:fs';
 import { fileLines, readBytes, textLines } from './records.mjs';
 import * as proc from './proc.mjs';
@@ -151,7 +152,7 @@ function question(ctx, id) {
 
 /** `batch_state` / `batch_rows` @param {Context} ctx */
 function batchNext(ctx) {
-  const r = proc.runScript([`${ctx.scripts}/agent.sh`, 'batch-next', '--tsv'], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
+  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...withFull(['batch-next', '--tsv'])], { cwd: ctx.cwd, env: ctx.childEnv(), stdio: ['ignore', 'pipe', 'ignore'], allowEqualTree: true });
   return r.stdout.toString('latin1').split('\n').filter((l, i, a) => !(i === a.length - 1 && l === ''));
 }
 const batchState = (/** @type {string[]} */ lines) => { const f = (lines[0] ?? '').split('\t'); return lines.length > 0 && f[0] === 'state' ? (f[1] ?? '') : 'nobatch'; };
