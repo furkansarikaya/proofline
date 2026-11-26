@@ -6,7 +6,7 @@
 
 import { resolveTrailer } from '../committrailer.mjs';
 
-const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts|test_budgets|test_stability)$/;
+const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts|test_budgets|test_stability|profiles)$/;
 const DIGITS = /^[0-9]+$/;
 const HOOK_EVENT_TIMEOUT = /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/;
 const REL_UP = /(^|\/)\.\.(\/|$)/;
@@ -131,6 +131,11 @@ export function checkConfigLines(lines) {
     else if (/^pipelines\.[A-Z]+\.(evidence|qa|architect)$/.test(k)) en(k, v, 'yes|no');
     else if (/^pipelines\.[A-Z]+\.review$/.test(k)) en(k, v, 'yes|no|optional');
     else if (/^pipelines\.[A-Z]+\.(max_explorers|max_scope_paths)$/.test(k)) num(k, v);
+    else if (/^pipelines\.[A-Z]+\.(max_fix_rounds|mutation_budget)$/.test(k)) { num(k, v); if (DIGITS.test(v) && n0(v) < 1) bad(`${k} must be at least 1`); else if (k.endsWith('max_fix_rounds') && DIGITS.test(v) && n0(v) > 10) bad(`${k} is at most 10`); }
+    else if (k === 'profiles.light.types') { if (!/^(content|docs)( (content|docs))*$/.test(v)) bad(`profiles.light.types lists content and docs only: ${v}`); }
+    else if (k === 'profiles.light.classes') { if (!/^(TRIVIAL|STANDARD)( (TRIVIAL|STANDARD))*$/.test(v)) bad(`profiles.light.classes lists TRIVIAL and STANDARD only (COMPLEX and CRITICAL are never light): ${v}`); }
+    else if (k === 'profiles.light.never_paths') { if (/(^| )\//.test(v) || /(^|[ /])\.\.([ /]|$)/.test(v)) bad('profiles.light.never_paths must be project-relative globs'); }
+    else if (top === 'profiles' && k !== 'profiles' && k !== 'profiles.light') bad(`unknown profiles key: ${k} (want profiles.light.types, classes or never_paths)`);
     else if (/^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/.test(k)) { num(k, v); if (DIGITS.test(v) && (n0(v) < 30 || n0(v) > 28800)) bad(`${k} must be 30 to 28800`); }
     else if (/^capabilities\.[^.]+\.[^.]+$/.test(k)) en(k, v, '1|2|3');
     else if (k === 'execution_policy.max_context_bytes' || k === 'execution_policy.revision') num(k, v);

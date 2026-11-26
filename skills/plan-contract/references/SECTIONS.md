@@ -12,7 +12,7 @@
 | `## Tests` | always | lead |
 | `## Test budgets` | a `## Tests` bullet names a `test_kind` | lead |
 | `## Test exceptions` | optional: a test must really wait, must run over its budget, or cannot be measured | lead |
-| `## Test review budget` | optional: bounds the tests review loop (A359) | lead |
+| `## Test review budget` | optional (a CRITICAL plan states it, A364): bounds the tests review loop (A359) | lead |
 | `## Sibling tests` | optional (A362): existing tests that assert the opposite of the planned output or pin the old output | lead, from the explorer's grep of `tests/` |
 | `## Verification commands` | always | lead |
 | `## Dependencies` | always (`none` when none) | lead |

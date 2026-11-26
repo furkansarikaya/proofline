@@ -22,6 +22,24 @@ come from `review.risky_paths` plus, at read time, the manifests, lock files, pa
 build-changing files of every ecosystem in `.agents/ecosystems.json` ([ecosystems](ecosystems.md), A174). Code-like Markdown (`.agents/**`, `skills/**`, `roles/**`, agent definitions,
 `AGENTS.md`, `CLAUDE.md`, prompt files) is never docs. The tier never decreases within a run.
 
+## Weight by work type
+
+A364. Weight comes from the work, decided by the control plane, never by an agent's claim.
+
+| Class | `max_fix_rounds` | `mutation_budget` | Light profile |
+|---|---|---|---|
+| TRIVIAL, STANDARD | 2 (`review.max_fix_rounds`) | 20 (`test_trust.mutation_budget`) | when the task `type:` is `content` or `docs` and nothing below disqualifies it: no mutation testing, 0 mutants |
+| COMPLEX, CRITICAL | 3 (`pipelines.<CLASS>.max_fix_rounds`) | 30 (`pipelines.<CLASS>.mutation_budget`) | never |
+
+A class key replaces the global key for that class; fix rounds stay bounded (1 to 10) and a value above the class default is still the plan's `## Test review budget` with your `scope` approval, or your
+`mutation_budget` approval ([gate set](#fix-loop)). A `max_scope_paths` count leaves out test files and fixture or test-data files (`fixtures/`, `testdata/`, `__snapshots__/`); a product file stays counted.
+
+The light profile (`profiles.light` in the config) holds while the class is TRIVIAL or STANDARD, the sealed task says `type: content` or `type: docs`, the plan has no `## Data`, no destructive flag and no risk
+focus except the plain visual one, and no scope path or changed path is executable code, a risky or dependency path, a CI or configuration path or code-like Markdown (a test or fixture file is allowed). The check
+runs at every call from the manifest and stores nothing: a code file in the diff makes the run full at the next call. Light drops only the mutation testing of the tests review and the optional `design` group of the
+visual check; SECRETS, SECURITY, the reviews of the tier, QA with its plain visual check and VERIFY all run. `agent.sh pipeline <ID>` prints `profile`, `profile_reason`, `mutation_testing`, `design_group`,
+`max_fix_rounds` and `max_mutants`. The plan approval request prints the median and p90 wall time, agent time and tokens of finished runs of the same class (`no history` when none; informational) and the test review budget the plan states (a CRITICAL plan states one).
+
 ## Gate set
 
 | Gate | Required when | Recorded by |

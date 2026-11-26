@@ -9,6 +9,7 @@ import { asciiLower, caseMatch, expandWords, pathMatches } from './shellglob.mjs
 /** @typedef {import('./context.mjs').Context} Context */
 
 export const TEST_PATH_GLOBS = '**/test/** **/tests/** **/__tests__/** *_test.* *.test.* *.spec.* test_*.* *Test.* *Tests.*';
+export const FIXTURE_GLOBS = '**/fixtures/** fixtures/** **/testdata/** testdata/** **/__snapshots__/** **/__fixtures__/**';
 export const EXECUTABLE_CODE_DEFAULT = '*.go *.py *.pyw *.js *.mjs *.cjs *.jsx *.ts *.mts *.cts *.tsx *.java *.kt *.kts *.scala *.groovy *.rs *.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.cs *.fs *.vb *.rb *.php *.swift *.m *.mm *.dart *.lua *.pl *.pm *.r *.jl *.ex *.exs *.erl *.hs *.ml *.clj *.sh *.bash *.zsh *.fish *.ps1 *.bat *.cmd *.sql *.vue *.svelte *.gradle';
 
 /**
@@ -107,7 +108,14 @@ export class PathKinds {
   }
 
   /** A362: a path that may be listed under `## Sibling tests`: a test file or a fixture / test-data file (never product code). @param {string} p */
-  siblingOk(p) { return pathMatches(p, `${TEST_PATH_GLOBS} **/fixtures/** fixtures/** **/testdata/** testdata/** **/__snapshots__/** **/__fixtures__/**`); }
+  siblingOk(p) { return pathMatches(p, `${TEST_PATH_GLOBS} ${FIXTURE_GLOBS}`); }
+
+  /**
+   * A364 (issue 338 C4): a test file (`test_code_path`) or a fixture / test-data file. Neither counts against `max_scope_paths`: a page task with ten fixtures or twelve tests is not
+   * split for them. The test kind is the derived one (an allowed code extension, never a manifest, lock, configuration or risky path), so a product file in a folder called `tests` stays
+   * counted. @param {string} p
+   */
+  testOrFixture(p) { return this.testCodePath(p) || pathMatches(p, FIXTURE_GLOBS); }
 
   /** `derived_kind PATH` @param {string} p */
   derivedKind(p) { return this.testCodePath(p) ? 'test' : this.pathKind(p); }

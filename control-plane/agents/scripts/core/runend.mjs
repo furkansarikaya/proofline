@@ -23,6 +23,7 @@ import * as proc from './proc.mjs';
 import { fileText, gatesEnforced, ledgerLines, ledgerRows, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
+import { pipelineClass } from './signals.mjs';
 import { hookTime } from './commands/hookcmds.mjs';
 import { freshness, verifyHandoff, verifyKnowledgeScope } from './commands/verify.mjs';
 import { statusBlockUpdate } from './statusblock.mjs';
@@ -54,7 +55,7 @@ export function metricsJson(ctx, a) {
   const s = (/** @type {string | undefined} */ v) => { const t = (v ?? '').replace(/[^A-Za-z0-9._+:-]/g, ''); return t === '' || t === '-' ? 'null' : `"${t}"`; };
   const n = (/** @type {string | undefined} */ v) => (v === undefined || !/^[0-9]+$/.test(v) ? 'null' : v);
   const g = (/** @type {number} */ i) => a[i];
-  const line = `{"schema":"proofline.metrics/1","kind":${s(g(0))},"time":"${now().iso}","task":${s(g(1))},"role":${s(g(2))},"focus":${s(g(3))},"gate":${s(g(4))},"runtime":${s(g(5))},"model":${s(g(6))},"duration_s":${n(g(7))},"tokens_in":${n(g(8))},"tokens_out":${n(g(9))},"tokens_total":${n(g(10))},"turns":${n(g(11))},"retries":${n(g(12))},"delegations":${n(g(13))},"fix_rounds":${n(g(14))},"result":${s(g(15))},"size":${s(g(16))},"scope_paths":${n(g(17))}}\n`;
+  const line = `{"schema":"proofline.metrics/1","kind":${s(g(0))},"time":"${now().iso}","task":${s(g(1))},"role":${s(g(2))},"focus":${s(g(3))},"gate":${s(g(4))},"runtime":${s(g(5))},"model":${s(g(6))},"duration_s":${n(g(7))},"tokens_in":${n(g(8))},"tokens_out":${n(g(9))},"tokens_total":${n(g(10))},"turns":${n(g(11))},"retries":${n(g(12))},"delegations":${n(g(13))},"fix_rounds":${n(g(14))},"result":${s(g(15))},"size":${s(g(16))},"scope_paths":${n(g(17))},"class":${s(g(18))}}\n`;
   try { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, latin1Buf(line), { flag: 'a' }); } catch { /* best effort */ }
 }
 
@@ -79,7 +80,7 @@ export function metricsRun(ctx, id, outcome) {
     } }
   size = size.replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 16).replace(/ /g, '').replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32));
   const sp = sectionValue(ctx, dir, 'freeze', 'scope_paths').split(',').filter((x) => x !== '').length;
-  metricsJson(ctx, ['run', id, 'lead', '-', '-', runtime, '-', dur, '-', '-', '-', '-', '-', String(deleg), fr, outcome, size, String(sp)]);
+  metricsJson(ctx, ['run', id, 'lead', '-', '-', runtime, '-', dur, '-', '-', '-', '-', '-', String(deleg), fr, outcome, size, String(sp), pipelineClass(ctx, dir)]);
   leadToolsRecord(ctx, id);   // A258: the lead's own session log, one snapshot (best effort, never throws)
   try { hookTime(ctx, [id]); } catch { /* 2>/dev/null || : */ }
   const mark = ctx.chunks.length;
@@ -106,7 +107,7 @@ export function terminateRun(ctx, id, outcome) {
   if (!justificationOk(reason)) fail('terminate requires a specific reason (>=20 chars)');
   if (!justificationOk(evidence)) fail('terminate requires the evidence behind it (>=20 chars: the failing gate records, the failing command and its output)');
   if (outcome === 'FAILED') {
-    const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
+    const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx, dir);
     if (!(used > max)) fail(`FAILED requires the fix rounds to be exhausted (${used} failing rounds, max_fix_rounds ${max}); use BLOCKED for an environment/tooling/external blocker`);
   }
   const prev = sectionValue(ctx, dir, 'execution', 'state');

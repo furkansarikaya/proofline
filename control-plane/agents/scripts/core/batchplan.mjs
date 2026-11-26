@@ -168,7 +168,7 @@ function lintTask(ctx, pk, id, file, cls) {
   /** @type {string[][]} */ const out = [];
   const text = rd(file);
   const paths = lintPaths(text);
-  const kinds = paths.map((p) => [pk.pathKind(p), p]);
+  const kinds = paths.map((p) => [pk.testOrFixture(p) ? 'test' : pk.pathKind(p), p]);   // A364: a test or fixture path is neither code nor content for the limit
   const code = kinds.filter((k) => k[0] === 'code').length;
   const cont = kinds.filter((k) => k[0] === 'content').length;
   const cl = kinds.filter((k) => k[0] === 'content').map((k) => k[1]).slice(0, 4).join(' ');

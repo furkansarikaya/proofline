@@ -117,6 +117,11 @@ export function effectiveThresholds(configPath, runDir) {
     const ov = Number(read("mutation_budget").trim()) || 0;
     const ledgered = ov > 0 && new RegExp(`event=raise-budget .*test_trust\\.mutation_budget ${ov} for this run`).test(read("LEDGER.log"));
     const plan = read("PLAN.md");
+    // A364 (issue 338 C4): the class default `pipelines.<CLASS>.mutation_budget` replaces the global key (as agent.sh mutation_budget does)
+    const cls = /^\s*classification:\s*"?([A-Z]+)"?\s*$/m.exec(read("RUN.yaml"))?.[1];
+    const block = cls ? new RegExp(`^  ${cls}:[ \\t]*\\n((?:    [^\\n]*\\n|[ \\t]*\\n)*)`, "m").exec(text)?.[1] : undefined;
+    const cb = block ? /^    mutation_budget:[ \t]*(\d+)[ \t]*$/m.exec(block)?.[1] : undefined;
+    if (cb && Number(cb) >= 1) t.mutation_budget = Number(cb);
     const floor = Math.max(minMutants(plan), ledgered ? ov : 0);
         if (floor > t.mutation_budget) { t.notes.push(`mutation_budget raised from ${t.mutation_budget} to ${floor} (one mutant per criterion, or the user-approved override)`); t.mutation_budget = floor; }
   }

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { now } from './clock.mjs';
 import { fail } from './errors.mjs';
 import { approvalNorm, findApproval } from './approvals.mjs';
-import { consumeApproval, mutationBudget, nextNum, planMutantNeed, requireLead, waiveCanon, waiveGroupIds, waiveTarget, requireOpenRun } from './approve.mjs';
+import { consumeApproval, mutantNeedFor, mutationBudget, nextNum, planMutantNeed, requireLead, waiveCanon, waiveGroupIds, waiveTarget, requireOpenRun } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import { standingWaiverKey } from './knownissues.mjs';
 import { addStanding } from './standing.mjs';
@@ -301,7 +301,7 @@ function applyRaise(ctx, id, n, app) {
  */
 export function applyApprovedBudget(ctx, id) {
   const dir = runDir(ctx, id);
-  const n = BigInt(planMutantNeed(fileText(ctx, `${dir}/PLAN.md`) ?? ''));
+  const n = BigInt(mutantNeedFor(ctx, id));
   if (!(n > BigInt(mutationBudget(ctx, id)))) return false;
   const app = findApproval(ctx, id, 'mutation_budget', hashFile(`${dir}/PLAN.md`));
   if (app === null) return false;

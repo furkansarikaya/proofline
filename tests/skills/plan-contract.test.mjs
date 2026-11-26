@@ -356,8 +356,11 @@ test("A200: a content or document path is not counted against the bound, a file 
   const docs = Array.from({ length: 40 }, (_, i) => [`  - path: docs/p${i}.md`, "    new: true", "    criteria: [AC-1, AC-2, AC-3, AC-4]", `    tdd_exemption: "page ${i} is documentation, verified by the docs link check"`]).flat();
   const w = lint(plan({ scope: [...SCOPE, ...docs] }), TASK, { root: repo, cls: "STANDARD" });
   assert.ok(!w.some((x) => x.includes("exceed the STANDARD limit")), JSON.stringify(w));
-  const code = Array.from({ length: 12 }, (_, i) => [`  - path: src/m${i}.js`, "    new: true", "    criteria: [AC-1]"]).flat();
+  const code = Array.from({ length: 16 }, (_, i) => [`  - path: src/m${i}.js`, "    new: true", "    criteria: [AC-1]"]).flat();
   has(lint(plan({ scope: [...SCOPE, ...code] }), TASK, { root: repo, cls: "STANDARD" }), "exceed the STANDARD limit of 15");
+  // A364: test files and fixture files are not counted
+  const tf = Array.from({ length: 20 }, (_, i) => [`  - path: tests/t${i}.test.js`, "    new: true", "    criteria: [AC-1]"]).concat(Array.from({ length: 10 }, (_, i) => [`  - path: tests/fixtures/f${i}.json`, "    new: true", "    criteria: [AC-1]"])).flat();
+  assert.ok(!lint(plan({ scope: [...SCOPE, ...tf] }), TASK, { root: repo, cls: "STANDARD" }).some((x) => x.includes("exceed the STANDARD limit")));
   // TRIVIAL's bound of 2 counts code only
   const e = validate(plan({ scope: docs.slice(0, 12) }), TASK, { root: repo, cls: "TRIVIAL" });
   assert.ok(!e.some((x) => x.includes("allows at most")), JSON.stringify(e));

@@ -242,7 +242,7 @@ function claimsCheck(ctx, id, file) {
   const dir = runDir(ctx, id);
   const [wt, wp] = evidenceRunCounts(ctx, dir);
   const gn = requiredGates(ctx, dir).length;
-  const fr = fixRoundsUsed(ctx, dir); const fm = maxFixRounds(ctx); const done = fixRoundsDone(ctx, dir); const led = fixRoundsLedger(ctx, dir);
+  const fr = fixRoundsUsed(ctx, dir); const fm = maxFixRounds(ctx, dir); const done = fixRoundsDone(ctx, dir); const led = fixRoundsLedger(ctx, dir);
   const rz = String(ledgerRows(ctx, dir, 'refreeze').length);
   const tests = [wt, wp, wt - wp]; const gates = [gn, 0]; const rounds = [fr, fm, done, led]; const refz = [Number(rz)];
   const tlab = `worker-evidence run records: total ${wt}, ended pass ${wp}, ended fail ${wt - wp}; no record counts individual tests`;

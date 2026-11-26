@@ -327,6 +327,9 @@ safety:
 # dispatch_timeout_seconds (A171) overrides dispatch.timeout_seconds for a dispatched step of that class (30 to 28800; times timeouts.scale).
 # The values come from measured step durations plus a wide margin (A202 item 29, docs/concepts/timeouts.md): STANDARD is derived from the real
 # metrics, the other classes had no data and are a documented multiple of the earlier default.
+# max_fix_rounds and mutation_budget (A364, issue 338 C4) are optional per class: a class that has none uses review.max_fix_rounds and test_trust.mutation_budget. COMPLEX and CRITICAL
+# carry larger defaults (3 failing rounds, 30 mutants) because large work spent the global 2 and 20 on every task of a long retro run; both stay bounded (a fix round count of at most 10), a
+# plan or a user can still only RAISE them through the approvals that exist, and a lower value is always allowed. docs/limits.md has the table.
 pipelines:
   TRIVIAL:
     evidence: no
@@ -351,6 +354,8 @@ pipelines:
     architect: yes
     max_explorers: 2
     max_scope_paths: 15
+    max_fix_rounds: 3
+    mutation_budget: 30
     dispatch_timeout_seconds: 7200
   CRITICAL:
     evidence: yes
@@ -359,7 +364,20 @@ pipelines:
     architect: yes
     max_explorers: 3
     max_scope_paths: 12
+    max_fix_rounds: 3
+    mutation_budget: 30
     dispatch_timeout_seconds: 7200
+# The light profile (A364, issue 338 C4): weight by work type. A run is light only while ALL of this holds, and the control plane re-checks it at every call from the task type of the
+# sealed TASK.md (the user's), the class, the plan and the changed paths (nothing is stored, a later change reclassifies upward at once): the task `type:` is one of `types`; the class is one of
+# `classes`; no plan scope path and no changed path is executable code (review.executable_code) unless it is a test or a fixture file, a risky or dependency path (review.risky_paths and
+# the ecosystem sets), a CI or configuration path (never_paths) or code-like Markdown (review.code_like_markdown); the plan has no `## Data`, no destructive flag and no risk focus
+# other than the plain visual one. Under it the tests review needs no mutation testing and the optional design group of the visual check is off by default. Every gate stays: SECRETS,
+# SECURITY (tier full), the reviews of the tier, QA and VERIFY. A TASK `type` can only be set before the plan is frozen (the task is sealed with the plan).
+profiles:
+  light:
+    types: content docs
+    classes: TRIVIAL STANDARD
+    never_paths: ".github/** .gitlab-ci.yml .gitlab/** .circleci/** azure-pipelines.yml Jenkinsfile .agents/** .claude/** .codex/** Dockerfile* docker-compose* compose.* .env* *.env **/config/** **/*.config.* *.conf *.cfg *.ini *.toml *.yml *.yaml"
 # Execution policy (D5, D7): read by the Node core (cli exec-policy, cli runtime-detect) and dispatch.sh.
 execution_policy:
   # Policy semantics version; bump when resolution or escalation behaviour changes.

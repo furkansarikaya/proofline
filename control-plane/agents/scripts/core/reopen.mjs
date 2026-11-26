@@ -5,7 +5,7 @@ import { mkdirSync, readdirSync, writeFileSync, copyFileSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { fail, ProoflineError } from './errors.mjs';
 import { findApproval, kindSlug, pendingRequest, approvalExample, approvalsDirOf } from './approvals.mjs';
-import { approvalTarget, mutationBudget, planMutantNeed, requestApproval, runLanguage, nextNum, consumeApproval, requireLead, requireOpenRun } from './approve.mjs';
+import { approvalTarget, mutantNeedFor, mutationBudget, requestApproval, runLanguage, nextNum, consumeApproval, requireLead, requireOpenRun } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import { gatesDir, patchManifest, taskPatchFingerprint } from './gates.mjs';
 import { verifySeal } from './ledger.mjs';
@@ -153,7 +153,7 @@ export function reopenRun(ctx, id) {
   if (!scopeOk) fail('reopen blocked: files changed outside the frozen scope (listed above); the user resolves them first');
   // 2. the approvals, asked as ONE question (A154)
   const ph = hashFile(`${dir}/PLAN.md`);
-  const n = planMutantNeed(fileText(ctx, `${dir}/PLAN.md`) ?? '');
+  const n = mutantNeedFor(ctx, id);
   const kind = `reopen:${id}`;
   let budget = null; let needB = false;
   if (BigInt(n) > BigInt(mutationBudget(ctx, id))) { needB = true; budget = findApproval(ctx, id, 'mutation_budget', ph); }

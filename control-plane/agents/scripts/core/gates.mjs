@@ -679,8 +679,19 @@ export function reopenedFindings(ctx, dir, id) {
   return out;
 }
 
-/** `max_fix_rounds` @param {Context} ctx */
-export function maxFixRounds(ctx) { const v = ctx.config().get('review.max_fix_rounds', '2'); return /^[0-9]+$/.test(v) ? Number(v) : 2; }
+/**
+ * `max_fix_rounds`: `pipelines.<CLASS>.max_fix_rounds` of the run's class when it has one (A364, issue 338 C4: bounded, 1 to 10), else `review.max_fix_rounds`.
+ * @param {Context} ctx @param {string} [dir] the run folder (no folder: the global key)
+ */
+export function maxFixRounds(ctx, dir) {
+  let v = ctx.config().get('review.max_fix_rounds', '2');
+  if (dir !== undefined) {
+    const cls = pipelineClass(ctx, dir);
+    const c = pipelineClassValid(cls) ? ctx.config().get(`pipelines.${cls}.max_fix_rounds`, '') : '';
+    if (/^[0-9]+$/.test(c) && Number(c) >= 1 && Number(c) <= 10) v = c;
+  }
+  return /^[0-9]+$/.test(v) ? Number(v) : 2;
+}
 
 /** The sequence number of the last ledger row of an event, or 0. @param {Context} ctx @param {string} dir @param {string | RegExp} event */
 function lastRowSeq(ctx, dir, event) { const r = ledgerRows(ctx, dir, event); return r.length === 0 ? 0 : r[r.length - 1].seq; }

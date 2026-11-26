@@ -384,6 +384,12 @@ function globHit(path, globs) {
   }
   return false;
 }
+const TEST_DIRS = new Set(["test", "tests", "__tests__", "fixtures", "testdata", "__snapshots__", "__fixtures__"]);
+function testOrFixturePath(p) {
+  const parts = p.split("/");
+  const base = parts.pop();
+  return parts.some((d) => TEST_DIRS.has(d)) || /(_test|\.test|\.spec)\.[^.]+$/.test(base) || /^test_.+\.[^.]+$/.test(base) || /Tests?\.[^.]+$/.test(base);
+}
 export function pathKinds(paths, root) {
   const exec = cfgValue(root, "review", "executable_code") || EXECUTABLE_CODE;
   const docs = cfgValue(root, "verification", "doc_paths") || DOC_PATHS;
@@ -415,7 +421,8 @@ export function lint(planMd, taskMd, { root, cls } = {}) {
   const task = parseTask(taskMd);
   const klass = cls || task.cls;
   const kinds = pathKinds(fm.scope.map((e) => e.path), root);
-  const code = fm.scope.filter((e) => kinds.get(e.path) === "code");
+  // A364 (issue 338 C4): a test or fixture file is not counted by max_scope_paths (the control plane derives the kind; this is the same rule by name, a warning only)
+  const code = fm.scope.filter((e) => kinds.get(e.path) === "code" && !testOrFixturePath(e.path));
   const content = fm.scope.filter((e) => kinds.get(e.path) === "content");
   const max = (() => { try { const f = resolve(root || process.cwd(), ".agents/config.yaml"); if (existsSync(f)) { const m = new RegExp(`^  ${klass}:\\s*$[\\s\\S]*?^    max_scope_paths:\\s*(\\d+)`, "m").exec(readFileSync(f, "utf8")); if (m) return Number(m[1]); } } catch { /* optional */ } return MAX_PATHS_DEFAULT[klass]; })();
   if (max && klass !== "TRIVIAL" && code.length > max) out.push(`scope: ${code.length} code paths (${content.length} content or document paths are not counted) exceed the ${klass} limit of ${max}; the freeze stops and asks to split. Split the task now, or ask the user for "proceed without splitting" (a batch pre-flight answer covers it)`);

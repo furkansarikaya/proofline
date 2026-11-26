@@ -527,7 +527,7 @@ function failing(ctx, id, d, fail, emit, o, r) {
     if (cov !== 0) o('a row that says an AC maps to no scope path, or that command proof requires tdd_exemption, is fixed in PLAN.md front matter: add the AC to `criteria:` of the scope entries that implement it, and plan a command that proves it (not only a ## Verification commands line)');
     o(`the new plan hash voids the worker evidence and every gate: dispatch.sh ${id} implementer re-records RED and GREEN against it (a real failing test and a real change; a path with a tdd_exemption needs none), then agent.sh handoff ${id} IMPLEMENTED, then every gate again, VERIFY included`);
     o(`a commands-only amendment on a non-exempt path has no honest RED: complete Verification commands before freeze; if the verifier only failed to cite a planned or configured command, re-dispatch it instead (dispatch.sh ${id} verifier)`);
-  } else if (used <= maxFixRounds(ctx)) {
+  } else if (used <= maxFixRounds(ctx, d)) {
     o(`agent.sh handoff ${id} IMPLEMENTING (fix round ${used}; findings of:${fail})`); o(`dispatch.sh ${id} implementer (with the findings)`); emit(fixPathsLines(ctx, id, d));
   } else o(`agent.sh terminate ${id} FAILED (reason and evidence on stdin)`);
   if (ac !== 0) o('re-dispatch the verifier citing only a configured or planned command with a recorded exit status and one stable output line (A107 rows); a command missing from Verification commands needs the amendment route');

@@ -134,7 +134,7 @@ export function evidenceRepairPlan(ctx, id) {
   const no = (/** @type {string} */ why) => fail(`evidence-only repair refused: ${why}`);
   if (!gatesEnforced(ctx, dir)) no('the run has no lifecycle_gates policy');
   if (!measureRequired(ctx, id)) no('the run was started before the test measurement (#265); its durations are optional, there is no finding to repair');
-  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
+  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx, dir);
   if (used > max) no(`fix rounds exhausted (${used} rounds, max_fix_rounds ${max}): an evidence-only repair is a fix round too`);
   const rec = gateLatestFile(ctx, dir, 'REVIEW_TESTS', '-');
   if (rec === '' || gateField(ctx, rec, 'result') !== 'fail') no('there is no failing REVIEW_TESTS record: nothing to repair (the lead reopens a failed gate with handoff IMPLEMENTING first)');
