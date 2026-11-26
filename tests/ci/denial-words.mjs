@@ -12,6 +12,9 @@ const root = path.resolve(import.meta.dirname, '../..');
 const hooks = path.join(root, 'adapters/claude/hooks');
 const out = path.join(root, 'control-plane/agents/scripts/core/denialwords.mjs');
 
+/** The text tools tests/ci/no-shell-logic.mjs (TEXT_PROGRAMS) refuses to see named as a string: a denial that mentions one simply loses that word in its class. */
+const TEXT_TOOLS = new Set(['awk', 'gawk', 'mawk', 'nawk', 'sed', 'gsed']);
+
 /** @param {string} d @returns {string[]} */
 function files(d) {
   /** @type {string[]} */ const r = [];
@@ -36,7 +39,7 @@ export function literals(src) {
 /** @returns {string[]} the sorted word list */
 export function derive() {
   /** @type {Set<string>} */ const words = new Set();
-  for (const f of files(hooks)) for (const t of literals(readFileSync(f, 'utf8'))) for (const w of t.split(/[^A-Za-z-]+/)) if (/^[a-z]+(?:-[a-z]+)*$/.test(w)) words.add(w);
+  for (const f of files(hooks)) for (const t of literals(readFileSync(f, 'utf8'))) for (const w of t.split(/[^A-Za-z-]+/)) if (/^[a-z]+(?:-[a-z]+)*$/.test(w) && !TEXT_TOOLS.has(w)) words.add(w);
   return [...words].sort();
 }
 

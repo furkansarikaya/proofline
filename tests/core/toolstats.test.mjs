@@ -213,6 +213,7 @@ describe('C8a denialClass', () => {
     assert.equal(readFileSync(path.join(repo, 'control-plane/agents/scripts/core/denialwords.mjs'), 'utf8'), render(derive()));
     for (const w of DENIAL_WORDS) assert.match(w, /^[a-z]+(?:-[a-z]+)*$/);
     for (const w of ['zxqvbn', 'hunter', 'secretsauce', 'readme', 'password']) assert.ok(!DENIAL_WORDS.has(w), w);
+    for (const w of ['awk', 'gawk', 'mawk', 'nawk', 'sed', 'gsed']) assert.ok(!DENIAL_WORDS.has(w), `${w}: the no-shell-logic check refuses a text tool named as a string`);
   });
   test('the denials table of a step counts classes, keeps at most 8 and sums the rest as other', () => {
     const dir = makeProject();

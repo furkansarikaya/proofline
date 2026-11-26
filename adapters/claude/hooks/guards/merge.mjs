@@ -114,23 +114,55 @@ async function originHead(ctx) {
  * @param {string[]} rest @param {string} dir @param {(b: string) => boolean} protectedName
  */
 function ffOnlyOfRemote(rest, dir, protectedName) {
-  if (rest.length !== 2 || !rest.includes('--ff-only')) return false;
-  const op = rest.find((x) => x !== '--ff-only') ?? '';
-  const m = /^(?:refs\/remotes\/)?([A-Za-z0-9_][A-Za-z0-9_.-]*)\/([A-Za-z0-9_][A-Za-z0-9_.\/-]*)$/.exec(op);
-  if (!m || op.includes('..') || m[1] === 'heads' || m[1] === 'tags' || m[1] === 'remotes') return false;
-  const [, remote, branch] = /** @type {RegExpExecArray} */ (m);
-  if (!protectedName(/** @type {string} */ (branch))) return false;
+  const op = ffOperand(rest);
+  if (op === null) return false;
+  if (!protectedName(op.branch)) return false;
   const gd = findGitDir(dir);
   if (!gd) return false;
-  let common = gd;
-  try { common = resolve(gd, readFileSync(`${gd}/commondir`, 'utf8').replace(/\n+$/, '')); } catch { /* not a linked worktree */ }
-  const short = `${remote}/${branch}`;
+  let text = '';
+  try { text = readFileSync(`${gd}/commondir`, 'utf8'); } catch { /* not a linked worktree */ }
+  const common = commonGitDir(gd, text);
+  const files = remoteRefFiles(common, op.remote, op.branch);
   const exists = (/** @type {string} */ f) => { try { statSync(f); return true; } catch { return false; } };
   let packed = '';
   try { packed = readFileSync(`${common}/packed-refs`, 'utf8'); } catch { /* none */ }
-  const packedHas = (/** @type {string} */ r) => packed.split('\n').some((l) => l.endsWith(` ${r}`));
-  if (exists(`${common}/refs/heads/${short}`) || exists(`${common}/refs/tags/${short}`) || exists(`${common}/${short}`) || packedHas(`refs/heads/${short}`) || packedHas(`refs/tags/${short}`)) return false;
-  return exists(`${common}/refs/remotes/${short}`) || packedHas(`refs/remotes/${short}`);
+  const packedHas = (/** @type {string} */ r) => packed.split(/\r?\n/).some((l) => l.endsWith(` ${r}`));
+  if (files.hidden.some(exists) || packedHas(`refs/heads/${op.short}`) || packedHas(`refs/tags/${op.short}`)) return false;
+  return exists(files.remote) || packedHas(`refs/remotes/${op.short}`);
+}
+
+/**
+ * The operand of `git merge --ff-only <x>` when the line is exactly that and x names a remote-tracking ref (`origin/main`, `refs/remotes/origin/main`); null otherwise.
+ * Pure: no file is read. @param {string[]} rest @returns {{ remote: string, branch: string, short: string } | null}
+ */
+export function ffOperand(rest) {
+  if (rest.length !== 2 || !rest.includes('--ff-only')) return null;
+  const op = rest.find((x) => x !== '--ff-only') ?? '';
+  const m = /^(?:refs\/remotes\/)?([A-Za-z0-9_][A-Za-z0-9_.-]*)\/([A-Za-z0-9_][A-Za-z0-9_.\/-]*)$/.exec(op);
+  if (!m || op.includes('..') || m[1] === 'heads' || m[1] === 'tags' || m[1] === 'remotes') return null;
+  const remote = /** @type {string} */ (m[1]); const branch = /** @type {string} */ (m[2]);
+  return { remote, branch, short: `${remote}/${branch}` };
+}
+
+/**
+ * The common git dir of a git dir: the `commondir` file of a linked worktree names it relative to the worktree's git dir; the text is "" for a main working tree. Pure; `p` is the path module
+ * (`path.win32` in the tests of the Windows spellings). The result keeps the separators of `p`.
+ * @param {string} gd @param {string} commondirText @param {Pick<typeof import('node:path'), 'resolve'>} [p]
+ */
+export function commonGitDir(gd, commondirText, p = { resolve }) {
+  const t = commondirText.replace(/[\r\n]+$/, '');
+  return t === '' ? gd : p.resolve(gd, t);
+}
+
+/**
+ * The files whose existence decides the ff-only allowance: the ones that would make `<remote>/<branch>` mean something else (a local branch, a tag, git's own spelling of the name), and the
+ * remote-tracking ref itself. Pure; every separator of the git dir is read as `/` (a Windows git dir has `\\` or `/` or both), so the names are comparable on any platform.
+ * @param {string} common @param {string} remote @param {string} branch @returns {{ hidden: string[], remote: string }}
+ */
+export function remoteRefFiles(common, remote, branch) {
+  const c = common.replaceAll('\\', '/').replace(/\/+$/, '');
+  const short = `${remote}/${branch}`;
+  return { hidden: [`${c}/refs/heads/${short}`, `${c}/refs/tags/${short}`, `${c}/${short}`], remote: `${c}/refs/remotes/${short}` };
 }
 
 /**

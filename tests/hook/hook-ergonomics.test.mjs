@@ -6,14 +6,16 @@ import { tempDir } from '../lib/tempdir.mjs';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import path, { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { scanCommand } from '../../adapters/claude/hooks/command-scan.mjs';
-import { mergeGuard } from '../../adapters/claude/hooks/guards/merge.mjs';
+import { commonGitDir, ffOperand, mergeGuard, remoteRefFiles } from '../../adapters/claude/hooks/guards/merge.mjs';
 import { Deny } from '../../adapters/claude/hooks/guards/kit.mjs';
 import { withoutDataBodies } from '../../adapters/claude/hooks/guards/readonly-git.mjs';
 import { buildTemplate, copyProject, runHook } from './harness.mjs';
 
+/** A path as a command text spells it, on every platform. @param {string} p */
+const slash = (p) => p.replaceAll('\\', '/');
 let template = '';
 let base = '';
 before(() => { template = buildTemplate(); base = tempDir('hook-erg-'); });
@@ -83,14 +85,16 @@ test('C9c: a write target is judged by what it resolves to: `..` below a folder 
   const d = copyProject(template, base);
   mkdirSync(join(d, 'docs'), { recursive: true });
   mkdirSync(join(d, 'src'), { recursive: true });
-  symlinkSync(join(d, '.agents'), join(d, 'src/lnk'));
-  symlinkSync(join(d, '.agents/runs/LC'), join(d, 'docs/runlink'));
+  // a link needs a privilege on a Windows runner: without it the link rows are left out and the `..` rows still run
+  let links = true;
+  try { symlinkSync(join(d, '.agents'), join(d, 'src/lnk'), 'junction'); symlinkSync(join(d, '.agents/runs/LC'), join(d, 'docs/runlink'), 'junction'); } catch { links = false; }
+  const linkRow = (/** @type {string} */ p) => links || !/(^|\/)(lnk|runlink)\//.test(p);
   // resolves to an allowed run artifact: allowed (the lead writes PLAN.md of its run)
-  for (const p of ['.agents/runs/LC/PLAN.md', 'docs/../.agents/runs/LC/PLAN.md', 'nodir/../.agents/runs/LC/PLAN.md', 'nodir/sub/../../.agents/runs/LC/PLAN.md', 'docs/runlink/PLAN.md', join(d, 'nodir/./../.agents/runs/LC/PLAN.md')]) {
+  for (const p of ['.agents/runs/LC/PLAN.md', 'docs/../.agents/runs/LC/PLAN.md', 'nodir/../.agents/runs/LC/PLAN.md', 'nodir/sub/../../.agents/runs/LC/PLAN.md', 'docs/runlink/PLAN.md', join(d, 'nodir/./../.agents/runs/LC/PLAN.md')].filter(linkRow)) {
     assert.equal(await write(d, LEAD, p), null, `denied: ${p}`);
   }
   // resolves into a forbidden path: denied
-  for (const p of ['.agents/x', 'docs/../.agents/x', 'nodir/../.agents/x', 'nodir/../.agents/runs/LC/gates/x', 'nodir/../.agents/runs/LC/LEDGER.log', 'src/lnk/x', 'docs/runlink/gates/x', 'docs/runlink/LEDGER.log', 'nodir/../src/a.js', 'nodir/../../outside.txt']) {
+  for (const p of ['.agents/x', 'docs/../.agents/x', 'nodir/../.agents/x', 'nodir/../.agents/runs/LC/gates/x', 'nodir/../.agents/runs/LC/LEDGER.log', 'src/lnk/x', 'docs/runlink/gates/x', 'docs/runlink/LEDGER.log', 'nodir/../src/a.js', 'nodir/../../outside.txt'].filter(linkRow)) {
     assert.notEqual(await write(d, LEAD, p), null, `allowed: ${p}`);
   }
   // a `..` that climbs out of the folder the hook can place stays unplaceable and is denied for the roles that write inside the project only
@@ -122,7 +126,7 @@ test('C9b: on a protected branch only `git merge --ff-only <remote>/<protected>`
   const onMain = repo('ff-main', 'main', { remote: ['origin/main', 'origin/master', 'upstream/main'] });
   const allowed = [
     'git merge --ff-only origin/main', 'git merge origin/main --ff-only', 'git merge --ff-only refs/remotes/origin/main', 'git merge --ff-only upstream/main', 'git merge --ff-only origin/master',
-    `git -C ${onMain} merge --ff-only origin/main`,
+    `git -C ${slash(onMain)} merge --ff-only origin/main`,   // a command text spells a path with / (a backslash in it is an escape for the shell and for the scanner)
   ];
   for (const c of allowed) assert.equal(await mine(onMain, c), null, c);
   const denied = [
@@ -149,4 +153,21 @@ test('C9b: on a protected branch only `git merge --ff-only <remote>/<protected>`
   // off the protected branch merges were never denied
   const onFeat = repo('ff-feat', 'feat/x', { remote: ['origin/main'] });
   for (const c of ['git merge --ff-only origin/main', 'git merge feat/y', 'git merge --no-ff origin/main']) assert.equal(await mine(onFeat, c), null, c);
+});
+
+test('C9b: the pure parts of the ff-only allowance read Windows spellings (path.win32) as they read POSIX ones', () => {
+  // the operand
+  assert.deepEqual(ffOperand(['--ff-only', 'origin/main']), { remote: 'origin', branch: 'main', short: 'origin/main' });
+  assert.deepEqual(ffOperand(['refs/remotes/up/stream/main', '--ff-only']), { remote: 'up', branch: 'stream/main', short: 'up/stream/main' });
+  for (const bad of [['--ff-only'], ['--ff-only', 'main'], ['--ff-only', 'origin/main', 'x'], ['origin/main'], ['--ff-only', 'heads/main'], ['--ff-only', 'D:\\x\\main'], ['--ff-only', 'origin\\main'], ['--ff-only', 'origin/../main']]) assert.equal(ffOperand(bad), null, bad.join(' '));
+  // the common git dir of a linked worktree, with the path module of the platform it is read on
+  assert.equal(commonGitDir('/r/.git', ''), '/r/.git');
+  assert.equal(commonGitDir('/r/.git/worktrees/w', '../..\n', path.posix), '/r/.git');
+  assert.equal(commonGitDir('D:\\a\\proofline\\proofline\\.git', '', path.win32), 'D:\\a\\proofline\\proofline\\.git');
+  assert.equal(commonGitDir('D:\\a\\proofline\\proofline\\.git\\worktrees\\w', '../..\r\n', path.win32), 'D:\\a\\proofline\\proofline\\.git');
+  assert.equal(commonGitDir('d:/a/p/.git/worktrees/w', '../..', path.win32), 'd:\\a\\p\\.git');
+  // the files that decide it: every separator of the git dir reads as /, a trailing one is dropped
+  const want = { hidden: ['D:/a/p/p/.git/refs/heads/origin/main', 'D:/a/p/p/.git/refs/tags/origin/main', 'D:/a/p/p/.git/origin/main'], remote: 'D:/a/p/p/.git/refs/remotes/origin/main' };
+  for (const c of ['D:\\a\\p\\p\\.git', 'D:/a/p/p/.git', 'D:\\a\\p/p\\.git', 'D:\\a\\p\\p\\.git\\', 'D:/a/p/p/.git/']) assert.deepEqual(remoteRefFiles(c, 'origin', 'main'), want, c);
+  assert.deepEqual(remoteRefFiles('/r/.git', 'origin', 'main').remote, '/r/.git/refs/remotes/origin/main');
 });
