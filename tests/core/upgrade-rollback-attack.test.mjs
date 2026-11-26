@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { sandbox, upstream } from './frontend-lib.mjs';
+import { rollback, scan, seams } from '../../control-plane/agents/scripts/core/upgradesafe.mjs';
 
 const sb = sandbox();
 const read = (/** @type {string} */ f) => readFileSync(f, 'utf8');
@@ -208,4 +209,23 @@ test('F4: a failure half way is reported and marked in UPGRADE.tsv, not silent',
     assert.match(read(tsv), /^rollback_failed=/m);
     assert.doesNotMatch(read(tsv), /^rolled_back=yes$/m);
   } finally { chmodSync(dir, 0o755); }
+});
+
+test('third review: the backup copy is read once through O_NOFOLLOW and its bytes are hashed; a copy swapped for a link, or for other bytes, between the checks and the read is refused', () => {
+  for (const swap of ['link', 'bytes']) {
+    const { d, b, gates } = upgraded(`t3-${swap}`);
+    const o = outside(`t3-${swap}`);
+    const installed = /^# version: (.*)$/m.exec(read(`${d}/.agents/.proofline-manifest`))?.[1] ?? '';
+    seams.afterValidate = () => {
+      rmSync(`${b}/files/.agents/GATES.md`);
+      if (swap === 'link') symlinkSync(`${o}/victim.txt`, `${b}/files/.agents/GATES.md`); else writeFileSync(`${b}/files/.agents/GATES.md`, 'other bytes\n');
+    };
+    let r;
+    try { r = rollback(d, installed, scan(d), home); } finally { seams.afterValidate = null; }
+    assert.ok('refuse' in r, JSON.stringify(r));
+    assert.match(r.refuse, /backup copy \.agents\/GATES\.md (is not a plain file|changed after it was checked)/);
+    assert.equal(read(`${d}/.agents/GATES.md`), gates, 'the destination was not overwritten');
+    assert.equal(read(`${o}/victim.txt`), 'victim\n');
+    assert.match(read(`${b}/UPGRADE.tsv`), /^rollback_failed=/m);
+  }
 });

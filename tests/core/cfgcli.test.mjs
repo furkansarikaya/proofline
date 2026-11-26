@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { cfgMergeNew, cfgMergeSafe } from '../../control-plane/agents/scripts/core/cfgcli.mjs';
+import { cfgMergeNew, cfgMergeSafe, mergeProblem as mergeCheck } from '../../control-plane/agents/scripts/core/cfgcli.mjs';
 import { scriptsDir } from './helpers.mjs';
 
 const core = path.join(scriptsDir, 'proofline-core.mjs');
@@ -148,4 +148,24 @@ test('merge: a result that config-check would reject, or that changes or duplica
   const ok = safe(bad, 'hook:\n  approve_budget_seconds: 20\nbudgets:\n  tokens: 9\n  more: 1\n');
   assert.equal(ok.discarded, '');
   assert.equal(ok.text, 'hook:\n  approve_budget_seconds: abc\nbudgets:\n  tokens: 5\n  more: 1\n');
+});
+
+test('merge (third review): keys never land inside a block scalar or a multi-line quoted string; the parent that holds one is skipped with a reason', () => {
+  const def = 'risk:\n  mode: off\n  unsupported: report\n  contract_file: x\n';
+  for (const [name, user] of [['a literal block scalar whose body has a colon line', 'risk:\n  mode: on\n  note: |\n    first: x\n    ZZEND\n'],
+    ['a folded block scalar', 'risk:\n  mode: on\n  note: >\n    first: x\n\n    ZZEND\n'],
+    ['a multi-line double-quoted string', 'risk:\n  mode: on\n  note: "multi\n    cont: a\n    ZZEND"\n'],
+    ['a multi-line single-quoted string', "risk:\n  mode: on\n  note: 'multi\n    cont: a\n    ZZEND'\n"]]) {
+    const r = safe(user, def);
+    assert.equal(r.text, user, name);
+    assert.deepEqual(r.skipped.map((s) => s.path), ['risk.unsupported', 'risk.contract_file'], name);
+    assert.ok(r.skipped.every((s) => /multi-line value in the block/.test(s.reason)), name);
+  }
+  // a block that does not hold the scalar is still merged, and the scalar stays whole
+  const user = 'a:\n  b: 1\nrisk:\n  note: |\n    x: y\n    ZZEND\n';
+  const r = safe(user, 'a:\n  b: 2\n  c: 3\nrisk:\n  note: z\n');
+  assert.equal(r.text, 'a:\n  b: 1\n  c: 3\nrisk:\n  note: |\n    x: y\n    ZZEND\n');
+  // the result is checked at the value level too: a scalar body that is no longer in one piece discards the merge
+  assert.match(mergeCheck('risk:\n  note: |\n    first: x\n    ZZEND\n', 'risk:\n  note: |\n    first: x\n  new: 1\n    ZZEND\n'), /multi-line value/);
+  assert.equal(mergeCheck('risk:\n  note: |\n    first: x\n    ZZEND\n', 'risk:\n  note: |\n    first: x\n    ZZEND\n  new: 1\n'), '');
 });

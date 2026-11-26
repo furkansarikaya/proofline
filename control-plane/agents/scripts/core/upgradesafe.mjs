@@ -10,12 +10,12 @@
 //     additive needs a migration, and none exists yet, so it is refused. Every change since 0.0.173 is additive (docs/concepts/upgrading.md lists them).
 //   * the BACKUP of what an upgrade replaces, under `.agents/local/upgrade-backup/<old>-to-<new>/` (the last 2 are kept), and `--rollback`, which restores it.
 //   * the LEDGER row `event=upgrade` per run that has a lifecycle ledger, so the run shows that it crossed an upgrade.
-import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { cfgMergeSafe } from './cfgcli.mjs';
 import { configLines } from './config.mjs';
-import { sha256File } from './hash.mjs';
+import { sha256, sha256File } from './hash.mjs';
 import { ledgerAppend } from './lock.mjs';
 import { runSections } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -314,6 +314,8 @@ export function newestBackup(root) {
 }
 
 const HEX = /^[0-9a-f]{64}$/;
+/** Test seam: a function run once after the rows are validated and before the first write (a test swaps a backup copy there). */
+export const seams = { /** @type {(() => void) | null} */ afterValidate: null };
 /** Paths an upgrade never writes and a restore never touches: the runs (their ledgers are sealed evidence), the local state and git's own folder. */
 const NEVER = /^(\.git|\.agents\/runs|\.agents\/local)(\/|$)/;
 /** NEVER on every spelling that one file can have on a case-insensitive or normalising file system: ASCII lower case, Unicode NFC and NFD. @param {string} rel */
@@ -405,9 +407,10 @@ export function rollback(root, installed, s, plHome) {
     if (viaLink(`${b.dir}/files`, rel) || shaOf(src) === null) return { refuse: `backup copy ${rel} is not a plain file (or sits under a link); nothing was restored` };
     if (shaOf(src) !== before) return { refuse: `backup copy ${rel} does not match the sha256 recorded when it was made; nothing was restored` };
   }
+  seams.afterValidate?.();
   /** @type {string[]} */ const restored = []; /** @type {string[]} */ const removed = []; /** @type {string[]} */ const kept = [];
   try {
-    for (const [kind, rel, after] of b.rows.filter((r) => !unrestored.includes(r[1]))) {
+    for (const [kind, rel, after, before] of b.rows.filter((r) => !unrestored.includes(r[1]))) {
       const dst = `${root}/${rel}`;
       const cur = shaOf(dst);
       if (kind === 'new') { if (cur === null) continue; if (cur === after) { rmSync(dst, { force: true }); removed.push(rel); } else kept.push(rel); continue; }
@@ -416,8 +419,13 @@ export function rollback(root, installed, s, plHome) {
       mkdirSync(path.dirname(dst), { recursive: true });
       const tmp = `${dst}.proofline-restore-${randomBytes(6).toString('hex')}`;
       try {
-        copyFileSync(src, tmp, constants.COPYFILE_EXCL);
-        try { chmodSync(tmp, statSync(src).mode & 0o7777); } catch { /* mode as copied */ }
+        // the copy was checked at validation and could have been swapped since: look again, open without following a link, hash the bytes that were read
+        if (viaLink(`${b.dir}/files`, rel) || !lstatSync(src).isFile()) throw new Error(`backup copy ${rel} is not a plain file (a link or something else took its place)`);
+        const fd = openSync(src, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        let bytes; let mode;
+        try { const st = fstatSync(fd); if (!st.isFile()) throw new Error(`backup copy ${rel} is not a plain file`); mode = st.mode & 0o7777; bytes = readFileSync(fd); } finally { closeSync(fd); }
+        if (sha256(bytes) !== before) throw new Error(`backup copy ${rel} changed after it was checked`);
+        writeFileSync(tmp, bytes, { flag: 'wx', mode });
         renameSync(tmp, dst);
       } catch (e) { rmSync(tmp, { force: true }); throw e; }
       restored.push(rel);
