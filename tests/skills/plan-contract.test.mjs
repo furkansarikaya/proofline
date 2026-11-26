@@ -494,3 +494,11 @@ test("AC-8: a Test budgets line over 4096 characters is refused, and a long malf
   const near = `- unit: ${" ".repeat(3000)}!`;
   has(errs(plan({ body: { ...KINDED, "Test budgets": [near, "- integration: default"] } })), "budget line");
 });
+test("Sibling tests (A362): an existing test file or none is valid; a missing file, a glob and a prose line are errors", () => {
+  const withSib = (l) => plan({ body: { ...BODY, "Sibling tests": l } });
+  assert.deepEqual(errs(withSib(["- `test/receipt.test.js`: asserts the old receipt line"])), []);
+  assert.deepEqual(errs(withSib(["none"])), []);
+  has(errs(withSib(["- `test/gone.test.js`: asserts the old output"])), "test/gone.test.js does not exist");
+  has(errs(withSib(["- `test/*.test.js`: all of them"])), "no glob");
+  has(errs(withSib(["- the receipt tests"])), 'expected "- `<existing test file>`');
+});

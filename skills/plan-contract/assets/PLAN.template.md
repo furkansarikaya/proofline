@@ -38,6 +38,10 @@ Every bullet MUST start with the quoted test name (the title in the test file) b
 - unit: default
 <one line per test_kind the Tests section uses: `- <kind>: test <ms> ms; suite <ms> ms`, or `- <kind>: default` (the configured budget of the kind). Delete the section only when no Tests line names a test_kind.>
 
+## Sibling tests
+
+<Optional (A362). Existing tests that assert the OPPOSITE of the planned output or pin the old output: grep `tests/` for the strings, names and values the plan removes or changes. One bullet each, the existing file first in backticks: `- `tests/x.test.js`: asserts the old column order`; or `none` when the grep found none. The control plane adds each path to the scope at freeze and does not count it in the code-path limit. Delete the section when the plan changes no output that a test pins.>
+
 ## Verification commands
 
 - `<project test command>`

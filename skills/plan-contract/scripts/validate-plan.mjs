@@ -393,6 +393,22 @@ export function pathKinds(paths, root) {
 }
 const sec2 = (planMd, fm) => sections(planMd.split(/\r?\n/).slice(fm.bodyStart || 0));
 // The questions a freeze would raise, told at plan-writing time. Warnings only: the freeze stays the authority.
+// A362 (issue 338 C6): `## Sibling tests` lists the EXISTING tests that assert the opposite of the planned output or pin the old output, one bullet each, the path first in backticks
+// (`- `tests/x.test.js`: asserts the old column order``), or `none`. The control plane adds each path to the scope at freeze and does not count it in the code-path limit; here each must
+// exist (a test the plan creates is a scope path with new: true, not a sibling).
+export function siblingTestProblems(lines, root) {
+  const errors = [];
+  for (const l of lines) {
+    if (l.trim() === "" || /^none\b/i.test(l.trim())) continue;
+    const m = /^\s*[-*]\s+`([^`]+)`/.exec(l);
+    if (!m) { errors.push(`section "## Sibling tests": expected "- \`<existing test file>\`: <what it asserts>" or none, got "${l.trim().slice(0, 60)}"`); continue; }
+    const p = m[1];
+    if (/[*?[\]{}]/.test(p) || isAbsolute(p) || p.split(/[\\/]/).includes("..") || p.startsWith("./")) { errors.push(`section "## Sibling tests": ${p} must be one repo-relative file, no glob`); continue; }
+    if (!existsSync(resolve(root, p))) errors.push(`section "## Sibling tests": ${p} does not exist; a test the plan creates is a scope path with new: true`);
+  }
+  return errors;
+}
+
 export function lint(planMd, taskMd, { root, cls } = {}) {
   const out = [];
   const fm = parseFrontMatter(planMd);
@@ -500,6 +516,7 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
   errors.push(...testKindProblems(tests, body.get("Test budgets")));
   if (body.get("Test exceptions")) errors.push(...testExceptionProblems(body.get("Test exceptions")));
   if (body.get("Test review budget")) errors.push(...testReviewBudgetProblems(body.get("Test review budget")));
+  if (body.get("Sibling tests")) errors.push(...siblingTestProblems(body.get("Sibling tests"), rootReal));
 
   const data = body.get("Data");
   if (data) {

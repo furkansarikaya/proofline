@@ -248,7 +248,8 @@ export function pipelineCheck(ctx, id) {
   if (maxText === '' && cls !== '') maxText = '15';
   if (maxText !== '') {
     const pk = new PathKinds(ctx);
-    const n = scopePaths(planScope(ctx, dir).rows).filter((p) => pk.pathKind(p) === 'code').length;
+    // A362: a sibling test (row criteria SIBLING) is a scope path but is not counted against the code-path limit
+    const n = scopePaths(planScope(ctx, dir).rows.filter(([, c]) => c !== 'SIBLING')).filter((p) => pk.pathKind(p) === 'code').length;
     const max = Number(maxText);
     if (n > max) {
       if (cls === 'TRIVIAL') fail(`the ${cls} pipeline allows at most ${maxText} code paths (content and document paths are not counted); this plan has ${n} ${bytes('—')} reclassify`);

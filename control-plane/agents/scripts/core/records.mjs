@@ -197,7 +197,26 @@ export function scopeMappings(text) {
       p = '';
     }
   }
+  // A362 (issue 338 C6): the paths of `## Sibling tests` (existing tests that assert the opposite of the planned output) are scope paths too; the plan hash binds the section
+  for (const sp of siblingTestPaths(text)) if (!rows.some(([x]) => x === sp)) rows.push([sp, 'SIBLING']);
   return { ok: !(bad || p !== ''), rows };
+}
+
+/**
+ * `sibling_test_paths PLAN` (A362): the first backticked token of each bullet under `## Sibling tests`, in order. `none`, a bullet without a backticked path and every other section add nothing.
+ * @param {string | null} text @returns {string[]}
+ */
+export function siblingTestPaths(text) {
+  /** @type {string[]} */ const out = [];
+  if (text === null) return out;
+  let inside = false;
+  for (const line of textLines(text)) {
+    if (line.startsWith('## ')) { inside = new RegExp(`^## Sibling tests${WS}*$`).test(line); continue; }
+    if (!inside) continue;
+    const m = new RegExp(`^${WS}*[-*]${WS}+\`([^\`]+)\``).exec(line);
+    if (m && !out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
 }
 
 /** The scope mappings of a run's PLAN.md, read once. @param {Context} ctx @param {string} dir */

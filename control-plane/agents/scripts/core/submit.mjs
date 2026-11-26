@@ -15,9 +15,11 @@ import { languageFailText, languageScanFiles } from './language.mjs';
 import { oneLine, readStdin } from './lifeutil.mjs';
 import { pipelineClass, riskFocusRole } from './signals.mjs';
 import { recordText } from './record.mjs';
-import { fileText, textLines } from './records.mjs';
+import { fileText, gateField, textLines } from './records.mjs';
+import { gatesDir, taskPatchFingerprint } from './gates.mjs';
+import { listNames } from './ledger.mjs';
 import {
-  artifactAllowed, artifactPaths, canonRel, evidenceCiteCheck, findingPrefix, gateOf, isGateRole, normalizeArtifact, plainFile, reproduceRecheck,
+  artifactAllowed, artifactPaths, canonRel, evidenceCiteCheck, findingPrefix, gateOf, otherFocusMaxId, isGateRole, normalizeArtifact, plainFile, reproduceRecheck,
   resultKind, riskFocusReport, skillValidator,
 } from './resultutil.mjs';
 import { gateDefaultArtifact } from './gatewrite.mjs';
@@ -113,6 +115,23 @@ function verifyTestsFindings(ctx, id) {
   let doc; try { doc = JSON.parse(readFileSync(f, 'utf8')); } catch { return ''; }
   const missing = missingFindings(ctx, id, doc);
   return missing.length > 0 ? missing.slice(0, 20).join('; ') : '';
+}
+
+/**
+ * The earlier gate record whose report has the bytes HASH and belongs to another gate or focus, or to this gate and focus on another tree (A362): '' when none.
+ * @param {Context} ctx @param {string} d the run folder @param {string} hash @param {string} gate @param {string} focus
+ */
+function staleArtifact(ctx, d, hash, gate, focus) {
+  const gd = gatesDir(d);
+  const now = taskPatchFingerprint(ctx, d);
+  for (const n of listNames(gd, /^[0-9]{3}-[A-Z_]+\.yaml$/)) {
+    const f = `${gd}/${n}`;
+    if (gateField(ctx, f, 'artifact_sha256') !== hash) continue;
+    const g = gateField(ctx, f, 'gate'); const fc = gateField(ctx, f, 'focus');
+    if (g === gate && fc === focus && gateField(ctx, f, 'patch_sha256') === now) continue;
+    return `is byte-identical to the report of the earlier ${g} ${fc === '' ? 'record' : `focus ${fc} record`} (gates/${n}${g === gate && fc === focus ? ', a different tree' : ''})`;
+  }
+  return '';
 }
 
 /** `submit_status TOKEN STATUS ID ROLE RESULT GATE RAW ERROR` @param {Context} ctx @param {string[]} a */
@@ -333,6 +352,12 @@ export function submitResult(ctx, id, args) {
     }
     if (role === 'verifier' && res !== 'BLOCKED' && res !== 'NEEDS_INPUT') { const m = verifyDesignSync(ctx, id); if (m !== '') submitFail(m); }
     if (role === 'reviewer' && focus === 'tests' && res !== 'BLOCKED' && res !== 'NEEDS_INPUT') { const m = verifyTestsFindings(ctx, id); if (m !== '') submitFail(`findings.json of the tests review is not valid: ${m}`); }
+    // A362 (issue 338 C7): an artifact the agent did not write with this submission (no --report) is a file that already stood there. Bytes identical to the report of an earlier record of
+    // ANOTHER gate or focus, or of the same gate and focus on a different tree, are a stale file under a shared name: refused.
+    if (gaterole && report === '' && (res === 'PASS' || res === 'FAIL' || res === 'UNSUPPORTED') && artifactAllowed(role, 'gate', focus, norm)) {   // an artifact outside the role's paths keeps record's own refusal
+      const m = staleArtifact(ctx, d, hashFile(`${d}/${norm}`), gate, focus);
+      if (m !== '') submitFail(`stale: ${norm} ${m}; write the report of this ${gate}${focus === '' ? '' : ` focus ${focus}`} review with --report <file> or --report - (stdin), the script writes the file`);
+    }
     // A107: the skill's own validator is run here and its result is the one used
     let notRerun = '';
     if (gaterole && (res === 'PASS' || res === 'FAIL')) {
@@ -416,7 +441,8 @@ export function submitResult(ctx, id, args) {
     raw += `RESULT: ${res}\nCONFIDENCE: ${conf}\nFINGERPRINT: ${gateFingerprint(ctx)}\nARTIFACT: ${norm} ${hashFile(`${d}/${norm}`)}\n\n`;
     raw += '| id | severity | path:line | finding | evidence |\n|---|---|---|---|---|\n';
     const prefix = findingPrefix(role, resultKind(role, res), gate);
-    rows.forEach((r, i) => { const c = r.split('|'); raw += `| ${prefix}-${i + 1} | ${c[0]} | ${c[1]} | ${c[2]} | ${c[3]} |\n`; });
+    const offset = gate !== '' && prefix === gate ? otherFocusMaxId(ctx, d, gate, focus) : 0;   // A362: ids of another focus of this gate are never reused
+    rows.forEach((r, i) => { const c = r.split('|'); raw += `| ${prefix}-${i + 1 + offset} | ${c[0]} | ${c[1]} | ${c[2]} | ${c[3]} |\n`; });
     if (evlines.length > 0) raw += `\n${evlines.map((l) => `EVIDENCE: ${l}\n`).join('')}`;
     if (notRerun !== '') raw += `\nNOT_RERUN: ${notRerun}\n`;
     if (res === 'BLOCKED') raw += `\nBLOCKED_REASON: ${oneLine(reason === '' ? `see ${norm}` : reason)}\n`;

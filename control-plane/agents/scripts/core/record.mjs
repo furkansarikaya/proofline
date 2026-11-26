@@ -21,7 +21,7 @@ import { inside, isAbsoluteInput, onDiskLocal } from './pathin.mjs';
 import * as proc from './proc.mjs';
 import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import {
-  artifactAllowed, artifactPaths, classificationFlip, evidenceCiteCheck, findingPrefix, gateOf, idKey, isGateRole, lineValue, metricsStep,
+  artifactAllowed, artifactPaths, classificationFlip, evidenceCiteCheck, findingPrefix, gateOf, otherFocusIds, otherFocusMaxId, idKey, isGateRole, lineValue, metricsStep,
   parseFindings, parseHeader, plainFile, realOf, resultKind, unsupportedBlocks, unsupportedEvidenceCheck, unsupportedReasonOk,
 } from './resultutil.mjs';
 import { knownControlArtifact, requireRun, runDir } from './runs.mjs';
@@ -262,6 +262,12 @@ function recordValidate(ctx, id, raw) {
   }
   const keys = findings.map((r) => idKey(r.split('|')[0]));
   if (new Set(keys).size !== keys.length) reject('duplicate finding ids');
+  // A362 (issue 338 C7): a finding id names one finding of a gate; another focus of the same gate already holds it
+  if (kind === 'gate' && gate !== '') {
+    const held = otherFocusIds(ctx, dir, gate, focus);
+    const clash = findings.map((r) => r.split('|')[0]).find((x) => held.has(idKey(x)));
+    if (clash !== undefined) reject(`finding id ${clash} is already used by ${held.get(idKey(clash))} (another focus of ${gate}); an id names one finding of the gate: number this focus's findings above ${otherFocusMaxId(ctx, dir, gate, focus)} (submit does it)`);
+  }
   if (kind === 'gate' && role === 'reviewer' && res === 'FAIL' && (focus === 'rules' || focus === 'rules+tests')) {
     for (const r of findings) {
       const c = r.split('|');
@@ -293,7 +299,7 @@ function recordValidate(ctx, id, raw) {
   if (kind === 'gate' && res !== 'BLOCKED' && riskFocusRole(focus) !== '') {
     let next = 0;
     for (const r of findings) { const n = Number(r.split('|')[0].replace(/^[^]*-/, '')); if (n > next) next = n; }
-    next += 1;
+    next = Math.max(next, otherFocusMaxId(ctx, dir, gate, focus)) + 1;
     if (res === 'UNSUPPORTED') {
       const reason = lineValue(raw, 'UNSUPPORTED_REASON').replace(/\|/g, '/');
       let sev = 'info';

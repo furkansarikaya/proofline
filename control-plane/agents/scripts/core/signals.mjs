@@ -579,10 +579,14 @@ function riskCompute(ctx, dir) {
 /** `risk_signals ID`, computed once per invocation. @param {Context} ctx @param {string} dir @returns {RiskSignal[]} */
 export function riskSignals(ctx, dir) { return ctx.once(`risk:signals:${dir}`, () => riskCompute(ctx, dir)); }
 
-/** `risk_focuses_of ID`: the focuses of the signals, sorted. @param {Context} ctx @param {string} dir @returns {string[]} */
+/**
+ * `risk_focuses_of ID`: the focuses of the signals, sorted. A path that only the plan scope names (source `scope`) does not require the `contract` focus (A362, issue 338 C2):
+ * the focus is required when a recognised contract file is in the task-owned diff (source `diff`) or the plan declares `contract_change: yes` (source `plan`). It is
+ * recomputed from the manifest at every call, so a later round that adds a contract file adds the focus. @param {Context} ctx @param {string} dir @returns {string[]}
+ */
 export function riskFocusesOf(ctx, dir) {
   return ctx.once(`risk:focuses:${dir}`, () => {
-    const names = [...new Set(riskSignals(ctx, dir).map((s) => s.name))].sort();
+    const names = [...new Set(riskSignals(ctx, dir).filter((s) => !(s.source === 'scope' && ctx.config().get(`risk.${s.name}.check`, '') === 'contract')).map((s) => s.name))].sort();
     return [...new Set(names.map((n) => ctx.config().get(`risk.${n}.check`, '')).filter((x) => x !== ''))].sort();
   });
 }
