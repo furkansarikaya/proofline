@@ -132,7 +132,7 @@ function dispatch(ctx, locks, argv) {
   if (Object.hasOwn(PRELOCK, command) && ctx.role === 'lead') PRELOCK[command](ctx, args);
   if (takesLocks(command, args, ctx.role, READ_ONLY.has(command))) takeCommandLocks(locks, ctx, command, args);
   const shape = splitShape(command, args);
-  prepare(ctx, shape);
+  prepare(ctx, shape, command);
   const code = handler(ctx, shape.args);
   if (code === 0) shapeOutput(ctx, command, shape);
   ctx.flush();

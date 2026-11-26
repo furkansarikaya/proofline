@@ -556,7 +556,7 @@ export function batchStatus(ctx) {
   for (const r of derive(ctx)) {
     if (!hasRun(ctx, r.id)) continue;
     const note = unapprovedNote(ctx, `${rroot(ctx, r.id)}/.agents/runs/${r.id}`, r.id);
-    if (note !== '') ctx.out(`${note}\n`);
+    if (note !== '') ctx.keep(`${note}\n`);
   }
   // A291: what the knowledge step of a task proposed instead of asking (the user decides; nothing was written for it)
   const sug = rows(`${bd}/suggestions.tsv`).filter((f) => f.length >= 2 && f[0] !== '');
@@ -570,7 +570,7 @@ export function batchStatus(ctx) {
   }
   const fr = frictionShowText(ctx);
   if (fr !== null) ctx.out(fr); else ctx.out('no friction report\n');
-  ctx.out('\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n');
+  ctx.keep('\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n');
   return 0;
 }
 

@@ -605,12 +605,12 @@
       "suite_ms": 10000
     },
     "tests/core/output-shape-batch.test.mjs": {
-      "test_ms": 29700,
-      "suite_ms": 34900
+      "test_ms": 32500,
+      "suite_ms": 37700
     },
     "tests/core/output-shape.test.mjs": {
-      "test_ms": 12600,
-      "suite_ms": 51200
+      "test_ms": 12900,
+      "suite_ms": 56000
     },
     "tests/core/pathin.test.mjs": {
       "test_ms": 2000,

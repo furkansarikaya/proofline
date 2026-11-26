@@ -5,7 +5,7 @@
 //          which command prints it all: `...N more bytes: agent.sh <command> <args> --full`. `--full` is the one explicit flag that lifts it. A line that
 //          the lead must act on is never cut: the handler registers it itself (`ctx.keep`, `ctx.protectedLines`: `NEXT:`, `waiting for the user:`, the `next=` steps, the
 //          waiting list of a batch table), from its own state, never by looking at text it read; such a line that fell in the cut part is printed after the hint.
-//          `questions` (a user question is relayed whole) is never capped, and neither is a machine-readable answer (`--tsv`, `--json`).
+//          `next`, `status`, `pipeline` and `questions` are never capped (they state what is required: steps, gates and signals, the policy, the user's questions), and neither is a machine-readable answer (`--tsv`, `--json`).
 //          `batch-next` and `batch-status` list the rows that need something first and drop only finished rows (see batch.mjs, `limitRows`).
 //   since  `--since <token>` on `next` and `batch-next`: the answer ends with a line `since=<token>` (a hash of the whole answer, opaque); when the
 //          answer is the same as the one the token names, only the word `unchanged` is printed (one line). The lead passes the token back; nothing
@@ -19,7 +19,9 @@ import { ProoflineError } from './errors.mjs';
 /** @typedef {import('./context.mjs').Context} Context */
 
 /** The commands whose stdout is capped (`questions` is not: a user question is never cut). */
-export const CAPPED = Object.freeze(['next', 'batch-next', 'batch-status', 'status', 'digest', 'pipeline', 'friction']);
+export const CAPPED = Object.freeze(['batch-next', 'batch-status', 'digest', 'friction']);
+/** The commands that take the shaping flags (`--full`, `--since`): the capped ones and `next`. `next`, `status`, `pipeline` and `questions` are never capped: what they print states what is REQUIRED (the steps, the gates and signals, the policy, the user's questions) and a cut could hide it (Core invariants 1 and 6). */
+export const SHAPED = Object.freeze(['next', ...CAPPED]);
 /** The commands that take `--since`. */
 export const SINCE_COMMANDS = Object.freeze(['next', 'batch-next']);
 /** The commands whose first argument is an id or a subcommand: a flag is only a flag from the second argument on, so a task named `--full` is still a task. */
@@ -42,7 +44,7 @@ export const MIN_CAP = 200;
  * @param {string} command @param {string[]} args @returns {Shape}
  */
 export function splitShape(command, args) {
-  if (!CAPPED.includes(command)) return { args, full: false, since: null, active: false };
+  if (!SHAPED.includes(command)) return { args, full: false, since: null, active: false };
   if (args.includes('--tsv') || args.includes('--json')) return { args, full: false, since: null, active: false };
   const from = FIRST_IS_NAME.includes(command) ? 1 : 0;
   /** @type {string[]} */ const rest = [];
@@ -61,7 +63,7 @@ export function splitShape(command, args) {
 }
 
 /** The arguments of a command this core starts as a child to read its text: `--full` is added to a capped one. @param {string[]} argv */
-export function withFull(argv) { return CAPPED.includes(argv[0] ?? '') && !argv.includes('--tsv') && !argv.includes('--json') ? [...argv, '--full'] : argv; }
+export function withFull(argv) { return SHAPED.includes(argv[0] ?? '') && !argv.includes('--tsv') && !argv.includes('--json') ? [...argv, '--full'] : argv; }
 
 /** The cap in bytes; 0 means none. @param {Context} ctx */
 export function capBytes(ctx) {
@@ -78,8 +80,8 @@ export function tokenOf(out) { return createHash('sha256').update(out).digest('h
  * Tell the command how many bytes its text may take (`ctx.rowBudget`; null = no limit), before the handler runs.
  * @param {Context} ctx @param {Shape} shape
  */
-export function prepare(ctx, shape) {
-  const cap = shape.active && ctx.io.isProcess === true && !shape.full ? capBytes(ctx) : 0;
+export function prepare(ctx, shape, command = '') {
+  const cap = shape.active && ctx.io.isProcess === true && !shape.full && CAPPED.includes(command) ? capBytes(ctx) : 0;
   ctx.rowBudget = cap > 0 ? cap : null;
 }
 
@@ -93,7 +95,7 @@ export function shapeOutput(ctx, command, shape) {
   let body = Buffer.concat(ctx.chunks.filter(([s]) => s === 'out').map(([, b]) => b));
   const token = tokenOf(body);
   if (shape.since !== null && shape.since === token) { ctx.chunks = [['out', Buffer.from('unchanged\n', 'latin1')], ...errs]; return; }
-  const cap = capBytes(ctx);
+  const cap = CAPPED.includes(command) ? capBytes(ctx) : 0;
   if (!shape.full && cap > 0 && body.length > cap) {
     let cut = body.lastIndexOf(10, cap - 1) + 1; // the head ends at a line end
     if (cut === 0) cut = cap;

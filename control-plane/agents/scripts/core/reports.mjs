@@ -49,20 +49,20 @@ export function summaryRun(ctx, given, flag) {
   if (id === '') fail('no active task: pass a TASK-ID');
   requireRun(ctx, id);
   const d = runDir(ctx, id);
-  ctx.out(`STATUS: ${ua(sectionValue(ctx, d, 'execution', 'state'))} (handoff ${ua(sectionValue(ctx, d, 'handoff', 'state'))}, knowledge ${ua(sectionValue(ctx, d, 'execution', 'knowledge_state'))})\n`);
+  ctx.keep(`STATUS: ${ua(sectionValue(ctx, d, 'execution', 'state'))} (handoff ${ua(sectionValue(ctx, d, 'handoff', 'state'))}, knowledge ${ua(sectionValue(ctx, d, 'execution', 'knowledge_state'))})\n`);
   if (flag === '--status') return;
   const t = fileLines(ctx, `${d}/TASK.md`)[0];
   const title = t !== undefined && t.startsWith('#') ? t.replace(new RegExp(`^#${WS}*`), '').replace(/[\0-\x1f\x7f]/g, '') : '';
   ctx.out(`TASK: ${id} ${title}\n`);
   const cls = pipelineClass(ctx, d);
-  ctx.out(`CLASS/TOPOLOGY: ${ua(cls.includes('PENDING') ? '' : cls)} / ${ua(topology(ctx, d))}\n`);
+  ctx.keep(`CLASS/TOPOLOGY: ${ua(cls.includes('PENDING') ? '' : cls)} / ${ua(topology(ctx, d))}\n`);
   if (pipelineDeclared(ctx, d) && pipelineClassValid(cls)) {
     const fp = gateFingerprint(ctx);
-    ctx.out(`TIER: ${tierEffective(ctx, d)}\n`);
-    for (const g of requiredGates(ctx, d)) ctx.out(`${g}: ${gateLabel(ctx, d, id, g, fp)}\n`);
-    ctx.out(`FIX ROUNDS: ${fixRoundsDone(ctx, d)} of ${maxFixRounds(ctx, d)}\n`);
+    ctx.keep(`TIER: ${tierEffective(ctx, d)}\n`);
+    for (const g of requiredGates(ctx, d)) ctx.keep(`${g}: ${gateLabel(ctx, d, id, g, fp)}\n`);
+    ctx.keep(`FIX ROUNDS: ${fixRoundsDone(ctx, d)} of ${maxFixRounds(ctx, d)}\n`);
   }
-  ctx.out(`DELIVERY: completion report published ${ua(sectionValue(ctx, d, 'completion_report', 'published'))}\n`);
+  ctx.keep(`DELIVERY: completion report published ${ua(sectionValue(ctx, d, 'completion_report', 'published'))}\n`);
 }
 
 /** `digest_run ID` @param {Context} ctx @param {string} id */
@@ -72,7 +72,7 @@ export function digestRun(ctx, id) {
   let q = 0;
   for (const n of listNames(`${d}/questions`, /^[0-9]{3}\.md$/)) if (!exists(`${d}/questions/${n.slice(0, -3)}.answer.md`)) q++;
   summaryRun(ctx, id, '');
-  ctx.out(`OPEN QUESTIONS: ${q}\n`);
+  ctx.keep(`OPEN QUESTIONS: ${q}\n`);
   // A202: the scope by derived kind, computed here and not written in any document
   const plan = fileText(ctx, `${d}/PLAN.md`);
   if (plan !== null) {
@@ -85,7 +85,7 @@ export function digestRun(ctx, id) {
         n[f[3]] = (n[f[3]] ?? 0) + 1;
         if (f[1] !== '-' && f[1] !== f[2] && !(f[1] === 'doc' && f[2] === 'content')) bad += ` ${f[0]}`;
       }
-      ctx.out(`SCOPE: code=${n.code} test=${n.test} content=${n.content}${bad !== '' ? ` (kind claimed wrongly, counted as code:${bad})` : ''}\n`);
+      ctx.keep(`SCOPE: code=${n.code} test=${n.test} content=${n.content}${bad !== '' ? ` (kind claimed wrongly, counted as code:${bad})` : ''}\n`);
     }
   }
   // next_step runs in a pipe there: its lines are filtered, and a failure inside it ends only that part
@@ -96,7 +96,7 @@ export function digestRun(ctx, id) {
   }
   for (const l of textLines(text)) {
     if (l.startsWith('next=')) ctx.keep(`NEXT: ${l.slice(5)}\n`);
-    else if (l.startsWith('reason=')) ctx.out(`WHY: ${l.slice(7)}\n`);
+    else if (l.startsWith('reason=')) ctx.keep(`WHY: ${l.slice(7)}\n`);
   }
 }
 
@@ -106,19 +106,20 @@ export function digestRun(ctx, id) {
  * @param {Context} ctx @param {string} id
  */
 export function briefRun(ctx, id) {
-  const before = ctx.chunks.length;
+  const before = ctx.chunks.length; const keptBefore = ctx.protectedLines.length;
   digestRun(ctx, id);
   const mine = ctx.chunks.splice(before);
+  ctx.protectedLines.length = keptBefore; // the brief's own lines are the protected ones
   const lines = textLines(Buffer.concat(mine.filter(([s]) => s === 'out').map(([, b]) => b)).toString('latin1'));
   const keys = ['STATUS', 'TASK', 'CLASS/TOPOLOGY', 'TIER', 'FIX ROUNDS', 'DELIVERY', 'OPEN QUESTIONS', 'SCOPE', 'NEXT', 'WHY'];
   /** @param {string} k */ const val = (k) => (lines.find((l) => l.startsWith(`${k}: `)) ?? '').slice(k.length + 2);
   const cut = (/** @type {string} */ t, /** @type {number} */ n) => (t.length > n ? `${t.slice(0, n)}...` : t);
   const gates = lines.filter((l) => !keys.includes(l.split(': ')[0])).map((l) => l.replace(': ', '='));
-  ctx.out(`STATUS: ${val('STATUS')}\nTASK: ${cut(val('TASK'), 160)}\n`);
-  ctx.out(`CLASS: ${val('CLASS/TOPOLOGY')}${val('TIER') !== '' ? ` tier ${val('TIER')}` : ''}\n`);
-  if (gates.length > 0) ctx.out(`GATES: ${cut(gates.join('; '), 400)}\n`);
-  ctx.out(`FIX ROUNDS: ${val('FIX ROUNDS') || 'n/a'}; OPEN QUESTIONS: ${val('OPEN QUESTIONS') || '0'}\n`);
-  ctx.out(`NEXT: ${cut(val('NEXT'), 600)}\n`);
+  ctx.keep(`STATUS: ${val('STATUS')}\nTASK: ${cut(val('TASK'), 160)}\n`);
+  ctx.keep(`CLASS: ${val('CLASS/TOPOLOGY')}${val('TIER') !== '' ? ` tier ${val('TIER')}` : ''}\n`);
+  if (gates.length > 0) ctx.keep(`GATES: ${cut(gates.join('; '), 800)}\n`);
+  ctx.keep(`FIX ROUNDS: ${val('FIX ROUNDS') || 'n/a'}; OPEN QUESTIONS: ${val('OPEN QUESTIONS') || '0'}\n`);
+  ctx.keep(`NEXT: ${cut(val('NEXT'), 600)}\n`);
 }
 
 /** `next [ID]` @param {Context} ctx @param {string} id */

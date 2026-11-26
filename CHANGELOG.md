@@ -4,7 +4,7 @@
 
 ## 0.0.187 — 2026-11-26
 
-- Fix (A365, issue 338 C5): the lead's context grows less. `next`, `batch-next`, `batch-status`, `status`, `digest`, `pipeline` and `friction` print at most `output_cap_bytes` bytes (default 6000, config key, 0 = off) and then one line `...N more bytes: agent.sh <command> --full`; `next` and `batch-next` take `--since <token>` (the answer ends with `since=<token>`) and print the single word `unchanged` when nothing changed; `digest <ID> --brief` is a six-line resume; the `lead` record of `tools.jsonl` has the mean and p90 context size and the cache re-read tokens (`ctx_*`, `cache_read`) and the report Facts show them. The lead instructions (LIFECYCLE.md, DISPATCH.md) say: no calls between waits, drop the notes of a merged task, resume with the brief. The lead skill is 38 bytes smaller.
+- Fix (A365, issue 338 C5): the lead's context grows less. `batch-next`, `batch-status`, `digest` and `friction` print at most `output_cap_bytes` bytes (default 6000, config key, 0 = off) and then one line `...N more bytes: agent.sh <command> --full`; `next` and `batch-next` take `--since <token>` (the answer ends with `since=<token>`) and print the single word `unchanged` when nothing changed; `digest <ID> --brief` is a six-line resume; the `lead` record of `tools.jsonl` has the mean and p90 context size and the cache re-read tokens (`ctx_*`, `cache_read`) and the report Facts show them. The lead instructions (LIFECYCLE.md, DISPATCH.md) say: no calls between waits, drop the notes of a merged task, resume with the brief. The lead skill is 38 bytes smaller.
 
 ## 0.0.186 — 2026-11-26
 

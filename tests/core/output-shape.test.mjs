@@ -102,25 +102,37 @@ test('questions is never capped: every pending question is printed whole', () =>
   for (let i = 1; i <= 5; i++) assert.ok(r.out.includes(`QUESTION-${i}:`), `question ${i} is missing`);
 });
 
-test('next, status and pipeline keep their first lines when the cap is small', () => {
-  const d = shared(); setCap(d, '6000');
-  setCap(d, '500');
-  const nx = A(d, ['next', 'LC']);
-  assert.ok(/^task=LC\nstate=\w+\nhandoff=\w+\nnext=/.test(nx.out), nx.out);
-  assert.ok(A(d, ['status']).out.startsWith('active_task=LC\n'));
-  const full = A(d, ['pipeline', 'LC', '--full']).out;
-  assert.ok(A(d, ['pipeline', 'LC']).out.startsWith(full.split('\n')[0]));
+test('next, status, pipeline and questions are never capped: they state what is required', () => {
+  const d = shared();
+  setCap(d, '0');
+  const whole = ['next', 'status', 'pipeline'].map((c) => A(d, c === 'status' ? [c] : [c, 'LC']).out);
+  setCap(d, '200');
+  ['next', 'status', 'pipeline'].forEach((c, i) => {
+    const r = A(d, c === 'status' ? [c] : [c, 'LC']).out;
+    assert.equal(r, whole[i], `${c} is printed whole at the smallest cap`);
+    assert.ok(!/more bytes/.test(r));
+  });
+  assert.ok(whole[1].startsWith('active_task=LC\n'));
+});
+
+test('digest at the smallest cap keeps every line that states what is required; only the task title may be cut', () => {
+  const d = shared();
+  setCap(d, '0');
+  const whole = A(d, ['digest', 'LC']).out.split('\n').filter((l) => l !== '');
+  setCap(d, '200');
+  const cut = A(d, ['digest', 'LC']).out.split('\n');
+  assert.ok(whole.some((l) => /^[A-Z_]+: (PASS|FAIL|PENDING|NOT_RUN|missing|pending)/i.test(l)) || whole.some((l) => l.startsWith('NEXT: ')));
+  for (const l of whole) if (!l.startsWith('TASK: ')) assert.ok(cut.includes(l), `a required line was cut: ${l.slice(0, 80)}`);
+  assert.ok(cut.some((l) => /more bytes: agent\.sh digest LC --full/.test(l)));
 });
 
 test('a NEXT: line in the cut part is printed after the hint', () => {
-  const d = shared(); setCap(d, '6000');
-  const f = path.join(d, '.agents/runs/LC/TASK.md');
-  assert.ok(readFileSync(f, 'utf8').length > 20000);
-  setCap(d, '600');
+  const d = shared(); setCap(d, '600');
   const r = A(d, ['digest', 'LC']);
   const lines = r.out.trimEnd().split('\n');
-  assert.ok(lines.some((l) => /^\.\.\.\d+ more bytes: agent\.sh digest LC --full$/.test(l)), r.out);
-  assert.match(lines.at(-1) ?? '', /^NEXT: /, 'the next step is the last line');
+  const hi = lines.findIndex((l) => /^\.\.\.\d+ more bytes: agent\.sh digest LC --full$/.test(l));
+  assert.ok(hi > 0, r.out);
+  assert.ok(lines.slice(hi).some((l) => /^NEXT: /.test(l)), 'the next step comes after the hint');
 });
 
 test('text that looks like a protected line is not reprinted: only the control plane registers one', () => {

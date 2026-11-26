@@ -16,7 +16,7 @@ runtime:
   reviewers: claude
   # Optional per-role override, for example `security_reviewer: claude`.
   roles:
-# Most bytes of stdout of the commands the lead calls all day (next, batch-next, batch-status, status, digest, questions, pipeline, friction) when run as a process (A365): the rest
+# Most bytes of stdout of the commands the lead calls all day (batch-next, batch-status, digest, friction; next, status, pipeline and questions state what is required and are never cut) when run as a process (A365): the rest
 # is one line `...N more bytes: agent.sh <command> --full`. 0 = no cap, otherwise at least 200.
 output_cap_bytes: 6000
 # Specialist failover (D7): auto | ask | off.
