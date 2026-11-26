@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 2cdb0c199c68271698fdb03cf929754a7ac012bb -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 7448165d7ec14b7ed8775eb1362d4067cefca51d -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
