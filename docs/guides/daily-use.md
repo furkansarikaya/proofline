@@ -44,6 +44,7 @@ The control plane is Node code; `.agents/scripts/agent.sh` is a thin launcher th
 | `proofline insights [--run ID] [--json]` | read-only report: cost per run, role and model (tokens only where the runtime reported them), tool calls per role and run, and recurring failures with suggestions; changes nothing |
 | `proofline retro [<batch-id\|run-id>] [--since YYYY-MM-DD] [--json] [--full]` | read-only report of finished runs, read in process from their ledgers (live and inside the run archives), metrics records and batch files: time, tokens, fix rounds, gate re-runs, user waits, hook denials, resumed runs, and the sources it could not read; no score, no verdict, changes nothing |
 | `proofline doctor --scale`, `--apply-scale` | measure this machine and propose `timeouts.scale`; written only after your `approve scale` ([timeouts](../concepts/timeouts.md)) |
+| `proofline doctor --config` | read-only list of the few settings you are expected to change, each with its value now, the shipped default and its meaning ([configuration](../concepts/configuration.md)) |
 | `proofline doctor --commands`, `--apply-commands` | find the empty `commands.build\|test\|lint`, prove each by one run and write the proposal after your yes |
 
 ## Several tasks in one night (batch)

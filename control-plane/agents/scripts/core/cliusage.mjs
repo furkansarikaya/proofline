@@ -22,6 +22,7 @@ export const USAGE_LINES = Object.freeze([
   "                            --scale  measure this machine and propose timeouts.scale; --apply-scale writes it after your \"approve scale\"",
   "                            --commands  find, prove by one run and propose the empty commands.build|test|lint (one question)",
   "                            --apply-commands  write the proven proposal after your yes",
+  "                            --config  list the few settings you are expected to change: value now, shipped default, meaning (read-only)",
   "  version",
   "",
   "state (works without an agent session)",

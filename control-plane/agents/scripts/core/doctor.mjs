@@ -9,6 +9,7 @@ import path from 'node:path';
 import { agentCall } from './batch.mjs';
 import { ciCheckResult, ciTaskCommandText } from './commands/checks.mjs';
 import { Config } from './config.mjs';
+import { configBasics } from './configbasics.mjs';
 import { SHIPPED_GITHOOKS, clean as cleanText, cleanLines, codeAudit, githooksFolder, problemText, shaTolerant, shippedCode } from './codetrust.mjs';
 import { cfgSet } from './configset.mjs';
 import { contextRows, reportText } from './contextsize.mjs';
@@ -944,13 +945,14 @@ export function requireInstalled(ctx) {
 }
 
 /**
- * `proofline doctor [--commands|--apply-commands|--scale|--apply-scale]`. The root is the project the CLI was started in (ctx.root).
+ * `proofline doctor [--commands|--apply-commands|--scale|--apply-scale|--config]`. The root is the project the CLI was started in (ctx.root).
  * @param {Context} ctx @param {string[]} args
  */
 export function doctorCommand(ctx, args) {
   const a = args[0] ?? '';
   if (a === '--commands') { requireInstalled(ctx); return proposeCommands(ctx); }
   if (a === '--apply-commands') { requireInstalled(ctx); return applyCommands(ctx); }
+  if (a === '--config') { requireInstalled(ctx); return configBasics(ctx); }
   if (a === '--scale') { requireInstalled(ctx); return proposeScale(ctx); }
   if (a === '--apply-scale') { requireInstalled(ctx); return applyScale(ctx); }
   if (a !== '') throw die(`doctor: unknown argument: ${a}`);
