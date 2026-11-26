@@ -87,7 +87,7 @@ export function lintMarkupText({ path, text, task = null }) {
   for (let m, re = />([^<>]+)</g; (m = re.exec(t));) {
     const node = m[1], lead = node.length - node.trimStart().length, flat = node.replace(/\s+/g, " ").trim();
     if (!flat || taskHolds(task, flat)) continue;
-    const hits = rawMarkupIn(flat, { rendered: false });
+    const hits = rawMarkupIn(node, { rendered: false, source: true });
     if (hits.length) out.push({ id: RAW_MARKUP_RULE, file: path, line: lineAt(m.index + 1 + lead), excerpt: flat.slice(0, 120) });
   }
   return out;

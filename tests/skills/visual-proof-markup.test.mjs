@@ -18,7 +18,7 @@ const kinds = (text) => rawMarkupBlocks([blk(text)]).map((x) => x.kind);
 
 test("raw markup: bold, underscore, backtick, heading, list, link and placeholder are found; ordinary text is not", () => {
   assert.deepEqual(kinds("**Cause:** the cache was stale"), ["bold"]);
-  assert.deepEqual(kinds("This is __important__ today"), ["underscore"]);
+  assert.deepEqual(kinds("This is __very important__ today"), ["underscore"]);
   assert.deepEqual(kinds("Run `npm test` first"), ["backtick"]);
   assert.deepEqual(kinds("# Welcome home"), ["heading"]);
   assert.deepEqual(kinds("- first item of the list"), ["list"]);
@@ -120,4 +120,24 @@ test("report: human checks are made from the page facts (language not English), 
   const detected = build((p) => (p === "de.html" ? facts({ lang: "de" }) : facts()), [], ["index.html", "de.html"]);
   assert.deepEqual(detected.report.design.human_checks.map((h) => [h.path, h.lang]), [["de.html", "de"]], "the html lang of a measured page counts without a languages[] entry");
   assert.equal(detected.check().valid, true, detected.check().errors.join("\n"));
+});
+
+test("source lint: a lone leading dash or hash is not a finding; a real multi-line raw list or heading with text is", () => {
+  const f = (html) => lintMarkupText({ path: "a.html", text: html }).length;
+  assert.equal(f("<p>- John, CEO</p>"), 0, "an attribution dash");
+  assert.equal(f("<a href=\"/j\">- Jane</a>"), 0);
+  assert.equal(f("<p># 1 pick of the year</p>"), 0);
+  assert.equal(f("<p># Welcome home</p>"), 0, "a one line heading shape alone is not read in a source template");
+  assert.equal(f("<p>- first item\n- second item\n- third</p>"), 1, "a two-item raw list");
+  assert.equal(f("<p>1. one thing\n2. other thing</p>"), 1, "a numbered raw list");
+  assert.equal(f("<div># Title here\nA paragraph that follows the heading.</div>"), 1, "a heading followed by a paragraph");
+  assert.equal(f("<p>**Cause:** the cache</p>"), 1, "bold is still read in the source");
+  assert.deepEqual(kinds("- John, CEO"), ["list"], "the rendered probe keeps the stricter rule");
+});
+
+test("raw markup: a dunder name is not underscore emphasis; a spaced or capitalised pair is", () => {
+  assert.deepEqual(kinds("__init__ is magic"), []);
+  assert.deepEqual(kinds("call __main__ first"), []);
+  assert.deepEqual(kinds("This is __very important__ today"), ["underscore"]);
+  assert.deepEqual(kinds("This is __Important__ today"), ["underscore"]);
 });

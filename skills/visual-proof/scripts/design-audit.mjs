@@ -163,9 +163,22 @@ const MARKUP_KINDS = [
   ["link", /(?<![\p{L}\p{N}_\]])\[[^\]\n]+\]\([^)\s]+\)/u],
 ];
 const PLACEHOLDER = /\{\{[^{}\n]{1,80}\}\}/u;
-export function rawMarkupIn(text, { rendered = true } = {}) {
+// `source` (a template's text node, newlines kept): a lone leading `- ` or `# ` is not read (an attribution dash, "# 1 pick"); a list is two or more list lines, a heading
+// is a `# ` line with more text after it. A `__name__` of 3 to 20 lowercase letters is a dunder name, not emphasis (`__very important__` and `__Important__` are).
+const LIST_LINE = /^\s*(?:[-*+]|\d+\.)\s+\p{L}/u;
+export function rawMarkupIn(text, { rendered = true, source = false } = {}) {
   const t = String(text ?? "").trim(), out = [];
-  for (const [kind, re] of MARKUP_KINDS) { const m = re.exec(t); if (m) out.push({ kind, fragment: m[0].slice(0, 60) }); }
+  for (const [kind, re] of MARKUP_KINDS) {
+    if (source && (kind === "list" || kind === "heading")) {
+      const ls = t.split(/\r?\n/);
+      if (kind === "list" && LIST_LINE.test(ls[0]) && ls.filter((l) => LIST_LINE.test(l)).length >= 2) out.push({ kind, fragment: ls[0].slice(0, 60) });
+      if (kind === "heading" && re.test(ls[0]) && ls.slice(1).some((l) => l.trim())) out.push({ kind, fragment: ls[0].slice(0, 60) });
+      continue;
+    }
+    const m = re.exec(t);
+    if (m && kind === "underscore" && /^[a-z]{3,20}$/.test(m[0].slice(2, -2))) continue;
+    if (m) out.push({ kind, fragment: m[0].slice(0, 60) });
+  }
   if (rendered) { const m = PLACEHOLDER.exec(t); if (m) out.push({ kind: "placeholder", fragment: m[0].slice(0, 60) }); }
   return out;
 }
