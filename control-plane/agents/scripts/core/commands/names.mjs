@@ -1,5 +1,5 @@
 // @ts-check
-// The 135 commands (the 132 of agent.sh 0.0.40, `diff-digest`, A235, `advance`, A258, and `discard-untracked`, A357), in the order of its dispatch `case`. `readOnly` is the shell's read_only_commands list.
+// The 136 commands (the 132 of agent.sh 0.0.40, `diff-digest`, A235, `advance`, A258, `discard-untracked`, A357, and `standing`, A361), in the order of its dispatch `case`. `readOnly` is the shell's read_only_commands list.
 export const COMMAND_NAMES = [
   "role",
   "status",
@@ -65,6 +65,7 @@ export const COMMAND_NAMES = [
   "approval-consume",
   "raise-budget",
   "waive",
+  "standing",
   "questions",
   "metrics-dispatch",
   "friction-note",

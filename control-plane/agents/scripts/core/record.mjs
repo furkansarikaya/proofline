@@ -25,7 +25,9 @@ import {
   parseFindings, parseHeader, plainFile, realOf, resultKind, unsupportedBlocks, unsupportedEvidenceCheck, unsupportedReasonOk,
 } from './resultutil.mjs';
 import { knownControlArtifact, requireRun, runDir } from './runs.mjs';
-import { riskFocusRole, riskGateFocuses, riskMissingFlags } from './signals.mjs';
+import { riskFocusRole, riskGateFocuses, riskMissingFlags, taskChangedPaths } from './signals.mjs';
+import { rationaleCarried } from './standing.mjs';
+import { isFile } from './paths.mjs';
 import { now } from './clock.mjs';
 import { ProoflineError } from './errors.mjs';
 
@@ -56,7 +58,7 @@ function approvedRationalesJson(ctx, id) {
     const t = rationaleLineIn(rid, text);
     if (t === '') continue;
     const b = shaOf(t);
-    if (findApproval(ctx, id, `rationale:${rid}`, b) !== null) { out += `${sep}"${rid}": "${b}"`; sep = ', '; }
+    if (findApproval(ctx, id, `rationale:${rid}`, b) !== null || rationaleCarried(ctx, rid, path.relative(ctx.root, file).split(path.sep).join('/'), b)) { out += `${sep}"${rid}": "${b}"`; sep = ', '; }
   }
   return `{"approved": {${out}}}\n`;
 }
@@ -81,7 +83,10 @@ function recordVisualCheck(ctx, id, result) {
   try {
     const ap = `${tmp}/approved.json`;
     writeFileSync(ap, latin1Buf(approvedRationalesJson(ctx, id)));
-    const r = proc.run(process.execPath, [script, '--root', ctx.root, '--approved-rationales', ap, '--out', tmp], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
+    // A361 (issue 338 C3): the rerun lint reads the files this task changed, not the untouched committed ones: a finding in a file the change did not touch is not a finding of this change
+    const own = taskChangedPaths(ctx, runDir(ctx, id)).filter((p) => isFile(`${ctx.root}/${p}`));
+    const limit = own.some((p) => /[,\n]/.test(p)) ? [] : ['--paths', own.join(',')];
+    const r = proc.run(process.execPath, [script, '--root', ctx.root, '--approved-rationales', ap, ...limit, '--out', tmp], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
     if (r.status !== 0 || !existsSync(`${tmp}/lint.json`)) {
       const log = Buffer.concat([r.stdout, r.stderr]).subarray(0, 300).toString('latin1').replace(/\n/g, ' ');
       reject(`visual PASS: lint-source.mjs could not run on the project, so the PASS cannot be checked (${log}); fix the cause, or submit UNSUPPORTED/BLOCKED with the reason`);
@@ -102,7 +107,7 @@ function recordVisualCheck(ctx, id, result) {
   for (const [i, x, m] of just) {
     if (i === '') continue;
     const b = shaOf(`${i}: ${x}`);
-    if (findApproval(ctx, id, `rationale:${i}`, b) === null) reject(`visual PASS relies on the DESIGN.md rationale for pattern ${i}, which the user has not approved: a rationale an agent wrote does not pass a finding. Ask: agent.sh request-approval ${id} rationale:${i} (relay it; the user's reply records the approval), or leave the finding blocking (FAIL)`);
+    if (findApproval(ctx, id, `rationale:${i}`, b) === null && !rationaleCarried(ctx, i, m, b)) reject(`visual PASS relies on the DESIGN.md rationale for pattern ${i}, which the user has not approved: a rationale an agent wrote does not pass a finding. Ask: agent.sh request-approval ${id} rationale:${i} (relay it; the user's reply records the approval), or leave the finding blocking (FAIL)`);
     let cur = '';
     const mp = m === '' ? null : onDiskLocal(ctx.root, m);   // a UNC design path is never opened (null: no line, so the approval does not match)
     if (mp !== null) cur = rationaleLineOf(ctx, i, mp);

@@ -2,7 +2,8 @@
 // Stage 2, package C2: ci-check, ci-task-command, design-rationales, commands-check, scale-check, batch-check. The last four read the
 // approval and batch library (core/approvals.mjs, the read-only part); nothing here writes or consumes an approval, so no path needs a
 // BridgeToShell for the Stage 3-7 libraries. Keeps arguments, stdout, stderr and exit status of agent.sh 0.0.41.
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { bytes } from '../config.mjs';
 import { ProoflineError, fail, unsupported } from '../errors.mjs';
 import { DESIGN_MD_CANDIDATES, batchApproval, findApproval, hashOf, rationaleIds, rationaleLineIn, sharedDirOf } from '../approvals.mjs';
@@ -11,7 +12,9 @@ import { isFile } from '../paths.mjs';
 import { onDiskLocal } from '../pathin.mjs';
 import { detectPlatform } from '../platform.mjs';
 import { fileLines, fileText } from '../records.mjs';
-import { requireRun } from '../runs.mjs';
+import { requireRun, runDir } from '../runs.mjs';
+import { rationaleCarried } from '../standing.mjs';
+import { taskChangedPaths } from '../signals.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -121,7 +124,11 @@ function designRationales(ctx, args) {
   if (id !== '-') requireRun(ctx, id);
   const rest = args.slice(1);
   let json = false;
-  if (rest[0] === '--json') { json = true; rest.shift(); }
+  let outFile = '';
+  for (;;) {
+    if (rest[0] === '--json') { json = true; rest.shift(); } else if (rest[0] === '--out' && rest.length > 1) { outFile = rest[1]; rest.splice(0, 2); } else break;
+  }
+  if (outFile !== '' && (!json || id === '-')) fail('--out writes the --json object of a run: agent.sh design-rationales <ID> --json --out reviews/visual-proof/<name>.json');
   let file = rest[0] ?? '';
   if (file === '') {
     for (const c of DESIGN_MD_CANDIDATES) if (isFile(`${ctx.root}/${c}`)) { file = `${ctx.root}/${c}`; break; }
@@ -141,19 +148,47 @@ function designRationales(ctx, args) {
   let out = '';
   let sep = '';
   let obj = '';
+  let carried = 0;
+  let napp = 0;
+  const rel = file === '' ? '' : path.relative(ctx.root, file).split(path.sep).join('/');
   for (const rid of text === null ? [] : rationaleIds(text)) {
     const t = rationaleLineIn(rid, text ?? '');
     if (t === '') continue;
     const b = sha256(t);
-    const approved = findApproval(ctx, id, `rationale:${rid}`, b) !== null;
+    // A361: an approval of this run, or one the user gave in an earlier task, batch or run for exactly this line of this document (the standing store)
+    const own = findApproval(ctx, id, `rationale:${rid}`, b) !== null;
+    const stand = !own && rel !== '' && rationaleCarried(ctx, rid, rel, b);
+    const approved = own || stand;
+    if (stand) carried++;
     if (json) {
       if (!approved) continue;
       obj += `${sep}"${rid}": "${b}"`;
       sep = ', ';
+      napp++;
     } else out += `${rid}\t${approved ? 'approved' : 'unapproved'}\t${t.slice(t.indexOf(': ') + 2)}\n`;
   }
   if (json) out += `{"approved": {${obj}}}\n`;
+  if (outFile !== '') return writeApprovedFile(ctx, id, outFile, out, napp, carried);
   ctx.out(out);
+  return 0;
+}
+
+/**
+ * `design-rationales ID --json --out FILE` (A361, issue 338 C3): the control plane writes the approved-rationales object the QA visual lint takes (`--approved-rationales`), so
+ * no role builds a control file by hand. FILE must be a new or existing regular file under `reviews/visual-proof/` of the run (never a link); the command prints the file, the counts
+ * and `lint-paths:`, the existing files the task changed (the lint is limited to the task's own files: a finding of an untouched committed file is not a finding of this change).
+ * @param {Context} ctx @param {string} id @param {string} outFile @param {string} body @param {number} n @param {number} carried
+ */
+function writeApprovedFile(ctx, id, outFile, body, n, carried) {
+  const dir = runDir(ctx, id);
+  const base = path.resolve(dir, 'reviews/visual-proof');
+  const target = path.resolve(outFile.startsWith('.agents/') ? ctx.root : dir, outFile);   // run-relative, or relative to the project root when it starts with .agents/
+  if (path.dirname(target) !== base || !/^[A-Za-z0-9._-]+\.json$/.test(path.basename(target))) fail(`--out must be a .json file directly under .agents/runs/${id}/reviews/visual-proof/`);
+  mkdirSync(base, { recursive: true });
+  try { const st = lstatSync(target); if (st.isSymbolicLink() || !st.isFile()) fail('--out is not a regular file'); } catch (e) { if (e instanceof ProoflineError) throw e; }
+  writeFileSync(target, Buffer.from(body, 'latin1'));
+  const paths = taskChangedPaths(ctx, dir).filter((p) => !/[,\n]/.test(p) && isFile(`${ctx.root}/${p}`));
+  ctx.out(`approved-rationales: ${path.relative(ctx.root, target).split(path.sep).join('/')} (${n} approved, ${carried} of them carried from standing approvals)\nlint-paths: ${paths.join(',')}\n`);
   return 0;
 }
 

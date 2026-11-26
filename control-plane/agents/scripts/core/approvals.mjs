@@ -15,7 +15,7 @@ import { runDir } from './runs.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
-const SHARED_NAMES = ['batch', 'approvals', 'metrics', 'friction', 'prompts'];
+const SHARED_NAMES = ['batch', 'approvals', 'metrics', 'friction', 'prompts', 'standing'];
 
 /** `shared_dir NAME` @param {Context} ctx @param {string} name */
 export function sharedDirOf(ctx, name) { return `${ctx.sharedMain()}/.agents/local/${name}`; }
@@ -410,6 +410,9 @@ export function textHasApproval(ctx, rawText, kind, runId = '', withKinds = []) 
     return false;
   }
   if (named.size > 0 && runId !== '' && !named.has(approvalNorm(runId))) return false;
+  // A361: beside other open kinds, a kind that has a name (rationale:ID, rule:ID, reopen:ID) must be named itself: "approve rationale a" never approves the open rationale b only because
+  // the word `rationale` and b's name are allowed words of the same reply
+  if (withKinds.length > 0 && /^(rationale|rule|reopen):/.test(kind) && !kw.split(' ').slice(1).every((w) => w !== '' && low.includes(` ${w} `))) return false;
   let hit = false;
   for (const p of pl) { if (p !== '' && low.includes(` ${p} `)) { hit = true; break; } }
   if (!hit) return false;

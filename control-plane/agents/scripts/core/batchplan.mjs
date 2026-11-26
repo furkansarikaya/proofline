@@ -19,6 +19,7 @@ import { scopeEntries, scopeEntryCovers, taskType } from './taskfile.mjs';
 import { PLUG_LINE, agentCall, answerLetter, saysAllRecommended, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
 import { now } from './clock.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { describeStanding, readStanding } from './standing.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -499,6 +500,15 @@ function plan(ctx, argv) {
     for (const a of accept) { if (a[0] === 'K') o(`- accept K ${a[1]} ${a[2]}: ${a[3]}\n`); else o(`- accept R ${a[1]}: ${a[3]}\n`); }
   } else o('- none\n');
   for (const l of lt(agentCall(ctx, ['known-issue-list']).out)) if (!l.startsWith('known issues: none')) o(`- already on the known-issues list: ${l}\n`);
+  // A361 (issue 338 C3): what the project already carries from your earlier answers, so the batch shows what is standing and nothing in it is asked again; revoke one with your own message "revoke <rule>"
+  {
+    const standing = readStanding(ctx);
+    if (standing.length > 0) {
+      o('\n## Standing approvals in force (A361)\n\n');
+      o('You approved these earlier; the project carries each only while its rule, its file and its exact content are the same, and nothing here covers a SECRETS or SECURITY finding or a finding of another rule. Say "revoke <rule>" and the lead runs agent.sh standing revoke.\n\n');
+      for (const r of standing) o(`- standing ${describeStanding(r)}\n`);
+    }
+  }
   // A285: the test exceptions the tasks declare. A line of a plan's `## Test exceptions` clears a finding in this batch only when it is listed here (task, sha256 of the exact bytes, the line
   // with every invisible character written out); the approval of this summary is bound to its hash, so it accepts exactly these lines and no agent can add one afterwards.
   // The section exists only when at least one task declares an exception: a batch without one writes the summary it always wrote (same bytes, same digest), and a summary without the

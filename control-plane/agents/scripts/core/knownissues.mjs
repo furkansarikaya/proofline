@@ -6,7 +6,9 @@ import { batchApproval, sharedDirOf } from './approvals.mjs';
 import { hashFile } from './fingerprint.mjs';
 import { git, sortUnique, trackedPaths, untrackedPaths } from './git.mjs';
 import { blockingFindingIds, gateLatestFile, requiredGates } from './gates.mjs';
-import { canon, listable, lookup } from './kirules.mjs';
+import { canon, listable, lookup, placePath } from './kirules.mjs';
+import { sha256 } from './hash.mjs';
+import { findStanding } from './standing.mjs';
 import { isFile } from './paths.mjs';
 import { fileText, gateField, sectionValue, textLines } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
@@ -108,6 +110,42 @@ export function findingBatchAccepted(ctx, id, rec, fid) {
   const summary = fileText(ctx, `${sharedDirOf(ctx, 'batch')}/SUMMARY.md`) ?? '';
   if (!textLines(summary).includes(`- accept K ${g} ${p}: ${t}`)) return false;
   return kiUntouched(ctx, `${ctx.root}/.agents/runs/${id}`, p.split(':')[0]);
+}
+
+/**
+ * The standing key of a blocking finding (A361, issue 338 C3): { rule, surface, fp } when the finding was already there on the unchanged base, else null. SECRETS and
+ * SECURITY never have one. `rule` is the registry rule the finding text names (`lint <id>`) or else a digest of the normalised text; `surface` is the file; `fp` is the
+ * sha256 of the gate, the rule, the finding's normalised text, the file and the file's blob at the run's base. The file must be a tracked blob that the run's frozen
+ * scope does not cover and that the diff since the base does not hold (`kiUntouched`): a finding in a changed file has no key, so it is asked again.
+ * @param {Context} ctx @param {string} id @param {string} rec @param {string} fid @returns {{ rule: string, surface: string, fp: string } | null}
+ */
+export function standingWaiverKey(ctx, id, rec, fid) {
+  const gate = gateField(ctx, rec, 'gate');
+  if (gate === 'SECRETS' || gate === 'SECURITY') return null;
+  if (/secret|secur/.test(asciiLower(gateField(ctx, rec, 'focus')))) return null;
+  const c = canon(ctx, rec, fid);
+  if (c === null || /secret|secur/.test(asciiLower(c.gate)) || listable(ctx, c.gate, c.place) !== null) return null;
+  const file = placePath(c.place);
+  const dir = `${ctx.root}/.agents/runs/${id}`;
+  if (!kiUntouched(ctx, dir, file)) return null;
+  const base = sectionValue(ctx, dir, 'repository', 'base_sha');
+  if (!/^[0-9a-f]{7,64}$/.test(base)) return null;
+  const blob = git(ctx, ['rev-parse', '--verify', '-q', `${base}:${file}`]);
+  const kind = git(ctx, ['cat-file', '-t', `${base}:${file}`]);
+  if (blob.status !== 0 || kind.status !== 0 || kind.out.trim() !== 'blob') return null;
+  const m = /^lint ([a-z][a-z0-9-]*)(?![a-z0-9-])/.exec(c.text);
+  const rule = m !== null ? m[1] : sha256(c.text).slice(0, 12);
+  return { rule, surface: file, fp: sha256(`${c.gate}\n${rule}\n${c.text}\n${file}\n${blob.out.trim()}\n`) };
+}
+
+/**
+ * The finding is a pre-existing one (it has a standing key) that the user already waived, in this or an earlier task, for exactly this rule, this file and this content
+ * (STANDING.tsv, written only from the user's message). A changed file, a changed finding or another rule has another key.
+ * @param {Context} ctx @param {string} id @param {string} rec @param {string} fid
+ */
+export function findingStandingWaived(ctx, id, rec, fid) {
+  const k = standingWaiverKey(ctx, id, rec, fid);
+  return k !== null && findStanding(ctx, 'waiver', k.rule, k.surface, k.fp) !== null;
 }
 
 /** `ki_gate_facts ID GATE`: "KI-n:FINDING:follow-up" for the gate's current blocking findings that are listed known issues. @param {Context} ctx @param {string} id @param {string} gate @returns {string[]} */

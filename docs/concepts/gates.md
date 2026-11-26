@@ -213,6 +213,15 @@ Further kinds (A200): `rationale:<pattern-id>` approves one design rationale and
 recorded only from your reply. Only such an approved rationale can downgrade a visual finding; an agent-written one never does. A visual PASS also needs an
 independent `reviews/visual-proof/report.json` that says PASS, and a FAIL or INCONCLUSIVE report never counts as PASS.
 
+**Standing approvals (A361).** What you approve once is not asked again for the same thing. An approved rationale and the waiver of a finding that already existed on the
+unchanged base (its file is tracked at the run's base and the task did not change it) are kept for the project in `.agents/local/standing/STANDING.tsv`: scope, rule, file,
+the fingerprint of what you approved (the exact `DESIGN.md` line; for a finding its rule, text and the file's content at the base), your message id and the date. Only the
+control plane writes it, only from your reply. A later task, batch or run is not asked again while the line, the file and the finding are the same; an edited line, a
+changed file or finding, another rule, a finding in a file the task changed, a HIGH finding of another rule, and every SECRETS or SECURITY finding are asked again (a standing
+approval is never inferred from silence and never created by a batch cover). `agent.sh standing list` shows what stands (the night batch summary lists it too), and
+`agent.sh standing revoke <rule> [<surface>]` removes it, only when your newest message says "revoke <rule>". The QA visual lint covers the files the task changed, so a
+finding in an untouched committed page is not a finding of this change; `agent.sh design-rationales <ID> --json --out reviews/visual-proof/<name>.json` writes the approved-rationales file for the lint, so no role builds it by hand.
+
 **Several approvals in one message (A202, A350).** When the whole message is not one approval, it is split only on commas, semicolons and newlines
 ("approve scope; approve budget") and each segment goes through the same strict check; every approved segment is its own record bound to the same captured message (at most
 `approval.max_per_message`, 8). One phrase may approve several open kinds only when it names each kind ("approve plan and scope"); "approve everything" or "approve all"

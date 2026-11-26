@@ -3,6 +3,7 @@
 // No dependencies, no browser. The gate decision belongs to validate-visual.mjs: this script exits 0 whatever it finds (2 = usage error).
 //
 //   node lint-source.mjs --root <repo> [--design-md <path>] [--paths a,b] --out <dir>
+//   --paths limits the lint to those files or folders (A361: the task's own changed files); an EMPTY --paths "" lints nothing, and no --paths lints the whole root.
 //
 // A finding is `blocking` unless DESIGN.md has a line `- <pattern-id>: <reason>` under `## Pattern justifications` AND the user approved
 // that exact line (A200): `--approved-rationales <file>`, the output of `agent.sh design-rationales <ID> --json` ({"approved":
@@ -89,7 +90,7 @@ function walk(dir, root, out) {
 
 export function sourceFiles(root, paths) {
   const out = [];
-  const starts = paths && paths.length ? paths.map((p) => (isAbsolute(p) ? p : resolve(root, p))) : [root];
+  const starts = paths ? paths.map((p) => (isAbsolute(p) ? p : resolve(root, p))) : [root];
   for (const s of starts) {
     if (!existsSync(s)) continue;
     const st = statSync(s);
@@ -168,7 +169,7 @@ function main(argv) {
     try { approved = JSON.parse(readFileSync(arg(argv, "--approved-rationales"), "utf8")).approved; }
     catch (e) { console.error(`lint-source: cannot read --approved-rationales: ${e.message}`); return 2; }
   }
-  const lint = lintProject({ root, designMd: arg(argv, "--design-md"), approved, paths: paths ? paths.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
+  const lint = lintProject({ root, designMd: arg(argv, "--design-md"), approved, paths: paths !== undefined ? paths.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   try { mkdirSync(out, { recursive: true }); writeFileSync(join(out, "lint.json"), JSON.stringify(lint, null, 2) + "\n"); }
   catch (e) { console.error(`lint-source: cannot write ${out}/lint.json: ${e.message}`); return 2; }
   const blocking = blockingFindings(lint).length;

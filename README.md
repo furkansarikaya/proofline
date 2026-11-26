@@ -11,7 +11,7 @@ With a plain session, "done" is the model's word. proofline makes it show why:
 - **No "done" without evidence.** A run cannot reach CODE_DONE until every required gate has passed for the current content, or you have explicitly waived it.
 - **The test fails first.** The implementer records RED, then GREEN evidence, and the gates reproduce it independently.
 - **Whoever wrote a change never reviews it.** Reviews, QA and security run in separate roles.
-- **Approvals come only from your own message.** The prompt hook records them; no agent can approve or waive for you.
+- **Approvals come only from your own message.** The prompt hook records them; no agent can approve or waive for you. A design rationale or a waiver of a finding that was already there is asked once and carried while its line, file and finding stay the same (`agent.sh standing` lists it; "revoke <rule>" removes it).
 - **Secret and security gates cannot be waived.** They run on every round that changes code, dependencies or configuration.
 
 These restate five of the six [core invariants](CONTRIBUTING.md#core-invariants); each has at least one test that attempts the forbidden action against the real scripts, and the test headers name any part that is not yet mechanical.
@@ -29,6 +29,7 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 ## Status
 
 Version 0.0.182 is an early release.
+Version 0.0.183 is an early release.
 It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE on `98f49400` (a single sample, FAIL 37/38 invariants, C-22 only) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
@@ -117,5 +118,6 @@ Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#th
 ## Versioning and license
 
 Version **0.0.182**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.183**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

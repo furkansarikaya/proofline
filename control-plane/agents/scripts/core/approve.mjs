@@ -32,6 +32,8 @@ import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
 import { exceptionLines, exceptionsBaseLines, exceptionsBaseline, exceptionsHash, exceptionsRow } from './testreview.mjs';
 import { asciiLower } from './shellglob.mjs';
+import { addStanding } from './standing.mjs';
+import { standingWaiverKey } from './knownissues.mjs';
 
 
 const bs = (/** @type {string} */ s) => Buffer.from(s, 'utf8').toString('latin1');
@@ -148,15 +150,18 @@ function hashFileOrBridge(file) {
 }
 
 /** `rationale_line ID`: the justification line of the first DESIGN.md candidate that has it. @param {Context} ctx @param {string} id */
-export function rationaleLine(ctx, id) {
+export function rationaleLine(ctx, id) { return rationaleSource(ctx, id).line; }
+
+/** The line of `rationale_line` and the project-relative path of the DESIGN.md that holds it (A361: the surface a standing rationale is bound to). @param {Context} ctx @param {string} id @returns {{ line: string, file: string }} */
+export function rationaleSource(ctx, id) {
   for (const c of DESIGN_MD_CANDIDATES) {
     const f = `${ctx.root}/${c}`;
     if (!isFile(f)) continue;
     const t = readBytes(f);
     const line = t === null ? '' : rationaleLineIn(id, t);
-    if (line !== '') return line;
+    if (line !== '') return { line, file: c };
   }
-  return '';
+  return { line: '', file: '' };
 }
 
 /**
@@ -512,13 +517,15 @@ export function requestApproval(ctx, id0, kind0) {
   if (kind === 'known-issue') rows = tsvRows(`${sharedDirOf(ctx, 'known-issues')}/PROPOSAL.tsv`, (f) => `   known issue: ${f[0]} ${f[1] ?? ''}: ${f[2] ?? ''} (follow-up task ${f[3] ?? ''})`);
   if (kind === 'scale') rows = tsvRows(`${sharedDirOf(ctx, 'scale')}/PROPOSAL.tsv`, (f) => `   timeouts.${f[0]}: ${f[1] ?? ''}`);
   if (kind === 'rename') rows = tsvRows(`${sharedDirOf(ctx, 'rename')}/PROPOSAL.tsv`, (f) => `   rename: ${f[0]} -> ${f[1] ?? ''}`);
-  if (kind.startsWith('rationale:')) rows = `   rationale line of DESIGN.md: ${rationaleLine(ctx, kind.slice(10))}`;
+  if (kind.startsWith('rationale:')) rows = `   rationale line of DESIGN.md: ${rationaleLine(ctx, kind.slice(10))}\n   if you approve, this rationale is kept for this project and not asked again in other tasks, batches or runs while this exact line stays; a changed line is asked again; revoke it with the message "revoke ${kind.slice(10)}"`;
   if (kind.startsWith('waive:') && id !== '-') {
     let wr = '';
     try { wr = waiveTarget(ctx, id, kind.slice(6)); } catch (e) { if (!(e instanceof ProoflineError)) throw e; }
     if (wr !== '') {
       const wg = waiveGroupIds(ctx, wr, kind.slice(6));
-      if (wg.length > 1) rows = `   this one decision covers ${wg.length} findings of the same rule in ${wr.slice(wr.lastIndexOf('/') + 1)}: ${wg.slice(0, 3).join(' ')} ... (detail: that gate record and the report); the lead records it with: agent.sh waive ${id} ${kind.slice(6)} --group --reason TEXT`.replace(' ... (detail', '... (detail');
+      const carry = wg.filter((f) => standingWaiverKey(ctx, id, wr, f) !== null);
+      if (carry.length > 0) rows = `   ${carry.length} of ${wg.length > 1 ? 'these' : 'this'} finding(s) already existed on the unchanged base: if you approve, the waiver is kept for this project for exactly that rule, file and content and not asked again in other tasks, batches or runs; a changed file or finding is asked again; revoke with the message "revoke <rule>"`;
+      if (wg.length > 1) rows += `${rows === '' ? '' : '\n'}   this one decision covers ${wg.length} findings of the same rule in ${wr.slice(wr.lastIndexOf('/') + 1)}: ${wg.slice(0, 3).join(' ')} ... (detail: that gate record and the report); the lead records it with: agent.sh waive ${id} ${kind.slice(6)} --group --reason TEXT`.replace(' ... (detail', '... (detail');
     }
   }
   if (kind === 'scope' && plan !== null) rows = scopeExceptionRows(ctx, id, plan);
@@ -716,6 +723,14 @@ export function approveOne(ctx, id, kind0, st) {
   const tok = id === '-' ? '' : `approvals/${n}-${slug}.yaml@${sha256File(file)} `;
   ledgerIf(ctx, id, 'approval', '-', '-', `${tok}${kind} source=${src} answered_by=user bound=${bound}`);
   ctx.out(`approval recorded: ${id} ${kind} (${src})\n`);
+  // A361 (issue 338 C3): a rationale the user approved from their own message is kept for the project, bound to the exact DESIGN.md line (rule, document, sha256 of the line)
+  if (kind.startsWith('rationale:') && id !== '-') {
+    const rid = kind.slice(10);
+    const rs = rationaleSource(ctx, rid);
+    if (rs.file !== '' && sha256(rs.line) === bound && addStanding(ctx, { scope: 'rationale', rule: rid, surface: rs.file, fp: bound, message: cid, origin: `${id} ${n}-${slug}.yaml` })) {
+      ctx.out(`standing rationale recorded: ${rid} on ${rs.file} (kept for this project while that exact line stays; revoke: agent.sh standing revoke ${rid})\n`);
+    }
+  }
 }
 
 /** Is stdin and stdout a terminal (the interactive path of `approve`)? @param {Context} ctx */

@@ -8,6 +8,8 @@ import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
 import { consumeApproval, mutationBudget, nextNum, planMutantNeed, requireLead, waiveCanon, waiveGroupIds, waiveTarget, requireOpenRun } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
+import { standingWaiverKey } from './knownissues.mjs';
+import { addStanding } from './standing.mjs';
 import { findingWaiverKey, gateFocus, gateOwner, resolveTopology } from './gates.mjs';
 import { taskChangedPaths } from './signals.mjs';
 import { gateDefaultArtifact, gatePreconditions, validGateName, writeGate } from './gatewrite.mjs';
@@ -312,6 +314,24 @@ export function applyApprovedBudget(ctx, id) {
 
 // ---- waive ---------------------------------------------------------------------------------------------------------------------------
 
+/**
+ * A361 (issue 338 C3): the waiver the user's message earned also becomes a standing one for every finding of it that was already there on the unchanged base (its rule, its
+ * file and the file's content at the base are the key), so the same pre-existing finding is not asked again in another task, batch or run. Only an approval that came from
+ * the user's own message counts (never a batch or delivery cover); SECRETS and SECURITY findings have no key.
+ * @param {Context} ctx @param {string} id @param {string} rec @param {string[]} list @param {string} app the approval file
+ */
+function carryWaivers(ctx, id, rec, list, app) {
+  const src = gateField(ctx, app, 'source');
+  if (gateField(ctx, app, 'answered_by') !== 'user' || (src !== 'prompt_capture' && src !== 'tty')) return;
+  const msg = gateField(ctx, app, 'capture_id');
+  if (msg === '') return;
+  for (const f of list) {
+    const k = standingWaiverKey(ctx, id, rec, f);
+    if (k === null) continue;
+    if (addStanding(ctx, { scope: 'waiver', rule: k.rule, surface: k.surface, fp: k.fp, message: msg, origin: `${id} ${path.basename(app)}` })) ctx.out(`standing waiver recorded: ${k.rule} on ${k.surface} (kept for this project while that file and finding stay the same; revoke: agent.sh standing revoke ${k.rule})\n`);
+  }
+}
+
 /** `waive ID FINDING-ID --reason TEXT [--group]` @param {Context} ctx @param {string[]} args */
 export function waiveCommand(ctx, args) {
   const id = need(args, 0); let fid = need(args, 1);
@@ -356,6 +376,7 @@ export function waiveCommand(ctx, args) {
     if (!group) ctx.out(`waiver recorded: ${id} ${f} (${gate})\n`);
   }
   consumeApproval(ctx, id, app);
+  carryWaivers(ctx, id, rec, list, app);
   if (group) ctx.out(`group waiver recorded: ${id} ${rep} and ${list.length} finding(s) of the same rule (${gate}): ${list.join(' ')}\n`);
   return 0;
 }
