@@ -8,7 +8,7 @@ import { makeSymlink } from '../lib/winpath.mjs';
 import { before, test } from 'node:test';
 import { A, accepted, codeDoneStandalone, copyOf, must, project, qaA, read, refused, stage, template } from './legacy-lib.mjs';
 import { cleanEnv } from '../hook/harness.mjs';
-
+import { warmDefaultTemplate } from '../lib/harness.mjs';
 /** A manual standalone run, frozen and at IMPLEMENTING (the scaffold, then the freeze and the handoff), built once. @param {string} d */
 function frozenImplementing(d) { qaA(d, 'freeze', 'LC'); must(d, ['handoff', 'LC', 'IMPLEMENTING']); }
 const manual = () => copyOf(stage(template('scaffold standalone no STANDARD manual'), 'freeze, IMPLEMENTING', frozenImplementing));
@@ -213,4 +213,4 @@ test('baseline: a repository without a commit stops like the shell did (rev-pars
 });
 
 // the cold build of every project variant this file copies is paid here, not inside the first test that uses it (A311, A359)
-before(() => { manual(); for (const r of ['scaffold standalone no STANDARD', BRANCH_RUN, NEW_RUN('', ''), NEW_RUN('\\n## Suggested class\\n\\nSTANDARD — one module\\n'), NEW_RUN('', '\\n## Data\\n\\ndestructive: yes\\n')]) template(r); });
+before(() => { warmDefaultTemplate(); manual(); for (const r of ['scaffold standalone no STANDARD', BRANCH_RUN, NEW_RUN('', ''), NEW_RUN('\\n## Suggested class\\n\\nSTANDARD — one module\\n'), NEW_RUN('', '\\n## Data\\n\\ndestructive: yes\\n')]) template(r); });
