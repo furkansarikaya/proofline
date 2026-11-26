@@ -159,7 +159,17 @@ async function relpathCompute(ctx, p0) {
     dir = up;
   }
   let tail = parts.reverse().join('/');
-  if (`/${tail}/`.includes('/../') || `/${tail}/`.includes('/./')) return { rel: '@unknown', abs: '', ci: true };
+  // C9c: the names below the first existing folder do not exist, so no link can sit among them: `.` and `a/..` collapse by name (`nodir/../src/a.js` is `src/a.js`),
+  // and a `..` that would climb above the existing folder cannot be placed (fail closed)
+  if (`/${tail}/`.includes('/../') || `/${tail}/`.includes('/./') || tail === '..' || tail === '.') {
+    /** @type {string[]} */ const kept = [];
+    for (const seg of tail.split('/')) {
+      if (seg === '' || seg === '.') continue;
+      if (seg === '..') { if (kept.length === 0) return { rel: '@unknown', abs: '', ci: true }; kept.pop(); continue; }
+      kept.push(seg);
+    }
+    tail = kept.join('/');
+  }
   const phys = physical(dir);
   if (phys === '') return { rel: '@unknown', abs: '', ci: true };
   // an existing last component keeps the case it has on disk (never a link: the link itself is judged by target_ok)
@@ -168,7 +178,7 @@ async function relpathCompute(ctx, p0) {
       if (!lstatSync(`${phys}/${tail}`).isSymbolicLink()) tail = path.basename(realpathSync.native(`${phys}/${tail}`));
     } catch { /* not there yet */ }
   }
-  rp = phys === '/' ? `/${tail}` : `${phys}/${tail}`;
+  rp = tail === '' ? phys : phys === '/' ? `/${tail}` : `${phys}/${tail}`;
   // A184: a session whose project root is a run worktree still protects the MAIN tree
   const root = physical(ctx.root) || ctx.root; const main = physical(ctx.mainRoot) || ctx.mainRoot;
   let base = '';

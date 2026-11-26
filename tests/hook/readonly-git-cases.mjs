@@ -662,6 +662,31 @@ export const CASES = [
   ["review 3 remote: git remote update (fetch only)", "git remote update", 'allow'],
   ["review 3 remote: git remote update origin", "git remote update origin", 'allow'],
   ["review 3 remote: git remote prune stays refused", "git remote prune origin", 'deny'],
+  // C9a (A363): the message of `git commit -F -` is data like a report written with cat; a push after it, a pipe into a shell and a program consumer are still read
+  ["C9a: commit message from stdin that talks about git push", "git commit -F - <<'EOF'\nfix: do not git push origin Main\nEOF", 'allow'],
+  ["C9a: commit message from stdin with a long option", "git commit --file - <<'EOF'\ngit push is not run here\nEOF", 'allow'],
+  ["C9a: commit message from stdin, then a real push", "git commit -F - <<'EOF'\nmsg\nEOF\ngit push origin Main", 'deny'],
+  ["C9a: commit message from stdin piped into sh", "git commit -F - <<'EOF' | sh\ngit push origin Main\nEOF", 'deny'],
+  ["C9a: commit message body that substitutes a command", "git commit -F - <<EOF\n$(git push origin Main)\nEOF", 'deny'],
+  // A363 attack review: a here-document or pipe whose consumer runs text (xargs, a shell, source, an interpreter) is a script, never data
+  ["A363: body through xargs -I{} sh -c {}", "cat <<'EOF' | xargs -I{} sh -c {}\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through xargs sh -c", "cat <<'EOF' | xargs sh -c\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through xargs bash -c", "cat <<'EOF' | xargs -n1 bash -c\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through env xargs sh", "cat <<'EOF' | env xargs sh -c\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through source /dev/stdin", "cat <<'EOF' | source /dev/stdin\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through . /dev/stdin", "cat <<'EOF' | . /dev/stdin\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through env sh", "cat <<'EOF' | env sh\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through command bash", "cat <<'EOF' | command bash\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through exec sh", "cat <<'EOF' | exec sh\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through python3 -c", "cat <<'EOF' | python3 -c 'import os,sys;os.system(sys.stdin.read())'\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through a bare python3", "cat <<'EOF' | python3\nimport os; os.system('git push origin Main')\nEOF", 'deny'],
+  ["A363: body through node -e", "cat <<'EOF' | node -e 'x'\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through perl -e", "cat <<'EOF' | perl -e 'x'\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through ruby -e", "cat <<'EOF' | ruby -e 'x'\ngit push origin Main\nEOF", 'deny'],
+  ["A363: body through eval", "cat <<'EOF' | eval\ngit push origin Main\nEOF", 'deny'],
+  ["A363: git commit -F - body is still data", "git commit -F - <<'EOF'\nmsg: git push origin Main is not run\nEOF", 'allow'],
+  ["A363: tee body is still data", "tee r.md <<'EOF'\ngit push origin Main\nEOF", 'allow'],
+  ["C9a: gh pr create with its body from stdin is still a pull request creation", "gh pr create --title t --body-file - <<'EOF'\nnotes\nEOF", 'deny'],
 ];
 
 /** The review roles: [role, the agent_type the runtime sends]. */

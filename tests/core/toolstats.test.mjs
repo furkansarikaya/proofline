@@ -8,7 +8,7 @@ import path from 'node:path';
 import { after, describe, test } from 'node:test';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
 import { metricsStep } from '../../control-plane/agents/scripts/core/resultutil.mjs';
-import { readToolStats, toolsRecord } from '../../control-plane/agents/scripts/core/toolstats.mjs';
+import { denialClass, readToolStats, toolsRecord } from '../../control-plane/agents/scripts/core/toolstats.mjs';
 import { makeProject, memoryIo, repo } from './helpers.mjs';
 
 /** @param {unknown[]} entries */
@@ -40,6 +40,7 @@ describe('readToolStats', () => {
     assert.equal(s.calls, 4);
     assert.equal(s.resultBytes, 5 + 6 + Buffer.byteLength(DENY));
     assert.equal(s.denied, 1);
+    assert.deepEqual(s.denials, { 'a-model-command-never-starts-on-the-control': 1 });
     assert.deepEqual(s.byTool, { Bash: { calls: 3, bytes: 5 + Buffer.byteLength(DENY) }, Read: { calls: 1, bytes: 6 } });
   });
   test('tool names are reduced to [A-Za-z0-9._+:-] and at most 40 distinct names are kept (the rest is "other")', () => {
@@ -85,7 +86,7 @@ describe('tools.jsonl record', () => {
     const text = readFileSync(fileOf(root), 'utf8');
     assert.ok(!text.includes('SECRET'));
     const o = JSON.parse(text);
-    assert.deepEqual(Object.keys(o), ['schema', 'kind', 'time', 'task', 'role', 'focus', 'gate', 'runtime', 'log', 'calls', 'result_bytes', 'denied', 'by_tool', 'reason']);
+    assert.deepEqual(Object.keys(o), ['schema', 'kind', 'time', 'task', 'role', 'focus', 'gate', 'runtime', 'log', 'calls', 'result_bytes', 'denied', 'denials', 'by_tool', 'reason']);
     assert.equal(o.schema, 'proofline.tools/1'); assert.equal(o.kind, 'step');
     assert.match(o.time, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$/);
     assert.deepEqual([o.task, o.role, o.focus, o.gate, o.runtime, o.log, o.calls, o.result_bytes, o.denied], ['T-1', 'reviewer', 'rules+tests', 'REVIEW_SMALL', 'claude', 'ok', 2, 15, 0]);
@@ -188,5 +189,43 @@ describe('fix round 1 (A235)', () => {
     toolsRecord(ctx, { task: 'T-1', role: 'qa', focus: '', gate: 'QA', runtime: 'claude', log: root });   // a directory: the read throws
     const o = JSON.parse(readFileSync(path.join(root, '.agents/local/metrics/tools.jsonl'), 'utf8').trim().split('\n').pop() ?? '');
     assert.equal(o.log, 'unreadable'); assert.equal(o.calls, null);
+  });
+});
+
+describe('C8a denialClass', () => {
+  test('keeps the fixed prose of the rule, drops everything a model typed, and never returns an empty class', () => {
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: merging a pull request goes only through `proofline merge 7` (A136) | Instead: x'), 'merging-a-pull-request-goes-only-through');
+    // the bracketed command, quoted and parenthesised values, paths and mixed-case identifiers never reach the record
+    assert.equal(denialClass('PreToolUse:Bash hook error: [curl -H "Authorization: hunter2" https://x/y]: proofline: the command writes \'/home/u/sk-secretvalue\' (token=abc): outside the project'), 'the-command-writes-outside-the-project');
+    // a plain lower-case word the hook echoes unquoted (a bare file name, a token-like word) is not the hook's prose and never reaches the record
+    assert.equal(denialClass('PreToolUse:Write hook error: proofline: Write zxqvbn is outside the paths role implementer owns'), 'is-outside-the-paths-role-implementer-owns');
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: the command writes secretsauce hunter2 outside the project'), 'the-command-writes-outside-the-project');
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: zxqvbn secretsauce'), 'no-reason');
+    assert.equal(denialClass('PreToolUse:Bash hook error: '), 'no-reason');
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: Sk9QweRtY /tmp/x 42'), 'no-reason');
+    assert.equal(denialClass('PreToolUse:Bash hook error: proofline: git hook bypass is never allowed per A41'), 'git-hook-bypass-is-never-allowed-A41');
+    assert.ok(denialClass(`PreToolUse:Bash hook error: proofline: ${'word '.repeat(500)}`).length <= 64);
+  });
+  test('the word list is the one derived from the hook text (a changed hook sentence needs `node tests/ci/denial-words.mjs`), and holds no file name, path or value', async () => {
+    const { derive, render } = await import('../ci/denial-words.mjs');
+    const { DENIAL_WORDS } = await import('../../control-plane/agents/scripts/core/denialwords.mjs');
+    assert.deepEqual([...DENIAL_WORDS], derive());
+    assert.equal(readFileSync(path.join(repo, 'control-plane/agents/scripts/core/denialwords.mjs'), 'utf8'), render(derive()));
+    for (const w of DENIAL_WORDS) assert.match(w, /^[a-z]+(?:-[a-z]+)*$/);
+    for (const w of ['zxqvbn', 'hunter', 'secretsauce', 'readme', 'password']) assert.ok(!DENIAL_WORDS.has(w), w);
+    for (const w of ['awk', 'gawk', 'mawk', 'nawk', 'sed', 'gsed']) assert.ok(!DENIAL_WORDS.has(w), `${w}: the no-shell-logic check refuses a text tool named as a string`);
+  });
+  test('the denials table of a step counts classes, keeps at most 8 and sums the rest as other', () => {
+    const dir = makeProject();
+    /** @type {unknown[]} */ const entries = [];
+    for (let i = 0; i < 10; i++) {
+      const word = ['outside', 'project', 'command', 'writes', 'never', 'allowed', 'role', 'owns', 'paths', 'implementer'][i] ?? 'a';
+      for (let k = 0; k <= i; k++) { entries.push(use(`u${i}-${k}`, 'Bash')); entries.push(res(`u${i}-${k}`, `PreToolUse:Bash hook error: proofline: ${word}`)); }
+    }
+    const s = readToolStats(writeLog(dir, entries));
+    assert.equal(s.denied, 55);
+    assert.equal(Object.keys(s.denials ?? {}).length, 9);
+    assert.equal(s.denials?.other, 1 + 2);
+    assert.equal(s.denials?.implementer, 10);
   });
 });

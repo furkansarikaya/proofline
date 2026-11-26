@@ -50,6 +50,7 @@ const num = (s) => { const n = parseFloat(s); return Number.isNaN(n) ? 0 : n; };
 /** The counts of the ledger (and HOOKS.log) lines. @param {string[]} ledger @returns {string} */
 function ledgerPart(ledger) {
   let cls = ''; let ask = 0; let au = 0; let al = 0; let ar = 0; let hruns = 0; let htot = 0; let hmax = 0; let hto = 0; let fnb = 0; let fnt = 0;
+  let obsD = 0; let obsB = 0; let obsF = 0;
   let term = ''; let done = false; let fo = 0; let fot = 0; let gft = 0; let blt = 0;
   /** @type {Map<string, number>} */ const fnk = new Map(); /** @type {Map<string, number>} */ const gf = new Map(); /** @type {Map<string, number>} */ const bl = new Map();
   const bump = (/** @type {Map<string, number>} */ m, /** @type {string} */ k) => m.set(k, (m.get(k) ?? 0) + 1);
@@ -66,6 +67,10 @@ function ledgerPart(ledger) {
       if (/^[0-9]+$/.test(hr)) { hruns += Number(hr); htot += num(ht); if (num(hm) > hmax) hmax = num(hm); }
     }
     if (l.includes(' event=hook-timeout ')) hto++;
+    // C8e: the workarounds the control plane saw itself (see next.mjs observedWorkarounds)
+    if (l.includes(' event=discard-untracked ')) obsD++;
+    if (l.includes(' event=raise-budget ')) obsB++;
+    if (l.includes(' event=forced-removal ')) obsF++;
     if (l.includes(' event=friction-note ')) {
       const fnd = w(l.replace(/^.* detail=/, '').replace(/ .*$/, ''));
       bump(fnk, fnd);
@@ -83,8 +88,12 @@ function ledgerPart(ledger) {
   let o = `outcome: ${done ? 'done' : term !== '' ? asciiLower(term) : 'open'}\nclassification: ${cls !== '' ? cls : 'unknown'}\n\n`;
   o += `## User interruptions\n\n- questions asked: ${ask} (answered by the user: ${au}, by an assumption: ${al})\n- approval requests: ${ar}\n- total times the user was asked: ${ask + ar}\n`;
   o += `- times the user was asked to run a command (a proofline bug): ${fnt}\n`;
-  o += `- proofline failures the lead worked around (proofline_bug): ${fnb}\n`;
+  o += `- proofline failures the lead worked around (proofline_bug): ${fnb + obsD + obsB + obsF}\n`;
   for (const k of sorted(fnk)) o += `  - ${k}: ${fnk.get(k)} times\n`;
+  if (obsD + obsB + obsF > 0) o += `- workarounds the control plane saw itself (counted in proofline_bug): ${obsD + obsB + obsF}\n`;
+  if (obsD > 0) o += `  - untracked files discarded (discard-untracked): ${obsD}\n`;
+  if (obsB > 0) o += `  - mutation budgets raised (raise-budget): ${obsB}\n`;
+  if (obsF > 0) o += `  - worktrees removed with --force: ${obsF}\n`;
   o += '\n';
   o += `## Blocked and failed gates\n\n- gate failures: ${gft}\n`;
   for (const k of sorted(gf)) o += `  - gate ${k} failed ${gf.get(k)} times\n`;

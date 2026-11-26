@@ -22,7 +22,7 @@ import { riskSignals } from './signals.mjs';
 import { verifyCommandTimeout } from './timeouts.mjs';
 import { listNames } from './ledger.mjs';
 import { metricsJson, metricsLine } from './runend.mjs';
-import { findCodexRollout, toolsRecord } from './toolstats.mjs';
+import { claudeUsage, findCodexRollout, tokenDelta, toolsRecord } from './toolstats.mjs';
 import { now } from './clock.mjs';
 import { unapprovedClearings } from './exceptionsapproval.mjs';
 
@@ -616,17 +616,12 @@ export function metricsStep(ctx, id, role, focus, outcome, stepAgent, platform =
   let tin = '-'; let tout = '-'; let ttot = '-';
   const tp = started.length >= 1 ? started[0] : '';
   if (isLocalAbsolute(tp, platform) && /^.*\.jsonl$/.test(tp) && plainOrLinkFile(tp) && rt === 'claude') {
-    /** @type {Map<string, [number, number]>} */ const per = new Map();
-    for (const l of readFileSync(tp, 'latin1').split('\n')) {
-      if (!l.includes('"role":"assistant"')) continue;
-      const m = /"id":"msg_[A-Za-z0-9_]+"/.exec(l);
-      if (!m) continue;
-      let u = l.replace(/^[^]*"usage":\{/, '');
-      u = u.slice(0, 400);
-      const num = (/** @type {string} */ k) => { const mm = new RegExp(`"${k}":([0-9]+)`).exec(u); return mm ? Number(mm[1]) : 0; };
-      per.set(m[0], [num('input_tokens') + num('cache_creation_input_tokens'), num('output_tokens')]);
+    // C8f: the log is cumulative (a resumed agent writes on into the same file), so this record takes what the log gained since the previous record of it
+    const used = claudeUsage(tp);
+    if (used !== null) {
+      const d = ctx.config().get('metrics', 'on') === 'off' ? used : tokenDelta(ctx, tp, used);
+      tin = String(d.tin); tout = String(d.tout); ttot = String(d.tin + d.tout);
     }
-    if (per.size > 0) { let a = 0; let b = 0; for (const [i, o] of per.values()) { a += i; b += o; } tin = String(a); tout = String(b); ttot = String(a + b); }
   }
   metricsJson(ctx, ['step', id, role, focus, gateOf(ctx, role, focus, id), rt === '' ? '-' : rt, model === '' ? '-' : model, dur, tin, tout, ttot, '-', '-', '-', '-', outcome]);
   // A235: the tool calls and result bytes of the same session log, in a file of their own (records.jsonl keeps its format)

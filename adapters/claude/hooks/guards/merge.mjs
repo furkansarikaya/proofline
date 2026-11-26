@@ -20,7 +20,7 @@ const re = (s, flags = '') => /** @type {RegExp} */ (ereToJs(s, flags));
 // A274: `(env|sudo|doas)[[:space:]]+([^;&|]*[[:space:]])?(-[A-Za-z]*[CD]|--chdir)` as a linear scan (kit.mjs envChdirOpt): the expression took 20 s on 36000 repeats of `env `
 const RE_SUBCMD = re(String.raw`(^|[^[:alnum:]_./-])(gh|glab)([[:space:]]+(-R|--repo)[[:space:]]+[^[:space:]]+)?([[:space:]]+[A-Za-z][A-Za-z-]*)?[[:space:]]+["']?[$${BT}]`);
 const RE_PAY = re(String.raw`(^|[^[:alnum:]_])(pr|mr)["'[:space:]]+merge([^[:alnum:]_]|$)|repos[[:space:]]+pr[[:space:]]+update[^;&|]*(completed|auto-complete)|/merge_requests/[^[:space:]]*merge|/pulls/[^[:space:]]*merge|mergePullRequest|enablePullRequestAutoMerge|git[[:space:]]+([^;&|]*[[:space:]])?push[^;&|]*[[:space:]:/+](main|master)([^[:alnum:]_.-]|$)|git[[:space:]]+merge`);
-const RE_SINK = re(String.raw`\|[[:space:]]*((env|sudo|command|exec)[[:space:]]+)*(/[^[:space:]|;&]*/)?(sh|bash|zsh|dash|ksh|ash)([[:space:]]|;|&|\)|$)|(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh)([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<|(sh|bash|zsh|dash|ksh)[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-s([[:space:]]|$)|(^|[^[:alnum:]_.-])(python[0-9.]*|node|nodejs|deno|bun|ruby|perl|php|lua)[[:space:]]+(-[A-Za-z]*[ceErp]|--eval)([[:space:]]|$)|awk[^|;&]*system[[:space:]]*\(|(^|[;&|({[:space:]])eval[[:space:]]|alias\.[A-Za-z0-9_-]+=["']?!`);
+const RE_SINK = re(String.raw`\|[[:space:]]*((env|sudo|command|exec)[[:space:]]+)*(/[^[:space:]|;&]*/)?(sh|bash|zsh|dash|ksh|ash)([[:space:]]|;|&|\)|$)|(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh)([[:space:]]+-[A-Za-z]+)*[[:space:]]*<<|(sh|bash|zsh|dash|ksh)[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-s([[:space:]]|$)|(^|[^[:alnum:]_.-])(python[0-9.]*|node|nodejs|deno|bun|ruby|perl|php|lua)[[:space:]]+(-[A-Za-z]*[ceErp]|--eval)([[:space:]]|$)|awk[^|;&]*system[[:space:]]*\(|(^|[;&|({[:space:]])eval[[:space:]]|alias\.[A-Za-z0-9_-]+=["']?!|\|[[:space:]]*((env|sudo|command|exec)[[:space:]]+)*xargs[^|;&]*[[:space:]](/[^[:space:]|;&]*/)?(sh|bash|zsh|dash|ksh|ash|eval|python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|lua)([[:space:]]|;|&|\)|$)|\|[[:space:]]*((env|sudo|command|exec)[[:space:]]+)*(/[^[:space:]|;&]*/)?(python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|lua)([[:space:]]|;|&|\)|$)|\|[[:space:]]*(source|\.)[[:space:]]+(/dev/stdin|/dev/fd/0|/proc/self/fd/0|-)([[:space:]]|;|&|\)|$)`);
 const RE_API_WRITE = re(String.raw`^(-X|--method|-f|-F|--field|--raw-field|--input)(=.*)?$|^-X.`);
 const RE_API_DENY = re(String.raw`^--input|=@|mutation|/pulls/[^/[:space:]]*/merge|/merge_requests/[^/[:space:]]*/(merge|cancel_merge)|merge_when_pipeline_succeeds|state_event|/pullrequests/|/merges?([[:space:]?#]|$)|mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|auto_merge|git/refs/heads/(main|master)`, 'i');
 const RE_GH_ENDPOINT = re(String.raw`/pulls/[^[:space:]]*/merge|/merges|git/refs|/contents/|graphql|mergePull|auto_merge`, 'i');
@@ -103,6 +103,66 @@ async function originHead(ctx) {
     short = r && r.status === 0 ? cmdSubst(r.stdout) : '';
   }
   return short.replace(/^[^/]*\//, '');
+}
+
+/**
+ * C9b: `git merge --ff-only <remote>/<protected branch>` (or `refs/remotes/<remote>/<protected branch>`), nothing else on the line, is the one local merge into a protected branch that
+ * stays inside the intent of A136: the operand is a remote-tracking ref, so the commits it brings are already on the remote, and --ff-only refuses to make a merge commit, so no
+ * content that is not on the remote enters the branch. It is allowed only when the operand cannot be read as any other ref: no tag and no local branch of the same name (git prefers
+ * both over a remote-tracking ref), the remote-tracking ref exists, and the git dir is known. Any other option (`--no-ff`, `-m`, `-s`, `--squash`, `--no-verify`, more operands) or
+ * a case where a file cannot be read keeps the denial. A tripwire like the rest of the guard: `git update-ref refs/remotes/...` is not read by it.
+ * @param {string[]} rest @param {string} dir @param {(b: string) => boolean} protectedName
+ */
+function ffOnlyOfRemote(rest, dir, protectedName) {
+  const op = ffOperand(rest);
+  if (op === null) return false;
+  if (!protectedName(op.branch)) return false;
+  const gd = findGitDir(dir);
+  if (!gd) return false;
+  let text = '';
+  try { text = readFileSync(`${gd}/commondir`, 'utf8'); } catch { /* not a linked worktree */ }
+  const common = commonGitDir(gd, text);
+  const files = remoteRefFiles(common, op.remote, op.branch);
+  const exists = (/** @type {string} */ f) => { try { statSync(f); return true; } catch { return false; } };
+  let packed = '';
+  try { packed = readFileSync(`${common}/packed-refs`, 'utf8'); } catch { /* none */ }
+  const packedHas = (/** @type {string} */ r) => packed.split(/\r?\n/).some((l) => l.endsWith(` ${r}`));
+  if (files.hidden.some(exists) || packedHas(`refs/heads/${op.short}`) || packedHas(`refs/tags/${op.short}`)) return false;
+  return exists(files.remote) || packedHas(`refs/remotes/${op.short}`);
+}
+
+/**
+ * The operand of `git merge --ff-only <x>` when the line is exactly that and x names a remote-tracking ref (`origin/main`, `refs/remotes/origin/main`); null otherwise.
+ * Pure: no file is read. @param {string[]} rest @returns {{ remote: string, branch: string, short: string } | null}
+ */
+export function ffOperand(rest) {
+  if (rest.length !== 2 || !rest.includes('--ff-only')) return null;
+  const op = rest.find((x) => x !== '--ff-only') ?? '';
+  const m = /^(?:refs\/remotes\/)?([A-Za-z0-9_][A-Za-z0-9_.-]*)\/([A-Za-z0-9_][A-Za-z0-9_.\/-]*)$/.exec(op);
+  if (!m || op.includes('..') || m[1] === 'heads' || m[1] === 'tags' || m[1] === 'remotes') return null;
+  const remote = /** @type {string} */ (m[1]); const branch = /** @type {string} */ (m[2]);
+  return { remote, branch, short: `${remote}/${branch}` };
+}
+
+/**
+ * The common git dir of a git dir: the `commondir` file of a linked worktree names it relative to the worktree's git dir; the text is "" for a main working tree. Pure; `p` is the path module
+ * (`path.win32` in the tests of the Windows spellings). The result keeps the separators of `p`.
+ * @param {string} gd @param {string} commondirText @param {Pick<typeof import('node:path'), 'resolve'>} [p]
+ */
+export function commonGitDir(gd, commondirText, p = { resolve }) {
+  const t = commondirText.replace(/[\r\n]+$/, '');
+  return t === '' ? gd : p.resolve(gd, t);
+}
+
+/**
+ * The files whose existence decides the ff-only allowance: the ones that would make `<remote>/<branch>` mean something else (a local branch, a tag, git's own spelling of the name), and the
+ * remote-tracking ref itself. Pure; every separator of the git dir is read as `/` (a Windows git dir has `\\` or `/` or both), so the names are comparable on any platform.
+ * @param {string} common @param {string} remote @param {string} branch @returns {{ hidden: string[], remote: string }}
+ */
+export function remoteRefFiles(common, remote, branch) {
+  const c = common.replaceAll('\\', '/').replace(/\/+$/, '');
+  const short = `${remote}/${branch}`;
+  return { hidden: [`${c}/refs/heads/${short}`, `${c}/refs/tags/${short}`, `${c}/${short}`], remote: `${c}/refs/remotes/${short}` };
 }
 
 /**
@@ -208,7 +268,7 @@ export async function mergeGuard(ctx, cmd, scan) {
         await load();
         if (dir === '@unknown') deny(`git merge whose directory cannot be read from the command text may merge into a protected branch: ${MG_MSG}`);
         const c = await cur();
-        if (isProt(c)) deny(`git merge on the protected branch ${c}: ${MG_MSG}`);
+        if (isProt(c) && !ffOnlyOfRemote(rest, dir, (b) => isProt(b, false))) deny(`git merge on the protected branch ${c}: ${MG_MSG}`);
         if (switchesProt()) deny(`git merge in a command that switches to a protected branch: ${MG_MSG}`);
         return;
       }

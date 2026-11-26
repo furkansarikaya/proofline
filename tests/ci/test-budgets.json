@@ -224,6 +224,10 @@
       "test_ms": 20000,
       "suite_ms": 20000
     },
+    "tests/core/friction-observed.test.mjs": {
+      "test_ms": 4500,
+      "suite_ms": 10000
+    },
     "tests/core/knowledge-batch-crlf.test.mjs": {
       "test_ms": 15000,
       "suite_ms": 30000
@@ -247,6 +251,10 @@
     "tests/core/retro-c7-artifacts.test.mjs": {
       "test_ms": 7700,
       "suite_ms": 10000
+    },
+    "tests/core/statusblock-data.test.mjs": {
+      "test_ms": 4000,
+      "suite_ms": 15000
     },
     "tests/core/waiting-b8.test.mjs": {
       "test_ms": 11500,
@@ -951,6 +959,10 @@
     "tests/hook/hardening.test.mjs": {
       "test_ms": 4000,
       "suite_ms": 10000
+    },
+    "tests/hook/hook-ergonomics.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 45000
     },
     "tests/hook/hook-under-test.test.mjs": {
       "test_ms": 2000,

@@ -134,6 +134,11 @@ test('sc_decide: signals, overrides, escalations-used, persisted and ledgered; m
   recEnv(d, 'REVIEW_SMALL', 'FAIL', [rowN(3)], { PROOFLINE_STEP_AGENT: 't9' });
   const dur = Number(/"duration_s":([0-9]*),/.exec(lastRec())?.[1] ?? 0);
   assert.ok(dur >= 40 && dur <= 100, `step duration is not the time since the marker's start stamp (A200): ${lastRec()}`);
+  // C8f: the log is cumulative (a resumed subagent writes on into the same file): the record of the same log counts only what it gained since the previous record, so the same tokens are never summed twice
+  assert.match(lastRec(), /"kind":"step".*"tokens_in":0,"tokens_out":0,"tokens_total":0,/, `C8f: a second record of the same session log counted its tokens again: ${lastRec()}`);
+  appendFileSync(tr, '{"message":{"id":"msg_C","role":"assistant","usage":{"input_tokens":4,"cache_creation_input_tokens":6,"cache_read_input_tokens":9000,"output_tokens":9}}}\n');
+  recEnv(d, 'REVIEW_SMALL', 'FAIL', [rowN(5)], { PROOFLINE_STEP_AGENT: 't9' });
+  assert.match(lastRec(), /"kind":"step".*"tokens_in":10,"tokens_out":9,"tokens_total":19,/, `C8f: the resumed agent's new message is not its own delta: ${lastRec()}`);
   // the runtime of the record is the one dispatch.sh says really ran the step (after a failover it is not the decision's)
   recEnv(d, 'REVIEW_SMALL', 'FAIL', [rowN(4)], { PROOFLINE_DISPATCH_RUNTIME: 'codex', PROOFLINE_DISPATCH_START: String(Math.floor(Date.now() / 1000) - 7) });
   assert.match(lastRec(), /"kind":"step".*"runtime":"codex".*"duration_s":([7-9]|[12][0-9]),/, "step record does not carry the runtime that really ran the step and its attempt's time (A200)");

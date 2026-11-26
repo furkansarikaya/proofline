@@ -199,7 +199,22 @@ export function gateReportIds(ctx, dir, g, focus) {
 /** `friction_count ID KIND`: the friction notes of one kind in the ledger ('' when there is no ledger, like `grep -c` on a missing file). @param {Context} ctx @param {string} dir @param {string} kind */
 export function frictionCount(ctx, dir, kind) {
   if (!exists(`${dir}/LEDGER.log`)) return '';
-  return String(ledgerRows(ctx, dir, 'friction-note').filter((r) => r.detail === kind).length);
+  const noted = ledgerRows(ctx, dir, 'friction-note').filter((r) => r.detail === kind).length;
+  // C8e: the workarounds the control plane saw count as proofline_bug next to the notes the lead wrote
+  return String(noted + (kind === 'proofline_bug' ? observedWorkarounds(ctx, dir).total : 0));
+}
+
+/**
+ * C8e (issue 338, R2-27): the workarounds the control plane sees itself, from the ledger of the run: a stray the lead
+ * discarded (`discard-untracked`), a mutation budget raised by hand (`raise-budget`) and a worktree removed with `--force` (`forced-removal`). A typed answer (`answered_by=lead`) is not counted: the ledger row of a lead's answer to an assumption is the same, and the report names those "by an assumption". A friction note is what the lead chose to write
+ * (and the retros found none); these rows are written by the commands themselves, so a run that needed them cannot show `proofline_bug 0`. Hand edits and SendMessage patches are not seen here.
+ * @param {Context} ctx @param {string} dir @returns {{ discards: number, budgetRaises: number, forcedRemovals: number, total: number }}
+ */
+export function observedWorkarounds(ctx, dir) {
+  const discards = ledgerRows(ctx, dir, 'discard-untracked').length;
+  const budgetRaises = ledgerRows(ctx, dir, 'raise-budget').length;
+  const forcedRemovals = ledgerRows(ctx, dir, 'forced-removal').length;
+  return { discards, budgetRaises, forcedRemovals, total: discards + budgetRaises + forcedRemovals };
 }
 
 /** `friction_reminder ID` @param {Context} ctx @param {string} id @param {string} dir */

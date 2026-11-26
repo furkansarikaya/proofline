@@ -10,7 +10,8 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { isLocalAbsolute } from './pathin.mjs';
-import { UUID, findCodexRollout, toolsRecord } from './toolstats.mjs';
+import { claudeUsage, tokenDelta, UUID, findCodexRollout, toolsRecord } from './toolstats.mjs';
+import { metricsJson } from './runend.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -52,6 +53,13 @@ export function leadToolsRecord(ctx, id) {
     const claude = (env.CLAUDE_CODE_SESSION_ID ?? '') !== '' || ((env.CODEX_THREAD_ID || env.CODEX_SESSION_ID || '') === '' && ctx.config().get('runtime.lead', 'claude') !== 'codex');
     const sid = claude ? (env.CLAUDE_CODE_SESSION_ID ?? '') : (env.CODEX_THREAD_ID || env.CODEX_SESSION_ID || '');
     const found = claude ? findClaudeLead(env, [ctx.root, ctx.sharedMain(), ctx.cwd].flatMap((p) => { try { return [p, realpathSync(p)]; } catch { return [p]; } })) : findCodexRollout(env, now().epoch);
+    // C8f: the lead's own tokens, when the runtime gives them (a Claude Code session log): one `lead` record with what the session spent since the previous record of this log. Codex rollouts carry no usage here.
+    if (claude && found.file !== '' && ctx.config().get('metrics', 'on') !== 'off') {
+      try {
+        const used = claudeUsage(found.file);
+        if (used !== null) { const d = tokenDelta(ctx, found.file, used); metricsJson(ctx, ['lead', id, 'lead', '-', '-', 'claude', '-', '-', String(d.tin), String(d.tout), String(d.tin + d.tout), '-', '-', '-', '-', '-']); }
+      } catch { /* a metrics side effect */ }
+    }
     toolsRecord(ctx, { task: id, role: 'lead', focus: '', gate: '', runtime: claude ? 'claude' : 'codex', log: found.file, reason: found.reason, kind: 'lead', session: UUID.test(sid) ? sid : '' });
   } catch { /* a metrics side effect */ }
 }

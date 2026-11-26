@@ -4,7 +4,7 @@
 import { statSync } from 'node:fs';
 import { fail, ProoflineError, unsupported } from './errors.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
-import { fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
+import { fixRoundsLedger, fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
 import { listNames } from './ledger.mjs';
 import { DEFAULT_FALLBACK, knowledgeDefaultTaken, knowledgeSuggestions } from './ksuggest.mjs';
 import { gateFacts, knownIssuesListed } from './knownissues.mjs';
@@ -264,7 +264,7 @@ export function reportFacts(ctx, id) {
   const mark = ctx.chunks.length;
   const owned = taskOwnedPaths(ctx, d).length;
   ctx.chunks = ctx.chunks.filter((c, i) => i < mark || c[0] === 'out');
-  ctx.out(`- Fix rounds: ${fixRoundsDone(ctx, d)} of ${maxFixRounds(ctx)}\n- Refreezes: ${refreezes}\n- Files changed (task-owned paths): ${owned}\n`);
+  ctx.out(`- Fix rounds: ${fixRoundsLedger(ctx, d)} of ${maxFixRounds(ctx)}\n- Refreezes: ${refreezes}\n- Files changed (task-owned paths): ${owned}\n`);
   ctx.out(`- Worker-evidence run records: total ${wt}, ended pass ${wp}, ended fail ${wt - wp} (a RED record ends fail on purpose; this is not a count of failing tests)\n`);
   ctx.out(`- Test cases: no record carries the number of individual tests, so no such number is stated here.\n${FACTS_END}\n`);
 }

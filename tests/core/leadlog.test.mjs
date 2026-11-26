@@ -92,7 +92,7 @@ describe('the record at the end of a run', () => {
     assert.equal(r.out, 'run terminated: LC BLOCKED\n');
     const lead = records(dir).filter((x) => x.kind === 'lead');
     assert.equal(lead.length, 1);
-    assert.deepEqual({ ...lead[0], time: 'T' }, { schema: 'proofline.tools/1', kind: 'lead', time: 'T', task: 'LC', role: 'lead', focus: null, gate: null, runtime: 'claude', log: 'ok', calls: 2, result_bytes: 42, denied: 1, by_tool: { Bash: { calls: 1, bytes: 7 }, Read: { calls: 1, bytes: 35 } }, reason: null, session: SID });
+    assert.deepEqual({ ...lead[0], time: 'T' }, { schema: 'proofline.tools/1', kind: 'lead', time: 'T', task: 'LC', role: 'lead', focus: null, gate: null, runtime: 'claude', log: 'ok', calls: 2, result_bytes: 42, denied: 1, denials: { refused: 1 }, by_tool: { Bash: { calls: 1, bytes: 7 }, Read: { calls: 1, bytes: 35 } }, reason: null, session: SID });
     assert.ok(!readFileSync(path.join(dir, '.agents/local/metrics/tools.jsonl'), 'utf8').includes(SECRET));
     // insights shows the lead under its own role
     const t = insightsReport(insightsStream(dir, ''), { json: false, only: '', off: false });
@@ -117,6 +117,23 @@ describe('the record at the end of a run', () => {
       assert.equal(lead[0].calls, null, name);
       assert.equal(lead[0].result_bytes, null, name);
     }
+  });
+
+  test('C8f: the lead\'s own tokens are one `lead` record of records.jsonl (once per message id, cache reads excluded); a log without usage writes none', () => {
+    const dir = project('scaffold orchestrated no COMPLEX ""');
+    const { home, file } = claudeHome(realpathSync(dir));
+    const msg = (/** @type {string} */ id, /** @type {number} */ out) => `${JSON.stringify({ message: { id, role: 'assistant', usage: { input_tokens: 3, cache_creation_input_tokens: 7, cache_read_input_tokens: 9000, output_tokens: out } } })}\n`;
+    writeFileSync(file, LOG + msg('msg_A', 1) + msg('msg_A', 20) + msg('msg_B', 5));
+    assert.equal(terminate(dir, { HOME: home, CLAUDE_CODE_SESSION_ID: SID }).status, 0);
+    const recs = readFileSync(path.join(dir, '.agents/local/metrics/records.jsonl'), 'utf8').split('\n').filter((l) => l.includes('"kind":"lead"'));
+    assert.equal(recs.length, 1, recs.join('\n'));
+    const o = JSON.parse(recs[0] ?? '');
+    assert.deepEqual([o.task, o.role, o.runtime, o.tokens_in, o.tokens_out, o.tokens_total], ['LC', 'lead', 'claude', 20, 25, 45]);
+    const none = project('scaffold orchestrated no COMPLEX ""');
+    const h2 = claudeHome(realpathSync(none));
+    writeFileSync(h2.file, LOG);
+    assert.equal(terminate(none, { HOME: h2.home, CLAUDE_CODE_SESSION_ID: SID }).status, 0);
+    assert.ok(!readFileSync(path.join(none, '.agents/local/metrics/records.jsonl'), 'utf8').includes('"kind":"lead"'));
   });
 
   test('a Codex lead (CODEX_THREAD_ID, no Claude variable) is looked up as a Codex session, never as a Claude one', () => {
