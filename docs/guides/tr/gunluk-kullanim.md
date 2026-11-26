@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 90ec803cbf882a33628dd0709aacd0d3d97e074e -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 641983ec435c2ff384c90e7e48f083254109c8be -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -53,6 +53,7 @@ Control plane Node kodudur; `.agents/scripts/agent.sh` onu başlatan ince bir la
 - Batch, `depends_on` değerini task dosyalarından okur ve iki task'ı yalnızca ikisi de aynı dosyayı `## Expected scope` listesinde yazmışsa aynı dosyayı paylaşıyor sayar (Context metnindeki bir belge veya adres hiçbir zaman sayılmaz); park edilen bir task yalnızca ona bağlı olanları ve listelenmiş bir dosyayı onunla paylaşanları durdurur. Değişen bir batch'i `--replace` ile yeniden planladığında, task ve kapsam listesi aynıysa bölme ve kapsam sorularına verdiğin kendi cevapların yeni batch'e taşınır, değiştiyse yeniden sorulur (A355).
 - Özet, task dosyalarının bildirdiği `## Test exceptions` satırlarını da listeler; batch'i onaylamak tam olarak bu satırları kabul eder (A285), kimsenin bildirmediği bir istisna task'ı park ettirir.
 - Bir batch task'ının knowledge adımı notun nereye gideceğini asla sormaz: knowledge sayfası yoksa `batch default (A291)` gerekçesiyle `not_applicable` kaydeder ve sabah tablosuna bir öneri ekler (A291).
+- Boş bir `commands.lint`, batch özetinde `proofline doctor --commands` önerisiyle ve bir WARNING ile gösterilir; lint'in bilerek olmadığını söylemek için `commands.lint: none` yaz (A366).
 - Pull request'lerde CI check'i olmayan bir proje de batch çalıştırır: her pull request yalnızca commit'inin temiz bir kopyasında build ve test geçtikten sonra birleştirilir ve "verified locally, no CI" der.
 
 Ayrıntılar ve sınırlar: [night mode](../../concepts/night-mode.md).

@@ -12,3 +12,20 @@ Read on demand from `SKILL.md` (task-author). Moved here verbatim; the rules are
 ## Decisions and ADRs
 
 Decisions are either task-level (they stay in the task: criteria, constraints, out of scope) or project-level (tech stack, content structure, language support, publishing, architecture patterns). `intent-grill` marks each one ([INTENT-FORMAT.md](../../intent-grill/references/INTENT-FORMAT.md)); do the split from that mark. After the user's approval, write each project-level decision as an ADR in `design_docs.adr_dir` following `system-design`'s `references/ADR.md` (context, decision, rationale, rejected alternatives), `NNNN` = highest existing number + 1. A decision that contradicts an existing ADR becomes a NEW ADR and the old one's Status line is set to `superseded by NNNN`; an ADR is never silently overwritten. Each task file links the ADRs it relies on under `## Context` with a root-relative link (`/docs/adr/0001-x.md`), which survives the move to `in-progress/` and the run copy. No new decision store. In a run the `system-design` rules stay (proposed under `design/adr/`, the knowledge step moves them); this standalone rule is the extra one.
+
+## Dependency check
+
+When a request or an imported issue set is SPLIT into tasks, `depends_on` comes from the CONTENT, not from the order the tasks were thought of (U4, A366):
+
+1. For each task list what it shows or consumes: data, behaviour, rendering, an endpoint, a file format.
+2. Check each item against what the OTHER tasks produce. A task that consumes an output another task creates `depends_on` that task. Example: a page that shows raw Markdown depends on the task that adds the Markdown converter.
+3. Write the result in the split output as a short `## Dependency check` section, one row per task, and say "none" with the reason for a task that depends on nothing:
+
+       ## Dependency check
+
+       | task | depends_on | reason (from the content) |
+       |---|---|---|
+       | TASK-002 | TASK-001 | the page shows raw Markdown; TASK-001 adds the converter |
+       | TASK-003 | none | reads only the config file |
+
+4. Run `node <skill-dir>/scripts/validate-task.mjs --check-deps <draft folder or tasks.dir>`: exit 1 when a `depends_on` id matches no task or the tasks form a cycle (it prints the edges, one `A -> B` per line, and each problem). The batch reads the same `depends_on` (batch-plan orders by it and refuses a cycle), so a wrong edge here is a wrong order there.

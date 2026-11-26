@@ -53,6 +53,10 @@ with a link back). Acceptance criteria also pass the vague-word and two-engineer
 
 `## Test exceptions` (optional, A294): when the criteria foreseeably need a real wait, a test over its budget or an unmeasured test, the task author proposes lines of the form `- wait|budget|measure: <repo-relative test path> -- <reason>`. They are proposals of an agent, not approvals: the batch summary lists each line with its hash and your `approve batch` accepts exactly those lines (a plan outside a batch asks for your `scope` approval of the exact plan, A284, A285). The GitHub, Jira, Linear and markdown templates carry the optional section (one commented line says so; delete the section when the task declares none), and an import reads it back as the lines it holds, so an exported and re-imported task keeps its declared exceptions. A line the batch cannot list (wrong grammar, over 1000 bytes or 50 lines, a control character, a duplicate) stops `proofline batch` with the task id, the line number and the reason; nothing is planned or approved until it is fixed. Format and limits: `skills/task-author/references/CRITERIA.md`.
 
+## Criteria count, feasibility and dependencies (A366)
+
+A task has 3 to 6 outcome-focused acceptance criteria, each with a number, a path or an exact message; `validate-task.mjs` warns, with the count, for fewer than 3 or more than 6 and never refuses. A criterion that rests on a library, version or limit carries an indented `Feasibility:` line (what the author checked in the pinned manifest or docs); one without it gets a warning. When a request or an issue set is split, `depends_on` is derived from what each task shows or consumes (a page that shows raw Markdown depends on the task that adds the converter), the split output has a `## Dependency check` table (task, depends_on, reason), and `validate-task.mjs --check-deps <folder>` exits 1 for an unknown id or a cycle. Run the validator before the task file is committed.
+
 ## Customising
 
 Templates are yours to edit: add required fields or custom sections once and every new task follows the
