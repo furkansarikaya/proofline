@@ -63,7 +63,7 @@ test('the user selecting an option is recorded as the user\'s answer, source ui,
   assert.match(a, /^tool_use_id: toolu_1$/m);
   assert.match(a, /^> proceed without splitting$/m);
   assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /selection in the option UI is recorded.*question 1.*answered_by user, source ui/);
-  assert.match(readFileSync(join(d, '.agents/runs/LC/ledger.log'), 'utf8'), /answered_by=user source=ui:toolu_1/);
+  assert.match(readFileSync(join(d, '.agents/runs/LC/LEDGER.log'), 'utf8'), /answered_by=user source=ui:toolu_1/);
 });
 
 test('"Other" free text is recorded only when it is an accepted form', async () => {
