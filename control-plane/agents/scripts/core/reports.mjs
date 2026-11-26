@@ -123,8 +123,8 @@ export function briefRun(ctx, id) {
 
 /** `next [ID]` @param {Context} ctx @param {string} id */
 export function nextCommand(ctx, id) {
-  // the steps are the control plane's own `next=` lines: the output cap never drops one (A365)
-  const emit = (/** @type {string} */ t) => { ctx.out(t); for (const l of t.split('\n')) if (l.startsWith('next=')) ctx.protectedLines.push(`${l}\n`); };
+  // the steps and the wait for the user are the control plane's own `next=` and `waiting for the user:` lines: the output cap never drops one (A365)
+  const emit = (/** @type {string} */ t) => { ctx.out(t); for (const l of t.split('\n')) if (l.startsWith('next=') || l.startsWith('waiting for the user: ')) ctx.protectedLines.push(`${l}\n`); };
   if (id !== '') nextStep(ctx, id, emit); else nextWithoutRun(ctx, emit);
 }
 

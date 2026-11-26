@@ -26,6 +26,8 @@ export const SINCE_COMMANDS = Object.freeze(['next', 'batch-next']);
 const FIRST_IS_NAME = Object.freeze(['next', 'digest', 'pipeline', 'friction']);
 /** The default of `output_cap_bytes`. */
 export const DEFAULT_CAP = 6000;
+/** The smallest cap that applies (config-check refuses a smaller one; a value read below it is raised to it). */
+export const MIN_CAP = 200;
 
 /**
  * @typedef {object} Shape
@@ -64,7 +66,9 @@ export function withFull(argv) { return CAPPED.includes(argv[0] ?? '') && !argv.
 /** The cap in bytes; 0 means none. @param {Context} ctx */
 export function capBytes(ctx) {
   const v = ctx.config().get('output_cap_bytes', '');
-  return /^[0-9]+$/.test(v) ? Number(v) : DEFAULT_CAP;
+  if (!/^[0-9]+$/.test(v)) return DEFAULT_CAP;
+  const n = Number(v);
+  return n === 0 ? 0 : Math.max(MIN_CAP, n); // a tiny cap never cuts mid-line: the floor applies
 }
 
 /** The opaque state token of an answer: 12 hex digits of its hash. @param {Buffer} out */
@@ -94,7 +98,9 @@ export function shapeOutput(ctx, command, shape) {
     let cut = body.lastIndexOf(10, cap - 1) + 1; // the head ends at a line end
     if (cut === 0) cut = cap;
     const head = body.subarray(0, cut);
-    const kept = [...new Set(ctx.protectedLines)].filter((l) => !head.includes(Buffer.from(l, 'latin1'))).join('');
+    // whole lines only: a protected line counts as printed when the head holds it as a line of its own, never as the end of a longer one
+    const lined = `\n${head.toString('latin1')}`;
+    const kept = [...new Set(ctx.protectedLines)].filter((l) => !lined.includes(`\n${l}`)).join('');
     const flags = [command, ...shape.args, ...(shape.since !== null ? ['--since', shape.since] : [])];
     body = Buffer.concat([head, Buffer.from(`...${body.length - cut} more bytes: agent.sh ${flags.join(' ')} --full\n${kept}`, 'latin1')]);
   }
@@ -107,7 +113,7 @@ export function shapeOutput(ctx, command, shape) {
  * When they do not: a first line `rows: N, waiting: n, runnable: n, parked: n`; then, when a task waits for the user, the list `waiting for the user (K):` with one line per task
  * (id and the gist of its question; at most a quarter of the budget, the rest counted), which the cap never cuts; then the rows in the order waiting for the user, runnable,
  * parked, waiting for a dependency, finished (stable inside each class) until half the budget is used; the hint after the rows names how many are hidden.
- * @template {{ id: string, state: string, question: string }} R
+ * @template {{ id: string, state: string, question: string, detail?: string }} R
  * @param {Context} ctx @param {string} command @param {R[]} rows @param {(r: R) => string} line the text of one row, with its newline
  * @returns {{ head: string, shown: R[], tail: string }}
  */
@@ -115,7 +121,7 @@ export function limitRows(ctx, command, rows, line) {
   const budget = ctx.rowBudget;
   const size = (/** @type {R[]} */ rs) => rs.reduce((n, r) => n + line(r).length, 0);
   if (budget === null || size(rows) <= Math.floor(budget / 2)) return { head: '', shown: rows, tail: '' };
-  const klass = (/** @type {R} */ r) => (r.question !== '' && r.state === 'parked' ? 0 : r.state === 'open' ? 1 : r.state === 'parked' ? 2 : r.state === 'waiting' ? 3 : 4);
+  const klass = (/** @type {R} */ r) => (r.question !== '' && r.state === 'parked' && r.detail !== 'awaiting merge' ? 0 : r.state === 'open' ? 1 : r.state === 'parked' ? 2 : r.state === 'waiting' ? 3 : 4);
   const sorted = rows.map((r, i) => ({ r, i, k: klass(r) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.r);
   const n = (/** @type {string} */ s) => rows.filter((r) => r.state === s).length;
   const asking = sorted.filter((r) => klass(r) === 0);

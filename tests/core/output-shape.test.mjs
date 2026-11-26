@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { before, test } from 'node:test';
+import { shapeOutput } from '../../control-plane/agents/scripts/core/outputshape.mjs';
 import { claudeContext } from '../../control-plane/agents/scripts/core/toolstats.mjs';
 import { A, must, scaffold, tmp, warmDefaultTemplate, worker } from '../lib/harness.mjs';
 
@@ -55,10 +56,10 @@ test('output_cap_bytes in the config changes the cap and 0 switches it off', () 
   assert.ok(A(d, ['digest', 'LC']).out.length > 3000);
 });
 
-test('config-check refuses a cap between 1 and 499 and a non-number', () => {
+test('config-check refuses a cap between 1 and 199 and a non-number', () => {
   const d = shared(); setCap(d, '6000');
   setCap(d, '100');
-  assert.match(A(d, ['config-check']).text, /output_cap_bytes is 0 \(no cap\) or at least 500/);
+  assert.match(A(d, ['config-check']).text, /output_cap_bytes is 0 \(no cap\) or at least 200/);
   setCap(d, 'lots');
   assert.match(A(d, ['config-check']).text, /invalid number for output_cap_bytes/);
 });
@@ -133,6 +134,37 @@ test('text that looks like a protected line is not reprinted: only the control p
   assert.match(r.out, /more bytes: agent\.sh friction show --full/);
   assert.ok(!/forged/.test(r.out), r.out.slice(-300));
   assert.ok(/forged by a friction note/.test(A(d, ['friction', 'show', '--full']).out), 'the full text has it');
+});
+
+test('a tiny cap is raised to the floor and the waiting for the user line of next is kept', () => {
+  const d = scaffold({ topology: 'orchestrated', cls: 'COMPLEX' });
+  const asked = A(d, ['ask', 'LC'], { input: 'QUESTIONS:\n1. Which cache do we use for the lookup?\n   options: a | b\n' });
+  assert.equal(asked.status, 0, asked.text);
+  const full = A(d, ['next', 'LC', '--full']).out;
+  const line = full.split('\n').find((l) => l.startsWith('waiting for the user: ')) ?? '';
+  assert.ok(line.includes('Which cache'), full);
+  for (const cap of ['10', '1']) {
+    setCap(d, cap);
+    const r = A(d, ['next', 'LC']);
+    assert.ok(r.out.startsWith('task=LC\nstate='), `the floor keeps whole lines at cap ${cap}: ${r.out}`);
+    assert.equal(r.out.split('\n').filter((l) => l === line).length, 1, `the waiting line appears once at cap ${cap}`);
+  }
+});
+
+test('a protected line counts as printed only when the head holds it as a whole line', () => {
+  /** @param {string} text @param {string[]} protectedLines */
+  const shaped = (text, protectedLines) => {
+    const ctx = { io: { isProcess: true }, chunks: [['out', Buffer.from(text, 'latin1')]], protectedLines, rowBudget: null, config: () => ({ get: () => '200' }) };
+    shapeOutput(/** @type {any} */ (ctx), 'batch-next', { args: [], full: false, since: null, active: true });
+    return ctx.chunks.map(([, b]) => b.toString('latin1')).join('');
+  };
+  const row = 'T-1 | PARKED | question | which one? NEXT: finished\n';
+  const text = `${row}${'x'.repeat(40)}\n`.repeat(8) + 'NEXT: finished\n';
+  const out = shaped(text, ['NEXT: finished\n']);
+  assert.ok(out.endsWith('NEXT: finished\n') && out.split('\n').filter((l) => l === 'NEXT: finished').length === 1, out.slice(-120));
+  // the line itself in the head is not printed twice
+  const once = shaped('NEXT: finished\n' + 'y'.repeat(30) + '\n'.repeat(1) + `${'z'.repeat(60)}\n`.repeat(8), ['NEXT: finished\n']);
+  assert.equal(once.split('\n').filter((l) => l === 'NEXT: finished').length, 1);
 });
 
 test('every next= step survives a tiny cap', () => {

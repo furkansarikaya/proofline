@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { AB, batchApprove, behave, binstall, bnew, drive, fakes, mktask } from './batch-lib.mjs';
 
-const N = 60;
+const N = 61; // T-61 is parked 'awaiting merge': its question is a pull request number, it does not wait for the user
 const ASKING = ['T-1', 'T-57', 'T-58', 'T-59', 'T-60'];
 /** @type {{ F: ReturnType<typeof fakes>, dir: string } | null} */ let memo = null;
 function batch() {
@@ -19,6 +19,7 @@ function batch() {
   binstall(dir);
   AB(F, dir, ['batch-plan', 'all']); batchApprove(dir);
   for (const id of ASKING) behave(F, id, 'question');
+  behave(F, `T-${N}`, 'await');
   drive(F, dir);
   memo = { F, dir };
   return memo;
@@ -37,10 +38,11 @@ test('batch-next over the cap: the waiting rows at the end come first and are li
   const cut = AB(F, dir, ['batch-next']).out;
   assert.ok(cut.length < 2600, String(cut.length));
   const lines = cut.split('\n');
-  assert.equal(lines.find((l) => /^rows: /.test(l)), `rows: ${N}, waiting: 0, runnable: 0, parked: 5`);
+  assert.equal(lines.find((l) => /^rows: /.test(l)), `rows: ${N}, waiting: 0, runnable: 0, parked: 6`);
   const list = lines.slice(lines.findIndex((l) => /^waiting for the user \(5\):/.test(l)));
   for (const id of ASKING) assert.ok(list.some((l) => l.startsWith(`  ${id}: `) && l.includes(`Which cache do we use for ${id}?`)), `${id} is not in the waiting list`);
   const rows = rowsOf(cut);
+  assert.ok(rows[5].startsWith(`T-${N} | PARKED | awaiting merge`) && !list.some((l) => l.startsWith(`  T-${N}:`)), 'an awaiting-merge row is parked, not waiting for the user, and comes after the five');
   assert.deepEqual(rows.slice(0, 5).map((l) => l.split(' ')[0]), ASKING, 'the five waiting rows lead the table, in table order');
   for (const id of ASKING) assert.ok(rows.some((l) => l.startsWith(`${id} | PARKED`) && l.includes(`Which cache do we use for ${id}?`)), `${id} row is missing or cut`);
   assert.ok(rows.length < N && /^\.\.\.\d+ more rows \(finished ones first\): agent\.sh batch-next --full$/m.test(cut));
@@ -51,7 +53,7 @@ test('batch-status over the cap: the same order, the waiting rows of the end are
   const { F, dir } = batch();
   setCap(dir, '2000');
   const r = AB(F, dir, ['batch-status']).out;
-  assert.match(r, new RegExp(`^rows: ${N}, waiting: 0, runnable: 0, parked: 5$`, 'm'));
+  assert.match(r, new RegExp(`^rows: ${N}, waiting: 0, runnable: 0, parked: 6$`, 'm'));
   assert.deepEqual(rowsOf(r).slice(0, 5).map((l) => l.split(' ')[0]), ASKING);
   assert.match(r, /^\.\.\.\d+ more rows \(finished ones first\): agent\.sh batch-status --full$/m);
   for (const id of ASKING) assert.ok(r.includes(`  ${id}: `), `${id} is not in the waiting list`);
