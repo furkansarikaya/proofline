@@ -217,10 +217,19 @@ function run(ctx, id, event, pr, seconds) {
   const tmp = mkdtempSync(`${tmpdir()}/agent-status-block.`);
   try {
     const file = `${tmp}/block`;
-    writeFileSync(file, latin1Buf(statusBlockBody(ctx, id, event, pr)));
+    const body = statusBlockBody(ctx, id, event, pr);
+    writeFileSync(file, latin1Buf(body));
+    // C8d: the `pr-opened` event is sent by the pr step (no number yet) and again by the merge step (with it); a repeat of a step, or of the merge step with the same number, found the
+    // block already saying the same thing. The block is the same but for its `updated` time: that update is not sent again (and not logged twice).
+    const sig = event === 'pr-opened' ? `${ctx.sharedMain()}/.agents/local/status-block-sent/${id}.pr-opened` : '';
+    const same = body.split('\n').filter((l) => !l.startsWith('- updated: ')).join('\n');
+    if (sig !== '' && (fileText(ctx, sig) ?? '') === same) return null;
     const r = runTaskAdapter(ctx, adapter, ['statusblock', id, file], { timeoutMs: seconds * 1000 });
     if (r === null) return `unknown task-integration adapter: ${adapter}`;
-    if (r.status === 0) return null;
+    if (r.status === 0) {
+      if (sig !== '') { try { mkdirSync(`${ctx.sharedMain()}/.agents/local/status-block-sent`, { recursive: true }); writeFileSync(sig, same); } catch { /* best effort */ } }
+      return null;
+    }
     // a child stopped by the time bound ends with a signal (128 + n)
     return r.status > 128 && r.stderr.length === 0 ? `timed out after ${seconds}s` : r.stderr.toString('latin1');
   } catch (e) {
@@ -249,7 +258,10 @@ export function statusBlockUpdate(ctx, id, event, pr = '') {
   try {
     const log = `${ctx.sharedMain()}/.agents/local/status-block.log`;
     mkdirSync(`${ctx.sharedMain()}/.agents/local`, { recursive: true });
-    appendFileSync(log, `${now().iso} ${id} ${event} ${msg !== '' ? msg : 'failed'}\n`);
+    // C8d: the same refusal of the same event is one line, not one per attempt
+    const tail = ((() => { try { return readFileSync(log, 'latin1'); } catch { return ''; } })().split('\n').filter((l) => l !== '').pop() ?? '').replace(/^[^ ]+ /, '');
+    const line = `${id} ${event} ${msg !== '' ? msg : 'failed'}`;
+    if (tail !== line) appendFileSync(log, `${now().iso} ${line}\n`);
   } catch { /* best effort */ }
 }
 

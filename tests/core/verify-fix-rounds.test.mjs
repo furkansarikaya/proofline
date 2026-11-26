@@ -47,7 +47,7 @@ test('a verifier retry takes nothing from the budget: after it, one failing revi
   gfail(d, 'VERIFY', 'impl.txt'); gpass(d, 'VERIFY');
   gfail(d, 'QA', 'impl.txt');
   assert.equal(pipe(d, 'fix_round'), '1');
-  assert.ok(report(d).includes('- Fix rounds: 1 of 2'), report(d));
+  assert.ok(report(d).includes('- Fix rounds: 0 of 2'), report(d));   // C8c: the Facts line counts the ledger's fix_round rows; no implementer reopen happened yet
 });
 
 test('an evidence-repair row between the failing and the passing VERIFY on the same content keeps the round (the retry rule needs no repair row)', () => {
@@ -56,4 +56,15 @@ test('an evidence-repair row between the failing and the passing VERIFY on the s
   ledgerAppend(`${d}/.agents/runs/LC`, 'implementer', 'evidence-repair', '-', '-', 'finding=1-REVIEW_TESTS.yaml patch=0 commands=1 records=GREEN-1 tests=x');
   gpass(d, 'VERIFY');
   assert.equal(pipe(d, 'fix_round'), '2', 'the failing VERIFY (1) and the repair row (1) both count');
+});
+
+test('C8c: the Facts line counts the ledger fix_round rows, whatever the gate-derived counter says, and the claim check accepts that number', () => {
+  const d = mk();
+  gfail(d, 'VERIFY', 'impl.txt');
+  assert.equal(pipe(d, 'fix_round'), '1', 'the counter sees the failing content');
+  assert.ok(report(d).includes('- Fix rounds: 0 of 2'), 'no reopen row in the ledger: no fix round taken');
+  for (const n of [1, 2, 3]) ledgerAppend(`${d}/.agents/runs/LC`, 'lead', 'handoff:IMPLEMENTING', '-', '-', `fix_round=${n % 2}`);   // the counter restarts after a reopen: the ledger rows do not
+  assert.ok(report(d).includes('- Fix rounds: 3 of 2'), report(d));
+  ledgerAppend(`${d}/.agents/runs/LC`, 'lead', 'handoff:IMPLEMENTING', '-', '-', 'first implementation');
+  assert.ok(report(d).includes('- Fix rounds: 3 of 2'), 'a handoff row that is no fix round is not counted');
 });

@@ -742,6 +742,15 @@ export function reReviewRows(ctx, dir) {
   return ledgerRows(ctx, dir, 'handoff:IMPLEMENTED').filter((r) => r.seq > since && r.detail.startsWith('re-review '));
 }
 
+/**
+ * C8c (issue 338, R2-16, R3-13): the fix rounds a run really took, read from its ledger alone: one per `handoff:IMPLEMENTING` row whose detail is `fix_round=N` (the lead reopened implementation after a
+ * finding). No gate file, no reopen cut-off and no clamp to the budget takes part, so a reopen that starts a new budget does not make the number start again; the Facts block of the completion report states this.
+ * @param {Context} ctx @param {string} dir
+ */
+export function fixRoundsLedger(ctx, dir) {
+  return ledgerRows(ctx, dir, 'handoff:IMPLEMENTING').filter((r) => r.detail.startsWith('fix_round=')).length;
+}
+
 /** `fix_rounds_used ID`: one round per distinct content that collected an unwaived blocking FAIL under the current contract since the last reopen (a verifier's own retry on the same content excepted, A326), plus one per evidence-only repair (A325). @param {Context} ctx @param {string} dir */
 export function fixRoundsUsed(ctx, dir) {
   const reopen = lastReopenSeq(ctx, dir, 'any');

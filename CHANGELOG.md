@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.0.185 — 2026-11-26
+
+- Fix (A363, issue 338 C8): the retro data tells the truth. `tools.jsonl` has a `denials` key with the class of every refused call (the fixed prose of the rule, never a command, path or secret); the status block is no longer refused for the `SK-` inside a branch like `TASK-010-fix-the-thing` (key prefixes are matched in their own case at the start of a word; every planted secret is still refused) and a repeated `pr-opened` update or refusal is one; the completion report's `Fix rounds: x of y` counts the `fix_round` rows of the ledger; the friction report counts `discard-untracked`, `raise-budget` and `worktree-remove --force` (now a ledger row) as `proofline_bug`; a record takes only what a cumulative session log gained since the previous record (a resumed agent is counted once) and the lead's own tokens are a `lead` record of `records.jsonl`.
+- Fix (A363, issue 338 C9): the PreToolUse hook reads the body of a data here-document (`cat`, `tee`, `agent.sh`, `git commit -F -`) as data for the specialist git rules, judges a write target under a folder that does not exist by the path it resolves to (`nodir/../.agents/x` is `.agents/x`), and lets the lead bring a local protected branch up to the remote with `git merge --ff-only <remote>/<main>` only; every other merge on it, a push, and a here-document that feeds a shell stay denied.
+
 ## 0.0.184 — 2026-11-26
 
 - Fix (A362, issue 338 C2): the `contract` review focus is required only when a recognised contract file is in the task-owned diff or the plan says `contract_change: yes`; a contract path that only the plan scope names no longer adds it (re-evaluated at every call, so a round that adds a contract file adds the focus). A role that is run again on the same task never uses a stronger model than its first attempt or than `execution_policy.repeat_model_cap` (default `sonnet`; `gpt-6-sol` on Codex); a role's tier floor still wins, so a security reviewer is never lowered; the lead's own model is not controlled.

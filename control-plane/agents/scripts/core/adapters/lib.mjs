@@ -197,12 +197,20 @@ export function importEngine(a, target, bodyText, id, title, source) {
 
 // ---- the status block ---------------------------------------------------------------------------------------------------------------
 
-const REFUSED = new RegExp([
-  '(^|[^A-Za-z0-9_.-])(/Users/|/home/|/tmp/|/var/|/private/|/etc/|/root/|/opt/|/mnt/|~/|[A-Za-z]:[\\\\/])', '-----BEGIN', '(ghp|gho|ghs|ghu|ghr|github_pat)_[A-Za-z0-9_]{10,}',
-  'sk-[A-Za-z0-9_-]{10,}', 'AKIA[0-9A-Z]{12,}', 'xox[abprs]-[A-Za-z0-9-]{6,}', 'AIza[0-9A-Za-z_-]{20,}', 'eyJ[A-Za-z0-9_-]{15,}\\.',
-  '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', '(sk|pk|rk)_(live|test)_[A-Za-z0-9]{6,}', '(^|[^0-9.])[0-9]{1,3}(\\.[0-9]{1,3}){3}([^0-9.]|$)',
+// C8b (issue 338, R2-16, R3-13): the key prefixes were matched case-insensitively and without a left boundary, so the `SK-` inside `TASK-010-fix-the-thing` (a branch name, the first line of
+// every block of a task with a slug) read as a secret key and the block was refused on every call. A key prefix is now matched in the case the provider issues it and only at the start
+// of a word; the words that name a credential, paths, addresses and the PEM header stay case-insensitive.
+const REFUSED_ANY = new RegExp([
+  '(^|[^A-Za-z0-9_.-])(/Users/|/home/|/tmp/|/var/|/private/|/etc/|/root/|/opt/|/mnt/|~/|[A-Za-z]:[\\\\/])', '-----BEGIN',
+  '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', '(^|[^0-9.])[0-9]{1,3}(\\.[0-9]{1,3}){3}([^0-9.]|$)',
   '([0-9A-Fa-f]{1,4}:){4,}[0-9A-Fa-f]{1,4}', '(password|passwd|secret|token|api[_-]?key|bearer|authorization)\\s*[:=]', '://[^/\\s]*:[^/\\s]*@',
 ].join('|'), 'im');
+const REFUSED_KEY = new RegExp(`(^|[^A-Za-z0-9])(${[
+  '(ghp|gho|ghs|ghu|ghr|github_pat)_[A-Za-z0-9_]{10,}', 'sk-[A-Za-z0-9_-]{10,}', 'AKIA[0-9A-Z]{12,}', 'xox[abprs]-[A-Za-z0-9-]{6,}', 'AIza[0-9A-Za-z_-]{20,}', 'eyJ[A-Za-z0-9_-]{15,}\\.',
+  '(sk|pk|rk)_(live|test)_[A-Za-z0-9]{6,}',
+].join('|')})`, 'm');
+/** @param {string} t */
+export const refusedBlock = (t) => REFUSED_ANY.test(t) || REFUSED_KEY.test(t);
 
 /** `pl_status_marker ID` @param {string} id */
 export const statusMarker = (id) => `<!-- proofline:status:${id} -->\n`;
@@ -216,7 +224,7 @@ export function statusCheck(a, id, file) {
   const t = existsSync(file) ? readText(file) : null;
   if (t === null) die(a, `status block file missing: ${file}`);
   if (Buffer.byteLength(t, 'latin1') > 6000) die(a, 'status block is too large');
-  if (REFUSED.test(t)) die(a, 'status block refused: it holds a local path, a secret, an IP address or a personal address');
+  if (refusedBlock(t)) die(a, 'status block refused: it holds a local path, a secret, an IP address or a personal address');
   return t;
 }
 /** `pl_status_comment ID BLOCK`: the text of the tracker comment (marker first, so it can be found again). @param {string} id @param {string} block */

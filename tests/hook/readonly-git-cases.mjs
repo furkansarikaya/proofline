@@ -662,6 +662,13 @@ export const CASES = [
   ["review 3 remote: git remote update (fetch only)", "git remote update", 'allow'],
   ["review 3 remote: git remote update origin", "git remote update origin", 'allow'],
   ["review 3 remote: git remote prune stays refused", "git remote prune origin", 'deny'],
+  // C9a (A363): the message of `git commit -F -` is data like a report written with cat; a push after it, a pipe into a shell and a program consumer are still read
+  ["C9a: commit message from stdin that talks about git push", "git commit -F - <<'EOF'\nfix: do not git push origin Main\nEOF", 'allow'],
+  ["C9a: commit message from stdin with a long option", "git commit --file - <<'EOF'\ngit push is not run here\nEOF", 'allow'],
+  ["C9a: commit message from stdin, then a real push", "git commit -F - <<'EOF'\nmsg\nEOF\ngit push origin Main", 'deny'],
+  ["C9a: commit message from stdin piped into sh", "git commit -F - <<'EOF' | sh\ngit push origin Main\nEOF", 'deny'],
+  ["C9a: commit message body that substitutes a command", "git commit -F - <<EOF\n$(git push origin Main)\nEOF", 'deny'],
+  ["C9a: gh pr create with its body from stdin is still a pull request creation", "gh pr create --title t --body-file - <<'EOF'\nnotes\nEOF", 'deny'],
 ];
 
 /** The review roles: [role, the agent_type the runtime sends]. */

@@ -15,7 +15,7 @@ import { Deny, deny, foldCommands, foldCtx, foldWorld, grepq, scanFor, SP } from
 import { alwaysProtected, erasable, nrPathOk, relpath, roOperand, roTail, targetOk } from './paths.mjs';
 import { dbGuardCmd } from './db.mjs';
 import { killGuard } from './kill.mjs';
-import { readonlyGit } from './readonly-git.mjs';
+import { readonlyGit, withoutDataBodies } from './readonly-git.mjs';
 import { mergeGuard } from './merge.mjs';
 import { stashGuard } from './stash.mjs';
 import { leadTmpCheck, scratchDir, scratchGuard, strayTmpPath, tmpIsScratchRoot } from './scratch.mjs';
@@ -127,7 +127,7 @@ async function checkOne(ctx, cmd, folded = false) {
   }
   const specialist = ctx.sub || role !== 'lead';
   // A specialist never mutates the live tree with git: mutation evidence runs in a separate worktree
-  if (act !== '' && !ctx.ro && specialist && grepq(SPEC_GIT_RE, cmd) && !grepq(SPEC_GIT_EXEMPT, cmd)) {
+  if (act !== '' && !ctx.ro && specialist && grepq(SPEC_GIT_RE, withoutDataBodies(cmd)) && !grepq(SPEC_GIT_EXEMPT, cmd)) {
     deny(`git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it${roTail(ctx)}`);
   }
   // A194: a command that produces evidence never runs through the user's rtk hook, which compresses output

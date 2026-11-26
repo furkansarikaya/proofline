@@ -18,7 +18,7 @@ import { evidenceRunCounts, fixRoundsDone, reportExecution, reportFacts } from '
 import { requireRun, runDir } from './runs.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { asciiLower } from './shellglob.mjs';
-import { fixRoundsUsed, gateLatestFile, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported } from './gates.mjs';
+import { fixRoundsLedger, fixRoundsUsed, gateLatestFile, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported } from './gates.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { humanChecks, records, sectionLines } from './taskfile.mjs';
 import { freshness } from './commands/verify.mjs';
@@ -242,11 +242,11 @@ function claimsCheck(ctx, id, file) {
   const dir = runDir(ctx, id);
   const [wt, wp] = evidenceRunCounts(ctx, dir);
   const gn = requiredGates(ctx, dir).length;
-  const fr = fixRoundsUsed(ctx, dir); const fm = maxFixRounds(ctx); const done = fixRoundsDone(ctx, dir);
+  const fr = fixRoundsUsed(ctx, dir); const fm = maxFixRounds(ctx); const done = fixRoundsDone(ctx, dir); const led = fixRoundsLedger(ctx, dir);
   const rz = String(ledgerRows(ctx, dir, 'refreeze').length);
-  const tests = [wt, wp, wt - wp]; const gates = [gn, 0]; const rounds = [fr, fm, done]; const refz = [Number(rz)];
+  const tests = [wt, wp, wt - wp]; const gates = [gn, 0]; const rounds = [fr, fm, done, led]; const refz = [Number(rz)];
   const tlab = `worker-evidence run records: total ${wt}, ended pass ${wp}, ended fail ${wt - wp}; no record counts individual tests`;
-  const glab = `required gates ${gn}`; const rlab = `used ${done}, maximum ${fm}`; const zlab = `refreezes ${rz}`;
+  const glab = `required gates ${gn}`; const rlab = `used ${led}, maximum ${fm}`; const zlab = `refreezes ${rz}`;
   /** @type {string[]} */ const bad = [];
   let fence = false; let nr = 0;
   for (const raw of records(fileText(ctx, file) ?? '')) {

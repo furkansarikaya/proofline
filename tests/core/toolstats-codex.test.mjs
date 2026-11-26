@@ -51,6 +51,7 @@ describe('readCodexToolStats', () => {
     assert.equal(s.calls, 6);
     assert.equal(s.resultBytes, 6 + 12 + Buffer.byteLength(BLOCKED) + 2 + 1);
     assert.equal(s.denied, 1);
+    assert.deepEqual(s.denials, { 'a-model-command-never-starts': 1 });
     assert.deepEqual(s.byTool, {
       exec: { calls: 2, bytes: 6 }, local_shell: { calls: 1, bytes: 2 }, shell: { calls: 1, bytes: Buffer.byteLength(BLOCKED) }, tool_search: { calls: 1, bytes: 1 }, wait: { calls: 1, bytes: 12 },
     });

@@ -9,6 +9,7 @@
 import { cParts, deny, envChdirOpt, grepq, stashPath, worktrees } from './kit.mjs';
 import { fold } from '../lib/fscase.mjs';
 import { roTail } from './paths.mjs';
+import { withoutDataBodies } from './readonly-git.mjs';
 
 const S = ' \\t\\n\\v\\f\\r';
 const RO_W = 'rm|mv|cp|tee|truncate|ed|ex|patch|install|dd|chmod|chown|ln|shred|unlink|rmdir|touch';
@@ -49,6 +50,8 @@ export async function stashGuard(ctx, cmd, scan) {
   const wts = await worktrees(ctx);
   let cd = ctx.cwd;
   let cdseen = false; let ok = 0; let rok = 0; let force = false;
+  // C9a: the bodies of data here-documents (cat, tee, git commit -F -, agent.sh) are text, not commands: the text nets below read the command without them
+  const text = withoutDataBodies(cmd);
   const pre = cmd.includes('stash') ? cmd.slice(0, cmd.lastIndexOf('stash')) : cmd;
   const nl = pre.split('\n').map((l) => l.replace(/&&/g, '').replace(/[0-9]*>&[0-9-]*/g, '').replace(/&>/g, '')).join('\n');
   const nonlin = /[(|&{`]/.test(nl);
@@ -119,16 +122,16 @@ export async function stashGuard(ctx, cmd, scan) {
     }
   }
   // `xargs <writer>` takes its files from stdin, so the directory the command ends in must be an evidence worktree.
-  if (ctx.ro && RO_XARGS_WRITER.test(cmd.replace(/[\n\t]/g, ' '))) {
+  if (ctx.ro && RO_XARGS_WRITER.test(text.replace(/[\n\t]/g, ' '))) {
     if (!inWorktree(cd, wts, ctx)) deny(`xargs of a command that writes runs outside an evidence worktree (or the directory cannot be read from the command text)${roTail(ctx)}`);
   }
   // Safety net on the text: every `git ... stash` in command position that the records above did not resolve to an evidence worktree is refused
-  if (stashNetCount(cmd) > ok) deny(`${MSG}${roTail(ctx)}`);
+  if (stashNetCount(text) > ok) deny(`${MSG}${roTail(ctx)}`);
   // The same net for a read role's other tree-changing subcommands (wrappers such as find -exec hide them from the records).
   if (ctx.ro) {
     const re = new RegExp(`(^|[^A-Za-z0-9_.-])git[${S}]+(-C[${S}]+[^${S}]+[${S}]+)?(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout|rm|mv|pull)([${S}]|$)`, 'g');
     let rn = 0;
-    for (const l of cmd.split('\n')) rn += l.match(re)?.length ?? 0;
+    for (const l of text.split('\n')) rn += l.match(re)?.length ?? 0;
     if (rn > rok) deny(`git changes the project working tree, or a wrapper hides which directory it runs in; use git -C <evidence worktree> or cd there with a literal path${roTail(ctx)}`);
   }
 }

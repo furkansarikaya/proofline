@@ -26,6 +26,7 @@ lead-only command, but `AGENT_ROLE` is a declared claim, so the trust is the sam
 | `dispatch` | `dispatch.sh` through `agent.sh metrics-dispatch`; the SubagentStop hook for a resumed specialist (A351) | one per `dispatch.sh` call once its first attempt has started (submitted, failed, timeout, blocked, needs_input), and one with result `resumed` (duration only, no tokens) for a resumed specialist that stopped without a new `submit`; a call that exits on a usage error before any attempt writes none |
 | `step` | `agent.sh` (`submit` / `record`) | one per recorded specialist result |
 | `run` | `agent.sh` (`handoff DONE`, `terminate`) | once when the run ends |
+| `lead` | `agent.sh` (`handoff DONE`, `terminate`) | once when the run ends, when the lead's Claude Code session log is found and holds message usage (A363): `role` is `lead`, the tokens are what the session spent since the previous record of that log; a Codex lead and a log without usage write none |
 
 ## Record schema (`proofline.metrics/1`)
 
@@ -36,7 +37,7 @@ meaning; adding a key keeps the version number only if existing keys are untouch
 | Key | Type | Meaning |
 |---|---|---|
 | `schema` | string | always `proofline.metrics/1` |
-| `kind` | string | `dispatch`, `step` or `run` |
+| `kind` | string | `dispatch`, `step`, `run` or `lead` |
 | `time` | string | UTC ISO-8601 time the record was written |
 | `task` | string | run id (`[A-Za-z0-9_-]+`) |
 | `role` | string or null | role (`reviewer`, `implementer`, ...); `lead` for `run` |
@@ -101,8 +102,11 @@ line 1 of `.agents/local/submissions/<token>.started` (the file the token counts
 | `calls` | integer or null | tool calls in the log at the time of the record (a `tool_use` of an assistant entry; a repeated id counts once) |
 | `result_bytes` | integer or null | UTF-8 bytes of the text of the tool results that came back (images and other non-text blocks count 0) |
 | `denied` | integer or null | calls whose result is the hook's refusal (`PreToolUse:<Tool> hook error ...`): a call spent and answered with a rule, so a wasted round trip |
+| `denials` | object or null | A363: the refused calls (`denied`) counted by the class of the refusal text, `{"<class>": n}`: at most 8 classes (keys in byte order), the rest summed as `other`. A class is the fixed prose of the hook's reason (at most 8 plain lower-case words and a decision number, at most 64 characters); the bracketed command, anything in quotes, back ticks or parentheses and every word that is not plain lower-case letters are dropped, so no tool input, path or secret is recorded. A refusal with no text left is `no-reason` |
 | `by_tool` | object or null | per tool name (reduced; at most 40 names, the rest summed as `other`; keys in byte order): `{"calls": n, "bytes": n}` |
 | `reason` | string or null | last key (A255); null when `log` is `ok` or `no-log`. Why a log is `unreadable` or `malformed`: `read-error`, `too-large`, `not-a-file`, `line-too-long`, `bad-line`, `no-events`; for Codex also `no-session-id`, `no-codex-home`, `no-rollout` (the log was not found) |
+
+A session log is cumulative: a subagent that is resumed goes on writing into the same file, and the lead's log holds every run of the session. The tokens of a `step` record of `records.jsonl` (and of the `lead` record) are therefore what the log gained since the previous record of the same log (A363; two numbers per log in `.agents/local/metrics/cumulative/`), so one resumed agent is counted once.
 
 Read the limits before using it: the log is read while the session still runs, so the record counts up to the call that submitted (that call's own result
 is not in it), a last half-written line is ignored, and a worker that submits twice (the first was rejected) is counted at its recorded submission only.

@@ -634,7 +634,7 @@ test('scenario_reopen_failed: approval, roles, scope, kept passes, fix rounds 0 
   expectState(d, 'execution', 'state', 'PLANNING');
   expectState(d, 'execution', 'knowledge_state', 'not_started');
   assert.equal(pipe(d, 'fix_round'), '0', `the reopen did not restart the fix rounds: ${pipe(d, 'fix_round')}`);
-  assert.ok(lines(A(d, ['report-facts', 'LC']).out).includes('- Fix rounds: 0 of 2'), 'the report does not count the fix rounds from 0 of 2');
+  assert.ok(lines(A(d, ['report-facts', 'LC']).out).includes('- Fix rounds: 2 of 2'), 'C8c: the Facts line counts the ledger fix_round rows of the whole run (the two of the failed run), the reopen does not start it again');
   expectFail(reopen(d), 'the approval was reusable');
   const pl = A(d, ['pipeline', 'LC']).out;
   assert.ok(/^gate\.REVIEW_SMALL=pass/m.test(pl) && /^gate\.QA=pass/m.test(pl), `passing gates on unchanged inputs did not stay: ${pl}`);

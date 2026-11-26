@@ -4,18 +4,90 @@
 // `.agents/local/metrics/tools.jsonl` (schema `proofline.tools/1`, documented in docs/concepts/metrics.md). `records.jsonl` is not touched (ADR D3).
 // Nothing a model wrote is copied: a record holds identifiers reduced to [A-Za-z0-9._+:-] and numbers. A log the reader cannot use gives `null` counts and a
 // `log` field that says why (as `metrics_step` leaves its tokens null), never zero.
-import { appendFileSync, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { now } from './clock.mjs';
 import { isLocalAbsolute } from './pathin.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
-/** @typedef {{ log: 'ok' | 'unreadable' | 'malformed', calls: number | null, resultBytes: number | null, denied: number | null, byTool: Record<string, { calls: number, bytes: number }> | null, reason?: string | null }} ToolStats */
+/** @typedef {{ log: 'ok' | 'unreadable' | 'malformed', calls: number | null, resultBytes: number | null, denied: number | null, denials?: Record<string, number> | null, byTool: Record<string, { calls: number, bytes: number }> | null, reason?: string | null }} ToolStats */
 
 const MAX_TOOLS = 40;
 const MAX_STRING = 64;                  // every string of a record is cut to this many characters after the reduction: one line stays under about 5 KB
 const MAX_LOG_BYTES = 128 * 1024 * 1024;   // a larger log is not read
 const DENIED = /^PreToolUse:[A-Za-z0-9_]+ hook error/;
+
+const MAX_DENIAL_KEYS = 8;
+const MAX_DENIAL_WORDS = 8;
+
+/**
+ * C8a: the class of one refusal, from the text of its result (`PreToolUse:Bash hook error: [..]: proofline: <reason> | <hint>`, Codex: `blocked by PreToolUse hook: proofline: <reason>`).
+ * Only the fixed prose of the rule survives: a bracketed command, anything in quotes, back ticks or parentheses (the hook echoes the target there) and every word that is not
+ * plain lower-case letters (a path, an identifier, a number, a value) is dropped; a decision number (`A136`) is kept. At most 8 words, joined with `-`, at most 64 characters.
+ * A refusal with no text left is `no-reason`. Nothing a model typed can reach the record except a plain lower-case word the hook itself printed.
+ * @param {string} t the result text @returns {string}
+ */
+export function denialClass(t) {
+  const m = /(?:hook error|blocked by PreToolUse hook):?([\s\S]*)$/.exec(t.slice(0, 4000));
+  let r = m ? (m[1] ?? '') : '';
+  r = r.replace(/^\s*\[[^\]\n]*\]:?/, '').replace(/^\s*proofline:\s*/, '');
+  const bar = r.indexOf(' | ');
+  if (bar >= 0) r = r.slice(0, bar);
+  r = r.replace(/'[^']*'|"[^"]*"|`[^`]*`|\([^)]*\)/g, ' ');
+  const words = r.split(/[\s,;:.]+/).filter((w) => /^[a-z]+(?:-[a-z]+)*$/.test(w) || /^A[0-9]{1,4}$/.test(w)).slice(0, MAX_DENIAL_WORDS);
+  return words.length === 0 ? 'no-reason' : words.join('-').slice(0, MAX_STRING);
+}
+
+/** @param {Map<string, number>} reasons @returns {Record<string, number>} the most frequent classes (at most 8, keys in byte order), the rest summed as `other` */
+function denialTable(reasons) {
+  const ranked = [...reasons].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  /** @type {Record<string, number>} */ const out = {};
+  const put = (/** @type {string} */ k, /** @type {number} */ v) => Object.defineProperty(out, k, { value: v, enumerable: true, writable: true, configurable: true });
+  for (const [k, v] of ranked.slice(0, MAX_DENIAL_KEYS).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) put(k, v);
+  const rest = ranked.slice(MAX_DENIAL_KEYS).reduce((a, [, v]) => a + v, 0);
+  if (rest > 0) put('other', rest);
+  return out;
+}
+
+/**
+ * The tokens of a Claude Code session log: input plus cache creation, and output, summed once per assistant message id (the log also holds request copies of a message). The log is
+ * CUMULATIVE: a subagent that is resumed (SendMessage) goes on writing into the same file, and the lead's session log holds every run of the session.
+ * @param {string} file @returns {{ tin: number, tout: number } | null} null when no message carries usage
+ */
+export function claudeUsage(file) {
+  /** @type {Map<string, [number, number]>} */ const per = new Map();
+  for (const l of readFileSync(file, 'latin1').split('\n')) {
+    if (!l.includes('"role":"assistant"')) continue;
+    const m = /"id":"msg_[A-Za-z0-9_]+"/.exec(l);
+    if (!m) continue;
+    const u = l.replace(/^[^]*"usage":\{/, '').slice(0, 400);
+    const num = (/** @type {string} */ k) => { const mm = new RegExp(`"${k}":([0-9]+)`).exec(u); return mm ? Number(mm[1]) : 0; };
+    per.set(m[0], [num('input_tokens') + num('cache_creation_input_tokens'), num('output_tokens')]);
+  }
+  if (per.size === 0) return null;
+  let tin = 0; let tout = 0;
+  for (const [i, o] of per.values()) { tin += i; tout += o; }
+  return { tin, tout };
+}
+
+/**
+ * C8f (issue 338, R4-10): the tokens a record may claim from a cumulative log. The first record of a log takes everything in it; a later record of the same log (a resumed agent that submits
+ * again, the lead's next run) takes only what the log gained since the previous record, so the same tokens are never summed twice (8.14M against 6.90M in a retro). The total already
+ * recorded for each log is kept in `.agents/local/metrics/cumulative/<hash of the log path>` (two numbers). A log that got smaller starts again.
+ * @param {Context} ctx @param {string} file @param {{ tin: number, tout: number }} cur
+ */
+export function tokenDelta(ctx, file, cur) {
+  const dir = `${ctx.sharedMain()}/.agents/local/metrics/cumulative`;
+  const key = `${dir}/${createHash('sha256').update(file).digest('hex').slice(0, 32)}`;
+  let prev = { tin: 0, tout: 0 };
+  try {
+    const m = /^([0-9]+) ([0-9]+)\n?$/.exec(readFileSync(key, 'utf8'));
+    if (m && Number(m[1]) <= cur.tin && Number(m[2]) <= cur.tout) prev = { tin: Number(m[1]), tout: Number(m[2]) };
+  } catch { /* the first record of this log */ }
+  try { mkdirSync(dir, { recursive: true }); writeFileSync(key, `${cur.tin} ${cur.tout}\n`); } catch { /* best effort: the next record then counts the log again */ }
+  return { tin: cur.tin - prev.tin, tout: cur.tout - prev.tout };
+}
 
 /** @param {string} v */
 const reduce = (v) => v.replace(/[^A-Za-z0-9._+:-]/g, '').slice(0, MAX_STRING);
@@ -44,6 +116,7 @@ export function readToolStats(file) {
   /** @type {Set<string>} */ const answered = new Set();
   /** @type {Map<string, number>} */ const bytesOf = new Map();
   let denied = 0;
+  /** @type {Map<string, number>} */ const reasons = new Map();
   for (let i = 0; i < lines.length; i++) {
     let d;
     try { d = JSON.parse(lines[i]); } catch { if (i === lines.length - 1) break; return bad('malformed', 'bad-line'); }
@@ -56,19 +129,19 @@ export function readToolStats(file) {
         answered.add(b.tool_use_id);
         const t = textOf(b.content);
         bytesOf.set(b.tool_use_id, Buffer.byteLength(t));
-        if (DENIED.test(t)) denied++;
+        if (DENIED.test(t)) { denied++; const k = denialClass(t); reasons.set(k, (reasons.get(k) ?? 0) + 1); }
       }
     }
   }
-  return summarize(tool, bytesOf, denied);
+  return summarize(tool, bytesOf, denied, reasons);
 }
 
 
 /**
  * The totals and the per-tool table of the calls seen: the 40 tools with the most calls keep their names, the rest is summed under "other".
- * @param {Map<string, string>} tool call id to reduced tool name @param {Map<string, number>} bytesOf call id to result bytes @param {number} denied @returns {ToolStats}
+ * @param {Map<string, string>} tool call id to reduced tool name @param {Map<string, number>} bytesOf call id to result bytes @param {number} denied @param {Map<string, number>} reasons @returns {ToolStats}
  */
-function summarize(tool, bytesOf, denied) {
+function summarize(tool, bytesOf, denied, reasons) {
   /** @type {Map<string, { calls: number, bytes: number }>} */ const per = new Map();
   let total = 0;
   for (const [id, name] of tool) {
@@ -85,7 +158,7 @@ function summarize(tool, bytesOf, denied) {
   for (const [n, e] of keep) put(n, e);
   const rest = ranked.slice(MAX_TOOLS);
   if (rest.length > 0) put('other', rest.reduce((a, [, e]) => ({ calls: a.calls + e.calls, bytes: a.bytes + e.bytes }), { calls: 0, bytes: 0 }));
-  return { log: 'ok', calls: tool.size, resultBytes: total, denied, byTool, reason: null };
+  return { log: 'ok', calls: tool.size, resultBytes: total, denied, denials: denialTable(reasons), byTool, reason: null };
 }
 
 // ---- Codex (A255, #181) -------------------------------------------------------------------------------------------------------------------------
@@ -153,6 +226,7 @@ export function readCodexToolStats(file) {
   /** @type {Set<string>} */ const answered = new Set();
   /** @type {Map<string, number>} */ const bytesOf = new Map();
   let denied = 0; let typed = false; let total = 0;
+  /** @type {Map<string, number>} */ const reasons = new Map();
   let fd = -1;
   try {
     fd = openSync(file, 'r');
@@ -177,7 +251,7 @@ export function readCodexToolStats(file) {
         answered.add(id);
         const t = codexText(p.output);
         bytesOf.set(id, Buffer.byteLength(t));
-        if (t.slice(0, 300).includes('blocked by PreToolUse hook')) denied++;
+        if (t.slice(0, 300).includes('blocked by PreToolUse hook')) { denied++; const k = denialClass(t); reasons.set(k, (reasons.get(k) ?? 0) + 1); }
       }
       return true;
     };
@@ -207,7 +281,7 @@ export function readCodexToolStats(file) {
     }
   } catch { return bad('unreadable', 'read-error'); } finally { if (fd >= 0) try { closeSync(fd); } catch { /* ignore */ } }
   if (!typed) return bad('malformed', 'no-events');
-  return summarize(tool, bytesOf, denied);
+  return summarize(tool, bytesOf, denied, reasons);
 }
 
 /**
@@ -227,8 +301,9 @@ export function toolsRecord(ctx, f) {
   /** @type {ToolStats | ReturnType<typeof none>} */
   const st = f.log === '' ? (codex || lead ? none('unreadable', f.reason ?? (codex ? 'no-rollout' : 'no-transcript')) : none('no-log', null))
     : (() => { try { return codex ? readCodexToolStats(f.log) : readToolStats(f.log); } catch { return none('unreadable', 'read-error'); } })();
+  const den = !('denials' in st) || !st.denials ? 'null' : `{${Object.entries(st.denials).map(([k, v]) => `"${k}":${v}`).join(',')}}`;
   const by = st.byTool === null ? 'null' : `{${Object.entries(st.byTool).map(([k, e]) => `"${k}":{"calls":${e.calls},"bytes":${e.bytes}}`).join(',')}}`;
-  const line = `{"schema":"proofline.tools/1","kind":"${lead ? 'lead' : 'step'}","time":"${now().iso}","task":${s(f.task)},"role":${s(f.role)},"focus":${s(f.focus)},"gate":${s(f.gate)},"runtime":${s(f.runtime)},"log":"${st.log}","calls":${n(st.calls)},"result_bytes":${n(st.resultBytes)},"denied":${n(st.denied)},"by_tool":${by},"reason":${st.reason ? `"${reduce(st.reason)}"` : 'null'}${lead ? `,"session":${s(f.session ?? '')}` : ''}}\n`;
+  const line = `{"schema":"proofline.tools/1","kind":"${lead ? 'lead' : 'step'}","time":"${now().iso}","task":${s(f.task)},"role":${s(f.role)},"focus":${s(f.focus)},"gate":${s(f.gate)},"runtime":${s(f.runtime)},"log":"${st.log}","calls":${n(st.calls)},"result_bytes":${n(st.resultBytes)},"denied":${n(st.denied)},"denials":${den},"by_tool":${by},"reason":${st.reason ? `"${reduce(st.reason)}"` : 'null'}${lead ? `,"session":${s(f.session ?? '')}` : ''}}\n`;
   const file = `${ctx.sharedMain()}/.agents/local/metrics/tools.jsonl`;
   try { mkdirSync(path.dirname(file), { recursive: true }); appendFileSync(file, line, { encoding: 'utf8' }); } catch { /* best effort */ }
 }

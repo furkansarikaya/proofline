@@ -46,6 +46,8 @@ const FILE = '[^\\s|;&<>`()]+';
 /** The only consumers whose here-document body is DATA: `cat [> file]`, `tee [-a] file`, `sh <path>/agent.sh <subcommand> ...`. Anything else (an interpreter, an unknown program, any option list) is scanned. */
 const DATA_CAT = new RegExp(`^(\\w+=\\S+\\s+)*cat(\\s+-\\w+)*(\\s*>>?\\s*${FILE})?$`);
 const DATA_TEE = new RegExp(`^(\\w+=\\S+\\s+)*tee(\\s+-a)?(\\s+${FILE})+$`);
+/** `git commit -F -` (the message from stdin) and `gh ... --body-file -`: the body is text for git or gh, not a program. */
+const DATA_GITMSG = /^(\w+=\S+\s+)*(git\s+commit(\s+-[-\w]+)*\s+(-F|--file)\s+-|gh\s+(pr|issue)\s+(create|comment|edit)(\s+[^|;&<>`()$]*)?\s+(-F|--body-file)\s+-)$/;
 const DATA_AGENT = /^(\w+=\S+\s+)*(sh|bash)\s+(?:(?:\.|\$PWD|\"\$PWD\"|\/[\w.~-]+(?:\/[\w.~-]+)*)\/)?\.agents\/scripts\/agent\.sh\s+[\w-]+(\s+[^|;&<>`()]*)?$/;
 /** The here-document operator of a line: delimiter, whether it is quoted (the body is then taken literally), text before and after. @param {string} line */
 function hereOf(line) {
@@ -63,10 +65,10 @@ function isDataHeredoc(line, body) {
   if (!new RegExp(`^(\\d*>>?\\s*${FILE})?$`).test(h.after)) return false;
   if (/[|`()]|\$\(/.test(h.before)) return false;
   const consumer = /** @type {string} */ (h.before.split(/&&|;/).pop()).trim();
-  return DATA_CAT.test(consumer) || DATA_TEE.test(consumer) || DATA_AGENT.test(consumer);
+  return DATA_CAT.test(consumer) || DATA_TEE.test(consumer) || DATA_AGENT.test(consumer) || (consumer.length <= 1000 && DATA_GITMSG.test(consumer));   // the length bound keeps the nested quantifiers of DATA_GITMSG linear in practice
 }
 /** The command with the bodies of data here-documents removed (a report written with `cat > file <<'EOF'`, `tee`, `agent.sh submit --report - <<'EOF'`). When the rest of the command runs text (eval, source, a pipe into a shell or interpreter, a variable as command word, xargs) nothing is removed. @param {string} cmd */
-function withoutDataBodies(cmd) {
+export function withoutDataBodies(cmd) {
   const lines = cmd.split('\n');
   /** @type {string[]} */ const out = [];
   let dropped = false;

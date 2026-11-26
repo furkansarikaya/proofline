@@ -106,6 +106,34 @@ async function originHead(ctx) {
 }
 
 /**
+ * C9b: `git merge --ff-only <remote>/<protected branch>` (or `refs/remotes/<remote>/<protected branch>`), nothing else on the line, is the one local merge into a protected branch that
+ * stays inside the intent of A136: the operand is a remote-tracking ref, so the commits it brings are already on the remote, and --ff-only refuses to make a merge commit, so no
+ * content that is not on the remote enters the branch. It is allowed only when the operand cannot be read as any other ref: no tag and no local branch of the same name (git prefers
+ * both over a remote-tracking ref), the remote-tracking ref exists, and the git dir is known. Any other option (`--no-ff`, `-m`, `-s`, `--squash`, `--no-verify`, more operands) or
+ * a case where a file cannot be read keeps the denial. A tripwire like the rest of the guard: `git update-ref refs/remotes/...` is not read by it.
+ * @param {string[]} rest @param {string} dir @param {(b: string) => boolean} protectedName
+ */
+function ffOnlyOfRemote(rest, dir, protectedName) {
+  if (rest.length !== 2 || !rest.includes('--ff-only')) return false;
+  const op = rest.find((x) => x !== '--ff-only') ?? '';
+  const m = /^(?:refs\/remotes\/)?([A-Za-z0-9_][A-Za-z0-9_.-]*)\/([A-Za-z0-9_][A-Za-z0-9_.\/-]*)$/.exec(op);
+  if (!m || op.includes('..') || m[1] === 'heads' || m[1] === 'tags' || m[1] === 'remotes') return false;
+  const [, remote, branch] = /** @type {RegExpExecArray} */ (m);
+  if (!protectedName(/** @type {string} */ (branch))) return false;
+  const gd = findGitDir(dir);
+  if (!gd) return false;
+  let common = gd;
+  try { common = resolve(gd, readFileSync(`${gd}/commondir`, 'utf8').replace(/\n+$/, '')); } catch { /* not a linked worktree */ }
+  const short = `${remote}/${branch}`;
+  const exists = (/** @type {string} */ f) => { try { statSync(f); return true; } catch { return false; } };
+  let packed = '';
+  try { packed = readFileSync(`${common}/packed-refs`, 'utf8'); } catch { /* none */ }
+  const packedHas = (/** @type {string} */ r) => packed.split('\n').some((l) => l.endsWith(` ${r}`));
+  if (exists(`${common}/refs/heads/${short}`) || exists(`${common}/refs/tags/${short}`) || exists(`${common}/${short}`) || packedHas(`refs/heads/${short}`) || packedHas(`refs/tags/${short}`)) return false;
+  return exists(`${common}/refs/remotes/${short}`) || packedHas(`refs/remotes/${short}`);
+}
+
+/**
  * @param {import('../lib/context.mjs').HookContext} ctx @param {string} cmd the command text
  * @param {import('../command-scan.mjs').ScanResult} scan
  */
@@ -208,7 +236,7 @@ export async function mergeGuard(ctx, cmd, scan) {
         await load();
         if (dir === '@unknown') deny(`git merge whose directory cannot be read from the command text may merge into a protected branch: ${MG_MSG}`);
         const c = await cur();
-        if (isProt(c)) deny(`git merge on the protected branch ${c}: ${MG_MSG}`);
+        if (isProt(c) && !ffOnlyOfRemote(rest, dir, (b) => isProt(b, false))) deny(`git merge on the protected branch ${c}: ${MG_MSG}`);
         if (switchesProt()) deny(`git merge in a command that switches to a protected branch: ${MG_MSG}`);
         return;
       }

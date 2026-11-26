@@ -20,6 +20,7 @@ import { entryRecordPath } from './codexprofile.mjs';
 import * as proc from './proc.mjs';
 import { hgit } from './hgit.mjs';
 import { archiveRun } from './runend.mjs';
+import { ledgerAppend } from './lock.mjs';
 import { pathMatches } from './scope.mjs';
 import { requireLead } from './approve.mjs';
 import { textLines } from './records.mjs';
@@ -372,6 +373,8 @@ export function worktreeRemove(ctx, args) {
   /** @type {string[]} */ let runs = [];
   try { runs = readdirSync(runsDir).filter((n) => !n.startsWith('.') && isDir(`${runsDir}/${n}`)).sort(); } catch { runs = []; }
   if (runs.length > 0 && !force) fail(`the worktree of ${id} still holds the run: ${runs.join(' ')} (its evidence goes with it). Finish or clean up the run first, or: agent.sh worktree-remove ${id} --force`);
+  // C8e: a forced removal is a workaround the control plane saw: one row in the ledger of each run it takes away, before the archive keeps it
+  if (force) for (const r of runs) { try { ledgerAppend(`${runsDir}/${r}`, 'lead', 'forced-removal', '-', '-', `worktree-remove ${id} --force`); } catch { /* the removal goes on; the row is a record, not a gate */ } }
   for (const r of runs) archiveRun(ctx, r, `${runsDir}/${r}`);
   const rm = hgit(ctx, ctx.root, ['worktree', 'remove', '--force', d], { stdio: ['ignore', 'ignore', 'ignore'] });
   if (rm.status !== 0) fail(`could not remove the worktree ${bytes(d)}`);

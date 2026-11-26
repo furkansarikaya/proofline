@@ -74,6 +74,12 @@ test('worktree-add|path|remove: one worktree per run, open runs counted per work
   assert.equal(rm.status, 0, rm.text);
   assert.ok(rm.out.includes('evidence archived') && rm.out.includes('worktree removed: W-2'), rm.text);
   assert.ok(!has(wt) && g(dir, ['worktree', 'list']).split('\n').length === 1, 'worktree left after removal');
+  // C8e: the forced removal left one row in the ledger of the run it took away, and the archive kept it
+  const arch = readdirSync(`${main}/.agents/local/archive/W-2`).find((n) => n.endsWith('.tar.gz')) ?? '';
+  const tarf = `${main}/.agents/local/archive/W-2/${arch}`;
+  const member = (spawnSync('tar', ['-tzf', tarf], { encoding: 'utf8' }).stdout.split('\n').find((n) => n.endsWith('/LEDGER.log')) ?? '');
+  const led = spawnSync('tar', ['-xzOf', tarf, member], { encoding: 'utf8' });
+  assert.match(led.stdout, / event=forced-removal role=lead .* detail=worktree-remove W-2 --force$/m, led.stderr);
   assert.ok(!has(recPath), 'the record outlived the worktree');
   assert.match(AB(F, dir, ['worktree-remove', 'W-2']).out, /no worktree/, 'removing a missing worktree is not a no-op');
   // usage and role
