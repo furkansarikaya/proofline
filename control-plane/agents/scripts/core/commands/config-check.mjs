@@ -6,7 +6,7 @@
 
 import { resolveTrailer } from '../committrailer.mjs';
 
-const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts|test_budgets|test_stability|profiles)$/;
+const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts|test_budgets|test_stability|profiles|output_cap_bytes)$/;
 const DIGITS = /^[0-9]+$/;
 const HOOK_EVENT_TIMEOUT = /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/;
 const REL_UP = /(^|\/)\.\.(\/|$)/;
@@ -89,6 +89,7 @@ export function checkConfigLines(lines) {
     else if (k === 'profile') en(k, v, 'max|balanced|economy');
     else if (/^runtime\.(lead|worker|reviewers)$/.test(k) || /^runtime\.roles\./.test(k)) en(k, v, 'claude|codex');
     else if (k === 'failover') en(k, v, 'auto|ask|off');
+    else if (k === 'output_cap_bytes') { num(k, v); if (DIGITS.test(v) && n0(v) !== 0 && n0(v) < 200) bad(`${k} is 0 (no cap) or at least 200: ${v}`); }
     else if (/^autonomy\./.test(k)) { if (!/^(TRIVIAL|STANDARD|COMPLEX|CRITICAL)$/.test(P(2))) bad(`unknown class under autonomy: ${P(2)}`); en(k, v, 'autonomous|supervised'); }
     else if (k === 'review.waiver_followup') en(k, v, 'none|task');
     else if (/^review\.(max_fix_rounds|small_max_files|small_max_lines)$/.test(k) || /^(test_trust|budgets|performance)\./.test(k)) num(k, v);

@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.186
+proofline_version: 0.0.187
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -16,6 +16,9 @@ runtime:
   reviewers: claude
   # Optional per-role override, for example `security_reviewer: claude`.
   roles:
+# Most bytes of stdout of the commands the lead calls all day (batch-next, batch-status, digest, friction; next, status, pipeline and questions state what is required and are never cut) when run as a process (A365): the rest
+# is one line `...N more bytes: agent.sh <command> --full`. 0 = no cap, otherwise at least 200.
+output_cap_bytes: 6000
 # Specialist failover (D7): auto | ask | off.
 failover: auto
 # supervised: freeze needs a plan approval. autonomous: no stop before CODE_DONE (D3).

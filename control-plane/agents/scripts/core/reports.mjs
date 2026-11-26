@@ -1,7 +1,7 @@
 // @ts-check
 // Read-only views of a run built from its records: `summary` (and the `--status` form), `digest`, `plan-section`, `report-tokens`,
 // `report-execution` and `report-facts` (agent.sh 7363-7420, 8880-8940). Counts and statuses come from the records, never from text.
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { fail, ProoflineError, unsupported } from './errors.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { fixRoundsLedger, fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
@@ -49,20 +49,20 @@ export function summaryRun(ctx, given, flag) {
   if (id === '') fail('no active task: pass a TASK-ID');
   requireRun(ctx, id);
   const d = runDir(ctx, id);
-  ctx.out(`STATUS: ${ua(sectionValue(ctx, d, 'execution', 'state'))} (handoff ${ua(sectionValue(ctx, d, 'handoff', 'state'))}, knowledge ${ua(sectionValue(ctx, d, 'execution', 'knowledge_state'))})\n`);
+  ctx.keep(`STATUS: ${ua(sectionValue(ctx, d, 'execution', 'state'))} (handoff ${ua(sectionValue(ctx, d, 'handoff', 'state'))}, knowledge ${ua(sectionValue(ctx, d, 'execution', 'knowledge_state'))})\n`);
   if (flag === '--status') return;
   const t = fileLines(ctx, `${d}/TASK.md`)[0];
   const title = t !== undefined && t.startsWith('#') ? t.replace(new RegExp(`^#${WS}*`), '').replace(/[\0-\x1f\x7f]/g, '') : '';
   ctx.out(`TASK: ${id} ${title}\n`);
   const cls = pipelineClass(ctx, d);
-  ctx.out(`CLASS/TOPOLOGY: ${ua(cls.includes('PENDING') ? '' : cls)} / ${ua(topology(ctx, d))}\n`);
+  ctx.keep(`CLASS/TOPOLOGY: ${ua(cls.includes('PENDING') ? '' : cls)} / ${ua(topology(ctx, d))}\n`);
   if (pipelineDeclared(ctx, d) && pipelineClassValid(cls)) {
     const fp = gateFingerprint(ctx);
-    ctx.out(`TIER: ${tierEffective(ctx, d)}\n`);
-    for (const g of requiredGates(ctx, d)) ctx.out(`${g}: ${gateLabel(ctx, d, id, g, fp)}\n`);
-    ctx.out(`FIX ROUNDS: ${fixRoundsDone(ctx, d)} of ${maxFixRounds(ctx, d)}\n`);
+    ctx.keep(`TIER: ${tierEffective(ctx, d)}\n`);
+    for (const g of requiredGates(ctx, d)) ctx.keep(`${g}: ${gateLabel(ctx, d, id, g, fp)}\n`);
+    ctx.keep(`FIX ROUNDS: ${fixRoundsDone(ctx, d)} of ${maxFixRounds(ctx, d)}\n`);
   }
-  ctx.out(`DELIVERY: completion report published ${ua(sectionValue(ctx, d, 'completion_report', 'published'))}\n`);
+  ctx.keep(`DELIVERY: completion report published ${ua(sectionValue(ctx, d, 'completion_report', 'published'))}\n`);
 }
 
 /** `digest_run ID` @param {Context} ctx @param {string} id */
@@ -72,7 +72,7 @@ export function digestRun(ctx, id) {
   let q = 0;
   for (const n of listNames(`${d}/questions`, /^[0-9]{3}\.md$/)) if (!exists(`${d}/questions/${n.slice(0, -3)}.answer.md`)) q++;
   summaryRun(ctx, id, '');
-  ctx.out(`OPEN QUESTIONS: ${q}\n`);
+  ctx.keep(`OPEN QUESTIONS: ${q}\n`);
   // A202: the scope by derived kind, computed here and not written in any document
   const plan = fileText(ctx, `${d}/PLAN.md`);
   if (plan !== null) {
@@ -85,7 +85,7 @@ export function digestRun(ctx, id) {
         n[f[3]] = (n[f[3]] ?? 0) + 1;
         if (f[1] !== '-' && f[1] !== f[2] && !(f[1] === 'doc' && f[2] === 'content')) bad += ` ${f[0]}`;
       }
-      ctx.out(`SCOPE: code=${n.code} test=${n.test} content=${n.content}${bad !== '' ? ` (kind claimed wrongly, counted as code:${bad})` : ''}\n`);
+      ctx.keep(`SCOPE: code=${n.code} test=${n.test} content=${n.content}${bad !== '' ? ` (kind claimed wrongly, counted as code:${bad})` : ''}\n`);
     }
   }
   // next_step runs in a pipe there: its lines are filtered, and a failure inside it ends only that part
@@ -95,14 +95,37 @@ export function digestRun(ctx, id) {
     ctx.err(`${e.message}\n`);
   }
   for (const l of textLines(text)) {
-    if (l.startsWith('next=')) ctx.out(`NEXT: ${l.slice(5)}\n`);
-    else if (l.startsWith('reason=')) ctx.out(`WHY: ${l.slice(7)}\n`);
+    if (l.startsWith('next=')) ctx.keep(`NEXT: ${l.slice(5)}\n`);
+    else if (l.startsWith('reason=')) ctx.keep(`WHY: ${l.slice(7)}\n`);
   }
+}
+
+/**
+ * `digest ID --brief` (A365, issue 338 C5): the resume brief for a lead after a context reset or a long session, at most 6 lines made from the digest: status, task,
+ * class and tier, the gates as one line, fix rounds and open questions, the next step. Nothing is added to the digest; it is the same facts, shorter.
+ * @param {Context} ctx @param {string} id
+ */
+export function briefRun(ctx, id) {
+  const before = ctx.chunks.length; const keptBefore = ctx.protectedLines.length;
+  digestRun(ctx, id);
+  const mine = ctx.chunks.splice(before);
+  ctx.protectedLines.length = keptBefore; // the brief's own lines are the protected ones
+  const lines = textLines(Buffer.concat(mine.filter(([s]) => s === 'out').map(([, b]) => b)).toString('latin1'));
+  const keys = ['STATUS', 'TASK', 'CLASS/TOPOLOGY', 'TIER', 'FIX ROUNDS', 'DELIVERY', 'OPEN QUESTIONS', 'SCOPE', 'NEXT', 'WHY'];
+  /** @param {string} k */ const val = (k) => (lines.find((l) => l.startsWith(`${k}: `)) ?? '').slice(k.length + 2);
+  const cut = (/** @type {string} */ t, /** @type {number} */ n) => (t.length > n ? `${t.slice(0, n)}...` : t);
+  const gates = lines.filter((l) => !keys.includes(l.split(': ')[0])).map((l) => l.replace(': ', '='));
+  ctx.keep(`STATUS: ${val('STATUS')}\nTASK: ${cut(val('TASK'), 160)}\n`);
+  ctx.keep(`CLASS: ${val('CLASS/TOPOLOGY')}${val('TIER') !== '' ? ` tier ${val('TIER')}` : ''}\n`);
+  if (gates.length > 0) ctx.keep(`GATES: ${cut(gates.join('; '), 800)}\n`);
+  ctx.keep(`FIX ROUNDS: ${val('FIX ROUNDS') || 'n/a'}; OPEN QUESTIONS: ${val('OPEN QUESTIONS') || '0'}\n`);
+  ctx.keep(`NEXT: ${cut(val('NEXT'), 600)}\n`);
 }
 
 /** `next [ID]` @param {Context} ctx @param {string} id */
 export function nextCommand(ctx, id) {
-  const emit = (/** @type {string} */ t) => ctx.out(t);
+  // the steps and the wait for the user are the control plane's own `next=` and `waiting for the user:` lines: the output cap never drops one (A365)
+  const emit = (/** @type {string} */ t) => { ctx.out(t); for (const l of t.split('\n')) if (l.startsWith('next=') || l.startsWith('waiting for the user: ')) ctx.protectedLines.push(`${l}\n`); };
   if (id !== '') nextStep(ctx, id, emit); else nextWithoutRun(ctx, emit);
 }
 
@@ -229,6 +252,24 @@ export function evidenceRunCounts(ctx, d) {
 const FACTS_BEGIN = '<!-- proofline:facts:begin -->';
 const FACTS_END = '<!-- proofline:facts:end -->';
 
+/**
+ * A365 (issue 338 C5): the newest `lead` record of tools.jsonl that carries the context numbers (the lead's session so far; informational), as one Facts line, or ''.
+ * @param {Context} ctx
+ */
+function leadContextFact(ctx) {
+  let text = '';
+  try { text = readFileSync(`${ctx.sharedMain()}/.agents/local/metrics/tools.jsonl`, 'utf8'); } catch { return ''; }
+  for (const l of text.split('\n').reverse()) {
+    if (!l.includes('"kind":"lead"') || !l.includes('"ctx_mean"')) continue;
+    try {
+      const d = JSON.parse(l);
+      const ok = [d.ctx_turns, d.ctx_mean, d.ctx_p90, d.cache_read].every((x) => Number.isSafeInteger(x) && x >= 0);
+      if (ok) return `- Lead context (informational, from the session log): ${d.ctx_turns} turns, mean ${d.ctx_mean} tokens, p90 ${d.ctx_p90}, cache re-read ${d.cache_read} tokens\n`;
+    } catch { /* a damaged line */ }
+  }
+  return '';
+}
+
 /** `report_facts ID` @param {Context} ctx @param {string} id */
 export function reportFacts(ctx, id) {
   requireRun(ctx, id);
@@ -255,6 +296,7 @@ export function reportFacts(ctx, id) {
   }
   const ks = sectionValue(ctx, d, 'execution', 'knowledge_state'); const kr = sectionValue(ctx, d, 'execution', 'knowledge_reason');
   ctx.out(`- Friction notes recorded (A200): proofline_bug ${frictionCount(ctx, d, 'proofline_bug')}, user-command ${frictionCount(ctx, d, 'user-command')}, user-shell ${frictionCount(ctx, d, 'user-shell')}\n`);
+  ctx.out(leadContextFact(ctx));
   ctx.out(`- Knowledge step: ${ks === '' ? 'not_started' : ks}${kr !== '' ? `; not_applicable reason: ${kr}` : ''}\n`);
   const sugg = knowledgeSuggestions(ctx, d);
   for (const t of sugg) ctx.out(`- Suggestion to the user (knowledge): ${t}\n`);

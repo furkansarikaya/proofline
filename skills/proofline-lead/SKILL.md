@@ -4,7 +4,7 @@ description: The proofline lead's lifecycle method for the main session (AGENT_R
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.186"
+  version: "0.0.187"
 ---
 
 # proofline-lead
@@ -120,8 +120,8 @@ All commands below are relative to the project root: `A` = `.agents/scripts/agen
    language by the script (A99), relay those unchanged; any other English block is shown with its translation
    in the user's language, keeping `approve`, `reject`, `accept AS-n`, kinds, ids and hashes exactly;
    assignments, files and stored questions are English.
-3. **State.** `A digest <ID>` is the one short read of a run (stage, gates, questions, next step);
-   use it instead of large outputs, and `A plan-section <ID> <section>` instead of reading all of PLAN.md. `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the
+3. **State.** `A digest <ID>` (`--brief` after a reset) is the one short read of a run; `A plan-section <ID> <section>`
+   replaces reading PLAN.md; context rules: [LIFECYCLE.md](references/LIFECYCLE.md#context-rules-a365). `A status` (active run from `active_run_file`, default `.agents/local/ACTIVE_RUN`, and the
    effective policy). An active run: `A next <ID>` and continue in "Flow"; on `resume` or after another
    runtime held the run, first `A freshness <ID>` and `A verify-handoff <ID>` ([FAILOVER.md](references/FAILOVER.md)).
    No active run: show the queue (`tasks.dir`) and ask what to run.
@@ -182,7 +182,7 @@ exactly this: propose the run. The user's own `/proofline run <text>` command is
 | `agent.sh request-approval <ID> commit` | DELIVERY stop ([DELIVERY.md](references/DELIVERY.md)); final report; STOP. |
 | `report the evidence, then: agent.sh cleanup` | Final report, then `A cleanup <ID>`, then the commands proposal ([REPORT.md](references/REPORT.md#3-final-report-to-the-user)). |
 
-**Context reset (one line).** After the plan freeze and after each gate wave (all required gates of a round recorded), tell the user in one line, in the user's language, that resetting the context is safe and how to continue: `/proofline resume <ID>` (English: "safe to reset the context: /proofline resume <ID>"). Everything the lead needs is in the run files: `A digest <ID>` and `A next <ID>` rebuild the step.
+**Context reset (one line).** After the plan freeze and after each gate wave (all required gates of a round recorded), tell the user in one line, in the user's language, that resetting the context is safe and how to continue: `/proofline resume <ID>` (English: "safe to reset the context: /proofline resume <ID>"). `A digest <ID> --brief` rebuilds the step.
 
 After every dispatch: `A next <ID>` again. A specialist result is consumed only as
 `node scripts/check-result.mjs <file> --role <role> --task <ID>` JSON (dispatch.sh path) or as the header and

@@ -38,6 +38,7 @@ import { DEFAULT_FALLBACK, knowledgeDefaultTaken } from './ksuggest.mjs';
 const INHIBIT_WATCH = "const p = Number(process.argv[1]); setInterval(() => { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') process.exit(0); } }, 5000);";
 import { batchAnswerRow } from './knownissues.mjs';
 import { now } from './clock.mjs';
+import { limitRows } from './outputshape.mjs';
 import { afterFrontMatter, scopeEntryCovers } from './taskfile.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -486,38 +487,42 @@ export function nextReport(ctx, tsv = false) {
   ctx.out(`batch ${bid(ctx)}, approved at ${approvedAt(ctx)}\n`);
   ctx.out(awakeLine(ctx));
   const wait = claimOwner(ctx);
-  ctx.out('task | state | detail | pending question\n');
   // A202: a parked task is written PARKED (not "parked", not a running state) and the reason leads its detail; the pending question stays last
-  for (const r of rs) ctx.out(`${r.id} | ${r.state === 'parked' ? 'PARKED' : r.state} | ${r.detail === '' ? '-' : r.detail} | ${r.question === '' ? '-' : r.question}\n`);
+  const rowLine = (/** @type {{ id: string, state: string, detail: string, question: string }} */ r) => `${r.id} | ${r.state === 'parked' ? 'PARKED' : r.state} | ${r.detail === '' ? '-' : r.detail} | ${r.question === '' ? '-' : r.question}\n`;
+  const lim = limitRows(ctx, 'batch-next', rs, rowLine);
+  ctx.out(lim.head);
+  ctx.out('task | state | detail | pending question\n');
+  for (const r of lim.shown) ctx.out(rowLine(r));
+  ctx.out(lim.tail);
   const ci = ciPending(ctx);
   const open = rs.find((r) => r.state === 'open');
   if (wait !== '') {
-    ctx.out(`NEXT: wait (owned by pid ${wait})   (pid ${wait} is another live session; if it is yours, run the batch there or close it; do not start a second one. If that session is gone, ask again: a dead owner is taken over)\n`);
+    ctx.keep(`NEXT: wait (owned by pid ${wait})   (pid ${wait} is another live session; if it is yours, run the batch there or close it; do not start a second one. If that session is gone, ask again: a dead owner is taken over)\n`);
     return;
   }
   const cc = captured(ctx, () => CHECK_HANDLERS['commands-check'](ctx, []));
   if (cc.status === 0) {
     // A200: the approved summary named a proven commands proposal that is not written yet: writing it comes first, before any task starts
-    ctx.out(`NEXT: commands   (proofline doctor --apply-commands: ${cc.out.replace(/\n+$/, '')}; the batch approval covers writing exactly this proposal, and it must be written before the first task so every run gates on the project's own build, test and lint)\n`);
+    ctx.keep(`NEXT: commands   (proofline doctor --apply-commands: ${cc.out.replace(/\n+$/, '')}; the batch approval covers writing exactly this proposal, and it must be written before the first task so every run gates on the project's own build, test and lint)\n`);
   } else if (ci !== '') {
-    ctx.out(`NEXT: ci ${ci}   (agent.sh batch-ci ${ci}: the CI of its merge commit; red or no run in time: stop the batch)\n`);
+    ctx.keep(`NEXT: ci ${ci}   (agent.sh batch-ci ${ci}: the CI of its merge commit; red or no run in time: stop the batch)\n`);
   } else if (open) {
     const id = open.id; const act = open.detail;
-    if (act === 'run') ctx.out(`NEXT: run ${id}   (agent.sh worktree-add ${id}, then /proofline run ${id} with .agents/local/worktrees/${id} as the working folder)\n`);
+    if (act === 'run') ctx.keep(`NEXT: run ${id}   (agent.sh worktree-add ${id}, then /proofline run ${id} with .agents/local/worktrees/${id} as the working folder)\n`);
     else if (act === 'resume') {
       const rr = rroot(ctx, id);
       const where = relUnder(process.platform === 'win32' ? physical(ctx.root) : ctx.root, rr) ?? rr;
-      ctx.out(`NEXT: resume ${id}   (agent.sh next ${id}, in ${where === '' ? 'the main working tree' : where})\n`);
-    } else if (act.startsWith('cover ')) ctx.out(`NEXT: cover ${id} ${act.slice(6)}   (agent.sh batch-cover ${id} ${act.slice(6)})\n`);
-    else if (act === 'deliver cleanup') ctx.out(`NEXT: deliver ${id} cleanup ${open.question}   (pull request ${open.question} is merged but not recorded: agent.sh deliver-step ${id} cleanup ${open.question} records the merge and cleans up)\n`);
-    else if (act === 'deliver merged') ctx.out(`NEXT: deliver ${id} merged   (the user merged it on origin: agent.sh deliver-merged ${id} proves that from git, records the merge and cleans up the run and its worktree)\n`);
-    else if (act === 'deliver') ctx.out(`NEXT: deliver ${id}   (the whole delivery of the lead skill; the approval is covered by batch-cover ${id} delivery)\n`);
+      ctx.keep(`NEXT: resume ${id}   (agent.sh next ${id}, in ${where === '' ? 'the main working tree' : where})\n`);
+    } else if (act.startsWith('cover ')) ctx.keep(`NEXT: cover ${id} ${act.slice(6)}   (agent.sh batch-cover ${id} ${act.slice(6)})\n`);
+    else if (act === 'deliver cleanup') ctx.keep(`NEXT: deliver ${id} cleanup ${open.question}   (pull request ${open.question} is merged but not recorded: agent.sh deliver-step ${id} cleanup ${open.question} records the merge and cleans up)\n`);
+    else if (act === 'deliver merged') ctx.keep(`NEXT: deliver ${id} merged   (the user merged it on origin: agent.sh deliver-merged ${id} proves that from git, records the merge and cleans up the run and its worktree)\n`);
+    else if (act === 'deliver') ctx.keep(`NEXT: deliver ${id}   (the whole delivery of the lead skill; the approval is covered by batch-cover ${id} delivery)\n`);
   } else if (state === 'finished-parked') {
     // A358: a parked task with a recorded question is a wait for the user's answer, named on one line (the Stop hook and a goal read it)
     const wq = rs.find((r) => r.state === 'parked' && r.question !== '' && r.detail !== 'awaiting merge');
-    if (wq) ctx.out(`waiting for the user: ${wq.id}: ${wq.question.replace(/`/g, '').replace(/[\t\n\v\f\r]+/g, ' ').trim().slice(0, 120)}\n`);
-    ctx.out('NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)\n');
-  } else ctx.out('NEXT: finished\n');
+    if (wq) ctx.keep(`waiting for the user: ${wq.id}: ${wq.question.replace(/`/g, '').replace(/[\t\n\v\f\r]+/g, ' ').trim().slice(0, 120)}\n`);
+    ctx.keep('NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)\n');
+  } else ctx.keep('NEXT: finished\n');
 }
 
 /** `batch-next [--tsv]`: read-only (but the owner claim), every role may read the digest. @param {Context} ctx @param {string[]} args */
@@ -536,18 +541,22 @@ export function batchStatus(ctx) {
   if (!(isFile(`${bd}/SUMMARY.md`) && isFile(`${bd}/order.tsv`))) { ctx.out('no batch planned (agent.sh batch-plan <ID...|all>)\n'); return 0; }
   ctx.out(`batch ${bid(ctx)}, approved at ${approvedAt(ctx)}\n`);
   ctx.out(awakeLine(ctx));
-  ctx.out('\ntask | result | PR | merge | park reason | pending question\n');
-  for (const r of derive(ctx)) {
+  const statusLine = (/** @type {{ id: string, state: string, detail: string, question: string, pr: string, epoch: string }} */ r) => {
     let s = r.state; let d = r.detail;
     if (s === 'open' || s === 'waiting') { s = 'pending'; d = ''; } else if (s === 'parked') s = 'PARKED'; // A202: a parked task never reads like a running or pending one
     const t = r.epoch === '' ? '' : fmtTs(r.epoch);
-    ctx.out(`${r.id} | ${s} | ${r.pr === '' ? '-' : r.pr} | ${t === '' ? '-' : t} | ${d === '' ? '-' : d} | ${r.question === '' ? '-' : r.question}\n`);
-  }
+    return `${r.id} | ${s} | ${r.pr === '' ? '-' : r.pr} | ${t === '' ? '-' : t} | ${d === '' ? '-' : d} | ${r.question === '' ? '-' : r.question}\n`;
+  };
+  const lim = limitRows(ctx, 'batch-status', derive(ctx), statusLine);
+  ctx.out(lim.head);
+  ctx.out('\ntask | result | PR | merge | park reason | pending question\n');
+  for (const r of lim.shown) ctx.out(statusLine(r));
+  ctx.out(lim.tail);
   ctx.out('\n');
   for (const r of derive(ctx)) {
     if (!hasRun(ctx, r.id)) continue;
     const note = unapprovedNote(ctx, `${rroot(ctx, r.id)}/.agents/runs/${r.id}`, r.id);
-    if (note !== '') ctx.out(`${note}\n`);
+    if (note !== '') ctx.keep(`${note}\n`);
   }
   // A291: what the knowledge step of a task proposed instead of asking (the user decides; nothing was written for it)
   const sug = rows(`${bd}/suggestions.tsv`).filter((f) => f.length >= 2 && f[0] !== '');
@@ -561,7 +570,7 @@ export function batchStatus(ctx) {
   }
   const fr = frictionShowText(ctx);
   if (fr !== null) ctx.out(fr); else ctx.out('no friction report\n');
-  ctx.out('\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n');
+  ctx.keep('\nresume: answer the open questions (or reopen a run), then run /proofline batch in a session; merged tasks are not run again.\n');
   return 0;
 }
 

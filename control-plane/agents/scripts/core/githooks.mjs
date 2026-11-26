@@ -4,6 +4,7 @@
 // exit codes (0 pass, 1 blocked, all text on stderr). The run commands the hooks ask (`open-runs`, `fingerprint`, `approval-consume`) run in
 // process; `delivery-check` is not a Node command yet and is reached through the shell (the bridge) until stage 4.
 
+import { withFull } from './outputshape.mjs';
 import { configGetFrom, configLines } from './config.mjs';
 import { ereToRegExp } from './ere.mjs';
 import { ereTypo, forbiddenTokens, globShaped, grepLineCiStatus } from './grepfile.mjs';
@@ -83,7 +84,7 @@ function agent(ctx, argv) {
     const code = ctx.runner(argv, io);
     return { code, out: Buffer.concat(out).toString('latin1'), err: Buffer.concat(err).toString('latin1') };
   }
-  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...argv], { cwd: ctx.cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
+  const r = proc.runScript([`${ctx.scripts}/agent.sh`, ...withFull(argv)], { cwd: ctx.cwd, env: ctx.env, stdio: ['ignore', 'pipe', 'pipe'], allowEqualTree: true });
   return { code: r.status, out: r.stdout.toString('latin1'), err: r.stderr.toString('latin1') };
 }
 

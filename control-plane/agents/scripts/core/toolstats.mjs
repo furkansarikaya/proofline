@@ -73,6 +73,27 @@ export function claudeUsage(file) {
 }
 
 /**
+ * A365 (issue 338 C5): the size of the lead's context per turn, from a Claude Code session log: for each assistant message (once per id) input plus cache creation plus
+ * cache read tokens; the mean and the 90th percentile (nearest rank) of those, and the sum of the cache read tokens (the re-read context). Informational.
+ * @param {string} file @returns {{ turns: number, mean: number, p90: number, cacheRead: number } | null} null when no message carries usage
+ */
+export function claudeContext(file) {
+  /** @type {Map<string, [number, number]>} */ const per = new Map();
+  for (const l of readFileSync(file, 'latin1').split('\n')) {
+    if (!l.includes('"role":"assistant"')) continue;
+    const m = /"id":"msg_[A-Za-z0-9_]+"/.exec(l);
+    if (!m) continue;
+    const u = l.replace(/^[^]*"usage":\{/, '').slice(0, 400);
+    const num = (/** @type {string} */ k) => { const mm = new RegExp(`"${k}":([0-9]+)`).exec(u); return mm ? Number(mm[1]) : 0; };
+    per.set(m[0], [num('input_tokens') + num('cache_creation_input_tokens') + num('cache_read_input_tokens'), num('cache_read_input_tokens')]);
+  }
+  if (per.size === 0) return null;
+  const sizes = [...per.values()].map((v) => v[0]).sort((a, b) => a - b);
+  const sum = sizes.reduce((a, b) => a + b, 0);
+  return { turns: sizes.length, mean: Math.round(sum / sizes.length), p90: sizes[Math.ceil(sizes.length * 0.9) - 1], cacheRead: [...per.values()].reduce((a, v) => a + v[1], 0) };
+}
+
+/**
  * C8f (issue 338, R4-10): the tokens a record may claim from a cumulative log. The first record of a log takes everything in it; a later record of the same log (a resumed agent that submits
  * again, the lead's next run) takes only what the log gained since the previous record, so the same tokens are never summed twice (8.14M against 6.90M in a retro). The total already
  * recorded for each log is kept in `.agents/local/metrics/cumulative/<hash of the log path>` (two numbers). A log that got smaller starts again.
@@ -290,7 +311,7 @@ export function readCodexToolStats(file) {
  * (`no-session-id`, `no-codex-home`, `no-rollout`); for any other runtime it is `no-log`. Best effort; `metrics: off` writes nothing.
  * A181-D (A258): `kind: 'lead'` is the snapshot of the lead's own session (role `lead`); it has a last key `session` (the session id, reduced) so that `insights` counts one
  * session once; a lead whose log was not found is `unreadable` with the reason, for every runtime.
- * @param {Context} ctx @param {{ task: string, role: string, focus: string, gate: string, runtime: string, log: string, reason?: string | null, kind?: 'step' | 'lead', session?: string }} f
+ * @param {Context} ctx @param {{ task: string, role: string, focus: string, gate: string, runtime: string, log: string, reason?: string | null, kind?: 'step' | 'lead', session?: string, context?: { turns: number, mean: number, p90: number, cacheRead: number } | null }} f
  */
 export function toolsRecord(ctx, f) {
   if (ctx.config().get('metrics', 'on') === 'off') return;
@@ -304,7 +325,7 @@ export function toolsRecord(ctx, f) {
     : (() => { try { return codex ? readCodexToolStats(f.log) : readToolStats(f.log); } catch { return none('unreadable', 'read-error'); } })();
   const den = !('denials' in st) || !st.denials ? 'null' : `{${Object.entries(st.denials).map(([k, v]) => `"${k}":${v}`).join(',')}}`;
   const by = st.byTool === null ? 'null' : `{${Object.entries(st.byTool).map(([k, e]) => `"${k}":{"calls":${e.calls},"bytes":${e.bytes}}`).join(',')}}`;
-  const line = `{"schema":"proofline.tools/1","kind":"${lead ? 'lead' : 'step'}","time":"${now().iso}","task":${s(f.task)},"role":${s(f.role)},"focus":${s(f.focus)},"gate":${s(f.gate)},"runtime":${s(f.runtime)},"log":"${st.log}","calls":${n(st.calls)},"result_bytes":${n(st.resultBytes)},"denied":${n(st.denied)},"denials":${den},"by_tool":${by},"reason":${st.reason ? `"${reduce(st.reason)}"` : 'null'}${lead ? `,"session":${s(f.session ?? '')}` : ''}}\n`;
+  const line = `{"schema":"proofline.tools/1","kind":"${lead ? 'lead' : 'step'}","time":"${now().iso}","task":${s(f.task)},"role":${s(f.role)},"focus":${s(f.focus)},"gate":${s(f.gate)},"runtime":${s(f.runtime)},"log":"${st.log}","calls":${n(st.calls)},"result_bytes":${n(st.resultBytes)},"denied":${n(st.denied)},"denials":${den},"by_tool":${by},"reason":${st.reason ? `"${reduce(st.reason)}"` : 'null'}${lead ? `,"session":${s(f.session ?? '')}` : ''}${lead && f.context ? `,"ctx_turns":${f.context.turns},"ctx_mean":${f.context.mean},"ctx_p90":${f.context.p90},"cache_read":${f.context.cacheRead}` : ''}}\n`;
   const file = `${ctx.sharedMain()}/.agents/local/metrics/tools.jsonl`;
   try { mkdirSync(path.dirname(file), { recursive: true }); appendFileSync(file, line, { encoding: 'utf8' }); } catch { /* best effort */ }
 }

@@ -5,7 +5,7 @@
 import { bytes } from '../config.mjs';
 import { unsupported } from '../errors.mjs';
 import { isDir, isFile } from '../paths.mjs';
-import { digestRun, nextCommand, planSection, reportExecution, reportFacts, reportTokens, summaryRun } from '../reports.mjs';
+import { briefRun, digestRun, nextCommand, planSection, reportExecution, reportFacts, reportTokens, summaryRun } from '../reports.mjs';
 
 /** @typedef {import('../context.mjs').Context} Context */
 
@@ -51,7 +51,7 @@ function digest(ctx, args) {
   ctx.fpMode = FAST;
   const id = needId(args);
   if (noRunYaml(ctx, id)) return 2;
-  digestRun(ctx, id);
+  if (args[1] === '--brief') briefRun(ctx, id); else digestRun(ctx, id);
   return 0;
 }
 

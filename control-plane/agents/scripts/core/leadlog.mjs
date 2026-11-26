@@ -10,7 +10,7 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { isLocalAbsolute } from './pathin.mjs';
-import { claudeUsage, tokenDelta, UUID, findCodexRollout, toolsRecord } from './toolstats.mjs';
+import { claudeContext, claudeUsage, tokenDelta, UUID, findCodexRollout, toolsRecord } from './toolstats.mjs';
 import { metricsJson } from './runend.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -60,6 +60,8 @@ export function leadToolsRecord(ctx, id) {
         if (used !== null) { const d = tokenDelta(ctx, found.file, used); metricsJson(ctx, ['lead', id, 'lead', '-', '-', 'claude', '-', '-', String(d.tin), String(d.tout), String(d.tin + d.tout), '-', '-', '-', '-', '-']); }
       } catch { /* a metrics side effect */ }
     }
-    toolsRecord(ctx, { task: id, role: 'lead', focus: '', gate: '', runtime: claude ? 'claude' : 'codex', log: found.file, reason: found.reason, kind: 'lead', session: UUID.test(sid) ? sid : '' });
+    /** @type {ReturnType<typeof claudeContext>} */ let context = null;
+    if (claude && found.file !== '') { try { context = claudeContext(found.file); } catch { /* informational */ } }
+    toolsRecord(ctx, { context, task: id, role: 'lead', focus: '', gate: '', runtime: claude ? 'claude' : 'codex', log: found.file, reason: found.reason, kind: 'lead', session: UUID.test(sid) ? sid : '' });
   } catch { /* a metrics side effect */ }
 }
