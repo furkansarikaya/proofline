@@ -46,8 +46,13 @@ async function pre(command, who, env) {
 const UPGRADES = [
   'proofline upgrade', 'proofline upgrade --check', 'proofline upgrade --rollback', 'proofline upgrade --dry-run', 'bin/proofline upgrade', '/opt/p/bin/proofline upgrade --yes',
   'cd . && proofline upgrade', 'echo ok; proofline upgrade', 'env PL_HOME=/x proofline upgrade', 'sudo proofline upgrade', "sh -c 'proofline upgrade --rollback'", '(proofline upgrade)', 'true | proofline upgrade',
+  // second attack review: wrappers, runners, quoting, bare assignments and global options before the subcommand
+  'npx proofline upgrade', 'pnpm dlx proofline upgrade', 'bunx proofline upgrade', 'node bin/proofline upgrade', 'node ./bin/proofline.mjs upgrade --check', 'FOO=1 proofline upgrade', 'A=1 B=2 proofline upgrade',
+  'proofline "upgrade"', '"proofline" upgrade', "proofline 'upgrade' --rollback", 'proofline --root . upgrade', 'proofline -C /tmp/x upgrade --check', 'sudo -u root proofline upgrade', 'timeout 9 proofline upgrade',
+  'nice -n 5 proofline upgrade', 'nohup proofline upgrade', 'echo x | xargs proofline upgrade', 'bash -lc "proofline upgrade"', 'sh -c "FOO=1 /opt/p/bin/proofline upgrade"', 'env -i FOO=1 proofline upgrade',
+  'command proofline upgrade', 'exec proofline upgrade', 'pro"of"line upgrade', 'proof\\line upgrade',
 ];
-const OTHERS = ['proofline status', 'proofline doctor', 'proofline version', 'echo proofline upgrade is the user command', 'git log --oneline -3'];
+const OTHERS = ['proofline status', 'proofline doctor', 'proofline version', 'echo proofline upgrade is the user command', 'git log --oneline -3', 'git commit -m "proofline upgrade notes"', 'grep -rn upgrade docs', 'npx tsc --noEmit', 'node scripts/build.mjs upgrade', 'cat proofline upgrade.md'];
 
 for (const [name, who, env] of SPECIALISTS) {
   test(`${name}: every spelling of proofline upgrade is refused; the other proofline commands are not`, async () => {

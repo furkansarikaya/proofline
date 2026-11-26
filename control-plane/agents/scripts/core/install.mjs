@@ -7,11 +7,12 @@
 // under, a symbolic link is never written (a cloned repository could point `.agents/scripts/agent.sh` or `.claude/settings.json` anywhere), and a path the old manifest
 // names is acted on only when it is a plain relative path inside the project (a hostile manifest cannot delete a file elsewhere). The installer is a front end of
 // bin/proofline: nothing here is a command of agent.sh or of the `cli` family.
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Config, bytes } from './config.mjs';
-import { cfgMergeNew } from './cfgcli.mjs';
+import { cfgMergeSafe } from './cfgcli.mjs';
 import { cfgCmds, cfgSet } from './configset.mjs';
 import { CliDie } from './cliio.mjs';
 import { KINDS, ambigNotes, discoverCommands, joinCommands, verifyCommands } from './discover.mjs';
@@ -161,7 +162,9 @@ class Install {
     const dst = `${this.root}/${rel}`;
     try {
       mkdirSync(path.dirname(dst), { recursive: true });
-      writeFileSync(dst, typeof data === 'string' ? latin1Buf(data) : data, mode === undefined ? undefined : { mode });
+      // temp file beside the target, then a rename: a reader never sees half a file, and a crash leaves the old one (A371)
+      const tmp = `${dst}.pl-${randomBytes(6).toString('hex')}.tmp`;
+      try { writeFileSync(tmp, typeof data === 'string' ? latin1Buf(data) : data, { flag: 'wx', ...(mode === undefined ? {} : { mode }) }); if (mode === undefined) { try { chmodSync(tmp, statSync(dst).mode & 0o7777); } catch { /* a new file keeps the default mode */ } } renameSync(tmp, dst); } catch (e) { rmSync(tmp, { force: true }); throw e; }
     } catch (e) { this.plog('warn', `${rel} not written (${/** @type {Error} */ (e).message})`); return false; }
     return true;
   }
@@ -434,7 +437,10 @@ class Install {
     const curText = exists ? readFileSync(cur, 'latin1') : '';
     writeFileSync(w, latin1Buf(exists ? curText : readFileSync(def, 'latin1')));
     if (p.mode === 'upgrade') {
-      writeFileSync(w, latin1Buf(cfgMergeNew(curText, readFileSync(def, 'latin1'))));
+      const merged = cfgMergeSafe(curText, readFileSync(def, 'latin1'));
+      writeFileSync(w, latin1Buf(merged.text));
+      for (const s of merged.skipped) this.plog('warn', `config key not added: ${s.path}: ${s.reason}`);
+      if (merged.discarded !== '') this.plog('warn', `config keys not added: the merge was discarded and your config is unchanged (${merged.discarded})`);
       // A202 item 29: the shipped time limits grew (measured durations plus a wide margin, docs/concepts/timeouts.md). From a project older than 0.0.39 a
       // limit that still holds the earlier shipped value moves to the new one; a value you changed is never touched, and so is none of the other keys.
       const oldV = Config.load(cur).get('proofline_version', '0.0.0');
@@ -477,7 +483,8 @@ class Install {
         }
       }
     }
-    const neu = readFileSync(w, 'latin1');
+    let neu = readFileSync(w, 'latin1');
+    if (exists && curText.includes('\r\n')) neu = neu.replace(/\r?\n/g, '\r\n');   // a CRLF config stays CRLF: the key writers add bare line feeds
     if (!exists) this.plog('merged', '.agents/config.yaml (created from the discovered project settings)');
     else if (neu === curText) this.plog('same', '.agents/config.yaml');
     else this.plog('merged', '.agents/config.yaml (keys updated, your other values kept)');
@@ -833,10 +840,11 @@ function upgradeRollback(c, installed, local) {
   const lock = takeLock(root);
   if ('busy' in lock) throw new CliDie(`upgrade --rollback refused:\n  - ${lock.busy}`);
   try {
-    const r = rollback(root, installed, s);
+    const r = rollback(root, installed, s, c.plHome);
     if ('refuse' in r) throw new CliDie(`upgrade --rollback: ${r.refuse}`);
     ui.say(`rolled back ${r.b.now} -> ${r.b.old} from ${BACKUP_DIR}/${r.b.name}/: ${r.restored.length} file(s) restored, ${r.removed.length} new file(s) removed`);
     for (const k of r.kept) ui.say(`  kept (changed since the upgrade): ${k}`);
+    for (const k of r.unrestored) ui.say(`  not restored (a hook file this version does not ship; not vouched for): ${k}`);
     const rows = ledgerRows(s.runs, `old=${r.b.now} new=${r.b.old} rollback=yes`);
     if (rows.length > 0) ui.say(`ledger: upgrade row written for ${rows.length} run(s)`);
     ui.say('next: proofline doctor    (the git hooks setting and the staged files are not restored; commit what you want to keep)');

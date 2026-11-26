@@ -264,3 +264,50 @@ test("an upgrade from the 0.0.173 config adds every missing key at any depth, ke
   assert.equal(read(cf), once, 'a second upgrade changes nothing in the config');
   assert.doesNotMatch(r2.out, /config keys added/);
 });
+
+const fixtureCfg = () => read(new URL('../fixtures/upgrade/config-v0.0.173.cfg', import.meta.url).pathname);
+/** The fixture config without the children of a top-level block, which becomes a one-line value. @param {string} text @param {string} key @param {string} value */
+function flatten(text, key, value) {
+  const out = []; let skip = false;
+  for (const l of text.split('\n')) {
+    if (l === `${key}:`) { out.push(`${key}: ${value}`); skip = true; continue; }
+    if (skip && /^[ \t#]/.test(l)) continue;
+    skip = false; out.push(l);
+  }
+  return out.join('\n');
+}
+
+test('an upgrade leaves a key alone whose parent line has a value, says so, and still adds the rest (A371, second attack review)', () => {
+  const d = sb.copy('skipkey');
+  const cf = `${d}/.agents/config.yaml`;
+  writeFileSync(cf, flatten(fixtureCfg(), 'test_trust', '{mutation_budget: 7}'));
+  const r = sb.pl(d, ['upgrade']);
+  assert.equal(r.status, 0, r.text);
+  assert.match(r.out, /config key not added: test_trust\.review_rounds: test_trust has a value \(a flow collection\), block keys cannot go under it/);
+  assert.ok(read(cf).includes('test_trust: {mutation_budget: 7}\n'));
+  assert.equal(cfgv(d, 'pipelines.COMPLEX.max_fix_rounds'), '3', 'the other keys were added');
+  assert.deepEqual(readdirSync(`${d}/.agents`).filter((n) => n.includes('.tmp')), [], 'no temporary file is left');
+});
+
+test('a CRLF config stays CRLF through an upgrade, with every key added in the same style', () => {
+  const d = sb.copy('crlf');
+  const cf = `${d}/.agents/config.yaml`;
+  writeFileSync(cf, fixtureCfg().replace(/\n/g, '\r\n'));
+  const r = sb.pl(d, ['upgrade']);
+  assert.equal(r.status, 0, r.text);
+  const out = read(cf);
+  assert.ok(out.includes('output_cap_bytes'), 'keys were added');
+  assert.ok(!/(^|[^\r])\n/.test(out), 'no bare line feed in a CRLF file');
+});
+
+test('when the merged config would not pass config-check the merge is discarded whole, the config is untouched and the upgrade says why', () => {
+  const d = sb.copy('discard');
+  const cf = `${d}/.agents/config.yaml`;
+  writeFileSync(cf, fixtureCfg());
+  const home = upstream(sb.T, (h) => edit(`${h}/control-plane/agents/config.yaml`, (x) => x.replace(/^hook:\n/m, 'hook:\n  bogus_key: 1\n')));
+  const r = sb.pl(d, ['upgrade'], {}, `${home}/bin/proofline`);
+  assert.equal(r.status, 0, r.text);
+  assert.match(r.out, /config keys not added: the merge was discarded and your config is unchanged \(config-check would report: unknown hook key: hook\.bogus_key/);
+  assert.ok(!read(cf).includes('output_cap_bytes') && !read(cf).includes('bogus_key'));
+  assert.equal(spawnSync('sh', ['.agents/scripts/agent.sh', 'config-check'], { cwd: d, env: sb.env, encoding: 'utf8' }).status, 0);
+});

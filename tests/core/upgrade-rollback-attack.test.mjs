@@ -5,7 +5,7 @@
 // made, and a file is deleted or replaced only while it still holds what the upgrade wrote. One bad row refuses the whole rollback and nothing is written.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { sandbox, upstream } from './frontend-lib.mjs';
 
@@ -89,12 +89,12 @@ test('a symbolic link among the parents of the destination is refused', () => {
   rmSync(`${d}/.agents/hooks/lib`, { recursive: true, force: true });
   symlinkSync(o, `${d}/.agents/hooks/lib`);
   mkdirSync(`${b}/files/.agents/hooks/lib`, { recursive: true });
-  writeFileSync(`${b}/files/.agents/hooks/lib/evil.mjs`, 'evil\n');
-  appendFileSync(tsv, row('replaced', '.agents/hooks/lib/evil.mjs', '-', sha('evil\n')));
+  writeFileSync(`${b}/files/.agents/hooks/lib/text.mjs`, 'evil\n');
+  appendFileSync(tsv, row('replaced', '.agents/hooks/lib/text.mjs', '-', sha('evil\n')));
   const r = pl(d, ['--rollback']);
   assert.equal(r.status, 1, r.text);
   assert.match(r.err, /symbolic link/);
-  assert.equal(existsSync(`${o}/evil.mjs`), false);
+  assert.equal(existsSync(`${o}/text.mjs`), false);
 });
 
 test('a new row deletes a file only while it still holds what the upgrade wrote; a row without that sha is refused', () => {
@@ -133,4 +133,79 @@ test('with local_state: off a rollback is refused (the upgrade made no backup an
   assert.equal(r.status, 1, r.text);
   assert.match(r.err, /local_state is off: nothing was backed up, so there is nothing to restore/);
   assert.equal(existsSync(`${d}/.agents/local/locks`), false);
+});
+
+// ---- second attack review ---------------------------------------------------------------------------------------------------------------------------------------------------------
+
+test('F1: the manifest copy inside the backup authorises nothing: a path it lists (and a matching row and hash) outside the current install set is refused', () => {
+  const { d, b, tsv, gates } = upgraded('f1');
+  writeFileSync(`${d}/package.json`, '{"name":"mine"}\n');
+  appendFileSync(`${b}/files/.agents/.proofline-manifest`, `${sha('x')}  package.json\n`);
+  const mf = `${b}/files/.agents/.proofline-manifest`;
+  writeFileSync(tsv, read(tsv).split('\n').map((l) => (l.startsWith('replaced\t.agents/.proofline-manifest\t') ? l.split('\t').slice(0, 3).concat(sha(readFileSync(mf))).join('\t') : l)).join('\n'));
+  writeFileSync(`${b}/files/package.json`, 'planted\n');
+  appendFileSync(tsv, row('replaced', 'package.json', sha(readFileSync(`${d}/package.json`)), sha('planted\n')));
+  const r = pl(d, ['--rollback']);
+  assert.equal(r.status, 1, r.text);
+  assert.match(r.err, /not a path this upgrade installed: package\.json; nothing was restored/);
+  assert.equal(read(`${d}/package.json`), '{"name":"mine"}\n');
+  assert.equal(read(`${d}/.agents/GATES.md`), gates);
+});
+
+test('F1: a hook file is restorable only when this plugin ships it; a planted hook path is refused, a hook file this version dropped is listed and not restored', () => {
+  const { d, b, tsv } = upgraded('f1b');
+  mkdirSync(`${b}/files/.agents/hooks/lib`, { recursive: true });
+  writeFileSync(`${b}/files/.agents/hooks/lib/evil.mjs`, 'evil\n');
+  appendFileSync(tsv, row('replaced', '.agents/hooks/lib/evil.mjs', '-', sha('evil\n')));
+  let r = pl(d, ['--rollback']);
+  assert.equal(r.status, 1, r.text);
+  assert.match(r.err, /not a path this upgrade installed: \.agents\/hooks\/lib\/evil\.mjs/);
+  assert.equal(existsSync(`${d}/.agents/hooks/lib/evil.mjs`), false);
+  const e = upgraded('f1c');
+  mkdirSync(`${e.b}/files/.agents/hooks/lib`, { recursive: true });
+  writeFileSync(`${e.b}/files/.agents/hooks/lib/gone.mjs`, 'old\n');
+  appendFileSync(e.tsv, row('removed', '.agents/hooks/lib/gone.mjs', '-', sha('old\n')));
+  r = pl(e.d, ['--rollback']);
+  assert.equal(r.status, 0, r.text);
+  assert.match(r.out, /not restored \(a hook file this version does not ship; not vouched for\): \.agents\/hooks\/lib\/gone\.mjs/);
+  assert.equal(existsSync(`${e.d}/.agents/hooks/lib/gone.mjs`), false);
+});
+
+test('F2: case variants, a normalisation variant and a name that resolves into the runs, the local state or .git are refused; the sealed ledger is never restored over', () => {
+  for (const [i, rel] of ['.AGENTS/RUNS/LC/LEDGER.log', '.agents/Runs/LC/LEDGER.log', '.Agents/Local/ACTIVE_RUN', '.GIT/config', '.agents/local/é.txt', '.agents/RUNS/../runs/LC/LEDGER.log'].entries()) {
+    const { d, b, tsv, gates } = upgraded(`f2-${i}`);
+    mkdirSync(`${d}/.agents/runs/LC`, { recursive: true });
+    writeFileSync(`${d}/.agents/runs/LC/LEDGER.log`, 'seq=1 sealed\n');
+    const dir = rel.slice(0, rel.lastIndexOf('/'));
+    if (!dir.includes('..')) { mkdirSync(`${b}/files/${dir}`, { recursive: true }); writeFileSync(`${b}/files/${rel}`, 'forged\n'); }
+    appendFileSync(tsv, row('replaced', rel, '-', sha('forged\n')));
+    const r = pl(d, ['--rollback']);
+    assert.equal(r.status, 1, `${rel}: ${r.text}`);
+    assert.match(r.err, /not a path this upgrade installed|resolves into/);
+    assert.equal(read(`${d}/.agents/runs/LC/LEDGER.log`), 'seq=1 sealed\n');
+    assert.equal(read(`${d}/.agents/GATES.md`), gates);
+  }
+});
+
+test('F4: a directory at a destination refuses the whole rollback before anything is written', () => {
+  const { d } = upgraded('f4');
+  rmSync(`${d}/.agents/GATES.md`);
+  mkdirSync(`${d}/.agents/GATES.md`);
+  const r = pl(d, ['--rollback']);
+  assert.equal(r.status, 1, r.text);
+  assert.match(r.err, /\.agents\/GATES\.md is not a regular file; nothing was restored/);
+  assert.ok(existsSync(`${d}/.agents/NEW-ROLLBACK.md`), 'the new file was not removed');
+});
+
+test('F4: a failure half way is reported and marked in UPGRADE.tsv, not silent', { skip: process.platform === 'win32' || (process.getuid?.() === 0) }, () => {
+  const { d, tsv } = upgraded('f4b');
+  const dir = `${d}/.agents`;
+  chmodSync(dir, 0o500);
+  try {
+    const r = pl(d, ['--rollback']);
+    assert.equal(r.status, 1, r.text);
+    assert.match(r.err, /the rollback stopped after \d+ file\(s\) restored/);
+    assert.match(read(tsv), /^rollback_failed=/m);
+    assert.doesNotMatch(read(tsv), /^rolled_back=yes$/m);
+  } finally { chmodSync(dir, 0o755); }
 });

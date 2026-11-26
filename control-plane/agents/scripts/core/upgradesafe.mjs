@@ -10,14 +10,15 @@
 //     additive needs a migration, and none exists yet, so it is refused. Every change since 0.0.173 is additive (docs/concepts/upgrading.md lists them).
 //   * the BACKUP of what an upgrade replaces, under `.agents/local/upgrade-backup/<old>-to-<new>/` (the last 2 are kept), and `--rollback`, which restores it.
 //   * the LEDGER row `event=upgrade` per run that has a lifecycle ledger, so the run shows that it crossed an upgrade.
-import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { cfgMergeNew } from './cfgcli.mjs';
+import { cfgMergeSafe } from './cfgcli.mjs';
 import { configLines } from './config.mjs';
 import { sha256File } from './hash.mjs';
 import { ledgerAppend } from './lock.mjs';
 import { runSections } from './records.mjs';
+import { asciiLower } from './shellglob.mjs';
 
 /** The state format of this version (a small integer, see the header). */
 export const STATE_FORMAT = 1;
@@ -169,7 +170,7 @@ const keysOf = (lines) => new Set(lines.map((l) => l.slice(0, l.indexOf('='))));
 /** The config keys the merge would add, and the keys of the shipped default it does not merge (the built-in default applies). @param {string} cur @param {string} def @returns {{ added: string[], notMerged: string[] }} */
 export function configDelta(cur, def) {
   const have = keysOf(configLines(cur));
-  const merged = keysOf(configLines(cfgMergeNew(cur, def)));
+  const merged = keysOf(configLines(cfgMergeSafe(cur, def).text));
   const want = [...keysOf(configLines(def))];
   return { added: [...merged].filter((k) => !have.has(k) && k !== 'proofline_version'), notMerged: want.filter((k) => !merged.has(k)) };
 }
@@ -315,6 +316,8 @@ export function newestBackup(root) {
 const HEX = /^[0-9a-f]{64}$/;
 /** Paths an upgrade never writes and a restore never touches: the runs (their ledgers are sealed evidence), the local state and git's own folder. */
 const NEVER = /^(\.git|\.agents\/runs|\.agents\/local)(\/|$)/;
+/** NEVER on every spelling that one file can have on a case-insensitive or normalising file system: ASCII lower case, Unicode NFC and NFD. @param {string} rel */
+const never = (rel) => [rel, rel.normalize('NFC'), rel.normalize('NFD')].some((x) => NEVER.test(asciiLower(x)));
 
 /** A plain relative path: no empty, `.` or `..` component, no backslash, no NUL, not absolute. @param {string} rel */
 function relPlain(rel) { return rel !== '' && !path.isAbsolute(rel) && !rel.includes('\\') && !rel.includes('\0') && rel.split('/').every((p) => p !== '' && p !== '.' && p !== '..'); }
@@ -329,6 +332,17 @@ function viaLink(base, rel) {
   return false;
 }
 
+/** Does ROOT/REL, resolved through the file system (the real case of each name), lie outside the project or in a folder a restore never touches? Anything that cannot be resolved counts as yes. @param {string} root @param {string} rel */
+function resolvesIntoNever(root, rel) {
+  try {
+    const rr = realpathSync.native(root);
+    let cur = `${root}/${rel}`; let rest = '';
+    while (!existsSync(cur)) { rest = `/${path.basename(cur)}${rest}`; const up = path.dirname(cur); if (up === cur) break; cur = up; }
+    const inside = path.relative(rr, realpathSync.native(cur) + rest).split(path.sep).join('/');
+    return inside.startsWith('..') || path.isAbsolute(inside) || never(inside);
+  } catch { return true; }
+}
+
 /** The paths of a manifest file (`<sha256>  <path>` rows). @param {string} file */
 function manifestPaths(file) {
   /** @type {string[]} */ const out = [];
@@ -336,20 +350,37 @@ function manifestPaths(file) {
   return out;
 }
 
-/** The paths a rollback may touch: the files an upgrade replaces as a whole, the paths of the current and of the backed-up manifest (and their `.proofline-new` copies), the hook tree. @param {string} root @param {BackupInfo} b */
-function installSet(root, b) {
-  const s = new Set([...ALWAYS, ...manifestPaths(`${root}/.agents/.proofline-manifest`), ...manifestPaths(`${b.dir}/files/.agents/.proofline-manifest`)]);
-  return (/** @type {string} */ rel) => s.has(rel) || (rel.endsWith('.proofline-new') && s.has(rel.slice(0, -'.proofline-new'.length))) || rel.startsWith('.agents/hooks/');
+/** The hook files this version ships, as installed paths (`.agents/hooks/<file>`): the hook tree is written as a whole and is not in the manifest, so the plugin's own tree is the list. @param {string} plHome */
+function shippedHooks(plHome) {
+  /** @type {Set<string>} */ const s = new Set();
+  const base = `${plHome}/adapters/claude/hooks`;
+  /** @param {string} d @param {string} pre */
+  const rec = (d, pre) => { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.isDirectory()) rec(`${d}/${e.name}`, `${pre}${e.name}/`); else if (e.isFile()) s.add(`.agents/hooks/${pre}${e.name}`); } };
+  try { for (const f of ['proofline-hook.mjs', 'command-scan.mjs']) if (isFile(`${base}/${f}`)) s.add(`.agents/hooks/${f}`); for (const d of ['events', 'guards', 'lib']) rec(`${base}/${d}`, `${d}/`); } catch { /* none */ }
+  return s;
 }
 
 /**
- * Restore the newest backup. Every row is validated first and one bad row refuses the whole rollback (nothing is written): the path is a plain relative path of the install set (never under
- * .agents/runs, .agents/local or .git), neither it nor the backup copy sits on a symbolic link, and the backup copy still has the sha256 recorded when it was made. Then a file is replaced or deleted
- * only while it still holds what the upgrade wrote; one changed since is kept and listed. Refuses (returns the reason) when it was restored, when the installed version is not the one it upgraded to,
- * or when a run was started since. @param {string} root @param {string} installed the installed version @param {Scan} s
- * @returns {{ refuse: string } | { b: BackupInfo, restored: string[], removed: string[], kept: string[] }}
+ * The paths a rollback may touch, from sources a change to the backup folder cannot reach: the fixed list of files an upgrade rewrites as a whole, the paths of the CURRENT installed manifest (the
+ * one the upgrade wrote) and their `.proofline-new` copies, and the hook files this plugin ships. The manifest copy inside the backup is never read to authorise anything.
+ * @param {string} root @param {string} plHome
  */
-export function rollback(root, installed, s) {
+function installSet(root, plHome) {
+  const s = new Set([...ALWAYS, ...manifestPaths(`${root}/.agents/.proofline-manifest`)]);
+  const hooks = shippedHooks(plHome);
+  return { allowed: (/** @type {string} */ rel) => s.has(rel) || (rel.endsWith('.proofline-new') && s.has(rel.slice(0, -'.proofline-new'.length))) || hooks.has(rel) };
+}
+
+/**
+ * Restore the newest backup. Every row is validated first and one bad row refuses the whole rollback (nothing is written): the path is a plain relative path of the install set (the fixed list, the
+ * current manifest, the shipped hook files; never under .agents/runs, .agents/local or .git in any spelling or after resolving it), neither it nor the backup copy sits on a symbolic link, the destination
+ * is a regular file or absent, and the backup copy still has the sha256 recorded when it was made (that protects against accidental damage and a file changed since, not against someone who can edit the
+ * whole backup folder: the install set is the anchor). Then a file is replaced or deleted only while it still holds what the upgrade wrote; one changed since is kept and listed. A failure half way leaves a
+ * `rollback_failed` line in UPGRADE.tsv and is reported. Refuses (returns the reason) when it was restored, when the installed version is not the one it upgraded to, or when a run was started since.
+ * @param {string} root @param {string} installed the installed version @param {Scan} s @param {string} plHome
+ * @returns {{ refuse: string } | { b: BackupInfo, restored: string[], removed: string[], kept: string[], unrestored: string[] }}
+ */
+export function rollback(root, installed, s, plHome) {
   const b = newestBackup(root);
   if (b === null) return { refuse: `no upgrade backup under ${BACKUP_DIR}; nothing to restore` };
   if (b.done) return { refuse: `the newest backup (${b.name}) is already restored; nothing to restore` };
@@ -357,10 +388,17 @@ export function rollback(root, installed, s) {
   const known = new Set(b.runs);
   const later = s.runs.find((r) => !known.has(`${r.name}:${r.id}`));
   if (later) return { refuse: `run ${later.id} was started after the upgrade with ${b.now}: rolling back would leave it on state the older core never wrote. Finish or fail that run first; nothing was restored` };
-  const allowed = installSet(root, b);
+  const { allowed } = installSet(root, plHome);
+  /** @type {string[]} */ const unrestored = [];
   for (const [kind, rel, after, before] of b.rows) {
-    if (!['replaced', 'removed', 'new'].includes(kind) || !relPlain(rel) || NEVER.test(rel) || !allowed(rel)) return { refuse: `a row of ${b.name}/UPGRADE.tsv is not a path this upgrade installed: ${rel}; nothing was restored` };
+    if (!['replaced', 'removed', 'new'].includes(kind) || !relPlain(rel) || never(rel) || !allowed(rel)) {
+      // a hook file the old version had and this one does not ship cannot be vouched for: it is listed, not restored
+      if (kind === 'removed' && relPlain(rel) && rel.startsWith('.agents/hooks/') && !never(rel)) { unrestored.push(rel); continue; }
+      return { refuse: `a row of ${b.name}/UPGRADE.tsv is not a path this upgrade installed: ${rel}; nothing was restored` };
+    }
     if (viaLink(root, rel)) return { refuse: `${rel} is, or sits under, a symbolic link; nothing was restored` };
+    if (resolvesIntoNever(root, rel)) return { refuse: `${rel} resolves into .agents/runs, .agents/local, .git or outside the project; nothing was restored` };
+    try { if (!lstatSync(`${root}/${rel}`).isFile()) return { refuse: `${rel} is not a regular file; nothing was restored` }; } catch { /* absent: fine */ }
     if (kind === 'new') { if (!HEX.test(after ?? '')) return { refuse: `the row for ${rel} has no recorded sha256; nothing was restored` }; continue; }
     if (!HEX.test(before ?? '') || (kind === 'replaced' && after !== '-' && !HEX.test(after ?? ''))) return { refuse: `the row for ${rel} has no recorded sha256; nothing was restored` };
     const src = `${b.dir}/files/${rel}`;
@@ -368,29 +406,34 @@ export function rollback(root, installed, s) {
     if (shaOf(src) !== before) return { refuse: `backup copy ${rel} does not match the sha256 recorded when it was made; nothing was restored` };
   }
   /** @type {string[]} */ const restored = []; /** @type {string[]} */ const removed = []; /** @type {string[]} */ const kept = [];
-  for (const [kind, rel, after] of b.rows) {
-    const dst = `${root}/${rel}`;
-    const cur = shaOf(dst);
-    if (kind === 'new') { if (cur === null) continue; if (cur === after) { rmSync(dst, { force: true }); removed.push(rel); } else kept.push(rel); continue; }
-    if ((kind === 'removed' && cur !== null) || (kind === 'replaced' && cur !== null && after !== '-' && cur !== after)) { kept.push(rel); continue; }
-    const src = `${b.dir}/files/${rel}`;
-    mkdirSync(path.dirname(dst), { recursive: true });
-    const tmp = `${dst}.proofline-restore-${randomBytes(6).toString('hex')}`;
-    try {
-      copyFileSync(src, tmp, constants.COPYFILE_EXCL);
-      try { chmodSync(tmp, statSync(src).mode & 0o7777); } catch { /* mode as copied */ }
-      renameSync(tmp, dst);
-    } catch (e) { rmSync(tmp, { force: true }); throw e; }
-    restored.push(rel);
+  try {
+    for (const [kind, rel, after] of b.rows.filter((r) => !unrestored.includes(r[1]))) {
+      const dst = `${root}/${rel}`;
+      const cur = shaOf(dst);
+      if (kind === 'new') { if (cur === null) continue; if (cur === after) { rmSync(dst, { force: true }); removed.push(rel); } else kept.push(rel); continue; }
+      if ((kind === 'removed' && cur !== null) || (kind === 'replaced' && cur !== null && after !== '-' && cur !== after)) { kept.push(rel); continue; }
+      const src = `${b.dir}/files/${rel}`;
+      mkdirSync(path.dirname(dst), { recursive: true });
+      const tmp = `${dst}.proofline-restore-${randomBytes(6).toString('hex')}`;
+      try {
+        copyFileSync(src, tmp, constants.COPYFILE_EXCL);
+        try { chmodSync(tmp, statSync(src).mode & 0o7777); } catch { /* mode as copied */ }
+        renameSync(tmp, dst);
+      } catch (e) { rmSync(tmp, { force: true }); throw e; }
+      restored.push(rel);
+    }
+  } catch (e) {
+    appendLine(b, `rollback_failed=${(/** @type {Error} */ (e).message).replace(/[\t\n]/g, ' ').slice(0, 200)} restored=${restored.length}`);
+    return { refuse: `the rollback stopped after ${restored.length} file(s) restored and ${removed.length} removed (${/** @type {Error} */ (e).message}); the backup ${b.name} is kept and marked in UPGRADE.tsv, fix the cause and run proofline upgrade --rollback again` };
   }
-  appendDone(b);
-  return { b, restored, removed, kept };
+  appendLine(b, 'rolled_back=yes');
+  return { b, restored, removed, kept, unrestored };
 }
 
-/** @param {BackupInfo} b */
-function appendDone(b) {
+/** @param {BackupInfo} b @param {string} line */
+function appendLine(b, line) {
   const f = `${b.dir}/UPGRADE.tsv`;
   const tmp = `${f}.tmp`;
-  writeFileSync(tmp, `${text(f).replace(/\n*$/, '\n')}rolled_back=yes\n`);
+  writeFileSync(tmp, `${text(f).replace(/\n*$/, '\n')}${line}\n`);
   renameSync(tmp, f);
 }

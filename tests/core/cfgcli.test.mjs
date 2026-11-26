@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { cfgMergeNew } from '../../control-plane/agents/scripts/core/cfgcli.mjs';
+import { cfgMergeNew, cfgMergeSafe } from '../../control-plane/agents/scripts/core/cfgcli.mjs';
 import { scriptsDir } from './helpers.mjs';
 
 const core = path.join(scriptsDir, 'proofline-core.mjs');
@@ -20,8 +20,8 @@ const cli = (/** @type {string[]} */ ...args) => {
 const put = (/** @type {string} */ name, /** @type {string} */ text) => { const f = path.join(dir, name); writeFileSync(f, text); return f; };
 
 const USER = 'profile: balanced\nbudgets:\n  tokens: 10\ngit:\n  protected_branches: main\ncommands:\n  build:\n    - make\n  test: jest\n';
-const DEFAULT = '# top comment\nprofile: economy\nbudgets:\n  tokens: 5\n  # why\n  new_budget: 7\ngit:\n  protected_branches:\n  push_requires_approval: true\nhook:\n  # block comment\n  approve_budget_seconds: 20\n  lock_wait_seconds: 8\ncommands:\n  build:\n    - a\n    - b\n  test:\n  lint: eslint .\nrisk:\n  log_sensitive:\n    words: x\n';
-const MERGED = 'profile: balanced\nbudgets:\n  tokens: 10\n  # why\n  new_budget: 7\ngit:\n  protected_branches: main\n  push_requires_approval: true\ncommands:\n  build:\n    - make\n  test: jest\n  lint: eslint .\nhook:\n  # block comment\n  approve_budget_seconds: 20\n  lock_wait_seconds: 8\nrisk:\n  log_sensitive:\n    words: x\n';
+const DEFAULT = '# top comment\nprofile: economy\nbudgets:\n  tokens: 5\n  # why\n  new_budget: 7\ngit:\n  protected_branches:\n  push_requires_approval: true\nhook:\n  # block comment\n  approve_budget_seconds: 20\n  lock_wait_seconds: 8\ncommands:\n  build:\n    - a\n    - b\n  test:\n  lint: eslint .\nrisk:\n  log_sensitive:\n    check: logging\n    content: x\n    words: x\n';
+const MERGED = 'profile: balanced\nbudgets:\n  tokens: 10\n  # why\n  new_budget: 7\ngit:\n  protected_branches: main\n  push_requires_approval: true\ncommands:\n  build:\n    - make\n  test: jest\n  lint: eslint .\nhook:\n  # block comment\n  approve_budget_seconds: 20\n  lock_wait_seconds: 8\nrisk:\n  log_sensitive:\n    check: logging\n    content: x\n    words: x\n';
 
 test('merge-new adds the missing keys: a block at its end, a 2-level key at the end of its block with its comment; user values and lists stay', () => {
   assert.equal(cfgMergeNew(USER, DEFAULT), MERGED);
@@ -99,3 +99,53 @@ test('an unknown operation or a missing argument is a usage error (status 2) tha
 });
 
 test('cleanup', () => { rmSync(dir, { recursive: true, force: true }); });
+
+// ---- A371, second attack review (F5): the merge refuses what it cannot add safely, keeps the file's line ends, checks its own result ----------------------------------------------
+
+/** @param {string} user @param {string} def */
+const safe = (user, def) => cfgMergeSafe(user, def);
+
+test('merge: a parent that has a value (a scalar, a flow map or list, a block scalar, an anchor or alias) is never given block keys: the key is not added and says why', () => {
+  const def = 'risk:\n  a: 1\n';
+  for (const [name, user] of [['a scalar', 'risk: off\n'], ['a flow map', 'risk: {a: 1}\n'], ['a flow list', 'risk: [a, b]\n'], ['a literal block scalar', 'risk: |\n  some text\n'], ['a folded block scalar', 'risk: >\n  some text\n'],
+    ['an anchor', 'risk: &base\n  b: 1\n'], ['an alias', 'risk: *base\n'], ['a quoted string with a colon and a comment mark', 'risk: "x: y # z"\n']]) {
+    const r = safe(user, def);
+    assert.equal(r.text, user, name);
+    assert.deepEqual(r.skipped.map((s) => s.path), ['risk.a'], name);
+    assert.match(r.skipped[0].reason, /value|anchor|alias|flow|block scalar/, name);
+    assert.equal(r.discarded, '');
+  }
+  assert.equal(cfgMergeNew('risk: off\n', def), 'risk: off\n');
+});
+
+test('merge: a comment after the parent key is not a value; tabs in the indentation refuse the nested keys', () => {
+  assert.equal(safe('risk: # mine\n  b: 1\n', 'risk:\n  b: 2\n  a: 1\n').text, 'risk: # mine\n  b: 1\n  a: 1\n');
+  const r = safe('a:\n\tb: 1\n', 'a:\n  b: 2\n  c: 3\n');
+  assert.equal(r.text, 'a:\n\tb: 1\n');
+  assert.deepEqual(r.skipped.map((s) => s.path), ['a.b', 'a.c']);
+  assert.match(r.skipped[0].reason, /tab/);
+});
+
+test('merge: a CRLF file stays CRLF, a file without a final newline gets one in its own style, and a second merge adds nothing', () => {
+  const r = safe('a:\r\n  b: 1\r\n', 'a:\r\n  b: 2\r\n  c: 3\r\n');
+  assert.equal(r.text, 'a:\r\n  b: 1\r\n  c: 3\r\n');
+  assert.ok(!/(^|[^\r])\n/.test(r.text), 'no bare line feed');
+  assert.equal(safe('a:\r\n  b: 1', 'a:\n  b: 2\n  c: 3\n').text, 'a:\r\n  b: 1\r\n  c: 3\r\n');
+  assert.equal(safe(r.text, 'a:\r\n  b: 2\r\n  c: 3\r\n').text, r.text);
+  const lf = safe('a:\n  b: "x: y # not a comment" # real\nz: 1\n', 'a:\n  b: 2\n  c: 3\nz: 2\nbudgets:\n  tokens: 4\n');
+  assert.equal(lf.text, 'a:\n  b: "x: y # not a comment" # real\n  c: 3\nz: 1\nbudgets:\n  tokens: 4\n');
+  assert.equal(safe(lf.text, 'a:\n  b: 2\n  c: 3\nz: 2\nbudgets:\n  tokens: 4\n').text, lf.text);
+});
+
+test('merge: a result that config-check would reject, or that changes or duplicates a key you have, is discarded whole and your text is kept', () => {
+  const user = 'hook:\n  x: 1\nbudgets:\n  tokens: 5\n';
+  const r = safe(user, 'hook:\n  x: 2\n  approve_budget_seconds: abc\nbudgets:\n  tokens: 9\n  more: 1\n');
+  assert.equal(r.text, user);
+  assert.match(r.discarded, /invalid number for hook\.approve_budget_seconds/);
+  assert.deepEqual(r.skipped, []);
+  // a problem the user's own file already has does not block the merge
+  const bad = 'hook:\n  approve_budget_seconds: abc\nbudgets:\n  tokens: 5\n';
+  const ok = safe(bad, 'hook:\n  approve_budget_seconds: 20\nbudgets:\n  tokens: 9\n  more: 1\n');
+  assert.equal(ok.discarded, '');
+  assert.equal(ok.text, 'hook:\n  approve_budget_seconds: abc\nbudgets:\n  tokens: 5\n  more: 1\n');
+});

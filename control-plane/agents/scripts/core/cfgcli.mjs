@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Config, bytes, configLines } from './config.mjs';
 import { cfgSet } from './configset.mjs';
 import { ProoflineError } from './errors.mjs';
+import { checkConfigLines } from './commands/config-check.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
 
@@ -19,17 +20,23 @@ function rowsOf(text) {
   return rows;
 }
 
+/** The value on a key line, without a trailing comment: `risk: off # x` -> `off`; `risk: # x` -> ''. @param {string} line */
+function lineValue(line) { return line.slice(line.indexOf(':') + 1).replace(/(^|[ \t])#.*$/, '').trim(); }
+
 /**
  * `cfg_merge_new USER DEFAULT`: USER with every key missing from it added from DEFAULT, at any depth (A371). A missing top-level block is appended whole; any other missing key
  * (with its deeper lines and the comment lines before it) is inserted after the last line of its parent's block in USER, with the indentation of DEFAULT. User values, comments and
- * order are never touched; nothing is removed. The text is a byte string; the result has one newline after every line.
- * @param {string} userText @param {string} defaultText @returns {string}
+ * order are never touched; nothing is removed. A key is NOT added (and listed in `skipped` with the reason) when its parent line has a value (a scalar, `{`, `[`, `|`, `>`, an anchor or an
+ * alias: block keys under it would corrupt the file or change its meaning) or when the file is indented with tabs. USER and DEFAULT use `\n`; the text has one newline after every line.
+ * shortcut: a new deep key under an existing 2-level key is not added when its parent line holds a value or the file uses tabs; improve when a project config written that way must receive new defaults.
+ * @param {string} userText @param {string} defaultText @returns {{ text: string, skipped: Array<{ path: string, reason: string }> }}
  */
-export function cfgMergeNew(userText, defaultText) {
+function mergeCore(userText, defaultText) {
   let U = rowsOf(userText);
   // the awk program told the two files apart by FNR == NR: with an empty user file the default file's lines were read as the user's
   const def = U.length === 0 ? [] : rowsOf(defaultText);
   if (U.length === 0) U = rowsOf(defaultText);
+  /** @type {Array<{ path: string, reason: string }>} */ const skipped = [];
   /** @type {string[]} */ const P = [];
   let L = 0;
   /** @param {string} l */
@@ -44,15 +51,17 @@ export function cfgMergeNew(userText, defaultText) {
   };
   const have = new Set();
   /** @type {Map<string, number>} the line number of the last line of each key's block */ const ends = new Map();
+  /** @type {Map<string, string>} the line of each key */ const lines = new Map();
   /** @param {number} nr */
   const mark = (nr) => { for (let i = 0; i <= L; i++) ends.set(P.slice(0, i + 1).join('.'), nr); };
+  const tabbed = U.some((l) => /^ *\t/.test(l));
   U.forEach((l, idx) => {
     const nr = idx + 1;
-    if (content(l)) { have.add(pth(l)); mark(nr); } else if (item(l) && P.length > 0) mark(nr);
+    if (content(l)) { const p = pth(l); have.add(p); lines.set(p, l); mark(nr); } else if (item(l) && P.length > 0) mark(nr);
   });
   if (def.length === 0 && U.length > 0) {
     // (the empty-user case above): nothing is left to merge
-    return `${U.join('\n')}\n`;
+    return { text: `${U.join('\n')}\n`, skipped };
   }
   /** @type {Map<number, string>} */ const ins = new Map();
   let tail = '';
@@ -73,15 +82,59 @@ export function cfgMergeNew(userText, defaultText) {
     if (!have.has(p)) {
       const parent = P.slice(0, L).join('.');
       if (L === 0) act = { level: 0, at: 0, buf: `${cm}${l}\n` };
-      else if (ends.has(parent)) act = { level: L, at: /** @type {number} */ (ends.get(parent)), buf: `${cm}${l}\n` };
+      else if (ends.has(parent)) {
+        const v = lineValue(/** @type {string} */ (lines.get(parent)));
+        const why = tabbed ? 'the file is indented with tabs' : v !== '' ? `${parent} has a value (${/^[{[]/.test(v) ? 'a flow collection' : /^[|>]/.test(v) ? 'a block scalar' : /^[&*]/.test(v) ? 'an anchor or alias' : 'a scalar'}), block keys cannot go under it` : '';
+        if (why !== '') skipped.push({ path: p, reason: why });
+        else act = { level: L, at: /** @type {number} */ (ends.get(parent)), buf: `${cm}${l}\n` };
+      }
     }
     cm = '';
   }
   finish();
   let out = '';
   U.forEach((l, idx) => { out += `${l}\n`; const add = ins.get(idx + 1); if (add !== undefined) out += add; });
-  return out + tail;
+  return { text: out + tail, skipped };
 }
+
+/** @param {string} l the `key=value` line of configLines */
+const keyOf = (l) => l.slice(0, l.indexOf('='));
+
+/**
+ * Is MERGED still the user's config? Every key the user had has the same line, in the same order, no key is duplicated, and `config-check` has no message it did not already have for the user's text.
+ * @param {string} user @param {string} merged @returns {string} '' when it is, else why not
+ */
+function mergeProblem(user, merged) {
+  const ul = configLines(user); const ml = configLines(merged);
+  const had = new Set(ul.map(keyOf));
+  const kept = ml.filter((l) => had.has(keyOf(l)));
+  if (kept.length !== ul.length || kept.some((l, i) => l !== ul[i])) return 'a value or the order of a key you have would change';
+  /** @type {Map<string, number>} */ const seen = new Map();
+  for (const l of ml) { const k = keyOf(l); seen.set(k, (seen.get(k) ?? 0) + 1); }
+  const before = new Map(); for (const l of ul) before.set(keyOf(l), (before.get(keyOf(l)) ?? 0) + 1);
+  for (const [k, n] of seen) if (n > (before.get(k) ?? 1)) return `the key ${k} would appear twice`;
+  const old = new Set(checkConfigLines(ul).messages);
+  const fresh = checkConfigLines(ml).messages.find((m) => !old.has(m));
+  return fresh === undefined ? '' : `config-check would report: ${fresh}`;
+}
+
+/**
+ * The safe merge of `upgrade` (A371): the line ends of USER are kept (CRLF stays CRLF), keys that cannot be added safely are listed, and the result is parsed again: when it changes a key you
+ * have, duplicates one, or `config-check` would report something new, the whole merge is discarded (`discarded` says why) and USER is returned as it was.
+ * @param {string} userText @param {string} defaultText @returns {{ text: string, skipped: Array<{ path: string, reason: string }>, discarded: string }}
+ */
+export function cfgMergeSafe(userText, defaultText) {
+  const crlf = userText.includes('\r\n');
+  const u = userText.replace(/\r\n/g, '\n');
+  if (u.trim() === '') return { text: defaultText, skipped: [], discarded: '' };   // nothing of the user's to protect: the default is the file
+  const r = mergeCore(u, defaultText.replace(/\r\n/g, '\n'));
+  const why = mergeProblem(u, r.text);
+  if (why !== '') return { text: userText, skipped: [], discarded: why };
+  return { text: crlf ? r.text.replace(/\n/g, '\r\n') : r.text, skipped: r.skipped, discarded: '' };
+}
+
+/** `cfg_merge_new USER DEFAULT` as the text alone (the closed command and the tests). @param {string} userText @param {string} defaultText */
+export function cfgMergeNew(userText, defaultText) { return cfgMergeSafe(userText, defaultText).text; }
 
 /** @param {string} name */
 const usage = (name) => new ProoflineError(`proofline-core cli config: ${name}`, 2, 'USAGE');
