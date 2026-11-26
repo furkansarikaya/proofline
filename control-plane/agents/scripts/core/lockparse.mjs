@@ -107,6 +107,68 @@ export function yamlScalar(raw) {
   return s;
 }
 
+/** The index of the quote that closes the quoted scalar opening at `i` (double: `\\` escapes; single: `''` escapes), or -1 when it is not closed on this line. @param {string} s @param {number} i */
+function quotedEnd(s, i) {
+  const q = s[i];
+  for (let j = i + 1; j < s.length; j++) {
+    if (q === '"' && s[j] === '\\') { j++; continue; }
+    if (s[j] === q) { if (q === "'" && s[j + 1] === "'") { j++; continue; } return j; }
+  }
+  return -1;
+}
+/** A plain scalar of ONE line that cannot start or continue anything else: no indicator first, no quote, no comment, no `: `. @param {string} v */
+function plainOk(v) {
+  if (v === '' || '|>&*!%@`?#,[]{}"\''.includes(v[0]) || (v[0] === '-' && (v.length === 1 || v[1] === ' '))) return false;
+  return !v.includes(' #') && !v.includes(': ') && !v.endsWith(':') && !v.includes('"') && !v.includes("'");
+}
+/** A one-line flow collection: brackets and quotes balanced on the line, nothing after the last bracket, no anchor, alias or tag. @param {string} v */
+function flowOk(v) {
+  let depth = 0;
+  for (let j = 0; j < v.length; j++) {
+    const c = v[j];
+    if (c === '"' || c === "'") { const e = quotedEnd(v, j); if (e < 0) return false; j = e; continue; }
+    if (c === '{' || c === '[') depth++;
+    else if (c === '}' || c === ']') { depth--; if (depth < 0 || (depth === 0 && j !== v.length - 1)) return false; }
+    else if ((c === '&' || c === '*' || c === '!' || c === '#' || c === '|' || c === '>') && ' {[,:'.includes(v[j - 1] ?? ' ')) return false;
+  }
+  return depth === 0;
+}
+/** A value that is complete on its line: empty (a block mapping follows), a closed quoted scalar, a balanced flow collection or a one-line plain scalar. @param {string} v */
+function valueOk(v) {
+  if (v === '') return true;
+  if (v[0] === '"' || v[0] === "'") return quotedEnd(v, 0) === v.length - 1;
+  if (v[0] === '{' || v[0] === '[') return flowOk(v);
+  return plainOk(v);
+}
+/**
+ * Whether a YAML line (indentation removed) is inside the strict subset the parsers read: `key:`, `key: value` or `- value`, each complete on the line. A quote not closed on the line, a block scalar
+ * (`|`, `>`), a plain scalar that continues on the next line, an anchor, alias, tag, `?` key or comment after a value is NOT: the lock is then refused, never read past it (a multi-line scalar could
+ * otherwise make the next line look like a new key and end a section early).
+ * @param {string} t
+ */
+export function yamlLineOk(t) {
+  if (t.startsWith('- ')) return valueOk(t.slice(2).trim());
+  let rest;
+  if (t[0] === '"' || t[0] === "'") {
+    const e = quotedEnd(t, 0);
+    if (e < 0 || t[e + 1] !== ':') return false;
+    rest = t.slice(e + 2);
+  } else {
+    const at = t.indexOf(': ');
+    const key = at >= 0 ? t.slice(0, at) : (t.endsWith(':') ? t.slice(0, -1) : '');
+    if (!plainOk(key)) return false;
+    rest = at >= 0 ? t.slice(at + 1) : '';
+  }
+  if (rest === '') return true;
+  return rest[0] === ' ' && valueOk(rest.trim());
+}
+/** A yarn classic line: every `"` string closed on the line (`\\` escapes). @param {string} t */
+function classicLineOk(t) {
+  for (let j = 0; j < t.length; j++) if (t[j] === '"') { const e = quotedEnd(t, j); if (e < 0) return false; j = e; }
+  return true;
+}
+const SUBSET = 'a line outside the strict subset (an unclosed quote, a multi-line or block scalar, an anchor, alias, tag or comment)';
+
 /** `key: value` (value may be empty) of a YAML line without its indentation, or null. @param {string} t @returns {{ k: string, v: string } | null} */
 function yamlPair(t) {
   let k; let rest;
@@ -214,6 +276,7 @@ export function pnpmPackages(lock) {
     const l = ls[i];
     if (blankOrComment(l)) continue;
     const ind = indentOf(l);
+    if (!(ind === 0 && (l === '---' || l === '...')) && !yamlLineOk(l.slice(ind))) return bad(i, SUBSET);
     if (ind === 0) {
       cur = null; inRes = false;
       if (l === '---' || l === '...') { section = ''; continue; }
@@ -330,6 +393,7 @@ export function yarnPackages(lock) {
     const l = ls[i];
     if (blankOrComment(l)) continue;
     const ind = indentOf(l);
+    if (!(berry ? yamlLineOk(l.slice(ind)) : classicLineOk(l))) return bad(i, SUBSET);
     if (ind % 2 !== 0) return bad(i, 'an odd indentation');
     if (ind === 0) {
       if (!l.endsWith(':')) return bad(i, 'an entry that does not end with `:`');

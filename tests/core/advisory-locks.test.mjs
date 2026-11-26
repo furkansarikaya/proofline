@@ -145,7 +145,8 @@ test('pnpm: several YAML documents are all read with one lockfileVersion; a miss
   assert.deepEqual(pk(ok(pnpmPackages(two))), { lodash: ['4.17.21'], pnpm: ['9.0.0'] });
   refused(pnpmPackages(two.replace("'9.0'", "'6.0'")), 'lock_unsupported', /different lockfileVersions/);
   refused(pnpmPackages('packages:\n\n  lodash@4.17.21:\n    resolution: {integrity: sha512-b}\n'), 'lock_unsupported', /no lockfileVersion/);
-  for (const v of ["'4.0'", "'10.0'", 'abc', "'9.0.1'", '"9.0', '[9]', '*a']) refused(pnpmPackages(`lockfileVersion: ${v}\n`), 'lock_unsupported');
+  for (const v of ["'4.0'", "'10.0'", 'abc', "'9.0.1'", '[9]']) refused(pnpmPackages(`lockfileVersion: ${v}\n`), 'lock_unsupported');
+  for (const v of ['"9.0', '*a', '&a 9.0']) refused(pnpmPackages(`lockfileVersion: ${v}\n`), 'lock_unreadable', /strict subset/);
   assert.deepEqual(pk(ok(pnpmPackages("lockfileVersion: '9.0'\npackages: {}\n"))), {}, 'an empty packages map is read as empty');
 });
 
@@ -176,12 +177,6 @@ packages:
     resolution: {integrity: sha512-a}
     resolution: {tarball: https://evil.invalid/x.tgz}
 
-  anchored@1.0.0:
-    resolution: &a {integrity: sha512-a}
-
-  aliased@1.0.0:
-    resolution: *a
-
   nested@1.0.0:
     resolution: {integrity: {x: y}}
 
@@ -193,14 +188,17 @@ packages:
 `;
   const r = ok(pnpmPackages(hostile));
   assert.deepEqual(pk(r), { '@ok/fine': ['2.0.0'], constructor: ['1.0.0'] });
-  assert.deepEqual(why(r), { invalid: 5, 'non-registry': 5 });
+  assert.deepEqual(why(r), { invalid: 5, 'non-registry': 3 });
   assert.ok(r.packages instanceof Map);
   clean();
   const base = "lockfileVersion: '9.0'\n\npackages:\n\n";
   for (const [entry, re] of /** @type {Array<[string, RegExp]>} */ ([
-    ['  !!str lodash@1.0.0:\n    resolution: {integrity: x}\n', /not `<key>:`/],
-    ['  &x lodash@1.0.0:\n    resolution: {integrity: x}\n', /not `<key>:`/],
-    ['  ? lodash@1.0.0\n  : {}\n', /not `<key>:`/],
+    ['  !!str lodash@1.0.0:\n    resolution: {integrity: x}\n', /strict subset/],
+    ['  &x lodash@1.0.0:\n    resolution: {integrity: x}\n', /strict subset/],
+    ['  ? lodash@1.0.0\n  : {}\n', /strict subset/],
+    ['  anchored@1.0.0:\n    resolution: &a {integrity: x}\n', /strict subset/],
+    ['  aliased@1.0.0:\n    resolution: *a\n', /strict subset/],
+    ['  flowalias@1.0.0:\n    resolution: {integrity: *a}\n', /strict subset/],
     ['  - lodash@1.0.0\n', /not `<key>:`/],
     ['  lodash@1.0.0: {resolution: {integrity: x}}\n', /not `<key>:`/],
     ['  "lo\\u0064ash@1.0.0":\n    resolution: {integrity: x}\n', /not `<key>:`/],
@@ -212,7 +210,23 @@ packages:
   refused(pnpmPackages(`${base}  lodash@1.0.0:\n    resolution: {integrity: x}\u0000\n`), 'lock_unreadable', /NUL/);
   refused(pnpmPackages(`${base}  ${'a'.repeat(MAX_LINE)}@1.0.0:\n`), 'lock_unreadable', /longer than 16384/);
   refused(pnpmPackages(`lockfileVersion: '9.0'${'\n'.repeat(MAX_LINES)}`), 'lock_unreadable', /more than 1000000 lines/);
-  refused(pnpmPackages('lockfileVersion: 9.0\nnot a yaml pair\n'), 'lock_unreadable', /top-level/);
+  refused(pnpmPackages('lockfileVersion: 9.0\nnot a yaml pair\n'), 'lock_unreadable', /strict subset/);
+});
+
+test('a scalar that spans lines refuses the lock: it could make a later line look like a new top-level key and hide every entry after it (re-review of PR 362)', () => {
+  // RED before the fix: the closing line `x: y"` at column 0 ended the packages section, lodash was dropped uncounted and the record said measured
+  const first = "lockfileVersion: '9.0'\n\npackages:\n\n  left-pad@1.3.0:\n    resolution: {integrity: sha512-a}\n";
+  const rest = '\n  lodash@4.17.15:\n    resolution: {integrity: sha512-b}\n\nsnapshots:\n\n  lodash@4.17.15: {}\n';
+  for (const mid of ['    deprecated: "use\nx: y"\n', "    deprecated: 'use\nx: y'\n", '    deprecated: |\n      use\nx: y\n', '    deprecated: >-\n      use\nx: y\n', '    deprecated: use\n      more words\n', '    engines: {node: ">=6\nx: y"}\n', '    os: [darwin,\n      linux]\n', '    deprecated: "a" # c\n']) {
+    refused(pnpmPackages(first + mid + rest), 'lock_unreadable', /line [78]: a line outside the strict subset/);
+  }
+  assert.deepEqual(pk(ok(pnpmPackages(`${first}    deprecated: "use \\"x\\": y"\n    note: 'it''s'\n${rest}`))), { 'left-pad': ['1.3.0'], lodash: ['4.17.15'] }, 'closed quotes with escapes stay readable');
+  // yarn berry is YAML too, and a yarn classic string must close on its line
+  refused(yarnPackages('__metadata:\n  version: 6\n\n"a@npm:1":\n  resolution: "a@npm:1.0.0\nb@npm:1": x\n'), 'lock_unreadable', /line 5: a line outside the strict subset/);
+  refused(yarnPackages('__metadata:\n  version: 6\n\n"a@npm:1":\n  resolution: |\n    a@npm:1.0.0\n'), 'lock_unreadable', /strict subset/);
+  refused(yarnPackages('# yarn lockfile v1\n\na@^1:\n  version "1.0.0\nb@^1:\n  version "2"\n'), 'lock_unreadable', /line 4: a line outside the strict subset/);
+  // bun is JSON: a string cannot hold a raw line break
+  refused(bunPackages('{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0\n", ""]}}'), 'lock_unreadable');
 });
 
 test('yarn classic: specs and aliases give the real name, the resolved url must be a registry tarball, a missing version or disagreeing specs are skipped', () => {
@@ -625,10 +639,10 @@ test('pnpm: `packages:` with anything after the colon, or a block header without
   // RED before the fix: each of these read as a measured lock of 0 packages
   const entry = '\n\n  lodash@4.17.20:\n    resolution: {integrity: sha512-a}\n';
   for (const suf of [' # c', ' &a', ' !!map', ' !!omap', ' *a', ' {lodash@4.17.20: {resolution: {integrity: sha512-a}}}', ' {}x', ' []', ' null', ' ~']) {
-    refused(pnpmPackages(`lockfileVersion: '9.0'\n\npackages:${suf}${entry}`), 'lock_unreadable', /`packages:` followed by something other than/);
+    refused(pnpmPackages(`lockfileVersion: '9.0'\n\npackages:${suf}${entry}`), 'lock_unreadable', /`packages:` followed by something other than|strict subset/);
   }
   refused(pnpmPackages("lockfileVersion: '9.0'\npackages: {lodash@4.17.20: {resolution: {integrity: sha512-a}}}\n"), 'lock_unreadable');
-  refused(pnpmPackages("lockfileVersion: '9.0'\npackages:# c\n"), 'lock_unreadable', /top-level/);
+  refused(pnpmPackages("lockfileVersion: '9.0'\npackages:# c\n"), 'lock_unreadable', /strict subset/);
   refused(pnpmPackages("lockfileVersion: '9.0'\npackages:\n\nsnapshots:\n  lodash@4.17.20: {}\n"), 'lock_unreadable', /without entries/);
   refused(pnpmPackages("lockfileVersion: '9.0'\npackages:\n"), 'lock_unreadable', /without entries/);
   refused(pnpmPackages(`---\nlockfileVersion: '9.0'\npackages:${entry}---\nlockfileVersion: '9.0'\npackages:\n`), 'lock_unreadable', /without entries/);
