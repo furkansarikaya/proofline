@@ -93,7 +93,7 @@ test('sc_capture_integrity: captures and approvals are regular, single-link, sym
 });
 
 test("sc_split_override: freeze over max_scope_paths stops with a split proposal and proceeds only on the user's recorded 'proceed without splitting'", () => {
-  const d = unfrozen('STANDARD', { scopeExtra: 'AC-1', scopeOther: 'AC-1' });
+  const d = unfrozen('STANDARD', { scopeExtra: 'AC-1', scopeOther: 'AC-1', scopeNamed: 'third.txt' });   // A364: impl_test.txt is a test file and no longer counted, third.txt is the fourth counted path
   narrow(d, 3);
   assert.match(read(d, '.agents/config.yaml'), /max_scope_paths: 3/, 'the test config was not narrowed');
   refused(a(d, ['freeze', 'LC']), 'a plan over max_scope_paths froze', 'at least 2 tasks of at most 3 paths each');
@@ -122,13 +122,13 @@ test("sc_split_override: freeze over max_scope_paths stops with a split proposal
 });
 
 test('sc_scope_content: a content or document path is not counted against max_scope_paths, a file that holds code always is', () => {
-  const d = unfrozen('STANDARD', { scopeNamed: 'notes.md' });
+  const d = unfrozen('STANDARD', { scopeNamed: 'notes.md', scopeExtra: 'AC-1' });
   narrow(d, 2);
   const kind = (/** @type {string} */ p) => a(d, ['path-kind', p]).out.split('\t')[0];
   assert.deepEqual([kind('notes.md'), kind('tool.sh'), kind('docs/tool.sh'), kind('impl.txt')], ['content', 'code', 'code', 'code'], 'path-kind');
   const fr = a(d, ['freeze', 'LC']);
   assert.equal(fr.status, 0, `a content path counted against the scope bound: ${fr.text}`);
-  const e = unfrozen('STANDARD', { scopeNamed: 'tool.sh' });
+  const e = unfrozen('STANDARD', { scopeNamed: 'tool.sh', scopeExtra: 'AC-1' });
   narrow(e, 2);
   refused(a(e, ['freeze', 'LC']), 'a code path over the bound froze', 'code paths (content and document paths are not counted)');
 });
@@ -144,14 +144,14 @@ function batchAnswer(d, ceiling, change = false) {
   if (change) writeFileSync(`${b}/SUMMARY.md`, '# Night batch\n\nnonce: test\nchanged\n');
 }
 test("sc_batch_split_answer: a recorded batch answer passes the split check up to its ceiling and is ledgered; a changed summary voids it", () => {
-  const d = unfrozen('STANDARD', { scopeNamed: 'tool.sh' }); narrow(d, 2);
+  const d = unfrozen('STANDARD', { scopeNamed: 'tool.sh', scopeExtra: 'AC-1' }); narrow(d, 2);
   batchAnswer(d, 2);
   refused(a(d, ['freeze', 'LC']), 'an answer with a ceiling below the plan froze', 'code paths');
   batchAnswer(d, 5);
   const fr = a(d, ['freeze', 'LC']);
   assert.equal(fr.status, 0, `the batch answer did not replace the split question: ${fr.text}`);
   assert.match(rf(d, 'LEDGER.log'), /event=split_override .*answer=batch:Q1/, 'the batch answer is not in the ledger');
-  const e = unfrozen('STANDARD', { scopeNamed: 'tool.sh' }); narrow(e, 2);
+  const e = unfrozen('STANDARD', { scopeNamed: 'tool.sh', scopeExtra: 'AC-1' }); narrow(e, 2);
   batchAnswer(e, 5, true);
   refused(a(e, ['freeze', 'LC']), 'an answer of a summary that changed froze', 'code paths');
 });

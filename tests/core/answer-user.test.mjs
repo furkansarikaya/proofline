@@ -33,7 +33,7 @@ function build(script) {
 before(() => {
   base = tempDir('ans-');
   templates.plain = build('scaffold standalone no COMPLEX manual');
-  templates.split = build(`SC_SCOPE_EXTRA=AC-1 SC_SCOPE_OTHER=AC-1 scaffold standalone no STANDARD manual; ${NARROW}`);
+  templates.split = build(`SC_SCOPE_EXTRA=AC-1 SC_SCOPE_OTHER=AC-1 SC_SCOPE_NAMED=third.txt scaffold standalone no STANDARD manual; ${NARROW}`);
 });
 after(() => { for (const t of Object.values(templates)) rmSync(t, { recursive: true, force: true }); rmSync(base, { recursive: true, force: true }); });
 
