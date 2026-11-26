@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 112afb5aba983c7d102d1e8ba5881d82e2fca6e7 -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 56078ad782e6c478919ec4583b13931b7ad1433d -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -44,7 +44,7 @@ Control plane Node kodudur; `.agents/scripts/agent.sh` onu başlatan ince bir la
 | `proofline clean [--yes]` | `.agents/local` durumunu ve biten run'ları sil |
 | `proofline merge <PR> [--merge\|--squash\|--rebase] [--delete-branch]` | izin verilen tek merge yolu: pull request'i yalnızca güncel head'indeki her check yeşilse birleştirir (A136); `--admin` ve `--auto` reddedilir, hook `gh pr merge` ile diğer merge yollarını engeller |
 | `proofline insights [--run ID] [--json]` | salt okunur rapor: run, rol ve model bazında maliyet (token sadece runtime bildirdiyse), rol ve run bazında tool çağrıları ve tekrar eden başarısızlıklar, öneriler; hiçbir şeyi değiştirmez |
-| `proofline retro [<batch-id\|run-id>] [--since YYYY-MM-DD] [--json] [--full]` | biten run'ların salt okunur raporu: ledger'ları (canlı ve run arşivlerinin içinden), metrik kayıtlarını ve batch dosyalarını süreç içinde okur; süre, token, fix round, gate yeniden çalıştırmaları, kullanıcı beklemeleri, hook reddi, devam ettirilen run'lar ve okuyamadığı kaynaklar; puan ve hüküm yok, hiçbir şeyi değiştirmez |
+| `proofline retro [<batch-id\|run-id>] [--since YYYY-MM-DD] [--json] [--full]` | biten run'ların salt okunur raporu: ledger'ları (canlı ve run arşivlerinin içinden), metrik kayıtlarını, batch dosyalarını ve onay ile durum bloğu günlüklerini süreç içinde okur; süre, token, fix round, gate yeniden çalıştırmaları, gate başına dakika, kullanıcı beklemeleri, kaynağa göre onaylar, başarısız durum bloğu güncellemeleri, hook reddi, devam ettirilen run'lar ve okuyamadığı kaynaklar; puan ve hüküm yok, hiçbir şeyi değiştirmez |
 | `proofline doctor --config` | değiştirmen beklenen az sayıdaki ayarı salt okunur listeler: şimdiki değer, gönderilen varsayılan ve anlamı ([configuration](../../concepts/configuration.md)) |
 | `proofline config [<key> [<value>]]` | ayarlarını listeler, birini gösterir ya da terminalinde birini değiştirir; yorumlar ve diğer anahtarlar olduğu gibi kalır, tür kontrol edilir; bir agent yalnızca `output_cap_bytes`, `tasks.status_block_seconds` ve `timeouts.warn_percent` ayarlayabilir ([configuration](../../concepts/configuration.md)) |
 | `proofline doctor --scale`, `--apply-scale` | bu makineyi ölç ve `timeouts.scale` öner; yalnızca senin `approve scale` onayından sonra yazılır ([timeouts](../../concepts/timeouts.md)) |

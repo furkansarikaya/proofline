@@ -264,6 +264,10 @@
       "test_ms": 15000,
       "suite_ms": 15000
     },
+    "tests/core/retro-logs.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 20000
+    },
     "tests/core/retro-tar.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000

@@ -7,6 +7,9 @@
 // Time (all from ledger `epoch=` values; no clock is read): task time = first to last ledger event of the run; first pass = start to the first rework row (`handoff:IMPLEMENTING fix_round=N` or `REOPEN`); rework = that row
 // to the last gate or `handoff:IMPLEMENTED` row after it (the last event when none follows); after the last gate = the rest (knowledge, report, delivery). User waits sit inside those windows and are listed apart.
 // Tokens: the `step` and `lead` records (a resumed agent was counted once by the log delta, A363); a `dispatch` record only for a role that has no step tokens, so the same step is never summed twice.
+// A378 (A370.1): per-gate minutes are the `duration_s` of the agent records that name the gate (the `gate` and `focus` fields of `records.jsonl`, the same step-over-dispatch rule); the ledger has no start row of
+// a gate, so a gate the ledger names without such a record reads `not recorded`. `.agents/local/approve.log` and `.agents/local/status-block.log` are read as counts only: a line is matched against the forms
+// the control plane writes (core/commands/approve.mjs, core/statusblock.mjs), the run id, the kind, the source and the event pass the fixed lists, the rest of a line is never printed.
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { requireInstalled } from './doctor.mjs';
@@ -33,6 +36,19 @@ const APPROVALS = new Set(['plan', 'destructive', 'single_step', 'scope', 'budge
 const CLASSES = new Set(['TRIVIAL', 'SMALL', 'STANDARD', 'COMPLEX', 'CRITICAL']);
 const ROLES = new Set(['lead', 'architect', 'data_architect', 'designer', 'explorer', 'implementer', 'qa', 'reviewer', 'security_reviewer', 'task_author', 'verifier', 'n/a']);
 const OUTCOMES = new Set(['done', 'failed', 'blocked', 'open', 'terminated']);
+/** Where an approval came from (`source=` of the ledger `approval` row and `(<source>)` of approve.log's `approval recorded` text). */
+const SOURCES = new Set(['prompt_capture', 'tty', 'batch', 'delivery_ci_fix']);
+/** The lifecycle events of a status block update (core/statusblock.mjs callers). */
+const SB_EVENTS = new Set(['run-start', 'ask', 'answer', 'code-done', 'pr-opened', 'merged', 'failed', 'update']);
+/** A risk focus runs under a REVIEW gate of its own focus; its minutes are listed apart (`REVIEW_RULES:contract`). */
+const RISK_FOCI = new Set(['contract', 'concurrency', 'performance', 'config', 'migration']);
+/** `YYYY-MM-DDTHH:MM:SSZ` as the logs write it. @param {string} s @returns {number | null} epoch seconds */
+function isoEpoch(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/.exec(s);
+  if (m === null) return null;
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]));
+  return Number.isFinite(t) && new Date(t).toISOString().replace(/\.\d+Z$/, 'Z') === s ? t / 1000 : null;
+}
 /** @param {Set<string>} set @param {string} v */
 const only = (set, v) => (set.has(v) ? v : 'other');
 /** A denial class is fixed lower-case prose (A363): plain words, an optional number, or `no-reason`. */
@@ -178,6 +194,7 @@ function fromLedger(led) {
   const asks = []; /** @type {Map<string, number[]>} */ const reqs = new Map();
   let questions = 0; let byUser = 0; let byAssumption = 0;
   /** @type {Map<string, { requested: number, granted: number }>} */ const approvals = new Map();
+  /** @type {Map<string, number>} */ const approvalSources = new Map(); let approvalByUser = 0;
   const wait = (/** @type {number} */ from, /** @type {number} */ to) => { const d = Math.max(0, to - from); waits.count++; waits.total_s += d; if (d > waits.longest_s) waits.longest_s = d; };
   for (const r of rows) {
     if (r.ev === 'ask') { questions++; asks.push(r.epoch); } else if (r.ev === 'answer' || r.ev === 'answer-amend') {
@@ -189,6 +206,9 @@ function fromLedger(led) {
     } else if (r.ev === 'approval') {
       const k = approvalKind(r.detail);
       const c = approvals.get(k) ?? { requested: 0, granted: 0 }; c.granted++; approvals.set(k, c);
+      const src = only(SOURCES, /(?:^|[ \t])source=([^ \t]*)/.exec(r.detail)?.[1] ?? '');
+      approvalSources.set(src, (approvalSources.get(src) ?? 0) + 1);
+      if (/(?:^|[ \t])answered_by=user(?:$|[ \t])/.test(r.detail)) approvalByUser++;
       const q = reqs.get(k); const a = q?.shift(); if (a !== undefined) wait(a, r.epoch);
     }
   }
@@ -200,7 +220,7 @@ function fromLedger(led) {
   const term = rows.filter((r) => r.ev === 'terminate').pop();
   const cls = rows.find((r) => r.ev === 'classify');
   return {
-    from: led.from, first, last, taskS, firstPass, rework, after, fixRounds, reopens, gates, reruns, waits, questions, byUser, byAssumption, approvals, friction,
+    from: led.from, first, last, taskS, firstPass, rework, after, fixRounds, reopens, gates, reruns, waits, questions, byUser, byAssumption, approvals, approvalSources, approvalByUser, friction,
     workarounds: count('discard-untracked') + count('raise-budget') + count('forced-removal'), blocked: rows.filter((r) => /^record:[a-z_]+:BLOCKED$/.test(r.ev)).length,
     state: done ? 'done' : term !== undefined ? only(OUTCOMES, asciiLower(term.to)) : 'open', cls: cls === undefined ? '' : only(CLASSES, cls.detail.split(/\s/)[0]), events: rows.length,
   };
@@ -213,6 +233,72 @@ function dayEpoch(d) {
   const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return new Date(t).toISOString().slice(0, 10) === d ? t / 1000 : null;
 }
+
+/**
+ * @typedef {object} ApproveStep one `approve-pending` line of approve.log, reduced to counts
+ * @property {number} epoch @property {string[]} kinds @property {boolean} ok rc=0 @property {Map<string, number>} recorded `approval recorded` lines by source
+ */
+/**
+ * approve.log as `approve-pending` writes it (core/commands/approve.mjs, core/budget.mjs): `<iso> target=<ID> kinds=<K...> rc=<N> output: <text>`, `<iso> approval step stopped after <N>s (prompt hook
+ * budget)`, `<iso> approval step of worktree run <ID> stopped after <N>s (prompt hook budget)` and `<iso> multi: ...` (the multi-segment report). Any other line, or one without a valid time, is counted as
+ * `other` and nothing of it is kept. The output text is only searched for `approval recorded: <id> <kind> (<source>)`; the source passes SOURCES.
+ * @param {string} text
+ */
+export function parseApproveLog(text) {
+  /** @type {Map<string, ApproveStep[]>} */ const byRun = new Map();
+  /** @type {Map<string, number[]>} */ const stoppedByRun = new Map();
+  /** @type {number[]} */ const stopped = []; /** @type {number[]} */ const multi = [];
+  let other = 0; let lines = 0;
+  for (const l of text.split('\n')) {
+    if (l === '') continue;
+    lines++;
+    const sp = l.indexOf(' ');
+    const e = sp < 0 ? null : isoEpoch(l.slice(0, sp));
+    if (e === null) { other++; continue; }
+    const rest = l.slice(sp + 1);
+    let m;
+    if ((m = /^target=([^ ]+) kinds=(.*?) rc=([0-9]{1,3}) output: (.*)$/.exec(rest)) !== null) {
+      if (!isId(m[1])) { other++; continue; }
+      /** @type {Map<string, number>} */ const recorded = new Map();
+      for (const r of m[4].matchAll(/approval recorded: [^ ]+ [^ ]+ \(([^() ]*)\)/g)) { const k = only(SOURCES, r[1]); recorded.set(k, (recorded.get(k) ?? 0) + 1); }
+      const step = { epoch: e, kinds: m[2].split(' ').filter((x) => x !== '').map((k) => only(APPROVALS, k.split(':')[0])), ok: m[3] === '0', recorded };
+      byRun.set(m[1], [...(byRun.get(m[1]) ?? []), step]);
+    } else if (/^approval step stopped after [0-9]+s \(prompt hook budget\)$/.test(rest)) stopped.push(e);
+    else if ((m = /^approval step of worktree run ([^ ]+) stopped after [0-9]+s \(prompt hook budget\)$/.exec(rest)) !== null && isId(m[1])) stoppedByRun.set(m[1], [...(stoppedByRun.get(m[1]) ?? []), e]);
+    else if (rest.startsWith('multi: ')) multi.push(e);
+    else other++;
+  }
+  return { lines, byRun, stoppedByRun, stopped, multi, other };
+}
+
+/**
+ * status-block.log as statusBlockUpdate writes it (core/statusblock.mjs): `<iso> <ID> <event> <message>`, one line per failed update (a sent update writes no line). Only the run id and the event
+ * (SB_EVENTS, else `other`) are kept; the message is never read further.
+ * @param {string} text
+ */
+export function parseStatusBlockLog(text) {
+  /** @type {Map<string, Array<{ epoch: number, event: string }>>} */ const byRun = new Map();
+  let other = 0; let lines = 0;
+  for (const l of text.split('\n')) {
+    if (l === '') continue;
+    lines++;
+    const m = /^([^ ]+) ([^ ]+) ([^ ]+)(?: |$)/.exec(l);
+    const e = m === null ? null : isoEpoch(m[1]);
+    if (m === null || e === null || !isId(m[2])) { other++; continue; }
+    byRun.set(m[2], [...(byRun.get(m[2]) ?? []), { epoch: e, event: only(SB_EVENTS, m[3]) }]);
+  }
+  return { lines, byRun, other };
+}
+
+/** @param {number[]} es @returns {number | null} first to last, seconds */
+function span(es) {
+  if (es.length === 0) return null;
+  let lo = Infinity; let hi = -Infinity;
+  for (const e of es) { if (e < lo) lo = e; if (e > hi) hi = e; }
+  return hi - lo;
+}
+/** @param {Map<string, number>} into @param {string} k @param {number} [n] */
+const bump = (into, k, n = 1) => { into.set(k, (into.get(k) ?? 0) + n); };
 
 /**
  * @param {Context} ctx @param {{ target: string, since: string }} sel
@@ -229,6 +315,15 @@ export function gather(ctx, sel) {
   /** @param {string} f @param {{ notJson: number, foreign: number }} j */
   const lineNote = (f, j) => { const p = []; if (j.notJson > 0) p.push(`${plural(j.notJson, 'line')} not JSON`); if (j.foreign > 0) p.push(`${plural(j.foreign, 'line')} of another schema`); if (p.length > 0) notRead.push(`${f}: ${p.join(', ')}`); };
   lineNote('records.jsonl', records); lineNote('tools.jsonl', tools);
+  // A378: the approval and status block logs of the main tree (they are not in a run folder, so not in a run archive either)
+  const apFile = readBounded(`${root}/.agents/local/approve.log`);
+  const sbFile = readBounded(`${root}/.agents/local/status-block.log`);
+  if (apFile.text === null && apFile.why !== 'missing') notRead.push(`approve.log: ${apFile.why}`);
+  if (sbFile.text === null && sbFile.why !== 'missing') notRead.push(`status-block.log: ${sbFile.why}`);
+  const apLog = apFile.text === null ? null : parseApproveLog(apFile.text);
+  const sbLog = sbFile.text === null ? null : parseStatusBlockLog(sbFile.text);
+  if (apLog !== null && apLog.other > 0) notRead.push(`approve.log: ${plural(apLog.other, 'line')} not in a known form, not counted`);
+  if (sbLog !== null && sbLog.other > 0) notRead.push(`status-block.log: ${plural(sbLog.other, 'line')} not in a known form, not counted`);
 
   // batches: the one in force and the finished ones
   const bdir = `${root}/.agents/local/batch`;
@@ -285,6 +380,21 @@ export function gather(ctx, sel) {
       for (const r of [...useTok, ...resumed]) { acc.rows++; const v = tok(r); if (v !== null) { acc.tok += v; acc.tokN++; } }
       roles.set(role, acc);
     }
+    // A378: minutes per gate from the agent records that name it (step records first, dispatch records only for a gate with no step duration, resumed dispatches added, as for the roles)
+    const gateKey = (/** @type {any} */ r) => (typeof r.gate !== 'string' || r.gate === '' ? null : `${only(GATES, r.gate)}${typeof r.focus === 'string' && RISK_FOCI.has(r.focus) ? `:${r.focus}` : ''}`);
+    /** @type {Map<string, { s: number, n: number }>} */ const gateTime = new Map();
+    for (const k of new Set(mine.map(gateKey).filter((k) => k !== null))) {
+      const of = (/** @type {any} */ r) => gateKey(r) === k;
+      const steps = mine.filter((r) => r.kind === 'step' && of(r)); const disp = mine.filter((r) => r.kind === 'dispatch' && r.result !== 'resumed' && of(r)); const resumed = mine.filter((r) => r.kind === 'dispatch' && r.result === 'resumed' && of(r));
+      const use = steps.some((r) => num(r.duration_s) !== null) ? steps : [...steps, ...disp];
+      const acc = { s: 0, n: 0 };
+      for (const r of [...use, ...resumed]) { const v = num(r.duration_s); if (v !== null) { acc.s += v; acc.n++; } }
+      gateTime.set(/** @type {string} */ (k), acc);
+    }
+    if (L !== null) for (const g of L.gates.keys()) if (g !== 'REOPEN' && ![...gateTime.keys()].some((k) => k === g || k.startsWith(`${g}:`))) gateTime.set(g, { s: 0, n: 0 });
+    const apSteps = apLog?.byRun.get(t) ?? [];
+    const apStopped = apLog?.stoppedByRun.get(t) ?? [];
+    const sbRows = sbLog?.byRun.get(t) ?? [];
     const resumedRows = mine.filter((r) => r.kind === 'dispatch' && r.result === 'resumed');
     /** @type {Map<string, { n: number, s: number }>} */ const resumedBy = new Map();
     for (const r of resumedRows) { const k = roleOf(r); const c = resumedBy.get(k) ?? { n: 0, s: 0 }; c.n++; c.s += num(r.duration_s) ?? 0; resumedBy.set(k, c); }
@@ -301,11 +411,17 @@ export function gather(ctx, sel) {
     return {
       task: t, L, nr, roles, resumedBy, toolRows: tm.length, denials: den, denied, start: L !== null ? L.first : firstRec === undefined ? null : Math.floor(firstRec / 1000),
       recState: run === undefined || typeof run.result !== 'string' ? '' : only(OUTCOMES, run.result), recClass: run === undefined || typeof run.class !== 'string' ? '' : only(CLASSES, run.class),
-      merge: m ?? null, ci: ci.has(t), parked: parked.has(t),
+      merge: m ?? null, ci: ci.has(t), parked: parked.has(t), gateTime, apSteps, apStopped, sbRows,
     };
   }).filter((x) => sinceEpoch === null || (x.start !== null && x.start >= sinceEpoch))
     .sort((a, b) => ((a.start ?? Infinity) - (b.start ?? Infinity)) || cmp(a.task, b.task));
-  return { scope, tasks, notRead: [...notRead, ...tasks.flatMap((x) => x.nr)], records, tools, ledgers: { live: tasks.filter((x) => x.L?.from === 'live').length, archive: tasks.filter((x) => x.L?.from === 'archive').length } };
+  const inSince = (/** @type {number} */ e) => sinceEpoch === null || e >= sinceEpoch;
+  const logs = {
+    approve: apLog === null ? (apFile.why === 'missing' ? 'not present' : 'not read') : 'read', approveLines: apLog?.lines ?? 0, approveOther: apLog?.other ?? 0,
+    approveUnattributed: { stopped: (apLog?.stopped ?? []).filter(inSince).length, multi: (apLog?.multi ?? []).filter(inSince).length },
+    statusBlock: sbLog === null ? (sbFile.why === 'missing' ? 'not present' : 'not read') : 'read', statusBlockLines: sbLog?.lines ?? 0, statusBlockOther: sbLog?.other ?? 0,
+  };
+  return { scope, tasks, logs, notRead: [...notRead, ...tasks.flatMap((x) => x.nr)], records, tools, ledgers: { live: tasks.filter((x) => x.L?.from === 'live').length, archive: tasks.filter((x) => x.L?.from === 'archive').length } };
 }
 
 /** @typedef {ReturnType<typeof gather>} Model */
@@ -319,8 +435,29 @@ function tokenParts(t) {
   return { parts, total: any.length === 0 ? null : any.reduce((s, p) => s + p.tok, 0) };
 }
 
+/** @param {Map<string, number>} m */
+const sorted = (m) => Object.fromEntries([...m.keys()].sort(cmp).map((k) => [k, m.get(k)]));
+
+/** What approve.log and status-block.log say about one run (A378): null when the log is not there. @param {Model} m @param {Task} t */
+function logFacts(m, t) {
+  /** @type {Map<string, number>} */ const kinds = new Map(); /** @type {Map<string, number>} */ const bySource = new Map();
+  for (const st of t.apSteps) { for (const k of st.kinds) bump(kinds, k); for (const [k, n] of st.recorded) bump(bySource, k, n); }
+  /** @type {Map<string, number>} */ const events = new Map();
+  for (const r of t.sbRows) bump(events, r.event);
+  return {
+    approve_log: m.logs.approve !== 'read' ? null : {
+      steps: t.apSteps.length, recorded: t.apSteps.filter((x) => x.ok).length, not_recorded: t.apSteps.filter((x) => !x.ok).length, kinds: sorted(kinds), records_by_source: sorted(bySource),
+      stopped_by_hook_budget: t.apStopped.length, span_s: span([...t.apSteps.map((x) => x.epoch), ...t.apStopped]),
+    },
+    status_block_log: m.logs.statusBlock !== 'read' ? null : { failed: t.sbRows.length, events: sorted(events), span_s: span(t.sbRows.map((x) => x.epoch)), sent: 'not recorded' },
+  };
+}
+
 /** @param {Task} t */
-function taskJson(t) {
+function gateSeconds(t) { return Object.fromEntries([...t.gateTime.keys()].sort(cmp).map((k) => { const v = /** @type {{ s: number, n: number }} */ (t.gateTime.get(k)); return [k, v.n > 0 ? v.s : null]; })); }
+
+/** @param {Model} m @param {Task} t */
+function taskJson(m, t) {
   const L = t.L; const tp = tokenParts(t);
   return {
     task: t.task, state: L !== null ? L.state : t.recState !== '' ? t.recState : 'not recorded', class: L !== null && L.cls !== '' ? L.cls : t.recClass !== '' ? t.recClass : null,
@@ -332,6 +469,7 @@ function taskJson(t) {
     gates: L === null ? null : Object.fromEntries([...L.gates.keys()].sort(cmp).map((g) => [g, L.gates.get(g)])), gate_reruns: L === null ? null : L.reruns,
     user_waits: L === null ? null : L.waits, questions: L === null ? null : { asked: L.questions, by_user: L.byUser, by_assumption: L.byAssumption },
     approvals: L === null ? null : Object.fromEntries([...L.approvals.keys()].sort(cmp).map((k) => [k, L.approvals.get(k)])),
+    approval_sources: L === null ? null : sorted(L.approvalSources), approvals_by_user: L === null ? null : L.approvalByUser, gate_s: gateSeconds(t), ...logFacts(m, t),
     hook_denials: t.toolRows === 0 ? null : { denied: t.denied, classes: Object.fromEntries([...t.denials.keys()].sort(cmp).map((k) => [k, t.denials.get(k)])) },
     friction: L === null ? null : Object.fromEntries([...L.friction.keys()].sort(cmp).map((k) => [k, L.friction.get(k)])), workarounds: L === null ? null : L.workarounds, blocked_records: L === null ? null : L.blocked,
     resumed: Object.fromEntries([...t.resumedBy.keys()].sort(cmp).map((k) => [k, t.resumedBy.get(k)])), merge: t.merge, ci_checked: t.ci, parked: t.parked,
@@ -352,12 +490,32 @@ function totals(m) {
     rework_s: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).rework), after_s: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).after),
     wall_s: withL.length === 0 ? null : hi - lo,
     fix_rounds: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).fixRounds), reopens: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).reopens),
+    gate_s: gateTotals(m),
+  };
+}
+
+/** Seconds per gate over the runs; a gate no record timed is null. @param {Model} m */
+function gateTotals(m) {
+  /** @type {Map<string, { s: number, n: number }>} */ const g = new Map();
+  for (const t of m.tasks) for (const [k, v] of t.gateTime) { const c = g.get(k) ?? { s: 0, n: 0 }; c.s += v.s; c.n += v.n; g.set(k, c); }
+  return Object.fromEntries([...g.keys()].sort(cmp).map((k) => { const v = /** @type {{ s: number, n: number }} */ (g.get(k)); return [k, v.n > 0 ? v.s : null]; }));
+}
+
+/** The logs line of the report and of --json (A378). @param {Model} m */
+function logTotals(m) {
+  const f = m.tasks.map((t) => logFacts(m, t));
+  const s = (/** @type {(x: any) => number} */ g, /** @type {'approve_log' | 'status_block_log'} */ w) => f.reduce((a, x) => a + (x[w] === null ? 0 : g(x[w])), 0);
+  return {
+    approve_log: m.logs.approve, approve_lines: m.logs.approveLines, approve_steps: s((x) => x.steps, 'approve_log'), approve_recorded: s((x) => x.recorded, 'approve_log'), approve_not_recorded: s((x) => x.not_recorded, 'approve_log'),
+    approve_stopped: s((x) => x.stopped_by_hook_budget, 'approve_log') + m.logs.approveUnattributed.stopped, approve_no_run: { stopped: m.logs.approveUnattributed.stopped, multi_reports: m.logs.approveUnattributed.multi },
+    approve_other_lines: m.logs.approveOther,
+    status_block_log: m.logs.statusBlock, status_block_lines: m.logs.statusBlockLines, status_block_failed: s((x) => x.failed, 'status_block_log'), status_block_other_lines: m.logs.statusBlockOther, status_block_sent: 'not recorded',
   };
 }
 
 /** @param {Model} m */
 export function retroJson(m) {
-  return `${JSON.stringify({ schema: 'proofline.retro/1', scope: m.scope, sources: { records_read: m.records.read, tools_read: m.tools.read, ledgers_live: m.ledgers.live, ledgers_archive: m.ledgers.archive }, totals: totals(m), tasks: m.tasks.map(taskJson), not_read: m.notRead }, null, 2)}\n`;
+  return `${JSON.stringify({ schema: 'proofline.retro/1', scope: m.scope, sources: { records_read: m.records.read, tools_read: m.tools.read, ledgers_live: m.ledgers.live, ledgers_archive: m.ledgers.archive }, totals: totals(m), logs: logTotals(m), tasks: m.tasks.map((t) => taskJson(m, t)), not_read: m.notRead }, null, 2)}\n`;
 }
 
 /** @param {Model} m @param {boolean} full @returns {string[]} lines */
@@ -375,6 +533,11 @@ export function retroLines(m, full) {
     o.push(`time: wall ${mins(/** @type {number} */ t.wall_s)} min, task time ${mins(t.task_s)} min (first to last ledger event of each run); first pass ${p(t.first_pass_s)}, rework ${p(t.rework_s)}, after the last gate ${p(t.after_s)}`);
     o.push(`fix rounds ${t.fix_rounds}, reopens ${t.reopens} (ledger); informational counts, not a measure of quality`);
   }
+  const gt = Object.entries(t.gate_s);
+  o.push(`gate minutes (agent records): ${gt.length === 0 ? 'not recorded' : gt.map(([k, v]) => `${k} ${v === null ? 'not recorded' : mins(v)}`).join(', ')}`);
+  const lt = logTotals(m);
+  o.push(`approve.log: ${lt.approve_log !== 'read' ? `not recorded (${lt.approve_log})` : `${plural(lt.approve_steps, 'approval step')} for these runs (${lt.approve_recorded} recorded, ${lt.approve_not_recorded} not recorded), stopped by the hook budget ${lt.approve_stopped}; lines that name no run: ${lt.approve_no_run.stopped} stopped, ${lt.approve_no_run.multi_reports} multi-segment reports; the log keeps its last 200 lines once past 400`}`);
+  o.push(`status-block.log: ${lt.status_block_log !== 'read' ? `not recorded (${lt.status_block_log})` : `${plural(lt.status_block_failed, 'failed update')} for these runs`}; updates sent: not recorded (only a failed update is logged)`);
   // resumed runs
   o.push('resumed runs:');
   let any = false;
@@ -397,19 +560,19 @@ export function retroLines(m, full) {
   // table
   o.push('', 'task        state    class     task_min  first_pass  rework  after  fix  reopen  tokens');
   for (const x of m.tasks) {
-    const j = taskJson(x);
+    const j = taskJson(m, x);
     const f = (/** @type {number | null} */ v) => (v === null ? 'n/r' : mins(v));
     o.push(`${x.task.padEnd(11)} ${String(j.state).padEnd(8)} ${String(j.class ?? '-').padEnd(9)} ${f(j.task_s).padEnd(9)} ${f(j.first_pass_s).padEnd(11)} ${f(j.rework_s).padEnd(7)} ${f(j.after_s).padEnd(6)} ${String(j.fix_rounds ?? 'n/r').padEnd(4)} ${String(j.reopens ?? 'n/r').padEnd(7)} ${j.tokens_total ?? 'n/r'}`);
   }
   o.push('(n/r = not recorded)');
   // details
-  for (const x of m.tasks) o.push('', ...detail(x));
+  for (const x of m.tasks) o.push('', ...detail(m, x));
   return o;
 }
 
-/** @param {Task} x @returns {string[]} */
-function detail(x) {
-  const j = taskJson(x); const L = x.L;
+/** @param {Model} m @param {Task} x @returns {string[]} */
+function detail(m, x) {
+  const j = taskJson(m, x); const L = x.L;
   /** @type {string[]} */ const o = [];
   o.push(`${x.task} (${j.state}${j.class !== null ? `, ${j.class}` : ''})`);
   if (L === null || L.taskS === null) o.push('  ledger: not recorded');
@@ -428,8 +591,23 @@ function detail(x) {
     o.push(`  gate re-runs: ${L.reruns.length === 0 ? 'no fix round or reopen' : L.reruns.map((r) => `after ${r.after}: ${r.gates.length === 0 ? 'none' : r.gates.join(', ')}`).join('; ')}; read-set comparison: not recorded`);
     o.push(`  user waits: ${L.waits.count} (total ${mins(L.waits.total_s)} min, longest ${mins(L.waits.longest_s)} min), unanswered ${L.waits.unanswered}`);
     const ap = [...L.approvals.keys()].sort(cmp).map((k) => `${k} requested ${/** @type {any} */ (L.approvals.get(k)).requested}, granted ${/** @type {any} */ (L.approvals.get(k)).granted}`);
-    o.push(`  questions: ${L.questions} (answered by the user ${L.byUser}, by an assumption ${L.byAssumption}); approvals: ${ap.length === 0 ? 'none' : ap.join('; ')}`);
+    const src = [...L.approvalSources.keys()].sort(cmp).map((k) => `${k} ${L.approvalSources.get(k)}`);
+    o.push(`  questions: ${L.questions} (answered by the user ${L.byUser}, by an assumption ${L.byAssumption}); approvals: ${ap.length === 0 ? 'none' : ap.join('; ')}${src.length === 0 ? '' : `; granted by source: ${src.join(', ')} (answered by the user ${L.approvalByUser})`}`);
   } else o.push('  fix rounds, gates, waits and approvals: not recorded (no ledger)');
+  const gs = Object.entries(j.gate_s);
+  o.push(`  gate minutes (agent records): ${gs.length === 0 ? 'not recorded' : gs.map(([k, v]) => `${k} ${v === null ? 'not recorded' : mins(v)}`).join(', ')}`);
+  const al = j.approve_log;
+  if (al === null) o.push(`  approve.log: not recorded (${m.logs.approve})`);
+  else {
+    const kinds = Object.entries(al.kinds).map(([k, v]) => `${k} ${v}`); const bs = Object.entries(al.records_by_source).map(([k, v]) => `${k} ${v}`);
+    o.push(`  approve.log: ${plural(al.steps, 'approval step')} (${al.recorded} recorded, ${al.not_recorded} not recorded${kinds.length === 0 ? '' : `; kinds ${kinds.join(', ')}`}${bs.length === 0 ? '' : `; records by source ${bs.join(', ')}`}), stopped by the hook budget ${al.stopped_by_hook_budget}, first to last ${al.span_s === null ? 'not recorded' : `${mins(al.span_s)} min`}`);
+  }
+  const sl = j.status_block_log;
+  if (sl === null) o.push(`  status-block.log: not recorded (${m.logs.statusBlock}); updates sent: not recorded`);
+  else {
+    const ev = Object.entries(sl.events).map(([k, v]) => `${k} ${v}`);
+    o.push(`  status-block.log: ${plural(sl.failed, 'failed update')}${ev.length === 0 ? '' : ` (${ev.join(', ')})`}, first to last ${sl.span_s === null ? 'not recorded' : `${mins(sl.span_s)} min`}; updates sent: not recorded (only a failed update is logged)`);
+  }
   if (x.toolRows === 0) o.push('  hook denials: not recorded');
   else { const k = [...x.denials.keys()].sort(cmp); o.push(`  hook denials: ${x.denied}${k.length > 0 ? ` (${k.map((c) => `${c} ${x.denials.get(c)}`).join(', ')})` : ''}`); }
   if (L !== null) {

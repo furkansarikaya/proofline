@@ -29,7 +29,7 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 
 ## Status
 
-Version 0.0.198 is an early release.
+Version 0.0.199 is an early release.
 It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE on `98f49400` (a single sample, FAIL 37/38 invariants, C-22 only) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use. A Codex worker has no network and no local server unless you turn that on yourself in `.agents/config.yaml` (`codex.sandbox`, shown by `proofline doctor`; [concepts](docs/concepts/enforcement-layers.md)).
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
@@ -104,7 +104,7 @@ deliver <TASK>                        commit, push, pull request, merge and clea
 batch <ID...|all>                     night mode: one approval of one summary for several tasks, run in this session; batch status
 debt                                  list the shortcut comments in the code (read-only, needs no run)
 clean, merge, insights                clean up, the only allowed merge, cost, failures, calibration
-retro [<batch-id|run-id>] [--since DATE]  read-only report of finished runs from their records and run archives (time, tokens, fix rounds, waits, resumed runs)
+retro [<batch-id|run-id>] [--since DATE]  read-only report of finished runs from their records and run archives (time, tokens, fix rounds, gate minutes, waits, approvals, resumed runs)
 ```
 
 Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#the-next-step)). More: [night mode](docs/concepts/night-mode.md), [task model and types](docs/guides/task-templates.md), [known issues and waivers](docs/concepts/gates.md#approvals), [risk signals](docs/concepts/gates.md#risk-signals) and [what tests each check](docs/concepts/testing.md), [UI craft](docs/concepts/design-surfaces.md#craft-by-visitor-mode), [product skills](docs/concepts/product.md), [configuration: the basics and the advanced defaults](docs/concepts/configuration.md), [project layout and ecosystems](docs/concepts/ecosystems.md), [process rules](docs/concepts/enforcement-layers.md#process-rules).
@@ -118,6 +118,6 @@ Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#th
 
 ## Versioning and license
 
-Version **0.0.198**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.199**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

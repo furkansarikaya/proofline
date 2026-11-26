@@ -5,7 +5,7 @@ argument-hint: "[init|upgrade|doctor|config|status|queue|clean|run <TASK>|resume
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.198"
+  version: "0.0.199"
 ---
 
 # proofline
