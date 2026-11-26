@@ -56,6 +56,25 @@ export function lineHoldsSecret(line) {
 }
 
 /**
+ * A369: does a whole text hold a secret? Each line by the rules above, and the text with the things that can sit between the pieces of a split token removed
+ * (line breaks, spaces, table and quote marks, `<br>`, `&nbsp;`, a trailing backslash; also the hyphens in a second pass), by the token shapes only (a token or
+ * key split over two lines, a PEM body, a table cell). Any private-key header counts. An AWS key id found only in the joined text must hold a digit (an upper-case
+ * heading such as ASIA PACIFIC ... joined is not a key). Not found: a secret with no known shape, or split by a character not listed here.
+ * @param {string} text
+ */
+export function textHoldsSecret(text) {
+  if (text.split('\n').some((l) => lineHoldsSecret(l))) return true;
+  const base = text.replace(/&nbsp;|&#0*160;|&#x0*a0;/gi, '').replace(/<br\s*\/?>/gi, '').replace(/\\(?=\s)/g, '').replace(/[\s|`*>]+/g, '');
+  for (const c of [base, base.replace(/-/g, '')]) {
+    if (/-----BEGIN[A-Z0-9]*PRIVATEKEY/.test(c)) return true;
+    for (const [name, re] of RULES) {
+      for (const m of c.matchAll(new RegExp(re.source, 'g'))) if (!(name === 'aws_access_key_id' && !/[0-9]/.test(m[0]))) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Every regular file below the given path (a symbolic link is neither followed nor listed), `.git` pruned.
  * @param {string} root @param {string} rel @param {string[]} out @param {string[]} errors the paths that could not be read (the scan then fails)
  */

@@ -73,6 +73,11 @@ test('status, resume, queue, run, task, design, review, audit and debug on a pro
   r = sb.pl(st, ['task', '--grill', 'add a lookup']);
   assert.ok(r.out.includes('task file goes to .agents/tasks/ through the markdown adapter; no run starts.'), r.out);
   assert.ok(r.out.includes('/proofline task --grill add a lookup'), r.out);
+  // A369: a GitHub issue is the recommended task source
+  r = sb.pl(st, ['task', '--import', '#12']);
+  assert.ok(r.out.includes('GitHub issue as the task source') && r.out.includes('ONE comment on the issue') && r.out.includes('tasks.adapter: github'), r.out);
+  assert.ok(r.out.includes('/proofline task --import #12'), r.out);
+  assert.ok(sb.pl(st, ['task', '--import', 'o/r#7']).out.includes('/proofline task --import o/r#7'));
   r = sb.pl(st, ['design', 'api', '--check']);
   assert.ok(r.out.includes('/proofline design api --check'), r.out);
   assert.notEqual(sb.pl(st, ['design', 'nonsense']).status, 0);
@@ -136,7 +141,10 @@ test('the commands that only print an instruction check their arguments first: t
   const d = sb.copy('usage');
   /** @param {string[]} a @param {RegExp} err */
   const bad = (a, err) => { const r = sb.pl(d, a); assert.equal(r.status, 1, a.join(' ')); assert.match(r.err, err, a.join(' ')); };
-  bad(['task'], /^proofline: usage: proofline task \[--grill\] <text>$/m);
+  bad(['task'], /^proofline: usage: proofline task \[--grill\] <text> \| proofline task --import <issue-url\|number>$/m);
+  bad(['task', '--import'], /usage: proofline task --import <issue-url\|number>/);
+  bad(['task', '--import', 'https://evil.example/x/issues/1'], /usage: proofline task --import/);
+  bad(['task', '--import', '12; rm -rf /'], /usage: proofline task --import/);
   bad(['task', '--grill'], /usage: proofline task \[--grill\] <text>/);
   bad(['run'], /^proofline: usage: proofline run <TASK>$/m);
   bad(['deliver'], /^proofline: usage: proofline deliver <TASK>$/m);

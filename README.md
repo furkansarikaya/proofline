@@ -29,7 +29,7 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 
 ## Status
 
-Version 0.0.190 is an early release.
+Version 0.0.191 is an early release.
 It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE on `98f49400` (a single sample, FAIL 37/38 invariants, C-22 only) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
@@ -80,7 +80,7 @@ On Codex, open it once in the project and approve the hooks with `/hooks`; witho
 
 - **Runtimes:** Claude Code (primary); Codex (implementer verified); any agent that reads `AGENTS.md` and runs shell commands gets the protocol tier ([adapters](adapters/README.md)).
 - **Ecosystems:** ten definitions (npm, Python, Go, JVM, Cargo, .NET, PHP, Ruby, Swift, Dart) in one data file. Test-output recognition was checked against the real runner for node:test, bun, vitest, jest, tsc, unittest, pytest, go test, Minitest, test-unit, swift test and the .NET SDK; mocha, Maven, Gradle, JUnit, cargo, PHPUnit, RSpec and dart/flutter test are from documentation only. The other touch points were read in code and tried on hand-made layouts ([matrix](docs/concepts/ecosystems.md#ecosystem-matrix)).
-- **Task trackers:** markdown files (default), GitHub, Jira, Linear; Jira, Linear, `glab` and `az` were tried against fakes only. **Hosts:** GitHub, GitLab, Azure DevOps; else you merge.
+- **Task trackers:** a GitHub issue is the recommended task source (`proofline task --import <issue-url|number>`; the completion report becomes one comment on the issue, [details](docs/concepts/task-sources.md)); markdown files (default), Jira, Linear; Jira, Linear, `glab` and `az` were tried against fakes only. **Hosts:** GitHub, GitLab, Azure DevOps; else you merge.
 - **Platforms:** macOS and Linux supported. Linux runs on every pull request; macOS and Windows run nightly, and the Windows hook leg also on pull requests touching hook code ([CI results](docs/proof.md#ci-legs)). Not tried: Codex sandbox on Windows, `.cmd` shims, `taskkill /T`, WSL, Git Bash as a shell ([limits](docs/concepts/workflow.md#not-tried)).
 
 ## Commands
@@ -117,6 +117,6 @@ Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#th
 
 ## Versioning and license
 
-Version **0.0.190**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.191**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

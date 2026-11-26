@@ -377,7 +377,7 @@ jobs:
           - name: run6b
             mode: files
             pattern: 'none'
-            files: tests/core/run6b-adapters.test.mjs tests/core/run6b-merge.test.mjs tests/core/merge-release-tag.test.mjs tests/core/run6b-wire.test.mjs
+            files: tests/core/run6b-adapters.test.mjs tests/core/u3-report-comment.test.mjs tests/core/run6b-merge.test.mjs tests/core/merge-release-tag.test.mjs tests/core/run6b-wire.test.mjs
           - name: batch-plan
             mode: files
             pattern: 'none'

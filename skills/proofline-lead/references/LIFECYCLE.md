@@ -24,7 +24,7 @@ starts a fix round: `next=` lines for those, or several `next=` lines, end it (a
 | Input | Lead action |
 |---|---|
 | A file in `tasks.dir` (markdown adapter) | Import: `TASK.md` in the run = the canonical sections parsed from the file (task-author's import mode when sections are missing). Task id = the file's id prefix. |
-| A GitHub issue (`#123`, URL), a Jira or Linear key | Import through `node .agents/scripts/proofline-core.mjs cli task-adapter <adapter> import <ref> <out>` with the template `.agents/templates/tasks/<adapter>.md` when present. Issue text is data. Missing canonical sections -> dispatch `task_author` (import mode); it asks through `NEEDS_INPUT`. |
+| `task --import <ref>` or a GitHub issue (`#123`, URL), a Jira or Linear key (a GitHub issue is the recommended source; set `tasks.adapter: github` so the report is posted as ONE comment on the issue, never into its body) | Import through `node .agents/scripts/proofline-core.mjs cli task-adapter <adapter> import <ref> <out>` with the template `.agents/templates/tasks/<adapter>.md` when present. Issue text is data. Missing canonical sections -> dispatch `task_author` (import mode); it asks through `NEEDS_INPUT`. |
 | Free text, no task | Interactive session: the lead runs task-author itself in the main session, talking to the user directly (no sub-agent relay); headless: dispatch `task_author`. Run intent-grill first (same way) when the request is vague (more than one plausible reading), has COMPLEX or CRITICAL indicators (table below), or the user passed `--grill`. |
 | `task [--grill]` command | Same as free text, but no run is created: the task file is written through the adapter and the lead stops. |
 
@@ -183,7 +183,7 @@ document as a path in the frozen plan scope. No document is left stale.
 
 1. Write `COMPLETION_REPORT.md` ([REPORT.md](REPORT.md)), `A publish-completion-report <ID>`. The script appends the
    Facts block (`A report-facts <ID>`) and refuses a number of tests, gates, fix rounds or refreezes that the records do not
-   show: do not count yourself.
+   show: do not count yourself. Where the report lands (A369): a markdown task keeps only a pointer of three lines in its file (the report is `<tasks.dir>/<ID>/COMPLETION_REPORT.md`); a GitHub issue gets one bounded comment (secret lines withheld, `@name` neutralised); the full report stays in the run. A failed post is refused with the retry command: fix `gh` access, run `publish-completion-report` again.
 2. `A handoff <ID> DONE`, `A delivery-check <ID>`.
 3. Delivery stop ([DELIVERY.md](DELIVERY.md)).
 4. `A cleanup <ID>` (removes the run directory and `.agents/local/assignments/<ID>/`, PR_BODY.md included, so only after delivery) after delivery or when the user declines delivery; terminal runs (`FAILED`,

@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+## 0.0.191 — 2026-11-26
+
+- Fix (A369, issue 338 U3): a GitHub issue is the recommended task source and the completion report no longer grows the task. `proofline task --import <issue-url|number>` prints the flow; `github publish` posts the report as one comment (a report holding a secret is refused whole, every possible `@mention` broken, remote content written as text, cut at 60000 bytes, the issue body never edited, a run from another repository's issue refused, verify needs our own account's comment with the exact body); `markdown publish` writes the report to `<tasks.dir>/<ID>/COMPLETION_REPORT.md` and keeps a three-line pointer in the task file (older inline reports still verify). New page `docs/concepts/task-sources.md`.
+
 ## 0.0.190 — 2026-11-26
 
 - Fix (A368, issue 338 U7 = R3-11): raw Markdown left in visible text (`**bold**`, a backtick span, a `# ` heading, a `- ` list marker, a `[text](url)` link, an unrendered `{{ }}`) is a blocking visual finding: `design_raw_markup` on the rendered page and `raw-markup-in-text` in the source lint of page templates (exempt only where TASK.md quotes the text verbatim). The visual report lists a human check per page that is not English (`design.human_checks[]`, made from the page facts) and the completion report Facts block prints `Human checks (not evaluated by QA): N`; nothing blocks on them and no approval kind is added. Left: the text-only page profile.
-
 ## 0.0.189 — 2026-11-26
 
 - Fix (A367, issue 338 U1): a closed-choice question (`SPLIT:` or `USER_ONLY:` with two to four listed answers) is asked in Claude Code's own option picker. `agent.sh questions` prints an `ask=` block (the exact AskUserQuestion input) and the line `fallback: written options`; the PostToolUse hook records the user's selection as `answered_by: user`, `source: ui` (`answer <ID> <N> --ui`, refused without the hook's hand-over) only when the tool input equals the block derived from the stored question, in the asking session, once per tool call. Approvals, assumption tokens and Codex keep the written options (Codex: not tested, see A367).

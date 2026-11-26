@@ -780,6 +780,10 @@
       "test_ms": 2000,
       "suite_ms": 10000
     },
+    "tests/core/u3-report-comment.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
     "tests/core/run6b-merge.test.mjs": {
       "test_ms": 7500,
       "suite_ms": 20000

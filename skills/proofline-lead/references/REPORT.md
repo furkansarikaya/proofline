@@ -50,7 +50,7 @@ whatever the user's language (A171 language check); only your chat message to th
 
 Counts and statuses are not yours to write. `A report-facts <ID>` prints the Facts block (class, required gates
 with status and finding ids, fix rounds, refreezes, files changed, worker-evidence test runs), and
-`A publish-completion-report <ID>` appends it verbatim as the last section; a block you wrote by hand is replaced.
+`A publish-completion-report <ID>` appends it verbatim as the last section (the report itself goes to a GitHub issue comment or a sibling file, never into the task file, A369); a block you wrote by hand is replaced.
 No record carries the number of individual tests, so no such number is stated. In your own text do not write a number
 beside the words tests, gates, fix rounds or refreezes unless it equals the Facts block (write "all gates passed",
 "the project test command passed", not "7 tests"). `publish-completion-report` refuses a report with another number

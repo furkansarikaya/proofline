@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { die, importEngine, isFile, readText, sha, statusCheck, statusComment, usage } from './lib.mjs';
 import { latin1Buf } from '../wirebytes.mjs';
+import { commentMarkerStart, reportComment } from './comment.mjs';
+import { textHoldsSecret } from '../secretscan.mjs';
 
 /** @typedef {import('./lib.mjs').Adapter} Adapter */
 /** @typedef {{ status: number, out: string, err: string }} ToolResult */
@@ -46,6 +48,16 @@ export function runGithub(a, argv) {
   };
   /** the run task ID (GH-<n> only). @param {string} id */
   const idNumber = (id) => { if (!/^GH-[0-9]/.test(id)) die(a, `task id must be GH-<issue number>: ${id}`); return ref(id); };
+  /** A369: a run that came from another repository's issue is never reported on this project's issue of the same number. @param {string} id */
+  const sourceRepoCheck = (id) => {
+    const t = readText(`${a.root}/.agents/runs/${id}/TASK.md`);
+    const m = t === null ? null : /^Source: github https:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/issues\//m.exec(t);
+    if (!m) return;
+    const r = a.gh(['repo', 'view', '--json', 'nameWithOwner']);
+    const own = r !== null && r.status === 0 ? String(parse(r.out)?.nameWithOwner ?? '') : '';
+    if (own === '') die(a, `cannot tell this project's repository, and ${id} came from ${m[1]}; nothing was posted`);
+    if (own.toLowerCase() !== m[1].toLowerCase()) die(a, `${id} came from an issue of ${m[1]}, this project's repository is ${own}; nothing was posted`);
+  };
   /** exactly one proofline:<state> label. @param {string} num @param {string} state */
   const setState = (num, state) => {
     const v = ghr(['issue', 'view', num, '--json', 'labels']);
@@ -56,20 +68,32 @@ export function runGithub(a, argv) {
     if (have.includes(`proofline:${state}`)) { if (rm === '') return true; return ghr(['issue', 'edit', num, '--remove-label', rm]).status === 0; }
     return ghr(['issue', 'edit', num, '--add-label', `proofline:${state}`, ...(rm !== '' ? ['--remove-label', rm] : [])]).status === 0;
   };
+  /** A369: who gh is logged in as; a comment is ours only when this login wrote it. null when it cannot be told. */
+  let viewerLogin = /** @type {string | null | undefined} */ (undefined);
+  const viewer = () => {
+    if (viewerLogin === undefined) {
+      const r = a.gh(['api', 'user']);
+      const l = r !== null && r.status === 0 ? String(parse(r.out)?.login ?? '') : '';
+      viewerLogin = /^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$/.test(l) ? l : null;
+    }
+    return viewerLogin;
+  };
+  /** @param {{ author?: { login?: string } }} c */
+  const mine = (c) => { const v = viewer(); return v !== null && String(c.author?.login ?? '') === v; };
   /** comment on the issue, editing our own earlier comment (found by the start of its body) in place. @param {string} num @param {string} id @param {string} startsWith @param {string} text */
-  const upsertComment = (num, id, startsWith, text) => {
+  const upsertComment = (num, id, startsWith, text, hint = '') => {
     const tmp = mkdtempSync(path.join(tmpdir(), 'gh-comment.'));
     try {
       const file = `${tmp}/body`;
       writeFileSync(file, latin1Buf(text));
       const v = ghr(['issue', 'view', num, '--json', 'comments']);
       const j = v.status === 0 ? parse(v.out) : undefined;
-      const mine = (Array.isArray(j?.comments) ? j.comments : []).filter((/** @type {{ body: string }} */ c) => String(c.body).startsWith(startsWith));
-      const last = mine.length > 0 ? mine[mine.length - 1] : null;
+      const own = (Array.isArray(j?.comments) ? j.comments : []).filter((/** @type {{ body: string, author?: { login?: string } }} */ c) => mine(c) && String(c.body).startsWith(startsWith));
+      const last = own.length > 0 ? own[own.length - 1] : null;
       const cid = last ? String(last.url ?? '').replace(/^.*#issuecomment-/, '') : '';
       const slug = ghRepo !== '' ? ghRepo : '{owner}/{repo}';
       if (/^[0-9]+$/.test(cid) && a.gh(['api', '-X', 'PATCH', `repos/${slug}/issues/comments/${cid}`, '-F', `body=@${file}`])?.status === 0) return;
-      if (ghr(['issue', 'comment', num, '--body-file', file]).status !== 0) die(a, `could not comment on issue ${num}`);
+      if (ghr(['issue', 'comment', num, '--body-file', file]).status !== 0) die(a, `could not comment on issue ${num}${hint}`);
     } finally { rmSync(tmp, { recursive: true, force: true }); }
   };
 
@@ -95,9 +119,16 @@ export function runGithub(a, argv) {
       const rep = isFile(argv[2]) ? readText(argv[2]) : null;
       if (rep === null) die(a, `report file missing: ${argv[2]}`);
       ready();
+      sourceRepoCheck(id);
+      // A369: a report that holds a secret anywhere (a PEM block, a token split over two lines, a table cell) is not posted at all; it stays in the run
+      if (textHoldsSecret(rep)) die(a, `the report holds what looks like a secret (a key, a token or a private key); nothing was posted. Remove it from .agents/runs/${id}/COMPLETION_REPORT.md and run publish-completion-report ${id} again`);
+      if (viewer() === null) die(a, 'cannot tell which GitHub account gh is logged in as (gh api user failed); nothing was posted');
       const hash = sha(rep);
+      // the body is made safe first (mentions and remote content neutralised, size bounded); the issue body is never edited
+      const c = reportComment(id, hash, rep);
+      if (c.truncated) a.err(`${a.name}: the report is longer than one comment carries; the comment is cut and says where the full report is\n`);
       // idempotent: edit our earlier report comment (marker prefix) in place; comment anew only when there is none
-      upsertComment(num, id, `<!-- proofline:completion-report:${id} `, `<!-- proofline:completion-report:${id} sha256:${hash} -->\n${rep}`);
+      upsertComment(num, id, commentMarkerStart(id), c.body, `. The report is kept in .agents/runs/${id}/COMPLETION_REPORT.md; fix the cause (network, gh access) and run publish-completion-report ${id} again`);
       if (!setState(num, 'done')) a.err(`${a.name}: report published, but the proofline:done label could not be set on issue ${num}\n`);
       a.out(`${num}#${hash}\n`);
       return;
@@ -114,8 +145,14 @@ export function runGithub(a, argv) {
       ready();
       const v = ghr(['issue', 'view', num, '--json', 'comments']);
       const j = v.status === 0 ? parse(v.out) : undefined;
-      const bodies = (Array.isArray(j?.comments) ? j.comments : []).map((/** @type {{ body: string }} */ c) => String(c.body));
-      if (!bodies.some((b) => b.includes(`<!-- proofline:completion-report:${id} sha256:${want} -->`))) die(a, `no completion-report comment with that hash on issue ${num}`);
+      // A369: the comment must be one gh's own account wrote, and (when the run still holds the report) its body must be exactly what publish makes of that report
+      const given = isFile(argv[2]) ? readText(argv[2]) : null;
+      const inRun = readText(`${a.root}/.agents/runs/${id}/COMPLETION_REPORT.md`);
+      const rep = given ?? (inRun !== null && sha(inRun) === want ? inRun : null);
+      const expect = rep !== null && sha(rep) === want ? reportComment(id, want, rep).body : null;
+      const comments = Array.isArray(j?.comments) ? j.comments : [];
+      const ok = comments.some((/** @type {{ body: string, author?: { login?: string } }} */ c) => mine(c) && (expect !== null ? String(c.body).replace(/\n+$/, '') === expect.replace(/\n+$/, '') : String(c.body).startsWith(`${commentMarkerStart(id)}${want} -->`)));
+      if (!ok) die(a, `no completion-report comment of this account with that hash${expect !== null ? ' and that exact text' : ''} on issue ${num}`);
       return;
     }
     case 'followup': {

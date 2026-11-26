@@ -116,7 +116,8 @@ test('markdown publish and verify: block markers, idempotent, receipt, tamper de
   const rcpt = p.out.trim();
   assert.ok(rcpt.startsWith(`${f}#`));
   const t = read(`${root}/${f}`);
-  for (const s of ['<!-- COMPLETION-REPORT:BEGIN:T-1 -->', '<!-- COMPLETION-REPORT:END:T-1 -->', '## Implementation Summary']) assert.ok(t.includes(s));
+  for (const s of ['<!-- COMPLETION-REPORT:BEGIN:T-1 -->', '<!-- COMPLETION-REPORT:END:T-1 -->', 'Report: .agents/tasks/T-1/COMPLETION_REPORT.md']) assert.ok(t.includes(s)); // A369: a pointer, the report is a sibling file
+  assert.ok(read(`${root}/.agents/tasks/T-1/COMPLETION_REPORT.md`).includes('## Implementation Summary'));
   assert.equal((await md(['verify', 'T-1', rcpt])).code, 0);
   const after1 = read(`${root}/${f}`);
   assert.equal((await md(['publish', 'T-1', `${root}/rep.md`])).out.trim(), rcpt);
@@ -136,7 +137,7 @@ test('markdown publish and verify: block markers, idempotent, receipt, tamper de
   assert.equal((await md(['verify', 'T-1', rcpt])).code, 1, 'verify passed against a stale receipt');
   const rc2 = (await md(['publish', 'T-1', `${root}/rep.md`])).out.trim();
   assert.equal((await md(['verify', 'T-1', `${root}/rep.md`])).code, 0, 'a report file in place of the receipt');
-  writeFileSync(`${root}/${f}`, read(`${root}/${f}`).replace('\ndone\n', '\ntampered\n'));
+  writeFileSync(`${root}/.agents/tasks/T-1/COMPLETION_REPORT.md`, read(`${root}/.agents/tasks/T-1/COMPLETION_REPORT.md`).replace('\ndone\n', '\ntampered\n'));
   assert.equal((await md(['verify', 'T-1', rc2])).code, 1);
   assert.equal((await md(['verify', 'T-1', `${rc2.replace(/#.*/, '')}#0000`])).code, 1);
   assert.equal((await md(['verify', 'T-1', 'no-hash'])).code, 1);
@@ -213,7 +214,7 @@ test('markdown statusblock: one block placed once and replaced in place; a local
 
 /** A fake gh: records argv, serves canned data. */
 function fakeGhTool() {
-  const st = { argv: /** @type {string[]} */ ([]), title: 'Add lookup default', url: 'https://github.com/o/r/issues/42', body: '', labels: ['bug', 'area:x'], comments: /** @type {Array<{ body: string, url: string }>} */ ([]), authRc: 0, patched: 0, created: /** @type {{ title: string, body: string } | null} */ (null) };
+  const st = { argv: /** @type {string[]} */ ([]), title: 'Add lookup default', url: 'https://github.com/o/r/issues/42', body: '', labels: ['bug', 'area:x'], comments: /** @type {Array<{ body: string, url: string, author?: { login: string } }>} */ ([]), authRc: 0, patched: 0, created: /** @type {{ title: string, body: string } | null} */ (null) };
   /** @param {string[]} args */
   const gh = (args) => {
     st.argv.push(args.join(' '));
@@ -225,6 +226,7 @@ function fakeGhTool() {
       /** @type {Record<string, unknown>} */ const all = { title: st.title, url: st.url, body: st.body, labels: st.labels.map((name) => ({ name })), comments: st.comments };
       return ok(JSON.stringify(Object.fromEntries(want.map((k) => [k, all[k]]))));
     }
+    if (args[0] === 'api' && args[1] === 'user') return ok(JSON.stringify({ login: 'me' }));
     if (args[0] === 'api') {
       const body = args.find((x) => x.startsWith('body=@'));
       if (!body) return { status: 1, out: '', err: '' };
@@ -233,7 +235,7 @@ function fakeGhTool() {
       if (c) { c.body = readFileSync(body.slice(6), 'utf8'); st.patched++; }
       return ok();
     }
-    if (args[0] === 'issue' && args[1] === 'comment') { st.comments.push({ body: readFileSync(args[args.indexOf('--body-file') + 1], 'utf8'), url: `${st.url}#issuecomment-555` }); return ok(); }
+    if (args[0] === 'issue' && args[1] === 'comment') { st.comments.push({ body: readFileSync(args[args.indexOf('--body-file') + 1], 'utf8'), url: `${st.url}#issuecomment-555`, author: { login: 'me' } }); return ok(); }
     if (args[0] === 'issue' && args[1] === 'edit') {
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--add-label') st.labels.push(args[i + 1]);
