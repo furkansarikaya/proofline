@@ -1,6 +1,6 @@
 {
   "name": "proofline",
-  "version": "0.0.195",
+  "version": "0.0.196",
   "description": "A deterministic engineering team for coding agents: 11 roles, 28 skills and independent gates. A task is not done until scripts have checked the evidence. No evidence, no claim.",
   "author": {
     "name": "Furkan SARIKAYA"
