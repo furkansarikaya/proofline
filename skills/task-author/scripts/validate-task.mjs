@@ -115,6 +115,11 @@ export function fileNameWarning(id, title, fileName) {
 // Optional link from a criterion to the PRD requirements it satisfies (product-spec): the criterion ends with
 // `Covers: FR-1, NFR-2` (usually on its own indented line under it); the task names the PRD with front matter `prd: <slug>`.
 export const COVERS = /\bCovers:\s*(.*?)\s*\.?\s*$/;
+// A366 (issue 338 U4): a `Feasibility:` continuation line under a criterion (what was checked against the pinned library or tool); it ends at a `Covers:` or at the end of the criterion.
+export const FEASIBILITY = /\bFeasibility:\s*(.*?)(?=\s*\bCovers:|$)/;
+// a criterion that rests on a library, a version or a limit; it should carry a Feasibility line (warning only)
+export const RESTS_ON_TOOL = /\b(version|library|package|plugin|limit|limits|maximum|minimum|selector|operator|pinned|timeout|quota)\b|@\d|\bv?\d+\.\d+\.\d+\b/i;
+export const AC_MIN = 3, AC_MAX = 6;
 const REQ_ID = /^N?FR-\d+$/i;   // A172: ids are compared by key (case-insensitive); the task keeps the spelling its author wrote
 
 // Optional YAML front matter (size, sprint, assignee, depends_on, prd); flat `key: value` lines only.
@@ -158,6 +163,43 @@ function knownIds(dirs) {
     }
   }
   return ids;
+}
+
+// A366 (issue 338 U4b): the `depends_on` ids of a set of task files (a split's drafts, or `tasks.dir`) all exist and form no cycle. The words none, null and na say there is none. A skill is installable
+// alone and cannot import the control plane, so this is the same reading as batch-plan's `depsOf` for the inline and block forms (tests/skills/task-author.test.mjs holds both on one corpus).
+export function depIds(value) {
+  const v = String(value ?? "").replace(/#.*$/, "").replace(/\([^)]*\)/g, " ").replace(/\bn\/a\b/gi, " ");
+  return [...new Set((v.match(/[A-Za-z0-9][A-Za-z0-9_-]*/g) || []).filter((w) => !/^(none|null|na)$/i.test(w)))];
+}
+export function checkDeps(dir) {
+  const files = [];
+  const add = (d) => { try { for (const n of readdirSync(d)) { const f = join(d, n); if (n.endsWith(".md")) files.push(f); } } catch {} };
+  add(dir);
+  try { for (const n of readdirSync(dir)) { try { if (statSync(join(dir, n)).isDirectory()) add(join(dir, n)); } catch {} } } catch {}
+  const errors = [], edges = [], graph = new Map();
+  const known = knownIds([dir]);
+  for (const f of files) {
+    let text; try { text = readFileSync(f, "utf8"); } catch { continue; }
+    const id = /^# Task: (\S+)/m.exec(text)?.[1];
+    if (!id) continue;
+    const deps = depIds(frontMatter(text).meta.depends_on);
+    graph.set(id, deps);
+    for (const d of deps) {
+      edges.push([id, d]);
+      if (d === id) errors.push(`${id} depends on itself`);
+      else if (!known.has2(d)) errors.push(`${id}: depends_on id "${d}" matches no task in ${dir}`);
+    }
+  }
+  const state = new Map();
+  const walk = (n, stack) => {
+    if (state.get(n) === 2 || !graph.has(n)) return;
+    if (state.get(n) === 1) { errors.push(`dependency cycle: ${[...stack.slice(stack.indexOf(n)), n].join(" -> ")}`); return; }
+    state.set(n, 1);
+    for (const d of graph.get(n)) if (d !== n) walk(d, [...stack, n]);
+    state.set(n, 2);
+  };
+  for (const n of graph.keys()) walk(n, []);
+  return { ok: errors.length === 0, errors: [...new Set(errors)], edges, tasks: graph.size };
 }
 
 // A294: `## Test exceptions` is OPTIONAL in a task file. The task author PROPOSES a line there when it can foresee that the plan will need a real wait, a budget or a measurement;
@@ -227,10 +269,16 @@ export function validate(full, opts = {}) {
   if (type === "refactor" && !t.acs.some((ac) => EXISTING_TESTS_PASS.test(ac.text))) errors.push("a refactor task needs an acceptance criterion that the existing tests pass unchanged (the safety net), for example `AC-2: the existing tests pass without changes`");
   if (t.acs.length === 0 && (t.secs.get("Acceptance criteria") || []).some((l) => l.trim())) errors.push("no acceptance criteria in the form `AC-<n>: <text>`");
   const covers = {};
+  // A366 (issue 338 U4): 3 to 6 outcome-focused criteria; a warning that names the count, never a refusal
+  if (t.acs.length > 0 && (t.acs.length < AC_MIN || t.acs.length > AC_MAX)) warnings.push(`the task has ${t.acs.length} acceptance criteri${t.acs.length === 1 ? "on" : "a"}; 3 to 6 outcome-focused criteria are expected (${t.acs.length > AC_MAX ? "group them by outcome or split the task" : "state each observable outcome with a number, a path or an exact message"})`);
   t.acs.forEach((ac, i) => {
     if (ac.n !== i + 1) errors.push(`AC numbering must be sequential from AC-1 (found AC-${ac.n} at position ${i + 1})`);
-    const c = COVERS.exec(ac.text);
-    const text = c ? ac.text.slice(0, c.index).trim() : ac.text;
+    const fe = FEASIBILITY.exec(ac.text);
+    const acText = fe ? ac.text.replace(FEASIBILITY, "").replace(/\s+/g, " ").trim() : ac.text;
+    if (fe && !fe[1].trim()) warnings.push(`AC-${ac.n} has an empty Feasibility line: say what was checked against the pinned library or tool`);
+    else if (!fe && RESTS_ON_TOOL.test(acText)) warnings.push(`AC-${ac.n} rests on a library, version or limit but has no \`Feasibility:\` line (an indented line saying what you checked in the pinned manifest or docs)`);
+    const c = COVERS.exec(acText);
+    const text = c ? acText.slice(0, c.index).trim() : acText;
     if (c) {
       const ids = c[1].split(/\s*,\s*/).filter(Boolean);
       const bad = ids.filter((x) => !REQ_ID.test(x));
@@ -417,6 +465,14 @@ function main(argv) {
     const p = resolveTemplate(opt("--resolve-template"), resolve(opt("--root") || "."));
     if (!existsSync(p)) { console.error("no template for target"); return 2; }
     console.log(p); return 0;
+  }
+  if (argv.includes("--check-deps")) {
+    const dir = opt("--check-deps");
+    if (!dir) { console.error("usage: validate-task.mjs --check-deps DIR [--json]"); return 2; }
+    const r = checkDeps(resolve(dir));
+    if (argv.includes("--json")) console.log(JSON.stringify(r, null, 2));
+    else { r.edges.forEach(([a, b]) => console.log(`${a} -> ${b}`)); r.errors.forEach((e) => console.error(`error: ${e}`)); }
+    return r.ok ? 0 : 1;
   }
   if (argv.includes("--import") || argv.includes("--check-export")) {
     if (!opt("--template")) { console.error("--template required"); return 2; }

@@ -42,4 +42,5 @@ required: goal acceptance_criteria out_of_scope constraints risks
 ## Forbidden scope          - `src/auth/` (the plan may not contain these; the freeze refuses it and nothing waives it)
 ## Existing pattern references   - `src/orders/list.ts` (do it like this file; explorer reads it first, plan and review check conformity)
 ## Completion response      the final summary format you want; the lead's last message follows it
+Acceptance criteria: 3 to 6, outcome-focused, each with a number, a path or an exact message; an indented `Feasibility: <what you checked in the pinned manifest or docs>` line under a criterion that rests on a library, version or limit (warnings only). In a split, `depends_on` comes from the content (a `## Dependency check` table in the split output; `validate-task.mjs --check-deps <dir>`).
 Front matter keys (after the Task line): priority: high|medium|low (batch order among tasks without dependencies); origin is written by the tool. -->

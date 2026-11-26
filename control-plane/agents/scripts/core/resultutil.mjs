@@ -4,6 +4,7 @@
 // evidence checks, the skill validators, the reproduced-evidence re-run, the evidence of an UNSUPPORTED result, the classification flip and the
 // per-step metrics.
 import { asciiLower, asciiUpper } from './shellglob.mjs';
+import { lintState } from './configset.mjs';
 import { closeSync, lstatSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -361,7 +362,7 @@ export function planVerificationCommands(ctx, id) {
 /** `reproduce_allowed ID`: the commands the control plane may run again (A107). @param {Context} ctx @param {string} id */
 export function reproduceAllowed(ctx, id) {
   /** @type {string[]} */ const out = [];
-  for (const k of ['build', 'test', 'lint']) for (const c of ctx.config().cmds(`commands.${k}`)) if (c !== '') out.push(c);
+  for (const k of ['build', 'test', 'lint']) for (const c of ctx.config().cmds(`commands.${k}`)) if (c !== '' && !(k === 'lint' && lintState(ctx.config()) === 'none')) out.push(c);
   return [...out, ...planVerificationCommands(ctx, id)];
 }
 

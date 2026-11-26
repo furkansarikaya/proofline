@@ -5,7 +5,8 @@
 // approvals, so nothing is consumed before the last check has passed.
 import { existsSync, lstatSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { fail } from './errors.mjs';
-import { findApproval, latestRequest } from './approvals.mjs';
+import { approvedBatchTask, findApproval, latestRequest } from './approvals.mjs';
+import { lintWarning } from './commandsprop.mjs';
 import { batchAnswerRow } from './knownissues.mjs';
 import { approvalBound, consumeApproval, mutantNeedFor, mutationBudget, planTestAcs, requestApproval, requireOpenRun, runLanguage } from './approve.mjs';
 import { applyApprovedBudget } from './gatecmd.mjs';
@@ -586,6 +587,9 @@ export function freezeRun(ctx, id, word, amendment) {
     const ba = batchAnswerRow(ctx, id, 'exempt');
     if (ba !== null) ctx.err(`note: the user answered the batch pre-flight question ${ba[2]} for ${id} with option ${ba[0]} (a: document paths take a tdd_exemption with a specific reason; b: each needs a test); the plan follows it (A200)\n`);
   }
+  // A366 (issue 338 U9): a task of an approved batch freezes with an empty lint that is not declared none: a warning, never a refusal
+  const lintW = lintWarning(ctx);
+  if (lintW !== '' && approvedBatchTask(ctx, id).why === '') ctx.err(`warning: ${lintW} (the batch summary named it)\n`);
   const cls = pipelineClass(ctx, dir);
   if ((cls === 'COMPLEX' || cls === 'CRITICAL') && !planRollbackPresent(plan)) ctx.err(`warning: PLAN.md '## Risk' has no rollback note; a ${cls} plan carries 'rollback: <feature flag, how a migration is reversed, the first step if production breaks>' there, a few lines at most (A202)\n`);
   // A202: a `kind:` the script does not agree with is told, and the path is treated as code

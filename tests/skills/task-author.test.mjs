@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { validate, slugify, fileNameWarning, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS, scopeParse } from "../../skills/task-author/scripts/validate-task.mjs";
+import { checkDeps, validate, slugify, fileNameWarning, parseTemplate, importIssue, checkExport, resolveTemplate, AMBIGUOUS_WORDS, scopeParse } from "../../skills/task-author/scripts/validate-task.mjs";
 import { linkOrigin } from "../../skills/task-author/scripts/link-origin.mjs";
 import { VAGUE_WORDS } from "../../skills/product-spec/scripts/check-prd.mjs";
 
@@ -24,6 +24,7 @@ Login lives in the auth module.
 ## Acceptance criteria
 - AC-1: The sixth failed login within 10 minutes returns HTTP 429.
 - AC-2: A successful login resets the failure counter to zero.
+- AC-3: A failed login for an unknown email returns HTTP 401 and does not count against any account.
 
 ## Out of scope
 Password reset flow.
@@ -46,7 +47,7 @@ const errs = (t) => validate(t).errors.join("\n");
 test("accepts a good task", () => {
   const r = validate(GOOD);
   assert.equal(r.valid, true, errs(GOOD));
-  assert.equal(r.task.acs, 2);
+  assert.equal(r.task.acs, 3);
   assert.equal(r.task.class, "CRITICAL");
 });
 
@@ -58,7 +59,7 @@ test("rejects missing and empty sections", () => {
 test("rejects bad AC numbering, empty AC and no ACs", () => {
   assert.match(errs(GOOD.replace("AC-2", "AC-3")), /sequential/);
   assert.match(errs(GOOD.replace(/AC-2:.*/, "AC-2:")), /AC-2 is empty/);
-  assert.match(errs(GOOD.replace(/- AC-1.*\n- AC-2.*\n/, "just prose\n")), /no acceptance criteria/);
+  assert.match(errs(GOOD.replace(/- AC-1.*\n- AC-2.*\n- AC-3.*\n/, "just prose\n")), /no acceptance criteria/);
 });
 
 test("rejects non-observable and vague criteria", () => {
@@ -372,4 +373,57 @@ test("a file named only by its ID is flagged with the proposed <ID>-<slug>.md na
   assert.equal(fileNameWarning("T-1", "Rate limit login", "TASK.md"), null);
   assert.ok(fileNameWarning("T-1", "Rate limit login", "T-1-t-1.md"));
   assert.ok(validate(GOOD, { fileName: "T-1.md" }).warnings.some((x) => /not <ID>-<slug>\.md/.test(x)));
+});
+
+// ---- A366 (issue 338 U4): 3 to 6 criteria, dependency check from the content, feasibility line ----
+
+const withAcs = (/** @type {string[]} */ acs) => GOOD.replace(/- AC-1:[\s\S]*?(?=\n\n## Out of scope)/, acs.join("\n"));
+
+test("criteria count: fewer than 3 or more than 6 is a warning that names the count, never an error", () => {
+  const one = validate(withAcs(["- AC-1: The sixth failed login within 10 minutes returns HTTP 429."]));
+  assert.equal(one.valid, true, one.errors.join());
+  assert.match(one.warnings.join("\n"), /has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected/);
+  const seven = validate(withAcs(Array.from({ length: 7 }, (_, i) => `- AC-${i + 1}: Request ${i + 1} returns HTTP 429.`)));
+  assert.equal(seven.valid, true, seven.errors.join());
+  assert.match(seven.warnings.join("\n"), /has 7 acceptance criteria; 3 to 6 .* split the task/);
+  for (const n of [3, 6]) {
+    const ok = validate(withAcs(Array.from({ length: n }, (_, i) => `- AC-${i + 1}: Request ${i + 1} returns HTTP 429.`)));
+    assert.deepEqual(ok.warnings, [], `${n} criteria warned`);
+  }
+});
+
+test("feasibility: a criterion resting on a library, version or limit without a Feasibility line warns; with the line it does not, and the line is not read as part of the criterion", () => {
+  const bare = withAcs(["- AC-1: The page shows only the direct children with the library's `>` selector, version 2.1.0.", "- AC-2: The second request returns HTTP 429.", "- AC-3: The third request returns HTTP 429."]);
+  assert.match(validate(bare).warnings.join("\n"), /AC-1 rests on a library, version or limit but has no `Feasibility:` line/);
+  const fed = bare.replace("version 2.1.0.", "version 2.1.0.\n  Feasibility: lib@2.1.0 in package.json; its docs list no `>` combinator, so AC-1 is replaced by a class selector");
+  const r = validate(fed);
+  assert.equal(r.valid, true, r.errors.join());
+  assert.deepEqual(r.warnings, []);
+  const empty = validate(bare.replace("version 2.1.0.", "version 2.1.0.\n  Feasibility:"));
+  assert.match(empty.warnings.join("\n"), /AC-1 has an empty Feasibility line/);
+  // Feasibility before Covers: both are read
+  const both = validate(fed.replace("class selector", "class selector. Covers: FR-1").replace("# Task: T-1", "# Task: T-1").replace("## Goal", "---\nprd: demo\n---\n## Goal"));
+  assert.ok(!both.errors.some((e) => /Covers/.test(e)), both.errors.join());
+});
+
+test("--check-deps: every depends_on id exists and there is no cycle; the words none and n/a say there is none", () => {
+  const d = mkdtempSync(join(tmpdir(), "proofline-deps-"));
+  const mk = (id, deps) => writeFileSync(join(d, `${id}.md`), `# Task: ${id} — title\n${deps === undefined ? "" : `\n---\ndepends_on: ${deps}\n---\n`}\n## Goal\nx\n`);
+  mk("T-1"); mk("T-2", "T-1"); mk("T-3", "[T-1, T-2]"); mk("T-4", "none"); mk("T-5", "n/a (nothing)");
+  const ok = checkDeps(d);
+  assert.deepEqual(ok.errors, []); assert.equal(ok.ok, true); assert.equal(ok.tasks, 5);
+  assert.deepEqual(ok.edges.map((e) => e.join(">")).sort(), ["T-2>T-1", "T-3>T-1", "T-3>T-2"]);
+  mk("T-6", "T-9");
+  assert.match(checkDeps(d).errors.join("\n"), /T-6: depends_on id "T-9" matches no task/);
+  mk("T-6", "T-6");
+  assert.match(checkDeps(d).errors.join("\n"), /T-6 depends on itself/);
+  mk("T-6"); mk("T-1", "T-3");
+  const cyc = checkDeps(d);
+  assert.equal(cyc.ok, false);
+  assert.match(cyc.errors.join("\n"), /dependency cycle: T-1 -> T-3 -> T-1|dependency cycle: T-1 -> T-3 -> T-2 -> T-1/);
+  const run = spawnSync("node", [SCRIPT, "--check-deps", d], { encoding: "utf8" });
+  assert.equal(run.status, 1); assert.match(run.stderr, /dependency cycle/);
+  mk("T-1");
+  const good = spawnSync("node", [SCRIPT, "--check-deps", d], { encoding: "utf8" });
+  assert.equal(good.status, 0, good.stderr); assert.match(good.stdout, /^T-2 -> T-1$/m);
 });

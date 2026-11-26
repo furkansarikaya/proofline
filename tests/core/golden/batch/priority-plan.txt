@@ -36,6 +36,8 @@ The batch id is the first 12 hex digits of the sha256 of this file; the approval
 ## Verification commands (A200)
 
 - commands.build, commands.test, commands.lint are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here
+- lint commands: <none set>; proposal: nothing discovered (proofline doctor --commands)
+- WARNING: commands.lint is empty and not declared none: no lint runs for this project. Write `commands.lint: none` in .agents/config.yaml to say so on purpose, or set a lint command (proofline doctor --commands proposes one). Your approval of this batch records the proposal above when it has one (proofline doctor --apply-commands); this is a warning, not a stop
 
 ## Stop rules
 
@@ -108,6 +110,8 @@ The batch id is the first 12 hex digits of the sha256 of this file; the approval
 ## Verification commands (A200)
 
 - commands.build, commands.test, commands.lint are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here
+- lint commands: <none set>; proposal: nothing discovered (proofline doctor --commands)
+- WARNING: commands.lint is empty and not declared none: no lint runs for this project. Write `commands.lint: none` in .agents/config.yaml to say so on purpose, or set a lint command (proofline doctor --commands proposes one). Your approval of this batch records the proposal above when it has one (proofline doctor --apply-commands); this is a warning, not a stop
 
 ## Stop rules
 

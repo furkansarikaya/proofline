@@ -51,6 +51,7 @@ The control plane is Node code; `.agents/scripts/agent.sh` is a thin launcher th
 - The batch reads `depends_on` from the task files and treats two tasks as sharing a file only when both list it in `## Expected scope` (a document or an address in the Context never counts); a parked task stops only what depends on it or shares a listed file. When you plan a changed batch with `--replace`, your own split and scope answers are carried to it if the task and its scope list are unchanged, and asked again if not (A355).
 - The summary also lists the `## Test exceptions` lines that task files declare; approving the batch accepts exactly those lines (A285), and an exception nobody declared parks the task.
 - The knowledge step of a batch task never asks where a note should go: with no knowledge page it records `not_applicable` with the reason `batch default (A291)` and adds a suggestion to the morning table (A291).
+- An empty `commands.lint` is shown in the batch summary with the proposal of `proofline doctor --commands` and a WARNING; write `commands.lint: none` to say on purpose that there is no lint (A366).
 - A project with no CI check on pull requests still runs a batch: each pull request is merged only after build and test pass in a clean copy of its commit and says "verified locally, no CI".
 
 Details and limits: [night mode](../concepts/night-mode.md).

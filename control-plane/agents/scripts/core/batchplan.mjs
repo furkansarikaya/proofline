@@ -19,6 +19,8 @@ import { scopeEntries, scopeEntryCovers, taskType } from './taskfile.mjs';
 import { PLUG_LINE, agentCall, answerLetter, saysAllRecommended, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
 import { now } from './clock.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { lintState } from './configset.mjs';
+import { lintWarning } from './commandsprop.mjs';
 import { describeStanding, readStanding } from './standing.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -539,6 +541,14 @@ function plan(ctx, argv) {
     for (const l of lt(rd(pf))) if (!l.startsWith('#')) { const f = l.split('\t'); o(`    commands.${f[0]}: ${f[1]}\n`); }
     o(`commands proposal: ${sha256File(pf).slice(0, 12)}\n`);
   } else o(`- commands.${names} are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here\n`);
+  // A366 (issue 338 U9): an empty lint is told with the proposal of `doctor --commands`; `commands.lint: none` is an explicit decision and is accepted
+  const lintSt = lintState(ctx.config());
+  if (lintSt === 'none') o('- lint commands: none (declared in .agents/config.yaml)\n');
+  else if (lintSt === 'empty') {
+    const lp = isFile(pf) ? lt(rd(pf)).filter((l) => l.startsWith('lint\t')).map((l) => l.split('\t')[1] ?? '') : [];
+    o(`- lint commands: <none set>; proposal: ${lp.length > 0 ? lp.join('; ') : 'nothing discovered (proofline doctor --commands)'}\n`);
+    o(`- WARNING: ${lintWarning(ctx)}. Your approval of this batch records the proposal above when it has one (proofline doctor --apply-commands); this is a warning, not a stop\n`);
+  }
   o('\n## Stop rules\n\n');
   o('- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped\n');
   o('- every task works in its own git worktree (.agents/local/worktrees/<ID>, made from the canonical branch just before the task starts): a parked task, one waiting for its merge and one in a CI-fix round keep theirs and block no task that does not depend on them; the main working tree is never touched. A task starts only when every task it depends on is merged; a merged task\'s worktree is removed\n');

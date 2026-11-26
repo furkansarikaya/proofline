@@ -7,7 +7,7 @@
 //                                        summary names this proposal)
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { agentCall } from './batch.mjs';
-import { cfgCmds, cfgSet } from './configset.mjs';
+import { cfgCmds, cfgSet, lintState } from './configset.mjs';
 import { KINDS, discoverCommands, verifyCommands } from './discover.mjs';
 import { ProoflineError } from './errors.mjs';
 import { sha256File } from './hash.mjs';
@@ -23,6 +23,11 @@ const die = (msg) => new ProoflineError(`proofline: ${msg}`, 1);
 
 /** `cm_empty`: the commands keys that are empty in the config, in order. @param {Context} ctx @returns {string[]} */
 export function emptyKinds(ctx) { return KINDS.filter((k) => cfgCmds(configOf(ctx), `commands.${k}`).length === 0); }
+
+/** The WARNING text of an empty `commands.lint` that is not declared `none` (A366), or ''. @param {Context} ctx */
+export function lintWarning(ctx) {
+  return lintState(ctx.config()) === 'empty' ? 'commands.lint is empty and not declared none: no lint runs for this project. Write `commands.lint: none` in .agents/config.yaml to say so on purpose, or set a lint command (proofline doctor --commands proposes one)' : '';
+}
 
 /** Say a line now (a trial run takes long, so the report is not held back). @param {Context} ctx @param {string} line */
 function say(ctx, line) { ctx.out(`${line}\n`); ctx.flush(); }

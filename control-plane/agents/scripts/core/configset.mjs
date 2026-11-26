@@ -3,6 +3,7 @@
 // spaces per level; commands.build|test|lint may also be a block list of commands (A173).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Config } from './config.mjs';
+import { asciiLower } from './shellglob.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
 const item = (/** @type {string} */ l) => /^[ \t\n\v\f\r]*-([ \t\n\v\f\r]|$)/.test(l);
@@ -13,6 +14,16 @@ const content = (/** @type {string} */ l) => !/^[ \t\n\v\f\r]*#/.test(l) && !/^[
  * @param {string} file @param {string} key @returns {string[]}
  */
 export function cfgCmds(file, key) { return Config.load(file).cmds(key); }
+
+/**
+ * `lint_state` (A366, issue 338 U9): `set` (a lint command is configured), `none` (the user wrote `commands.lint: none`, an explicit decision to have no lint) or `empty` (nothing written).
+ * @param {{ cmds(key: string): string[] }} cfg @returns {'set' | 'none' | 'empty'}
+ */
+export function lintState(cfg) {
+  const v = cfg.cmds('commands.lint').filter((c) => c !== '');
+  if (v.length === 0) return 'empty';
+  return v.length === 1 && asciiLower(v[0].trim()) === 'none' ? 'none' : 'set';
+}
 
 /**
  * `cfg_set FILE KEY VALUE`: replaces the value of a 1-, 2- or 3-level key; a missing key is added under its section (the section is created when missing; a 3-level key

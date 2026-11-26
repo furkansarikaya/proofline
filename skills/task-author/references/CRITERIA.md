@@ -26,6 +26,17 @@ Rewrite examples:
 | Use Redis for the counter | implementation | (constraint, only if the user said so) |
 | It should be fast | not testable | AC-3: `GET /report` for a 10k-row account returns within 2 seconds (the user's number) |
 
+### Count and feasibility
+
+Write **3 to 6** outcome-focused criteria (U4, A366). Fewer than 3 usually means a vague task; more than 6 means several outcomes in one task: group the criteria by outcome (what the user sees, what is stored) or split the task. A criterion states the result, not the steps, and gives a number, a path or an exact message. `validate-task.mjs` WARNS (exit 0) with the count when the task has fewer than 3 or more than 6; it never refuses.
+
+Before the task is final, check each criterion that rests on a library, a version, a limit, a selector or an operator against the pinned tool: read the version in the manifest or lockfile and the library's documentation for it (a quick check, not a prototype). Record it as one indented line under the criterion:
+
+    - AC-2: The list page shows only the direct children of the node.
+      Feasibility: lib@2.1.0 (package.json); its docs list no `>` combinator, so the criterion names the `.child` class instead
+
+An example of what this prevents: a criterion that asked for a `>` selector the pinned library could not match, found only at the end of the run (R4-8). A criterion that names a library, version or limit without a `Feasibility:` line gets a validator warning, never a refusal; when the check shows the criterion cannot be met, rewrite the criterion (or ask) before the task is final.
+
 The validator's heuristics (observable-verb list, vague-word list) catch the obvious cases; it cannot judge the rest, so the self-check below is still required.
 
 ## Out of scope
@@ -64,7 +75,7 @@ The project's own commands that prove the criteria (`commands.test`, a named tes
 
 ## Self-check
 
-Run each item; any "no" is fixed before returning.
+Run each item; any "no" is fixed before returning. Run `validate-task.mjs` before the task file is committed (A366): its warnings (criteria count, Feasibility) are read, not ignored.
 
 1. Every `AC-n` is observable behaviour (a verb a test can assert).
 2. No criterion dictates implementation unless the user stated it, and then the statement is also in Constraints.
@@ -76,3 +87,5 @@ Run each item; any "no" is fixed before returning.
 8. Open questions were asked in one round, or there are none.
 9. The validator exits 0.
 10. Two-engineer test (A202, every source, not only a PRD): would two engineers who never spoke build the same thing from each criterion? A place where they would not is rewritten with a number, a path or an observable result, or asked as a question. The validator already refuses the ambiguous words of product-spec's list in a task that names no PRD.
+11. 3 to 6 criteria, or the reason for another count is in the report; each criterion that rests on a library, version or limit has its `Feasibility:` line.
+12. In a split: every `depends_on` was derived from the tasks' content and `validate-task.mjs --check-deps <dir>` exits 0 ([PLANNING.md](PLANNING.md#dependency-check)).

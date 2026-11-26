@@ -5,6 +5,10 @@
 ## 0.0.187 — 2026-11-26
 
 - Fix (A365, issue 338 C5): the lead's context grows less. `batch-next`, `batch-status`, `digest` and `friction` print at most `output_cap_bytes` bytes (default 6000, config key, 0 = off) and then one line `...N more bytes: agent.sh <command> --full`; `next` and `batch-next` take `--since <token>` (the answer ends with `since=<token>`) and print the single word `unchanged` when nothing changed; `digest <ID> --brief` is a six-line resume; the `lead` record of `tools.jsonl` has the mean and p90 context size and the cache re-read tokens (`ctx_*`, `cache_read`) and the report Facts show them. The lead instructions (LIFECYCLE.md, DISPATCH.md) say: no calls between waits, drop the notes of a merged task, resume with the brief. The lead skill is 38 bytes smaller.
+## 0.0.188 — 2026-11-26
+
+- Fix (A366, issue 338 U9 = R2-18): an empty `commands.lint` is told, not silent. The batch summary prints `lint commands: <none set>; proposal: ...` (the lint command that `proofline doctor --commands` proved, or that nothing was discovered) with a WARNING, the same warning is printed at the freeze of a batch task, and the batch approval records the proposal as it already does for build and test; `commands.lint: none` says on purpose that there is no lint and silences the warning. A warning, never a refusal; no new approval kind.
+- Fix (A366, issue 338 U4 = R1-9, R4-8): the task author writes 3 to 6 outcome-focused criteria (`validate-task.mjs` warns with the count outside that range), checks each criterion that rests on a library, version or limit against the pinned tool and records it as an indented `Feasibility:` line (warning when missing), derives `depends_on` of a split from the content with a `## Dependency check` table, and `validate-task.mjs --check-deps <dir>` fails on an unknown id or a cycle. The task templates and the role say to run the validator before the task is committed.
 
 ## 0.0.186 — 2026-11-26
 
