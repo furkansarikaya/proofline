@@ -40,6 +40,7 @@ review|*|/proofline task --grill
 audit|*|/proofline task --grill
 debug|*|/proofline task --grill
 insights|*|/proofline status
+retro|*|/proofline status
 explain|*|/proofline status
 docs|*|/proofline docs audit
 wiki|*|/proofline wiki lint

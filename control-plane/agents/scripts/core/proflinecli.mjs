@@ -20,6 +20,7 @@ import { doctorCommand } from './doctor.mjs';
 import { cleanBytes, cleanOut } from './codetrust.mjs';
 import { hgit } from './hgit.mjs';
 import { insightsFront } from './insightsfront.mjs';
+import { retroCommand } from './retro.mjs';
 import { cmdInit, cmdUpgrade, u } from './install.mjs';
 import { mergeCommand } from './merge.mjs';
 import { nextUser } from './nextuser.mjs';
@@ -409,6 +410,7 @@ class Cli {
       case 'clean': return this.cmdClean(args);
       case 'merge': return this.core(mergeCommand, args);
       case 'insights': return this.core(insightsFront, args, true);
+      case 'retro': return this.core(retroCommand, args, true);
       case 'task': return this.cmdTask(args);
       case 'design': return this.cmdDesign(args);
       case 'run': return this.cmdRun(args);
@@ -440,7 +442,7 @@ class Cli {
 }
 
 /** What follows a successful command: the user's next step (A159). */
-const NEXT_AFTER = new Set(['init', 'upgrade', 'doctor', 'status', 'resume', 'queue', 'debt', 'clean', 'merge', 'insights']);
+const NEXT_AFTER = new Set(['init', 'upgrade', 'doctor', 'status', 'resume', 'queue', 'debt', 'clean', 'merge', 'insights', 'retro']);
 
 /**
  * The `proofline` command line. Returns the exit status; everything is written through the sinks (the descriptors of the process by default).
