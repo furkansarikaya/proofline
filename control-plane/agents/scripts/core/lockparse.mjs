@@ -167,6 +167,53 @@ function classicLineOk(t) {
   for (let j = 0; j < t.length; j++) if (t[j] === '"') { const e = quotedEnd(t, j); if (e < 0) return false; j = e; }
   return true;
 }
+/**
+ * The lines of a pnpm or yarn lock after the WHOLE-FILE allowlist: printable ASCII and LF only, a CR only as the first half of a CRLF line end (normalised once, here). Anything else refuses the lock
+ * before a line is read: a lone CR, U+0085, U+2028 and U+2029 are line breaks to a YAML reader but not to a line splitter, so one could hide an entry; a tab, a byte order mark, NUL and every other
+ * control character, and every non-ASCII character (a deprecation message in another script included: a stated limit) are refused with them, so no character can mean one thing here and another there.
+ * @param {Buffer | string} lock @returns {{ ls: string[] } | { error: string, kind: string }}
+ */
+function asciiLines(lock) {
+  const s = (typeof lock === 'string' ? lock : lock.toString('utf8')).replace(/\r\n/g, '\n');
+  if (/[^\x20-\x7e\n]/.test(s)) return { error: 'the lock file holds a character other than printable ASCII, LF or a CRLF line end (a lone CR, a tab, a NUL or other control character, a byte order mark, a Unicode line separator or any non-ASCII character)', kind: 'lock_unreadable' };
+  const ls = linesOf(s);
+  if (ls === null) return { error: `the lock file has a line longer than ${MAX_LINE} characters or more than ${MAX_LINES} lines`, kind: 'lock_unreadable' };
+  return { ls };
+}
+
+/** The key of a YAML line (indentation removed) as YAML reads it, for the duplicate check: `''` unescaped in a single-quoted key; null for a sequence item; undefined (refuse) for a double-quoted key with an escape or the merge key `<<`. @param {string} t */
+function yamlKey(t) {
+  if (t.startsWith('- ')) return null;
+  if (t[0] === '"' || t[0] === "'") {
+    const raw = t.slice(1, quotedEnd(t, 0));
+    if (t[0] === '"') return raw.includes('\\') ? undefined : raw;
+    return raw.replace(/''/g, "'");
+  }
+  const at = t.indexOf(': ');
+  const k = at >= 0 ? t.slice(0, at) : t.slice(0, -1);
+  return k === '<<' ? undefined : k;
+}
+
+/** A duplicate-key check over the indentation levels of one YAML document: a key seen twice in one mapping refuses the lock (YAML readers disagree on which one wins). */
+function dupKeys() {
+  /** @type {Array<{ ind: number, keys: Set<string> }>} */ let stack = [];
+  return {
+    reset() { stack = []; },
+    /** @param {number} ind @param {string} t @returns {string} '' when fine, else the reason */
+    see(ind, t) {
+      const k = yamlKey(t);
+      if (k === undefined) return 'a merge key `<<` or a double-quoted key with an escape';
+      while (stack.length > 0 && stack[stack.length - 1].ind > ind) stack.pop();
+      if (stack.length === 0 || stack[stack.length - 1].ind < ind) stack.push({ ind, keys: new Set() });
+      if (k === null) return '';
+      const top = stack[stack.length - 1].keys;
+      if (top.has(k)) return `the key ${JSON.stringify(k.slice(0, 80))} twice in one mapping`;
+      top.add(k);
+      return '';
+    },
+  };
+}
+
 const SUBSET = 'a line outside the strict subset (an unclosed quote, a multi-line or block scalar, an anchor, alias, tag or comment)';
 
 /** `key: value` (value may be empty) of a YAML line without its indentation, or null. @param {string} t @returns {{ k: string, v: string } | null} */
@@ -263,8 +310,10 @@ export function pnpmIdent(key, major) {
  * @param {Buffer | string} lock @returns {LockParse}
  */
 export function pnpmPackages(lock) {
-  const ls = linesOf(textOf(lock));
-  if (ls === null) return { error: `the lock file has a line longer than ${MAX_LINE} characters, more than ${MAX_LINES} lines, a NUL byte or a tab in an indentation`, kind: 'lock_unreadable' };
+  const al = asciiLines(lock);
+  if ('error' in al) return al;
+  const ls = al.ls;
+  const dups = dupKeys();
   /** @type {number | null} */ let major = null;
   let section = '';
   /** @type {Array<{ key: string, res: string[] | null | undefined }>} */ const entries = [];
@@ -276,10 +325,13 @@ export function pnpmPackages(lock) {
     const l = ls[i];
     if (blankOrComment(l)) continue;
     const ind = indentOf(l);
-    if (!(ind === 0 && (l === '---' || l === '...')) && !yamlLineOk(l.slice(ind))) return bad(i, SUBSET);
+    if (l === '...') return bad(i, 'a document end marker `...`');
+    if (!(l === '---') && !yamlLineOk(l.slice(ind))) return bad(i, SUBSET);
+    if (l === '---') dups.reset();
+    else { const d = dups.see(ind, l.slice(ind)); if (d !== '') return bad(i, d); }
     if (ind === 0) {
       cur = null; inRes = false;
-      if (l === '---' || l === '...') { section = ''; continue; }
+      if (l === '---') { section = ''; continue; }
       const p = yamlPair(l);
       if (p === null) return bad(i, 'a top-level line that is not `key:` or `key: value`');
       if (p.k === 'lockfileVersion') {
@@ -315,7 +367,10 @@ export function pnpmPackages(lock) {
       const p = yamlPair(t);
       if (p === null || p.k !== 'resolution') continue;
       if (cur.res !== undefined) { cur.res = null; continue; } // twice: not trusted
-      if (p.v === '') { cur.res = []; inRes = true; } else cur.res = flowKeys(p.v);
+      if (p.v === '') { cur.res = []; inRes = true; } else {
+        cur.res = flowKeys(p.v);
+        if (cur.res !== null && new Set(cur.res).size !== cur.res.length) return bad(i, 'a key twice in the flow map of a resolution');
+      }
       continue;
     }
     if (ind === 6 && inRes && Array.isArray(cur.res)) {
@@ -381,8 +436,11 @@ export function berryIdent(r) {
  * @param {Buffer | string} lock @returns {LockParse}
  */
 export function yarnPackages(lock) {
-  const ls = linesOf(textOf(lock));
-  if (ls === null) return { error: `the lock file has a line longer than ${MAX_LINE} characters, more than ${MAX_LINES} lines, a NUL byte or a tab in an indentation`, kind: 'lock_unreadable' };
+  const al = asciiLines(lock);
+  if ('error' in al) return al;
+  const ls = al.ls;
+  const dups = dupKeys();
+  /** @type {Set<string>} */ const heads = new Set();
   const berry = ls.some((l) => l === '__metadata:');
   const classic = ls.some((l) => /^# yarn lockfile v1\s*$/.test(l));
   if (berry === classic) return { error: 'the lock file is neither a yarn classic lock (`# yarn lockfile v1`) nor a yarn berry lock (`__metadata:`)', kind: 'lock_unsupported' };
@@ -394,9 +452,11 @@ export function yarnPackages(lock) {
     if (blankOrComment(l)) continue;
     const ind = indentOf(l);
     if (!(berry ? yamlLineOk(l.slice(ind)) : classicLineOk(l))) return bad(i, SUBSET);
+    if (berry) { const d = dups.see(ind, l.slice(ind)); if (d !== '') return bad(i, d); }
     if (ind % 2 !== 0) return bad(i, 'an odd indentation');
     if (ind === 0) {
       if (!l.endsWith(':')) return bad(i, 'an entry that does not end with `:`');
+      if (!berry) { const h = l.slice(0, -1).split(',').map((x) => classicValue(x) ?? x.trim()).sort().join(', '); if (heads.has(h)) return bad(i, 'an entry twice'); heads.add(h); }
       cur = { head: l.slice(0, -1), f: Object.create(null) };
       entries.push(cur);
       continue;
@@ -410,7 +470,8 @@ export function yarnPackages(lock) {
       if (sp < 0) { if (t.endsWith(':')) continue; k = t; v = null; } else { k = classicValue(t.slice(0, sp)) ?? ''; v = classicValue(t.slice(sp + 1)); }
     }
     if (k !== 'version' && k !== 'resolved' && k !== 'resolution') continue;
-    cur.f[k] = Object.hasOwn(cur.f, k) ? null : v; // twice: not trusted
+    if (Object.hasOwn(cur.f, k)) return bad(i, `the field ${k} twice in one entry`);
+    cur.f[k] = v;
   }
   const c = collector();
   for (const e of entries) {

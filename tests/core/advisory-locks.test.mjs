@@ -79,8 +79,9 @@ test('pnpm lockfileVersion 9: registry packages from `packages:` (quoted scoped 
   assert.deepEqual(pk(r), { '@babel/code-frame': ['7.22.13'], lodash: ['4.17.21'], 'react-dom': ['18.2.0'] });
   assert.equal(r.total, 7); assert.equal(r.skipped, 4);
   assert.deepEqual(why(r), { 'non-registry': 4 });
-  // the same text with CRLF line ends and a byte order mark reads the same
-  assert.deepEqual(pk(ok(pnpmPackages(`﻿${PNPM9.replace(/\n/g, '\r\n')}`))), pk(r));
+  // the same text with CRLF line ends reads the same; a byte order mark is refused (the whole-file allowlist)
+  assert.deepEqual(pk(ok(pnpmPackages(PNPM9.replace(/\n/g, '\r\n')))), pk(r));
+  refused(pnpmPackages(`\ufeff${PNPM9}`), 'lock_unreadable', /printable ASCII/);
   assert.deepEqual(pk(ok(pnpmPackages(Buffer.from(PNPM9)))), pk(r));
 });
 
@@ -173,10 +174,6 @@ packages:
   badver@latest:
     resolution: {integrity: sha512-a}
 
-  twice@1.0.0:
-    resolution: {integrity: sha512-a}
-    resolution: {tarball: https://evil.invalid/x.tgz}
-
   nested@1.0.0:
     resolution: {integrity: {x: y}}
 
@@ -188,7 +185,7 @@ packages:
 `;
   const r = ok(pnpmPackages(hostile));
   assert.deepEqual(pk(r), { '@ok/fine': ['2.0.0'], constructor: ['1.0.0'] });
-  assert.deepEqual(why(r), { invalid: 5, 'non-registry': 3 });
+  assert.deepEqual(why(r), { invalid: 5, 'non-registry': 2 });
   assert.ok(r.packages instanceof Map);
   clean();
   const base = "lockfileVersion: '9.0'\n\npackages:\n\n";
@@ -201,7 +198,7 @@ packages:
     ['  flowalias@1.0.0:\n    resolution: {integrity: *a}\n', /strict subset/],
     ['  - lodash@1.0.0\n', /not `<key>:`/],
     ['  lodash@1.0.0: {resolution: {integrity: x}}\n', /not `<key>:`/],
-    ['  "lo\\u0064ash@1.0.0":\n    resolution: {integrity: x}\n', /not `<key>:`/],
+    ['  "lo\\u0064ash@1.0.0":\n    resolution: {integrity: x}\n', /double-quoted key with an escape/],
     ["  'it''s@1.0.0':\n    resolution: {integrity: x}\n", /not `<key>:`/],
     ['   lodash@1.0.0:\n', /odd indentation/],
     ['    resolution: {integrity: x}\n', /a field without an entry/],
@@ -227,6 +224,65 @@ test('a scalar that spans lines refuses the lock: it could make a later line loo
   refused(yarnPackages('# yarn lockfile v1\n\na@^1:\n  version "1.0.0\nb@^1:\n  version "2"\n'), 'lock_unreadable', /line 4: a line outside the strict subset/);
   // bun is JSON: a string cannot hold a raw line break
   refused(bunPackages('{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0\n", ""]}}'), 'lock_unreadable');
+});
+
+test('the whole-file allowlist: only printable ASCII and LF (a CR only in a CRLF pair); a lone CR, U+0085, U+2028, U+2029, a tab, a BOM, control and non-ASCII characters refuse a pnpm or yarn lock (third review of PR 362)', () => {
+  // RED before the fix (the PoC): a lone CR is a line break to YAML but not to the line splitter, so the lodash entry sat inside the `hasBin:` line and was never counted, and the record said measured
+  const pnpm = ["lockfileVersion: '9.0'", 'packages:', '  ms@2.1.3:', '    resolution: {integrity: sha512-aaa}', '    hasBin:\r  lodash@4.17.20:\r    resolution:\r      integrity: sha512-bbb', 'snapshots:', '  ms@2.1.3: {}', ''].join('\n');
+  refused(pnpmPackages(pnpm), 'lock_unreadable', /printable ASCII, LF or a CRLF line end/);
+  const berry = ['__metadata:', '  version: 8', '', '"ms@npm:2.1.3":', '  version: 2.1.3', '  resolution: "ms@npm:2.1.3"', '  bin:\rlodash@npm:4.17.20:\r  resolution: lodash@npm:4.17.20', '  languageName: node', ''].join('\n');
+  refused(yarnPackages(berry), 'lock_unreadable', /printable ASCII/);
+  const base = { pnpm: "lockfileVersion: '9.0'\npackages:\n  ms@2.1.3:\n    resolution: {integrity: sha512-a}\n    deprecated: 'X'\n", berry: '__metadata:\n  version: 8\n"ms@npm:2.1.3":\n  resolution: "ms@npm:2.1.3"\n  conditions: X\n', classic: '# yarn lockfile v1\nms@^2:\n  version "2.1.3"\n  resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz"\n  note "X"\n' };
+  for (const [fmt, text] of Object.entries(base)) {
+    const parse = fmt === 'pnpm' ? pnpmPackages : yarnPackages;
+    assert.equal(ok(parse(text.replace('X', 'plain'))).packages.size, 1, fmt);
+    assert.equal(ok(parse(text.replace('X', 'plain').replace(/\n/g, '\r\n'))).packages.size, 1, `${fmt} CRLF`);
+    for (const ch of ['\r', '\u0085', '\u2028', '\u2029', '\t', '\ufeff', '\u0000', '\u000b', '\u000c', '\u001b', '\u007f', '\u00a0', '\u00e9', '\u{1f600}', '\ufffd']) {
+      refused(parse(text.replace('X', `a${ch}b`)), 'lock_unreadable', /printable ASCII/);
+    }
+    refused(parse(Buffer.concat([Buffer.from(text.replace('X', 'a')), Buffer.from([0xc3, 0x28])])), 'lock_unreadable', /printable ASCII/);
+    refused(parse(`${text.replace('X', 'a').replace(/\n/g, '\r\n')}\r`), 'lock_unreadable', /printable ASCII/);
+  }
+});
+
+test('YAML structure the subset does not read refuses the lock: document end markers, directives, complex keys, duplicate keys, merge keys, keys with `: ` (third review of PR 362)', () => {
+  const v = "lockfileVersion: '9.0'\n";
+  const e = (/** @type {string} */ k, r = '{integrity: sha512-a}') => `  ${k}:\n    resolution: ${r}\n`;
+  // several documents with `---` are read (pnpm 10 writes an env document first), each with its own keys; `...` and `---` with content are refused
+  assert.equal(ok(pnpmPackages(`---\n${v}packages:\n${e('a@1.0.0')}---\n${v}packages:\n${e('a@1.0.0')}`)).packages.size, 1);
+  refused(pnpmPackages(`${v}packages:\n${e('a@1.0.0')}...\n`), 'lock_unreadable', /document end marker/);
+  refused(pnpmPackages(`--- !!map\n${v}`), 'lock_unreadable', /strict subset/);
+  refused(pnpmPackages(`%YAML 1.2\n---\n${v}`), 'lock_unreadable', /strict subset/);
+  refused(pnpmPackages(`%TAG ! tag:x,2000:\n${v}`), 'lock_unreadable', /strict subset/);
+  refused(pnpmPackages(`? packages\n: {}\n${v}`), 'lock_unreadable', /strict subset/);
+  // a key twice in one mapping (YAML readers disagree on which wins; js-yaml refuses): top level, package keys (plain and quoted spellings of one key), fields, a flow resolution
+  refused(pnpmPackages(`${v}packages:\n${e('a@1.0.0')}snapshots: {}\npackages:\n${e('evil@6.6.6')}`), 'lock_unreadable', /the key "packages" twice/);
+  refused(pnpmPackages(`${v}${v}packages: {}\n`), 'lock_unreadable', /"lockfileVersion" twice/);
+  refused(pnpmPackages(`${v}packages:\n${e('a@1.0.0')}${e("'a@1.0.0'", '{tarball: https://evil.invalid/x.tgz}')}`), 'lock_unreadable', /the key "a@1.0.0" twice/);
+  refused(pnpmPackages(`${v}packages:\n${e("'b@1.0.0'")}${e('"b@1.0.0"')}`), 'lock_unreadable', /the key "b@1.0.0" twice/);
+  refused(pnpmPackages(`${v}packages:\n${e('a@1.0.0')}    resolution: {tarball: https://evil.invalid/x.tgz}\n`), 'lock_unreadable', /"resolution" twice/);
+  refused(pnpmPackages(`${v}packages:\n  a@1.0.0:\n    resolution:\n      integrity: x\n      integrity: y\n`), 'lock_unreadable', /"integrity" twice/);
+  refused(pnpmPackages(`${v}packages:\n${e('a@1.0.0', '{integrity: x, integrity: y}')}`), 'lock_unreadable', /twice in the flow map/);
+  // the same key under two different parents is fine
+  assert.equal(ok(pnpmPackages(`${v}packages:\n${e('a@1.0.0')}${e('b@1.0.0')}`)).packages.size, 2);
+  // merge keys and escaped double-quoted keys are refused, a plain key with `: ` is not a key at all, a quoted one is a key that fails the name grammar
+  refused(pnpmPackages(`${v}packages:\n  a@1.0.0:\n    <<: {resolution: {integrity: x}}\n`), 'lock_unreadable', /merge key/);
+  refused(pnpmPackages(`${v}packages:\n${e('"a\\u0040b@1.0.0"')}`), 'lock_unreadable', /merge key `<<` or a double-quoted key with an escape/);
+  refused(pnpmPackages(`${v}packages:\n  a: b@1.0.0:\n    resolution: {integrity: x}\n`), 'lock_unreadable', /strict subset/);
+  assert.deepEqual(why(ok(pnpmPackages(`${v}packages:\n${e("'a: b@1.0.0'")}`))), { invalid: 1 });
+  // yarn berry: the same rules; yarn classic: an entry or a field twice
+  const m = '__metadata:\n  version: 8\n';
+  const b = (/** @type {string} */ k, r = 'a@npm:1.0.0') => `"${k}":\n  resolution: "${r}"\n`;
+  refused(yarnPackages(`${m}${b('a@npm:^1')}${b('a@npm:^1', 'evil@npm:6.6.6')}`), 'lock_unreadable', /the key "a@npm:\^1" twice/);
+  refused(yarnPackages(`${m}${b('a@npm:^1')}  resolution: "evil@npm:6.6.6"\n`), 'lock_unreadable', /"resolution" twice/);
+  refused(yarnPackages(`${m}${m}`), 'lock_unreadable', /"__metadata" twice/);
+  refused(yarnPackages(`${m}"a@npm:^1":\n  <<: {resolution: "a@npm:1.0.0"}\n`), 'lock_unreadable', /merge key/);
+  refused(yarnPackages(`---\n${m}`), 'lock_unreadable', /strict subset/);
+  const c = '# yarn lockfile v1\n';
+  const ce = (/** @type {string} */ h, ver = '1.0.0') => `${h}:\n  version "${ver}"\n  resolved "https://registry.yarnpkg.com/a/-/a-${ver}.tgz"\n`;
+  refused(yarnPackages(`${c}${ce('a@^1')}${ce('a@^1', '9.9.9')}`), 'lock_unreadable', /an entry twice/);
+  refused(yarnPackages(`${c}${ce('"a@^1", "a@^2"')}${ce('a@^2, a@^1', '9.9.9')}`), 'lock_unreadable', /an entry twice/);
+  refused(yarnPackages(`${c}${ce('a@^1')}  version "9.9.9"\n`), 'lock_unreadable', /the field version twice/);
 });
 
 test('yarn classic: specs and aliases give the real name, the resolved url must be a registry tarball, a missing version or disagreeing specs are skipped', () => {
@@ -267,11 +323,6 @@ http-dep@^1.0.0:
 nover@^1.0.0:
   resolved "https://registry.yarnpkg.com/nover/-/nover-1.0.0.tgz"
 
-two-versions@^1.0.0:
-  version "1.0.0"
-  version "9.9.9"
-  resolved "https://registry.yarnpkg.com/two-versions/-/two-versions-1.0.0.tgz"
-
 a@^1.0.0, b@^1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/a/-/a-1.0.0.tgz"
@@ -286,8 +337,8 @@ __proto__@^1.0.0:
 `;
   const r = ok(yarnPackages(classic));
   assert.deepEqual(pk(r), { '@babel/code-frame': ['7.12.13'], lodash: ['4.17.21'], 'string-width': ['4.2.3'] });
-  assert.deepEqual(why(r), { invalid: 2, 'no-version': 3, 'non-registry': 4 });
-  assert.equal(r.total, 12);
+  assert.deepEqual(why(r), { invalid: 2, 'no-version': 2, 'non-registry': 4 });
+  assert.equal(r.total, 11);
   assert.ok(!r.packages.has('string-width-cjs'), 'the alias name is never asked about');
   clean();
   assert.equal(yarnSpecName('@s/x@^1'), '@s/x'); assert.equal(yarnSpecName('a@npm:@s/b@^2'), '@s/b'); assert.equal(yarnSpecName('a@npm:b'), 'b'); assert.equal(yarnSpecName('noat'), null); assert.equal(yarnSpecName('@scopeonly'), null);
@@ -358,15 +409,11 @@ __metadata:
 "escaped@npm:^1":
   version: 1.0.0
   resolution: "esc\\u0061ped@npm:1.0.0"
-
-"twice@npm:^1":
-  resolution: "twice@npm:1.0.0"
-  resolution: "evil@npm:6.6.6"
 `;
   const r = ok(yarnPackages(berry));
   assert.deepEqual(pk(r), { '@babel/code-frame': ['7.12.13'], resolve: ['1.22.1'], 'string-width': ['4.2.3'], typescript: ['5.3.3'] });
-  assert.deepEqual(why(r), { invalid: 1, 'non-registry': 6 });
-  assert.equal(r.total, 12, 'the __metadata entry and the workspace are not counted');
+  assert.deepEqual(why(r), { invalid: 1, 'non-registry': 5 });
+  assert.equal(r.total, 11, 'the __metadata entry and the workspace are not counted');
   assert.deepEqual(berryIdent('@s/x@npm:1.0.0'), { kind: 'npm', name: '@s/x', version: '1.0.0' });
   assert.deepEqual(berryIdent('x@workspace:packages/x'), { kind: 'workspace' });
   assert.deepEqual(berryIdent('x@patch:y@npm%3A1.0.0#p'), { kind: 'other' });
@@ -461,8 +508,9 @@ test('bounded patterns: hostile long lines and values finish fast and are refuse
   assert.deepEqual(why(ok(npm)), { 'non-registry': 1 });
   // keys and values of the maximum line length, full of the characters the parsers look for
   const at = '@'.repeat(MAX_LINE - 10); const par = '('.repeat(MAX_LINE - 10);
-  const pn = ok(pnpmPackages(`lockfileVersion: '9.0'\npackages:\n  /${at}:\n    resolution: {integrity: x}\n  a@1.0.0${par}:\n    resolution: {${'a: b, '.repeat(2000)}}\n`));
-  assert.equal(pn.packages.size, 0); assert.equal(pn.skipped, 2);
+  const pn = ok(pnpmPackages(`lockfileVersion: '9.0'\npackages:\n  /${at}:\n    resolution: {integrity: x}\n  a@1.0.0${par}:\n    resolution: {integrity: x}\n`));
+  assert.deepEqual(pk(pn), { a: ['1.0.0'] }, 'the parenthesised peer suffix is cut'); assert.equal(pn.skipped, 1);
+  refused(pnpmPackages(`lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    resolution: {${'a: b, '.repeat(2000)}}\n`), 'lock_unreadable', /twice in the flow map/);
   ok(yarnPackages(`# yarn lockfile v1\n${`"a@${'npm:'.repeat(3000)}"`}:\n  version "1.0.0"\n  resolved "https://r/a/-/a-1.0.0.tgz"\n`));
   ok(yarnPackages(`__metadata:\n  version: 6\n"x":\n  resolution: "${'@patch:'.repeat(2000)}"\n`));
   assert.equal(yamlScalar(`'${"'".repeat(MAX_LINE - 2)}'`), null);
