@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.193 — 2026-11-26
+
 - Feature (A371, issue 338 U6): a safe upgrade path with runs in flight. `proofline upgrade --check` writes nothing and reports the versions, the state format, the open runs, the batch, the config keys it would add and whether the upgrade would be refused; the real upgrade refuses while a specialist runs, a write window is open or a command holds the lock (parked runs and an open batch do not block), refuses a newer state format, backs up what it replaces under `.agents/local/upgrade-backup/<old>-to-<new>/` (the last 2 are kept), writes an `upgrade` ledger row per run, lists the runs whose gate results came from the older core and ends with the cheap self-checks; `upgrade --rollback` restores the backup. `proofline status` shows that the active run crossed an upgrade. The state added since 0.0.173 is additive (docs/concepts/upgrading.md).
 
 ## 0.0.192 — 2026-11-26
