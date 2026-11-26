@@ -1,8 +1,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -407,7 +406,7 @@ test("feasibility: a criterion resting on a library, version or limit without a 
 });
 
 test("--check-deps: every depends_on id exists and there is no cycle; the words none and n/a say there is none", () => {
-  const d = mkdtempSync(join(tmpdir(), "proofline-deps-"));
+  const d = tempDir("deps-");
   const mk = (id, deps) => writeFileSync(join(d, `${id}.md`), `# Task: ${id} — title\n${deps === undefined ? "" : `\n---\ndepends_on: ${deps}\n---\n`}\n## Goal\nx\n`);
   mk("T-1"); mk("T-2", "T-1"); mk("T-3", "[T-1, T-2]"); mk("T-4", "none"); mk("T-5", "n/a (nothing)");
   const ok = checkDeps(d);
