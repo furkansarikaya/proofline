@@ -23,6 +23,9 @@ import { TAR_LIMITS, readTarGz } from './tarlite.mjs';
 const USAGE = 'usage: proofline retro [<batch-id|run-id>] [--since YYYY-MM-DD] [--json] [--full]';
 const MAX_TEXT = 64 * 1024 * 1024;
 const MAX_LIST = 20;
+/** The lines of approve.log or status-block.log read at most (the control plane rotates approve.log at 400 lines); the rest are counted under `not read`, so the work is bounded by this, not by the file size. */
+export const MAX_LOG_LINES = 20000;
+const MAX_DURATION_S = 86400;
 const DEFAULT_CAP = 6000;
 const MIN_CAP = 200;
 /** @param {string} msg */
@@ -80,7 +83,9 @@ const tsv = (text) => text.split('\n').filter((l) => l !== '').map((l) => l.spli
  */
 
 /** @param {unknown} v @returns {number | null} */
-const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= Number.MAX_SAFE_INTEGER ? v : null);
+/** A duration of one agent record: over a day is not a recorded step time (a hostile or broken record), so it reads `not recorded`. @param {unknown} v @returns {number | null} */
+const dur = (v) => { const n = num(v); return n !== null && n <= MAX_DURATION_S ? n : null; };
 
 /**
  * @param {string | null} text @param {string} schema
@@ -235,6 +240,22 @@ function dayEpoch(d) {
 }
 
 /**
+ * The non-empty lines of a log, at most MAX_LOG_LINES of them; `skipped` counts the non-empty lines past the bound (found with indexOf, no array of the rest is built).
+ * @param {string} text @returns {{ lines: string[], skipped: number }}
+ */
+function logLines(text) {
+  /** @type {string[]} */ const lines = []; let skipped = 0; let at = 0;
+  while (at < text.length) {
+    let nl = text.indexOf('\n', at); if (nl < 0) nl = text.length;
+    if (nl > at) { if (lines.length < MAX_LOG_LINES) lines.push(text.slice(at, nl)); else skipped++; }
+    at = nl + 1;
+  }
+  return { lines, skipped };
+}
+/** @template T @param {Map<string, T[]>} m @param {string} k @param {T} v */
+const push = (m, k, v) => { const a = m.get(k); if (a === undefined) m.set(k, [v]); else a.push(v); };
+
+/**
  * @typedef {object} ApproveStep one `approve-pending` line of approve.log, reduced to counts
  * @property {number} epoch @property {string[]} kinds @property {boolean} ok rc=0 @property {Map<string, number>} recorded `approval recorded` lines by source
  */
@@ -248,9 +269,9 @@ export function parseApproveLog(text) {
   /** @type {Map<string, ApproveStep[]>} */ const byRun = new Map();
   /** @type {Map<string, number[]>} */ const stoppedByRun = new Map();
   /** @type {number[]} */ const stopped = []; /** @type {number[]} */ const multi = [];
-  let other = 0; let lines = 0;
-  for (const l of text.split('\n')) {
-    if (l === '') continue;
+  let other = 0; let lines = 0; /** @type {number[]} */ const noRunSteps = []; let continuations = 0;
+  const ll = logLines(text);
+  for (const l of ll.lines) {
     lines++;
     const sp = l.indexOf(' ');
     const e = sp < 0 ? null : isoEpoch(l.slice(0, sp));
@@ -258,17 +279,19 @@ export function parseApproveLog(text) {
     const rest = l.slice(sp + 1);
     let m;
     if ((m = /^target=([^ ]+) kinds=(.*?) rc=([0-9]{1,3}) output: (.*)$/.exec(rest)) !== null) {
+      if (m[1] === '-') { noRunSteps.push(e); continue; }
       if (!isId(m[1])) { other++; continue; }
       /** @type {Map<string, number>} */ const recorded = new Map();
       for (const r of m[4].matchAll(/approval recorded: [^ ]+ [^ ]+ \(([^() ]*)\)/g)) { const k = only(SOURCES, r[1]); recorded.set(k, (recorded.get(k) ?? 0) + 1); }
       const step = { epoch: e, kinds: m[2].split(' ').filter((x) => x !== '').map((k) => only(APPROVALS, k.split(':')[0])), ok: m[3] === '0', recorded };
-      byRun.set(m[1], [...(byRun.get(m[1]) ?? []), step]);
+      push(byRun, m[1], step);
     } else if (/^approval step stopped after [0-9]+s \(prompt hook budget\)$/.test(rest)) stopped.push(e);
-    else if ((m = /^approval step of worktree run ([^ ]+) stopped after [0-9]+s \(prompt hook budget\)$/.exec(rest)) !== null && isId(m[1])) stoppedByRun.set(m[1], [...(stoppedByRun.get(m[1]) ?? []), e]);
-    else if (rest.startsWith('multi: ')) multi.push(e);
+    else if ((m = /^approval step of worktree run ([^ ]+) stopped after [0-9]+s \(prompt hook budget\)$/.exec(rest)) !== null && isId(m[1])) push(stoppedByRun, m[1], e);
+    else if (/^multi: [0-9]+ of [0-9]+ segments read as approvals, [0-9]+ approval record\(s\) written$/.test(rest)) multi.push(e);
+    else if (rest.startsWith('multi: not recorded: ')) continuations++;
     else other++;
   }
-  return { lines, byRun, stoppedByRun, stopped, multi, other };
+  return { lines, skipped: ll.skipped, byRun, stoppedByRun, stopped, multi, noRunSteps, continuations, other };
 }
 
 /**
@@ -279,15 +302,15 @@ export function parseApproveLog(text) {
 export function parseStatusBlockLog(text) {
   /** @type {Map<string, Array<{ epoch: number, event: string }>>} */ const byRun = new Map();
   let other = 0; let lines = 0;
-  for (const l of text.split('\n')) {
-    if (l === '') continue;
+  const ll = logLines(text);
+  for (const l of ll.lines) {
     lines++;
     const m = /^([^ ]+) ([^ ]+) ([^ ]+)(?: |$)/.exec(l);
     const e = m === null ? null : isoEpoch(m[1]);
     if (m === null || e === null || !isId(m[2])) { other++; continue; }
-    byRun.set(m[2], [...(byRun.get(m[2]) ?? []), { epoch: e, event: only(SB_EVENTS, m[3]) }]);
+    push(byRun, m[2], { epoch: e, event: only(SB_EVENTS, m[3]) });
   }
-  return { lines, byRun, other };
+  return { lines, skipped: ll.skipped, byRun, other };
 }
 
 /** @param {number[]} es @returns {number | null} first to last, seconds */
@@ -324,6 +347,8 @@ export function gather(ctx, sel) {
   const sbLog = sbFile.text === null ? null : parseStatusBlockLog(sbFile.text);
   if (apLog !== null && apLog.other > 0) notRead.push(`approve.log: ${plural(apLog.other, 'line')} not in a known form, not counted`);
   if (sbLog !== null && sbLog.other > 0) notRead.push(`status-block.log: ${plural(sbLog.other, 'line')} not in a known form, not counted`);
+  if (apLog !== null && apLog.skipped > 0) notRead.push(`approve.log: ${plural(apLog.skipped, 'line')} past the first ${MAX_LOG_LINES}, not read`);
+  if (sbLog !== null && sbLog.skipped > 0) notRead.push(`status-block.log: ${plural(sbLog.skipped, 'line')} past the first ${MAX_LOG_LINES}, not read`);
 
   // batches: the one in force and the finished ones
   const bdir = `${root}/.agents/local/batch`;
@@ -374,8 +399,8 @@ export function gather(ctx, sel) {
       const of = (/** @type {string} */ k) => mine.filter((r) => r.kind === k && roleOf(r) === role);
       const steps = [...of('step'), ...of('lead')]; const resumed = of('dispatch').filter((r) => r.result === 'resumed'); const disp = of('dispatch').filter((r) => r.result !== 'resumed');
       const acc = { min: 0, minRows: 0, tok: 0, tokN: 0, rows: 0 };
-      const useDur = steps.some((r) => num(r.duration_s) !== null) ? steps : [...steps, ...disp];
-      for (const r of [...useDur, ...resumed]) { const d = num(r.duration_s); if (d !== null) { acc.min += d; acc.minRows++; } }
+      const useDur = steps.some((r) => dur(r.duration_s) !== null) ? steps : [...steps, ...disp];
+      for (const r of [...useDur, ...resumed]) { const d = dur(r.duration_s); if (d !== null) { acc.min += d; acc.minRows++; } }
       const useTok = steps.some((r) => tok(r) !== null) ? steps : [...steps, ...disp];
       for (const r of [...useTok, ...resumed]) { acc.rows++; const v = tok(r); if (v !== null) { acc.tok += v; acc.tokN++; } }
       roles.set(role, acc);
@@ -386,9 +411,9 @@ export function gather(ctx, sel) {
     for (const k of new Set(mine.map(gateKey).filter((k) => k !== null))) {
       const of = (/** @type {any} */ r) => gateKey(r) === k;
       const steps = mine.filter((r) => r.kind === 'step' && of(r)); const disp = mine.filter((r) => r.kind === 'dispatch' && r.result !== 'resumed' && of(r)); const resumed = mine.filter((r) => r.kind === 'dispatch' && r.result === 'resumed' && of(r));
-      const use = steps.some((r) => num(r.duration_s) !== null) ? steps : [...steps, ...disp];
+      const use = steps.some((r) => dur(r.duration_s) !== null) ? steps : [...steps, ...disp];
       const acc = { s: 0, n: 0 };
-      for (const r of [...use, ...resumed]) { const v = num(r.duration_s); if (v !== null) { acc.s += v; acc.n++; } }
+      for (const r of [...use, ...resumed]) { const v = dur(r.duration_s); if (v !== null) { acc.s += v; acc.n++; } }
       gateTime.set(/** @type {string} */ (k), acc);
     }
     if (L !== null) for (const g of L.gates.keys()) if (g !== 'REOPEN' && ![...gateTime.keys()].some((k) => k === g || k.startsWith(`${g}:`))) gateTime.set(g, { s: 0, n: 0 });
@@ -397,7 +422,7 @@ export function gather(ctx, sel) {
     const sbRows = sbLog?.byRun.get(t) ?? [];
     const resumedRows = mine.filter((r) => r.kind === 'dispatch' && r.result === 'resumed');
     /** @type {Map<string, { n: number, s: number }>} */ const resumedBy = new Map();
-    for (const r of resumedRows) { const k = roleOf(r); const c = resumedBy.get(k) ?? { n: 0, s: 0 }; c.n++; c.s += num(r.duration_s) ?? 0; resumedBy.set(k, c); }
+    for (const r of resumedRows) { const k = roleOf(r); const c = resumedBy.get(k) ?? { n: 0, s: 0 }; c.n++; c.s += dur(r.duration_s) ?? 0; resumedBy.set(k, c); }
     const run = mine.find((r) => r.kind === 'run');
     const tm = tools.rows.filter((r) => r.task === t);
     /** @type {Map<string, number>} */ const den = new Map(); let denied = 0;
@@ -418,7 +443,7 @@ export function gather(ctx, sel) {
   const inSince = (/** @type {number} */ e) => sinceEpoch === null || e >= sinceEpoch;
   const logs = {
     approve: apLog === null ? (apFile.why === 'missing' ? 'not present' : 'not read') : 'read', approveLines: apLog?.lines ?? 0, approveOther: apLog?.other ?? 0,
-    approveUnattributed: { stopped: (apLog?.stopped ?? []).filter(inSince).length, multi: (apLog?.multi ?? []).filter(inSince).length },
+    approveUnattributed: { steps: (apLog?.noRunSteps ?? []).filter(inSince).length, stopped: (apLog?.stopped ?? []).filter(inSince).length, multi: (apLog?.multi ?? []).filter(inSince).length },
     statusBlock: sbLog === null ? (sbFile.why === 'missing' ? 'not present' : 'not read') : 'read', statusBlockLines: sbLog?.lines ?? 0, statusBlockOther: sbLog?.other ?? 0,
   };
   return { scope, tasks, logs, notRead: [...notRead, ...tasks.flatMap((x) => x.nr)], records, tools, ledgers: { live: tasks.filter((x) => x.L?.from === 'live').length, archive: tasks.filter((x) => x.L?.from === 'archive').length } };
@@ -507,7 +532,7 @@ function logTotals(m) {
   const s = (/** @type {(x: any) => number} */ g, /** @type {'approve_log' | 'status_block_log'} */ w) => f.reduce((a, x) => a + (x[w] === null ? 0 : g(x[w])), 0);
   return {
     approve_log: m.logs.approve, approve_lines: m.logs.approveLines, approve_steps: s((x) => x.steps, 'approve_log'), approve_recorded: s((x) => x.recorded, 'approve_log'), approve_not_recorded: s((x) => x.not_recorded, 'approve_log'),
-    approve_stopped: s((x) => x.stopped_by_hook_budget, 'approve_log') + m.logs.approveUnattributed.stopped, approve_no_run: { stopped: m.logs.approveUnattributed.stopped, multi_reports: m.logs.approveUnattributed.multi },
+    approve_stopped: s((x) => x.stopped_by_hook_budget, 'approve_log') + m.logs.approveUnattributed.stopped, approve_no_run: { steps: m.logs.approveUnattributed.steps, stopped: m.logs.approveUnattributed.stopped, multi_reports: m.logs.approveUnattributed.multi },
     approve_other_lines: m.logs.approveOther,
     status_block_log: m.logs.statusBlock, status_block_lines: m.logs.statusBlockLines, status_block_failed: s((x) => x.failed, 'status_block_log'), status_block_other_lines: m.logs.statusBlockOther, status_block_sent: 'not recorded',
   };
@@ -536,7 +561,7 @@ export function retroLines(m, full) {
   const gt = Object.entries(t.gate_s);
   o.push(`gate minutes (agent records): ${gt.length === 0 ? 'not recorded' : gt.map(([k, v]) => `${k} ${v === null ? 'not recorded' : mins(v)}`).join(', ')}`);
   const lt = logTotals(m);
-  o.push(`approve.log: ${lt.approve_log !== 'read' ? `not recorded (${lt.approve_log})` : `${plural(lt.approve_steps, 'approval step')} for these runs (${lt.approve_recorded} recorded, ${lt.approve_not_recorded} not recorded), stopped by the hook budget ${lt.approve_stopped}; lines that name no run: ${lt.approve_no_run.stopped} stopped, ${lt.approve_no_run.multi_reports} multi-segment reports; the log keeps its last 200 lines once past 400`}`);
+  o.push(`approve.log: ${lt.approve_log !== 'read' ? `not recorded (${lt.approve_log})` : `${plural(lt.approve_steps, 'approval step')} for these runs (${lt.approve_recorded} recorded, ${lt.approve_not_recorded} not recorded), stopped by the hook budget ${lt.approve_stopped}; lines that name no run: ${plural(lt.approve_no_run.steps, 'approval step')}, ${lt.approve_no_run.stopped} stopped, ${plural(lt.approve_no_run.multi_reports, 'multi-segment report')}; the log keeps its last 200 lines once past 400`}`);
   o.push(`status-block.log: ${lt.status_block_log !== 'read' ? `not recorded (${lt.status_block_log})` : `${plural(lt.status_block_failed, 'failed update')} for these runs`}; updates sent: not recorded (only a failed update is logged)`);
   // resumed runs
   o.push('resumed runs:');

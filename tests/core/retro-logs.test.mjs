@@ -6,6 +6,7 @@ import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { sandbox } from './frontend-lib.mjs';
+import { MAX_LOG_LINES } from '../../control-plane/agents/scripts/core/retro.mjs';
 
 const sb = sandbox();
 const T0 = 1760349600;
@@ -47,6 +48,8 @@ const APPROVE_LOG = [
   `${iso(400)} approval step of worktree run TASK-A stopped after 20s (prompt hook budget)`,
   `${iso(410)} approval step stopped after 20s (prompt hook budget)`,
   `${iso(420)} multi: 1 of 2 segments read as approvals, 1 approval record(s) written`,
+  `${iso(420)} multi: not recorded: push it: no open request`,
+  `${iso(430)} target=- kinds=plan rc=1 output: approval refused: none of the open requests`,
   `${iso(500)} target=TASK-OTHER kinds=plan rc=0 output: approval recorded: TASK-OTHER plan (tty)`,
 ].join('\n');
 
@@ -70,7 +73,7 @@ test('approve.log and status-block.log are counted per run and in total; ledger 
     'approvals: commit requested 1, granted 1; plan requested 1, granted 1; granted by source: prompt_capture 1, tty 1 (answered by the user 2)',
     '  approve.log: 2 approval steps (1 recorded, 1 not recorded; kinds commit 1, plan 1, push 1; records by source prompt_capture 1), stopped by the hook budget 1, first to last 4.7 min',
     '  status-block.log: 2 failed updates (merged 1, pr-opened 1), first to last 1.0 min; updates sent: not recorded (only a failed update is logged)',
-    'approve.log: 2 approval steps for these runs (1 recorded, 1 not recorded), stopped by the hook budget 2; lines that name no run: 1 stopped, 1 multi-segment reports',
+    'approve.log: 2 approval steps for these runs (1 recorded, 1 not recorded), stopped by the hook budget 2; lines that name no run: 1 approval step, 1 stopped, 1 multi-segment report',
     'status-block.log: 2 failed updates for these runs; updates sent: not recorded',
   ]) assert.ok(r.out.includes(want), `missing: ${want}\n${r.out}`);
   const j = JSON.parse(sb.pl(d, ['retro', 'TASK-A', '--json']).out);
@@ -78,7 +81,9 @@ test('approve.log and status-block.log are counted per run and in total; ledger 
   assert.deepEqual(a.approval_sources, { prompt_capture: 1, tty: 1 });
   assert.deepEqual(a.approve_log, { steps: 2, recorded: 1, not_recorded: 1, kinds: { commit: 1, plan: 1, push: 1 }, records_by_source: { prompt_capture: 1 }, stopped_by_hook_budget: 1, span_s: 280 });
   assert.deepEqual(a.status_block_log, { failed: 2, events: { merged: 1, 'pr-opened': 1 }, span_s: 60, sent: 'not recorded' });
-  assert.equal(j.logs.approve_lines, 6);
+  assert.equal(j.logs.approve_lines, 8);
+  assert.deepEqual(j.logs.approve_no_run, { steps: 1, stopped: 1, multi_reports: 1 }, 'a target=- step names no run; a multi continuation line is not a report');
+  assert.equal(j.logs.approve_other_lines, 0);
   assert.equal(j.logs.approve_steps, 2, 'the line of another run is not counted for TASK-A');
 });
 
@@ -104,6 +109,7 @@ test('a hostile log line cannot inject text: only fixed words and counts reach t
     `not-a-time target=TASK-A kinds=plan rc=0 output: ${TOK}`,
     `${iso(30)} \u001b[2J${TOK} /Users/someone/secret.txt`,
     `${iso(40)} multi: not recorded: ${TOK}`,
+    `${iso(45)} multi: ${TOK}`,
   ].join('\n'));
   put(d, '.agents/local/status-block.log', `${iso(50)} TASK-A ${TOK} password=${TOK} at /home/x\n${iso(60)} ${TOK}/../x merged boom\nplain garbage ${TOK}\n`);
   const o = sb.pl(d, ['retro', '--full']).out + sb.pl(d, ['retro', '--json']).out;
@@ -111,7 +117,7 @@ test('a hostile log line cannot inject text: only fixed words and counts reach t
     assert.ok(!o.includes(bad), `leaked: ${JSON.stringify(bad)}\n${o}`);
   assert.ok(o.includes('approve.log: 1 approval step (1 recorded, 0 not recorded; kinds other 1, plan 1; records by source other 2)'), o);
   assert.ok(o.includes('status-block.log: 1 failed update (other 1)'), o);
-  assert.ok(o.includes('approve.log: 3 lines not in a known form, not counted') && o.includes('status-block.log: 2 lines not in a known form, not counted'), o);
+  assert.ok(o.includes('approve.log: 4 lines not in a known form, not counted') && o.includes('status-block.log: 2 lines not in a known form, not counted'), o);
 });
 
 test('an approve.log that is not a plain file is listed under not read, never followed', () => {
@@ -120,4 +126,36 @@ test('an approve.log that is not a plain file is listed under not read, never fo
   const j = JSON.parse(sb.pl(d, ['retro', '--json']).out);
   assert.equal(j.logs.approve_log, 'not read');
   assert.ok(j.not_read.includes('approve.log: not-a-file'), j.not_read.join('\n'));
+});
+
+test('a huge hostile log is bounded: at most MAX_LOG_LINES lines are read, the rest are counted under not read, and the counts follow from the lines read', () => {
+  const d = project('huge');
+  const n = MAX_LOG_LINES + 5000;
+  const parts = [];
+  for (let i = 0; i < n; i++) parts.push(`${iso(i % 600)} target=TASK-A kinds=plan rc=0 output: approval recorded: TASK-A plan (tty) ${TOK}\n`);
+  put(d, '.agents/local/approve.log', parts.join(''));
+  put(d, '.agents/local/status-block.log', `${iso(1)} TASK-A merged x\n`.repeat(n));
+  const j = JSON.parse(sb.pl(d, ['retro', '--json']).out);
+  assert.equal(j.tasks[0].approve_log.steps, MAX_LOG_LINES);
+  assert.deepEqual(j.tasks[0].approve_log.records_by_source, { tty: MAX_LOG_LINES });
+  assert.equal(j.tasks[0].status_block_log.failed, MAX_LOG_LINES);
+  assert.ok(j.not_read.includes('approve.log: 5000 lines past the first 20000, not read') && j.not_read.includes('status-block.log: 5000 lines past the first 20000, not read'), j.not_read.join('\n'));
+  assert.ok(!JSON.stringify(j).includes('ghp_'));
+});
+
+test('an absurd duration (1e308, over a day) is not recorded, never Infinity', () => {
+  const d = project('absurd');
+  put(d, '.agents/local/metrics/records.jsonl', `${[
+    rec('step', 'TASK-A', 'reviewer', { focus: 'rules', gate: 'REVIEW_RULES', duration_s: 1e308 }),
+    rec('step', 'TASK-A', 'reviewer', { focus: 'rules', gate: 'REVIEW_RULES', duration_s: 1e308 }),
+    rec('step', 'TASK-A', 'qa', { gate: 'QA', duration_s: 86401 }),
+    rec('step', 'TASK-A', 'implementer', { duration_s: 1e308, tokens_total: 1e308 }),
+  ].join('\n')}\n`);
+  const t = sb.pl(d, ['retro', '--full']).out;
+  const j = JSON.parse(sb.pl(d, ['retro', '--json']).out).tasks[0];
+  assert.ok(!/Infinity|e\+/.test(t), t);
+  assert.deepEqual(j.gate_s, { QA: null, REVIEW_RULES: null, SECURITY: null });
+  assert.deepEqual(j.agent_s, {});
+  assert.equal(j.tokens_total, null);
+  assert.ok(t.includes('gate minutes (agent records): QA not recorded, REVIEW_RULES not recorded, SECURITY not recorded'), t);
 });
