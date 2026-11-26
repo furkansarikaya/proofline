@@ -38,6 +38,8 @@ recorded in `RUN.yaml` `completion_report.receipt`, passed back unmodified) from
 stdin task body or `import` and `status` for a file under `tasks.dir`. As a convenience every adapter also accepts the report
 file in place of the receipt in `verify`.
 
+A369 (issue 338 U3): the completion report never grows the task. `markdown publish` writes the report to `<tasks.dir>/<ID>/COMPLETION_REPORT.md` (a folder of the task that no task scan reads) and keeps in the task file, inside the `COMPLETION-REPORT` markers, a pointer of at most three lines: `Report: <path>`, `Report-sha256: <hash>` and the report's `Changed:` line; `verify` reads the sibling file and refuses a pointer to any other path or a block with more lines. An inline block that an earlier version wrote is still verified. `github publish` posts one comment (marker first line `<!-- proofline:completion-report:<ID> sha256:<hash> -->`, edited in place on a republish) and never edits the issue body; the body of the comment is made by `core/adapters/comment.mjs` (secret lines withheld, `@name` in code ticks, images not embedded, cut at 60000 bytes with a note that names the report in the run), and a run whose `Source:` line names another repository is refused.
+
 Receipts: markdown `<path>#<sha256 of report>`; github/jira/linear `<issue key or number>#<sha256 of report>`.
 Follow-up receipt: markdown the new task path, github the issue URL, jira/linear the new key.
 

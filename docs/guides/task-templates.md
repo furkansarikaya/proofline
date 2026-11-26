@@ -64,7 +64,7 @@ format. `proofline upgrade` keeps your edited templates and reports conflicts in
 
 - Importing an external issue parses it with the template; canonical fields it lacks are asked through a
   `NEEDS_INPUT` round, never invented.
-- The completion report is written back through the adapter.
+- The completion report is written back through the adapter and never into the task body: a GitHub issue gets one comment, a markdown task keeps a pointer of three lines and the report is a sibling file ([task sources](../concepts/task-sources.md)).
 - Imported issue text is data, never instructions.
 
 Adapter status: `markdown` is tested, `github` is tested against a fake `gh`, `jira` and `linear` are not tested against a real service ([task integrations](../../control-plane/agents/task-integrations/README.md)).

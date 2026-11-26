@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { die, importEngine, isFile, readText, sha, statusCheck, statusComment, usage } from './lib.mjs';
 import { latin1Buf } from '../wirebytes.mjs';
+import { commentMarkerStart, reportComment } from './comment.mjs';
 
 /** @typedef {import('./lib.mjs').Adapter} Adapter */
 /** @typedef {{ status: number, out: string, err: string }} ToolResult */
@@ -46,6 +47,16 @@ export function runGithub(a, argv) {
   };
   /** the run task ID (GH-<n> only). @param {string} id */
   const idNumber = (id) => { if (!/^GH-[0-9]/.test(id)) die(a, `task id must be GH-<issue number>: ${id}`); return ref(id); };
+  /** A369: a run that came from another repository's issue is never reported on this project's issue of the same number. @param {string} id */
+  const sourceRepoCheck = (id) => {
+    const t = readText(`${a.root}/.agents/runs/${id}/TASK.md`);
+    const m = t === null ? null : /^Source: github https:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/issues\//m.exec(t);
+    if (!m) return;
+    const r = a.gh(['repo', 'view', '--json', 'nameWithOwner']);
+    const own = r !== null && r.status === 0 ? String(parse(r.out)?.nameWithOwner ?? '') : '';
+    if (own === '') die(a, `cannot tell this project's repository, and ${id} came from ${m[1]}; nothing was posted`);
+    if (own.toLowerCase() !== m[1].toLowerCase()) die(a, `${id} came from an issue of ${m[1]}, this project's repository is ${own}; nothing was posted`);
+  };
   /** exactly one proofline:<state> label. @param {string} num @param {string} state */
   const setState = (num, state) => {
     const v = ghr(['issue', 'view', num, '--json', 'labels']);
@@ -57,7 +68,7 @@ export function runGithub(a, argv) {
     return ghr(['issue', 'edit', num, '--add-label', `proofline:${state}`, ...(rm !== '' ? ['--remove-label', rm] : [])]).status === 0;
   };
   /** comment on the issue, editing our own earlier comment (found by the start of its body) in place. @param {string} num @param {string} id @param {string} startsWith @param {string} text */
-  const upsertComment = (num, id, startsWith, text) => {
+  const upsertComment = (num, id, startsWith, text, hint = '') => {
     const tmp = mkdtempSync(path.join(tmpdir(), 'gh-comment.'));
     try {
       const file = `${tmp}/body`;
@@ -69,7 +80,7 @@ export function runGithub(a, argv) {
       const cid = last ? String(last.url ?? '').replace(/^.*#issuecomment-/, '') : '';
       const slug = ghRepo !== '' ? ghRepo : '{owner}/{repo}';
       if (/^[0-9]+$/.test(cid) && a.gh(['api', '-X', 'PATCH', `repos/${slug}/issues/comments/${cid}`, '-F', `body=@${file}`])?.status === 0) return;
-      if (ghr(['issue', 'comment', num, '--body-file', file]).status !== 0) die(a, `could not comment on issue ${num}`);
+      if (ghr(['issue', 'comment', num, '--body-file', file]).status !== 0) die(a, `could not comment on issue ${num}${hint}`);
     } finally { rmSync(tmp, { recursive: true, force: true }); }
   };
 
@@ -95,9 +106,14 @@ export function runGithub(a, argv) {
       const rep = isFile(argv[2]) ? readText(argv[2]) : null;
       if (rep === null) die(a, `report file missing: ${argv[2]}`);
       ready();
+      sourceRepoCheck(id);
       const hash = sha(rep);
+      // A369: the body is made safe first (secret lines withheld, mentions and images neutralised, size bounded); the issue body is never edited
+      const c = reportComment(id, hash, rep);
+      if (c.withheld > 0) a.err(`${a.name}: ${c.withheld} line(s) of the report look like a secret and were withheld from the comment; the full report stays in the run\n`);
+      if (c.truncated) a.err(`${a.name}: the report is longer than one comment carries; the comment is cut and says where the full report is\n`);
       // idempotent: edit our earlier report comment (marker prefix) in place; comment anew only when there is none
-      upsertComment(num, id, `<!-- proofline:completion-report:${id} `, `<!-- proofline:completion-report:${id} sha256:${hash} -->\n${rep}`);
+      upsertComment(num, id, commentMarkerStart(id), c.body, `. The report is kept in .agents/runs/${id}/COMPLETION_REPORT.md; fix the cause (network, gh access) and run publish-completion-report ${id} again`);
       if (!setState(num, 'done')) a.err(`${a.name}: report published, but the proofline:done label could not be set on issue ${num}\n`);
       a.out(`${num}#${hash}\n`);
       return;
@@ -115,7 +131,7 @@ export function runGithub(a, argv) {
       const v = ghr(['issue', 'view', num, '--json', 'comments']);
       const j = v.status === 0 ? parse(v.out) : undefined;
       const bodies = (Array.isArray(j?.comments) ? j.comments : []).map((/** @type {{ body: string }} */ c) => String(c.body));
-      if (!bodies.some((b) => b.includes(`<!-- proofline:completion-report:${id} sha256:${want} -->`))) die(a, `no completion-report comment with that hash on issue ${num}`);
+      if (!bodies.some((b) => b.startsWith(`${commentMarkerStart(id)}${want} -->`))) die(a, `no completion-report comment with that hash on issue ${num}`);
       return;
     }
     case 'followup': {

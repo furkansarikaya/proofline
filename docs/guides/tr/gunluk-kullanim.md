@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 641983ec435c2ff384c90e7e48f083254109c8be -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 2cdb0c199c68271698fdb03cf929754a7ac012bb -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -28,6 +28,7 @@ Control plane Node kodudur; `.agents/scripts/agent.sh` onu başlatan ince bir la
 | `proofline init`, `upgrade`, `doctor`, `version` | kurulum, güncelleme (senin değişikliklerini korur, çakışmaları raporlar), doğrulama, sürüm |
 | `proofline status`, `resume`, `queue` | ajan oturumu olmadan durum; `resume` duraklama veya runtime değişiminden sonra |
 | `proofline task [--grill] <metin>` | task dosyası yaz |
+| `proofline task --import <issue-url\|numara>` | önerilen: bir GitHub issue task olur; tamamlanma raporu issue'ya yorum olarak yazılır ([task kaynakları](../../concepts/task-sources.md)) |
 | `proofline run <TASK>` | tam workflow |
 | `proofline design system\|data\|api\|ui [--check]` | tasarım dokümanları; `--check` sapmayı raporlar |
 | `proofline design ui <mod> <hedef>` | tek bir UI hedefinde odaklı değişiklik, normal bir run olarak; modlar: `bolder quieter polish animate typeset colorize layout delight harden adapt`; mevcut design system'i korur ve yalnızca hedefe dokunur |

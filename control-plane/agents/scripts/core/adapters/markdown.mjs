@@ -100,6 +100,12 @@ function planBlock(plan) {
 /** The first line `# X` of a text, X. @param {string} t */
 function firstH1(t) { for (const l of t.split('\n')) if (l.startsWith('# ')) return l.slice(2); return ''; }
 
+/** A369: the block the task file keeps in place of the report (at most three lines, all derived from the report). @param {string} sibling @param {string} rep */
+function pointerText(sibling, rep) {
+  const changed = rep.split('\n').find((l) => l.startsWith('Changed: '));
+  return `Report: ${sibling}\nReport-sha256: ${sha(rep)}\n${changed !== undefined ? `${changed.slice(0, 300)}\n` : ''}`;
+}
+
 /** @param {string} t @param {string} line */
 const hasLine = (t, line) => t.split('\n').includes(line);
 
@@ -180,18 +186,23 @@ export function runMarkdown(a, argv) {
       const begin = `<!-- COMPLETION-REPORT:BEGIN:${id} -->`; const end = `<!-- COMPLETION-REPORT:END:${id} -->`;
       const tl = text.split('\n');
       if (tl.includes(begin) && !tl.includes(end)) die(a, `${p} has ${begin} but no ${end}; refusing to publish (it would truncate the file); restore the end marker`);
+      // A369: the report is a sibling file in the task's own folder; the task file keeps a pointer of a few lines (inside the block the contract hash leaves out)
+      const sibling = `${tdir}/${id}/COMPLETION_REPORT.md`;
+      mkdirSync(`${root}/${fsPath(tdir)}/${id}`, { recursive: true });
+      writeFileSync(`${root}/${fsPath(sibling)}`, latin1Buf(rep));
+      const pointer = pointerText(sibling, rep);
       let result;
       if (tl.includes(begin)) {
         /** @type {string[]} */ const o = [];
         let skip = false;
         for (const l of lines(text)) {
-          if (l === begin) { o.push(l, ...lines(rep)); skip = true; continue; }
+          if (l === begin) { o.push(l, ...lines(pointer)); skip = true; continue; }
           if (l === end) { o.push(l); skip = false; continue; }
           if (skip) continue;
           o.push(l);
         }
         result = joinLines(o);
-      } else result = `${text}\n## Completion Report\n\n${begin}\n${rep}${end}\n`;
+      } else result = `${text}\n## Completion Report\n\n${begin}\n${pointer}${end}\n`;
       writeFileSync(target, latin1Buf(result));
       a.out(`${p}#${sha(rep)}\n`);
       return;
@@ -214,6 +225,16 @@ export function runMarkdown(a, argv) {
       /** @type {string[]} */ const inner = [];
       let inside = false;
       for (const l of lines(text)) { if (l === begin) { inside = true; continue; } if (l === end) { inside = false; continue; } if (inside) inner.push(l); }
+      const ptr = inner.length > 0 && inner[0].startsWith('Report: ') ? inner[0].slice(8) : '';
+      if (ptr !== '') {
+        // A369: the pointer is data; only the task's own sibling file is read, and its bytes are the report the receipt names
+        if (ptr !== `${tdir}/${id}/COMPLETION_REPORT.md`) die(a, `the completion-report pointer in ${p} does not name this task's report file`);
+        const sib = `${root}/${fsPath(ptr)}`;
+        const body = isFile(sib) ? readText(sib) : null;
+        if (body === null) die(a, `completion-report file missing: ${ptr}`);
+        if (sha(body) !== want || joinLines(inner) !== pointerText(ptr, body)) die(a, `completion-report content in ${ptr} no longer matches the published receipt`);
+        return;
+      }
       if (sha(joinLines(inner)) !== want) die(a, `completion-report content in ${p} no longer matches the published receipt`);
       return;
     }

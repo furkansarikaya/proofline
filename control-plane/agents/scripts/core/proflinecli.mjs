@@ -297,8 +297,17 @@ class Cli {
   cmdTask(args) {
     this.requireInstalled();
     let grill = ''; let rest = args;
+    if (args[0] === '--import') {
+      // A369: a GitHub issue is the recommended task source; the reference is checked here because it goes into the line the user pastes into the agent session
+      const ref = args[1] ?? '';
+      if (args.length !== 2 || !/^(#?[0-9]{1,9}|GH-[0-9]{1,9}|https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/issues\/[0-9]{1,9}|[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]{1,9})$/.test(ref)) throw this.die('usage: proofline task --import <issue-url|number>  (N, #N, GH-N, a github.com issue URL or owner/repo#N)');
+      this.say('GitHub issue as the task source: the issue is read (never changed) and written as a canonical task; its completion report is posted later as ONE comment on the issue, not into the issue body or a task file.');
+      if (this.cfgVal('tasks.adapter', 'markdown') !== 'github') this.say('tasks.adapter is not github: set `tasks.adapter: github` in .agents/config.yaml (or `proofline init --task-adapter github`) so the report goes to the issue; gh must be installed and logged in (gh auth login).');
+      this.hint(['task', `--import ${ref}`]);
+      return 0;
+    }
     if (args[0] === '--grill') { grill = '--grill '; rest = args.slice(1); }
-    if (rest.length === 0) throw this.die('usage: proofline task [--grill] <text>');
+    if (rest.length === 0) throw this.die('usage: proofline task [--grill] <text> | proofline task --import <issue-url|number>');
     this.say(`task file goes to ${this.cfgVal('tasks.dir', '.agents/tasks')}/ through the ${this.cfgVal('tasks.adapter', 'markdown')} adapter; no run starts.`);
     this.hint(['task', `${grill}${rest.join(' ')}`]);
     return 0;

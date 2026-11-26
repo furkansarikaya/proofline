@@ -45,6 +45,8 @@ export const USAGE_LINES = Object.freeze([
   "",
   "agent session (prints the exact instruction for your runtime)",
   "  task [--grill] <text>   write a task file (grill the intent first with --grill)",
+  "                            recommended task source: proofline task --import <issue-url|number> (a GitHub issue; its",
+  "                            completion report is posted as one comment on the issue, never into the task)",
   "  design system|data|api|ui [--check]",
   "  (design documents: design_docs.design in .agents/config.yaml is one path, or one document per UI surface; see docs/concepts/design-surfaces.md)",
   "  design ui <mode> <target>  focused UI change of one target, as a normal run; mode: bolder quieter polish animate typeset",

@@ -26,6 +26,7 @@ The control plane is Node code; `.agents/scripts/agent.sh` is a thin launcher th
 | `proofline init`, `upgrade`, `doctor`, `version` | install, update (keeps your edits, reports conflicts), verify, version |
 | `proofline status`, `resume`, `queue` | state without an agent session; `resume` after a pause or runtime switch |
 | `proofline task [--grill] <text>` | write a task file |
+| `proofline task --import <issue-url\|number>` | recommended: a GitHub issue becomes the task; the completion report is posted as a comment on the issue ([task sources](../concepts/task-sources.md)) |
 | `proofline run <TASK>` | full workflow |
 | `proofline design system\|data\|api\|ui [--check]` | design documents; `--check` reports drift |
 | `proofline design ui <mode> <target>` | focused change of one UI target as a normal run; modes: `bolder quieter polish animate typeset colorize layout delight harden adapt`; it keeps the existing design system and touches only the target |

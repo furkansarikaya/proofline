@@ -560,7 +560,11 @@ export function verifyCompletionReport(ctx, id) {
       const t = fileText(ctx, localTaskSource(ctx, dir));
       const b = `<!-- COMPLETION-REPORT:BEGIN:${id} -->`; const e = `<!-- COMPLETION-REPORT:END:${id} -->`;
       if (t !== null && t.includes(b) && t.includes(e)) {
-        const copy = completionAudit(ctx, id, records(t.slice(t.indexOf(b) + b.length, t.indexOf(e))));
+        // A369: a pointer block names the sibling report file of the task; that file is the copy to read
+        const inner = t.slice(t.indexOf(b) + b.length, t.indexOf(e));
+        const ptr = /^\nReport: ([^\n]+)\n/.exec(inner)?.[1] ?? '';
+        const sib = ptr === `${ctx.config().get('tasks.dir', '.agents/tasks')}/${id}/COMPLETION_REPORT.md` ? fileText(ctx, `${ctx.root}/${ptr}`) : null;
+        const copy = completionAudit(ctx, id, records(sib ?? inner));
         if (copy !== '') fail(copy);
       }
     }

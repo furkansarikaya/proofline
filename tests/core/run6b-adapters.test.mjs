@@ -116,7 +116,8 @@ test('markdown publish and verify: block markers, idempotent, receipt, tamper de
   const rcpt = p.out.trim();
   assert.ok(rcpt.startsWith(`${f}#`));
   const t = read(`${root}/${f}`);
-  for (const s of ['<!-- COMPLETION-REPORT:BEGIN:T-1 -->', '<!-- COMPLETION-REPORT:END:T-1 -->', '## Implementation Summary']) assert.ok(t.includes(s));
+  for (const s of ['<!-- COMPLETION-REPORT:BEGIN:T-1 -->', '<!-- COMPLETION-REPORT:END:T-1 -->', 'Report: .agents/tasks/T-1/COMPLETION_REPORT.md']) assert.ok(t.includes(s)); // A369: a pointer, the report is a sibling file
+  assert.ok(read(`${root}/.agents/tasks/T-1/COMPLETION_REPORT.md`).includes('## Implementation Summary'));
   assert.equal((await md(['verify', 'T-1', rcpt])).code, 0);
   const after1 = read(`${root}/${f}`);
   assert.equal((await md(['publish', 'T-1', `${root}/rep.md`])).out.trim(), rcpt);
@@ -136,7 +137,7 @@ test('markdown publish and verify: block markers, idempotent, receipt, tamper de
   assert.equal((await md(['verify', 'T-1', rcpt])).code, 1, 'verify passed against a stale receipt');
   const rc2 = (await md(['publish', 'T-1', `${root}/rep.md`])).out.trim();
   assert.equal((await md(['verify', 'T-1', `${root}/rep.md`])).code, 0, 'a report file in place of the receipt');
-  writeFileSync(`${root}/${f}`, read(`${root}/${f}`).replace('\ndone\n', '\ntampered\n'));
+  writeFileSync(`${root}/.agents/tasks/T-1/COMPLETION_REPORT.md`, read(`${root}/.agents/tasks/T-1/COMPLETION_REPORT.md`).replace('\ndone\n', '\ntampered\n'));
   assert.equal((await md(['verify', 'T-1', rc2])).code, 1);
   assert.equal((await md(['verify', 'T-1', `${rc2.replace(/#.*/, '')}#0000`])).code, 1);
   assert.equal((await md(['verify', 'T-1', 'no-hash'])).code, 1);
