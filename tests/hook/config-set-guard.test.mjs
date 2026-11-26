@@ -78,8 +78,11 @@ const WRAPPED = (/** @type {string} */ k, /** @type {string} */ v) => [
 const READS = ['proofline config', 'proofline config codex.sandbox.network', 'bin/proofline config commands.test', '/opt/p/bin/proofline config git.push_requires_approval', ' proofline config output_cap_bytes '];
 /** commands that do not name both words as words: never this rule's business */
 const OTHERS = ['proofline status', 'proofline doctor --config', 'git config user.name', 'cat .git/config && proofline status', 'cat .agents/config.yaml', 'ls /work/proofline/ && git config -l', 'grep -rn configuration docs', 'cat proofline-config.md',
-  'ls *', 'rm -rf tmp/*', 'cat docs/*.md', 'ls {a,b}/x', 'echo ?????????', 'ls * *', 'git status', 'env -i PATH=/bin ls'];
-const DENIED = /names proofline and config/;
+  'ls *', 'rm -rf tmp/*', 'cat docs/*.md', 'ls {a,b}/x', 'echo ?????????', 'ls * *', 'git status', 'env -i PATH=/bin ls',
+  // CI round: the operand-rule spellings of tests/enforcement/guards.test.mjs (`pro*.mjs` cannot spell `proofline`; `{}` is no brace expansion) are not this rule's business
+  'ls .agents/scripts/pro*.mjs | xargs node {} debt page', "find .agents/scripts -name 'pro*.mjs' -exec node {} debt page \\;", 'cd .agents; cd scripts; node pro*.mjs debt page',
+  'D=.agents; node $D/scripts/pro*.mjs debt page', 'command node pro*.mjs', 'echo {} {x} {', '[ -f x ] && ls', 'ls proofline-*.md conf*.yaml'];
+const DENIED = /names proofline (and|or) config/;
 
 test('configCommandVerdict: every set spelling is refused for a specialist and for the lead; the plain reads and agent-key sets pass; other commands are not judged', () => {
   for (const c of SPELLINGS('codex.sandbox.network', 'on')) {

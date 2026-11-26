@@ -78,7 +78,9 @@ export function unknownKeyWarnings(lines, messages) {
     const k = baseKey(l.slice(0, l.indexOf('=')));
     if (seen.has(k) || knownKey(k)) continue;
     seen.add(k);
-    if (messages.some((m) => m.includes(k) || m === `unknown top-level key: ${top(k)}`)) continue;
+    // already an error: the message names the key, its top-level block, or one of its names (`invalid risk signal name: Bad Name` for risk.Bad Name.check)
+    const segs = k.split('.').slice(1).filter((s) => s.length >= 3);
+    if (messages.some((m) => m.includes(k) || m === `unknown top-level key: ${top(k)}` || segs.some((s) => m.endsWith(`: ${s}`) || m.includes(`: ${s} `)))) continue;
     out.push(`warning: unknown config key ${k} (closest known key: ${closestKey(k)}); proofline ignores it`);
   }
   return out;

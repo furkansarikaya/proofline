@@ -225,6 +225,9 @@ test('unknownKeyWarnings: a typo is named with the closest key; known keys, open
     'warning: unknown config key review.max_fix_round (closest known key: review.max_fix_rounds); proofline ignores it',
   ]);
   assert.deepEqual(unknownKeyWarnings(DEF, []), []);
+  // CI round (the recorded config-check of stage 1): a key whose name config-check already rejects gets no second line
+  assert.deepEqual(unknownKeyWarnings(configLines('risk:\n  Bad Name:\n    check: config\n'), ['invalid risk signal name: Bad Name']), []);
+  assert.equal(unknownKeyWarnings(configLines('risk:\n  Bad Name:\n    check: config\n'), []).length, 2);
 });
 
 test('config-check: an unknown key warns on standard error and the check still passes; with an error the warning is listed after it', () => {

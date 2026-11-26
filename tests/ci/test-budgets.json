@@ -1009,7 +1009,7 @@
       "suite_ms": 95000
     },
     "tests/hook/config-set-guard.test.mjs": {
-      "test_ms": 6000,
+      "test_ms": 4500,
       "suite_ms": 15000
     },
     "tests/hook/fscase.test.mjs": {

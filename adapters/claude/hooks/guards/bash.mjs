@@ -115,45 +115,57 @@ const PTY_WRAPPERS = Object.freeze(['script', 'unbuffer', 'expect', 'socat', 'pt
 const PTY_WORD = new RegExp(`(^|[^A-Za-z0-9_-])(${PTY_WRAPPERS.map((w) => w.replace(/-/g, '\\-')).join('|')})([^A-Za-z0-9_-]|$)`, 'i');
 const ENV_CLEAR = /(^|[^A-Za-z0-9_.-])env(\s+\S+)*?\s+(-[A-Za-z]*i[A-Za-z]*|--ignore-environment|-)(\s|$)/;
 /**
- * A376 round 2: the words a shell word holding a brace group becomes (`{a,b}x` -> `ax bx`), at most 256; a sequence (`{a..z}`), an unmatched brace or more results than the bound
- * leave `*` in place of the group (fail closed: `*` matches either name). @param {string} w @returns {string[]}
+ * A376 round 2: the words a shell word holding a brace group becomes (`{a,b}x` -> `ax bx`), at most 256. Only what the shell expands is expanded: a group with a top-level comma,
+ * and a sequence (`{a..z}`, which leaves `*`: fail closed); `{}`, `{x}` and an unmatched brace stay literal, as in the shell (CI round: `xargs node {}` is no pattern). More results
+ * than the bound leave `*` for every brace and comma. @param {string} w @returns {string[]}
  */
 function braceWords(w) {
+  /** @param {string} s @returns {{ open: number, close: number, commas: number[], seq: boolean } | null} the first group the shell would expand */
+  const group = (s) => {
+    for (let o = s.indexOf('{'); o >= 0; o = s.indexOf('{', o + 1)) {
+      let depth = 0; /** @type {number[]} */ const commas = [];
+      for (let i = o; i < s.length; i++) {
+        if (s[i] === '{') depth++;
+        else if (s[i] === '}') { depth--; if (depth === 0) { const body = s.slice(o + 1, i); if (commas.length > 0 || /^[^{}]*\.\.[^{}]*$/.test(body)) return { open: o, close: i, commas, seq: commas.length === 0 }; break; } }
+        else if (s[i] === ',' && depth === 1) commas.push(i);
+      }
+    }
+    return null;
+  };
   /** @type {string[]} */ let out = [w];
   for (let round = 0; round < 32; round++) {
     /** @type {string[]} */ const next = []; let changed = false;
     for (const s of out) {
-      let depth = 0; let open = -1; let close = -1; const commas = [];
-      for (let i = 0; i < s.length && close < 0; i++) {
-        if (s[i] === '{') { if (depth === 0) { open = i; commas.length = 0; } depth++; } else if (s[i] === '}' && depth > 0) { depth--; if (depth === 0) close = i; } else if (s[i] === ',' && depth === 1) commas.push(i);
-      }
-      if (open < 0 || close < 0) { next.push(s); continue; }
+      const g = group(s);
+      if (g === null) { next.push(s); continue; }
       changed = true;
-      const pre = s.slice(0, open); const post = s.slice(close + 1);
-      if (commas.length === 0) { next.push(`${pre}*${post}`); continue; }
-      let from = open + 1;
-      for (const c of [...commas, close]) { next.push(`${pre}${s.slice(from, c)}${post}`); from = c + 1; }
+      const pre = s.slice(0, g.open); const post = s.slice(g.close + 1);
+      if (g.seq) { next.push(`${pre}*${post}`); continue; }
+      let from = g.open + 1;
+      for (const c of [...g.commas, g.close]) { next.push(`${pre}${s.slice(from, c)}${post}`); from = c + 1; }
     }
-    out = next.length > 256 ? [w.replace(/[{},]/g, '*')] : next;
-    if (!changed || next.length > 256) break;
+    if (next.length > 256) return [w.replace(/[{},]/g, '*')];
+    out = next;
+    if (!changed) break;
   }
-  return out.map((s) => s.replace(/[{}]/g, '*'));
+  return out;
 }
 
 /**
- * A376 round 2: could the shell word W (one that holds a glob or brace character `* ? [ ] { }`) become `proofline` (the whole word or a path component, also `proofline.mjs`) or
- * `config` (the whole word) once the shell expands it? Over-approximated on purpose (fail closed): a bracket class becomes `?`; a pattern the regular expression cannot be built
- * from names both. `bare` says that the match came only from wildcards (no letter or digit in the part that matched), as in `ls *`.
+ * A376 round 2: could the shell word W (one that holds a glob or brace character `* ? [ ] { }`) become `proofline` (the whole word or a path component; the CLI is `bin/proofline`,
+ * there is no `proofline.mjs` to glob for) or `config` (the whole word) once the shell expands it? The pattern must be able to spell the whole word: its literal characters stay
+ * literal, `*` is any run and `?` and a bracket class any one character (over-approximated, fail closed); an unmatched bracket or brace is literal, as in the shell. A pattern the
+ * regular expression cannot be built from names both. `bare` says that the match came only from wildcards (no letter or digit in the part that matched), as in `ls *`.
  * @param {string} w @returns {Array<{ pl: boolean, cfg: boolean, bare: boolean, word: string }>} one entry per word the braces make
  */
 function globNames(w) {
   if (!/[*?[\]{}]/.test(w)) return [];
   return braceWords(w).map((b) => {
-    const g = b.replace(/\[!?\]?[^\]]*\]/g, '?').replace(/[[\]]/g, '*');
+    const g = b.replace(/\[!?\]?[^\]]*\]/g, '?');
     /** @param {string} part */
-    const rx = (part) => new RegExp(`^${part.replace(/[.+^$()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
+    const rx = (part) => new RegExp(`^${part.replace(/[.+^$()|\\{}[\]]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
     const test = (/** @type {string} */ part, /** @type {string[]} */ names) => { try { const r = rx(part); return names.some((x) => r.test(x)); } catch { return true; } };
-    const plParts = g.split('/').filter((p) => p !== '' && test(p, ['proofline', 'proofline.mjs']));
+    const plParts = g.split('/').filter((p) => p !== '' && test(p, ['proofline']));
     const pl = plParts.length > 0 || test(g, ['proofline']);
     const cfg = test(g, ['config']);
     const bare = !/[A-Za-z0-9]/.test(plParts.join('') + (cfg ? g : ''));
