@@ -12,6 +12,7 @@ import { AdapterExit } from '../../control-plane/agents/scripts/core/adapters/li
 import { runGithub } from '../../control-plane/agents/scripts/core/adapters/github.mjs';
 import { runMarkdown } from '../../control-plane/agents/scripts/core/adapters/markdown.mjs';
 import { reportComment, COMMENT_LIMIT } from '../../control-plane/agents/scripts/core/adapters/comment.mjs';
+import { restoreSibling } from '../../control-plane/agents/scripts/core/complreport.mjs';
 import { repo } from './helpers.mjs';
 
 const CP = path.join(repo, 'control-plane/agents');
@@ -170,6 +171,12 @@ test('mentions: every `@name` that GitHub could take is broken, wherever it stan
   for (const input of ['a.@v1', 'x-@v2', 'path/@v3', '\\@v4', '@@v6', '`@v5', '<div>\n```\n@v9', '@org/team', 'plain @octocat here', '[@link text](https://x)', '<a title="@attr">x</a>', '(@x)', '"@y"', '@-@v7', '@a@b', 'line\n@start', '> @quoted', '- @item', '| @cell |', '```\n@infence\n```', '`@span`', 'é@v8']) {
     assert.equal(mentions(body(input)), 0, `${JSON.stringify(input)} -> ${JSON.stringify(body(input))}`);
   }
+  // a character reference that decodes to `@` reaches GitHub's filter as a real `@`: none of the spellings may parse as a reference any more
+  for (const ent of ['&#64;', '&#x40;', '&#X40;', '&#0064;', '&#x0040;', '&#64', '&#x40', '&commat;', '&COMMAT;', '&amp;#64;']) {
+    const out = body(`hi ${ent}victim and (${ent}v2)`);
+    assert.ok(!/&(#|commat)/i.test(out.replace(/&amp;#64;/g, '')) || ent === '&amp;#64;', `${ent} -> ${JSON.stringify(out)}`);
+  }
+  assert.ok(body('&lt;b&gt; &amp; &quot;x&quot;').includes('&lt;b&gt; &amp; &quot;x&quot;'), 'an ordinary entity was changed');
   assert.ok(body('a@b.c').includes('a@b.c'), 'an address was changed');
   assert.ok(body('@octocat').includes(`@${Z}octocat`));
   assert.ok(body('＠name').includes('＠name'));
@@ -241,4 +248,59 @@ test('markdown publish: a symbolic link on the way is refused; an inline report 
   write(`${root}/.agents/runs/T-4/RUN.yaml`, 'task_source:\n  type: local_markdown\n  path: .agents/tasks/done/T-4-old.md\n  revision: x\n');
   const h = createHash('sha256').update(rep).digest('hex');
   assert.equal((await md(['verify', 'T-4', `.agents/tasks/done/T-4-old.md#${h}`])).code, 0);
+});
+
+test('github: the comment author must be the very login `gh api user` reports (a [bot] suffix included); an unknown viewer publishes nothing', async () => {
+  const { root, run } = setup('github adapter');
+  const { st, gh } = fakeGh();
+  write(`${root}/rep.md`, '# R\nbody\n');
+  const asLogin = (/** @type {string | null} */ login) => (/** @type {string[]} */ args) => (args[0] === 'api' && args[1] === 'user' ? (login === null ? { status: 1, out: '', err: 'HTTP 403' } : { status: 0, out: JSON.stringify({ login }), err: '' }) : gh(args));
+  const gha = (/** @type {(a: string[]) => any} */ g, /** @type {string[]} */ argv) => run((a, v) => runGithub({ ...a, gh: g }, v), argv);
+  const none = await gha(asLogin(null), ['publish', 'GH-42', `${root}/rep.md`]);
+  assert.equal(none.code, 1);
+  assert.ok(none.err.includes('nothing was posted'), none.err);
+  assert.equal(st.comments.length, 0);
+  const bot = asLogin('app[bot]');
+  const rc = (await gha(bot, ['publish', 'GH-42', `${root}/rep.md`])).out.trim();
+  st.comments[0].author = { login: 'app[bot]' };
+  assert.equal((await gha(bot, ['verify', 'GH-42', rc])).code, 0);
+  st.comments[0].author = { login: 'app' };
+  assert.equal((await gha(bot, ['verify', 'GH-42', rc])).code, 1, 'a login without the [bot] suffix matched');
+  assert.equal((await gha(asLogin(null), ['verify', 'GH-42', rc])).code, 1, 'an unknown viewer accepted a comment');
+});
+
+test('restoreSibling: the old bytes come back, a new file goes, the folder the publish made goes when empty and stays when not', () => {
+  const root = tempDir('u3-rs-');
+  const dir = `${root}/.agents/tasks/T-9`;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(`${dir}/COMPLETION_REPORT.md`, 'new');
+  restoreSibling(`${dir}/COMPLETION_REPORT.md`, null, false);
+  assert.ok(!existsSync(dir), 'the folder the publish made stayed');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(`${dir}/COMPLETION_REPORT.md`, 'new'); writeFileSync(`${dir}/other.md`, 'x');
+  restoreSibling(`${dir}/COMPLETION_REPORT.md`, null, false);
+  assert.ok(existsSync(`${dir}/other.md`) && !existsSync(`${dir}/COMPLETION_REPORT.md`), 'a folder with another file was removed');
+  writeFileSync(`${dir}/COMPLETION_REPORT.md`, 'new');
+  restoreSibling(`${dir}/COMPLETION_REPORT.md`, Buffer.from('old'), true);
+  assert.equal(read(`${dir}/COMPLETION_REPORT.md`), 'old');
+});
+
+test('secret scan of the joined text: a token split by a hyphen, a trailing backslash, <br> or &nbsp; is refused; an upper-case heading is not', async () => {
+  const { root, run } = setup('github adapter');
+  const { gh } = fakeGh();
+  const gha = (/** @type {string[]} */ argv) => run((a, v) => runGithub({ ...a, gh }, v), argv);
+  const tok = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+  const cases = {
+    hyphen: `# R\n${tok.slice(0, 15)}-\n${tok.slice(15)}\n`,
+    backslash: `# R\n${tok.slice(0, 15)}\\\n${tok.slice(15)}\n`,
+    br: `# R\n${tok.slice(0, 15)}<br>${tok.slice(15)}\n`,
+    nbsp: `# R\n${tok.slice(0, 15)}&nbsp;${tok.slice(15)}\n`,
+    awsSplit: '# R\nAKIAABCDEFGH\n12345678\n',
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    write(`${root}/s.md`, text);
+    assert.equal((await gha(['publish', 'GH-42', `${root}/s.md`])).code, 1, `${name}: published`);
+  }
+  write(`${root}/ok.md`, '# R\nASIA PACIFIC TRADE ZONES AND ACCA ORGANISATION REPORT\n\nplain words - and more words\\\nnext\n');
+  assert.equal((await gha(['publish', 'GH-42', `${root}/ok.md`])).code, 0, 'an upper-case heading was refused');
 });

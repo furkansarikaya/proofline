@@ -59,6 +59,8 @@ Fill each section's placeholder from `TASK.md` (acceptance criteria keep their `
 
 ## Import
 
+A GitHub issue is the recommended task source (`proofline task --import <issue-url|number>`): suggest it when the user has the work in an issue, and say that the completion report will be one comment on the issue, never part of the task.
+
 1. Resolve the template for the target.
 2. `validate-task.mjs --import <issue-file> --template <template>` maps the issue's headings (`#`, `h2.`, `*bold*` forms are tolerated, case-insensitive) to fields and prints JSON `{fields, custom, missing}`. Exit 1 when `missing` is non-empty.
 3. Build `TASK.md` from `fields`; custom sections are kept as extra `##` sections after the canonical ones. Rewrite free text into criteria form only when the meaning is unchanged; a criterion that cannot be made observable without guessing is a question.

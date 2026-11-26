@@ -16,7 +16,7 @@ export const commentMarkerStart = (id) => `<!-- proofline:completion-report:${id
 
 // GitHub's mention filter needs only a non-word character (or the start) before `@` and a name character after it, wherever the text is (a link text, an HTML
 // attribute, a code span, a fence). Every such `@` gets a zero-width space after it: the text no longer matches the filter whatever the Markdown around it
-// means, and an entity or a backslash would still decode to a real `@` first. A byte of 0x80 or more before it counts as a word character of another
+// means, and an entity or a backslash would still decode to a real `@` first: every `&#` and `&commat` gets the same space after the `&`, so no reference to `@` parses. A byte of 0x80 or more before it counts as a word character of another
 // script that the filter may take, so it is broken too. An address `a@b.c` (a word character before the `@`) is left.
 const MENTION = /(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9_-])/g;
 const ZWSP = '\xe2\x80\x8b'; // U+200B as the UTF-8 bytes of a byte string
@@ -26,6 +26,7 @@ const REMOTE_TAG = /<(\/?)(img|image|picture|source|video|audio|iframe|embed|obj
 function neutralise(line) {
   return line
     .replace(MENTION, `$1@${ZWSP}`)
+    .replace(/&(?=#|commat)/gi, `&${ZWSP}`) // a character reference that decodes to `@` (&#64; &#x40; &#0064; &#X40; &#64 &commat;) would reach the mention filter as a real `@`
     .replace(/!\[/g, '!\\[')
     .replace(REMOTE_TAG, '&lt;$1$2')
     .replace(/^( {0,3})\[([^\]\n]+)\]:/, '$1\\[$2]:'); // a reference definition (`[b]: http://...`) is text, an ordinary inline link stays

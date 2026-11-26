@@ -2,7 +2,8 @@
 // Stage 4, package 4C: `publish-completion-report` and `verify-completion-report` with everything only they used in agent.sh 0.0.47 (the structure
 // checks, the claims-against-records check, the summary block, the Execution table, the Facts block). The task adapter's `publish` and `verify`
 // operations stay shell code (stage 7) and run as clean children. Messages, the order of the checks and the bytes of the report are those of the shell.
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { fail, ProoflineError } from './errors.mjs';
 import { requireLead } from './approve.mjs';
 import { verifySeal } from './ledger.mjs';
@@ -464,6 +465,18 @@ function prepare(ctx, id, dir, report) {
   return { ...claims, factsHash: sha256(facts) };
 }
 
+/**
+ * A369: put the sibling report file of a markdown task back as it was before a refused publish: its old bytes, or removed, and the task's folder removed again when the publish made it and it is empty.
+ * @param {string} file @param {Buffer | null} before @param {boolean} dirExisted
+ */
+export function restoreSibling(file, before, dirExisted) {
+  try {
+    if (before !== null) writeFileSync(file, before);
+    else if (lstatSync(file).isFile()) rmSync(file);
+  } catch { /* nothing there */ }
+  if (!dirExisted) { try { rmdirSync(dirname(file)); } catch { /* not empty or gone */ } }
+}
+
 /** `publish_completion_report ID [ADAPTER]` @param {Context} ctx @param {string} id @param {string} given */
 export function publishCompletionReport(ctx, id, given) {
   const adapter = given !== '' ? given : ctx.config().get('tasks.adapter', 'markdown');
@@ -500,13 +513,11 @@ export function publishCompletionReport(ctx, id, given) {
   } catch (e) { restoreReport(); throw e; } // A341: every refusal before the adapter runs leaves the report as it was
   // A369: the sibling report file of a markdown task is put back (or removed) with the rest when the publish is refused
   const sibling = `${ctx.root}/${ctx.config().get('tasks.dir', '.agents/tasks')}/${id}/COMPLETION_REPORT.md`;
+  const siblingDirExisted = existsSync(dirname(sibling));
   /** @type {Buffer | null} */ let siblingBefore = null;
   try { siblingBefore = lstatSync(sibling).isFile() ? readFileSync(sibling) : null; } catch { siblingBefore = null; }
   const restore = () => {
-    try {
-      if (siblingBefore !== null) writeFileSync(sibling, siblingBefore);
-      else if (lstatSync(sibling).isFile()) rmSync(sibling);
-    } catch { /* nothing there */ }
+    restoreSibling(sibling, siblingBefore, siblingDirExisted);
     if (original !== null) writeFileSync(report, original); // A341: a publish the adapter refuses leaves the report as it was before the checks
     if (backup === null) { ctx.forget('file:'); return; }
     writeFileSync(backup.file, backup.data);

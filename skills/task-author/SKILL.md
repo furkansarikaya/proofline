@@ -38,8 +38,6 @@ Output is the canonical `TASK.md`. It is the contract that planning, QA and veri
 | export | an existing `TASK.md` and a target | the issue text in the target's template (`<target>.md` next to `TASK.md`) |
 | split | a PRD (`<product.dir>/<slug>/PRD.md`, written by `product-spec`) | one `TASK.md` per deliverable, each criterion linked to the requirements it satisfies ([From a PRD](#from-a-prd)) |
 
-A GitHub issue is the recommended task source (`proofline task --import <issue-url|number>`); suggest it when the user has the work in an issue, and say that the completion report will be one comment on the issue, never part of the task.
-
 Interactive session: the lead applies this skill and intent-grill itself (standalone), talking to the user directly. Team mode (a dispatched `task_author`) is for headless use (`dispatch.sh`) and imports that need no questions.
 
 Targets: `markdown` (default), `github`, `jira`, `linear` (the last two follow the template contract, untested against live trackers).
