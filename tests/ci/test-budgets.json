@@ -372,6 +372,10 @@
       "test_ms": 2000,
       "suite_ms": 10000
     },
+    "tests/core/config-command.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 30000
+    },
     "tests/core/config.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
@@ -1003,6 +1007,10 @@
     "tests/hook/case-world.test.mjs": {
       "test_ms": 40000,
       "suite_ms": 95000
+    },
+    "tests/hook/config-set-guard.test.mjs": {
+      "test_ms": 4500,
+      "suite_ms": 15000
     },
     "tests/hook/fscase.test.mjs": {
       "test_ms": 8500,

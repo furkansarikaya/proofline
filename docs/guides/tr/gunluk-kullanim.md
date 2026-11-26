@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 7e926f4b73ceac1e459ae1c147aa04c0728b2c8c -->
+<!-- translated-from: docs/guides/daily-use.md; blob: a3c09263e645f58fdaaa3352d629df69d6ad3490 -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -46,6 +46,7 @@ Control plane Node kodudur; `.agents/scripts/agent.sh` onu başlatan ince bir la
 | `proofline insights [--run ID] [--json]` | salt okunur rapor: run, rol ve model bazında maliyet (token sadece runtime bildirdiyse), rol ve run bazında tool çağrıları ve tekrar eden başarısızlıklar, öneriler; hiçbir şeyi değiştirmez |
 | `proofline retro [<batch-id\|run-id>] [--since YYYY-MM-DD] [--json] [--full]` | biten run'ların salt okunur raporu: ledger'ları (canlı ve run arşivlerinin içinden), metrik kayıtlarını ve batch dosyalarını süreç içinde okur; süre, token, fix round, gate yeniden çalıştırmaları, kullanıcı beklemeleri, hook reddi, devam ettirilen run'lar ve okuyamadığı kaynaklar; puan ve hüküm yok, hiçbir şeyi değiştirmez |
 | `proofline doctor --config` | değiştirmen beklenen az sayıdaki ayarı salt okunur listeler: şimdiki değer, gönderilen varsayılan ve anlamı ([configuration](../../concepts/configuration.md)) |
+| `proofline config [<key> [<value>]]` | ayarlarını listeler, birini gösterir ya da terminalinde birini değiştirir; yorumlar ve diğer anahtarlar olduğu gibi kalır, tür kontrol edilir; bir agent yalnızca `output_cap_bytes`, `tasks.status_block_seconds` ve `timeouts.warn_percent` ayarlayabilir ([configuration](../../concepts/configuration.md)) |
 | `proofline doctor --scale`, `--apply-scale` | bu makineyi ölç ve `timeouts.scale` öner; yalnızca senin `approve scale` onayından sonra yazılır ([timeouts](../../concepts/timeouts.md)) |
 | `proofline doctor --commands`, `--apply-commands` | boş `commands.build\|test\|lint` değerlerini bul, her birini tek bir çalıştırmayla kanıtla ve öneriyi senin evetinden sonra yaz |
 

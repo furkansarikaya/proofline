@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a phrase may contain spaces); the one exception is
 # commands.build|test|lint, which may be a block list of commands (A173). `proofline doctor --config` lists the basics with their values (read-only),
 # `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.196
+proofline_version: 0.0.197
 
 # ===== BASICS: the few settings a user is expected to change =====
 # Your own project settings. The comment above each key says what it does in plain words; `proofline doctor --config` shows the value now and the default.

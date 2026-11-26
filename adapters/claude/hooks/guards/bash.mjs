@@ -106,6 +106,137 @@ function runsUpgrade(text) {
   }
   return false;
 }
+/** A376: the config keys an agent session may set with `proofline config <key> <value>`; equal to AGENT_KEYS of the core's configcmd.mjs (a test keeps them in step). */
+export const AGENT_CONFIG_KEYS = Object.freeze(['output_cap_bytes', 'tasks.status_block_seconds', 'timeouts.warn_percent']);
+const PL_WORD = /(^|[^A-Za-z0-9_.-])proofline(\.mjs)?([^A-Za-z0-9_./-]|$)/i;
+const CONFIG_WORD = /(^|[^A-Za-z0-9_./-])config([^A-Za-z0-9_./-]|$)/i;
+/** A376 round 2: programs that give a command a terminal (they defeat the CLI's terminal check); with `env -i` / `env -` (which clear the agent markers) a command that names either word is refused */
+const PTY_WRAPPERS = Object.freeze(['script', 'unbuffer', 'expect', 'socat', 'pty', 'openpty', 'forkpty', 'zpty', 'node-pty', 'ptyprocess', 'pexpect', 'tmux', 'screen']);
+const PTY_WORD = new RegExp(`(^|[^A-Za-z0-9_-])(${PTY_WRAPPERS.map((w) => w.replace(/-/g, '\\-')).join('|')})([^A-Za-z0-9_-]|$)`, 'i');
+const ENV_CLEAR = /(^|[^A-Za-z0-9_.-])env(\s+\S+)*?\s+(-[A-Za-z]*i[A-Za-z]*|--ignore-environment|-)(\s|$)/;
+/**
+ * A376 round 2: the words a shell word holding a brace group becomes (`{a,b}x` -> `ax bx`), at most 256. Only what the shell expands is expanded: a group with a top-level comma,
+ * and a sequence (`{a..z}`, which leaves `*`: fail closed); `{}`, `{x}` and an unmatched brace stay literal, as in the shell (CI round: `xargs node {}` is no pattern). More results
+ * than the bound leave `*` for every brace and comma. @param {string} w @returns {string[]}
+ */
+function braceWords(w) {
+  /** @param {string} s @returns {{ open: number, close: number, commas: number[], seq: boolean } | null} the first group the shell would expand */
+  const group = (s) => {
+    for (let o = s.indexOf('{'); o >= 0; o = s.indexOf('{', o + 1)) {
+      let depth = 0; /** @type {number[]} */ const commas = [];
+      for (let i = o; i < s.length; i++) {
+        if (s[i] === '{') depth++;
+        else if (s[i] === '}') { depth--; if (depth === 0) { const body = s.slice(o + 1, i); if (commas.length > 0 || /^[^{}]*\.\.[^{}]*$/.test(body)) return { open: o, close: i, commas, seq: commas.length === 0 }; break; } }
+        else if (s[i] === ',' && depth === 1) commas.push(i);
+      }
+    }
+    return null;
+  };
+  /** @type {string[]} */ let out = [w];
+  for (let round = 0; round < 32; round++) {
+    /** @type {string[]} */ const next = []; let changed = false;
+    for (const s of out) {
+      const g = group(s);
+      if (g === null) { next.push(s); continue; }
+      changed = true;
+      const pre = s.slice(0, g.open); const post = s.slice(g.close + 1);
+      if (g.seq) { next.push(`${pre}*${post}`); continue; }
+      let from = g.open + 1;
+      for (const c of [...g.commas, g.close]) { next.push(`${pre}${s.slice(from, c)}${post}`); from = c + 1; }
+    }
+    if (next.length > 256) return [w.replace(/[{},]/g, '*')];
+    out = next;
+    if (!changed) break;
+  }
+  return out;
+}
+
+/**
+ * A376 round 3: every bracket expression of B as `?` (any one character), parsed as the shell parses it: after `[` and an optional `!` or `^`, a `]` is a member, not the end;
+ * `[:class:]`, `[.x.]` and `[=x=]` inside are units. Returns null (fail closed: the word may be anything) when an expression is not terminated or holds a POSIX class, collating
+ * symbol or equivalence class. A `[` that ends the word (the `[` command) is literal. @param {string} b @returns {string | null}
+ */
+function bracketsAsAny(b) {
+  if (/^\[+$/.test(b)) return b;   // `[` and `[[`, the test commands
+  let out = '';
+  for (let i = 0; i < b.length; i++) {
+    if (b[i] !== '[') { out += b[i]; continue; }
+    if (i === b.length - 1) { out += '['; continue; }
+    let j = i + 1;
+    if (b[j] === '!' || b[j] === '^') j++;
+    if (b[j] === ']') j++;
+    let end = -1;
+    for (; j < b.length; j++) {
+      if (b[j] === '[' && (b[j + 1] === ':' || b[j + 1] === '.' || b[j + 1] === '=')) return null;
+      if (b[j] === ']') { end = j; break; }
+    }
+    if (end < 0) return null;
+    out += '?';
+    i = end;
+  }
+  return out;
+}
+
+/**
+ * A376 round 2: could the shell word W (one that holds a glob or brace character `* ? [ ] { }`) become `proofline` (the whole word or a path component; the CLI is `bin/proofline`,
+ * there is no `proofline.mjs` to glob for) or `config` (the whole word) once the shell expands it? The pattern must be able to spell the whole word: its literal characters stay
+ * literal, `*` is any run and `?` and a bracket class any one character (over-approximated, fail closed); an unmatched bracket or brace is literal, as in the shell. A pattern the
+ * regular expression cannot be built from names both. `bare` says that the match came only from wildcards (no letter or digit in the part that matched), as in `ls *`.
+ * @param {string} w @returns {Array<{ pl: boolean, cfg: boolean, bare: boolean, word: string }>} one entry per word the braces make
+ */
+function globNames(w) {
+  if (!/[*?[\]{}]/.test(w)) return [];
+  return braceWords(w).map((b) => {
+    const g = bracketsAsAny(b);
+    // an unterminated bracket expression or one with a POSIX class (`[[:alpha:]]`, `[[.r.]]`, `[[=r=]]`) may stand for any word: it names both. Like `*` it is a wildcard-only
+    // match, so one such word that is the only evidence for both (a grep with one POSIX class) does not count; with any other word that names either, everything is refused
+    if (g === null) return { pl: true, cfg: true, bare: true, word: b };
+    /** @param {string} part */
+    const rx = (part) => new RegExp(`^${part.replace(/[.+^$()|\\{}[\]]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
+    const test = (/** @type {string} */ part, /** @type {string[]} */ names) => { try { const r = rx(part); return names.some((x) => r.test(x)); } catch { return true; } };
+    const plParts = g.split('/').filter((p) => p !== '' && test(p, ['proofline']));
+    const pl = plParts.length > 0 || test(g, ['proofline']);
+    const cfgParts = g.split('/').filter((p) => p !== '' && test(p, ['config']));   // final review: a glob path whose last part can be config counts, as for proofline
+    const cfg = cfgParts.length > 0 || test(g, ['config']);
+    const bare = !/[A-Za-z0-9]/.test(plParts.join('') + cfgParts.join('') + (cfg && cfgParts.length === 0 ? g : ''));
+    return { pl, cfg, bare, word: g };
+  });
+}
+const PL_PATH = '(?:[A-Za-z0-9_./-]*/)?proofline(?:\\.mjs)?';
+const CONFIG_READ = new RegExp(`^${PL_PATH} config(?: [A-Za-z0-9_.-]+)?$`);
+const CONFIG_AGENT_SET = new RegExp(`^${PL_PATH} config (?:${AGENT_CONFIG_KEYS.map((k) => k.replace(/\./g, '\\.')).join('|')}) [0-9]{1,15}$`);
+/**
+ * A376 (security review round 1): the verdict on a command text that may run `proofline config`. The arguments are NOT parsed by position (redirections, `!`, `if ... then`,
+ * `xargs`, continuation lines and wrappers put them anywhere): a text that has `proofline` and `config` as words, as written or with quotes, backslashes and backslash-newlines
+ * removed, is allowed only when the whole command, trimmed, is exactly `proofline config` or `proofline config <key>` (a read, any session) or, for the lead,
+ * `proofline config <agent key> <digits>`; `proofline` may carry a plain path (`bin/proofline`). Everything else is refused, a mention in an echo or a commit message too
+ * (fail closed). Returns '' (allowed or not a config command), `read-only` (a specialist tried more than a read) or `user-key` (the lead tried more than an agent-key set).
+ * Round 2: a shell word with a glob or brace character that could expand to either word names it too (`bin/prooflin?`, `conf{ig,}`), and a pty wrapper or `env -i` in a command
+ * that names either word is refused (`wrapper`). A tripwire: a name built at run time (a variable, `$(...)`, an alias, base64 piped to a shell, a script file) is not seen; the
+ * boundary is the user's review of config changes.
+ * @param {string} cmd @param {boolean} specialist @returns {'' | 'read-only' | 'user-key' | 'wrapper'}
+ */
+export function configCommandVerdict(cmd, specialist) {
+  const flat = cmd.replace(/\\\r?\n/g, '');
+  const norm = flat.replace(/['"\\]/g, '');
+  // the evidence that a word names proofline or config: a literal word (id -1) or a glob/brace word (its own id per expansion; `bare` when only wildcards matched)
+  /** @type {Array<{ id: string, bare: boolean }>} */ const pls = []; /** @type {Array<{ id: string, bare: boolean }>} */ const cfgs = [];
+  for (const t of [cmd, flat, norm]) {
+    if (PL_WORD.test(t)) pls.push({ id: '', bare: false });
+    if (CONFIG_WORD.test(t)) cfgs.push({ id: '', bare: false });
+    for (const w of t.split(/[\s;&|()<>`]+/)) for (const g of globNames(w)) { const id = g.word.replace(/[\x22\x27\\]/g, ''); if (g.pl) pls.push({ id, bare: g.bare }); if (g.cfg) cfgs.push({ id, bare: g.bare }); }
+  }
+  if ((pls.length > 0 || cfgs.length > 0) && [cmd, flat, norm].some((t) => PTY_WORD.test(t) || ENV_CLEAR.test(t))) return 'wrapper';
+  if (pls.length === 0 || cfgs.length === 0) return '';
+  // one pure-wildcard word (`ls *`) that is the only evidence for both names does not count: a shell word that becomes both needs files named proofline and config in the folder,
+  // and then the command word is the first of them in sort order (`config`); two words, or any letter in the pattern, count
+  const ids = new Set([...pls, ...cfgs].map((e) => e.id));
+  if (ids.size === 1 && !ids.has('') && [...pls, ...cfgs].every((e) => e.bare)) return '';
+  const exact = cmd.trim();
+  if (CONFIG_READ.test(exact)) return '';
+  if (specialist) return 'read-only';
+  return CONFIG_AGENT_SET.test(exact) ? '' : 'user-key';
+}
 const SPEC_GIT_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout${SP}+--)(${SP}|$)`);
 const SPEC_GIT_EXEMPT = new RegExp(`git${SP}+-C${SP}+|git${SP}+worktree|--work-tree`);
 const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents/local/[^/ \\t\\n\\v\\f\\r]*[*?[]|find${SP}[^;&|]*\\.agents(/local)?/?(${SP}|$)`);
@@ -160,6 +291,12 @@ async function checkOne(ctx, cmd, folded = false) {
   if (specialist && (runsUpgrade(withoutDataBodies(cmd)) || runsUpgrade(norm))) {
     deny("proofline upgrade (also --check and --rollback) replaces the control plane and the files that enforce the rules, so it is the user's command: a specialist never runs it (A371). Report to the lead that the user should run it from the terminal");
   }
+  // A376: `proofline config <key> <value>` changes .agents/config.yaml. A specialist only reads; the lead sets only the keys of AGENT_CONFIG_KEYS, in the one plain form:
+  // codex.*, commands.* and every other key are the user's (the CLI refuses them without the user's terminal too). The whole text is judged, a heredoc body included
+  const cv = configCommandVerdict(cmd, specialist);
+  if (cv === 'wrapper') deny(`a command that names proofline or config together with a terminal wrapper (${PTY_WRAPPERS.join(', ')}) or env -i / env - is refused (A376): they defeat the checks of proofline config. To change a setting, tell the user to edit .agents/config.yaml yourself or run this in your own terminal`);
+  if (cv === 'read-only') deny('a command that names proofline and config: a specialist only reads the config, with exactly `proofline config` or `proofline config <key>` and nothing else on the line (A376). Report to the lead what should change; the user edits .agents/config.yaml');
+  if (cv === 'user-key') deny(`a command that names proofline and config: the lead runs only \`proofline config\`, \`proofline config <key>\` or \`proofline config <key> <number>\` for ${AGENT_CONFIG_KEYS.join(', ')}, as the whole command with nothing else on the line (A376). Every other key (codex.*, commands.* and the rest) is the user's setting: tell the user to edit .agents/config.yaml yourself or run this in your own terminal`);
   // A specialist never mutates the live tree with git: mutation evidence runs in a separate worktree
   if (act !== '' && !ctx.ro && specialist && grepq(SPEC_GIT_RE, withoutDataBodies(cmd)) && !grepq(SPEC_GIT_EXEMPT, cmd)) {
     deny(`git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it${roTail(ctx)}`);

@@ -15,6 +15,7 @@ const TABLE = `init|*|/proofline doctor
 doctor|*|/proofline task --grill
 upgrade|*|commit the changed files yourself, then run /proofline doctor
 version|*|/proofline doctor
+config|*|/proofline doctor
 task|*|{NEW}
 design|*|{WORK}
 status,resume,queue,run|question|reply in this session to the open question: {Q}

@@ -28,7 +28,7 @@ function lineValue(line) { return line.slice(line.indexOf(':') + 1).replace(/(^|
  * runs to the closing quote). `body` holds the line numbers of the bodies (not keys, not list items, whatever they look like), `runs` the opener with its body as text, `anc` the paths of the opener key and
  * of every key above it. @param {string[]} U @returns {{ body: Set<number>, runs: string[], anc: Set<string> }}
  */
-function scanScalars(U) {
+export function scanScalars(U) {
   /** @type {Set<number>} */ const body = new Set(); /** @type {string[]} */ const runs = []; /** @type {Set<string>} */ const anc = new Set();
   /** @type {string[]} */ const P = [];
   /** @type {{ kind: 'block' | 'q', indent: number, q: string, from: number } | null} */ let open = null;

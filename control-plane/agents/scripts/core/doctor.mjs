@@ -688,6 +688,8 @@ class Doctor {
     const c = runMerged(proc.SCRIPT_SHELL, [this.agent, 'config-check'], { cwd: this.root, env: this.ctx.env });
     if (c.status === 0) this.pass(`config: ${c.text.replace(/\n+$/, '').split('\n')[0]}`);
     else this.fail(`config: agent.sh config-check failed: ${headJoined(c.text, 2)}`);
+    // A376: an unknown key (a typo) is a WARN that names the closest known key
+    for (const l of c.text.split('\n')) if (l.startsWith('warning: unknown config key ')) this.warn(`config: ${l.slice('warning: '.length)}`);
     // A202 item 28: how long the approval path takes on THIS machine against the hook's approval budget
     let b = this.val('hook.approve_budget_seconds', '20');
     b = /^[0-9]+$/.test(b) ? b : '20';
@@ -888,6 +890,7 @@ class Doctor {
     this.doctorManifest();
     const c = runMerged(proc.SCRIPT_SHELL, [this.agent, 'config-check'], { cwd: this.root, env: this.ctx.env });
     if (c.status === 0) { say('self-check: config valid'); passes++; } else this.fail(`config: agent.sh config-check failed: ${headJoined(c.text, 2)}`);
+    for (const l of c.text.split('\n')) if (l.startsWith('warning: unknown config key ')) this.warn(`config: ${l.slice('warning: '.length)}`);
     this.doctorHooks();
     say(`self-check: ${passes} passed, ${this.fails} FAIL, ${this.warns} WARN (proofline doctor runs the full set)`);
     return this.fails === 0 ? 0 : 1;
