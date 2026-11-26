@@ -45,6 +45,57 @@ export const DESIGN_NA_NOTES = {
 export const ENGLISH_PAGE_NOTE = "not applicable: the page language is English";
 export const designApplies = (check, mode) => !MODE_APPLIES[check] || MODE_APPLIES[check].includes(mode);
 
+// Page kinds (A380, issue 338 U7 and C3): the config's `page_kinds` [{ kind, paths: [glob], text_only? }], copied from the UI spec. A page is of
+// kind K when exactly one kind has a glob that matches its path (two kinds matching: no kind, the safe side). `*` stays inside a path segment,
+// `**` crosses segments, `?` is one character; no other glob syntax. The control plane reads the same shape from report.json (its own copy).
+export const PAGE_KIND_ID = /^[a-z][a-z0-9-]{0,39}$/;
+const PAGE_GLOB = /^[A-Za-z0-9_.*?-][A-Za-z0-9_.*?/-]*$/;
+export const pageGlobOk = (g) => typeof g === "string" && g.length <= 200 && PAGE_GLOB.test(g) && !g.split("/").some((s) => s === "" || s === "." || s === "..");
+export function pageGlobRe(g) {
+  let s = "^";
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i];
+    if (c === "*") { if (g[i + 1] === "*") { s += ".*"; i++; } else s += "[^/]*"; } else if (c === "?") s += "[^/]"; else s += c.replace(/[.\\+^$()|{}[\]-]/g, "\\$&");
+  }
+  return new RegExp(`${s}$`);
+}
+// The page path a kind glob is matched against: leading slashes and ./ dropped; a path with a query, a fragment or a .. segment has no kind.
+export const pageKindPath = (p) => { const t = String(p ?? "").replace(/^(?:\.?\/)+/, ""); return t === "" || /[?#\\]/.test(t) || t.split("/").includes("..") ? null : t; };
+export function pageKindOf(kinds, path) {
+  const p = pageKindPath(path);
+  if (p === null || !Array.isArray(kinds)) return null;
+  const hits = [];
+  for (const k of kinds) {
+    if (!k || typeof k !== "object" || !PAGE_KIND_ID.test(k.kind) || !Array.isArray(k.paths)) continue;
+    const g = k.paths.find((x) => pageGlobOk(x) && pageGlobRe(x).test(p));
+    if (g !== undefined) hits.push({ kind: k.kind, glob: g, text_only: k.text_only === true });
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+// Page kinds (A380, issue 338 U7 and C3), copied from the UI spec: [{ kind, paths: [glob], text_only? }]. A kind id is lower case, a glob is relative
+// (`*` inside a segment, `**` across segments, `?` one character), and a kind is listed once. report.json carries the list as given.
+export function checkPageKinds(k) {
+  if (!Array.isArray(k)) return ["page_kinds must be a list of { kind, paths, text_only? }"];
+  const e = [], seen = new Set();
+  for (const [i, x] of k.entries()) {
+    const w = `page_kinds[${i}]`;
+    if (!x || typeof x !== "object" || Array.isArray(x)) { e.push(`${w} must be an object { kind, paths, text_only? }`); continue; }
+    for (const key of Object.keys(x)) if (!["kind", "paths", "text_only", "reason"].includes(key)) e.push(`${w}: unknown key ${key}`);
+    if (typeof x.kind !== "string" || !PAGE_KIND_ID.test(x.kind)) e.push(`${w}.kind must be a lower-case id (letters, digits, -; at most 40)`);
+    else if (seen.has(x.kind)) e.push(`${w}: kind ${x.kind} is listed twice`);
+    else seen.add(x.kind);
+    if (!Array.isArray(x.paths) || !x.paths.length || !x.paths.every(pageGlobOk)) e.push(`${w}.paths must be a non-empty list of relative path globs (letters, digits, _ . - / * ?; no .. segment, no leading /)`);
+    if (x.text_only !== undefined && typeof x.text_only !== "boolean") e.push(`${w}.text_only must be true or false`);
+    if (x.reason !== undefined && (typeof x.reason !== "string" || !x.reason.trim())) e.push(`${w}.reason must be a non-empty string`);
+  }
+  return e;
+}
+
+// The text-only profile (U7): a page of a kind declared `text_only` whose measured facts show no visual, no raster image and no motion is not asked
+// for the hero, the motion layer or the image ledger; a declared page that shows any of them is measured exactly as before.
+export const TEXT_ONLY_CHECKS = ["design_empty_hero", "design_motion_count", "design_image_ledger"];
+export const TEXT_ONLY_NOTE = "not applicable: a text-only page (page_kinds text_only) with no visual, raster image or motion measured";
+
 // Static checks of the facts that do not depend on the viewport are measured once, at `wide`.
 const WIDE_ONLY = ["design_fonts_loaded", "design_surfaces", "design_untranslated", "design_raw_markup", "design_ux_viewport_meta"];
 const PHONE_ONLY = ["design_ux_body_font_size"]; // a rule about small screens: measured at phone390 only
@@ -440,7 +491,40 @@ export function assembleDesign(raw, c, sha, opts = {}) {
     if (out.scenes.some((x) => x.id === sc.id) || out.not_measured.some((x) => x.check === "design_scene" && x.scene === sc.id)) continue;
     out.not_measured.push({ check: "design_scene", scene: sc.id, screen: pages.find((x) => x.path === sc.path)?.screen || sc.path, viewport: "wide", reason: mo?.error || "the tool supplied no scene result" });
   }
+  applyTextOnly(out, measured, rd, c, mode);
   return out;
+}
+
+// U7 (A380): the text-only profile, derived from what the page declares (its kind in `page_kinds`, copied from the UI spec) AND what was measured on it.
+// The page entry records the evidence (`text_only`); only a page measured free of visuals (no medium or background image of 80 px or more and no hero
+// visual at any design viewport, no raster image in the ledger probe) and of motion (0 animated elements in every measured phase; a mode that does not
+// count motion counts as none) has its hero and motion-layer items made not_applicable with the fixed note, and its image-ledger item too when the
+// page also has no self-hosted font. Anything else on the page, and every page not declared text-only, is exactly as before.
+function applyTextOnly(out, measured, rd, c, mode) {
+  for (const pg of measured.filter((x) => x.static)) {
+    const pk = pageKindOf(c.page_kinds, pg.path);
+    if (!pk || !pk.text_only) continue;
+    const rp = (rd.pages || []).find((x) => x.path === pg.path) || {};
+    const facts = DESIGN_VIEWPORTS.map((vp) => (rp.viewports || []).find((x) => x.viewport === vp.name)?.facts);
+    const media = facts.every((f) => f && Number.isInteger(f.media?.count) && f.hero && typeof f.hero.visual === "boolean")
+      ? facts.reduce((a, f) => a + f.media.count + (f.hero.visual ? 1 : 0), 0) : null;
+    const ledgerRan = Boolean(c.design?.image_ledger);
+    // without a configured ledger there is no image probe (null): the media count is the evidence; with one, its probe must have found no raster image
+    const images = ledgerRan && rp.ledger && Array.isArray(rp.ledger.images) ? rp.ledger.images.length : null;
+    const fonts = ledgerRan && rp.ledger && Number.isInteger(rp.ledger.fonts) ? rp.ledger.fonts : null;
+    const counted = (rd.motion?.items || []).filter((x) => x?.check === "design_motion_count" && (x.screen === pg.screen || x.screen === pg.path) && typeof x.value === "number" && Number.isFinite(x.value));
+    const motion = !designApplies("design_motion_count", mode) ? 0 : counted.length && !rd.motion?.error ? counted.reduce((a, x) => a + x.value, 0) : null;
+    const free = media === 0 && motion === 0 && (!ledgerRan || images === 0);
+    const applied = free ? TEXT_ONLY_CHECKS.filter((ch) => ch !== "design_image_ledger" || (ledgerRan && fonts === 0)) : [];
+    const entry = out.pages.find((x) => x.screen === pg.screen);
+    if (entry) entry.text_only = { kind: pk.kind, media, images, fonts, motion, applied };
+    if (!applied.length) continue;
+    for (const it of out.items) {
+      if ((it.screen !== pg.screen && it.screen !== pg.path) || !applied.includes(it.check) || it.status === "not_applicable") continue;
+      it.status = "not_applicable"; it.note = TEXT_ONLY_NOTE;
+      delete it.reason;
+    }
+  }
 }
 
 // An item from motion-audit or ledger: ids are reassigned, screenshots hashed, pass/fail recomputed from value and threshold.
@@ -617,6 +701,18 @@ export function designProbeSource() {
     }
   }
   const hero = { h1, action, visual: !!visualKind, visualKind: visualKind || "none" };
+  // U7 (A380): visual media anywhere on the page (the hero's own rule: a medium or a background image of at least 80 px), for the text-only profile
+  const media = { count: 0, selectors: [] };
+  const mediaHit = (e) => { media.count++; if (media.selectors.length < 5) media.selectors.push(sel(e)); };
+  for (const e of document.querySelectorAll("img,svg,canvas,video,picture,iframe,object,embed,input[type=image]")) {
+    const r = rect(e);
+    if (shown(e, true) && Math.min(r.width, r.height) >= 80 && !e.parentElement?.closest("svg")) mediaHit(e);
+  }
+  for (const e of all) {
+    if (MEDIA.has(e.tagName) || !/url\(/.test(cs(e).backgroundImage)) continue;
+    const r = rect(e);
+    if (shown(e, true) && Math.min(r.width, r.height) >= 80) mediaHit(e);
+  }
 
   // browser surfaces
   const surfaces = [];
@@ -659,7 +755,7 @@ export function designProbeSource() {
   };
 
   return { url: location.href, lang: de.lang || "", vw, vh, docHeight: de.scrollHeight, headings, headingSizes: hsized.map((h) => h.size), largestHeading: largest ? sel(largest.e) : null,
-    bodySize, paragraphs, fonts, fontFaces, edge, edgeText, blocks, sections, hero, surfaces, textBlocks, markupBlocks, textVolume, ux };
+    bodySize, paragraphs, fonts, fontFaces, edge, edgeText, blocks, sections, hero, media, surfaces, textBlocks, markupBlocks, textVolume, ux };
 }
 export const DESIGN_PROBE = `(${designProbeSource.toString()})`;
 

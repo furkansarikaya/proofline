@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DESIGN_CHECKS, DESIGN_STATIC_CHECKS, DESIGN_MODES, DESIGN_VIEWPORTS, DESIGN_STATUSES, DESIGN_NOT_APPLICABLE_NOTE, DESIGN_NA_NOTES, ENGLISH_PAGE_NOTE,
-  CRITIQUE_IDS, CRITIQUE_STATUSES, LIVE_THING_MODES, UX_REVIEW_STATUSES, CHART_TYPE_ID, NOTHING_TO_MEASURE, designApplies, designHolds, designThresholdError, expectedChecks } from "./design-audit.mjs";
+  CRITIQUE_IDS, CRITIQUE_STATUSES, LIVE_THING_MODES, UX_REVIEW_STATUSES, CHART_TYPE_ID, NOTHING_TO_MEASURE, TEXT_ONLY_CHECKS, TEXT_ONLY_NOTE, designApplies, designHolds, designThresholdError, checkPageKinds, expectedChecks, pageKindOf } from "./design-audit.mjs";
 import { validateLint } from "./lint-source.mjs";
 
 export const SCHEMA = "visual-proof/1";
@@ -141,10 +141,29 @@ export function requiredCells(report) {
 
 const measured0 = (r) => (Array.isArray(r?.measured) ? r.measured : []);
 
+// U7 (A380): null when a text-only not_applicable item is backed by the report, else the reason. The page's kind (the report's page_kinds, the
+// measure config's copy of the UI spec) must be declared text_only, and the page entry's `text_only` evidence must show no visual, no raster image
+// (with a ledger configured: its probe found none) and no motion, and list the check as applied (the ledger also needs no self-hosted font).
+export function textOnlyError(m, page, kinds, design) {
+  if (!TEXT_ONLY_CHECKS.includes(m.check)) return `the text-only note is only for ${TEXT_ONLY_CHECKS.join(", ")}`;
+  if (!isObj(page) || page.status !== "measured" || !page.static) return "the text-only note needs a measured static page";
+  const pk = pageKindOf(kinds, page.path);
+  if (!pk || !pk.text_only) return `page ${page.path} is not of a page kind declared text_only in page_kinds, so ${m.check} is asked`;
+  const t = page.text_only;
+  if (!isObj(t) || t.kind !== pk.kind || !Array.isArray(t.applied) || !t.applied.includes(m.check)) return `page ${page.path}: its text_only evidence does not apply ${m.check}`;
+  const ledger = str(design?.image_ledger);
+  if (t.media !== 0 || t.motion !== 0 || (ledger && t.images !== 0)) return `page ${page.path} shows a visual, an image or motion (media ${t.media}, images ${t.images}, motion ${t.motion}): it is not text-only and ${m.check} is asked`;
+  if (m.check === "design_image_ledger" && !(ledger && t.fonts === 0)) return `page ${page.path}: the image ledger is asked (a self-hosted font or no ledger probe)`;
+  const moving = (Array.isArray(design?.items) ? design.items : []).filter((x) => isObj(x) && x.check === "design_motion_count" && (x.screen === page.screen || x.screen === page.path) && typeof x.value === "number" && x.value > 0);
+  if (moving.length) return `page ${page.path} has a motion count item with ${moving[0].value} animated element(s): it is not text-only`;
+  return null;
+}
+
 export function validateReport(report, opt = {}) {
   const errors = [];
   const err = (m) => errors.push(m);
   if (!isObj(report)) return { valid: false, errors: ["report must be a JSON object"] };
+  if (report.page_kinds !== undefined) for (const e of checkPageKinds(report.page_kinds)) err(e);
   const root = opt.root ?? ".";
   const hashes = new Map();
   const checkFile = (where, ev) => {
@@ -483,7 +502,10 @@ export function validateReport(report, opt = {}) {
         else {
           const byMode = !designApplies(m.check, design.mode) && DESIGN_NA_NOTES[m.check] !== undefined && m.note === DESIGN_NA_NOTES[m.check];
           const english = m.check === "design_untranslated" && m.note === ENGLISH_PAGE_NOTE;
-          if (own || m.check === "design_motion_count") { if (!(byMode || english)) err(`${w}: not_applicable ${m.check} is only for ${m.check === "design_untranslated" ? "an English page" : "a mode that does not require it"}, with the fixed note`); }
+          // U7 (A380): the text-only note only on a page whose kind is declared text_only and whose recorded facts show no visual, image or motion
+          const textOnly = m.note === TEXT_ONLY_NOTE;
+          if (textOnly) { const te = textOnlyError(m, pageOf(m.screen), report.page_kinds, design); if (te) err(`${w}: ${te}`); }
+          else if (own || m.check === "design_motion_count") { if (!(byMode || english)) err(`${w}: not_applicable ${m.check} is only for ${m.check === "design_untranslated" ? "an English page" : "a mode that does not require it"}, with the fixed note`); }
           else if (!str(m.note)) err(`${w}: not_applicable needs a note`);
         }
         if (m.screenshot !== undefined) checkFile(`${w}.screenshot`, m.screenshot);

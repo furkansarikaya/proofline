@@ -10,6 +10,7 @@ import { consumeApproval, mutantNeedFor, mutationBudget, nextNum, planMutantNeed
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import { standingWaiverKey } from './knownissues.mjs';
 import { addStanding } from './standing.mjs';
+import { measureRows, measureWhere } from './standingmeasure.mjs';
 import { findingWaiverKey, gateFocus, gateOwner, resolveTopology } from './gates.mjs';
 import { taskChangedPaths } from './signals.mjs';
 import { gateDefaultArtifact, gatePreconditions, validGateName, writeGate } from './gatewrite.mjs';
@@ -330,6 +331,12 @@ function carryWaivers(ctx, id, rec, list, app, fid) {
     const k = standingWaiverKey(ctx, id, rec, f);
     if (k === null) continue;
     if (addStanding(ctx, { scope: 'waiver', rule: k.rule, surface: k.surface, fp: k.fp, message: msg, origin: `${id} ${path.basename(app)}`, named })) ctx.out(`standing waiver recorded: ${k.rule} on ${k.surface} (kept for this project while that file and finding stay the same; revoke: agent.sh standing revoke ${k.rule})\n`);
+  }
+  // A380 (C3): a failed MEASURED visual item: one row per check, page or page kind and threshold, with the worst value the user waived (a worse value later is asked again)
+  for (const k of measureRows(ctx, id, rec, list)) {
+    if (addStanding(ctx, { scope: 'measure', rule: k.rule, surface: k.surface, fp: k.fp, message: msg, origin: `${id} ${path.basename(app)}`, named, value: k.value })) {
+      ctx.out(`standing waiver recorded: ${k.rule} ${k.threshold} on ${measureWhere(k.surface)} at a value no worse than ${k.value} (a worse value, another threshold or a page outside it is asked again; revoke: agent.sh standing revoke ${k.rule})\n`);
+    }
   }
 }
 

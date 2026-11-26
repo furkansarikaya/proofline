@@ -260,3 +260,13 @@ test("native mobile still requires screen_reader and rejects an empty keyboard o
   const e = good(); e.target = "flutter"; e.screens[0].keyboard = []; has(errs(e), "keyboard");
   const t = good(); t.target = "desktop"; has(errs(t), "$.target");
 });
+
+test("A380: page_kinds names the pages of a kind by relative glob (text_only optional, a reason required); a bad id, glob or duplicate is rejected", () => {
+  const ok = good(); ok.page_kinds = [{ kind: "legal", paths: ["legal/*.html", "terms.html"], text_only: true, reason: "privacy and terms: prose only" }];
+  assert.deepEqual(errs(ok), []);
+  for (const [k, where] of [[[], "$.page_kinds"], [[{ kind: "Legal", paths: ["a"], reason: "r" }], "$.page_kinds[0].kind"], [[{ kind: "a", paths: ["../a"], reason: "r" }], "$.page_kinds[0].paths"],
+    [[{ kind: "a", paths: ["/a"], reason: "r" }], "$.page_kinds[0].paths"], [[{ kind: "a", paths: ["a"] }], "$.page_kinds[0].reason"], [[{ kind: "a", paths: ["a"], reason: "r", text_only: "yes" }], "$.page_kinds[0].text_only"],
+    [[{ kind: "a", paths: ["a"], reason: "r" }, { kind: "a", paths: ["b"], reason: "r" }], "$.page_kinds[1].kind"], [[{ kind: "a", paths: ["a"], reason: "r", approved: true }], "$.page_kinds[0]"]]) {
+    const d = good(); d.page_kinds = k; has(errs(d), where);
+  }
+});

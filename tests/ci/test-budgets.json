@@ -280,6 +280,10 @@
       "test_ms": 4000,
       "suite_ms": 15000
     },
+    "tests/core/standing-measure.test.mjs": {
+      "test_ms": 21500,
+      "suite_ms": 70000
+    },
     "tests/core/visual-stale.test.mjs": {
       "test_ms": 15000,
       "suite_ms": 340000
@@ -1369,6 +1373,10 @@
       "suite_ms": 30000
     },
     "tests/skills/visual-proof-seo.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/visual-proof-textonly.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
     },

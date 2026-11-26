@@ -110,6 +110,19 @@
         }
       }
     },
+    "page_kinds": {
+      "$comment": "A380 (issue 338 U7, C3). Optional. The pages of one kind by relative path glob (* inside a segment, ** across, ? one character); visual-proof copies the list into its config. text_only: no visual or motion is expected (QA still measures it); a standing approval of a measured item for a kind covers only pages that match the glob the user approved.",
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["kind", "paths", "reason"],
+        "properties": {
+          "kind": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$" },
+          "paths": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z0-9_.*?-][A-Za-z0-9_.*?/-]*$", "maxLength": 200 } },
+          "text_only": { "type": "boolean" },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "flows": {
       "type": "array",
       "items": {

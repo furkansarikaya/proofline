@@ -29,6 +29,10 @@ const KEYS = ["schema_version", "mode", "ui_languages", "design_system", "reused
 const OPTIONAL_KEYS = ["creative_direction", "ux_patterns", "self_critique", "criteria"];
 // 0.0.27: craft keys, validated whenever present; required by visitor mode and basis (V1-V5).
 const CRAFT_KEYS = ["visitor_mode", "argument", "craft"];
+// A380 (issue 338 U7, C3): optional `page_kinds` [{ kind, paths: [glob], text_only?, reason }]: the pages of one kind (a legal page, an article) by path
+// glob; visual-proof copies it into its config. `text_only: true` says no visual or motion is expected there; QA still measures that it has none.
+const PAGE_KIND_ID = /^[a-z][a-z0-9-]{0,39}$/;
+const PAGE_GLOB = /^[A-Za-z0-9_.*?-][A-Za-z0-9_.*?/-]*$/;
 // Optional `target` (default web): native mobile targets make keyboard optional per screen (hover/focus are web rules).
 const TARGETS = ["web", "ios", "android", "flutter", "react-native"];
 const NATIVE_TARGETS = ["ios", "android", "flutter", "react-native"];
@@ -85,7 +89,7 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   for (const k of KEYS) if (!(k in doc)) err("$", `missing required "${k}"`);
   for (const k of Object.keys(doc)) {
     if (/approv|sign.?off|verdict/i.test(k)) err(`$.${k}`, "the designer never gives final quality approval of its own design; quality is judged by QA's visual focus and the reviewers");
-    else if (!KEYS.includes(k) && !OPTIONAL_KEYS.includes(k) && !CRAFT_KEYS.includes(k) && k !== "target") err("$", `unexpected "${k}"`);
+    else if (!KEYS.includes(k) && !OPTIONAL_KEYS.includes(k) && !CRAFT_KEYS.includes(k) && k !== "target" && k !== "page_kinds") err("$", `unexpected "${k}"`);
   }
   if ("target" in doc && !TARGETS.includes(doc.target)) err("$.target", `must be one of ${TARGETS.join("|")} (default web)`);
   const native = NATIVE_TARGETS.includes(doc.target);
@@ -177,11 +181,30 @@ export function validate(doc, { root = null, cls = null, task = null } = {}) {
   if ("ux_patterns" in doc) uxPatterns(doc.ux_patterns, err);
   if ("self_critique" in doc) selfCritique(doc.self_critique, err);
   if ("criteria" in doc) criteriaList(doc.criteria, sid, task, err);
+  if ("page_kinds" in doc) pageKinds(doc.page_kinds, err);
   approvalClaims(doc, err);
   return errors;
 }
 
 const reqStr = (o, keys, p, err) => { for (const k of keys) if (!isStr(o[k])) err(`${p}.${k}`, "expected non-empty string"); };
+// A380: page kinds, the shape visual-proof's measure.mjs accepts (a kind id once, relative globs without a .. segment, a reason).
+function pageKinds(k, err) {
+  if (!Array.isArray(k) || !k.length) return err("$.page_kinds", "expected a non-empty array of {kind, paths, text_only?, reason}");
+  const seen = new Set();
+  k.forEach((x, i) => {
+    const p = `$.page_kinds[${i}]`;
+    if (!isObj(x)) return err(p, "expected object");
+    onlyKeys(x, ["kind", "paths", "text_only", "reason"], p, err);
+    if (!PAGE_KIND_ID.test(x.kind ?? "")) err(`${p}.kind`, "a lower-case id (letters, digits, -; at most 40)");
+    else if (seen.has(x.kind)) err(`${p}.kind`, `${x.kind} is listed twice`);
+    else seen.add(x.kind);
+    const ok = (g) => typeof g === "string" && g.length <= 200 && PAGE_GLOB.test(g) && !g.split("/").some((s) => s === "" || s === "." || s === "..");
+    if (!Array.isArray(x.paths) || !x.paths.length || !x.paths.every(ok)) err(`${p}.paths`, "a non-empty list of relative path globs (letters, digits, _ . - / * ?; no .. segment, no leading /)");
+    if (x.text_only !== undefined && typeof x.text_only !== "boolean") err(`${p}.text_only`, "true or false");
+    if (!isStr(x.reason)) err(`${p}.reason`, "say what the pages of this kind are");
+  });
+}
+
 const onlyKeys = (o, keys, p, err) => { for (const k of Object.keys(o)) if (!keys.includes(k)) err(p, `unexpected "${k}"`); };
 
 const CD_KEYS = ["basis", "visual_character", "typography", "layout", "hierarchy", "rationale", "avoided", "alternatives", "chosen", "redesign", "topic_inventory", "idea", "deal", "patterns_used"];

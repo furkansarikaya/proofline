@@ -12,7 +12,7 @@ With a plain session, "done" is the model's word. proofline makes it show why:
 - **The test fails first.** The implementer records RED, then GREEN evidence, and the gates reproduce it independently.
 - **Whoever wrote a change never reviews it.** Reviews, QA and security run in separate roles.
 - **Closed-choice questions use Claude Code's own option picker** (written options elsewhere, and in Codex): your click is recorded by the runtime hook as your answer; nothing else is.
-- **Approvals come only from your own message.** The prompt hook records them; no agent can approve or waive for you. A design rationale or a waiver of a finding that was already there is kept for the project only when you add the word `standing` to the approval, and is then carried while its line, file and finding stay the same (`agent.sh standing` lists it; "revoke <rule>" removes it).
+- **Approvals come only from your own message.** The prompt hook records them; no agent can approve or waive for you. A design rationale or a waiver of a finding that was already there is kept for the project only when you add the word `standing` to the approval, and is then carried while its line, file and finding stay the same (`agent.sh standing` lists it; "revoke <rule>" removes it); a waived measured visual item is kept per page kind, only at a value no worse than the one you approved.
 - **Secret and security gates cannot be waived.** They run on every round that changes code, dependencies or configuration. The dependency check asks the registry once, by the control plane, only after you set `security.advisory_check: on` (it sends the lock file's package names and versions).
 
 These restate five of the six [core invariants](CONTRIBUTING.md#core-invariants); each has at least one test that attempts the forbidden action against the real scripts, and the test headers name any part that is not yet mechanical.
@@ -29,7 +29,7 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 
 ## Status
 
-Version 0.0.200 is an early release.
+Version 0.0.201 is an early release.
 It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE on `98f49400` (a single sample, FAIL 37/38 invariants, C-22 only) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use. A Codex worker has no network and no local server unless you turn that on yourself in `.agents/config.yaml` (`codex.sandbox`, shown by `proofline doctor`; [concepts](docs/concepts/enforcement-layers.md)).
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
@@ -118,6 +118,6 @@ Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#th
 
 ## Versioning and license
 
-Version **0.0.200**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.201**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

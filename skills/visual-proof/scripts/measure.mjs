@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CORE, CLASSES, MIN_VIEWPORTS, INTERACTION_CHECKS, SCHEMA, SEO_NOT_APPLICABLE_NOTE, SEO_SITE, requiredCells, validateReport } from "./validate-visual.mjs";
-import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, designPages, reusableJudgments } from "./design-audit.mjs";
+import { DESIGN_MODES, DESIGN_PROBE, DESIGN_VIEWPORTS, assembleDesign, checkPageKinds, designPages, reusableJudgments } from "./design-audit.mjs";
 // A172: the project's visual.ascii_turkish_words / visual.ascii_turkish_allow (.agents/config.yaml, the keys `cfg` reads), else the
 // defaults of design-audit.mjs. The file is looked for from the working directory and from the report folder upwards.
 export function asciiConfig(dirs) {
@@ -876,6 +876,7 @@ export function checkConfig(c) {
     }
   }
   if (c.design !== undefined) e.push(...checkDesignConfig(c, u));
+  if (c.page_kinds !== undefined) e.push(...checkPageKinds(c.page_kinds));
   for (const it of c.interactions || []) if (!it?.name || !INTERACTION_CHECKS.includes(it.check) || !it.screen || !it.state) e.push(`interaction ${it?.name}: needs name, check (${INTERACTION_CHECKS.join("|")}), screen, state`);
   for (const k of c.criteria || []) if (!/^AC-\d+$/.test(k?.id || "") || !Array.isArray(k.checks)) e.push("each criterion needs id AC-<n> and checks[]");
   return e;
@@ -943,6 +944,7 @@ export function assemble(raw, outDir, opt = {}) {
     network: raw.network || { interception: "none", blocked: [], same_origin_writes: [] },
     regression: raw.regression || { status: "not_available", reason: "not checked by measure.mjs; QA records the project's own snapshot command, if any" },
     criteria: [],
+    ...(Array.isArray(c.page_kinds) ? { page_kinds: c.page_kinds } : {}),
   };
   if (raw.tool.kind === "none") {
     Object.assign(report, { result: "UNSUPPORTED", unsupported_reason: raw.tool.reason || "no browser tooling" });
@@ -1052,7 +1054,7 @@ async function measureDesign(p, config, url, outDir, repo, shotName) {
         if (vp.name === "wide" && pg.static && d.image_ledger) {
           const images = await p.ev(IMAGES_PROBE, true);
           const fonts = (await p.ev(FONTS_PROBE, true)).filter((f) => f.self_hosted).map((f) => ({ file: f.file, family: f.family }));
-          rp.ledger = ledgerItems({ images, ledgerText, ledgerPath: d.image_ledger, screen: pg.screen, viewport: vp.name, fonts });
+          rp.ledger = { ...ledgerItems({ images, ledgerText, ledgerPath: d.image_ledger, screen: pg.screen, viewport: vp.name, fonts }), fonts: fonts.length };   // fonts: the text-only profile (A380)
         }
       } catch (e) { rv.error = e.message; delete rv.screenshot; delete rv.facts; }
     }
