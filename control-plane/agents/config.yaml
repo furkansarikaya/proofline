@@ -21,6 +21,17 @@ runtime:
 output_cap_bytes: 6000
 # Specialist failover (D7): auto | ask | off.
 failover: auto
+# Codex worker sandbox (A372): what a Codex worker may do beyond the default profile, which has no outbound network and no loopback listener. Your decision, written by you in this
+# file (no agent can write it: the hook refuses it and a Codex worker has .agents read-only); init and upgrade never change a value. Anything but `on` / `claude` reads as off.
+#   network: on lets the Codex workers of this project reach the network (a worker could send repository content out or fetch code; the profile has one switch, no domain list).
+#   local_server: on lets them listen on loopback (a test that starts a local server).
+#   failover: claude hands a Codex implementer that the sandbox stopped to the Claude implementer (reason sandbox_block); off parks it BLOCKED with the guidance.
+# `proofline doctor`, the batch summary and the status block show the state; a plan with network or local-server commands is warned about before the implementer starts.
+codex:
+  sandbox:
+    network: off
+    local_server: off
+    failover: off
 # supervised: freeze needs a plan approval. autonomous: no stop before CODE_DONE (D3).
 autonomy:
   TRIVIAL: autonomous

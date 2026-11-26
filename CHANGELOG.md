@@ -9,6 +9,9 @@
 ## 0.0.192 — 2026-11-26
 
 - Feature (A370, issue 338 U8 = R1-18, R2-19, R3-14, R4-12): `proofline retro [<batch-id|run-id>] [--since YYYY-MM-DD] [--json] [--full]`, a read-only report of finished runs from their ledgers (live, or the newest run archive, read in process by a minimal tar.gz reader: nothing extracted or written, a `../` entry, link or device refused, bomb and entry limits), `records.jsonl`, `tools.jsonl` and `batch/*.tsv`: task time with first pass, rework and the rest, agent minutes and tokens per role, fix rounds and reopens, gate re-runs per fix round, user waits, questions and approvals by kind, hook denials by class, friction, a Resumed runs section, and the sources it could not read; counts only, no score, `not recorded` where a number cannot be derived. Listed in `proofline help`, the README and the daily-use guide (and its Turkish page).
+## 0.0.194 — 2026-11-26
+
+- Feature (A372, issue 338 U2): a project can deliberately allow its Codex workers outbound network and a loopback listener, and hand a sandbox-stopped Codex implementer to the Claude implementer. `codex.sandbox.network`, `codex.sandbox.local_server` (`off|on`) and `codex.sandbox.failover` (`off|claude`) in `.agents/config.yaml`, all off by default and written only by you (no agent can write that file; `init` and `upgrade` never change a value). `proofline doctor`, the batch summary and the status block show the state; dispatch warns before a Codex implementer starts when its plan has network or local-server commands and the permission is off; with `failover: claude` a Codex implementer stopped by the sandbox is re-run by the Claude implementer (`reason=sandbox_block`), otherwise it is BLOCKED with the guidance as before. The profile has an on/off switch, no domain list. Not verified against a real Codex.
 
 ## 0.0.191 — 2026-11-26
 

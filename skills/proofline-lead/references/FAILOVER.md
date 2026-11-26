@@ -49,6 +49,7 @@ transition. Nothing the lead remembers is state.
   .agents/local/assignments/<ID>/<file>` with the same assignment. `ask`: `A ask <ID>` with the D13 block
   (re-run on codex? options yes | no), relay `A questions`, STOP; on the user's yes, the `auto` steps.
   `off`: the step is BLOCKED.
+- Sandbox block (A372): a Codex IMPLEMENTER that the Codex sandbox stopped (a refused loopback listener or lookup, a refused worktree write, or the sandbox that blocks its API) is BLOCKED with the guidance by default. Only when the user set `codex.sandbox.failover: claude` in `.agents/config.yaml` does `dispatch.sh` hand the same assignment to the Claude implementer by itself (`failover from=codex to=claude reason=sandbox_block`, the mode `ask|off` of `failover` still applies). The lead never sets this key (the file is protected); to widen the sandbox instead, the user sets `codex.sandbox.network` or `codex.sandbox.local_server` to `on` (shown by `proofline doctor`, the batch summary and the status block). A plan with network or local-server commands is warned about before the implementer starts (`dispatch: preflight: ...`).
 - Never silent: every failover shows in the completion report's `## Execution`.
 - Capability floor: a role whose floor no available runtime meets (always the case for a downgraded
   `security_reviewer`) is BLOCKED; the gate is never run on a weaker model.

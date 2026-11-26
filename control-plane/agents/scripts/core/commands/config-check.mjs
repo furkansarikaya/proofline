@@ -6,7 +6,7 @@
 
 import { resolveTrailer } from '../committrailer.mjs';
 
-const TOP = /^(proofline_version|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts|test_budgets|test_stability|profiles|output_cap_bytes)$/;
+const TOP = /^(proofline_version|codex|canonical_branch|default_topology|profile|runtime|failover|autonomy|review|git|approval|commands|tasks|design_docs|local_state|worktree|archive|verification|metrics|test_trust|writing|product|performance|budgets|capabilities|dispatch|default_mode|active_run_file|policy_source|knowledge_scope_root|safety|pipelines|execution_policy|database|hook|fingerprint|risk|security|contract|batch|validation|visual|rules|timeouts|test_budgets|test_stability|profiles|output_cap_bytes)$/;
 const DIGITS = /^[0-9]+$/;
 const HOOK_EVENT_TIMEOUT = /^hook\.(session|prompt|pretool|posttool|subagent_start|subagent_stop|stop)_timeout_seconds$/;
 const REL_UP = /(^|\/)\.\.(\/|$)/;
@@ -72,6 +72,11 @@ export function checkConfigLines(lines) {
     }
     if (k === 'risk.unsupported') en(k, v, 'block|report');
     if (top === 'validation' && k !== 'validation' && !/^validation\.(entry_words|entry_candidates|entry_input|entry_new|entry_output|entry_skip|code_patterns)$/.test(k)) bad(`unknown validation key: ${k} (want validation.entry_words, entry_candidates, entry_input, entry_new, entry_output, entry_skip or code_patterns)`);
+    if (top === 'codex' && k !== 'codex' && k !== 'codex.sandbox') {
+      if (k === 'codex.sandbox.network' || k === 'codex.sandbox.local_server') en(k, v, 'on|off');
+      else if (k === 'codex.sandbox.failover') en(k, v, 'claude|off');
+      else bad(`unknown codex key: ${k} (want codex.sandbox.network, codex.sandbox.local_server or codex.sandbox.failover)`);
+    }
     if (top === 'rules' && k !== 'rules') { if (!/^rules\.(budget_bytes|unused_after_reviews)$/.test(k)) bad(`unknown rules key: ${k} (want rules.budget_bytes or rules.unused_after_reviews)`); else num(k, v); }
     if (top === 'visual' && k !== 'visual') { if (!/^visual\.(ascii_turkish_words|ascii_turkish_allow)$/.test(k)) bad(`unknown visual key: ${k} (want visual.ascii_turkish_words or visual.ascii_turkish_allow)`); else if (!/^[A-Za-z]*([ ,]+[A-Za-z]+)*[ ,]*$/.test(v)) bad(`${k} must be ASCII words separated by spaces: ${v}`); }
     if (top === 'contract' && k !== 'contract' && !/^contract\.(paths|ignore)$/.test(k)) bad(`unknown contract key: ${k} (want contract.paths or contract.ignore)`);

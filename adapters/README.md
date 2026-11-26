@@ -7,6 +7,7 @@ hooks, which work with any agent (D6). Supported: Claude Code (full) and Codex (
 Untested adapters must be labelled "not tested".
 
 ## Support status (0.0.193)
+## Support status (0.0.194)
 
 Rendering and hooks are covered by `tests/generator/generator.test.mjs`, the enforcement tests and the self-tests.
 End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, with the commit of every run, are in
@@ -27,7 +28,7 @@ End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, w
 | `id`, `name`, `purpose`, `conditional` | agent name `proofline-<id>` with `_` -> `-` (`proofline-security-reviewer`; the role id keeps its underscore); description = `<purpose>. Use when: <conditional>` |
 | `tools` | space-separated Claude tool names; map to the target's tool or permission names |
 | `owns` | paths the role writes; rendered into `owns.conf` (enforced by the PreToolUse hook and `dispatch.sh`, not by the agent file) |
-| `sandbox` | `read-only` or `workspace-write`; map to the target's sandbox/permission mode |
+| `sandbox` | `read-only` or `workspace-write`; map to the target's sandbox/permission mode. A Codex worker's profile has no network and no loopback listener; `codex.sandbox.network` or `codex.sandbox.local_server: on` in `.agents/config.yaml` (the user's decision, default off) adds the profile's `network` table, see [enforcement layers](../docs/concepts/enforcement-layers.md) |
 | `model.<profile>`, `effort.<profile>` | per profile `max`, `balanced`, `economy`; `claude=<m> codex=<m>` pairs |
 | `tier_floor` | capability floor 1..3, consumed by the execution policy, not by the agent file |
 | body | the instructions; `{{skill:x}}` marks a skill reference |
