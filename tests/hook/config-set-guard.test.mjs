@@ -65,6 +65,10 @@ const SPELLINGS = (/** @type {string} */ k, /** @type {string} */ v) => [
   `bin/PROOFLINE config ${k} ${v}`, `proofline CONFIG ${k} ${v}`, `bin/????????? config ${k} ${v}`, `bin/[p][r][o][o][f][l][i][n][e] [c][o][n][f][i][g] ${k} ${v}`, `{bin/prooflin?,conf?g,${k},${v}}`,
   `bin/proof{l,x}ine conf{i,}g ${k} ${v}`, `./*line config ${k} ${v}`, `bin/[!x]roofline config ${k} ${v}`, `/repo/bin/prooflin? config ${k} ${v} </dev/null`, `bin/proof{a..z}ine config ${k} ${v}`,
   `bin/* * ${k} ${v}`,
+  // security review round 3: POSIX classes, collating symbols, equivalence classes, a `]` first in the class, unterminated brackets
+  `bin/p[[:alpha:]]oofline c[[:lower:]]nfig ${k} ${v}`, `bin/p[[:alpha:]]oofline config ${k} ${v}`, `bin/proofline c[[:lower:]]nfig ${k} ${v}`, `bin/[[:lower:]]roofline config ${k} ${v}`,
+  `bin/p[[.r.]]oofline c[[=o=]]nfig ${k} ${v}`, `pr[[:lower:]x]ofline config ${k} ${v}`, `bin/p[]r]oofline config ${k} ${v}`, `bin/p[!]x]oofline conf[]i]g ${k} ${v}`,
+  `bin/p[roofline config ${k} ${v}`, `bin/proofline c[onfig ${k} ${v}`, `bin/p[[:alpha:]oofline c[[:lower:]nfig ${k} ${v}`, `bin/p[^x]oofline config ${k} ${v}`,
 ];
 /** security review round 2: a terminal wrapper or a cleared environment with a command that names either word (the e2e probe wrote commands.test through these) */
 const WRAPPED = (/** @type {string} */ k, /** @type {string} */ v) => [
@@ -73,6 +77,10 @@ const WRAPPED = (/** @type {string} */ k, /** @type {string} */ v) => [
   `script -q /dev/null proofline config ${k} ${v}`, `script -q /dev/null ./z config ${k} ${v}`, `unbuffer proofline config ${k} ${v}`, `expect -c "spawn proofline config ${k} ${v}"`,
   `python3 -c "import pty; pty.spawn(['proofline','config','${k}','${v}'])"`, `socat - EXEC:'proofline config ${k} ${v}',pty`, `env -i proofline config ${k} ${v}`, `env - proofline config ${k} ${v}`,
   `env --ignore-environment PATH=/bin proofline config ${k} ${v}`, `tmux new-session -d "proofline config ${k} ${v}"`, `/usr/bin/script -q /dev/null proofline config ${k}`,
+  // security review round 3: the repro (the CLI then set a user key for the lead) and its variants
+  `script -q /dev/null env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID bin/p[[:alpha:]]oofline c[[:lower:]]nfig ${k} ${v}`,
+  `script -q /dev/null bin/p[[:alpha:]]oofline c[[:lower:]]nfig ${k} ${v}`, `script -q /dev/null env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u AGENT_ROLE bin/p[[:alpha:]]oofline c[[:lower:]]nfig ${k} ${v}`,
+  `script -q /dev/null bin/p[[:alpha:]]oofline config ${k} ${v}`, `env -i PATH=/usr/bin bin/[[:lower:]]roofline config ${k} ${v}`,
 ];
 /** reads in the one plain form: allowed for every session */
 const READS = ['proofline config', 'proofline config codex.sandbox.network', 'bin/proofline config commands.test', '/opt/p/bin/proofline config git.push_requires_approval', ' proofline config output_cap_bytes '];
@@ -81,7 +89,8 @@ const OTHERS = ['proofline status', 'proofline doctor --config', 'git config use
   'ls *', 'rm -rf tmp/*', 'cat docs/*.md', 'ls {a,b}/x', 'echo ?????????', 'ls * *', 'git status', 'env -i PATH=/bin ls',
   // CI round: the operand-rule spellings of tests/enforcement/guards.test.mjs (`pro*.mjs` cannot spell `proofline`; `{}` is no brace expansion) are not this rule's business
   'ls .agents/scripts/pro*.mjs | xargs node {} debt page', "find .agents/scripts -name 'pro*.mjs' -exec node {} debt page \\;", 'cd .agents; cd scripts; node pro*.mjs debt page',
-  'D=.agents; node $D/scripts/pro*.mjs debt page', 'command node pro*.mjs', 'echo {} {x} {', '[ -f x ] && ls', 'ls proofline-*.md conf*.yaml'];
+  'D=.agents; node $D/scripts/pro*.mjs debt page', 'command node pro*.mjs', 'echo {} {x} {', '[ -f x ] && ls', 'ls proofline-*.md conf*.yaml', '[[ -f x ]] && ls', 'ls [ab]*.md',
+  'grep -E "[[:space:]]+" docs/x.md'];
 const DENIED = /names proofline (and|or) config/;
 
 test('configCommandVerdict: every set spelling is refused for a specialist and for the lead; the plain reads and agent-key sets pass; other commands are not judged', () => {

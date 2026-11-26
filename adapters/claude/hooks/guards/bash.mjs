@@ -152,6 +152,32 @@ function braceWords(w) {
 }
 
 /**
+ * A376 round 3: every bracket expression of B as `?` (any one character), parsed as the shell parses it: after `[` and an optional `!` or `^`, a `]` is a member, not the end;
+ * `[:class:]`, `[.x.]` and `[=x=]` inside are units. Returns null (fail closed: the word may be anything) when an expression is not terminated or holds a POSIX class, collating
+ * symbol or equivalence class. A `[` that ends the word (the `[` command) is literal. @param {string} b @returns {string | null}
+ */
+function bracketsAsAny(b) {
+  if (/^\[+$/.test(b)) return b;   // `[` and `[[`, the test commands
+  let out = '';
+  for (let i = 0; i < b.length; i++) {
+    if (b[i] !== '[') { out += b[i]; continue; }
+    if (i === b.length - 1) { out += '['; continue; }
+    let j = i + 1;
+    if (b[j] === '!' || b[j] === '^') j++;
+    if (b[j] === ']') j++;
+    let end = -1;
+    for (; j < b.length; j++) {
+      if (b[j] === '[' && (b[j + 1] === ':' || b[j + 1] === '.' || b[j + 1] === '=')) return null;
+      if (b[j] === ']') { end = j; break; }
+    }
+    if (end < 0) return null;
+    out += '?';
+    i = end;
+  }
+  return out;
+}
+
+/**
  * A376 round 2: could the shell word W (one that holds a glob or brace character `* ? [ ] { }`) become `proofline` (the whole word or a path component; the CLI is `bin/proofline`,
  * there is no `proofline.mjs` to glob for) or `config` (the whole word) once the shell expands it? The pattern must be able to spell the whole word: its literal characters stay
  * literal, `*` is any run and `?` and a bracket class any one character (over-approximated, fail closed); an unmatched bracket or brace is literal, as in the shell. A pattern the
@@ -161,7 +187,10 @@ function braceWords(w) {
 function globNames(w) {
   if (!/[*?[\]{}]/.test(w)) return [];
   return braceWords(w).map((b) => {
-    const g = b.replace(/\[!?\]?[^\]]*\]/g, '?');
+    const g = bracketsAsAny(b);
+    // an unterminated bracket expression or one with a POSIX class (`[[:alpha:]]`, `[[.r.]]`, `[[=r=]]`) may stand for any word: it names both. Like `*` it is a wildcard-only
+    // match, so one such word that is the only evidence for both (a grep with one POSIX class) does not count; with any other word that names either, everything is refused
+    if (g === null) return { pl: true, cfg: true, bare: true, word: b };
     /** @param {string} part */
     const rx = (part) => new RegExp(`^${part.replace(/[.+^$()|\\{}[\]]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i');
     const test = (/** @type {string} */ part, /** @type {string[]} */ names) => { try { const r = rx(part); return names.some((x) => r.test(x)); } catch { return true; } };
@@ -194,7 +223,7 @@ export function configCommandVerdict(cmd, specialist) {
   for (const t of [cmd, flat, norm]) {
     if (PL_WORD.test(t)) pls.push({ id: '', bare: false });
     if (CONFIG_WORD.test(t)) cfgs.push({ id: '', bare: false });
-    for (const w of t.split(/[\s;&|()<>`]+/)) for (const g of globNames(w)) { if (g.pl) pls.push({ id: g.word, bare: g.bare }); if (g.cfg) cfgs.push({ id: g.word, bare: g.bare }); }
+    for (const w of t.split(/[\s;&|()<>`]+/)) for (const g of globNames(w)) { const id = g.word.replace(/[\x22\x27\\]/g, ''); if (g.pl) pls.push({ id, bare: g.bare }); if (g.cfg) cfgs.push({ id, bare: g.bare }); }
   }
   if ((pls.length > 0 || cfgs.length > 0) && [cmd, flat, norm].some((t) => PTY_WORD.test(t) || ENV_CLEAR.test(t))) return 'wrapper';
   if (pls.length === 0 || cfgs.length === 0) return '';
