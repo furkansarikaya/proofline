@@ -305,6 +305,26 @@ describe('several approvals in one message', () => {
     assert.deepEqual(store(d).map((l) => l.split('\t')[1]), ['a'], 'the word standing of one segment kept the other rationale too');
   });
 
+  test('a bare "approve rationale" approves the ONE open rationale request; with two open it approves nothing; "approve rationale a" approves only a', () => {
+    const d = proj(RUN_LINT);
+    writeFileSync(path.join(d, 'DESIGN.md'), '# Design\n\n## Pattern justifications\n\n- a: the first reason\n- b: the second reason\n');
+    const state = () => Object.fromEntries(accepted(A(d, ['design-rationales', 'LC']), 'list').out.split('\n').filter(Boolean).map((l) => l.split('\t').slice(0, 2)));
+    accepted(A(d, ['request-approval', 'LC', 'rationale:a']), 'request a');
+    say(d, 'approve rationale');
+    accepted(A(d, ['approve', 'LC', 'rationale:a']), 'the bare kind word with one open request');
+    assert.deepEqual(state(), { a: 'approved', b: 'unapproved' });
+    const e = proj(RUN_LINT);
+    writeFileSync(path.join(e, 'DESIGN.md'), '# Design\n\n## Pattern justifications\n\n- a: the first reason\n- b: the second reason\n');
+    const st = () => Object.fromEntries(accepted(A(e, ['design-rationales', 'LC']), 'list').out.split('\n').filter(Boolean).map((l) => l.split('\t').slice(0, 2)));
+    for (const r of ['a', 'b']) accepted(A(e, ['request-approval', 'LC', `rationale:${r}`]), `request ${r}`);
+    say(e, 'approve rationale');
+    refused(A(e, ['approve', 'LC', 'rationale:a', 'rationale:b']), 'the bare kind word with two open requests', 'no approval phrase');
+    assert.deepEqual(st(), { a: 'unapproved', b: 'unapproved' });
+    say(e, 'approve rationale a');
+    accepted(A(e, ['approve', 'LC', 'rationale:a', 'rationale:b']), 'a named one of two');
+    assert.deepEqual(st(), { a: 'approved', b: 'unapproved' });
+  });
+
   test('a message that names only one rationale approves only that one (an unnamed open rationale is never approved by silence or by the kind word)', () => {
     const d = proj(RUN_LINT); writeFileSync(path.join(d, 'DESIGN.md'), DESIGN); requestAll(d);
     say(d, 'approve rationale numbered-steps');

@@ -379,6 +379,13 @@ export function knownRunWords(ctx, runId, plain = () => true) {
   return out;
 }
 
+/** How many requests of a named kind (`rationale:`, `rule:`, `reopen:`) are open for the run and the no-run scope; 0 for a lexical check without a project. @param {Context} ctx @param {string} runId @param {string} prefix */
+function openOfKind(ctx, runId, prefix) {
+  if (typeof ctx.root !== 'string' || typeof ctx.sharedMain !== 'function') return 0;
+  // counted ONCE per command: the approvals one reply records answer their requests, and the next kind of the same reply must be judged by the count the reply was given
+  return ctx.once(`openkind:${runId}:${prefix}`, () => new Set(approvalPendingPairs(ctx, runId).filter(([, k]) => k.startsWith(prefix)).map(([t, k]) => `${t} ${k}`)).size);
+}
+
 /**
  * `text_has_approval TEXTFILE KIND [RUNID]` on the text itself: a positive grammar (A108). After normalisation every word must be a word of an
  * allowlisted phrase, of the kind's own words or a filler; the reply holds a whole phrase and a kind word, and no question mark. Any other word
@@ -415,7 +422,8 @@ export function textHasApproval(ctx, rawText, kind, runId = '', withKinds = []) 
   // A361: beside other open kinds, a kind that has a name (rationale:ID, rule:ID, reopen:ID) must be named itself: "approve rationale a" never approves the open rationale b only because
   // the word `rationale` and b's name are allowed words of the same reply
   // and it is named AFTER the type word (the id-list form "approve rationale a b"): "approve a rationale" does not name the rationale `a`
-  if (/^(rationale|rule|reopen):/.test(kind) && !full.includes(n)) {
+  // ... and only while MORE THAN ONE request of that kind is open: with exactly one open, the bare kind word approves it as it always did
+  if (/^(rationale|rule|reopen):/.test(kind) && !full.includes(n) && openOfKind(ctx, runId, kind.slice(0, kind.indexOf(':') + 1)) > 1) {
     const toks = n.split(' ');
     const ti = toks.indexOf(kw.split(' ')[0]);
     const after = new Set(ti < 0 ? [] : toks.slice(ti + 1));
