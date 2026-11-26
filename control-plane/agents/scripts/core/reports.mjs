@@ -95,7 +95,7 @@ export function digestRun(ctx, id) {
     ctx.err(`${e.message}\n`);
   }
   for (const l of textLines(text)) {
-    if (l.startsWith('next=')) ctx.out(`NEXT: ${l.slice(5)}\n`);
+    if (l.startsWith('next=')) ctx.keep(`NEXT: ${l.slice(5)}\n`);
     else if (l.startsWith('reason=')) ctx.out(`WHY: ${l.slice(7)}\n`);
   }
 }
@@ -123,7 +123,8 @@ export function briefRun(ctx, id) {
 
 /** `next [ID]` @param {Context} ctx @param {string} id */
 export function nextCommand(ctx, id) {
-  const emit = (/** @type {string} */ t) => ctx.out(t);
+  // the steps are the control plane's own `next=` lines: the output cap never drops one (A365)
+  const emit = (/** @type {string} */ t) => { ctx.out(t); for (const l of t.split('\n')) if (l.startsWith('next=')) ctx.protectedLines.push(`${l}\n`); };
   if (id !== '') nextStep(ctx, id, emit); else nextWithoutRun(ctx, emit);
 }
 

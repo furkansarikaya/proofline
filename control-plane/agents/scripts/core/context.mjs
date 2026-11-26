@@ -56,6 +56,8 @@ export class Context {
     /** @type {string | null} */ this._shared = null;
     /** @type {Array<['out' | 'err', Buffer]>} */ this.chunks = [];
     /** @type {Map<string, unknown>} */ this.memo = new Map();
+    /** lines the handler declares must survive the output cap (A365, outputshape.mjs): only the control plane's own state registers one, never text it reads @type {string[]} */
+    this.protectedLines = [];
     /** the bytes a table command may print (A365, outputshape.mjs prepare); null = no limit @type {number | null} */ this.rowBudget = null;
     /** fp_fast of agent.sh: 'no' (always hash), 'yes' (read-only commands: use the fingerprint cache), 'refresh' (sealing commands: hash, then store) */
     this.fpMode = 'no';
@@ -109,6 +111,8 @@ export class Context {
 
   /** @param {string} text a byte string */
   out(text) { this.chunks.push(['out', Buffer.from(text, 'latin1')]); }
+  /** Print a line the output cap must never drop, and register it as protected (A365). @param {string} text a byte string with its newline */
+  keep(text) { this.out(text); this.protectedLines.push(text); }
   /** @param {string} text a byte string */
   err(text) { this.chunks.push(['err', Buffer.from(text, 'latin1')]); }
 

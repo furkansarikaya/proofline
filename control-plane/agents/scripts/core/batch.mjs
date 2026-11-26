@@ -497,32 +497,32 @@ export function nextReport(ctx, tsv = false) {
   const ci = ciPending(ctx);
   const open = rs.find((r) => r.state === 'open');
   if (wait !== '') {
-    ctx.out(`NEXT: wait (owned by pid ${wait})   (pid ${wait} is another live session; if it is yours, run the batch there or close it; do not start a second one. If that session is gone, ask again: a dead owner is taken over)\n`);
+    ctx.keep(`NEXT: wait (owned by pid ${wait})   (pid ${wait} is another live session; if it is yours, run the batch there or close it; do not start a second one. If that session is gone, ask again: a dead owner is taken over)\n`);
     return;
   }
   const cc = captured(ctx, () => CHECK_HANDLERS['commands-check'](ctx, []));
   if (cc.status === 0) {
     // A200: the approved summary named a proven commands proposal that is not written yet: writing it comes first, before any task starts
-    ctx.out(`NEXT: commands   (proofline doctor --apply-commands: ${cc.out.replace(/\n+$/, '')}; the batch approval covers writing exactly this proposal, and it must be written before the first task so every run gates on the project's own build, test and lint)\n`);
+    ctx.keep(`NEXT: commands   (proofline doctor --apply-commands: ${cc.out.replace(/\n+$/, '')}; the batch approval covers writing exactly this proposal, and it must be written before the first task so every run gates on the project's own build, test and lint)\n`);
   } else if (ci !== '') {
-    ctx.out(`NEXT: ci ${ci}   (agent.sh batch-ci ${ci}: the CI of its merge commit; red or no run in time: stop the batch)\n`);
+    ctx.keep(`NEXT: ci ${ci}   (agent.sh batch-ci ${ci}: the CI of its merge commit; red or no run in time: stop the batch)\n`);
   } else if (open) {
     const id = open.id; const act = open.detail;
-    if (act === 'run') ctx.out(`NEXT: run ${id}   (agent.sh worktree-add ${id}, then /proofline run ${id} with .agents/local/worktrees/${id} as the working folder)\n`);
+    if (act === 'run') ctx.keep(`NEXT: run ${id}   (agent.sh worktree-add ${id}, then /proofline run ${id} with .agents/local/worktrees/${id} as the working folder)\n`);
     else if (act === 'resume') {
       const rr = rroot(ctx, id);
       const where = relUnder(process.platform === 'win32' ? physical(ctx.root) : ctx.root, rr) ?? rr;
-      ctx.out(`NEXT: resume ${id}   (agent.sh next ${id}, in ${where === '' ? 'the main working tree' : where})\n`);
-    } else if (act.startsWith('cover ')) ctx.out(`NEXT: cover ${id} ${act.slice(6)}   (agent.sh batch-cover ${id} ${act.slice(6)})\n`);
-    else if (act === 'deliver cleanup') ctx.out(`NEXT: deliver ${id} cleanup ${open.question}   (pull request ${open.question} is merged but not recorded: agent.sh deliver-step ${id} cleanup ${open.question} records the merge and cleans up)\n`);
-    else if (act === 'deliver merged') ctx.out(`NEXT: deliver ${id} merged   (the user merged it on origin: agent.sh deliver-merged ${id} proves that from git, records the merge and cleans up the run and its worktree)\n`);
-    else if (act === 'deliver') ctx.out(`NEXT: deliver ${id}   (the whole delivery of the lead skill; the approval is covered by batch-cover ${id} delivery)\n`);
+      ctx.keep(`NEXT: resume ${id}   (agent.sh next ${id}, in ${where === '' ? 'the main working tree' : where})\n`);
+    } else if (act.startsWith('cover ')) ctx.keep(`NEXT: cover ${id} ${act.slice(6)}   (agent.sh batch-cover ${id} ${act.slice(6)})\n`);
+    else if (act === 'deliver cleanup') ctx.keep(`NEXT: deliver ${id} cleanup ${open.question}   (pull request ${open.question} is merged but not recorded: agent.sh deliver-step ${id} cleanup ${open.question} records the merge and cleans up)\n`);
+    else if (act === 'deliver merged') ctx.keep(`NEXT: deliver ${id} merged   (the user merged it on origin: agent.sh deliver-merged ${id} proves that from git, records the merge and cleans up the run and its worktree)\n`);
+    else if (act === 'deliver') ctx.keep(`NEXT: deliver ${id}   (the whole delivery of the lead skill; the approval is covered by batch-cover ${id} delivery)\n`);
   } else if (state === 'finished-parked') {
     // A358: a parked task with a recorded question is a wait for the user's answer, named on one line (the Stop hook and a goal read it)
     const wq = rs.find((r) => r.state === 'parked' && r.question !== '' && r.detail !== 'awaiting merge');
-    if (wq) ctx.out(`waiting for the user: ${wq.id}: ${wq.question.replace(/`/g, '').replace(/[\t\n\v\f\r]+/g, ' ').trim().slice(0, 120)}\n`);
-    ctx.out('NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)\n');
-  } else ctx.out('NEXT: finished\n');
+    if (wq) ctx.keep(`waiting for the user: ${wq.id}: ${wq.question.replace(/`/g, '').replace(/[\t\n\v\f\r]+/g, ' ').trim().slice(0, 120)}\n`);
+    ctx.keep('NEXT: finished   (parked or skipped tasks wait for the user: answer their questions or reopen the run, then /proofline batch continues)\n');
+  } else ctx.keep('NEXT: finished\n');
 }
 
 /** `batch-next [--tsv]`: read-only (but the owner claim), every role may read the digest. @param {Context} ctx @param {string[]} args */

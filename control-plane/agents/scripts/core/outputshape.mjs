@@ -3,7 +3,8 @@
 // answer of the commands the lead calls all day, applied once for all of them at the entry (never inside a handler, so no handler changes):
 //   cap    `output_cap_bytes` (config, default 6000, 0 = off): more than that on stdout is cut at a line end, then ONE line says how much is left and
 //          which command prints it all: `...N more bytes: agent.sh <command> <args> --full`. `--full` is the one explicit flag that lifts it. A line that
-//          the lead must act on, `NEXT: ...` and `waiting for the user: ...`, is never cut: it is printed after the hint when it was in the cut part.
+//          the lead must act on is never cut: the handler registers it itself (`ctx.keep`, `ctx.protectedLines`: `NEXT:`, `waiting for the user:`, the `next=` steps, the
+//          waiting list of a batch table), from its own state, never by looking at text it read; such a line that fell in the cut part is printed after the hint.
 //          `questions` (a user question is relayed whole) is never capped, and neither is a machine-readable answer (`--tsv`, `--json`).
 //          `batch-next` and `batch-status` list the rows that need something first and drop only finished rows (see batch.mjs, `limitRows`).
 //   since  `--since <token>` on `next` and `batch-next`: the answer ends with a line `since=<token>` (a hash of the whole answer, opaque); when the
@@ -25,8 +26,6 @@ export const SINCE_COMMANDS = Object.freeze(['next', 'batch-next']);
 const FIRST_IS_NAME = Object.freeze(['next', 'digest', 'pipeline', 'friction']);
 /** The default of `output_cap_bytes`. */
 export const DEFAULT_CAP = 6000;
-/** Lines the cap never cuts. */
-const PROTECTED = /^(NEXT: |waiting for the user: )/;
 
 /**
  * @typedef {object} Shape
@@ -94,38 +93,52 @@ export function shapeOutput(ctx, command, shape) {
   if (!shape.full && cap > 0 && body.length > cap) {
     let cut = body.lastIndexOf(10, cap - 1) + 1; // the head ends at a line end
     if (cut === 0) cut = cap;
-    const kept = body.subarray(cut).toString('latin1').split('\n').filter((l) => PROTECTED.test(l)).map((l) => `${l}\n`).join('');
+    const head = body.subarray(0, cut);
+    const kept = [...new Set(ctx.protectedLines)].filter((l) => !head.includes(Buffer.from(l, 'latin1'))).join('');
     const flags = [command, ...shape.args, ...(shape.since !== null ? ['--since', shape.since] : [])];
-    body = Buffer.concat([body.subarray(0, cut), Buffer.from(`...${body.length - cut} more bytes: agent.sh ${flags.join(' ')} --full\n${kept}`, 'latin1')]);
+    body = Buffer.concat([head, Buffer.from(`...${body.length - cut} more bytes: agent.sh ${flags.join(' ')} --full\n${kept}`, 'latin1')]);
   }
   if (shape.since !== null) body = Buffer.concat([body, Buffer.from(`since=${token}\n`, 'latin1')]);
   ctx.chunks = [['out', body], ...errs];
 }
 
 /**
- * The rows of a table of one line per task (`batch-next`, `batch-status`) under the byte budget of the command (A365). When the rows fit, nothing changes. When they do not,
- * a first line `rows: N, waiting: n, runnable: n, parked: n` comes BEFORE the rows, the rows that need something (waiting, runnable, parked) are listed first in their
- * order, and only finished rows (merged, skipped) are dropped, the last ones first; a line after the rows names the number hidden and the command with `--full`.
- * @template {{ state: string }} R
+ * The rows of a table of one line per task (`batch-next`, `batch-status`) under the byte budget of the command (A365). When the rows fit half the budget, nothing changes.
+ * When they do not: a first line `rows: N, waiting: n, runnable: n, parked: n`; then, when a task waits for the user, the list `waiting for the user (K):` with one line per task
+ * (id and the gist of its question; at most a quarter of the budget, the rest counted), which the cap never cuts; then the rows in the order waiting for the user, runnable,
+ * parked, waiting for a dependency, finished (stable inside each class) until half the budget is used; the hint after the rows names how many are hidden.
+ * @template {{ id: string, state: string, question: string }} R
  * @param {Context} ctx @param {string} command @param {R[]} rows @param {(r: R) => string} line the text of one row, with its newline
  * @returns {{ head: string, shown: R[], tail: string }}
  */
 export function limitRows(ctx, command, rows, line) {
   const budget = ctx.rowBudget;
   const size = (/** @type {R[]} */ rs) => rs.reduce((n, r) => n + line(r).length, 0);
-  // the rows get what is left of the budget after the lines around them (the header, the NEXT line, the sections after the table)
   if (budget === null || size(rows) <= Math.floor(budget / 2)) return { head: '', shown: rows, tail: '' };
-  const busy = (/** @type {R} */ r) => r.state === 'open' || r.state === 'waiting' || r.state === 'parked';
+  const klass = (/** @type {R} */ r) => (r.question !== '' && r.state === 'parked' ? 0 : r.state === 'open' ? 1 : r.state === 'parked' ? 2 : r.state === 'waiting' ? 3 : 4);
+  const sorted = rows.map((r, i) => ({ r, i, k: klass(r) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.r);
   const n = (/** @type {string} */ s) => rows.filter((r) => r.state === s).length;
-  const live = rows.filter(busy);
-  const done = rows.filter((r) => !busy(r));
-  const shown = [...live];
-  let used = size(live);
-  for (const r of done) { const l = line(r).length; if (used + l > Math.floor(budget / 2)) break; shown.push(r); used += l; }
+  const asking = sorted.filter((r) => klass(r) === 0);
+  let list = '';
+  let listed = 0;
+  for (const r of asking) {
+    const l = `  ${r.id}: ${r.question.replace(/`/g, '').replace(/[\t\n\v\f\r]+/g, ' ').trim().slice(0, 120)}\n`;
+    if (list.length + l.length > Math.floor(budget / 4) && listed > 0) break;
+    list += l; listed++;
+  }
+  if (asking.length > 0) {
+    const title = `waiting for the user (${asking.length}):\n`;
+    const more = asking.length > listed ? `  ...${asking.length - listed} more waiting: agent.sh ${command} --full\n` : '';
+    list = title + list + more;
+    ctx.protectedLines.push(list);
+  }
+  const shown = [];
+  let used = 0;
+  for (const r of sorted) { const l = line(r).length; if (used + l > Math.floor(budget / 2) && shown.length > 0) break; shown.push(r); used += l; }
   const hidden = rows.length - shown.length;
   return {
-    head: `rows: ${rows.length}, waiting: ${n('waiting')}, runnable: ${n('open')}, parked: ${n('parked')}\n`,
+    head: `rows: ${rows.length}, waiting: ${n('waiting')}, runnable: ${n('open')}, parked: ${n('parked')}\n${list}`,
     shown,
-    tail: hidden > 0 ? `...${hidden} finished row${hidden === 1 ? '' : 's'} hidden: agent.sh ${command} --full\n` : '',
+    tail: hidden > 0 ? `...${hidden} more row${hidden === 1 ? '' : 's'} (finished ones first): agent.sh ${command} --full\n` : '',
   };
 }
