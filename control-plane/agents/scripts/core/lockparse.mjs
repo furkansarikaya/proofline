@@ -208,6 +208,7 @@ export function pnpmPackages(lock) {
   /** @type {Array<{ key: string, res: string[] | null | undefined }>} */ const entries = [];
   /** @type {{ key: string, res: string[] | null | undefined } | null} */ let cur = null;
   let inRes = false;
+  /** @type {number[]} */ const headers = []; // the entry count when each block `packages:` began
   const bad = (/** @type {number} */ i, /** @type {string} */ why) => ({ error: `the lock file is not a pnpm lock this parser reads (line ${i + 1}: ${why})`, kind: 'lock_unreadable' });
   for (let i = 0; i < ls.length; i++) {
     const l = ls[i];
@@ -225,7 +226,13 @@ export function pnpmPackages(lock) {
         if (major !== null && major !== v) return { error: 'the documents of the pnpm lock name different lockfileVersions', kind: 'lock_unsupported' };
         major = v;
       }
-      section = p.k === 'packages' && p.v === '' ? 'packages' : '';
+      section = '';
+      if (p.k === 'packages') {
+        // the section header is `packages:` (block entries follow) or `packages: {}` (none); a comment, anchor, tag or a flow map after it would hide the entries: the lock is refused, never read as empty
+        if (p.v === '{}') continue;
+        if (p.v !== '') return bad(i, '`packages:` followed by something other than its block entries or `{}`');
+        section = 'packages'; headers.push(entries.length);
+      }
       continue;
     }
     if (section !== 'packages') continue;
@@ -254,6 +261,8 @@ export function pnpmPackages(lock) {
     }
   }
   if (major === null) return { error: 'the pnpm lock has no lockfileVersion', kind: 'lock_unsupported' };
+  // a block `packages:` with no entry under it is not an empty lock (pnpm writes `packages: {}` for that): something the parser did not read is there
+  for (let h = 0; h < headers.length; h++) if ((h + 1 < headers.length ? headers[h + 1] : entries.length) === headers[h]) return { error: 'the lock file is not a pnpm lock this parser reads (a `packages:` section without entries)', kind: 'lock_unreadable' };
   if (major < 5 || major > 9) return { error: `pnpm lockfileVersion ${major} is not supported (5 to 9 are read)`, kind: 'lock_unsupported' };
   const c = collector();
   for (const e of entries) {

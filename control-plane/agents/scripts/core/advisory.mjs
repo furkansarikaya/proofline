@@ -225,19 +225,24 @@ export function readRecord(file) {
 }
 
 /**
- * The ONE lock file of a definition at the project root: `{ name, format }` (a regular file, a link is not one), or why none is read: none there, more than one (a second lock could hide the one the
- * package manager uses, so neither is chosen), or a lock whose format is refused (`advisory.refused`, a binary lock).
+ * The ONE lock file of a definition at the project root: `{ name, format }`, or why none is read. ONE RULE for links: a name of `advisory.locks` or `advisory.refused` that is there at all (a link,
+ * dangling or not, or another non-regular file included) counts as present, and a lock that is not a regular file is never read. Present: none -> `none`; a refused one beside nothing -> `refused`;
+ * more than one -> `several` (a second lock could hide the one the package manager uses), except when they are all regular files of ONE format: then the first in data order is read, the package
+ * manager's own precedence (npm installs from `npm-shrinkwrap.json` over `package-lock.json`, A373); one that is not a regular file -> `notRegular`.
  * @param {Context} ctx @param {{ locks: string[], formats: string[], refused: string[] }} def
- * @returns {{ name: string, format: string } | { none: true } | { several: string[] } | { refused: string }}
+ * @returns {{ name: string, format: string } | { none: true } | { several: string[] } | { refused: string } | { notRegular: string }}
  */
 export function pickLock(ctx, def) {
   /** @param {string} l */ const regular = (l) => { try { return lstatSync(`${ctx.root}/${l}`).isFile(); } catch { return false; } };
   /** @param {string} l */ const exists = (l) => { try { lstatSync(`${ctx.root}/${l}`); return true; } catch { return false; } };
-  const found = def.locks.map((name, i) => ({ name, format: def.formats[i] ?? '' })).filter((x) => regular(x.name));
+  // every name that is there at all counts for the choice, a link or another non-regular file included: a planted link must not leave a second lock alone to be read
+  const present = def.locks.map((name, i) => ({ name, format: def.formats[i] ?? '' })).filter((x) => exists(x.name));
   const refused = def.refused.filter(exists);
-  if (found.length + refused.length > 1) return { several: [...found.map((x) => x.name), ...refused] };
-  if (refused.length === 1) return { refused: refused[0] };
-  return found[0] ?? { none: true };
+  const several = { several: [...present.map((x) => x.name), ...refused] };
+  if (refused.length > 0) return present.length + refused.length > 1 ? several : { refused: refused[0] };
+  if (present.length === 0) return { none: true };
+  if (present.length > 1) return present.every((x) => regular(x.name) && x.format === present[0].format) ? present[0] : several;
+  return regular(present[0].name) ? present[0] : { notRegular: present[0].name };
 }
 
 /** The lock file the run's definition would audit (its sha), or ''. @param {Context} ctx */
@@ -346,6 +351,7 @@ export function advisoryCheckCommand(ctx, args) {
   const names = `${def.locks.slice(0, -1).join(', ')} or ${def.locks[def.locks.length - 1]}`;
   if ('none' in picked) return done('not_run', 'no_lock', `no ${names} (a regular file) at the project root: only a lock file at the root is checked, and it is only read as data`);
   if ('several' in picked) return done('not_run', 'several_locks', `more than one lock file at the project root (${picked.several.join(', ')}): which one the package manager uses is not guessed; remove the stale one or audit by hand`);
+  if ('notRegular' in picked) return done('not_run', 'lock_unreadable', `${picked.notRegular} is not a regular file (a link is never followed): the lock is not read`);
   if ('refused' in picked) return done('not_run', 'lock_unsupported', `${picked.refused} is a binary lock file, which is not parsed (only text lock files are read as data): write a text lock file or audit by hand`);
   const lockName = picked.name;
   const readPackages = LOCK_FORMATS[picked.format];
@@ -364,6 +370,13 @@ export function advisoryCheckCommand(ctx, args) {
   if (requests >= MAX_SETS) return done('not_run', 'run_cap', `${MAX_SETS} request sets were already made in this run`);
   const pk = readPackages(lockBytes);
   if ('error' in pk) return done('not_run', pk.kind, pk.error);
+  // nothing to ask is never `measured`: no request is made, so the record says the check did not run (an empty lock, or every entry skipped)
+  if (pk.packages.size === 0) {
+    const why0 = Object.entries(pk.reasons).map(([k, v]) => `${k} ${v}`).join(', ');
+    return pk.total === 0
+      ? done('not_run', 'no_packages', `${lockName} lists no package entry: nothing was asked, known vulnerabilities not checked`, { lock: lockName, format: picked.format, total: 0 })
+      : done('not_run', 'no_packages', `none of the ${pk.total} entries of ${lockName} could be checked (${why0}): nothing was asked`, { lock: lockName, format: picked.format, skipped: pk.skipped, total: pk.total, skipped_reasons: pk.reasons });
+  }
   const built = buildBatches(pk.packages, pk.versions);
   if ('error' in built) return done('not_run', 'too_large', built.error);
   const http = ctx.io.http ?? httpPost;

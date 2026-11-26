@@ -567,6 +567,75 @@ test('the binary bun.lockb is refused unparsed, more than one root lock is refus
   assert.equal(record(d).reason_kind, 'several_locks');
   d = run();
   wr(d, 'elsewhere.yaml', PNPM); symlinkSync(path.join(d, 'elsewhere.yaml'), path.join(d, 'pnpm-lock.yaml'));
-  assert.match(check(d, http), /not_run: no npm-shrinkwrap\.json, package-lock\.json, pnpm-lock\.yaml, yarn\.lock or bun\.lock \(a regular file\) at the project root/);
+  assert.match(check(d, http), /not_run: pnpm-lock\.yaml is not a regular file \(a link is never followed\): the lock is not read/);
+  assert.equal(record(d).reason_kind, 'lock_unreadable');
+  assert.equal(http.calls.length, 0);
+});
+
+test('the npm pair keeps the A373 precedence: npm-shrinkwrap.json beside package-lock.json is read (npm installs from it); a link in the pair makes it several_locks', () => {
+  const http = fake();
+  let d = run();
+  wr(d, 'npm-shrinkwrap.json', JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/lodash': { version: '4.17.20' } } }));
+  wr(d, 'package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/other': { version: '1.0.0' } } }));
+  assert.match(check(d, http), /^advisory-check: measured/);
+  assert.equal(record(d).lock, 'npm-shrinkwrap.json');
+  assert.deepEqual(JSON.parse(http.calls[0].body), { lodash: ['4.17.20'] });
+  d = run();
+  wr(d, 'npm-shrinkwrap.json', JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/lodash': { version: '4.17.20' } } }));
+  wr(d, '.y/real.json', '{}'); symlinkSync(path.join(d, '.y/real.json'), path.join(d, 'package-lock.json'));
+  assert.match(check(d, http), /not_run: more than one lock file at the project root \(npm-shrinkwrap\.json, package-lock\.json\)/);
+  d = run();
+  wr(d, 'npm-shrinkwrap.json', JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/lodash': { version: '4.17.20' } } }));
+  wr(d, 'package-lock.json', '{}'); wr(d, 'yarn.lock', YARN);
+  assert.match(check(d, http), /not_run: more than one lock file at the project root \(npm-shrinkwrap\.json, package-lock\.json, yarn\.lock\)/);
+  assert.equal(http.calls.length, 1);
+});
+
+test('a linked lock beside a regular one is a second lock: not_run several_locks, neither is read (security review of PR 362)', () => {
+  // RED before the fix: the link was dropped from the choice, the benign package-lock.json alone was read and the record said measured with nothing asked
+  const http = fake();
+  for (const [link, target] of [['yarn.lock', YARN], ['bun.lockb', 'binary'], ['pnpm-lock.yaml', PNPM]]) {
+    const d = run();
+    wr(d, 'package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { '': { name: 'x' } } }));
+    wr(d, '.y/real.lock', target); symlinkSync(path.join(d, '.y/real.lock'), path.join(d, link));
+    assert.match(check(d, http), new RegExp(`^advisory-check: not_run: more than one lock file at the project root \\((?=.*package-lock\\.json)(?=.*${link.replace('.', '\\.')})`), link);
+    assert.equal(record(d).reason_kind, 'several_locks');
+  }
+  // a dangling link counts too
+  const d = run();
+  wr(d, 'yarn.lock', YARN); symlinkSync(path.join(d, 'nowhere'), path.join(d, 'bun.lock'));
+  assert.match(check(d, http), /not_run: more than one lock file at the project root \(bun\.lock, yarn\.lock\)|not_run: more than one lock file at the project root \(yarn\.lock, bun\.lock\)/);
+  assert.equal(http.calls.length, 0);
+});
+
+test('nothing to ask is never measured: an empty lock, or one whose every entry is skipped, is not_run with no request (security review of PR 362)', () => {
+  const http = fake();
+  let d = run();
+  wr(d, 'package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { '': { name: 'x' } } }));
+  assert.match(check(d, http), /^advisory-check: not_run: package-lock\.json lists no package entry: nothing was asked/);
+  assert.equal(record(d).status, 'not_run'); assert.equal(record(d).reason_kind, 'no_packages');
+  d = run();
+  wr(d, 'bun.lock', '{"lockfileVersion": 1, "packages": {"g": ["g@github:o/r#a", {}], "f": ["f@file:x", {}]}}');
+  assert.match(check(d, http), /^advisory-check: not_run: none of the 2 entries of bun\.lock could be checked \(non-registry 2\): nothing was asked/);
+  assert.equal(rows(d).length, 1); assert.match(rows(d)[0], / status=not_run$/);
+  assert.equal(http.calls.length, 0);
+});
+
+test('pnpm: `packages:` with anything after the colon, or a block header without entries, refuses the lock instead of reading it as empty (security review of PR 362)', () => {
+  // RED before the fix: each of these read as a measured lock of 0 packages
+  const entry = '\n\n  lodash@4.17.20:\n    resolution: {integrity: sha512-a}\n';
+  for (const suf of [' # c', ' &a', ' !!map', ' !!omap', ' *a', ' {lodash@4.17.20: {resolution: {integrity: sha512-a}}}', ' {}x', ' []', ' null', ' ~']) {
+    refused(pnpmPackages(`lockfileVersion: '9.0'\n\npackages:${suf}${entry}`), 'lock_unreadable', /`packages:` followed by something other than/);
+  }
+  refused(pnpmPackages("lockfileVersion: '9.0'\npackages: {lodash@4.17.20: {resolution: {integrity: sha512-a}}}\n"), 'lock_unreadable');
+  refused(pnpmPackages("lockfileVersion: '9.0'\npackages:# c\n"), 'lock_unreadable', /top-level/);
+  refused(pnpmPackages("lockfileVersion: '9.0'\npackages:\n\nsnapshots:\n  lodash@4.17.20: {}\n"), 'lock_unreadable', /without entries/);
+  refused(pnpmPackages("lockfileVersion: '9.0'\npackages:\n"), 'lock_unreadable', /without entries/);
+  refused(pnpmPackages(`---\nlockfileVersion: '9.0'\npackages:${entry}---\nlockfileVersion: '9.0'\npackages:\n`), 'lock_unreadable', /without entries/);
+  assert.equal(ok(pnpmPackages("lockfileVersion: '9.0'\npackages: {}\nsnapshots: {}\n")).total, 0, '`packages: {}` is the empty lock pnpm writes');
+  // end to end: the flow form is not_run, never measured
+  const d = run(); const http = fake();
+  wr(d, 'pnpm-lock.yaml', "lockfileVersion: '9.0'\npackages: {lodash@4.17.20: {resolution: {integrity: sha512-a}}}\n");
+  assert.match(check(d, http), /^advisory-check: not_run: the lock file is not a pnpm lock this parser reads \(line 2: `packages:` followed by something other than/);
   assert.equal(http.calls.length, 0);
 });

@@ -159,7 +159,7 @@ test('a lock beyond the caps is refused with a note and no request: more than 50
   assert.match(check(d, http).out, /not_run: package-lock\.json is larger than 16 MiB/);
   d = run({ lock: false });
   wr(d, 'real.json', lockText()); symlinkSync(path.join(d, 'real.json'), path.join(d, 'package-lock.json'));
-  assert.match(check(d, http).out, /not_run: no npm-shrinkwrap\.json, package-lock\.json, pnpm-lock\.yaml, yarn\.lock or bun\.lock \(a regular file\)/);
+  assert.match(check(d, http).out, /not_run: package-lock\.json is not a regular file \(a link is never followed\): the lock is not read/);
   assert.match(check(run({ lock: '{ not json' }), http).out, /not_run: the lock file is not valid JSON/);
   assert.match(check(run({ lock: '{"lockfileVersion":1,"dependencies":{}}' }), http).out, /not_run: the lock file has no `packages` map/);
   assert.equal(http.calls.length, 0);
