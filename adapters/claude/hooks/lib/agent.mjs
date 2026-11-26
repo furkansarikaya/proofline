@@ -24,6 +24,7 @@ import { isFile, isDir } from './fsx.mjs';
  * @property {string | Buffer} [input] bytes for the command's stdin (default: none)
  * @property {string} [agentPath] the agent.sh to use (default: the one of the hook's run worktree)
  * @property {string} [cwd]
+ * @property {{ session: string, toolUseId: string, input: unknown, response: unknown }} [uiAnswer] the selection of the runtime option UI this hook is handling (core `answer --ui`, A367)
  * @property {{ session: string, time: number, sha256: string, text: string }} [promptCapture] the capture of the prompt this hook is handling (core latestCapture then means exactly this one)
  */
 
@@ -74,7 +75,7 @@ export class Agents {
     {
       const core = await this.core();
       if (core && core.commandTable().some((/** @type {{ name: string, moved: boolean }} */ e) => e.name === command && e.moved)) {
-        const io = { env, cwd, scriptPath: agentPath, stdinText: opt.input === undefined ? undefined : opt.input.toString(), promptCapture: opt.promptCapture };
+        const io = { env, cwd, scriptPath: agentPath, stdinText: opt.input === undefined ? undefined : opt.input.toString(), promptCapture: opt.promptCapture, uiAnswer: opt.uiAnswer };
         if (opt.budgetMs === undefined) return inProcess(core, argv, io);
         return this.onWorker(argv, io, opt.budgetMs);
       }
@@ -114,7 +115,7 @@ export class Agents {
 
 /**
  * @param {any} core @param {string[]} argv
- * @param {{ env: NodeJS.ProcessEnv, cwd: string, scriptPath: string, stdinText?: string, promptCapture?: object }} given @returns {AgentResult}
+ * @param {{ env: NodeJS.ProcessEnv, cwd: string, scriptPath: string, stdinText?: string, promptCapture?: object, uiAnswer?: object }} given @returns {AgentResult}
  */
 function inProcess(core, argv, given) {
   /** @type {Buffer[]} */ const out = [];

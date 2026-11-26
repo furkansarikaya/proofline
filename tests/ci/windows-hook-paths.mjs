@@ -20,7 +20,7 @@ export const FILES = [
   'adapters/codex/hooks.json',
   'adapters/codex/install.mjs',
   'control-plane/agents/scripts/proofline-core.mjs',
-  ...['context', 'commands/hookcmds', 'paths', 'pathin', 'pathkind', 'shellglob', 'proc', 'platform', 'wintool', 'capture', 'budget', 'githooks', 'cliio'].map((n) => `control-plane/agents/scripts/core/${n}.mjs`),
+  ...['context', 'commands/hookcmds', 'commands/tools', 'answer', 'answerforms', 'paths', 'pathin', 'pathkind', 'shellglob', 'proc', 'platform', 'wintool', 'capture', 'budget', 'githooks', 'cliio'].map((n) => `control-plane/agents/scripts/core/${n}.mjs`),
   'tests/bench/hook-procs.mjs',
   'tests/bench/hook-budgets.tsv',
   'tests/core/lib/fixture.mjs',

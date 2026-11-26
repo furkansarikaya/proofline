@@ -6,7 +6,7 @@ adapter: state, gates and the commit/push lock are in the Node control plane (`c
 hooks, which work with any agent (D6). Supported: Claude Code (full) and Codex (implementer role verified in real use; see the status table). Others: send a PR (D8).
 Untested adapters must be labelled "not tested".
 
-## Support status (0.0.188)
+## Support status (0.0.189)
 
 Rendering and hooks are covered by `tests/generator/generator.test.mjs`, the enforcement tests and the self-tests.
 End-to-end results are an evaluator's `E2E: PASS` on a dated run; the results, with the commit of every run, are in
@@ -82,6 +82,7 @@ The shims call control-plane scripts; they must work from the project root and n
 | deny out-of-role edits and git/gate violations | `PreToolUse` (deny JSON or exit 2) | `PreToolUse` (same shape; project hooks load once the project is trusted and reviewed with `/hooks`) |
 | capture a subagent's final message into the ledger | `SubagentStop` (`agent_type`, `last_assistant_message`) -> `agent.sh record` with `AGENT_ROLE` | `SubagentStop` (same fields) |
 | capture user approvals | `UserPromptSubmit` (`prompt`) -> `.agents/local/prompts/<session>.json` | `UserPromptSubmit` |
+| record the user's selection in the runtime's option UI (A367) | `PostToolUse` of `AskUserQuestion` (`tool_input`, `tool_response`, `tool_use_id`, `session_id`) -> `agent.sh answer <ID> <N> --ui` in process | not wired: written options (see A367) |
 | resume context | `SessionStart` | `SessionStart` |
 
 An agent without hooks still works at the protocol tier: it reads `AGENTS.md`, runs `agent.sh`, and the git

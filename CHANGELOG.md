@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.189 — 2026-11-26
+
+- Fix (A367, issue 338 U1): a closed-choice question (`SPLIT:` or `USER_ONLY:` with two to four listed answers) is asked in Claude Code's own option picker. `agent.sh questions` prints an `ask=` block (the exact AskUserQuestion input) and the line `fallback: written options`; the PostToolUse hook records the user's selection as `answered_by: user`, `source: ui` (`answer <ID> <N> --ui`, refused without the hook's hand-over) only when the tool input equals the block derived from the stored question, in the asking session, once per tool call. Approvals, assumption tokens and Codex keep the written options (Codex: not tested, see A367).
+
 ## 0.0.188 — 2026-11-26
 
 - Fix (A366, issue 338 U9 = R2-18): an empty `commands.lint` is told, not silent. The batch summary prints `lint commands: <none set>; proposal: ...` (the lint command that `proofline doctor --commands` proved, or that nothing was discovered) with a WARNING, the same warning is printed at the freeze of a batch task, and the batch approval records the proposal as it already does for build and test; `commands.lint: none` says on purpose that there is no lint and silences the warning. A warning, never a refusal; no new approval kind.
