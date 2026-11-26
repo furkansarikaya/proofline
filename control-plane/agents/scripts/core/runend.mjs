@@ -172,7 +172,7 @@ export function archiveRun(ctx, id, runPath) {
 
 // ---- cleanup ------------------------------------------------------------------------------------------------------------------------
 
-const SB_KEYS = 'run type class stage event updated branch start_commit runtime session question answer park failure pr ci delivered_commit estimate duration tokens look_at known_issues'.split(' ');
+const SB_KEYS = 'run type class stage event updated branch start_commit runtime session question answer park failure pr ci delivered_commit estimate duration tokens look_at known_issues codex_sandbox'.split(' ');
 const reStatusKey = new RegExp(`^- (${SB_KEYS.join('|')}): `);
 
 /** `sb_strip ID` over a text: the status section of the task, when it is only the control plane's own block. @param {string} id @param {string} text */

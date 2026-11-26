@@ -202,14 +202,14 @@ describe('doctor and the status block', () => {
     const a = sb.copy('cs-a'); const b = sb.copy('cs-b'); const c = sb.copy('cs-c'); const d = sb.copy('cs-d');
     edit(`${a}/.agents/config.yaml`, (t) => t.replace(/^ {2}worker: codex/m, '  worker: claude'));   // the sandbox project uses Codex for its workers; this one does not
     edit(`${c}/.agents/config.yaml`, (t) => t.replace(/^ {4}network: off$/m, '    network: on').replace(/^ {4}failover: off$/m, '    failover: claude'));
-    edit(`${d}/.agents/config.yaml`, (t) => t.replace(/^ {4}local_server: off$/m, '    local_server: yes'));
-    const e = sb.copy('cs-f'); edit(`${e}/.agents/config.yaml`, (t) => t.replace(/^ {4}local_server: off$/m, '    local_server: on'));
-    const [ra, rb, rc, rd, re] = await Promise.all([a, b, c, d, e].map((x) => sb.plAsync(x, ['doctor'], env)));
+    // one project for the two oddities: a bad value (read as off) and local_server on without network
+    edit(`${d}/.agents/config.yaml`, (t) => t.replace(/^ {4}network: off$/m, '    network: yes').replace(/^ {4}local_server: off$/m, '    local_server: on'));
+    const [ra, rb, rc, rd] = await Promise.all([a, b, c, d].map((x) => sb.plAsync(x, ['doctor'], env)));
     assert.doesNotMatch(ra.out, /codex sandbox:/);
     assert.match(rb.out, /^PASS codex sandbox: codex network: off, local server: off, failover to the Claude implementer on a sandbox block: off \(the default/m);
     assert.match(rc.out, /^WARN codex sandbox: codex network: ON, local server: off, failover to the Claude implementer on a sandbox block: ON\. You turned this on in \.agents\/config\.yaml: .*send repository content out/m);
-    assert.match(re.out, /^WARN codex sandbox: codex\.sandbox\.local_server needs codex\.sandbox\.network: on/m);
-    assert.match(rd.out, /^WARN codex sandbox: codex\.sandbox\.local_server: yes \(want on\|off; read as off\)/m);
+    assert.match(rd.out, /^WARN codex sandbox: codex\.sandbox\.network: yes \(want on\|off; read as off\)/m);
+    assert.match(rd.out, /^WARN codex sandbox: codex\.sandbox\.local_server needs codex\.sandbox\.network: on/m);
   });
   test('the status block shows a widened permission and keeps its bytes when nothing is widened', () => {
     const d = project('scaffold standalone');

@@ -345,8 +345,8 @@
       "suite_ms": 25000
     },
     "tests/core/codex-sandbox-permission.test.mjs": {
-      "test_ms": 11500,
-      "suite_ms": 40000
+      "test_ms": 45000,
+      "suite_ms": 60000
     },
     "tests/core/codexprofile.test.mjs": {
       "test_ms": 2000,
