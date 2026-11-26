@@ -1,6 +1,7 @@
 {
  "commands": [
   "advance",
+  "advisory-check",
   "amend",
   "answer",
   "approval-consume",
@@ -141,6 +142,7 @@
   "lead": [],
   "task_author": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -212,6 +214,7 @@
   ],
   "explorer": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -283,6 +286,7 @@
   ],
   "architect": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -354,6 +358,7 @@
   ],
   "data_architect": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -425,6 +430,7 @@
   ],
   "designer": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -496,6 +502,7 @@
   ],
   "qa": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -565,6 +572,7 @@
   ],
   "implementer": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -634,6 +642,7 @@
   ],
   "reviewer": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -703,6 +712,7 @@
   ],
   "security_reviewer": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",
@@ -772,6 +782,7 @@
   ],
   "verifier": [
    "advance",
+   "advisory-check",
    "amend",
    "answer",
    "approval-consume",

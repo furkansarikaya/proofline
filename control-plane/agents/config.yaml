@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.194
+proofline_version: 0.0.195
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -218,6 +218,13 @@ security:
     allow:
     deny:
   audit_command:
+  # A373: `on` is your one-time consent for the control plane to ask the advisory service ONCE about the lock file when a run's diff touches dependencies (`agent.sh advisory-check`).
+  # It sends ONLY the package names and versions of the root package-lock.json or npm-shrinkwrap.json to registry.npmjs.org over HTTPS (one POST per batch of 500 packages), so it is
+  # off until you set it here by hand (empty or `off` = not run). No npm and no project script or config runs or is read (the lock is only parsed as JSON), and no proxy is used:
+  # on a network that allows only a proxy the check records a failed request (`network error`), never a clean result. Only npm locks are checked.
+  # NOTE: EVERY package name in the lock is sent to the PUBLIC registry, private or internal scoped names (`@corp/internal`) included, and this setting is your consent for that:
+  # if you have private packages, leave it off.
+  advisory_check:
 
 # Input validation at entry points (A162). Every key but `code_patterns` is an alternation of words (an extended
 # regular expression, case-insensitive) that agent.sh and the plan-contract and qa-plan validators read as WHOLE words

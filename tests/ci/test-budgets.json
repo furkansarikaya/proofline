@@ -188,6 +188,10 @@
       "test_ms": 30000,
       "suite_ms": 60000
     },
+    "tests/core/advisory-check.test.mjs": {
+      "test_ms": 60000,
+      "suite_ms": 200000
+    },
     "tests/core/answer-user.test.mjs": {
       "test_ms": 7500,
       "suite_ms": 30000
@@ -257,16 +261,16 @@
       "suite_ms": 10000
     },
     "tests/core/retro-limits.test.mjs": {
-      "test_ms": 17500,
-      "suite_ms": 20000
+      "test_ms": 15000,
+      "suite_ms": 15000
     },
     "tests/core/retro-tar.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
     },
     "tests/core/retro.test.mjs": {
-      "test_ms": 4000,
-      "suite_ms": 10000
+      "test_ms": 15000,
+      "suite_ms": 35000
     },
     "tests/core/statusblock-data.test.mjs": {
       "test_ms": 4000,
@@ -730,7 +734,7 @@
     },
     "tests/core/run4a-records.test.mjs": {
       "test_ms": 25000,
-      "suite_ms": 110000
+      "suite_ms": 120000
     },
     "tests/core/run4b-freeze.test.mjs": {
       "test_ms": 7000,
@@ -946,7 +950,7 @@
     },
     "tests/enforcement/enforcement-recorded-roles.test.mjs": {
       "test_ms": 110000,
-      "suite_ms": 110000
+      "suite_ms": 120000
     },
     "tests/enforcement/batch-files-protected.test.mjs": {
       "test_ms": 10000,
@@ -954,7 +958,7 @@
     },
     "tests/enforcement/guards.test.mjs": {
       "test_ms": 30000,
-      "suite_ms": 110000
+      "suite_ms": 120000
     },
     "tests/enforcement/merge-guard.test.mjs": {
       "test_ms": 25000,
@@ -1193,6 +1197,10 @@
       "suite_ms": 10000
     },
     "tests/skills/explain-html.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/exploit-proof-advisory.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
     },

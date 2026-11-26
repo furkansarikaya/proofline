@@ -128,6 +128,7 @@ export function checkConfigLines(lines) {
       } else bad(`unknown design_docs.design key: ${k} (want shared or surfaces.<name>.doc|paths|mode)`);
     }
     else if (k === 'local_state' || k === 'metrics') en(k, v, 'on|off');
+    else if (k === 'security.advisory_check') en(k, v, 'on|off');
     else if (k === 'writing.profile') en(k, v, 'auto|ste|plain');
     else if (k === 'writing.strictness') en(k, v, 'relaxed|strict');
     else if (top === 'writing' && k !== 'writing') bad(`unknown writing key: ${k} (want writing.profile or writing.strictness)`);

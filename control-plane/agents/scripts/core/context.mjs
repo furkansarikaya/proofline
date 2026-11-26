@@ -18,6 +18,7 @@ import { projectRoot, sharedRoot } from './paths.mjs';
  * @property {boolean} [isProcess] true when stdout and stderr are this process's own descriptors (the CLI): a child may inherit them
  * @property {boolean} [viaAgent] the core was started by agent.sh (the leading `--pl-argv0`): the `cli` names of bin/proofline are then refused
  * @property {string} [argv0] agent.sh's own $0 as typed, already checked to name the core's sibling agent.sh (see main() in proofline-core.mjs)
+ * @property {(req: { url: string, body: string, timeoutMs: number, maxBytes: number }) => ({ status: number, body: Buffer | string } | { error: 'timeout' | 'redirect' | 'network' | 'too_large' | 'scheme' | 'unsupported' })} [http] the one HTTP POST of `advisory-check` (A373), synchronous; absent = the real request by a child process. Only code that builds the Io sets it (tests); never a command line, file or variable
  * @property {string} [scriptPath] the file whose folder is <root>/.agents/scripts (agent.sh or proofline-core.mjs); default: this core
  */
 

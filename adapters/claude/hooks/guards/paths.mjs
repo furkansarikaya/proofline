@@ -90,7 +90,7 @@ const REFS = new Map();
 function canonRefs(ctx) {
   const run = `.agents/runs/${ctx.act}`;
   const td = stateOf(ctx).tasksDir || '.agents/tasks';
-  const runNames = ['RUN.yaml', 'LEDGER.log', 'HOOKS.log', 'mutation_budget', 'TASK.md', 'PLAN.md', 'EVIDENCE.md', 'COMPLETION_REPORT.md', 'gates', 'approvals', 'waivers', 'questions', 'decisions', 'dispatch', 'worker-evidence', 'ci-fix', 'results', 'scratch', 'amendments'];
+  const runNames = ['RUN.yaml', 'LEDGER.log', 'HOOKS.log', 'mutation_budget', 'ADVISORY_CHECK.json', 'TASK.md', 'PLAN.md', 'EVIDENCE.md', 'COMPLETION_REPORT.md', 'gates', 'approvals', 'waivers', 'questions', 'decisions', 'dispatch', 'worker-evidence', 'ci-fix', 'results', 'scratch', 'amendments'];
   return ['.agents', '.agents/githooks', '.agents/hooks', '.agents/local', '.agents/local/assignments', '.agents/local/scratch', '.agents/local/explain', '.agents/local/product-spec', '.agents/local/product-discovery', '.agents/local/intent-grill', '.agents/local/task-author', '.agents/local/worktrees',
     '.agents/scripts', '.agents/config.yaml', '.agents/ecosystems.json', '.agents/ecosystems.tsv', '.agents/ecosystems.mjs', '.agents/owns.conf', '.agents/runs', '.git', '.git/config', '.claude', '.claude/settings.json', '.claude/settings.local.json', '.claude/settings*', '.codex', '.codex/hooks.json', '.codex/config.toml', td,
     run, ...runNames.map((n) => `${run}/${n}`), '.agents/runs/*', ...runNames.map((n) => `.agents/runs/*/${n}`), '.agents/runs/*/results/*.result.md', '.agents/runs/*/results/dispatch-*', `${run}/results/*.result.md`, `${run}/results/dispatch-*`];
@@ -348,7 +348,7 @@ export async function pathOk(ctx, po) {
   // Scratch files live in the run folder (D10, A56): writable by every role, never gate input.
   if (po.startsWith(`${run}/scratch/`)) return null;
   if (['.claude/settings.json', '.claude/settings.local.json', '.codex/hooks.json', '.codex/config.toml', '.agents/hooks'].includes(po) || po.startsWith('.agents/hooks/')) return `${po} holds the runtime hooks; it is never edited during a run`;
-  if ([`${run}/RUN.yaml`, `${run}/LEDGER.log`, `${run}/HOOKS.log`, `${run}/mutation_budget`].includes(po)
+  if ([`${run}/RUN.yaml`, `${run}/LEDGER.log`, `${run}/HOOKS.log`, `${run}/mutation_budget`, `${run}/ADVISORY_CHECK.json`].includes(po)
     || ['gates/', 'approvals/', 'waivers/', 'questions/', 'decisions/', 'dispatch/', 'worker-evidence/', 'ci-fix/'].some((d) => po.startsWith(`${run}/${d}`))
     || (po.startsWith(`${run}/results/`) && (po.endsWith('.result.md') || po.slice(run.length + 9).startsWith('dispatch-')))
     || po === '.agents/local' || po.startsWith('.agents/local/')) {
@@ -408,7 +408,7 @@ function planScope(plan) {
   return out;
 }
 
-const NR_STATE = ['.agents/runs/*/RUN.yaml', '.agents/runs/*/LEDGER.log', '.agents/runs/*/HOOKS.log', '.agents/runs/*/mutation_budget', '.agents/runs/*/gates/*', '.agents/runs/*/approvals/*', '.agents/runs/*/waivers/*', '.agents/runs/*/questions/*', '.agents/runs/*/decisions/*', '.agents/runs/*/dispatch/*', '.agents/runs/*/worker-evidence/*', '.agents/runs/*/ci-fix/*', '.agents/runs/*/results/*.result.md', '.agents/runs/*/results/dispatch-*', '.agents/hooks', '.agents/hooks/*'];
+const NR_STATE = ['.agents/runs/*/RUN.yaml', '.agents/runs/*/LEDGER.log', '.agents/runs/*/HOOKS.log', '.agents/runs/*/mutation_budget', '.agents/runs/*/ADVISORY_CHECK.json', '.agents/runs/*/gates/*', '.agents/runs/*/approvals/*', '.agents/runs/*/waivers/*', '.agents/runs/*/questions/*', '.agents/runs/*/decisions/*', '.agents/runs/*/dispatch/*', '.agents/runs/*/worker-evidence/*', '.agents/runs/*/ci-fix/*', '.agents/runs/*/results/*.result.md', '.agents/runs/*/results/dispatch-*', '.agents/hooks', '.agents/hooks/*'];
 
 /** `nr_path_ok REL` (A169): may the lead (main session) write REL while NO run is active? @param {import('../lib/context.mjs').HookContext} ctx @param {string} np @returns {Promise<string | null>} */
 export async function nrPathOk(ctx, np) {

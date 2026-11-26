@@ -45,6 +45,7 @@ export function spawnLog() { return log.slice(); }
  * @property {Buffer|string} [input] bytes written to the child's stdin
  * @property {'pipe'|'inherit'|'ignore'|Array<'pipe'|'inherit'|'ignore'|number>} [stdio]
  * @property {number} [timeoutMs]
+ * @property {number} [maxBuffer] run(): the most bytes of stdout or stderr kept (default 1 GiB); the child is stopped when it writes more (A373: the advisory check bounds what a registry can make it print)
  * @property {AbortSignal} [signal] runAsync: when it aborts, the child (and its process group, with `group`) is stopped
  * @property {boolean} [allowEqualTree] a run worktree's script may run while its whole tree equals the project's (the hook's rollback mode only; see tree.mjs)
  * @property {boolean} [group] the child leads its own process group on POSIX, so a stop reaches everything it started (no `ps` walk); run(): after the child has ended or hit `timeoutMs`, whatever is left in its group is killed
@@ -88,7 +89,7 @@ export function run(program, args, options = {}) {
     stdio: options.stdio ?? 'pipe',
     timeout: options.timeoutMs,
     killSignal: options.killSignal,
-    maxBuffer: 1 << 30,
+    maxBuffer: options.maxBuffer ?? 1 << 30,
     windowsHide: true,
     detached: options.group === true && process.platform !== 'win32',   // spawnSync accepts it (a group leader); the typings of SpawnSyncOptions omit it
   }));

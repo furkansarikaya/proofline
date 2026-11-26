@@ -263,6 +263,17 @@ export function validate(data = loadEcosystems()) {
       need(Array.isArray(e.audit), `${w}: audit must be an array`);
       for (const x of Array.isArray(e.audit) ? e.audit : []) need(x && typeof x === "object" && typeof x.tool === "string" && /^[A-Za-z0-9._-]+$/.test(x.tool) && typeof x.command === "string" && x.command.trim() !== "" && !/[\u0000-\u001f\u007f]/.test(x.command), `${w}: audit entries need tool (a plain binary name) and command (a non-empty single line without control characters)`);
     }
+    // A373 (optional): how the control plane asks the advisory service about the lock file, once (`agent.sh advisory-check`): the kind of request (one parser and one request builder per kind),
+    // the FIXED https url of the service (never taken from the project), the lock files it parses at the project root (as JSON only) and the changed file names that make it run
+    if (e.advisory !== undefined) {
+      const a = e.advisory;
+      const strs = (/** @type {unknown} */ v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && /^[A-Za-z0-9._@/-]+$/.test(x));
+      need(a && typeof a === "object" && !Array.isArray(a), `${w}: advisory must be an object`);
+      need(typeof a?.kind === "string" && /^[a-z0-9-]+$/.test(a.kind), `${w}: advisory.kind names the request kind`);
+      need(typeof a?.url === "string" && /^https:\/\/[a-z0-9.-]+(\/[A-Za-z0-9._~/-]*)?$/.test(a.url), `${w}: advisory.url is a plain https url (host and path only: no credentials, port, query or fragment)`);
+      need(strs(a?.locks) && strs(a?.watch) && (a?.locks ?? []).every((/** @type {string} */ x) => !x.includes("/")), `${w}: advisory.locks (file names at the root) and watch are required`);
+      need(Object.keys(a ?? {}).every((k) => ["kind", "url", "locks", "watch"].includes(k)), `${w}: advisory has only kind, url, locks and watch`);
+    }
     for (const x of e.native_ui ?? []) need(typeof x.file === "string" && ["mobile", "shell", "desktop"].includes(x.kind) && typeof x.platform === "string" && typeof x.why === "string", `${w}: native_ui entries need file, platform, kind (mobile, shell or desktop) and why`);
     for (const x of e.benchmark?.dependencies ?? []) need(Array.isArray(x.in) && x.in.length > 0 && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.dependencies entries need in, contains and why`);
     for (const x of e.benchmark?.files ?? []) need(typeof x.glob === "string" && typeof x.contains === "string" && typeof x.why === "string", `${w}: benchmark.files entries need glob, contains and why`);
