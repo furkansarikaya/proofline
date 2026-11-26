@@ -7,6 +7,7 @@
 // scope-kinds. Left (they read the approval or batch library, stage 3): design-rationales, commands-check, scale-check, batch-check.
 import { readSync, readdirSync, statSync } from 'node:fs';
 import { bytes } from '../config.mjs';
+import { askSpec } from '../answerforms.mjs';
 import { debt } from '../debt.mjs';
 import { requireRun } from '../runs.mjs';
 import { ProoflineError, fail, unsupported } from '../errors.mjs';
@@ -110,6 +111,13 @@ function questions(ctx, args) {
     any = true;
     ctx.out(`=== QUESTION ${n.slice(0, 3)} (from ${evidenceField(text, 'from') ?? ''})\n`);
     for (const l of afterFrontMatter(text)) ctx.out(`${l}\n`);
+    // A367 (issue 338 U1): a closed-option user-only question is offered in the runtime's own option UI; the block is derived from the question file here and again by the
+    // core when the hook hands over the selection, so only these exact words are accepted. Nothing is printed for a question that is not offered as options.
+    const spec = askSpec(afterFrontMatter(text));
+    if (spec !== null) {
+      ctx.out(`ask=${bytes(JSON.stringify(spec))}\n`);
+      ctx.out("ask-use: when your runtime has the AskUserQuestion tool (Claude Code, interactive), call it ONCE with exactly the JSON of ask= (not one character changed) and stop; the runtime hook records the user's selection. fallback: written options (no such tool, headless or -p mode, Codex, or the tool is refused): relay the question and its options above as written text; the user types an accepted answer\n");
+    }
   }
   if (!any) ctx.out(`no pending questions: ${id}\n`);
   return 0;

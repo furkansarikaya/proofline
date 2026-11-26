@@ -5,7 +5,7 @@ import { statusBlockUpdate } from './statusblock.mjs';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { approvalNormSpace, latestCapture, quoteLines, sortedNames } from './approvals.mjs';
-import { acceptedForms, hedged, matchesAcceptedForm, reduceToAnswer, userOnlyKind } from './answerforms.mjs';
+import { acceptedForms, askSpec, bytes, hedged, matchesAcceptedForm, reduceToAnswer, sameAsk, userOnlyKind } from './answerforms.mjs';
 import { captureField, safeSession } from './capture.mjs';
 import { requireLead } from './approve.mjs';
 import { fail } from './errors.mjs';
@@ -57,11 +57,12 @@ export function answer(ctx, args) {
   const q = `${dir}/questions/${String(Number(n.replace(/^0+/, '') || '0')).padStart(3, '0')}.md`;
   if (!isFile(q)) fail(`no question ${n} for ${id}`);
   const amend = mode === '--amend';
+  const ui = mode === '--ui';
   const prev = `${q.slice(0, -3)}.answer.md`;
   if (amend) { if (!existsSync(prev)) fail(`question ${n} has no answer to amend`); } else if (existsSync(prev)) fail(`question ${n} is already answered (a wrong answer is corrected with: agent.sh answer ${id} ${n} --amend, after the user's new message)`);
   const prompts = sharedDirOf(ctx, 'prompts');
   const consumed = () => (readBytes(`${prompts}/consumed`) ?? '').split('\n');
-  let text = ''; let cm = false; let used = ''; let src = ''; let pick = '';
+  let uiTool = ''; let text = ''; let cm = false; let used = ''; let src = ''; let pick = '';
   const handed = /** @type {{ promptCapture?: { session: string, time: number, sha256: string, text: string } }} */ (ctx.io).promptCapture;
   if (mode === '--captured' || amend) {
     // A210, #187 (option 2): an answer is the user's ONLY when the prompt hook records it, in process, from the message it is handling; the core never
@@ -87,6 +88,29 @@ export function answer(ctx, args) {
     if (consumed().includes(pick)) fail(`this message (${pick}) already answered another question`);
     text = Buffer.from(handed.text, 'utf8').toString('latin1');
     used = pick; src = pick;
+  } else if (ui) {
+    // A367 (issue 338 U1): the user's selection in the runtime's own option UI, handed over by the posttool hook in process (never by a command line: the io of a
+    // typed command has no uiAnswer). It is the user's answer only when the tool input the runtime ran is EXACTLY the input the control plane derives from this
+    // question (text, header, labels, descriptions), the question is a user-only question asked by this session, and this tool call has not answered anything yet.
+    const given = /** @type {{ uiAnswer?: { session: string, toolUseId: string, input: unknown, response: unknown } }} */ (ctx.io).uiAnswer;
+    if (!given) fail(`answer ${n} cannot be recorded as the user's from a command line: the runtime hook records a selection of the option UI; an answer the lead types is recorded as the lead's`);
+    cm = true;
+    const spec = askSpec(fileLines(ctx, q));
+    if (spec === null) fail(`question ${n} is not offered as options (nothing is recorded)`);
+    if (!sameAsk(given.input, spec)) fail(`the question the user was shown is not the one stored for question ${n}: text, header and options must be exactly the ask= block (nothing is recorded)`);
+    const askedSession = gateField(ctx, q, 'asked_session');
+    if (askedSession === '' || safeSession(askedSession) !== safeSession(given.session)) fail(`question ${n} was not asked by the session that holds this selection (nothing is recorded)`);
+    if (typeof given.toolUseId !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(given.toolUseId)) fail('the selection has no tool call id (nothing is recorded)');
+    used = `ui:${given.toolUseId}`;
+    if (consumed().includes(used)) fail(`this tool call (${given.toolUseId}) already recorded an answer`);
+    const r = /** @type {any} */ (given.response);
+    const answers = r !== null && typeof r === 'object' ? r.answers : null;
+    const qtext = spec.questions[0].question;
+    if (answers === null || typeof answers !== 'object' || !Object.hasOwn(answers, qtext) || typeof answers[qtext] !== 'string') fail('the tool result holds no answer to this question (cancelled, refused or an error; nothing is recorded)');
+    if (Array.isArray(r.questions) && r.questions.length > 0 && r.questions[0]?.question !== qtext) fail('the tool result is not for this question (nothing is recorded)');
+    text = bytes(answers[qtext]);
+    src = '';
+    uiTool = given.toolUseId;
   } else {
     text = readStdin(ctx);
   }
@@ -103,9 +127,9 @@ export function answer(ctx, args) {
     if (tok !== '' && assumptionPromptAccepts(norm, tokId)) acc = true;
     else if (tok === '' && userOnlyKind(qtext) !== '') {
       // a split override or another user-only question: the single open one, answered by one of the forms the question lists
-      if (openUserOnly(ctx, dir) !== 1) fail(`question ${n} is not the only open user-only question: ask the user again`);
+      if (!ui && openUserOnly(ctx, dir) !== 1) fail(`question ${n} is not the only open user-only question: ask the user again`);
       // A350: the message may hold approvals beside the answer ("approve scope; böl", "approve plan, soru 1: b"): the approval segments are not part of the answer
-      const reduced = matchesAcceptedForm(norm, qtext) ? norm : reduceToAnswer(ctx, id, text, qtext, Number(n.replace(/^0+/, '') || '0'));
+      const reduced = matchesAcceptedForm(norm, qtext) || ui ? norm : reduceToAnswer(ctx, id, text, qtext, Number(n.replace(/^0+/, '') || '0'));
       if (reduced !== norm && reduced !== null) resolved = reduced;
       if (reduced === null || !matchesAcceptedForm(approvalNormSpace(reduced), qtext)) fail(`this message is not one of the accepted answers of question ${n} (accepted: ${acceptedForms(qtext).map((f) => `"${f}"`).join(' | ')}; nothing is recorded; ask the user again)`);
       acc = true;
@@ -131,6 +155,7 @@ export function answer(ctx, args) {
   const t = now();
   let head = `answered_by: ${by}\ntime: ${t.iso}\nanswered_epoch: ${t.epoch}\n`;
   if (src !== '') head += `source_message: ${src}\n`;
+  if (uiTool !== '') head += `source: ui\ntool_use_id: ${uiTool}\n`;
   if (amends !== '') head += `amends: ${amends}\n`;
   if (ctx.cancelled()) fail('answer refused: the prompt hook stopped waiting for this step (its time budget ended)');
   writeFileSync(prev, latin1Buf(`${head}---\n${body}`));
@@ -142,12 +167,13 @@ export function answer(ctx, args) {
   const as = tokLine ? ` assumption=${tokLine[1]}` : '';
   const qbase = q.slice(q.lastIndexOf('/') + 1, -3);
   if (gatesEnforced(ctx, dir)) {
-    ledgerAppend(dir, ctx.role, amend ? 'answer-amend' : 'answer', '-', '-', `${qbase}.md answered_by=${by}${src !== '' ? ` source=${src}` : ''}${amends !== '' ? ` amends=${amends}` : ''}${as}`);
+    ledgerAppend(dir, ctx.role, amend ? 'answer-amend' : 'answer', '-', '-', `${qbase}.md answered_by=${by}${src !== '' ? ` source=${src}` : ''}${uiTool !== '' ? ` source=ui:${uiTool}` : ''}${amends !== '' ? ` amends=${amends}` : ''}${as}`);
     ctx.forget('file:');
   }
   statusBlock(ctx, id);
   ctx.out(`answer recorded: ${id} ${qbase} answered_by=${by}${amends !== '' ? ` (amends ${amends}, the old record is kept)` : ''}\n`);
   if (src !== '') ctx.out(`answer source: the user's message ${src} (${epochIso(src.slice(0, src.indexOf('-')))}): ${text.replace(/[ \t\n\v\f\r]+/g, ' ').slice(0, 80)}\n`);
+  if (uiTool !== '') ctx.out(`answer source: the user's selection in the option UI (${uiTool}): ${text.replace(/[ \t\n\v\f\r]+/g, ' ').slice(0, 80)}\n`);
   if (as !== '' && by !== 'user') ctx.out(`note:${as}: not an acceptance the user's own prompt carries (answered_by=${by}; the prompt must start with 'accept <id>' and hold no negation or condition), so the assumption stays unaccepted\n`);
   return 0;
 }

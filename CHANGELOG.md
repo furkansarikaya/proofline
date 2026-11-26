@@ -6,6 +6,9 @@
 
 - Fix (A366, issue 338 U9 = R2-18): an empty `commands.lint` is told, not silent. The batch summary prints `lint commands: <none set>; proposal: ...` (the lint command that `proofline doctor --commands` proved, or that nothing was discovered) with a WARNING, the same warning is printed at the freeze of a batch task, and the batch approval records the proposal as it already does for build and test; `commands.lint: none` says on purpose that there is no lint and silences the warning. A warning, never a refusal; no new approval kind.
 - Fix (A366, issue 338 U4 = R1-9, R4-8): the task author writes 3 to 6 outcome-focused criteria (`validate-task.mjs` warns with the count outside that range), checks each criterion that rests on a library, version or limit against the pinned tool and records it as an indented `Feasibility:` line (warning when missing), derives `depends_on` of a split from the content with a `## Dependency check` table, and `validate-task.mjs --check-deps <dir>` fails on an unknown id or a cycle. The task templates and the role say to run the validator before the task is committed.
+## 0.0.189 — 2026-11-26
+
+- Fix (A367, issue 338 U1): a closed-choice question (`SPLIT:` or `USER_ONLY:` with two to four listed answers) is asked in Claude Code's own option picker. `agent.sh questions` prints an `ask=` block (the exact AskUserQuestion input) and the line `fallback: written options`; the PostToolUse hook records the user's selection as `answered_by: user`, `source: ui` (`answer <ID> <N> --ui`, refused without the hook's hand-over) only when the tool input equals the block derived from the stored question, in the asking session, once per tool call. Approvals, assumption tokens and Codex keep the written options (Codex: not tested, see A367).
 
 ## 0.0.187 — 2026-11-26
 

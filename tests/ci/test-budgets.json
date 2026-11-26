@@ -1004,6 +1004,10 @@
       "test_ms": 2000,
       "suite_ms": 10000
     },
+    "tests/hook/posttool-ask.test.mjs": {
+      "test_ms": 8600,
+      "suite_ms": 37300
+    },
     "tests/hook/pretool-bash.test.mjs": {
       "test_ms": 8500,
       "suite_ms": 20000

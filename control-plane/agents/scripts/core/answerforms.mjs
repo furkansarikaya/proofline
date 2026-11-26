@@ -67,6 +67,62 @@ export function matchesAcceptedForm(norm, lines) {
 }
 
 
+// ---- the option UI of a runtime (A367, issue 338 U1) ---------------------------------------------------------------------------------------------------------
+
+/** The options of a question as {form, desc} (the form as written, quotes removed; desc the text after the quoted form, outer parentheses removed), duplicates dropped. @param {string[]} lines */
+function optionItems(lines) {
+  const opt = optionsLine(lines);
+  if (opt === null) return [];
+  /** @type {Array<{ form: string, desc: string }>} */ const out = [];
+  for (const x of opt.slice(opt.indexOf(':') + 1).split(/\|/)) {
+    const q = /"([^"]+)"/.exec(x);
+    const form = (q?.[1] ?? x.trim().replace(/^[a-z]\)\s*/i, '').replace(/^['`]|['`]$/g, '')).trim();
+    if (form === '' || out.some((o) => o.form === form)) continue;
+    const rest = q ? x.slice(q.index + q[0].length).trim() : '';
+    out.push({ form, desc: rest.replace(/^\(([\s\S]*)\)$/, '$1').trim() });
+  }
+  return out;
+}
+
+const QUESTION_MARKER = /^[ \t]+(USER_ONLY|SPLIT|ASSUMPTION|options|seçenekler|secenekler|recommended|önerilen|why|neden|source|kaynak):/iu;
+
+/**
+ * The input of Claude Code's AskUserQuestion for a question of the control plane, or null when the question is not offered as options. Only a question that carries a
+ * user-only marker (`SPLIT:`, `USER_ONLY:`, never an `ASSUMPTION:` token, whose second answer is free text) with 2 to 4 listed forms, each of which is itself an
+ * accepted answer, is offered. The text, the header and the options are DERIVED from the question file (nothing else is stored); the hook accepts a selection only
+ * when the tool input is exactly this value. Real text (not bytes). @param {string[]} lines the question file's lines (byte strings)
+ * @returns {{ questions: Array<{ question: string, header: string, multiSelect: false, options: Array<{ label: string, description: string }> }> } | null}
+ */
+export function askSpec(lines) {
+  const kind = userOnlyKind(lines);
+  if (kind === '' || lines.some((l) => /^[ \t]*ASSUMPTION: /.test(l))) return null;
+  const items = optionItems(lines);
+  if (items.length < 2 || items.length > 4) return null;
+  for (const it of items) if (it.form.length > 60 || /["?]/.test(it.form) || !matchesAcceptedForm(bytes(it.form), lines)) return null;
+  const at = lines.findIndex((l) => /^[0-9]+\. /.test(l));
+  if (at < 0) return null;
+  const parts = [text(lines[at]).replace(/^[0-9]+\.[ \t]+/, '')];
+  for (let i = at + 1; i < lines.length && !QUESTION_MARKER.test(text(lines[i])) && !/^[0-9]+\. /.test(lines[i]); i++) parts.push(text(lines[i]));
+  const q = parts.join(' ').replace(/\s+/g, ' ').trim();
+  if (q === '') return null;
+  const m = /^[ \t]*USER_ONLY:[ \t]*([^ \t]+)/.exec(lines.find((l) => /^[ \t]*USER_ONLY:/.test(l)) ?? '');
+  const word = kind === 'SPLIT' ? 'Split' : (m?.[1] ?? 'Question');
+  const header = [...word.replace(/^[a-z]/, (c) => String.fromCharCode(c.charCodeAt(0) - 32))].slice(0, 12).join('');
+  return { questions: [{ question: [...q].slice(0, 500).join(''), header, multiSelect: false, options: items.map((it) => ({ label: it.form, description: [...(it.desc === '' ? it.form : it.desc)].slice(0, 200).join('') })) }] };
+}
+
+/** Does the tool input the runtime ran equal the spec exactly (the same keys, text, header and options, in order)? @param {unknown} input @param {NonNullable<ReturnType<typeof askSpec>>} spec */
+export function sameAsk(input, spec) {
+  /** @param {unknown} o @param {string[]} keys */
+  const keysAre = (o, keys) => typeof o === 'object' && o !== null && !Array.isArray(o) && Object.keys(o).every((k) => keys.includes(k));
+  const i = /** @type {any} */ (input);
+  if (!keysAre(i, ['questions']) || !Array.isArray(i.questions) || i.questions.length !== 1) return false;
+  const q = i.questions[0]; const w = spec.questions[0];
+  if (!keysAre(q, ['question', 'header', 'multiSelect', 'options']) || q.question !== w.question || q.header !== w.header || (q.multiSelect !== undefined && q.multiSelect !== false)) return false;
+  if (!Array.isArray(q.options) || q.options.length !== w.options.length) return false;
+  return w.options.every((o, k) => keysAre(q.options[k], ['label', 'description']) && q.options[k].label === o.label && q.options[k].description === o.description);
+}
+
 // ---- an answer beside approvals in one message (A350) -------------------------------------------------------------------------------------------------------
 
 const PLAIN_KINDS = ['plan', 'destructive', 'single_step', 'scope', 'budget', 'mutation_budget', 'tree', 'commit', 'push', 'pr', 'merge', 'cleanup', 'report', 'commands', 'rename', 'known-issue', 'scale', 'delivery'];
