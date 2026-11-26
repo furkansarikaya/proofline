@@ -71,11 +71,11 @@ export function readTarGz(file, want, limits = {}) {
     if (code === 'ERR_BUFFER_TOO_LARGE') return stop('too-large');
     return stop(/unexpected end/.test(String(/** @type {Error} */ (e).message)) ? 'truncated' : 'not-gzip');
   }
-  let off = 0;
+  let off = 0; let ended = false;
   /** @type {string | null} */ let nextName = null;
   while (off + 512 <= tar.length) {
     const h = tar.subarray(off, off + 512);
-    if (h.every((b) => b === 0)) break;
+    if (h.every((b) => b === 0)) { ended = true; break; }
     if (++res.entries > lim.entries) return stop('too-many-entries');
     let sum = 0;
     for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 0x20 : h[i];
@@ -103,6 +103,8 @@ export function readTarGz(file, want, limits = {}) {
     if (size > lim.entryBytes) { res.tooLarge.push(key); continue; }
     res.files.set(key, tar.toString('latin1', start, end));
   }
+  // a missing end marker or a partial block after the last entry: the archive was cut, so it is reported as partly read (the files found so far stay in `files` but the caller does not use them)
+  if (!ended) return stop('truncated');
   res.ok = true;
   return res;
 }

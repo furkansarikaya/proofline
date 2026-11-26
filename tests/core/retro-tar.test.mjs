@@ -81,3 +81,13 @@ test('a pax header and a GNU long name give the real name of the next entry', ()
   assert.equal(g.files.get(longName), 'gnu\n');
   assert.equal(g.files.get('R-8/LEDGER.log'), 'plain\n');
 });
+
+test('a trailing partial block and a missing end marker are truncated, not read as a whole archive', () => {
+  const body = tarBuffer([{ name: 'R-9/LEDGER.log', data: 'a\n' }]).subarray(0, 1024);
+  const stray = put('stray.tar.gz', gzipSync(Buffer.concat([body, Buffer.alloc(100, 0x41)])));
+  const r = readTarGz(stray, want);
+  assert.equal(r.ok, false); assert.equal(r.why, 'truncated');
+  const noEnd = readTarGz(put('noend.tar.gz', gzipSync(body)), want);
+  assert.equal(noEnd.ok, false); assert.equal(noEnd.why, 'truncated');
+  assert.equal(readTarGz(put('whole.tar.gz', gzipSync(tarBuffer([{ name: 'R-9/LEDGER.log', data: 'a\n' }]))), want).ok, true);
+});

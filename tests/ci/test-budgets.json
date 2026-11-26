@@ -256,6 +256,10 @@
       "test_ms": 7700,
       "suite_ms": 10000
     },
+    "tests/core/retro-limits.test.mjs": {
+      "test_ms": 17500,
+      "suite_ms": 20000
+    },
     "tests/core/retro-tar.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000

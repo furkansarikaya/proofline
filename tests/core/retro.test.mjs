@@ -168,3 +168,30 @@ test('without records the report says so, and a project that is not installed is
   assert.equal(r.status, 0, r.text);
   assert.match(r.out, /no runs found/);
 });
+
+test('clock skew never gives a negative window: a gate row dated before the fix round row clamps at zero', () => {
+  const e = sb.mkrepo('skew');
+  put(e, '.agents/config.yaml', 'proofline_version: 0.0.192\n');
+  put(e, '.agents/scripts/agent.sh', '#!/bin/sh\n');
+  put(e, '.agents/runs/SKEW-1/LEDGER.log', ledger([[0, 'start', 'x'], [1000, 'handoff:IMPLEMENTING', 'fix_round=1'], [500, 'gate:REVIEW_RULES:pass', 'x'], [200, 'handoff:IMPLEMENTED', 'x']]));
+  const j = JSON.parse(sb.pl(e, ['retro', '--json']).out).tasks[0];
+  assert.ok(j.rework_s >= 0 && j.after_s >= 0 && j.first_pass_s >= 0, JSON.stringify(j));
+  const t = sb.pl(e, ['retro', '--full']).out;
+  assert.ok(!/-\d+\.\d min|\(-\d+%\)/.test(t), t);
+});
+
+test('a word of a record is printed only when the control plane writes it; anything else prints as other (a token-like word never reaches the report)', () => {
+  const e = sb.mkrepo('words');
+  put(e, '.agents/config.yaml', 'proofline_version: 0.0.192\n');
+  put(e, '.agents/scripts/agent.sh', '#!/bin/sh\n');
+  const tok = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+  put(e, '.agents/runs/WORD-1/LEDGER.log', ledger([
+    [0, 'start', 'x'], [10, 'classify', tok], [20, 'friction-note', tok], [25, 'friction-note', 'user-shell'], [30, 'approval-request', `${tok} bound=x`], [40, 'approval', `approvals/001.yaml@${H} ${tok} source=x`],
+    [50, 'handoff:IMPLEMENTING', `fix_round=${tok}`], [60, `gate:${tok}:fail`, 'x'], [70, 'terminate', 'x', 'lead', tok],
+  ]));
+  put(e, '.agents/local/metrics/records.jsonl', `${jl([rec('step', 'WORD-1', tok, { duration_s: 60, tokens_total: 5 }), rec('run', 'WORD-1', 'lead', { result: tok, class: tok })])}\n`);
+  put(e, '.agents/local/metrics/tools.jsonl', `${jl([{ schema: 'proofline.tools/1', kind: 'step', task: 'WORD-1', role: 'implementer', log: 'ok', denied: 2, denials: { [tok]: 1, 'no-reason': 1 } }])}\n`);
+  const o = sb.pl(e, ['retro', '--full']).out + sb.pl(e, ['retro', '--json']).out;
+  assert.ok(!o.includes('ghp_') && !o.includes('abcdefghijkl'), o);
+  assert.ok(o.includes('other') && o.includes('user-shell') && o.includes('no-reason'));
+});

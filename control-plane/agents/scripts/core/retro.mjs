@@ -26,8 +26,19 @@ const MIN_CAP = 200;
 const die = (msg) => new ProoflineError(`proofline: ${msg}`, 1);
 /** @param {string} s */
 const id = (s) => s.replace(/[^A-Za-z0-9._+:-]/g, '_').slice(0, 64);
-/** A label of a record (a denial class has spaces, a ledger detail has an equals sign). */
-const label = (/** @type {string} */ s) => s.replace(/[^A-Za-z0-9._+:= -]/g, '_').slice(0, 64);
+/** The words a record may carry, as the control plane writes them. Any other word prints as `other`, so a token-like text in a ledger detail or a record can never reach the report. */
+const GATES = new Set(['SECRETS', 'REVIEW_SMALL', 'REVIEW_PLAN', 'REVIEW_RULES', 'REVIEW_TESTS', 'REVIEW_DATA', 'SECURITY', 'QA', 'VERIFY', 'REOPEN']);
+const FRICTION = new Set(['user-command', 'user-shell', 'proofline_bug']);
+const APPROVALS = new Set(['plan', 'destructive', 'single_step', 'scope', 'budget', 'mutation_budget', 'tree', 'commit', 'push', 'pr', 'merge', 'cleanup', 'report', 'batch', 'commands', 'rename', 'known-issue', 'scale', 'waive', 'rule', 'reopen', 'rationale']);
+const CLASSES = new Set(['TRIVIAL', 'SMALL', 'STANDARD', 'COMPLEX', 'CRITICAL']);
+const ROLES = new Set(['lead', 'architect', 'data_architect', 'designer', 'explorer', 'implementer', 'qa', 'reviewer', 'security_reviewer', 'task_author', 'verifier', 'n/a']);
+const OUTCOMES = new Set(['done', 'failed', 'blocked', 'open', 'terminated']);
+/** @param {Set<string>} set @param {string} v */
+const only = (set, v) => (set.has(v) ? v : 'other');
+/** A denial class is fixed lower-case prose (A363): plain words, an optional number, or `no-reason`. */
+const denialClass = (/** @type {string} */ k) => (/^([a-z]+( [a-z]+){0,7}( [0-9]+)?|no-reason|other)$/.test(k) && k.length <= 64 ? k : 'other');
+/** The file name of an archive as `cleanup` writes it (`<ID>-<stamp>.tar.gz`); another name is not repeated. @param {string} a */
+const archiveName = (a) => (/^[A-Za-z0-9_-]+-[0-9]{8}T[0-9]{6}Z\.tar\.gz$/.test(a) ? a : 'with an unexpected name');
 const cmp = (/** @type {string} */ a, /** @type {string} */ b) => (a < b ? -1 : a > b ? 1 : 0);
 const mins = (/** @type {number} */ s) => (s / 60).toFixed(1);
 const plural = (/** @type {number} */ n, /** @type {string} */ one, /** @type {string} */ many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -97,10 +108,10 @@ function findLedger(root, runId, livePaths, notRead) {
     for (const a of arcs) {
       const t = readTarGz(`${dir}/${a}`, (n) => (/^[A-Za-z0-9_-]+\/LEDGER\.log$/.test(n) ? n : null));
       if (t.refused > 0) notRead.push(`${runId}: ${plural(t.refused, 'archive entry', 'archive entries')} refused (unsafe name or not a plain file), nothing written`);
-      if (!t.ok) { notRead.push(`${runId}: archive ${id(a)} unreadable: ${t.why}`); continue; }
-      for (const k of t.tooLarge) notRead.push(`${runId}: ${id(k)} over the entry limit (${TAR_LIMITS.entryBytes} bytes), not read`);
+      if (!t.ok) { notRead.push(`${runId}: archive ${archiveName(a)} unreadable: ${t.why}`); continue; }
+      for (const _k of t.tooLarge) notRead.push(`${runId}: LEDGER.log over the entry limit (${TAR_LIMITS.entryBytes} bytes), not read`);
       const first = [...t.files.values()][0];
-      if (first === undefined) { if (t.tooLarge.length === 0) notRead.push(`${runId}: archive ${id(a)} holds no LEDGER.log`); continue; }
+      if (first === undefined) { if (t.tooLarge.length === 0) notRead.push(`${runId}: archive ${archiveName(a)} holds no LEDGER.log`); continue; }
       got = { text: first, from: 'archive' };
       break;
     }
@@ -122,7 +133,7 @@ function findLedger(root, runId, livePaths, notRead) {
 function approvalKind(detail) {
   const w = detail.split(/[ \t]+/).filter((x) => x !== '');
   const k = (w[0] ?? '').startsWith('approvals/') ? (w[1] ?? '') : (w[0] ?? '');
-  return id(k);
+  return only(APPROVALS, k.split(':')[0]);
 }
 
 /**
@@ -132,7 +143,8 @@ function approvalKind(detail) {
 function fromLedger(led) {
   const rows = led.rows;
   const epochs = rows.map((r) => r.epoch);
-  const first = Math.min(...epochs); const last = Math.max(...epochs);
+  let first = Infinity; let last = -Infinity;
+  for (const e of epochs) { if (e < first) first = e; if (e > last) last = e; }
   const taskS = rows.length === 0 ? null : last - first;
   const isStart = (/** @type {{ ev: string, detail: string }} */ r) => (r.ev === 'handoff:IMPLEMENTING' && r.detail.startsWith('fix_round=')) || r.ev === 'REOPEN';
   const starts = rows.map((r, i) => (isStart(r) ? i : -1)).filter((i) => i >= 0);
@@ -143,21 +155,23 @@ function fromLedger(led) {
     const s = rows[starts[0]].epoch;
     let end = last;
     for (let i = rows.length - 1; i > starts[0]; i--) if (rows[i].ev.startsWith('gate:') || rows[i].ev === 'handoff:IMPLEMENTED') { end = rows[i].epoch; break; }
-    firstPass = s - first; rework = end - s; after = last - end;
+    end = Math.max(end, s);
+    firstPass = Math.max(0, s - first); rework = end - s; after = Math.max(0, last - end);
   }
   /** @type {Map<string, { runs: number, fails: number }>} */ const gates = new Map();
   for (const r of rows) {
     const p = r.ev.split(':');
     if (p[0] !== 'gate' || p.length < 3) continue;
-    const g = gates.get(id(p[1])) ?? { runs: 0, fails: 0 };
+    const gn = only(GATES, p[1]);
+    const g = gates.get(gn) ?? { runs: 0, fails: 0 };
     g.runs++; if (p[2] === 'fail') g.fails++;
-    gates.set(id(p[1]), g);
+    gates.set(gn, g);
   }
   const reruns = starts.map((si, k) => {
     const upto = k + 1 < starts.length ? starts[k + 1] : rows.length;
-    const set = new Set(rows.slice(si + 1, upto).filter((r) => r.ev.startsWith('gate:')).map((r) => id(r.ev.split(':')[1] ?? '')));
+    const set = new Set(rows.slice(si + 1, upto).filter((r) => r.ev.startsWith('gate:')).map((r) => only(GATES, r.ev.split(':')[1] ?? '')));
     const r0 = rows[si];
-    return { after: r0.ev === 'REOPEN' ? 'REOPEN' : label(r0.detail.split(/\s/)[0]), gates: [...set].sort(cmp) };
+    return { after: r0.ev === 'REOPEN' ? 'REOPEN' : (/^fix_round=[0-9]{1,4}$/.test(r0.detail.split(/\s/)[0]) ? r0.detail.split(/\s/)[0] : 'other'), gates: [...set].sort(cmp) };
   });
   // user waits: a question to its answer, an approval request to its approval of the same kind
   const waits = { count: 0, total_s: 0, longest_s: 0, unanswered: 0 };
@@ -180,7 +194,7 @@ function fromLedger(led) {
   }
   waits.unanswered = asks.length + [...reqs.values()].reduce((s, q) => s + q.length, 0);
   /** @type {Map<string, number>} */ const friction = new Map();
-  for (const r of rows) if (r.ev === 'friction-note') { const k = id(r.detail.split(/\s/)[0]); friction.set(k, (friction.get(k) ?? 0) + 1); }
+  for (const r of rows) if (r.ev === 'friction-note') { const k = only(FRICTION, r.detail.split(/\s/)[0]); friction.set(k, (friction.get(k) ?? 0) + 1); }
   const count = (/** @type {string} */ e) => rows.filter((r) => r.ev === e).length;
   const done = rows.some((r) => r.ev === 'handoff:DONE');
   const term = rows.filter((r) => r.ev === 'terminate').pop();
@@ -188,7 +202,7 @@ function fromLedger(led) {
   return {
     from: led.from, first, last, taskS, firstPass, rework, after, fixRounds, reopens, gates, reruns, waits, questions, byUser, byAssumption, approvals, friction,
     workarounds: count('discard-untracked') + count('raise-budget') + count('forced-removal'), blocked: rows.filter((r) => /^record:[a-z_]+:BLOCKED$/.test(r.ev)).length,
-    state: done ? 'done' : term !== undefined ? asciiLower(id(term.to)) : 'open', cls: cls === undefined ? '' : id(cls.detail.split(/\s/)[0]), events: rows.length,
+    state: done ? 'done' : term !== undefined ? only(OUTCOMES, asciiLower(term.to)) : 'open', cls: cls === undefined ? '' : only(CLASSES, cls.detail.split(/\s/)[0]), events: rows.length,
   };
 }
 
@@ -228,7 +242,7 @@ export function gather(ctx, sel) {
   /** @type {Set<string>} */ const ci = new Set(); /** @type {Set<string>} */ const parked = new Set();
   for (const b of batches) {
     batchTasks.set(b.id, batchTsv(b.dir, 'order.tsv').map((f) => f[0]).filter(isId));
-    for (const f of batchTsv(b.dir, 'merged.tsv')) if (isId(f[0] ?? '')) merged.set(f[0], { pr: id(f[1] ?? ''), epoch: /^[0-9]+$/.test(f[2] ?? '') ? Number(f[2]) : null });
+    for (const f of batchTsv(b.dir, 'merged.tsv')) if (isId(f[0] ?? '')) merged.set(f[0], { pr: /^[0-9]+$/.test(f[1] ?? '') ? f[1] : 'other', epoch: /^[0-9]+$/.test(f[2] ?? '') ? Number(f[2]) : null });
     for (const f of batchTsv(b.dir, 'ci.tsv')) if (isId(f[0] ?? '')) ci.add(f[0]);
     for (const f of batchTsv(b.dir, 'state.tsv')) if (isId(f[0] ?? '') && f[1] === 'parked') parked.add(f[0]);
   }
@@ -259,9 +273,10 @@ export function gather(ctx, sel) {
     /** @param {any} r @returns {number | null} */
     const tok = (r) => num(r.tokens_total) ?? (num(r.tokens_in) !== null && num(r.tokens_out) !== null ? /** @type {number} */ (num(r.tokens_in)) + /** @type {number} */ (num(r.tokens_out)) : null);
     /** @type {Map<string, { min: number, minRows: number, tok: number, tokN: number, rows: number }>} */ const roles = new Map();
-    const roleSet = new Set(mine.map((r) => id(String(r.role ?? 'n/a'))));
+    const roleOf = (/** @type {any} */ r) => only(ROLES, String(r.role ?? 'n/a'));
+    const roleSet = new Set(mine.map(roleOf));
     for (const role of roleSet) {
-      const of = (/** @type {string} */ k) => mine.filter((r) => r.kind === k && id(String(r.role ?? 'n/a')) === role);
+      const of = (/** @type {string} */ k) => mine.filter((r) => r.kind === k && roleOf(r) === role);
       const steps = [...of('step'), ...of('lead')]; const resumed = of('dispatch').filter((r) => r.result === 'resumed'); const disp = of('dispatch').filter((r) => r.result !== 'resumed');
       const acc = { min: 0, minRows: 0, tok: 0, tokN: 0, rows: 0 };
       const useDur = steps.some((r) => num(r.duration_s) !== null) ? steps : [...steps, ...disp];
@@ -272,20 +287,20 @@ export function gather(ctx, sel) {
     }
     const resumedRows = mine.filter((r) => r.kind === 'dispatch' && r.result === 'resumed');
     /** @type {Map<string, { n: number, s: number }>} */ const resumedBy = new Map();
-    for (const r of resumedRows) { const k = id(String(r.role ?? 'n/a')); const c = resumedBy.get(k) ?? { n: 0, s: 0 }; c.n++; c.s += num(r.duration_s) ?? 0; resumedBy.set(k, c); }
+    for (const r of resumedRows) { const k = roleOf(r); const c = resumedBy.get(k) ?? { n: 0, s: 0 }; c.n++; c.s += num(r.duration_s) ?? 0; resumedBy.set(k, c); }
     const run = mine.find((r) => r.kind === 'run');
     const tm = tools.rows.filter((r) => r.task === t);
     /** @type {Map<string, number>} */ const den = new Map(); let denied = 0;
     for (const r of tm) {
       denied += num(r.denied) ?? 0;
-      if (r.denials !== null && typeof r.denials === 'object') for (const [k, v] of Object.entries(r.denials)) { const n = num(v); if (n !== null) den.set(label(k), (den.get(label(k)) ?? 0) + n); }
+      if (r.denials !== null && typeof r.denials === 'object') for (const [k, v] of Object.entries(r.denials)) { const n = num(v); if (n !== null) den.set(denialClass(k), (den.get(denialClass(k)) ?? 0) + n); }
     }
     const firstRec = mine.map((r) => Date.parse(String(r.time))).filter(Number.isFinite).sort((a, b) => a - b)[0];
     if (led === null) nr.push(`${t}: no ledger (no live run, no archive)`);
     const m = merged.get(t);
     return {
       task: t, L, nr, roles, resumedBy, toolRows: tm.length, denials: den, denied, start: L !== null ? L.first : firstRec === undefined ? null : Math.floor(firstRec / 1000),
-      recState: run === undefined || typeof run.result !== 'string' ? '' : id(run.result), recClass: run === undefined || typeof run.class !== 'string' ? '' : id(run.class),
+      recState: run === undefined || typeof run.result !== 'string' ? '' : only(OUTCOMES, run.result), recClass: run === undefined || typeof run.class !== 'string' ? '' : only(CLASSES, run.class),
       merge: m ?? null, ci: ci.has(t), parked: parked.has(t),
     };
   }).filter((x) => sinceEpoch === null || (x.start !== null && x.start >= sinceEpoch))
@@ -327,14 +342,15 @@ function taskJson(t) {
 function totals(m) {
   const withL = m.tasks.filter((t) => t.L !== null && t.L.taskS !== null);
   const sum = (/** @type {(t: Task) => number} */ f) => withL.reduce((s, t) => s + f(t), 0);
-  const firsts = withL.map((t) => /** @type {any} */ (t.L).first);
-  const ends = [...withL.map((t) => /** @type {any} */ (t.L).last), ...m.tasks.map((t) => t.merge?.epoch).filter((e) => typeof e === 'number')];
+  let lo = Infinity; let hi = -Infinity;
+  for (const t of withL) { const l = /** @type {any} */ (t.L); if (l.first < lo) lo = l.first; if (l.last > hi) hi = l.last; }
+  for (const t of m.tasks) { const e = t.merge?.epoch; if (typeof e === 'number' && e > hi) hi = e; }
   return {
     tasks: m.tasks.length, with_ledger: withL.length,
     task_s: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).taskS),
     first_pass_s: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).firstPass),
     rework_s: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).rework), after_s: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).after),
-    wall_s: withL.length === 0 ? null : Math.max(...ends) - Math.min(...firsts),
+    wall_s: withL.length === 0 ? null : hi - lo,
     fix_rounds: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).fixRounds), reopens: withL.length === 0 ? null : sum((t) => /** @type {any} */ (t.L).reopens),
   };
 }
