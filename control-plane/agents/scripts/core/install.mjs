@@ -23,6 +23,7 @@ import { commandV } from './runtimedetect.mjs';
 import { isAbsoluteInput } from './pathin.mjs';
 import { applyHookTimeouts } from './scale.mjs';
 import { latin1Buf } from './wirebytes.mjs';
+import { BACKUP_DIR, STATE_FORMAT, checkLines, configDelta, finishBackup, freezeImpact, ledgerRows, refusals, rollback, scan, startBackup, takeLock } from './upgradesafe.mjs';
 
 /** A JS string (a path, a version) as a byte string. @param {string} s */
 export const u = (s) => bytes(s);
@@ -554,7 +555,7 @@ class Install {
   writeManifest() {
     const { p } = this;
     const rows = [...this.manifestNew].sort((a, b) => byteCmp(a[1], b[1]) || byteCmp(a[0], b[0]));
-    const head = ['# proofline manifest: sha256 and path of every installed file (used by `proofline upgrade`)', `# version: ${u(p.version)}`, `# profile: ${p.profile}`, `# runtimes: ${p.runtimes}`,
+    const head = ['# proofline manifest: sha256 and path of every installed file (used by `proofline upgrade`)', `# version: ${u(p.version)}`, `# state_format: ${STATE_FORMAT}`, `# profile: ${p.profile}`, `# runtimes: ${p.runtimes}`,
       ...this.blocks.map(([k, h]) => `# ${k}: ${h}`)];
     const text = `${[...head, ...rows.map(([h, f]) => `${h}  ${f}`)].join('\n')}\n`;
     let cur = null;
@@ -727,17 +728,21 @@ export function cmdInit(c, args) {
 }
 
 /**
- * `proofline upgrade [--dry-run]`.
+ * `proofline upgrade [--check | --dry-run | --rollback]` (A371): `--dry-run` is the plan alone, `--check` adds what is in flight and whether the upgrade would be refused,
+ * `--rollback` restores the last backup; the real upgrade refuses while something runs (core/upgradesafe.mjs), backs up what it replaces and writes the ledger rows.
  * @param {{ root: string, plHome: string, version: string, env: NodeJS.ProcessEnv, ui: Ui }} c @param {string[]} args
  */
 export function cmdUpgrade(c, args) {
   const { ui, root } = c;
-  let dry = false;
+  let dry = false; let check = false; let back = false;
   for (const a of args) {
     if (a === '--dry-run') dry = true;
+    else if (a === '--check') check = true;
+    else if (a === '--rollback') back = true;
     else if (a === '--yes' || a === '-y') continue;
     else throw new CliDie(`upgrade: unknown argument: ${a}`);
   }
+  if (back && (dry || check)) throw new CliDie('upgrade: --rollback cannot be combined with --check or --dry-run');
   const cf = `${root}/.agents/config.yaml`;
   if (!existsSync(cf)) throw new CliDie(`proofline is not installed in ${u(root)}; run: proofline init`);
   const old = readManifest(`${root}/${MANIFEST_REL}`);
@@ -748,9 +753,64 @@ export function cmdUpgrade(c, args) {
   if (runtimes === '') runtimes = [...new Set([cfg.get('runtime.lead', 'claude'), cfg.get('runtime.worker', ''), cfg.get('runtime.reviewers', '')].filter((x) => x !== ''))].sort(byteCmp).join(' ');
   const from = old.meta.get('version') ?? '';
   ui.say(`proofline upgrade ${from !== '' ? `from ${from} ` : ''}to ${u(c.version)} (profile ${profile}, runtimes: ${runtimes})`);
-  const inst = new Install({ root, plHome: c.plHome, version: c.version, env: c.env, mode: 'upgrade', dry, profile, runtimes, opt: {}, haveProtected: false, canon: '', protectedBranches: '', forbidden: '', lead: '', worker: '', reviewers: '',
-    adapter: '', push: '', roles: [], dBuild: '', dTest: '', dLint: '', ui });
-  const plan = inst.run();
+  const fromV = from !== '' ? from : cfg.get('proofline_version', '');
+  const to = u(c.version);
+  const formatText = old.meta.get('state_format');
+  /** @param {boolean} d @param {Ui} [x] */
+  const make = (d, x = ui) => new Install({ root, plHome: c.plHome, version: c.version, env: c.env, mode: 'upgrade', dry: d, profile, runtimes, opt: {}, haveProtected: false, canon: '', protectedBranches: '', forbidden: '', lead: '', worker: '', reviewers: '',
+    adapter: '', push: '', roles: [], dBuild: '', dTest: '', dLint: '', ui: x });
+  if (back) { upgradeRollback(c, fromV); return; }
+  if (check || !dry) {
+    // what is in flight, and what the upgrade would change that a frozen run binds (A371)
+    /** @param {string[]} out @param {import('./upgradesafe.mjs').Scan} s */
+    const judge = (out, s) => {
+      const plan = make(true, { ...ui, say: (l) => out.push(l) }).run();
+      const delta = configDelta(readFileSync(cf, 'latin1'), readFileSync(`${c.plHome}/control-plane/agents/config.yaml`, 'latin1'));
+      const why = refusals(s, { from: fromV, to, formatText });
+      if (s.runs.some((r) => r.open && r.frozen)) {
+        const f = freezeImpact(delta.added, plan.filter(([a]) => a === 'update' || a === 'new').map(([, x]) => x));
+        if (f !== '') why.push(f);
+      }
+      return { why, delta, plan };
+    };
+    if (check) {
+      const s = scan(root); /** @type {string[]} */ const lines = [];
+      const { why, delta } = judge(lines, s);
+      for (const l of checkLines(s, { from: fromV, to, formatText, delta, refuse: why })) ui.say(l);
+      for (const l of lines) ui.say(l);
+      if (why.length > 0) throw new CliDie('upgrade --check: the upgrade would be refused (see above); nothing was written');
+      return;
+    }
+    // local_state: off promises nothing is written under .agents/local: then there is no project lock and no backup (the busy check still reads what is there)
+    const local = cfg.get('local_state', 'on') !== 'off';
+    const lock = local ? takeLock(root) : { release: () => {} };
+    if ('busy' in lock) throw new CliDie(`upgrade refused:\n  - ${lock.busy}\nnothing was written; run proofline upgrade again when it is done`);
+    try {
+      const s = scan(root);
+      const { why, plan: pre } = judge([], s);
+      if (why.length > 0) throw new CliDie(`upgrade refused:\n${why.map((w) => `  - ${w}`).join('\n')}\nnothing was written; run proofline upgrade again when this is resolved`);
+      const bk = local ? startBackup(root, { from: fromV, to, formatText, plan: pre, runs: s.runs }) : null;
+      const plan = make(false).run();
+      if (bk !== null) {
+        const kept = finishBackup(root, bk, { from: fromV, to, runs: s.runs });
+        ui.say(`backup: ${bk.dir.slice(root.length + 1)}/ (${kept} file${kept === 1 ? '' : 's'}; proofline upgrade --rollback restores them)`);
+      } else ui.say('backup: none (local_state is off: nothing is written under .agents/local, so there is nothing to roll back to)');
+      const rows = ledgerRows(s.runs, `old=${fromV} new=${to} state_format=${STATE_FORMAT}`);
+      if (rows.length > 0) ui.say(`ledger: upgrade row written for ${rows.length} run(s)`);
+      const withGates = s.runs.filter((r) => r.open && r.gates > 0).map((r) => r.id);
+      if (withGates.length > 0) ui.say(`gate results of these runs were recorded by core ${fromV || 'an older version'}: ${withGates.join(', ')} (informational: nothing is re-run; gates stay bound to the plan hash and the tree)`);
+      if (s.runs.some((r) => r.open) || s.batch) ui.say('next: parked runs resume with /proofline resume; the gates of an active run stay valid (bound to the plan hash, the tree and the read-sets)');
+      finishUpgrade(c, plan, cfg);
+    } finally { lock.release(); }
+    return;
+  }
+  const plan = make(dry).run();
+  finishUpgrade(c, plan, cfg);
+}
+
+/** The text after the plan: conflicts and the DESIGN.md offer. @param {{ root: string, ui: Ui }} c @param {Array<[string, string]>} plan @param {Config} cfg */
+function finishUpgrade(c, plan, cfg) {
+  const { ui, root } = c;
   if (plan.some(([a]) => a === 'conflict')) {
     ui.say(''); ui.say('conflicts: files you modified were kept. Compare each with its .proofline-new copy, merge by hand, then delete the copy.');
   }
@@ -761,4 +821,22 @@ export function cmdUpgrade(c, args) {
     ui.say('  1. git mv DESIGN.md docs/design/DESIGN.md');
     ui.say('  2. set design_docs.design: docs/design/DESIGN.md in .agents/config.yaml (needed when it says DESIGN.md)');
   }
+}
+
+/** `proofline upgrade --rollback`: restore the newest backup (A371). @param {{ root: string, ui: Ui }} c @param {string} installed */
+function upgradeRollback(c, installed) {
+  const { ui, root } = c;
+  const s = scan(root);
+  if (s.busy.length > 0) throw new CliDie(`upgrade --rollback refused:\n${s.busy.map((w) => `  - ${w}`).join('\n')}`);
+  const lock = takeLock(root);
+  if ('busy' in lock) throw new CliDie(`upgrade --rollback refused:\n  - ${lock.busy}`);
+  try {
+    const r = rollback(root, installed, s);
+    if ('refuse' in r) throw new CliDie(`upgrade --rollback: ${r.refuse}`);
+    ui.say(`rolled back ${r.b.now} -> ${r.b.old} from ${BACKUP_DIR}/${r.b.name}/: ${r.restored.length} file(s) restored, ${r.removed.length} new file(s) removed`);
+    for (const k of r.kept) ui.say(`  kept (changed since the upgrade): ${k}`);
+    const rows = ledgerRows(s.runs, `old=${r.b.now} new=${r.b.old} rollback=yes`);
+    if (rows.length > 0) ui.say(`ledger: upgrade row written for ${rows.length} run(s)`);
+    ui.say('next: proofline doctor    (the git hooks setting and the staged files are not restored; commit what you want to keep)');
+  } finally { lock.release(); }
 }

@@ -528,6 +528,14 @@
       "test_ms": 120000,
       "suite_ms": 130000
     },
+    "tests/core/install-upgrade-safe.test.mjs": {
+      "test_ms": 12000,
+      "suite_ms": 63000
+    },
+    "tests/core/upgrade-old-state.test.mjs": {
+      "test_ms": 17000,
+      "suite_ms": 21000
+    },
     "tests/core/install-upgrade.test.mjs": {
       "test_ms": 20000,
       "suite_ms": 60000

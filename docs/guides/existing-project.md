@@ -49,6 +49,6 @@ the suite as proof. `proofline review` reviews an existing branch or diff on its
 
 ## 6. Upgrading later
 
-`proofline upgrade --dry-run` lists what would change; `proofline upgrade` updates the unmodified control-plane files and reports conflicts with files you edited instead of overwriting them. Run `proofline doctor` afterwards.
+`proofline upgrade --check` lists what would change, the runs in flight and whether the upgrade would be refused; `proofline upgrade` updates the unmodified control-plane files and reports conflicts with files you edited instead of overwriting them, after a backup, and it is safe with parked runs and an open batch (not while a specialist runs; see [upgrading](../concepts/upgrading.md)). `proofline upgrade --rollback` restores the backup. Run `proofline doctor` afterwards.
 
 Related: [daily use](daily-use.md), [gates](../concepts/gates.md), [ecosystems](../concepts/ecosystems.md).

@@ -16,7 +16,7 @@ import { Config, bytes } from './config.mjs';
 import { Context } from './context.mjs';
 import { CliDie, fdWriter, readLine } from './cliio.mjs';
 import { ProoflineError } from './errors.mjs';
-import { doctorCommand } from './doctor.mjs';
+import { doctorCommand, quickCheck } from './doctor.mjs';
 import { cleanBytes, cleanOut } from './codetrust.mjs';
 import { hgit } from './hgit.mjs';
 import { insightsFront } from './insightsfront.mjs';
@@ -150,6 +150,10 @@ class Cli {
     const id = Cli.activeOf(st);
     if (id === '' || id === 'none') { this.say('no active run. Queue: proofline queue; start: proofline run <TASK>'); return 0; }
     this.say('');
+    // A371: a run that crossed an upgrade says so (the `upgrade` ledger row `proofline upgrade` writes)
+    const led = `${this.root}/.agents/runs/${id}/LEDGER.log`;
+    const ups = existsSync(led) ? linesOf(readFileSync(led, 'latin1')).map((l) => / event=upgrade .* detail=old=(\S+) new=(\S+)/.exec(l)).filter((m) => m !== null) : [];
+    if (ups.length > 0) { this.say(`upgrade: this run crossed ${ups.length} upgrade(s) (${ups.map((m) => `${m?.[1]} -> ${m?.[2]}`).join(', ')}); gate results recorded before it came from the older core, and nothing was re-run`); this.say(''); }
     return this.printNext(id);
   }
 
@@ -438,7 +442,12 @@ class Cli {
   /** @param {string[]} args */
   initCmd(args) { cmdInit(this.installCtx(), args); return 0; }
   /** @param {string[]} args */
-  upgradeCmd(args) { cmdUpgrade(this.installCtx(), args); return 0; }
+  upgradeCmd(args) {
+    cmdUpgrade(this.installCtx(), args);
+    // A371: a real upgrade ends with the cheap self-checks (a FAIL does not undo it: the lines say what to fix)
+    if (!args.some((a) => a === '--dry-run' || a === '--check' || a === '--rollback')) this.core(quickCheck, [], true);
+    return 0;
+  }
 }
 
 /** What follows a successful command: the user's next step (A159). */
