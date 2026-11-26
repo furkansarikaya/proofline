@@ -741,7 +741,7 @@ class Doctor {
     const line = permissionLine(p);
     if (p.network || p.localServer) this.warn(`codex sandbox: ${line}. You turned this on in .agents/config.yaml: a Codex worker can ${p.network ? 'send repository content out and fetch code' : 'listen on loopback'}; the filesystem permissions are unchanged`);
     else this.pass(`codex sandbox: ${line}${p.failover ? '' : ' (the default: the Codex profile has no network and no loopback listener)'}`);
-    if (p.localServer && !p.network) this.warn('codex sandbox: codex.sandbox.local_server is on, but on Codex 0.172 a loopback listener is allowed by codex.sandbox.network: on only (which also opens outbound network); local_server alone grants none');
+    if (p.localServer && !p.network) this.warn('codex sandbox: codex.sandbox.local_server needs codex.sandbox.network: on (on Codex 0.172 the listener needs network.enabled, which also opens outbound network; local_server alone grants nothing, and no loopback-only grant exists)');
     for (const m of p.invalid) this.warn(`codex sandbox: ${m}`);
   }
 
