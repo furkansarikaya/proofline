@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: 2cdb0c199c68271698fdb03cf929754a7ac012bb -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 7448165d7ec14b7ed8775eb1362d4067cefca51d -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -44,6 +44,7 @@ Control plane Node kodudur; `.agents/scripts/agent.sh` onu başlatan ince bir la
 | `proofline clean [--yes]` | `.agents/local` durumunu ve biten run'ları sil |
 | `proofline merge <PR> [--merge\|--squash\|--rebase] [--delete-branch]` | izin verilen tek merge yolu: pull request'i yalnızca güncel head'indeki her check yeşilse birleştirir (A136); `--admin` ve `--auto` reddedilir, hook `gh pr merge` ile diğer merge yollarını engeller |
 | `proofline insights [--run ID] [--json]` | salt okunur rapor: run, rol ve model bazında maliyet (token sadece runtime bildirdiyse), rol ve run bazında tool çağrıları ve tekrar eden başarısızlıklar, öneriler; hiçbir şeyi değiştirmez |
+| `proofline retro [<batch-id\|run-id>] [--since YYYY-MM-DD] [--json] [--full]` | biten run'ların salt okunur raporu: ledger'ları (canlı ve run arşivlerinin içinden), metrik kayıtlarını ve batch dosyalarını süreç içinde okur; süre, token, fix round, gate yeniden çalıştırmaları, kullanıcı beklemeleri, hook reddi, devam ettirilen run'lar ve okuyamadığı kaynaklar; puan ve hüküm yok, hiçbir şeyi değiştirmez |
 | `proofline doctor --scale`, `--apply-scale` | bu makineyi ölç ve `timeouts.scale` öner; yalnızca senin `approve scale` onayından sonra yazılır ([timeouts](../../concepts/timeouts.md)) |
 | `proofline doctor --commands`, `--apply-commands` | boş `commands.build\|test\|lint` değerlerini bul, her birini tek bir çalıştırmayla kanıtla ve öneriyi senin evetinden sonra yaz |
 

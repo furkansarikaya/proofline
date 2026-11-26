@@ -4,7 +4,7 @@ description: Designs the data side of a change for the project's actual database
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.191"
+  version: "0.0.192"
 ---
 
 # data-design

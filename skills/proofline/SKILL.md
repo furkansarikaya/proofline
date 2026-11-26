@@ -5,7 +5,7 @@ argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.191"
+  version: "0.0.192"
 ---
 
 # proofline
@@ -67,7 +67,7 @@ Every command ends with ONE line `Next step: <what the user does next>`: a `/pro
 | `reopen` | `/proofline resume` |
 | `merge`, `clean` | the next queued task, else `/proofline task --grill` |
 | `debt`, `review`, `audit`, `debug` | `/proofline task --grill` |
-| `insights`, `explain`, `trace` | `/proofline status` |
+| `insights`, `retro`, `explain`, `trace` | `/proofline status` |
 | `product` | `prd`: `/proofline product review <slug>`; `review`: `/proofline product split <slug>` (do-not-ship: revise the PRD, then review again); `split`: `/proofline run <ID>`; `discover` steps: the next discover or assess step, `assess decision`: `/proofline product prd <slug>` (stop: frame a different problem; clarify: more research); `outcome`: `/proofline status` |
 | `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
 | `batch` | not approved: reply `approve batch`; approved with work left: `run /proofline batch to continue the batch; merged tasks are not run again`; finished: `/proofline batch status` |
