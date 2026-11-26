@@ -381,7 +381,7 @@ jobs:
           - name: batch-plan
             mode: files
             pattern: 'none'
-            files: tests/core/batch-plan.test.mjs tests/core/batch-lint.test.mjs tests/core/batch-plan-exception-lines.test.mjs tests/core/batch-golden.test.mjs tests/core/batch-answers.test.mjs tests/core/batch-b5.test.mjs
+            files: tests/core/batch-plan.test.mjs tests/core/batch-lint.test.mjs tests/core/batch-plan-exception-lines.test.mjs tests/core/batch-golden.test.mjs tests/core/batch-criteria-count.test.mjs tests/core/batch-answers.test.mjs tests/core/batch-b5.test.mjs
           - name: batch-state
             mode: files
             pattern: 'none'

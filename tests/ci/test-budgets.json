@@ -296,6 +296,10 @@
       "test_ms": 15000,
       "suite_ms": 35000
     },
+    "tests/core/batch-criteria-count.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 35000
+    },
     "tests/core/batch-lint.test.mjs": {
       "test_ms": 13500,
       "suite_ms": 19000

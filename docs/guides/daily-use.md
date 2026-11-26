@@ -56,6 +56,7 @@ The control plane is Node code; `.agents/scripts/agent.sh` is a thin launcher th
 - The summary also lists the `## Test exceptions` lines that task files declare; approving the batch accepts exactly those lines (A285), and an exception nobody declared parks the task.
 - The knowledge step of a batch task never asks where a note should go: with no knowledge page it records `not_applicable` with the reason `batch default (A291)` and adds a suggestion to the morning table (A291).
 - An empty `commands.lint` is shown in the batch summary with the proposal of `proofline doctor --commands` and a WARNING; write `commands.lint: none` to say on purpose that there is no lint (A366).
+- A task with fewer than 3 or more than 6 acceptance criteria gets a WARNING line in the batch summary (A375); it is a warning only, the task still runs.
 - A project with no CI check on pull requests still runs a batch: each pull request is merged only after build and test pass in a clean copy of its commit and says "verified locally, no CI".
 
 Details and limits: [night mode](../concepts/night-mode.md).

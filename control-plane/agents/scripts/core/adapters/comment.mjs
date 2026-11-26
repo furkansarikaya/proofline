@@ -15,18 +15,21 @@ export const commentMarker = (id, hash) => `<!-- proofline:completion-report:${i
 export const commentMarkerStart = (id) => `<!-- proofline:completion-report:${id} sha256:`;
 
 // GitHub's mention filter needs only a non-word character (or the start) before `@` and a name character after it, wherever the text is (a link text, an HTML
-// attribute, a code span, a fence). Every such `@` gets a zero-width space after it: the text no longer matches the filter whatever the Markdown around it
-// means, and an entity or a backslash would still decode to a real `@` first: every `&#` and `&commat` gets the same space after the `&`, so no reference to `@` parses. A byte of 0x80 or more before it counts as a word character of another
-// script that the filter may take, so it is broken too. An address `a@b.c` (a word character before the `@`) is left.
+// attribute, a code span, a fence). Every such `@` is broken in two independent ways (A375, A369.1): it is replaced by U+FF20 FULLWIDTH COMMERCIAL AT (no ASCII
+// `@` is left, so a GitHub that strips or ignores U+200B still finds no mention) AND a zero-width space follows it (so a normalisation that folds U+FF20 back
+// to `@` still finds none). An entity or a backslash would still decode to a real `@` first, so every `&#` and `&commat` becomes `&amp;` followed by the
+// same space: `&amp;` decodes once to a literal `&` whether or not U+200B survives, so no reference to `@` parses. A byte of 0x80 or more before it counts
+// as a word character of another script that the filter may take, so it is broken too. An address `a@b.c` (a word character before the `@`) is left.
 const MENTION = /(^|[^A-Za-z0-9_])@(?=[A-Za-z0-9_-])/g;
 const ZWSP = '\xe2\x80\x8b'; // U+200B as the UTF-8 bytes of a byte string
+const FWAT = '\xef\xbc\xa0'; // U+FF20 as the UTF-8 bytes of a byte string
 const REMOTE_TAG = /<(\/?)(img|image|picture|source|video|audio|iframe|embed|object|link|svg|use|script|style|base|meta|track|input|form)\b/gi;
 
 /** One line made safe. @param {string} line */
 function neutralise(line) {
   return line
-    .replace(MENTION, `$1@${ZWSP}`)
-    .replace(/&(?=#|commat)/gi, `&${ZWSP}`) // a character reference that decodes to `@` (&#64; &#x40; &#0064; &#X40; &#64 &commat;) would reach the mention filter as a real `@`
+    .replace(MENTION, `$1${FWAT}${ZWSP}`)
+    .replace(/&(?=#|commat)/gi, `&amp;${ZWSP}`) // a character reference that decodes to `@` (&#64; &#x40; &#0064; &#X40; &#64 &commat;) would reach the mention filter as a real `@`
     .replace(/!\[/g, '!\\[')
     .replace(REMOTE_TAG, '&lt;$1$2')
     .replace(/^( {0,3})\[([^\]\n]+)\]:/, '$1\\[$2]:'); // a reference definition (`[b]: http://...`) is text, an ordinary inline link stays
