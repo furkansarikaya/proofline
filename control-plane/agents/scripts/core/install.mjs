@@ -759,7 +759,7 @@ export function cmdUpgrade(c, args) {
   /** @param {boolean} d @param {Ui} [x] */
   const make = (d, x = ui) => new Install({ root, plHome: c.plHome, version: c.version, env: c.env, mode: 'upgrade', dry: d, profile, runtimes, opt: {}, haveProtected: false, canon: '', protectedBranches: '', forbidden: '', lead: '', worker: '', reviewers: '',
     adapter: '', push: '', roles: [], dBuild: '', dTest: '', dLint: '', ui: x });
-  if (back) { upgradeRollback(c, fromV); return; }
+  if (back) { upgradeRollback(c, fromV, cfg.get('local_state', 'on') !== 'off'); return; }
   if (check || !dry) {
     // what is in flight, and what the upgrade would change that a frozen run binds (A371)
     /** @param {string[]} out @param {import('./upgradesafe.mjs').Scan} s */
@@ -824,9 +824,10 @@ function finishUpgrade(c, plan, cfg) {
   }
 }
 
-/** `proofline upgrade --rollback`: restore the newest backup (A371). @param {{ root: string, ui: Ui }} c @param {string} installed */
-function upgradeRollback(c, installed) {
+/** `proofline upgrade --rollback`: restore the newest backup (A371). @param {{ root: string, ui: Ui }} c @param {string} installed @param {boolean} local */
+function upgradeRollback(c, installed, local) {
   const { ui, root } = c;
+  if (!local) throw new CliDie('upgrade --rollback: local_state is off: nothing was backed up, so there is nothing to restore');
   const s = scan(root);
   if (s.busy.length > 0) throw new CliDie(`upgrade --rollback refused:\n${s.busy.map((w) => `  - ${w}`).join('\n')}`);
   const lock = takeLock(root);

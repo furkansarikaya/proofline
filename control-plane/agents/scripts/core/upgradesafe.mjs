@@ -10,7 +10,8 @@
 //     additive needs a migration, and none exists yet, so it is refused. Every change since 0.0.173 is additive (docs/concepts/upgrading.md lists them).
 //   * the BACKUP of what an upgrade replaces, under `.agents/local/upgrade-backup/<old>-to-<new>/` (the last 2 are kept), and `--rollback`, which restores it.
 //   * the LEDGER row `event=upgrade` per run that has a lifecycle ledger, so the run shows that it crossed an upgrade.
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { cfgMergeNew } from './cfgcli.mjs';
 import { configLines } from './config.mjs';
@@ -270,8 +271,8 @@ export function finishBackup(root, b, v) {
   for (const rel of [...cands].sort()) {
     const was = b.before.get(rel) ?? null; const now = shaOf(`${root}/${rel}`);
     if (was === now) { rmSync(`${b.dir}/files/${rel}`, { force: true }); continue; }
-    if (was === null) rows.push(`new\t${rel}\t${now}`);
-    else { rows.push(`${now === null ? 'removed' : 'replaced'}\t${rel}\t${now ?? '-'}`); kept++; }
+    if (was === null) rows.push(`new\t${rel}\t${now}\t-`);
+    else { rows.push(`${now === null ? 'removed' : 'replaced'}\t${rel}\t${now ?? '-'}\t${was}`); kept++; }
   }
   const seq = Number(/^seq=([0-9]+)$/m.exec(text(`${b.dir}/UPGRADE.tsv`))?.[1] ?? 1);
   writeFileSync(`${b.dir}/UPGRADE.tsv`, `${header(v, seq, false)}${rows.join('\n')}${rows.length > 0 ? '\n' : ''}`);
@@ -294,7 +295,7 @@ export function ledgerRows(runs, detail) {
 
 // ---- rollback ---------------------------------------------------------------------------------------------------------------
 
-/** @typedef {{ name: string, seq: number, dir: string, old: string, now: string, runs: string[], done: boolean, rows: Array<[string, string, string]> }} BackupInfo */
+/** @typedef {{ name: string, seq: number, dir: string, old: string, now: string, runs: string[], done: boolean, rows: Array<[string, string, string, string]> }} BackupInfo */
 
 /** @param {string} root @returns {BackupInfo | null} the newest backup */
 export function newestBackup(root) {
@@ -306,14 +307,46 @@ export function newestBackup(root) {
     const seq = Number(g('seq')) || 0;
     if (best !== null && best.seq >= seq) continue;
     best = { name: n, seq, dir, old: g('old'), now: g('new'), runs: g('runs').split(',').filter((x) => x !== ''), done: /^rolled_back=yes$/m.test(t),
-      rows: t.split('\n').filter((l) => /^(replaced|removed|new)\t/.test(l)).map((l) => /** @type {[string, string, string]} */ (l.split('\t'))) };
+      rows: t.split('\n').filter((l) => /^(replaced|removed|new)\t/.test(l)).map((l) => /** @type {[string, string, string, string]} */ (l.split('\t'))) };
   }
   return best;
 }
 
+const HEX = /^[0-9a-f]{64}$/;
+/** Paths an upgrade never writes and a restore never touches: the runs (their ledgers are sealed evidence), the local state and git's own folder. */
+const NEVER = /^(\.git|\.agents\/runs|\.agents\/local)(\/|$)/;
+
+/** A plain relative path: no empty, `.` or `..` component, no backslash, no NUL, not absolute. @param {string} rel */
+function relPlain(rel) { return rel !== '' && !path.isAbsolute(rel) && !rel.includes('\\') && !rel.includes('\0') && rel.split('/').every((p) => p !== '' && p !== '.' && p !== '..'); }
+
+/** Is REL, or any folder above it under BASE, a symbolic link? (A component that does not exist is fine.) @param {string} base @param {string} rel */
+function viaLink(base, rel) {
+  let cur = base;
+  for (const part of rel.split('/')) {
+    cur = `${cur}/${part}`;
+    try { if (lstatSync(cur).isSymbolicLink()) return true; } catch { return false; }
+  }
+  return false;
+}
+
+/** The paths of a manifest file (`<sha256>  <path>` rows). @param {string} file */
+function manifestPaths(file) {
+  /** @type {string[]} */ const out = [];
+  for (const l of text(file).split('\n')) { if (l.startsWith('#')) continue; const m = /^\S+[ \t]+(.*)$/.exec(l); if (m) out.push(m[1]); }
+  return out;
+}
+
+/** The paths a rollback may touch: the files an upgrade replaces as a whole, the paths of the current and of the backed-up manifest (and their `.proofline-new` copies), the hook tree. @param {string} root @param {BackupInfo} b */
+function installSet(root, b) {
+  const s = new Set([...ALWAYS, ...manifestPaths(`${root}/.agents/.proofline-manifest`), ...manifestPaths(`${b.dir}/files/.agents/.proofline-manifest`)]);
+  return (/** @type {string} */ rel) => s.has(rel) || (rel.endsWith('.proofline-new') && s.has(rel.slice(0, -'.proofline-new'.length))) || rel.startsWith('.agents/hooks/');
+}
+
 /**
- * Restore the newest backup. Refuses (returns the reason) when it was restored, when the installed version is not the one it upgraded to, or when a run was started since.
- * A file changed after the upgrade is kept and listed. @param {string} root @param {string} installed the installed version @param {Scan} s
+ * Restore the newest backup. Every row is validated first and one bad row refuses the whole rollback (nothing is written): the path is a plain relative path of the install set (never under
+ * .agents/runs, .agents/local or .git), neither it nor the backup copy sits on a symbolic link, and the backup copy still has the sha256 recorded when it was made. Then a file is replaced or deleted
+ * only while it still holds what the upgrade wrote; one changed since is kept and listed. Refuses (returns the reason) when it was restored, when the installed version is not the one it upgraded to,
+ * or when a run was started since. @param {string} root @param {string} installed the installed version @param {Scan} s
  * @returns {{ refuse: string } | { b: BackupInfo, restored: string[], removed: string[], kept: string[] }}
  */
 export function rollback(root, installed, s) {
@@ -324,20 +357,30 @@ export function rollback(root, installed, s) {
   const known = new Set(b.runs);
   const later = s.runs.find((r) => !known.has(`${r.name}:${r.id}`));
   if (later) return { refuse: `run ${later.id} was started after the upgrade with ${b.now}: rolling back would leave it on state the older core never wrote. Finish or fail that run first; nothing was restored` };
+  const allowed = installSet(root, b);
+  for (const [kind, rel, after, before] of b.rows) {
+    if (!['replaced', 'removed', 'new'].includes(kind) || !relPlain(rel) || NEVER.test(rel) || !allowed(rel)) return { refuse: `a row of ${b.name}/UPGRADE.tsv is not a path this upgrade installed: ${rel}; nothing was restored` };
+    if (viaLink(root, rel)) return { refuse: `${rel} is, or sits under, a symbolic link; nothing was restored` };
+    if (kind === 'new') { if (!HEX.test(after ?? '')) return { refuse: `the row for ${rel} has no recorded sha256; nothing was restored` }; continue; }
+    if (!HEX.test(before ?? '') || (kind === 'replaced' && after !== '-' && !HEX.test(after ?? ''))) return { refuse: `the row for ${rel} has no recorded sha256; nothing was restored` };
+    const src = `${b.dir}/files/${rel}`;
+    if (viaLink(`${b.dir}/files`, rel) || shaOf(src) === null) return { refuse: `backup copy ${rel} is not a plain file (or sits under a link); nothing was restored` };
+    if (shaOf(src) !== before) return { refuse: `backup copy ${rel} does not match the sha256 recorded when it was made; nothing was restored` };
+  }
   /** @type {string[]} */ const restored = []; /** @type {string[]} */ const removed = []; /** @type {string[]} */ const kept = [];
   for (const [kind, rel, after] of b.rows) {
     const dst = `${root}/${rel}`;
     const cur = shaOf(dst);
-    if (kind !== 'removed' && cur !== null && after !== '-' && cur !== after) { kept.push(rel); continue; }
-    if (kind === 'removed' && cur !== null) { kept.push(rel); continue; }
-    if (kind === 'new') { if (cur !== null) { rmSync(dst, { force: true }); removed.push(rel); } continue; }
+    if (kind === 'new') { if (cur === null) continue; if (cur === after) { rmSync(dst, { force: true }); removed.push(rel); } else kept.push(rel); continue; }
+    if ((kind === 'removed' && cur !== null) || (kind === 'replaced' && cur !== null && after !== '-' && cur !== after)) { kept.push(rel); continue; }
     const src = `${b.dir}/files/${rel}`;
-    if (!isFile(src)) { kept.push(rel); continue; }
     mkdirSync(path.dirname(dst), { recursive: true });
-    const tmp = `${dst}.proofline-restore`;
-    copyFileSync(src, tmp);
-    try { chmodSync(tmp, statSync(src).mode & 0o7777); } catch { /* mode as copied */ }
-    renameSync(tmp, dst);
+    const tmp = `${dst}.proofline-restore-${randomBytes(6).toString('hex')}`;
+    try {
+      copyFileSync(src, tmp, constants.COPYFILE_EXCL);
+      try { chmodSync(tmp, statSync(src).mode & 0o7777); } catch { /* mode as copied */ }
+      renameSync(tmp, dst);
+    } catch (e) { rmSync(tmp, { force: true }); throw e; }
     restored.push(rel);
   }
   appendDone(b);

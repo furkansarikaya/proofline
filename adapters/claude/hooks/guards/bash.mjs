@@ -76,6 +76,8 @@ function grepFile(file, word) {
 
 const EV_RE = new RegExp(`agent[.]sh${SP}+(build-record|verify-[a-z-]+)|(^|[;&|(]|${SP})((npm|pnpm|yarn|bun)${SP}+(run${SP}+)?(test|build|lint)|pytest|go${SP}+(test|build|vet)|cargo${SP}+(test|build|clippy)|dotnet${SP}+(test|build)|mvn|gradle|jest|vitest|make${SP}+(test|build|check)|node${SP}+--test|sh${SP}+tests/)(${SP}|$)`);
 const GIT_DIFF_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(-C${SP}+[^ \\t\\n\\v\\f\\r]+${SP}+)?(diff|show)(${SP}|$)`);
+/** A371: `proofline upgrade` at a command position (a wrapper, a path, a flag before the word, `sh -c '...'` are read); a tripwire, the boundary is the user's terminal. */
+const UPGRADE_RE = /(^|[;&|(`\n]|\$\(|-c[ \t]+['"])[ \t]*((env|sudo|command|exec|nohup|time)[ \t]+(-[A-Za-z-]+[ \t]+|[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*)*([^ \t;&|()'"`]*\/)?proofline[ \t]+(-[^ \t]*[ \t]+)*upgrade([^A-Za-z0-9_-]|$)/;
 const SPEC_GIT_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout${SP}+--)(${SP}|$)`);
 const SPEC_GIT_EXEMPT = new RegExp(`git${SP}+-C${SP}+|git${SP}+worktree|--work-tree`);
 const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents/local/[^/ \\t\\n\\v\\f\\r]*[*?[]|find${SP}[^;&|]*\\.agents(/local)?/?(${SP}|$)`);
@@ -126,6 +128,10 @@ async function checkOne(ctx, cmd, folded = false) {
     }
   }
   const specialist = ctx.sub || role !== 'lead';
+  // A371: `proofline upgrade` replaces the control plane and the files that enforce the rules; it is the user's command, never a specialist's
+  if (specialist && (UPGRADE_RE.test(withoutDataBodies(cmd)) || UPGRADE_RE.test(norm))) {
+    deny("proofline upgrade (also --check and --rollback) replaces the control plane and the files that enforce the rules, so it is the user's command: a specialist never runs it (A371). Report to the lead that the user should run it from the terminal");
+  }
   // A specialist never mutates the live tree with git: mutation evidence runs in a separate worktree
   if (act !== '' && !ctx.ro && specialist && grepq(SPEC_GIT_RE, withoutDataBodies(cmd)) && !grepq(SPEC_GIT_EXEMPT, cmd)) {
     deny(`git must not change the live working tree from a specialist (stash, reset, clean, restore, checkout --, switch, ...); run mutation evidence in a separate worktree (git worktree add, then git -C <worktree> ...) and leave the tree as you found it${roTail(ctx)}`);

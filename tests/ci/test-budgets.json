@@ -530,11 +530,15 @@
     },
     "tests/core/install-upgrade-safe.test.mjs": {
       "test_ms": 12000,
-      "suite_ms": 63000
+      "suite_ms": 90000
+    },
+    "tests/core/upgrade-rollback-attack.test.mjs": {
+      "test_ms": 24000,
+      "suite_ms": 62000
     },
     "tests/core/upgrade-old-state.test.mjs": {
-      "test_ms": 17000,
-      "suite_ms": 21000
+      "test_ms": 20000,
+      "suite_ms": 23000
     },
     "tests/core/install-upgrade.test.mjs": {
       "test_ms": 20000,

@@ -130,8 +130,8 @@ test('parked runs and an open batch do not block; the backup holds the replaced 
   assert.equal(r.status, 0, r.text);
   const bdir = `${d}/.agents/local/upgrade-backup/${from}-to-0.0.902`;
   assert.equal(read(`${bdir}/files/.agents/GATES.md`), oldGates);
-  assert.match(read(`${bdir}/UPGRADE.tsv`), /^replaced\t\.agents\/GATES\.md\t[0-9a-f]{64}$/m);
-  assert.match(read(`${bdir}/UPGRADE.tsv`), /^new\t\.agents\/NEW-0\.0\.902\.md\t[0-9a-f]{64}$/m);
+  assert.match(read(`${bdir}/UPGRADE.tsv`), /^replaced\t\.agents\/GATES\.md\t[0-9a-f]{64}\t[0-9a-f]{64}$/m);
+  assert.match(read(`${bdir}/UPGRADE.tsv`), /^new\t\.agents\/NEW-0\.0\.902\.md\t[0-9a-f]{64}\t-$/m);
   const row = ledgerRows(run).at(-1) ?? '';
   assert.match(row, new RegExp(`^seq=2 prev=${sha(last)} event=upgrade role=user .* detail=old=${from.replace(/\./g, '\\.')} new=0\\.0\\.902 state_format=1$`));
   assert.match(ledgerRows(wt).at(-1) ?? '', / event=upgrade /);
