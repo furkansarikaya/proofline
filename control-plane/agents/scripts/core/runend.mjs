@@ -55,7 +55,7 @@ export function metricsJson(ctx, a) {
   const s = (/** @type {string | undefined} */ v) => { const t = (v ?? '').replace(/[^A-Za-z0-9._+:-]/g, ''); return t === '' || t === '-' ? 'null' : `"${t}"`; };
   const n = (/** @type {string | undefined} */ v) => (v === undefined || !/^[0-9]+$/.test(v) ? 'null' : v);
   const g = (/** @type {number} */ i) => a[i];
-  const line = `{"schema":"proofline.metrics/1","kind":${s(g(0))},"time":"${now().iso}","task":${s(g(1))},"role":${s(g(2))},"focus":${s(g(3))},"gate":${s(g(4))},"runtime":${s(g(5))},"model":${s(g(6))},"duration_s":${n(g(7))},"tokens_in":${n(g(8))},"tokens_out":${n(g(9))},"tokens_total":${n(g(10))},"turns":${n(g(11))},"retries":${n(g(12))},"delegations":${n(g(13))},"fix_rounds":${n(g(14))},"result":${s(g(15))},"size":${s(g(16))},"scope_paths":${n(g(17))},"class":${s(g(18))}}\n`;
+  const line = `{"schema":"proofline.metrics/1","kind":${s(g(0))},"time":"${now().iso}","task":${s(g(1))},"role":${s(g(2))},"focus":${s(g(3))},"gate":${s(g(4))},"runtime":${s(g(5))},"model":${s(g(6))},"duration_s":${n(g(7))},"tokens_in":${n(g(8))},"tokens_out":${n(g(9))},"tokens_total":${n(g(10))},"turns":${n(g(11))},"retries":${n(g(12))},"delegations":${n(g(13))},"fix_rounds":${n(g(14))},"result":${s(g(15))},"size":${s(g(16))},"scope_paths":${n(g(17))}${g(18) === undefined ? '' : `,"class":${s(g(18))}`}}\n`;
   try { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, latin1Buf(line), { flag: 'a' }); } catch { /* best effort */ }
 }
 
