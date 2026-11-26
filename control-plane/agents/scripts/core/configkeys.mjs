@@ -33,7 +33,7 @@ const OPEN = Object.freeze([
   /^autonomy\.[A-Z]+$/,
   /^pipelines\.[A-Z]+(\.(evidence|qa|architect|review|max_explorers|max_scope_paths|max_fix_rounds|mutation_budget|dispatch_timeout_seconds))?$/,
   /^risk\.[a-z_]+(\.(check|flag|design_role|paths|content|words))?$/,
-  /^execution_policy\.(classes\.[A-Z]+|repeat_model_cap\.[a-z]+|lead_base_model\.[a-z]+|providers\.[a-z]+(\.(models|efforts))?)$/,
+  /^execution_policy\.(classes\.[A-Z]+|(repeat_model_cap|lead_base_model)\.[a-z][a-z0-9_-]*|providers\.[a-z][a-z0-9_-]*(\.(models|efforts))?)$/,
   /^hook\.[a-z_]+_timeout_seconds$/,
   /^design_docs\.design\.(shared|surfaces(\.[A-Za-z0-9_-]+(\.(doc|paths|mode))?)?)$/,
 ]);

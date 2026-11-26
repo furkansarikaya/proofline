@@ -103,15 +103,29 @@ export function setInText(u, key, value) {
   /** @type {string[]} */ const P = [];
   /** @type {Map<string, number>} */ const at = new Map(); /** @type {Map<string, number>} */ const ends = new Map();
   let L = 0;
+  /** @type {Set<string>} */ const dup = new Set();
+  let shape = '';
   U.forEach((l, i) => {
-    if (sc.body.has(i)) return;
+    if (sc.body.has(i) || shape !== '') return;
     if (content(l)) {
-      const ind = l.search(/[^ ]/); L = Math.floor(ind / 2); P.length = L; P[L] = l.slice(ind, l.indexOf(':', ind));
-      const p = P.join('.'); if (!at.has(p)) at.set(p, i);
+      const ind = l.search(/[^ ]/);
+      // the reader and this edit count two spaces per level: another indentation would put the key at another path (review finding 1)
+      if (ind % 2 !== 0) { shape = `line ${i + 1} is indented by ${ind} spaces, not a multiple of two`; return; }
+      L = ind / 2;
+      if (L > P.length) { shape = `line ${i + 1} is indented deeper than one level below its parent`; return; }
+      P.length = L; P[L] = l.slice(ind, l.indexOf(':', ind));
+      if (P.some((s) => s === undefined || s.trim() === '')) { shape = `line ${i + 1} has an empty key`; return; }
+      const p = P.join('.'); if (at.has(p)) dup.add(p); else at.set(p, i);
       for (let k = 0; k <= L; k++) ends.set(P.slice(0, k + 1).join('.'), i);
     } else if (item(l) && P.length > 0) for (let k = 0; k <= L; k++) ends.set(P.slice(0, k + 1).join('.'), i);
   });
+  if (shape !== '') return { text: u, why: `${shape}; edit the file yourself` };
   const kp = key.split('.');
+  // a key or a section that appears twice is read by its first occurrence: which one to change is the user's call (review finding 2)
+  for (let k = 1; k <= kp.length; k++) {
+    const p = kp.slice(0, k).join('.');
+    if (dup.has(p)) return { text: u, why: `duplicate ${k === kp.length ? 'key' : 'section'} ${p} in the file (it appears more than once); edit the file yourself` };
+  }
   const line = at.get(key);
   const out = [...U];
   if (line !== undefined) {
@@ -161,12 +175,19 @@ function writeAtomic(file, text) {
   } catch (e) { rmSync(tmp, { force: true }); throw e; }
 }
 
-/** `proofline config [<key> [<value>]]`. @param {Context} ctx @param {string[]} args */
-export function configCli(ctx, args) {
+/**
+ * `proofline config [<key> [<value>]]`. TTY says whether standard input and standard output are a terminal: a user key is set only then (security review round 1: an agent
+ * shell has no terminal, so clearing the agent markers of the environment is not enough; a pty wrapper such as `script` is the accepted limit of this tripwire, A376.1).
+ * @param {Context} ctx @param {string[]} args @param {{ tty?: boolean }} [opt]
+ */
+export function configCli(ctx, args, opt = {}) {
+  const tty = opt.tty === true;
   if (args.length > 2 || args.some((a) => a.startsWith('-'))) { ctx.err('usage: proofline config | proofline config <key> | proofline config <key> <value>\n'); return 2; }
   const file = ctx.configFile;
   const raw = readFileSync(file, 'latin1');
   const crlf = raw.includes('\r\n');
+  // a file with CRLF and LF lines both: one ending would be imposed on every line (review finding 5), so a set is refused below
+  const mixed = crlf && /(^|[^\r])\n/.test(raw);
   const u = raw.replace(/\r\n/g, '\n');
   const lines = configLines(u);
   const home = ctx.env.PL_HOME ?? '';
@@ -200,7 +221,9 @@ export function configCli(ctx, args) {
   if (bad !== '') { ctx.err(`proofline config: ${bad}; nothing was written\n`); return 1; }
   const c = caller(ctx.env);
   if (c === 'specialist') { ctx.err(`proofline config: a specialist never changes the config (${ctx.env.AGENT_ROLE}); report it to the lead. Nothing was written\n`); return 1; }
-  if (c === 'lead' && !agentMay(key)) { ctx.err(`proofline config: ${key} is the user's setting: ${whyUserOnly(key)}. An agent does not set it; edit .agents/config.yaml yourself (or run proofline config ${key} <value> in your own terminal). Nothing was written\n`); return 1; }
+  if (c === 'lead' && !agentMay(key)) { ctx.err(`proofline config: ${key} is the user's setting: ${whyUserOnly(key)}. An agent does not set it: edit .agents/config.yaml yourself or run this in your own terminal. Nothing was written\n`); return 1; }
+  if (!agentMay(key) && !tty) { ctx.err(`proofline config: ${key} is the user's setting and is set only from an interactive terminal (standard input and output are not a terminal here): edit .agents/config.yaml yourself or run this in your own terminal. Nothing was written\n`); return 1; }
+  if (mixed) { ctx.err(`proofline config: ${key} not set: the file mixes CRLF and LF line ends; edit it yourself. Nothing was written\n`); return 1; }
   const vp = valueProblem(value);
   if (vp !== '') { ctx.err(`proofline config: ${key}: ${vp}; nothing was written\n`); return 1; }
   const tp = typeProblem(configGetFrom(def, key) ?? '', value);

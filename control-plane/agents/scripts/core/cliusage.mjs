@@ -25,7 +25,7 @@ export const USAGE_LINES = Object.freeze([
   "                            --config  list the few settings you are expected to change: value now, shipped default, meaning (read-only)",
   "  config [<key> [<value>]]  list the settings of .agents/config.yaml, show one, or set one (comments and other keys kept)",
   "                            the type is checked against the shipped default; an agent may set only output_cap_bytes,",
-  "                            tasks.status_block_seconds and timeouts.warn_percent: every other key is yours",
+  "                            tasks.status_block_seconds and timeouts.warn_percent: every other key is yours, set only from a terminal",
   "  version",
   "",
   "state (works without an agent session)",

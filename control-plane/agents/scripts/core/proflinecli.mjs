@@ -33,7 +33,7 @@ import { configCli } from './configcmd.mjs';
 export const PROOFLINE_VERSION = '0.0.197';
 
 /** @typedef {{ write(chunk: Buffer): unknown }} Sink */
-/** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean }} Over */
+/** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean, tty?: boolean }} Over */
 
 /** A byte string as the characters the operating system gets. @param {string} s */
 const raw = (s) => Buffer.from(s, 'latin1').toString('utf8');
@@ -51,6 +51,8 @@ class Cli {
     this.cwd = over.cwd ?? process.cwd();
     this.plHome = over.plHome ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
     this.interactive = over.interactive ?? isatty(0);
+    /** A376: standard input AND standard output are a terminal (the user's own shell); `proofline config` sets a user key only then */
+    this.tty = over.tty ?? (over.stdout === undefined && isatty(0) && isatty(1));
     /** @type {NodeJS.ProcessEnv} */ this.env = { ...(over.env ?? process.env), PL_HOME: this.plHome, PROOFLINE_VERSION };
     const top = proc.run('git', ['rev-parse', '--show-toplevel'], { cwd: this.cwd, env: this.env, stdio: ['ignore', 'pipe', 'ignore'] });
     const t = chomp(top.stdout.toString('utf8'));
@@ -407,7 +409,7 @@ class Cli {
       case 'init': return this.initCmd(args);
       case 'upgrade': return this.upgradeCmd(args);
       case 'doctor': return this.core(doctorCommand, args, true);
-      case 'config': this.requireInstalled(); return this.core(configCli, args, true);
+      case 'config': this.requireInstalled(); return this.core((c, a) => configCli(c, a, { tty: this.tty }), args, true);
       case 'status': return this.cmdStatus();
       case 'resume': return this.cmdResume();
       case 'queue': return this.cmdQueue();

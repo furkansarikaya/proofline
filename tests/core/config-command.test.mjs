@@ -31,12 +31,12 @@ function project(cfg) {
   return d;
 }
 
-/** `proofline config ARGS` in D as ENV's caller. @param {string} d @param {string[]} args @param {Record<string, string>} [env] @param {string} [home] */
-function cli(d, args, env = {}, home = root) {
+/** `proofline config ARGS` in D as ENV's caller; TTY: standard input and output are a terminal. @param {string} d @param {string[]} args @param {Record<string, string>} [env] @param {string} [home] @param {boolean} [tty] */
+function cli(d, args, env = {}, home = root, tty = true) {
   /** @type {Buffer[]} */ const out = []; /** @type {Buffer[]} */ const err = [];
   const io = { env: { PL_HOME: home, PATH: process.env.PATH ?? '', ...env }, cwd: d, stdout: { write: (/** @type {Buffer} */ b) => out.push(b) }, stderr: { write: (/** @type {Buffer} */ b) => err.push(b) } };
   const ctx = new Context(/** @type {any} */ (io), path.join(d, '.agents/scripts/agent.sh'));
-  const status = configCli(ctx, args);
+  const status = configCli(ctx, args, { tty });
   ctx.flush();
   return { status, out: Buffer.concat(out).toString('latin1'), err: Buffer.concat(err).toString('latin1'), file: readFileSync(path.join(d, '.agents/config.yaml'), 'latin1') };
 }
@@ -79,11 +79,18 @@ test('BOUNDARY: every setting of the shipped config, set by the user, by the lea
       writeFileSync(path.join(d, '.agents/config.yaml'), shipped, 'latin1');
     } else {
       assert.equal(l.status, 1, `lead ${key} was allowed`);
-      assert.match(l.err, /is the user's setting: .+edit \.agents\/config\.yaml yourself/, key);
+      assert.match(l.err, /is the user's setting: .+edit \.agents\/config\.yaml yourself or run this in your own terminal/, key);
       assert.equal(l.file, shipped, `lead ${key} wrote`);
       assert.ok(whyUserOnly(key) !== '', key);
     }
-    // the user: a value of the right type is written and is the only change, or the refusal names why (a list or a value config-check refuses)
+    // the user's shell without a terminal (an agent shell that cleared the markers, `env -u CLAUDECODE ...`): only the agent keys
+    const n = cli(d, [key, v], {}, root, false);
+    if (AGENT_KEYS.includes(key)) { assert.equal(n.status, 0, `no tty ${key}: ${n.err}`); writeFileSync(path.join(d, '.agents/config.yaml'), shipped, 'latin1'); } else {
+      assert.equal(n.status, 1, `no tty ${key} was allowed`);
+      assert.match(n.err, /set only from an interactive terminal.+edit \.agents\/config\.yaml yourself or run this in your own terminal/, key);
+      assert.equal(n.file, shipped, `no tty ${key} wrote`);
+    }
+    // the user in a terminal: a value of the right type is written and is the only change, or the refusal names why (a list or a value config-check refuses)
     const u = cli(d, [key, v]);
     if (u.status === 0) {
       userSet++;
@@ -244,24 +251,51 @@ test('proofline help names the config command', () => {
   assert.ok(USAGE_LINES.some((l) => l.startsWith('  config [<key> [<value>]]')));
 });
 
-test('bin/proofline config in an installed project: the user sets a codex key, an agent session is refused, a project without proofline is told to init', () => {
+test('bin/proofline config in an installed project: no terminal (an agent shell, markers cleared or not) sets no user key but sets an agent key; a project without proofline is told to init', () => {
   const sb = sandbox();
   const d = sb.copy('cfg');
-  const user = { PROOFLINE_NO_TTY: '0' };
+  const cleared = { PROOFLINE_NO_TTY: '0' };   // the sandbox has no agent marker: the `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u AGENT_ROLE` case
   const before = readFileSync(path.join(d, '.agents/config.yaml'), 'latin1');
-  const lead = sb.pl(d, ['config', 'codex.sandbox.network', 'on'], { CLAUDECODE: '1' });
-  assert.equal(lead.status, 1, lead.text);
-  assert.match(lead.err, /codex\.sandbox\.network is the user's setting: .+edit \.agents\/config\.yaml yourself/);
-  assert.equal(readFileSync(path.join(d, '.agents/config.yaml'), 'latin1'), before);
-  const r = sb.pl(d, ['config', 'codex.sandbox.network', 'on'], user);
+  for (const env of [{ CLAUDECODE: '1' }, cleared]) {
+    const r = sb.pl(d, ['config', 'codex.sandbox.network', 'on'], env);
+    assert.equal(r.status, 1, r.text);
+    assert.match(r.err, /codex\.sandbox\.network is the user's setting.+edit \.agents\/config\.yaml yourself or run this in your own terminal/);
+    assert.equal(readFileSync(path.join(d, '.agents/config.yaml'), 'latin1'), before);
+  }
+  const r = sb.pl(d, ['config', 'output_cap_bytes', '8000'], { CLAUDECODE: '1' });
   assert.equal(r.status, 0, r.text);
-  assert.match(r.out, /^set codex\.sandbox\.network: off -> on /m);
+  assert.match(r.out, /^set output_cap_bytes: 6000 -> 8000 /m);
   assert.match(r.out, /Next step: .*\/proofline doctor/);
   const after = readFileSync(path.join(d, '.agents/config.yaml'), 'latin1');
-  assert.equal(configGetFrom(configLines(after), 'codex.sandbox.network'), 'on');
+  assert.equal(configGetFrom(configLines(after), 'output_cap_bytes'), '8000');
   assert.equal(after.split('\n').length, before.split('\n').length);
-  assert.match(sb.pl(d, ['config', 'codex.sandbox.network'], { CLAUDECODE: '1' }).out, /^codex\.sandbox\.network: on\ndefault: off\n/);
-  const none = sb.pl(sb.mkrepo('bare'), ['config'], user);
+  assert.match(sb.pl(d, ['config', 'codex.sandbox.network'], { CLAUDECODE: '1' }).out, /^codex\.sandbox\.network: off\ndefault: off\n/);
+  const none = sb.pl(sb.mkrepo('bare'), ['config'], cleared);
   assert.equal(none.status, 1);
   assert.match(none.err, /not installed/);
+});
+
+test('review findings: another indentation, an empty key, a duplicate key or section and mixed line ends are refused; a nested open map with a hyphen is known', () => {
+  const base = 'canonical_branch: main\ngit:\n  branch_prefix: t/\n';
+  for (const [cfg, key, re] of [
+    [`${base}review:\n   max_fix_rounds: 3\n`, 'review.max_fix_rounds', /indented by 3 spaces/],
+    [`${base}review:\n    max_fix_rounds: 3\n`, 'review.max_fix_rounds', /indented deeper than one level/],
+    [`${base}review:\n  max_fix_rounds: 3\n  max_fix_rounds: 4\n`, 'review.max_fix_rounds', /duplicate key review\.max_fix_rounds/],
+    [`${base}review:\n  max_fix_rounds: 3\nreview:\n  small_max_files: 4\n`, 'review.max_fix_rounds', /duplicate section review/],
+    [`${base}review:\n  max_fix_rounds: 3\nreview:\n  small_max_files: 4\n`, 'review.small_max_lines', /duplicate section review/],
+    [`${base}  : 3\n`, 'git.platform', /empty key/],
+  ]) {
+    const r = setInText(/** @type {string} */ (cfg), /** @type {string} */ (key), '5');
+    assert.match(r.why, /** @type {RegExp} */ (re), String(cfg));
+    const c = cli(project(/** @type {string} */ (cfg)), [/** @type {string} */ (key), '5']);
+    assert.equal(c.status, 1, String(cfg));
+    assert.equal(c.file, cfg);
+  }
+  const mixed = `canonical_branch: main\r\ngit:\n  branch_prefix: t/\r\nreview:\n  max_fix_rounds: 2\n`;
+  const m = cli(project(mixed), ['review.max_fix_rounds', '3']);
+  assert.equal(m.status, 1);
+  assert.match(m.err, /mixes CRLF and LF/);
+  assert.equal(m.file, mixed);
+  for (const k of ['execution_policy.providers.claude-code', 'execution_policy.providers.claude-code.models', 'execution_policy.repeat_model_cap.codex2', 'execution_policy.lead_base_model.claude-code']) assert.ok(knownKey(k), k);
+  assert.ok(!knownKey('execution_policy.providers.claude.model'));
 });
