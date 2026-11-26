@@ -8,7 +8,7 @@
       "name": "proofline",
       "source": ".",
       "description": "A deterministic engineering team for coding agents: 11 roles, 28 skills and independent gates. A task is not done until scripts have checked the evidence. No evidence, no claim.",
-      "version": "0.0.181"
+      "version": "0.0.182"
     }
   ],
   "description": "proofline: a deterministic engineering team for coding agents (11 roles, 28 skills, independent gates). No evidence, no claim."

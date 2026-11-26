@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.182 — 2026-11-26
+
+- Fix (A360, issue 338 C11): the CI budget gate no longer fails a pull request or a push because of a budget overrun on a runner whose calibration is above the cap (more than 5 times the nominal). It prints `BUDGET INCONCLUSIVE: runner too slow to judge (calibration N x nominal, cap 5): <n> over-budget test(s) not judged; the nightly run judges again`, writes `budget_verdict: "inconclusive"` and the unjudged list into the JSON and the job summary, and exits with node's own status. The nightly and manual runs set `BUDGET_STRICT=1` (workflow-level `env` of ci.yml) and judge as before. A failing test, an empty or unreadable stream, a file without events and an unreadable calibration still fail; no budget number changed.
+
 ## 0.0.181 — 2026-11-26
 
 - Fix (A359, issue 338 C1): the tests review loop is bounded. Mutation results are rows of the sealed ledger, written by the control plane for the reviewer only and keyed on the product file and every file the task owns (`agent.sh build-record <ID> mutant-known|mutant-record|mutant-summary`; `KNOWN` spends no budget; the summary ends with an `ADEQUACY:` line); a `rounds` or `minutes` above the config defaults needs the user's scope approval; the first survivor of a unit makes the reviewer run the unit's other mutants in the same round; the plan's optional `## Test review budget` (`rounds`, `minutes`, `mutants`, `units`, `lines`) and `test_trust.review_rounds`/`review_minutes` set the caps, and the mutation budget is derived from units and lines; an approved `mutation_budget` is applied by the control plane at the freeze and at `handoff IMPLEMENTED`; at the round cap with REVIEW_TESTS failing the gate does not pass, the run stops with `test review cap reached` and the user is asked once (larger cap, written waiver of named survivors, stop; SECURITY and SECRETS are never waived).

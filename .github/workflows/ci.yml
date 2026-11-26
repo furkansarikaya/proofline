@@ -33,6 +33,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # A360 (issue 338 C11): the nightly and manual runs judge the time budgets strictly; a pull request or push on a runner above the calibration cap gets "BUDGET INCONCLUSIVE" instead of a red job
+  BUDGET_STRICT: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '0' }}
+
 jobs:
   changes:
     runs-on: ubuntu-latest

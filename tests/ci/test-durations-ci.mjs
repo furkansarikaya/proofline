@@ -228,16 +228,23 @@ export function main(argv, io = {}) {
   const nodeStatus = runs.map((r) => r.status).find((s) => s !== 0) ?? 0;
   /** @type {ReturnType<typeof overBudget> | null} */ let over = null;
   try { over = overBudget(budgets, runs, speed); } catch (e) { write(`test-durations-ci: the budgets could not be applied (${/** @type {Error} */ (e).message})\n`); }
+  // C11 (A360): above the cap the budget verdict is INCONCLUSIVE on pull requests and pushes (only budget overruns are excused); BUDGET_STRICT=1 (nightly, manual) judges as before.
+  // Every other failure stays: a failing test, an unreadable or empty stream, a file without events, an unreadable calibration (it reads as 1, never above the cap).
+  const strict = env.BUDGET_STRICT === '1';
+  const closed = over === null || unreadable || runs.some((r) => r.events.length === 0 || uncovered(testArgs, r.events, cwd).length > 0);
+  const nOver = over ? over.tests.length + over.files.length : 0;
+  const inconclusive = enforce && nodeStatus === 0 && !strict && !closed && nOver > 0 && cal !== null && cal.raw > 5;
+  const verdictLine = cal ? `BUDGET INCONCLUSIVE: runner too slow to judge (calibration ${f2(cal.raw)} x nominal, cap 5): ${nOver} over-budget test(s) not judged; the nightly run judges again` : '';
   try {
     const a = analyse(runs, { top: 20, ratio: 4, floorMs: 2000 });
     const o = over ?? { tests: [], files: [] };
     if (cal) cal.rows = a.files.slice(0, 5).map((f) => ({ file: f.file, ...(({ test, suite }) => ({ test, suite }))(budgetOf(budgets, f.file, speed)) }));
     const safe = leg.replace(/[^A-Za-z0-9._-]+/g, '-');
     const { load: _load, ...rest } = a;   // no load average: the report is the same on any machine
-    const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, calibration_ms: cal ? Math.round(cal.ms * 100) / 100 : null, calibration_after_ms: cal?.after === undefined ? null : Math.round(cal.after * 100) / 100, calibration_nominal_ms: nominal ?? null, speed_factor: cal ? Math.round(cal.factor * 1000) / 1000 : 1, twice, node_status: nodeStatus, ...rest,
+    const json = { leg, node: env.TEST_DURATIONS_NODE ?? process.version, enforce, timeouts_scale: scaleMilli(budgets) / 1000, calibration_ms: cal ? Math.round(cal.ms * 100) / 100 : null, calibration_after_ms: cal?.after === undefined ? null : Math.round(cal.after * 100) / 100, calibration_nominal_ms: nominal ?? null, budget_verdict: !enforce ? 'not-enforced' : inconclusive ? 'inconclusive' : 'judged', ...(inconclusive ? { unjudged_over_budget: o } : {}), speed_factor: cal ? Math.round(cal.factor * 1000) / 1000 : 1, twice, node_status: nodeStatus, ...rest,
       tests_detail: summarize(runs[0].events).tests, over_budget: o };
     writeOut(path.join(dir, `test-durations-${safe}.json`), `${JSON.stringify(json, null, 2)}\n`);
-    const text = renderSummary(leg, a, o, enforce, twice, cal);
+    const text = renderSummary(leg, a, o, enforce, twice, cal) + (inconclusive ? `\n${verdictLine}\n` : '');
     const sum = env.GITHUB_STEP_SUMMARY;
     if (sum) (io.append ?? appendFileSync)(sum, `${text}\n`);
   } catch (e) {   // the report must never change the verdict: a report that cannot be written is a notice, the status stays node's
@@ -247,6 +254,7 @@ export function main(argv, io = {}) {
   if (twice) { try { const u = analyse(runs, { top: 1, ratio: 4, floorMs: 2000 }).unstable.length; write(`UNSTABLE TESTS: ${u}\n`); } catch { /* informational only */ } }
   if (nodeStatus !== 0) return nodeStatus;
   if (!enforce) return 0;
+  if (inconclusive) { write(`${verdictLine}\n::warning title=BUDGET INCONCLUSIVE::${verdictLine}\n`); return 0; }
   if (over === null || unreadable) { write('test-durations-ci: budgets are enforced but the measured durations are not available; failing closed\n'); return 1; }
   for (const r of runs) {
     if (r.events.length === 0) { write('test-durations-ci: the event stream is empty (no test was reported); failing closed\n'); return 1; }
