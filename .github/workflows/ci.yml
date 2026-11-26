@@ -345,7 +345,7 @@ jobs:
           - name: risk-s2
             mode: files
             pattern: 'none'
-            files: tests/core/risk-s2.test.mjs tests/core/retro-c2-contract-focus.test.mjs tests/core/retro-c2-repeat-model.test.mjs tests/core/retro-c6-sibling-tests.test.mjs tests/core/retro-c7-artifacts.test.mjs
+            files: tests/core/risk-s2.test.mjs tests/core/retro-c2-contract-focus.test.mjs tests/core/retro-c4-weight.test.mjs tests/core/retro-c2-repeat-model.test.mjs tests/core/retro-c6-sibling-tests.test.mjs tests/core/retro-c7-artifacts.test.mjs
           - name: controls
             mode: files
             pattern: 'none'

@@ -40,7 +40,7 @@ function gateLabel(ctx, d, id, g, now) {
 }
 
 /** `fix_rounds_done ID` @param {Context} ctx @param {string} d */
-export function fixRoundsDone(ctx, d) { const u = fixRoundsUsed(ctx, d); const m = maxFixRounds(ctx); return u > m ? m : u; }
+export function fixRoundsDone(ctx, d) { const u = fixRoundsUsed(ctx, d); const m = maxFixRounds(ctx, d); return u > m ? m : u; }
 
 /** `summary_run [ID] [--status]` @param {Context} ctx @param {string} given @param {string} flag */
 export function summaryRun(ctx, given, flag) {
@@ -60,7 +60,7 @@ export function summaryRun(ctx, given, flag) {
     const fp = gateFingerprint(ctx);
     ctx.out(`TIER: ${tierEffective(ctx, d)}\n`);
     for (const g of requiredGates(ctx, d)) ctx.out(`${g}: ${gateLabel(ctx, d, id, g, fp)}\n`);
-    ctx.out(`FIX ROUNDS: ${fixRoundsDone(ctx, d)} of ${maxFixRounds(ctx)}\n`);
+    ctx.out(`FIX ROUNDS: ${fixRoundsDone(ctx, d)} of ${maxFixRounds(ctx, d)}\n`);
   }
   ctx.out(`DELIVERY: completion report published ${ua(sectionValue(ctx, d, 'completion_report', 'published'))}\n`);
 }
@@ -264,7 +264,7 @@ export function reportFacts(ctx, id) {
   const mark = ctx.chunks.length;
   const owned = taskOwnedPaths(ctx, d).length;
   ctx.chunks = ctx.chunks.filter((c, i) => i < mark || c[0] === 'out');
-  ctx.out(`- Fix rounds: ${fixRoundsLedger(ctx, d)} of ${maxFixRounds(ctx)}\n- Refreezes: ${refreezes}\n- Files changed (task-owned paths): ${owned}\n`);
+  ctx.out(`- Fix rounds: ${fixRoundsLedger(ctx, d)} of ${maxFixRounds(ctx, d)}\n- Refreezes: ${refreezes}\n- Files changed (task-owned paths): ${owned}\n`);
   ctx.out(`- Worker-evidence run records: total ${wt}, ended pass ${wp}, ended fail ${wt - wp} (a RED record ends fail on purpose; this is not a count of failing tests)\n`);
   ctx.out(`- Test cases: no record carries the number of individual tests, so no such number is stated here.\n${FACTS_END}\n`);
 }

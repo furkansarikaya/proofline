@@ -17,7 +17,8 @@ import {
   APPROVAL_FILLERS, HEDGE_WORDS, rationaleLineIn, DESIGN_MD_CANDIDATES,
 } from './approvals.mjs';
 import { answersOpenQuestion } from './answerforms.mjs';
-import { blockingFindingIds, gateFocusStatus, gateLatestFile, requiredGates, taskPatchFingerprint } from './gates.mjs';
+import { blockingFindingIds, gateFocusStatus, gateLatestFile, requiredGates, taskPatchFingerprint, testReviewConfigCaps } from './gates.mjs';
+import { forecastRows, readTail } from './forecast.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { ledgerIf } from './lifecycle.mjs';
@@ -26,10 +27,11 @@ import * as proc from './proc.mjs';
 import { Context } from './context.mjs';
 import { LockSet, takeCommandLocks } from './lock.mjs';
 import { isDir, isFile } from './paths.mjs';
-import { mutantNeed } from './testreviewbudget.mjs';
+import { mutantNeed, parseReviewBudget } from './testreviewbudget.mjs';
 import { WS, fileLines, gateField, ledgerRows, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
-import { riskGateFocuses } from './signals.mjs';
+import { pipelineClass, pipelineClassValid, riskGateFocuses } from './signals.mjs';
+import { weightProfile } from './weight.mjs';
 import { exceptionLines, exceptionsBaseLines, exceptionsBaseline, exceptionsHash, exceptionsRow } from './testreview.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { addStanding, standingSaid } from './standing.mjs';
@@ -481,10 +483,24 @@ export function planTestAcs(plan) {
 /** The mutation budget a plan needs (A359): the criteria floor, or what its `## Test review budget` states or derives. @param {string} plan */
 export function planMutantNeed(plan) { return mutantNeed(plan, planTestAcs(plan)); }
 
+/**
+ * The mutation budget a run's plan needs (A364): none in the light profile (no mutation budget approval is asked there; the reviewer is told by instruction, nothing is enforced), else what the plan needs (`planMutantNeed`).
+ * @param {Context} ctx @param {string} id
+ */
+export function mutantNeedFor(ctx, id) {
+  const dir = runDir(ctx, id);
+  if (weightProfile(ctx, dir).light) return 0;
+  return planMutantNeed(readBytes(`${dir}/PLAN.md`) ?? '');
+}
+
 /** `mutation_budget ID` @param {Context} ctx @param {string} id */
 export function mutationBudget(ctx, id) {
-  let b = ctx.config().get('test_trust.mutation_budget', '20');
-  if (!/^[0-9]+$/.test(b)) b = '20';
+  const g = ctx.config().get('test_trust.mutation_budget', '');
+  let b = /^[0-9]+$/.test(g) ? g : '20';
+  // A364 (issue 338 C4): the class default, when the class has one, applies unless the project set a lower value itself (a stricter project setting wins: a global value below the default 20)
+  const cls = pipelineClass(ctx, runDir(ctx, id));
+  const cb = pipelineClassValid(cls) ? ctx.config().get(`pipelines.${cls}.mutation_budget`, '') : '';
+  if (/^[0-9]+$/.test(cb) && Number(cb) >= 1) b = /^[0-9]+$/.test(g) && Number(g) >= 1 && Number(g) < 20 && Number(g) < Number(cb) ? g : cb;
   let o = (readBytes(`${runDir(ctx, id)}/mutation_budget`) ?? '').replace(/\n+$/, '');
   if (!/^[0-9]+$/.test(o)) o = '0';
   o = o.replace(/^0+/, '');
@@ -492,6 +508,27 @@ export function mutationBudget(ctx, id) {
   const raised = new RegExp(`^test_trust\\.mutation_budget ${o} for this run, approval `);
   if (!ledgerRows(ctx, runDir(ctx, id), 'raise-budget').some((r) => raised.test(r.detail))) o = '0';
   return BigInt(o) > BigInt(b) ? o : b;
+}
+
+/**
+ * The rows a plan approval shows besides the plan (A364, issue 338 C4; informational, no new approval kind): the forecast of finished runs of the same class and the test review budget
+ * (rounds, minutes, mutants) the plan states or the config defaults give, with a note where a value is above the default (that part still needs the user's `scope` or `mutation_budget`
+ * approval, as A359 says).
+ * @param {Context} ctx @param {string} id @param {string} plan
+ */
+function planApprovalRows(ctx, id, plan) {
+  const dir = runDir(ctx, id);
+  const cls = pipelineClass(ctx, dir);
+  const hist = readTail(`${ctx.sharedMain()}/.agents/local/metrics/records.jsonl`);
+  let out = pipelineClassValid(cls) ? forecastRows(hist, cls) : '';
+  const [dr, dm] = testReviewConfigCaps(ctx);
+  const dmut = Number(mutationBudget(ctx, id));
+  const b = parseReviewBudget(plan);
+  if (!b.present) return `${out}   test review budget: rounds ${dr}, minutes ${dm}, mutants ${weightProfile(ctx, dir).light ? 'none (light profile)' : dmut} (config defaults; the plan states none)`;
+  const fmt = (/** @type {string} */ name, /** @type {number} */ v, /** @type {number} */ d, /** @type {string} */ over) => (v === d ? `${name} ${v}` : v > d ? `${name} ${v} (default ${d}, needs your ${over} approval)` : `${name} ${v} (default ${d})`);
+  const need = weightProfile(ctx, dir).light ? 0 : mutantNeed(plan, planTestAcs(plan));
+  out += `   test review budget: ${fmt('rounds', b.rounds ?? dr, dr, 'scope')}, ${fmt('minutes', b.minutes ?? dm, dm, 'scope')}, ${need === 0 ? 'mutants none (light profile)' : fmt('mutants', need, dmut, 'mutation_budget')}`;
+  return out;
 }
 
 /** `request_approval ID KIND` @param {Context} ctx @param {string} id0 @param {string} kind0 */
@@ -530,6 +567,7 @@ export function requestApproval(ctx, id0, kind0) {
   }
   if (kind === 'scope' && plan !== null) rows = scopeExceptionRows(ctx, id, plan);
   if (kind === 'scope' && plan !== null && rows === '' && exceptionLines(plan).length > 0 && exceptionsRow(ctx, runDir(ctx, id))?.approval === '') rows = unapprovedExceptionRows(plan);
+  if (kind === 'plan' && id !== '-' && plan !== null) rows = planApprovalRows(ctx, id, plan);
   if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}, needed by the plan (criteria, ## Test review budget): ${planMutantNeed(plan ?? '')}`;
   let out = '';
   if (kind === 'batch') out += `QUESTIONS:\n1. Approve the night batch shown above (batch ${bound.slice(0, 12)})?\n`;

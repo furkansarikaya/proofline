@@ -243,7 +243,7 @@ function reopenForFix(ctx, id) {
   for (const g of requiredGates(ctx, dir)) if (gateStatus(ctx, dir, id, g) === 'fail') any = true;
   // B4 (A353): after a terminal reopen the findings recorded before it still count for the unchanged content (no gate is dispatched only to record them again)
   if (!any && reopenedFindings(ctx, dir, id).length === 0) fail('no open gate finding on the current content: nothing to fix, and a run does not return to IMPLEMENTING without one');
-  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
+  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx, dir);
   if (!(used <= max)) fail(`fix rounds exhausted (${used} failing rounds, max_fix_rounds ${max}): end the run with 'agent.sh terminate ${id} FAILED' (a refreeze with a new budget needs the user's 'budget' approval)`);
   setRunValue(ctx, id, 'handoff', 'implemented_patch_sha256', 'PENDING');
   setRunValue(ctx, id, 'handoff', 'code_done_patch_sha256', 'PENDING');
@@ -381,7 +381,7 @@ function reReviewCheck(ctx, id, dir, current, patch) {
   const reason = fieldFromText(readStdin(), 'reason');
   if (!justificationOk(reason)) fail("--re-review requires a specific 'reason:' on stdin (>=20 chars: why the same tree deserves another review)");
   testReviewCapStop(ctx, id, dir);
-  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx);
+  const used = fixRoundsUsed(ctx, dir); const max = maxFixRounds(ctx, dir);
   if (used + 1 > max) fail(`--re-review counts as a fix round and the rounds are used (${used} of max_fix_rounds ${max}): a further review of the same tree needs a change of the tree, or end the run with 'agent.sh terminate ${id} FAILED'`);
   if (ledgerRows(ctx, dir, 'handoff:IMPLEMENTED').some((r) => r.detail.includes(`re-review finding=${name} `))) fail(`--re-review was already used for ${name}: a second review of the same finding needs a change of the tree`);
   return `re-review finding=${name} reason=${reason.replace(/[\n\r]/g, ' ').slice(0, 200)}`;

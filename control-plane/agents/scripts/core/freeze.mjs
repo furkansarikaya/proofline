@@ -7,7 +7,7 @@ import { existsSync, lstatSync, readdirSync, renameSync, writeFileSync } from 'n
 import { fail } from './errors.mjs';
 import { findApproval, latestRequest } from './approvals.mjs';
 import { batchAnswerRow } from './knownissues.mjs';
-import { approvalBound, consumeApproval, mutationBudget, planMutantNeed, planTestAcs, requestApproval, requireOpenRun, runLanguage } from './approve.mjs';
+import { approvalBound, consumeApproval, mutantNeedFor, mutationBudget, planTestAcs, requestApproval, requireOpenRun, runLanguage } from './approve.mjs';
 import { applyApprovedBudget } from './gatecmd.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
@@ -19,7 +19,7 @@ import { languageFailText, languageScanFiles } from './language.mjs';
 import { led, quietly } from './lifeutil.mjs';
 import { freezeHashPresent } from './next.mjs';
 import { isFile } from './paths.mjs';
-import { PathKinds, scopeKindRows } from './pathkind.mjs';
+import { PathKinds, planKindClaims, scopeKindRows } from './pathkind.mjs';
 import { planMigrationShape } from './plancheck.mjs';
 import * as proc from './proc.mjs';
 import { askQuestion, verifyAssumptions } from './questions.mjs';
@@ -251,7 +251,9 @@ export function pipelineCheck(ctx, id) {
     // A362: a sibling test (row criteria SIBLING) is a scope path but is not counted against the code-path limit
     const badSib = siblingTestPaths(fileText(ctx, `${dir}/PLAN.md`)).filter((p) => !pk.siblingOk(p));
     if (badSib.length > 0) fail(`PLAN.md '## Sibling tests' lists a path that is not a test or fixture file: ${badSib.join(' ')}. Sibling tests are existing tests and test data only (they are scoped but not counted against max_scope_paths); move product code to the normal scope list`);
-    const n = scopePaths(planScope(ctx, dir).rows.filter(([p, c]) => c !== 'SIBLING' || !pk.siblingOk(p))).filter((p) => pk.pathKind(p) === 'code').length;
+    // A364: a test or fixture path is not counted either, unless the plan claims another kind for it (a stricter claim is honoured, as everywhere: the path counts as code)
+    const claims = new Map(planKindClaims(fileText(ctx, `${dir}/PLAN.md`) ?? '').map((l) => [l.slice(0, l.lastIndexOf('|')), l.slice(l.lastIndexOf('|') + 1)]));
+    const n = scopePaths(planScope(ctx, dir).rows.filter(([p, c]) => c !== 'SIBLING' || !pk.siblingOk(p))).filter((p) => pk.pathKind(p) === 'code' && !(pk.testOrFixture(p) && ['', 'test'].includes(claims.get(p) ?? ''))).length;
     const max = Number(maxText);
     if (n > max) {
       if (cls === 'TRIVIAL') fail(`the ${cls} pipeline allows at most ${maxText} code paths (content and document paths are not counted); this plan has ${n} ${bytes('—')} reclassify`);
@@ -293,7 +295,7 @@ export function verifyScopeExistence(ctx, id, mode) {
 /** `require_mutation_budget ID` @param {Context} ctx @param {string} id */
 function requireMutationBudget(ctx, id) {
   const dir = runDir(ctx, id);
-  const n = planMutantNeed(fileText(ctx, `${dir}/PLAN.md`) ?? '');
+  const n = mutantNeedFor(ctx, id);
   const b = mutationBudget(ctx, id);
   if (!(BigInt(n) > BigInt(b))) return;
   if (applyApprovedBudget(ctx, id)) return;   // A359: the budget the user already approved for this plan is applied here
@@ -398,7 +400,7 @@ function freezeApprovals(ctx, id, mode) {
   }
   const bad = verifyIntentProvenance(ctx, id).map((x) => `${x} `).join('');
   if (bad !== '') fail(`INTENT.md records the user's answer to scope decision(s) ${bad}, but those words are in no captured user prompt, or are a blanket 'use your recommended option' for a decision other than report: an answer recorded as the user's must be what the user said, and a blanket answer never decides a fix (A105: record the decision as report, or ask for the user's scope approval)`);
-  if (mode === 'refreeze' && fixRoundsUsed(ctx, dir) > maxFixRounds(ctx)) {
+  if (mode === 'refreeze' && fixRoundsUsed(ctx, dir) > maxFixRounds(ctx, dir)) {
     const a = findApproval(ctx, id, 'budget', plan);
     if (a === null) fail(`the fix rounds are exhausted: only 'agent.sh terminate ${id} FAILED', or a refreeze with the user's budget approval for this PLAN.md ('agent.sh request-approval ${id} budget')`);
     out.push(a);

@@ -244,6 +244,10 @@
       "test_ms": 2600,
       "suite_ms": 10000
     },
+    "tests/core/retro-c4-weight.test.mjs": {
+      "test_ms": 11100,
+      "suite_ms": 40900
+    },
     "tests/core/retro-c6-sibling-tests.test.mjs": {
       "test_ms": 3100,
       "suite_ms": 10000

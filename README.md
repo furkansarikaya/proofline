@@ -28,7 +28,7 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 
 ## Status
 
-Version 0.0.185 is an early release.
+Version 0.0.186 is an early release.
 It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE on `98f49400` (a single sample, FAIL 37/38 invariants, C-22 only) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
 Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
@@ -71,7 +71,7 @@ proofline status          # no run yet; prints the next step
 /proofline run TASK-001
 ```
 
-From a terminal, `proofline task` and `proofline run` print these same two lines for your agent session. The lead classifies the task, freezes a `PLAN.md` with a `scope:` file list, and dispatches one implementer. Gates run on the exact content; a FAIL goes back for at most `max_fix_rounds` (default 2). You approve the plan for COMPLEX and CRITICAL tasks and every commit and push ([lifecycle](docs/concepts/workflow.md)).
+From a terminal, `proofline task` and `proofline run` print these same two lines for your agent session. The lead classifies the task, freezes a `PLAN.md` with a `scope:` file list, and dispatches one implementer. Gates run on the exact content; a FAIL goes back for at most `max_fix_rounds` (default 2, COMPLEX and CRITICAL 3). A content or docs task with no code, dependency, configuration or CI change runs a light profile (no mutation budget approval and an instruction that mutation testing is not required; every gate stays required, [weight](docs/concepts/gates.md#weight-by-work-type)). You approve the plan for COMPLEX and CRITICAL tasks and every commit and push ([lifecycle](docs/concepts/workflow.md)).
 
 On Codex, open it once in the project and approve the hooks with `/hooks`; without this the Codex-side protections do not run (`doctor` warns). Run a role on another runtime with `proofline init --role implementer=codex`. `ast-grep` and `rtk` are used when installed, never required.
 
@@ -116,6 +116,6 @@ Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#th
 
 ## Versioning and license
 
-Version **0.0.185**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.186**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

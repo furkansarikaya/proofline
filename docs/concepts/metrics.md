@@ -52,6 +52,7 @@ meaning; adding a key keeps the version number only if existing keys are untouch
 | `turns` | integer or null | `num_turns` the runtime reported, summed over attempts |
 | `retries` | integer or null | `dispatch` only: extra attempts of this dispatch (resubmission after no valid submission, or a failover re-run). `0` = first attempt succeeded or failed outright |
 | `delegations` | integer or null | `run` only: number of specialist decisions (`decisions/NNN-*.decision`) in the run, i.e. delegated steps including repeats |
+| `class` | string or null | last key, added in 0.0.186: the classification of a `run` record (`TRIVIAL` to `CRITICAL`); present only on `run` records (absent on `dispatch` and `step` records and on older ones); the plan approval forecast reads it |
 | `fix_rounds` | integer or null | `run` only: failing fix rounds used (`fix_rounds_used`) |
 | `result` | string or null | `dispatch`: `submitted`, `failed`, `timeout`, `needs_input` or `blocked`; `step`: the recorded result lowercased (`pass`, `fail`, `done`, `blocked`, `needs_input`, ...) with the gate in `gate`; `run`: `done`, `failed` or `blocked` |
 

@@ -6,6 +6,8 @@ import { bytes } from '../config.mjs';
 import { fail, unsupported } from '../errors.mjs';
 import { inflightDispatch, inflightParts } from '../dispatch.mjs';
 import { contentFingerprint, gateFingerprint } from '../fingerprint.mjs';
+import { mutationBudget } from '../approve.mjs';
+import { weightLines } from '../weight.mjs';
 import { fixRoundsUsed, gateDeps, gateStatus, gateUnsupportedFocuses, gateFocusStatus, maxFixRounds, requiredGates, riskNotRerun, riskUnsupported, taskPatchFingerprint, unsupportedLabel, verifyLifecycleGates } from '../gates.mjs';
 import { verifySeal } from '../ledger.mjs';
 import { fileText } from '../records.mjs';
@@ -141,7 +143,7 @@ function pipelineShow(ctx, args) {
   if (pipelineNeeds(ctx, dir, 'qa') === 'yes') art += ' QA_PLAN.md QA_REPORT.md';
   art += ' VERIFY.md COMPLETION_REPORT.md';
   const round = fixRoundsUsed(ctx, dir);
-  ctx.out(`classification=${cls}\nreview=${pipelineReview(ctx, dir)}\nevidence=${pipelineNeeds(ctx, dir, 'evidence')}\nqa_plan=${pipelineNeeds(ctx, dir, 'qa')}\narchitect=${pipelineNeeds(ctx, dir, 'architect')}\nmax_explorers=${pipelineValue(ctx, cls, 'max_explorers')}\nautonomy=${runAutonomy(ctx, dir)}\ntier=${tier}\nartifacts=${art}\nfix_round=${round}\nmax_fix_rounds=${maxFixRounds(ctx)}\nescalation=${round >= 2 ? 'yes' : 'no'}\ngates=${gates.join(' ')}\n`);
+  ctx.out(`classification=${cls}\nreview=${pipelineReview(ctx, dir)}\nevidence=${pipelineNeeds(ctx, dir, 'evidence')}\nqa_plan=${pipelineNeeds(ctx, dir, 'qa')}\narchitect=${pipelineNeeds(ctx, dir, 'architect')}\nmax_explorers=${pipelineValue(ctx, cls, 'max_explorers')}\nautonomy=${runAutonomy(ctx, dir)}\ntier=${tier}\nartifacts=${art}\nfix_round=${round}\nmax_fix_rounds=${maxFixRounds(ctx, dir)}\nescalation=${round >= 2 ? 'yes' : 'no'}\nmax_mutants=${mutationBudget(ctx, id)}\n${weightLines(ctx, dir)}gates=${gates.join(' ')}\n`);
   const fp = gateFingerprint(ctx);
   for (const g of gates) {
     ctx.out(`gate.${g}=${gateStatus(ctx, dir, id, g, 'reuse', fp)}\n`);

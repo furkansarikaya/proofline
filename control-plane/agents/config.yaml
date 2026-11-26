@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.185
+proofline_version: 0.0.186
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -25,6 +25,8 @@ autonomy:
   COMPLEX: supervised
   CRITICAL: supervised
 review:
+  # max_fix_rounds (A364): 2 is the default of every class; a class key under `pipelines` (COMPLEX and CRITICAL: 3) replaces it for that class, except that a value LOWER than 2 set here is kept (a stricter
+  # project setting wins). To keep 2 for a class that has a larger default, set that class key (`pipelines.COMPLEX.max_fix_rounds: 2`).
   max_fix_rounds: 2
   small_max_files: 2
   small_max_lines: 30
@@ -141,6 +143,8 @@ product:
 # `minutes:` win). At the round cap the gate stays failed and the user decides (a larger cap, a written waiver of the named survivors, or stop).
 test_trust:
   repeat: 5
+  # mutation_budget (A364): 20 is the default of every class; a class key under `pipelines` (COMPLEX and CRITICAL: 30) replaces it for that class, except that a value LOWER than 20 set here is kept (a stricter
+  # project setting wins). To keep 20 for a class that has a larger default, set that class key.
   mutation_budget: 20
   slow_ratio: 3
   review_rounds: 4
@@ -327,6 +331,9 @@ safety:
 # dispatch_timeout_seconds (A171) overrides dispatch.timeout_seconds for a dispatched step of that class (30 to 28800; times timeouts.scale).
 # The values come from measured step durations plus a wide margin (A202 item 29, docs/concepts/timeouts.md): STANDARD is derived from the real
 # metrics, the other classes had no data and are a documented multiple of the earlier default.
+# max_fix_rounds and mutation_budget (A364, issue 338 C4) are optional per class: a class that has none uses review.max_fix_rounds (default 2) and test_trust.mutation_budget (default 20), and a value LOWER than the default (2 and 20) in those two global keys is kept (a stricter project setting wins). COMPLEX and CRITICAL
+# carry larger defaults (3 failing rounds, 30 mutants) because large work spent the global 2 and 20 on every task of a long retro run; both stay bounded (a fix round count of at most 10), a
+# plan or a user can still only RAISE them through the approvals that exist, and a lower value is always allowed. docs/limits.md has the table.
 pipelines:
   TRIVIAL:
     evidence: no
@@ -351,6 +358,8 @@ pipelines:
     architect: yes
     max_explorers: 2
     max_scope_paths: 15
+    max_fix_rounds: 3
+    mutation_budget: 30
     dispatch_timeout_seconds: 7200
   CRITICAL:
     evidence: yes
@@ -359,7 +368,23 @@ pipelines:
     architect: yes
     max_explorers: 3
     max_scope_paths: 12
+    max_fix_rounds: 3
+    mutation_budget: 30
     dispatch_timeout_seconds: 7200
+# The light profile (A364, issue 338 C4): weight by work type. A run is light only while ALL of this holds, and the control plane re-checks it at every call from the task type of the
+# sealed TASK.md (the user's), the class, the plan and the changed paths (nothing is stored, a later change reclassifies upward at once): the task `type:` is one of `types`; the class is one of
+# `classes`; EVERY plan scope path and changed path matches `content_globs` (a positive list: documentation text and images, default `*.md *.mdx *.txt *.rst *.adoc *.png *.jpg *.jpeg *.gif *.webp *.avif`;
+# json, xml, html, svg, css, scripts, tests and configuration are NOT content) and none is a risky or dependency path (review.risky_paths and the ecosystem sets), a CI or configuration path
+# (never_paths: also Markdown under skills/, roles/, adapters/ and control-plane/ at any depth, which CONTRIBUTING counts as code) or code-like Markdown (review.code_like_markdown); the plan has no `## Data`, no destructive flag and no risk focus
+# other than the plain visual one. Under it the tests review is told that mutation testing is not required (the mutation budget approval is not asked, and the control plane does NOT enforce
+# that the reviewer skips mutants: gate.mjs keeps its cap) and the optional design group of the visual check is off by instruction. Every gate stays required: SECRETS, SECURITY (tier full),
+# the reviews of the tier, QA and VERIFY. A TASK `type` can only be set before the plan is frozen (the task is sealed with the plan).
+profiles:
+  light:
+    types: content docs
+    classes: TRIVIAL STANDARD
+    content_globs: "*.md *.mdx *.txt *.rst *.adoc *.png *.jpg *.jpeg *.gif *.webp *.avif"
+    never_paths: "skills/** roles/** adapters/** control-plane/** **/skills/** **/roles/** **/adapters/** **/control-plane/** .github/** .gitlab-ci.yml .gitlab/** .circleci/** azure-pipelines.yml Jenkinsfile .agents/** .claude/** .codex/** Dockerfile* docker-compose* compose.* .env* *.env **/config/** **/*.config.* *.conf *.cfg *.ini *.toml *.yml *.yaml"
 # Execution policy (D5, D7): read by the Node core (cli exec-policy, cli runtime-detect) and dispatch.sh.
 execution_policy:
   # Policy semantics version; bump when resolution or escalation behaviour changes.

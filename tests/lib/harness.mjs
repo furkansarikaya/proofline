@@ -230,6 +230,9 @@ const putStub = (to, fromStub) => { writeFileSync(to, Buffer.concat([Buffer.from
 export function installControlPlane(dir) {
   for (const d of ['.agents/scripts', '.agents/task-integrations', '.agents/local']) mkdirSync(path.join(dir, d), { recursive: true });
   cpSync(path.join(agentsSrc, 'config.yaml'), path.join(dir, '.agents/config.yaml'));
+  // A364: the shipped class defaults of COMPLEX and CRITICAL (3 fix rounds, 30 mutants) are left out of the test project: the many tests that pin the global 2 and 20 on a COMPLEX run keep their meaning,
+  // and tests/core/retro-c4-weight.test.mjs sets the shipped keys itself (`withClassDefaults`) and reads them from the shipped file
+  writeFileSync(path.join(dir, '.agents/config.yaml'), readFileSync(path.join(dir, '.agents/config.yaml'), 'utf8').replace(/^ {4}(max_fix_rounds|mutation_budget): [0-9]+\n/gm, ''));
   for (const d of ['modes', 'templates']) cpSync(path.join(agentsSrc, d), path.join(dir, '.agents', d), { recursive: true });
   cpSync(path.join(scripts, 'agent.sh'), path.join(dir, '.agents/scripts/agent.sh'));
   cpSync(path.join(scripts, 'proofline-core.mjs'), path.join(dir, '.agents/scripts/proofline-core.mjs'));

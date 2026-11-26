@@ -59,6 +59,8 @@ export function build(target, state) {
   // --- installed project (the layout `proofline init` writes) ---------------------------------
   f.mkdir('.agents/scripts', '.agents/local', '.agents/tasks', '.agents/task-integrations', 'src', 'test');
   for (const n of ['config.yaml', 'roles.conf', ...readdirSync(path.join(CP, 'agents')).filter((x) => x.endsWith('.md')).sort()]) f.cp(path.join(CP, 'agents', n), `.agents/${n}`);
+  // A364: the shipped class defaults of COMPLEX (3 fix rounds, 30 mutants) are left out of this fixture, which pins the global 2 rounds of its exhausted state; the class keys are tested in tests/core/retro-c4-weight.test.mjs
+  f.w('.agents/config.yaml', f.read('.agents/config.yaml').replace(/^ {4}(max_fix_rounds|mutation_budget): [0-9]+\n/gm, ''));
   for (const n of ['modes', 'templates', 'roles', 'githooks']) f.cp(path.join(CP, 'agents', n), `.agents/${n}`);
   for (const n of ['agent.sh', 'dispatch.sh', 'proofline-core.mjs']) f.cp(path.join(CP, 'agents/scripts', n), `.agents/scripts/${n}`);
   f.cp(path.join(CP, 'agents/scripts/core'), '.agents/scripts/core');   // the Node core runs the moved commands, the secret scan included
