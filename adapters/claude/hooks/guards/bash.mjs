@@ -106,6 +106,36 @@ function runsUpgrade(text) {
   }
   return false;
 }
+/** A376: the config keys an agent session may set with `proofline config <key> <value>`; equal to AGENT_KEYS of the core's configcmd.mjs (a test keeps them in step). */
+export const AGENT_CONFIG_KEYS = Object.freeze(['output_cap_bytes', 'tasks.status_block_seconds', 'timeouts.warn_percent']);
+/**
+ * A376: the keys a command text SETS with `proofline config <key> <value>` (two or more words after `config`), read like runsUpgrade: wrappers, runners, assignments and options
+ * before the subcommand, quotes removed. `proofline config` and `proofline config <key>` only read and give nothing. A key word that is an option reads as `?`, which no list
+ * holds. A tripwire: variables, aliases and other obfuscation are not closed; the boundary is the user's review of the config change. @param {string} text @returns {string[]}
+ */
+export function configSetKeys(text) {
+  const bn = (/** @type {string} */ x) => x.slice(x.lastIndexOf('/') + 1);
+  const isPl = (/** @type {string} */ x) => /^proofline(\.mjs)?$/.test(bn(x));
+  /** @type {string[]} */ const keys = [];
+  for (const seg of text.replace(/\$\(/g, ' ').replace(/['"\\]/g, '').split(/[;&|\n(){}`]/)) {
+    const w = seg.split(/[ \t]+/).filter((x) => x !== '');
+    let i = 0;
+    while (i < w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i])) i++;
+    if (i >= w.length) continue;
+    let j = i;
+    if (!isPl(w[i])) {
+      if (!UP_WRAP.has(bn(w[i]))) continue;
+      j = w.findIndex((x, k) => k > i && isPl(x));
+      if (j < 0) continue;
+    }
+    for (let k = j + 1; k < w.length && k <= j + 9; k++) {
+      if (w[k] === 'config') { const rest = w.slice(k + 1); if (rest.length >= 2) keys.push(rest[0].startsWith('-') ? '?' : rest[0]); break; }
+      if (w[k].startsWith('-') || w[k - 1].startsWith('-')) continue;
+      break;
+    }
+  }
+  return keys;
+}
 const SPEC_GIT_RE = new RegExp(`(^|[;&|(]|${SP})git${SP}+(reset|clean|restore|switch|rebase|merge|cherry-pick|revert|am|apply|checkout${SP}+--)(${SP}|$)`);
 const SPEC_GIT_EXEMPT = new RegExp(`git${SP}+-C${SP}+|git${SP}+worktree|--work-tree`);
 const DISPATCH_GLOB = new RegExp(`\\.agents/[^/ \\t\\n\\v\\f\\r]*[*?[]|\\.agents/local/[^/ \\t\\n\\v\\f\\r]*[*?[]|find${SP}[^;&|]*\\.agents(/local)?/?(${SP}|$)`);
@@ -159,6 +189,12 @@ async function checkOne(ctx, cmd, folded = false) {
   // A371: `proofline upgrade` replaces the control plane and the files that enforce the rules; it is the user's command, never a specialist's
   if (specialist && (runsUpgrade(withoutDataBodies(cmd)) || runsUpgrade(norm))) {
     deny("proofline upgrade (also --check and --rollback) replaces the control plane and the files that enforce the rules, so it is the user's command: a specialist never runs it (A371). Report to the lead that the user should run it from the terminal");
+  }
+  // A376: `proofline config <key> <value>` changes .agents/config.yaml. A specialist sets nothing; the lead only the keys of AGENT_CONFIG_KEYS: codex.*, commands.* and
+  // every other key are the user's (the CLI refuses them from an agent session too)
+  for (const k of [...configSetKeys(withoutDataBodies(cmd)), ...configSetKeys(norm)]) {
+    if (specialist) deny('proofline config <key> <value> changes .agents/config.yaml: a specialist never sets a config key (A376). Report to the lead what should change; the user edits .agents/config.yaml');
+    if (!AGENT_CONFIG_KEYS.includes(k)) deny(`proofline config ${k} <value>: ${k} is the user's setting (codex.*, commands.* and every key except ${AGENT_CONFIG_KEYS.join(', ')}; A376), so an agent does not set it. Tell the user: edit .agents/config.yaml yourself (or run proofline config ${k} <value> in your own terminal)`);
   }
   // A specialist never mutates the live tree with git: mutation evidence runs in a separate worktree
   if (act !== '' && !ctx.ro && specialist && grepq(SPEC_GIT_RE, withoutDataBodies(cmd)) && !grepq(SPEC_GIT_EXEMPT, cmd)) {

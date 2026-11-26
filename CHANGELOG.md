@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.197 — 2026-11-26
+
+- Feature (A376, issue 338 U5, the part A374 deferred): `proofline config` lists the settings of `.agents/config.yaml`, `proofline config <key>` shows one (value, shipped default, who sets it) and `proofline config <key> <value>` sets one in your terminal. Only the line of that key changes (its trailing comment, the other comments, the order and every other value stay); a missing key goes under its parent; an unknown key is refused naming the closest known key; sections, lists, multi-line values, a parent with a value and a tab-indented file are refused; the value must have the default's type and pass `config-check`. From an agent session only `output_cap_bytes`, `tasks.status_block_seconds` and `timeouts.warn_percent` can be set: every other key (`codex.*`, `commands.*`, git, approval, safety, security, runtime, review and test settings among them) is yours ("edit .agents/config.yaml yourself"), and a specialist sets nothing; the PreToolUse hook refuses the same command text (a tripwire; your review of config changes is the boundary). `config-check` and `proofline doctor` now warn about an unknown key (a typo) and name the closest known key, without failing.
+
 ## 0.0.196 — 2026-11-26
 
 - Feature (A374, issue 338 U5): the shipped config is split into a BASICS part (the few settings you are expected to change, among them `codex.sandbox.*` and `security.advisory_check`) and an ADVANCED part (defaults, change only with a decision), with no key renamed or moved and no value changed, and `proofline doctor --config` lists the basics read-only with each key's value in your project, the shipped default and a one-line meaning (from a built-in list, so a project config without the banners works the same). New page `docs/concepts/configuration.md`.

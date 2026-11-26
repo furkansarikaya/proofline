@@ -23,7 +23,19 @@ The split changes no key and no default. A key keeps its name and place in the d
 | `review.max_fix_rounds` | failing review rounds a task may have before it asks you |
 | `test_trust.mutation_budget`, `test_trust.review_rounds` | mutants and rounds of the test review |
 
-## Change a value
+## Show or set a value from the terminal
+
+`proofline config` lists the settings of your file, `proofline config <key>` shows one (the value, the shipped default, who sets it) and `proofline config <key> <value>` sets one (A376).
+
+- It changes only the line of that key and keeps its trailing comment, the other comments, the order and every other value; a key your file lacks goes under its parent block. The file is parsed again and written (through a temporary file and a rename) only when nothing else changed.
+- It accepts only a key of the shipped config that holds one value. An unknown key is refused with the closest known key; a section (`git`), a list item, a block list (several `commands.test` lines), a multi-line value, a parent that has a value (`codex: off`) and a tab-indented file are refused: edit those yourself.
+- The value must have the type of the shipped default (a whole number, a number, `true`/`false`), be one line of plain text, and pass `config-check` (`profile: cheap` is refused with its message).
+- Who sets what: from an agent session (an agent marker in the environment) only `output_cap_bytes`, `tasks.status_block_seconds` and `timeouts.warn_percent` can be set; every other key is yours, and the command answers "edit .agents/config.yaml yourself". That includes `codex.*`, `commands.*`, `git.*`, `approval.*`, `safety.*`, `security.*`, `runtime.*`, `profile`, `failover`, `review.*`, `test_trust.*`, `timeouts.scale`, the risk signals, the pipelines and the execution policy. A specialist sets nothing. The PreToolUse hook refuses the same command text for the lead and every specialist. Both are tripwires (an environment can be cleared, a command spelled in other ways); your review of config changes is the boundary.
+- Showing any key is fine for everyone.
+
+`config-check` (and `proofline doctor`) warns about a key it does not know, most often a typo, and names the closest known key (`warning: unknown config key review.max_fix_round (closest known key: review.max_fix_rounds); proofline ignores it`). The warning never fails the check.
+
+## Change a value by hand
 
 Edit `.agents/config.yaml` yourself and run `agent.sh config-check` (or `proofline doctor`). Two kinds of settings need your own edit, an agent does not write them:
 

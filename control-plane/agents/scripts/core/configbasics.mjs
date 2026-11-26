@@ -63,7 +63,7 @@ export function configBasics(ctx) {
   const def = shipped !== '' && isFile(shipped) ? configLines(readFileSync(shipped, 'latin1')) : null;
   ctx.out('the settings you are expected to change, with the value in this project (.agents/config.yaml), the shipped default and what each means:\n');
   for (const l of basicsLines(configLines(text), def)) ctx.out(`${l}\n`);
-  ctx.out('Change a value by editing .agents/config.yaml yourself; codex.sandbox.* and the commands are your decision, an agent does not write them.\n');
+  ctx.out('Change a value with proofline config <key> <value> in your terminal, or by editing .agents/config.yaml yourself; codex.sandbox.*, the commands and every key but three are your decision, an agent does not set them.\n');
   ctx.out('Everything else is advanced: defaults for the control plane, kept under the ADVANCED banner of the shipped config; change one only with a decision (an A-record in docs/decisions.md).\n');
   ctx.out('This list is built in, not from the banners of your file, so a config written before the BASICS banner existed is listed the same way. Guide: docs/concepts/configuration.md\n');
   return 0;

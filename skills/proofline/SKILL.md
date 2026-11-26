@@ -1,11 +1,11 @@
 ---
 name: proofline
-description: "The user-facing /proofline entry point. `$ARGUMENTS` is the subcommand: init, upgrade, doctor, status (default), queue, clean and version run through the proofline CLI (`bin/proofline`); run, resume, task, design, review, audit, debug, knowledge and deliver hand the session to the proofline-lead skill, which carries each out through `agent.sh` and the specialist roles. Use to install proofline in a project, check that its rules are enforced, or start, resume and deliver a task."
-argument-hint: "[init|upgrade|doctor|status|queue|clean|run <TASK>|resume|task [--grill] <text>|design system|data|api|ui [--check]|design ui <mode> <target>|docs create|update|audit|explain <topic|TASK-ID>|review|audit|debug|wiki ingest|query|lint|product prd|review|split <slug>|product discover frame|research|interviews|competitors|opportunities <slug>|product assess assumptions|probes|premortem|redteam|decision <slug>|product outcome <slug>|trace <FR-n|TASK-ID>|knowledge <TASK>|deliver <TASK>|reopen <TASK>|batch <ID...|all>|batch status|debt]"
+description: "The user-facing /proofline entry point. `$ARGUMENTS` is the subcommand: init, upgrade, doctor, config, status (default), queue, clean and version run through the proofline CLI (`bin/proofline`); run, resume, task, design, review, audit, debug, knowledge and deliver hand the session to the proofline-lead skill, which carries each out through `agent.sh` and the specialist roles. Use to install proofline in a project, check that its rules are enforced, or start, resume and deliver a task."
+argument-hint: "[init|upgrade|doctor|config|status|queue|clean|run <TASK>|resume|task [--grill] <text>|design system|data|api|ui [--check]|design ui <mode> <target>|docs create|update|audit|explain <topic|TASK-ID>|review|audit|debug|wiki ingest|query|lint|product prd|review|split <slug>|product discover frame|research|interviews|competitors|opportunities <slug>|product assess assumptions|probes|premortem|redteam|decision <slug>|product outcome <slug>|trace <FR-n|TASK-ID>|knowledge <TASK>|deliver <TASK>|reopen <TASK>|batch <ID...|all>|batch status|debt]"
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.196"
+  version: "0.0.197"
 ---
 
 # proofline
@@ -44,7 +44,7 @@ with "proofline is not installed here".
 | `doctor` | CLI `doctor`; relay PASS / WARN / FAIL lines unchanged and name the fix for each FAIL. `doctor --commands` finds the empty `commands.build|test|lint`, proves each by one run and proposes them in one question; after the user's "approve commands" run `doctor --apply-commands` (unproven commands are never written; A200). `doctor --scale` proposes `timeouts.scale`; after "approve scale" run `doctor --apply-scale`. `doctor` shows the hosting platform and merge rule. A WARN that no CI check runs stays visible: `proofline merge` then verifies locally ("verified locally, no CI"); a batch is not refused. |
 | `queue` | CLI `queue`. |
 | `clean` | CLI `clean` lists what goes; remove only after the user's yes (`clean --yes`). |
-| `version` | CLI `version`. |
+| `version`, `config` | CLI `version`; CLI `config [<key> [<value>]]`, relay it (a refused key is the user's). |
 | `run <TASK>`, `resume`, `task [--grill] <text>`, `design system\|data\|api\|ui [--check]`, `design ui <mode> <target>`, `docs create\|update\|audit`, `explain <topic\|TASK-ID>`, `review`, `audit`, `debug`, `wiki ingest\|query\|lint`, `product prd\|review\|split <slug>`, `product discover frame\|research\|interviews\|competitors\|opportunities <slug>`, `product assess assumptions\|probes\|premortem\|redteam\|decision <slug>`, `product outcome <slug>`, `trace <FR-n\|TASK-ID>`, `knowledge <TASK>`, `deliver <TASK>`, `reopen <TASK>`, `batch <ID...\|all>`, `debt` | Check `.agents/config.yaml` and `A` exist (else say proofline is not installed here, propose `/proofline init`, stop). Then load the proofline-lead skill and carry out its "Commands" table row for this command with the remaining arguments. For `resume` and `deliver` the CLI prints the deterministic part first (`proofline resume`, `proofline deliver <TASK>`); run it and use its output. `design ui <mode> <target>` (mode: bolder, quieter, polish, animate, typeset, colorize, layout, delight, harden, adapt) is a focused UI change and so a normal run, not a standalone design: the lead takes its Commands row. `debt` needs no run: the CLI `debt` lists the shortcut comments; relay its output. `batch status` needs no run either: relay `A batch-status` (from records only). After the user's "approve batch" the lead runs the batch in this same session (see the lead skill); `/proofline batch` without IDs continues an approved, unfinished batch. `proofline batch run` and `batch stop` are gone (the driver was removed). |
 | anything else | Print the routing table's command names and stop. |
 
@@ -72,7 +72,7 @@ Every command ends with ONE line `Next step: <what the user does next>`: a `/pro
 | `docs`, `wiki` | `/proofline docs audit`, `/proofline wiki lint` |
 | `batch` | not approved: reply `approve batch`; approved with work left: `run /proofline batch to continue the batch; merged tasks are not run again`; finished: `/proofline batch status` |
 | `batch status` | work left: `run /proofline batch to continue the batch; merged tasks are not run again`; a task is parked: `/proofline resume <ID>, then reply in this session to the open question: ...` (or `/proofline reopen <ID>`); none parked: the next queued task, else `/proofline task --grill` |
-| `version` | `/proofline doctor` |
+| `version`, `config` | `/proofline doctor` |
 
 A failed command suggests the command that fixes the error instead: not installed `proofline init`; a dirty tree: commit or stash it yourself; a missing knowledge step `/proofline knowledge <ID>`; a FAILED run on `deliver` `/proofline reopen <ID>`.
 

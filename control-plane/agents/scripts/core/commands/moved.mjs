@@ -11,6 +11,7 @@ import { isFile } from '../paths.mjs';
 import * as proc from '../proc.mjs';
 import { hookKnob, hookTimeouts, timeoutsInfo, tmScaled, verifyCommandTimeout } from '../timeouts.mjs';
 import { checkConfigLines } from './config-check.mjs';
+import { unknownKeyWarnings } from '../configkeys.mjs';
 import { C1_HANDLERS } from './c1.mjs';
 import { LIBRARY_HANDLERS } from './library.mjs';
 import { TOOLS_HANDLERS } from './tools.mjs';
@@ -103,12 +104,15 @@ function configCheck(ctx, args) {
       grepBad(key, re, false);   // the same POSIX ERE for a signal with words (matched by Node code since A251, no awk is started) as without
     }
   }
+  // A376: a key proofline does not know (a typo, most often) is a warning naming the closest known key; it never fails the check
+  const unknown = unknownKeyWarnings(lines, messages);
   if (messages.length === 0) {
     ctx.out(`config valid: ${rel}\n`);
+    if (unknown.length > 0) ctx.err(`${unknown.join('\n')}\n`);
     if (file === config) ctx.err(warnText(detectPlatform(ctx)));
     return 0;
   }
-  ctx.err(`${messages.join('\n')}\n`);
+  ctx.err(`${[...messages, ...unknown].join('\n')}\n`);
   fail(`config invalid: ${rel}`);
 }
 
