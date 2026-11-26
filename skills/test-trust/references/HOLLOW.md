@@ -65,17 +65,20 @@ First remove every test with a `confirmed` flaky finding (any `flaky_*` kind) fr
 
 For each remaining mutant, sequentially:
 
-0. Ask for the mutant first, as the cap on the mutation budget (a counter, not a promise): `node <skill-dir>/scripts/gate.mjs mutant <review-folder>/mutants.count <repo-root>/.agents/config.yaml <run-dir>` (omit `<run-dir>` outside a run; in a run the count file is INSIDE the run folder, e.g. `<run-dir>/reviews/test-trust/tests/mutants.count`: with `<run-dir>` a relative name is taken relative to the run folder and a path outside it or through a link is refused, so no counter ever lands in the repository root). `OK n/budget` allows this one mutant. `REFUSED n/budget` (exit 1) means the budget is spent: apply no mutation, stop the mutant loop, and list every unit left without a mutant in `scope.diff.not_examined` with reason `mutation budget`. A resumed run keeps the same count file, so a restart cannot reset the budget. Claim mutants and compiler-only kills count too.
+0. Ask whether the mutant already ran, then ask for it as the cap on the mutation budget. First `agent.sh build-record <TASK-ID> mutant-known <source file of the unit> <mutant id>` (the id is stable: unit plus mutation, e.g. `price:ret0`): `KNOWN killed|survived <unit>` means this very product file and every other file of the task (product and tests) are unchanged since this mutant ran in an earlier round (the control plane keys every result on the product file AND all files the task owns): use that result, apply nothing, spend nothing. Any change of any file of the task (the product file, a helper, a weakened or a new killing test) makes it `NEW` again. Only for a `NEW` mutant ask the counter (a counter, not a promise): `node <skill-dir>/scripts/gate.mjs mutant <review-folder>/mutants.count <repo-root>/.agents/config.yaml <run-dir>` (omit `<run-dir>` outside a run; in a run the count file is INSIDE the run folder, e.g. `<run-dir>/reviews/test-trust/tests/mutants.count`: with `<run-dir>` a relative name is taken relative to the run folder and a path outside it or through a link is refused, so no counter ever lands in the repository root). `OK n/budget` allows this one mutant. `REFUSED n/budget` (exit 1) means the budget is spent: apply no mutation, stop the mutant loop, and list every unit left without a mutant in `scope.diff.not_examined` with reason `mutation budget`. A resumed run keeps the same count file, so a restart cannot reset the budget. Claim mutants and compiler-only kills count too.
 1. Apply the single mutation in the worktree and save its diff.
 2. Run only the covering tests. Timeout: 3× the summed baseline durations of those tests (3× the test's own duration if it is a single test; the scope's baseline if per-test durations are unsupported), minimum 30 seconds.
 3. Classify:
    - **killed**: at least one covering test failed, the build/compile failed, or the run hit the **timeout**.
    - **survived**: every covering test passed.
-4. Revert the mutation and confirm the worktree is clean before the next mutant.
+4. Record the result: `agent.sh build-record <TASK-ID> mutant-record <source file> <mutant id> killed|survived --unit <unit> [--class new]` (a ledger row of the control plane; only the reviewer can write it; nothing you could write into a file counts) (`--class new` for a mutant of a kind you added after round 1, see section 6).
+5. Revert the mutation and confirm the worktree is clean before the next mutant.
 
 Save the run output as `evidence/hollow-<unit-slug>-m<N>.*`. Update the ledger after each mutant.
 
 A build or compile failure counts as killed, but it proves nothing about the tests. If most mutants of a unit are killed only by the compiler, note it and choose different mutations. A kill by a runtime error (exception, 5xx, constraint violation) is a kill of the unit but not an assertion: in a run, the claim mutants of [DIFF.md](DIFF.md#5a-claim-mutants-does-the-named-test-observe-its-criterion) require the named test to fail on an assertion.
+
+**The first round reports the whole unit (A359).** On the first survivor of a unit, run every other planned and reachable mutant of THAT unit in the same round (still through the counter), so the round lists all the unit's survivors together; never stop a unit at its first survivor and discover the next one a round later. Mutants of other units are not run for that reason (the budget is spent unit by unit, priority order).
 
 ## 4. Verdict
 
@@ -101,6 +104,13 @@ Before removing the worktree, make sure every surviving mutant's diff is saved u
 If any check fails, do not delete anything: show the path to the user, say why it was not removed, and continue with a fresh worktree. When you created the path yourself in this run, the checks still apply.
 
 On resume, a worktree path still recorded in the ledger means the previous run was interrupted: clean it up as above, then create a fresh one and continue from the ledger's resume point.
+
+## 6. The loop is bounded, and it ends with an adequacy line (A359)
+
+- **Caps come from the plan.** `node <skill-dir>/scripts/gate.mjs caps <config> <run-dir>` prints `review_rounds` and `review_minutes` (the PLAN's `## Test review budget`, else the config defaults). Stop starting mutants once `review_minutes` of the loop have passed (list the units left over in `not_examined`, reason `time cap`). The control plane stops the loop at `review_rounds` REVIEW_TESTS rounds: the gate then stays FAIL, the state is the one line `test review cap reached`, and the user decides (a larger cap, a written waiver of the named residual survivors, or stop). You never ask the user to type a cap, and you never turn a FAIL into a PASS because a cap was reached; SECURITY and SECRETS findings are never waived.
+- **The mutation budget** is derived from the changed units and lines (the plan's `units:`, `lines:`, `mutants:`), never from the criteria count alone. An approved raise is applied by the control plane at the freeze and at every `handoff IMPLEMENTED`: if `gate.mjs thresholds <config> <run-dir>` shows the budget you need, proceed; do not stop to ask again for an approval already given.
+- **Widening is labelled.** A round after the first may add mutant kinds (a new class of mutation). A survivor of such a mutant is reported with `--class new` and the label `new class` in its finding text; it is not counted as a new finding of the code under review without that label.
+- **Close the loop with a sufficiency line.** Run `agent.sh build-record <TASK-ID> mutant-summary`; put its `ADEQUACY:` line and your own statement of what is closed into the report: closed tables for character classes and allowlists (every member tried once, listed), and the equivalent-mutant arguments, each audited once and not argued again in a later round.
 
 ## Refuting a survivor
 

@@ -69,6 +69,14 @@ re-run it on a weaker model (D7).
    `agent.sh terminate <ID> FAILED`. Run it with stdin `reason: <specific>` and `evidence: <open finding ids
    and the rounds used>`; report every open finding and why it stayed open; commit and push stay locked.
    Never open another round, never ask for a waiver to escape the bound.
+7. **Test review cap (A359).** The tests review loop has its own cap: the plan's `## Test review budget` `rounds`
+   (else `test_trust.review_rounds`). When `handoff <ID> IMPLEMENTING` or `--re-review` says
+   `test review cap reached`, REVIEW_TESTS still fails and nothing passes: relay the recorded question
+   (`agent.sh questions <ID>`) once, verbatim. A larger cap is an amendment of the plan's `## Test review budget`
+   (the usual `amend`/`refreeze` and the user's approval); accepting residual survivors is `agent.sh waive` with
+   the user's own words naming each mutant (never SECURITY or SECRETS); otherwise `agent.sh terminate`. Do not
+   type a cap yourself, and do not run `raise-budget` for a budget the user already approved: the control plane
+   applies it at the freeze and at `handoff IMPLEMENTED`.
 
 ## 4. Waivers
 

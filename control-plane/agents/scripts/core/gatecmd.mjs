@@ -6,7 +6,7 @@ import path from 'node:path';
 import { now } from './clock.mjs';
 import { fail } from './errors.mjs';
 import { findApproval } from './approvals.mjs';
-import { consumeApproval, mutationBudget, nextNum, planTestAcs, requireLead, waiveCanon, waiveGroupIds, waiveTarget, requireOpenRun } from './approve.mjs';
+import { consumeApproval, mutationBudget, nextNum, planMutantNeed, requireLead, waiveCanon, waiveGroupIds, waiveTarget, requireOpenRun } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import { findingWaiverKey, gateFocus, gateOwner, resolveTopology } from './gates.mjs';
 import { taskChangedPaths } from './signals.mjs';
@@ -271,18 +271,43 @@ export function raiseBudgetCommand(ctx, args) {
   const n = BigInt(nArg);
   const current = mutationBudget(ctx, id);
   if (!(n > BigInt(current))) fail(`the mutation budget is already ${current}; nothing to raise`);
-  const acs = planTestAcs(fileText(ctx, `${dir}/PLAN.md`) ?? '');
-  if (!(n >= BigInt(acs))) fail(`N must cover the ${acs} criteria of PLAN ## Tests`);
+  const acs = planMutantNeed(fileText(ctx, `${dir}/PLAN.md`) ?? '');
+  if (!(n >= BigInt(acs))) fail(`N must cover the ${acs} mutants the plan needs (PLAN ## Tests criteria, ## Test review budget)`);
   const app = findApproval(ctx, id, 'mutation_budget', hashFile(`${dir}/PLAN.md`));
   if (app === null) fail(`raising the mutation budget needs the user's approval: 'agent.sh request-approval ${id} mutation_budget', relay it, then run this again`);
+  applyRaise(ctx, id, n, app);
+  ctx.out(`mutation budget raised to ${n} for ${id} (dispatch the reviewer again if REVIEW_TESTS was BLOCKED)\n`);
+  return 0;
+}
+
+/** The raise itself, shared by `raise-budget` and the automatic application: the batch cap, the override file, the consumed approval, the ledger row. @param {Context} ctx @param {string} id @param {bigint} n @param {string} app */
+function applyRaise(ctx, id, n, app) {
+  const dir = runDir(ctx, id);
   const via = gateField(ctx, app, 'via_batch');
   if (via !== '' && !(n <= BigInt(gateField(ctx, app, 'cap') || '0'))) fail(`the batch approval covers a mutation budget up to ${gateField(ctx, app, 'cap')}; ${n} is above it. Park the task with 'agent.sh ask ${id}'`);
   writeFileSync(`${dir}/mutation_budget`, `${n}\n`);
   ctx.forget('file:');
   consumeApproval(ctx, id, app);
   ledgerIf(ctx, id, 'raise-budget', '-', '-', `test_trust.mutation_budget ${n} for this run, approval ${path.basename(app)}`);
-  ctx.out(`mutation budget raised to ${n} for ${id} (dispatch the reviewer again if REVIEW_TESTS was BLOCKED)\n`);
-  return 0;
+}
+
+/**
+ * A359 (issue 338 C1): a mutation budget the user already approved for this exact plan is applied by the control plane, at the freeze and at every `handoff IMPLEMENTED` (each round of the
+ * review loop starts there), so the reviewer never blocks on an approval already given. The need is the plan's (criteria, `## Test review budget`); inside a batch approval the cap still holds
+ * (above it nothing is applied and the lead parks the task). No approval, no change. Returns true when the budget was raised.
+ * @param {Context} ctx @param {string} id
+ */
+export function applyApprovedBudget(ctx, id) {
+  const dir = runDir(ctx, id);
+  const n = BigInt(planMutantNeed(fileText(ctx, `${dir}/PLAN.md`) ?? ''));
+  if (!(n > BigInt(mutationBudget(ctx, id)))) return false;
+  const app = findApproval(ctx, id, 'mutation_budget', hashFile(`${dir}/PLAN.md`));
+  if (app === null) return false;
+  const via = gateField(ctx, app, 'via_batch');
+  if (via !== '' && !(n <= BigInt(gateField(ctx, app, 'cap') || '0'))) return false;
+  applyRaise(ctx, id, n, app);
+  ctx.out(`mutation budget raised to ${n} for ${id} (the user's approval, applied by the control plane)\n`);
+  return true;
 }
 
 // ---- waive ---------------------------------------------------------------------------------------------------------------------------

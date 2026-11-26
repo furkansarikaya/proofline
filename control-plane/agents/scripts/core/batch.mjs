@@ -16,7 +16,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSyn
 import os from 'node:os';
 import path from 'node:path';
 import { approvedBatchTask, batchApproval, pendingRequest, sharedDirOf } from './approvals.mjs';
-import { approvalBound, nextNum, planTestAcs, requireLead, requireOpenRun, rationaleLine } from './approve.mjs';
+import { approvalBound, nextNum, planMutantNeed, requireLead, requireOpenRun, rationaleLine } from './approve.mjs';
 import { bytes } from './config.mjs';
 import { prView, deliverDir } from './deliver.mjs';
 import { ProoflineError, fail } from './errors.mjs';
@@ -804,8 +804,8 @@ export function batchCover(ctx, args) {
   if (kind === 'mutation_budget') {
     let cap = ctx.config().get('batch.mutation_budget_cap', '40');
     if (!/^[0-9]+$/.test(cap)) cap = '40';
-    const n = planTestAcs(rd(`${runDir(ctx, id)}/PLAN.md`));
-    if (!(n <= Number(cap))) fail(`mutation budget: PLAN ## Tests names ${n} criteria, above the batch cap ${cap}: not covered by the batch approval`);
+    const n = planMutantNeed(rd(`${runDir(ctx, id)}/PLAN.md`));
+    if (!(n <= Number(cap))) fail(`mutation budget: PLAN needs a mutation budget of ${n} (criteria or ## Test review budget), above the batch cap ${cap}: not covered by the batch approval`);
     batchRecord(ctx, id, kind, rq, bh, '', cap);
   } else batchRecord(ctx, id, kind, rq, bh);
   return 0;

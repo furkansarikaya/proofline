@@ -7,6 +7,9 @@
 //     <count-file> and prints `OK n/budget`, or `REFUSED n/budget` with exit 1 once the budget is spent (the count does not move): run no mutant then.
 //     With a run dir the counter lives INSIDE it: a relative name that is not already below the run dir is taken relative to the run dir (never to the working directory, which
 //     is the repository root: a counter there left an untracked `r7/` that made every gate stale, issue 338 B6), and a name outside the run dir or through a link is refused (exit 2).
+//   node gate.mjs caps [config.yaml] [run-dir]   prints review_rounds= and review_minutes= (the plan's `## Test review budget`, else the config, else 4 and 120)
+//   Mutant RESULTS are not kept here (A359): they are rows of the run ledger written by the control plane, `agent.sh build-record <ID> mutant-known|mutant-record|mutant-summary`,
+//   keyed on the product file and the task's test files. This script only counts the budget.
 // Exit codes: 0 ok (gate: PASS), 1 gate FAIL or mutant REFUSED, 2 usage or read error.
 
 import { lstatSync, readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
@@ -14,6 +17,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULTS = { repeat: 5, mutation_budget: 20, slow_ratio: 3 };
+export const CAP_DEFAULTS = { review_rounds: 4, review_minutes: 120 };
 
 // Flat YAML: a top-level `test_trust:` block with indented `key: scalar` lines.
 // Invalid or missing values fall back to the default and are listed in `notes`.
@@ -50,6 +54,25 @@ export function minMutants(planText) {
   return new Set([...(m ? m[1] : "").matchAll(/^\s*[-*]\s+(AC-\d+):/gim)].map((x) => x[1].toUpperCase().replace(/-0+(?=\d)/g, "-"))).size;
 }
 
+// The plan's `## Test review budget` (A359; the same rules as control-plane/agents/scripts/core/testreviewbudget.mjs): lines `- rounds|minutes|mutants|units|lines: N`.
+// The budget the plan needs is the largest of the criteria floor, `mutants`, units x 4 and lines / 25. The plan only REQUESTS it: a run raises the budget above the config value
+// only through the user's `mutation_budget` approval, which the control plane applies (the run's `mutation_budget` file and its raise-budget ledger row).
+export function reviewBudget(planText) {
+  const v = { rounds: null, minutes: null, mutants: null, units: null, lines: null };
+  let inside = false;
+  for (const line of String(planText ?? "").split(/\r?\n/)) {
+    if (line.startsWith("## ")) { inside = /^## Test review budget[ \t]*$/.test(line); continue; }
+    if (!inside) continue;
+    const m = /^[ \t]*[-*][ \t]*(rounds|minutes|mutants|units|lines):[ \t]*([0-9]+)[ \t]*$/.exec(line);
+    if (m && v[m[1]] === null && Number(m[2]) >= 1 && Number(m[2]) <= 100000) v[m[1]] = Number(m[2]);
+  }
+  return v;
+}
+export const planMutantNeed = (planText) => {
+  const b = reviewBudget(planText);
+  return Math.max(minMutants(planText), b.mutants ?? 0, (b.units ?? 0) * 4, Math.ceil((b.lines ?? 0) / 25));
+};
+
 // Gate rule of diff mode: a confirmed flaky finding (any flaky_* kind), a confirmed hollow finding, and (issue 265, A276) a confirmed real wait, direct
 // clock read, over-budget test or unmeasured test fail; everything else (slow, needs_validation, cleared) never does.
 export const FAST_KINDS = ["real_wait", "clock_not_injected", "over_budget", "not_measured"];
@@ -58,6 +81,29 @@ export const isBlocking = (f) => f?.verdict === "confirmed" && (String(f.kind).s
 export function computeGate(findings) {
   const failing = (findings ?? []).filter(isBlocking).map((f) => f.id);
   return { result: failing.length ? "FAIL" : "PASS", failing };
+}
+
+// The caps of the tests review loop (A359): the plan's `## Test review budget` `rounds` and `minutes`, else `test_trust.review_rounds` and `review_minutes` of the config, else 4 and 120.
+export function reviewCaps(configPath, runDir) {
+  const out = { ...CAP_DEFAULTS };
+  let text = "";
+  if (configPath) { try { text = readFileSync(resolve(configPath), "utf8"); } catch { /* absent config: defaults */ } }
+  let inBlock = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*(#.*)?$/.test(line)) continue;
+    if (/^test_trust:\s*(#.*)?$/.test(line)) { inBlock = true; continue; }
+    if (!/^\s/.test(line)) { inBlock = false; continue; }
+    const m = inBlock ? /^\s+(review_rounds|review_minutes):\s*"?'?(\d+)'?"?\s*(#.*)?$/.exec(line) : null;
+    if (m && Number(m[2]) >= 1) out[m[1]] = Number(m[2]);
+  }
+  if (runDir) {
+    let plan = "";
+    try { plan = readFileSync(join(resolve(runDir), "PLAN.md"), "utf8"); } catch { /* no plan */ }
+    const rb = reviewBudget(plan);
+    if (rb.rounds !== null) out.review_rounds = rb.rounds;
+    if (rb.minutes !== null) out.review_minutes = rb.minutes;
+  }
+  return out;
 }
 
 // The thresholds of a config file, with the run's floor for mutation_budget when a run directory is given.
@@ -70,8 +116,9 @@ export function effectiveThresholds(configPath, runDir) {
     // the override counts only with the raise-budget ledger row that wrote it (as agent.sh mutation_budget)
     const ov = Number(read("mutation_budget").trim()) || 0;
     const ledgered = ov > 0 && new RegExp(`event=raise-budget .*test_trust\\.mutation_budget ${ov} for this run`).test(read("LEDGER.log"));
-    const floor = Math.max(minMutants(read("PLAN.md")), ledgered ? ov : 0);
-    if (floor > t.mutation_budget) { t.notes.push(`mutation_budget raised from ${t.mutation_budget} to ${floor} (one mutant per criterion, or the user-approved override)`); t.mutation_budget = floor; }
+    const plan = read("PLAN.md");
+    const floor = Math.max(minMutants(plan), ledgered ? ov : 0);
+        if (floor > t.mutation_budget) { t.notes.push(`mutation_budget raised from ${t.mutation_budget} to ${floor} (one mutant per criterion, or the user-approved override)`); t.mutation_budget = floor; }
   }
   return t;
 }
@@ -103,9 +150,15 @@ function main(argv) {
       for (const n of t.notes) console.error(`note: ${n}`);
       return 0;
     }
+    if (cmd === "caps") {
+      const c = reviewCaps(arg, argv[2]);
+      console.log(`review_rounds=${c.review_rounds}\nreview_minutes=${c.review_minutes}`);
+      return 0;
+    }
     if (cmd === "mutant" && argv.length >= 2 && argv.length <= 4) {
-      const budget = effectiveThresholds(argv[2], argv[3]).mutation_budget;
-      const file = countFile(arg, argv[3]);
+      const [counter, cfg, run] = argv.slice(1);
+      const budget = effectiveThresholds(cfg, run).mutation_budget;
+      const file = countFile(counter, run);
       let used = 0;
       try { used = Number(readFileSync(file, "utf8").trim()) || 0; } catch { /* first mutant */ }
       if (used >= budget) { console.log(`REFUSED ${used}/${budget}: the mutation budget is spent, run no more mutants (units left over go to not_examined with reason "mutation budget")`); return 1; }
@@ -123,7 +176,7 @@ function main(argv) {
     console.error(`Cannot read input: ${e.message}`);
     return 2;
   }
-  console.error("Usage: node gate.mjs thresholds [config.yaml] [run-dir] | node gate.mjs gate <findings.json> | node gate.mjs mutant <count-file> [config.yaml] [run-dir]");
+  console.error("Usage: node gate.mjs thresholds [config.yaml] [run-dir] | node gate.mjs caps [config.yaml] [run-dir] | node gate.mjs gate <findings.json> | node gate.mjs mutant <count-file> [config.yaml] [run-dir]");
   return 2;
 }
 

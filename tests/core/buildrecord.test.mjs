@@ -117,7 +117,7 @@ test('usage: no run id exits 2; a run that does not exist fails; an unknown oper
   assert.match(nr.err, /run not found: NOPE/);
   const bad = A(d, ['build-record', 'LC', 'rebuild']);
   assert.equal(bad.status, 2);
-  assert.match(bad.err, /usage: agent\.sh build-record <ID> \[run\|show\|scan \[--json\]\]/);
+  assert.match(bad.err, /usage: agent\.sh build-record <ID> \[run\|show\|scan \[--json\]\|mutant-known <file> <id>\|mutant-record <file> <id> killed\|survived\|mutant-summary\]/);
 });
 
 test('the key tells command lists apart and keeps the original form for scalar config', () => {

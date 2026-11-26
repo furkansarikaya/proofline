@@ -26,6 +26,7 @@ import * as proc from './proc.mjs';
 import { Context } from './context.mjs';
 import { LockSet, takeCommandLocks } from './lock.mjs';
 import { isDir, isFile } from './paths.mjs';
+import { mutantNeed } from './testreviewbudget.mjs';
 import { WS, fileLines, gateField, ledgerRows, readBytes, sectionValue, textLines } from './records.mjs';
 import { requireRun, runDir } from './runs.mjs';
 import { riskGateFocuses } from './signals.mjs';
@@ -378,7 +379,7 @@ function approvalWhy(ctx, kind, bound, turkish) {
       case 'plan': return bs('denetimli özerklik: plan yalnızca kullanıcı onayından sonra dondurulur');
       case 'destructive': return bs('plan yıkıcı bir veri değişikliği bildiriyor');
       case 'single_step': return bs('yıkıcı değişiklikte expand/contract adımı yok: okuma ile silme arasında durulacak nokta olmadan tek adımda çalışır');
-      case 'scope': return bs('değişiklik kapsama yol ekliyor, PLAN ## Test exceptions bölümünü değiştiriyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor');
+      case 'scope': return bs('değişiklik kapsama yol ekliyor, PLAN ## Test exceptions bölümünü değiştiriyor, PLAN ## Test review budget için varsayılanların üstünde sınır koyuyor veya görev kimsenin istemediği mevcut bir kusuru düzeltiyor');
       case 'budget': return bs('düzeltme turları bitti: yeniden dondurma yeni bir düzeltme bütçesi başlatır');
       case 'mutation_budget': return bs('test_trust.mutation_budget planın ## Tests ölçütlerinden az: ölçüt başına bir mutant gerekir; bütçe yalnızca bu koşuda artar');
       case 'tree': return bs('çalışma ağacına bu koşunun hiçbir işçi penceresinin kaydetmediği bir değişiklik girdi: onaylarsanız koşu korunur ama bütün kapılar yeni içerik üzerinde yeniden çalışır');
@@ -401,7 +402,7 @@ function approvalWhy(ctx, kind, bound, turkish) {
     case 'plan': return 'supervised autonomy: the plan freezes only after user approval';
     case 'destructive': return 'the plan declares a destructive data change';
     case 'single_step': return 'the destructive change has no expand/contract steps: it would run as one step, with no point to stop between reading and dropping';
-    case 'scope': return 'the amendment adds scope paths or changes PLAN ## Test exceptions, or the task fixes a pre-existing defect nobody asked about';
+    case 'scope': return 'the amendment adds scope paths or changes PLAN ## Test exceptions, sets a PLAN ## Test review budget cap above the defaults, or the task fixes a pre-existing defect nobody asked about';
     case 'budget': return 'the fix rounds are exhausted: a refreeze would start a fresh fix budget';
     case 'mutation_budget': return 'test_trust.mutation_budget is below the criteria of PLAN ## Tests (one mutant each is the minimum): the budget is raised for this run only, .agents/config.yaml is not edited';
     case 'tree': return 'a change entered the working tree that no worker window of this run recorded (a failover worker, an editor, another process): you inspect it (agent.sh tree-inspect); accepting it keeps the run, but every gate runs again on the new content; declining leaves the run as it is';
@@ -472,6 +473,9 @@ export function planTestAcs(plan) {
   return seen.size;
 }
 
+/** The mutation budget a plan needs (A359): the criteria floor, or what its `## Test review budget` states or derives. @param {string} plan */
+export function planMutantNeed(plan) { return mutantNeed(plan, planTestAcs(plan)); }
+
 /** `mutation_budget ID` @param {Context} ctx @param {string} id */
 export function mutationBudget(ctx, id) {
   let b = ctx.config().get('test_trust.mutation_budget', '20');
@@ -519,7 +523,7 @@ export function requestApproval(ctx, id0, kind0) {
   }
   if (kind === 'scope' && plan !== null) rows = scopeExceptionRows(ctx, id, plan);
   if (kind === 'scope' && plan !== null && rows === '' && exceptionLines(plan).length > 0 && exceptionsRow(ctx, runDir(ctx, id))?.approval === '') rows = unapprovedExceptionRows(plan);
-  if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}`;
+  if (kind === 'mutation_budget') rows = `   mutation budget: ${mutationBudget(ctx, id)}, PLAN ## Tests criteria: ${planTestAcs(plan ?? '')}, needed by the plan (criteria, ## Test review budget): ${planMutantNeed(plan ?? '')}`;
   let out = '';
   if (kind === 'batch') out += `QUESTIONS:\n1. Approve the night batch shown above (batch ${bound.slice(0, 12)})?\n`;
   else if (tr) out += bs(`QUESTIONS:\n1. ${id} için ${kind} onaylansın mı?\n`);

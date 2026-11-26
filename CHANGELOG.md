@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.181 — 2026-11-26
+
+- Fix (A359, issue 338 C1): the tests review loop is bounded. Mutation results are rows of the sealed ledger, written by the control plane for the reviewer only and keyed on the product file and every file the task owns (`agent.sh build-record <ID> mutant-known|mutant-record|mutant-summary`; `KNOWN` spends no budget; the summary ends with an `ADEQUACY:` line); a `rounds` or `minutes` above the config defaults needs the user's scope approval; the first survivor of a unit makes the reviewer run the unit's other mutants in the same round; the plan's optional `## Test review budget` (`rounds`, `minutes`, `mutants`, `units`, `lines`) and `test_trust.review_rounds`/`review_minutes` set the caps, and the mutation budget is derived from units and lines; an approved `mutation_budget` is applied by the control plane at the freeze and at `handoff IMPLEMENTED`; at the round cap with REVIEW_TESTS failing the gate does not pass, the run stops with `test review cap reached` and the user is asked once (larger cap, written waiver of named survivors, stop; SECURITY and SECRETS are never waived).
+
 ## 0.0.180 — 2026-11-25
 
 - Fix (A358, issue 338 B8): a wait for the user is named in one line. `agent.sh next` of a run with an open question and `agent.sh batch-next` (parked task with a recorded question, nothing runnable left) print `waiting for the user: <ID>: <question>`; `agent.sh next-user --waiting` prints it for the Stop hook, which adds only that line, and the messages the Stop hook sends back are one line each. A runnable task still keeps the lead going.

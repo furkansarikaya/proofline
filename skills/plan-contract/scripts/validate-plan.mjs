@@ -107,6 +107,21 @@ export function testExceptionProblems(lines) {
   }
   return errors;
 }
+// A359 (issue 338 C1): `## Test review budget` bounds the REVIEW_TESTS loop from the plan, so nobody types a cap at hour 6. Lines `- rounds|minutes|mutants|units|lines: <whole number 1..100000>`, each at most once.
+// The mutation budget the plan needs is the largest of the `## Tests` criteria, `mutants`, units x 4 and lines / 25; a number above test_trust.mutation_budget still needs the user's approval.
+export function testReviewBudgetProblems(lines) {
+  const errors = [];
+  const seen = new Set();
+  for (const l of lines || []) {
+    if (l.trim() === "") continue;
+    const m = l.length <= 4096 ? /^[ \t]*[-*][ \t]*(rounds|minutes|mutants|units|lines):[ \t]*([0-9]+)[ \t]*$/.exec(l) : null;
+    if (!m) errors.push(`section "## Test review budget": expected "- rounds|minutes|mutants|units|lines: <whole number>", got "${l.trim().slice(0, 60)}"`);
+    else if (Number(m[2]) < 1 || Number(m[2]) > 100000) errors.push(`section "## Test review budget": ${m[1]} must be a whole number from 1 to 100000`);
+    else if (seen.has(m[1])) errors.push(`section "## Test review budget": ${m[1]} is given twice`);
+    else seen.add(m[1]);
+  }
+  return errors;
+}
 export const BASE_SECTIONS = ["Behavior", "Tests", "Verification commands", "Dependencies", "Contracts", "Assumptions"];
 export const ARCHITECTURE_CLASSES = ["COMPLEX", "CRITICAL"];
 export const MAX_SCOPE_PATHS = { TRIVIAL: 2 };
@@ -484,6 +499,7 @@ export function validate(planMd, taskMd, { root, cls, entryWords } = {}) {
   for (const c of task.criteria) if (!mapped.has(idKey(c))) errors.push(`${c}: maps to no scope path and no explicit test`);
   errors.push(...testKindProblems(tests, body.get("Test budgets")));
   if (body.get("Test exceptions")) errors.push(...testExceptionProblems(body.get("Test exceptions")));
+  if (body.get("Test review budget")) errors.push(...testReviewBudgetProblems(body.get("Test review budget")));
 
   const data = body.get("Data");
   if (data) {

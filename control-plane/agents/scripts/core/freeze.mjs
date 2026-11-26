@@ -7,10 +7,11 @@ import { existsSync, lstatSync, readdirSync, renameSync, writeFileSync } from 'n
 import { fail } from './errors.mjs';
 import { findApproval, latestRequest } from './approvals.mjs';
 import { batchAnswerRow } from './knownissues.mjs';
-import { approvalBound, consumeApproval, mutationBudget, planTestAcs, requestApproval, requireOpenRun, runLanguage } from './approve.mjs';
+import { approvalBound, consumeApproval, mutationBudget, planMutantNeed, planTestAcs, requestApproval, requireOpenRun, runLanguage } from './approve.mjs';
+import { applyApprovedBudget } from './gatecmd.mjs';
 import { dbGuardCheck } from './dbguard.mjs';
 import { hashFile } from './fingerprint.mjs';
-import { fixRoundsUsed, maxFixRounds } from './gates.mjs';
+import { fixRoundsUsed, maxFixRounds, reviewBudgetAboveDefaults } from './gates.mjs';
 import { sha256 } from './hash.mjs';
 import { verifySeal } from './ledger.mjs';
 import { enforceTaskBranch, localTaskSource, localTaskSourceRun, setRunValue, taskSourceContractHash, verifyTaskSourceStatus } from './lifecycle.mjs';
@@ -289,12 +290,13 @@ export function verifyScopeExistence(ctx, id, mode) {
 /** `require_mutation_budget ID` @param {Context} ctx @param {string} id */
 function requireMutationBudget(ctx, id) {
   const dir = runDir(ctx, id);
-  const n = planTestAcs(fileText(ctx, `${dir}/PLAN.md`) ?? '');
+  const n = planMutantNeed(fileText(ctx, `${dir}/PLAN.md`) ?? '');
   const b = mutationBudget(ctx, id);
   if (!(BigInt(n) > BigInt(b))) return;
+  if (applyApprovedBudget(ctx, id)) return;   // A359: the budget the user already approved for this plan is applied here
   const r = latestRequest(ctx, id, 'mutation_budget');
   if (!(r !== null && gateField(ctx, r, 'bound') === approvalBound(ctx, id, 'mutation_budget'))) requestApproval(ctx, id, 'mutation_budget');
-  fail(`PLAN ## Tests names ${n} criteria but the mutation budget is ${b} (one claim mutant per criterion is the minimum): relay the approval request above once; after the user's approval run 'agent.sh raise-budget ${id} ${n}' and freeze again (or cut criteria from the plan)`);
+  fail(`${n === planTestAcs(fileText(ctx, `${dir}/PLAN.md`) ?? '') ? `PLAN ## Tests names ${n} criteria` : `the plan needs a mutation budget of ${n} (its ## Test review budget)`} but the mutation budget is ${b} (one claim mutant per criterion is the minimum): relay the approval request above once; after the user's approval run 'agent.sh raise-budget ${id} ${n}' and freeze again (or cut criteria from the plan)`);
 }
 
 /** `verify_plan_validation ID` (A162) @param {Context} ctx @param {string} id */
@@ -408,6 +410,14 @@ function freezeApprovals(ctx, id, mode) {
       if (a === null) fail(`the amendment adds or changes a line of PLAN.md ## Test exceptions: that section justifies a real wait, a test over its budget or an unmeasured test and is frozen with the first plan; an amendment cannot change it (awaiting the owner's decision whether the user may approve such a change). Remove the change to the section`);
       if (!out.includes(a)) out.push(a);
     }
+  }
+  // A359 (Core invariant 3): a `## Test review budget` whose rounds or minutes exceed the config defaults would let the plan's own author lift the bound of the tests review loop, so
+  // the freeze (the first and every refreeze) takes the user's `scope` approval for this exact PLAN.md. Lower values need none.
+  const above = reviewBudgetAboveDefaults(ctx, fileText(ctx, `${dir}/PLAN.md`) ?? '');
+  if (above !== '') {
+    const a = findApproval(ctx, id, 'scope', plan);
+    if (a === null) fail(`PLAN.md ## Test review budget sets a cap above the defaults (${above}): that bound is not the plan author's to raise. The user's scope approval for this PLAN.md is required ('agent.sh request-approval ${id} scope'), or lower the values to the config defaults`);
+    if (!out.includes(a)) out.push(a);
   }
   // A285: a plan with `## Test exceptions` takes the user's `scope` approval for this exact PLAN.md when one exists (any freeze, not only a changed section): the ledger row records it, and
   // only then does a line clear a finding. None is not a refusal of the freeze: the lines are unapproved and clear nothing (in a night batch the approved summary may list them instead).

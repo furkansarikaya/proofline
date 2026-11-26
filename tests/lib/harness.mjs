@@ -356,6 +356,13 @@ export function newRepo() { return copyOf(defaultTemplate()); }
 export function defaultTemplate() { return cached(`ctl-${codeKey()}`, buildTemplate); }
 
 /**
+ * Opt-in warm-up (A359): builds the default template with the same `cached()` build. A test file calls it from its own `before` hook, so a cold cache (every CI run starts with one: the
+ * content hash changes with each commit) is paid outside any test's duration. It is NOT registered by importing this module: a harness-wide hook broke tests/hook, whose children inherit the
+ * test runner's environment and print its events.
+ */
+export function warmDefaultTemplate() { return defaultTemplate(); }
+
+/**
  * Git hooks for a fixture: `pre-commit` and `pre-push` that run the project's core as the shipped launchers do (`cli pre-commit|pre-push`), but name the agent.sh of the repository the
  * hook runs in (`--pl-argv0`, which tells the core its root), so that ONE folder of hooks serves the main tree and every run worktree: a fixture's `.agents/scripts` is untracked, so a
  * worktree has no core of its own. The shipped launchers under real git are tested in tests/core/githooks-run.test.mjs.
