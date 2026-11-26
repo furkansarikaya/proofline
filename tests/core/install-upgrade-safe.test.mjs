@@ -8,7 +8,10 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSyn
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
-import { sandbox, sig, upstream } from './frontend-lib.mjs';
+import { cfgv, sandbox, sig, upstream } from './frontend-lib.mjs';
+import { join } from 'node:path';
+import { Config } from '../../control-plane/agents/scripts/core/config.mjs';
+import { agentsSrc } from '../lib/harness.mjs';
 
 const sb = sandbox();
 const read = (/** @type {string} */ f) => readFileSync(f, 'utf8');
@@ -51,8 +54,7 @@ test('--check writes nothing and reports the versions, the state format, the fil
   assert.match(r.out, /upgrade --check: 0\.0\.\d+ -> 0\.0\.901/);
   assert.match(r.out, /state format: installed 1, this version 1 \(compatible\)/);
   assert.match(r.out, /updated   \.agents\/GATES\.md/);
-  assert.match(r.out, /config keys that would be added \(your values are never changed\): .*budgets\.new_budget/);
-  assert.match(r.out, /config keys the merge does not add \(the built-in default applies; add them by hand to change them\): .*pipelines\.COMPLEX\.zzz_new_key/);
+  assert.match(r.out, /config keys that would be added: \d+: .*budgets\.new_budget.*pipelines\.COMPLEX\.zzz_new_key/);
   assert.match(r.out, /open runs: LC \(IMPLEMENTING\)/);
   assert.match(r.out, /batch: active; worktrees: W1/);
   assert.match(r.out, /gate results recorded by the installed core: LC/);
@@ -239,4 +241,26 @@ test('with local_state: off the upgrade takes no lock and makes no backup (nothi
   assert.match(r.out, /backup: none \(local_state is off/);
   assert.equal(existsSync(`${d}/.agents/local/upgrade-backup`), false);
   assert.equal(existsSync(`${d}/.agents/local/locks`), false);
+});
+
+test("an upgrade from the 0.0.173 config adds every missing key at any depth, keeps the project's own values and is idempotent (A371)", () => {
+  const d = sb.copy('deep');
+  const cf = `${d}/.agents/config.yaml`;
+  writeFileSync(cf, read(new URL('../fixtures/upgrade/config-v0.0.173.cfg', import.meta.url).pathname)
+    .replace(/^ {2}max_fix_rounds:.*$/m, '  max_fix_rounds: 1').replace(/^ {2}worker:.*$/m, '  worker: claude'));
+  const own = { 'review.max_fix_rounds': '1', 'runtime.worker': 'claude', 'test_trust.mutation_budget': cfgv(d, 'test_trust.mutation_budget') };
+  const r = sb.pl(d, ['upgrade']);
+  assert.equal(r.status, 0, r.text);
+  assert.match(r.out, /config keys added: \d+: .*pipelines\.COMPLEX\.max_fix_rounds/);
+  const shipped = Config.load(join(agentsSrc, 'config.yaml'));
+  for (const k of ['pipelines.COMPLEX.max_fix_rounds', 'pipelines.COMPLEX.mutation_budget', 'pipelines.CRITICAL.max_fix_rounds', 'profiles.light.types', 'profiles.light.content_globs',
+    'test_trust.review_rounds', 'test_trust.review_minutes', 'execution_policy.repeat_model_cap.claude', 'output_cap_bytes']) assert.equal(cfgv(d, k), shipped.get(k, ''), k);
+  assert.equal(cfgv(d, 'pipelines.COMPLEX.max_fix_rounds'), '3');
+  for (const [k, v] of Object.entries(own)) assert.equal(cfgv(d, k), v, `${k} is the project's own value`);
+  assert.equal(spawnSync('sh', ['.agents/scripts/agent.sh', 'config-check'], { cwd: d, env: sb.env, encoding: 'utf8' }).status, 0, 'config-check passes');
+  const once = read(cf);
+  const r2 = sb.pl(d, ['upgrade']);
+  assert.equal(r2.status, 0, r2.text);
+  assert.equal(read(cf), once, 'a second upgrade changes nothing in the config');
+  assert.doesNotMatch(r2.out, /config keys added/);
 });

@@ -30,13 +30,14 @@ function strip(cfg) {
   return out.join('\n');
 }
 
-test('the keys added since 0.0.173 are the ones docs/concepts/upgrading.md lists; the upgrade adds the top-level and 2-level ones and names the rest', () => {
+test('the keys added since 0.0.173 are the ones docs/concepts/upgrading.md lists; the upgrade adds every one of them, at any depth', () => {
   const added = [...keys(shipped)].filter((k) => !keys(old).has(k) && k !== 'proofline_version').sort();
   for (const k of ['output_cap_bytes', 'profiles', 'profiles.light.types', 'test_trust.review_rounds', 'test_trust.review_minutes', 'execution_policy.repeat_model_cap', 'pipelines.COMPLEX.max_fix_rounds', 'pipelines.CRITICAL.mutation_budget']) assert.ok(added.includes(k), `${k} is not new since 0.0.173`);
   const d = configDelta(strip(shipped), shipped);
   assert.ok(d.added.includes('output_cap_bytes') && d.added.includes('profiles.light.types'), d.added.join(' '));
-  assert.ok(d.notMerged.includes('pipelines.COMPLEX.max_fix_rounds') && d.notMerged.includes('pipelines.CRITICAL.mutation_budget'), d.notMerged.join(' '));
-  assert.equal(d.added.length + d.notMerged.length, added.length, 'every new key is either added or named');
+  assert.ok(d.added.includes('pipelines.COMPLEX.max_fix_rounds') && d.added.includes('pipelines.CRITICAL.mutation_budget'), d.added.join(' '));
+  assert.deepEqual(d.notMerged, [], 'nothing is left unmerged');
+  assert.equal(d.added.length, added.length, 'every new key is added');
 });
 
 test('an in-flight run of a project with the 0.0.173 config shape goes to CODE_DONE on the new core', () => {

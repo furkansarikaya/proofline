@@ -200,7 +200,7 @@ export function checkLines(s, v) {
   out.push(`  batch: ${s.batch ? 'active' : 'none'}; worktrees: ${s.worktrees.length === 0 ? 'none' : some(s.worktrees, 8)}`);
   const withGates = open.filter((r) => r.gates > 0).map((r) => r.id);
   if (withGates.length > 0) out.push(`  gate results recorded by the installed core: ${some(withGates, 8)} (informational: nothing is re-run; gates stay bound to the plan hash and the tree)`);
-  if (v.delta.added.length > 0) out.push(`  config keys that would be added (your values are never changed): ${some(v.delta.added, 12)}`);
+  if (v.delta.added.length > 0) out.push(`  config keys that would be added: ${v.delta.added.length}: ${some(v.delta.added, 12)} (your values are never changed)`);
   if (v.delta.notMerged.length > 0) out.push(`  config keys the merge does not add (the built-in default applies; add them by hand to change them): ${some(v.delta.notMerged, 12)}`);
   if (v.refuse.length === 0) out.push('  nothing is running: the upgrade would go ahead');
   else { out.push('  the upgrade would be refused:'); for (const r of v.refuse) out.push(`    - ${r}`); }

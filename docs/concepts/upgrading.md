@@ -44,7 +44,7 @@ Every item is additive. "New core, absent" is what the new core does with a proj
 |---|---|---|
 | Config `output_cap_bytes`, `profiles.light.*` (new top-level keys) | built-in defaults (cap 6000; light profile: the shipped lists); `upgrade` adds them | `config-check` fails with `unknown top-level key` (checked in its source); the readers never look the keys up |
 | Config `test_trust.review_rounds`, `review_minutes`, `execution_policy.repeat_model_cap.*` | built-in defaults (4 rounds, 120 minutes, no model cap); `upgrade` adds them | ignored (not tested) |
-| Config `pipelines.COMPLEX.max_fix_rounds`, `mutation_budget` (and CRITICAL) | `upgrade` does NOT add a key under an existing 2-level block (a known limit of the merge, named by `--check`): the class falls back to the global 2 fix rounds and 20 mutants until you add the keys | ignored (not tested) |
+| Config `pipelines.COMPLEX.max_fix_rounds`, `mutation_budget` (and CRITICAL) | `upgrade` adds them at any depth under their existing block (the config merge is a deep additive merge: it never changes, removes or reorders what the project has); a project that sets its own lower global `max_fix_rounds` keeps it (C4) | ignored (not tested) |
 | `.agents/local/standing/STANDING.tsv` (standing approvals) | no file means no standing approval | never written, never read |
 | `.agents/local/batch/scopes.tsv` | a batch plan without it is not taken as the bound plan (it is made again) | not read |
 | `<gate record>.readset` next to a gate record | a record without `readset_sha256` is derived at the comparison (the gate stays valid while its read-set is unchanged) | ignored |

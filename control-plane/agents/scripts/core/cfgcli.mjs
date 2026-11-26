@@ -20,10 +20,9 @@ function rowsOf(text) {
 }
 
 /**
- * `cfg_merge_new USER DEFAULT`: USER with every key missing from it added from DEFAULT. Granularity: a missing top-level block is appended whole; a missing 2-level
- * key (with its deeper lines) is inserted at the end of its block; user values are never touched. Keys deeper than 2 levels are added only with their 2-level parent.
- * The text is a byte string; the result has one newline after every line.
- * shortcut: a new deep key under an existing 2-level key is not added; improve when a default config gets a 3-level key that upgrade must merge into a block the user already has.
+ * `cfg_merge_new USER DEFAULT`: USER with every key missing from it added from DEFAULT, at any depth (A371). A missing top-level block is appended whole; any other missing key
+ * (with its deeper lines and the comment lines before it) is inserted after the last line of its parent's block in USER, with the indentation of DEFAULT. User values, comments and
+ * order are never touched; nothing is removed. The text is a byte string; the result has one newline after every line.
  * @param {string} userText @param {string} defaultText @returns {string}
  */
 export function cfgMergeNew(userText, defaultText) {
@@ -41,15 +40,15 @@ export function cfgMergeNew(userText, defaultText) {
     const c = k.indexOf(':');
     if (c >= 0) k = k.slice(0, c);
     P[L] = k;
-    let f = P[0] ?? '';
-    for (let i = 1; i <= L; i++) f += `.${P[i] ?? ''}`;
-    return f;
+    return P.slice(0, L + 1).join('.');
   };
   const have = new Set();
-  /** @type {Map<string, number>} */ const blockend = new Map();
+  /** @type {Map<string, number>} the line number of the last line of each key's block */ const ends = new Map();
+  /** @param {number} nr */
+  const mark = (nr) => { for (let i = 0; i <= L; i++) ends.set(P.slice(0, i + 1).join('.'), nr); };
   U.forEach((l, idx) => {
     const nr = idx + 1;
-    if (content(l)) { have.add(pth(l)); blockend.set(P[0] ?? '', nr); } else if (item(l) && (P[0] ?? '') !== '') blockend.set(P[0] ?? '', nr);
+    if (content(l)) { have.add(pth(l)); mark(nr); } else if (item(l) && P.length > 0) mark(nr);
   });
   if (def.length === 0 && U.length > 0) {
     // (the empty-user case above): nothing is left to merge
@@ -57,27 +56,26 @@ export function cfgMergeNew(userText, defaultText) {
   }
   /** @type {Map<number, string>} */ const ins = new Map();
   let tail = '';
-  let kind = ''; let buf = ''; let cm = ''; let curtop = ''; let subtop = '';
+  /** @type {{ level: number, at: number, buf: string } | null} the missing key being copied: its level, where it goes (0: the end of the file) */ let act = null;
+  let cm = '';
   const finish = () => {
-    if (kind === 'top') tail += buf;
-    else if (kind === 'sub') { const at = /** @type {number} */ (blockend.get(subtop)); ins.set(at, (ins.get(at) ?? '') + buf); }
-    kind = ''; buf = '';
+    if (act !== null) { if (act.at === 0) tail += act.buf; else ins.set(act.at, (ins.get(act.at) ?? '') + act.buf); }
+    act = null;
   };
   for (const l of def) {
-    if (!content(l)) { cm += `${l}\n`; continue; }
-    const p = pth(l);
-    if (L === 0) {
-      finish();
-      if (!have.has(p)) { kind = 'top'; buf = `${cm}${l}\n`; } else { kind = ''; curtop = p; }
-      cm = '';
-    } else if (L === 1) {
-      if (kind === 'top') buf += `${cm}${l}\n`;
-      else { finish(); if (!have.has(p)) { kind = 'sub'; subtop = curtop; buf = `${cm}${l}\n`; } }
-      cm = '';
-    } else {
-      if (kind === 'top' || kind === 'sub') buf += `${cm}${l}\n`;
-      cm = '';
+    if (!content(l)) {
+      if (item(l)) { if (act !== null) act.buf += `${cm}${l}\n`; cm = ''; } else cm += `${l}\n`;
+      continue;
     }
+    const p = pth(l);
+    if (act !== null && L > act.level) { act.buf += `${cm}${l}\n`; cm = ''; continue; }
+    finish();
+    if (!have.has(p)) {
+      const parent = P.slice(0, L).join('.');
+      if (L === 0) act = { level: 0, at: 0, buf: `${cm}${l}\n` };
+      else if (ends.has(parent)) act = { level: L, at: /** @type {number} */ (ends.get(parent)), buf: `${cm}${l}\n` };
+    }
+    cm = '';
   }
   finish();
   let out = '';

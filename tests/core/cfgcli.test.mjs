@@ -37,9 +37,15 @@ test('merge-new with an empty user file prints the default file as it is (the sh
   assert.equal(cfgMergeNew(DEFAULT, USER), DEFAULT, 'a default that only has keys the user file already has adds nothing');
 });
 
-test('merge-new: a user file without a final newline gets one; a key deeper than two levels is added only with its parent', () => {
+test('merge-new: a user file without a final newline gets one; a key at any depth is added under its existing parent (A371)', () => {
   assert.equal(cfgMergeNew('a:\n  b: 1', 'a:\n  b: 2\n  c:\n    d: 3\n'), 'a:\n  b: 1\n  c:\n    d: 3\n');
-  assert.equal(cfgMergeNew('a:\n  b:\n    x: 1\n', 'a:\n  b:\n    x: 2\n    y: 3\n'), 'a:\n  b:\n    x: 1\n');
+  assert.equal(cfgMergeNew('a:\n  b:\n    x: 1\n', 'a:\n  b:\n    x: 2\n    y: 3\n'), 'a:\n  b:\n    x: 1\n    y: 3\n');
+  // a deeper missing block with a comment and a list, between existing keys; the user's order, values and comments stay; a second merge adds nothing
+  const user = 'a:\n  b:\n    x: 1 # mine\n  c: 5\nz: 1\n';
+  const def = 'a:\n  b:\n    x: 2\n    # why\n    y:\n      k: 3\n      l:\n        - p\n        - q\n    w: 4\n  c: 6\nz: 2\n';
+  const merged = cfgMergeNew(user, def);
+  assert.equal(merged, 'a:\n  b:\n    x: 1 # mine\n    # why\n    y:\n      k: 3\n      l:\n        - p\n        - q\n    w: 4\n  c: 5\nz: 1\n');
+  assert.equal(cfgMergeNew(merged, def), merged);
 });
 
 test('val: the value, or the default when the key is absent, empty or the file missing', () => {

@@ -787,7 +787,7 @@ export function cmdUpgrade(c, args) {
     if ('busy' in lock) throw new CliDie(`upgrade refused:\n  - ${lock.busy}\nnothing was written; run proofline upgrade again when it is done`);
     try {
       const s = scan(root);
-      const { why, plan: pre } = judge([], s);
+      const { why, plan: pre, delta } = judge([], s);
       if (why.length > 0) throw new CliDie(`upgrade refused:\n${why.map((w) => `  - ${w}`).join('\n')}\nnothing was written; run proofline upgrade again when this is resolved`);
       const bk = local ? startBackup(root, { from: fromV, to, formatText, plan: pre, runs: s.runs }) : null;
       const plan = make(false).run();
@@ -795,6 +795,7 @@ export function cmdUpgrade(c, args) {
         const kept = finishBackup(root, bk, { from: fromV, to, runs: s.runs });
         ui.say(`backup: ${bk.dir.slice(root.length + 1)}/ (${kept} file${kept === 1 ? '' : 's'}; proofline upgrade --rollback restores them)`);
       } else ui.say('backup: none (local_state is off: nothing is written under .agents/local, so there is nothing to roll back to)');
+      if (delta.added.length > 0) ui.say(`config keys added: ${delta.added.length}: ${delta.added.slice(0, 12).join(', ')}${delta.added.length > 12 ? `, and ${delta.added.length - 12} more` : ''}`);
       const rows = ledgerRows(s.runs, `old=${fromV} new=${to} state_format=${STATE_FORMAT}`);
       if (rows.length > 0) ui.say(`ledger: upgrade row written for ${rows.length} run(s)`);
       const withGates = s.runs.filter((r) => r.open && r.gates > 0).map((r) => r.id);
