@@ -1,7 +1,7 @@
 // @ts-check
 // Read-only views of a run built from its records: `summary` (and the `--status` form), `digest`, `plan-section`, `report-tokens`,
 // `report-execution` and `report-facts` (agent.sh 7363-7420, 8880-8940). Counts and statuses come from the records, never from text.
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { fail, ProoflineError, unsupported } from './errors.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { fixRoundsLedger, fixRoundsUsed, gateFocusStatus, gateStatus, gateUnsupportedFocuses, maxFixRounds, requiredGates, taskOwnedPaths } from './gates.mjs';
@@ -98,6 +98,27 @@ export function digestRun(ctx, id) {
     if (l.startsWith('next=')) ctx.out(`NEXT: ${l.slice(5)}\n`);
     else if (l.startsWith('reason=')) ctx.out(`WHY: ${l.slice(7)}\n`);
   }
+}
+
+/**
+ * `digest ID --brief` (A365, issue 338 C5): the resume brief for a lead after a context reset or a long session, at most 6 lines made from the digest: status, task,
+ * class and tier, the gates as one line, fix rounds and open questions, the next step. Nothing is added to the digest; it is the same facts, shorter.
+ * @param {Context} ctx @param {string} id
+ */
+export function briefRun(ctx, id) {
+  const before = ctx.chunks.length;
+  digestRun(ctx, id);
+  const mine = ctx.chunks.splice(before);
+  const lines = textLines(Buffer.concat(mine.filter(([s]) => s === 'out').map(([, b]) => b)).toString('latin1'));
+  const keys = ['STATUS', 'TASK', 'CLASS/TOPOLOGY', 'TIER', 'FIX ROUNDS', 'DELIVERY', 'OPEN QUESTIONS', 'SCOPE', 'NEXT', 'WHY'];
+  /** @param {string} k */ const val = (k) => (lines.find((l) => l.startsWith(`${k}: `)) ?? '').slice(k.length + 2);
+  const cut = (/** @type {string} */ t, /** @type {number} */ n) => (t.length > n ? `${t.slice(0, n)}...` : t);
+  const gates = lines.filter((l) => !keys.includes(l.split(': ')[0])).map((l) => l.replace(': ', '='));
+  ctx.out(`STATUS: ${val('STATUS')}\nTASK: ${cut(val('TASK'), 160)}\n`);
+  ctx.out(`CLASS: ${val('CLASS/TOPOLOGY')}${val('TIER') !== '' ? ` tier ${val('TIER')}` : ''}\n`);
+  if (gates.length > 0) ctx.out(`GATES: ${cut(gates.join('; '), 400)}\n`);
+  ctx.out(`FIX ROUNDS: ${val('FIX ROUNDS') || 'n/a'}; OPEN QUESTIONS: ${val('OPEN QUESTIONS') || '0'}\n`);
+  ctx.out(`NEXT: ${cut(val('NEXT'), 300)}\n`);
 }
 
 /** `next [ID]` @param {Context} ctx @param {string} id */
@@ -229,6 +250,24 @@ export function evidenceRunCounts(ctx, d) {
 const FACTS_BEGIN = '<!-- proofline:facts:begin -->';
 const FACTS_END = '<!-- proofline:facts:end -->';
 
+/**
+ * A365 (issue 338 C5): the newest `lead` record of tools.jsonl that carries the context numbers (the lead's session so far; informational), as one Facts line, or ''.
+ * @param {Context} ctx
+ */
+function leadContextFact(ctx) {
+  let text = '';
+  try { text = readFileSync(`${ctx.sharedMain()}/.agents/local/metrics/tools.jsonl`, 'utf8'); } catch { return ''; }
+  for (const l of text.split('\n').reverse()) {
+    if (!l.includes('"kind":"lead"') || !l.includes('"ctx_mean"')) continue;
+    try {
+      const d = JSON.parse(l);
+      const ok = [d.ctx_turns, d.ctx_mean, d.ctx_p90, d.cache_read].every((x) => Number.isSafeInteger(x) && x >= 0);
+      if (ok) return `- Lead context (informational, from the session log): ${d.ctx_turns} turns, mean ${d.ctx_mean} tokens, p90 ${d.ctx_p90}, cache re-read ${d.cache_read} tokens\n`;
+    } catch { /* a damaged line */ }
+  }
+  return '';
+}
+
 /** `report_facts ID` @param {Context} ctx @param {string} id */
 export function reportFacts(ctx, id) {
   requireRun(ctx, id);
@@ -255,6 +294,7 @@ export function reportFacts(ctx, id) {
   }
   const ks = sectionValue(ctx, d, 'execution', 'knowledge_state'); const kr = sectionValue(ctx, d, 'execution', 'knowledge_reason');
   ctx.out(`- Friction notes recorded (A200): proofline_bug ${frictionCount(ctx, d, 'proofline_bug')}, user-command ${frictionCount(ctx, d, 'user-command')}, user-shell ${frictionCount(ctx, d, 'user-shell')}\n`);
+  ctx.out(leadContextFact(ctx));
   ctx.out(`- Knowledge step: ${ks === '' ? 'not_started' : ks}${kr !== '' ? `; not_applicable reason: ${kr}` : ''}\n`);
   const sugg = knowledgeSuggestions(ctx, d);
   for (const t of sugg) ctx.out(`- Suggestion to the user (knowledge): ${t}\n`);

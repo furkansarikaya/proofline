@@ -352,4 +352,8 @@ The pagination bug is fixed in the working tree. With your 12 sample books you s
 
 The end-to-end results are in [tests/e2e/README.md](../../tests/e2e/README.md).
 
+## The lead's context (A365)
+
+The lead's context is read again on every turn, so proofline keeps what it prints small. `agent.sh next`, `batch-next`, `batch-status`, `status`, `digest`, `questions`, `pipeline` and `friction` print at most `output_cap_bytes` bytes (config, default 6000, 0 = off) and end with `...N more bytes: agent.sh <command> --full` when there is more. `next --since <token>` and `batch-next --since <token>` print one word, `unchanged`, when the state is the one the token (the last line `since=<token>` of the previous answer) names. `agent.sh digest <ID> --brief` is the six-line resume after a context reset. The mean and p90 context size and the cache re-read tokens of the lead session are in the report Facts (Claude Code only, informational). The rules the lead follows are in `skills/proofline-lead/references/LIFECYCLE.md`.
+
 Related: [roles](roles.md), [gates](gates.md), [failover](failover.md), [enforcement layers](enforcement-layers.md).

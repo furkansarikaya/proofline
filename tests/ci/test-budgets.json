@@ -604,6 +604,10 @@
       "test_ms": 2500,
       "suite_ms": 10000
     },
+    "tests/core/output-shape.test.mjs": {
+      "test_ms": 12500,
+      "suite_ms": 40000
+    },
     "tests/core/pathin.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000

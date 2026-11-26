@@ -89,6 +89,7 @@ export function checkConfigLines(lines) {
     else if (k === 'profile') en(k, v, 'max|balanced|economy');
     else if (/^runtime\.(lead|worker|reviewers)$/.test(k) || /^runtime\.roles\./.test(k)) en(k, v, 'claude|codex');
     else if (k === 'failover') en(k, v, 'auto|ask|off');
+    else if (k === 'output_cap_bytes') { num(k, v); if (DIGITS.test(v) && n0(v) !== 0 && n0(v) < 500) bad(`${k} is 0 (no cap) or at least 500: ${v}`); }
     else if (/^autonomy\./.test(k)) { if (!/^(TRIVIAL|STANDARD|COMPLEX|CRITICAL)$/.test(P(2))) bad(`unknown class under autonomy: ${P(2)}`); en(k, v, 'autonomous|supervised'); }
     else if (k === 'review.waiver_followup') en(k, v, 'none|task');
     else if (/^review\.(max_fix_rounds|small_max_files|small_max_lines)$/.test(k) || /^(test_trust|budgets|performance)\./.test(k)) num(k, v);

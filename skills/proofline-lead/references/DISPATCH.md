@@ -42,7 +42,8 @@ one runtime. Specialists never dispatch anyone (no swarm, no recursion).
   `n=0; while kill -0 N 2>/dev/null && [ "$n" -lt 110 ]; do sleep 5; n=$((n+1)); done; kill -0 N 2>/dev/null && echo "still running"`
   (`N` is the pid from `next` or from `dispatch/*.running`). When it prints `still running`, run the same wait call again, as
   many times as it takes; a foreground `sleep` chain is refused by the Bash tool, the loop is the sanctioned wait. Do not read the
-  log or start other work meanwhile (next bullet). Only when the process is gone, read the exit code and the
+  log or start other work meanwhile (next bullet), and call no `next`, `status` or file read between two waits: every call is paid again
+  on each later turn (A365; the wait call prints one word, [LIFECYCLE.md](LIFECYCLE.md#context-rules-a365)). Only when the process is gone, read the exit code and the
   `dispatch/<NNN>-<role>-<runtime>.md` result and go on. The same holds for every dispatch of a batch step.
 - `D` is synchronous and can take minutes: its `dispatch/<NNN>-<role>-<runtime>.md` and `.log` stay empty until it
   returns, and a `.running` marker sits beside them meanwhile. Never read those files, or start the same step
