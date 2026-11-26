@@ -93,7 +93,7 @@ test('c4_light_upward: code, dependency, config, CI, a data section, a risk focu
   assert.equal(pv(snap(lrun('type: content', 'STANDARD', 'site/index.md', '\n## Data\n\ndestructive: no\n\nnothing\n')), 'profile'), 'full', 'a Data section');
   assert.equal(pv(snap(lrun('type: content', 'COMPLEX', 'site/index.md')), 'profile'), 'full', 'COMPLEX');
   // A364 (review): light is a positive list of content types; data, markup, style, scripts and tests make the run full
-  for (const p of ['src/auth/policy.json', 'data/prices.json', 'feed.xml', 'site/index.html', 'img/logo.svg', 'site/style.css', 'site/app.scss', 'tests/page.test.js', 'tests/fixtures/page.json', 'site/data.yaml', 'skills/x/NOTE.md']) {
+  for (const p of ['src/auth/policy.json', 'data/prices.json', 'feed.xml', 'site/index.html', 'img/logo.svg', 'site/style.css', 'site/app.scss', 'tests/page.test.js', 'tests/fixtures/page.json', 'site/data.yaml', 'skills/x/NOTE.md', 'control-plane/agents/GATES.md', 'packages/roles/x.md', 'sub/skills/y/z.md', 'a/b/control-plane/n.md', 'pkg/adapters/README.md', 'adapters/README.md', 'roles/a.md']) {
     const q = snap(lrun('type: content', 'STANDARD', `site/index.md ${p}`));
     assert.equal(pv(q, 'profile'), 'full', `${p}: ${q}`);
     assert.match(pv(q, 'profile_reason'), /content|config|risk|dependency|code-like/, p);

@@ -375,7 +375,7 @@ pipelines:
 # sealed TASK.md (the user's), the class, the plan and the changed paths (nothing is stored, a later change reclassifies upward at once): the task `type:` is one of `types`; the class is one of
 # `classes`; EVERY plan scope path and changed path matches `content_globs` (a positive list: documentation text and images, default `*.md *.mdx *.txt *.rst *.adoc *.png *.jpg *.jpeg *.gif *.webp *.avif`;
 # json, xml, html, svg, css, scripts, tests and configuration are NOT content) and none is a risky or dependency path (review.risky_paths and the ecosystem sets), a CI or configuration path
-# (never_paths) or code-like Markdown (review.code_like_markdown); the plan has no `## Data`, no destructive flag and no risk focus
+# (never_paths: also Markdown under skills/, roles/, adapters/ and control-plane/ at any depth, which CONTRIBUTING counts as code) or code-like Markdown (review.code_like_markdown); the plan has no `## Data`, no destructive flag and no risk focus
 # other than the plain visual one. Under it the tests review is told that mutation testing is not required (the mutation budget approval is not asked, and the control plane does NOT enforce
 # that the reviewer skips mutants: gate.mjs keeps its cap) and the optional design group of the visual check is off by instruction. Every gate stays required: SECRETS, SECURITY (tier full),
 # the reviews of the tier, QA and VERIFY. A TASK `type` can only be set before the plan is frozen (the task is sealed with the plan).
@@ -384,7 +384,7 @@ profiles:
     types: content docs
     classes: TRIVIAL STANDARD
     content_globs: "*.md *.mdx *.txt *.rst *.adoc *.png *.jpg *.jpeg *.gif *.webp *.avif"
-    never_paths: ".github/** .gitlab-ci.yml .gitlab/** .circleci/** azure-pipelines.yml Jenkinsfile .agents/** .claude/** .codex/** Dockerfile* docker-compose* compose.* .env* *.env **/config/** **/*.config.* *.conf *.cfg *.ini *.toml *.yml *.yaml"
+    never_paths: "skills/** roles/** adapters/** control-plane/** **/skills/** **/roles/** **/adapters/** **/control-plane/** .github/** .gitlab-ci.yml .gitlab/** .circleci/** azure-pipelines.yml Jenkinsfile .agents/** .claude/** .codex/** Dockerfile* docker-compose* compose.* .env* *.env **/config/** **/*.config.* *.conf *.cfg *.ini *.toml *.yml *.yaml"
 # Execution policy (D5, D7): read by the Node core (cli exec-policy, cli runtime-detect) and dispatch.sh.
 execution_policy:
   # Policy semantics version; bump when resolution or escalation behaviour changes.
