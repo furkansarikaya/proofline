@@ -59,11 +59,26 @@ const SPELLINGS = (/** @type {string} */ k, /** @type {string} */ v) => [
   `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT proofline config \\\n ${k} ${v}`, `proofline config ${k}\t${v}`, `proofline config <<<"" ${k} ${v}`, `proofline config $'${k}' ${v}`,
   `proofline config ${k} ${v} # x`, `nice -n 5 proofline config ${k} ${v}`, `node node_modules/.bin/proofline config ${k} ${v}`, `node .agents/scripts/proofline.mjs config ${k} ${v}`,
   `exec -a x proofline config ${k} ${v}`, `proofline  config ${k} ${v}`, `proofline config ${k} ${v};`, `proofline config ${k} ${v}\necho done`, `pro\\\nofline config ${k} ${v}`,
+  // security review round 2: globs and braces rebuild the words after the hook looked
+  `bin/prooflin? config ${k} ${v}`, `bin/proof* config ${k} ${v}`, `bin/proof[l]ine config ${k} ${v}`, `bin/proof{line,} config ${k} ${v}`, `proofline confi? ${k} ${v}`,
+  `proofline conf{ig,} ${k} ${v}`, `proofline c[o]nfig ${k} ${v}`, `proofline conf*g ${k} ${v}`, `{bin/proofline,config,${k},${v}}`, `proofline c\\onfig ${k} ${v}`, `proofline con''fig ${k} ${v}`,
+  `bin/PROOFLINE config ${k} ${v}`, `proofline CONFIG ${k} ${v}`, `bin/????????? config ${k} ${v}`, `bin/[p][r][o][o][f][l][i][n][e] [c][o][n][f][i][g] ${k} ${v}`, `{bin/prooflin?,conf?g,${k},${v}}`,
+  `bin/proof{l,x}ine conf{i,}g ${k} ${v}`, `./*line config ${k} ${v}`, `bin/[!x]roofline config ${k} ${v}`, `/repo/bin/prooflin? config ${k} ${v} </dev/null`, `bin/proof{a..z}ine config ${k} ${v}`,
+  `bin/* * ${k} ${v}`,
+];
+/** security review round 2: a terminal wrapper or a cleared environment with a command that names either word (the e2e probe wrote commands.test through these) */
+const WRAPPED = (/** @type {string} */ k, /** @type {string} */ v) => [
+  `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID script -q /dev/null /repo/bin/prooflin? config ${k} ${v} </dev/null`,
+  `env -i PATH=/usr/bin:/bin script -q /dev/null /repo/bin/prooflin? config ${k} ${v}`, `script -q /dev/null bin/prooflin? config ${k} ${v}`, `script -q /dev/null proofline confi? ${k} ${v}`,
+  `script -q /dev/null proofline config ${k} ${v}`, `script -q /dev/null ./z config ${k} ${v}`, `unbuffer proofline config ${k} ${v}`, `expect -c "spawn proofline config ${k} ${v}"`,
+  `python3 -c "import pty; pty.spawn(['proofline','config','${k}','${v}'])"`, `socat - EXEC:'proofline config ${k} ${v}',pty`, `env -i proofline config ${k} ${v}`, `env - proofline config ${k} ${v}`,
+  `env --ignore-environment PATH=/bin proofline config ${k} ${v}`, `tmux new-session -d "proofline config ${k} ${v}"`, `/usr/bin/script -q /dev/null proofline config ${k}`,
 ];
 /** reads in the one plain form: allowed for every session */
 const READS = ['proofline config', 'proofline config codex.sandbox.network', 'bin/proofline config commands.test', '/opt/p/bin/proofline config git.push_requires_approval', ' proofline config output_cap_bytes '];
 /** commands that do not name both words as words: never this rule's business */
-const OTHERS = ['proofline status', 'proofline doctor --config', 'git config user.name', 'cat .git/config && proofline status', 'cat .agents/config.yaml', 'ls /work/proofline/ && git config -l', 'grep -rn configuration docs', 'cat proofline-config.md'];
+const OTHERS = ['proofline status', 'proofline doctor --config', 'git config user.name', 'cat .git/config && proofline status', 'cat .agents/config.yaml', 'ls /work/proofline/ && git config -l', 'grep -rn configuration docs', 'cat proofline-config.md',
+  'ls *', 'rm -rf tmp/*', 'cat docs/*.md', 'ls {a,b}/x', 'echo ?????????', 'ls * *', 'git status', 'env -i PATH=/bin ls'];
 const DENIED = /names proofline and config/;
 
 test('configCommandVerdict: every set spelling is refused for a specialist and for the lead; the plain reads and agent-key sets pass; other commands are not judged', () => {
@@ -82,12 +97,14 @@ test('configCommandVerdict: every set spelling is refused for a specialist and f
   }
   // a mention of both words outside the plain form fails closed too
   for (const c of ['echo proofline config codex.sandbox.network on', 'git commit -m "proofline config notes"']) assert.equal(configCommandVerdict(c, false), 'user-key', c);
+  // a terminal wrapper or a cleared environment with either word: refused for everyone, an agent key and a read included
+  for (const [k, v] of [['commands.test', 'true'], ['output_cap_bytes', '8000']]) for (const c of WRAPPED(k, v)) { assert.equal(configCommandVerdict(c, true), 'wrapper', c); assert.equal(configCommandVerdict(c, false), 'wrapper', c); }
 });
 
 for (const [name, who, env] of SPECIALISTS) {
   test(`${name}: every spelling of a config set is refused, an agent key included; a plain read is not`, async () => {
     for (const [k, v] of [['codex.sandbox.network', 'on'], ['commands.test', 'x'], ['output_cap_bytes', '8000']]) {
-      for (const c of SPELLINGS(k, v)) {
+      for (const c of [...SPELLINGS(k, v), ...WRAPPED(k, v)]) {
         const r = await pre(c, who, env);
         assert.ok(r !== null, `${c} was allowed`);   // refused by this rule, or earlier by another (node on .agents/scripts)
       }
@@ -118,9 +135,27 @@ test("BOUNDARY: every key of the shipped config: the lead sets only the agent ke
     const read = await pre(`proofline config ${k}`, sWho, sEnv);
     assert.ok(read === null || !DENIED.test(read), `specialist read ${k}: ${read}`);
   }
-  for (const c of [...SPELLINGS('codex.sandbox.failover', 'claude'), ...SPELLINGS('commands.lint', 'none'), ...SPELLINGS('timeouts.warn_percent', '70').slice(3)]) {
+  for (const c of [...SPELLINGS('codex.sandbox.failover', 'claude'), ...SPELLINGS('commands.lint', 'none'), ...SPELLINGS('timeouts.warn_percent', '70').slice(3), ...WRAPPED('commands.test', 'true'), ...WRAPPED('output_cap_bytes', '8000')]) {
     const r = await pre(c, {}, {});
     assert.ok(r !== null, `${c} was allowed`);
   }
-  for (const c of [...READS, ...OTHERS, 'proofline config timeouts.warn_percent 70', 'bin/proofline config output_cap_bytes 9000']) { const r = await pre(c, {}, {}); assert.ok(r === null || !DENIED.test(r), `${c}: ${r}`); }
+  for (const c of [...READS, ...OTHERS, 'proofline config timeouts.warn_percent 70', 'bin/proofline config output_cap_bytes 9000']) { const r = await pre(c, {}, {}); assert.ok(r === null || !/names proofline (and|or) config/.test(r), `${c}: ${r}`); }
+});
+
+test('security review round 2, the e2e probe: the commands that wrote commands.test through a pty wrapper are refused before they run, for the lead and a specialist, and the config is unchanged', async () => {
+  const cfg = join(dir, '.agents/config.yaml');
+  const before = readFileSync(cfg, 'latin1');
+  const bin = join(repo, 'bin');
+  const probes = [
+    `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID script -q /dev/null ${bin}/prooflin? config commands.test true </dev/null`,
+    `env -i PATH=/usr/bin:/bin script -q /dev/null ${bin}/prooflin? config commands.test true`,
+  ];
+  for (const command of probes) {
+    for (const [who, env] of [[{}, {}], [{ agent_type: 'proofline-qa', agent_id: 'u1' }, { AGENT_ROLE: 'qa' }]]) {
+      const r = await pre(command, who, env);
+      // a refused PreToolUse call is never executed by the runtime, so the CLI is never reached
+      assert.ok(r !== null && /terminal wrapper .+ or env -i/.test(r), `${command}: ${r}`);
+    }
+  }
+  assert.equal(readFileSync(cfg, 'latin1'), before);
 });
