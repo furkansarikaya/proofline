@@ -11,8 +11,7 @@ import path from 'node:path';
 import { fail } from './errors.mjs';
 import { taskOwnedPaths, testReviewClock, testReviewMinutesCap } from './gates.mjs';
 import { now } from './clock.mjs';
-import { pathMatches } from './scope.mjs';
-import { securityGlobs } from './testreview.mjs';
+import { securityGlobOf, securityGlobs } from './testreview.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { led } from './lifeutil.mjs';
 import { gatesEnforced, ledgerRows } from './records.mjs';
@@ -74,7 +73,7 @@ export function summarize(rows, security = new Set()) {
  */
 export function timeLine(ctx, dir, nowEpoch) {
   const c = testReviewClock(ctx, dir, nowEpoch); const cap = testReviewMinutesCap(ctx, dir);
-  if (c.start === null) return `TIME: not recorded (no test review dispatch or mutant result is in the ledger since the last reopen; the minutes cap of ${cap} is not counted and the round cap still holds)`;
+  if (c.start === null) return `TIME: not recorded (no test review dispatch or mutant result is in the ledger since the last reopen or REVIEW_TESTS pass; the minutes cap of ${cap} is not counted and the round cap still holds)`;
   const m = Math.floor(c.seconds / 60);
   return `TIME: ${m} of ${cap} minutes since the first test review dispatch of this loop (ledger row ${c.seq})${m >= cap ? '; the minutes cap is used: start no more mutants, a failing REVIEW_TESTS stops the loop' : ''}`;
 }
@@ -84,7 +83,7 @@ function securityKeys(ctx, id) {
   const globs = securityGlobs(ctx);
   /** @type {Set<string>} */ const out = new Set();
   for (const [p] of taskOwnedPaths(ctx, runDir(ctx, id))) {
-    if (!globs.some((g) => pathMatches(p, g))) continue;
+    if (securityGlobOf(p, globs) === '') continue;
     try { out.add(mutantKey(ctx, id, p)); } catch { /* a removed or odd path has no key: nothing to order by */ }
   }
   return out;

@@ -11,7 +11,7 @@ import { reviewLoopClock, reviewMinutesUsed } from '../../control-plane/agents/s
 import { summarize } from '../../control-plane/agents/scripts/core/testreviewresults.mjs';
 import { securityOrder } from '../../control-plane/agents/scripts/core/testreview.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
-import { A, gateStatus, must, project, refused } from '../lib/harness.mjs';
+import { A, gateStatus, gfail, must, project, refused, worker } from '../lib/harness.mjs';
 import { accepted, rec, reopened, rerun, stripDuration, warm } from './evidence-repair-lib.mjs';
 
 before(() => warm([[]]));
@@ -40,6 +40,10 @@ test('the loop clock: what starts it, what never starts it, and that nothing mov
     ['only a malformed epoch: not recorded', [row(1, 'decide', 'lead', 'x', '005-reviewer-tests.decision')], null],
     ['a reopen restarts the clock', [DISPATCH(1, T0), row(2, 'REOPEN', 'lead', String(T0 + 10), 'gates/009-REOPEN.yaml@h'), DISPATCH(3, T0 + 900)], T0 + 900],
     ['after a reopen without a new dispatch: not recorded', [DISPATCH(1, T0), row(2, 'REOPEN', 'lead', String(T0 + 10), 'gates/009-REOPEN.yaml@h')], null],
+    ['a REVIEW_TESTS pass ends the loop: the next dispatch starts a new one', [DISPATCH(1, T0), row(2, 'gate:REVIEW_TESTS:pass', 'reviewer', String(T0 + 60), 'gates/010-REVIEW_TESTS.yaml@h by reviewer'), DISPATCH(3, T0 + 9000)], T0 + 9000],
+    ['a REVIEW_TESTS failure does not restart the clock', [DISPATCH(1, T0), row(2, 'gate:REVIEW_TESTS:fail', 'reviewer', String(T0 + 60), 'gates/010-REVIEW_TESTS.yaml@h by reviewer'), DISPATCH(3, T0 + 9000)], T0],
+    ['another gate passing does not restart the clock', [DISPATCH(1, T0), row(2, 'gate:SECURITY:pass', 'security_reviewer', String(T0 + 60), 'gates/011-SECURITY.yaml@h'), DISPATCH(3, T0 + 9000)], T0],
+    ['a pass then a reopen: the later boundary counts', [DISPATCH(1, T0), row(2, 'REOPEN', 'lead', String(T0 + 10), 'r'), DISPATCH(3, T0 + 100), row(4, 'gate:REVIEW_TESTS:pass', 'reviewer', String(T0 + 200), 'p'), DISPATCH(5, T0 + 300)], T0 + 300],
   ];
   for (const [name, rows, start] of cases) assert.equal(reviewLoopClock(rows, T0 + 99999).start, start, name);
   assert.equal(reviewLoopClock([DISPATCH(7, T0)], T0 + 60).seq, 7);
@@ -141,6 +145,12 @@ test('the order: security-relevant files first, from the config (review.risky_pa
     { file: 'lib/run-exec.ts', glob: '**/*exec*.*' }, { file: 'src/approval.js', glob: '**/*approv*.*' }, { file: 'src/auth/login.js', glob: '**/auth/**' },
     { file: 'docs/readme.js', glob: '' }, { file: 'src/util.js', glob: '' },
   ]);
+  // the globs name words; a PascalCase or upper-case file name is the same unit (both sides compared in lower case)
+  const pascal = securityOrder(ctxOf(d), ['src/Session.ts', 'LoginController.java', 'net/HttpClient.go', 'AUTH/Keys.cs', 'auth.js', 'src/Util.ts']);
+  assert.deepEqual(pascal, [
+    { file: 'AUTH/Keys.cs', glob: '**/auth/**' }, { file: 'LoginController.java', glob: '**/*login*.*' }, { file: 'auth.js', glob: '**/*auth*.*' },
+    { file: 'net/HttpClient.go', glob: '**/*http*.*' }, { file: 'src/Session.ts', glob: '**/*session*.*' }, { file: 'src/Util.ts', glob: '' },
+  ]);
 });
 
 test('scan prints the mutation order of the task\'s production files, the security-relevant one marked (text and JSON)', () => {
@@ -150,4 +160,52 @@ test('scan prints the mutation order of the task\'s production files, the securi
   assert.match(r.out, /^mutation-order: src\/session\.js \(security-relevant: \*\*\/\*session\*\.\*\)$/m, r.text);
   const j = JSON.parse(A(d, ['build-record', 'LC', 'scan', '--json'], { role: 'reviewer' }).out);
   assert.deepEqual(j.mutation_order, [{ file: 'src/session.js', security_relevant: true, matched: '**/*session*.*' }]);
+});
+
+const DISPATCH_ROW = /event=decide .*detail=[0-9]{3}-reviewer-tests\.decision /;
+
+test('a REVIEW_TESTS pass ends the loop: hours later, a new failure opens a new loop and does not hit the cap at once', () => {
+  const d = reopened();
+  accepted(rerun(d), 'repair'); accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED');
+  accepted(A(d, ['decide', 'LC', 'reviewer', '--focus', 'tests', '--agent-path']), 'the first loop\'s dispatch');
+  rec(d, 'REVIEW_TESTS', 'PASS');
+  backdate(d, /event=decide .*detail=[0-9]{3}-reviewer-tests\.decision |event=gate:REVIEW_TESTS:pass /, 300 * 60);   // the passed loop was five hours ago
+  accepted(A(d, ['decide', 'LC', 'reviewer', '--focus', 'tests', '--redecide']), 'the new loop\'s dispatch');
+  stripDuration(d, 'fast one');
+  rec(d, 'REVIEW_TESTS', 'FAIL', FAILING);
+  assert.match(summary(d), /^TIME: 0 of 120 minutes/m, 'the clock counts from the new loop');
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']);
+  assert.equal(questions(d).length, 0);
+});
+
+test('a continuous loop (no pass in between) keeps its first dispatch as the start: a later dispatch does not reset the cap', () => {
+  const d = roundTwo();
+  backdate(d, DISPATCH_ROW, 121 * 60);
+  accepted(A(d, ['decide', 'LC', 'reviewer', '--focus', 'tests', '--redecide']), 'a later dispatch of the same loop');
+  refused(A(d, ['handoff', 'LC', 'IMPLEMENTING']), 'the later dispatch moved the start', 'test review cap reached');
+});
+
+test('--re-review past the minutes cap is refused with the cap message', () => {
+  const d = roundTwo();
+  must(d, ['handoff', 'LC', 'IMPLEMENTING']);                  // the fix round opens under the cap
+  accepted(rerun(d), 'the durations re-recorded on the unchanged tree');
+  backdate(d, DISPATCH_ROW, 121 * 60);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTED', '--re-review'], { input: 'reason: the finding was judged on a misread duration line of the runner output\n' });
+  refused(r, 're-review after the minutes cap', 'test review cap reached');
+  assert.match(r.text, /121 minutes, cap 120 minutes/);
+});
+
+test('the plan\'s minutes win over the config value: a 30-minute plan cap closes the loop at 31 minutes under a config of 120', () => {
+  const planExtra = '\n## Tests\n\n- AC-1: `impl_test.txt` "case 1"\n\n## Test review budget\n\n- minutes: 30\n';
+  const d = project({ topology: 'orchestrated', cls: 'CRITICAL', planExtra });
+  worker(d, 'RED', 'fail', 'impl_test.txt', 'test: lookup returns the stored value');
+  worker(d, 'GREEN', 'pass', 'impl.txt', 'impl: lookup returns the stored value');
+  accepted(A(d, ['handoff', 'LC', 'IMPLEMENTED']), 'IMPLEMENTED');
+  accepted(A(d, ['decide', 'LC', 'reviewer', '--focus', 'tests', '--agent-path']), 'the tests reviewer dispatch');
+  gfail(d, 'REVIEW_TESTS', 'impl_test.txt');
+  assert.match(summary(d), /^TIME: 0 of 30 minutes/m, 'the plan cap, not the config value');
+  backdate(d, DISPATCH_ROW, 31 * 60);
+  const r = A(d, ['handoff', 'LC', 'IMPLEMENTING']);
+  refused(r, 'past the plan cap of 30 minutes', 'test review cap reached');
+  assert.match(r.text, /31 minutes, cap 30 minutes/);
 });

@@ -40,8 +40,8 @@ export function parseReviewBudget(plan) {
 const TESTS_DISPATCH = /^[0-9]{3}-reviewer-tests\.decision( |$)/;
 
 /**
- * The clock of the test review loop (A379, issue 338 C1, the deferred part of A359): the loop starts at the EARLIEST sealed ledger row, after the last `REOPEN` row, that shows the
- * tests reviewer at work: the `decide` row of a reviewer dispatch with focus tests (the recorded dispatch start, written by the control plane for dispatch.sh and for the Agent path)
+ * The clock of the test review loop (A379, issue 338 C1, the deferred part of A359): the loop starts at the EARLIEST sealed ledger row, after the last `REOPEN` row or the last
+ * REVIEW_TESTS pass (`gate:REVIEW_TESTS:pass`, whichever is later: a passed review ends its loop, and a later failure on a changed tree opens a new one), that shows the tests reviewer at work: the `decide` row of a reviewer dispatch with focus tests (the recorded dispatch start, written by the control plane for dispatch.sh and for the Agent path)
  * or a `mutant-result` row the reviewer wrote. Only the control plane's own `epoch=` of those rows is read, never a time an agent supplies, and a later row can never move the start
  * later (the earliest one counts). No such row: the start is not recorded (`start` null): the minutes are not counted and the round cap alone bounds the loop; the caller says
  * `not recorded`. A start after NOW (a clock that went back) counts as 0 seconds. A leaf function: NOW is the caller's argument, so a test passes its own clock.
@@ -50,7 +50,7 @@ const TESTS_DISPATCH = /^[0-9]{3}-reviewer-tests\.decision( |$)/;
  */
 export function reviewLoopClock(rows, nowEpoch) {
   let from = 0;
-  rows.forEach((r, i) => { if (r.event === 'REOPEN') from = i + 1; });
+  rows.forEach((r, i) => { if (r.event === 'REOPEN' || r.event === 'gate:REVIEW_TESTS:pass') from = i + 1; });
   /** @type {number | null} */ let start = null; /** @type {number | null} */ let seq = null;
   for (const r of rows.slice(from)) {
     const marks = (r.event === 'decide' && TESTS_DISPATCH.test(r.detail)) || (r.event === 'mutant-result' && r.role === 'reviewer');

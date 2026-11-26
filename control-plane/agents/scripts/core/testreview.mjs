@@ -177,12 +177,21 @@ export function securityGlobs(ctx) {
 }
 
 /**
+ * The first security-relevant glob a path matches, '' when none. Both sides are compared in ASCII lower case: the globs name words (`session`, `login`, `http`), and a PascalCase
+ * file (`src/Session.ts`, `LoginController.java`, `HttpClient.go`) is the same unit. Only the order of the review depends on it. @param {string} file @param {string[]} globs
+ */
+export function securityGlobOf(file, globs) {
+  const f = asciiLower(file);
+  return globs.find((g) => pathMatches(f, asciiLower(g))) ?? '';
+}
+
+/**
  * The files in the order the reviewer mutates their units: every security-relevant file first (with the first glob it matches), then the rest; byte order inside each group.
  * @param {Context} ctx @param {string[]} files @returns {Array<{ file: string, glob: string }>}
  */
 export function securityOrder(ctx, files) {
   const globs = securityGlobs(ctx);
-  const rows = [...files].sort().map((file) => ({ file, glob: globs.find((g) => pathMatches(file, g)) ?? '' }));
+  const rows = [...files].sort().map((file) => ({ file, glob: securityGlobOf(file, globs) }));
   return [...rows.filter((r) => r.glob !== ''), ...rows.filter((r) => r.glob === '')];
 }
 

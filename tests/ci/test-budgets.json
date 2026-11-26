@@ -857,8 +857,8 @@
       "suite_ms": 75000
     },
     "tests/core/test-review-clock.test.mjs": {
-      "test_ms": 18000,
-      "suite_ms": 75000
+      "test_ms": 24000,
+      "suite_ms": 100000
     },
     "tests/core/test-scan.test.mjs": {
       "test_ms": 15000,
