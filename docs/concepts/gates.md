@@ -213,6 +213,19 @@ Further kinds (A200): `rationale:<pattern-id>` approves one design rationale and
 recorded only from your reply. Only such an approved rationale can downgrade a visual finding; an agent-written one never does. A visual PASS also needs an
 independent `reviews/visual-proof/report.json` that says PASS, and a FAIL or INCONCLUSIVE report never counts as PASS.
 
+**Standing approvals (A361).** What you approve once is not asked again for the same thing, but only when you say so: add the word `standing` (or `kalıcı`) to the approval,
+for example `approve rationale numbered-steps standing` or `approve qa-1 standing` (the request tells you the phrase; a plain "approve" is for that run only). Two things can
+stand: a rationale (bound to the exact `DESIGN.md` line) and the waiver of a finding of a registry rule (a `lint <id>:` row of the visual lint) in a tracked file that the task
+did not change and that was already there on the unchanged base (bound to its rule, text, file and the file's content at the base). They are kept in
+`.agents/local/standing/STANDING.tsv`: scope, rule, file, fingerprint, your message id, the date, who named it. Only the control plane writes it, and every row is checked
+against your message at every use (the message must be in the prompt history, unchanged, and say an approval, the name and `standing` in one segment): a row without such a
+message is ignored. A later task, batch or run is not asked again while the line, the file and the finding are the same; an edited line, a changed file or finding, another rule, a free-form
+finding of a reviewer, a finding in a file the task changed and every SECRETS or SECURITY finding are asked again (a standing approval is never inferred from silence and never created by a batch
+cover). `agent.sh standing list` shows what stands (the night batch summary lists it too), and `agent.sh standing revoke <rule> [<surface>]` removes it, only when your newest
+message says "revoke <rule>". The QA visual lint of a task covers the files it changed (`agent.sh design-rationales <ID> --json --out reviews/visual-proof/approved-rationales.json`
+writes the approved file and prints them; no role builds it by hand); the control plane's own rerun at the visual `record` lints the whole tree and subtracts the base: a finding in a file
+the task did not change is the base's, not this change's.
+
 **Several approvals in one message (A202, A350).** When the whole message is not one approval, it is split only on commas, semicolons and newlines
 ("approve scope; approve budget") and each segment goes through the same strict check; every approved segment is its own record bound to the same captured message (at most
 `approval.max_per_message`, 8). One phrase may approve several open kinds only when it names each kind ("approve plan and scope"); "approve everything" or "approve all"

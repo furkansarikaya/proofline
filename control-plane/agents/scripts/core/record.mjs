@@ -19,13 +19,16 @@ import { setRunValue } from './lifecycle.mjs';
 import { led } from './lifeutil.mjs';
 import { inside, isAbsoluteInput, onDiskLocal } from './pathin.mjs';
 import * as proc from './proc.mjs';
-import { gatesEnforced, sectionKeyPresent, textLines } from './records.mjs';
+import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import {
   artifactAllowed, artifactPaths, classificationFlip, evidenceCiteCheck, findingPrefix, gateOf, idKey, isGateRole, lineValue, metricsStep,
   parseFindings, parseHeader, plainFile, realOf, resultKind, unsupportedBlocks, unsupportedEvidenceCheck, unsupportedReasonOk,
 } from './resultutil.mjs';
 import { knownControlArtifact, requireRun, runDir } from './runs.mjs';
 import { riskFocusRole, riskGateFocuses, riskMissingFlags } from './signals.mjs';
+import { kiUntouched } from './knownissues.mjs';
+import { git } from './git.mjs';
+import { rationaleCarried } from './standing.mjs';
 import { now } from './clock.mjs';
 import { ProoflineError } from './errors.mjs';
 
@@ -56,7 +59,7 @@ function approvedRationalesJson(ctx, id) {
     const t = rationaleLineIn(rid, text);
     if (t === '') continue;
     const b = shaOf(t);
-    if (findApproval(ctx, id, `rationale:${rid}`, b) !== null) { out += `${sep}"${rid}": "${b}"`; sep = ', '; }
+    if (findApproval(ctx, id, `rationale:${rid}`, b) !== null || rationaleCarried(ctx, rid, path.relative(ctx.root, file).split(path.sep).join('/'), b)) { out += `${sep}"${rid}": "${b}"`; sep = ', '; }
   }
   return `{"approved": {${out}}}\n`;
 }
@@ -87,8 +90,30 @@ function recordVisualCheck(ctx, id, result) {
       reject(`visual PASS: lint-source.mjs could not run on the project, so the PASS cannot be checked (${log}); fix the cause, or submit UNSUPPORTED/BLOCKED with the reason`);
     }
     const lint = json(`${tmp}/lint.json`);
-    const nb = lint === undefined || lint === null ? -1 : (Array.isArray(lint.findings) ? lint.findings : []).filter((/** @type {any} */ f) => f.severity === 'blocking').length;
-    if (nb < 0) reject('visual PASS: the source lint result is unreadable');
+    if (lint === undefined || lint === null) reject('visual PASS: the source lint result is unreadable');
+    // A361 (issue 338 C3): the lint still runs over the WHOLE tree; the base is subtracted from it: a blocking finding in a file the task did not change (untouched since the run's base, outside
+    // the frozen scope: `kiUntouched`) and tracked at the base is the base's finding, not this change's. Every other blocking finding counts, a changed file's pre-existing line included.
+    const dir = runDir(ctx, id);
+    const base = sectionValue(ctx, dir, 'repository', 'base_sha');
+    /** @type {Map<string, boolean>} */ const cache = new Map();
+    const preExisting = (/** @type {string} */ file) => {
+      let v = cache.get(file);
+      if (v === undefined) {
+        v = /^[0-9a-f]{7,64}$/.test(base) && typeof file === 'string' && file !== '' && !file.startsWith('/') && !file.split('/').includes('..')
+          && git(ctx, ['cat-file', '-t', `${base}:${file}`]).out.trim() === 'blob' && kiUntouched(ctx, dir, file);
+        cache.set(file, v);
+      }
+      return v;
+    };
+    const all = Array.isArray(lint.findings) ? lint.findings : [];
+    const gone = all.filter((/** @type {any} */ f) => f.severity === 'blocking' && preExisting(String(f.file)));
+    if (gone.length > 0) {
+      lint.findings = all.filter((/** @type {any} */ f) => !gone.includes(f));
+      lint.pre_existing_not_counted = gone.map((/** @type {any} */ f) => ({ id: f.id, file: f.file, line: f.line }));
+      writeFileSync(`${tmp}/lint.json`, `${JSON.stringify(lint, null, 2)}\n`);
+      ctx.out(`visual lint: ${gone.length} blocking finding(s) in file(s) the task did not change are the base's, not this change's (listed in lint.json as pre_existing_not_counted)\n`);
+    }
+    const nb = (Array.isArray(lint.findings) ? lint.findings : []).filter((/** @type {any} */ f) => f.severity === 'blocking').length;
     if (nb > 0) reject(`visual PASS refused: the source lint (lint-source.mjs, rerun by this record) has ${nb} blocking finding(s); fix them or leave the gate FAIL (a justified pattern needs the user's rationale approval)`);
     try { copyFileSync(`${tmp}/lint.json`, `${d}/lint.json`); } catch { /* best effort, as cp 2>/dev/null */ }
   } finally { rmSync(tmp, { recursive: true, force: true }); }
@@ -102,7 +127,7 @@ function recordVisualCheck(ctx, id, result) {
   for (const [i, x, m] of just) {
     if (i === '') continue;
     const b = shaOf(`${i}: ${x}`);
-    if (findApproval(ctx, id, `rationale:${i}`, b) === null) reject(`visual PASS relies on the DESIGN.md rationale for pattern ${i}, which the user has not approved: a rationale an agent wrote does not pass a finding. Ask: agent.sh request-approval ${id} rationale:${i} (relay it; the user's reply records the approval), or leave the finding blocking (FAIL)`);
+    if (findApproval(ctx, id, `rationale:${i}`, b) === null && !rationaleCarried(ctx, i, m, b)) reject(`visual PASS relies on the DESIGN.md rationale for pattern ${i}, which the user has not approved: a rationale an agent wrote does not pass a finding. Ask: agent.sh request-approval ${id} rationale:${i} (relay it; the user's reply records the approval), or leave the finding blocking (FAIL)`);
     let cur = '';
     const mp = m === '' ? null : onDiskLocal(ctx.root, m);   // a UNC design path is never opened (null: no line, so the approval does not match)
     if (mp !== null) cur = rationaleLineOf(ctx, i, mp);

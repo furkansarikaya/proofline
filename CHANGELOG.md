@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.183 — 2026-11-26
+
+- Fix (A361, issue 338 C3): durable approvals. A DESIGN.md rationale or a waiver of a registry-rule finding that already existed on the unchanged base is kept for the project only when you add the word `standing` to the approval ("approve rationale numbered-steps standing"); it is then kept in `.agents/local/standing/STANDING.tsv` (rule, file, the exact content approved, your message id and date; written only by the control plane from your message and checked against that message at every use) and carried to later tasks, batches and runs while that line, file and finding stay the same; a changed line, file or finding, another rule, and any SECRETS or SECURITY finding are asked again. `agent.sh standing [list | revoke <rule>]` shows what stands (the batch summary prints it too) and revokes only on your message "revoke <rule>". `agent.sh design-rationales <ID> --json --out reviews/visual-proof/<name>.json` builds the QA approved-rationales file (no hand-built control file) and lists the task's changed files; the visual `record` lints the whole tree and subtracts the findings of files the task did not change. Also fixed: "approve rationale a" approved every open rationale when several were open.
+
 ## 0.0.182 — 2026-11-26
 
 - Fix (A360, issue 338 C11): the CI budget gate no longer fails a pull request or a push because of a budget overrun on a runner whose calibration is above the cap (more than 5 times the nominal). It prints `BUDGET INCONCLUSIVE: runner too slow to judge (calibration N x nominal, cap 5): <n> over-budget test(s) not judged; the nightly run judges again`, writes `budget_verdict: "inconclusive"` and the unjudged list into the JSON and the job summary, and exits with node's own status. The nightly and manual runs set `BUDGET_STRICT=1` (workflow-level `env` of ci.yml) and judge as before. A failing test, an empty or unreadable stream, a file without events and an unreadable calibration still fail; no budget number changed.

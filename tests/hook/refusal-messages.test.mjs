@@ -78,7 +78,7 @@ test('the role message lists only agent.sh commands the hook lets that role run;
   const list = /runs only the read-only agent\.sh (.+) \(not classify\)/.exec(why)?.[1];
   assert.ok(list, why);
   const names = list.split(/ and | /).filter((x) => x !== '' && x !== 'submit' && x !== 'verify-*');
-  assert.deepEqual(names, ['status', 'pipeline', 'fingerprint', 'build-record', 'plan-section', 'config-get', 'diff-digest', 'next']);
+  assert.deepEqual(names, ['status', 'pipeline', 'fingerprint', 'build-record', 'plan-section', 'config-get', 'diff-digest', 'design-rationales', 'next']);
   for (const n of names) assert.equal(await pre(d, `sh .agents/scripts/agent.sh ${n} LC`, REVIEWER), null, `${n} is listed but refused`);
   assert.equal(await pre(d, 'sh .agents/scripts/agent.sh verify-scope LC', REVIEWER), null);
   assert.ok(await pre(d, 'sh .agents/scripts/agent.sh approve LC', REVIEWER), 'approve stays refused');

@@ -275,7 +275,7 @@ function agentRule(ctx, cmd, v, hasRole) {
   if (sc === 'window-open' || sc === 'window-close') deny('implementer and designer windows are opened and closed (and the designer planning attestation is recorded) only by the runtime hooks and dispatch.sh');
   if (!(ctx.sub || role !== 'lead')) return;
   if (sc === 'approve' || sc === 'waive' || sc === 'answer') deny('a subagent never approves, waives or answers; only the user does, through the lead (D13, D16)');
-  if (['status', 'pipeline', 'fingerprint', 'build-record', 'plan-section', 'config-get'].includes(sc) || (sc === 'diff-digest' && role !== 'implementer') || sc.startsWith('verify-')) return; // build-record: `run` is refused for a non-lead role by the script itself; plan-section and config-get are read-only (the roles' texts send every role to plan-section; 7% of the calls of earlier runs were refused here, A235); diff-digest: the core's role gate decides the rest
+  if (['status', 'pipeline', 'fingerprint', 'build-record', 'plan-section', 'config-get'].includes(sc) || ((sc === 'diff-digest' || sc === 'design-rationales') && role !== 'implementer') || sc.startsWith('verify-')) return; // build-record: `run` is refused for a non-lead role by the script itself; plan-section and config-get are read-only (the roles' texts send every role to plan-section; 7% of the calls of earlier runs were refused here, A235); diff-digest: the core's role gate decides the rest
   if (sc === 'submit') {
     if (role === 'lead') deny('the lead never submits a specialist result (D12)');
     if (!hasRole) deny(`agent.sh submit runs as your role: prefix AGENT_ROLE=${role}`);
@@ -289,7 +289,7 @@ function agentRule(ctx, cmd, v, hasRole) {
   if (role === 'implementer' && sc === 'worker-evidence') { if (!hasRole) deny('agent.sh worker-evidence runs only as the implementer: prefix AGENT_ROLE=implementer'); return; }
   if (role === 'implementer') deny(`the implementer runs only agent.sh worker-evidence status pipeline fingerprint build-record plan-section config-get verify-* (not ${sc})`);
   if (sc === 'next') return;
-  deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint build-record plan-section config-get diff-digest next verify-*${role === 'lead' ? '' : ' and submit'} (not ${sc}); state changes belong to the lead`);
+  deny(`role ${role} runs only the read-only agent.sh status pipeline fingerprint build-record plan-section config-get diff-digest design-rationales next verify-*${role === 'lead' ? '' : ' and submit'} (not ${sc}); state changes belong to the lead`);
 }
 
 /** A274: the scratch exemption of the implementer and the designer takes the plain `$TMPDIR/` and `${TMPDIR}/` forms only (no `${TMPDIR%%/*}`, `${TMPDIR:0:0}`), and no `..`, variable or substitution in the rest. @param {string} v */

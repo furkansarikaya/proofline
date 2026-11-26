@@ -368,6 +368,10 @@
       "test_ms": 85000,
       "suite_ms": 200000
     },
+    "tests/core/durable-approvals.test.mjs": {
+      "test_ms": 14750,
+      "suite_ms": 83500
+    },
     "tests/core/entry.test.mjs": {
       "test_ms": 110000,
       "suite_ms": 90000

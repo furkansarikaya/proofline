@@ -23,6 +23,7 @@ export const USAGE_LINES = [
   "  metrics-dispatch <ID> <ROLE> <FOCUS> <RUNTIME> <MODEL> <DURATION_S> <TOKENS_IN> <TOKENS_OUT> <TOKENS_TOTAL> <TURNS> <RETRIES> <RESULT>   (dispatch.sh only; empty = null)",
   "  request-approval <ID> <KIND> | approve <ID> <KIND>... | approval-consume <ID> <KIND> [FINGERPRINT]",
   "  waive <ID> <FINDING-ID> --reason TEXT [--group] (--group: the one approval of FINDING-ID waives every open blocking finding of the same gate record with the same rule, e.g. 93 lines of one visual rule; a waiver follows the finding across gate re-runs) | ask <ID> [--file F] | questions <ID> | answer <ID> <N> [--captured|--amend] (answer on stdin; --captured takes the user's newest message since the question; --amend replaces a recorded answer with a newer user message, the old record is kept)",
+  "  standing [list | revoke <rule> [<surface>]]   (lead, A361: the approvals the project carries across tasks, batches and runs, each bound to its rule, its file and its exact content: a DESIGN.md rationale and a waiver of a registry-rule finding that already existed on the unchanged base are kept only when the user's approval says the word standing, e.g. \"approve rationale numbered-steps standing\"; each row is checked against that message at every use; list shows them with the message id and date, revoke removes them only on the user's own message \"revoke <rule>\")",
   "  terminate <ID> <FAILED|BLOCKED> | raise-budget <ID> <N> | amend <ID> | reopen <ID> | knowledge-done <ID> [not_applicable \"<reason>\"]",
   "  publish-completion-report <ID> [ADAPTER] | verify-completion-report <ID> | delivery-check <ID> | cleanup <ID>",
   "  batch-answer | batch-answers [ID]   (A200: record the user's answers to the batch pre-flight questions from their captured message; read them)",
@@ -53,7 +54,7 @@ export const USAGE_LINES = [
   "  worktree-root <ABS-PATH>   (read-only, A184: print the root of the registered run worktree (.agents/local/worktrees/<ID>) that contains the physical path, exit 1 when there is none; path classification judges a path relative to that root)",
   "  in-knowledge-scope <REL-PATH>   (read-only: exit 0 when the path is knowledge scope or a design_docs path, the paths the lead may write in the knowledge step, A159)",
   "  repro-normalize   (read-only filter: stdin to stdout, the listed volatile fields of a recorded output line normalized, A200)",
-  "  design-rationales <ID> [--json] [PATH]   (read-only: the DESIGN.md pattern justifications and whether the user approved each; --json prints the object lint-source takes as --approved-rationales, A200)",
+  "  design-rationales <ID> [--json [--out FILE]] [PATH]   (read-only: the DESIGN.md pattern justifications and whether the user approved each, in this run or earlier by a standing approval; --json prints the object lint-source takes as --approved-rationales, A200; --out reviews/visual-proof/approved-rationales.json writes it there (that one file) and prints lint-paths, the files the task changed, A361)",
   "  report-execution <ID>   (read-only: the `## Execution` table publish-completion-report writes into the report, from the decision records)",
   "  report-facts <ID>   (read-only: the Facts block publish-completion-report appends; gates, findings, fix rounds, refreezes, files, test runs from the records)",
   "  test"

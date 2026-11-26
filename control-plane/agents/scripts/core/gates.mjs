@@ -14,7 +14,7 @@ import { boundNames, listNames, verifySeal } from './ledger.mjs';
 import { isFile } from './paths.mjs';
 import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, ledgerRows, planScope, planSectionPresent, sectionValue, textLines } from './records.mjs';
 import { knownControlArtifact, runDir } from './runs.mjs';
-import { findingBatchAccepted, findingKnownIssue } from './knownissues.mjs';
+import { findingBatchAccepted, findingKnownIssue, findingStandingWaived } from './knownissues.mjs';
 import { pathMatches } from './scope.mjs';
 import { parseReviewBudget } from './testreviewbudget.mjs';
 import { designSurfacePaths, strictTestPath, uiPathHit, ecosystemSets, pipelineClassValid, pipelineClass, pipelineDeclared, pipelineNeeds, riskGateFocuses, riskNames, riskPaths, tierEffective } from './signals.mjs';
@@ -201,6 +201,7 @@ export function findingWaived(ctx, dir, rec, finding) {
   const id = dir.slice(dir.lastIndexOf('/') + 1);
   if (findingKnownIssue(ctx, id, rec, finding) !== null) return true; // A202 item 27: a listed, untouched, already-existing finding
   if (findingBatchAccepted(ctx, id, rec, finding)) return true; // the user accepted this listed finding for the approved batch with one answer
+  if (findingStandingWaived(ctx, id, rec, finding)) return true; // A361: the user waived this pre-existing finding (same rule, file and content) once; the project carries it
   const all = listNames(`${dir}/waivers`, /^[0-9]{3}-.*\.yaml$/);
   if (all.length === 0) return false;
   const rs = hashOnce(ctx, rec);

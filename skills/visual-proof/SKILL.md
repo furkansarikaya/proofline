@@ -4,7 +4,7 @@ description: Visual proof of a UI change with the browser tooling the project or
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.182"
+  version: "0.0.183"
 ---
 
 # visual-proof
@@ -127,7 +127,7 @@ rows before the next step.
 5. **Measure.** `node <skill-dir>/scripts/measure.mjs --config visual.json --out <output> --task .agents/runs/<ID>/TASK.md` (browser; `--task` is what lets `lang="en"` and `allow_text` exempt an English quote that a criterion requires: only text TASK.md holds, A352) or, with a
    project tool or runtime adapter, the probe and `--assemble` path ([TOOLING.md](references/TOOLING.md#adapters)).
    It writes `report.json` and `screenshots/`. Never edit a measured item.
-6. **Judge** (COMPLEX/CRITICAL only): add `judged[]` items per [JUDGED.md](references/JUDGED.md); with a design group also the 14-item `critique[]` and `ux_review[]` (the judged high-severity rules of `ux-rules.json`; a chart on the surface adds `chart_type`, see [CHARTS.md](references/CHARTS.md), load when the surface shows a chart), and run `lint-source.mjs --root <repo> --out <output>` for a UI that produces source. Add the
+6. **Judge** (COMPLEX/CRITICAL only): add `judged[]` items per [JUDGED.md](references/JUDGED.md); with a design group also the 14-item `critique[]` and `ux_review[]` (the judged high-severity rules of `ux-rules.json`; a chart on the surface adds `chart_type`, see [CHARTS.md](references/CHARTS.md), load when the surface shows a chart), and run `lint-source.mjs --root <repo> --approved-rationales <file> --paths <lint-paths> --out <output>` for a UI that produces source (the file and the paths come from `agent.sh design-rationales <ID> --json --out reviews/visual-proof/approved-rationales.json`, [MEASURE.md](references/MEASURE.md): the task's own files; never write the file by hand). Add the
    `regression` record when the project has snapshot infrastructure and you ran its command.
 7. **Validate.** `node <skill-dir>/scripts/validate-visual.mjs <output>/report.json --class <CLASS> --plan
    PLAN.md --spec <UI spec> [--ui <ui.json>] --rows`. `--ui` supplies `creative_direction.basis`; without it `character` is not required. Fix the document (never a measurement) until it exits 0; it prints
