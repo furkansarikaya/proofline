@@ -831,7 +831,7 @@ function finishUpgrade(c, plan, cfg) {
   }
 }
 
-/** `proofline upgrade --rollback`: restore the newest backup (A371). @param {{ root: string, ui: Ui }} c @param {string} installed @param {boolean} local */
+/** `proofline upgrade --rollback`: restore the newest backup (A371). @param {{ root: string, plHome: string, ui: Ui }} c @param {string} installed @param {boolean} local */
 function upgradeRollback(c, installed, local) {
   const { ui, root } = c;
   if (!local) throw new CliDie('upgrade --rollback: local_state is off: nothing was backed up, so there is nothing to restore');
