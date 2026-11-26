@@ -19,15 +19,16 @@ import { setRunValue } from './lifecycle.mjs';
 import { led } from './lifeutil.mjs';
 import { inside, isAbsoluteInput, onDiskLocal } from './pathin.mjs';
 import * as proc from './proc.mjs';
-import { gatesEnforced, sectionKeyPresent, textLines } from './records.mjs';
+import { gatesEnforced, sectionKeyPresent, sectionValue, textLines } from './records.mjs';
 import {
   artifactAllowed, artifactPaths, classificationFlip, evidenceCiteCheck, findingPrefix, gateOf, idKey, isGateRole, lineValue, metricsStep,
   parseFindings, parseHeader, plainFile, realOf, resultKind, unsupportedBlocks, unsupportedEvidenceCheck, unsupportedReasonOk,
 } from './resultutil.mjs';
 import { knownControlArtifact, requireRun, runDir } from './runs.mjs';
-import { riskFocusRole, riskGateFocuses, riskMissingFlags, taskChangedPaths } from './signals.mjs';
+import { riskFocusRole, riskGateFocuses, riskMissingFlags } from './signals.mjs';
+import { kiUntouched } from './knownissues.mjs';
+import { git } from './git.mjs';
 import { rationaleCarried } from './standing.mjs';
-import { isFile } from './paths.mjs';
 import { now } from './clock.mjs';
 import { ProoflineError } from './errors.mjs';
 
@@ -83,17 +84,36 @@ function recordVisualCheck(ctx, id, result) {
   try {
     const ap = `${tmp}/approved.json`;
     writeFileSync(ap, latin1Buf(approvedRationalesJson(ctx, id)));
-    // A361 (issue 338 C3): the rerun lint reads the files this task changed, not the untouched committed ones: a finding in a file the change did not touch is not a finding of this change
-    const own = taskChangedPaths(ctx, runDir(ctx, id)).filter((p) => isFile(`${ctx.root}/${p}`));
-    const limit = own.some((p) => /[,\n]/.test(p)) ? [] : ['--paths', own.join(',')];
-    const r = proc.run(process.execPath, [script, '--root', ctx.root, '--approved-rationales', ap, ...limit, '--out', tmp], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
+    const r = proc.run(process.execPath, [script, '--root', ctx.root, '--approved-rationales', ap, '--out', tmp], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
     if (r.status !== 0 || !existsSync(`${tmp}/lint.json`)) {
       const log = Buffer.concat([r.stdout, r.stderr]).subarray(0, 300).toString('latin1').replace(/\n/g, ' ');
       reject(`visual PASS: lint-source.mjs could not run on the project, so the PASS cannot be checked (${log}); fix the cause, or submit UNSUPPORTED/BLOCKED with the reason`);
     }
     const lint = json(`${tmp}/lint.json`);
-    const nb = lint === undefined || lint === null ? -1 : (Array.isArray(lint.findings) ? lint.findings : []).filter((/** @type {any} */ f) => f.severity === 'blocking').length;
-    if (nb < 0) reject('visual PASS: the source lint result is unreadable');
+    if (lint === undefined || lint === null) reject('visual PASS: the source lint result is unreadable');
+    // A361 (issue 338 C3): the lint still runs over the WHOLE tree; the base is subtracted from it: a blocking finding in a file the task did not change (untouched since the run's base, outside
+    // the frozen scope: `kiUntouched`) and tracked at the base is the base's finding, not this change's. Every other blocking finding counts, a changed file's pre-existing line included.
+    const dir = runDir(ctx, id);
+    const base = sectionValue(ctx, dir, 'repository', 'base_sha');
+    /** @type {Map<string, boolean>} */ const cache = new Map();
+    const preExisting = (/** @type {string} */ file) => {
+      let v = cache.get(file);
+      if (v === undefined) {
+        v = /^[0-9a-f]{7,64}$/.test(base) && typeof file === 'string' && file !== '' && !file.startsWith('/') && !file.split('/').includes('..')
+          && git(ctx, ['cat-file', '-t', `${base}:${file}`]).out.trim() === 'blob' && kiUntouched(ctx, dir, file);
+        cache.set(file, v);
+      }
+      return v;
+    };
+    const all = Array.isArray(lint.findings) ? lint.findings : [];
+    const gone = all.filter((/** @type {any} */ f) => f.severity === 'blocking' && preExisting(String(f.file)));
+    if (gone.length > 0) {
+      lint.findings = all.filter((/** @type {any} */ f) => !gone.includes(f));
+      lint.pre_existing_not_counted = gone.map((/** @type {any} */ f) => ({ id: f.id, file: f.file, line: f.line }));
+      writeFileSync(`${tmp}/lint.json`, `${JSON.stringify(lint, null, 2)}\n`);
+      ctx.out(`visual lint: ${gone.length} blocking finding(s) in file(s) the task did not change are the base's, not this change's (listed in lint.json as pre_existing_not_counted)\n`);
+    }
+    const nb = (Array.isArray(lint.findings) ? lint.findings : []).filter((/** @type {any} */ f) => f.severity === 'blocking').length;
     if (nb > 0) reject(`visual PASS refused: the source lint (lint-source.mjs, rerun by this record) has ${nb} blocking finding(s); fix them or leave the gate FAIL (a justified pattern needs the user's rationale approval)`);
     try { copyFileSync(`${tmp}/lint.json`, `${d}/lint.json`); } catch { /* best effort, as cp 2>/dev/null */ }
   } finally { rmSync(tmp, { recursive: true, force: true }); }

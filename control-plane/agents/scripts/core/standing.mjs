@@ -7,17 +7,20 @@
 // user, source prompt_capture or tty). No agent command writes it; a role cannot create a row, and a row that is not a regular single-link file on a safe path is
 // not read at all (nothing is then carried). `revoke` removes rows only on the user's own captured message. A row never covers anything but its own
 // (scope, rule, surface, fingerprint); SECRETS and SECURITY are never stored (the callers refuse them before they get here).
-// Format of STANDING.tsv, one row per line, TAB separated: scope, rule, surface, fingerprint, message id, date, answered_by, origin.
+// Format of STANDING.tsv, one row per line, TAB separated: scope, rule, surface, fingerprint, message id, date, answered_by, origin, named.
+// A row is created only when the user's reply said the word `standing` (or the Turkish kalici) in the segment that names the rationale or the finding (never by the approval alone),
+// and it counts only while it VERIFIES at use time (`verifyRow`): the message id must be a message of the prompt history whose bytes still hash to it, and that message must still
+// say an approval phrase, the named rationale or finding and `standing` in one segment. A row planted by hand without such a message carries nothing.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, appendFileSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { captureField } from './capture.mjs';
 import { fail } from './errors.mjs';
-import { approvalNorm, latestCapture, safeStateFile, sharedDirOf } from './approvals.mjs';
+import { approvalNorm, approvalPhrases, latestCapture, promptsDir, safeStateFile, sharedDirOf } from './approvals.mjs';
 import { sha256 } from './hash.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
-/** @typedef {{ scope: string, rule: string, surface: string, fp: string, message: string, date: string, by: string, origin: string }} StandingRow */
+/** @typedef {{ scope: string, rule: string, surface: string, fp: string, message: string, date: string, by: string, origin: string, named: string }} StandingRow */
 
 const SCOPES = ['rationale', 'waiver'];
 
@@ -30,11 +33,46 @@ const filePath = (ctx) => `${standingDir(ctx)}/STANDING.tsv`;
 /** A field is a plain single-line string without a TAB. @param {string} s */
 const clean = (s) => s !== '' && !/[\t\r\n]/.test(s);
 
+const bs = (/** @type {string} */ x) => Buffer.from(x, 'utf8').toString('latin1');
+const STAND_WORDS = [' standing ', ' kalici ', ` ${approvalNorm(bs('kalıcı\n'))} `];
+
 /**
- * The rows in force: every well-formed row answered by the user. An unsafe or unreadable file is empty (the safe side: the question is asked again).
- * @param {Context} ctx @returns {StandingRow[]}
+ * Does one text say, in ONE segment (a line, or the part between , and ;), an approval phrase, the NAMED word and `standing`? Quoted lines and questions never count.
+ * @param {Context} ctx @param {string} text a byte string @param {string} named the normalised name (`mono-labels`, `qa-1`)
  */
-export function readStanding(ctx) {
+export function standingSaid(ctx, text, named) {
+  if (named === '') return false;
+  const pl = approvalPhrases(ctx).split(',').map(approvalNorm).filter((w) => w !== '');
+  for (const line of text.split('\n')) {
+    if (/^\s*(>|~~~|\x60\x60\x60)/.test(line)) continue;
+    for (const seg of line.split(/[,;]/)) {
+      if (seg.includes('?')) continue;
+      const n = ` ${approvalNorm(`${seg}\n`)} `;
+      if (n.includes(` ${named} `) && STAND_WORDS.some((w) => n.includes(w)) && pl.some((w) => n.includes(` ${w} `))) return true;
+    }
+  }
+  return false;
+}
+
+/** The message the row names, if it is intact in the prompt history; else null. @param {Context} ctx @param {string} id @returns {string | null} */
+function messageText(ctx, id) {
+  const m = /^([A-Za-z0-9._-]+):([0-9]+):([0-9a-f]{64})$/.exec(id);
+  if (m === null) return null;
+  const f = `${promptsDir(ctx)}/history/${m[2]}-${m[3].slice(0, 8)}.txt`;
+  if (!existsSync(f) || !safeStateFile(ctx, f)) return null;
+  let t;
+  try { t = readFileSync(f, 'latin1'); } catch { return null; }
+  return sha256(t) === m[3] ? t : null;
+}
+
+/** A row counts only when the user's message it cites still says the approval and `standing` for the thing named. @param {Context} ctx @param {StandingRow} r */
+function verifyRow(ctx, r) {
+  const t = messageText(ctx, r.message);
+  return t !== null && standingSaid(ctx, t, r.named);
+}
+
+/** Every well-formed row of the file, verified or not (what `standing list` and `revoke` work on). @param {Context} ctx @returns {StandingRow[]} */
+export function readStandingRaw(ctx) {
   const f = filePath(ctx);
   if (!existsSync(f) || !safeStateFile(ctx, f)) return [];
   /** @type {StandingRow[]} */ const out = [];
@@ -42,11 +80,17 @@ export function readStanding(ctx) {
   try { text = readFileSync(f, 'latin1'); } catch { return []; }
   for (const l of text.split('\n')) {
     const p = l.split('\t');
-    if (p.length !== 8 || !SCOPES.includes(p[0]) || p[6] !== 'user' || !p.slice(0, 6).every(clean) || !/^[0-9a-f]{64}$/.test(p[3])) continue;
-    out.push({ scope: p[0], rule: p[1], surface: p[2], fp: p[3], message: p[4], date: p[5], by: p[6], origin: p[7] });
+    if (p.length !== 9 || !SCOPES.includes(p[0]) || p[6] !== 'user' || !p.every(clean) || !/^[0-9a-f]{64}$/.test(p[3])) continue;
+    out.push({ scope: p[0], rule: p[1], surface: p[2], fp: p[3], message: p[4], date: p[5], by: p[6], origin: p[7], named: p[8] });
   }
   return out;
 }
+
+/**
+ * The rows in force: the well-formed rows answered by the user whose message verifies. An unsafe or unreadable file is empty (the safe side: the question is asked again).
+ * @param {Context} ctx @returns {StandingRow[]}
+ */
+export function readStanding(ctx) { return ctx.once('standing:rows', () => readStandingRaw(ctx).filter((r) => verifyRow(ctx, r))); }
 
 /**
  * The row for exactly this (scope, rule, surface, fingerprint), or null.
@@ -61,7 +105,7 @@ function writeAll(ctx, rows) {
   const dir = standingDir(ctx);
   mkdirSync(dir, { recursive: true });
   const f = filePath(ctx);
-  const body = rows.map((r) => `${[r.scope, r.rule, r.surface, r.fp, r.message, r.date, r.by, r.origin].join('\t')}\n`).join('');
+  const body = rows.map((r) => `${[r.scope, r.rule, r.surface, r.fp, r.message, r.date, r.by, r.origin, r.named].join('\t')}\n`).join('');
   writeFileSync(`${f}.tmp`, latin1Buf(body));
   renameSync(`${f}.tmp`, f);
 }
@@ -69,15 +113,15 @@ function writeAll(ctx, rows) {
 /**
  * Record one standing approval. Called only from `approveOne`, right after the approval file of the user's message was written. A row with the same key is not
  * written twice (the first message stays its origin). Returns whether a row was added.
- * @param {Context} ctx @param {{ scope: string, rule: string, surface: string, fp: string, message: string, origin: string }} row
+ * @param {Context} ctx @param {{ scope: string, rule: string, surface: string, fp: string, message: string, origin: string, named: string }} row
  */
 export function addStanding(ctx, row) {
-  if (!SCOPES.includes(row.scope) || !clean(row.rule) || !clean(row.surface) || !/^[0-9a-f]{64}$/.test(row.fp) || !clean(row.message) || !clean(row.origin)) return false;
+  if (!clean(row.named) || !SCOPES.includes(row.scope) || !clean(row.rule) || !clean(row.surface) || !/^[0-9a-f]{64}$/.test(row.fp) || !clean(row.message) || !clean(row.origin)) return false;
   if (findStanding(ctx, row.scope, row.rule, row.surface, row.fp) !== null) return false;
-  const rows = readStanding(ctx);
+  const rows = readStandingRaw(ctx);
   rows.push({ ...row, date: now().iso, by: 'user' });
   writeAll(ctx, rows);
-  ctx.forget('file:');
+  ctx.forget('file:'); ctx.forget('standing:');
   return true;
 }
 
@@ -95,8 +139,10 @@ export function describeStanding(r) {
 /** @param {Context} ctx @returns {string} */
 export function standingList(ctx) {
   const rows = readStanding(ctx);
-  if (rows.length === 0) return 'standing approvals: none\n';
-  return `standing approvals: ${rows.length}\n${rows.map((r) => `- ${describeStanding(r)}\n`).join('')}revoke one with the message "revoke <rule>" (then: agent.sh standing revoke <rule> [<surface>])\n`;
+  const ignored = readStandingRaw(ctx).length - rows.length;
+  const note = ignored > 0 ? `${ignored} row(s) of the file do not verify against a message of yours and are ignored (revoke them by name to remove them)\n` : '';
+  if (rows.length === 0) return `standing approvals: none\n${note}`;
+  return `standing approvals: ${rows.length}\n${rows.map((r) => `- ${describeStanding(r)}\n`).join('')}${note}revoke one with the message "revoke <rule>" (then: agent.sh standing revoke <rule> [<surface>])\n`;
 }
 
 /**
@@ -105,7 +151,7 @@ export function standingList(ctx) {
  * @param {Context} ctx @param {string} rule @param {string} [surface]
  */
 export function revokeStanding(ctx, rule, surface = '') {
-  const rows = readStanding(ctx);
+  const rows = readStandingRaw(ctx);
   const hit = rows.filter((r) => r.rule === rule && (surface === '' || r.surface === surface));
   if (hit.length === 0) fail(`no standing approval for ${rule}${surface === '' ? '' : ` on ${surface}`} (agent.sh standing list)`);
   const cap = latestCapture(ctx);
@@ -127,7 +173,7 @@ export function revokeStanding(ctx, rule, surface = '') {
   const dir = standingDir(ctx);
   const log = `${dir}/REVOKED.tsv`;
   const date = now().iso;
-  appendFileSync(log, latin1Buf(hit.map((r) => `${[r.scope, r.rule, r.surface, r.fp, r.message, r.date, r.by, r.origin, cid, date].join('\t')}\n`).join('')));
-  ctx.forget('file:');
+  appendFileSync(log, latin1Buf(hit.map((r) => `${[r.scope, r.rule, r.surface, r.fp, r.message, r.date, r.by, r.origin, r.named, cid, date].join('\t')}\n`).join('')));
+  ctx.forget('file:'); ctx.forget('standing:');
   return hit;
 }

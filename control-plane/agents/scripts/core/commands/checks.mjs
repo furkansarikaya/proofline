@@ -2,7 +2,7 @@
 // Stage 2, package C2: ci-check, ci-task-command, design-rationales, commands-check, scale-check, batch-check. The last four read the
 // approval and batch library (core/approvals.mjs, the read-only part); nothing here writes or consumes an approval, so no path needs a
 // BridgeToShell for the Stage 3-7 libraries. Keeps arguments, stdout, stderr and exit status of agent.sh 0.0.41.
-import { existsSync, lstatSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { bytes } from '../config.mjs';
 import { ProoflineError, fail, unsupported } from '../errors.mjs';
@@ -128,7 +128,7 @@ function designRationales(ctx, args) {
   for (;;) {
     if (rest[0] === '--json') { json = true; rest.shift(); } else if (rest[0] === '--out' && rest.length > 1) { outFile = rest[1]; rest.splice(0, 2); } else break;
   }
-  if (outFile !== '' && (!json || id === '-')) fail('--out writes the --json object of a run: agent.sh design-rationales <ID> --json --out reviews/visual-proof/<name>.json');
+  if (outFile !== '' && (!json || id === '-')) fail('--out writes the --json object of a run: agent.sh design-rationales <ID> --json --out reviews/visual-proof/approved-rationales.json');
   let file = rest[0] ?? '';
   if (file === '') {
     for (const c of DESIGN_MD_CANDIDATES) if (isFile(`${ctx.root}/${c}`)) { file = `${ctx.root}/${c}`; break; }
@@ -173,20 +173,34 @@ function designRationales(ctx, args) {
   return 0;
 }
 
+const APPROVED_NAME = 'approved-rationales.json';
 /**
  * `design-rationales ID --json --out FILE` (A361, issue 338 C3): the control plane writes the approved-rationales object the QA visual lint takes (`--approved-rationales`), so
- * no role builds a control file by hand. FILE must be a new or existing regular file under `reviews/visual-proof/` of the run (never a link); the command prints the file, the counts
- * and `lint-paths:`, the existing files the task changed (the lint is limited to the task's own files: a finding of an untouched committed file is not a finding of this change).
+ * no role builds a control file by hand. FILE must be `reviews/visual-proof/approved-rationales.json` of the run and nothing else (no other file is overwritten; no link on the way); the command prints the file, the counts
+ * and `lint-paths:`, the existing files the task changed (the QA's own lint covers them: a finding of an untouched committed file is not a finding of this change; the record reruns the whole lint and subtracts the base).
  * @param {Context} ctx @param {string} id @param {string} outFile @param {string} body @param {number} n @param {number} carried
  */
 function writeApprovedFile(ctx, id, outFile, body, n, carried) {
   const dir = runDir(ctx, id);
   const base = path.resolve(dir, 'reviews/visual-proof');
   const target = path.resolve(outFile.startsWith('.agents/') ? ctx.root : dir, outFile);   // run-relative, or relative to the project root when it starts with .agents/
-  if (path.dirname(target) !== base || !/^[A-Za-z0-9._-]+\.json$/.test(path.basename(target))) fail(`--out must be a .json file directly under .agents/runs/${id}/reviews/visual-proof/`);
-  mkdirSync(base, { recursive: true });
-  try { const st = lstatSync(target); if (st.isSymbolicLink() || !st.isFile()) fail('--out is not a regular file'); } catch (e) { if (e instanceof ProoflineError) throw e; }
-  writeFileSync(target, Buffer.from(body, 'latin1'));
+  if (target !== path.join(base, APPROVED_NAME)) fail(`--out must be reviews/visual-proof/${APPROVED_NAME} of the run (.agents/runs/${id}/reviews/visual-proof/${APPROVED_NAME}); no other file is written`);
+  // the run folder, reviews/ and reviews/visual-proof/ are real folders of the run (a link anywhere on the way refuses), created one at a time without following anything
+  for (const sub of ['reviews', 'reviews/visual-proof']) {
+    const f = path.join(dir, sub);
+    let st = null;
+    try { st = lstatSync(f); } catch { st = null; }
+    if (st === null) mkdirSync(f);
+    else if (st.isSymbolicLink() || !st.isDirectory()) fail(`--out refused: ${path.relative(ctx.root, f)} is not a plain folder of the run (a link or a file)`);
+  }
+  let st = null;
+  try { st = lstatSync(target); } catch { st = null; }
+  if (st !== null && (st.isSymbolicLink() || !st.isFile() || st.nlink !== 1)) fail(`--out refused: ${APPROVED_NAME} exists and is not a plain single-link file`);
+  // written under a new name (exclusive: never through a link) and renamed over the old file, so a planted link at the target is replaced, not followed
+  const tmpName = `${target}.tmp`;
+  try { const t = lstatSync(tmpName); if (t.isFile() && !t.isSymbolicLink()) unlinkSync(tmpName); else fail('--out refused: a stray temporary file is not a plain file'); } catch (e) { if (e instanceof ProoflineError) throw e; }
+  writeFileSync(tmpName, Buffer.from(body, 'latin1'), { flag: 'wx' });
+  renameSync(tmpName, target);
   const paths = taskChangedPaths(ctx, dir).filter((p) => !/[,\n]/.test(p) && isFile(`${ctx.root}/${p}`));
   ctx.out(`approved-rationales: ${path.relative(ctx.root, target).split(path.sep).join('/')} (${n} approved, ${carried} of them carried from standing approvals)\nlint-paths: ${paths.join(',')}\n`);
   return 0;

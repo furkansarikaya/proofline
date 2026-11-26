@@ -399,7 +399,9 @@ export function textHasApproval(ctx, rawText, kind, runId = '', withKinds = []) 
   const pl = approvalPhrases(ctx).split(',').map(approvalNorm);
   const kw = approvalNorm(`${kindWords(kind)}\n`);
   const more = withKinds.map((k) => approvalNorm(`${kindWords(k)}\n`)).join(' ');
-  const ok = ` ${pl.join(' ').replace(/ +$/, '')} ${kw} ${more} ${approvalNorm(`${FILLERS_BYTES}\n`)} `;
+  // A361: `standing` (and the Turkish kalici) is an allowed word of a rationale or waive approval: it is the user's explicit decision to keep the approval for the project
+  const stand = /^(rationale|waive):/.test(kind) ? ` standing kalici ${approvalNorm(bs('kalıcı\n'))}` : '';
+  const ok = ` ${pl.join(' ').replace(/ +$/, '')} ${kw} ${more} ${approvalNorm(`${FILLERS_BYTES}\n`)}${stand} `;
   // `tha_pl` is a command substitution: trailing newlines are gone, so a trailing empty phrase vanishes with them
   const okWords = new Set(ok.split(' ').filter((w) => w !== ''));
   /** @type {Set<string> | null} */ let runs = null;
@@ -412,7 +414,13 @@ export function textHasApproval(ctx, rawText, kind, runId = '', withKinds = []) 
   if (named.size > 0 && runId !== '' && !named.has(approvalNorm(runId))) return false;
   // A361: beside other open kinds, a kind that has a name (rationale:ID, rule:ID, reopen:ID) must be named itself: "approve rationale a" never approves the open rationale b only because
   // the word `rationale` and b's name are allowed words of the same reply
-  if (withKinds.length > 0 && /^(rationale|rule|reopen):/.test(kind) && !kw.split(' ').slice(1).every((w) => w !== '' && low.includes(` ${w} `))) return false;
+  // and it is named AFTER the type word (the id-list form "approve rationale a b"): "approve a rationale" does not name the rationale `a`
+  if (/^(rationale|rule|reopen):/.test(kind) && !full.includes(n)) {
+    const toks = n.split(' ');
+    const ti = toks.indexOf(kw.split(' ')[0]);
+    const after = new Set(ti < 0 ? [] : toks.slice(ti + 1));
+    if (!kw.split(' ').slice(1).every((w) => w !== '' && after.has(w))) return false;
+  }
   let hit = false;
   for (const p of pl) { if (p !== '' && low.includes(` ${p} `)) { hit = true; break; } }
   if (!hit) return false;
