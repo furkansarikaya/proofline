@@ -260,6 +260,10 @@
       "test_ms": 4000,
       "suite_ms": 15000
     },
+    "tests/core/visual-stale.test.mjs": {
+      "test_ms": 15000,
+      "suite_ms": 340000
+    },
     "tests/core/waiting-b8.test.mjs": {
       "test_ms": 11500,
       "suite_ms": 15300
