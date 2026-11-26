@@ -21,6 +21,7 @@ import { now } from './clock.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 import { lintState } from './configset.mjs';
 import { lintWarning } from './commandsprop.mjs';
+import { anyOn, codexRoles, permissionLine, preflightWarning, sandboxNeeds, sandboxPermission } from './codexsandbox.mjs';
 import { describeStanding, readStanding } from './standing.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -548,6 +549,23 @@ function plan(ctx, argv) {
     const lp = isFile(pf) ? lt(rd(pf)).filter((l) => l.startsWith('lint\t')).map((l) => l.split('\t')[1] ?? '') : [];
     o(`- lint commands: <none set>; proposal: ${lp.length > 0 ? lp.join('; ') : 'nothing discovered (proofline doctor --commands)'}\n`);
     o(`- WARNING: ${lintWarning(ctx)}. Your approval of this batch records the proposal above when it has one (proofline doctor --apply-commands); this is a warning, not a stop\n`);
+  }
+  // A372 (issue 338 U2): the Codex worker permission, shown only when a role runs on Codex or a key is on (a batch without Codex writes the summary it always wrote, same bytes)
+  {
+    const perm = sandboxPermission(ctx.config());
+    const onCodex = codexRoles(ctx.config());
+    if (onCodex.length > 0 || anyOn(perm)) {
+      o('\n## Codex sandbox permission (A372)\n\n');
+      o(`- ${permissionLine(perm)} (default off; you set it, in .agents/config.yaml; the hook denies agent writes to that file as a tripwire, your review of config changes is the boundary)\n`);
+      for (const r of onCodex) o(`- role ${r} runs on Codex: ${perm.network ? 'outbound network ON' : 'no outbound network'}, ${perm.localServer ? 'loopback listener ON' : 'no loopback listener'}\n`);
+      if (perm.network || perm.localServer) o('- WARNING: a permission is ON: a Codex worker can reach the network or listen on loopback in every task of this batch; your approval of this batch does not change it, and it is not part of what the approval covers\n');
+      if (onCodex.includes('implementer')) {
+        for (const x of orderList) {
+          const w = preflightWarning(perm, sandboxNeeds(rd(/** @type {string} */ (tfile(td, x.id)))));
+          if (w !== '') o(`- WARNING: ${x.id}: ${w}\n`);
+        }
+      }
+    }
   }
   o('\n## Stop rules\n\n');
   o('- a task that needs anything else is parked with its question and the batch goes on; a task that depends on it is skipped\n');

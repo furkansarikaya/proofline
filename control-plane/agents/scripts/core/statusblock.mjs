@@ -3,6 +3,7 @@
 // ledger, the questions, the delivery records, the metrics records, the batch state); the three recorded reasons (a question, a park, a failure)
 // go through `scrub`, an allowlist. The adapter op `statusblock` (a task adapter script, run as a child) places it. The update is best effort:
 // bounded in time, it never fails a run or a gate, an unreachable tracker is a logged note.
+import { sandboxPermission } from './codexsandbox.mjs';
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { bytes } from './config.mjs';
@@ -136,6 +137,7 @@ export function statusBlockBody(ctx, id, event0, prArg) {
     const sha = keep(sv('repository', 'base_sha'), /[^0-9a-f]/g, 12);
     if (sha.length >= 7) kv('start_commit', sha);
     kv('runtime', keep(ctx.config().get('runtime.lead', 'claude'), /[^A-Za-z0-9._-]/g, 32));
+    { const sp = sandboxPermission(ctx.config()); if (sp.network || sp.localServer) kv('codex_sandbox', `${sp.network ? 'network ON' : 'network off'}, ${sp.localServer ? 'local server ON' : 'local server off'}`); }   // A372: only when widened, so a default block keeps its bytes
     const e = ctx.env;
     const sess = keep(e.CLAUDE_CODE_SESSION_ID || e.CODEX_SESSION_ID || e.CODEX_THREAD_ID || '', /[^A-Za-z0-9_-]/g, 64);
     if (sess !== '') kv('session', sess);

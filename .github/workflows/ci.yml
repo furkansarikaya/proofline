@@ -405,7 +405,7 @@ jobs:
           - name: dispatch
             mode: files
             pattern: 'none'
-            files: tests/core/decide.test.mjs tests/core/dispatch.test.mjs tests/core/dispatch-golden.test.mjs tests/core/dispatch-text.test.mjs tests/core/dispatch-watchdog.test.mjs tests/core/gitstate.test.mjs
+            files: tests/core/decide.test.mjs tests/core/codex-sandbox-permission.test.mjs tests/core/dispatch.test.mjs tests/core/dispatch-golden.test.mjs tests/core/dispatch-text.test.mjs tests/core/dispatch-watchdog.test.mjs tests/core/gitstate.test.mjs
           - name: helper-commands
             mode: files
             pattern: 'none'

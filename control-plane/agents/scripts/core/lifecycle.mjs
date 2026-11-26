@@ -71,7 +71,7 @@ export function ledgerIf(ctx, id, event, from, to, detail) {
 
 // ---- the task-source contract -------------------------------------------------------------------------------------------------
 
-const SB_KEYS = 'run type class stage event updated branch start_commit runtime session question answer park failure pr ci delivered_commit estimate duration tokens look_at known_issues'.split(' ');
+const SB_KEYS = 'run type class stage event updated branch start_commit runtime session question answer park failure pr ci delivered_commit estimate duration tokens look_at known_issues codex_sandbox'.split(' ');
 const reBlank = new RegExp(`^${WS}*$`);
 const reStatusKey = new RegExp(`^- (${SB_KEYS.join('|')}): `);
 

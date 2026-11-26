@@ -159,6 +159,8 @@ const corpus = [
   fp('implementer no window', 'Edit', 'impl.txt', { who: 'proofline-implementer a8', expect: 'deny' }),
   fp('implementer scope dir', 'Edit', 'lib/x.js', { who: 'proofline-implementer a7' }),
   fp('implementer out of scope', 'Write', 'src/app.js', { who: 'proofline-implementer a7', expect: 'deny' }),
+  fp('implementer config (A372: the Codex sandbox switch lives there)', 'Edit', '.agents/config.yaml', { who: 'proofline-implementer a7', expect: 'deny' }),
+  fp('implementer codex config', 'Write', '.codex/config.toml', { who: 'proofline-implementer a7', expect: 'deny' }),
   fp('implementer worker evidence', 'Write', '.agents/runs/LC/worker-evidence/RED-9.yaml', { who: 'proofline-implementer a7', expect: 'deny' }),
   fp('implementer env role', 'Edit', 'impl.txt', { env: { AGENT_ROLE: 'implementer' } }),
   fp('reviewer env role', 'Edit', 'impl.txt', { env: { AGENT_ROLE: 'reviewer' }, expect: 'deny' }),

@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ProfileRefused, worktreeGrants } from './codexprofile.mjs';
+import { preflightWarning, profileNetworkArgs, sandboxBlockLines, sandboxNeeds, sandboxPermission } from './codexsandbox.mjs';
 import { bytes } from './config.mjs';
 import { Context } from './context.mjs';
 import { dispatcherIo } from './decide.mjs';
@@ -118,7 +119,7 @@ class Dispatcher {
     this.minTimeout = options.minTimeoutSeconds ?? 30;
     this.id = ''; this.role = ''; this.focus = ''; this.promptFile = ''; this.oModel = ''; this.oEffort = ''; this.oRuntime = '';
     this.run = ''; this.work = '';
-    this.attempts = 0; this.running = ''; this.noout = false;
+    this.attempts = 0; this.preflightDone = false; this.sandboxHandedOver = false; this.running = ''; this.noout = false;
     this.mIn = ''; this.mOut = ''; this.mTot = ''; this.mTurns = ''; this.mRt = '';
     this.rt = ''; this.model = ''; this.effort = ''; this.tmpl = ''; this.pm = ''; this.token = ''; this.out = ''; this.log = '';
     this.status = 0; this.seqN = 0; this.retryNote = ''; this.aRuntime = ''; this.aRtReason = '';
@@ -305,39 +306,10 @@ class Dispatcher {
     if (this.status !== 0 && this.status !== 124) {
       /** @type {string} */ let reason = dt.runtimeFailureReason(this.logText());
       if (this.status === 127) reason = 'missing_binary';
-      if (reason === 'runtime_unavailable:network') throw this.blocked(`runtime_unavailable:network: ${this.rt} worker could not reach its API (after ${netTry} automatic retries); enable network access for the lead workspace-write sandbox and retry this step`);
-      if (reason !== 'none') {
-        const other = this.rt === 'claude' ? 'codex' : this.rt === 'codex' ? 'claude' : '';
-        let mode = cfg.get('failover', '');
-        if (mode === '') mode = 'auto';
-        if (other === '') throw this.blocked(`runtime ${this.rt} failed (${reason}) and has no failover peer`);
-        if (mode === 'off') throw this.blocked(`runtime ${this.rt} failed (${reason}); failover: off`);
-        if (mode === 'ask') {
-          const tr = this.cmd(['run-language', this.id]);
-          const lang = tr.code === 0 ? tr.out.replace(/\n+$/, '') : 'en';
-          const question = lang === 'tr'
-            ? `1. Çalışma ortamı ${this.rt}, ${this.role} adımını çalıştıramadı (${reason}). Bu adım baştan ${other} üzerinde yeniden çalıştırılsın mı?\n   seçenekler: yes | no\n   önerilen: yes, ${other} bu rol için uygunsa\n   neden: config failover değeri ask\n`
-            : `1. Runtime ${this.rt} could not run ${this.role} (${reason}). Re-run this step from its beginning on ${other}?\n   options: yes | no\n   recommended: yes, if ${other} is acceptable for this role\n   why: config failover is ask\n`;
-          const qb = Buffer.from(lang === 'tr' ? bytes(question) : question, 'latin1');
-          const qf = `${this.work}/question`;
-          writeFileSync(qf, qb);
-          const r = this.cmd(['ask', this.id, '--file', qf]);
-          this.stderr(r.all);
-          if (r.code !== 0) throw this.blocked(`runtime ${this.rt} failed (${reason}); failover: ask, but the question could not be stored`);
-          this.note(`dispatch needs_input worker=${this.role} runtime=${this.rt} reason=${reason}`);
-          this.stdout(`ROLE: ${this.role}\nTASK: ${this.id}\nRESULT: NEEDS_INPUT\nQUESTIONS:\n`);
-          this.io.stdout.write(qb);
-          throw new Exit(5);
-        }
-        if (mode !== 'auto') throw this.die(`invalid failover mode in config: ${mode} (want auto|ask|off)`);
-        const detect = runtimeDetect(this.ctx(), ['has', other]);
-        if (detect.status !== 0) throw this.blocked(`runtime ${this.rt} failed (${reason}); ${other} is not installed`);
-        const from = this.rt; this.oModel = '';   // model ids are runtime-specific; the policy picks the other runtime's model
-        if (!this.note(`failover from=${from} to=${other} reason=${reason} worker=${this.role}`)) throw this.blocked(`runtime ${this.rt} failed (${reason}); failover could not be ledgered`);
-        this.aRuntime = other; this.aRtReason = 'AUTOMATIC_FAILOVER';
-        await this.attempt();
-        if (this.status !== 0 && this.status !== 124 && dt.runtimeFailureReason(this.logText()) !== 'none') throw this.blocked(`runtime ${from} failed (${reason}) and failover runtime ${this.rt} failed too`);
-      }
+      // A372: a Codex implementer whose log names a sandbox refusal is handed to Claude when the user granted it (codex.sandbox.failover: claude); a plain API outage keeps the BLOCKED guidance
+      if (reason === 'runtime_unavailable:network' && this.rt === 'codex' && this.role === 'implementer' && sandboxPermission(cfg).failover && sandboxBlockLines(dt.tailLines(this.logText(), 60))) reason = 'sandbox_block';
+      else if (reason === 'runtime_unavailable:network') throw this.blocked(`runtime_unavailable:network: ${this.rt} worker could not reach its API (after ${netTry} automatic retries); enable network access for the lead workspace-write sandbox and retry this step`);
+      if (reason !== 'none') await this.failover(reason);
     }
     let submissions = 0;
     for (;;) {
@@ -361,6 +333,11 @@ class Dispatcher {
       }
       const err = field('error');
       submissions++;
+      if (submissions >= 2 && this.sandboxFailoverGranted(this.logText()) && !this.sandboxHandedOver) {
+        this.sandboxHandedOver = true; submissions = 0;
+        await this.failover('sandbox_block');
+        continue;
+      }
       if (submissions >= 2) {
         let hint = '';
         if (this.rt === 'codex' && dt.worktreeSandboxRefusal(this.logText())) {
@@ -376,6 +353,61 @@ class Dispatcher {
       this.aRuntime = this.rt; this.oModel = '';
       await this.attempt();
     }
+  }
+
+  /** D7 failover of the step to the other runtime (mode auto|ask|off of the config `failover`); A372: reason `sandbox_block` is the sandbox's stop of a Codex implementer, handed on only when codex.sandbox.failover is claude. @param {string} reason */
+  async failover(reason) {
+    const cfg = this.ctx().config();
+    {
+      const other = this.rt === 'claude' ? 'codex' : this.rt === 'codex' ? 'claude' : '';
+      let mode = cfg.get('failover', '');
+      if (mode === '') mode = 'auto';
+      if (other === '') throw this.blocked(`runtime ${this.rt} failed (${reason}) and has no failover peer`);
+      if (mode === 'off') throw this.blocked(`runtime ${this.rt} failed (${reason}); failover: off`);
+      if (mode === 'ask') {
+        const tr = this.cmd(['run-language', this.id]);
+        const lang = tr.code === 0 ? tr.out.replace(/\n+$/, '') : 'en';
+        const question = lang === 'tr'
+          ? `1. Çalışma ortamı ${this.rt}, ${this.role} adımını çalıştıramadı (${reason}). Bu adım baştan ${other} üzerinde yeniden çalıştırılsın mı?\n   seçenekler: yes | no\n   önerilen: yes, ${other} bu rol için uygunsa\n   neden: config failover değeri ask\n`
+          : `1. Runtime ${this.rt} could not run ${this.role} (${reason}). Re-run this step from its beginning on ${other}?\n   options: yes | no\n   recommended: yes, if ${other} is acceptable for this role\n   why: config failover is ask\n`;
+        const qb = Buffer.from(lang === 'tr' ? bytes(question) : question, 'latin1');
+        const qf = `${this.work}/question`;
+        writeFileSync(qf, qb);
+        const r = this.cmd(['ask', this.id, '--file', qf]);
+        this.stderr(r.all);
+        if (r.code !== 0) throw this.blocked(`runtime ${this.rt} failed (${reason}); failover: ask, but the question could not be stored`);
+        this.note(`dispatch needs_input worker=${this.role} runtime=${this.rt} reason=${reason}`);
+        this.stdout(`ROLE: ${this.role}\nTASK: ${this.id}\nRESULT: NEEDS_INPUT\nQUESTIONS:\n`);
+        this.io.stdout.write(qb);
+        throw new Exit(5);
+      }
+      if (mode !== 'auto') throw this.die(`invalid failover mode in config: ${mode} (want auto|ask|off)`);
+      const detect = runtimeDetect(this.ctx(), ['has', other]);
+      if (detect.status !== 0) throw this.blocked(`runtime ${this.rt} failed (${reason}); ${other} is not installed`);
+      const from = this.rt; this.oModel = '';   // model ids are runtime-specific; the policy picks the other runtime's model
+      if (!this.note(`failover from=${from} to=${other} reason=${reason} worker=${this.role}`)) throw this.blocked(`runtime ${this.rt} failed (${reason}); failover could not be ledgered`);
+      this.aRuntime = other; this.aRtReason = 'AUTOMATIC_FAILOVER';
+      await this.attempt();
+      if (this.status !== 0 && this.status !== 124 && dt.runtimeFailureReason(this.logText()) !== 'none') throw this.blocked(`runtime ${from} failed (${reason}) and failover runtime ${this.rt} failed too`);
+
+    }
+  }
+
+  /** A372: before a Codex implementer starts, say once when the plan has commands the sandbox refuses by default and the permission is off. A hint from the plan's words, never a stop. */
+  sandboxPreflight() {
+    if (this.role !== 'implementer' || this.preflightDone) return;
+    this.preflightDone = true;
+    const plan = `${this.run}/PLAN.md`;
+    if (!isFile(plan)) return;
+    const w = preflightWarning(sandboxPermission(this.ctx().config()), sandboxNeeds(readLatin1(plan)));
+    if (w === '') return;
+    this.stderr(`dispatch: ${w}\n`);
+    this.note(`dispatch ${w.replace(/\n/g, ' ')}`);
+  }
+
+  /** A372: is this Codex implementer's block one that the user allowed to be handed to the Claude implementer (codex.sandbox.failover: claude)? @param {string} log */
+  sandboxFailoverGranted(log) {
+    return this.rt === 'codex' && this.role === 'implementer' && sandboxPermission(this.ctx().config()).failover && (dt.worktreeSandboxRefusal(log) || sandboxBlockLines(dt.tailLines(log, 60)));
   }
 
   /** The runtime's log of the last attempt as a byte string ('' when there is none). */
@@ -398,7 +430,7 @@ class Dispatcher {
       throw e;
     }
     if ((rules + abs).includes('\\')) throw this.die('a path with a backslash cannot be placed in the Codex permission profile');
-    return ['-c', 'default_permissions="proofline-worker"', '-c', 'permissions.proofline-worker.extends=":workspace"', '-c', `permissions.proofline-worker.filesystem={":workspace_roots"={${rules}}${abs}}`];
+    return ['-c', 'default_permissions="proofline-worker"', '-c', 'permissions.proofline-worker.extends=":workspace"', '-c', `permissions.proofline-worker.filesystem={":workspace_roots"={${rules}}${abs}}`, ...profileNetworkArgs(sandboxPermission(this.ctx().config()))];
   }
 
   /** The text of the role's instructions file and its path: the one place that knows where they live. @param {string} role @returns {string} '' when none */
@@ -500,6 +532,7 @@ class Dispatcher {
       // write inside the product tree stays decided by owns.conf (PreToolUse hook) and the fingerprint check below.
       for (const d of [`${this.run}/worker-evidence`, `${this.run}/reports`, `${this.run}/approvals`, `${this.run}/waivers`, `${this.root}/.agents/local/locks`, `${this.root}/.agents/local/submissions`]) mkdirSync(d, { recursive: true });
       argv.push(...this.codexProfileArgs(id, this.root), '-');
+      this.sandboxPreflight();
     } else if (rt === 'claude') {
       const an = `proofline-${role.replace(/_/g, '-')}`;
       const af = `${this.root}/.claude/agents/${an}.md`;

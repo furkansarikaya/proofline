@@ -63,7 +63,7 @@ export function canonRole(r) {
   }
 }
 /** `role_group`: the runtime.<group> key of a role (D6). @param {string} r */
-function roleGroup(r) {
+export function roleGroup(r) {
   if (r === 'lead') return 'lead';
   return ['reviewer', 'security_reviewer', 'qa', 'verifier'].includes(r) ? 'reviewers' : 'worker';
 }

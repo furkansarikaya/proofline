@@ -29,9 +29,9 @@ Every number below has its source on [docs/proof.md](docs/proof.md), with what i
 
 ## Status
 
-Version 0.0.193 is an early release.
+Version 0.0.194 is an early release.
 It is not yet proven on real projects. In the newest end-to-end team runs (2026-11-16 to 18) no scenario passes in every run (TRIVIAL passed once and failed once on `900c2852`): one COMPLEX run reached DONE on `98f49400` (a single sample, FAIL 37/38 invariants, C-22 only) and STANDARD reached DONE with one unmet item (36 of 37); the other four scenarios were last run on `900c2852`, and the unmet items are recorded as accepted limits ([tests/e2e/README.md](tests/e2e/README.md)).
-Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use.
+Codex as implementer is supported (real use, 2026-10-23 to 25); other Codex roles are not yet verified in real use. A Codex worker has no network and no local server unless you turn that on yourself in `.agents/config.yaml` (`codex.sandbox`, shown by `proofline doctor`; [concepts](docs/concepts/enforcement-layers.md)).
 A cheap model follows the route poorly, most of all as lead; give it a base-level model ([roles](docs/concepts/roles.md#the-lead-model)).
 Guaranteed: approvals, database safety, scope, evidence and cleanup. Model-dependent: report wording, plan details and code quality ([limits](docs/concepts/enforcement-layers.md#what-is-guaranteed)). Every accepted limit, with its reason: [docs/limits.md](docs/limits.md).
 
@@ -118,6 +118,6 @@ Every command ends with `Next step: ...` ([details](docs/concepts/workflow.md#th
 
 ## Versioning and license
 
-Version **0.0.193**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.0.194**: full scope, not yet proven on real projects. Until 1.0.0, 0.0.x is fixes and 0.x.0 is new features or behaviour changes. See [CHANGELOG.md](CHANGELOG.md).
 
 MIT License, 2026 Furkan SARIKAYA. See [LICENSE](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.

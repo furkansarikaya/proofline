@@ -23,6 +23,7 @@ import { strayRunFolders } from './runs.mjs';
 import { eolText, nullDevice, realpathPosix, samePath } from './pathin.mjs';
 import { detectPlatform, droppedNetVars, warnText } from './platform.mjs';
 import * as proc from './proc.mjs';
+import { anyOn, permissionLine, sandboxPermission } from './codexsandbox.mjs';
 import { binOf, commandV } from './runtimedetect.mjs';
 import { applyScale, proposeScale } from './scale.mjs';
 
@@ -730,6 +731,18 @@ class Doctor {
       } else if (used.includes(` ${rt} `)) this.warn(`runtime ${rt}: not installed, but config.yaml uses it (failover/dispatch to ${rt} will be BLOCKED)`);
       else this.pass(`runtime ${rt}: not installed (not used by config.yaml)`);
     }
+    this.doctorCodexSandbox(used);
+  }
+
+  /** A372: the Codex worker permission (network, local server, failover), shown whenever Codex is used or a key is on; an `on` is a WARN so it is never missed. @param {string} used */
+  doctorCodexSandbox(used) {
+    const p = sandboxPermission(this.cfg);
+    if (!used.includes(' codex ') && !anyOn(p) && p.invalid.length === 0) return;
+    const line = permissionLine(p);
+    if (p.network || p.localServer) this.warn(`codex sandbox: ${line}. You turned this on in .agents/config.yaml: a Codex worker can ${p.network ? 'send repository content out and fetch code' : 'listen on loopback'}; the filesystem permissions are unchanged`);
+    else this.pass(`codex sandbox: ${line}${p.failover ? '' : ' (the default: the Codex profile has no network and no loopback listener)'}`);
+    if (p.localServer && !p.network) this.warn('codex sandbox: codex.sandbox.local_server needs codex.sandbox.network: on (on Codex 0.172 the listener needs network.enabled, which also opens outbound network; local_server alone grants nothing, and no loopback-only grant exists)');
+    for (const m of p.invalid) this.warn(`codex sandbox: ${m}`);
   }
 
   doctorHooks() {
