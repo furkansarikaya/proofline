@@ -142,7 +142,7 @@ site, written to `report.seo`. It runs only when the project produces public HTM
 
 ## Design audit
 
-A364: when `agent.sh pipeline <ID>` prints `design_group=off` (the light profile: a content or docs task with no code, dependency, configuration, CI or data), the `design` block is not requested unless the task or the plan asks for it; the plain visual check stays. `optional` means the usual rule.
+A364: when `agent.sh pipeline <ID>` prints `design_group=off` (the light profile: a content or docs task with no code, dependency, configuration, CI or data), the `design` block is not requested by instruction (nothing enforces it; a `design` block that is present is still validated) unless the task or the plan asks for it; the plain visual check stays. `optional` means the usual rule.
 
 
 Group `design` (A170), outside the cells: measured per page at its own three viewports, **1440 (`wide`), 768 (`tablet`) and 390 (`phone390`)**

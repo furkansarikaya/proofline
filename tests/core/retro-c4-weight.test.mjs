@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { before, test } from 'node:test';
-import { forecastRows, quantile } from '../../control-plane/agents/scripts/core/forecast.mjs';
-import { A, accepted, commitAll, rv, warmDefaultTemplate, project } from '../lib/harness.mjs';
+import { forecastRows, quantile, readTail } from '../../control-plane/agents/scripts/core/forecast.mjs';
+import { A, accepted, commitAll, rv, tmp, warmDefaultTemplate, project } from '../lib/harness.mjs';
 import { Z, installCore, pv, rebase, rrun, wr } from './risk-s1-lib.mjs';
 
 before(() => { warmDefaultTemplate(); });
@@ -46,15 +46,31 @@ test('c4_scope_uncounted: test files and fixture files are not code paths of max
   assert.match(m.text, /code paths|allows at most 2/);
 });
 
+test('c4_scope_fixture_data_only: a fixture folder exempts data, not an executable file (setup.mjs, prod.js, hook.sh count as code)', () => {
+  const freeze = (/** @type {string} */ paths) => {
+    const d = rrun('STANDARD', paths);
+    cfgSet(d, (x) => x.replace(/^( {4}max_scope_paths:) 15$/m, '$1 1'));
+    commitAll(d, 'limits'); rebase(d);
+    accepted(A(d, ['classify', 'LC', 'STANDARD', 'review']), 'classify');
+    return Z(d, ['freeze', 'LC']);
+  };
+  accepted(freeze('fixtures/data.json tests/fixtures/d.json testdata/page.html'), 'data under fixture folders is exempt');
+  for (const x of ['fixtures/x/setup.mjs', 'src/fixtures/prod.js', 'testdata/hook.sh']) {
+    const r = freeze(x);
+    assert.notEqual(r.status, 0, `${x} escaped the scope limit`);
+    assert.match(r.text, /allows at most 1/, x);
+  }
+});
+
 // ---- (a) the light profile ---------------------------------------------------------------------------------------------------------
 
 test('c4_light: a content task of class STANDARD with text and page files is light: no mutation testing, the design group off; a feature task is not', () => {
-  const light = lrun('type: content', 'STANDARD', 'site/index.html site/style.css');
+  const light = lrun('type: content', 'STANDARD', 'site/index.md site/about.mdx img/logo.png');
   const p = snap(light);
   assert.equal(pv(p, 'profile'), 'light', p);
   assert.equal(pv(p, 'mutation_testing'), 'off');
   assert.equal(pv(p, 'design_group'), 'off');
-  const feature = lrun('type: feature', 'STANDARD', 'site/index.html site/style.css');
+  const feature = lrun('type: feature', 'STANDARD', 'site/index.md site/about.mdx');
   const q = snap(feature);
   assert.equal(pv(q, 'profile'), 'full', q);
   assert.equal(pv(q, 'mutation_testing'), 'on');
@@ -62,25 +78,35 @@ test('c4_light: a content task of class STANDARD with text and page files is lig
 });
 
 test('c4_light_mandatory: the light profile drops no gate (SECRETS, SECURITY and the rest are the tier gates as before)', () => {
-  const light = lrun('type: docs', 'STANDARD', 'site/index.html');
-  const full = lrun('type: feature', 'STANDARD', 'site/index.html');
+  const light = lrun('type: docs', 'STANDARD', 'site/index.md');
+  const full = lrun('type: feature', 'STANDARD', 'site/index.md');
   assert.equal(pv(snap(light), 'gates'), pv(snap(full), 'gates'));
   assert.ok(pv(snap(light), 'gates').includes('SECRETS'));
 });
 
 test('c4_light_upward: code, dependency, config, CI, a data section, a risk focus or a higher class keep a content task out of the light profile', () => {
   for (const [what, paths] of [['code', 'src/app.js'], ['dependency', 'package.json'], ['CI', '.github/workflows/ci.yml'], ['config', 'config/site.toml']]) {
-    const p = snap(lrun('type: content', 'STANDARD', `site/index.html ${paths}`));
+    const p = snap(lrun('type: content', 'STANDARD', `site/index.md ${paths}`));
     assert.equal(pv(p, 'profile'), 'full', `${what}: ${p}`);
-    assert.match(pv(p, 'profile_reason'), /code|dependency|config|CI|risk/, what);
+    assert.match(pv(p, 'profile_reason'), /content file|dependency|config|CI|risk/, what);
   }
-  assert.equal(pv(snap(lrun('type: content', 'STANDARD', 'site/index.html', '\n## Data\n\ndestructive: no\n\nnothing\n')), 'profile'), 'full', 'a Data section');
-  assert.equal(pv(snap(lrun('type: content', 'COMPLEX', 'site/index.html')), 'profile'), 'full', 'COMPLEX');
-  assert.equal(pv(snap(lrun('type: content', 'STANDARD', 'site/index.html tests/page.test.js tests/fixtures/page.json')), 'profile'), 'light', 'tests and fixtures of the page do not leave it');
+  assert.equal(pv(snap(lrun('type: content', 'STANDARD', 'site/index.md', '\n## Data\n\ndestructive: no\n\nnothing\n')), 'profile'), 'full', 'a Data section');
+  assert.equal(pv(snap(lrun('type: content', 'COMPLEX', 'site/index.md')), 'profile'), 'full', 'COMPLEX');
+  // A364 (review): light is a positive list of content types; data, markup, style, scripts and tests make the run full
+  for (const p of ['src/auth/policy.json', 'data/prices.json', 'feed.xml', 'site/index.html', 'img/logo.svg', 'site/style.css', 'site/app.scss', 'tests/page.test.js', 'tests/fixtures/page.json', 'site/data.yaml', 'skills/x/NOTE.md']) {
+    const q = snap(lrun('type: content', 'STANDARD', `site/index.md ${p}`));
+    assert.equal(pv(q, 'profile'), 'full', `${p}: ${q}`);
+    assert.match(pv(q, 'profile_reason'), /content|config|risk|dependency|code-like/, p);
+  }
+  assert.equal(pv(snap(lrun('type: content', 'STANDARD', 'site/index.md notes/a.txt img/a.webp img/b.jpg img/c.gif')), 'profile'), 'light', 'content list');
+  const d = lrun('type: content', 'STANDARD', 'site/index.md');
+  cfgSet(d, (x) => x.replace(/^ {4}content_globs: .*$/m, '    content_globs: "*.md *.txt *.json"'));
+  wr(d, 'site/p.json', '{}\n');
+  assert.equal(pv(snap(d), 'profile'), 'light', `widened: ${pv(snap(d), 'profile_reason')}`);
 });
 
 test('c4_light_diff: a changed file the plan does not name reclassifies upward at the next call; nothing is stored', () => {
-  const d = lrun('type: content', 'STANDARD', 'site/index.html');
+  const d = lrun('type: content', 'STANDARD', 'site/index.md');
   assert.equal(pv(snap(d), 'profile'), 'light');
   wr(d, 'src/sneak.js', 'x\n');
   assert.equal(pv(snap(d), 'profile'), 'full');
@@ -88,7 +114,7 @@ test('c4_light_diff: a changed file the plan does not name reclassifies upward a
 });
 
 test('c4_light_budget: 25 test criteria need no mutation budget approval in the light profile, and do in a feature task', () => {
-  const l = lrun('type: content', 'STANDARD', 'site/index.html', tests25());
+  const l = lrun('type: content', 'STANDARD', 'site/index.md', tests25());
   commitAll(l, 'plan'); rebase(l);
   accepted(A(l, ['classify', 'LC', 'STANDARD', 'review']), 'classify');
   const ok = Z(l, ['freeze', 'LC']);
@@ -117,6 +143,18 @@ test('c4_defaults: fix rounds and the mutation budget have class defaults (STAND
   const bad = lrun('type: feature', 'COMPLEX', 'site/index.html');
   withClassDefaults(bad); cfgSet(bad, (x) => x.replace(/^( {4}max_fix_rounds:) 3$/m, '$1 11'));
   assert.notEqual(A(bad, ['config-check']).status, 0, 'a class fix round count above 10 is refused by config-check');
+});
+
+test('c4_defaults_lower_wins: a project own global value below the default is kept over the class key; a value at or above it yields to the class key', () => {
+  const run = (/** @type {string} */ g, /** @type {string} */ m) => {
+    const d = lrun('type: feature', 'COMPLEX', 'site/index.md'); withClassDefaults(d);
+    cfgSet(d, (x) => x.replace(/^ {2}max_fix_rounds: .*$/m, `  max_fix_rounds: ${g}`).replace(/^ {2}mutation_budget: .*$/m, `  mutation_budget: ${m}`));
+    return snap(d);
+  };
+  const a = run('1', '10');
+  assert.equal(pv(a, 'max_fix_rounds'), '1'); assert.equal(pv(a, 'max_mutants'), '10');
+  const b = run('5', '50');
+  assert.equal(pv(b, 'max_fix_rounds'), '3'); assert.equal(pv(b, 'max_mutants'), '30');
 });
 
 // ---- (c) the forecast --------------------------------------------------------------------------------------------------------------------
@@ -160,6 +198,20 @@ test('c4_forecast_approval: the plan approval request prints the forecast and th
 });
 
 // ---- (d) the template --------------------------------------------------------------------------------------------------------------------
+
+test('c4_forecast_tail: only the last 2 MB of records.jsonl are read, a partial first line is dropped', () => {
+  const d = tmp('f');
+  const file = path.join(d, 'records.jsonl');
+  const old = `${rec({ kind: 'run', task: 'OLD', class: 'COMPLEX', duration_s: 360000 })}\n`;
+  const pad = `${rec({ kind: 'step', task: 'PAD', duration_s: 1, pad: 'x'.repeat(900) })}\n`;
+  const recent = `${rec({ kind: 'run', task: 'NEW', class: 'COMPLEX', duration_s: 3600 })}\n`;
+  writeFileSync(file, old + pad.repeat(Math.ceil(2.2 * 1024 * 1024 / pad.length)) + recent);
+  const got = readTail(file);
+  assert.ok(got.length <= 2 * 1024 * 1024, `read ${got.length} bytes`);
+  assert.ok(got.startsWith('{') && got.endsWith('\n'), 'a partial first line is dropped');
+  assert.match(forecastRows(got, 'COMPLEX'), /1 finished COMPLEX run.*median 1\.0 h/);
+  assert.equal(readTail(path.join(d, 'absent.jsonl')), '');
+});
 
 test('c4_template: the plan template carries the Test review budget section and says CRITICAL states it', () => {
   const t = readFileSync(path.join(import.meta.dirname, '../../control-plane/agents/templates/PLAN.md'), 'utf8');

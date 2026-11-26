@@ -1,6 +1,25 @@
 // @ts-check
 // The forecast at plan approval (A364, issue 338 C4): what finished runs of the same class took in this project, from `.agents/local/metrics/records.jsonl`. Informational only: it
-// gates nothing and asks for no approval. A leaf module: the text in, a text out, no clock and no file access (the caller reads the file).
+// gates nothing and asks for no approval. No clock; the one file read is `readTail`, bounded to the last 2 MB.
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
+
+export const TAIL_BYTES = 2 * 1024 * 1024;
+
+/** The last TAIL_BYTES of a records file as text, a partial first line dropped; '' when the file is absent or unreadable. @param {string} file */
+export function readTail(file) {
+  let fd = -1;
+  try {
+    fd = openSync(file, 'r');
+    const size = fstatSync(fd).size;
+    const n = Math.min(size, TAIL_BYTES);
+    const buf = Buffer.alloc(n);
+    let got = 0;
+    while (got < n) { const r = readSync(fd, buf, got, n - got, size - n + got); if (r <= 0) break; got += r; }
+    let text = buf.subarray(0, got).toString('latin1');
+    if (size > n) { const nl = text.indexOf('\n'); text = nl < 0 ? '' : text.slice(nl + 1); }
+    return text;
+  } catch { return ''; } finally { if (fd >= 0) try { closeSync(fd); } catch { /* ignore */ } }
+}
 
 /** Nearest-rank quantile (q in 0..1) of a list of numbers; null for an empty list. @param {number[]} values @param {number} q */
 export function quantile(values, q) {

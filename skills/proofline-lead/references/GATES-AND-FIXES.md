@@ -79,8 +79,9 @@ re-run it on a weaker model (D7).
    applies it at the freeze and at `handoff IMPLEMENTED`.
 8. **Weight (A364).** `agent.sh pipeline <ID>` prints `profile=light|full`, `mutation_testing=on|off` and `design_group=optional|off`
    (with `profile_reason=` when full) and `max_fix_rounds`, `max_mutants` of the class (COMPLEX and CRITICAL 3 and 30, else 2 and 20). Light
-   (type content or docs, TRIVIAL or STANDARD, no code, dependency, configuration, CI or data in the plan or the diff) only drops the mutation
-   testing of REVIEW_TESTS and the optional design group of QA visual: tell the reviewer and QA so in the dispatch, from that output, never from
+   (type content or docs, TRIVIAL or STANDARD, only documentation text and images in the plan and the diff) only removes the mutation budget
+   approval need and, by your instruction, the mutation testing of REVIEW_TESTS and the optional design group of QA visual (the control plane does not enforce
+   that they skip them): tell the reviewer and QA so in the dispatch, from that output, never from
    your own judgement. Every gate stays. The plan approval request prints a forecast from earlier runs of the class and the test review
    budget: relay both verbatim. `max_scope_paths` does not count tests and fixtures.
 

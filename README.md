@@ -72,7 +72,7 @@ proofline status          # no run yet; prints the next step
 /proofline run TASK-001
 ```
 
-From a terminal, `proofline task` and `proofline run` print these same two lines for your agent session. The lead classifies the task, freezes a `PLAN.md` with a `scope:` file list, and dispatches one implementer. Gates run on the exact content; a FAIL goes back for at most `max_fix_rounds` (default 2, COMPLEX and CRITICAL 3). A content or docs task with no code, dependency, configuration or CI change runs a light profile (no mutation testing; every gate stays, [weight](docs/concepts/gates.md#weight-by-work-type)). You approve the plan for COMPLEX and CRITICAL tasks and every commit and push ([lifecycle](docs/concepts/workflow.md)).
+From a terminal, `proofline task` and `proofline run` print these same two lines for your agent session. The lead classifies the task, freezes a `PLAN.md` with a `scope:` file list, and dispatches one implementer. Gates run on the exact content; a FAIL goes back for at most `max_fix_rounds` (default 2, COMPLEX and CRITICAL 3). A content or docs task with no code, dependency, configuration or CI change runs a light profile (no mutation budget approval and an instruction that mutation testing is not required; every gate stays required, [weight](docs/concepts/gates.md#weight-by-work-type)). You approve the plan for COMPLEX and CRITICAL tasks and every commit and push ([lifecycle](docs/concepts/workflow.md)).
 
 On Codex, open it once in the project and approve the hooks with `/hooks`; without this the Codex-side protections do not run (`doctor` warns). Run a role on another runtime with `proofline init --role implementer=codex`. `ast-grep` and `rtk` are used when installed, never required.
 

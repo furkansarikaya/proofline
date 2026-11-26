@@ -18,7 +18,7 @@ import {
 } from './approvals.mjs';
 import { answersOpenQuestion } from './answerforms.mjs';
 import { blockingFindingIds, gateFocusStatus, gateLatestFile, requiredGates, taskPatchFingerprint, testReviewConfigCaps } from './gates.mjs';
-import { forecastRows } from './forecast.mjs';
+import { forecastRows, readTail } from './forecast.mjs';
 import { gateFingerprint } from './fingerprint.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { ledgerIf } from './lifecycle.mjs';
@@ -484,7 +484,7 @@ export function planTestAcs(plan) {
 export function planMutantNeed(plan) { return mutantNeed(plan, planTestAcs(plan)); }
 
 /**
- * The mutation budget a run's plan needs (A364): none in the light profile (the tests review there needs no mutation testing), else what the plan needs (`planMutantNeed`).
+ * The mutation budget a run's plan needs (A364): none in the light profile (no mutation budget approval is asked there; the reviewer is told by instruction, nothing is enforced), else what the plan needs (`planMutantNeed`).
  * @param {Context} ctx @param {string} id
  */
 export function mutantNeedFor(ctx, id) {
@@ -495,12 +495,12 @@ export function mutantNeedFor(ctx, id) {
 
 /** `mutation_budget ID` @param {Context} ctx @param {string} id */
 export function mutationBudget(ctx, id) {
-  let b = ctx.config().get('test_trust.mutation_budget', '20');
-  if (!/^[0-9]+$/.test(b)) b = '20';
-  // A364 (issue 338 C4): the class default, when the class has one, replaces the global key
+  const g = ctx.config().get('test_trust.mutation_budget', '');
+  let b = /^[0-9]+$/.test(g) ? g : '20';
+  // A364 (issue 338 C4): the class default, when the class has one, applies unless the project set a lower value itself (a stricter project setting wins: a global value below the default 20)
   const cls = pipelineClass(ctx, runDir(ctx, id));
   const cb = pipelineClassValid(cls) ? ctx.config().get(`pipelines.${cls}.mutation_budget`, '') : '';
-  if (/^[0-9]+$/.test(cb) && Number(cb) >= 1) b = cb;
+  if (/^[0-9]+$/.test(cb) && Number(cb) >= 1) b = /^[0-9]+$/.test(g) && Number(g) >= 1 && Number(g) < 20 && Number(g) < Number(cb) ? g : cb;
   let o = (readBytes(`${runDir(ctx, id)}/mutation_budget`) ?? '').replace(/\n+$/, '');
   if (!/^[0-9]+$/.test(o)) o = '0';
   o = o.replace(/^0+/, '');
@@ -519,7 +519,7 @@ export function mutationBudget(ctx, id) {
 function planApprovalRows(ctx, id, plan) {
   const dir = runDir(ctx, id);
   const cls = pipelineClass(ctx, dir);
-  const hist = readBytes(`${ctx.sharedMain()}/.agents/local/metrics/records.jsonl`) ?? '';
+  const hist = readTail(`${ctx.sharedMain()}/.agents/local/metrics/records.jsonl`);
   let out = pipelineClassValid(cls) ? forecastRows(hist, cls) : '';
   const [dr, dm] = testReviewConfigCaps(ctx);
   const dmut = Number(mutationBudget(ctx, id));

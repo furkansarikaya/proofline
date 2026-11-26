@@ -134,6 +134,7 @@ export function checkConfigLines(lines) {
     else if (/^pipelines\.[A-Z]+\.(max_fix_rounds|mutation_budget)$/.test(k)) { num(k, v); if (DIGITS.test(v) && n0(v) < 1) bad(`${k} must be at least 1`); else if (k.endsWith('max_fix_rounds') && DIGITS.test(v) && n0(v) > 10) bad(`${k} is at most 10`); }
     else if (k === 'profiles.light.types') { if (!/^(content|docs)( (content|docs))*$/.test(v)) bad(`profiles.light.types lists content and docs only: ${v}`); }
     else if (k === 'profiles.light.classes') { if (!/^(TRIVIAL|STANDARD)( (TRIVIAL|STANDARD))*$/.test(v)) bad(`profiles.light.classes lists TRIVIAL and STANDARD only (COMPLEX and CRITICAL are never light): ${v}`); }
+    else if (k === 'profiles.light.content_globs') { if (/(^| )\//.test(v) || /(^|[ /])\.\.([ /]|$)/.test(v) || v === '') bad('profiles.light.content_globs must be project-relative globs'); }
     else if (k === 'profiles.light.never_paths') { if (/(^| )\//.test(v) || /(^|[ /])\.\.([ /]|$)/.test(v)) bad('profiles.light.never_paths must be project-relative globs'); }
     else if (top === 'profiles' && k !== 'profiles' && k !== 'profiles.light') bad(`unknown profiles key: ${k} (want profiles.light.types, classes or never_paths)`);
     else if (/^pipelines\.[A-Z]+\.dispatch_timeout_seconds$/.test(k)) { num(k, v); if (DIGITS.test(v) && (n0(v) < 30 || n0(v) > 28800)) bad(`${k} must be 30 to 28800`); }

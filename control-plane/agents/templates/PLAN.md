@@ -48,7 +48,7 @@ When the UI changes (designer): screens, flows, states, accessibility, and the l
 
 A CRITICAL plan states it (A364): how far the tests review loop may go, as lines `- rounds: N`, `- minutes: N` and `- mutants: N` (or `units:` and `lines:`, from which the budget is derived).
 The plan approval shows it with the forecast of earlier runs of the class. A value above the config defaults (rounds 4, minutes 120, the class mutation budget) needs the user's own approval
-(A359); a lower one needs none. Optional for the other classes (delete the section), and not needed in the light profile (content and docs tasks have no mutation testing).
+(A359); a lower one needs none. Optional for the other classes (delete the section), and not needed in the light profile (content and docs tasks: no mutation budget approval is asked).
 
 ## Verification commands
 

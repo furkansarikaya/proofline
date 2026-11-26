@@ -680,17 +680,19 @@ export function reopenedFindings(ctx, dir, id) {
 }
 
 /**
- * `max_fix_rounds`: `pipelines.<CLASS>.max_fix_rounds` of the run's class when it has one (A364, issue 338 C4: bounded, 1 to 10), else `review.max_fix_rounds`.
+ * `max_fix_rounds`: `pipelines.<CLASS>.max_fix_rounds` of the run's class when it has one (A364, issue 338 C4: bounded, 1 to 10) but never above a `review.max_fix_rounds` the project set below the default 2; else `review.max_fix_rounds` (default 2).
  * @param {Context} ctx @param {string} [dir] the run folder (no folder: the global key)
  */
 export function maxFixRounds(ctx, dir) {
-  let v = ctx.config().get('review.max_fix_rounds', '2');
+  const g = ctx.config().get('review.max_fix_rounds', '');
+  let v = /^[0-9]+$/.test(g) ? g : '2';
   if (dir !== undefined) {
     const cls = pipelineClass(ctx, dir);
     const c = pipelineClassValid(cls) ? ctx.config().get(`pipelines.${cls}.max_fix_rounds`, '') : '';
-    if (/^[0-9]+$/.test(c) && Number(c) >= 1 && Number(c) <= 10) v = c;
+    // the class default replaces the global value, except a global value LOWER than the built-in default 2: a stricter project setting wins (A364)
+    if (/^[0-9]+$/.test(c) && Number(c) >= 1 && Number(c) <= 10) v = /^[0-9]+$/.test(g) && Number(g) < 2 && Number(g) < Number(c) ? g : c;
   }
-  return /^[0-9]+$/.test(v) ? Number(v) : 2;
+  return Number(v);
 }
 
 /** The sequence number of the last ledger row of an event, or 0. @param {Context} ctx @param {string} dir @param {string | RegExp} event */

@@ -113,9 +113,9 @@ export class PathKinds {
   /**
    * A364 (issue 338 C4): a test file (`test_code_path`) or a fixture / test-data file. Neither counts against `max_scope_paths`: a page task with ten fixtures or twelve tests is not
    * split for them. The test kind is the derived one (an allowed code extension, never a manifest, lock, configuration or risky path), so a product file in a folder called `tests` stays
-   * counted. @param {string} p
+   * counted. A fixture folder exempts DATA only: a file there that review.executable_code names (a script, a setup module) counts as code. @param {string} p
    */
-  testOrFixture(p) { return this.testCodePath(p) || pathMatches(p, FIXTURE_GLOBS); }
+  testOrFixture(p) { return this.testCodePath(p) || (pathMatches(p, FIXTURE_GLOBS) && !pathMatches(p, this.cfg.get('review.executable_code', EXECUTABLE_CODE_DEFAULT))); }
 
   /** `derived_kind PATH` @param {string} p */
   derivedKind(p) { return this.testCodePath(p) ? 'test' : this.pathKind(p); }

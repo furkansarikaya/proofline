@@ -28,15 +28,15 @@ A364. Weight comes from the work, decided by the control plane, never by an agen
 
 | Class | `max_fix_rounds` | `mutation_budget` | Light profile |
 |---|---|---|---|
-| TRIVIAL, STANDARD | 2 (`review.max_fix_rounds`) | 20 (`test_trust.mutation_budget`) | when the task `type:` is `content` or `docs` and nothing below disqualifies it: no mutation testing, 0 mutants |
+| TRIVIAL, STANDARD | 2 (`review.max_fix_rounds`) | 20 (`test_trust.mutation_budget`) | when the task `type:` is `content` or `docs` and nothing below disqualifies it: no mutation budget approval (need 0), mutation testing not required by instruction |
 | COMPLEX, CRITICAL | 3 (`pipelines.<CLASS>.max_fix_rounds`) | 30 (`pipelines.<CLASS>.mutation_budget`) | never |
 
-A class key replaces the global key for that class; fix rounds stay bounded (1 to 10) and a value above the class default is still the plan's `## Test review budget` with your `scope` approval, or your
-`mutation_budget` approval ([gate set](#fix-loop)). A `max_scope_paths` count leaves out test files and fixture or test-data files (`fixtures/`, `testdata/`, `__snapshots__/`); a product file stays counted.
+A class key replaces the global value for that class, except a global value below the default (2 fix rounds, 20 mutants) that the project set itself, which is kept (a stricter project setting wins; to keep the default for COMPLEX or CRITICAL set the class key); fix rounds stay bounded (1 to 10) and a value above the class default is still the plan's `## Test review budget` with your `scope` approval, or your
+`mutation_budget` approval ([gate set](#fix-loop)). A `max_scope_paths` count leaves out test files and fixture or test-data files (`fixtures/`, `testdata/`, `__snapshots__/`; data only: a script in a fixture folder counts as code); a product file stays counted.
 
 The light profile (`profiles.light` in the config) holds while the class is TRIVIAL or STANDARD, the sealed task says `type: content` or `type: docs`, the plan has no `## Data`, no destructive flag and no risk
-focus except the plain visual one, and no scope path or changed path is executable code, a risky or dependency path, a CI or configuration path or code-like Markdown (a test or fixture file is allowed). The check
-runs at every call from the manifest and stores nothing: a code file in the diff makes the run full at the next call. Light drops only the mutation testing of the tests review and the optional `design` group of the
+focus except the plain visual one, and every scope path and changed path is documentation text or an image (`profiles.light.content_globs`, default `*.md *.mdx *.txt *.rst *.adoc` and common image types): json, xml, html, svg, css, scripts, tests, fixtures and configuration make the run full, as does a risky, dependency, CI or code-like path. The check
+runs at every call from the manifest and stores nothing: a code file in the diff makes the run full at the next call. Light removes only the mutation budget approval need, and, by instruction to the reviewer and QA, the mutation testing of the tests review and the optional `design` group of the
 visual check; SECRETS, SECURITY, the reviews of the tier, QA with its plain visual check and VERIFY all run. `agent.sh pipeline <ID>` prints `profile`, `profile_reason`, `mutation_testing`, `design_group`,
 `max_fix_rounds` and `max_mutants`. The plan approval request prints the median and p90 wall time, agent time and tokens of finished runs of the same class (`no history` when none; informational) and the test review budget the plan states (a CRITICAL plan states one).
 
