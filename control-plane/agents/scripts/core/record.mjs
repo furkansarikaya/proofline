@@ -84,7 +84,8 @@ function recordVisualCheck(ctx, id, result) {
   try {
     const ap = `${tmp}/approved.json`;
     writeFileSync(ap, latin1Buf(approvedRationalesJson(ctx, id)));
-    const r = proc.run(process.execPath, [script, '--root', ctx.root, '--approved-rationales', ap, '--out', tmp], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
+    const taskArgs = existsSync(`${runDir(ctx, id)}/TASK.md`) ? ['--task', `${runDir(ctx, id)}/TASK.md`] : []; // U7: raw markup in text is exempt only where TASK.md quotes it
+    const r = proc.run(process.execPath, [script, '--root', ctx.root, '--approved-rationales', ap, ...taskArgs, '--out', tmp], { cwd: ctx.root, env: ctx.childEnv(), input: '', stdio: ['pipe', 'pipe', 'pipe'] });
     if (r.status !== 0 || !existsSync(`${tmp}/lint.json`)) {
       const log = Buffer.concat([r.stdout, r.stderr]).subarray(0, 300).toString('latin1').replace(/\n/g, ' ');
       reject(`visual PASS: lint-source.mjs could not run on the project, so the PASS cannot be checked (${log}); fix the cause, or submit UNSUPPORTED/BLOCKED with the reason`);

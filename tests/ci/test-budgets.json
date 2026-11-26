@@ -728,6 +728,10 @@
       "test_ms": 9000,
       "suite_ms": 65000
     },
+    "tests/core/report-human-checks.test.mjs": {
+      "test_ms": 6000,
+      "suite_ms": 10000
+    },
     "tests/core/run4c-report.test.mjs": {
       "test_ms": 15000,
       "suite_ms": 55000
@@ -1285,6 +1289,10 @@
       "suite_ms": 10000
     },
     "tests/skills/verify-proof.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/visual-proof-markup.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
     },

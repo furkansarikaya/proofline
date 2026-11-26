@@ -270,6 +270,27 @@ function leadContextFact(ctx) {
   return '';
 }
 
+/**
+ * U7 (A368): the checks QA cannot evaluate (language naturalness, tone, brand voice of a page that is not English), from `design.human_checks` of reviews/visual-proof/report.json
+ * (made by measure.mjs from the page facts, one per page; validate-visual.mjs requires one for every language page). null when there is no readable report; entries of a shape that
+ * is not a clean path and language code are left out, so no text of the report is copied.
+ * @param {Context} ctx @param {string} d @returns {{ path: string, lang: string }[] | null}
+ */
+function visualHumanChecks(ctx, d) {
+  const f = `${d}/reviews/visual-proof/report.json`;
+  if (!exists(f)) return null;
+  let rep;
+  try { rep = JSON.parse(readFileSync(f, 'utf8')); } catch { return null; }
+  const list = rep && rep.design && Array.isArray(rep.design.human_checks) ? rep.design.human_checks : [];
+  /** @type {{ path: string, lang: string }[]} */ const out = [];
+  for (const h of list) {
+    if (!h || h.kind !== 'language_naturalness' || typeof h.path !== 'string' || typeof h.lang !== 'string') continue;
+    if (!/^[A-Za-z0-9_./@~+%-]{1,120}$/.test(h.path) || h.path.startsWith('/') || h.path.split('/').includes('..') || !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(h.lang) || /^en(-|$)/i.test(h.lang)) continue;
+    if (!out.some((x) => x.path === h.path && x.lang === h.lang)) out.push({ path: h.path, lang: h.lang });
+  }
+  return out.slice(0, 50);
+}
+
 /** `report_facts ID` @param {Context} ctx @param {string} id */
 export function reportFacts(ctx, id) {
   requireRun(ctx, id);
@@ -293,6 +314,11 @@ export function reportFacts(ctx, id) {
         ctx.out(`- Known issue (not blocking, the gate record keeps the finding): ${fid} in gate ${g}, record ${rec}, follow-up task ${fu}\n`);
       }
     }
+  }
+  const hcs = visualHumanChecks(ctx, d);
+  if (hcs !== null) {
+    ctx.out(`- Human checks (not evaluated by QA): ${hcs.length}\n`);
+    for (const h of hcs) ctx.out(`  - Human check: language naturalness, tone and brand voice of ${h.path} (${h.lang}); QA cannot judge them, the user confirms or names what to change\n`);
   }
   const ks = sectionValue(ctx, d, 'execution', 'knowledge_state'); const kr = sectionValue(ctx, d, 'execution', 'knowledge_reason');
   ctx.out(`- Friction notes recorded (A200): proofline_bug ${frictionCount(ctx, d, 'proofline_bug')}, user-command ${frictionCount(ctx, d, 'user-command')}, user-shell ${frictionCount(ctx, d, 'user-shell')}\n`);
