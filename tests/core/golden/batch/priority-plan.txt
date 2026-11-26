@@ -33,6 +33,14 @@ The batch id is the first 12 hex digits of the sha256 of this file; the approval
 
 - none: no task raises a question that can be told from its task file
 
+## Acceptance criteria count (A377)
+
+- WARNING: T-3: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-1: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-5: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-2: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-4: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+
 ## Verification commands (A200)
 
 - commands.build, commands.test, commands.lint are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here
@@ -106,6 +114,14 @@ The batch id is the first 12 hex digits of the sha256 of this file; the approval
 ## Pre-flight questions (plan-lint, A200)
 
 - none: no task raises a question that can be told from its task file
+
+## Acceptance criteria count (A377)
+
+- WARNING: T-3: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-1: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-5: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-2: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: T-4: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
 
 ## Verification commands (A200)
 

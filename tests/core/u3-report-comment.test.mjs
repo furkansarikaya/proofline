@@ -178,8 +178,62 @@ test('mentions: every `@name` that GitHub could take is broken, wherever it stan
   }
   assert.ok(body('&lt;b&gt; &amp; &quot;x&quot;').includes('&lt;b&gt; &amp; &quot;x&quot;'), 'an ordinary entity was changed');
   assert.ok(body('a@b.c').includes('a@b.c'), 'an address was changed');
-  assert.ok(body('@octocat').includes(`@${Z}octocat`));
-  assert.ok(body('＠name').includes('＠name'));
+  assert.ok(body('@octocat').includes(`＠${Z}octocat`));
+  // A377: a U+FF20 already in the report folds to `@` under NFKC, so it gets the zero-width space too
+  assert.ok(body('＠name').includes(`＠${Z}name`));
+  assert.ok(body('﹫name').includes(`﹫${Z}name`));
+});
+
+// A377 (A369.1): what GitHub does with U+200B cannot be observed without posting to GitHub, and no test calls GitHub. So this pins that the sanitiser does not
+// rest on U+200B alone: each of the two layers on its own leaves no mention. Layer 1, GitHub strips every U+200B (and every other zero-width or format
+// character): no ASCII `@` is left after a non-word character. Layer 2, a normalisation folds U+FF20 and the other compatibility forms back (NFKC): the
+// zero-width space still stands between `@` and the name. A character reference is decoded once (as HTML is) in both cases.
+test('mentions: neither U+200B nor U+FF20 alone carries the neutralisation; every mention form stays broken when either is undone', () => {
+  const body = (/** @type {string} */ t) => Buffer.from(reportComment('GH-1', 'h', Buffer.from(t, 'utf8').toString('latin1')).body, 'latin1').toString('utf8').split('\n').slice(1).join('\n');
+  /** one HTML decode (what reaches the filter after rendering): every numeric reference, and the named ones that give `@`, `&` or a zero-width character @param {string} t */
+  const NAMED = { commat: '@', amp: '&', zerowidthspace: '\u200b', shy: '\u00ad', nobreak: '\u2060', zwnj: '\u200c', zwj: '\u200d' };
+  const decode = (t) => t.replace(/&(?:#[xX]([0-9a-fA-F]{1,6})|#([0-9]{1,7})|([A-Za-z][A-Za-z0-9]{0,31}));?/g, (m, x, d, n) => {
+    if (x !== undefined || d !== undefined) { const cp = x !== undefined ? parseInt(x, 16) : Number(d); return cp <= 0x10ffff ? String.fromCodePoint(cp) : m; }
+    return NAMED[/** @type {keyof typeof NAMED} */ (n.toLowerCase())] ?? m;
+  });
+  const stripZw = (/** @type {string} */ t) => t.replace(/[\u200b-\u200f\u2060-\u2064\ufeff\u00ad]/g, '');
+  const fold = (/** @type {string} */ t) => t.normalize('NFKC');
+  // `_` is not excluded before the `@`: emphasis (`_@name_`) renders the `@` at the start of a text node, where GitHub's filter takes it.
+  // The model: decode once, then undo one layer (strip every zero-width character, or fold by NFKC), then GitHub's filter.
+  const count = (/** @type {string} */ t, /** @type {(s: string) => string} */ undo = (x) => x) => [...undo(decode(t)).matchAll(/(^|[^A-Za-z0-9])@([A-Za-z0-9_-])/g)].length;
+  const mentions = (/** @type {string} */ t) => count(t);
+  const forms = ['_@octocat_', '__@octocat__', 'see _@org/team_ now', '*@octocat*', '~@octocat~', '**@org/team**', '_＠octocat_', '＠octocat', '﹫octocat', 'x ＠org/team', '__﹫org/team__',
+    '@octocat', 'plain @octocat here', '@org/team', '@a@b', '@@v6', '@-@v7', 'é@v8', '(@x)', '"@y"', '> @quoted', '- @item', '| @cell |', '[@link text](https://x)',
+    '<a title="@attr">x</a>', '<div>@inhtml</div>', '`@span`', '```\n@infence\n```', '\\@v4', 'x-@v2', 'path/@v3',
+    '&#64;victim', '&#x40;victim', '&#X40;v', '&#0064;v', '&#x0040;v', '&#64v', '&#x40v', '&commat;v', '&COMMAT;v', 'a &#64;b and (&commat;c)',
+    // A377 re-review: an `@` before a zero-width, soft-hyphen, fullwidth or enclosed character, or before a reference to one
+    '@\u200bx', '@\u2060x', '@\u00adx', '@\ufeffx', '@&ZeroWidthSpace;x', '@&shy;x', '@&#x200b;x', '@&NoBreak;x', '@ｘ', '@①', '_@\u200bocto_', '＠&ZeroWidthSpace;x', '＠\u200bx'];
+  for (const input of forms) {
+    const out = body(input);
+    assert.equal(mentions(out), 0, `as sent: ${JSON.stringify(input)} -> ${JSON.stringify(out)}`);
+    const preFolded = /[＠﹫]/.test(input); // a U+FF20 or U+FE6B the report already held rests on U+200B alone (limits A369.1)
+    if (!preFolded) assert.equal(count(out, stripZw), 0, `zero-width stripped: ${JSON.stringify(input)} -> ${JSON.stringify(stripZw(decode(out)))}`);
+    assert.equal(count(out, fold), 0, `NFKC folded: ${JSON.stringify(input)} -> ${JSON.stringify(fold(decode(out)))}`);
+    assert.ok(count(input, (x) => fold(stripZw(x))) > 0, `not a mention form: ${input}`); // the input itself would notify with both layers undone
+  }
+  // the two layers are what the text holds: U+FF20 then U+200B for an `@`, `&amp;` then U+200B for a reference
+  assert.ok(body('@octocat').startsWith('＠\u200boctocat'));
+  assert.ok(body('&#64;v').startsWith('&amp;\u200b#64;v'));
+  assert.equal(body('a@b.c'), 'a@b.c\n', 'an address was changed');
+  assert.ok(body('_@octocat_').startsWith('_＠\u200boctocat_'), 'an underscore before the @ left it unbroken');
+  assert.ok(body('@&ZeroWidthSpace;x').startsWith('＠\u200b&amp;ZeroWidthSpace;x'), 'a reference after the @ still decodes');
+  assert.equal(body('@ x and @'), '@ x and @\n', 'an @ before a space or at the end is not a mention');
+});
+
+// A377 review: the claim "U+FF20 and U+FE6B are the only characters besides `@` that NFKC folds to `@`" is checked over every code point, so a fold form the
+// sanitiser does not break cannot exist
+test('mentions: only @, U+FE6B and U+FF20 normalise (NFKC) to a text that holds @', () => {
+  const found = [];
+  for (let cp = 0; cp <= 0x10ffff; cp++) {
+    if (cp >= 0xd800 && cp <= 0xdfff) continue;
+    if (String.fromCodePoint(cp).normalize('NFKC').includes('@')) found.push(cp.toString(16));
+  }
+  assert.deepEqual(found, ['40', 'fe6b', 'ff20']);
 });
 
 test('github publish: a failed post names the retry and the report in the run; a comment that only quotes the marker cannot satisfy verify; a foreign source repo is refused', async () => {

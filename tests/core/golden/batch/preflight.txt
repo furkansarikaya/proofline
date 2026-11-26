@@ -59,6 +59,14 @@ These are the questions the plan of each task would raise at freeze, asked now s
     a) park the task until it is classified STANDARD or higher (task-author) [recommended]
     b) run it anyway (the classification stops at freeze)
 
+## Acceptance criteria count (A377)
+
+- WARNING: P-1: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: P-2: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: P-3: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: S-1: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+- WARNING: B-1: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
+
 ## Verification commands (A200)
 
 - commands.build, commands.test, commands.lint are empty and no proven proposal exists: no build record can be made and the verify gate has nothing to run for them. Before approving, run proofline doctor --commands and plan the batch again (agent.sh batch-plan --replace ...); the proposal then appears here

@@ -1,6 +1,6 @@
 # Günlük kullanım
 
-<!-- translated-from: docs/guides/daily-use.md; blob: a3c09263e645f58fdaaa3352d629df69d6ad3490 -->
+<!-- translated-from: docs/guides/daily-use.md; blob: 112afb5aba983c7d102d1e8ba5881d82e2fca6e7 -->
 
 Bu belge, [daily-use.md](../daily-use.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -58,6 +58,7 @@ Control plane Node kodudur; `.agents/scripts/agent.sh` onu başlatan ince bir la
 - Özet, task dosyalarının bildirdiği `## Test exceptions` satırlarını da listeler; batch'i onaylamak tam olarak bu satırları kabul eder (A285), kimsenin bildirmediği bir istisna task'ı park ettirir.
 - Bir batch task'ının knowledge adımı notun nereye gideceğini asla sormaz: knowledge sayfası yoksa `batch default (A291)` gerekçesiyle `not_applicable` kaydeder ve sabah tablosuna bir öneri ekler (A291).
 - Boş bir `commands.lint`, batch özetinde `proofline doctor --commands` önerisiyle ve bir WARNING ile gösterilir; lint'in bilerek olmadığını söylemek için `commands.lint: none` yaz (A366).
+- 3'ten az veya 6'dan fazla kabul kriteri olan bir task, batch özetinde bir WARNING satırı alır (A377); yalnızca bir uyarıdır, task yine çalışır.
 - Pull request'lerde CI check'i olmayan bir proje de batch çalıştırır: her pull request yalnızca commit'inin temiz bir kopyasında build ve test geçtikten sonra birleştirilir ve "verified locally, no CI" der.
 
 Ayrıntılar ve sınırlar: [night mode](../../concepts/night-mode.md).

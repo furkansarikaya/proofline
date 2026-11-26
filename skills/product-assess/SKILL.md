@@ -4,7 +4,7 @@ description: Tests the assumptions behind a product plan with the user in the ma
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.197"
+  version: "0.0.198"
 ---
 
 # product-assess
