@@ -160,12 +160,12 @@ function classWhy(text) {
 }
 
 const DEP_RE = /(new|add(s|ed|ing)?|introduc(e|es|ed|ing)|install(s|ed|ing)?|upgrade|bump)[^.]{0,40}(depend(ency|encies)|librar(y|ies)|package|module|crate|gem)|npm (i|install) |pip install|go get |cargo add|yarn add|pnpm add/i;
-// A375 (issue 338 U4, the deferred part of A366.1): the criteria-count rule of skills/task-author/scripts/validate-task.mjs (AC_MIN, AC_MAX and its parse:
+// A377 (issue 338 U4, the deferred part of A366.1): the criteria-count rule of skills/task-author/scripts/validate-task.mjs (AC_MIN, AC_MAX and its parse:
 // HTML comments removed, the `## Acceptance criteria` section, lines `AC-<n>:` with an optional `-` or `*` bullet). A skill is installable alone, so the rule is
 // repeated here and tests/core/batch-criteria-count.test.mjs compares both. A warning in the batch summary only, never a refusal or a question.
 export const AC_MIN = 3, AC_MAX = 6;
 // The parse is written out by hand: the validator's patterns (`<!--[\s\S]*?-->`, `^## (.+?)\s*$`) backtrack, and their cost grows with the square of a line
-// or of the comment openers (A375 review: a 78 KB `## a<spaces>x` line took 14.6 s). Each helper below gives the same result in one pass.
+// or of the comment openers (A377 review: a 78 KB `## a<spaces>x` line took 14.6 s). Each helper below gives the same result in one pass.
 /** The text without its closed HTML comments, as `/<!--[\s\S]*?-->/g` removes them. @param {string} t */
 function withoutComments(t) {
   let out = ''; let pos = 0;
@@ -590,11 +590,11 @@ function plan(ctx, argv) {
     o('These are the questions the plan of each task would raise at freeze, asked now so that no task parks on them overnight. Answer with the letters ("Q1 a, Q2 b"), in your own words ("Q1: do not split", "Q3 hayir"), or "all recommended". Your message is recorded as it is (agent.sh batch-answer) and applied when each plan freezes; a question you leave open is asked again at freeze, as before. An answer is never an approval of anything else.\n\n');
     for (const r of lintRows) { o(`- ${r[0]} [${r[1]}, ${r[2]}] ${r[3]}\n`); for (const opt of r[4].split('|')) o(`    ${opt}\n`); const c = carried.get(r[0]); if (c) o(`    answered by you earlier (option ${c.letter}, carried from batch ${prev.id}, your message ${c.msg}): not asked again\n`); }
   } else o('- none: no task raises a question that can be told from its task file\n');
-  // A375 (issue 338 U4): a task with fewer than 3 or more than 6 criteria gets a WARNING line; the section exists only when one does, so a batch of in-range tasks writes the summary it always wrote
+  // A377 (issue 338 U4): a task with fewer than 3 or more than 6 criteria gets a WARNING line; the section exists only when one does, so a batch of in-range tasks writes the summary it always wrote
   {
     /** @type {string[]} */ const rows = [];
     for (const x of orderList) { const w = criteriaCountWarning(criteriaCount(rd(/** @type {string} */ (tfile(td, x.id))))); if (w !== '') rows.push(`- WARNING: ${x.id}: ${w}\n`); }
-    if (rows.length > 0) { o('\n## Acceptance criteria count (A375)\n\n'); for (const r of rows) o(r); }
+    if (rows.length > 0) { o('\n## Acceptance criteria count (A377)\n\n'); for (const r of rows) o(r); }
   }
   o('\n## Verification commands (A200)\n\n');
   const names = cmdEmpty.join(', commands.');

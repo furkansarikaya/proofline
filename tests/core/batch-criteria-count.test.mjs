@@ -1,5 +1,5 @@
 // @ts-check
-// A375 (issue 338 U4, the deferred part of A366.1): batch-plan warns in its summary when a task has fewer than 3 or more than 6 acceptance criteria,
+// A377 (issue 338 U4, the deferred part of A366.1): batch-plan warns in its summary when a task has fewer than 3 or more than 6 acceptance criteria,
 // with the rule of skills/task-author/scripts/validate-task.mjs; a warning only (nothing refused, no question), and a batch of in-range tasks writes no new text.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -23,7 +23,7 @@ test('the count and the bounds are the ones of validate-task.mjs', () => {
     '# Task: X — t\n\n## Acceptance criteria\n\n* AC-1: star bullet\nAC-2: no bullet\n  - AC-3: indented is a continuation\n1. AC-4: numbered\n',
     '# Task: X — t\r\n\r\n## Acceptance criteria  \r\n\r\n- AC-1: crlf\r\n- AC-2: crlf\r\n',
     '# Task: X — t\n\n## Goal\n\nnone\n',
-    // the edges of the hand-written parse (A375 review): headings of whitespace, a line end inside a heading, an unclosed comment, bullets without space
+    // the edges of the hand-written parse (A377 review): headings of whitespace, a line end inside a heading, an unclosed comment, bullets without space
     `## Acceptance criteria\n${acs(2)}## \n- AC-3: still in the section\n##  \n- AC-4: a heading of one space ends it\n`,
     `## Acceptance criteria\n${acs(1)}## a\rb\n- AC-2: a heading with a carriage return inside is not one\n## \u2028\n- AC-3: nor one of a line separator\n`,
     `## Acceptance criteria\t \n${acs(3)}<!-- open\n- AC-4: after an unclosed comment\n<!-- x -->\n`,
@@ -33,7 +33,7 @@ test('the count and the bounds are the ones of validate-task.mjs', () => {
   for (const t of texts) assert.equal(criteriaCount(t), parseTask(t).acs.length, t);
 });
 
-// A375 review (bounded DoS): the validator's patterns backtrack quadratically (a 78 KB `## a<spaces>x` line took 14.6 s); the batch parse is linear. The time is
+// A377 review (bounded DoS): the validator's patterns backtrack quadratically (a 78 KB `## a<spaces>x` line took 14.6 s); the batch parse is linear. The time is
 // held by this file's CI budget row, not by a clock read here; the inputs are 200 KB each.
 test('hostile 200 KB lines are counted in one pass: a heading of spaces, comment openers without a close, a bullet of spaces', () => {
   const big = 200 * 1024;
@@ -58,12 +58,12 @@ test('batch-plan: a WARNING line for each task outside 3 to 6, none for in-range
   const r = AB(F, dir, ['batch-plan', 'all']);
   assert.equal(r.status, 0, r.err);
   const s = summaryOf(dir);
-  const sec = s.slice(s.indexOf('## Acceptance criteria count (A375)'), s.indexOf('## Verification commands'));
+  const sec = s.slice(s.indexOf('## Acceptance criteria count (A377)'), s.indexOf('## Verification commands'));
   assert.deepEqual(sec.split('\n').filter((l) => l.startsWith('- ')), [
     '- WARNING: C-2: the task has 2 acceptance criteria; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop',
     '- WARNING: C-7: the task has 7 acceptance criteria; 3 to 6 outcome-focused criteria are expected (group them by outcome or split the task); this is a warning, not a stop',
   ]);
-  assert.ok(s.indexOf('## Pre-flight questions') < s.indexOf('## Acceptance criteria count (A375)'));
+  assert.ok(s.indexOf('## Pre-flight questions') < s.indexOf('## Acceptance criteria count (A377)'));
   // all four tasks are in the order: the warning stops nothing
   assert.deepEqual(read(path.join(dir, '.agents/local/batch/order.tsv')).split('\n').filter(Boolean).map((l) => l.split('\t')[0]).sort(), ['C-2', 'C-3', 'C-6', 'C-7']);
 });

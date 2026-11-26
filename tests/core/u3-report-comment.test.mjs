@@ -179,12 +179,12 @@ test('mentions: every `@name` that GitHub could take is broken, wherever it stan
   assert.ok(body('&lt;b&gt; &amp; &quot;x&quot;').includes('&lt;b&gt; &amp; &quot;x&quot;'), 'an ordinary entity was changed');
   assert.ok(body('a@b.c').includes('a@b.c'), 'an address was changed');
   assert.ok(body('@octocat').includes(`＠${Z}octocat`));
-  // A375: a U+FF20 already in the report folds to `@` under NFKC, so it gets the zero-width space too
+  // A377: a U+FF20 already in the report folds to `@` under NFKC, so it gets the zero-width space too
   assert.ok(body('＠name').includes(`＠${Z}name`));
   assert.ok(body('﹫name').includes(`﹫${Z}name`));
 });
 
-// A375 (A369.1): what GitHub does with U+200B cannot be observed without posting to GitHub, and no test calls GitHub. So this pins that the sanitiser does not
+// A377 (A369.1): what GitHub does with U+200B cannot be observed without posting to GitHub, and no test calls GitHub. So this pins that the sanitiser does not
 // rest on U+200B alone: each of the two layers on its own leaves no mention. Layer 1, GitHub strips every U+200B (and every other zero-width or format
 // character): no ASCII `@` is left after a non-word character. Layer 2, a normalisation folds U+FF20 and the other compatibility forms back (NFKC): the
 // zero-width space still stands between `@` and the name. A character reference is decoded once (as HTML is) in both cases.
@@ -206,7 +206,7 @@ test('mentions: neither U+200B nor U+FF20 alone carries the neutralisation; ever
     '@octocat', 'plain @octocat here', '@org/team', '@a@b', '@@v6', '@-@v7', 'é@v8', '(@x)', '"@y"', '> @quoted', '- @item', '| @cell |', '[@link text](https://x)',
     '<a title="@attr">x</a>', '<div>@inhtml</div>', '`@span`', '```\n@infence\n```', '\\@v4', 'x-@v2', 'path/@v3',
     '&#64;victim', '&#x40;victim', '&#X40;v', '&#0064;v', '&#x0040;v', '&#64v', '&#x40v', '&commat;v', '&COMMAT;v', 'a &#64;b and (&commat;c)',
-    // A375 re-review: an `@` before a zero-width, soft-hyphen, fullwidth or enclosed character, or before a reference to one
+    // A377 re-review: an `@` before a zero-width, soft-hyphen, fullwidth or enclosed character, or before a reference to one
     '@\u200bx', '@\u2060x', '@\u00adx', '@\ufeffx', '@&ZeroWidthSpace;x', '@&shy;x', '@&#x200b;x', '@&NoBreak;x', '@ｘ', '@①', '_@\u200bocto_', '＠&ZeroWidthSpace;x', '＠\u200bx'];
   for (const input of forms) {
     const out = body(input);
@@ -225,7 +225,7 @@ test('mentions: neither U+200B nor U+FF20 alone carries the neutralisation; ever
   assert.equal(body('@ x and @'), '@ x and @\n', 'an @ before a space or at the end is not a mention');
 });
 
-// A375 review: the claim "U+FF20 and U+FE6B are the only characters besides `@` that NFKC folds to `@`" is checked over every code point, so a fold form the
+// A377 review: the claim "U+FF20 and U+FE6B are the only characters besides `@` that NFKC folds to `@`" is checked over every code point, so a fold form the
 // sanitiser does not break cannot exist
 test('mentions: only @, U+FE6B and U+FF20 normalise (NFKC) to a text that holds @', () => {
   const found = [];

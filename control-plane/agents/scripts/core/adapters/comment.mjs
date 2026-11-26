@@ -19,7 +19,7 @@ export const commentMarkerStart = (id) => `<!-- proofline:completion-report:${id
 // whitespace or the end of the line is broken: an underscore, a `*` or a `~` before it counts as a mention start, because Markdown emphasis (`_@name_`)
 // renders the `@` at the start of a text node; and whatever follows it counts, not only an ASCII name character, because a zero-width or soft-hyphen
 // character, a reference to one (`&ZeroWidthSpace;`, `&shy;`, `&#x200b;`), or a fullwidth or enclosed letter (`ｘ`, `①`) disappears or folds into a name
-// character if GitHub strips zero-width characters or applies NFKC (A375 review). The break is two independent changes (A375, A369.1): the `@` is replaced
+// character if GitHub strips zero-width characters or applies NFKC (A377 review). The break is two independent changes (A377, A369.1): the `@` is replaced
 // by U+FF20 FULLWIDTH COMMERCIAL AT (no ASCII `@` is left, so a GitHub that strips or ignores U+200B still finds no mention) AND a zero-width space follows
 // it (so a normalisation that folds U+FF20 back to `@` still finds none). A named reference right after the break (`@&ZeroWidthSpace;x`) gets its `&`
 // written as `&amp;`, so it shows as text and decodes to nothing that could join the name. A U+FF20 or U+FE6B SMALL COMMERCIAL AT already in the report

@@ -33,7 +33,7 @@ The batch id is the first 12 hex digits of the sha256 of this file; the approval
 
 - none: no task raises a question that can be told from its task file
 
-## Acceptance criteria count (A375)
+## Acceptance criteria count (A377)
 
 - WARNING: T-3: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
 - WARNING: T-1: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
@@ -115,7 +115,7 @@ The batch id is the first 12 hex digits of the sha256 of this file; the approval
 
 - none: no task raises a question that can be told from its task file
 
-## Acceptance criteria count (A375)
+## Acceptance criteria count (A377)
 
 - WARNING: T-3: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
 - WARNING: T-1: the task has 1 acceptance criterion; 3 to 6 outcome-focused criteria are expected (state each observable outcome with a number, a path or an exact message); this is a warning, not a stop
