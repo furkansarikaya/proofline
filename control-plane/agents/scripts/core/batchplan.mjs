@@ -164,13 +164,49 @@ const DEP_RE = /(new|add(s|ed|ing)?|introduc(e|es|ed|ing)|install(s|ed|ing)?|upg
 // HTML comments removed, the `## Acceptance criteria` section, lines `AC-<n>:` with an optional `-` or `*` bullet). A skill is installable alone, so the rule is
 // repeated here and tests/core/batch-criteria-count.test.mjs compares both. A warning in the batch summary only, never a refusal or a question.
 export const AC_MIN = 3, AC_MAX = 6;
+// The parse is written out by hand: the validator's patterns (`<!--[\s\S]*?-->`, `^## (.+?)\s*$`) backtrack, and their cost grows with the square of a line
+// or of the comment openers (A375 review: a 78 KB `## a<spaces>x` line took 14.6 s). Each helper below gives the same result in one pass.
+/** The text without its closed HTML comments, as `/<!--[\s\S]*?-->/g` removes them. @param {string} t */
+function withoutComments(t) {
+  let out = ''; let pos = 0;
+  for (;;) {
+    const i = t.indexOf('<!--', pos);
+    if (i < 0) break;
+    const j = t.indexOf('-->', i + 4);
+    if (j < 0) break; // an unclosed comment: the regex matches nothing from here on
+    out += t.slice(pos, i); pos = j + 3;
+  }
+  return out + t.slice(pos);
+}
+const LINE_END = /[\r\u2028\u2029]/; // what `.` of the heading pattern does not match inside a line
+/** The heading name of a line as `/^## (.+?)\s*$/` reads it, or null. @param {string} l */
+function headingOf(l) {
+  if (!l.startsWith('## ') || l.length === 3) return null;
+  const rest = l.slice(3);
+  const name = rest.trimEnd(); // trimEnd removes exactly the characters of `\s`
+  if (name === '') return LINE_END.test(rest[0]) ? null : rest[0]; // all whitespace: `.+?` takes one character, `\s*` the rest
+  return LINE_END.test(name) ? null : name;
+}
+/** Whether a line starts like `/^(?:[-*]\s+)?AC-(\d+):/`. @param {string} l */
+function isCriterion(l) {
+  let i = 0;
+  if (l[0] === '-' || l[0] === '*') {
+    i = 1;
+    while (i < l.length && /\s/.test(l[i])) i++;
+    if (i === 1) return false;
+  }
+  if (!l.startsWith('AC-', i)) return false;
+  let k = i + 3;
+  while (k < l.length && l[k] >= '0' && l[k] <= '9') k++;
+  return k > i + 3 && l[k] === ':';
+}
 /** The number of acceptance criteria of a task file, counted as validate-task.mjs counts them. @param {string} text @returns {number} */
 export function criteriaCount(text) {
   let g = false; let n = 0;
-  for (const l of text.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/)) {
-    const h = /^## (.+?)\s*$/.exec(l);
-    if (h) { g = h[1] === 'Acceptance criteria'; continue; }
-    if (g && /^(?:[-*]\s+)?AC-(\d+):/.test(l)) n++;
+  for (const l of withoutComments(text).split(/\r?\n/)) {
+    const h = headingOf(l);
+    if (h !== null) { g = h === 'Acceptance criteria'; continue; }
+    if (g && isCriterion(l)) n++;
   }
   return n;
 }

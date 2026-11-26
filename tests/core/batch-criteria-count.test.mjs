@@ -23,8 +23,24 @@ test('the count and the bounds are the ones of validate-task.mjs', () => {
     '# Task: X — t\n\n## Acceptance criteria\n\n* AC-1: star bullet\nAC-2: no bullet\n  - AC-3: indented is a continuation\n1. AC-4: numbered\n',
     '# Task: X — t\r\n\r\n## Acceptance criteria  \r\n\r\n- AC-1: crlf\r\n- AC-2: crlf\r\n',
     '# Task: X — t\n\n## Goal\n\nnone\n',
+    // the edges of the hand-written parse (A375 review): headings of whitespace, a line end inside a heading, an unclosed comment, bullets without space
+    `## Acceptance criteria\n${acs(2)}## \n- AC-3: still in the section\n##  \n- AC-4: a heading of one space ends it\n`,
+    `## Acceptance criteria\n${acs(1)}## a\rb\n- AC-2: a heading with a carriage return inside is not one\n## \u2028\n- AC-3: nor one of a line separator\n`,
+    `## Acceptance criteria\t \n${acs(3)}<!-- open\n- AC-4: after an unclosed comment\n<!-- x -->\n`,
+    `## Acceptance criteria\n-AC-1: no space\n- \tAC-2: tab\n-  AC-3x: no colon\n- AC-: no digits\nAC-12: twelve\n* AC-5: nbsp\n`,
+    `<!-- a --><!-- b -->## Acceptance criteria\n<!--\n- AC-1: hidden\n-->${acs(4)}`,
   ];
   for (const t of texts) assert.equal(criteriaCount(t), parseTask(t).acs.length, t);
+});
+
+// A375 review (bounded DoS): the validator's patterns backtrack quadratically (a 78 KB `## a<spaces>x` line took 14.6 s); the batch parse is linear. The time is
+// held by this file's CI budget row, not by a clock read here; the inputs are 200 KB each.
+test('hostile 200 KB lines are counted in one pass: a heading of spaces, comment openers without a close, a bullet of spaces', () => {
+  const big = 200 * 1024;
+  assert.equal(criteriaCount(`## Acceptance criteria\n${acs(2)}## a${' '.repeat(big)}x\n- AC-3: after the long heading\n`), 2);
+  assert.equal(criteriaCount(`## Acceptance criteria\n${acs(3)}${'<!--'.repeat(big / 4)}\n- AC-4: after the openers\n`), 4);
+  assert.equal(criteriaCount(`## Acceptance criteria\n-${' '.repeat(big)}x\n${'- AC-1: one\n'.repeat(1)}`), 1);
+  assert.equal(criteriaCount(`## Acceptance criteria${' '.repeat(big)}\n${acs(7)}`), 7);
 });
 
 test('the warning names the count for 1, 2 and 7 criteria and is empty for 0 and for 3 to 6', () => {
