@@ -19,6 +19,7 @@ import { fileText, ledgerLines, ledgerRows, parseLedgerLine, textLines } from '.
 import { planVerificationCommands } from './resultutil.mjs';
 import { runDir } from './runs.mjs';
 import { asciiLower } from './shellglob.mjs';
+import { pathMatches } from './scope.mjs';
 import { greenRecords, measureRequired, measureRun, planKinds, recordedTestPin, supersededGreens, supersederFilter, testCmdPin, controlGreenFor } from './testmeasure.mjs';
 import { claimedBy, isTestFile, reportJson, reportText, scanFiles, scanRules, testPathGlobs } from './waitscan.mjs';
 import { latin1Buf } from './wirebytes.mjs';
@@ -165,6 +166,36 @@ export function planTestsWithoutDurationOf(ctx, id) {
 }
 
 /**
+ * The security-relevant globs (A379, issue 338 C1): the project's `review.risky_paths` (auth, security, crypto, secrets, payment, ... in the shipped config) and the
+ * `global.security_paths` of every readable copy of ecosystems.json (approval, permission, guard, sandbox, session, token, parsing of input, process execution, network, upload),
+ * one list of data, no keyword list in code. A copy cannot remove a glob of another (the union of `ecosystemRowsAll`). @param {Context} ctx @returns {string[]}
+ */
+export function securityGlobs(ctx) {
+  const out = ctx.config().get('review.risky_paths', '').split(/\s+/).filter((g) => g !== '');
+  for (const [id, key, val] of ecosystemRowsAll(ctx) ?? []) if (id === '*' && key === 'security_paths' && val !== '') out.push(val);
+  return [...new Set(out)];
+}
+
+/**
+ * The first security-relevant glob a path matches, '' when none. Both sides are compared in ASCII lower case: the globs name words (`session`, `login`, `http`), and a PascalCase
+ * file (`src/Session.ts`, `LoginController.java`, `HttpClient.go`) is the same unit. Only the order of the review depends on it. @param {string} file @param {string[]} globs
+ */
+export function securityGlobOf(file, globs) {
+  const f = asciiLower(file);
+  return globs.find((g) => pathMatches(f, asciiLower(g))) ?? '';
+}
+
+/**
+ * The files in the order the reviewer mutates their units: every security-relevant file first (with the first glob it matches), then the rest; byte order inside each group.
+ * @param {Context} ctx @param {string[]} files @returns {Array<{ file: string, glob: string }>}
+ */
+export function securityOrder(ctx, files) {
+  const globs = securityGlobs(ctx);
+  const rows = [...files].sort().map((file) => ({ file, glob: securityGlobOf(file, globs) }));
+  return [...rows.filter((r) => r.glob !== ''), ...rows.filter((r) => r.glob === '')];
+}
+
+/**
  * Everything the reviewer reads, and the list of what a findings.json has to answer.
  * @param {Context} ctx @param {string} id
  */
@@ -176,7 +207,10 @@ export function collect(ctx, id) {
   const files = patchManifest(ctx, dir).map((l) => l.slice(0, l.indexOf('|'))).filter((p) => p !== '' && existsSync(`${ctx.root}/${p}`)).sort();
   // fail safe: every changed file an ecosystem claims is scanned; a test (by name, folder or content) for waits and clock reads, any other for clock reads
   const claimed = files.filter((f) => claimedBy(f, rules).length > 0);
-  const scan = scanFiles(ctx.root, claimed, rules, (f, text) => (isTestFile(f, text, rules, testGlobs) || testCodePath(ctx, f) ? ['wait', 'clock_read'] : ['clock_read']));
+  /** @type {Set<string>} */ const tests = new Set();
+  const scan = scanFiles(ctx.root, claimed, rules, (f, text) => { if (isTestFile(f, text, rules, testGlobs) || testCodePath(ctx, f)) { tests.add(f); return ['wait', 'clock_read']; } return ['clock_read']; });
+  // A379: the production files whose units the reviewer mutates, security-relevant ones first (the order HOLLOW.md tells the reviewer to scan units in)
+  const mutationOrder = securityOrder(ctx, claimed.filter((f) => scan.scanned.includes(f) && !tests.has(f)));
   const waitFiles = new Set(scan.candidates.filter((c) => c.kind === 'wait').map((c) => c.file));
   const plan = fileText(ctx, `${dir}/PLAN.md`) ?? '';
   const exceptions = planExceptions(plan);
@@ -238,7 +272,7 @@ export function collect(ctx, id) {
   const ecoChanged = pinned0 !== null && pinned0 !== eco;
   if (ecoChanged) need.push({ text: 'ecosystems.json changed since the run started (subject: ecosystems.json)', kind: 'not_measured', match: nm('definition_changed', 'ecosystems.json') });
   measurement.definition_changed = ecoChanged;
-  return { files, scan, waitFiles, exceptions, measurement, commands, testFiles: files.filter((f) => scan.scanned.includes(f) && (testCodePath(ctx, f) || scan.candidates.some((c) => c.file === f && c.kind === 'wait'))), need };
+  return { files, scan, waitFiles, exceptions, measurement, commands, mutationOrder, testFiles: files.filter((f) => scan.scanned.includes(f) && (testCodePath(ctx, f) || scan.candidates.some((c) => c.file === f && c.kind === 'wait'))), need };
 }
 
 /**
@@ -253,10 +287,11 @@ export function reviewInputs(ctx, id, json) {
   if (json) {
     const base = JSON.parse(reportJson(report));
     const cl = (/** @type {string} */ x) => clean(x);
-    return { status, out: `${JSON.stringify({ ...base, task_test_files: c.testFiles.map(cl), plan_exceptions: c.exceptions.map((e) => ({ kind: e.kind, target: cl(e.target), reason: cl(e.reason) })), measurement: { ...m, green_commands: m.green_commands.map((g) => ({ command: cl(g.command), source: g.source, ...(g.source === 'superseded' ? { superseded_by: g.superseded_by } : {}) })), plan_tests_without_duration: m.plan_tests_without_duration.map(cl), durations: m.durations.map((d) => ({ ...d, name: cl(d.name) })), budget_findings: m.budget_findings.map(cl), unscanned: m.unscanned.map(cl), test_measure_row: cl(m.test_measure_row) } }, null, 2)}\n` };
+    return { status, out: `${JSON.stringify({ ...base, task_test_files: c.testFiles.map(cl), mutation_order: c.mutationOrder.map((u) => ({ file: cl(u.file), security_relevant: u.glob !== '', matched: cl(u.glob) })), plan_exceptions: c.exceptions.map((e) => ({ kind: e.kind, target: cl(e.target), reason: cl(e.reason) })), measurement: { ...m, green_commands: m.green_commands.map((g) => ({ command: cl(g.command), source: g.source, ...(g.source === 'superseded' ? { superseded_by: g.superseded_by } : {}) })), plan_tests_without_duration: m.plan_tests_without_duration.map(cl), durations: m.durations.map((d) => ({ ...d, name: cl(d.name) })), budget_findings: m.budget_findings.map(cl), unscanned: m.unscanned.map(cl), test_measure_row: cl(m.test_measure_row) } }, null, 2)}\n` };
   }
   let t = reportText(report);
   t += `task-test-files: ${c.testFiles.length === 0 ? 'none' : c.testFiles.map(clean).join(' ')}\n`;
+  t += `mutation-order: ${c.mutationOrder.length === 0 ? 'none' : c.mutationOrder.map((u) => (u.glob === '' ? clean(u.file) : `${clean(u.file)} (security-relevant: ${clean(u.glob)})`)).join(' ')}\n`;
   for (const e of c.exceptions) t += `plan-exception: ${e.kind} ${clean(e.target)} -- ${clean(e.reason)}\n`;
   t += 'measurement:\n';
   t += `  test-measure-row: ${m.test_measure_row === 'none' ? 'none (the control plane has not measured this run)' : clean(m.test_measure_row)}\n`;

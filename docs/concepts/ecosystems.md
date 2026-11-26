@@ -297,4 +297,6 @@ proofline works alongside skills specific to your ecosystem. The gates verify th
 
 ## Retries in the project's own configuration (A275)
 
+`global.security_paths` (A379) lists the path globs of security-relevant code that no ecosystem owns: approval, permission, guard, sandbox, login, session, token, password, credential and secret handling, parsing and deserializing input, sanitizing and escaping, process execution (`exec`, `spawn`, `shell`), network (`http`, `socket`) and upload. With the project's `review.risky_paths` they make the files `agent.sh build-record <ID> scan` marks `security-relevant` in its `mutation-order:` line, the order in which the tests reviewer mutates units (path and glob compared in ASCII lower case, so `LoginController.java` matches `**/*login*.*`). It only orders the review; it adds no gate and no finding. `node ecosystems.mjs check` requires a non-empty list.
+
 `global.test_retry` lists where a project's CI or test-runner configuration retries a test: `file` (a glob), `pattern` (a line pattern, the part of regular expressions that POSIX ERE and JavaScript share) and `what` (the text reported). At handoff IMPLEMENTED one generic scan reports every hit as a note; proofline never retries a test itself. A new CI or runner is one more entry; no shared code names an ecosystem.

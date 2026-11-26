@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.200 — 2026-11-27
+
+- Fix (A379, issue 338 C1, the part A359 deferred): the minutes cap of the tests review loop is enforced. The control plane counts the minutes with its own clock from the loop's first sealed ledger row that shows the tests reviewer at work (its `decide` dispatch row, or a mutant result it recorded; a reopen or a REVIEW_TESTS pass ends a loop and the next one starts its own clock; no time an agent supplies is read); past the plan's `minutes` (else `test_trust.review_minutes`) a failing REVIEW_TESTS refuses the fix round and `--re-review` with `test review cap reached` and asks the user once, exactly as the round cap does; the gate never passes. No recorded start is `not recorded`: not counted, and the round cap still bounds the loop; an invalid minutes value is the default. `build-record <ID> mutant-summary` prints a `TIME:` line. The tests reviewer mutates security-relevant units first: `build-record <ID> scan` prints `mutation-order:` (JSON `mutation_order`), the task's production files with those matching `review.risky_paths` or the new `global.security_paths` of ecosystems.json (approval, permission, guard, sandbox, session, token, parsing, process execution, network, upload; compared in lower case) first, and `mutant-summary` lists their units first.
+
 ## 0.0.199 — 2026-11-27
 
 - Feature (A378, issue 338 U8, the part A370.1 deferred): `proofline retro` also counts `.agents/local/approve.log` (approval steps recorded and not recorded per run, their kinds and sources, steps stopped by the hook budget, first-to-last minutes) and `.agents/local/status-block.log` (failed status block updates per run by event; updates sent stay `not recorded`), the ledger approvals by source, and the minutes per gate from the agent records that name the gate (`not recorded` for a gate no record times). Text and `--json` (`proofline.retro/1`, fields added). Counts only: a log line is matched against the forms the control plane writes and no part of it is printed. The read-set comparison, the hook logs and the prompt history stay deferred (docs/limits.md A370.1).

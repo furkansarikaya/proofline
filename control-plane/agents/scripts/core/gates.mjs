@@ -12,11 +12,12 @@ import { catFile, git, objectExists, sortUnique, trackedPaths, untrackedPaths } 
 import { sha256 } from './hash.mjs';
 import { boundNames, listNames, verifySeal } from './ledger.mjs';
 import { isFile } from './paths.mjs';
-import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, ledgerRows, planScope, planSectionPresent, sectionValue, textLines } from './records.mjs';
+import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, ledgerRows, parseLedgerLine, planScope, planSectionPresent, sectionValue, textLines } from './records.mjs';
 import { knownControlArtifact, runDir } from './runs.mjs';
 import { findingBatchAccepted, findingKnownIssue, findingStandingWaived } from './knownissues.mjs';
 import { pathMatches } from './scope.mjs';
-import { parseReviewBudget } from './testreviewbudget.mjs';
+import { parseReviewBudget, reviewLoopClock, reviewMinutesUsed } from './testreviewbudget.mjs';
+import { now } from './clock.mjs';
 import { designSurfacePaths, strictTestPath, uiPathHit, ecosystemSets, pipelineClassValid, pipelineClass, pipelineDeclared, pipelineNeeds, riskGateFocuses, riskNames, riskPaths, tierEffective } from './signals.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
@@ -821,13 +822,35 @@ export function testReviewRounds(ctx, dir) {
 }
 
 /**
- * True when the test review has used its rounds and the gate still fails: the gate does NOT pass (a cap never turns a FAIL into a PASS; Core invariants 1 and 6). What happens next
- * is the user's decision: a larger cap (a plan amendment), a written waiver of the specific residual survivors (never SECURITY or SECRETS), or stopping the run.
- * @param {Context} ctx @param {string} dir @param {string} id
+ * The most minutes of the test review loop (A359, A379): the plan's `## Test review budget` `minutes:`, else `test_trust.review_minutes`, else 120. A missing or invalid value is the
+ * default, never "no cap". @param {Context} ctx @param {string} dir
  */
-export function testReviewCapReached(ctx, dir, id) {
-  if (!requiredGates(ctx, dir).includes('REVIEW_TESTS')) return false;
-  return testReviewRounds(ctx, dir) >= testReviewCap(ctx, dir) && gateStatus(ctx, dir, id, 'REVIEW_TESTS') === 'fail';
+export function testReviewMinutesCap(ctx, dir) {
+  const m = parseReviewBudget(fileText(ctx, `${dir}/PLAN.md`) ?? '').minutes;
+  if (m !== null) return m;
+  return testReviewConfigCaps(ctx)[1];
+}
+
+/** The clock of the test review loop from the sealed ledger (A379, `reviewLoopClock`). @param {Context} ctx @param {string} dir @param {number} nowEpoch */
+export function testReviewClock(ctx, dir, nowEpoch) {
+  /** @type {import('./testreviewbudget.mjs').ClockRow[]} */ const rows = [];
+  for (const l of fileLines(ctx, `${dir}/LEDGER.log`)) { const r = parseLedgerLine(l); if (r !== null) rows.push(r); }
+  return reviewLoopClock(rows, nowEpoch);
+}
+
+/**
+ * Which cap closes the test review loop now: 'rounds', 'minutes' or '' (A359, A379). Only while REVIEW_TESTS is required and fails: the gate does NOT pass (a cap never turns a FAIL
+ * into a PASS; Core invariants 1 and 6) and a passing gate is never failed by it. What happens next is the user's decision: a larger cap (a plan amendment), a written waiver of the
+ * specific residual survivors (never SECURITY or SECRETS), or stopping the run. The round cap is checked first (its question and its ledger key stay as A359 wrote them). The minutes are the control plane's clock since the loop's first
+ * recorded test review dispatch; NOW is an argument only so that a test in this process can pass its own clock (the commands pass the real one).
+ * @param {Context} ctx @param {string} dir @param {string} id @param {number} [nowEpoch] @returns {'' | 'rounds' | 'minutes'}
+ */
+export function testReviewCapReason(ctx, dir, id, nowEpoch = now().epoch) {
+  if (!requiredGates(ctx, dir).includes('REVIEW_TESTS')) return '';
+  if (gateStatus(ctx, dir, id, 'REVIEW_TESTS') !== 'fail') return '';
+  if (testReviewRounds(ctx, dir) >= testReviewCap(ctx, dir)) return 'rounds';
+  if (reviewMinutesUsed(testReviewClock(ctx, dir, nowEpoch), testReviewMinutesCap(ctx, dir))) return 'minutes';
+  return '';
 }
 
 // ---- reports the pipeline shows -------------------------------------------------------------------------------------------------

@@ -184,7 +184,7 @@ export function validate(data = loadEcosystems()) {
   const need = (cond, msg) => { if (!cond) err.push(msg); };
   need(data.schema_version === 1, "schema_version must be 1");
   const g = data.global ?? {};
-  for (const k of ["prune", "risky_paths"]) need(Array.isArray(g[k]) && g[k].length > 0, `global.${k} must be a non-empty array`);
+  for (const k of ["prune", "risky_paths", "security_paths"]) need(Array.isArray(g[k]) && g[k].length > 0, `global.${k} must be a non-empty array`);
   for (const k of ["discover_max_markers", "version_scan_depth", "version_scan_max_files", "scan_max_files"]) need(/^[0-9]+$/.test(g.limits?.[k] ?? ""), `global.limits.${k} must be a digit string`);
   for (const k of ["tools", "build", "test", "lint"]) need(g.ci_scan && k in g.ci_scan, `global.ci_scan.${k} missing`);
   // #265 (A275): where the project's own CI or test-runner configuration retries a test (reported, never used). file is a glob, pattern a line pattern.

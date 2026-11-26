@@ -4,6 +4,7 @@
 // effective tier record. Messages, ordering of the checks and the writes are those of agent.sh 0.0.47 (the freeze consumes approvals, so does this).
 import { buildRecord } from './buildrecord.mjs';
 import { sha256 } from './hash.mjs';
+import { now } from './clock.mjs';
 import { planVerificationCommands } from './resultutil.mjs';
 import { measureRequired, measureRun, realRunner } from './testmeasure.mjs';
 import { controlPlaneGreen } from './greenrun.mjs';
@@ -19,7 +20,7 @@ import { approvedMeasureTargets, evidenceRepairCovers } from './evidencerepair.m
 import { planTestsWithoutDurationOf } from './testreview.mjs';
 import { ensurePlanningWindow } from './planningattest.mjs';
 import { settleSpecialists } from './specialists.mjs';
-import { fixRoundsUsed, gateStatus, maxFixRounds, testReviewCap, testReviewCapReached, testReviewRounds, patchManifest, reopenedFindings, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
+import { fixRoundsUsed, gateStatus, maxFixRounds, testReviewCap, testReviewCapReason, testReviewClock, testReviewMinutesCap, testReviewRounds, patchManifest, reopenedFindings, requiredGates, taskPatchFingerprint, verifyLifecycleGates, verifyMutationOwnership, verifyRequiredGates } from './gates.mjs';
 import { git } from './git.mjs';
 import { languageFailText, languageScanFiles } from './language.mjs';
 import { ledgerAppend, verifySeal } from './ledger.mjs';
@@ -221,18 +222,25 @@ export function verifyFixBound(ctx, id) {
 
 /**
  * A359: the test review loop is bounded by the plan (`## Test review budget` rounds, else test_trust.review_rounds). At the cap the gate stays failed and the run stops with one line;
- * the user's decision is asked once per round count through the question mechanism. @param {Context} ctx @param {string} id @param {string} dir
+ * the user's decision is asked once per round count through the question mechanism. A379: the minutes cap (`minutes`, else test_trust.review_minutes) closes the loop the same way,
+ * counted by the control plane's clock from the loop's first recorded test review dispatch; asked once per round count and minutes cap.
+ * @param {Context} ctx @param {string} id @param {string} dir
  */
 function testReviewCapStop(ctx, id, dir) {
-  if (!testReviewCapReached(ctx, dir, id)) return;
+  const t = now().epoch;
+  const why = testReviewCapReason(ctx, dir, id, t);
+  if (why === '') return;
   const used = testReviewRounds(ctx, dir);
-  const key = `rounds=${used}`;
+  const cap = testReviewCap(ctx, dir); const mcap = testReviewMinutesCap(ctx, dir);
+  const mins = Math.floor(testReviewClock(ctx, dir, t).seconds / 60);
+  const key = why === 'rounds' ? `rounds=${used}` : `minutes=${mcap} rounds=${used}`;
+  const state = why === 'rounds' ? `after ${used} rounds (cap ${cap})` : `after ${mins} minutes since the first test review dispatch of this loop (cap ${mcap} minutes; ${used} of ${cap} rounds)`;
   if (!ledgerRows(ctx, dir, 'test-review-cap').some((r) => r.detail === key)) {
-    askQuestion(ctx, id, `QUESTIONS:\n1. test review cap reached: REVIEW_TESTS still fails after ${used} rounds (cap ${testReviewCap(ctx, dir)}). What now?\n   options: (a) continue with a larger cap (amend PLAN ## Test review budget rounds, one scope approval); (b) accept the residual survivors in writing, naming each mutant (a waiver of those specific mutants; SECURITY and SECRETS are never waived); (c) stop the run\n   recommended: none (the user decides)\n`);
+    askQuestion(ctx, id, `QUESTIONS:\n1. test review cap reached: REVIEW_TESTS still fails ${state}. What now?\n   options: (a) continue with a larger cap (amend PLAN ## Test review budget ${why === 'rounds' ? 'rounds' : 'minutes'}, one scope approval); (b) accept the residual survivors in writing, naming each mutant (a waiver of those specific mutants; SECURITY and SECRETS are never waived); (c) stop the run\n   recommended: none (the user decides)\n`);
     ledgerAppend(dir, ctx.role, 'test-review-cap', '-', '-', key);
     ctx.forget('file:');
   }
-  fail(`test review cap reached (${used} rounds, cap ${testReviewCap(ctx, dir)}): REVIEW_TESTS still fails; the question for the user is recorded ('agent.sh questions ${id}')`);
+  fail(`test review cap reached (${why === 'rounds' ? `${used} rounds, cap ${cap}` : `${mins} minutes, cap ${mcap} minutes`}): REVIEW_TESTS still fails; the question for the user is recorded ('agent.sh questions ${id}')`);
 }
 
 /** `reopen_for_fix ID` @param {Context} ctx @param {string} id */

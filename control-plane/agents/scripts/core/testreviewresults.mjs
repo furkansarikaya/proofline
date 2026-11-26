@@ -9,7 +9,9 @@
 import { lstatSync } from 'node:fs';
 import path from 'node:path';
 import { fail } from './errors.mjs';
-import { taskOwnedPaths } from './gates.mjs';
+import { taskOwnedPaths, testReviewClock, testReviewMinutesCap } from './gates.mjs';
+import { now } from './clock.mjs';
+import { securityGlobOf, securityGlobs } from './testreview.mjs';
 import { sha256, sha256File } from './hash.mjs';
 import { led } from './lifeutil.mjs';
 import { gatesEnforced, ledgerRows } from './records.mjs';
@@ -42,22 +44,49 @@ function results(ctx, id) {
   return out;
 }
 
-/** The lines of the summary. @param {Array<{ unit: string, result: string, cls: string }>} rows */
-export function summarize(rows) {
-  /** @type {Map<string, { killed: number, survived: number, newClass: number }>} */ const units = new Map();
+/**
+ * The lines of the summary. A379: the units with a result on a security-relevant file (its key is in SECURITY) come first, marked `(security-relevant)`; byte order inside each group.
+ * @param {Array<{ unit: string, result: string, cls: string, key?: string }>} rows @param {Set<string>} [security] the current keys of the task's security-relevant files
+ */
+export function summarize(rows, security = new Set()) {
+  /** @type {Map<string, { killed: number, survived: number, newClass: number, sec: boolean }>} */ const units = new Map();
   for (const r of rows) {
-    const u = units.get(r.unit) ?? { killed: 0, survived: 0, newClass: 0 };
+    const u = units.get(r.unit) ?? { killed: 0, survived: 0, newClass: 0, sec: false };
     if (r.result === 'survived') u.survived++; else u.killed++;
     if (r.cls === 'new') u.newClass++;
+    if (r.key !== undefined && security.has(r.key)) u.sec = true;
     units.set(r.unit, u);
   }
-  const names = [...units.keys()].sort();
-  const lines = names.map((n) => { const u = /** @type {{ killed: number, survived: number, newClass: number }} */ (units.get(n)); return `unit ${n}: ${u.killed + u.survived} run, ${u.killed} killed, ${u.survived} survived${u.newClass ? `, ${u.newClass} of class new` : ''}`; });
-  const open = names.filter((n) => /** @type {{ survived: number }} */ (units.get(n)).survived > 0);
-  const closed = names.filter((n) => /** @type {{ survived: number }} */ (units.get(n)).survived === 0);
+  const get = (/** @type {string} */ n) => /** @type {{ killed: number, survived: number, newClass: number, sec: boolean }} */ (units.get(n));
+  const sorted = [...units.keys()].sort();
+  const names = [...sorted.filter((n) => get(n).sec), ...sorted.filter((n) => !get(n).sec)];
+  const lines = names.map((n) => { const u = get(n); return `unit ${n}${u.sec ? ' (security-relevant)' : ''}: ${u.killed + u.survived} run, ${u.killed} killed, ${u.survived} survived${u.newClass ? `, ${u.newClass} of class new` : ''}`; });
+  const open = names.filter((n) => get(n).survived > 0);
+  const closed = names.filter((n) => get(n).survived === 0);
   const nw = rows.filter((r) => r.cls === 'new' && r.result === 'survived').length;
   lines.push(`ADEQUACY: ${closed.length} unit(s) closed${closed.length ? ` (${closed.join(', ')})` : ''}; ${open.length} with survivors${open.length ? ` (${open.join(', ')})` : ''}; ${nw} survivor(s) found by widening the mutant set, labelled \`new class\`, not new findings`);
   return lines;
+}
+
+/**
+ * The TIME line of the summary (A379): the minutes of the loop by the control plane's clock, against the minutes cap. @param {Context} ctx @param {string} dir @param {number} nowEpoch
+ */
+export function timeLine(ctx, dir, nowEpoch) {
+  const c = testReviewClock(ctx, dir, nowEpoch); const cap = testReviewMinutesCap(ctx, dir);
+  if (c.start === null) return `TIME: not recorded (no test review dispatch or mutant result is in the ledger since the last reopen or REVIEW_TESTS pass; the minutes cap of ${cap} is not counted and the round cap still holds)`;
+  const m = Math.floor(c.seconds / 60);
+  return `TIME: ${m} of ${cap} minutes since the first test review dispatch of this loop (ledger row ${c.seq})${m >= cap ? '; the minutes cap is used: start no more mutants, a failing REVIEW_TESTS stops the loop' : ''}`;
+}
+
+/** The current keys of the task's security-relevant owned files (A379). @param {Context} ctx @param {string} id */
+function securityKeys(ctx, id) {
+  const globs = securityGlobs(ctx);
+  /** @type {Set<string>} */ const out = new Set();
+  for (const [p] of taskOwnedPaths(ctx, runDir(ctx, id))) {
+    if (securityGlobOf(p, globs) === '') continue;
+    try { out.add(mutantKey(ctx, id, p)); } catch { /* a removed or odd path has no key: nothing to order by */ }
+  }
+  return out;
 }
 
 /** `build-record ID mutant-known|mutant-record|mutant-summary ...` @param {Context} ctx @param {string} id @param {string} op @param {string[]} args @returns {number} */
@@ -67,9 +96,10 @@ export function mutantCommand(ctx, id, op, args) {
   if (op === 'mutant-summary') {
     if (args.length !== 0) fail('usage: agent.sh build-record <ID> mutant-summary');
     // each (unit, mutant) counts once, by its latest row: a mutant re-run after a change of the code or the tests replaces the older result
-    /** @type {Map<string, { unit: string, result: string, cls: string }>} */ const latest = new Map();
+    /** @type {Map<string, { unit: string, result: string, cls: string, key: string }>} */ const latest = new Map();
     for (const r of results(ctx, id)) latest.set(`${r.unit}/${r.id}`, r);
-    for (const l of summarize([...latest.values()])) ctx.out(`${l}\n`);
+    for (const l of summarize([...latest.values()], securityKeys(ctx, id))) ctx.out(`${l}\n`);
+    ctx.out(`${timeLine(ctx, dir, now().epoch)}\n`);
     return 0;
   }
   if (op === 'mutant-known') {
