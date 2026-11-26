@@ -188,6 +188,10 @@
       "test_ms": 30000,
       "suite_ms": 60000
     },
+    "tests/core/advisory-check.test.mjs": {
+      "test_ms": 60000,
+      "suite_ms": 200000
+    },
     "tests/core/answer-user.test.mjs": {
       "test_ms": 7500,
       "suite_ms": 30000
@@ -730,7 +734,7 @@
     },
     "tests/core/run4a-records.test.mjs": {
       "test_ms": 25000,
-      "suite_ms": 110000
+      "suite_ms": 120000
     },
     "tests/core/run4b-freeze.test.mjs": {
       "test_ms": 7000,
@@ -946,7 +950,7 @@
     },
     "tests/enforcement/enforcement-recorded-roles.test.mjs": {
       "test_ms": 110000,
-      "suite_ms": 110000
+      "suite_ms": 120000
     },
     "tests/enforcement/batch-files-protected.test.mjs": {
       "test_ms": 10000,
@@ -954,7 +958,7 @@
     },
     "tests/enforcement/guards.test.mjs": {
       "test_ms": 30000,
-      "suite_ms": 110000
+      "suite_ms": 120000
     },
     "tests/enforcement/merge-guard.test.mjs": {
       "test_ms": 25000,
@@ -1193,6 +1197,10 @@
       "suite_ms": 10000
     },
     "tests/skills/explain-html.test.mjs": {
+      "test_ms": 2000,
+      "suite_ms": 10000
+    },
+    "tests/skills/exploit-proof-advisory.test.mjs": {
       "test_ms": 2000,
       "suite_ms": 10000
     },

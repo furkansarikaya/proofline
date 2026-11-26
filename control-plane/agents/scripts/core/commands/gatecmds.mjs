@@ -1,6 +1,7 @@
 // @ts-check
 // Stage 4, package 4C: `secret-scan`, `worker-evidence`, `raise-budget`, `waive`, `knowledge-done`, `run-language` (and `gate`, in gatecmd.mjs).
 import { requireLead, runLanguage } from '../approve.mjs';
+import { advisoryCheckCommand } from '../advisory.mjs';
 import { fail } from '../errors.mjs';
 import { revokeStanding, standingList } from '../standing.mjs';
 import { knowledgeDoneCommand } from '../knowledge.mjs';
@@ -44,4 +45,5 @@ export const GATECMD_HANDLERS = {
   'knowledge-done': writing(knowledgeDoneCommand),
   'run-language': runLanguageCommand,
   standing: standingCommand,
+  'advisory-check': writing(advisoryCheckCommand),
 };

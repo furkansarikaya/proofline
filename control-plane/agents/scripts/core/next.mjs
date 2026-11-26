@@ -2,6 +2,7 @@
 // `next`: the deterministic next step of a run (agent.sh 6878-7062). The state machine reads the records once (RUN.yaml, the gate records,
 // the ledger, the plan), asks the shared library for the gate states and prints the `task=`, `state=`, `handoff=`, `next=`, `reason=`,
 // `note=`, `missing_step=`, `finding=` and `fix_path=` lines the lead and the hooks parse. It removes stale dispatch markers like the shell.
+import { advisoryDue } from './advisory.mjs';
 import { buildRecord } from './buildrecord.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs';
@@ -561,7 +562,11 @@ function gatesTodo(ctx, id, d, todo, fp, emit, o, r) {
     for (const fc of ['-', ...riskGateFocuses(ctx, d, g)]) {
       if (gateSatisfied(gateFocusStatus(ctx, d, id, g, fc, 'reuse', fp))) continue;
       if (fc === '-') o(g.startsWith('REVIEW_') ? `dispatch.sh ${id} reviewer --focus ${gateFocus(g)}` : `dispatch.sh ${id} ${gateOwner(g)}`);
-      else o(`dispatch.sh ${id} ${gateOwner(g)} --focus ${fc}`);
+      else {
+        // A373: with security.advisory_check on, the control plane asks the advisory service once (the role is network-blocked and reads the record)
+        if (g === 'SECURITY' && fc === 'dependencies' && advisoryDue(ctx, id)) o(`agent.sh advisory-check ${id}   (A373: the one counted advisory request of the dependencies focus; the security reviewer reads ADVISORY_CHECK.json)`);
+        o(`dispatch.sh ${id} ${gateOwner(g)} --focus ${fc}`);
+      }
     }
   }
   r(`gates not passing:${todo}`);

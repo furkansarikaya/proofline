@@ -22,6 +22,8 @@ gates; `gate.<GATE>=` their status. Never compute the tier or the gate set yours
 Dispatch every non-passing gate role in parallel (at most `budgets.max_parallel_reviewers` at once) after
 `A secret-scan`. Gates have no order. Then `A pipeline <ID>` and `A next <ID>`.
 
+Advisory request (A373): when `A next` prints `agent.sh advisory-check <ID>` before a `--focus dependencies` dispatch (only when the user set `security.advisory_check: on`), run it once before that dispatch. It is the control plane's one counted request (the security reviewer has no network and reads `ADVISORY_CHECK.json`); never run it in the user's name, never edit `security.*` yourself, and tell the user in one line when it says `not_run` and why.
+
 ## 2. Status -> action
 
 | `gate.<G>=` | Action |
