@@ -16,7 +16,7 @@ export const DESIGN_VIEWPORTS = [
 ];
 export const DESIGN_MODES = ["persuade", "operate", "read", "experience"];
 export const DESIGN_STATIC_CHECKS = ["design_heading_lines", "design_type_scale", "design_body_measure", "design_fonts_loaded", "design_edge_margins",
-  "design_edge_text", "design_vacuum", "design_untitled_section", "design_empty_hero", "design_surfaces", "design_untranslated",
+  "design_edge_text", "design_vacuum", "design_untitled_section", "design_empty_hero", "design_surfaces", "design_untranslated", "design_raw_markup",
   "design_ux_alt_text", "design_ux_form_labels", "design_ux_control_names", "design_ux_viewport_meta", "design_ux_body_font_size"];
 export const DESIGN_MOTION_CHECKS = ["design_motion_count", "design_reduced_motion", "design_no_script_visible", "design_scene"];
 export const DESIGN_CHECKS = [...DESIGN_STATIC_CHECKS, ...DESIGN_MOTION_CHECKS, "design_image_ledger"];
@@ -46,7 +46,7 @@ export const ENGLISH_PAGE_NOTE = "not applicable: the page language is English";
 export const designApplies = (check, mode) => !MODE_APPLIES[check] || MODE_APPLIES[check].includes(mode);
 
 // Static checks of the facts that do not depend on the viewport are measured once, at `wide`.
-const WIDE_ONLY = ["design_fonts_loaded", "design_surfaces", "design_untranslated", "design_ux_viewport_meta"];
+const WIDE_ONLY = ["design_fonts_loaded", "design_surfaces", "design_untranslated", "design_raw_markup", "design_ux_viewport_meta"];
 const PHONE_ONLY = ["design_ux_body_font_size"]; // a rule about small screens: measured at phone390 only
 export const PER_VIEWPORT = DESIGN_STATIC_CHECKS.filter((c) => !WIDE_ONLY.includes(c) && !PHONE_ONLY.includes(c));
 
@@ -153,6 +153,52 @@ export function untranslatedBlocks(blocks, allow = [], task = null) {
   return out;
 }
 
+// U7 (A368): raw Markdown syntax that stayed in VISIBLE text. A block is the own text of one visible element outside code, pre, kbd, samp, textarea and
+// translate=no (the probe filters those); `kind` names the syntax. A pair must be closed around text (a lone `**` or `5 ** 2` is not markup).
+// A placeholder `{{ x }}` counts only in rendered text (`rendered`), never in a source template, where it is the template's own syntax.
+export const RAW_MARKUP_RULE = "raw-markup-in-text";
+const MARKUP_KINDS = [
+  ["bold", /\*\*(?=\S)[^*\n]*?\S\*\*/u], ["underscore", /(?<![\p{L}\p{N}_])__(?=\S)[^_\n]*?\S__(?![\p{L}\p{N}_])/u],
+  ["backtick", /`[^`\n]*[\p{L}\p{N}][^`\n]*`/u], ["heading", /^#{1,6}\s+\p{L}/u], ["list", /^[-*+]\s+\p{L}/u],
+  ["link", /(?<![\p{L}\p{N}_\]])\[[^\]\n]+\]\([^)\s]+\)/u],
+];
+const PLACEHOLDER = /\{\{[^{}\n]{1,80}\}\}/u;
+// `source` (a template's text node, newlines kept): a lone leading `- ` or `# ` is not read (an attribution dash, "# 1 pick"); a list is two or more list lines, a heading
+// is a `# ` line with more text after it. A `__name__` of 3 to 20 lowercase letters is a dunder name, not emphasis (`__very important__` and `__Important__` are).
+const LIST_LINE = /^\s*(?:[-*+]|\d+\.)\s+\p{L}/u;
+export function rawMarkupIn(text, { rendered = true, source = false } = {}) {
+  const t = String(text ?? "").trim(), out = [];
+  for (const [kind, re] of MARKUP_KINDS) {
+    if (source && (kind === "list" || kind === "heading")) {
+      const ls = t.split(/\r?\n/);
+      if (kind === "list" && LIST_LINE.test(ls[0]) && ls.filter((l) => LIST_LINE.test(l)).length >= 2) out.push({ kind, fragment: ls[0].slice(0, 60) });
+      if (kind === "heading" && re.test(ls[0]) && ls.slice(1).some((l) => l.trim())) out.push({ kind, fragment: ls[0].slice(0, 60) });
+      continue;
+    }
+    const m = re.exec(t);
+    if (m && kind === "underscore" && /^[a-z]{3,20}$/.test(m[0].slice(2, -2))) continue;
+    if (m) out.push({ kind, fragment: m[0].slice(0, 60) });
+  }
+  if (rendered) { const m = PLACEHOLDER.exec(t); if (m) out.push({ kind: "placeholder", fragment: m[0].slice(0, 60) }); }
+  return out;
+}
+// true when `s` (at least 4 non-space characters) stands verbatim in the task text on word boundaries (white space squeezed, case-sensitive; A352)
+export function taskHolds(task, s) {
+  if (task === null || task === undefined) return false;
+  const x = squeeze(s), T = squeeze(task);
+  return x.replace(/\s/g, "").length >= 4 && new RegExp(`(?<![\\p{L}\\p{N}_])${x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "u").test(T);
+}
+// blocks [{selector, text}] -> findings [{selector, text (bounded), kind, fragment}]; a block whose whole text TASK.md holds verbatim is exempt.
+export function rawMarkupBlocks(blocks, task = null, opts = {}) {
+  const out = [];
+  for (const b of blocks || []) {
+    const hits = rawMarkupIn(b.text, opts);
+    if (!hits.length || taskHolds(task, b.text)) continue;
+    out.push({ selector: b.selector || "body", text: squeeze(b.text).slice(0, 80), kind: hits[0].kind, fragment: hits[0].fragment });
+  }
+  return out;
+}
+
 // A172: Turkish typed without its letters ("Turkce", "degil", "icin") on a Turkish page. Information only, never a finding that blocks:
 // the words are the project's `visual.ascii_turkish_words` (.agents/config.yaml, read with `cfg`), minus `visual.ascii_turkish_allow`
 // (a word used on purpose). The defaults are frequent Turkish words whose ASCII form is rarely English.
@@ -249,6 +295,14 @@ export function evaluateStatic(f, ctx) {
     }
   }
 
+  if (runStatic && wide) {
+    if (!Array.isArray(f.markupBlocks)) nm("design_raw_markup", "the probe supplied no text facts");
+    else {
+      const bs = rawMarkupBlocks(f.markupBlocks, ctx.task ?? null);
+      add("design_raw_markup", bs[0]?.selector || "body", bs.length, bs.length === 0, bs.length ? list(bs.map((b) => `${b.selector}: ${b.kind} ${JSON.stringify(b.fragment)} in "${b.text.slice(0, 40)}"`)) : "no raw Markdown syntax in the visible text");
+    }
+  }
+
   if (wide && ctx.language) {
     const lang = String(ctx.language.lang || f.lang || "");
     if (!lang) nm("design_untranslated", "the page language is unknown");
@@ -342,7 +396,15 @@ export function assembleDesign(raw, c, sha, opts = {}) {
         for (const check of expectedChecks(pg, mode, vp.name)) push({ check, screen: pg.screen, viewport: vp.name, selector: "body", threshold: designThreshold(check, mode, vp.name), status: "not_measured", reason: rv?.error || "viewport not measured" });
         continue;
       }
-      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, language: pg.language && { ...pg.language, task: opts.task ?? null } })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
+      for (const it of evaluateStatic(rv.facts, { mode, viewport: vp.name, static: pg.static, task: opts.task ?? null, language: pg.language && { ...pg.language, task: opts.task ?? null } })) push({ ...it, screen: pg.screen, ...(ss ? { screenshot: ss } : {}) });
+      if (vp.name === "wide") {   // U7: what QA cannot judge, listed from the page facts (never from an agent's claim)
+        const lang = String(pg.language?.lang || rv.facts.lang || "");
+        if (lang && !/^en(-|$)/i.test(lang)) {
+          const tv = rv.facts.textVolume, tb = rv.facts.textBlocks || [];
+          (out.human_checks ||= []).push({ screen: pg.screen, path: pg.path, lang, kind: "language_naturalness", blocks: Number.isInteger(tv?.blocks) ? tv.blocks : tb.length, chars: Number.isInteger(tv?.chars) ? tv.chars : tb.reduce((a, b) => a + String(b.text || "").length, 0),
+            text: `language naturalness, tone and brand voice of the ${lang} prose on ${pg.path}: QA cannot judge them, the user confirms` });
+        }
+      }
       if (pg.language && vp.name === "wide" && /^tr(-|$)/i.test(String(pg.language.lang))) {   // A172: information only
         const hits = asciiTurkishWords(rv.facts.textBlocks, opts.ascii);
         if (hits.length) (out.language_notes ||= []).push({ screen: pg.screen, path: pg.path, lang: String(pg.language.lang), kind: "ascii_turkish", words: hits });
@@ -568,6 +630,10 @@ export function designProbeSource() {
   if (cells.length) { const bad = cells.filter((e) => !/tabular-nums/.test(cs(e).fontVariantNumeric) && !/tnum/.test(cs(e).fontFeatureSettings)); surfaces.push({ surface: "tabular-numerals", selector: bad[0] ? sel(bad[0]) : sel(cells[0]), problems: bad.length, note: `${bad.length} of ${cells.length} numeric table cell(s) lack tabular numerals` }); }
 
   // text blocks for the untranslated check
+  const literal = (e) => e.closest("code,pre,kbd,samp,textarea,[translate=no]");
+  const prose = texts.filter((e) => !literal(e));
+  const textVolume = { blocks: prose.length, chars: prose.reduce((a, e) => a + own(e).length, 0) };
+  const markupBlocks = prose.filter((e) => /\*\*|__|`|^#{1,6}\s|^[-*+]\s|\]\(|\{\{/.test(own(e))).slice(0, 100).map((e) => ({ selector: sel(e), text: own(e).slice(0, 300) }));
   const textBlocks = texts.filter((e) => !e.closest("code,pre,kbd,samp,textarea,[translate=no]")).slice(0, 600).map((e) => ({ selector: sel(e), text: own(e).slice(0, 300), lang: e.closest("[lang]") && e.closest("[lang]") !== document.documentElement ? e.closest("[lang]").getAttribute("lang") || "" : "" })).filter((b) => b.text.split(" ").length >= 4);
 
   // ux (the high-severity rules a page can prove): alt text, form labels, control names, viewport meta
@@ -593,7 +659,7 @@ export function designProbeSource() {
   };
 
   return { url: location.href, lang: de.lang || "", vw, vh, docHeight: de.scrollHeight, headings, headingSizes: hsized.map((h) => h.size), largestHeading: largest ? sel(largest.e) : null,
-    bodySize, paragraphs, fonts, fontFaces, edge, edgeText, blocks, sections, hero, surfaces, textBlocks, ux };
+    bodySize, paragraphs, fonts, fontFaces, edge, edgeText, blocks, sections, hero, surfaces, textBlocks, markupBlocks, textVolume, ux };
 }
 export const DESIGN_PROBE = `(${designProbeSource.toString()})`;
 

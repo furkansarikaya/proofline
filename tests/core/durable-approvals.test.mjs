@@ -397,6 +397,17 @@ describe('the QA visual lint reads the task\'s own files', () => {
     wr(d, 'web/old.html', BAIT);   // put back: the page is again as committed, untouched by the task
     accepted(AS(d, 'qa', ['record', 'LC', '--file', resultFor(d, 'QA', 'PASS', [], { focus: 'visual' })]), 'a visual PASS refused for a finding of a page the task did not touch');
   });
+
+  test('U7 (A368): raw markup in an untouched committed page that explains Markdown is the base\'s, not this change\'s; the same text in a changed page blocks', () => {
+    const d = rrun('COMPLEX', 'web/index.html', VISUAL_UI);
+    const DOC = '<p>Write **bold** with two stars and `code` with a backtick.</p>\n';
+    wr(d, 'web/howto.html', DOC);
+    setBase(d, commitHead(d, 'a page that explains Markdown'));
+    toVisualRecord(d);
+    accepted(AS(d, 'qa', ['record', 'LC', '--file', resultFor(d, 'QA', 'PASS', [], { focus: 'visual' })]), 'an untouched page with raw markup text is not counted');
+    wr(d, 'web/howto.html', `${DOC}<!-- touched by this task -->\n`);
+    refused(AS(d, 'qa', ['record', 'LC', '--file', resultFor(d, 'QA', 'PASS', [], { focus: 'visual' })]), 'the same text in a page the task changed', 'blocking finding');
+  });
 });
 
 describe('the batch summary shows what stands', () => {

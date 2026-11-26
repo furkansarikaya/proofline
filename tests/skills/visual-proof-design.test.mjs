@@ -31,7 +31,7 @@ const good = (over = {}) => ({
   edge: { left: 48, right: 48 }, edgeText: { selector: "h1", distance: 48, side: "left" },
   blocks: [{ top: 0, bottom: 500, selector: "header" }, { top: 560, bottom: 1100, selector: "section" }],
   sections: [{ selector: "section", height: 540, titled: true }], hero: { h1: true, action: true, visual: true, visualKind: "svg" },
-  surfaces: [{ selector: "::selection", surface: "selection", problems: 0, note: "themed" }], textBlocks: [],
+  surfaces: [{ selector: "::selection", surface: "selection", problems: 0, note: "themed" }], textBlocks: [], markupBlocks: [],
   ux: { images: { total: 1, bad: [] }, fields: { total: 0, bad: [] }, controls: { total: 1, bad: [] }, viewportMeta: "width=device-width, initial-scale=1" }, ...over });
 const bad = () => good({
   hero: { h1: true, action: false, visual: false }, sections: [{ selector: "section:nth-of-type(1)", height: 420, titled: false }],
@@ -230,6 +230,7 @@ test("browser: the bad site fails with its planted design findings, the good sit
   assert.equal(d.status, "run");
   assert.ok(item(b.report, "design_empty_hero").some((i) => i.status === "fail"), "empty hero");
   assert.ok(item(b.report, "design_untitled_section").some((i) => i.status === "fail"), "untitled section");
+  assert.ok(item(b.report, "design_raw_markup", "home").some((i) => i.status === "fail" && /#md/.test(i.selector)), "raw markup in visible text");
   assert.ok(item(b.report, "design_untranslated", "tr.html").some((i) => i.status === "fail"), "untranslated English on the tr page");
   assert.ok(item(b.report, "design_image_ledger").some((i) => i.status === "fail"), "image missing from the ledger is blocking");
   assert.ok(item(b.report, "design_reduced_motion").some((i) => i.status === "fail"), `hidden under reduced motion\n${why(b)}`);
@@ -248,7 +249,9 @@ test("browser: the bad site fails with its planted design findings, the good sit
   const approved = Object.fromEntries(Object.entries(written).map(([id, r]) => [id, rationaleHash(id, r)]));
   assert.ok(lintProject({ root, designMd: join(tmp, "DESIGN.md") }).findings.every((f) => f.severity === "blocking"), "written but not approved: still blocking (A200)");
   const info = lintProject({ root, designMd: join(tmp, "DESIGN.md"), approved }).findings;
-  assert.ok(info.length > 0 && info.every((f) => f.severity === "info" && f.justified));
+  const justifiedAll = info.filter((f) => f.id !== "raw-markup-in-text");
+  assert.ok(justifiedAll.length > 0 && justifiedAll.every((f) => f.severity === "info" && f.justified));
+  assert.ok(info.some((f) => f.id === "raw-markup-in-text" && f.severity === "blocking"), "U7: a DESIGN.md rationale never lowers raw markup in text");
 });
 
 test("browser: a CSS-animated and a script-triggered entrance that reduced motion never reveals fail design_reduced_motion; a page with a fallback passes", { skip, timeout: 240000 }, async () => {

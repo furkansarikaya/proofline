@@ -2,7 +2,7 @@
 // visual-proof source lint (0.0.27, A170). Scans project source for the registry patterns it can detect honestly and writes lint.json.
 // No dependencies, no browser. The gate decision belongs to validate-visual.mjs: this script exits 0 whatever it finds (2 = usage error).
 //
-//   node lint-source.mjs --root <repo> [--design-md <path>] [--paths a,b] --out <dir>
+//   node lint-source.mjs --root <repo> [--design-md <path>] [--paths a,b] [--task TASK.md] --out <dir>
 //   --paths limits the lint to those files or folders (A361: the task's own changed files); an EMPTY --paths "" lints nothing, and no --paths lints the whole root.
 //
 // A finding is `blocking` unless DESIGN.md has a line `- <pattern-id>: <reason>` under `## Pattern justifications` AND the user approved
@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSyn
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JUDGED_ONLY_IDS, PATTERN_IDS, REGISTRY, REGISTRY_DATE, SOURCE_EXTENSIONS } from "./patterns.mjs";
+import { RAW_MARKUP_RULE, rawMarkupIn, taskHolds } from "./design-audit.mjs";
 
 export const LINT_SCHEMA = "visual-proof.lint/1";
 const SKIP_DIRS = new Set(["node_modules", ".git", ".claude", ".agents", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", ".astro", "coverage", "vendor", "target", ".cache", ".turbo", "__pycache__"]);
@@ -68,10 +69,34 @@ export function lintText({ path, text }) {
   return out.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1) || (a.id < b.id ? -1 : 1));
 }
 
+// U7 (A368): raw Markdown syntax in the text of a page template (the source side of the design_raw_markup check). Pure: one file's text -> raw findings
+// [{ id: "raw-markup-in-text", file, line, excerpt }]. Only template files are read (html, htm, vue, svelte, astro); code, pre, kbd, samp, textarea, script, style,
+// template-expression braces and comments are not text; a placeholder `{{ x }}` is the template's own syntax here. A text node that `task` (TASK.md) holds verbatim is exempt.
+const MARKUP_EXTENSIONS = [".html", ".htm", ".vue", ".svelte", ".astro"];
+export function lintMarkupText({ path, text, task = null }) {
+  const ext = extname(path).toLowerCase();
+  if (!MARKUP_EXTENSIONS.includes(ext)) return [];
+  const blank = (m) => m.replace(/[^\n]/g, " ");
+  let t = String(text).replace(/<!--[\s\S]*?-->/g, blank);
+  for (const tag of ["script", "style", "pre", "code", "kbd", "samp", "textarea"]) t = t.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}\\s*>`, "gi"), blank);
+  if (ext !== ".html" && ext !== ".htm") for (let i = 0; i < 3; i++) t = t.replace(/\{[^{}]*\}/g, blank);
+  const starts = [0];
+  for (let i = 0; i < t.length; i++) if (t[i] === "\n") starts.push(i + 1);
+  const lineAt = (idx) => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= idx) lo = mid; else hi = mid - 1; } return lo + 1; };
+  const out = [];
+  for (let m, re = />([^<>]+)</g; (m = re.exec(t));) {
+    const node = m[1], lead = node.length - node.trimStart().length, flat = node.replace(/\s+/g, " ").trim();
+    if (!flat || taskHolds(task, flat)) continue;
+    const hits = rawMarkupIn(node, { rendered: false, source: true });
+    if (hits.length) out.push({ id: RAW_MARKUP_RULE, file: path, line: lineAt(m.index + 1 + lead), excerpt: flat.slice(0, 120) });
+  }
+  return out;
+}
+
 // Pure: findings + justifications -> findings with justified / severity / reason.
 export function applyJustifications(findings, justifications) {
   return findings.map((f) => {
-    const reason = justifications[f.id];
+    const reason = f.id === RAW_MARKUP_RULE ? undefined : justifications[f.id]; // a DESIGN.md rationale never lowers raw markup; only TASK.md text exempts it
     return reason ? { ...f, justified: true, severity: "info", reason } : { ...f, justified: false, severity: "blocking" };
   });
 }
@@ -102,7 +127,7 @@ export function sourceFiles(root, paths) {
 
 // { root, designMd, paths } -> the lint.json object. designMd: a path (absolute or relative to root), null for none, undefined to look
 // in the usual places. A named DESIGN.md that does not exist is reported as design_md null (no justification then applies).
-export function lintProject({ root, designMd, paths, approved } = {}) {
+export function lintProject({ root, designMd, paths, approved, task = null } = {}) {
   const base = resolve(root || ".");
   let mdPath = null;
   if (designMd === undefined) { const c = DESIGN_MD_CANDIDATES.map((x) => join(base, x)).find((x) => existsSync(x)); if (c) mdPath = c; }
@@ -113,7 +138,8 @@ export function lintProject({ root, designMd, paths, approved } = {}) {
   for (const f of sourceFiles(base, paths)) {
     let text;
     try { text = readFileSync(f, "utf8"); } catch { continue; }
-    raw.push(...lintText({ path: relative(base, f).split("\\").join("/"), text }));
+    const rel = relative(base, f).split("\\").join("/");
+    raw.push(...lintText({ path: rel, text }), ...lintMarkupText({ path: rel, text, task }));
   }
   return {
     schema: LINT_SCHEMA,
@@ -136,7 +162,7 @@ export function validateLint(json) {
   else json.findings.forEach((f, i) => {
     const at = `findings[${i}]`;
     if (!f || typeof f !== "object") return err(`${at} must be an object`);
-    if (!PATTERN_IDS.includes(f.id)) err(`${at}.id "${f.id}" is not a registry id`);
+    if (!PATTERN_IDS.includes(f.id) && f.id !== RAW_MARKUP_RULE) err(`${at}.id "${f.id}" is not a registry id`);
     if (typeof f.file !== "string" || !f.file) err(`${at}.file must be a non-empty string`);
     if (!Number.isInteger(f.line) || f.line < 1) err(`${at}.line must be a positive integer`);
     if (typeof f.excerpt !== "string") err(`${at}.excerpt must be a string`);
@@ -159,7 +185,7 @@ export const blockingFindings = (json) => (json?.findings || []).filter((f) => f
 function arg(argv, name) { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; }
 
 function main(argv) {
-  const usage = "usage: lint-source.mjs --root <repo> [--design-md <path>] [--approved-rationales <file>] [--paths a,b] --out <dir>";
+  const usage = "usage: lint-source.mjs --root <repo> [--design-md <path>] [--approved-rationales <file>] [--paths a,b] [--task TASK.md] --out <dir>";
   const root = arg(argv, "--root"), out = arg(argv, "--out");
   if (!root || !out) { console.error(usage); return 2; }
   if (!existsSync(root) || !statSync(root).isDirectory()) { console.error(`lint-source: --root is not a directory: ${root}`); return 2; }
@@ -169,7 +195,9 @@ function main(argv) {
     try { approved = JSON.parse(readFileSync(arg(argv, "--approved-rationales"), "utf8")).approved; }
     catch (e) { console.error(`lint-source: cannot read --approved-rationales: ${e.message}`); return 2; }
   }
-  const lint = lintProject({ root, designMd: arg(argv, "--design-md"), approved, paths: paths !== undefined ? paths.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
+  let task = null;
+  if (arg(argv, "--task")) { try { task = readFileSync(arg(argv, "--task"), "utf8"); } catch (e) { console.error(`lint-source: cannot read --task: ${e.message}`); return 2; } }
+  const lint = lintProject({ root, designMd: arg(argv, "--design-md"), approved, task, paths: paths !== undefined ? paths.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   try { mkdirSync(out, { recursive: true }); writeFileSync(join(out, "lint.json"), JSON.stringify(lint, null, 2) + "\n"); }
   catch (e) { console.error(`lint-source: cannot write ${out}/lint.json: ${e.message}`); return 2; }
   const blocking = blockingFindings(lint).length;
