@@ -196,7 +196,8 @@ function fromLedger(led) {
   });
   // user waits: a question to its answer, an approval request to its approval of the same kind
   const waits = { count: 0, total_s: 0, longest_s: 0, unanswered: 0 };
-  const asks = []; /** @type {Map<string, number[]>} */ const reqs = new Map();
+  // queues with a head index (Array#shift copies the rest of the array, quadratic on a long ledger)
+  /** @type {number[]} */ const asks = []; let askHead = 0; /** @type {Map<string, { q: number[], head: number }>} */ const reqs = new Map();
   let questions = 0; let byUser = 0; let byAssumption = 0;
   /** @type {Map<string, { requested: number, granted: number }>} */ const approvals = new Map();
   /** @type {Map<string, number>} */ const approvalSources = new Map(); let approvalByUser = 0;
@@ -204,9 +205,9 @@ function fromLedger(led) {
   for (const r of rows) {
     if (r.ev === 'ask') { questions++; asks.push(r.epoch); } else if (r.ev === 'answer' || r.ev === 'answer-amend') {
       if (r.ev === 'answer') { if (r.detail.includes('answered_by=user')) byUser++; else byAssumption++; }
-      const a = asks.shift(); if (a !== undefined) wait(a, r.epoch);
+      if (askHead < asks.length) wait(asks[askHead++], r.epoch);
     } else if (r.ev === 'approval-request') {
-      const k = approvalKind(r.detail); reqs.set(k, [...(reqs.get(k) ?? []), r.epoch]);
+      const k = approvalKind(r.detail); const q = reqs.get(k); if (q === undefined) reqs.set(k, { q: [r.epoch], head: 0 }); else q.q.push(r.epoch);
       const c = approvals.get(k) ?? { requested: 0, granted: 0 }; c.requested++; approvals.set(k, c);
     } else if (r.ev === 'approval') {
       const k = approvalKind(r.detail);
@@ -214,10 +215,10 @@ function fromLedger(led) {
       const src = only(SOURCES, /(?:^|[ \t])source=([^ \t]*)/.exec(r.detail)?.[1] ?? '');
       approvalSources.set(src, (approvalSources.get(src) ?? 0) + 1);
       if (/(?:^|[ \t])answered_by=user(?:$|[ \t])/.test(r.detail)) approvalByUser++;
-      const q = reqs.get(k); const a = q?.shift(); if (a !== undefined) wait(a, r.epoch);
+      const q = reqs.get(k); if (q !== undefined && q.head < q.q.length) wait(q.q[q.head++], r.epoch);
     }
   }
-  waits.unanswered = asks.length + [...reqs.values()].reduce((s, q) => s + q.length, 0);
+  waits.unanswered = (asks.length - askHead) + [...reqs.values()].reduce((s, q) => s + (q.q.length - q.head), 0);
   /** @type {Map<string, number>} */ const friction = new Map();
   for (const r of rows) if (r.ev === 'friction-note') { const k = only(FRICTION, r.detail.split(/\s/)[0]); friction.set(k, (friction.get(k) ?? 0) + 1); }
   const count = (/** @type {string} */ e) => rows.filter((r) => r.ev === e).length;
@@ -370,7 +371,7 @@ export function gather(ctx, sel) {
   // every run id with a ledger or a record
   /** @type {Set<string>} */ const known = new Set();
   /** @type {Map<string, string[]>} */ const live = new Map();
-  const addLive = (/** @type {string} */ runsDir) => { for (const n of names(runsDir)) if (isId(n)) { known.add(n); live.set(n, [...(live.get(n) ?? []), `${runsDir}/${n}/LEDGER.log`]); } };
+  const addLive = (/** @type {string} */ runsDir) => { for (const n of names(runsDir)) if (isId(n)) { known.add(n); push(live, n, `${runsDir}/${n}/LEDGER.log`); } };
   addLive(`${root}/.agents/runs`);
   for (const w of names(`${root}/.agents/local/worktrees`)) if (isId(w)) addLive(`${root}/.agents/local/worktrees/${w}/.agents/runs`);
   for (const n of names(`${root}/.agents/local/archive`)) if (isId(n)) known.add(n);
@@ -385,11 +386,15 @@ export function gather(ctx, sel) {
   const sinceEpoch = sel.since === '' ? null : dayEpoch(sel.since);
   if (sinceEpoch !== null) scope = scope === 'all runs' ? `runs since ${sel.since}` : `${scope}, since ${sel.since}`;
 
+  // the records of each run, grouped once (a filter per run is quadratic over many runs)
+  /** @type {Map<string, any[]>} */ const recordsBy = new Map(); /** @type {Map<string, any[]>} */ const toolsBy = new Map();
+  for (const r of records.rows) push(recordsBy, r.task, r);
+  for (const r of tools.rows) push(toolsBy, r.task, r);
   const tasks = ids.map((t) => {
     /** @type {string[]} */ const nr = [];
     const led = findLedger(root, t, live.get(t) ?? [], nr);
     const L = led === null ? null : fromLedger(led);
-    const mine = records.rows.filter((r) => r.task === t);
+    const mine = recordsBy.get(t) ?? [];
     /** @param {any} r @returns {number | null} */
     const tok = (r) => num(r.tokens_total) ?? (num(r.tokens_in) !== null && num(r.tokens_out) !== null ? /** @type {number} */ (num(r.tokens_in)) + /** @type {number} */ (num(r.tokens_out)) : null);
     /** @type {Map<string, { min: number, minRows: number, tok: number, tokN: number, rows: number }>} */ const roles = new Map();
@@ -424,7 +429,7 @@ export function gather(ctx, sel) {
     /** @type {Map<string, { n: number, s: number }>} */ const resumedBy = new Map();
     for (const r of resumedRows) { const k = roleOf(r); const c = resumedBy.get(k) ?? { n: 0, s: 0 }; c.n++; c.s += dur(r.duration_s) ?? 0; resumedBy.set(k, c); }
     const run = mine.find((r) => r.kind === 'run');
-    const tm = tools.rows.filter((r) => r.task === t);
+    const tm = toolsBy.get(t) ?? [];
     /** @type {Map<string, number>} */ const den = new Map(); let denied = 0;
     for (const r of tm) {
       denied += num(r.denied) ?? 0;

@@ -159,3 +159,29 @@ test('an absurd duration (1e308, over a day) is not recorded, never Infinity', (
   assert.equal(j.tokens_total, null);
   assert.ok(t.includes('gate minutes (agent records): QA not recorded, REVIEW_RULES not recorded, SECURITY not recorded'), t);
 });
+
+test('many runs in records.jsonl and a long ledger of approval requests and questions are counted (records grouped by run once, wait queues without Array#shift)', () => {
+  const d = project('long');
+  const n = 20000;
+  const recs = [];
+  for (let i = 0; i < n; i++) recs.push(rec('step', `R-${i}`, 'implementer', { duration_s: 60, tokens_total: 10 }));
+  put(d, '.agents/local/metrics/records.jsonl', `${recs.join('\n')}\n`);
+  /** @type {Array<[number, string, string]>} */ const rows = [[0, 'start', 'x']];
+  const k = 25000;
+  for (let i = 0; i < k; i++) rows.push([1, 'approval-request', `plan bound=${TOK}`]);
+  for (let i = 0; i < k; i++) rows.push([2, 'ask', `questions/${i}.md`]);
+  for (let i = 0; i < k - 1; i++) rows.push([3, 'approval', `approvals/x.yaml@${H} plan source=tty answered_by=user bound=x`]);
+  for (let i = 0; i < k - 2; i++) rows.push([5, 'answer', 'q answered_by=user']);
+  put(d, '.agents/runs/LONG-1/LEDGER.log', ledger(rows));
+  const all = sb.pl(d, ['retro']);
+  assert.equal(all.status, 0, all.text.slice(0, 600));
+  assert.ok(all.out.includes(`scope: all runs (${n + 2} runs: 2 with a ledger, ${n} without)`) && all.out.includes(`, ${n} metrics records, `), all.out.slice(0, 600));
+  const j = JSON.parse(sb.pl(d, ['retro', 'LONG-1', '--json']).out);
+  const long = j.tasks[0];
+  assert.deepEqual(long.approvals, { plan: { requested: k, granted: k - 1 } });
+  assert.deepEqual(long.questions, { asked: k, by_user: k - 2, by_assumption: 0 });
+  assert.deepEqual(long.user_waits, { count: 2 * k - 3, total_s: 2 * (k - 1) + 3 * (k - 2), longest_s: 3, unanswered: 3 });
+  const r9 = JSON.parse(sb.pl(d, ['retro', `R-${n - 1}`, '--json']).out).tasks[0];
+  assert.deepEqual([r9.agent_s, r9.tokens_total], [{ implementer: 60 }, 10]);
+  assert.ok(!JSON.stringify(j).includes('ghp_'));
+});
