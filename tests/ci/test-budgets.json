@@ -192,6 +192,10 @@
       "test_ms": 60000,
       "suite_ms": 200000
     },
+    "tests/core/advisory-locks.test.mjs": {
+      "test_ms": 25000,
+      "suite_ms": 60000
+    },
     "tests/core/answer-user.test.mjs": {
       "test_ms": 7500,
       "suite_ms": 30000

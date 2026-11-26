@@ -3,8 +3,9 @@
 // the CONTROL PLANE, never by a role (the SECURITY role stays network-blocked and READS the record this writes, ADVISORY_CHECK.json in the run).
 //
 // Off unless the user turned it on: `security.advisory_check: on` (hand edit of .agents/config.yaml; a non-empty `security.*` value is bound by the freeze), because the request sends the
-// package names and versions of the lock file to the registry. NO npm and no project file runs or is read but the lock: the root lock (a regular file up to 16 MiB) is parsed as JSON, the
-// `packages` map gives `node_modules/<name>` entries (name from the path, `version`), each checked against a strict grammar, and ONE bulk request per batch of at most 500 names goes to the FIXED
+// package names and versions of the lock file to the registry. NO package manager and no project file runs or is read but the lock: the ONE root lock (a regular file up to 16 MiB; an npm, pnpm,
+// yarn or bun text lock, its format named by data, A375) is parsed as data by lockparse.mjs into names and versions, each checked against a strict grammar (more than one lock at the root, or a
+// binary lock, is not run), and ONE bulk request per batch of at most 500 names goes to the FIXED
 // https url of the control plane's OWN ecosystems.json (`advisory.url`: never the project's copy, `.npmrc`, environment or a lock `resolved` field). The request carries only names and versions,
 // a JSON content type and a generic user agent; a redirect is a failure, TLS verification is the default, a proxy is not used (a proxy-only network fails closed). The answer is read with bounds
 // and reduced to ids, package names, severities and a few bounded strings; the record never holds the raw answer. The HTTP function is a seam (`io.http`): tests inject a fake.
@@ -22,6 +23,7 @@ import { sha256, sha256File } from './hash.mjs';
 import { led, need } from './lifeutil.mjs';
 import * as proc from './proc.mjs';
 import { requireRun, runDir } from './runs.mjs';
+import { LOCK_FORMATS, npmPackages } from './lockparse.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { taskChangedPaths } from './signals.mjs';
 
@@ -44,16 +46,7 @@ const MAX_VERSIONS = 20000;
 const MAX_ADVISORIES = 200;
 const SEVERITIES = ['critical', 'high', 'moderate', 'low', 'info', 'unknown'];
 const ID_OK = /^[A-Za-z0-9._:-]{1,64}$/;
-/** The npm package-name grammar the request is built from: URL-safe characters (legacy names with capitals, dots and tildes included), optional `@scope/`, no other slash, no leading dot or underscore, at most 214 characters. */
-const NAME_OK = /^(?:@[A-Za-z0-9~][A-Za-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/;
-const VERSION_OK = /^(?:0|[1-9][0-9]{0,15})\.(?:0|[1-9][0-9]{0,15})\.(?:0|[1-9][0-9]{0,15})(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+){0,15})?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+){0,15})?$/;
 const URL_OK = /^https:\/\/[A-Za-z0-9._~/?#&=%:+@-]{1,200}$/;
-/** @param {string} n */
-const nameOk = (n) => n.length <= 214 && NAME_OK.test(n);
-/** A `resolved` of a registry tarball has the layout `<host>/<name>/-/<file>.tgz`; a git, file, http or other spec is not a registry package. @param {string} r */
-const registryResolved = (r) => /^https:\/\/[^\s/]+\/[^\s]*\/-\/[^\s/]+\.tgz(?:#[0-9a-f]{0,64})?$/.test(r);
-/** @param {string} v */
-const versionOk = (v) => v.length <= 64 && VERSION_OK.test(v);
 
 /** `security.advisory_check` is `off` unless the user set `on`; anything else is off (fail closed). @param {Context} ctx */
 export function advisoryEnabled(ctx) { return asciiLower(ctx.config().get('security.advisory_check', 'off').trim()) === 'on'; }
@@ -64,7 +57,7 @@ export const recordFile = (ctx, id) => `${runDir(ctx, id)}/${RECORD_NAME}`;
 /**
  * The advisory definition of every ecosystem of the control plane's OWN ecosystems.json that has one.
  * @param {Context} ctx
- * @returns {Array<{ eco: string, kind: string, url: string, locks: string[], watch: string[] }>}
+ * @returns {Array<{ eco: string, kind: string, url: string, locks: string[], formats: string[], refused: string[], watch: string[] }>}
  */
 export function advisoryDefs(ctx) {
   const rows = ecosystemRowsOwn(ctx) ?? [];
@@ -72,52 +65,15 @@ export function advisoryDefs(ctx) {
   return ids.map((eco) => {
     const mine = rows.filter((r) => r[0] === eco && r[1].startsWith('advisory.'));
     /** @param {string} p */ const list = (p) => mine.filter((r) => r[1] === `advisory.${p}`).map((r) => r[2]);
-    return { eco, kind: list('kind')[0] ?? '', url: list('url')[0] ?? '', locks: list('locks'), watch: list('watch') };
+    return { eco, kind: list('kind')[0] ?? '', url: list('url')[0] ?? '', locks: list('locks'), formats: list('formats'), refused: list('refused'), watch: list('watch') };
   });
 }
 
 /** @param {Record<string, unknown>} o @param {string} k @returns {number} */
 const num = (o, k) => (typeof o[k] === 'number' ? /** @type {number} */ (o[k]) : 0);
 
-/**
- * The packages of an npm lock, for the request: `{ packages: Map<name, string[] versions>, skipped, reasons, total, versions }` or an error. Only the `packages` map is read, and of an entry only its
- * `name` (the real package when the entry is an alias, else the part of the path after its last `node_modules/`), `version`, `link` and `resolved`: a link, an entry whose `resolved` is not a registry
- * tarball (git, file, http), an entry without a version, a name or version that fails the grammar, or a path outside `node_modules/` is skipped and counted with its reason, so a hostile entry can only be
- * skipped; `total` is every entry but the root, so a record can say how much was not checked.
- * @param {Buffer | string} lock @returns {{ packages: Map<string, string[]>, skipped: number, reasons: Record<string, number>, total: number, versions: number } | { error: string, kind: string }}
- */
-export function lockPackages(lock) {
-  let doc;
-  try { doc = JSON.parse(typeof lock === 'string' ? lock : lock.toString('utf8')); } catch { return { error: 'the lock file is not valid JSON', kind: 'lock_unreadable' }; }
-  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) return { error: 'the lock file is not a JSON object', kind: 'lock_unreadable' };
-  const pk = doc.packages;
-  if (pk === null || typeof pk !== 'object' || Array.isArray(pk)) return { error: 'the lock file has no `packages` map (lockfileVersion 1 is not supported: regenerate it with a current npm)', kind: 'lock_unsupported' };
-  /** @type {Map<string, Set<string>>} */ const byName = new Map();
-  /** @type {Record<string, number>} */ const reasons = Object.create(null);
-  let skipped = 0; let total = 0;
-  /** @param {string} why */
-  const skip = (why) => { skipped++; reasons[why] = (reasons[why] ?? 0) + 1; };
-  for (const key of Object.keys(pk)) {
-    if (key === '') continue; // the root project itself
-    total++;
-    const e = pk[key];
-    const at = key.lastIndexOf('node_modules/');
-    const pathName = at === 0 || (at > 0 && key[at - 1] === '/') ? key.slice(at + 'node_modules/'.length) : '';
-    if (pathName === '') { skip('outside-node_modules'); continue; }
-    if (e === null || typeof e !== 'object' || Array.isArray(e)) { skip('invalid'); continue; }
-    if (e.link === true || (e.resolved !== undefined && (typeof e.resolved !== 'string' || !registryResolved(e.resolved)))) { skip('non-registry'); continue; }
-    if (typeof e.version !== 'string') { skip('no-version'); continue; }
-    const name = e.name !== undefined ? e.name : pathName;
-    if (typeof name !== 'string' || !nameOk(name) || !versionOk(e.version)) { skip('invalid'); continue; }
-    const set = byName.get(name) ?? new Set();
-    set.add(e.version);
-    byName.set(name, set);
-  }
-  /** @type {Map<string, string[]>} */ const packages = new Map();
-  let versions = 0;
-  for (const name of [...byName.keys()].sort()) { const v = [...(byName.get(name) ?? [])].sort(); packages.set(name, v); versions += v.length; }
-  return { packages, skipped, reasons, total, versions };
-}
+/** The npm lock parser under its first name (lockparse.mjs holds every format). */
+export const lockPackages = npmPackages;
 
 /** Whether the skipped entries are too many for the record to say `measured`: more than 5 percent of the entries or more than 25. @param {number} skipped @param {number} total */
 export const tooManySkipped = (skipped, total) => skipped > 25 || skipped * 20 > total;
@@ -268,12 +224,27 @@ export function readRecord(file) {
   } catch { return null; }
 }
 
+/**
+ * The ONE lock file of a definition at the project root: `{ name, format }` (a regular file, a link is not one), or why none is read: none there, more than one (a second lock could hide the one the
+ * package manager uses, so neither is chosen), or a lock whose format is refused (`advisory.refused`, a binary lock).
+ * @param {Context} ctx @param {{ locks: string[], formats: string[], refused: string[] }} def
+ * @returns {{ name: string, format: string } | { none: true } | { several: string[] } | { refused: string }}
+ */
+export function pickLock(ctx, def) {
+  /** @param {string} l */ const regular = (l) => { try { return lstatSync(`${ctx.root}/${l}`).isFile(); } catch { return false; } };
+  /** @param {string} l */ const exists = (l) => { try { lstatSync(`${ctx.root}/${l}`); return true; } catch { return false; } };
+  const found = def.locks.map((name, i) => ({ name, format: def.formats[i] ?? '' })).filter((x) => regular(x.name));
+  const refused = def.refused.filter(exists);
+  if (found.length + refused.length > 1) return { several: [...found.map((x) => x.name), ...refused] };
+  if (refused.length === 1) return { refused: refused[0] };
+  return found[0] ?? { none: true };
+}
+
 /** The lock file the run's definition would audit (its sha), or ''. @param {Context} ctx */
 function currentLockSha(ctx) {
   for (const def of advisoryDefs(ctx)) {
-    for (const l of def.locks) {
-      try { if (lstatSync(`${ctx.root}/${l}`).isFile()) return sha256File(`${ctx.root}/${l}`); } catch { /* next */ }
-    }
+    const p = pickLock(ctx, def);
+    if ('name' in p) return sha256File(`${ctx.root}/${p.name}`);
   }
   return '';
 }
@@ -369,10 +340,15 @@ export function advisoryCheckCommand(ctx, args) {
   };
   if (!advisoryEnabled(ctx)) return done('not_run', 'disabled', 'advisory check not enabled: set security.advisory_check: on in .agents/config.yaml (it sends the package names and versions of the lock file to the registry)');
   if (def === undefined) return done('not_applicable', 'no_dependency_change', 'no dependency manifest or lock file changed in this run');
-  const lockName = def.locks.find((l) => { try { return lstatSync(`${ctx.root}/${l}`).isFile(); } catch { return false; } });
-  if (lockName === undefined) return done('not_run', 'no_lock', `no ${def.locks.join(' or ')} (a regular file) at the project root: only an npm lock is checked, and it is only parsed as JSON`);
   const parse = KINDS[def.kind];
-  if (parse === undefined || !/^https:\/\/[a-z0-9.-]+(\/[A-Za-z0-9._~/-]*)?$/.test(def.url)) return done('not_run', 'bad_definition', `the ecosystem definition has no usable advisory request (kind ${def.kind})`);
+  if (parse === undefined || !/^https:\/\/[a-z0-9.-]+(\/[A-Za-z0-9._~/-]*)?$/.test(def.url) || def.formats.length !== def.locks.length || def.formats.some((f) => LOCK_FORMATS[f] === undefined)) return done('not_run', 'bad_definition', `the ecosystem definition has no usable advisory request (kind ${def.kind})`);
+  const picked = pickLock(ctx, def);
+  const names = `${def.locks.slice(0, -1).join(', ')} or ${def.locks[def.locks.length - 1]}`;
+  if ('none' in picked) return done('not_run', 'no_lock', `no ${names} (a regular file) at the project root: only a lock file at the root is checked, and it is only read as data`);
+  if ('several' in picked) return done('not_run', 'several_locks', `more than one lock file at the project root (${picked.several.join(', ')}): which one the package manager uses is not guessed; remove the stale one or audit by hand`);
+  if ('refused' in picked) return done('not_run', 'lock_unsupported', `${picked.refused} is a binary lock file, which is not parsed (only text lock files are read as data): write a text lock file or audit by hand`);
+  const lockName = picked.name;
+  const readPackages = LOCK_FORMATS[picked.format];
   const read = readLock(`${ctx.root}/${lockName}`);
   if ('error' in read) return done('not_run', 'lock_unreadable', `${lockName} ${read.error}`);
   const lockBytes = read.bytes;
@@ -386,7 +362,7 @@ export function advisoryCheckCommand(ctx, args) {
   }
   if (attempts >= MAX_ATTEMPTS) return done('not_run', 'attempts', `${MAX_ATTEMPTS} requests were already made for this lock file`);
   if (requests >= MAX_SETS) return done('not_run', 'run_cap', `${MAX_SETS} request sets were already made in this run`);
-  const pk = lockPackages(lockBytes);
+  const pk = readPackages(lockBytes);
   if ('error' in pk) return done('not_run', pk.kind, pk.error);
   const built = buildBatches(pk.packages, pk.versions);
   if ('error' in built) return done('not_run', 'too_large', built.error);
@@ -396,7 +372,7 @@ export function advisoryCheckCommand(ctx, args) {
   /** @type {Advisory[]} */ const all = [];
   let truncated = false;
   /** @param {string} kind @param {number} i @param {number} [status] */
-  const failed = (kind, i, status) => done('failed', 'failed', why(kind, i, built.bodies.length, status), { command, lock: lockName, lock_sha256: lockSha, packages: pk.packages.size, skipped: pk.skipped });
+  const failed = (kind, i, status) => done('failed', 'failed', why(kind, i, built.bodies.length, status), { command, lock: lockName, format: picked.format, lock_sha256: lockSha, packages: pk.packages.size, skipped: pk.skipped });
   for (let i = 0; i < built.bodies.length; i++) {
     /** @type {HttpResult} */ let res;
     try { res = http({ url: def.url, body: built.bodies[i], timeoutMs: TIMEOUT_MS, maxBytes: MAX_RESPONSE }); } catch { return failed('network', i); }
@@ -418,7 +394,7 @@ export function advisoryCheckCommand(ctx, args) {
   const partial = tooManySkipped(pk.skipped, pk.total);
   const why2 = pk.skipped > 0 ? ` (${Object.entries(pk.reasons).map(([k, v]) => `${k} ${v}`).join(', ')})` : '';
   return done(partial ? 'partial' : 'measured', partial ? 'partial' : 'measured', partial ? `${pk.skipped} of ${pk.total} lock entries were not checked${why2}` : '', {
-    requests: requests + 1, command, exit_code: 0, lock: lockName, lock_sha256: lockSha, packages: pk.packages.size, versions: pk.versions, skipped: pk.skipped, total: pk.total, skipped_reasons: pk.reasons, http_requests: built.bodies.length,
+    requests: requests + 1, command, exit_code: 0, lock: lockName, format: picked.format, lock_sha256: lockSha, packages: pk.packages.size, versions: pk.versions, skipped: pk.skipped, total: pk.total, skipped_reasons: pk.reasons, http_requests: built.bodies.length,
     sent: `the package names and versions of ${lockName} (${pk.packages.size} packages, ${pk.versions} versions) to ${new URL(def.url).host} over HTTPS, ${built.bodies.length} POST request${built.bodies.length === 1 ? '' : 's'}`,
     counts: countsOf(all), advisories: all, truncated,
   });

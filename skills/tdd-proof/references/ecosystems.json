@@ -65,8 +65,10 @@
       "advisory": {
         "kind": "npm-bulk",
         "url": "https://registry.npmjs.org/-/npm/v1/security/advisories/bulk",
-        "locks": ["npm-shrinkwrap.json", "package-lock.json"],
-        "watch": ["package.json", "package-lock.json", "npm-shrinkwrap.json"]
+        "locks": ["npm-shrinkwrap.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock"],
+        "formats": ["npm-json", "npm-json", "pnpm-yaml", "yarn", "bun-jsonc"],
+        "refused": ["bun.lockb"],
+        "watch": ["package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"]
       },
       "fast_tests": { "test_markers": ["\\b(describe|it|test)(\\.\\w{1,32}){0,3} ?\\("], "files": ["*.js", "*.jsx", "*.mjs", "*.cjs", "*.ts", "*.tsx", "*.mts", "*.cts"], "fake_clock": { "status": "supported", "facility": "jest and vitest fake timers (useFakeTimers), node:test mock.timers; an injected clock function otherwise" }, "sleep": ["setTimeout", "setInterval", "setImmediate", "sleep(", "waitForTimeout", "cy.wait", "timers/promises", "Atomics.wait", "Atomics.waitAsync", "sleepSync(", "sleepMs(", "waitSync(", "busyWait(", "while (Date.now() <", "while (Date.now() >", "while (Date.now() -", "while(Date.now()", "while (performance.now() <", "while (performance.now() >", "while (performance.now() -", "while(performance.now()"], "clock_reads": ["Date.now", "new Date()", "performance.now", "process.hrtime"] },
       "browser_test": { "manifest": "package.json", "deps_dir": "node_modules", "names": ["@playwright/test", "playwright", "playwright-core", "puppeteer", "puppeteer-core", "cypress", "webdriverio", "@wdio/cli", "selenium-webdriver"] },

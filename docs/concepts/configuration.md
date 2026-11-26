@@ -18,7 +18,7 @@ The split changes no key and no default. A key keeps its name and place in the d
 | `commands.build`, `commands.test`, `commands.lint` | how the project is built, tested and linted; `proofline doctor --commands` finds empty ones; `lint: none` says there is no lint |
 | `git.protected_branches`, `git.push_requires_approval` | branches nobody pushes to directly; whether a push needs your approval |
 | `codex.sandbox.network`, `codex.sandbox.local_server`, `codex.sandbox.failover` | what a Codex worker may do beyond the default profile (off by default) |
-| `security.advisory_check` | your consent (`on`) to send the package names and versions of your npm lock file to the public npm registry for an advisory check; off by default |
+| `security.advisory_check` | your consent (`on`) to send the package names and versions of your npm, pnpm, yarn or bun lock file to the public npm registry for an advisory check; off by default |
 | `output_cap_bytes` | most bytes the lead sees from a status command before the rest is cut |
 | `review.max_fix_rounds` | failing review rounds a task may have before it asks you |
 | `test_trust.mutation_budget`, `test_trust.review_rounds` | mutants and rounds of the test review |

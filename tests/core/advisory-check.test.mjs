@@ -159,7 +159,7 @@ test('a lock beyond the caps is refused with a note and no request: more than 50
   assert.match(check(d, http).out, /not_run: package-lock\.json is larger than 16 MiB/);
   d = run({ lock: false });
   wr(d, 'real.json', lockText()); symlinkSync(path.join(d, 'real.json'), path.join(d, 'package-lock.json'));
-  assert.match(check(d, http).out, /not_run: no npm-shrinkwrap\.json or package-lock\.json \(a regular file\)/);
+  assert.match(check(d, http).out, /not_run: no npm-shrinkwrap\.json, package-lock\.json, pnpm-lock\.yaml, yarn\.lock or bun\.lock \(a regular file\)/);
   assert.match(check(run({ lock: '{ not json' }), http).out, /not_run: the lock file is not valid JSON/);
   assert.match(check(run({ lock: '{"lockfileVersion":1,"dependencies":{}}' }), http).out, /not_run: the lock file has no `packages` map/);
   assert.equal(http.calls.length, 0);
@@ -298,7 +298,7 @@ test('the record is bound to the ledger: a row is written with it, and a record 
 
 test('no lock file, a diff without a dependency manifest, a role that runs the command', () => {
   const http = fake();
-  assert.match(check(run({ lock: false }), http).out, /not_run: no npm-shrinkwrap\.json or package-lock\.json/);
+  assert.match(check(run({ lock: false }), http).out, /not_run: no npm-shrinkwrap\.json, package-lock\.json, pnpm-lock\.yaml, yarn\.lock or bun\.lock/);
   const d = run({ files: 'src/a.js', lock: false });
   assert.match(check(d, http).out, /not_applicable: no dependency manifest or lock file changed/);
   assert.equal(http.calls.length, 0);
@@ -339,5 +339,8 @@ test('the default HTTP function (no network here): http is refused, a closed loc
 test('the ecosystem definition carries the fixed url and no tool: no argv, no environment, no project settings file', () => {
   const j = JSON.parse(readFileSync(new URL('../../control-plane/agents/ecosystems.json', import.meta.url), 'utf8'));
   const a = j.ecosystems.find((/** @type {any} */ e) => e.advisory).advisory;
-  assert.deepEqual(a, { kind: 'npm-bulk', url: URL_OWN, locks: ['npm-shrinkwrap.json', 'package-lock.json'], watch: ['package.json', 'package-lock.json', 'npm-shrinkwrap.json'] });
+  assert.deepEqual(a, {
+    kind: 'npm-bulk', url: URL_OWN, locks: ['npm-shrinkwrap.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock'], formats: ['npm-json', 'npm-json', 'pnpm-yaml', 'yarn', 'bun-jsonc'],
+    refused: ['bun.lockb'], watch: ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'],
+  });
 });

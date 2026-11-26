@@ -2,7 +2,7 @@
 # Indented YAML of scalars; lists are space-separated (approval.phrases is comma-separated because a phrase may contain spaces); the one exception is
 # commands.build|test|lint, which may be a block list of commands (A173). `proofline doctor --config` lists the basics with their values (read-only),
 # `agent.sh config-get <dotted.key>` reads a value, `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.196
+proofline_version: 0.0.197
 
 # ===== BASICS: the few settings a user is expected to change =====
 # Your own project settings. The comment above each key says what it does in plain words; `proofline doctor --config` shows the value now and the default.
@@ -112,11 +112,12 @@ security:
     allow:
     deny:
   audit_command:
-  # advisory_check: `on` sends the package NAMES and VERSIONS of your npm lock file to the public npm registry (your consent; off by default).
+  # advisory_check: `on` sends the package NAMES and VERSIONS of your lock file (npm, pnpm, yarn or bun) to the public npm registry (your consent; off by default).
   # A373: `on` is your one-time consent for the control plane to ask the advisory service ONCE about the lock file when a run's diff touches dependencies (`agent.sh advisory-check`).
-  # It sends ONLY the package names and versions of the root package-lock.json or npm-shrinkwrap.json to registry.npmjs.org over HTTPS (one POST per batch of 500 packages), so it is
-  # off until you set it here by hand (empty or `off` = not run). No npm and no project script or config runs or is read (the lock is only parsed as JSON), and no proxy is used:
-  # on a network that allows only a proxy the check records a failed request (`network error`), never a clean result. Only npm locks are checked.
+  # It sends ONLY the package names and versions of the ONE root lock (package-lock.json, npm-shrinkwrap.json, pnpm-lock.yaml, yarn.lock or bun.lock; A375) to registry.npmjs.org over
+  # HTTPS (one POST per batch of 500 packages), so it is off until you set it here by hand (empty or `off` = not run). No package manager and no project script or config runs or is read
+  # (the lock is only read as data), and no proxy is used: on a network that allows only a proxy the check records a failed request (`network error`), never a clean result.
+  # Not checked: a binary bun.lockb, more than one lock at the root, a lock in a sub-folder, other ecosystems.
   # NOTE: EVERY package name in the lock is sent to the PUBLIC registry, private or internal scoped names (`@corp/internal`) included, and this setting is your consent for that:
   # if you have private packages, leave it off.
   advisory_check:

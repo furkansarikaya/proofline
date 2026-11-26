@@ -22,7 +22,7 @@ export const BASIC_KEYS = Object.freeze([
   ['codex.sandbox.network', 'on lets Codex workers reach the network; off by default, set only by you in this file'],
   ['codex.sandbox.local_server', 'on lets a Codex worker run a loopback test server; needs network: on, set only by you'],
   ['codex.sandbox.failover', 'claude hands a Codex implementer that the sandbox stopped to the Claude implementer'],
-  ['security.advisory_check', 'on is your consent to send the package names and versions of your npm lock file to the public npm registry for an advisory check; off by default'],
+  ['security.advisory_check', 'on is your consent to send the package names and versions of your npm, pnpm, yarn or bun lock file to the public npm registry for an advisory check; off by default'],
   ['output_cap_bytes', 'most bytes the lead sees from a status command before the rest is cut (0 = no cap)'],
   ['review.max_fix_rounds', 'how many failing review rounds a task may have before it stops and asks you (default 2)'],
   ['test_trust.mutation_budget', 'how many mutants the tests review may try per task (default 20)'],

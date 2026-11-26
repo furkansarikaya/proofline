@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.197 — 2026-11-26
+
+- Feature (A375, issue 338 C10, extends A373): `agent.sh advisory-check` also reads a root `pnpm-lock.yaml` (lockfileVersion 5 to 9), `yarn.lock` (classic and berry) or text `bun.lock`, not only the npm lock. Each lock is read as data only by a bounded parser (no package manager, no project script and no project config runs or is read; a line over 16384 characters, over 1,000,000 lines, a NUL byte, a tab indentation or an unknown structure refuses the lock, never a clean result); the names and versions go into the same bounded batches with the same counting, record and ledger row. A pnpm entry counts only when its resolution is an integrity alone, a yarn berry `patch:` of a registry package counts as that package, workspace entries are the project itself; everything else (git, file, link, tarball, http) is skipped and counted, and too many make the record `partial`. The binary `bun.lockb` is refused unparsed, and more than one lock at the root is `not_run` (which one is used is not guessed). The format of each lock is data (`advisory.formats` and `advisory.refused` in `ecosystems.json`). Still not checked: a lock in a sub-folder, other ecosystems, an offline database, a proxy, Windows.
+
 ## 0.0.196 — 2026-11-26
 
 - Feature (A374, issue 338 U5): the shipped config is split into a BASICS part (the few settings you are expected to change, among them `codex.sandbox.*` and `security.advisory_check`) and an ADVANCED part (defaults, change only with a decision), with no key renamed or moved and no value changed, and `proofline doctor --config` lists the basics read-only with each key's value in your project, the shipped default and a one-line meaning (from a built-in list, so a project config without the banners works the same). New page `docs/concepts/configuration.md`.
