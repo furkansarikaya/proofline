@@ -4,7 +4,7 @@ description: "Writes an executable, scoped PLAN.md for one task and validates it
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.183"
+  version: "0.0.184"
 ---
 
 # plan-contract
@@ -22,7 +22,7 @@ Talk to the user in their language. `PLAN.md` is English; identifiers, paths, co
 1. **Scope is exact.** One entry per file, repo-relative, no globs, no directories, no duplicates. A file the plan creates is `new: true`; an existing file is never `new: true`. Run artifacts and `.agents/local/` are never scope ([SCOPE.md](references/SCOPE.md)).
 2. **Mapping both ways.** Every scope path lists the acceptance criteria it serves; every `AC-<n>` of TASK.md is served by a scope path or by a test named in `## Tests` (`- AC-<n>: `path` ...`). A path no criterion needs is not in scope.
 3. **Smallest scope that meets the criteria.** Start from EVIDENCE.md (when the class has it): the live implementation, its callers and tests. Dead or duplicate code named under `conflict` is never in scope unless a criterion requires removing it. No refactoring, renaming or cleanup a criterion does not ask for.
-4. **Tests are scope.** Every behavior-changing path has its test file in scope. A path without RED/GREEN evidence needs `tdd_exemption` with a specific reason (≥ 20 characters after stock phrases are removed).
+4. **Tests are scope.** Every behavior-changing path has its test file in scope; an existing test that asserts the opposite of the planned output is listed under `## Sibling tests` ([SECTIONS.md](references/SECTIONS.md#2-content)), and the freeze scopes it without counting it as a code path. A path without RED/GREEN evidence needs `tdd_exemption` with a specific reason (≥ 20 characters after stock phrases are removed).
    **Document paths (A197).** A path that is a document (a design document, anything under the knowledge scope or `docs/`, `*.md`) has no RED/GREEN: give it a `tdd_exemption` with a specific reason, or a meaningful proof in `## Tests` (for example design-sync finding the drift first and then passing clean). `agent.sh freeze` and `validate-plan.mjs` print a one-line warning for a document path without either (add the `tdd_exemption` example of `assets/PLAN.template.md`); fixing it after the implementer has finished costs an amendment, a refreeze and a rewritten QA plan.
    **Visual criteria.** A criterion about layout, overflow, wrapping, spacing or a viewport is proven by a browser measurement (the `visual-proof` skill: name it in the `visual_proof:` line of `## UI`), never by a unit test that counts characters or assumes a font width; a `## Tests` entry for it names the measurement, not such a test.
    **Test kinds and budgets (issue 265).** Each `## Tests` entry ends with `(test_kind: unit|integration|e2e)` and `## Test budgets` states the budget of each kind used ([SECTIONS.md](references/SECTIONS.md#2-content)); the budgets are fixed before the tests are written.

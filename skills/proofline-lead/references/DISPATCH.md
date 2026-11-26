@@ -91,6 +91,7 @@ Rules:
 - Never override the template's WRITE line or invent another evidence place: the implementer's RED and GREEN evidence goes through `agent.sh worker-evidence` only (not scratch/, not a tdd.json), and `submit` DONE is refused without it (A332).
 - An assignment is English throughout and carries no user language: a specialist writes every file, report and
   question in English (A33); only the lead talks to the user, in the user's language.
+- **Explorer objective: sibling tests (A362, issue 338 C6).** When the planned change alters an output (text, column, format, value, default, error message), one explorer's OBJECTIVE also asks for the existing tests that assert the OPPOSITE or pin the old output: a grep of `tests/` for the strings and names the change removes or changes, each hit as a claim `path:line`. The lead lists those files under `## Sibling tests` in PLAN.md (a bullet each, or `none`); the freeze scopes them without counting them as code paths, so the implementer is allowed to change them and the scope limit is not spent on them. No full test run on a stub is possible before the plan exists: the grep is the method.
 - Defaults per role (from the role sources):
 
 | Role | OBJECTIVE / WRITE / STOP default |

@@ -105,6 +105,8 @@ review; the implementer is told to use the project's own logger and standard and
 - A signal in the diff without its plan flag (a contract file changed, `contract_change` not set) is a
   blocking finding of that focus, and the check still runs.
 - A gate passes only when its own focus and every risk focus it carries pass.
+- The `contract` focus is required when a recognised contract file is in the task-owned diff or the plan says `contract_change: yes` (A362). A contract path that only the plan scope names does not add it; the control plane decides from the manifest, again at every call, so a round that adds a contract file adds the focus and a focus already recorded stays on its record.
+- A finding id names one finding of a gate: the findings of a second focus of the same gate (`QA` and `QA:visual`, `REVIEW_RULES` and its `contract` focus) are numbered above those of the first, and `record` refuses an id that another focus of the gate holds (A362). A report file the agent did not write with its submission (no `--report`) is refused when its bytes equal the report of an earlier record of another gate or focus, or of the same gate on another tree: a stale file under a shared name (`QA_REPORT.md`, `VERIFY.md`, a `REPORT.md`).
 - A check whose skill or tool is missing is `UNSUPPORTED`: never a PASS, unproven and reported (A98). By default
   (`risk.unsupported: report`) it does not block the gate; the completion report must list it under
   `## Unsupported Checks` with `not proven: <what>`. `risk.unsupported: block` makes it blocking (only the user
@@ -153,7 +155,7 @@ a new dependency not named in the plan is a FAIL; so is a change to a versioned 
 ## Fix loop
 
 A FAIL goes back to the implementer (same worktree). Each round carries the previous findings; only gates made
-stale by the change re-run. `review.max_fix_rounds` defaults to 2 and round 2 escalates to a stronger model.
+stale by the change re-run. `review.max_fix_rounds` defaults to 2 and round 2 escalates (a stronger model for a first attempt; a role that is run again on the same task never runs above its first attempt or above `execution_policy.repeat_model_cap`, so the strongest model is spent once, A362; a role's tier floor still wins, a security reviewer is never lowered).
 If findings remain after the last round the run ends `terminate FAILED`, commit and push stay locked, and the
 lead reports what remains. There is never an endless loop.
 

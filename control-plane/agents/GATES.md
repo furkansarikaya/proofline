@@ -167,6 +167,7 @@ migration path signal is a risky path, so the tier is full and REVIEW_DATA exist
   `FILE:` cross-check, and a deliberately fabricated evidence file is caught only by reading it. The
   `contract` focus has contract-proof (A83): UNSUPPORTED only for a changed contract file it cannot parse that no
   compatibility tool already present covers, or when node is missing.
+- **Required only on evidence (A362).** The `contract` focus is required by a `contract_file` signal of the task-owned diff or by `contract_change: yes`; a path that only the plan scope names raises the signal before the freeze (the design role declares the flag) but does not require the focus. Finding ids stay `<GATE>-<n>` and are unique across the focuses of a gate (`record` refuses a duplicate of another focus; `submit` numbers above them); a report file handed over without `--report` that is byte-identical to the report of an earlier record of another gate or focus is refused as stale.
 - **Frozen.** PLAN.md flags are frozen with `plan_sha256`; the `risk:` block, the performance thresholds (`performance:`, A87) the non-empty `security.*` keys (A88) and the `contract:` globs (A83) with `freeze.risk_sha256`. A
   change of either after FREEZE fails `verify-freeze` until an amendment and refreeze. The lead never writes
   `.agents/config.yaml` during a run (runtime hook).

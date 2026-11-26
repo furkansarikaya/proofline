@@ -63,8 +63,8 @@ re-run it on a weaker model (D7).
    `A refreeze`; `amend` is for CODE_DONE/DONE runs only.
 4. `A handoff <ID> IMPLEMENTED`, `A tier <ID>`, `A pipeline <ID>`. Every gate is now `stale` or `missing`
    (any byte change); re-run exactly the gates that are not `pass`/`waived`.
-5. Round 2 sets `escalation=yes`; `decide` adds `fix_round_2` (stronger model for the implementer and the
-   re-run gates). Never pass a stronger model by hand.
+5. Round 2 sets `escalation=yes`; `decide` adds `fix_round_2` (a stronger effort step for the implementer and the
+   re-run gates; a repeated role never runs above its first attempt or `execution_policy.repeat_model_cap`, A362). Never pass a stronger model by hand.
 6. **Exhausted:** after `review.max_fix_rounds` rounds with open findings, `next` prints
    `agent.sh terminate <ID> FAILED`. Run it with stdin `reason: <specific>` and `evidence: <open finding ids
    and the rounds used>`; report every open finding and why it stayed open; commit and push stay locked.

@@ -48,6 +48,32 @@ export function resultKind(role, res) {
 /** `finding_prefix ROLE KIND GATE` @param {string} role @param {string} kind @param {string} gate */
 export const findingPrefix = (role, kind, gate) => (kind === 'gate' && gate !== '' ? gate : role);
 
+/**
+ * The finding ids (as `idKey`) that records of GATE hold under another focus than FOCUS (A362, issue 338 C7). Finding ids stay `<GATE>-<n>` (the word of a risk focus in an id, such as
+ * `visual`, could not be named in a completion report, A341), so two focuses of one gate must not share an id: `submit` numbers a focus's findings above `otherFocusMaxId` and
+ * `record` refuses a finding id that one of these records holds.
+ * @param {Context} ctx @param {string} dir the run folder @param {string} gate @param {string} focus @returns {Map<string, string>} id key -> the record that holds it
+ */
+export function otherFocusIds(ctx, dir, gate, focus) {
+  /** @type {Map<string, string>} */ const out = new Map();
+  const gd = `${dir}/gates`;
+  for (const n of listNames(gd, /^[0-9]{3}-[A-Z_]+\.yaml$/)) {
+    const f = `${gd}/${n}`;
+    if (gateField(ctx, f, 'gate') !== gate || gateField(ctx, f, 'focus') === focus) continue;
+    for (const l of textLines(fileText(ctx, f) ?? '')) {
+      if (l.startsWith('finding: ')) { const id = l.slice('finding: '.length).split('|')[0]; if (!out.has(idKey(id))) out.set(idKey(id), n); }
+    }
+  }
+  return out;
+}
+
+/** The highest number among `otherFocusIds` of the gate, 0 when none. @param {Context} ctx @param {string} dir @param {string} gate @param {string} focus */
+export function otherFocusMaxId(ctx, dir, gate, focus) {
+  let max = 0;
+  for (const k of otherFocusIds(ctx, dir, gate, focus).keys()) { const n = Number(k.replace(/^[^]*-/, '')); if (n > max) max = n; }
+  return max;
+}
+
 /** `id_keys`: upper case, leading zeros of the number dropped. @param {string} id */
 export const idKey = (id) => asciiUpper(id).replace(/-0+([0-9])/g, '-$1');
 

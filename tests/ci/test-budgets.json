@@ -232,6 +232,22 @@
       "test_ms": 10000,
       "suite_ms": 25000
     },
+    "tests/core/retro-c2-contract-focus.test.mjs": {
+      "test_ms": 4200,
+      "suite_ms": 10000
+    },
+    "tests/core/retro-c2-repeat-model.test.mjs": {
+      "test_ms": 2600,
+      "suite_ms": 10000
+    },
+    "tests/core/retro-c6-sibling-tests.test.mjs": {
+      "test_ms": 3100,
+      "suite_ms": 10000
+    },
+    "tests/core/retro-c7-artifacts.test.mjs": {
+      "test_ms": 7700,
+      "suite_ms": 10000
+    },
     "tests/core/waiting-b8.test.mjs": {
       "test_ms": 11500,
       "suite_ms": 15300

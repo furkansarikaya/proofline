@@ -3,7 +3,7 @@
 // no run state. `agent.sh decide` gathers the inputs from a run and calls `cli exec-policy resolve ...`; it ledgers the result itself.
 //
 //   resolve --role R --class C --tier T [--profile P] [--runtime RT] [--signal S]... [--escalations-used N] [--model M] [--effort E]
-//       [--context-bytes N] [--runtime-reason AUTOMATIC_FAILOVER]
+//       [--context-bytes N] [--runtime-reason AUTOMATIC_FAILOVER] [--repeat-of FIRST-MODEL]
 //   explain < decision          reason codes -> text
 //   check-capabilities          the codex ladder against the local Codex model cache
 //   check-lead --runtime RT [--model M]   a lead must run on the base model or stronger (A135)
@@ -184,7 +184,7 @@ function kv(s, key) {
  * @returns {string}
  */
 export function resolve(pol, argv) {
-  let role = ''; let cls = ''; let tier = ''; let profile = ''; let rt = ''; let signals = ''; let usedS = '0'; let oModel = ''; let oEffort = ''; let oCtx = ''; let oRreason = '';
+  let role = ''; let cls = ''; let tier = ''; let profile = ''; let rt = ''; let signals = ''; let usedS = '0'; let oModel = ''; let oEffort = ''; let oCtx = ''; let oRreason = ''; let repeatOf = '';
   for (let i = 0; i < argv.length; i += 2) {
     if (i + 1 >= argv.length) throw die(`missing value for ${argv[i]}`);
     const v = argv[i + 1];
@@ -200,6 +200,7 @@ export function resolve(pol, argv) {
       case '--model': oModel = v; break;
       case '--effort': oEffort = v; break;
       case '--context-bytes': oCtx = v; break;
+      case '--repeat-of': repeatOf = v; break;
       default: throw die(`unknown option: ${argv[i]}`);
     }
   }
@@ -317,6 +318,7 @@ export function resolve(pol, argv) {
 
   // escalation: any signal raises one step (model first, effort when the model is pinned or at the top)
   let escalated = 'no'; let xreason = 'NO_SIGNAL';
+  const preEscModel = model;
   if (rest.length > 0) {
     if (used >= maxEsc) xreason = 'ESCALATION_BUDGET_EXHAUSTED';
     else {
@@ -326,6 +328,25 @@ export function resolve(pol, argv) {
       } else if (oEffort === '' && ei < efforts.length) {
         ei += 1; ereason = `${ereason},ESCALATED`; escalated = 'yes'; xreason = 'ESCALATED_EFFORT';
       } else xreason = 'AT_CEILING';
+    }
+  }
+  // repeated work (A362, issue 338 C2): a re-run of a role on the same task (--repeat-of names the model of its first attempt, '-' when unknown) never runs above that model and
+  // never above execution_policy.repeat_model_cap.<runtime> (the strongest rung is for the first attempt); the role's tier floor still wins, so a security reviewer keeps tier 3.
+  // An explicit operator model is not touched. Without the cap key (an older config) only the "never above the first attempt" rule applies.
+  if (repeatOf !== '' && oModel === '') {
+    const capS = pol.cfg('execution_policy', 'repeat_model_cap', rt);
+    if (capS !== '' && idx(capS, ladder) === 0) throw die(`execution_policy.repeat_model_cap.${rt}: ${capS} is not in the ${rt} ladder (${ladderS})`);
+    let lim = capS === '' ? 0 : idx(capS, ladder);
+    const firstI = idx(repeatOf, ladder);
+    if (firstI > 0 && (lim === 0 || firstI < lim)) lim = firstI;
+    if (lim > 0 && idx(model, ladder) > lim) {
+      let m = ladder[lim - 1];
+      if (pol.mustTier(rt, m) < floor) m = pol.modelAtTier(rt, ladder, floor) ?? m;
+      if (m !== model) {
+        model = m; mreason = `${mreason},REPEAT_CAPPED`;
+        // the cap took an escalation back (the model is not above the one it had before the signal): it is not an escalation and spends no budget (A362)
+        if (escalated === 'yes' && xreason === 'ESCALATED_MODEL' && idx(model, ladder) <= idx(preEscModel, ladder)) { escalated = 'no'; xreason = 'REPEAT_CAPPED'; mreason = mreason.replace(',ESCALATED', ''); }
+      }
     }
   }
   const effort = efforts[ei - 1];
@@ -377,6 +398,7 @@ const REASON_TEXT = /** @type {Record<string, string>} */ ({
   TIER_DOCS: 'docs/small tier: half the class context budget',
   TIER_SMALL: 'docs/small tier: half the class context budget',
   CAPPED_AT_HARD_LIMIT: 'bounded by execution_policy.max_context_bytes',
+  REPEAT_CAPPED: 'repeated work (a re-run of the role on this task): not above its first attempt and not above execution_policy.repeat_model_cap, never below the role tier floor',
   UI_PERSUADE_STRONGEST: 'UI task on a persuade or experience surface: strongest model of the ladder',
 });
 

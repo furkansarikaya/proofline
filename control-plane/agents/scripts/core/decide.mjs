@@ -104,6 +104,22 @@ function latestDecision(dir, role, focus) {
   return hit;
 }
 
+/**
+ * The model of the FIRST decision of ROLE (and FOCUS) in this run, '-' when that decision names none, or '' when the role was not decided before: a later decision is repeated work
+ * (a fix round, a re-review, a redispatch; A362). Explorers are parallel slots of one planning phase, not repeats of each other: never repeated here.
+ * @param {Context} ctx @param {string} dir @param {string} role @param {string} focus
+ */
+function firstAttemptModel(ctx, dir, role, focus) {
+  if (role === 'explorer') return '';
+  const tag = focus === '' ? role : `${role}-${focus.replace(/\+/g, '-')}`;
+  for (const f of decisionFiles(dir)) {
+    if (!(f.length === tag.length + 4 + 9 && f.slice(4, 4 + tag.length) === tag && f.endsWith('.decision'))) continue;
+    const m = textLines(fileText(ctx, `${dir}/decisions/${f}`) ?? '').find((l) => l.startsWith('model='));
+    return m === undefined || m.length <= 'model='.length ? '-' : m.slice('model='.length);
+  }
+  return '';
+}
+
 /** `role_results_count ID ROLE [FOCUS]` @param {Context} ctx @param {string} dir @param {string} role @param {string} focus */
 function roleResultsCount(ctx, dir, role, focus) {
   let n = 0;
@@ -282,6 +298,8 @@ export function decide(ctx, args) {
   let esc = 0;
   for (const f of decisionFiles(dir)) if (textLines(fileText(ctx, `${dir}/decisions/${f}`) ?? '').includes('escalated=yes')) esc++;
   resolve.push('--escalations-used', String(esc));
+  const first = firstAttemptModel(ctx, dir, role, focus);
+  if (first !== '') resolve.push('--repeat-of', first);   // A362: repeated work never runs above its first attempt or the configured repeat cap
   for (const w of over.split(/[ \t\n]+/)) if (w !== '') resolve.push(w);
   const res = policyCommand(ctx, resolve.map(bytes));
   if (res.status !== 0) {

@@ -3,7 +3,7 @@
 # phrase may contain spaces); the one exception is commands.build|test|lint, which may be a block list of
 # commands (A173). `agent.sh config-get <dotted.key>` reads a value (the items, one per line, for a list),
 # `agent.sh config-check` validates the file. Semantics: .agents/WORKFLOW.md and .agents/GATES.md.
-proofline_version: 0.0.183
+proofline_version: 0.0.184
 # The canonical integration branch (detected by init). No task implements on it directly.
 canonical_branch: main
 # orchestrated: the lead never writes product code (D2). standalone: the lead implements (protocol tier).
@@ -366,6 +366,12 @@ execution_policy:
   revision: 1
   # Efforts no override may select.
   forbidden_efforts: ultra
+  # Repeated work (A362): a role dispatched again on the same task (a fix round, a re-review, a redispatch; not the parallel explorers of one planning phase) runs on at most
+  # this model of its runtime's ladder and never above the model of its first attempt. The role's tier floor still wins, so a security reviewer (tier 3) is never lowered.
+  # The strongest rung is for the first attempt; an explicit --model of the operator is not capped. Remove the key (or name the top rung) to switch the cap off.
+  repeat_model_cap:
+    claude: sonnet
+    codex: gpt-6-sol
   # Hard ceiling for the dynamic context budget in bytes, overrides included.
   max_context_bytes: 262144
   # Base (full-strength) model a LEAD must run on, per runtime (A135). A lead launched or resumed on a cheaper ladder
