@@ -90,7 +90,8 @@ review:
   # none | task: `task` writes a follow-up task per waiver through the task adapter.
   waiver_followup: none
 # review_rounds / review_minutes (A359): the most REVIEW_TESTS rounds and the most minutes of the test review loop when the plan has no `## Test review budget` (its `rounds:` and
-# `minutes:` win). At the round cap the gate stays failed and the user decides (a larger cap, a written waiver of the named survivors, or stop).
+# `minutes:` win). At the round cap, or after the minutes (counted by the control plane from the loop's first recorded tests reviewer dispatch, A379), a failing gate stays failed
+# and the user decides (a larger cap, a written waiver of the named survivors, or stop).
 # Test review. mutation_budget and review_rounds are the two you may raise; repeat and slow_ratio are advanced.
 test_trust:
   repeat: 5

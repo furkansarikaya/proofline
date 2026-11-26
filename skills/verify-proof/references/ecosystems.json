@@ -29,6 +29,10 @@
       "azure-pipelines*.yml", ".travis.yml", ".drone.yml", "appveyor.yml", "cloudbuild.yaml", ".buildkite/**", ".woodpecker/**", ".gitlab/**",
       "Dockerfile", "**/Dockerfile*", "**/Containerfile*", "docker-compose*.yml", "docker-compose*.yaml", "compose*.yml", "compose*.yaml"
     ],
+    "security_paths": [
+      "**/*approv*.*", "**/*permission*.*", "**/*guard*.*", "**/*sandbox*.*", "**/*login*.*", "**/*session*.*", "**/*token*.*", "**/*password*.*", "**/*credential*.*", "**/*secret*.*",
+      "**/*parse*.*", "**/*deserializ*.*", "**/*sanitiz*.*", "**/*escape*.*", "**/*exec*.*", "**/*spawn*.*", "**/*shell*.*", "**/*http*.*", "**/*socket*.*", "**/*network*.*", "**/*upload*.*"
+    ],
     "ci_scan": {
       "tools": ["make"],
       "build": " (build|compile|package)( |$)",
