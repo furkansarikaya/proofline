@@ -28,7 +28,7 @@ import { queue } from './queue.mjs';
 import { run as coreRun } from '../proofline-core.mjs';
 import { USAGE_LINES } from './cliusage.mjs';
 
-export const PROOFLINE_VERSION = '0.0.186';
+export const PROOFLINE_VERSION = '0.0.187';
 
 /** @typedef {{ write(chunk: Buffer): unknown }} Sink */
 /** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean }} Over */
