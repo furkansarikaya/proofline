@@ -1,7 +1,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -413,6 +413,12 @@ test("--check-deps: every depends_on id exists and there is no cycle; the words 
   const ok = checkDeps(d);
   assert.deepEqual(ok.errors, []); assert.equal(ok.ok, true); assert.equal(ok.tasks, 5);
   assert.deepEqual(ok.edges.map((e) => e.join(">")).sort(), ["T-2>T-1", "T-3>T-1", "T-3>T-2"]);
+  writeFileSync(join(d, "T-7.md"), "# Task: T-7 — t\n\n---\ndepends_on: [T-1,\n  T-8]\n---\n\n## Goal\nx\n");
+  assert.match(checkDeps(d).errors.join("\n"), /T-7: depends_on id "T-8" matches no task/, "an unknown id in the continuation line passed");
+  writeFileSync(join(d, "T-7.md"), "# Task: T-7 — t\n\n---\ndepends_on: [T-1,\n  T-3]\npriority: low\n---\n\n## Goal\nx\n");
+  writeFileSync(join(d, "T-1.md"), "# Task: T-1 — t\n\n---\ndepends_on: [T-2,\n  T-7]\n---\n\n## Goal\nx\n");
+  assert.match(checkDeps(d).errors.join("\n"), /dependency cycle: .*T-7/, "a cycle through a continuation line passed");
+  mk("T-1"); rmSync(join(d, "T-7.md"));
   mk("T-6", "T-9");
   assert.match(checkDeps(d).errors.join("\n"), /T-6: depends_on id "T-9" matches no task/);
   mk("T-6", "T-6");

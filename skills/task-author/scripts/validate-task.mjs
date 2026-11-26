@@ -132,12 +132,17 @@ export function frontMatter(text) {
     m = [h[0], h[2]]; pre = h[1];
   }
   const meta = {};
-  let key = null, types = 0;
+  let key = null, types = 0, open = false;
   for (const l of m[1].split(/\r?\n/)) {
+    // a flow list (`[A,` on one line, `B]` on the next) ends at `]` or at the next `key:` line, as batch-plan's depsOf reads it (A366)
+    if (open) {
+      if (/^[A-Za-z_][\w-]*:/.test(l)) open = false;
+      else { meta[key] = `${meta[key]},${l.replace(/\]\s*$/, "").trim()}`; if (l.includes("]")) open = false; continue; }
+    }
     const item = /^\s+-\s+(.*?)\s*$/.exec(l);
     if (item && key) { meta[key] = [meta[key], item[1]].filter(Boolean).join(","); continue; }
     const kv = /^([A-Za-z_]+):\s*(.*?)\s*$/.exec(l);
-    if (kv) { key = kv[1]; if (key === "type") types++; meta[key] = kv[2].replace(/^\[(.*)\]$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
+    if (kv) { key = kv[1]; if (key === "type") types++; open = /^\[/.test(kv[2]) && !kv[2].includes("]"); meta[key] = kv[2].replace(/^\[(.*?)\]?$/, "$1").replace(/^(["'])(.*)\1$/, "$2"); }
   }
   if (types > 1) meta.type = "duplicate";   // two `type:` lines: never guess which one counts (the freeze reads it the same way)
   return { meta, body: pre + text.slice(m[0].length) };
