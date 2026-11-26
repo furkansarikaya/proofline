@@ -5,7 +5,7 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { AdapterExit } from '../../control-plane/agents/scripts/core/adapters/lib.mjs';
@@ -85,18 +85,27 @@ test('markdown verify still accepts a report that an earlier version wrote into 
 
 /** A fake gh that records argv and serves one issue with comments. */
 function fakeGh() {
-  const st = { argv: /** @type {string[]} */ ([]), comments: /** @type {Array<{ body: string, url: string }>} */ ([]), body: 'original body', commentFails: false, repoName: 'o/r' };
+  const st = { argv: /** @type {string[]} */ ([]), comments: /** @type {Array<{ body: string, url: string, author?: { login: string } }>} */ ([]), body: 'original body', commentFails: false, repoName: 'o/r', patched: 0 };
   /** @param {string[]} args */
   const gh = (args) => {
     st.argv.push(args.join(' '));
     const ok = (/** @type {string} */ out = '') => ({ status: 0, out, err: '' });
     if (args[0] === '--version') return ok('gh 2');
     if (args[0] === 'auth') return ok();
+    if (args[0] === 'api' && args[1] === 'user') return ok(JSON.stringify({ login: 'me' }));
+    if (args[0] === 'api') {
+      const f = args.find((x) => x.startsWith('body=@'));
+      const cid = /comments\/([0-9]+)/.exec(args.join(' '))?.[1];
+      const c = st.comments.find((x) => x.url.endsWith(`#issuecomment-${cid}`));
+      if (!f || !c) return { status: 1, out: '', err: '' };
+      c.body = readFileSync(f.slice(6), 'utf8'); st.patched++;
+      return ok();
+    }
     if (args[0] === 'repo' && args[1] === 'view') return ok(JSON.stringify({ nameWithOwner: st.repoName }));
     if (args[0] === 'issue' && args[1] === 'view') return ok(JSON.stringify({ comments: st.comments, labels: [], body: st.body }));
     if (args[0] === 'issue' && args[1] === 'comment') {
       if (st.commentFails) return { status: 1, out: '', err: 'HTTP 502' };
-      st.comments.push({ body: readFileSync(args[args.indexOf('--body-file') + 1], 'utf8'), url: 'https://github.com/o/r/issues/42#issuecomment-9' });
+      st.comments.push({ body: readFileSync(args[args.indexOf('--body-file') + 1], 'utf8'), url: 'https://github.com/o/r/issues/42#issuecomment-9', author: { login: 'me' } });
       return ok();
     }
     if (args[0] === 'issue' && args[1] === 'edit') return ok();
@@ -105,30 +114,65 @@ function fakeGh() {
   return { st, gh };
 }
 
-test('github publish: one comment, the issue body is never edited, mentions are neutralised, a secret line is withheld, the size is bounded', async () => {
+test('github publish: one comment, the issue body is never edited, the size is bounded, remote content and reference definitions are text', async () => {
   const { root, run } = setup('github adapter');
   const { st, gh } = fakeGh();
   const gha = (/** @type {string[]} */ argv) => run((a, v) => runGithub({ ...a, gh }, v), argv);
-  const rep = ['# Completion Report: GH-42', '', 'Thanks @octocat and @org/team, mail a@b.example is fine, `@code` stays.', '```', '@insidefence', '```', 'token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"', '![x](https://evil.example/p.png)', 'tail', ''].join('\n');
+  const rep = ['# Completion Report: GH-42', '', '![x](https://evil.example/p.png) ![a][b] [ok](https://example.com/page)', '[b]: http://evil.example/beacon.png', '<picture><source srcset="http://e/x"><img src="http://e/y"></picture>', '<video src="http://e/v"></video><audio src="a"></audio><iframe src="i"></iframe><embed src="e"><object data="o"></object><link rel="stylesheet" href="h"><svg><use href="http://e/s"/></svg>', 'tail', ''].join('\n');
   write(`${root}/rep.md`, rep);
   const r = await gha(['publish', 'GH-42', `${root}/rep.md`]);
   assert.equal(r.code, 0, r.err);
   assert.equal(st.comments.length, 1);
   const b = st.comments[0].body;
   assert.ok(b.startsWith('<!-- proofline:completion-report:GH-42 sha256:'));
-  assert.ok(b.includes('`@octocat`') && b.includes('`@org/team`'), b);
-  assert.ok(!/(^|[^`\w])@octocat/.test(b), 'a bare mention is left');
-  assert.ok(b.includes('@insidefence') && b.includes('`@code`'));
-  assert.ok(!b.includes('ghp_abcdefghijklmnopqrstuvwxyz'), 'a secret was posted');
-  assert.ok(r.err.includes('withheld'), r.err);
-  assert.ok(!b.includes('![x]'), 'an image was posted');
+  assert.ok(!b.includes('![') && !/^\[b\]:/m.test(b), b);
+  assert.ok(!/<(picture|source|video|audio|iframe|embed|object|link|svg|use|img)\b/i.test(b), b);
+  assert.ok(b.includes('[ok](https://example.com/page)'), 'an ordinary link was changed');
   assert.ok(!st.argv.some((x) => /issue edit .*--body|issue edit .*-b /.test(x)), 'the issue body was edited');
-  // size
   write(`${root}/big.md`, `# R\n${'x'.repeat(100).concat('\n').repeat(2000)}`);
   st.comments = [];
   assert.equal((await gha(['publish', 'GH-42', `${root}/big.md`])).code, 0);
   assert.ok(Buffer.byteLength(st.comments[0].body) <= COMMENT_LIMIT, String(Buffer.byteLength(st.comments[0].body)));
   assert.ok(st.comments[0].body.includes('truncated'), 'no truncation note');
+});
+
+test('github publish: a report with a secret anywhere is refused whole (PEM block, a token split over two lines, a fence, a table); nothing is posted', async () => {
+  const { root, run } = setup('github adapter');
+  const { st, gh } = fakeGh();
+  const gha = (/** @type {string[]} */ argv) => run((a, v) => runGithub({ ...a, gh }, v), argv);
+  const tok = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+  const cases = {
+    pem: `# R\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234567890abcdefghijklmnop\nqrstuvwxyz==\n-----END RSA PRIVATE KEY-----\n`,
+    pemSplitHeader: '# R\n-----BEGIN RSA\nPRIVATE KEY-----\nAAAA\n',
+    split: `# R\nthe token is ${tok.slice(0, 20)}\n${tok.slice(20)} end\n`,
+    fence: `# R\n\`\`\`\nx = "${tok}"\n\`\`\`\n`,
+    table: `# R\n| name | value |\n|---|---|\n| t | ${tok} |\n`,
+    tableSplit: `# R\n| t | ${tok.slice(0, 12)} |\n| u | ${tok.slice(12)} |\n`,
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    write(`${root}/s.md`, text);
+    st.comments = []; st.argv = [];
+    const r = await gha(['publish', 'GH-42', `${root}/s.md`]);
+    assert.equal(r.code, 1, `${name}: published`);
+    assert.ok(r.err.includes('nothing was posted') && r.err.includes('COMPLETION_REPORT.md'), `${name}: ${r.err}`);
+    assert.equal(st.comments.length, 0, name);
+    assert.ok(!st.argv.some((x) => x.startsWith('issue comment') || x.includes('PATCH')), name);
+  }
+  write(`${root}/ok.md`, '# R\nno secret here, a sha256 abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 and words\n');
+  assert.equal((await gha(['publish', 'GH-42', `${root}/ok.md`])).code, 0, 'a report without a secret was refused');
+});
+
+test('mentions: every `@name` that GitHub could take is broken, wherever it stands; an address with a word character before the @ is left', () => {
+  const Z = '​';
+  const body = (/** @type {string} */ t) => Buffer.from(reportComment('GH-1', 'h', Buffer.from(t, 'utf8').toString('latin1')).body, 'latin1').toString('utf8');
+  /** a name still matches GitHub's filter when `@` is preceded by a non-word character (or the start) and followed by a name character */
+  const mentions = (/** @type {string} */ t) => [...t.split('\n').slice(1).join('\n').matchAll(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_-])/g)].length;
+  for (const input of ['a.@v1', 'x-@v2', 'path/@v3', '\\@v4', '@@v6', '`@v5', '<div>\n```\n@v9', '@org/team', 'plain @octocat here', '[@link text](https://x)', '<a title="@attr">x</a>', '(@x)', '"@y"', '@-@v7', '@a@b', 'line\n@start', '> @quoted', '- @item', '| @cell |', '```\n@infence\n```', '`@span`', 'é@v8']) {
+    assert.equal(mentions(body(input)), 0, `${JSON.stringify(input)} -> ${JSON.stringify(body(input))}`);
+  }
+  assert.ok(body('a@b.c').includes('a@b.c'), 'an address was changed');
+  assert.ok(body('@octocat').includes(`@${Z}octocat`));
+  assert.ok(body('＠name').includes('＠name'));
 });
 
 test('github publish: a failed post names the retry and the report in the run; a comment that only quotes the marker cannot satisfy verify; a foreign source repo is refused', async () => {
@@ -143,8 +187,21 @@ test('github publish: a failed post names the retry and the report in the run; a
   st.commentFails = false;
   const ok = await gha(['publish', 'GH-42', `${root}/rep.md`]);
   const rc = ok.out.trim();
-  st.comments = [{ body: `look: ${st.comments[0].body}`, url: 'u#issuecomment-1' }];
+  const mine0 = st.comments[0];
+  st.comments = [{ body: `look: ${mine0.body}`, url: 'u#issuecomment-1', author: { login: 'me' } }];
   assert.equal((await gha(['verify', 'GH-42', rc])).code, 1, 'a comment that only quotes the marker satisfied verify');
+  st.comments = [{ ...mine0, author: { login: 'mallory' } }];
+  assert.equal((await gha(['verify', 'GH-42', rc])).code, 1, 'a comment of another author satisfied verify');
+  write(`${root}/.agents/runs/GH-42/COMPLETION_REPORT.md`, read(`${root}/rep.md`));
+  st.comments = [{ ...mine0, body: `${mine0.body}\nappended by someone` }];
+  assert.equal((await gha(['verify', 'GH-42', rc])).code, 1, 'an edited body satisfied verify');
+  st.comments = [{ ...mine0 }];
+  assert.equal((await gha(['verify', 'GH-42', rc])).code, 0, 'the exact comment of our own account was refused');
+  st.comments = [{ body: '<!-- proofline:completion-report:GH-42 sha256:x -->\nspoof', url: 'https://github.com/o/r/issues/42#issuecomment-7', author: { login: 'mallory' } }];
+  st.patched = 0;
+  assert.equal((await gha(['publish', 'GH-42', `${root}/rep.md`])).code, 0);
+  assert.equal(st.patched, 0, 'a comment of another author was patched');
+  assert.equal(st.comments.length, 2);
   // the run came from another repository's issue: nothing is posted to this one
   write(`${root}/.agents/runs/GH-7/TASK.md`, '# Task: GH-7 — x\n\n## Context\n\nSource: github https://github.com/other/proj/issues/7\n');
   st.comments = []; st.argv = [];
@@ -156,13 +213,32 @@ test('github publish: a failed post names the retry and the report in the run; a
   assert.equal((await gha(['publish', 'GH-8', `${root}/rep.md`])).code, 0);
 });
 
-test('reportComment: unit cases of the neutraliser', () => {
-  const c = (/** @type {string} */ t) => reportComment('GH-1', 'h', t).body;
-  assert.ok(c('hi @a-b_c and (@x)').includes('`@a-b_c`') && c('(@x)').includes('(`@x`)'));
-  assert.ok(c('a@b.c').includes('a@b.c') && !c('a@b.c').includes('`'));
-  assert.ok(c('~~~\n@in\n~~~\n@out').includes('~~~\n@in\n~~~\n`@out`'));
-  // an unclosed fence keeps what follows inert and a truncation closes it
+test('reportComment: a truncation closes an open fence', () => {
   const big = reportComment('GH-1', 'h', `\`\`\`\n${'y'.repeat(70000)}`);
   assert.ok(Buffer.byteLength(big.body) <= COMMENT_LIMIT && big.truncated);
   assert.equal((big.body.match(/^```$/gm) ?? []).length % 2, 0, 'a fence was left open');
+});
+
+test('markdown publish: a symbolic link on the way is refused; an inline report whose first line starts with "Report: " is not a pointer', async () => {
+  const { root, run } = setup();
+  const md = (/** @type {string[]} */ argv) => run(runMarkdown, argv);
+  const f = '.agents/tasks/in-progress/T-3-x.md';
+  write(`${root}/${f}`, '# Task: T-3 — X\n\n## Goal\n\ng\n');
+  write(`${root}/.agents/runs/T-3/RUN.yaml`, `task_source:\n  type: local_markdown\n  path: ${f}\n  revision: x\n`);
+  write(`${root}/rep.md`, '# R\nbody\n');
+  const outside = tempDir('u3-out-');
+  symlinkSync(outside, `${root}/.agents/tasks/T-3`);
+  const r = await md(['publish', 'T-3', `${root}/rep.md`]);
+  assert.equal(r.code, 1);
+  assert.ok(r.err.includes('symbolic link'), r.err);
+  assert.ok(!existsSync(`${outside}/COMPLETION_REPORT.md`), 'the report was written through the link');
+  rmSync(`${root}/.agents/tasks/T-3`);
+  mkdirSync(`${root}/.agents/tasks/T-3`);
+  symlinkSync(`${root}/rep.md`, `${root}/.agents/tasks/T-3/COMPLETION_REPORT.md`);
+  assert.equal((await md(['publish', 'T-3', `${root}/rep.md`])).code, 1, 'a linked report file was written');
+  const rep = 'Report: not a pointer\nmore text\n';
+  write(`${root}/.agents/tasks/done/T-4-old.md`, `# Task: T-4 — Old\n\n<!-- COMPLETION-REPORT:BEGIN:T-4 -->\n${rep}<!-- COMPLETION-REPORT:END:T-4 -->\n`);
+  write(`${root}/.agents/runs/T-4/RUN.yaml`, 'task_source:\n  type: local_markdown\n  path: .agents/tasks/done/T-4-old.md\n  revision: x\n');
+  const h = createHash('sha256').update(rep).digest('hex');
+  assert.equal((await md(['verify', 'T-4', `.agents/tasks/done/T-4-old.md#${h}`])).code, 0);
 });

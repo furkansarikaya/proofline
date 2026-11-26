@@ -14,9 +14,10 @@ What is done to the comment before it leaves your machine, because people are no
 
 | Risk | What the comment does |
 |---|---|
-| a secret in the report | a line that matches the built-in secret rules is replaced by a note; the full report stays in the run |
-| `@name` notifies a person | a bare `@name` or `@org/team` outside code is put in code ticks |
-| an image or HTML that calls home | `![` is escaped and `<img` is written as text |
+| a secret in the report | the whole report is scanned (each line, and the text with its line breaks removed, so a PEM block or a token split over two lines is found); one hit and nothing is posted: `publish-completion-report` refuses and the report stays in the run |
+| `@name` notifies a person | every `@` that GitHub could read as a mention (a non-word character before it, a name character after it, anywhere: text, links, HTML, code) gets a zero-width space after it |
+| an image or HTML that calls home | `![`, reference definitions (`[b]: url`) and the tags img, picture, source, video, audio, iframe, embed, object, link, svg, script and style are written as text; ordinary links stay |
+| a comment that is not ours | verify and the in-place edit accept only a comment written by the account `gh` is logged in as, and verify needs its body to equal what publish makes of the report in the run |
 | a report over GitHub's size limit | cut on a line at 60000 bytes, a code block left open is closed, and the last line names the report in the run |
 | the wrong issue | the number comes from the task id (digits only), the repository is the project's own remote; a run imported from another repository's issue is refused |
 

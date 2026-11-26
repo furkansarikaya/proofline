@@ -56,6 +56,17 @@ export function lineHoldsSecret(line) {
 }
 
 /**
+ * A369: does a whole text hold a secret? Each line by the rules above, and the text with its line breaks, spaces and markdown separators removed, by the token
+ * shapes only (a token or key split over two lines, a PEM body, a table cell). Any private-key header counts.
+ * @param {string} text
+ */
+export function textHoldsSecret(text) {
+  if (text.split('\n').some((l) => lineHoldsSecret(l))) return true;
+  const compact = text.replace(/[\s|`*>]+/g, '');
+  return /-----BEGIN[A-Z0-9]*PRIVATEKEY/.test(compact) || RULES.some(([, re]) => re.test(compact));
+}
+
+/**
  * Every regular file below the given path (a symbolic link is neither followed nor listed), `.git` pruned.
  * @param {string} root @param {string} rel @param {string[]} out @param {string[]} errors the paths that could not be read (the scan then fails)
  */

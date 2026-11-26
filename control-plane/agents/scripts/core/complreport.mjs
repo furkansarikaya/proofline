@@ -2,7 +2,7 @@
 // Stage 4, package 4C: `publish-completion-report` and `verify-completion-report` with everything only they used in agent.sh 0.0.47 (the structure
 // checks, the claims-against-records check, the summary block, the Execution table, the Facts block). The task adapter's `publish` and `verify`
 // operations stay shell code (stage 7) and run as clean children. Messages, the order of the checks and the bytes of the report are those of the shell.
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { fail, ProoflineError } from './errors.mjs';
 import { requireLead } from './approve.mjs';
 import { verifySeal } from './ledger.mjs';
@@ -498,7 +498,15 @@ export function publishCompletionReport(ctx, id, given) {
       backup = { file, data: readFileSync(file), mode: st.mode & 0o7777, atime: st.atime, mtime: st.mtime };
     }
   } catch (e) { restoreReport(); throw e; } // A341: every refusal before the adapter runs leaves the report as it was
+  // A369: the sibling report file of a markdown task is put back (or removed) with the rest when the publish is refused
+  const sibling = `${ctx.root}/${ctx.config().get('tasks.dir', '.agents/tasks')}/${id}/COMPLETION_REPORT.md`;
+  /** @type {Buffer | null} */ let siblingBefore = null;
+  try { siblingBefore = lstatSync(sibling).isFile() ? readFileSync(sibling) : null; } catch { siblingBefore = null; }
   const restore = () => {
+    try {
+      if (siblingBefore !== null) writeFileSync(sibling, siblingBefore);
+      else if (lstatSync(sibling).isFile()) rmSync(sibling);
+    } catch { /* nothing there */ }
     if (original !== null) writeFileSync(report, original); // A341: a publish the adapter refuses leaves the report as it was before the checks
     if (backup === null) { ctx.forget('file:'); return; }
     writeFileSync(backup.file, backup.data);
@@ -562,7 +570,7 @@ export function verifyCompletionReport(ctx, id) {
       if (t !== null && t.includes(b) && t.includes(e)) {
         // A369: a pointer block names the sibling report file of the task; that file is the copy to read
         const inner = t.slice(t.indexOf(b) + b.length, t.indexOf(e));
-        const ptr = /^\nReport: ([^\n]+)\n/.exec(inner)?.[1] ?? '';
+        const ptr = /^\nReport: ([^\n]+)\nReport-sha256: [0-9a-f]{64}\n(Changed: [^\n]*\n)?$/.exec(inner)?.[1] ?? '';
         const sib = ptr === `${ctx.config().get('tasks.dir', '.agents/tasks')}/${id}/COMPLETION_REPORT.md` ? fileText(ctx, `${ctx.root}/${ptr}`) : null;
         const copy = completionAudit(ctx, id, records(sib ?? inner));
         if (copy !== '') fail(copy);

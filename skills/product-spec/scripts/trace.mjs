@@ -53,7 +53,7 @@ function delivered(root, t) {
   const b = text.indexOf(`<!-- COMPLETION-REPORT:BEGIN:${t.id} -->`), e = text.indexOf(`<!-- COMPLETION-REPORT:END:${t.id} -->`);
   let report = b >= 0 && e > b ? text.slice(b, e) : (/^## Completion Report\s*$([\s\S]*)/m.exec(text)?.[1] || "");
   // A369: a block that is a pointer ("Report: <path>") names the report file of the task, under the folder of the task file
-  const ptr = /\nReport: (\S+)\n/.exec(report)?.[1];
+  const ptr = /\nReport: (\S+)\nReport-sha256: [0-9a-f]{64}\n/.exec(report)?.[1];
   if (ptr && !ptr.includes("..") && !ptr.startsWith("/") && ptr.endsWith(`/${t.id}/COMPLETION_REPORT.md`)) report = read(join(root, ptr)) || report;
   const lines = [];
   let sec = "";

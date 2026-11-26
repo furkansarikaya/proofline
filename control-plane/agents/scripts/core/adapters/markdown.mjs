@@ -4,7 +4,7 @@
 //   status <ID> <backlog|todo|in-progress|done> [task-path] | create <ID> <title> <body-file> | statusblock <ID> <block-file>
 // Task files live in `tasks.dir`, usually in lifecycle folders backlog/ todo/ in-progress/ done/ with a `**Status:**` line. The completion report and the
 // status block are the two blocks the task-source contract of the control plane excludes from the frozen contract hash.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { bytes } from '../config.mjs';
 import { slug as slugOf } from '../slug.mjs';
@@ -188,7 +188,12 @@ export function runMarkdown(a, argv) {
       if (tl.includes(begin) && !tl.includes(end)) die(a, `${p} has ${begin} but no ${end}; refusing to publish (it would truncate the file); restore the end marker`);
       // A369: the report is a sibling file in the task's own folder; the task file keeps a pointer of a few lines (inside the block the contract hash leaves out)
       const sibling = `${tdir}/${id}/COMPLETION_REPORT.md`;
+      // a symbolic link anywhere on the way (the tasks folder, the task's folder, the file) would send the report outside the project
+      /** @param {string} rel */
+      const linkOnWay = (rel) => { let cur = root; for (const part of fsPath(rel).split('/')) { cur = `${cur}/${part}`; try { if (lstatSync(cur).isSymbolicLink()) return true; } catch { return false; } } return false; };
+      if (linkOnWay(sibling)) die(a, `${sibling} (or a folder on its way) is a symbolic link; refusing to write the report through it`);
       mkdirSync(`${root}/${fsPath(tdir)}/${id}`, { recursive: true });
+      if (linkOnWay(sibling)) die(a, `${sibling} (or a folder on its way) is a symbolic link; refusing to write the report through it`);
       writeFileSync(`${root}/${fsPath(sibling)}`, latin1Buf(rep));
       const pointer = pointerText(sibling, rep);
       let result;
@@ -225,7 +230,8 @@ export function runMarkdown(a, argv) {
       /** @type {string[]} */ const inner = [];
       let inside = false;
       for (const l of lines(text)) { if (l === begin) { inside = true; continue; } if (l === end) { inside = false; continue; } if (inside) inner.push(l); }
-      const ptr = inner.length > 0 && inner[0].startsWith('Report: ') ? inner[0].slice(8) : '';
+      // the pointer is exactly the lines publish writes (two or three, the second the hash line); anything else is an inline report of an earlier version
+      const ptr = inner.length >= 2 && inner.length <= 3 && inner[0].startsWith('Report: ') && inner[1].startsWith('Report-sha256: ') ? inner[0].slice(8) : '';
       if (ptr !== '') {
         // A369: the pointer is data; only the task's own sibling file is read, and its bytes are the report the receipt names
         if (ptr !== `${tdir}/${id}/COMPLETION_REPORT.md`) die(a, `the completion-report pointer in ${p} does not name this task's report file`);
