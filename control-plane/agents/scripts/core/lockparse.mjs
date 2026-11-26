@@ -119,7 +119,7 @@ function quotedEnd(s, i) {
 /** A plain scalar of ONE line that cannot start or continue anything else: no indicator first, no quote, no comment, no `: `. @param {string} v */
 function plainOk(v) {
   if (v === '' || '|>&*!%@`?#,[]{}"\''.includes(v[0]) || (v[0] === '-' && (v.length === 1 || v[1] === ' '))) return false;
-  return !v.includes(' #') && !v.includes(': ') && !v.endsWith(':') && !v.includes('"') && !v.includes("'");
+  return !v.includes(' #') && !v.includes(': ') && !v.endsWith(':') && !/["'{}[\]]/.test(v);
 }
 /** A one-line flow collection: brackets and quotes balanced on the line, nothing after the last bracket, no anchor, alias or tag. @param {string} v */
 function flowOk(v) {
@@ -162,11 +162,59 @@ export function yamlLineOk(t) {
   if (rest === '') return true;
   return rest[0] === ' ' && valueOk(rest.trim());
 }
-/** A yarn classic line: every `"` string closed on the line (`\\` escapes). @param {string} t */
-function classicLineOk(t) {
-  for (let j = 0; j < t.length; j++) if (t[j] === '"') { const e = quotedEnd(t, j); if (e < 0) return false; j = e; }
-  return true;
+/** A merge-conflict marker anywhere (seven `<`, `>` or `=`): a package manager may repair such a file by dropping and merging lines (pnpm does), so it is never read here. @param {string} s */
+const hasConflictMarker = (s) => s.includes('<<<<<<<') || s.includes('>>>>>>>') || s.includes('=======');
+const CONFLICT = { error: 'the lock file holds a merge-conflict marker (`<<<<<<<`, `=======` or `>>>>>>>`): resolve the conflict, a package manager would repair the file in its own way', kind: 'lock_unreadable' };
+
+/**
+ * The structure every line of a YAML lock must have, checked BEFORE a parser reads anything, so no line is ever skipped unchecked (importers, snapshots and unknown keys included): each line is in the
+ * strict subset (yamlLineOk), column 0 starts no `---` but the bare document start (`docs`: pnpm) and no `...`; the first line of a document is at column 0; a line is deeper than the one before only
+ * when that one opens a block (`key:` with no value) and then by exactly two spaces; no key twice in one mapping. Returns `{ i, why }` for the first bad line, or null.
+ * @param {string[]} ls @param {boolean} docs @returns {{ i: number, why: string } | null}
+ */
+function yamlStructure(ls, docs) {
+  const dups = dupKeys();
+  let prev = -1; let opens = false;
+  for (let i = 0; i < ls.length; i++) {
+    const l = ls[i];
+    if (blankOrComment(l)) continue;
+    const ind = indentOf(l);
+    if (docs && l === '---') { dups.reset(); prev = -1; opens = false; continue; }
+    if (ind === 0 && (l.startsWith('---') || l.startsWith('...'))) return { i, why: 'a document marker (`---` is read only as a bare line, `...` never)' };
+    const t = l.slice(ind);
+    if (!yamlLineOk(t)) return { i, why: SUBSET };
+    if (prev < 0 ? ind !== 0 : (ind > prev && (!opens || ind !== prev + 2))) return { i, why: 'an indentation that does not follow the line before (a deeper line only under `key:`, by two spaces)' };
+    if (ind % 2 !== 0) return { i, why: 'an odd indentation' };
+    const d = dups.see(ind, t);
+    if (d !== '') return { i, why: d };
+    prev = ind; opens = !t.startsWith('- ') && (t.endsWith(':') && (t[0] === '"' || t[0] === "'" ? quotedEnd(t, 0) === t.length - 2 : !t.includes(': ')));
+  }
+  return null;
 }
+
+/** A yarn classic line (indentation removed): `<specs>:` (each spec a closed "string" or a bare token), `<key>:`, or `<key> <value>` (each a closed "string" or a bare token: no space, quote or `#`). @param {string} t */
+function classicShapeOk(t) {
+  const tok = (/** @type {string} */ x) => (x[0] === '"' ? quotedEnd(x, 0) === x.length - 1 : x !== '' && !/[\s"'#]/.test(x));
+  if (t.endsWith(':')) return t.slice(0, -1).split(',').every((x, j) => tok(j === 0 ? x : x.replace(/^ /, '')));
+  const sp = t[0] === '"' ? quotedEnd(t, 0) + 1 : t.indexOf(' ');
+  if (sp <= 0 || t[sp] !== ' ') return false;
+  return tok(t.slice(0, sp)) && tok(t.slice(sp + 1));
+}
+/** The yarn classic counterpart of yamlStructure: every line has a known shape and the same indentation rule (a deeper line only under a line ending with `:`, by two spaces). @param {string[]} ls */
+function classicStructure(ls) {
+  let prev = -1; let opens = false;
+  for (let i = 0; i < ls.length; i++) {
+    const l = ls[i];
+    if (blankOrComment(l)) continue;
+    const ind = indentOf(l);
+    const t = l.slice(ind);
+    if (!classicShapeOk(t)) return { i, why: SUBSET };
+    if (prev < 0 ? ind !== 0 : (ind > prev && (!opens || ind !== prev + 2))) return { i, why: 'an indentation that does not follow the line before (a deeper line only under a line ending with `:`, by two spaces)' };
+    prev = ind; opens = t.endsWith(':');
+  }
+  return null;
+}
+
 /**
  * The lines of a pnpm or yarn lock after the WHOLE-FILE allowlist: printable ASCII and LF only, a CR only as the first half of a CRLF line end (normalised once, here). Anything else refuses the lock
  * before a line is read: a lone CR, U+0085, U+2028 and U+2029 are line breaks to a YAML reader but not to a line splitter, so one could hide an entry; a tab, a byte order mark, NUL and every other
@@ -176,6 +224,7 @@ function classicLineOk(t) {
 function asciiLines(lock) {
   const s = (typeof lock === 'string' ? lock : lock.toString('utf8')).replace(/\r\n/g, '\n');
   if (/[^\x20-\x7e\n]/.test(s)) return { error: 'the lock file holds a character other than printable ASCII, LF or a CRLF line end (a lone CR, a tab, a NUL or other control character, a byte order mark, a Unicode line separator or any non-ASCII character)', kind: 'lock_unreadable' };
+  if (hasConflictMarker(s)) return CONFLICT;
   const ls = linesOf(s);
   if (ls === null) return { error: `the lock file has a line longer than ${MAX_LINE} characters or more than ${MAX_LINES} lines`, kind: 'lock_unreadable' };
   return { ls };
@@ -313,7 +362,8 @@ export function pnpmPackages(lock) {
   const al = asciiLines(lock);
   if ('error' in al) return al;
   const ls = al.ls;
-  const dups = dupKeys();
+  const st = yamlStructure(ls, true);
+  if (st !== null) return { error: `the lock file is not a pnpm lock this parser reads (line ${st.i + 1}: ${st.why})`, kind: 'lock_unreadable' };
   /** @type {number | null} */ let major = null;
   let section = '';
   /** @type {Array<{ key: string, res: string[] | null | undefined }>} */ const entries = [];
@@ -325,10 +375,6 @@ export function pnpmPackages(lock) {
     const l = ls[i];
     if (blankOrComment(l)) continue;
     const ind = indentOf(l);
-    if (l === '...') return bad(i, 'a document end marker `...`');
-    if (!(l === '---') && !yamlLineOk(l.slice(ind))) return bad(i, SUBSET);
-    if (l === '---') dups.reset();
-    else { const d = dups.see(ind, l.slice(ind)); if (d !== '') return bad(i, d); }
     if (ind === 0) {
       cur = null; inRes = false;
       if (l === '---') { section = ''; continue; }
@@ -419,14 +465,14 @@ export function berryIdent(r) {
   if (at <= 0) return { kind: 'other' };
   const name = r.slice(0, at);
   const ref = r.slice(at + 1);
-  if (ref.startsWith('npm:')) return { kind: 'npm', name, version: ref.slice(4) };
+  if (ref.startsWith('npm:')) return { kind: 'registry', name, version: ref.slice(4) };
   if (ref.startsWith('workspace:')) return { kind: 'workspace' };
   if (ref.startsWith('patch:')) {
     const inner = ref.slice(6);
     const h = inner.indexOf('#');
     const base = (h < 0 ? inner : inner.slice(0, h)).replace(/%3A/gi, ':');
     const at2 = base.indexOf('@', 1);
-    if (at2 > 0 && base.slice(0, at2) === name && base.slice(at2 + 1).startsWith('npm:')) return { kind: 'npm', name, version: base.slice(at2 + 1 + 4) };
+    if (at2 > 0 && base.slice(0, at2) === name && base.slice(at2 + 1).startsWith('npm:')) return { kind: 'registry', name, version: base.slice(at2 + 1 + 4) };
   }
   return { kind: 'other' };
 }
@@ -439,7 +485,6 @@ export function yarnPackages(lock) {
   const al = asciiLines(lock);
   if ('error' in al) return al;
   const ls = al.ls;
-  const dups = dupKeys();
   /** @type {Set<string>} */ const heads = new Set();
   const berry = ls.some((l) => l === '__metadata:');
   const classic = ls.some((l) => /^# yarn lockfile v1\s*$/.test(l));
@@ -447,12 +492,12 @@ export function yarnPackages(lock) {
   /** @type {Array<{ head: string, f: Record<string, string | null> }>} */ const entries = [];
   /** @type {{ head: string, f: Record<string, string | null> } | null} */ let cur = null;
   const bad = (/** @type {number} */ i, /** @type {string} */ why) => ({ error: `the lock file is not a yarn lock this parser reads (line ${i + 1}: ${why})`, kind: 'lock_unreadable' });
+  const st = berry ? yamlStructure(ls, false) : classicStructure(ls);
+  if (st !== null) return bad(st.i, st.why);
   for (let i = 0; i < ls.length; i++) {
     const l = ls[i];
     if (blankOrComment(l)) continue;
     const ind = indentOf(l);
-    if (!(berry ? yamlLineOk(l.slice(ind)) : classicLineOk(l))) return bad(i, SUBSET);
-    if (berry) { const d = dups.see(ind, l.slice(ind)); if (d !== '') return bad(i, d); }
     if (ind % 2 !== 0) return bad(i, 'an odd indentation');
     if (ind === 0) {
       if (!l.endsWith(':')) return bad(i, 'an entry that does not end with `:`');
@@ -481,7 +526,7 @@ export function yarnPackages(lock) {
       const id = typeof r === 'string' ? berryIdent(r) : { kind: 'other' };
       if (id.kind === 'workspace') continue; // the project itself, as the root of an npm lock
       c.entry();
-      if (id.kind !== 'npm') { c.skip('non-registry'); continue; }
+      if (id.kind !== 'registry') { c.skip('non-registry'); continue; }
       c.add(id.name, id.version);
       continue;
     }
@@ -532,13 +577,44 @@ export function stripJsonc(s) {
 }
 
 /**
+ * The first key that one JSON object holds twice (as JSON reads it: escapes decoded), or ''. One linear pass with a stack of the open objects; a malformed text gives '' (JSON.parse refuses it next).
+ * @param {string} s @returns {string}
+ */
+export function jsonDupKey(s) {
+  /** @type {Array<{ keys: Set<string>, expectKey: boolean } | null>} */ const stack = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x22) {
+      let j = i + 1;
+      while (j < s.length && s.charCodeAt(j) !== 0x22) j += s.charCodeAt(j) === 0x5c ? 2 : 1;
+      const top = stack[stack.length - 1];
+      if (top && top.expectKey) {
+        let k;
+        try { k = JSON.parse(s.slice(i, j + 1)); } catch { return ''; }
+        if (top.keys.has(k)) return JSON.stringify(k);
+        top.keys.add(k); top.expectKey = false;
+      }
+      i = j;
+    } else if (c === 0x7b) stack.push({ keys: new Set(), expectKey: true });
+    else if (c === 0x5b) stack.push(null);
+    else if (c === 0x7d || c === 0x5d) stack.pop();
+    else if (c === 0x2c) { const top = stack[stack.length - 1]; if (top) top.expectKey = true; }
+  }
+  return '';
+}
+
+/**
  * bun: the text lock. `packages` values are arrays whose first element is `<name>@<version>`; a registry package has a string second element (the registry: empty for the default one, else an
  * https url); a git, github, file, link or tarball package has not, and is skipped as `non-registry`; `workspace:` entries are the project itself and not counted.
  * @param {Buffer | string} lock @returns {LockParse}
  */
 export function bunPackages(lock) {
-  const plain = stripJsonc(textOf(lock));
+  const text = textOf(lock);
+  if (hasConflictMarker(text)) return CONFLICT;
+  const plain = stripJsonc(text);
   if (plain === null) return { error: 'the lock file has an unterminated string or comment', kind: 'lock_unreadable' };
+  const dup = jsonDupKey(plain);
+  if (dup !== '') return { error: `the lock file names the key ${dup.slice(0, 80)} twice in one object (JSON readers disagree on which one wins)`, kind: 'lock_unreadable' };
   let doc;
   try { doc = JSON.parse(plain); } catch { return { error: 'the lock file is not valid JSON with comments', kind: 'lock_unreadable' }; }
   if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) return { error: 'the lock file is not a JSON object', kind: 'lock_unreadable' };

@@ -200,8 +200,8 @@ packages:
     ['  lodash@1.0.0: {resolution: {integrity: x}}\n', /not `<key>:`/],
     ['  "lo\\u0064ash@1.0.0":\n    resolution: {integrity: x}\n', /double-quoted key with an escape/],
     ["  'it''s@1.0.0':\n    resolution: {integrity: x}\n", /not `<key>:`/],
-    ['   lodash@1.0.0:\n', /odd indentation/],
-    ['    resolution: {integrity: x}\n', /a field without an entry/],
+    ['   lodash@1.0.0:\n', /odd indentation|does not follow/],
+    ['    resolution: {integrity: x}\n', /a field without an entry|does not follow/],
   ])) refused(pnpmPackages(base + entry), 'lock_unreadable', re);
   refused(pnpmPackages(`${base}  lodash@1.0.0:\n\tresolution: {integrity: x}\n`), 'lock_unreadable', /tab/);
   refused(pnpmPackages(`${base}  lodash@1.0.0:\n    resolution: {integrity: x}\u0000\n`), 'lock_unreadable', /NUL/);
@@ -250,8 +250,10 @@ test('YAML structure the subset does not read refuses the lock: document end mar
   const e = (/** @type {string} */ k, r = '{integrity: sha512-a}') => `  ${k}:\n    resolution: ${r}\n`;
   // several documents with `---` are read (pnpm 10 writes an env document first), each with its own keys; `...` and `---` with content are refused
   assert.equal(ok(pnpmPackages(`---\n${v}packages:\n${e('a@1.0.0')}---\n${v}packages:\n${e('a@1.0.0')}`)).packages.size, 1);
-  refused(pnpmPackages(`${v}packages:\n${e('a@1.0.0')}...\n`), 'lock_unreadable', /document end marker/);
-  refused(pnpmPackages(`--- !!map\n${v}`), 'lock_unreadable', /strict subset/);
+  refused(pnpmPackages(`${v}packages:\n${e('a@1.0.0')}...\n`), 'lock_unreadable', /document marker/);
+  refused(pnpmPackages(`--- !!map\n${v}`), 'lock_unreadable', /document marker/);
+  refused(pnpmPackages(`--- {packages: {a@1.0.0: {resolution: {integrity: x}}}}\n`), 'lock_unreadable', /document marker/);
+  refused(pnpmPackages(`${v}--- {packages: x}\n`), 'lock_unreadable', /document marker/);
   refused(pnpmPackages(`%YAML 1.2\n---\n${v}`), 'lock_unreadable', /strict subset/);
   refused(pnpmPackages(`%TAG ! tag:x,2000:\n${v}`), 'lock_unreadable', /strict subset/);
   refused(pnpmPackages(`? packages\n: {}\n${v}`), 'lock_unreadable', /strict subset/);
@@ -277,12 +279,74 @@ test('YAML structure the subset does not read refuses the lock: document end mar
   refused(yarnPackages(`${m}${b('a@npm:^1')}  resolution: "evil@npm:6.6.6"\n`), 'lock_unreadable', /"resolution" twice/);
   refused(yarnPackages(`${m}${m}`), 'lock_unreadable', /"__metadata" twice/);
   refused(yarnPackages(`${m}"a@npm:^1":\n  <<: {resolution: "a@npm:1.0.0"}\n`), 'lock_unreadable', /merge key/);
-  refused(yarnPackages(`---\n${m}`), 'lock_unreadable', /strict subset/);
+  refused(yarnPackages(`---\n${m}`), 'lock_unreadable', /document marker/);
   const c = '# yarn lockfile v1\n';
   const ce = (/** @type {string} */ h, ver = '1.0.0') => `${h}:\n  version "${ver}"\n  resolved "https://registry.yarnpkg.com/a/-/a-${ver}.tgz"\n`;
   refused(yarnPackages(`${c}${ce('a@^1')}${ce('a@^1', '9.9.9')}`), 'lock_unreadable', /an entry twice/);
   refused(yarnPackages(`${c}${ce('"a@^1", "a@^2"')}${ce('a@^2, a@^1', '9.9.9')}`), 'lock_unreadable', /an entry twice/);
   refused(yarnPackages(`${c}${ce('a@^1')}  version "9.9.9"\n`), 'lock_unreadable', /the field version twice/);
+});
+
+test('merge-conflict markers refuse every text lock, and no line is skipped unchecked: importers, snapshots and unknown keys obey the subset and the indentation rule (fourth review of PR 362)', () => {
+  // RED before the fix (the PoC): `<<<<<<<x: y` was read as a top-level key, ended `packages:`, the entry under it was skipped unchecked and the record said measured, while pnpm repairs the
+  // conflicted file (drops the marker lines, merges the rest) and installs is-number
+  const poc = "lockfileVersion: '9.0'\n\npackages:\n\n  left-pad@1.3.0:\n    resolution: {integrity: sha512-a}\n<<<<<<<x: y\n  is-number@7.0.0:\n    resolution: {integrity: sha512-b}\n=======\n>>>>>>> theirs\n";
+  refused(pnpmPackages(poc), 'lock_unreadable', /merge-conflict marker/);
+  for (const mk of ['<<<<<<<', '=======', '>>>>>>>']) {
+    refused(pnpmPackages(`lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    resolution: {integrity: x}\n    deprecated: 'see ${mk} here'\n`), 'lock_unreadable', /merge-conflict marker/);
+    refused(pnpmPackages(`# ${mk}\nlockfileVersion: '9.0'\npackages: {}\n`), 'lock_unreadable', /merge-conflict marker/);
+    refused(yarnPackages(`__metadata:\n  version: 8\n"a@npm:1":\n  resolution: "a@npm:1.0.0"\n${mk} b\n`), 'lock_unreadable', /merge-conflict marker/);
+    refused(yarnPackages(`# yarn lockfile v1\n${mk} HEAD\na@^1:\n  version "1.0.0"\n`), 'lock_unreadable', /merge-conflict marker/);
+    refused(bunPackages(`{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0", ""]}}\n${mk}\n`), 'lock_unreadable', /merge-conflict marker/);
+  }
+  assert.equal(ok(pnpmPackages("lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    resolution: {integrity: x}\n    deprecated: '<<<<<< six is fine'\n")).packages.size, 1);
+  // every line is checked, in the sections the parser does not read too
+  const v = "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    resolution: {integrity: x}\n";
+  for (const [extra, re] of /** @type {Array<[string, RegExp]>} */ ([
+    ['snapshots:\n  a@1.0.0:\n    deprecated: "open\n', /strict subset/],
+    ['importers:\n  .:\n      deep: x\n', /does not follow/],
+    ['importers:\n  .: x\n    under-a-value: y\n', /does not follow/],
+    ['unknownkey:\n   odd: x\n', /does not follow|odd indentation/],
+    ['unknownkey: |\n  text\n', /strict subset/],
+    ['unknownkey:\n  a: 1\n  a: 2\n', /twice/],
+    ['  stray-at-two: x\n', /./],
+    ['--- {packages: {b@1.0.0: {resolution: {integrity: x}}}}\n', /document marker/],
+    ['---x\n', /document marker/],
+    ['...\n', /document marker/],
+    ['plain {key}: x\n', /strict subset/],
+  ])) refused(pnpmPackages(`${v}${extra}`), 'lock_unreadable', re);
+  refused(pnpmPackages(`  ${v}`), 'lock_unreadable', /does not follow/);
+  // berry and classic: the same rule over every line
+  refused(yarnPackages('__metadata:\n  version: 8\n"a@npm:1":\n  resolution: "a@npm:1.0.0"\n  bin:\n      deep: x\n'), 'lock_unreadable', /does not follow/);
+  refused(yarnPackages('# yarn lockfile v1\na@^1:\n  version "1.0.0"\n  dependencies:\n      deep "x"\n'), 'lock_unreadable', /does not follow/);
+  refused(yarnPackages('# yarn lockfile v1\na@^1:\n  version "1.0.0"\n    under-a-value "x"\n'), 'lock_unreadable', /does not follow/);
+});
+
+test('quoting: yarn classic tokens are closed "strings" or bare words, berry keys and values follow the YAML subset, bun refuses a key twice in one object (fourth review of PR 362)', () => {
+  const c = '# yarn lockfile v1\n';
+  const reg = '  resolved "https://registry.yarnpkg.com/a/-/a-1.0.0.tgz"\n';
+  assert.deepEqual(pk(ok(yarnPackages(`${c}"a@^1", a@^1.0.0:\n  version "1.0.0"\n${reg}`))), { a: ['1.0.0'] });
+  assert.deepEqual(pk(ok(yarnPackages(`${c}a@^1:\n  version 1.0.0\n${reg}`))), { a: ['1.0.0'] }, 'a bare version is a word');
+  for (const bad of [`${c}'a@^1':\n  version "1.0.0"\n`, `${c}a@^1:\n  version '1.0.0'\n`, `${c}a@^1:\n  version 1.0.0 extra\n`, `${c}"a@^1, b@^1:\n  version "1"\n`, `${c}a@^1:\n  version "1.0.0" # c\n`, `${c}a@^1:\n  "version" "1.0.0" "x"\n`, `${c}a b@^1:\n  version "1"\n`]) {
+    refused(yarnPackages(bad), 'lock_unreadable', /strict subset/);
+  }
+  assert.equal(ok(yarnPackages(`${c}a@^1:\n  version "1.0.0\\"x"\n${reg}`)).skipped, 1, 'an escaped quote inside a closed string is read, the odd version is skipped');
+  const m = '__metadata:\n  version: 8\n';
+  assert.deepEqual(pk(ok(yarnPackages(`${m}'a@npm:^1':\n  resolution: 'a@npm:1.0.0'\n`))), { a: ['1.0.0'] }, 'single quotes are YAML');
+  assert.deepEqual(why(ok(yarnPackages(`${m}"a@npm:^1":\n  resolution: "a\\x40npm:1.0.0"\n`))), { 'non-registry': 1 }, 'a value with an escape is not decoded, so it is never a registry package');
+  refused(yarnPackages(`${m}"a\\x40npm:^1":\n  resolution: "a@npm:1.0.0"\n`), 'lock_unreadable', /escape/);
+  refused(yarnPackages(`${m}"a@npm:^1":\n  resolution: "a@npm:1.0.0" "b"\n`), 'lock_unreadable', /strict subset/);
+  refused(yarnPackages(`${m}a@npm:^1:\n  resolution: a@npm:1.0.0 # c\n`), 'lock_unreadable', /strict subset/);
+  // bun: JSON.parse keeps the LAST of two equal keys; another reader may keep the first: a key twice in one object refuses the lock
+  for (const t of [
+    '{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0", ""]}, "packages": {}}',
+    '{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0", ""], "a": ["evil@6.6.6", ""]}}',
+    '{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0", ""], "\\u0061": ["evil@6.6.6", ""]}}',
+    '{"lockfileVersion": 1, "lockfileVersion": 0, "packages": {}}',
+    '{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0", "", {"x": 1, /* c */ "x": 2}]}}',
+  ]) refused(bunPackages(t), 'lock_unreadable', /twice in one object/);
+  assert.equal(ok(bunPackages('{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0", "", {"a": 1}], "b": ["b@1.0.0", "", {"a": 1}]}}')).packages.size, 2, 'the same key in two objects is fine');
+  assert.equal(ok(bunPackages('{"lockfileVersion": 1, "packages": {"a": ["a@1.0.0", "x\\"a\\": 1, \\"a"]}}')).skipped, 1, 'quotes inside a string are not keys');
 });
 
 test('yarn classic: specs and aliases give the real name, the resolved url must be a registry tarball, a missing version or disagreeing specs are skipped', () => {
@@ -414,7 +478,7 @@ __metadata:
   assert.deepEqual(pk(r), { '@babel/code-frame': ['7.12.13'], resolve: ['1.22.1'], 'string-width': ['4.2.3'], typescript: ['5.3.3'] });
   assert.deepEqual(why(r), { invalid: 1, 'non-registry': 5 });
   assert.equal(r.total, 11, 'the __metadata entry and the workspace are not counted');
-  assert.deepEqual(berryIdent('@s/x@npm:1.0.0'), { kind: 'npm', name: '@s/x', version: '1.0.0' });
+  assert.deepEqual(berryIdent('@s/x@npm:1.0.0'), { kind: 'registry', name: '@s/x', version: '1.0.0' });
   assert.deepEqual(berryIdent('x@workspace:packages/x'), { kind: 'workspace' });
   assert.deepEqual(berryIdent('x@patch:y@npm%3A1.0.0#p'), { kind: 'other' });
   assert.deepEqual(berryIdent('x@patch:x@patch:x@npm%3A1.0.0#p'), { kind: 'other' }, 'a patch of a patch is not followed');
@@ -424,9 +488,9 @@ __metadata:
 test('yarn: the format is told by the lock itself; neither or both markers, odd indentation, a field without an entry or a bad entry line refuse the lock', () => {
   refused(yarnPackages('lodash@^4:\n  version "4.17.21"\n'), 'lock_unsupported', /neither a yarn classic lock/);
   refused(yarnPackages('# yarn lockfile v1\n__metadata:\n  version: 6\n'), 'lock_unsupported');
-  refused(yarnPackages('# yarn lockfile v1\n  version "1.0.0"\n'), 'lock_unreadable', /field without an entry/);
-  refused(yarnPackages('# yarn lockfile v1\nlodash@^4:\n   version "1.0.0"\n'), 'lock_unreadable', /odd indentation/);
-  refused(yarnPackages('# yarn lockfile v1\nlodash@^4 no colon\n'), 'lock_unreadable', /does not end with/);
+  refused(yarnPackages('# yarn lockfile v1\n  version "1.0.0"\n'), 'lock_unreadable', /field without an entry|does not follow/);
+  refused(yarnPackages('# yarn lockfile v1\nlodash@^4:\n   version "1.0.0"\n'), 'lock_unreadable', /odd indentation|does not follow/);
+  refused(yarnPackages('# yarn lockfile v1\nlodash@^4 no colon\n'), 'lock_unreadable', /does not end with|strict subset/);
   refused(yarnPackages('# yarn lockfile v1\nlodash@^4:\n\tversion "1.0.0"\n'), 'lock_unreadable', /tab/);
   refused(yarnPackages(`# yarn lockfile v1\n"${'a'.repeat(MAX_LINE)}@^1":\n`), 'lock_unreadable', /longer than/);
 });
@@ -492,14 +556,11 @@ test('stripJsonc: comment markers inside strings and escaped quotes are kept, co
   assert.equal(stripJsonc('{"a": 1}'), '{"a": 1}');
   assert.equal(stripJsonc('"open'), null); assert.equal(stripJsonc('/* open'), null); assert.equal(stripJsonc('"\\'), null);
   assert.equal(stripJsonc('[1, // line comment at the end'), '[1,  ');
-  // a megabyte of commas, quotes and comment openers is one pass, not a quadratic scan
-  const t0 = Date.now();
+  // a megabyte of commas, quotes and comment openers is one pass, not a quadratic scan (the time is judged by the test's budget row, tests/ci/test-budgets.json, never by a clock read here)
   stripJsonc(`[${',/**/'.repeat(200000)}]`); stripJsonc(`[${'"\\\\",'.repeat(200000)}]`);
-  assert.ok(Date.now() - t0 < 5000, `took ${Date.now() - t0} ms`);
 });
 
-test('bounded patterns: hostile long lines and values finish fast and are refused or skipped, never matched by backtracking', () => {
-  const t0 = Date.now();
+test('bounded patterns: hostile long lines and values finish fast and are refused or skipped, never matched by backtracking (the time is judged by the budget row of this file)', () => {
   // a resolved url built to make the tarball pattern backtrack: over the 4096 bound it is not even tried
   assert.equal(registryResolved(`https://h/${'/-/a'.repeat(200000)}`), false);
   assert.equal(registryResolved(`https://h/${'/-/a'.repeat(1000)}`), false);
@@ -516,13 +577,10 @@ test('bounded patterns: hostile long lines and values finish fast and are refuse
   assert.equal(yamlScalar(`'${"'".repeat(MAX_LINE - 2)}'`), null);
   // a version and a name at the grammar's limits
   ok(bunPackages(JSON.stringify({ lockfileVersion: 1, packages: { a: [`a@1.0.0-${'a.'.repeat(500)}a`, ''], b: [`${'b'.repeat(1020)}@1.0.0`, ''] } })));
-  assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0} ms`);
   // a lock of 200000 entries is read in bounded time and then refused by the request bounds (5000 packages), not here
   const big = ['lockfileVersion: \'9.0\'', 'packages:'];
   for (let i = 0; i < 200000; i++) big.push(`  p${i}@1.0.0:`, '    resolution: {integrity: sha512-a}');
-  const t1 = Date.now();
   assert.equal(ok(pnpmPackages(big.join('\n'))).packages.size, 200000);
-  assert.ok(Date.now() - t1 < 10000, `took ${Date.now() - t1} ms`);
 });
 
 test('every parser fails closed on bytes that are no lock at all', () => {
@@ -537,6 +595,52 @@ test('every parser fails closed on bytes that are no lock at all', () => {
   assert.deepEqual(Object.keys(LOCK_FORMATS).sort(), ['bun-jsonc', 'npm-json', 'pnpm-yaml', 'yarn']);
   assert.equal(Object.getPrototypeOf(LOCK_FORMATS), null);
   assert.equal(LOCK_FORMATS['__proto__'], undefined); assert.equal(LOCK_FORMATS['constructor'], undefined);
+});
+
+// ---- a deterministic differential against js-yaml 4 (fourth review of PR 362). The local script that made these cases (not committed: js-yaml is not a dependency of this repository) built
+// 25854 mutations (each insert below at the start, middle and end of every line of the three locks) and found no case where js-yaml reads more package keys than the parser counted (counted plus
+// skipped) without the parser refusing, nor the reverse. Below: a fixed sample of 100 mutations whose js-yaml package count differs from the base lock (70 with MORE keys), with the count js-yaml
+// read; the parser must refuse the lock or count exactly that many entries. A pnpm merge-conflict repair is not YAML and is tested on its own (the markers are refused).
+const DBASES = {
+  pnpm9: "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      a:\n        specifier: 1.0.0\n        version: 1.0.0\n\npackages:\n\n  a@1.0.0:\n    resolution: {integrity: sha512-a}\n    engines: {node: '>=8'}\n\n  b@2.0.0:\n    resolution: {integrity: sha512-b}\n    deprecated: use c\n\nsnapshots:\n\n  a@1.0.0: {}\n\n  b@2.0.0: {}\n",
+  pnpm6: "lockfileVersion: '6.0'\n\ndependencies:\n  a:\n    specifier: 1.0.0\n    version: 1.0.0\n\npackages:\n\n  /a@1.0.0:\n    resolution: {integrity: sha512-a}\n    dev: false\n\n  /b@2.0.0(a@1.0.0):\n    resolution: {integrity: sha512-b}\n    dev: true\n",
+  berry: '__metadata:\n  version: 8\n  cacheKey: 10\n\n"a@npm:^1.0.0":\n  version: 1.0.0\n  resolution: "a@npm:1.0.0"\n  dependencies:\n    b: "npm:^2.0.0"\n  checksum: 10c0/abc\n  languageName: node\n  linkType: hard\n\n"b@npm:^2.0.0":\n  version: 2.0.0\n  resolution: "b@npm:2.0.0"\n  languageName: node\n  linkType: hard\n',
+};
+const DINSERTS = [...Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)),
+  '\n', '\n\n', '  ', '\n  ', '\n    ', ': ', ':', '"', "'", '- ', '# ', ' #', '&a ', '*a', '!!str ', '!!map ', '|', '|\n', '>-\n', '? ', '<<: ', '---\n', '--- ', '...\n', '%YAML 1.2\n',
+  '<<<<<<< x\n', '=======\n', '>>>>>>> x\n', '{', '}', '[', ']', ', ', '\\', '""', "''", '"\n', "'\n", ': |\n', '\n  c@3.0.0:\n    resolution: {integrity: sha512-c}\n',
+  '\nc@3.0.0:\n  resolution: {integrity: sha512-c}\n', '\n"c@npm:3.0.0":\n  resolution: "c@npm:3.0.0"\n', '{c@3.0.0: {resolution: {integrity: x}}}', '\n  ? c@3.0.0\n  : {resolution: {integrity: x}}\n'];
+/** @param {[string, number, number, number, number]} m */
+function dbuild(m) {
+  const ls = DBASES[/** @type {'pnpm9' | 'pnpm6' | 'berry'} */ (m[0])].split('\n');
+  const s = ls[m[1]]; const at = m[2] === 0 ? 0 : m[2] === 1 ? Math.floor(s.length / 2) : s.length;
+  ls[m[1]] = s.slice(0, at) + DINSERTS[m[3]] + s.slice(at);
+  return ls.join('\n');
+}
+/** [base, line, where (0 start, 1 middle, 2 end), insert index, package keys js-yaml read] */
+const DCASES = /** @type {Array<[string, number, number, number, number]>} */ ([
+  ["pnpm9", 10, 2, 134, 3], ["pnpm9", 12, 0, 134, 3], ["pnpm9", 15, 1, 134, 3], ["pnpm9", 18, 2, 134, 3], ["pnpm9", 20, 0, 134, 3], ["pnpm6", 8, 2, 134, 3], ["pnpm6", 12, 0, 134, 3], ["pnpm6", 14, 2, 134, 3], ["pnpm6", 16, 2, 134, 3], ["berry", 0, 0, 15, 3],
+  ["berry", 0, 0, 23, 3], ["berry", 0, 0, 33, 3], ["berry", 0, 0, 41, 3], ["berry", 0, 0, 49, 3], ["berry", 0, 0, 57, 3], ["berry", 0, 0, 68, 3], ["berry", 0, 0, 76, 3], ["berry", 0, 0, 84, 3], ["berry", 0, 0, 101, 3], ["berry", 0, 1, 3, 3],
+  ["berry", 0, 1, 11, 3], ["berry", 0, 1, 19, 3], ["berry", 0, 1, 27, 3], ["berry", 0, 1, 35, 3], ["berry", 0, 1, 43, 3], ["berry", 0, 1, 51, 3], ["berry", 0, 1, 59, 3], ["berry", 0, 1, 67, 3], ["berry", 0, 1, 75, 3], ["berry", 0, 1, 83, 3],
+  ["berry", 0, 1, 91, 3], ["berry", 0, 1, 104, 3], ["berry", 0, 1, 117, 3], ["berry", 0, 1, 130, 3], ["berry", 0, 2, 136, 3], ["berry", 2, 0, 9, 3], ["berry", 2, 0, 20, 3], ["berry", 2, 0, 29, 3], ["berry", 2, 0, 39, 3], ["berry", 2, 0, 47, 3],
+  ["berry", 2, 0, 55, 3], ["berry", 2, 0, 66, 3], ["berry", 2, 0, 74, 3], ["berry", 2, 0, 82, 3], ["berry", 2, 0, 90, 3], ["berry", 2, 1, 133, 3], ["berry", 3, 1, 114, 3], ["berry", 4, 0, 136, 3], ["berry", 9, 0, 136, 3], ["berry", 11, 0, 4, 3],
+  ["berry", 11, 0, 18, 3], ["berry", 11, 0, 27, 3], ["berry", 11, 0, 37, 3], ["berry", 11, 0, 45, 3], ["berry", 11, 0, 53, 3], ["berry", 11, 0, 63, 3], ["berry", 11, 0, 72, 3], ["berry", 11, 0, 80, 3], ["berry", 11, 0, 88, 3], ["berry", 11, 0, 135, 3],
+  ["berry", 12, 0, 136, 3], ["berry", 12, 2, 136, 3], ["berry", 15, 2, 136, 3], ["berry", 17, 0, 4, 3], ["berry", 17, 0, 18, 3], ["berry", 17, 0, 27, 3], ["berry", 17, 0, 37, 3], ["berry", 17, 0, 45, 3], ["berry", 17, 0, 53, 3], ["berry", 17, 0, 63, 3],
+  ["pnpm9", 0, 0, 112, 0], ["pnpm9", 10, 0, 29, 0], ["pnpm9", 10, 0, 54, 0], ["pnpm9", 10, 0, 80, 0], ["pnpm9", 10, 1, 3, 0], ["pnpm9", 10, 1, 26, 0], ["pnpm9", 10, 1, 49, 0], ["pnpm9", 10, 1, 72, 0], ["pnpm9", 10, 1, 97, 0], ["pnpm9", 10, 2, 100, 0],
+  ["pnpm9", 11, 2, 114, 0], ["pnpm9", 16, 0, 1, 1], ["pnpm9", 16, 0, 35, 1], ["pnpm9", 16, 0, 58, 1], ["pnpm9", 16, 0, 84, 1], ["pnpm6", 7, 0, 15, 0], ["pnpm6", 7, 0, 40, 0], ["pnpm6", 7, 0, 66, 0], ["pnpm6", 7, 0, 89, 0], ["pnpm6", 7, 1, 12, 0],
+  ["pnpm6", 7, 1, 35, 0], ["pnpm6", 7, 1, 58, 0], ["pnpm6", 7, 1, 81, 0], ["pnpm6", 7, 1, 110, 0], ["pnpm6", 8, 0, 114, 0], ["pnpm6", 8, 2, 117, 0], ["pnpm6", 12, 1, 118, 1], ["pnpm6", 13, 0, 21, 1], ["pnpm6", 13, 0, 47, 1], ["pnpm6", 13, 0, 73, 1],
+]);
+
+test('differential against js-yaml: whenever YAML reads more package keys than the parser counts, the parser refused (100 fixed mutations of pnpm 9, pnpm 6 and berry locks)', () => {
+  assert.equal(DCASES.length, 100);
+  for (const [base, text] of Object.entries(DBASES)) assert.equal(ok((base === 'berry' ? yarnPackages : pnpmPackages)(text)).total, 2, base);
+  let refusedN = 0;
+  for (const m of DCASES) {
+    const r = /** @type {any} */ ((m[0] === 'berry' ? yarnPackages : pnpmPackages)(dbuild(m)));
+    if ('error' in r) { refusedN++; continue; }
+    assert.equal(r.total, m[4], `${JSON.stringify(m)} ${JSON.stringify(DINSERTS[m[3]])}: the parser read ${r.total} entries, js-yaml ${m[4]}`);
+  }
+  assert.ok(refusedN > 0 && refusedN < 100, `refused ${refusedN}`);
 });
 
 // ---- the command end to end, with a fake io.http (no network)
@@ -607,7 +711,7 @@ test('a changed pnpm, yarn or bun lock alone makes the check run (watch), and a 
   const d = run('yarn.lock');
   wr(d, 'yarn.lock', YARN.replace('  version "4.17.20"', '   version "4.17.20"'));
   const http = fake();
-  assert.match(check(d, http), /^advisory-check: not_run: the lock file is not a yarn lock this parser reads \(line 4: an odd indentation\)/);
+  assert.match(check(d, http), /^advisory-check: not_run: the lock file is not a yarn lock this parser reads \(line 4: an indentation that does not follow the line before/);
   assert.equal(record(d).reason_kind, 'lock_unreadable');
   wr(d, 'yarn.lock', YARN);
   assert.match(check(d, http), /^advisory-check: measured/);
@@ -687,7 +791,7 @@ test('pnpm: `packages:` with anything after the colon, or a block header without
   // RED before the fix: each of these read as a measured lock of 0 packages
   const entry = '\n\n  lodash@4.17.20:\n    resolution: {integrity: sha512-a}\n';
   for (const suf of [' # c', ' &a', ' !!map', ' !!omap', ' *a', ' {lodash@4.17.20: {resolution: {integrity: sha512-a}}}', ' {}x', ' []', ' null', ' ~']) {
-    refused(pnpmPackages(`lockfileVersion: '9.0'\n\npackages:${suf}${entry}`), 'lock_unreadable', /`packages:` followed by something other than|strict subset/);
+    refused(pnpmPackages(`lockfileVersion: '9.0'\n\npackages:${suf}${entry}`), 'lock_unreadable', /`packages:` followed by something other than|strict subset|does not follow/);
   }
   refused(pnpmPackages("lockfileVersion: '9.0'\npackages: {lodash@4.17.20: {resolution: {integrity: sha512-a}}}\n"), 'lock_unreadable');
   refused(pnpmPackages("lockfileVersion: '9.0'\npackages:# c\n"), 'lock_unreadable', /strict subset/);

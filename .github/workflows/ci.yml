@@ -397,7 +397,7 @@ jobs:
           - name: legacy-known-issues
             mode: files
             pattern: 'none'
-            files: tests/core/legacy-known-issues.test.mjs tests/core/durable-approvals.test.mjs tests/core/advisory-check.test.mjs
+            files: tests/core/legacy-known-issues.test.mjs tests/core/durable-approvals.test.mjs tests/core/advisory-check.test.mjs tests/core/advisory-locks.test.mjs
           - name: legacy-language
             mode: files
             pattern: 'none'
