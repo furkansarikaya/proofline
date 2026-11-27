@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { ledgerAppend } from '../../control-plane/agents/scripts/core/lock.mjs';
 import { cfgv, sandbox, sig, upstream } from './frontend-lib.mjs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Config } from '../../control-plane/agents/scripts/core/config.mjs';
 import { agentsSrc } from '../lib/harness.mjs';
 
@@ -243,10 +244,13 @@ test('with local_state: off the upgrade takes no lock and makes no backup (nothi
   assert.equal(existsSync(`${d}/.agents/local/locks`), false);
 });
 
+// fileURLToPath, not URL.pathname: on Windows the pathname is /D:/a/..., which node resolves to D:\D:\a\... (the nightly windows-core leg, A382)
+const FIXTURE_CFG = fileURLToPath(new URL('../fixtures/upgrade/config-v0.0.173.cfg', import.meta.url));
+
 test("an upgrade from the 0.0.173 config adds every missing key at any depth, keeps the project's own values and is idempotent (A371)", () => {
   const d = sb.copy('deep');
   const cf = `${d}/.agents/config.yaml`;
-  writeFileSync(cf, read(new URL('../fixtures/upgrade/config-v0.0.173.cfg', import.meta.url).pathname)
+  writeFileSync(cf, read(FIXTURE_CFG)
     .replace(/^ {2}max_fix_rounds:.*$/m, '  max_fix_rounds: 1').replace(/^ {2}worker:.*$/m, '  worker: claude'));
   const own = { 'review.max_fix_rounds': '1', 'runtime.worker': 'claude', 'test_trust.mutation_budget': cfgv(d, 'test_trust.mutation_budget') };
   const r = sb.pl(d, ['upgrade']);
@@ -265,7 +269,7 @@ test("an upgrade from the 0.0.173 config adds every missing key at any depth, ke
   assert.doesNotMatch(r2.out, /config keys added/);
 });
 
-const fixtureCfg = () => read(new URL('../fixtures/upgrade/config-v0.0.173.cfg', import.meta.url).pathname);
+const fixtureCfg = () => read(FIXTURE_CFG);
 /** The fixture config without the children of a top-level block, which becomes a one-line value. @param {string} text @param {string} key @param {string} value */
 function flatten(text, key, value) {
   const out = []; let skip = false;

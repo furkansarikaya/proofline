@@ -327,6 +327,12 @@ test('config-check knows the key and refuses another value', () => {
 });
 
 test('the default HTTP function (no network here): http is refused, a closed local port is a network error, neither starts from the project', () => {
+  // A373 (5): on Windows the default function makes no request at all and says `unsupported` (the check reports "not supported on Windows (not run)"); the platform branch
+  // of the product is what is checked there, the scheme and network answers are POSIX-only (A382)
+  if (process.platform === 'win32') {
+    for (const url of ['http://127.0.0.1:1/x', 'https://127.0.0.1:1/x']) assert.deepEqual(httpPost({ url, body: '{}', timeoutMs: 5000, maxBytes: 1024 }), { error: 'unsupported' }, url);
+    return undefined;
+  }
   assert.deepEqual(httpPost({ url: 'http://127.0.0.1:1/x', body: '{}', timeoutMs: 5000, maxBytes: 1024 }), { error: 'scheme' });
   const srv = createServer();
   const port = /** @type {Promise<number>} */ (new Promise((res) => srv.listen(0, '127.0.0.1', () => res(/** @type {any} */ (srv.address()).port))));

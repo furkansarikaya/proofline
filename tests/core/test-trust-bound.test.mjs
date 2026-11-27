@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tempDir } from "../lib/tempdir.mjs";
 
-const GATE = new URL("../../skills/test-trust/scripts/gate.mjs", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: on Windows the pathname is /D:/a/..., which node resolves to D:\D:\a\... (the nightly windows-core leg, A382)
+const GATE = fileURLToPath(new URL("../../skills/test-trust/scripts/gate.mjs", import.meta.url));
 const gate = (...args) => { const r = spawnSync(process.execPath, [GATE, ...args], { encoding: "utf8" }); return { code: r.status, out: r.stdout.trim(), err: r.stderr.trim() }; };
 
 /** a run folder with a plan and a budget of 3 mutants (config), and a source file. */

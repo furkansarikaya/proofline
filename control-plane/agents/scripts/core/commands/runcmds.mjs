@@ -212,8 +212,9 @@ function untrackedFilesBelow(root, rel) {
  * @param {string} root @param {string} rel
  */
 export function recheckRemovable(root, rel) {
+  // realpathPosix: the same realpathSync on POSIX; on Windows the real path in the `/` form, so it compares with `${real}/${part}` (the backslash form never matched, A382)
   let real;
-  try { real = realpathSync(root); } catch { return 'the project folder cannot be resolved'; }
+  try { real = realpathPosix(root); } catch { return 'the project folder cannot be resolved'; }
   const segs = rel.split('/');
   for (let i = 1; i <= segs.length; i++) {
     const part = segs.slice(0, i).join('/');
@@ -222,7 +223,7 @@ export function recheckRemovable(root, rel) {
     if (st.isSymbolicLink()) return `${part} became a link`;
     if (i < segs.length && !st.isDirectory()) return `${part} is no longer a folder`;
     let at = '';
-    try { at = realpathSync(`${root}/${part}`); } catch { return `${part} cannot be resolved`; }
+    try { at = realpathPosix(`${root}/${part}`); } catch { return `${part} cannot be resolved`; }
     if (at !== `${real}/${part}`) return `${part} resolves outside the project (${at})`;
   }
   const below = untrackedFilesBelow(root, rel);
