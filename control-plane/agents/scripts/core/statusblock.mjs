@@ -222,9 +222,10 @@ function run(ctx, id, event, pr, seconds) {
     const body = statusBlockBody(ctx, id, event, pr);
     writeFileSync(file, latin1Buf(body));
     // C8d: the `pr-opened` event is sent by the pr step (no number yet) and again by the merge step (with it); a repeat of a step, or of the merge step with the same number, found the
-    // block already saying the same thing. The block is the same but for its `updated` time: that update is not sent again (and not logged twice).
+    // block already saying the same thing. The block is the same but for its times, `updated` and the run's `duration` (A382: a minute that passed between the two made the
+    // repeat a new update): that update is not sent again (and not logged twice).
     const sig = event === 'pr-opened' ? `${ctx.sharedMain()}/.agents/local/status-block-sent/${id}.pr-opened` : '';
-    const same = body.split('\n').filter((l) => !l.startsWith('- updated: ')).join('\n');
+    const same = body.split('\n').filter((l) => !l.startsWith('- updated: ') && !l.startsWith('- duration: ')).join('\n');
     if (sig !== '' && (fileText(ctx, sig) ?? '') === same) return null;
     const r = runTaskAdapter(ctx, adapter, ['statusblock', id, file], { timeoutMs: seconds * 1000 });
     if (r === null) return `unknown task-integration adapter: ${adapter}`;

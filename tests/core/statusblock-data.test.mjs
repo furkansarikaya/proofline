@@ -53,6 +53,22 @@ describe('C8d the pr-opened block is sent once', () => {
     assert.ok(!readFileSync(f, 'utf8').includes('HAND-EDIT'));
   });
 
+  test('the run time moving to the next minute between two identical updates does not make the repeat a new update (A382)', () => {
+    // the block's `duration` is minutes since the first ledger row: when a minute boundary fell between the two calls of the test above (a slow runner) the repeat was sent
+    // again. Reproduced without a clock: the first ledger row is moved one minute back between the calls, which is the same block one minute later.
+    const d = project({ topology: 'standalone' });
+    const f = open(d);
+    assert.equal(A(d, ['status-block', 'LC', 'pr-opened', '12']).status, 0);
+    assert.match(readFileSync(f, 'utf8'), /^- duration: [0-9]+ min$/m, 'the block carries a duration');
+    writeFileSync(f, readFileSync(f, 'utf8').replace('- pr: #12', '- pr: #12 HAND-EDIT'));
+    const led = path.join(d, '.agents/runs/LC/LEDGER.log');
+    const rows = readFileSync(led, 'latin1').split('\n');
+    rows[0] = rows[0].replace(/ epoch=([0-9]+) /, (_, e) => ` epoch=${Number(e) - 60} `);
+    writeFileSync(led, rows.join('\n'), 'latin1');
+    assert.equal(A(d, ['status-block', 'LC', 'pr-opened', '12']).status, 0);
+    assert.ok(readFileSync(f, 'utf8').includes('HAND-EDIT'), 'the same update one minute later was sent again');
+  });
+
   test('the same refusal of the same event is logged once, not once per attempt', () => {
     const d = project({ topology: 'standalone' });   // the shared fixture carries a markdown stub that fails: every update is a refusal
     for (let i = 0; i < 3; i++) assert.equal(A(d, ['status-block', 'LC', 'pr-opened', '12']).status, 0);
