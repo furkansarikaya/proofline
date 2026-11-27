@@ -13,6 +13,7 @@ import { A, AB, batchApprove, bnew, binstall, fakes, g, gOk, has, lines, mktask,
 import { makeFixture, git } from './fixture.mjs';
 import { installGithooks } from '../lib/harness.mjs';
 import { posix } from '../lib/winpath.mjs';
+import { readTarGz } from '../../control-plane/agents/scripts/core/tarlite.mjs';
 import { recordsAge } from '../enforcement/enforcement-a-lib.mjs';
 
 const wbody = (/** @type {string} */ title) => `## Goal\n\n${title}.\n\n## Context\n\nFixture.\n\n## Acceptance criteria\n\n- AC-1: it works\n\n## Out of scope\n\n- Other changes.\n\n## Constraints\n\n- POSIX sh.\n\n## Risks\n\n- None.\n`;
@@ -77,9 +78,10 @@ test('worktree-add|path|remove: one worktree per run, open runs counted per work
   // C8e: the forced removal left one row in the ledger of the run it took away, and the archive kept it
   const arch = readdirSync(`${main}/.agents/local/archive/W-2`).find((n) => n.endsWith('.tar.gz')) ?? '';
   const tarf = `${main}/.agents/local/archive/W-2/${arch}`;
-  const member = (spawnSync('tar', ['-tzf', tarf], { encoding: 'utf8' }).stdout.split('\n').find((n) => n.endsWith('/LEDGER.log')) ?? '');
-  const led = spawnSync('tar', ['-xzOf', tarf, member], { encoding: 'utf8' });
-  assert.match(led.stdout, / event=forced-removal role=lead .* detail=worktree-remove W-2 --force$/m, led.stderr);
+  // read in process by the archive reader of `proofline retro` (A370), not by the host's tar: on the Windows leg the system tar's listing found no member and the extraction got an empty name (A382)
+  const ar = readTarGz(tarf, (n) => (n.endsWith('/LEDGER.log') ? 'ledger' : null));
+  assert.ok(ar.ok && ar.files.has('ledger'), `the archive holds the run's LEDGER.log (${ar.why}, ${ar.entries} entries)`);
+  assert.match(ar.files.get('ledger') ?? '', / event=forced-removal role=lead .* detail=worktree-remove W-2 --force$/m);
   assert.ok(!has(recPath), 'the record outlived the worktree');
   assert.match(AB(F, dir, ['worktree-remove', 'W-2']).out, /no worktree/, 'removing a missing worktree is not a no-op');
   // usage and role

@@ -167,10 +167,12 @@ test('CODE_DONE removes this run\'s own evidence worktree also when the mutation
   const foreign = mk('somebody-elses');
   const ctx = ctxIn(d, tmp);
   assert.throws(() => verifyNoScratchWorktrees(ctx, 'LC'), /somebody-elses/, 'a foreign worktree stays a blocker');
-  const registered = g(['worktree', 'list', '--porcelain']).stdout;
-  assert.ok(!registered.includes(dirty), 'the dirty evidence worktree of the run was not removed');
-  assert.ok(!registered.includes(base), 'the clean one was not removed');
-  assert.ok(registered.includes(foreign), 'a foreign worktree was removed');
+  // git lists a worktree in its own form (on Windows C:/Users/runneradmin/..., not the C:\Users\RUNNER~1\... of the temp folder): compared by the folder name, unique in TMP (A382)
+  const names = g(['worktree', 'list', '--porcelain']).stdout.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => path.basename(l.slice(9)));
+  const registered = (/** @type {string} */ p) => names.includes(path.basename(p));
+  assert.ok(registered(foreign) && names.length === 2, `a foreign worktree was removed, or the listing was not read (listed: ${names.join(' ')})`);
+  assert.ok(!registered(dirty), 'the dirty evidence worktree of the run was not removed');
+  assert.ok(!registered(base), 'the clean one was not removed');
   assert.equal(existsSync(dirty), false);
   g(['worktree', 'remove', '--force', foreign]);
   // a locked one is git's to refuse

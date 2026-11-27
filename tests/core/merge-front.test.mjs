@@ -20,6 +20,9 @@ function setup() {
   const env = { ...process.env, GIT_CONFIG_GLOBAL: nullDevice(), GIT_CONFIG_NOSYSTEM: '1' };
   const git = (/** @type {string[]} */ ...a) => spawnSync('git', ['-C', proj, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { env, encoding: 'utf8' });
   git('init', '-q', '-b', 'main'); git('commit', '-q', '--allow-empty', '-m', 'base'); git('remote', 'add', 'origin', 'https://github.com/acme/app.git');
+  // A357: after the merge, proofline fetches origin to bring the local base up to date. The origin here is a name only: its fetch goes to a closed local proxy port and fails at
+  // once, offline. Without it the fetch reached github.com; on Windows it ran into its 60 s timeout (most likely Git's credential helper) and left the project folder busy (EBUSY, A382)
+  git('config', 'remote.origin.proxy', 'http://127.0.0.1:9');
   const st = tempDir('mf-state-');
   const bin = path.join(toolRoot, `mf-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
@@ -48,6 +51,7 @@ test('proofline merge: a green pull request is merged pinned to the checked head
     assert.equal(r.status, 0, r.out + r.err);
     assert.ok(r.out.includes(`proofline merge: pull request 7 is green at ${sha} (1 checks); merging (--squash)`), r.out);
     assert.match(t.merged(), new RegExp(`pr merge 7 --squash --match-head-commit ${sha}`));
+    assert.match(r.out, /^proofline merge: local main could not fetch origin \(.*127\.0\.0\.1.*\): the last known origin\/main is used$/m, 'the base refresh stayed offline (A382)');
   } finally { t.done(); }
 });
 

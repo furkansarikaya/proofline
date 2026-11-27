@@ -39,6 +39,9 @@ function setup() {
   run(proj, 'git', ['init', '-q', '-b', 'main']);
   run(proj, 'git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'base']);
   run(proj, 'git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git']);
+  // A357: after the merge, proofline fetches origin to bring the local base up to date. The origin here is a name only: its fetch goes to a closed local proxy port and fails at
+  // once, offline. Without it the fetch reached github.com; on Windows it ran into its 60 s timeout (most likely Git's credential helper) and left the project folder busy (EBUSY, A382)
+  run(proj, 'git', ['config', 'remote.origin.proxy', 'http://127.0.0.1:9']);
   const st = tempDir('mg-state-');
   const bin = path.join(toolRoot, `mg-${path.basename(st)}`, 'bin');
   mkdirSync(bin, { recursive: true });
