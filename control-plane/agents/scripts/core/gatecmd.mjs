@@ -5,11 +5,12 @@ import { lstatSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } fr
 import path from 'node:path';
 import { now } from './clock.mjs';
 import { fail } from './errors.mjs';
-import { approvalNorm, findApproval } from './approvals.mjs';
+import { approvalNorm, approvalsDirOf, findApproval } from './approvals.mjs';
 import { consumeApproval, mutantNeedFor, mutationBudget, nextNum, planMutantNeed, requireLead, waiveCanon, waiveGroupIds, waiveTarget, requireOpenRun } from './approve.mjs';
 import { gateFingerprint, hashFile } from './fingerprint.mjs';
 import { standingWaiverKey } from './knownissues.mjs';
 import { addStanding } from './standing.mjs';
+import { measureBinding, measureRows, measureWhere } from './standingmeasure.mjs';
 import { findingWaiverKey, gateFocus, gateOwner, resolveTopology } from './gates.mjs';
 import { taskChangedPaths } from './signals.mjs';
 import { gateDefaultArtifact, gatePreconditions, validGateName, writeGate } from './gatewrite.mjs';
@@ -330,6 +331,22 @@ function carryWaivers(ctx, id, rec, list, app, fid) {
     const k = standingWaiverKey(ctx, id, rec, f);
     if (k === null) continue;
     if (addStanding(ctx, { scope: 'waiver', rule: k.rule, surface: k.surface, fp: k.fp, message: msg, origin: `${id} ${path.basename(app)}`, named })) ctx.out(`standing waiver recorded: ${k.rule} on ${k.surface} (kept for this project while that file and finding stay the same; revoke: agent.sh standing revoke ${k.rule})\n`);
+  }
+  // A380 (C3): a failed MEASURED visual item: one row per check, page or page kind and threshold, with the worst value the user waived (a worse value later is asked again)
+  // A380 review: only the rows the user was shown. The request recorded the digest of the rows it listed (for the whole group); the rows rebuilt now from the report
+  // must have the same digest, else the report changed between the request and this waiver (a wider glob, another page path) and nothing is kept
+  const ms = measureRows(ctx, id, rec, list);
+  if (ms.length === 0) return;
+  const reqName = gateField(ctx, app, 'request');
+  const shown = /^[0-9]+-request-[A-Za-z0-9._-]+\.yaml$/.test(reqName) ? gateField(ctx, `${approvalsDirOf(ctx, id)}/${reqName}`, 'measure_keep') : '';
+  if (shown === '' || shown !== measureBinding(measureRows(ctx, id, rec, waiveGroupIds(ctx, rec, fid)))) {
+    ctx.out('standing waiver of measured item(s) NOT kept: the visual report (its page kinds, paths or values) is not what the request showed you; the waiver is for this run only (ask again to keep it)\n');
+    return;
+  }
+  for (const k of ms) {
+    if (addStanding(ctx, { scope: 'measure', rule: k.rule, surface: k.surface, fp: k.fp, message: msg, origin: `${id} ${path.basename(app)}`, named, value: k.value })) {
+      ctx.out(`standing waiver recorded: ${k.rule} ${k.threshold} on ${measureWhere(k.surface)} at a value no worse than ${k.value} (a worse value, another threshold or a page outside it is asked again; revoke: agent.sh standing revoke ${k.rule})\n`);
+    }
   }
 }
 

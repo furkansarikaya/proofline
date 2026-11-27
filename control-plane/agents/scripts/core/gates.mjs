@@ -15,6 +15,7 @@ import { isFile } from './paths.mjs';
 import { authorizedPath, fileLines, fileText, gateField, gatesEnforced, ledgerRows, parseLedgerLine, planScope, planSectionPresent, sectionValue, textLines } from './records.mjs';
 import { knownControlArtifact, runDir } from './runs.mjs';
 import { findingBatchAccepted, findingKnownIssue, findingStandingWaived } from './knownissues.mjs';
+import { findingStandingMeasured } from './standingmeasure.mjs';
 import { pathMatches } from './scope.mjs';
 import { parseReviewBudget, reviewLoopClock, reviewMinutesUsed } from './testreviewbudget.mjs';
 import { now } from './clock.mjs';
@@ -203,6 +204,7 @@ export function findingWaived(ctx, dir, rec, finding) {
   if (findingKnownIssue(ctx, id, rec, finding) !== null) return true; // A202 item 27: a listed, untouched, already-existing finding
   if (findingBatchAccepted(ctx, id, rec, finding)) return true; // the user accepted this listed finding for the approved batch with one answer
   if (findingStandingWaived(ctx, id, rec, finding)) return true; // A361: the user waived this pre-existing finding (same rule, file and content) once; the project carries it
+  if (findingStandingMeasured(ctx, id, rec, finding)) return true; // A380: a measured visual item the user waived with standing for this check, threshold and page or kind, no worse
   const all = listNames(`${dir}/waivers`, /^[0-9]{3}-.*\.yaml$/);
   if (all.length === 0) return false;
   const rs = hashOnce(ctx, rec);

@@ -4,7 +4,7 @@ description: Visual proof of a UI change with the browser tooling the project or
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.200"
+  version: "0.0.201"
 ---
 
 # visual-proof
@@ -122,7 +122,7 @@ rows before the next step.
 4. **Config.** Write `visual.json` ([MEASURE.md](references/MEASURE.md#config)): class, base URL, viewports
    (phone 360x740, tablet 768x1024, desktop 1280x800 unless the spec names its breakpoints; STANDARD uses
    two), screens with each state's path and ready selector, interactions the spec describes (form validation,
-   modal, dropdown, long content), the criteria with the checks that prove them and, for a project that
+   modal, dropdown, long content), the UI spec's `page_kinds` copied as they are (A380), the criteria with the checks that prove them and, for a project that
    produces public HTML pages, the `seo` block (`"seo": { "public_html": false }` when it produces none).
 5. **Measure.** `node <skill-dir>/scripts/measure.mjs --config visual.json --out <output> --task .agents/runs/<ID>/TASK.md` (browser; `--task` is what lets `lang="en"` and `allow_text` exempt an English quote that a criterion requires: only text TASK.md holds, A352) or, with a
    project tool or runtime adapter, the probe and `--assemble` path ([TOOLING.md](references/TOOLING.md#adapters)).

@@ -1,0 +1,1181 @@
+{
+  "schema": "visual-proof/1",
+  "class": "STANDARD",
+  "result": "FAIL",
+  "tool": {
+    "kind": "headless-browser",
+    "name": "chromium"
+  },
+  "target": {
+    "base_url": "file:///app/"
+  },
+  "viewports": [
+    {
+      "name": "phone",
+      "width": 360,
+      "height": 740
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "desktop",
+      "width": 1280,
+      "height": 800
+    }
+  ],
+  "screens": [
+    {
+      "id": "S1",
+      "path": "index.html",
+      "states": [
+        "default"
+      ]
+    }
+  ],
+  "interactions": [],
+  "cells": [
+    {
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "screenshot": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "screenshot": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "screenshot": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    }
+  ],
+  "measured": [
+    {
+      "id": "M-1",
+      "check": "state_rendered",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "main",
+      "value": 1,
+      "threshold": "== 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-2",
+      "check": "viewport_overflow",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "body",
+      "value": 0,
+      "threshold": "<= 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-3",
+      "check": "horizontal_scroll",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "html",
+      "value": 360,
+      "threshold": "<= 360",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-4",
+      "check": "hidden_interactive",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "body",
+      "value": 5,
+      "threshold": "> 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-5",
+      "check": "overlapping_interactive",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "body",
+      "value": 0,
+      "threshold": "== 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-6",
+      "check": "contrast",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "body",
+      "value": 7.1,
+      "threshold": ">= 4.5",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-7",
+      "check": "touch_target",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "body",
+      "value": 40,
+      "threshold": ">= 24",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-8",
+      "check": "focus_order",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "body",
+      "value": 0,
+      "threshold": "== 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-9",
+      "check": "focus_visible",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "phone",
+      "selector": "body",
+      "value": 1,
+      "threshold": "== 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-phone.png",
+        "sha256": "323ffe9c60ca67ae101c941bc6ca3e5b9bff8cf4efcb729cec7b9960e5208443"
+      }
+    },
+    {
+      "id": "M-10",
+      "check": "state_rendered",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "main",
+      "value": 1,
+      "threshold": "== 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-11",
+      "check": "viewport_overflow",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "body",
+      "value": 0,
+      "threshold": "<= 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-12",
+      "check": "horizontal_scroll",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "html",
+      "value": 360,
+      "threshold": "<= 360",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-13",
+      "check": "hidden_interactive",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "body",
+      "value": 5,
+      "threshold": "> 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-14",
+      "check": "overlapping_interactive",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "body",
+      "value": 0,
+      "threshold": "== 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-15",
+      "check": "contrast",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "body",
+      "value": 7.1,
+      "threshold": ">= 4.5",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-16",
+      "check": "touch_target",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "body",
+      "value": 40,
+      "threshold": ">= 24",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-17",
+      "check": "focus_order",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "body",
+      "value": 0,
+      "threshold": "== 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-18",
+      "check": "focus_visible",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "tablet",
+      "selector": "body",
+      "value": 1,
+      "threshold": "== 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-tablet.png",
+        "sha256": "e43f52d2894c56b86763dab2c6ce3aa91186bc52d90e08e951c93be3c939d91e"
+      }
+    },
+    {
+      "id": "M-19",
+      "check": "state_rendered",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "main",
+      "value": 1,
+      "threshold": "== 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-20",
+      "check": "viewport_overflow",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "body",
+      "value": 0,
+      "threshold": "<= 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-21",
+      "check": "horizontal_scroll",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "html",
+      "value": 360,
+      "threshold": "<= 360",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-22",
+      "check": "hidden_interactive",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "body",
+      "value": 5,
+      "threshold": "> 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-23",
+      "check": "overlapping_interactive",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "body",
+      "value": 0,
+      "threshold": "== 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-24",
+      "check": "contrast",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "body",
+      "value": 7.1,
+      "threshold": ">= 4.5",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-25",
+      "check": "touch_target",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "body",
+      "value": 40,
+      "threshold": ">= 24",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-26",
+      "check": "focus_order",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "body",
+      "value": 0,
+      "threshold": "== 0",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    },
+    {
+      "id": "M-27",
+      "check": "focus_visible",
+      "screen": "S1",
+      "state": "default",
+      "viewport": "desktop",
+      "selector": "body",
+      "value": 1,
+      "threshold": "== 1",
+      "status": "pass",
+      "evidence": {
+        "path": "screenshots/S1-desktop.png",
+        "sha256": "65e69af5ce5113c5695fd48801bf76e59359163118bc1fcb81d34a78664d5906"
+      }
+    }
+  ],
+  "not_measured": [],
+  "judged": [],
+  "a11y_scanner": {
+    "status": "not_available"
+  },
+  "network": {
+    "interception": "on",
+    "blocked": []
+  },
+  "regression": {
+    "status": "not_available",
+    "reason": "not checked by measure.mjs; QA records the project's own snapshot command, if any"
+  },
+  "criteria": [],
+  "design": {
+    "status": "run",
+    "mode": "persuade",
+    "viewports": [
+      {
+        "name": "wide",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "name": "tablet",
+        "width": 768,
+        "height": 1024
+      },
+      {
+        "name": "phone390",
+        "width": 390,
+        "height": 844
+      }
+    ],
+    "pages": [
+      {
+        "screen": "S1",
+        "path": "index.html",
+        "static": true,
+        "status": "measured"
+      }
+    ],
+    "items": [
+      {
+        "id": "D-1",
+        "check": "design_heading_lines",
+        "viewport": "wide",
+        "selector": "h1",
+        "value": 1,
+        "threshold": "<= 2",
+        "status": "pass",
+        "note": "1 headings, at most 1 line(s)",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-2",
+        "check": "design_type_scale",
+        "viewport": "wide",
+        "selector": "h1",
+        "value": 4,
+        "threshold": ">= 3",
+        "status": "pass",
+        "note": "font sizes px: largest heading 64, body 16, headings 64",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-3",
+        "check": "design_body_measure",
+        "viewport": "wide",
+        "selector": "p",
+        "value": 20,
+        "threshold": "45-75",
+        "status": "fail",
+        "note": "median of 1 paragraph(s), characters per line",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-4",
+        "check": "design_fonts_loaded",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "1 families, all loaded",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-5",
+        "check": "design_edge_margins",
+        "viewport": "wide",
+        "selector": "main",
+        "value": 0,
+        "threshold": "<= 8",
+        "status": "pass",
+        "note": "left 48px, right 48px",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-6",
+        "check": "design_edge_text",
+        "viewport": "wide",
+        "selector": "h1",
+        "value": 48,
+        "threshold": ">= 12",
+        "status": "pass",
+        "note": "left edge of the viewport",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-7",
+        "check": "design_vacuum",
+        "viewport": "wide",
+        "selector": "section",
+        "value": 0.07,
+        "threshold": "<= 0.5",
+        "status": "pass",
+        "note": "60px empty between header and section (viewport height 900px)",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-8",
+        "check": "design_untitled_section",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "1 section(s) or regions, all with a heading or name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-9",
+        "check": "design_empty_hero",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 2,
+        "threshold": "== 0",
+        "status": "fail",
+        "note": "first viewport lacks: primary action, visual",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-10",
+        "check": "design_surfaces",
+        "viewport": "wide",
+        "selector": "::selection",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "selection: themed",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-11",
+        "check": "design_raw_markup",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "no raw Markdown syntax in the visible text",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-12",
+        "check": "design_ux_alt_text",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "0 image(s) checked, none lacks no alt attribute",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-13",
+        "check": "design_ux_form_labels",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "0 form field(s) checked, none lacks no label or accessible name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-14",
+        "check": "design_ux_control_names",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "1 control(s) checked, none lacks no accessible name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-15",
+        "check": "design_ux_viewport_meta",
+        "viewport": "wide",
+        "selector": "meta[name=viewport]",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "viewport meta \"width=device-width, initial-scale=1\"",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "id": "D-16",
+        "check": "design_heading_lines",
+        "viewport": "tablet",
+        "selector": "h1",
+        "value": 1,
+        "threshold": "<= 2",
+        "status": "pass",
+        "note": "1 headings, at most 1 line(s)",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-17",
+        "check": "design_type_scale",
+        "viewport": "tablet",
+        "selector": "h1",
+        "value": 4,
+        "threshold": ">= 3",
+        "status": "pass",
+        "note": "font sizes px: largest heading 64, body 16, headings 64",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-18",
+        "check": "design_body_measure",
+        "viewport": "tablet",
+        "selector": "p",
+        "value": 20,
+        "threshold": "45-75",
+        "status": "fail",
+        "note": "median of 1 paragraph(s), characters per line",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-19",
+        "check": "design_edge_margins",
+        "viewport": "tablet",
+        "selector": "main",
+        "value": 0,
+        "threshold": "<= 8",
+        "status": "pass",
+        "note": "left 48px, right 48px",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-20",
+        "check": "design_edge_text",
+        "viewport": "tablet",
+        "selector": "h1",
+        "value": 48,
+        "threshold": ">= 12",
+        "status": "pass",
+        "note": "left edge of the viewport",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-21",
+        "check": "design_vacuum",
+        "viewport": "tablet",
+        "selector": "section",
+        "value": 0.07,
+        "threshold": "<= 0.5",
+        "status": "pass",
+        "note": "60px empty between header and section (viewport height 900px)",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-22",
+        "check": "design_untitled_section",
+        "viewport": "tablet",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "1 section(s) or regions, all with a heading or name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-23",
+        "check": "design_empty_hero",
+        "viewport": "tablet",
+        "selector": "body",
+        "value": 2,
+        "threshold": "== 0",
+        "status": "fail",
+        "note": "first viewport lacks: primary action, visual",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-24",
+        "check": "design_ux_alt_text",
+        "viewport": "tablet",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "0 image(s) checked, none lacks no alt attribute",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-25",
+        "check": "design_ux_form_labels",
+        "viewport": "tablet",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "0 form field(s) checked, none lacks no label or accessible name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-26",
+        "check": "design_ux_control_names",
+        "viewport": "tablet",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "1 control(s) checked, none lacks no accessible name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "id": "D-27",
+        "check": "design_heading_lines",
+        "viewport": "phone390",
+        "selector": "h1",
+        "value": 1,
+        "threshold": "<= 2",
+        "status": "pass",
+        "note": "1 headings, at most 1 line(s)",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-28",
+        "check": "design_type_scale",
+        "viewport": "phone390",
+        "selector": "h1",
+        "value": 4,
+        "threshold": ">= 3",
+        "status": "pass",
+        "note": "font sizes px: largest heading 64, body 16, headings 64",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-29",
+        "check": "design_body_measure",
+        "viewport": "phone390",
+        "selector": "p",
+        "value": 20,
+        "threshold": "30-75",
+        "status": "fail",
+        "note": "median of 1 paragraph(s), characters per line",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-30",
+        "check": "design_edge_margins",
+        "viewport": "phone390",
+        "selector": "main",
+        "value": 0,
+        "threshold": "<= 8",
+        "status": "pass",
+        "note": "left 48px, right 48px",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-31",
+        "check": "design_edge_text",
+        "viewport": "phone390",
+        "selector": "h1",
+        "value": 48,
+        "threshold": ">= 12",
+        "status": "pass",
+        "note": "left edge of the viewport",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-32",
+        "check": "design_vacuum",
+        "viewport": "phone390",
+        "selector": "section",
+        "value": 0.07,
+        "threshold": "<= 0.5",
+        "status": "pass",
+        "note": "60px empty between header and section (viewport height 900px)",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-33",
+        "check": "design_untitled_section",
+        "viewport": "phone390",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "1 section(s) or regions, all with a heading or name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-34",
+        "check": "design_empty_hero",
+        "viewport": "phone390",
+        "selector": "body",
+        "value": 2,
+        "threshold": "== 0",
+        "status": "fail",
+        "note": "first viewport lacks: primary action, visual",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-35",
+        "check": "design_ux_alt_text",
+        "viewport": "phone390",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "0 image(s) checked, none lacks no alt attribute",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-36",
+        "check": "design_ux_form_labels",
+        "viewport": "phone390",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "0 form field(s) checked, none lacks no label or accessible name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-37",
+        "check": "design_ux_control_names",
+        "viewport": "phone390",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "1 control(s) checked, none lacks no accessible name",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-38",
+        "check": "design_ux_body_font_size",
+        "viewport": "phone390",
+        "selector": "p",
+        "value": 16,
+        "threshold": ">= 16",
+        "status": "pass",
+        "note": "median body text 16px at 390px wide",
+        "screen": "S1",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      },
+      {
+        "id": "D-39",
+        "check": "design_image_ledger",
+        "screen": "S1",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass",
+        "note": "0 raster image(s) and 0 self-hosted font(s), all in the ledger"
+      },
+      {
+        "id": "D-40",
+        "check": "design_motion_count",
+        "phase": "load",
+        "screen": "S1",
+        "viewport": "wide",
+        "selector": "html",
+        "value": 0,
+        "threshold": ">= 3",
+        "status": "fail",
+        "note": "load: 0"
+      },
+      {
+        "id": "D-41",
+        "check": "design_motion_count",
+        "phase": "scroll",
+        "screen": "S1",
+        "viewport": "wide",
+        "selector": "html",
+        "value": 0,
+        "threshold": ">= 3",
+        "status": "fail",
+        "note": "scroll: 0"
+      },
+      {
+        "id": "D-42",
+        "check": "design_reduced_motion",
+        "screen": "S1",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass"
+      },
+      {
+        "id": "D-43",
+        "check": "design_no_script_visible",
+        "screen": "S1",
+        "viewport": "wide",
+        "selector": "body",
+        "value": 0,
+        "threshold": "== 0",
+        "status": "pass"
+      }
+    ],
+    "screenshots": [
+      {
+        "screen": "S1",
+        "viewport": "wide",
+        "screenshot": {
+          "path": "screenshots/index.html-wide.png",
+          "sha256": "e529c646ab9e0214e74b0818047fc99b1e495e3bea3502ea83b4f58d7acfb687"
+        }
+      },
+      {
+        "screen": "S1",
+        "viewport": "tablet",
+        "screenshot": {
+          "path": "screenshots/index.html-tablet.png",
+          "sha256": "5c2d7320bfebfbd091be00a811be57db1efdb8810f19391959ed1028c6a01f06"
+        }
+      },
+      {
+        "screen": "S1",
+        "viewport": "phone390",
+        "screenshot": {
+          "path": "screenshots/index.html-phone390.png",
+          "sha256": "d7eb0348985aea0314787ee2e64514cbc15d36ef9c3c885045d1c28442ff5cdc"
+        }
+      }
+    ],
+    "scenes": [],
+    "images": [],
+    "not_measured": [],
+    "time_scale": 1,
+    "image_ledger": "docs/design/IMAGES.md",
+    "scene_ids": [],
+    "motion_min": {
+      "load": 3,
+      "scroll": 3
+    }
+  }
+}

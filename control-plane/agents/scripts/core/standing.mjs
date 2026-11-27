@@ -7,7 +7,8 @@
 // user, source prompt_capture or tty). No agent command writes it; a role cannot create a row, and a row that is not a regular single-link file on a safe path is
 // not read at all (nothing is then carried). `revoke` removes rows only on the user's own captured message. A row never covers anything but its own
 // (scope, rule, surface, fingerprint); SECRETS and SECURITY are never stored (the callers refuse them before they get here).
-// Format of STANDING.tsv, one row per line, TAB separated: scope, rule, surface, fingerprint, message id, date, answered_by, origin, named.
+// Format of STANDING.tsv, one row per line, TAB separated: scope, rule, surface, fingerprint, message id, date, answered_by, origin, named; a `measure` row
+// (A380, a measured visual item: rule = the check, surface = `page:<path>` or `kind:<kind>:<glob>`, standingmeasure.mjs) adds a tenth field, the approved value.
 // A row is created only when the user's reply said the word `standing` (or the Turkish kalici) in the segment that names the rationale or the finding (never by the approval alone),
 // and it counts only while it VERIFIES at use time (`verifyRow`): the message id must be a message of the prompt history whose bytes still hash to it, and that message must still
 // say an approval phrase, the named rationale or finding and `standing` in one segment. A row planted by hand without such a message carries nothing.
@@ -20,9 +21,12 @@ import { sha256 } from './hash.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
-/** @typedef {{ scope: string, rule: string, surface: string, fp: string, message: string, date: string, by: string, origin: string, named: string }} StandingRow */
+/** @typedef {{ scope: string, rule: string, surface: string, fp: string, message: string, date: string, by: string, origin: string, named: string, value?: string }} StandingRow */
 
-const SCOPES = ['rationale', 'waiver'];
+const SCOPES = ['rationale', 'waiver', 'measure'];
+const VALUE = /^-?[0-9]+(?:\.[0-9]+)?$/;
+/** The fields of a row as written (a measure row carries its approved value). @param {StandingRow} r */
+const fields = (r) => [r.scope, r.rule, r.surface, r.fp, r.message, r.date, r.by, r.origin, r.named, ...(r.scope === 'measure' ? [r.value ?? ''] : [])];
 
 /** The folder of the project-level store: shared by the main tree and every run worktree. @param {Context} ctx */
 export function standingDir(ctx) { return sharedDirOf(ctx, 'standing'); }
@@ -86,8 +90,9 @@ export function readStandingRaw(ctx) {
   try { text = readFileSync(f, 'latin1'); } catch { return []; }
   for (const l of text.split('\n')) {
     const p = l.split('\t');
-    if (p.length !== 9 || !SCOPES.includes(p[0]) || p[6] !== 'user' || !p.every(clean) || !/^[0-9a-f]{64}$/.test(p[3])) continue;
-    out.push({ scope: p[0], rule: p[1], surface: p[2], fp: p[3], message: p[4], date: p[5], by: p[6], origin: p[7], named: p[8] });
+    if (p.length !== (p[0] === 'measure' ? 10 : 9) || !SCOPES.includes(p[0]) || p[6] !== 'user' || !p.every(clean) || !/^[0-9a-f]{64}$/.test(p[3])) continue;
+    if (p[0] === 'measure' && !VALUE.test(p[9])) continue;
+    out.push({ scope: p[0], rule: p[1], surface: p[2], fp: p[3], message: p[4], date: p[5], by: p[6], origin: p[7], named: p[8], ...(p[0] === 'measure' ? { value: p[9] } : {}) });
   }
   return out;
 }
@@ -111,7 +116,7 @@ function writeAll(ctx, rows) {
   const dir = standingDir(ctx);
   mkdirSync(dir, { recursive: true });
   const f = filePath(ctx);
-  const body = rows.map((r) => `${[r.scope, r.rule, r.surface, r.fp, r.message, r.date, r.by, r.origin, r.named].join('\t')}\n`).join('');
+  const body = rows.map((r) => `${fields(r).join('\t')}\n`).join('');
   writeFileSync(`${f}.tmp`, latin1Buf(body));
   renameSync(`${f}.tmp`, f);
 }
@@ -119,10 +124,11 @@ function writeAll(ctx, rows) {
 /**
  * Record one standing approval. Called only from `approveOne`, right after the approval file of the user's message was written. A row with the same key is not
  * written twice (the first message stays its origin). Returns whether a row was added.
- * @param {Context} ctx @param {{ scope: string, rule: string, surface: string, fp: string, message: string, origin: string, named: string }} row
+ * @param {Context} ctx @param {{ scope: string, rule: string, surface: string, fp: string, message: string, origin: string, named: string, value?: string }} row
  */
 export function addStanding(ctx, row) {
   if (!clean(row.named) || !SCOPES.includes(row.scope) || !clean(row.rule) || !clean(row.surface) || !/^[0-9a-f]{64}$/.test(row.fp) || !clean(row.message) || !clean(row.origin)) return false;
+  if ((row.scope === 'measure') !== (row.value !== undefined) || (row.value !== undefined && !VALUE.test(row.value))) return false;
   if (findStanding(ctx, row.scope, row.rule, row.surface, row.fp) !== null) return false;
   const rows = readStandingRaw(ctx);
   rows.push({ ...row, date: now().iso, by: 'user' });
@@ -139,6 +145,11 @@ export function rationaleCarried(ctx, rule, surface, hash) { return findStanding
 
 /** The lines the batch summary and `standing list` show. @param {StandingRow} r */
 export function describeStanding(r) {
+  if (r.scope === 'measure') {
+    const k = /^kind:([^:]+):(.*)$/.exec(r.surface);
+    const where = r.surface.startsWith('page:') ? `the page ${r.surface.slice(5)}` : k === null ? r.surface : `pages of kind ${k[1]} (paths ${k[2]})`;
+    return `measure ${r.rule} on ${where} at a value no worse than ${r.value}, approved by you in message ${r.message.slice(-12)} on ${r.date}, from ${r.origin}`;
+  }
   return `${r.scope} ${r.rule} on ${r.surface} (content ${r.fp.slice(0, 12)}), approved by you in message ${r.message.slice(-12)} on ${r.date}, from ${r.origin}`;
 }
 
@@ -179,7 +190,7 @@ export function revokeStanding(ctx, rule, surface = '') {
   const dir = standingDir(ctx);
   const log = `${dir}/REVOKED.tsv`;
   const date = now().iso;
-  appendFileSync(log, latin1Buf(hit.map((r) => `${[r.scope, r.rule, r.surface, r.fp, r.message, r.date, r.by, r.origin, r.named, cid, date].join('\t')}\n`).join('')));
+  appendFileSync(log, latin1Buf(hit.map((r) => `${[...fields(r), cid, date].join('\t')}\n`).join('')));
   ctx.forget('file:'); ctx.forget('standing:');
   return hit;
 }
