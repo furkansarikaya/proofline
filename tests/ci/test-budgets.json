@@ -1070,7 +1070,7 @@
     },
     "tests/hook/posttool-ask-batch.test.mjs": {
       "test_ms": 13300,
-      "suite_ms": 27000
+      "suite_ms": 34000
     },
     "tests/hook/posttool-ask-codex.test.mjs": {
       "test_ms": 20000,

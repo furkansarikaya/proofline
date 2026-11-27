@@ -678,6 +678,8 @@ export function batchAnswer(ctx) {
 
 // ---- the pre-flight questions in the runtime's option UI (A381, issue 338 U1; the run questions are A367) -----------------------------------------------------
 
+/** The pre-flight kinds that are approvals, never answered by a click (A381 review). */
+export const UI_NEVER_KINDS = ['accept', 'known'];
 /** The Codex question id of a pre-flight question (`Q1` gives `batch_q1`). @param {string} qn */
 export const batchQid = (qn) => `batch_${asciiLower(qn)}`;
 
@@ -690,6 +692,9 @@ export const batchQid = (qn) => `batch_${asciiLower(qn)}`;
 export function batchAskSpec(row) {
   const [qn, qid, qkind, qtext, qopts] = row;
   if (!/^Q[0-9]+$/.test(qn ?? '') || (qopts ?? '') === '') return null;
+  // never offered: the acceptance of the expected findings and rationales (kind accept) and a known-issue question (kind known) are approvals, read only from the user's typed
+  // message (acceptGiven, batchAcceptGiven); an option that asks for the user's own words ("say which in your answer") cannot be given by a click
+  if (UI_NEVER_KINDS.includes(qkind) || /in your answer/.test(qopts)) return null;
   const parts = qopts.split('|');
   if (parts.length < 2 || parts.length > 4) return null;
   /** @type {Array<{ label: string, description: string }>} */ const options = [];
@@ -733,8 +738,9 @@ export function batchAnswerUi(ctx) {
   const runtime = given.runtime ?? 'claude';
   /** @type {{ row: string[], spec: import('./answerforms.mjs').AskSpec } | null} */ let hit = null;
   for (const row of rows(`${bd}/lint.tsv`)) { const spec = batchAskSpec(row); if (spec !== null && sameUiAsk(runtime, given.input, spec, batchQid(row[0]))) { hit = { row, spec }; break; } }
-  if (hit === null) fail('batch: the question the user was shown is not a pre-flight question of this batch exactly as derived (nothing is recorded)');
+  if (hit === null) fail('batch: the question the user was shown is not a pre-flight question of this batch exactly as derived, or it is one that is never answered by a click (an acceptance, a known issue, an option that needs the user\'s own words; nothing is recorded)');
   const [qn, qid, qkind, , , , qparam] = hit.row;
+  if (UI_NEVER_KINDS.includes(qkind)) fail(`batch: ${qn} is an approval (${qkind}): it is recorded only from the user's typed message (nothing is recorded)`);
   const asked = rd(`${bd}/ask-session`).replace(/\n$/, '');
   if (asked === '' || safeSession(asked) !== safeSession(given.session)) fail(`batch: ${qn} was not asked by the session that holds this selection (nothing is recorded)`);
   if (typeof given.toolUseId !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(given.toolUseId)) fail('batch: the selection has no tool call id (nothing is recorded)');

@@ -1,6 +1,6 @@
 # Prompt kataloğu
 
-<!-- translated-from: docs/guides/prompt-catalogue.md; blob: 34bd46d388f88a91c364781bf11ffbf642772455 -->
+<!-- translated-from: docs/guides/prompt-catalogue.md; blob: 1c97060c84bf8f08dfef3c572c0cc1030a5b12f3 -->
 
 Bu belge, [prompt-catalogue.md](../prompt-catalogue.md) İngilizce sayfasının Türkçe çevirisidir; çevirinin izlediği İngilizce metnin git blob kimliği dosya başındaki `translated-from` satırındadır. İngilizce sürüm esastır, çeviri geride kalabilir (CI bunu uyarı olarak bildirir).
 
@@ -97,7 +97,7 @@ Ajan oturumuna yapıştırabileceğin prompt'lar. Claude Code'da `/proofline <al
 |---|---|
 | Batch'i planla: tek özet, bağımlılık sırasıyla | `/proofline batch TASK-001 TASK-002` veya `/proofline batch all` |
 | Özetin tamamını onayla (task'larının plan ve teslim onayları, başka hiçbir şey) | `approve batch` |
-| Özetteki ön kontrol sorularını cevapla | `Q1 a, Q2 b` veya `all recommended` (beklenen bilinen sorunlar listesi için asla) |
+| Özetteki ön kontrol sorularını cevapla | `Q1 a, Q2 b` veya `all recommended` (beklenen bilinen sorunlar listesi için asla); lead bir soru için runtime'ın seçenek penceresini açtığında bir seçeneğe tıkla (A381; onayın kendisi her zaman yazılır) |
 | Bir kesintiden sonra devam et | `/proofline batch` |
 | Sabah tablosu, yalnızca kayıtlardan | `proofline batch status` |
 
