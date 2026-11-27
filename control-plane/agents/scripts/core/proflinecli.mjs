@@ -30,7 +30,7 @@ import { run as coreRun } from '../proofline-core.mjs';
 import { USAGE_LINES } from './cliusage.mjs';
 import { configCli } from './configcmd.mjs';
 
-export const PROOFLINE_VERSION = '0.0.202';
+export const PROOFLINE_VERSION = '0.0.203';
 
 /** @typedef {{ write(chunk: Buffer): unknown }} Sink */
 /** @typedef {{ stdout?: Sink, stderr?: Sink, env?: NodeJS.ProcessEnv, cwd?: string, plHome?: string, interactive?: boolean, tty?: boolean }} Over */
