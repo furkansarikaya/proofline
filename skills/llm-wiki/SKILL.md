@@ -4,7 +4,7 @@ description: Keeps a persistent, Git-backed Markdown wiki under docs/wiki that g
 license: MIT
 disable-model-invocation: true
 metadata:
-  version: "0.0.201"
+  version: "0.0.202"
 ---
 
 # llm-wiki

@@ -7,7 +7,7 @@
 // scope-kinds. Left (they read the approval or batch library, stage 3): design-rationales, commands-check, scale-check, batch-check.
 import { readSync, readdirSync, statSync } from 'node:fs';
 import { bytes } from '../config.mjs';
-import { askSpec } from '../answerforms.mjs';
+import { ASK_USE, askSpec, codexAsk } from '../answerforms.mjs';
 import { debt } from '../debt.mjs';
 import { requireRun } from '../runs.mjs';
 import { ProoflineError, fail, unsupported } from '../errors.mjs';
@@ -116,7 +116,8 @@ function questions(ctx, args) {
     const spec = askSpec(afterFrontMatter(text));
     if (spec !== null) {
       ctx.out(`ask=${bytes(JSON.stringify(spec))}\n`);
-      ctx.out("ask-use: when your runtime has the AskUserQuestion tool (Claude Code, interactive), call it ONCE with exactly the JSON of ask= (not one character changed) and stop; the runtime hook records the user's selection. fallback: written options (no such tool, headless or -p mode, Codex, or the tool is refused): relay the question and its options above as written text; the user types an accepted answer\n");
+      ctx.out(`ask-codex=${bytes(JSON.stringify(codexAsk(spec, `q${Number(n.slice(0, 3))}`)))}\n`);
+      ctx.out(`ask-use: ${ASK_USE}\n`);
     }
   }
   if (!any) ctx.out(`no pending questions: ${id}\n`);

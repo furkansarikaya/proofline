@@ -111,16 +111,68 @@ export function askSpec(lines) {
   return { questions: [{ question: [...q].slice(0, 500).join(''), header, multiSelect: false, options: items.map((it) => ({ label: it.form, description: [...(it.desc === '' ? it.form : it.desc)].slice(0, 200).join('') })) }] };
 }
 
-/** Does the tool input the runtime ran equal the spec exactly (the same keys, text, header and options, in order)? @param {unknown} input @param {NonNullable<ReturnType<typeof askSpec>>} spec */
+/** @typedef {NonNullable<ReturnType<typeof askSpec>>} AskSpec */
+/** @param {unknown} o @param {string[]} keys */
+const keysAre = (o, keys) => typeof o === 'object' && o !== null && !Array.isArray(o) && Object.keys(o).every((k) => keys.includes(k));
+
+/** Does the tool input the runtime ran equal the spec exactly (the same keys, text, header and options, in order)? @param {unknown} input @param {AskSpec} spec */
 export function sameAsk(input, spec) {
-  /** @param {unknown} o @param {string[]} keys */
-  const keysAre = (o, keys) => typeof o === 'object' && o !== null && !Array.isArray(o) && Object.keys(o).every((k) => keys.includes(k));
   const i = /** @type {any} */ (input);
   if (!keysAre(i, ['questions']) || !Array.isArray(i.questions) || i.questions.length !== 1) return false;
   const q = i.questions[0]; const w = spec.questions[0];
   if (!keysAre(q, ['question', 'header', 'multiSelect', 'options']) || q.question !== w.question || q.header !== w.header || (q.multiSelect !== undefined && q.multiSelect !== false)) return false;
   if (!Array.isArray(q.options) || q.options.length !== w.options.length) return false;
   return w.options.every((o, k) => keysAre(q.options[k], ['label', 'description']) && q.options[k].label === o.label && q.options[k].description === o.description);
+}
+
+// A381 (issue 338 U1): the option tool of each runtime. Claude Code: AskUserQuestion with the ask= block; Codex: request_user_input with the ask-codex= block, the same question,
+// header and options plus the question id Codex needs. The Codex payload was observed with Codex CLI 0.172.0 (A381): PostToolUse `tool_name: "request_user_input"`, `tool_input`
+// {questions: [{id, header, question, options: [{label, description}]}]}, `tool_response` the JSON text {"answers": {<id>: {"answers": [<label or typed text>]}}}.
+/** The tool name of a runtime's option UI. @type {Record<string, string>} */
+export const UI_TOOLS = { claude: 'AskUserQuestion', codex: 'request_user_input' };
+/** How the lead uses the blocks (printed by `questions` and `batch-plan`). */
+export const ASK_USE = "Claude Code (interactive): call AskUserQuestion ONCE per ask= line with exactly its JSON (not one character changed); Codex (plan mode, or the feature default_mode_request_user_input): call request_user_input ONCE per ask-codex= line with exactly its JSON; then stop: the runtime hook records the user's selection. fallback: written options (no such tool, headless or -p mode, codex exec, or the tool is refused): relay the question and its options as written text; the user types an accepted answer";
+
+/** The Codex input of the same question: the id first, no multiSelect key (Codex has none). @param {AskSpec} spec @param {string} id */
+export function codexAsk(spec, id) {
+  const w = spec.questions[0];
+  return { questions: [{ id, header: w.header, question: w.question, options: w.options.map((o) => ({ label: o.label, description: o.description })) }] };
+}
+
+/** Does the tool input of RUNTIME equal the spec exactly (Codex: also the question id, and no other key such as isSecret or isOther)? @param {string} runtime @param {unknown} input @param {AskSpec} spec @param {string} id */
+export function sameUiAsk(runtime, input, spec, id) {
+  if (runtime === 'claude') return sameAsk(input, spec);
+  if (runtime !== 'codex') return false;
+  const i = /** @type {any} */ (input);
+  if (!keysAre(i, ['questions']) || !Array.isArray(i.questions) || i.questions.length !== 1) return false;
+  const q = i.questions[0]; const w = spec.questions[0];
+  if (!keysAre(q, ['id', 'header', 'question', 'options']) || q.id !== id || q.question !== w.question || q.header !== w.header) return false;
+  if (!Array.isArray(q.options) || q.options.length !== w.options.length) return false;
+  return w.options.every((o, k) => keysAre(q.options[k], ['label', 'description']) && q.options[k].label === o.label && q.options[k].description === o.description);
+}
+
+/**
+ * The user's answer in the tool result of RUNTIME as text, or null when the result holds none for this question (cancelled, refused, an error string, another question,
+ * more than one answer). Claude Code: `answers` keyed by the question text; Codex: the JSON text (or object) `answers` keyed by the question id, exactly one string.
+ * @param {string} runtime @param {unknown} response @param {AskSpec} spec @param {string} id
+ */
+export function uiPick(runtime, response, spec, id) {
+  const qtext = spec.questions[0].question;
+  if (runtime === 'claude') {
+    const r = /** @type {any} */ (response);
+    const answers = r !== null && typeof r === 'object' ? r.answers : null;
+    if (answers === null || typeof answers !== 'object' || !Object.hasOwn(answers, qtext) || typeof answers[qtext] !== 'string') return null;
+    if (Array.isArray(r.questions) && r.questions.length > 0 && r.questions[0]?.question !== qtext) return null;
+    return answers[qtext];
+  }
+  if (runtime !== 'codex') return null;
+  let r = /** @type {any} */ (response);
+  if (typeof r === 'string') { try { r = JSON.parse(r); } catch { return null; } }
+  const answers = r !== null && typeof r === 'object' && !Array.isArray(r) ? r.answers : null;
+  if (answers === null || typeof answers !== 'object' || Array.isArray(answers) || Object.keys(answers).length !== 1 || !Object.hasOwn(answers, id)) return null;
+  const a = answers[id];
+  if (!keysAre(a, ['answers']) || !Array.isArray(a.answers) || a.answers.length !== 1 || typeof a.answers[0] !== 'string') return null;
+  return a.answers[0];
 }
 
 // ---- an answer beside approvals in one message (A350) -------------------------------------------------------------------------------------------------------

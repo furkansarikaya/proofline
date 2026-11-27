@@ -93,7 +93,7 @@ plain words. `proofline help` lists every subcommand. Turkish translation (this 
 |---|---|
 | Plan the batch: one summary, in dependency order | `/proofline batch TASK-001 TASK-002` or `/proofline batch all` |
 | Approve that whole summary (plan and delivery approvals of its tasks, nothing else) | `approve batch` |
-| Answer the pre-flight questions in the summary | `Q1 a, Q2 b` or `all recommended` (never for the list of expected known issues) |
+| Answer the pre-flight questions in the summary | `Q1 a, Q2 b` or `all recommended` (never for the list of expected known issues), or click an option where the lead opens the runtime's option picker for a question (A381; the approval itself is always typed) |
 | Continue after an interruption | `/proofline batch` |
 | The morning table, from records only | `proofline batch status` |
 

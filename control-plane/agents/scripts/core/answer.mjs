@@ -5,7 +5,7 @@ import { statusBlockUpdate } from './statusblock.mjs';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { now } from './clock.mjs';
 import { approvalNormSpace, latestCapture, quoteLines, sortedNames } from './approvals.mjs';
-import { acceptedForms, askSpec, bytes, hedged, matchesAcceptedForm, reduceToAnswer, sameAsk, userOnlyKind } from './answerforms.mjs';
+import { acceptedForms, askSpec, bytes, hedged, matchesAcceptedForm, reduceToAnswer, sameUiAsk, uiPick, userOnlyKind } from './answerforms.mjs';
 import { captureField, safeSession } from './capture.mjs';
 import { requireLead } from './approve.mjs';
 import { fail } from './errors.mjs';
@@ -92,23 +92,23 @@ export function answer(ctx, args) {
     // A367 (issue 338 U1): the user's selection in the runtime's own option UI, handed over by the posttool hook in process (never by a command line: the io of a
     // typed command has no uiAnswer). It is the user's answer only when the tool input the runtime ran is EXACTLY the input the control plane derives from this
     // question (text, header, labels, descriptions), the question is a user-only question asked by this session, and this tool call has not answered anything yet.
-    const given = /** @type {{ uiAnswer?: { session: string, toolUseId: string, input: unknown, response: unknown } }} */ (ctx.io).uiAnswer;
+    // A381: the same for Codex's request_user_input (runtime `codex`): the ask-codex= block, keyed by the question id `q<N>`.
+    const given = /** @type {{ uiAnswer?: { runtime?: string, session: string, toolUseId: string, input: unknown, response: unknown } }} */ (ctx.io).uiAnswer;
     if (!given) fail(`answer ${n} cannot be recorded as the user's from a command line: the runtime hook records a selection of the option UI; an answer the lead types is recorded as the lead's`);
     cm = true;
+    const runtime = given.runtime ?? 'claude';
     const spec = askSpec(fileLines(ctx, q));
     if (spec === null) fail(`question ${n} is not offered as options (nothing is recorded)`);
-    if (!sameAsk(given.input, spec)) fail(`the question the user was shown is not the one stored for question ${n}: text, header and options must be exactly the ask= block (nothing is recorded)`);
+    const qid = `q${Number(n.replace(/^0+/, '') || '0')}`;
+    if (!sameUiAsk(runtime, given.input, spec, qid)) fail(`the question the user was shown is not the one stored for question ${n}: text, header and options must be exactly the ${runtime === 'codex' ? 'ask-codex=' : 'ask='} block (nothing is recorded)`);
     const askedSession = gateField(ctx, q, 'asked_session');
     if (askedSession === '' || safeSession(askedSession) !== safeSession(given.session)) fail(`question ${n} was not asked by the session that holds this selection (nothing is recorded)`);
     if (typeof given.toolUseId !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(given.toolUseId)) fail('the selection has no tool call id (nothing is recorded)');
     used = `ui:${given.toolUseId}`;
     if (consumed().includes(used)) fail(`this tool call (${given.toolUseId}) already recorded an answer`);
-    const r = /** @type {any} */ (given.response);
-    const answers = r !== null && typeof r === 'object' ? r.answers : null;
-    const qtext = spec.questions[0].question;
-    if (answers === null || typeof answers !== 'object' || !Object.hasOwn(answers, qtext) || typeof answers[qtext] !== 'string') fail('the tool result holds no answer to this question (cancelled, refused or an error; nothing is recorded)');
-    if (Array.isArray(r.questions) && r.questions.length > 0 && r.questions[0]?.question !== qtext) fail('the tool result is not for this question (nothing is recorded)');
-    text = bytes(answers[qtext]);
+    const picked = uiPick(runtime, given.response, spec, qid);
+    if (picked === null) fail('the tool result holds no answer to this question (cancelled, refused, an error or another question; nothing is recorded)');
+    text = bytes(picked);
     src = '';
     uiTool = given.toolUseId;
   } else {

@@ -4,7 +4,7 @@
 // The same approved batch that is not finished is continued instead (nothing written, no new approval); --replace plans anew.
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { batchApproval, sharedDirOf } from './approvals.mjs';
 import { requestApproval, requireLead, shown } from './approve.mjs';
 import { BATCH_EXC_HEADING } from './exceptionsapproval.mjs';
@@ -16,7 +16,7 @@ import { PathKinds } from './pathkind.mjs';
 import { readBytes, textLines } from './records.mjs';
 import { asciiLower } from './shellglob.mjs';
 import { scopeEntries, scopeEntryCovers, taskType } from './taskfile.mjs';
-import { PLUG_LINE, agentCall, answerLetter, saysAllRecommended, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
+import { PLUG_LINE, agentCall, answerLetter, batchAskLines, saysAllRecommended, bdOf, bid, deriveState, mdFiles, nextReport, tfile, tid } from './batch.mjs';
 import { now } from './clock.mjs';
 import { latin1Buf } from './wirebytes.mjs';
 import { lintState } from './configset.mjs';
@@ -651,10 +651,19 @@ function plan(ctx, argv) {
   put('paths.tsv', pathRows.map((r) => `${r}\n`).join(''));
   put('accept.tsv', accept.map((r) => `${r.join('\t')}\n`).join(''));
   put('scopes.tsv', [...bindings].filter((b) => b[1] !== '').map((b) => `${b[0]}\t${b[1]}\n`).join(''));
+  // A381: the session that plans the batch is the one that asks its pre-flight questions; a selection in the option UI of another session records nothing
+  {
+    let sess = '';
+    for (const v of [ctx.env.CLAUDE_CODE_SESSION_ID, ctx.env.CODEX_SESSION_ID, ctx.env.CODEX_THREAD_ID]) if (v) { sess = v; break; }
+    if (/[^A-Za-z0-9_.-]/.test(sess)) sess = '';
+    if (sess !== '') put('ask-session', `${sess}\n`); else rmSync(`${bd}/ask-session`, { force: true });
+  }
   // A355: the answers carried over are recorded for the new batch id, with the user's original message; they are the user's own answers, not an approval
   for (const [qn, c] of carried) appendFileSync(`${bd}/answers.tsv`, `${bid(ctx)}\t${c.id}\t${qn}\t${c.kind}\t${c.letter}\t${c.param}\t${c.msg}\tcarried:${prev.id}\tanswered_by=user\n`);
   ctx.out(s);
   ctx.out(`\nbatch id: ${bid(ctx)}\n\n`);
+  // A381: the same questions as option-UI blocks, after the summary (never inside it: the approval is bound to the summary's bytes)
+  ctx.out(batchAskLines(lintRows, new Set(carried.keys())));
   return 0;
 }
 
