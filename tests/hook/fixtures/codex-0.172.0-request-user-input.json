@@ -1,0 +1,28 @@
+{
+  "_note": "Recorded once (A381, issue 338 U1) from Codex CLI 0.172.0 (codex app-server over stdio, collaboration mode plan, model gpt-6-luna, effort low, features hooks and default_mode_request_user_input on, a throwaway project whose .codex/hooks.json logged the hook stdin). The app-server client answered the request item/tool/requestUserInput with {answers: {color: {answers: [\"Red\"]}}}. Paths, session, turn and call ids are replaced by placeholders; every key and the shape of every value are as observed.",
+  "PreToolUse": {
+    "session_id": "<session>",
+    "turn_id": "<turn>",
+    "transcript_path": "<home>/.codex/sessions/rollout-<session>.jsonl",
+    "cwd": "<project>",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-6-luna",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "request_user_input",
+    "tool_input": { "questions": [{ "id": "color", "header": "Color", "question": "Pick a color", "options": [{ "label": "Red", "description": "the red one" }, { "label": "Blue", "description": "the blue one" }] }] },
+    "tool_use_id": "call_0000"
+  },
+  "PostToolUse": {
+    "session_id": "<session>",
+    "turn_id": "<turn>",
+    "transcript_path": "<home>/.codex/sessions/rollout-<session>.jsonl",
+    "cwd": "<project>",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-6-luna",
+    "permission_mode": "bypassPermissions",
+    "tool_name": "request_user_input",
+    "tool_input": { "questions": [{ "id": "color", "header": "Color", "question": "Pick a color", "options": [{ "label": "Red", "description": "the red one" }, { "label": "Blue", "description": "the blue one" }] }] },
+    "tool_response": "{\"answers\":{\"color\":{\"answers\":[\"Red\"]}}}",
+    "tool_use_id": "call_0000"
+  }
+}

@@ -24,7 +24,7 @@ import { isFile, isDir } from './fsx.mjs';
  * @property {string | Buffer} [input] bytes for the command's stdin (default: none)
  * @property {string} [agentPath] the agent.sh to use (default: the one of the hook's run worktree)
  * @property {string} [cwd]
- * @property {{ session: string, toolUseId: string, input: unknown, response: unknown }} [uiAnswer] the selection of the runtime option UI this hook is handling (core `answer --ui`, A367)
+ * @property {{ runtime?: string, session: string, toolUseId: string, input: unknown, response: unknown }} [uiAnswer] the selection of the runtime option UI this hook is handling (core `answer --ui`, `batch-answer --ui`; A367, A381)
  * @property {{ session: string, time: number, sha256: string, text: string }} [promptCapture] the capture of the prompt this hook is handling (core latestCapture then means exactly this one)
  */
 

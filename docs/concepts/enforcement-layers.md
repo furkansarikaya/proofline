@@ -153,6 +153,17 @@ Probed in a throwaway project with a logging hook (`claude -p --setting-sources 
   input of file edits (`apply_patch`; the hook reads `*** Add|Update|Delete File:` headers from any tool
   whose name contains `patch`), and whether SessionStart/PostToolUse `additionalContext` reaches the model.
 
+## Verified platform behaviour (Codex CLI 0.172.0)
+
+`HOME`/`CODEX_HOME` in a temp dir (auth symlinked), project and hooks trusted (`hooks/list` hashes written as `hooks.state.<key>.trusted_hash`),
+`codex app-server` over stdio, a turn in collaboration mode `plan` with `gpt-6-luna` at effort low, features `hooks` and `default_mode_request_user_input` on, 2026-11-27 (A381):
+
+- The model's `request_user_input` call reached the client as the server request `item/tool/requestUserInput` (`questions[]` with `id header question options isOther isSecret`).
+- PreToolUse and PostToolUse fired with `tool_name: "request_user_input"`, `tool_input` `{questions: [{id, header, question, options: [{label, description}]}]}` as the
+  model wrote it, `tool_use_id` (`call_...`, equal to the request's `itemId`) and `session_id` equal to the thread id; PostToolUse `tool_response` is a JSON TEXT
+  `{"answers":{"<id>":{"answers":["<label>"]}}}`. Recorded in `tests/hook/fixtures/codex-0.172.0-request-user-input.json`.
+- Not verified: the Codex terminal UI as the client (the probe's own client answered), a typed "Other" answer, and whether PostToolUse `additionalContext` reaches the model.
+
 ## Visual git clients
 
 Pushes from visual git clients (VS Code, GitHub Desktop) work: the hooks tell an agent session from a person by the session's

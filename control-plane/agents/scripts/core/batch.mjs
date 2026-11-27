@@ -37,6 +37,8 @@ import { DEFAULT_FALLBACK, knowledgeDefaultTaken } from './ksuggest.mjs';
 /** The program systemd-inhibit holds the lock for: it ends when the session pid is gone (signal 0 says ESRCH). Node code, so no shell is started (A251). */
 const INHIBIT_WATCH = "const p = Number(process.argv[1]); setInterval(() => { try { process.kill(p, 0); } catch (e) { if (e.code === 'ESRCH') process.exit(0); } }, 5000);";
 import { batchAnswerRow } from './knownissues.mjs';
+import { ASK_USE, codexAsk, sameUiAsk, text as utf8Text, uiPick } from './answerforms.mjs';
+import { safeSession } from './capture.mjs';
 import { now } from './clock.mjs';
 import { limitRows } from './outputshape.mjs';
 import { afterFrontMatter, scopeEntryCovers } from './taskfile.mjs';
@@ -674,6 +676,86 @@ export function batchAnswer(ctx) {
   return 0;
 }
 
+// ---- the pre-flight questions in the runtime's option UI (A381, issue 338 U1; the run questions are A367) -----------------------------------------------------
+
+/** The Codex question id of a pre-flight question (`Q1` gives `batch_q1`). @param {string} qn */
+export const batchQid = (qn) => `batch_${asciiLower(qn)}`;
+
+/**
+ * The option-UI input of one pre-flight question (a row of lint.tsv), derived from the row alone (nothing else is stored): the question `Q1 (ID, kind): <text>`, the header
+ * `Batch Q1`, one option per lettered option with the label `a` (`a (recommended)` for the recommended one) and the option text as its description. Null when the row has
+ * fewer than 2 or more than 4 options or an option is not lettered. Real text (not bytes). @param {string[]} row
+ * @returns {import('./answerforms.mjs').AskSpec | null}
+ */
+export function batchAskSpec(row) {
+  const [qn, qid, qkind, qtext, qopts] = row;
+  if (!/^Q[0-9]+$/.test(qn ?? '') || (qopts ?? '') === '') return null;
+  const parts = qopts.split('|');
+  if (parts.length < 2 || parts.length > 4) return null;
+  /** @type {Array<{ label: string, description: string }>} */ const options = [];
+  for (const p of parts) {
+    const m = /^([a-e])\) (.*)$/.exec(p);
+    if (!m) return null;
+    const rec = / \[recommended\]$/.test(m[2]);
+    const desc = utf8Text(m[2].replace(/ \[recommended\]$/, '')).trim();
+    if (desc === '' || options.some((o) => o.label.startsWith(m[1]))) return null;
+    options.push({ label: rec ? `${m[1]} (recommended)` : m[1], description: [...desc].slice(0, 200).join('') });
+  }
+  const q = utf8Text(`${qn} (${qid}, ${qkind}): ${qtext}`).replace(/\s+/g, ' ').trim();
+  return { questions: [{ question: [...q].slice(0, 500).join(''), header: `Batch ${qn}`.slice(0, 12), multiSelect: false, options }] };
+}
+
+/** The ask lines of the pre-flight questions that are still asked (printed after the summary, never part of it, so the approval digest is unchanged). @param {string[][]} lintRows @param {Set<string>} skip question numbers carried over */
+export function batchAskLines(lintRows, skip) {
+  let s = '';
+  for (const r of lintRows) {
+    if (skip.has(r[0])) continue;
+    const spec = batchAskSpec(r);
+    if (spec === null) continue;
+    s += `ask=${bytes(JSON.stringify(spec))}\nask-codex=${bytes(JSON.stringify(codexAsk(spec, batchQid(r[0]))))}\n`;
+  }
+  return s === '' ? '' : `pre-flight questions in the option UI (A381): the approval of the batch is never a click; relay the summary and its approval question as written\n${s}ask-use: ${ASK_USE}\n\n`;
+}
+
+/**
+ * `batch-answer --ui` (A381): the user's selection in the runtime's option UI for ONE pre-flight question, handed over by the PostToolUse hook in process (a command line has
+ * no such hand-over, so the lead typing it is refused). It is recorded only when the tool input is exactly the block derived from a pre-flight question of the batch in force
+ * (text, header, labels, descriptions, order; for Codex the id too), the batch was planned in the session that holds the selection, the tool call id is fresh, the question
+ * has no answer for this batch yet and the result holds one answer: a label, or a typed text the `batch-answer` parser reads as one option of THAT question.
+ * @param {Context} ctx
+ */
+export function batchAnswerUi(ctx) {
+  requireLead(ctx);
+  const given = /** @type {{ uiAnswer?: { runtime?: string, session: string, toolUseId: string, input: unknown, response: unknown } }} */ (ctx.io).uiAnswer;
+  if (!given) fail("batch: a selection of the option UI is recorded only by the runtime hook (nothing is recorded); after the user's written reply run agent.sh batch-answer");
+  const bd = bdOf(ctx);
+  if (!(isFile(`${bd}/lint.tsv`) && isFile(`${bd}/SUMMARY.md`))) fail('batch: no batch plan to answer (nothing is recorded)');
+  const runtime = given.runtime ?? 'claude';
+  /** @type {{ row: string[], spec: import('./answerforms.mjs').AskSpec } | null} */ let hit = null;
+  for (const row of rows(`${bd}/lint.tsv`)) { const spec = batchAskSpec(row); if (spec !== null && sameUiAsk(runtime, given.input, spec, batchQid(row[0]))) { hit = { row, spec }; break; } }
+  if (hit === null) fail('batch: the question the user was shown is not a pre-flight question of this batch exactly as derived (nothing is recorded)');
+  const [qn, qid, qkind, , , , qparam] = hit.row;
+  const asked = rd(`${bd}/ask-session`).replace(/\n$/, '');
+  if (asked === '' || safeSession(asked) !== safeSession(given.session)) fail(`batch: ${qn} was not asked by the session that holds this selection (nothing is recorded)`);
+  if (typeof given.toolUseId !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(given.toolUseId)) fail('batch: the selection has no tool call id (nothing is recorded)');
+  const pd = sharedDirOf(ctx, 'prompts');
+  const used = `ui:${given.toolUseId}`;
+  if (textLines(rd(`${pd}/consumed`)).includes(used)) fail(`batch: this tool call (${given.toolUseId}) already recorded an answer`);
+  const b = bid(ctx);
+  if (rows(`${bd}/answers.tsv`).some((f) => f[0] === b && f[2] === qn)) fail(`batch: ${qn} is already answered for this batch (nothing is recorded)`);
+  const picked = uiPick(runtime, given.response, hit.spec, batchQid(qn));
+  if (picked === null) fail('batch: the tool result holds no answer to this question (cancelled, refused, an error or another question; nothing is recorded)');
+  const opt = hit.spec.questions[0].options.find((o) => o.label === picked);
+  const l = opt !== undefined ? opt.label.charAt(0) : answerLetter(asciiLower(`${qn} ${bytes(picked)}`).replace(/\n/g, ' ').replace(/ +/g, ' '), false, hit.row);
+  if (l === '') fail(`batch: the answer to ${qn} is not one of its options in a form this script understands (nothing is recorded; it is asked again at freeze)`);
+  const param = qkind === 'split' && l === 'b' ? qparam : '-';
+  appendFileSync(`${bd}/answers.tsv`, `${b}\t${qid}\t${qn}\t${qkind}\t${l}\t${param}\t${used}\tsource=ui\tanswered_by=user\n`);
+  mkdirSync(pd, { recursive: true });
+  appendFileSync(`${pd}/consumed`, `${used}\n`);
+  ctx.out(`batch: ${qn} (${qid}, ${qkind}): option ${l} recorded from the user's selection in the option UI (${given.toolUseId})\n`);
+  return 0;
+}
+
 /** `batch-answers [ID]` (A200): the recorded answers of the batch in force, one per line. @param {Context} ctx @param {string[]} args */
 export function batchAnswers(ctx, args) {
   const bd = bdOf(ctx);
@@ -824,7 +906,7 @@ export function batchCover(ctx, args) {
 export const BATCH_HANDLERS = {
   'batch-next': batchNext,
   'batch-status': (ctx) => batchStatus(ctx),
-  'batch-answer': (ctx) => batchAnswer(ctx),
+  'batch-answer': (ctx, args) => (args[0] === '--ui' ? batchAnswerUi(ctx) : batchAnswer(ctx)),
   'batch-answers': batchAnswers,
   'batch-awake': (ctx) => batchAwake(ctx),
   'batch-park': batchPark,
