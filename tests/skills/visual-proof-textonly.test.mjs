@@ -5,11 +5,12 @@
 import { tempDir } from '../lib/tempdir.mjs';
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { validateReport, CORE } from "../../skills/visual-proof/scripts/validate-visual.mjs";
 import { assemble, checkConfig } from "../../skills/visual-proof/scripts/measure.mjs";
-import { TEXT_ONLY_NOTE, checkPageKinds, pageKindOf } from "../../skills/visual-proof/scripts/design-audit.mjs";
+import { TEXT_ONLY_NOTE, checkPageKinds, pageGlobMatch, pageKindOf } from "../../skills/visual-proof/scripts/design-audit.mjs";
+import { RECORDED, rawFor } from "./textonly-raw.mjs";
 import { ledgerItems } from "../../skills/visual-proof/scripts/ledger.mjs";
 
 const dirs = [];
@@ -25,6 +26,7 @@ const OK = { viewport_overflow: [0, "<= 0"], horizontal_scroll: [360, "<= 360"],
 const VPS = [{ name: "phone", width: 360, height: 740 }, { name: "tablet", width: 768, height: 1024 }, { name: "desktop", width: 1280, height: 800 }];
 const LEGAL = [{ kind: "legal", paths: ["legal/*.html"], text_only: true, reason: "privacy and terms: prose only" }];
 const PAGE = "legal/privacy.html";
+const LEGAL_R = [{ kind: "legal", paths: ["legal/*.html"], text_only: true, reason: "privacy and terms" }];   // the kinds the recorder used
 
 // A persuade-mode report (hero and motion apply) of one page with an image ledger. o: page_kinds, facts per viewport, motion counts, ledger images and fonts.
 function build(o = {}) {
@@ -153,4 +155,39 @@ test("page_kinds: kind ids, globs and duplicates are checked in the config and t
   const { report, check } = build({ kinds: LEGAL });
   const r = structuredClone(report); r.page_kinds = [{ kind: "BAD", paths: ["x"] }];
   assert.match(check(r).errors.join("\n"), /lower-case id/);
+});
+
+// A380 review: expectations recorded with the assemble of main BEFORE this change (tests/skills/textonly-raw.mjs names the recorder), so an undeclared
+// page is compared with what main produced, not with the new code. The raw input carries page_kinds; main ignored the key.
+const RECORDED_DIR = join(import.meta.dirname, "fixtures/visual-proof-textonly");
+const recorded = (name) => JSON.parse(readFileSync(join(RECORDED_DIR, `main-${name}.json`), "utf8"));
+const now = (paths, kinds) => { const dir = mktmp(); return assemble(rawFor(dir, paths, kinds, ledgerItems), dir); };
+
+test("recorded from main: an undeclared page's report is what main produced; a mixed report changes only the declared page's profile rows", () => {
+  const { page_kinds, ...rest } = now(RECORDED.single, LEGAL_R);
+  assert.deepEqual(page_kinds, LEGAL_R, "the report carries the declared kinds");
+  assert.deepEqual(rest, recorded("single"), "an undeclared page differs from main");
+  assert.deepEqual(now(RECORDED.single, undefined), recorded("single"), "a config without page_kinds differs from main");
+  const mixed = now(RECORDED.mixed, LEGAL_R), main = recorded("mixed");
+  const priv = mixed.design.pages.find((p) => p.path === "legal/privacy.html");
+  assert.deepEqual(priv.text_only.applied, PROFILE);
+  assert.equal(mixed.design.pages.find((p) => p.path === "index.html").text_only, undefined);
+  const changed = (i) => i.screen === priv.screen && PROFILE.includes(i.check);
+  assert.deepEqual(mixed.design.items.filter((i) => !changed(i)), main.design.items.filter((i) => !changed(i)), "an item other than the declared page's profile rows changed");
+  assert.ok(main.design.items.filter(changed).length > 0 && main.design.items.filter(changed).every((i) => i.status !== "not_applicable"), "the control: main asked those rows");
+  assert.ok(mixed.design.items.filter(changed).every((i) => i.status === "not_applicable" && i.note === TEXT_ONLY_NOTE));
+  assert.deepEqual(mixed.design.pages.map(({ text_only, ...p }) => p), main.design.pages);
+  for (const k of Object.keys(main)) if (!["design", "result"].includes(k)) assert.deepEqual(mixed[k], main[k], k);
+});
+
+test("the glob matcher is linear and keeps its meaning: a hostile glob and hostile paths, more than 16 wildcards refused, the root page is /", () => {
+  const hostile = "**a".repeat(16);
+  assert.equal(pageGlobMatch(hostile, `${"a".repeat(399)}b`), false);
+  assert.equal(pageGlobMatch(hostile, "a".repeat(400)), true);
+  assert.equal(pageGlobMatch("*a".repeat(16), `${"a".repeat(15)}/a`), false, "one * never crosses /");
+  assert.equal(pageKindOf([{ kind: "x", paths: [hostile] }], `${"a".repeat(390)}b`), null);
+  assert.match(checkPageKinds([{ kind: "x", paths: ["*a".repeat(17)] }]).join("\n"), /at most 16 wildcards/);
+  for (const [g, p, want] of [["legal/*.html", "legal/a.html", true], ["legal/*.html", "legal/s/a.html", false], ["legal/**", "legal/s/a.html", true], ["**", "/", true], ["*", "/", false],
+    ["a?c", "abc", true], ["a?c", "a/c", false], ["***", "x/y", true], ["legal.html", "legalxhtml", false], ["legal/**/x.html", "legal/a/b/x.html", true]]) assert.equal(pageGlobMatch(g, p), want, `${g} ${p}`);
+  assert.equal(pageKindOf([{ kind: "home", paths: ["**"] }], "/")?.kind, "home", "the root page has a path, /");
 });

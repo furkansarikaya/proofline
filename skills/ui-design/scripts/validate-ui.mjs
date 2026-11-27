@@ -198,8 +198,8 @@ function pageKinds(k, err) {
     if (!PAGE_KIND_ID.test(x.kind ?? "")) err(`${p}.kind`, "a lower-case id (letters, digits, -; at most 40)");
     else if (seen.has(x.kind)) err(`${p}.kind`, `${x.kind} is listed twice`);
     else seen.add(x.kind);
-    const ok = (g) => typeof g === "string" && g.length <= 200 && PAGE_GLOB.test(g) && !g.split("/").some((s) => s === "" || s === "." || s === "..");
-    if (!Array.isArray(x.paths) || !x.paths.length || !x.paths.every(ok)) err(`${p}.paths`, "a non-empty list of relative path globs (letters, digits, _ . - / * ?; no .. segment, no leading /)");
+    const ok = (g) => typeof g === "string" && g.length <= 200 && PAGE_GLOB.test(g) && !g.split("/").some((s) => s === "" || s === "." || s === "..") && (g.match(/\*+|\?/g) ?? []).length <= 16;
+    if (!Array.isArray(x.paths) || !x.paths.length || !x.paths.every(ok)) err(`${p}.paths`, "a non-empty list of relative path globs (letters, digits, _ . - / * ?; no .. segment, no leading /; at most 16 wildcards)");
     if (x.text_only !== undefined && typeof x.text_only !== "boolean") err(`${p}.text_only`, "true or false");
     if (!isStr(x.reason)) err(`${p}.reason`, "say what the pages of this kind are");
   });

@@ -50,24 +50,46 @@ export const designApplies = (check, mode) => !MODE_APPLIES[check] || MODE_APPLI
 // `**` crosses segments, `?` is one character; no other glob syntax. The control plane reads the same shape from report.json (its own copy).
 export const PAGE_KIND_ID = /^[a-z][a-z0-9-]{0,39}$/;
 const PAGE_GLOB = /^[A-Za-z0-9_.*?-][A-Za-z0-9_.*?/-]*$/;
-export const pageGlobOk = (g) => typeof g === "string" && g.length <= 200 && PAGE_GLOB.test(g) && !g.split("/").some((s) => s === "" || s === "." || s === "..");
-export function pageGlobRe(g) {
-  let s = "^";
-  for (let i = 0; i < g.length; i++) {
-    const c = g[i];
-    if (c === "*") { if (g[i + 1] === "*") { s += ".*"; i++; } else s += "[^/]*"; } else if (c === "?") s += "[^/]"; else s += c.replace(/[.\\+^$()|{}[\]-]/g, "\\$&");
+const PAGE_PATH = /^[A-Za-z0-9_.@+-][A-Za-z0-9_.@+/-]*$/;
+export const PAGE_GLOB_WILDCARDS = 16; // at most this many wildcard runs (*, **, ?) in one glob
+export const pageGlobOk = (g) => typeof g === "string" && g.length <= 200 && PAGE_GLOB.test(g) && !g.split("/").some((s) => s === "" || s === "." || s === "..")
+  && (g.match(/\*+|\?/g) ?? []).length <= PAGE_GLOB_WILDCARDS;
+// Does the glob match the path? No regular expression (a run of **a**a... must not backtrack): one pass per glob token over the reachable path
+// positions, at most (glob tokens x path length) steps. A run of two or more * crosses segments, one * stays in a segment, ? is one segment character.
+export function pageGlobMatch(g, p) {
+  const n = p.length;
+  let reach = new Array(n + 1).fill(false);
+  reach[0] = true;
+  for (let i = 0; i < g.length;) {
+    const next = new Array(n + 1).fill(false);
+    if (g[i] === "*") {
+      let j = i; while (g[j] === "*") j++;
+      const cross = j - i >= 2;
+      for (let k = 0; k <= n; k++) next[k] = reach[k] || (k > 0 && next[k - 1] && (cross || p[k - 1] !== "/"));
+      i = j;
+    } else {
+      const c = g[i];
+      for (let k = 0; k < n; k++) if (reach[k] && (c === "?" ? p[k] !== "/" : p[k] === c)) next[k + 1] = true;
+      i++;
+    }
+    reach = next;
   }
-  return new RegExp(`${s}$`);
+  return reach[n];
 }
-// The page path a kind glob is matched against: leading slashes and ./ dropped; a path with a query, a fragment or a .. segment has no kind.
-export const pageKindPath = (p) => { const t = String(p ?? "").replace(/^(?:\.?\/)+/, ""); return t === "" || /[?#\\]/.test(t) || t.split("/").includes("..") ? null : t; };
+// The page path a kind glob is matched against: leading slashes and ./ dropped, the root page is "/"; a path with a query, a fragment, odd characters
+// or a .. segment has no kind (the control plane's standingmeasure.mjs has the same rule).
+export const pageKindPath = (p) => {
+  const raw = String(p ?? ""), t = raw.replace(/^(?:\.?\/)+/, "");
+  if (t === "" && /^(?:\.?\/)+$/.test(raw)) return "/";
+  return PAGE_PATH.test(t) && t.length <= 400 && !t.split("/").some((s) => s === "" || s === "." || s === "..") ? t : null;
+};
 export function pageKindOf(kinds, path) {
   const p = pageKindPath(path);
   if (p === null || !Array.isArray(kinds)) return null;
   const hits = [];
   for (const k of kinds) {
     if (!k || typeof k !== "object" || !PAGE_KIND_ID.test(k.kind) || !Array.isArray(k.paths)) continue;
-    const g = k.paths.find((x) => pageGlobOk(x) && pageGlobRe(x).test(p));
+    const g = k.paths.find((x) => pageGlobOk(x) && pageGlobMatch(x, p));
     if (g !== undefined) hits.push({ kind: k.kind, glob: g, text_only: k.text_only === true });
   }
   return hits.length === 1 ? hits[0] : null;
@@ -84,7 +106,7 @@ export function checkPageKinds(k) {
     if (typeof x.kind !== "string" || !PAGE_KIND_ID.test(x.kind)) e.push(`${w}.kind must be a lower-case id (letters, digits, -; at most 40)`);
     else if (seen.has(x.kind)) e.push(`${w}: kind ${x.kind} is listed twice`);
     else seen.add(x.kind);
-    if (!Array.isArray(x.paths) || !x.paths.length || !x.paths.every(pageGlobOk)) e.push(`${w}.paths must be a non-empty list of relative path globs (letters, digits, _ . - / * ?; no .. segment, no leading /)`);
+    if (!Array.isArray(x.paths) || !x.paths.length || !x.paths.every(pageGlobOk)) e.push(`${w}.paths must be a non-empty list of relative path globs (letters, digits, _ . - / * ?; no .. segment, no leading /; at most 16 wildcards)`);
     if (x.text_only !== undefined && typeof x.text_only !== "boolean") e.push(`${w}.text_only must be true or false`);
     if (x.reason !== undefined && (typeof x.reason !== "string" || !x.reason.trim())) e.push(`${w}.reason must be a non-empty string`);
   }
@@ -701,18 +723,28 @@ export function designProbeSource() {
     }
   }
   const hero = { h1, action, visual: !!visualKind, visualKind: visualKind || "none" };
-  // U7 (A380): visual media anywhere on the page (the hero's own rule: a medium or a background image of at least 80 px), for the text-only profile
+  // U7 (A380): visual media anywhere on the page, for the text-only profile only (no check reads it otherwise). The safe side counts: a medium or a
+  // background image whose LARGER side is at least 80 px (a 1440x70 banner counts), a raster medium with a source but no box yet (a lazy image), a
+  // background image of body or html, a ::before/::after image (background or content url) of an element of 80 px or more, and a page larger than the
+  // probe's element cap (what it did not read may hold a visual). Not seen: shadow roots and iframes' own content.
   const media = { count: 0, selectors: [] };
-  const mediaHit = (e) => { media.count++; if (media.selectors.length < 5) media.selectors.push(sel(e)); };
+  const mediaHit = (e, what) => { media.count++; if (media.selectors.length < 5) media.selectors.push(what || sel(e)); };
+  const big = (r) => Math.max(r.width, r.height) >= 80;
   for (const e of document.querySelectorAll("img,svg,canvas,video,picture,iframe,object,embed,input[type=image]")) {
+    if (e.parentElement?.closest("svg")) continue;
     const r = rect(e);
-    if (shown(e, true) && Math.min(r.width, r.height) >= 80 && !e.parentElement?.closest("svg")) mediaHit(e);
+    if (shown(e, true) && big(r)) mediaHit(e);
+    else if (r.width * r.height <= 1 && cs(e).display !== "none" && (e.currentSrc || e.getAttribute("src") || e.getAttribute("srcset") || e.getAttribute("data-src") || e.getAttribute("poster"))) mediaHit(e, `${sel(e)} (no box yet)`);
   }
+  for (const e of [de, document.body]) if (e && /url\(/.test(cs(e).backgroundImage)) mediaHit(e);
   for (const e of all) {
-    if (MEDIA.has(e.tagName) || !/url\(/.test(cs(e).backgroundImage)) continue;
+    if (MEDIA.has(e.tagName)) continue;
     const r = rect(e);
-    if (shown(e, true) && Math.min(r.width, r.height) >= 80) mediaHit(e);
+    if (/url\(/.test(cs(e).backgroundImage) && shown(e, true) && big(r)) { mediaHit(e); continue; }
+    if (!big(r) || !shown(e, true)) continue;
+    for (const ps of ["::before", "::after"]) { const s = getComputedStyle(e, ps); if (/url\(/.test(s.backgroundImage) || /url\(/.test(s.content)) { mediaHit(e, `${sel(e)}${ps}`); break; } }
   }
+  if (all.length >= 6000) mediaHit(document.body, "(page larger than the probe's element cap)");
 
   // browser surfaces
   const surfaces = [];

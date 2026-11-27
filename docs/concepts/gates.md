@@ -256,11 +256,12 @@ writes the approved file and prints them; no role builds it by hand); the contro
 the task did not change is the base's, not this change's.
 
 **Measured items and page kinds (A380).** A third thing can stand: the waiver of a failed MEASURED item of the QA visual report (`touch_target`, `design_empty_hero` and the
-like; never `design_raw_markup` or `raw-markup-in-text`). The UI spec and the visual config may name page kinds (`page_kinds: [{ kind, paths: [glob], text_only?, reason }]`).
+like; never `design_raw_markup`, `raw-markup-in-text` or `design_image_ledger`). The UI spec and the visual config may name page kinds (`page_kinds: [{ kind, paths: [glob], text_only?, reason }]`).
 A standing waiver of a measured item writes one row per check, threshold and page kind (or per page, for a page with no kind) with the worst value of the waived group, and the request
 shows what it would keep ("touch_target >= 44 on pages of kind legal (paths legal/*.html) at a value no worse than 19"). A later page is not asked again only when the check and the
 threshold are the same, its value is no worse, and the report declares it of that kind AND its path matches the glob you were shown (a page that only claims the kind, a worse value,
-another threshold or another check is asked again). `standing list` and `standing revoke <check>` cover these rows. **Text-only pages (A380).** A page of a kind declared
+another threshold or another check is asked again). Only what the request showed is kept: if the visual report changed between the request and the waiver (a
+wider glob, another page path), the waiver is for that run only. `standing list` and `standing revoke <check>` cover these rows. **Text-only pages (A380).** A page of a kind declared
 `text_only` is not asked for the hero, the motion layer and the image ledger when the measurement shows no visual medium or background image of 80 px or more, no hero visual, no
 raster image and no motion on it; a page that shows any of them is measured as before (see the visual-proof MEASURE reference).
 

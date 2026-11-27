@@ -11,7 +11,7 @@ import { before, beforeEach, describe, test } from 'node:test';
 import { gpass, resultFor, AS } from '../lib/harness.mjs';
 import { A, accepted, refused, say } from './legacy-lib.mjs';
 import { Context } from '../../control-plane/agents/scripts/core/context.mjs';
-import { findingStandingMeasured, measureFp, shortfall, standingMeasureKey } from '../../control-plane/agents/scripts/core/standingmeasure.mjs';
+import { PAGE_GLOB_WILDCARDS, findingStandingMeasured, measureFp, pageGlobMatch, pageGlobOk, pageKindPath, shortfall, standingMeasureKey } from '../../control-plane/agents/scripts/core/standingmeasure.mjs';
 import { readStanding } from '../../control-plane/agents/scripts/core/standing.mjs';
 import { memoryIo } from './helpers.mjs';
 import { RUN, frozen, implement, rrun, wr } from './risk-s2-lib.mjs';
@@ -152,6 +152,76 @@ describe('a measured item the user waived with standing is kept once per page ki
     assert.match(accepted(A(d, ['standing', 'revoke', 'touch_target']), 'revoke').out, /revoked 1 standing approval/);
     assert.equal(carried(d, row('M-3', 'touch_target', 19, '>= 44')), false, 'a revoked row still carried');
     assert.match(readFileSync(path.join(d, '.agents/local/standing/REVOKED.tsv'), 'latin1'), /^measure\ttouch_target\tkind:legal:legal\/\*\.html\t[0-9a-f]{64}\t[^\t]+\t[^\t]+\tuser\t[^\t]+\tqa-1\t19\t/);
+  });
+});
+
+describe('what the user saw is what is kept (A380 review)', () => {
+  /** request, then the report is rewritten, then the user's standing approval and the waiver. @param {string} d @param {Parameters<typeof report>[0]} after */
+  function rewriteBetween(d, after) {
+    const req = accepted(A(d, ['request-approval', 'LC', 'waive:QA-1']), 'request').out;
+    wr(d, `${RUN}/reviews/visual-proof/report.json`, report(after));
+    say(d, 'approve qa-1 standing');
+    accepted(A(d, ['approve', 'LC', 'waive:QA-1']), 'approve');
+    const w = accepted(A(d, ['waive', 'LC', 'QA-1', '--group', '--reason', 'old small links on the legal pages, a follow-up redesigns them']), 'waive').out;
+    return { req, w };
+  }
+
+  test('page_kinds rewritten between the request and the waiver (the PoC): the waiver is for the run only and nothing is kept', () => {
+    const d = visualFail(TWO);
+    const { req, w } = rewriteBetween(d, { kinds: [{ kind: 'legal', paths: ['**'], reason: 'r' }] });
+    assert.match(req, /on pages of kind legal \(paths legal\/\*\.html\)/, 'the request showed the narrow glob');
+    assert.match(w, /standing waiver of measured item\(s\) NOT kept: the visual report .* is not what the request showed you/);
+    assert.match(w, /group waiver recorded: LC QA-1/, 'the run\'s own waiver stands');
+    assert.deepEqual(store(d).filter((l) => l.startsWith('measure\t')), [], 'a row was kept that the user never saw');
+    assert.equal(carried(d, row('M-3', 'touch_target', 19, '>= 44'), { path: 'index.html', kinds: [{ kind: 'legal', paths: ['**'], reason: 'r' }] }), false);
+  });
+
+  test('a page path swapped between the request and the waiver (a page with no kind) keeps nothing; an unchanged report keeps the row shown', () => {
+    const d = visualFail(TWO, { kinds: null });
+    const { req, w } = rewriteBetween(d, { kinds: null, path: 'index.html' });
+    assert.match(req, /on the page legal\/privacy\.html at a value no worse than 19/);
+    assert.match(w, /NOT kept/);
+    assert.deepEqual(store(d).filter((l) => l.startsWith('measure\t')), []);
+    const e = visualFail(TWO, { kinds: null });
+    const ok = rewriteBetween(e, { kinds: null });
+    assert.match(ok.w, /standing waiver recorded: touch_target >= 44 on the page legal\/privacy\.html at a value no worse than 19/, 'the control: the same report keeps the row');
+  });
+
+  test('at carry time the report must still declare the kind with the exact approved glob; the root page has its own page row', () => {
+    const d = visualFail(TWO);
+    waive(d);
+    const t = row('M-3', 'touch_target', 19, '>= 44');
+    assert.equal(carried(d, t, { kinds: [{ kind: 'legal', paths: ['legal/**'], reason: 'r' }] }), false, 'the kind now declared by a wider glob that also matches the page');
+    assert.equal(carried(d, t, { kinds: [{ kind: 'legal', paths: ['terms.html', 'legal/*.html'], reason: 'r' }] }), true, 'the approved glob among the kind\'s globs');
+    assert.equal(pageKindPath('/'), '/');
+    assert.equal(pageKindPath('./'), '/');
+    assert.equal(pageKindPath(''), null);
+    wr(d, `${RUN}/reviews/visual-proof/report.json`, report({ kinds: null, path: '/' }));
+    assert.equal(standingMeasureKey(ctxOf(d), 'LC', recFile(d, t), 'QA-1')?.surface, 'page:/', 'the root page is the page /');
+  });
+
+  test('an image-ledger item is never kept (its value counts images, so a kept row would cover every later unlicensed image)', () => {
+    const d = visualFail(TWO);
+    const items = [{ id: 'M-3', check: 'touch_target', value: 19, threshold: '>= 44' }];
+    const rep = JSON.parse(report({ items }));
+    rep.design.items.push({ id: 'D-3', check: 'design_image_ledger', screen: 'S1', viewport: 'wide', value: 1, threshold: '== 0', status: 'fail' });
+    wr(d, `${RUN}/reviews/visual-proof/report.json`, `${JSON.stringify(rep)}\n`);
+    assert.equal(standingMeasureKey(ctxOf(d), 'LC', recFile(d, 'D-3 design_image_ledger: 1 fails == 0 at S1/wide: img x.jpg has no row'), 'QA-1'), null);
+    assert.notEqual(standingMeasureKey(ctxOf(d), 'LC', recFile(d, 'D-2 design_empty_hero: 2 fails == 0 at S1/wide: x'), 'QA-1'), null, 'the control: another design item of the same report has a key');
+  });
+
+  test('the glob matcher is linear: a hostile glob and hostile paths give the right answers, and more than 16 wildcards is not a glob', () => {
+    const hostile = '**a'.repeat(16);
+    assert.equal(pageGlobOk(hostile), true);
+    assert.equal(pageGlobMatch(hostile, `${'a'.repeat(399)}b`), false);
+    assert.equal(pageGlobMatch(hostile, 'a'.repeat(400)), true);
+    assert.equal(pageGlobMatch(hostile, 'a/'.repeat(16)), false, 'the last a is not followed by /');
+    assert.equal(pageGlobMatch('*a'.repeat(16), `${'a'.repeat(15)}/a`), false, 'one * never crosses /');
+    assert.equal(pageGlobOk('*a'.repeat(PAGE_GLOB_WILDCARDS + 1)), false);
+    assert.equal(pageGlobOk('a?'.repeat(PAGE_GLOB_WILDCARDS + 1)), false);
+    for (const [g, p, want] of [['legal/*.html', 'legal/a.html', true], ['legal/*.html', 'legal/s/a.html', false], ['legal/**', 'legal/s/a.html', true], ['**', '/', true], ['*', '/', false],
+      ['a?c', 'abc', true], ['a?c', 'a/c', false], ['***', 'x/y', true], ['legal.html', 'legalxhtml', false], ['legal/**/x.html', 'legal/x.html', false], ['legal/**/x.html', 'legal/a/b/x.html', true], ['x', 'x/', false]])
+      assert.equal(pageGlobMatch(String(g), String(p)), want, `${g} ${p}`);
   });
 });
 

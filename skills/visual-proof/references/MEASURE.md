@@ -48,8 +48,8 @@
   Absent: the group is not requested ([Design audit](#design-audit)). `visitor_mode` is required. `screens`: paths or screen ids (default: every screen path). `languages`: pages of another language
   (`allow_text`: strings that stay English). `image_ledger`: a path relative to the repo root (`--repo`, default the working directory); absent: the ledger check is not requested.
 - `page_kinds` (optional, A380): `[{ "kind": "legal", "paths": ["legal/*.html"], "text_only": true, "reason": "privacy and terms" }]`, copied from the UI spec's `page_kinds`.
-  A kind id is lower case and listed once; a path glob is relative (`*` inside a segment, `**` across segments, `?` one character; no `..` segment, no leading `/`). A page is of
-  the one kind whose glob matches its path (two matching kinds: none). `report.json` carries the list as given: the text-only profile ([Design audit](#design-audit)) and a
+  A kind id is lower case and listed once; a path glob is relative (`*` inside a segment, `**` across segments, `?` one character; no `..` segment, no leading `/`; at most 16 wildcards). A page is of
+  the one kind whose glob matches its path (two matching kinds: none; the root page's path is `/`). `report.json` carries the list as given: the text-only profile ([Design audit](#design-audit)) and a
   standing waiver of a measured item kept per page kind read it.
 - `criteria`: per criterion the checks that prove it (optionally `screens`, `states`); `required: true` for
   each id on the PLAN `visual_proof:` line. A measured item is tagged with every criterion whose checks,
@@ -185,12 +185,13 @@ static item. `measure.mjs --print-design-probe` prints the in-page probe for a t
 | `design_image_ledger` | every raster image and self-hosted font has a ledger row with licence and credit (ledger.mjs) | missing, `== 0` | when `image_ledger` is set |
 
 Text-only pages (A380): a page of a kind declared `text_only` in `page_kinds` gets `design.pages[].text_only` `{kind, media, images, fonts, motion, applied}` from what was
-measured: `media` counts visual media anywhere on the page (img, svg, canvas, video, picture, iframe, object, embed, image input, or a background image, each at least 80 px on its
-short side) plus a hero visual, at all three viewports (the probe's `media` fact); `images` and `fonts` are the ledger probe's raster images and self-hosted fonts (null without a
+measured: `media` counts visual media anywhere on the page (img, svg, canvas, video, picture, iframe, object, embed, image input, or a background image, whose larger side is at least
+80 px; a raster medium with a source but no box yet; a background image of body or html; a `::before`/`::after` image of an element of 80 px or more; a page past the probe's
+6000-element cap) plus a hero visual, at all three viewports (the probe's `media` fact; shadow roots and iframe content are not seen); `images` and `fonts` are the ledger probe's raster images and self-hosted fonts (null without a
 ledger); `motion` the animated elements of the measured motion-count phases (none in a mode that does not count motion; not measured is not none). Only when media, motion and,
 with a ledger, images are 0, the page's `design_empty_hero` and `design_motion_count` items, and its `design_image_ledger` item when the ledger found no self-hosted font, are
 `not_applicable` with the fixed note `not applicable: a text-only page (page_kinds text_only) with no visual, raster image or motion measured`. A declared page that shows a visual,
-an image or motion is measured as before; the validator refuses the note wherever the report does not back it. No approval is asked or given for the profile.
+an image or motion is measured as before; the validator refuses the note wherever the report does not back it (it checks the report's own consistency; the probe is not rerun). No approval is asked or given for the profile.
 
 The `design_ux_*` rows are the measurable high-severity UX rules; `ux-rules.json` maps every UX rule to a check here (touch target, contrast, focus visibility, focus order, reduced motion and horizontal scroll reuse the core or motion checks) or to `judged`. `design_contrast` is not a separate check: the core contrast check stays. Judged: `critique[]` (COMPLEX/CRITICAL when the design group runs; see JUDGED.md) never closes
 the gate. `lint.json` beside `report.json` (lint-source.mjs): its blocking findings are FAIL reasons. `lint-source.mjs` also reads the text of template files (`.html`, `.htm`, `.vue`, `.svelte`, `.astro`) for the same raw Markdown (id `raw-markup-in-text`, A368): always blocking, a DESIGN.md rationale never lowers it, `--task TASK.md` exempts a text node it holds verbatim, and a `{{ }}` placeholder is not read in a source template. Lint the files the task changed, not the whole tree (A361): `agent.sh design-rationales <ID> --json --out reviews/visual-proof/approved-rationales.json` writes the approved-rationales file (rationales the user approved, in this task or kept earlier with `standing`) and prints `lint-paths:`; run `lint-source.mjs --root <repo> --approved-rationales <that file> --paths <lint-paths> --out <output>`. A finding in a committed page the task did not touch is not a finding of this change (the control plane's rerun at the visual `record` lints the whole tree and subtracts the base); never write the approved file by hand.

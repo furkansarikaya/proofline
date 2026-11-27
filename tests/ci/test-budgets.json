@@ -281,8 +281,8 @@
       "suite_ms": 15000
     },
     "tests/core/standing-measure.test.mjs": {
-      "test_ms": 21500,
-      "suite_ms": 70000
+      "test_ms": 44500,
+      "suite_ms": 122500
     },
     "tests/core/visual-stale.test.mjs": {
       "test_ms": 15000,

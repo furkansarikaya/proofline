@@ -36,7 +36,7 @@ import { exceptionLines, exceptionsBaseLines, exceptionsBaseline, exceptionsHash
 import { asciiLower } from './shellglob.mjs';
 import { addStanding, standingSaid } from './standing.mjs';
 import { standingWaiverKey } from './knownissues.mjs';
-import { measureRows, measureWhere } from './standingmeasure.mjs';
+import { measureBinding, measureRows, measureWhere } from './standingmeasure.mjs';
 
 
 const bs = (/** @type {string} */ s) => Buffer.from(s, 'utf8').toString('latin1');
@@ -565,6 +565,8 @@ export function requestApproval(ctx, id0, kind0) {
       if (carry.length > 0) rows = `   ${carry.length} of ${wg.length > 1 ? 'these' : 'this'} finding(s) already existed on the unchanged base: to keep the waiver for this project (exactly that rule, file and content; not asked again in other tasks, batches or runs; a changed file or finding is asked again), add the word standing: "approve ${kind.slice(6)} standing"; without it the waiver is for this run only; revoke later with "revoke <rule>"`;
       // A380 (C3): a failed measured visual item can be kept per page or per page kind, at the worst value approved
       const ms = measureRows(ctx, id, wr, wg);
+      // the rows shown here are bound to the request: `waive` keeps rows only when the rows it rebuilds have this digest (a report rewritten in between keeps nothing)
+      if (ms.length > 0) appendFileSync(`${ad}/${n}-request-${kindSlug(kind)}.yaml`, latin1Buf(`measure_keep: "${measureBinding(ms)}"\n`));
       if (ms.length > 0) {
         rows += `${rows === '' ? '' : '\n'}   measured item(s) of the visual report: to keep this waiver for this project, add the word standing: "approve ${kind.slice(6)} standing"; it is then kept only for:`;
         for (const k of ms) rows += `\n     ${k.rule} ${k.threshold} on ${measureWhere(k.surface)} at a value no worse than ${k.value}`;

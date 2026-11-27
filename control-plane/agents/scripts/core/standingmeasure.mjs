@@ -17,10 +17,11 @@ import { sha256 } from './hash.mjs';
 import { readStanding } from './standing.mjs';
 
 /** @typedef {import('./context.mjs').Context} Context */
-/** @typedef {{ rule: string, surface: string, threshold: string, value: string, path: string, kind: string, glob: string, fp: string }} MeasureKey */
+/** @typedef {{ rule: string, surface: string, threshold: string, value: string, path: string, kind: string, glob: string, globs: string[], fp: string }} MeasureKey */
 
-/** Measured checks that are never carried (A368: raw markup is always blocking; the lint id is listed for the safe side). */
-export const MEASURE_NEVER = ['design_raw_markup', 'raw-markup-in-text', 'raw_markup_in_text'];
+/** Measured checks that are never carried: raw markup is always blocking (A368; the lint id is listed for the safe side), and an image-ledger item counts one per image
+ * whatever the image (value 1), so a kept waiver would cover every later unlicensed image of the kind (A380 review): it is asked again every time. */
+export const MEASURE_NEVER = ['design_raw_markup', 'raw-markup-in-text', 'raw_markup_in_text', 'design_image_ledger'];
 
 // ---- page kinds: the same rules as visual-proof's design-audit.mjs (the skill is installed apart, so they are written here too) ---------------
 
@@ -28,33 +29,54 @@ export const PAGE_KIND_ID = /^[a-z][a-z0-9-]{0,39}$/;
 const PAGE_GLOB = /^[A-Za-z0-9_.*?-][A-Za-z0-9_.*?/-]*$/;
 const PAGE_PATH = /^[A-Za-z0-9_.@+-][A-Za-z0-9_.@+/-]*$/;
 
-/** A relative glob of letters, digits, `_ . - / * ?` without an empty, `.` or `..` segment. @param {unknown} g @returns {g is string} */
-export const pageGlobOk = (g) => typeof g === 'string' && g.length <= 200 && PAGE_GLOB.test(g) && !g.split('/').some((s) => s === '' || s === '.' || s === '..');
+/** At most this many wildcard runs (`*`, `**`, `?`) in one glob. */
+export const PAGE_GLOB_WILDCARDS = 16;
+/** A relative glob of letters, digits, `_ . - / * ?` without an empty, `.` or `..` segment, of at most 200 characters and 16 wildcard runs. @param {unknown} g @returns {g is string} */
+export const pageGlobOk = (g) => typeof g === 'string' && g.length <= 200 && PAGE_GLOB.test(g) && !g.split('/').some((s) => s === '' || s === '.' || s === '..')
+  && (g.match(/\*+|\?/g) ?? []).length <= PAGE_GLOB_WILDCARDS;
 
-/** `*` inside a segment, `**` across segments, `?` one character; nothing else is special. @param {string} g */
-export function pageGlobRe(g) {
-  let s = '^';
-  for (let i = 0; i < g.length; i++) {
-    const c = g[i];
-    if (c === '*') { if (g[i + 1] === '*') { s += '.*'; i++; } else s += '[^/]*'; } else if (c === '?') s += '[^/]'; else s += c.replace(/[.\\+^$()|{}[\]-]/g, '\\$&');
+/**
+ * Does the glob match the path? `*` inside a segment, `**` (any run of two or more `*`) across segments, `?` one character of a segment; nothing else is
+ * special. No regular expression: one pass per glob token over the reachable path positions, so the time is at most (glob tokens x path length) whatever
+ * the glob (a run of `**a**a...` cannot backtrack).
+ * @param {string} g @param {string} p
+ */
+export function pageGlobMatch(g, p) {
+  const n = p.length;
+  let reach = new Array(n + 1).fill(false);
+  reach[0] = true;
+  for (let i = 0; i < g.length;) {
+    const next = new Array(n + 1).fill(false);
+    if (g[i] === '*') {
+      let j = i; while (g[j] === '*') j++;
+      const cross = j - i >= 2;
+      for (let k = 0; k <= n; k++) next[k] = reach[k] || (k > 0 && next[k - 1] && (cross || p[k - 1] !== '/'));
+      i = j;
+    } else {
+      const c = g[i];
+      for (let k = 0; k < n; k++) if (reach[k] && (c === '?' ? p[k] !== '/' : p[k] === c)) next[k + 1] = true;
+      i++;
+    }
+    reach = next;
   }
-  return new RegExp(`${s}$`);
+  return reach[n];
 }
 
-/** The page path a glob is matched against (leading `/` and `./` dropped); null for a path with a query, a fragment, odd characters or a `..` segment. @param {unknown} p */
+/** The page path a glob is matched against (leading `/` and `./` dropped; the root page is `/`); null for a path with a query, a fragment, odd characters or a `..` segment. @param {unknown} p */
 export function pageKindPath(p) {
   const t = String(p ?? '').replace(/^(?:\.?\/)+/, '');
+  if (t === '' && /^(?:\.?\/)+$/.test(String(p ?? ''))) return '/';
   return PAGE_PATH.test(t) && t.length <= 400 && !t.split('/').some((s) => s === '' || s === '.' || s === '..') ? t : null;
 }
 
-/** The one kind whose glob matches the path, or null (no kind, or two kinds: the safe side). @param {unknown} kinds @param {string} p @returns {{ kind: string, glob: string } | null} */
+/** The one kind whose glob matches the path, or null (no kind, or two kinds: the safe side). @param {unknown} kinds @param {string} p @returns {{ kind: string, glob: string, globs: string[] } | null} */
 export function pageKindOf(kinds, p) {
   if (!Array.isArray(kinds)) return null;
-  /** @type {{ kind: string, glob: string }[]} */ const hits = [];
+  /** @type {{ kind: string, glob: string, globs: string[] }[]} */ const hits = [];
   for (const k of kinds) {
     if (k === null || typeof k !== 'object' || typeof k.kind !== 'string' || !PAGE_KIND_ID.test(k.kind) || !Array.isArray(k.paths)) continue;
-    const g = k.paths.find((/** @type {unknown} */ x) => pageGlobOk(x) && pageGlobRe(x).test(p));
-    if (g !== undefined) hits.push({ kind: k.kind, glob: g });
+    const g = k.paths.find((/** @type {unknown} */ x) => pageGlobOk(x) && pageGlobMatch(x, p));
+    if (g !== undefined) hits.push({ kind: k.kind, glob: g, globs: k.paths.filter((/** @type {unknown} */ x) => typeof x === 'string') });
   }
   return hits.length === 1 ? hits[0] : null;
 }
@@ -127,7 +149,7 @@ export function standingMeasureKey(ctx, id, rec, fid) {
   if (p === null) return null;
   const pk = pageKindOf(rep.page_kinds, p);
   const surface = pk === null ? `page:${p}` : `kind:${pk.kind}:${pk.glob}`;
-  return { rule: it.check, surface, threshold, value, path: p, kind: pk?.kind ?? '', glob: pk?.glob ?? '', fp: measureFp(it.check, surface, threshold, value) };
+  return { rule: it.check, surface, threshold, value, path: p, kind: pk?.kind ?? '', glob: pk?.glob ?? '', globs: pk?.globs ?? [], fp: measureFp(it.check, surface, threshold, value) };
 }
 
 /**
@@ -144,7 +166,7 @@ export function measureCovers(r, k) {
   if (now === null || ok === null || now > ok) return false;
   if (r.surface.startsWith('page:')) return r.surface.slice(5) === k.path;
   const m = /^kind:([a-z][a-z0-9-]{0,39}):(.+)$/.exec(r.surface);
-  return m !== null && k.kind === m[1] && pageGlobOk(m[2]) && pageGlobRe(m[2]).test(k.path);
+  return m !== null && k.kind === m[1] && k.globs.includes(m[2]) && pageGlobOk(m[2]) && pageGlobMatch(m[2], k.path);
 }
 
 /** The finding is a measured item the user waived with `standing` for this check, threshold and page (or kind) at a value no worse. @param {Context} ctx @param {string} id @param {string} rec @param {string} fid */
@@ -177,4 +199,15 @@ export function measureRows(ctx, id, rec, list) {
     if (had === undefined || (shortfall(k.threshold, Number(k.value)) ?? 0) > (shortfall(had.threshold, Number(had.value)) ?? 0)) by.set(key, k);
   }
   return [...by.values()];
+}
+
+/**
+ * What the user is shown and approves (A380 review): the sha256 of the exact rows a standing waiver would keep (check, surface with its kind and glob or
+ * the page path, threshold, value), sorted. The request records it; `waive` keeps the rows only when the rows rebuilt then have the same digest, so a
+ * report rewritten between the request and the waiver (a wider glob, another page path) keeps nothing. '' when there is no row.
+ * @param {MeasureKey[]} ms
+ */
+export function measureBinding(ms) {
+  if (ms.length === 0) return '';
+  return sha256(`${ms.map((k) => `${k.rule}\t${k.surface}\t${k.threshold}\t${k.value}`).sort().join('\n')}\n`);
 }
